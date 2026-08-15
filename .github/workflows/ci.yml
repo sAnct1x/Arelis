@@ -5,12 +5,16 @@ on:
   pull_request:
 
 jobs:
+  # 3.11 is the floor requires-python claims, so it is tested to keep the claim
+  # honest. 3.14 is the interpreter the Windows installer ships, so a failure there
+  # is a failure in the artefact people are handed rather than in a version somebody
+  # might happen to have; it is not optional and must not be dropped to save minutes.
   test:
     strategy:
       fail-fast: false
       matrix:
         os: [windows-latest, ubuntu-latest]
-        python-version: ["3.11", "3.12"]
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -44,6 +48,21 @@ jobs:
         if: runner.os == 'Windows'
         run: python scripts/schtasks_smoke.py
 
+  # Adding a dependency and forgetting to regenerate the lock would ship an installer
+  # missing it, and nothing else in this file would notice: the jobs above install from
+  # pyproject, which is exactly the file that was updated. Offline and a few seconds,
+  # and deliberately not a re-resolution -- a check that compared the lock against a
+  # fresh resolve would go red whenever any of 76 upstream projects published anything.
+  lock:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - name: Lock is complete, pinned and hashed
+        run: python win-installer/lock.py --check
+
   # The job above installs with -e, which makes the directory above the package the
   # repository. So is_source_checkout() is true in every leg, and every rule that
   # only differs once installed has never run anywhere. That is not theoretical: the
@@ -58,7 +77,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [windows-latest, ubuntu-latest]
-        python-version: ["3.11", "3.12"]
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4

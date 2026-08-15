@@ -118,6 +118,16 @@ def test_no_tracked_file_names_a_real_home_directory() -> None:
 # caught here. The name check below covers the operator's own contacts wherever
 # they live, and this rule is what protects a contributor who has no scrub list.
 IPV4 = re.compile(r"\b\d{1,3}(?:\.\d{1,3}){3}\b")
+# And digests, for the same reason one step further out. A sha256 is 64 hex characters,
+# so roughly four in ten of them contain a run of ten digits somewhere, and a run
+# preceded by a letter satisfies the lookbehind below as readily as one at the start of
+# a line. The installer's lockfile is 76 of them and tripped this three times.
+#
+# Safe to blank because the thing being looked for cannot be in here: a phone number
+# nobody should publish does not arrive embedded in a 32-character hexadecimal string.
+# Deliberately not `[0-9a-fA-F]` and deliberately 32 rather than a smaller bound --
+# tight enough that it blanks digests and nothing that reads like prose.
+HEX_DIGEST = re.compile(r"\b[0-9a-f]{32,}\b")
 # The lookbehind rejects a dot, the lookahead does not, and the asymmetry is
 # deliberate. A dot *before* the digits means they are the fractional part of a
 # decimal — a latitude, a version. A dot *after* them is a full stop ending a
@@ -145,14 +155,40 @@ def test_no_tracked_file_carries_a_dialable_phone_number() -> None:
     hits = []
     for path, text in _readable_tracked():
         for line_no, line in enumerate(text.splitlines(), 1):
-            # Strip IPs first, or 192.168.1.10 reads as a 10-digit number.
-            for area, exchange, number in PHONE.findall(IPV4.sub(" ", line)):
+            # Strip IPs first, or 192.168.1.10 reads as a 10-digit number, and digests
+            # after, or a sha256 does.
+            scrubbed = HEX_DIGEST.sub(" ", IPV4.sub(" ", line))
+            for area, exchange, number in PHONE.findall(scrubbed):
                 if not _is_reserved(area, exchange, number):
                     hits.append(f"{path.relative_to(PROJECT_ROOT)}:{line_no}")
     assert not hits, (
         "A phone number that is not from a reserved test range is tracked. A real "
         "number buys a fixture nothing, and leaves a future contributor one bad "
         "mock away from texting a stranger. Use 5555550123:\n" + _report(hits)
+    )
+
+
+def test_blanking_digests_did_not_open_a_hole_in_the_phone_rule() -> None:
+    """How wide the digest strip is, since a strip in a guard is a hole by definition.
+
+    The digest below is msal's line from the installer lockfile, one of three that
+    failed this rule. It contains 8108113438: a valid area code, a valid exchange, four
+    more digits, and a letter on either side satisfying both the lookbehind and the
+    lookahead. So the first assertion is that the strip is needed at all, and the rest
+    are that it did not take the rule with it.
+    """
+    digest = "dd17e95a7c71bce75e8108113438ba7c4a086b3bcad4f57a8c09b7af3d753c2d"
+    real = "416-987-6543"
+
+    def flagged(line: str) -> list[tuple[str, str, str]]:
+        return PHONE.findall(HEX_DIGEST.sub(" ", IPV4.sub(" ", line)))
+
+    assert PHONE.findall(digest), "the digest no longer trips the rule; pick another one"
+    assert not flagged(f"msal==1.37.0 --hash=sha256:{digest}")
+    assert flagged(f"reach me on {real}")
+    assert flagged(real.replace("-", ""))
+    assert flagged(f"msal==1.37.0 --hash=sha256:{digest}  {real}"), (
+        "a number on the same line as a digest has to still be caught"
     )
 
 

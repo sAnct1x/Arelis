@@ -32,6 +32,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+import sysconfig
 import tempfile
 from pathlib import Path
 
@@ -263,8 +264,14 @@ def check_the_two_ways_in_both_work() -> None:
     assert "arelis" in module.stdout.lower(), f"unexpected --version output: {module.stdout!r}"
     print(f"  -m arelis --version -> {module.stdout.strip()}")
 
-    scripts = Path(sys.executable).parent
-    console = scripts / ("arelis.exe" if sys.platform == "win32" else "arelis")
+    # sysconfig rather than the directory the interpreter happens to sit in. Those are
+    # the same place in a virtualenv, which is why this went unnoticed, and different
+    # in the tree the Windows installer ships: CPython's embeddable distribution puts
+    # python.exe at the root and console scripts in Scripts\, so deriving one from the
+    # other reported a missing entry point for a build that had one.
+    scripts = Path(sysconfig.get_path("scripts"))
+    suffix = ".exe" if sys.platform == "win32" else ""
+    console = scripts / f"arelis{suffix}"
     assert console.exists(), f"the console script was not installed at {console}"
     entry = subprocess.run(
         [str(console), "--version"], capture_output=True, text=True, check=False
@@ -274,6 +281,18 @@ def check_the_two_ways_in_both_work() -> None:
         f"{(entry.stderr or entry.stdout).strip()[:400]}"
     )
     print(f"  {console.name} --version -> {entry.stdout.strip()}")
+
+    # Checked for, never run. This is the launcher a Start Menu shortcut points at, and
+    # its whole purpose is having no console, so asking it to print a version would
+    # write to a stdout that is not there. Its absence is otherwise entirely silent
+    # until somebody double-clicks an icon and watches nothing happen.
+    windowless = scripts / f"arelisw{suffix}"
+    assert windowless.exists(), (
+        f"the windowless launcher was not installed at {windowless}. A desktop or Start "
+        "Menu shortcut has nothing to point at, and pointing one at the console script "
+        "flashes a black window on every launch."
+    )
+    print(f"  {windowless.name} present, which is what a shortcut points at")
 
 
 CHECKS = (

@@ -72,3 +72,11 @@ models/
 # Qt / UI
 *.qmlc
 *.jsc
+
+# Windows installer build. dist/ and build/ above already match at any depth, which
+# covers win-installer/dist/ and win-installer/build/; this is the download cache for
+# CPython's embeddable zip. Cached because it is 12MB from python.org on every build,
+# untracked because it is a redistributable nobody needs a second copy of, and its
+# digest is pinned in build.py so a stale or truncated copy is rejected rather than
+# reused.
+win-installer/.cache/

@@ -19,6 +19,9 @@ classifiers = [
   "Intended Audience :: End Users/Desktop",
   "Operating System :: Microsoft :: Windows :: Windows 10",
   "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
   "Topic :: Utilities",
 ]
 dependencies = [
@@ -46,12 +49,31 @@ voice = [
   "faster-whisper>=1.0",
   "sherpa-onnx>=1.10",
   "onnxruntime>=1.16",
-  "openwakeword>=0.6.0",
   "espeakng-loader>=0.2.4",
   "phonemizer-fork>=3.3.2",
 ]
+# Its own extra rather than part of `voice`, because it is the one voice component
+# you cannot use by installing it. openwakeword detects a wake word from a model you
+# train yourself; there is no hey_arelis.onnx in this repository and no free one to
+# download, so installing the package buys a code path that raises WakeUnavailable.
+# It is also the most expensive thing in the tree by a wide margin -- it pulls scipy,
+# scikit-learn and their shared libraries, around 175MB, for an engine that is not
+# the one wake currently runs on. arelis/voice/openwake.py imports it inside the
+# function that needs it and reports its absence, so this staying uninstalled costs
+# nothing but that engine.
+openwakeword = [
+  "openwakeword>=0.6.0",
+]
 browser = [
   "playwright>=1.40",
+]
+# The feature set the Windows installer ships, named here so that it is declared in
+# one place rather than copied into a build script. packaging/lock.py resolves this
+# and nothing else, so a dependency added to `voice` reaches the installer by being
+# added to `voice`, and the only way to ship something is to say so here.
+installer = [
+  "arelis[voice]",
+  "arelis[browser]",
 ]
 dev = [
   # Exact, not a floor. A range meant CI installed whatever ruff shipped that
@@ -66,6 +88,16 @@ dev = [
 
 [project.scripts]
 arelis = "arelis.main:main"
+
+# The same entry point behind a launcher that starts without a console, which is what
+# a Start Menu shortcut and a desktop icon point at. `arelis.exe` keeps its console
+# because --version, --cli and --help are meant to print somewhere a person can read;
+# double-clicking that one would flash a black window and leave it open behind the UI.
+# The two differ only in the launcher stub pip generates, and configure_logging
+# already declines to attach a console handler when stderr is not a tty, so the
+# windowless one is not quietly throwing its own diagnostics away.
+[project.gui-scripts]
+arelisw = "arelis.main:main"
 
 [tool.setuptools.dynamic]
 version = { attr = "arelis.__version__" }
