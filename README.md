@@ -93,14 +93,38 @@ texts with no window open, `.\scripts\run_core.ps1`.
 To put an icon on your desktop:
 
 ```powershell
-.\.venv\Scripts\python.exe scripts\generate_app_icon.py
 .\scripts\install_desktop_shortcut.ps1
 ```
 
+## Where your things live
+
+The first time you open the window, Arelis asks one question: which folder she
+may work in. She can read, create, change and delete files inside it and nowhere
+else, so it is worth reading the folder name before clicking. The suggestion is
+`Documents\Arelis` — a folder of her own, so a mistake ruins her workspace rather
+than your Documents. You can change it, or add more folders, in Settings → Roots.
+
+Your own records are kept somewhere else again, and the difference matters:
+
+| | Where | What |
+|---|---|---|
+| Her workspace | the folder you chose | Files she reads and edits, and the reports, screenshots and voice clips she makes for you |
+| Your records | `%LOCALAPPDATA%\Arelis` | Profile, contacts, mail login, memory, settings, logs |
+
+Two reasons they are separate. Your contacts and mail password should not sit in
+a folder you have granted a language model delete access to. And keeping records
+outside the installation means updating Arelis cannot discard them, and two people
+sharing a PC get two unrelated sets without Arelis having any notion of accounts.
+
+Running from a source checkout, both of those are the repository itself, so
+`data/` is where records go and everything below reads as it always has. That is
+deliberate: it keeps a developer's history exactly where they left it.
+
 ## Setting her up
 
-Three files under `data/` hold everything personal, and none of them are ever
-part of the project. Copy the examples and fill in what you want:
+Three files hold everything personal, and none of them are ever part of the
+project. They live in `data/` under your records folder from the table above.
+Copy the examples and fill in what you want:
 
 | Copy this | To this | For |
 |---|---|---|
@@ -108,8 +132,8 @@ part of the project. Copy the examples and fill in what you want:
 | `data/contacts.example.yaml` | `data/contacts.yaml` | People she can text or email |
 | `data/secrets.example.yaml` | `data/secrets.yaml` | Your mail login and similar |
 
-Everything in `data/` stays on your disk and is excluded from the project by
-default, so there is no way to commit it by accident.
+The examples ship with Arelis; the filled-in versions stay on your disk and are
+excluded from the project, so there is no way to commit them by accident.
 
 ## Using her
 
@@ -136,8 +160,8 @@ and pause controls on the Arelis side. She never types a password or a
 one-time code, and she never clicks Book, Pay or Checkout — those are yours.
 
 **Memory.** Things worth keeping live under Settings → Memory, and you can edit
-or delete any of them. A dated backup lands in `data/backups/` every time she
-starts, kept for a fortnight.
+or delete any of them. A dated backup lands in `data\backups\` beside your
+records every time she starts, kept for a fortnight.
 
 ## What she can do
 

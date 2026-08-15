@@ -19,6 +19,9 @@ SMSGate Local Server   →  InboundSmsWatcher poll  →  EventBus   (SMS/MMS onl
 **RCS = Notify only.** SMSGate never sees RCS. If you rely on Google Messages /
 RCS, the companion is required.
 
+`data/` and `logs/` below are under the user data root — `%LOCALAPPDATA%\Arelis`
+installed, or the repository when running from source.
+
 Both paths share one dedup store (`data/sms_inbound_seen.json`). First SMSGate
 poll **seeds** the current inbox as already-seen (no backlog flood) — only
 *new* rows after that announce.
@@ -45,6 +48,24 @@ STATUS that nothing is attached — open the glass to see it in chat.
 
 Allow inbound TCP on the ingest port (default **8765**) from your LAN if Windows
 Firewall prompts. Do not expose the port to the public internet.
+
+## If two people use this PC
+
+Each Windows account gets its own Arelis, so both can run at once — but there is
+only one `:8765` between them. Whoever starts first keeps it; the second falls
+forward to `:8766`, `:8767` and so on, and says so:
+
+```
+Port 8765 was already in use, so inbound notify is on 8766 instead —
+update the phone companion to http://<PC-LAN-IP>:8766
+```
+
+Take that seriously rather than closing it. A companion still pointed at `:8765`
+delivers to the *other* account's Arelis, where the token will not match and the
+text is dropped. View → **Phone Notify URL…** always shows the port actually
+serving this account, and the SMS readiness chip distinguishes "your ingest is up"
+from "something else holds that port". Allow the extra port through the firewall
+too.
 
 ## Operator checklist (misses that look “random”)
 

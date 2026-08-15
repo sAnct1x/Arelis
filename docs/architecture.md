@@ -192,6 +192,16 @@ cart is allowed. Reservations fill party / date / time; you click Book.
 
 ## Files that matter
 
+`data/`, `logs/`, `outputs/` and `models/` throughout these docs are relative to
+the user data root, which is `%LOCALAPPDATA%\Arelis` for an installed copy and the
+repository itself when running from source. Nothing mutable is ever written beside
+the code: `site-packages` is unwritable for a standard user, is replaced by an
+update, and is shared by every account on the machine. Resolve these through
+`arelis/paths.py` rather than from the package location — `tests/test_user_data_dir.py`
+enforces it.
+
+Only `arelis/…` paths below are part of the installation.
+
 | Path | Why |
 |------|-----|
 | `arelis/config/default.yaml` | Shipped defaults |

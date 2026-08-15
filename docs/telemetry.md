@@ -1,7 +1,8 @@
 # Telemetry & logging map
 
-Where to look when something feels wrong. All paths are under the repo root;
-`logs/` is gitignored.
+Where to look when something feels wrong. `logs/` is under the user data root:
+`%LOCALAPPDATA%\Arelis\logs` for an installed copy, or the repository root when
+running from source, where it is gitignored. Nothing here is sent anywhere.
 
 ## Quick “what happened?”
 
