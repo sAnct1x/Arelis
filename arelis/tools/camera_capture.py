@@ -10,8 +10,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from arelis.config import PROJECT_ROOT
 from arelis.core.image_refs import CAMERA_FRESH_S, latest_camera_image_file
+from arelis.paths import display_path
 from arelis.tools.base import ToolResult
 
 
@@ -40,13 +40,7 @@ class CameraTool:
         self.config = config
 
     def _rel_path(self, path: str | Path) -> str:
-        raw = Path(path)
-        try:
-            return str(raw.resolve().relative_to(PROJECT_ROOT.resolve())).replace(
-                "\\", "/"
-            )
-        except ValueError:
-            return str(raw).replace("\\", "/")
+        return display_path(path)
 
     async def run(self, action: str = "snapshot", **_kwargs: Any) -> ToolResult:
         act = (action or "snapshot").strip().lower()

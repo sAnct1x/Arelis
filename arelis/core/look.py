@@ -13,11 +13,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
-from arelis.config import PROJECT_ROOT
 from arelis.core.image_refs import (
     mentions_camera_look,
     path_from_text,
 )
+from arelis.paths import user_data_dir
 
 LookAct = Literal["identify", "read", "translate", "freshness"]
 
@@ -370,7 +370,7 @@ def frame_sha256(path: str) -> str:
         return ""
     candidate = Path(raw)
     if not candidate.is_absolute():
-        candidate = (PROJECT_ROOT / candidate).resolve()
+        candidate = (user_data_dir() / candidate).resolve()
     try:
         data = candidate.read_bytes()
     except OSError:

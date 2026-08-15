@@ -8,8 +8,7 @@ import re
 from pathlib import Path
 from typing import Any, Protocol
 
-from arelis.config import PROJECT_ROOT
-from arelis.paths import outputs_dir, user_data_dir
+from arelis.paths import display_path, outputs_dir, user_data_dir
 from arelis.tools.base import ToolResult
 from arelis.workspace import WorkspaceRoots
 
@@ -180,10 +179,7 @@ class VisionTool:
             )
 
         digest = hashlib.sha256(answer.encode("utf-8")).hexdigest()[:12]
-        try:
-            rel = str(path.relative_to(PROJECT_ROOT))
-        except ValueError:
-            rel = str(path)
+        rel = display_path(path)
         return ToolResult(
             ok=True,
             output=answer,

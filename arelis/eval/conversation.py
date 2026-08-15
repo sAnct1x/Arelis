@@ -16,7 +16,6 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from arelis.config import PROJECT_ROOT
 from arelis.core.agent_loop import AgentLoop
 from arelis.core.bus import EventBus
 from arelis.core.events import Event, EventType
@@ -29,7 +28,7 @@ from arelis.eval.harness import (
     _StubTool,
     _VisionStub,
 )
-from arelis.paths import outputs_dir
+from arelis.paths import display_path, outputs_dir, user_data_dir
 from arelis.tools.base import ToolRegistry, ToolResult
 
 
@@ -214,11 +213,7 @@ class _ImageSoakStub(_StubTool):
             b"\x00\x0cIDATx\x9cc\xf8\x0f\x00\x00\x01\x01\x00\x05\x18"
             b"\xd8N\x00\x00\x00\x00IEND\xaeB`\x82"
         )
-        rel = str(path)
-        try:
-            rel = str(path.relative_to(PROJECT_ROOT)).replace("\\", "/")
-        except ValueError:
-            rel = str(path)
+        rel = display_path(path)
         self.last_path = rel
         prompt = str(kwargs.get("prompt") or kwargs.get("text") or "")[:120]
         return ToolResult(
@@ -257,7 +252,7 @@ class _SendEmailSoakStub(_StubTool):
         attach = str(kwargs.get("attach") or kwargs.get("path") or "").strip()
         if not body and not attach:
             return ToolResult(ok=False, output="[fail:send_email] Missing body.")
-        if attach and not Path(attach).is_file() and not (PROJECT_ROOT / attach).is_file():
+        if attach and not Path(attach).is_file() and not (user_data_dir() / attach).is_file():
             # Still OK for soak if path was just generated under outputs/
             pass
         mid = f"mail-{uuid4().hex[:12]}"

@@ -7,8 +7,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from arelis.config import PROJECT_ROOT
-from arelis.paths import outputs_dir
+from arelis.paths import display_path, outputs_dir
 
 _IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
 
@@ -88,11 +87,7 @@ def path_from_text(text: str) -> str | None:
 
 
 def _rel_under_project(path: Path) -> str:
-    try:
-        rel = path.resolve().relative_to(PROJECT_ROOT.resolve())
-        return str(rel).replace("\\", "/")
-    except ValueError:
-        return str(path)
+    return display_path(path)
 
 
 def latest_output_image_file(*, images_dir: Path | None = None) -> str | None:

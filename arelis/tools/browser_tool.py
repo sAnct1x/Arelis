@@ -10,18 +10,9 @@ from uuid import uuid4
 
 from arelis.browser.aliases import resolve_target
 from arelis.browser.session import BrowserSession
-from arelis.config import PROJECT_ROOT
+from arelis.paths import display_path as _project_rel
+from arelis.paths import outputs_dir
 from arelis.tools.base import ToolResult
-
-
-def _project_rel(path: str) -> str:
-    """Return path relative to PROJECT_ROOT using forward slashes."""
-    abs_path = os.path.abspath(path)
-    root = os.path.abspath(str(PROJECT_ROOT))
-    try:
-        return os.path.relpath(abs_path, root).replace("\\", "/")
-    except ValueError:
-        return abs_path.replace("\\", "/")
 
 log = logging.getLogger(__name__)
 
@@ -322,7 +313,7 @@ class BrowserTool:
                     )
                 return ensured
             full_page = bool(kwargs.get("full_page"))
-            out_dir = os.path.join(str(PROJECT_ROOT), "outputs", "images")
+            out_dir = str(outputs_dir() / "images")
             stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
             path = os.path.join(
                 out_dir, f"browser_{stamp}_{uuid4().hex[:8]}.png"
@@ -336,7 +327,8 @@ class BrowserTool:
             )
             tool = _to_tool(result)
             if tool.ok:
-                # Path was built under PROJECT_ROOT; basename keeps it stable.
+                # Built under the outputs directory, so this shortens rather than
+                # falling back to an absolute path.
                 tool.data["path"] = _project_rel(str(tool.data.get("path") or path))
                 tool.output = (
                     f"{tool.output}\nSaved: {tool.data['path']}\n"

@@ -10,9 +10,8 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from arelis.config import PROJECT_ROOT
 from arelis.history_view import history_pairs
-from arelis.paths import state_dir
+from arelis.paths import display_path, state_dir
 
 MAX_ATTACHMENTS = 10
 MAX_BYTES = 25 * 1024 * 1024  # 25 MiB
@@ -366,10 +365,7 @@ def _unique_dest(directory: Path, name: str) -> Path:
 
 
 def _rel_posix(path: Path) -> str:
-    try:
-        return path.resolve().relative_to(PROJECT_ROOT.resolve()).as_posix()
-    except ValueError:
-        return path.resolve().as_posix()
+    return display_path(path)
 
 
 def stage_files(

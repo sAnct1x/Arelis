@@ -38,7 +38,6 @@ from PySide6.QtWidgets import (
 from arelis.browser.hold import format_drive_status
 from arelis.browser.walls import your_turn_status
 from arelis.config import (
-    PROJECT_ROOT,
     _parse_workspace_roots,
     deep_merge,
     load_config,
@@ -65,7 +64,7 @@ from arelis.notify.sources import (
     mail_notices,
     peek_contact_mail_sync,
 )
-from arelis.paths import app_icon_path, outputs_dir
+from arelis.paths import app_icon_path, display_path, outputs_dir
 from arelis.presence.confirm_exec import execute_pending_confirm
 from arelis.presence.confirm_persist import ConfirmPersister
 from arelis.presence.inbound_runtime import InboundRuntime, attach_inbound
@@ -1899,12 +1898,7 @@ class ArelisWindow(QMainWindow):
 
     def _on_camera_ask(self, path: str) -> None:
         """Dock Ask Arelis: submit a look-on-ask turn naming the snapshot path."""
-        raw = Path(path)
-        try:
-            rel = raw.resolve().relative_to(PROJECT_ROOT.resolve())
-            path_text = str(rel).replace("\\", "/")
-        except ValueError:
-            path_text = str(raw).replace("\\", "/")
+        path_text = display_path(path)
         text = (
             f"Look at the camera frame at {path_text}. What do you see?"
         )

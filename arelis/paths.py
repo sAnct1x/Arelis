@@ -124,6 +124,38 @@ def models_dir() -> Path:
     return user_data_dir() / "models"
 
 
+def display_path(path: Path | str) -> str:
+    """How a path is named to the user and to the model.
+
+    Short and forward-slashed when it sits under the data root, because
+    ``outputs/images/x.png`` is both what the model writes when it refers to a
+    file and what a person can read in a sentence. Absolute otherwise, since a
+    path outside the root cannot be shortened without becoming ambiguous.
+
+    Seven call sites did this seven not-quite-identical ways: some emitted forward
+    slashes and one left Windows separators in, and two used ``os.path.relpath``,
+    which does not fail for a path outside the root — it invents a chain of ``..``
+    segments instead. Telling a user their screenshot is at
+    ``../../../Users/them/Downloads/x.png`` is worse than telling them the real
+    path, and it also made displayed paths depend on how deep the root happened to
+    be. One helper, one answer.
+
+    Installed, this is what keeps a Windows username out of ordinary chat
+    messages, since the data root contains the account name and the short form
+    does not.
+    """
+    try:
+        resolved = Path(path).resolve()
+    except OSError:
+        # A malformed or unreachable path is still worth naming back to the user
+        # verbatim rather than raising out of a display helper.
+        return str(path)
+    try:
+        return resolved.relative_to(user_data_dir().resolve()).as_posix()
+    except (ValueError, OSError):
+        return resolved.as_posix()
+
+
 def app_icon_path() -> Path:
     """The window, tray and taskbar icon.
 
