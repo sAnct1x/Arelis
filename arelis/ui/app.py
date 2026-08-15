@@ -87,6 +87,7 @@ from arelis.sms_ingest import InboundIngestServer
 from arelis.tools import build_tool_registry
 from arelis.ui.audio import SpeechPlayer
 from arelis.ui.chrome import TitleBar
+from arelis.ui.first_run import prompt_for_workspace_root
 from arelis.ui.glass import GlassFrame, advance_rim_pulse, fade_in_widget
 from arelis.ui.glass_dock import GlassDockWidget
 from arelis.ui.layout_store import (
@@ -3327,6 +3328,9 @@ class ArelisWindow(QMainWindow):
 
 
 def run_ui(config: dict[str, Any] | None = None) -> int:
+    # Remembered because first run may need to reload from disk, and a config
+    # handed in by a caller (tests, harnesses) must not be silently replaced.
+    config_was_given = config is not None
     config = config or load_config()
     # Single glass: second launch activates the existing UI via core IPC.
     from arelis.presence.activate import activate_existing_ui
@@ -3339,11 +3343,16 @@ def run_ui(config: dict[str, Any] | None = None) -> int:
         # No core IPC — still refuse a second window (avoids triple taskbar).
         return 0
 
-    workspace = WorkspaceRoots.from_config(config)
-    config["_workspace"] = workspace
-    # Teach Whisper the configured project names without losing the jargon seed.
-    stt_cfg = config.setdefault("voice", {}).setdefault("stt", {})
-    stt_cfg["initial_prompt"] = compose_stt_initial_prompt(config, workspace)
+    def _bind_workspace(cfg: dict[str, Any]) -> WorkspaceRoots:
+        roots = WorkspaceRoots.from_config(cfg)
+        cfg["_workspace"] = roots
+        # Teach Whisper the configured project names without losing the jargon
+        # seed.
+        stt = cfg.setdefault("voice", {}).setdefault("stt", {})
+        stt["initial_prompt"] = compose_stt_initial_prompt(cfg, roots)
+        return roots
+
+    workspace = _bind_workspace(config)
     # A stray QT_QPA_PLATFORM=offscreen leaves the app running with no visible
     # window, which is a confusing failure to debug, so it is corrected here.
     # ARELIS_ALLOW_OFFSCREEN opts out for headless checks that genuinely want it.
@@ -3375,6 +3384,16 @@ def run_ui(config: dict[str, Any] | None = None) -> int:
     families = load_fonts()
     app.setFont(app_font(families))
     app.setStyleSheet(stylesheet())
+
+    # First run: ask which folder Arelis may work in. It happens here rather than
+    # beside the other config work above because it needs a QApplication, and the
+    # QApplication cannot be created until the font and platform environment is
+    # set. Nothing between the two reads the workspace.
+    # Returns None when the question has already been answered, which is every
+    # launch after the first.
+    if not config_was_given and prompt_for_workspace_root() is not None:
+        config = load_config()
+        workspace = _bind_workspace(config)
     # Required so hiding the last window to the tray does not kill the process.
     presence_cfg_early = (config or {}).get("presence") or {}
     if bool(presence_cfg_early.get("close_to_tray", True)):
