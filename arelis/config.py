@@ -5,7 +5,7 @@ from typing import Any
 
 import yaml
 
-from arelis.paths import state_dir
+from arelis.paths import default_workspace_root, state_dir
 
 PACKAGE_ROOT = Path(__file__).resolve().parent
 PROJECT_ROOT = PACKAGE_ROOT.parent
@@ -125,9 +125,18 @@ def _parse_workspace_roots(roots: list[Any]) -> list[dict[str, Any]]:
 
 
 def _resolve_root_path(root: str) -> Path:
+    """Resolve a configured root, treating a relative entry as user-owned.
+
+    The anchor is the workspace root rather than the install directory, and the
+    difference is not cosmetic: "." shipped in default.yaml used to resolve to
+    the directory holding the package, so on an installed copy the set of paths a
+    language model may create, edit and delete within was the program itself. In
+    a checkout the two anchors are the same directory, which is exactly why
+    nothing ever looked wrong.
+    """
     p = Path(root)
     if not p.is_absolute():
-        p = (PROJECT_ROOT / p).resolve()
+        p = (default_workspace_root() / p).resolve()
     else:
         p = p.resolve()
     return p

@@ -210,14 +210,23 @@ agent:
   voice_speculate_preflight: true
 
 workspace:
-  # Every path Arelis may read or write. Relative entries resolve against the
-  # repo root. Nothing outside these roots is reachable, including via symlink
-  # or "..", because paths are fully resolved before the containment check.
+  # Every path Arelis may read or write. Nothing outside these roots is
+  # reachable, including via symlink or "..", because paths are fully resolved
+  # before the containment check.
+  #
+  # A relative entry, "." included, resolves against the workspace root, not
+  # against the install directory. That distinction is the difference between a
+  # folder the user owns and the program's own files: this value used to resolve
+  # to the directory holding the package, so on an installed copy the sandbox a
+  # language model may create, edit and delete within was Arelis itself. From a
+  # checkout both anchors are the repository, which is why it read as correct for
+  # a year. See arelis.paths.default_workspace_root for why it is a named
+  # subfolder of Documents rather than Documents itself.
   #
   # Flat path strings still work (name = directory basename). Prefer the named
   # form when you have more than one project; address files as name:relative/path.
-  # Override live roots in data/config.local.yaml (Settings → Roots) so this
-  # shipped default stays a single-root fresh clone.
+  # Override live roots in config.local.yaml (Settings → Roots) so this shipped
+  # default stays a single-root fresh install.
   # read_only=true rejects write/edit/create under that root.
   roots:
     - "."
