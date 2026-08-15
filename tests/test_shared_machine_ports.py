@@ -1,34 +1,38 @@
-"""Two accounts, one PC, one loopback interface: whose core is that?
+"""Something else is on the port: whose core just answered?
 
-Arelis has no logins. Windows separates accounts, ``%LOCALAPPDATA%`` separates
-state, and the presence locks are per user, so two people signed into one PC can
-each run a core. What none of that separates is the loopback interface. Both
-cores want 8765 for inbound texts and 8766 for the UI bridge, and "is a core
-running?" was answered by connecting and seeing a reply.
+8765 and 8766 are fixed numbers on an interface every program on the machine
+shares, so something else answering there is ordinary. A development server, a
+second Arelis run from another checkout, a stale process from before a crash, or
+another Windows account's core -- all the same to a caller that decided "a core is
+running" from the fact that a socket accepted the connection.
 
-That produced three failures, and the first is the serious one:
+Three failures came out of trusting that, and they read as unrelated bugs:
 
-* the second user's UI attached to the first user's core, republishing their
-  inbound texts and confirmation prompts onto the second user's bus;
-* the second-instance path raised the first user's window and reported success,
-  so for the second user, launching Arelis did nothing at all;
-* the SMS readiness chip went green off the other account's healthy ingest while
-  the user's own had never bound.
+* the UI bridge attached to whatever answered and republished its traffic onto
+  this bus;
+* the second-instance path handed its request to a stranger and reported success,
+  so launching Arelis did nothing and no window appeared;
+* the SMS readiness chip went green off somebody else's health endpoint while
+  this user's own ingest had never bound.
 
-The fix is two rules that these tests pin. Every loopback service says which
-account it belongs to (``arelis.identity``), and every client requires a match.
-Ports fall forward to the next free one (``arelis.presence.ports``) so the second
-core still works, with the first user keeping the documented port.
+Two rules fix it and these tests pin them. Every loopback service says which copy
+of Arelis it belongs to (``arelis.identity``), and every client requires a match.
+Ports fall forward to the next free one (``arelis.presence.ports``), so a second
+core still works while the first keeps the documented port.
 
-Being another account is done two ways here, deliberately. Identity itself is
-tested by changing ``ARELIS_DATA_DIR``, since to this code an account *is* a data
-root. The cross-account tests instead make the running server answer with a fixed
-foreign id, because identity is computed live from the environment: switching the
-environment would change the server's answer along with the client's and the two
-would agree again, testing nothing.
+Being a different copy is arranged two ways here, deliberately. Identity itself is
+tested by changing ``ARELIS_DATA_DIR``, since a data root is exactly what
+distinguishes one copy from another. The tests about *refusing* a stranger instead
+make the running server answer with a fixed foreign id, because identity is
+computed live from the environment: switching the environment would move the
+server's answer along with the client's and the two would agree again, testing
+nothing.
 
-Verifying the real thing on two real Windows profiles is still outstanding, and
-no test on one machine can stand in for it.
+The sharpest case is two Windows accounts signed into one PC, where the traffic
+being republished belongs to another person rather than to a stray socket. It is
+uncommon, it is not the reason any of this exists, and it is the one case a test on
+a single machine cannot really stand in for -- ``ARELIS_DATA_DIR`` reproduces the
+resolution rules, not fast user switching.
 """
 
 from __future__ import annotations
@@ -89,7 +93,7 @@ def _sms_config(port: int) -> dict[str, Any]:
 def test_two_data_roots_are_two_instances(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """The identity is the account, and the account is the data root.
+    """A copy of Arelis is its data root, so two roots are two copies.
 
     Derived rather than stored, so there is no file to be missing on a read-only
     profile and no first run to seed it.
@@ -117,9 +121,9 @@ def test_identity_is_case_insensitive_like_windows_paths(
 def test_an_unnamed_service_is_treated_as_someone_elses() -> None:
     """The direction to be wrong in, if we must be wrong.
 
-    An Arelis predating this handshake sends no instance. Guessing it is ours
-    reopens the cross-account leak; guessing it is not costs a second core on a
-    second port. Only one of those is recoverable.
+    Anything that does not speak this handshake sends no instance. Guessing it is
+    ours reopens the leak; guessing it is not costs a second core on a second
+    port. Only one of those is recoverable.
     """
     assert not identity.is_mine(None)
     assert not identity.is_mine("")
@@ -243,9 +247,10 @@ async def test_the_bridge_refuses_another_accounts_core(
 ) -> None:
     """The leak, stated as the thing that must not happen.
 
-    Another account's core is listening and this UI connects to it. Before the
-    handshake it attached and began republishing that account's inbound texts and
-    confirmation prompts onto this bus.
+    Some other Arelis is listening and this UI connects to it. Before the
+    handshake it attached and began republishing that copy's inbound texts and
+    confirmation prompts onto this bus -- noise at best, and somebody else's
+    messages when the other copy belongs to another person.
     """
     monkeypatch.setenv("ARELIS_DATA_DIR", str(tmp_path / "me"))
     monkeypatch.setattr("arelis.presence.ipc_server.instance_id", lambda: STRANGER)

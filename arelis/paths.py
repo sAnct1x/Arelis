@@ -4,11 +4,12 @@ Until this module existed, all mutable state was derived from the directory abov
 the package. In a checkout that directory is the repository, so it worked, and it
 worked so well that nothing revealed what it would mean once installed: the
 directory above the package becomes ``site-packages``, which on Windows sits
-inside Program Files. A standard user cannot write there. An installer replaces
-it wholesale on update. Every account on the machine shares it. The first real
-install would therefore have failed to save a contact, or saved one and lost it
-at the next version, or shown one user another user's records — three quite
-different disasters from a single wrong parent directory.
+inside Program Files. Two consequences follow for every install, without
+exception: a standard user cannot write there, and an installer replaces it
+wholesale on update. So the first real install would have failed to save a
+contact, or saved one and lost it at the next version. A third applies only where
+more than one person uses the PC, since that directory is shared by every account
+on it, but the first two are reason enough on their own.
 
 So mutable state moves out, read-only shipped assets stay beside the code, and
 the two are reached through different functions here. Conflating them again
@@ -26,12 +27,13 @@ the root at itself and every path lands where it always did, so this migration
 could be done a few modules at a time with the suite green in between instead of
 in one leap.
 
-Windows gives each account its own ``%LOCALAPPDATA%``, and that fact is the whole
-of Arelis's multi-user story: two people sharing a PC get two unrelated sets of
-contacts, profile and memory without Arelis having any notion of an account.
-``tests/test_user_data_dir.py`` pins the part that is ours. The part that is the
-operating system's — that one user cannot read another's directory — is stated
-there as the assumption it is, rather than dressed up as something we enforce.
+One incidental property, worth recording because it is free rather than because it
+was the goal: Windows gives each account its own ``%LOCALAPPDATA%``, so two people
+sharing a PC get two unrelated sets of contacts, profile and memory without Arelis
+having any notion of an account. ``tests/test_user_data_dir.py`` pins the part that
+is ours. The part that is the operating system's — that one user cannot read
+another's directory — is stated there as the assumption it is, rather than dressed
+up as something we enforce.
 """
 
 from __future__ import annotations

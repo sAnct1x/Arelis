@@ -1,30 +1,29 @@
 """What to do when the port Arelis wants is already taken.
 
 The configured ports are fixed numbers -- 8765 for inbound texts from the phone
-companion, 8766 for the UI/core bridge. One user, one machine, and they are
-never a problem. Two accounts logged into the same PC and they are: whoever
-starts second gets ``OSError: [WinError 10048]`` on both. Inbound ingest turned
-that into a status line naming an error code, and the IPC bind failure was
-worse -- it happened inside a task nobody awaited, so the second user's UI simply
-never received core events and nothing anywhere said why.
+companion, 8766 for the UI/core bridge -- and a fixed number is a number something
+else can already be using. Whatever the reason, the result was
+``OSError: [WinError 10048]``: inbound ingest turned it into a status line naming
+an error code, and the IPC failure was worse, happening inside a task nobody
+awaited, so the UI received no core events and nothing anywhere said why.
 
 Falling forward to the next free port is chosen over the two alternatives on
 purpose. Binding port 0 and letting the OS choose would work for the bridge,
 which is loopback-only and can be discovered, but not for inbound: that port is
 typed into a phone by hand, and a number that changes on every launch cannot be.
-Deriving a port per account would spread the change to the common case, moving
-the single-user port off 8765 for no benefit and invalidating setup instructions
-and existing companion configuration.
+Deriving a port from something machine-specific would change the common case,
+moving a working single-user install off 8765 for no benefit and invalidating both
+the setup instructions and any companion already configured.
 
-So the first user to start keeps the documented port, the second lands one or
-two along and is told so in plain words, and clients find whichever port belongs
-to them by asking each candidate who it belongs to (see
-``arelis.presence.identity``). Nothing is written down, so nothing can go stale.
+So the first Arelis to start keeps the documented port, a later one lands a place
+or two along and says so in plain words, and clients find the port that is theirs
+by asking each candidate who it belongs to (see ``arelis.identity``). Nothing is
+written down, so nothing can go stale.
 """
 
 from __future__ import annotations
 
-# Enough for more simultaneous accounts than a shared family PC will ever have,
+# More than enough for any plausible number of things sitting on these ports, and
 # small enough that scanning the range is a handful of instant loopback refusals
 # rather than something a user waits for.
 PORT_SEARCH_SPAN = 6

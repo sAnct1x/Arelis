@@ -1,34 +1,38 @@
 """Which copy of Arelis a loopback service belongs to.
 
-Two accounts on one Windows PC share one installation and one loopback
-interface, and until this existed nothing distinguished their processes. The
-per-user lock in ``arelis.presence.lock`` correctly lets both accounts run a
-core; what it cannot do is stop the second account's *UI* from talking to the
-first account's core, because "is a core listening on 8766?" was answered by
-opening a socket and seeing a reply.
+"Is my core running?" used to be answered by opening a socket on a fixed port and
+seeing a reply. A reply is not evidence: 8765 and 8766 are ordinary ports on an
+interface every program on the machine shares, and something else answering there
+is the common case, not the exotic one. Development servers, another
+Arelis started from a different checkout, a stale process from before a crash --
+each produces a reply that used to be trusted completely.
 
-Three separate consequences, all of which read as unrelated bugs:
+What that trust cost, in rough order of likelihood:
 
-* the UI bridge attaches to the other account's core, so one person's inbound
-  texts, tool confirmations and status lines are published onto the other
-  person's bus -- a cross-account leak of exactly the material Arelis exists to
-  handle;
+* the UI bridge attaches to whatever answered and republishes its traffic onto
+  this bus -- at best noise, and if the thing that answered is another Arelis,
+  someone else's inbound texts and confirmation prompts;
 * the second-instance path (``activate_existing_ui``) reports success after
-  raising the other person's window in their session, so the second user's
-  launch does nothing at all and Arelis appears not to start;
-* readiness reports inbound as up while the second user's own ingest never
-  bound.
+  handing its request to a stranger, so launching Arelis does nothing at all and
+  the window never appears;
+* readiness reports inbound as up on the strength of someone else's health
+  endpoint while this user's own ingest never bound.
 
-So every loopback service states who it belongs to, and every client requires
-the answer to match before it trusts the connection. Identity is derived from
-the data root rather than stored in it: ``%LOCALAPPDATA%`` is already per
-account, it is already the thing that makes two users two users, and a derived
-value cannot go stale, cannot fail to be written on a read-only profile, and
-needs no first-run step.
+So every loopback service states who it belongs to, and every client requires the
+answer to match. Identity is derived from the data root rather than stored in it:
+the data root is already what distinguishes one copy of Arelis from another, and
+a derived value cannot go stale, cannot fail to be written on a read-only
+profile, and needs no first-run step.
+
+The sharpest version of the problem is two Windows accounts signed into one PC,
+since ``%LOCALAPPDATA%`` makes them two data roots sharing one loopback
+interface, and the leak is then between two real people rather than between a
+program and a stray socket. That is a real configuration and worth being correct
+about, but it is uncommon and it is not why this exists -- a single user with a
+port conflict hits the same three failures.
 
 Not a secret and not a security boundary. Any local process could connect to a
-loopback port and speak the protocol, and no token here would change that --
-the operating system's account separation is what protects these ports. This
+loopback port and speak the protocol, and no token here would change that. This
 answers the milder and likelier question of whether the thing that just replied
 is *mine*.
 
@@ -65,14 +69,15 @@ def instance_id() -> str:
 
 
 def is_mine(claimed: object) -> bool:
-    """Whether a service that identified itself as ``claimed`` is this user's.
+    """Whether a service that identified itself as ``claimed`` is this copy's.
 
     A missing or empty claim is answered False, which is the decision that
-    matters most here. It means an older Arelis that predates this handshake is
-    treated as somebody else's rather than assumed to be ours -- the safe
-    direction, since being wrong the other way is the cross-account leak this
-    module exists to prevent. The cost of being wrong this way is starting a
-    second core that then falls forward to another port.
+    matters most here. It means anything that does not speak this handshake --
+    an older Arelis, or something else entirely on the port -- is treated as not
+    ours rather than assumed to be. The cost of being wrong in that direction is
+    starting a core that falls forward to another port; the cost of being wrong
+    in the other is attaching to a stranger, which is the failure this exists to
+    prevent.
     """
     if not isinstance(claimed, str) or not claimed.strip():
         return False
