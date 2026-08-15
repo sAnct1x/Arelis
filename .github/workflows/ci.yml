@@ -43,3 +43,61 @@ jobs:
       - name: Task Scheduler smoke
         if: runner.os == 'Windows'
         run: python scripts/schtasks_smoke.py
+
+  # The job above installs with -e, which makes the directory above the package the
+  # repository. So is_source_checkout() is true in every leg, and every rule that
+  # only differs once installed has never run anywhere. That is not theoretical: the
+  # window icon shipped nowhere at all for months, and a directory was created inside
+  # the package on every launch, and a checkout showed neither.
+  #
+  # This installs the built wheel into a clean environment and runs from a directory
+  # that is not the repository, which is the only arrangement in which those two
+  # defects are visible.
+  installed:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+        python-version: ["3.11", "3.12"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      # installed_smoke.py imports arelis.ui.theme, because the font directory is one
+      # of the two things that used to be written inside the package.
+      - name: Install Qt offscreen libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libxkbcommon-x11-0 libdbus-1-3
+
+      - name: Build the wheel
+        run: python -m pip wheel --no-deps --wheel-dir dist .
+
+      # A fresh environment rather than the one the wheel was built in, so nothing
+      # already imported can stand in for something the wheel forgot to ship.
+      - name: Install the wheel into a clean environment
+        shell: bash
+        run: |
+          python -m venv "$RUNNER_TEMP/probe"
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            echo "PROBE=$RUNNER_TEMP/probe/Scripts/python.exe" >> "$GITHUB_ENV"
+          else
+            echo "PROBE=$RUNNER_TEMP/probe/bin/python" >> "$GITHUB_ENV"
+          fi
+
+      - name: Installed-copy checks
+        shell: bash
+        # Not the repository. From inside it, `import arelis` finds the source tree
+        # and every check passes while proving nothing — which the script's first
+        # check refuses, but running from the right place is cheaper than relying on
+        # being caught.
+        working-directory: ${{ runner.temp }}
+        run: |
+          "$PROBE" -m pip install "$GITHUB_WORKSPACE"/dist/arelis-*.whl
+          "$PROBE" "$GITHUB_WORKSPACE/scripts/installed_smoke.py"
