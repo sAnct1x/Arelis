@@ -62,6 +62,14 @@ async def test_probe_ok_when_tags_and_integrations_ready(
             outlook=None,
         ),
     )
+    # "Ingest is healthy" now means "this user's own ingest is healthy". The chip
+    # asks find_my_ingest_port first, because on a shared PC a reply on :8765 may
+    # be another account's core, and reporting that as ready showed a green SMS
+    # chip to someone whose own ingest had never bound.
+    monkeypatch.setattr(
+        "arelis.presence.readiness.find_my_ingest_port",
+        lambda config: 8765,
+    )
     monkeypatch.setattr(
         "arelis.presence.readiness.probe_ingest_health",
         lambda **kwargs: True,

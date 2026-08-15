@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
 
 from arelis.core.failure_copy import plain_reason
 from arelis.notify.center import CHANNELS, load_channels
+from arelis.presence.lock import find_my_ingest_port
 from arelis.sms_ingest import format_ingest_listen_urls
 from arelis.ui.audio import list_audio_input_names, list_audio_output_names
 from arelis.ui.glass import GlassFrame, advance_rim_pulse
@@ -446,7 +447,13 @@ class SettingsDialog(QDialog):
         ingest = inbound.get("ingest") or {}
         port = int(ingest.get("port") or 8765)
         host = str(ingest.get("host") or "0.0.0.0")
-        urls = format_ingest_listen_urls(port, host=host)
+        # The port actually being served wins over the configured one. This URL
+        # gets copied into a phone, and if another account on this PC already
+        # holds 8765 then the configured number would point the phone at their
+        # Arelis. Loopback refusals are immediate, so the scan is not a stall.
+        urls = format_ingest_listen_urls(
+            find_my_ingest_port(config) or port, host=host
+        )
         primary = urls.split(",")[0].strip() if urls else urls
         return urls, primary
 

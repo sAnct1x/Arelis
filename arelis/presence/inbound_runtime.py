@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from arelis.core.bus import EventBus
+from arelis.presence.ports import candidates
 from arelis.sms import DEFAULT_MAX_BODY_CHARS
 from arelis.sms_android import AndroidSmsProvider, load_sms_account
 from arelis.sms_auto_reply import SmsAutoReply
@@ -61,6 +62,40 @@ class InboundRuntime:
             self.auto_reply = None
 
 
+def _bind_ingest(
+    bus: EventBus,
+    loop: asyncio.AbstractEventLoop,
+    *,
+    token: str,
+    host: str,
+    preferred_port: int,
+    seen: SeenMessageStore,
+) -> tuple[InboundIngestServer | None, OSError | None]:
+    """Start ingest on the preferred port, or the next free one above it.
+
+    A server is constructed per attempt because binding happens in ``start()``,
+    so a failed candidate leaves nothing to reset. Only the successful one is
+    ever returned, and the caller learns which port it got from ``server.port``.
+    """
+    last_error: OSError | None = None
+    for candidate in candidates(preferred_port):
+        server = InboundIngestServer(
+            bus,
+            loop,
+            token=token,
+            host=host,
+            port=candidate,
+            seen=seen,
+        )
+        try:
+            server.start()
+        except OSError as exc:
+            last_error = exc
+            continue
+        return server, None
+    return None, last_error
+
+
 def attach_inbound(
     bus: EventBus,
     loop: asyncio.AbstractEventLoop,
@@ -85,29 +120,39 @@ def attach_inbound(
         ingest_port = int(ingest_cfg.get("port") or 8765)
         ingest_host = str(ingest_cfg.get("host") or "0.0.0.0")
         if token:
-            server = InboundIngestServer(
+            server, last_error = _bind_ingest(
                 bus,
                 loop,
                 token=token,
                 host=ingest_host,
-                port=ingest_port,
+                preferred_port=ingest_port,
                 seen=shared_seen,
             )
-            try:
-                server.start()
-            except OSError as exc:
+            if server is None:
+                tried = candidates(ingest_port)
                 runtime.status_messages.append(
-                    f"Inbound notify failed to bind port {ingest_port}: {exc}"
+                    f"Inbound notify could not bind any port from {tried[0]} to "
+                    f"{tried[-1]}: {last_error}"
                 )
             else:
                 runtime.ingest = server
-                urls = format_ingest_listen_urls(ingest_port, host=ingest_host)
+                urls = format_ingest_listen_urls(server.port, host=ingest_host)
                 # Keep this short: long STATUS used to paint into chat like a
                 # Sources line (R6). Full setup lives in docs / Settings help.
                 primary = urls.split(",")[0].strip() if urls else urls
-                runtime.status_messages.append(
-                    f"Inbound notify ready — Phone Notify URL: {primary}"
-                )
+                if server.port == ingest_port:
+                    runtime.status_messages.append(
+                        f"Inbound notify ready — Phone Notify URL: {primary}"
+                    )
+                else:
+                    # The one case worth spending extra words on: the URL the
+                    # user already typed into their phone now points at somebody
+                    # else's Arelis, and no error will ever be shown for that.
+                    runtime.status_messages.append(
+                        f"Port {ingest_port} was already in use, so inbound "
+                        f"notify is on {server.port} instead — update the phone "
+                        f"companion to {primary}"
+                    )
         else:
             runtime.status_messages.append(
                 "Inbound notify companion needs sms.ingest_token "

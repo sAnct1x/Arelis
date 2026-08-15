@@ -12,6 +12,7 @@ from arelis.presence.ipc_server import IpcServer
 from arelis.presence.lock import (
     PresenceLock,
     core_lock_path,
+    find_my_ingest_port,
     probe_ingest_health,
     ui_lock_path,
 )
@@ -38,6 +39,7 @@ __all__ = [
     "attach_inbound",
     "core_lock_path",
     "ensure_ui_open",
+    "find_my_ingest_port",
     "pending_confirms_path",
     "probe_ingest_health",
     "probe_readiness",

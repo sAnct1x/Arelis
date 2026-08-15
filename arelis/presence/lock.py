@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import os
 import urllib.error
@@ -10,7 +11,9 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+from arelis.identity import is_mine
 from arelis.paths import state_dir, user_data_dir
+from arelis.presence.ports import candidates
 
 log = logging.getLogger(__name__)
 
@@ -162,23 +165,65 @@ def probe_ingest_health(
     host: str = "127.0.0.1",
     port: int = 8765,
     timeout_s: float = 0.4,
+    mine_only: bool = False,
 ) -> bool:
-    """True when something answers GET /inbound/health on the ingest port."""
+    """True when something answers GET /inbound/health on the ingest port.
+
+    ``mine_only`` additionally requires the reply to name this user's instance.
+    It is off by default because most callers -- the hardware harness, the
+    settings Test button -- are asking the literal question "is anything serving
+    on this port", and answering that with a silent identity check would make a
+    correct probe report failure. Callers deciding *what to attach to* pass it,
+    and for them a reply from another account's core is not merely unhelpful but
+    the thing to be avoided.
+    """
     # Health is bound on 0.0.0.0 but we always probe loopback from this machine.
     url = f"http://{host}:{int(port)}/inbound/health"
     try:
         with urllib.request.urlopen(url, timeout=timeout_s) as resp:
-            return 200 <= getattr(resp, "status", 200) < 300
+            if not 200 <= getattr(resp, "status", 200) < 300:
+                return False
+            if not mine_only:
+                return True
+            body = resp.read(4096)
     except (urllib.error.URLError, TimeoutError, OSError):
         return False
+    try:
+        claimed = json.loads(body.decode("utf-8", "replace")).get("instance")
+    except (ValueError, AttributeError):
+        # Something is serving this port and it is not an Arelis that speaks the
+        # handshake. Not ours, by the same reasoning as an absent claim.
+        return False
+    return is_mine(claimed)
+
+
+def find_my_ingest_port(config: dict[str, Any]) -> int | None:
+    """The port this user's own inbound ingest is answering on, if any.
+
+    Scans the fall-forward range rather than trusting the configured number,
+    because on a shared PC the second account's ingest is one or two ports along
+    (see ``arelis.presence.ports``). Identity is what makes scanning safe: the
+    first port that answers is not necessarily ours, and the first port that
+    answers *as us* is.
+    """
+    sms = (config.get("tools") or {}).get("sms") or {}
+    ingest = (sms.get("inbound") or {}).get("ingest") or {}
+    preferred = int(ingest.get("port") or 8765)
+    for candidate in candidates(preferred):
+        if probe_ingest_health(port=candidate, mine_only=True):
+            return candidate
+    return None
 
 
 def external_core_available(config: dict[str, Any]) -> bool:
-    """Whether a detached core is already listening (lock and/or health)."""
-    sms = (config.get("tools") or {}).get("sms") or {}
-    inbound = sms.get("inbound") or {}
-    ingest = inbound.get("ingest") or {}
-    port = int(ingest.get("port") or 8765)
-    if probe_ingest_health(port=port):
+    """Whether *this user's* detached core is already listening.
+
+    The identity requirement is the whole of the fix here. This decides whether
+    the UI attaches to an existing core instead of starting its own, and it used
+    to be satisfied by any reply on port 8765. On a machine with two accounts
+    logged in, the second user's UI therefore attached to the first user's core
+    and began receiving their texts and confirmation prompts.
+    """
+    if find_my_ingest_port(config) is not None:
         return True
     return lock_held_by_other(core_lock_path(config))

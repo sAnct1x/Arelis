@@ -15,7 +15,7 @@ from arelis.calendar.secrets import load_calendar_secrets
 from arelis.llm.preflight import missing_models, model_is_available
 from arelis.mail import load_account
 from arelis.memory import DEFAULT_EMBED_MODEL
-from arelis.presence.lock import probe_ingest_health
+from arelis.presence.lock import find_my_ingest_port, probe_ingest_health
 
 log = logging.getLogger(__name__)
 
@@ -326,12 +326,24 @@ def _sms_chip(config: dict[str, Any]) -> ReadinessChip:
             "SMS ingest disabled in config.",
         )
     port = int(ingest.get("port") or 8765)
+    # Asks which port *this user's* ingest is on, not whether anything answers on
+    # the configured one. On a shared PC the two differ, and reporting the other
+    # account's healthy ingest as ours showed a green SMS chip to a user whose own
+    # ingest had never bound.
+    mine = find_my_ingest_port(config)
+    if mine is not None:
+        detail = (
+            f"Ingest healthy on :{mine}."
+            if mine == port
+            else f"Ingest healthy on :{mine} (:{port} was taken)."
+        )
+        return ReadinessChip("sms", "SMS", ChipLevel.OK, detail)
     if probe_ingest_health(port=port):
         return ReadinessChip(
             "sms",
             "SMS",
-            ChipLevel.OK,
-            f"Ingest healthy on :{port}.",
+            ChipLevel.WARN,
+            f":{port} is serving another Arelis on this PC; yours is not up.",
         )
     return ReadinessChip(
         "sms",

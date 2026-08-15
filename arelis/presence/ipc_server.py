@@ -8,6 +8,7 @@ from typing import Any
 
 from arelis.core.bus import EventBus
 from arelis.core.events import Event, EventType
+from arelis.identity import instance_id
 from arelis.presence.ipc import (
     assert_loopback_host,
     bye_message,
@@ -16,6 +17,7 @@ from arelis.presence.ipc import (
     event_message,
     open_ui_message,
 )
+from arelis.presence.ports import candidates
 
 log = logging.getLogger(__name__)
 
@@ -52,16 +54,41 @@ class IpcServer:
         return self._attached
 
     async def start(self) -> None:
+        """Bind the preferred port, or the next free one above it.
+
+        The fall-forward matters more here than for inbound ingest. This is
+        started as a bare task in ``arelis.presence.core``, so a bind failure
+        used to surface as an unretrieved task exception: the second account's UI
+        received no core events at all, with nothing on screen and nothing in the
+        status line to connect that to a port. Loopback and discoverable by
+        handshake, so moving is invisible to the user.
+
+        Subscribing to the bus is deferred until a port is held. Subscribing
+        first and then raising would leave a closed server attached to the bus,
+        broadcasting to no one.
+        """
         if self._server is not None:
             return
-        self._closed = False
-        self.bus.subscribe(None, self._on_bus_event)
-        self._server = await asyncio.start_server(
-            self._handle_client,
-            host=self.host,
-            port=self.port,
-        )
-        log.info("Core IPC listening on %s:%s", self.host, self.port)
+        last_error: OSError | None = None
+        for candidate in candidates(self.port):
+            try:
+                server = await asyncio.start_server(
+                    self._handle_client,
+                    host=self.host,
+                    port=candidate,
+                )
+            except OSError as exc:
+                last_error = exc
+                continue
+            self._closed = False
+            self.port = candidate
+            self._server = server
+            self.bus.subscribe(None, self._on_bus_event)
+            log.info("Core IPC listening on %s:%s", self.host, self.port)
+            return
+        if last_error is not None:
+            raise last_error
+        raise OSError(f"{self.port} is not a port number that can be bound")
 
     async def stop(self) -> None:
         self._closed = True
@@ -151,6 +178,10 @@ class IpcServer:
                                     "op": "hello_ack",
                                     "role": "core",
                                     "version": int(msg.get("version") or 1),
+                                    # Named so the UI can tell this core apart
+                                    # from another account's on the same
+                                    # loopback interface. See arelis.identity.
+                                    "instance": instance_id(),
                                 }
                             )
                         )

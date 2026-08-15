@@ -26,6 +26,7 @@ import yaml
 from arelis.contacts import load_contacts, match_contact_label, normalize_phone, resolve_contact
 from arelis.core.bus import EventBus
 from arelis.core.events import Event, EventType
+from arelis.identity import instance_id
 from arelis.paths import state_dir
 from arelis.sms_inbound import InboundSms, SeenMessageStore
 
@@ -205,6 +206,25 @@ async def publish_inbound(
     return True
 
 
+class _ExclusiveThreadingHTTPServer(ThreadingHTTPServer):
+    """A server that refuses a port somebody else is already listening on.
+
+    ``http.server.HTTPServer`` sets ``allow_reuse_address``, which becomes
+    SO_REUSEADDR -- and on Windows that flag permits binding a port another
+    socket is already listening on, leaving which of the two receives any given
+    connection undefined. That is the worst available outcome for a service whose
+    job is to receive text messages: on a shared PC, two accounts' Arelis would
+    silently share :8765 and inbound texts would arrive at whichever one the
+    operating system felt like, with no error anywhere.
+
+    Refusing instead is what makes the collision visible, and a visible collision
+    is what lets the caller fall forward to a port that is genuinely free (see
+    ``arelis.presence.ports``).
+    """
+
+    allow_reuse_address = False
+
+
 class InboundIngestServer:
     """Threading HTTP server that posts inbound texts onto the event bus."""
 
@@ -258,6 +278,11 @@ class InboundIngestServer:
                         {
                             "ok": True,
                             "service": "arelis-inbound",
+                            # Which account's Arelis this is. On a shared PC the
+                            # port alone cannot answer that, and treating any
+                            # reply as our own is how one user's UI ended up
+                            # attached to another user's core.
+                            "instance": instance_id(),
                             "auth": "required for /inbound/ping",
                         },
                     )
@@ -341,7 +366,7 @@ class InboundIngestServer:
                 self.end_headers()
                 self.wfile.write(payload)
 
-        self._httpd = ThreadingHTTPServer((self.host, self.port), Handler)
+        self._httpd = _ExclusiveThreadingHTTPServer((self.host, self.port), Handler)
         self._thread = threading.Thread(
             target=self._httpd.serve_forever,
             name="arelis-sms-ingest",

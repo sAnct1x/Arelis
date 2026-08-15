@@ -11,6 +11,7 @@ import asyncio
 import logging
 import signal
 import threading
+import time
 from typing import Any
 
 from arelis.core.bus import EventBus
@@ -147,12 +148,29 @@ def run_core(config: dict[str, Any]) -> int:
 
     loop = asyncio.new_event_loop()
 
+    # Filled in by the loop thread once the bind has actually happened, since the
+    # port may not be the configured one when another account got there first.
+    ipc_bind: dict[str, Any] = {"port": None, "error": None}
+
     def loop_thread() -> None:
         asyncio.set_event_loop(loop)
         bus_task = loop.create_task(bus.run())
         loop.bus_task = bus_task  # type: ignore[attr-defined]
         if ipc_server is not None:
-            ipc_task = loop.create_task(ipc_server.start())
+
+            async def _start_ipc() -> None:
+                # Awaited here rather than left as a bare task: a bind failure
+                # used to be an unretrieved task exception, so the UI got no
+                # events and nothing said why.
+                try:
+                    await ipc_server.start()
+                except OSError as exc:
+                    ipc_bind["error"] = exc
+                    log.error("Core IPC could not bind: %s", exc)
+                else:
+                    ipc_bind["port"] = ipc_server.port
+
+            ipc_task = loop.create_task(_start_ipc())
             loop.ipc_task = ipc_task  # type: ignore[attr-defined]
         loop.run_forever()
 
@@ -173,18 +191,33 @@ def run_core(config: dict[str, Any]) -> int:
             loop,
         )
     if ipc_server is not None:
+        # The bind happens on the loop thread, so wait briefly for it rather than
+        # announcing the requested port and being wrong about which one a UI
+        # should attach to.
+        deadline = time.monotonic() + 2.0
+        while ipc_bind["port"] is None and ipc_bind["error"] is None:
+            if time.monotonic() >= deadline:
+                break
+            time.sleep(0.02)
+        bound = ipc_bind["port"]
+        if bound is None:
+            ipc_message = (
+                f"Core IPC could not bind {ipc_host}:{ipc_port} or any port just "
+                "after it, so the desktop window cannot receive live events from "
+                "this core."
+            )
+        elif bound != ipc_port:
+            ipc_message = (
+                f"Core IPC ready on {ipc_host}:{bound} — {ipc_port} was already "
+                "in use, most likely by another account's Arelis on this PC."
+            )
+        else:
+            ipc_message = (
+                f"Core IPC ready on {ipc_host}:{bound} "
+                "(UI may attach for live SMS/confirm events)."
+            )
         asyncio.run_coroutine_threadsafe(
-            bus.publish(
-                Event(
-                    EventType.STATUS,
-                    {
-                        "message": (
-                            f"Core IPC ready on {ipc_host}:{ipc_port} "
-                            "(UI may attach for live SMS/confirm events)."
-                        )
-                    },
-                )
-            ),
+            bus.publish(Event(EventType.STATUS, {"message": ipc_message})),
             loop,
         )
 

@@ -3516,6 +3516,11 @@ def run_ui(config: dict[str, Any] | None = None) -> int:
                     on_open_ui=lambda _msg: QTimer.singleShot(
                         0, window.show_from_tray
                     ),
+                    # Our own core may have fallen forward past the configured
+                    # port because another account on this PC holds it. The
+                    # handshake names the account, so scanning cannot attach us
+                    # to the wrong one.
+                    search_ports=True,
                 )
 
                 async def _start_ipc() -> None:
