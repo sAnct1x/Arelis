@@ -75,7 +75,12 @@ where = ["."]
 include = ["arelis*"]
 
 [tool.setuptools.package-data]
-arelis = ["persona/*.md", "config/*.yaml", "ui/fonts/*"]
+# Anything here that is not a .py file has to be listed, or it is simply absent
+# from an install. The window, tray and taskbar icon was missing from this list
+# and also lived outside the package, so an installed Arelis had no icon at all
+# while a checkout looked perfect. tests/test_packaged_assets.py now fails when a
+# non-Python file in the package is not covered by one of these globs.
+arelis = ["persona/*.md", "config/*.yaml", "ui/fonts/*", "assets/*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

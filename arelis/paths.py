@@ -124,6 +124,18 @@ def models_dir() -> Path:
     return user_data_dir() / "models"
 
 
+def app_icon_path() -> Path:
+    """The window, tray and taskbar icon.
+
+    Shipped and read-only, so it resolves against the package rather than the
+    data root. It lived outside the package and went unlisted in package-data,
+    which meant an installed Arelis had no icon anywhere while a checkout looked
+    entirely correct — the same blind spot as the mutable paths, in the opposite
+    direction.
+    """
+    return PACKAGE_ROOT / "assets" / "arelis.ico"
+
+
 def default_workspace_root() -> Path:
     """The directory the agent may read and write when nothing is configured.
 

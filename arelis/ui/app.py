@@ -65,7 +65,7 @@ from arelis.notify.sources import (
     mail_notices,
     peek_contact_mail_sync,
 )
-from arelis.paths import outputs_dir
+from arelis.paths import app_icon_path, outputs_dir
 from arelis.presence.confirm_exec import execute_pending_confirm
 from arelis.presence.confirm_persist import ConfirmPersister
 from arelis.presence.inbound_runtime import InboundRuntime, attach_inbound
@@ -377,7 +377,7 @@ class ArelisWindow(QMainWindow):
         ui_cfg = config.get("ui", {})
         self._atmosphere_phase = 0.0
         self.setWindowTitle(ui_cfg.get("window_title", "Arelis"))
-        icon_path = PROJECT_ROOT / "assets" / "arelis.ico"
+        icon_path = app_icon_path()
         if icon_path.is_file():
             self.setWindowIcon(QIcon(str(icon_path)))
         self.setDockNestingEnabled(True)
@@ -2341,7 +2341,7 @@ class ArelisWindow(QMainWindow):
         if not QSystemTrayIcon.isSystemTrayAvailable():
             self._close_to_tray = False
             return
-        icon_path = PROJECT_ROOT / "assets" / "arelis.ico"
+        icon_path = app_icon_path()
         icon = QIcon(str(icon_path)) if icon_path.is_file() else self.windowIcon()
         tray = QSystemTrayIcon(icon, app)
         menu = QMenu()
@@ -3375,7 +3375,7 @@ def run_ui(config: dict[str, Any] | None = None) -> int:
 
     app = QApplication.instance() or QApplication([])
     app.setApplicationName("Arelis")
-    icon_path = PROJECT_ROOT / "assets" / "arelis.ico"
+    icon_path = app_icon_path()
     if icon_path.is_file():
         app.setWindowIcon(QIcon(str(icon_path)))
     families = load_fonts()

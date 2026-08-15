@@ -57,7 +57,7 @@ class CoreTray:
 
         import os
 
-        from arelis.config import PROJECT_ROOT
+        from arelis.paths import app_icon_path
 
         # Avoid fighting a glass UI's QApplication on the main thread — we are
         # already on a dedicated thread with our own instance.
@@ -79,7 +79,7 @@ class CoreTray:
             except Exception:
                 pass
 
-        icon_path = PROJECT_ROOT / "assets" / "arelis.ico"
+        icon_path = app_icon_path()
         icon = QIcon(str(icon_path)) if icon_path.is_file() else QIcon()
         tray = QSystemTrayIcon(icon)
         menu = QMenu()

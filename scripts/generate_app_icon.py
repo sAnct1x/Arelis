@@ -1,7 +1,9 @@
 """Render the Arelis app icon and pack a multi-size Windows .ico.
 
 Motif: orbit void — warm black tile, one amber ring, a tick, a beating core.
-Regenerable; the committed assets under assets/ are what shortcuts use.
+Regenerable; the committed files under arelis/assets/ are what ships and what
+shortcuts use. They live inside the package because anything outside it is absent
+from an install, which is how Arelis previously shipped with no icon at all.
 """
 
 from __future__ import annotations
@@ -23,7 +25,7 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import QApplication
 
 ROOT = Path(__file__).resolve().parents[1]
-ASSETS = ROOT / "assets"
+ASSETS = ROOT / "arelis" / "assets"
 SIZES = (256, 128, 64, 48, 32, 16)
 
 _VOID = QColor(10, 8, 6, 255)
