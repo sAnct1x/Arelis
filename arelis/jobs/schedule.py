@@ -381,6 +381,38 @@ def registered_ids() -> set[str]:
     return found
 
 
+def remove_all_tasks() -> list[str]:
+    """Delete every task Arelis registered, and never raise while doing it.
+
+    For uninstall. A scheduled task holds an absolute path to the program, so removing
+    the program without removing the tasks leaves Windows waking up on a timer forever
+    to run something that is not there. It fails silently -- a scheduled task that
+    cannot start shows nobody anything -- and it survives reinstalling somewhere else,
+    because the stale task is still registered under the same name and the repointing in
+    repoint_tasks_if_runner_moved only ever considers jobs that are still in jobs.yaml.
+
+    Read from Task Scheduler rather than from jobs.yaml, because by uninstall time the
+    configuration may be edited, moved or already gone, and what has to be cleaned up is
+    what is actually registered.
+
+    Errors are swallowed on purpose. This runs from an uninstaller, where the useful
+    outcome is that the uninstall finishes; a task that could not be deleted is worth
+    less than a user stuck with a half-removed program and a dialog they cannot action.
+    """
+    removed: list[str] = []
+    try:
+        ids = registered_ids()
+    except Exception:
+        return removed
+    for job_id in sorted(ids):
+        try:
+            if unregister(job_id):
+                removed.append(job_id)
+        except Exception:
+            log.warning("could not remove scheduled task for %s", job_id, exc_info=True)
+    return removed
+
+
 def _require_windows() -> None:
     if not supported():
         raise ScheduleError(

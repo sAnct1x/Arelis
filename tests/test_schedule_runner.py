@@ -350,3 +350,91 @@ def test_repointing_is_a_no_op_off_windows(monkeypatch: pytest.MonkeyPatch) -> N
     """There is no Task Scheduler to disagree with, so there is nothing to repair."""
     monkeypatch.setattr(win, "supported", lambda: False)
     assert win.repoint_tasks_if_runner_moved([_job()]) == []
+
+
+# ------------------------------------------------------------ leaving no tasks behind
+
+
+def test_uninstall_removes_every_task_the_scheduler_admits_to(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Read from Task Scheduler, not from jobs.yaml.
+
+    By uninstall time the configuration may be edited, moved or already deleted, and a
+    task registered from a job the user removed from jobs.yaml months ago is exactly the
+    one nothing else will ever clean up: the repointing above only considers jobs that
+    are still in the file.
+    """
+    monkeypatch.setattr(win, "supported", lambda: True)
+    monkeypatch.setattr(win, "registered_ids", lambda: {"weather", "news", "digest"})
+    deleted: list[str] = []
+
+    def unregister(job_id: str) -> bool:
+        deleted.append(job_id)
+        return True
+
+    monkeypatch.setattr(win, "unregister", unregister)
+
+    assert win.remove_all_tasks() == ["digest", "news", "weather"]
+    assert sorted(deleted) == ["digest", "news", "weather"]
+
+
+def test_a_task_that_will_not_delete_does_not_fail_the_uninstall(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The uninstall finishing matters more than the last task going.
+
+    A user left with a half-removed program and a dialog they cannot action is worse off
+    than one with a stale timer, and they cannot fix the first themselves.
+    """
+    monkeypatch.setattr(win, "supported", lambda: True)
+    monkeypatch.setattr(win, "registered_ids", lambda: {"news", "stubborn"})
+
+    def unregister(job_id: str) -> bool:
+        if job_id == "stubborn":
+            raise win.ScheduleError("access denied")
+        return True
+
+    monkeypatch.setattr(win, "unregister", unregister)
+
+    assert win.remove_all_tasks() == ["news"]
+
+
+def test_a_scheduler_that_cannot_be_queried_is_not_an_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(win, "supported", lambda: True)
+
+    def registered_ids() -> set[str]:
+        raise win.ScheduleError("the RPC server is unavailable")
+
+    monkeypatch.setattr(win, "registered_ids", registered_ids)
+
+    assert win.remove_all_tasks() == []
+
+
+def test_removing_tasks_is_a_no_op_off_windows(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(win, "supported", lambda: False)
+    assert win.remove_all_tasks() == []
+
+
+def test_the_uninstall_flag_runs_without_a_readable_configuration(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Which is why it is handled before load_config rather than after it.
+
+    An uninstaller runs at the point where the configuration is most likely to be
+    unreadable, and a traceback there would leave the tasks registered -- the one thing
+    the flag exists to prevent.
+    """
+    from arelis import main as entry
+
+    monkeypatch.setenv(paths.DATA_DIR_ENV, str(tmp_path / "state"))
+
+    def refuse(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("the configuration must not be read to deregister tasks")
+
+    monkeypatch.setattr(entry, "load_config", refuse)
+    monkeypatch.setattr(win, "remove_all_tasks", lambda: ["news"])
+
+    assert entry.main(["--remove-scheduled-tasks"]) == 0

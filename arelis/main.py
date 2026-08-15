@@ -55,6 +55,15 @@ def main(argv: list[str] | None = None) -> int:
         metavar="ID",
         help="Run one saved job, email the answer, and exit. Used by the scheduler.",
     )
+    parser.add_argument(
+        "--remove-scheduled-tasks",
+        action="store_true",
+        help=(
+            "Delete every Windows scheduled task Arelis registered, then exit. Run by "
+            "the uninstaller: a task holds an absolute path to the program, so removing "
+            "the program without this leaves Windows waking on a timer to run nothing."
+        ),
+    )
     parser.add_argument("--config", type=str, default=None, help="Optional YAML config path")
     parser.add_argument(
         "--auth-calendar",
@@ -67,6 +76,16 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     args = parser.parse_args(argv)
+
+    # Before load_config, and deliberately. This runs from an uninstaller, by which time
+    # the configuration may be edited, moved or already deleted, and failing to read it
+    # is no reason to leave scheduled tasks behind.
+    if args.remove_scheduled_tasks:
+        from arelis.jobs.schedule import remove_all_tasks
+
+        removed = remove_all_tasks()
+        print(f"Removed {len(removed)} scheduled task(s): {', '.join(removed) or 'none'}")
+        return 0
 
     config = load_config(Path(args.config)) if args.config else load_config()
 

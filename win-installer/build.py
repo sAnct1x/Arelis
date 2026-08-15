@@ -616,6 +616,71 @@ def report_size(label: str) -> int:
 
 
 # --------------------------------------------------------------------------------------
+# Phase 6: the setup .exe
+
+
+ISS = HERE / "arelis.iss"
+
+# Where Inno Setup installs, and it is a 32-bit program even on 64-bit Windows, so the
+# x86 directory is the usual answer rather than the fallback.
+ISCC_CANDIDATES = (
+    Path(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")) / "Inno Setup 6"
+    / "ISCC.exe",
+    Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "Inno Setup 6" / "ISCC.exe",
+)
+
+
+def find_iscc() -> Path | None:
+    found = shutil.which("ISCC.exe") or shutil.which("iscc")
+    if found:
+        return Path(found)
+    for candidate in ISCC_CANDIDATES:
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def package_installer(version: str) -> Path | None:
+    """Compile the tree into one setup .exe, if Inno Setup is here to do it.
+
+    Optional rather than required, because the tree above is the part that has to be
+    right and it is testable without any of this. Compressing 640MB with solid LZMA2
+    takes minutes and produces something only Windows can open, so a build that stops
+    short of it is still a useful build.
+    """
+    iscc = find_iscc()
+    if iscc is None:
+        say("  Inno Setup is not installed, so there is no setup .exe.")
+        say("    winget install -e --id JRSoftware.InnoSetup")
+        say(f"    then re-run, or: ISCC.exe /DAppVersion={version} {ISS.name}")
+        return None
+
+    say(f"  {iscc}")
+    say("  compressing with solid LZMA2, which is slow on purpose...")
+    run(
+        [
+            str(iscc),
+            f"/DAppVersion={version}",
+            f"/DSourceTree={TREE}",
+            str(ISS),
+        ],
+        "Compiling the installer",
+        cwd=HERE,
+    )
+    installers = sorted(DIST.glob("*-setup.exe"), key=lambda p: p.stat().st_mtime)
+    if not installers:
+        raise SystemExit(f"Inno Setup reported success but produced nothing in {DIST}")
+    installer = installers[-1]
+    say("")
+    say(f"  {installer.name}")
+    say(f"  {human(installer.stat().st_size)}")
+    # The thing to publish beside a download that is not signed. Somebody who wants to
+    # check what they got has no certificate to check, so this is what they have.
+    say(f"  sha256: {digest_of(installer)}")
+    return installer
+
+
+# --------------------------------------------------------------------------------------
 # Phase 5: verification
 
 
@@ -741,6 +806,14 @@ def main(argv: list[str] | None = None) -> int:
         help="Report the size of an already-built tree and stop. Builds nothing.",
     )
     parser.add_argument(
+        "--no-installer",
+        action="store_true",
+        help=(
+            "Stop after the verified tree. Compressing 640MB takes minutes, and the "
+            "tree is the part that has to be right."
+        ),
+    )
+    parser.add_argument(
         "--no-prune",
         action="store_true",
         help=(
@@ -794,9 +867,19 @@ def main(argv: list[str] | None = None) -> int:
     say("\n== Verification ==")
     verify()
 
+    installer = None
+    if not args.no_installer:
+        say("\n== Setup .exe ==")
+        # arelis-0.1.0-py3-none-any.whl. Taken from the wheel actually installed rather
+        # than from an import, so the version on the installer is the version in the tree.
+        version = wheel_name.split("-")[1]
+        installer = package_installer(version)
+
     say("")
     say(f"Built {TREE.relative_to(REPO_ROOT)} from {wheel_name}")
     say(f"{human(total)} in {time.monotonic() - started:,.0f}s")
+    if installer:
+        say(f"Installer: {installer.relative_to(REPO_ROOT)}")
     return 0
 
 
