@@ -6,14 +6,14 @@ from typing import Any
 from PySide6.QtCore import QByteArray, QSettings, QSize
 from PySide6.QtWidgets import QMainWindow
 
-from arelis.config import PROJECT_ROOT
+from arelis.paths import state_dir
 
 _DEFAULT_CHAT_FONT_SCALE = 1.0
 _RECENT_WORKSPACE_LIMIT = 12
 
 
 def _settings_path() -> Path:
-    path = PROJECT_ROOT / "data" / "ui_layout.ini"
+    path = state_dir() / "ui_layout.ini"
     path.parent.mkdir(parents=True, exist_ok=True)
     return path
 

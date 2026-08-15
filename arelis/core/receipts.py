@@ -13,11 +13,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from arelis.config import PROJECT_ROOT
+from arelis.paths import state_dir
 
 log = logging.getLogger(__name__)
 
-DEFAULT_LEDGER_PATH = PROJECT_ROOT / "data" / "action_ledger.jsonl"
+DEFAULT_LEDGER_PATH = state_dir() / "action_ledger.jsonl"
 
 # Mutating / side-effect tools that should emit a receipt when they succeed.
 _RECEIPT_TOOLS = frozenset(

@@ -5,10 +5,16 @@ from typing import Any
 
 import yaml
 
+from arelis.paths import state_dir
+
 PACKAGE_ROOT = Path(__file__).resolve().parent
 PROJECT_ROOT = PACKAGE_ROOT.parent
+
+# Shipped and read-only: lives beside the code and is replaced by an update.
 DEFAULT_CONFIG_PATH = PACKAGE_ROOT / "config" / "default.yaml"
-LOCAL_CONFIG_PATH = PROJECT_ROOT / "data" / "config.local.yaml"
+# Written whenever a user changes a setting, so it belongs with their state and
+# not inside the install, where an update would discard every preference.
+LOCAL_CONFIG_PATH = state_dir() / "config.local.yaml"
 
 
 def deep_merge(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
@@ -78,9 +84,9 @@ def load_config(path: Path | None = None) -> dict[str, Any]:
 
     # One resolver shared by the agent loop, which injects the summary line, and
     # the user_location tool, which serves the detail. Two instances would mean
-    # a refresh through the tool was invisible to the next prompt. Imported here
-    # rather than at module scope because the location package reads PROJECT_ROOT
-    # back out of this one.
+    # a refresh through the tool was invisible to the next prompt. Imported
+    # inside the function because the location package imports this one for
+    # load_config, and at module scope that is a cycle.
     if (data.get("location") or {}).get("enabled", True):
         from arelis.location import build_location
 

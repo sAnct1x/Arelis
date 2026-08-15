@@ -22,7 +22,7 @@ def test_event_telemetry_defaults_on() -> None:
 
 @pytest.mark.asyncio
 async def test_attach_writes_audited_events(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setattr("arelis.core.event_audit.PROJECT_ROOT", tmp_path)
+    monkeypatch.setenv("ARELIS_DATA_DIR", str(tmp_path))
     import arelis.core.event_audit as mod
 
     mod._attached = False
@@ -53,7 +53,7 @@ async def test_attach_writes_audited_events(tmp_path: Path, monkeypatch) -> None
 
 
 def test_log_side_effect_writes(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setattr("arelis.core.event_audit.PROJECT_ROOT", tmp_path)
+    monkeypatch.setenv("ARELIS_DATA_DIR", str(tmp_path))
     import arelis.core.event_audit as mod
 
     mod._attached = False

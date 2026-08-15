@@ -16,8 +16,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from arelis.config import PROJECT_ROOT
 from arelis.core.look import OcrInspect, inspect_ocr_text
+from arelis.paths import outputs_dir, user_data_dir
 from arelis.tools.base import ToolResult
 from arelis.tools.safety import redact_secrets
 from arelis.workspace import WorkspaceRoots
@@ -175,7 +175,7 @@ class OcrTool:
         capturer: Callable[[Path], Path] | None = None,
     ) -> None:
         self.workspace = workspace
-        self.output_dir = output_dir or (PROJECT_ROOT / "outputs" / "images")
+        self.output_dir = output_dir or (outputs_dir() / "images")
         self.max_chars = max(256, int(max_chars))
         self._runner = runner or (lambda p, lang: run_tesseract(p, lang=lang))
         self._capturer = capturer or capture_primary_screen
@@ -274,10 +274,10 @@ class OcrTool:
         except Exception:
             candidate = Path(raw)
             if not candidate.is_absolute():
-                candidate = (PROJECT_ROOT / candidate).resolve()
+                candidate = (user_data_dir() / candidate).resolve()
             else:
                 candidate = candidate.resolve()
-            images_root = (PROJECT_ROOT / "outputs" / "images").resolve()
+            images_root = (outputs_dir() / "images").resolve()
             try:
                 candidate.relative_to(images_root)
             except ValueError as exc:

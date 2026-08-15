@@ -15,15 +15,15 @@ from typing import Any
 
 import numpy as np
 
-from arelis.config import PROJECT_ROOT
+from arelis.paths import models_dir
 
 log = logging.getLogger(__name__)
 
 SAMPLE_RATE = 24000
 MAX_PHONEME_LENGTH = 510
 DEFAULT_VOICE = "af_heart"
-_DEFAULT_MODEL = PROJECT_ROOT / "models" / "kokoro" / "kokoro-v1.0.onnx"
-_DEFAULT_VOICES = PROJECT_ROOT / "models" / "kokoro" / "voices-v1.0.bin"
+_DEFAULT_MODEL = models_dir() / "kokoro" / "kokoro-v1.0.onnx"
+_DEFAULT_VOICES = models_dir() / "kokoro" / "voices-v1.0.bin"
 _MODEL_URL = (
     "https://github.com/thewh1teagle/kokoro-onnx/releases/download/"
     "model-files-v1.0/kokoro-v1.0.onnx"

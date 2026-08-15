@@ -23,15 +23,15 @@ from uuid import uuid4
 
 import yaml
 
-from arelis.config import PROJECT_ROOT
 from arelis.contacts import load_contacts, match_contact_label, normalize_phone, resolve_contact
 from arelis.core.bus import EventBus
 from arelis.core.events import Event, EventType
+from arelis.paths import state_dir
 from arelis.sms_inbound import InboundSms, SeenMessageStore
 
 log = logging.getLogger(__name__)
 
-SECRETS_PATH = PROJECT_ROOT / "data" / "secrets.yaml"
+SECRETS_PATH = state_dir() / "secrets.yaml"
 TOKEN_ENV = "ARELIS_INGEST_TOKEN"
 DEFAULT_HOST = "0.0.0.0"
 DEFAULT_PORT = 8765

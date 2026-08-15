@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from arelis.config import PROJECT_ROOT
+from arelis.paths import state_dir
 
 FAT_TOOLS = frozenset(
     {"scrape", "web_fetch", "doc_extract", "research_report", "workspace"}
@@ -20,7 +20,7 @@ FAT_TOOLS = frozenset(
 # Only rewrite when the body is large enough that truncation risk is real.
 _MIN_FAT_CHARS = 2500
 
-_CACHE_DIR = PROJECT_ROOT / "data" / "tool_cache"
+_CACHE_DIR = state_dir() / "tool_cache"
 
 
 @dataclass(frozen=True)

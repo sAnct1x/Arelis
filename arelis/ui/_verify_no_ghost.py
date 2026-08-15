@@ -27,13 +27,14 @@ from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import QApplication, QDockWidget, QWidget
 
-from arelis.config import PROJECT_ROOT, load_config
+from arelis.config import load_config
 from arelis.core.bus import EventBus
 from arelis.core.events import Event
 from arelis.core.memory import SessionMemory
 from arelis.core.orchestrator import Orchestrator
 from arelis.llm import build_router
 from arelis.memory import DEFAULT_EMBED_MODEL, MemoryIndexer, MemoryStore
+from arelis.paths import logs_dir
 from arelis.tools import build_tool_registry
 from arelis.ui.app import (
     ArelisWindow,
@@ -47,7 +48,7 @@ from arelis.workspace import WorkspaceRoots, compose_stt_initial_prompt
 
 CHAT_MARK = "GHOSTCHECK_CHAT_MARKER_QQQ"
 THINK_MARK = "GHOSTCHECK_THINK_MARKER_WWW"
-_OUT = PROJECT_ROOT / "logs"
+_OUT = logs_dir()
 
 
 def _kill_arelis_ui() -> None:

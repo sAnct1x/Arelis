@@ -14,7 +14,7 @@ from typing import Any
 
 import numpy as np
 
-from arelis.config import PROJECT_ROOT
+from arelis.paths import models_dir
 from arelis.voice.pcm import SAMPLE_WIDTH
 
 log = logging.getLogger(__name__)
@@ -22,7 +22,7 @@ log = logging.getLogger(__name__)
 TARGET_SR = 16000
 FRAME_SAMPLES = 512  # 32 ms at 16 kHz
 CONTEXT_SAMPLES = 64
-_DEFAULT_MODEL = PROJECT_ROOT / "models" / "silero" / "silero_vad.onnx"
+_DEFAULT_MODEL = models_dir() / "silero" / "silero_vad.onnx"
 
 # Upstream Silero ONNX (opset 16). Vendored under models/silero/; this URL is
 # the documented fallback when the file is missing.

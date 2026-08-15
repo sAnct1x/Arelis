@@ -25,7 +25,7 @@ from collections import deque
 from pathlib import Path
 from typing import Any
 
-from arelis.config import PROJECT_ROOT
+from arelis.paths import logs_dir
 
 log = logging.getLogger("arelis.voice.trace")
 
@@ -49,7 +49,7 @@ class VoiceTrace:
         self.enabled = bool(enabled)
         self._entries: deque[str] = deque(maxlen=_RING)
         if self.enabled:
-            _attach_file_handler(log_dir or PROJECT_ROOT / "logs")
+            _attach_file_handler(log_dir or logs_dir())
 
     def record(self, event: str, **state: Any) -> None:
         if not self.enabled:

@@ -20,10 +20,7 @@ def test_turn_telemetry_defaults_on() -> None:
 
 
 def test_turn_timer_writes_stages_and_summary(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setattr(
-        "arelis.core.turn_telemetry.PROJECT_ROOT",
-        tmp_path,
-    )
+    monkeypatch.setenv("ARELIS_DATA_DIR", str(tmp_path))
     # Force re-attach against the temp logs dir.
     import arelis.core.turn_telemetry as mod
 
@@ -72,7 +69,7 @@ def test_gate_firings_reach_the_record_that_outlives_the_text_log(
     whether a gate still fires, and that file retains a fraction of the turns
     turns.jsonl does — so the answer came back from 127 real turns instead of 484.
     """
-    monkeypatch.setattr("arelis.core.turn_telemetry.PROJECT_ROOT", tmp_path)
+    monkeypatch.setenv("ARELIS_DATA_DIR", str(tmp_path))
     import arelis.core.turn_telemetry as mod
 
     mod._attached = False
@@ -106,7 +103,7 @@ def test_gate_firings_reach_the_record_that_outlives_the_text_log(
 def test_a_turn_with_no_gate_says_so_rather_than_omitting_it(
     tmp_path: Path, monkeypatch
 ) -> None:
-    monkeypatch.setattr("arelis.core.turn_telemetry.PROJECT_ROOT", tmp_path)
+    monkeypatch.setenv("ARELIS_DATA_DIR", str(tmp_path))
     import arelis.core.turn_telemetry as mod
 
     mod._attached = False
@@ -123,7 +120,7 @@ def test_a_turn_with_no_gate_says_so_rather_than_omitting_it(
 
 
 def test_disabled_timer_is_silent(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setattr("arelis.core.turn_telemetry.PROJECT_ROOT", tmp_path)
+    monkeypatch.setenv("ARELIS_DATA_DIR", str(tmp_path))
     import arelis.core.turn_telemetry as mod
 
     mod._attached = False
@@ -142,7 +139,7 @@ def test_disabled_timer_is_silent(tmp_path: Path, monkeypatch) -> None:
 
 
 def test_ollama_metrics_logged_and_summed(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setattr("arelis.core.turn_telemetry.PROJECT_ROOT", tmp_path)
+    monkeypatch.setenv("ARELIS_DATA_DIR", str(tmp_path))
     import arelis.core.turn_telemetry as mod
 
     mod._attached = False
@@ -178,7 +175,7 @@ def test_ollama_metrics_logged_and_summed(tmp_path: Path, monkeypatch) -> None:
 
 
 def test_log_span_writes_stt_line(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setattr("arelis.core.turn_telemetry.PROJECT_ROOT", tmp_path)
+    monkeypatch.setenv("ARELIS_DATA_DIR", str(tmp_path))
     import arelis.core.turn_telemetry as mod
 
     mod._attached = False

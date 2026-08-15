@@ -19,11 +19,11 @@ from uuid import uuid4
 
 import numpy as np
 
-from arelis.config import PROJECT_ROOT
+from arelis.paths import state_dir
 
 log = logging.getLogger(__name__)
 
-_DEFAULT_PATH = PROJECT_ROOT / "data" / "memory.db"
+_DEFAULT_PATH = state_dir() / "memory.db"
 
 # Bump when the on-disk shape changes, and add a _migrate_to_N step. Opening an
 # older file without this is what turns a weekend of chat into a hard error.

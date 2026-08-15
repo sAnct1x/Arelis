@@ -5,12 +5,12 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from arelis.config import PROJECT_ROOT
+from arelis.paths import state_dir
 
 log = logging.getLogger(__name__)
 
 # Last active project name, restored on the next launch (Cursor-style).
-_ACTIVE_PROJECT_FILE = PROJECT_ROOT / "data" / "active_project"
+_ACTIVE_PROJECT_FILE = state_dir() / "active_project"
 
 # Windows drive paths use a colon; never treat "C:\..." as project "C".
 _WINDOWS_DRIVE = re.compile(r"^[A-Za-z]:(?:[\\/]|$)")

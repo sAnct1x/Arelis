@@ -16,12 +16,12 @@ from urllib.request import urlretrieve
 
 import numpy as np
 
-from arelis.config import PROJECT_ROOT
+from arelis.paths import models_dir, user_data_dir
 
 log = logging.getLogger(__name__)
 
 SAMPLE_RATE = 16000
-_DEFAULT_DIR = PROJECT_ROOT / "models" / "sherpa"
+_DEFAULT_DIR = models_dir() / "sherpa"
 _PACK_NAME = "sherpa-onnx-streaming-zipformer-en-2023-06-26"
 _ARCHIVE = f"{_PACK_NAME}.tar.bz2"
 _MODEL_URL = (
@@ -53,7 +53,7 @@ def sherpa_package_available() -> bool:
 def resolve_model_dir(stt_config: dict[str, Any] | None = None) -> Path:
     raw = str((stt_config or {}).get("model_dir") or "models/sherpa").strip()
     path = Path(raw)
-    return path if path.is_absolute() else PROJECT_ROOT / path
+    return path if path.is_absolute() else user_data_dir() / path
 
 
 def find_transducer_files(root: Path) -> dict[str, Path] | None:

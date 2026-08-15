@@ -24,8 +24,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from arelis.config import PROJECT_ROOT
 from arelis.core.failure_copy import plain_reason
+from arelis.paths import outputs_dir
 
 log = logging.getLogger(__name__)
 
@@ -263,7 +263,7 @@ class CameraPanel(QWidget):
         if not self._image_capture.isReadyForCapture():
             self._set_hint("Camera not ready for capture yet — wait a moment.")
             return
-        out_dir = PROJECT_ROOT / "outputs" / "images"
+        out_dir = outputs_dir() / "images"
         out_dir.mkdir(parents=True, exist_ok=True)
         stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
         dest = out_dir / f"camera_{stamp}.jpg"

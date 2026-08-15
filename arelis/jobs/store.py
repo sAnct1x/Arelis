@@ -16,11 +16,11 @@ from typing import Any
 
 import yaml
 
-from arelis.config import PROJECT_ROOT
+from arelis.paths import state_dir
 
 log = logging.getLogger(__name__)
 
-JOBS_PATH = PROJECT_ROOT / "data" / "jobs.yaml"
+JOBS_PATH = state_dir() / "jobs.yaml"
 
 DAY_NAMES = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
 _WEEKDAYS = DAY_NAMES[:5]

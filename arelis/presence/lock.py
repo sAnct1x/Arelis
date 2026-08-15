@@ -10,7 +10,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-from arelis.config import PROJECT_ROOT
+from arelis.paths import state_dir, user_data_dir
 
 log = logging.getLogger(__name__)
 
@@ -19,14 +19,14 @@ DEFAULT_UI_LOCK_NAME = "arelis-ui.lock"
 
 
 def core_lock_path(config: dict[str, Any] | None = None) -> Path:
-    """Path for the core process lock file (under data/ by default)."""
+    """Path for the core process lock file (beside the user's state by default)."""
     raw = ""
     if config:
         presence = config.get("presence") or {}
         raw = str(presence.get("lock_path") or "").strip()
-    path = Path(raw) if raw else PROJECT_ROOT / "data" / DEFAULT_LOCK_NAME
+    path = Path(raw) if raw else state_dir() / DEFAULT_LOCK_NAME
     if not path.is_absolute():
-        path = PROJECT_ROOT / path
+        path = user_data_dir() / path
     return path
 
 
@@ -36,9 +36,9 @@ def ui_lock_path(config: dict[str, Any] | None = None) -> Path:
     if config:
         presence = config.get("presence") or {}
         raw = str(presence.get("ui_lock_path") or "").strip()
-    path = Path(raw) if raw else PROJECT_ROOT / "data" / DEFAULT_UI_LOCK_NAME
+    path = Path(raw) if raw else state_dir() / DEFAULT_UI_LOCK_NAME
     if not path.is_absolute():
-        path = PROJECT_ROOT / path
+        path = user_data_dir() / path
     return path
 
 

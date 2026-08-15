@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from arelis.config import PROJECT_ROOT
+from arelis.paths import outputs_dir
 
 _IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
 
@@ -96,7 +97,7 @@ def _rel_under_project(path: Path) -> str:
 
 def latest_output_image_file(*, images_dir: Path | None = None) -> str | None:
     """Newest file under outputs/images/, or None."""
-    folder = images_dir or (PROJECT_ROOT / "outputs" / "images")
+    folder = images_dir or (outputs_dir() / "images")
     try:
         if not folder.is_dir():
             return None
@@ -119,7 +120,7 @@ def latest_camera_image_file(
     max_age_s: float | None = None,
 ) -> str | None:
     """Newest camera_*.jpg|png under outputs/images/, optionally age-capped."""
-    folder = images_dir or (PROJECT_ROOT / "outputs" / "images")
+    folder = images_dir or (outputs_dir() / "images")
     try:
         if not folder.is_dir():
             return None

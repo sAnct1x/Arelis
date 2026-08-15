@@ -367,20 +367,21 @@ def resolve_attach_path(raw: str) -> str:
     """Turn a user/model attach string into an existing filesystem path, or ''."""
     from pathlib import Path
 
-    from arelis.config import PROJECT_ROOT
+    from arelis.paths import state_dir, user_data_dir
 
     text = (raw or "").strip().strip('"').strip("'")
     if not text:
         return ""
+    root = user_data_dir()
     candidates: list[Path] = [Path(text)]
     # Staged drops often show up as data/drops/… or a leading /drops/…
     cleaned = text.lstrip("/").replace("\\", "/")
     if cleaned.startswith("drops/"):
         cleaned = "data/" + cleaned
     if cleaned.startswith("data/drops/"):
-        candidates.append(PROJECT_ROOT / cleaned)
-    candidates.append(PROJECT_ROOT / text)
-    candidates.append(PROJECT_ROOT / cleaned)
+        candidates.append(root / cleaned)
+    candidates.append(root / text)
+    candidates.append(root / cleaned)
     for cand in candidates:
         try:
             resolved = cand.expanduser()
@@ -392,7 +393,7 @@ def resolve_attach_path(raw: str) -> str:
     # Bare filename: prefer Downloads, then newest staged drop with that name.
     name = Path(text).name
     if name and ("/" not in text.replace("\\", "/").rstrip(name) or text == name):
-        for folder in (Path.home() / "Downloads", PROJECT_ROOT / "data" / "drops"):
+        for folder in (Path.home() / "Downloads", state_dir() / "drops"):
             try:
                 if not folder.exists():
                     continue

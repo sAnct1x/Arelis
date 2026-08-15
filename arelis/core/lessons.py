@@ -14,9 +14,9 @@ from typing import Any
 
 import yaml
 
-from arelis.config import PROJECT_ROOT
+from arelis.paths import state_dir
 
-DEFAULT_LESSONS_PATH = PROJECT_ROOT / "data" / "lessons.yaml"
+DEFAULT_LESSONS_PATH = state_dir() / "lessons.yaml"
 
 # Shipped with the repo. data/lessons.yaml can extend or override by id.
 _SEED: list[dict[str, Any]] = [

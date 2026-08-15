@@ -12,10 +12,11 @@ from uuid import uuid4
 
 from arelis.config import PROJECT_ROOT
 from arelis.history_view import history_pairs
+from arelis.paths import state_dir
 
 MAX_ATTACHMENTS = 10
 MAX_BYTES = 25 * 1024 * 1024  # 25 MiB
-DROPS_ROOT = PROJECT_ROOT / "data" / "drops"
+DROPS_ROOT = state_dir() / "drops"
 
 # Plain text readable via workspace action=read (logs included — not "other").
 _TEXT = frozenset(

@@ -15,14 +15,14 @@ from typing import Any
 
 import yaml
 
-from arelis.config import PROJECT_ROOT
 from arelis.core.lessons import (
     DEFAULT_LESSONS_PATH,
     invalidate_lessons_cache,
     load_lessons,
 )
+from arelis.paths import logs_dir
 
-DEFAULT_TURNS_LOG = PROJECT_ROOT / "logs" / "turns.log"
+DEFAULT_TURNS_LOG = logs_dir() / "turns.log"
 
 _TOOL_LINE = re.compile(
     r"\btool\b.*?\bname=(?P<name>[^\s]+).*?\bok=(?P<ok>[01])\b"

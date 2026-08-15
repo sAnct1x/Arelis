@@ -13,12 +13,12 @@ from typing import Any
 
 import numpy as np
 
-from arelis.config import PROJECT_ROOT
+from arelis.paths import models_dir
 from arelis.voice.silero_vad import int16_pcm_to_float32, resample_to_16k
 
 log = logging.getLogger(__name__)
 
-_DEFAULT_MODEL = PROJECT_ROOT / "models" / "wake" / "hey_arelis.onnx"
+_DEFAULT_MODEL = models_dir() / "wake" / "hey_arelis.onnx"
 # openWakeWord expects 80 ms frames at 16 kHz → 1280 samples.
 _FRAME_SAMPLES = 1280
 _TARGET_SR = 16000

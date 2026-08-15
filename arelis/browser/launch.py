@@ -13,7 +13,7 @@ from typing import Literal
 from urllib.parse import urlparse
 from urllib.request import urlopen
 
-from arelis.config import PROJECT_ROOT
+from arelis.paths import state_dir
 
 log = logging.getLogger(__name__)
 
@@ -150,8 +150,8 @@ def chrome_user_data_dir() -> Path:
 
 
 def arelis_user_data_dir() -> Path:
-    """Dedicated Chromium profile Arelis owns (gitignored under data/)."""
-    return PROJECT_ROOT / "data" / "browser-profile"
+    """Dedicated Chromium profile Arelis owns, beside the rest of its state."""
+    return state_dir() / "browser-profile"
 
 
 def set_arelis_anchor(

@@ -9,11 +9,11 @@ from typing import Any
 
 import yaml
 
-from arelis.config import PROJECT_ROOT
+from arelis.paths import state_dir
 
 log = logging.getLogger(__name__)
 
-SECRETS_PATH = PROJECT_ROOT / "data" / "secrets.yaml"
+SECRETS_PATH = state_dir() / "secrets.yaml"
 
 
 @dataclass(frozen=True)

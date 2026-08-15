@@ -13,7 +13,7 @@ from typing import Any
 
 import yaml
 
-from arelis.config import PROJECT_ROOT
+from arelis.paths import user_data_dir
 
 log = logging.getLogger(__name__)
 
@@ -41,7 +41,7 @@ def resolve_profile_path(config: dict[str, Any] | None = None) -> Path:
     raw = str(cfg.get("profile_path") or "data/profile.yaml").strip()
     path = Path(raw)
     if not path.is_absolute():
-        path = PROJECT_ROOT / path
+        path = user_data_dir() / path
     return path
 
 

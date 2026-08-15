@@ -16,7 +16,7 @@ import sys
 from datetime import datetime
 from typing import Any
 
-from arelis.config import PROJECT_ROOT, load_config
+from arelis.config import load_config
 from arelis.core.bus import EventBus
 from arelis.core.events import Event, EventType
 from arelis.core.memory import SessionMemory
@@ -24,6 +24,7 @@ from arelis.core.orchestrator import Orchestrator
 from arelis.jobs.store import Job, get_job, record_run
 from arelis.llm import build_router
 from arelis.mail import Mailer, load_account
+from arelis.paths import logs_dir
 from arelis.tools import build_tool_registry
 from arelis.workspace import WorkspaceRoots
 
@@ -208,7 +209,7 @@ def configure_logging() -> None:
     try:
         from logging.handlers import RotatingFileHandler
 
-        log_dir = PROJECT_ROOT / "logs"
+        log_dir = logs_dir()
         log_dir.mkdir(parents=True, exist_ok=True)
         handlers.append(
             RotatingFileHandler(

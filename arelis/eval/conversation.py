@@ -29,6 +29,7 @@ from arelis.eval.harness import (
     _StubTool,
     _VisionStub,
 )
+from arelis.paths import outputs_dir
 from arelis.tools.base import ToolRegistry, ToolResult
 
 
@@ -307,7 +308,7 @@ def soak_registry(*, image_dir: Path | None = None) -> ToolRegistry:
     out.register(_ResearchReportStub("research_report", risk="read"))
     out.register(_BrowserStub("browser", risk="side_effect"))
     out.register(_VisionStub("vision", risk="side_effect"))
-    img_dir = image_dir or (PROJECT_ROOT / "outputs" / "images" / "soak")
+    img_dir = image_dir or (outputs_dir() / "images" / "soak")
     out.register(_ImageSoakStub(img_dir))
     return out
 

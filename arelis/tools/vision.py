@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from arelis.config import PROJECT_ROOT
+from arelis.paths import outputs_dir, user_data_dir
 from arelis.tools.base import ToolResult
 from arelis.workspace import WorkspaceRoots
 
@@ -86,13 +87,13 @@ class VisionTool:
             resolved = self.workspace.resolve_read(raw)
             path = resolved.path
         except (ValueError, PermissionError, FileNotFoundError):
-            # Allow PROJECT_ROOT/outputs/images even when multi-root resolve is picky.
+            # Allow outputs/images even when multi-root resolve is picky.
             candidate = Path(raw)
             if not candidate.is_absolute():
-                candidate = (PROJECT_ROOT / candidate).resolve()
+                candidate = (user_data_dir() / candidate).resolve()
             else:
                 candidate = candidate.resolve()
-            images_root = (PROJECT_ROOT / "outputs" / "images").resolve()
+            images_root = (outputs_dir() / "images").resolve()
             try:
                 candidate.relative_to(images_root)
             except ValueError as exc:

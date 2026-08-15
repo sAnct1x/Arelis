@@ -7,10 +7,10 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
-from arelis.config import PROJECT_ROOT
+from arelis.paths import outputs_dir, user_data_dir
 
 _SLUG = re.compile(r"[^a-z0-9]+")
-_DEFAULT_DIR = PROJECT_ROOT / "outputs" / "research"
+_DEFAULT_DIR = outputs_dir() / "research"
 
 
 @dataclass(frozen=True)
@@ -114,7 +114,7 @@ def save_report(
     """Write ``YYYY-MM-DD-slug.md`` under the research output directory."""
     root = Path(output_dir) if output_dir else _DEFAULT_DIR
     if not root.is_absolute():
-        root = PROJECT_ROOT / root
+        root = user_data_dir() / root
     root.mkdir(parents=True, exist_ok=True)
     stamp = (day or date.today()).isoformat()
     slug = slugify(query)

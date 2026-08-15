@@ -13,9 +13,9 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from arelis.config import PROJECT_ROOT
 from arelis.core.bus import EventBus
 from arelis.core.events import Event, EventType
+from arelis.paths import logs_dir
 
 log = logging.getLogger("arelis.event.audit")
 
@@ -82,7 +82,7 @@ def ensure_event_log(log_dir: Path | None = None) -> None:
     global _attached
     if _attached:
         return
-    directory = log_dir or PROJECT_ROOT / "logs"
+    directory = log_dir or logs_dir()
     try:
         directory.mkdir(parents=True, exist_ok=True)
         from logging.handlers import RotatingFileHandler

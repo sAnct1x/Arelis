@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from arelis.config import PROJECT_ROOT
+from arelis.paths import user_data_dir
 
 log = logging.getLogger(__name__)
 
@@ -44,7 +44,7 @@ def resolve_calendar_path(config: dict[str, Any] | None = None) -> Path:
     raw_path = str(briefing_cfg.get("calendar_path") or "data/calendar.ics").strip()
     path = Path(raw_path)
     if not path.is_absolute():
-        path = PROJECT_ROOT / path
+        path = user_data_dir() / path
     return path
 
 

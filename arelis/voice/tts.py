@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from arelis.config import PROJECT_ROOT
+from arelis.paths import user_data_dir
 from arelis.voice.kokoro_tts import (
     KokoroSynthesizer,
     KokoroUnavailableError,
@@ -237,7 +237,7 @@ def _clean_length_scale(value: Any) -> float | None:
 
 
 def _resolve_model(value: str) -> str:
-    """Resolve a configured voice path against the repo, not the shell's cwd.
+    """Resolve a configured voice path against the data root, not the shell's cwd.
 
     Arelis is started from the Start menu as often as from a terminal, and a
     relative models/piper/... path has to mean the same thing either way.
@@ -246,7 +246,7 @@ def _resolve_model(value: str) -> str:
         return ""
     path = Path(value)
     if not path.is_absolute():
-        path = (PROJECT_ROOT / path).resolve()
+        path = (user_data_dir() / path).resolve()
     return str(path)
 
 
@@ -262,7 +262,7 @@ def _resolve_command(configured: str) -> list[str]:
     if configured:
         path = Path(configured)
         if not path.is_absolute():
-            path = (PROJECT_ROOT / path).resolve()
+            path = (user_data_dir() / path).resolve()
         if path.exists():
             return [str(path)]
         found = shutil.which(configured)

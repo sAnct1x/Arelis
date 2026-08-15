@@ -3,13 +3,13 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from arelis.config import PROJECT_ROOT
 from arelis.llm.ollama import OllamaProvider
 from arelis.llm.router import ModelRouter
 from arelis.location import build_location
 from arelis.mail import Mailer, load_account
 from arelis.memory import MemoryStore
 from arelis.memory.indexer import DEFAULT_EMBED_MODEL
+from arelis.paths import user_data_dir
 from arelis.sms import DEFAULT_MAX_BODY_CHARS
 from arelis.sms_android import AndroidSmsProvider, load_sms_account
 from arelis.tools.agenda import AgendaTool
@@ -161,7 +161,7 @@ def build_tool_registry(
         out = research_cfg.get("output_dir", "outputs/research")
         out_path = Path(out)
         if not out_path.is_absolute():
-            out_path = PROJECT_ROOT / out_path
+            out_path = user_data_dir() / out_path
         registry.register(
             ResearchReportTool(
                 search_tool,
@@ -253,7 +253,7 @@ def build_tool_registry(
         out = ocr_cfg.get("output_dir") or "outputs/images"
         out_path = Path(out)
         if not out_path.is_absolute():
-            out_path = PROJECT_ROOT / out_path
+            out_path = user_data_dir() / out_path
         registry.register(
             OcrTool(
                 workspace,
@@ -287,10 +287,10 @@ def build_tool_registry(
         out = image_cfg.get("output_dir", "outputs/images")
         out_path = Path(out)
         if not out_path.is_absolute():
-            out_path = PROJECT_ROOT / out_path
+            out_path = user_data_dir() / out_path
         launch_cwd = str(image_cfg.get("launch_cwd") or "").strip()
         if launch_cwd and not Path(launch_cwd).is_absolute():
-            launch_cwd = str((PROJECT_ROOT / launch_cwd).resolve())
+            launch_cwd = str((user_data_dir() / launch_cwd).resolve())
         registry.register(
             ImageTool(
                 comfy_url=image_cfg.get("comfy_url", "http://127.0.0.1:8188"),

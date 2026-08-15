@@ -39,7 +39,6 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-from arelis.config import PROJECT_ROOT
 from arelis.location.providers import (
     IPGeolocationProvider,
     LocalProvider,
@@ -47,6 +46,7 @@ from arelis.location.providers import (
     NetworkProvider,
     SystemProvider,
 )
+from arelis.paths import state_dir, user_data_dir
 
 log = logging.getLogger(__name__)
 
@@ -187,7 +187,7 @@ class LocationResolver:
         self._local = sorted(local, key=lambda p: -p.precedence)
         self._network = network
         self._ttl_s = max(0, int(ttl_s))
-        self._cache_path = cache_path or (PROJECT_ROOT / "data" / _CACHE_NAME)
+        self._cache_path = cache_path or (state_dir() / _CACHE_NAME)
         self._network_result: UserLocation | None = None
         self._network_at = 0.0
         self._load_cache()
@@ -296,7 +296,7 @@ def build_location(config: dict[str, Any]) -> LocationResolver:
     cfg = config.get("location") or {}
     profile_path = Path(str(cfg.get("profile_path") or "data/profile.yaml"))
     if not profile_path.is_absolute():
-        profile_path = PROJECT_ROOT / profile_path
+        profile_path = user_data_dir() / profile_path
 
     local: list[LocalProvider] = [ManualProfileProvider(profile_path)]
     if cfg.get("use_system", True):

@@ -6,7 +6,7 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any, Protocol
 
-from arelis.config import PROJECT_ROOT
+from arelis.paths import user_data_dir
 from arelis.research import (
     SourceHit,
     excerpt_text,
@@ -83,7 +83,7 @@ class ResearchReportTool:
         self.max_sources = max(1, int(max_sources))
         self.max_chars_per_source = max(200, int(max_chars_per_source))
         out = Path(output_dir)
-        self.output_dir = out if out.is_absolute() else PROJECT_ROOT / out
+        self.output_dir = out if out.is_absolute() else user_data_dir() / out
 
     async def run(self, **kwargs: Any) -> ToolResult:
         query = str(kwargs.get("query") or "").strip()

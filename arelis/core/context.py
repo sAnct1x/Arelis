@@ -13,7 +13,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from arelis.config import PROJECT_ROOT
+from arelis.paths import state_dir
 
 log = logging.getLogger(__name__)
 
@@ -25,7 +25,7 @@ DEFAULT_CHARS_PER_TOKEN = 4.0
 # model nowhere to write, and Ollama still truncates the front to make space.
 _REPLY_RESERVE_TOKENS = 1024
 
-_DEFAULT_RATIOS_PATH = PROJECT_ROOT / "data" / "token_ratios.json"
+_DEFAULT_RATIOS_PATH = state_dir() / "token_ratios.json"
 
 
 def estimate_tokens(text: str, *, chars_per_token: float = DEFAULT_CHARS_PER_TOKEN) -> int:

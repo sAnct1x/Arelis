@@ -11,12 +11,12 @@ import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 
-from arelis.config import PROJECT_ROOT
+from arelis.paths import state_dir
 
 log = logging.getLogger(__name__)
 
-_DEFAULT_DB = PROJECT_ROOT / "data" / "memory.db"
-_DEFAULT_DIR = PROJECT_ROOT / "data" / "backups"
+_DEFAULT_DB = state_dir() / "memory.db"
+_DEFAULT_DIR = state_dir() / "backups"
 
 
 def backup_memory_db(

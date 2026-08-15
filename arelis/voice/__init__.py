@@ -7,10 +7,10 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from arelis.config import PROJECT_ROOT
 from arelis.core.bus import EventBus
 from arelis.core.events import Event, EventType
 from arelis.core.turn_telemetry import log_span, turn_telemetry_enabled
+from arelis.paths import outputs_dir
 from arelis.voice.speech_text import (
     next_speakable_units,
     prepare_spoken_text,
@@ -82,7 +82,7 @@ class VoiceService:
         # not race on the stream buffer even though Piper itself is serialized
         # under _speak_lock.
         self._stream_lock = asyncio.Lock()
-        self._out_dir = PROJECT_ROOT / "outputs" / "voice"
+        self._out_dir = outputs_dir() / "voice"
         # Live answer buffer for streaming TTS. Cleared on retract / speak done.
         self._stream_raw = ""
         self._spoken_count = 0

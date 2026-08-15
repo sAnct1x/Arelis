@@ -22,11 +22,11 @@ from typing import Any
 
 import yaml
 
-from arelis.config import PROJECT_ROOT
+from arelis.paths import state_dir
 
 log = logging.getLogger(__name__)
 
-CONTACTS_PATH = PROJECT_ROOT / "data" / "contacts.yaml"
+CONTACTS_PATH = state_dir() / "contacts.yaml"
 
 _LEADING_MY = re.compile(r"^my\s+", re.IGNORECASE)
 _NON_DIGIT = re.compile(r"\D+")

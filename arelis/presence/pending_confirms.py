@@ -14,7 +14,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from arelis.config import PROJECT_ROOT
+from arelis.paths import state_dir, user_data_dir
 
 log = logging.getLogger(__name__)
 
@@ -52,9 +52,9 @@ def pending_confirms_path(config: dict[str, Any] | None = None) -> Path:
     if config:
         presence = config.get("presence") or {}
         raw = str(presence.get("pending_confirms_path") or "").strip()
-    path = Path(raw) if raw else PROJECT_ROOT / "data" / DEFAULT_STORE_NAME
+    path = Path(raw) if raw else state_dir() / DEFAULT_STORE_NAME
     if not path.is_absolute():
-        path = PROJECT_ROOT / path
+        path = user_data_dir() / path
     return path
 
 

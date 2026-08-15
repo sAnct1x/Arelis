@@ -9,9 +9,9 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from arelis.calendar.models import CachedEvent
-from arelis.config import PROJECT_ROOT
+from arelis.paths import state_dir
 
-DEFAULT_DB = PROJECT_ROOT / "data" / "calendar_cache.db"
+DEFAULT_DB = state_dir() / "calendar_cache.db"
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS events (

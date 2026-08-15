@@ -22,12 +22,12 @@ from pathlib import Path
 
 import yaml
 
-from arelis.config import PROJECT_ROOT
+from arelis.paths import state_dir
 
 log = logging.getLogger(__name__)
 
 PASSWORD_ENV = "ARELIS_EMAIL_PASSWORD"
-SECRETS_PATH = PROJECT_ROOT / "data" / "secrets.yaml"
+SECRETS_PATH = state_dir() / "secrets.yaml"
 
 SETUP_HINT = (
     "Email is not configured. Copy data/secrets.example.yaml to "

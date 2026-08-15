@@ -27,15 +27,15 @@ from typing import Any
 
 import httpx
 
-from arelis.config import PROJECT_ROOT
 from arelis.contacts import Contact, load_contacts, normalize_phone, resolve_contact
 from arelis.core.bus import EventBus
 from arelis.core.events import Event, EventType
+from arelis.paths import state_dir
 from arelis.sms_android import SmsGateAccount, _json
 
 log = logging.getLogger(__name__)
 
-SEEN_PATH = PROJECT_ROOT / "data" / "sms_inbound_seen.json"
+SEEN_PATH = state_dir() / "sms_inbound_seen.json"
 DEFAULT_POLL_INTERVAL_S = 4.0
 DEFAULT_LIMIT = 50
 MAX_SEEN_IDS = 500

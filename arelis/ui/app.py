@@ -65,6 +65,7 @@ from arelis.notify.sources import (
     mail_notices,
     peek_contact_mail_sync,
 )
+from arelis.paths import outputs_dir
 from arelis.presence.confirm_exec import execute_pending_confirm
 from arelis.presence.confirm_persist import ConfirmPersister
 from arelis.presence.inbound_runtime import InboundRuntime, attach_inbound
@@ -839,7 +840,7 @@ class ArelisWindow(QMainWindow):
             (self.config.get("agent") or {}).get("voice_speculate_preflight", True)
         ):
             return
-        target = PROJECT_ROOT / "outputs" / "voice" / f"prov_{uuid4().hex[:8]}.wav"
+        target = outputs_dir() / "voice" / f"prov_{uuid4().hex[:8]}.wav"
         try:
             write_wav(target, pcm, sample_rate=rate, channels=channels)
         except OSError:
@@ -902,7 +903,7 @@ class ArelisWindow(QMainWindow):
             return
         if self.voice is None:
             return
-        target = PROJECT_ROOT / "outputs" / "voice" / f"capture_{uuid4().hex[:8]}.wav"
+        target = outputs_dir() / "voice" / f"capture_{uuid4().hex[:8]}.wav"
         try:
             write_wav(target, pcm, sample_rate=rate, channels=channels)
         except OSError as exc:
@@ -1572,7 +1573,7 @@ class ArelisWindow(QMainWindow):
         async def _speak() -> None:
             if self.voice is None or not self.voice.tts_enabled:
                 raise RuntimeError("Speech is disabled.")
-            out = PROJECT_ROOT / "outputs" / "voice" / "settings_test.wav"
+            out = outputs_dir() / "voice" / "settings_test.wav"
             out.parent.mkdir(parents=True, exist_ok=True)
             path = await self.voice.tts.synthesize("Arelis settings test.", out)
             if self.speech_player is None:

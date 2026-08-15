@@ -12,7 +12,7 @@ import sys
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
-from arelis.config import PROJECT_ROOT
+from arelis.paths import logs_dir
 
 # Once per process. main() is the only caller in production; tests reset this
 # when they need to point the file at a temporary directory.
@@ -36,7 +36,7 @@ def configure_logging(log_dir: Path | None = None) -> None:
 
     handlers: list[logging.Handler] = []
     try:
-        directory = log_dir if log_dir is not None else PROJECT_ROOT / "logs"
+        directory = log_dir if log_dir is not None else logs_dir()
         directory.mkdir(parents=True, exist_ok=True)
         handlers.append(
             RotatingFileHandler(

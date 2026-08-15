@@ -23,13 +23,13 @@ from typing import Any
 import httpx
 import yaml
 
-from arelis.config import PROJECT_ROOT
+from arelis.paths import state_dir
 from arelis.sms import SmsSendError
 
 log = logging.getLogger(__name__)
 
 PASSWORD_ENV = "ARELIS_SMSGATE_PASSWORD"
-SECRETS_PATH = PROJECT_ROOT / "data" / "secrets.yaml"
+SECRETS_PATH = state_dir() / "secrets.yaml"
 
 SETUP_HINT = (
     "SMS is not configured. Install SMSGate (https://sms-gate.app) on your "
