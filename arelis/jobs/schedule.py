@@ -16,8 +16,8 @@ from datetime import date
 from pathlib import Path
 from xml.sax.saxutils import escape
 
-from arelis.config import PROJECT_ROOT
 from arelis.jobs.store import DAY_NAMES, MONTH_NAMES, Job
+from arelis.paths import INSTALL_PARENT, ensure, user_data_dir
 
 log = logging.getLogger(__name__)
 
@@ -45,8 +45,20 @@ def runner_command() -> tuple[str, str]:
     pythonw rather than python: the console build flashes a black window on
     screen at 7pm every day, which is exactly the kind of thing that makes
     someone turn a feature off.
+
+    Three candidates in descending specificity. The checkout's own virtualenv
+    first, because a developer's dependencies live there and the ambient
+    interpreter may not have them. Then the windowless twin of whatever is
+    currently running, which is the case that carries an installed copy. Then the
+    running interpreter itself, accepting a console flash as the price of a job
+    that runs at all.
+
+    Every step is guarded by exists(), so the first entry naming a path that only
+    exists in a checkout is a preference rather than a requirement — worth saying
+    because it reads like a hardcoded dependency on a directory an install does
+    not have.
     """
-    venv = PROJECT_ROOT / ".venv" / "Scripts" / "pythonw.exe"
+    venv = INSTALL_PARENT / ".venv" / "Scripts" / "pythonw.exe"
     if venv.exists():
         return str(venv), ""
     interpreter = Path(sys.executable)
@@ -54,6 +66,23 @@ def runner_command() -> tuple[str, str]:
     if windowless.exists():
         return str(windowless), ""
     return str(interpreter), ""
+
+
+def working_directory() -> Path:
+    """Where Task Scheduler should start the job process.
+
+    The data root, not the install directory. Task Scheduler refuses to start an
+    action whose working directory is missing, and reports that as 0x8007010B with
+    no mention of which path it meant — so pointing this at a directory an update
+    replaces is a way to produce a job that ran for months and then stopped for
+    reasons nobody can read. The data root is the one directory that definitely
+    exists and is definitely writable, because it is where the job's own output is
+    going anyway.
+
+    Created on demand for the same reason: the first scheduled run may happen
+    before anything else has needed the directory.
+    """
+    return ensure(user_data_dir())
 
 
 def build_task_xml(job: Job, *, command: str = "", now: date | None = None) -> str:
@@ -104,7 +133,7 @@ def build_task_xml(job: Job, *, command: str = "", now: date | None = None) -> s
     <Exec>
       <Command>{escape(executable)}</Command>
       <Arguments>-m arelis --run-job {escape(job.id)}</Arguments>
-      <WorkingDirectory>{escape(str(PROJECT_ROOT))}</WorkingDirectory>
+      <WorkingDirectory>{escape(str(working_directory()))}</WorkingDirectory>
     </Exec>
   </Actions>
 </Task>
@@ -277,4 +306,5 @@ __all__ = [
     "supported",
     "task_name",
     "unregister",
+    "working_directory",
 ]
