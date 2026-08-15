@@ -41,6 +41,13 @@ def run_core(config: dict[str, Any]) -> int:
         )
         return 2
 
+    # Same repair as the UI does at launch: a task registered against a checkout's
+    # virtualenv is stranded once a packaged build is installed, and the core is the
+    # process that may well be running when the next job is due.
+    from arelis.jobs.schedule import repoint_moved_tasks_on_launch
+
+    repoint_moved_tasks_on_launch()
+
     store = PendingConfirmStore(pending_confirms_path(config))
     ipc_holder: dict[str, IpcServer | None] = {"server": None}
     stop = threading.Event()

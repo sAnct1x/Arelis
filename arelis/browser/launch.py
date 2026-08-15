@@ -13,7 +13,7 @@ from typing import Literal
 from urllib.parse import urlparse
 from urllib.request import urlopen
 
-from arelis.paths import state_dir
+from arelis.paths import state_dir, user_data_dir
 
 log = logging.getLogger(__name__)
 
@@ -45,7 +45,35 @@ _FIREFOX_PROG_IDS = {
 }
 
 
+def browsers_path() -> Path:
+    """Where Playwright keeps the browsers it downloads for itself."""
+    return user_data_dir() / "browsers"
+
+
+def pin_browsers_path() -> None:
+    """Point Playwright's downloads at the data root, before Playwright loads.
+
+    Not a correctness fix, and worth being clear about that: Playwright's default
+    is a per-user cache under %LOCALAPPDATA%, which is writable and outside the
+    install directory, so nothing breaks without this. It is so that everything
+    Arelis downloads after install lands under one root — beside the voice weights,
+    which already work this way — where a user can find it, count it, and delete it.
+    Several hundred megabytes of browser in a directory nobody associates with this
+    application is the kind of thing that gets discovered years later.
+
+    setdefault rather than an assignment, because somebody who has already pointed
+    this somewhere has a reason and it is not ours to overrule. The directory is
+    left to Playwright to create; there is no sense making an empty one on a
+    machine that never installs a browser.
+
+    Must run before ``playwright`` is imported, which is why it is a separate
+    function rather than something done at the point of use.
+    """
+    os.environ.setdefault("PLAYWRIGHT_BROWSERS_PATH", str(browsers_path()))
+
+
 def playwright_available() -> bool:
+    pin_browsers_path()
     try:
         import playwright  # noqa: F401
 

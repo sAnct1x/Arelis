@@ -731,6 +731,13 @@ class PlaywrightDriver:
     async def _ensure_firefox(self, *, private: bool) -> ActionResult:
         import tempfile
 
+        from arelis.browser.launch import pin_browsers_path
+
+        # Before the import below: this is the one path that needs a browser
+        # Playwright downloaded itself, so it is the one that decides where those
+        # land. Chrome and Edge are attached over CDP and need nothing downloaded.
+        pin_browsers_path()
+
         from playwright.async_api import async_playwright
 
         await self._close_pw()
@@ -751,6 +758,10 @@ class PlaywrightDriver:
         )
 
     async def _attach_cdp(self, *, mode: str) -> ActionResult:
+        from arelis.browser.launch import pin_browsers_path
+
+        pin_browsers_path()
+
         from playwright.async_api import async_playwright
 
         if self._browser is not None and self._mode.startswith("attach"):

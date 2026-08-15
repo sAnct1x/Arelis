@@ -117,7 +117,7 @@ from arelis.ui.status_copy import (
     WAITING_STATUS,
     tool_status_line,
 )
-from arelis.ui.theme import app_font, load_fonts, stylesheet
+from arelis.ui.theme import app_font, load_fonts, qt_font_directory, stylesheet
 from arelis.ui.voice_control import VoiceController
 from arelis.ui.window_resize import (
     cursor_for_hit,
@@ -3361,9 +3361,14 @@ def run_ui(config: dict[str, Any] | None = None) -> int:
         and not os.environ.get("ARELIS_ALLOW_OFFSCREEN")
     ):
         os.environ["QT_QPA_PLATFORM"] = "windows"
-    font_dir = Path(__file__).resolve().parents[1] / "_qt_fonts"
-    font_dir.mkdir(exist_ok=True)
-    os.environ.setdefault("QT_QPA_FONTDIR", str(font_dir))
+    os.environ.setdefault("QT_QPA_FONTDIR", str(qt_font_directory()))
+
+    # A scheduled task holds the absolute path it was created with, so installing a
+    # packaged build after running from a checkout leaves every job pointing at an
+    # interpreter that has moved. Costs a small file read when nothing has changed.
+    from arelis.jobs.schedule import repoint_moved_tasks_on_launch
+
+    repoint_moved_tasks_on_launch()
 
     # Group taskbar buttons (python.exe vs pythonw.exe otherwise diverge).
     if sys.platform == "win32":

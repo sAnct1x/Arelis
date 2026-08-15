@@ -126,6 +126,19 @@ def models_dir() -> Path:
     return user_data_dir() / "models"
 
 
+def cache_dir() -> Path:
+    """Regenerable scratch space. Deleting all of it must cost nothing but time.
+
+    The only one of these directories with no counterpart in the repository, so it
+    is worth saying why it exists rather than being folded into one of the others.
+    Some libraries want a directory to exist more than they want anything in it --
+    Qt's basic font database warns when QT_QPA_FONTDIR names a path that is not
+    there -- and that scratch directory was being created inside the package,
+    where an installed copy cannot write and an update would remove it anyway.
+    """
+    return user_data_dir() / "cache"
+
+
 def display_path(path: Path | str) -> str:
     """How a path is named to the user and to the model.
 

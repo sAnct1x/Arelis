@@ -16,6 +16,8 @@ demand rather than assumed to exist.
 
 from __future__ import annotations
 
+import ast
+import os
 import sys
 from pathlib import Path
 
@@ -29,6 +31,7 @@ MUTABLE_RESOLVERS = (
     paths.logs_dir,
     paths.outputs_dir,
     paths.models_dir,
+    paths.cache_dir,
 )
 
 
@@ -87,6 +90,234 @@ def test_no_module_builds_a_mutable_path_from_the_install_directory() -> None:
         "arelis.paths.state_dir(), logs_dir(), outputs_dir() or models_dir():\n"
         + "\n".join(hits)
     )
+
+
+# ------------------------------------------- nothing writes into the code, part two
+
+# The test above pins the original defect and misses a whole family around it. It
+# matches four directory names joined onto two anchor names, so a write into the
+# package escapes it by being called something else or by starting somewhere else,
+# and one did: arelis/ui/app.py created a "_qt_fonts" directory from
+# Path(__file__).resolve().parents[1] on every launch of the window. Wrong on both
+# counts, invisible in a checkout, and gitignored, so nothing ever pointed at it.
+#
+# What follows checks the property instead of the spelling: no path built from the
+# package's own location is written to. Anchor names are still enumerated, because
+# they are ours and few, but the operation is matched by what it does.
+
+PACKAGE_ANCHORS = frozenset({"PACKAGE_ROOT", "INSTALL_PARENT", "PROJECT_ROOT"})
+
+WRITE_METHODS = frozenset(
+    {
+        "mkdir",
+        "touch",
+        "write_text",
+        "write_bytes",
+        "unlink",
+        "rmdir",
+        "rename",
+        "replace",
+        "symlink_to",
+        "hardlink_to",
+        "chmod",
+    }
+)
+
+
+def _is_dunder_file_path(node: ast.AST) -> bool:
+    """``Path(__file__)`` -- the anchor the first version of this guard forgot."""
+    return (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "Path"
+        and any(isinstance(arg, ast.Name) and arg.id == "__file__" for arg in node.args)
+    )
+
+
+def _anchored_at_package(node: ast.AST) -> bool:
+    """True when an expression is built from where the package itself lives.
+
+    Walks left and down to whatever the expression is ultimately rooted in, so
+    that ``PACKAGE_ROOT / "a" / "b"`` and
+    ``Path(__file__).resolve().parents[1] / "c"`` both answer the same way. The
+    node types are the four ways a path expression grows: joining, attribute
+    access, a call, and indexing into ``.parents``.
+    """
+    seen = 0
+    while seen < 64:  # A malformed nest must not spin forever in a test.
+        seen += 1
+        if _is_dunder_file_path(node):
+            return True
+        if isinstance(node, ast.Name):
+            return node.id in PACKAGE_ANCHORS
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div):
+            node = node.left
+        elif isinstance(node, ast.Attribute):
+            node = node.value
+        elif isinstance(node, ast.Subscript):
+            node = node.value
+        elif isinstance(node, ast.Call):
+            node = node.func
+        else:
+            return False
+    return False
+
+
+def _opens_for_writing(call: ast.Call) -> bool:
+    """``.open()`` is only a write when the mode says so."""
+    modes = [arg for arg in call.args if isinstance(arg, ast.Constant)]
+    modes += [
+        kw.value
+        for kw in call.keywords
+        if kw.arg == "mode" and isinstance(kw.value, ast.Constant)
+    ]
+    return any(
+        isinstance(mode.value, str) and any(ch in mode.value for ch in "wax+")
+        for mode in modes
+    )
+
+
+def package_anchored_writes(source: str, filename: str) -> list[str]:
+    """Every write in one module that lands on a package-relative path.
+
+    Names assigned a package-anchored path are tracked, because the defect this
+    exists for was two statements rather than one: the path was bound to a local
+    and the mkdir happened on the local. A single-expression check reads the first
+    line and approves it.
+    """
+    tree = ast.parse(source, filename=filename)
+
+    anchored_names: set[str] = set()
+    for node in ast.walk(tree):
+        value = getattr(node, "value", None)
+        if value is None or not _anchored_at_package(value):
+            continue
+        targets: list[ast.expr] = []
+        if isinstance(node, ast.Assign):
+            targets = list(node.targets)
+        elif isinstance(node, ast.AnnAssign):
+            targets = [node.target]
+        for target in targets:
+            if isinstance(target, ast.Name):
+                anchored_names.add(target.id)
+
+    findings: list[str] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+            continue
+        method = node.func.attr
+        if method == "open":
+            if not _opens_for_writing(node):
+                continue
+        elif method not in WRITE_METHODS:
+            continue
+        receiver = node.func.value
+        if _anchored_at_package(receiver) or (
+            isinstance(receiver, ast.Name) and receiver.id in anchored_names
+        ):
+            findings.append(f"  {filename}:{node.lineno}: .{method}() on a package path")
+    return findings
+
+
+def test_no_module_writes_to_a_path_built_from_the_package_location() -> None:
+    """Read-only assets live beside the code; anything written does not."""
+    hits: list[str] = []
+    for path in sorted(paths.PACKAGE_ROOT.rglob("*.py")):
+        if path.name == "paths.py":
+            continue
+        rel = f"arelis/{path.relative_to(paths.PACKAGE_ROOT).as_posix()}"
+        hits.extend(package_anchored_writes(path.read_text(encoding="utf-8"), rel))
+    assert not hits, (
+        "Something writes into the installed package. Once installed that "
+        "directory may be read-only, and an update replaces it wholesale. Use "
+        "arelis.paths.state_dir(), logs_dir(), outputs_dir(), models_dir() or "
+        "cache_dir():\n" + "\n".join(hits)
+    )
+
+
+def test_the_guard_catches_the_defect_it_was_written_for() -> None:
+    """A guard nobody has seen fail is a guard nobody knows works.
+
+    This is the code that was in arelis/ui/app.py, kept verbatim as the fixture
+    rather than a paraphrase, because the point is that this exact shape got past
+    the previous check. Two statements, an anchor of Path(__file__) rather than a
+    named constant, and a directory name that is not one of the four mutable ones.
+    """
+    defect = (
+        "font_dir = Path(__file__).resolve().parents[1] / '_qt_fonts'\n"
+        "font_dir.mkdir(exist_ok=True)\n"
+    )
+    assert package_anchored_writes(defect, "arelis/ui/app.py")
+
+    # And the read it must not be confused with: the shipped icon and the shipped
+    # config are package-relative on purpose, and opening them is correct.
+    reads = (
+        'icon = PACKAGE_ROOT / "assets" / "arelis.ico"\n'
+        'text = (PACKAGE_ROOT / "config" / "default.yaml").read_text()\n'
+        'handle = (PACKAGE_ROOT / "persona" / "core.md").open("r")\n'
+    )
+    assert not package_anchored_writes(reads, "arelis/example.py")
+
+
+# ------------------------------------- the two directories that were in the package
+
+
+def test_the_qt_font_directory_is_not_inside_the_package(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Created on every launch of the window, and it used to land in arelis/.
+
+    Qt's basic font database warns about a font directory that is not there, so an
+    empty one is made and pointed at. That mkdir was unguarded and ran before the
+    QApplication existed, which means on an install where the package is read-only
+    the failure is not a missing font — it is a program that never draws a window.
+    """
+    from arelis.ui.theme import qt_font_directory
+
+    monkeypatch.setenv(paths.DATA_DIR_ENV, str(tmp_path))
+    resolved = qt_font_directory()
+
+    assert resolved.is_dir(), "Qt warns unless the directory it is given exists"
+    assert not resolved.is_relative_to(paths.PACKAGE_ROOT)
+    assert resolved.is_relative_to(tmp_path)
+    assert not list(resolved.iterdir()), (
+        "the fonts are registered from the package with addApplicationFont; this "
+        "directory exists to be found, not to be read"
+    )
+
+
+def test_playwright_downloads_land_under_the_data_root(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Several hundred megabytes of browser belongs where a user can find it.
+
+    Not a correctness fix -- Playwright's own default is already per-user and
+    writable -- but a download this large in a directory nobody associates with
+    Arelis is the kind of thing discovered years later by someone hunting for disk
+    space.
+    """
+    from arelis.browser.launch import browsers_path, pin_browsers_path
+
+    monkeypatch.setenv(paths.DATA_DIR_ENV, str(tmp_path))
+    monkeypatch.delenv("PLAYWRIGHT_BROWSERS_PATH", raising=False)
+    pin_browsers_path()
+
+    assert os.environ["PLAYWRIGHT_BROWSERS_PATH"] == str(browsers_path())
+    assert browsers_path().is_relative_to(tmp_path)
+    assert not browsers_path().is_relative_to(paths.PACKAGE_ROOT)
+
+
+def test_a_chosen_browsers_path_is_not_overruled(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Somebody who pointed this at another drive had a reason."""
+    from arelis.browser.launch import pin_browsers_path
+
+    monkeypatch.setenv(paths.DATA_DIR_ENV, str(tmp_path))
+    monkeypatch.setenv("PLAYWRIGHT_BROWSERS_PATH", r"D:\browsers")
+    pin_browsers_path()
+
+    assert os.environ["PLAYWRIGHT_BROWSERS_PATH"] == r"D:\browsers"
 
 
 # ----------------------------------------------------- one user, then two

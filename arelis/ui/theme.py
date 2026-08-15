@@ -5,6 +5,8 @@ from pathlib import Path
 
 from PySide6.QtGui import QColor, QFont, QFontDatabase
 
+from arelis.paths import cache_dir, ensure
+
 log = logging.getLogger(__name__)
 
 # Orbit void — warm black, amber hairline, ivory type. Painted in glass.py.
@@ -65,6 +67,26 @@ FONTS = {
 }
 
 _FONT_DIR = Path(__file__).resolve().parent / "fonts"
+
+
+def qt_font_directory() -> Path:
+    """An existing, empty directory to point QT_QPA_FONTDIR at.
+
+    Qt's basic font database -- the one behind the offscreen and minimal platform
+    plugins, which is how the test suite runs -- warns when the directory it is
+    told to scan does not exist. The typefaces this application uses are
+    registered from the package with addApplicationFont in load_fonts() below, so
+    nothing needs to be found by scanning: the directory has to exist and it has
+    to be empty, and that is the whole requirement.
+
+    It is here rather than inline at the call site because of where it used to
+    point. It was ``Path(__file__).resolve().parents[1] / "_qt_fonts"`` -- inside
+    the package -- which works in a checkout, is silently created on every launch,
+    and once installed is a directory a standard user may not write to and an
+    update deletes. The mkdir was unguarded and ran before the QApplication
+    existed, so the failure would have been a program that never drew a window.
+    """
+    return ensure(cache_dir() / "qt-fonts")
 
 
 def load_fonts() -> dict[str, str]:

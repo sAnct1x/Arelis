@@ -57,7 +57,8 @@ def test_a_checkout_prefers_its_own_virtualenv(
 
     executable, args = win.runner_command()
     assert Path(executable) == venv_pythonw
-    assert args == ""
+    # An interpreter needs telling what to run; the executable alone is not enough.
+    assert args == "-m arelis"
 
 
 def test_an_install_falls_through_to_the_running_interpreter(
@@ -183,3 +184,169 @@ def test_the_task_xml_names_that_directory(
     xml = win.build_task_xml(_job(), command=r"C:\py\pythonw.exe")
     assert f"<WorkingDirectory>{root}</WorkingDirectory>" in xml
     assert str(paths.PACKAGE_ROOT) not in xml
+
+
+# ------------------------------------------------ what the arguments are made of
+
+
+def test_an_interpreter_is_told_which_module_to_run(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """`-m arelis` is not decoration: without it pythonw.exe starts a REPL."""
+    monkeypatch.setattr(win, "INSTALL_PARENT", tmp_path / "site-packages")
+    monkeypatch.setenv(paths.DATA_DIR_ENV, str(tmp_path / "state"))
+    xml = win.build_task_xml(_job(), command=r"C:\py\pythonw.exe")
+    assert "<Arguments>-m arelis --run-job news</Arguments>" in xml
+
+
+def test_a_frozen_build_is_not_asked_to_run_a_module(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The breakage that made this seam worth building, pinned before it can bite.
+
+    Under PyInstaller or Nuitka, sys.executable is Arelis itself and `-m arelis`
+    means nothing to it, so every scheduled job would fail — at 7am, with nobody
+    watching. The arguments used to be a hardcoded string in the XML template,
+    which made this impossible to express as anything but a comment.
+
+    The chosen packaging ships a real interpreter and never takes this branch. The
+    test exists so that changing that decision is a decision rather than a
+    discovery.
+    """
+    monkeypatch.setattr(win, "INSTALL_PARENT", tmp_path / "site-packages")
+    monkeypatch.setenv(paths.DATA_DIR_ENV, str(tmp_path / "state"))
+    frozen_exe = tmp_path / "Arelis.exe"
+    frozen_exe.write_bytes(b"")
+    monkeypatch.setattr(win.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(win.sys, "executable", str(frozen_exe))
+
+    executable, args = win.runner_command()
+    assert Path(executable) == frozen_exe
+    assert args == ""
+
+    xml = win.build_task_xml(_job())
+    assert "<Arguments>--run-job news</Arguments>" in xml
+    assert "-m arelis" not in xml
+
+
+def test_a_frozen_build_does_not_go_looking_for_a_virtualenv(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A checkout venv beside a frozen build would be the wrong interpreter.
+
+    The frozen check comes first for this reason: a developer who freezes inside
+    their own checkout has a .venv sitting right there, and preferring it would
+    hand the task an interpreter with no relationship to the build under test.
+    """
+    fake_root = tmp_path / "checkout"
+    scripts = fake_root / ".venv" / "Scripts"
+    scripts.mkdir(parents=True)
+    (scripts / "pythonw.exe").write_bytes(b"")
+    monkeypatch.setattr(win, "INSTALL_PARENT", fake_root)
+
+    frozen_exe = tmp_path / "Arelis.exe"
+    frozen_exe.write_bytes(b"")
+    monkeypatch.setattr(win.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(win.sys, "executable", str(frozen_exe))
+
+    executable, _ = win.runner_command()
+    assert Path(executable) == frozen_exe
+
+
+# --------------------------------------------- when the interpreter has moved
+
+
+def test_a_task_registered_against_another_install_is_repointed(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The migration this exists for: checkout today, installed build tomorrow.
+
+    A scheduled task stores the absolute path it was created with. Installing a
+    packaged build leaves every existing task naming the checkout's virtualenv,
+    which may be gone, or may still be there and quietly run a copy of Arelis the
+    user has stopped using. Nobody is watching at 7am either way.
+    """
+    monkeypatch.setenv(paths.DATA_DIR_ENV, str(tmp_path / "state"))
+    monkeypatch.setattr(win, "supported", lambda: True)
+    win.runner_record_path().parent.mkdir(parents=True, exist_ok=True)
+    win.runner_record_path().write_text(
+        '{"command": "C:\\\\old-checkout\\\\.venv\\\\Scripts\\\\pythonw.exe", '
+        '"arguments": "-m arelis"}',
+        encoding="utf-8",
+    )
+    registered: list[str] = []
+    monkeypatch.setattr(win, "register", lambda job: registered.append(job.id))
+
+    assert win.repoint_tasks_if_runner_moved([_job()]) == ["news"]
+    assert registered == ["news"]
+
+
+def test_nothing_is_touched_when_the_command_has_not_changed(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """This runs at every launch, so the common case must cost nothing.
+
+    A repair that re-registers every task on every start would write to Task
+    Scheduler thousands of times for no reason, and each write is a subprocess.
+    """
+    monkeypatch.setenv(paths.DATA_DIR_ENV, str(tmp_path / "state"))
+    monkeypatch.setattr(win, "supported", lambda: True)
+    registered: list[str] = []
+    monkeypatch.setattr(win, "register", lambda job: registered.append(job.id))
+
+    first = win.repoint_tasks_if_runner_moved([_job()])
+    assert first == ["news"], "no record yet means the tasks are of unknown origin"
+    second = win.repoint_tasks_if_runner_moved([_job()])
+    assert second == [], "the second launch has a record and must do nothing"
+    assert registered == ["news"]
+
+
+def test_a_failed_repoint_is_retried_on_the_next_launch(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Recording success we did not have would strand the job permanently."""
+    monkeypatch.setenv(paths.DATA_DIR_ENV, str(tmp_path / "state"))
+    monkeypatch.setattr(win, "supported", lambda: True)
+
+    def refuse(job: object) -> None:
+        raise win.ScheduleError("schtasks said no")
+
+    monkeypatch.setattr(win, "register", refuse)
+    assert win.repoint_tasks_if_runner_moved([_job()]) == []
+    assert not win.runner_record_path().exists()
+
+
+def test_a_disabled_job_is_left_alone(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A job the user switched off must not be quietly reinstated."""
+    monkeypatch.setenv(paths.DATA_DIR_ENV, str(tmp_path / "state"))
+    monkeypatch.setattr(win, "supported", lambda: True)
+    registered: list[str] = []
+    monkeypatch.setattr(win, "register", lambda job: registered.append(job.id))
+
+    off = Job(id="news", name="Morning news", prompt="brief me", times=["07:00"], enabled=False)
+    assert win.repoint_tasks_if_runner_moved([off]) == []
+    assert registered == []
+
+
+def test_the_record_lives_with_the_user_data_and_not_the_program(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """And so a move to a different data root reads as no record, which is right.
+
+    That is the migration case exactly: the checkout kept its record in the
+    repository, the installed build looks in %LOCALAPPDATA% and finds nothing, and
+    finding nothing is what triggers the repair.
+    """
+    root = tmp_path / "state"
+    monkeypatch.setenv(paths.DATA_DIR_ENV, str(root))
+    record = win.runner_record_path()
+    assert record.is_relative_to(root)
+    assert not record.is_relative_to(paths.PACKAGE_ROOT)
+
+
+def test_repointing_is_a_no_op_off_windows(monkeypatch: pytest.MonkeyPatch) -> None:
+    """There is no Task Scheduler to disagree with, so there is nothing to repair."""
+    monkeypatch.setattr(win, "supported", lambda: False)
+    assert win.repoint_tasks_if_runner_moved([_job()]) == []
