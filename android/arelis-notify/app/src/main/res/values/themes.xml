@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.ArelisNotify" parent="Theme.MaterialComponents.DayNight.DarkActionBar">
+        <item name="colorPrimary">#ffb457</item>
+        <item name="colorPrimaryVariant">#120e0a</item>
+        <item name="colorOnPrimary">#0a0806</item>
+        <item name="colorSecondary">#ffd9a8</item>
+        <item name="colorOnSecondary">#0a0806</item>
+        <item name="colorSurface">#120e0a</item>
+        <item name="colorOnSurface">#f3ece0</item>
+        <item name="android:statusBarColor">#0a0806</item>
+        <item name="android:navigationBarColor">#0a0806</item>
+        <item name="android:windowBackground">#0a0806</item>
+        <item name="android:textColorPrimary">#f3ece0</item>
+        <item name="android:textColor">#f3ece0</item>
+    </style>
+</resources>

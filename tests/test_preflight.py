@@ -1,0 +1,310 @@
+"""Deterministic intent preflight (no tool execution)."""
+
+from __future__ import annotations
+
+from arelis.core.preflight import detect_intents, preflight_system_message
+
+
+def test_weather_intent() -> None:
+    hints = detect_intents("What's the weather like?")
+    assert any(h.kind == "weather" for h in hints)
+    msg = preflight_system_message("What's the weather like?")
+    assert msg and "weather tool" in msg.lower()
+
+
+def test_sms_intent_with_body() -> None:
+    hints = detect_intents("Text Brian: Running 10 minutes late")
+    assert any(h.kind == "sms_send" for h in hints)
+    sms = next(h for h in hints if h.kind == "sms_send")
+    assert "brian" in sms.nudge.lower()
+    assert "Running 10 minutes late" in sms.nudge
+
+
+def test_no_false_sms_on_text_me_later() -> None:
+    hints = detect_intents("text me later about the optics run")
+    assert not any(h.kind == "sms_send" for h in hints)
+
+
+def test_workspace_write_not_sms() -> None:
+    for phrase in (
+        "write a temp file with hello",
+        "create a text file named note.txt",
+        "save a file called scratch.md",
+    ):
+        hints = detect_intents(phrase)
+        assert any(h.kind == "workspace_write" for h in hints), phrase
+        assert not any(h.kind == "sms_send" for h in hints), phrase
+
+
+def test_list_goals_beats_pending_sms_history() -> None:
+    history = [
+        {"role": "user", "content": "Text my wife"},
+        {"role": "assistant", "content": "What should I say?"},
+    ]
+    hints = detect_intents("list my goals", history=history)
+    assert any(h.kind == "goals" for h in hints)
+    assert not any(h.kind == "sms_send" for h in hints)
+
+
+def test_inbox_read_not_compose_email() -> None:
+    """R11: triage must not expect send_email from a stale draft."""
+    history = [
+        {
+            "role": "user",
+            "content": "Email Brian subject: Hi body: Hello there friend.",
+        },
+        {"role": "assistant", "content": "Ready to send when you say so."},
+    ]
+    for phrase in (
+        "any new emails today?",
+        "check my inbox",
+        "what's in my inbox",
+    ):
+        hints = detect_intents(phrase, history=history)
+        assert any(h.kind == "inbox" for h in hints), phrase
+        assert not any(h.kind == "compose_email" for h in hints), phrase
+        assert "send_email" not in {
+            t for h in hints for t in h.expected_tools
+        }, phrase
+
+
+def test_plain_chat_has_no_preflight() -> None:
+    assert preflight_system_message("Good morning") is None
+
+
+def test_attachment_continue_affirmation() -> None:
+    history = [
+        {
+            "role": "user",
+            "content": (
+                "Attachments for this turn (call the listed tool; "
+                "do not invent contents):\n"
+                "- data/drops/20260810/ui_launch.log (text) → workspace read\n\n"
+                "summarize this log"
+            ),
+        },
+        {
+            "role": "assistant",
+            "content": "Want a line-by-line summary?",
+        },
+    ]
+    hints = detect_intents("yea", history=history)
+    assert any(h.kind == "attachment_continue" for h in hints)
+    expanded = (
+        "Attachments for this turn …\n"
+        "Continue the prior request about these attachments.\n"
+        "User affirmed: yea"
+    )
+    hints2 = detect_intents(expanded)
+    assert any(h.kind == "attachment_continue" for h in hints2)
+
+
+def test_recall_intent() -> None:
+    for phrase in (
+        "What did I say about the deadline?",
+        "Do you remember my wife's name?",
+        "You told me the gate code earlier",
+    ):
+        hints = detect_intents(phrase)
+        assert any(h.kind == "recall" for h in hints), phrase
+        recall = next(h for h in hints if h.kind == "recall")
+        assert "recall" in recall.expected_tools
+        assert "recall tool" in recall.nudge.lower()
+
+
+def test_inbound_sms_intent() -> None:
+    for phrase in (
+        "Did Brian text?",
+        "What did they reply?",
+        "Has Sarah texted back?",
+        "Any texts from Mom?",
+    ):
+        hints = detect_intents(phrase)
+        assert any(h.kind == "inbound_sms" for h in hints), phrase
+        inbound = next(h for h in hints if h.kind == "inbound_sms")
+        assert inbound.expected_tools == ("inbound_sms",)
+        assert "inbound_sms" in inbound.nudge
+
+
+def test_analyze_intent_path_or_extension() -> None:
+    for phrase in (
+        "Summarize reports/sales.csv",
+        "What's in the xlsx export?",
+        "Analyze the tsv on disk",
+        "head of data\\metrics.xlsx please",
+    ):
+        hints = detect_intents(phrase)
+        assert any(h.kind == "analyze" for h in hints), phrase
+        analyze = next(h for h in hints if h.kind == "analyze")
+        assert analyze.expected_tools == ("analyze",)
+        assert "analyze tool" in analyze.nudge.lower()
+
+
+def test_analyze_intent_summarize_data_shape() -> None:
+    hints = detect_intents("Can you summarize the data in that table?")
+    assert any(h.kind == "analyze" for h in hints)
+
+
+def test_compose_email_intent() -> None:
+    hints = detect_intents("Email bob@example.com about Dinner: See you at 7")
+    assert any(h.kind == "compose_email" for h in hints)
+    email = next(h for h in hints if h.kind == "compose_email")
+    assert email.expected_tools == ("send_email",)
+    assert "send_email" in email.nudge
+
+
+def test_browser_intent_pull_up() -> None:
+    hints = detect_intents("pull up YouTube")
+    assert any(h.kind == "browser" for h in hints)
+    browser = next(h for h in hints if h.kind == "browser")
+    assert browser.expected_tools == ("browser",)
+
+
+def test_openx_com_does_not_revive_pending_sms() -> None:
+    history = [
+        {"role": "user", "content": "text Sam Brightley and tell him"},
+        {"role": "assistant", "content": "What should I say?"},
+    ]
+    for phrase in ("OpenX.com", "open x.com", "open X.com"):
+        hints = detect_intents(phrase, history=history)
+        assert not any(h.kind == "sms_send" for h in hints), phrase
+
+
+def test_calendar_reminder_to_text_is_agenda_not_sms() -> None:
+    """Nested 'text my wife' inside a calendar create must not expect send_sms."""
+    phrase = (
+        "create a calendar event for tomorrow at 4pm. I want this calendar "
+        "event to be a reminder to text my wife and tell her I love her."
+    )
+    hints = detect_intents(phrase)
+    assert any(h.kind == "agenda_create" for h in hints)
+    assert not any(h.kind == "sms_send" for h in hints)
+    expected = {t for h in hints for t in h.expected_tools}
+    assert "agenda" in expected
+    assert "send_sms" not in expected
+    msg = preflight_system_message(phrase)
+    assert msg is not None
+    assert "agenda" in msg.lower()
+    assert "send_sms" not in msg.lower() or "do not send_sms" in msg.lower()
+
+
+def test_preflight_never_implies_allow_skip() -> None:
+    """Nudges only — wording must not tell the model to skip confirm."""
+    for phrase in (
+        "Text Brian: I'm late",
+        "What did I say yesterday?",
+        "Did Alex text?",
+        "Summarize data/foo.csv",
+        "Email bob@example.com about Dinner: See you at 7",
+        "pull up YouTube",
+    ):
+        msg = preflight_system_message(phrase)
+        assert msg is not None
+        lowered = msg.lower()
+        assert "skip" not in lowered
+        assert "without confirm" not in lowered
+        assert "bypass" not in lowered
+
+
+def test_contacts_lookup_intent() -> None:
+    hints = detect_intents("Who is my wife in my contacts?")
+    assert any(h.kind == "contacts" for h in hints)
+    assert not any(h.kind == "sms_send" for h in hints)
+    follow = detect_intents(
+        "proceed",
+        history=[
+            {"role": "user", "content": "Who is my wife in my contacts?"},
+            {"role": "assistant", "content": "I would need to call the contacts tool."},
+        ],
+    )
+    assert any(h.kind == "contacts" for h in follow)
+
+
+def test_tasks_and_goal_delete_intents() -> None:
+    assert any(h.kind == "tasks" for h in detect_intents("List my tasks. Do not text anyone."))
+    assert any(h.kind == "goals" for h in detect_intents("delete that goal"))
+    assert any(h.kind == "goals" for h in detect_intents("Now delete both of those goals"))
+    from arelis.core.preflight import draft_browser_args
+
+    assert draft_browser_args("whats on this page?") == {"action": "read"}
+    opened = draft_browser_args("I accidentally closed the window, please reopen x.com")
+    assert opened["action"] == "open"
+    assert "x.com" in opened["url"]
+    assert any(h.kind == "browser" for h in detect_intents("reopen x.com"))
+    assert any(h.kind == "browser_read" for h in detect_intents("whats on this page?"))
+
+
+def _expected(text: str) -> set[str]:
+    out: set[str] = set()
+    for hint in detect_intents(text):
+        out |= set(hint.expected_tools or ())
+    return out
+
+
+def test_analyze_a_picture_reaches_vision_not_the_table_reader() -> None:
+    """"Analyze" is the word the user says, and it named a pandas tool.
+
+    Every one of these used to produce no expected tool at all, which left the
+    ask to a model looking at a menu where `analyze` reads spreadsheets — and
+    answers "Unsupported file type: .png".
+    """
+    for phrase in (
+        "analyze this picture",
+        "analyze the photo i pasted",
+        "analyze the screenshot",
+        "analyze the image",
+        "analyse the picture",
+        "analyze my photograph",
+    ):
+        assert "vision" in _expected(phrase), phrase
+        assert "analyze" not in _expected(phrase), phrase
+
+
+def test_analyze_a_document_reaches_doc_extract() -> None:
+    for phrase in (
+        "analyze the document i just gave you",
+        "analyze this pdf",
+        "what does this document say",
+        "summarize the document",
+        "go through these documents",
+        "read the pdf",
+    ):
+        assert "doc_extract" in _expected(phrase), phrase
+
+
+def test_the_document_nudge_says_not_to_ask_permission() -> None:
+    """Measured, not stylistic.
+
+    Without the closing clause this nudge routed correctly and qwen2.5:7b still
+    answered in prose three times out of three, hedging about needing access
+    instead of calling doc_extract. With it, 3/3 called the tool. Every sibling
+    nudge in preflight.py ends the same way for the same reason.
+    """
+    hints = [h for h in detect_intents("analyze the document I gave you") if h.kind == "docs"]
+    assert hints
+    nudge = hints[0].nudge.lower()
+    assert "do not ask permission" in nudge
+    assert "doc_extract" in nudge
+
+
+def test_a_table_ask_still_belongs_to_analyze() -> None:
+    for phrase in ("analyze sales.csv", "analyze the spreadsheet"):
+        assert "analyze" in _expected(phrase), phrase
+        assert "vision" not in _expected(phrase), phrase
+        assert "doc_extract" not in _expected(phrase), phrase
+
+
+def test_the_document_words_that_are_not_asks_stay_put() -> None:
+    """A bare noun is not a request to read one.
+
+    "document this decision" is a write, "documentation" is not a document, and
+    "email me the pdf" is a send. Forcing doc_extract on any of them would spend
+    a round opening a file nobody named.
+    """
+    for phrase in (
+        "document this decision in the readme",
+        "check the documentation for that flag",
+        "email me the pdf",
+        "save it as a pdf",
+    ):
+        assert "doc_extract" not in _expected(phrase), phrase

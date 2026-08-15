@@ -1,0 +1,51 @@
+# Copy this file to data/profile.yaml and fill in what you want Arelis to know.
+#
+#     Copy-Item data\profile.example.yaml data\profile.yaml
+#
+# data/profile.yaml is gitignored. Keep this short — a handful of standing
+# fields beats a 50-item schema that goes stale and burns context every turn.
+# Empty values are omitted. Changes apply on the next turn (no restart).
+#
+# Phones and other people's emails belong in data/contacts.yaml.
+# Your mail login belongs in data/secrets.yaml.
+# One-off durable facts still go through History / the memory tool.
+
+# Identity and preferences (optional). Injected every turn when set.
+user:
+  name: ""
+  # What she should call you in chat.
+  prefer_called: ""
+  # Optional. Example: he/him
+  pronouns: ""
+  # One short line. Example: backend engineer at a logistics company
+  work: ""
+  school: ""
+  # How you like answers. Example: short and plain; ask before assuming
+  answer_style: ""
+  # Example: metric, 24-hour clock
+  units: ""
+  # Only if you need a note beyond location.timezone below.
+  timezone_note: ""
+  # Anything else that should stay true for months. Keep it short.
+  notes: ""
+
+location:
+  city: ""
+  # State, province, or county. `state:` is accepted as a synonym.
+  region: ""
+  country: ""
+  # `zip:` is accepted as a synonym.
+  postal_code: ""
+
+  # Worth filling in. Weather APIs take coordinates, and providing them saves a
+  # geocoding round trip on every forecast. Four decimal places is about 11 m,
+  # which is far more than any of this needs -- two is a neighbourhood and is
+  # plenty. Right-click a spot in Google Maps to copy a pair.
+  latitude:
+  longitude:
+
+  # IANA name, for example America/New_York or Europe/London. Windows does not
+  # store one, so Arelis cannot read it off the system and falls back to your
+  # raw UTC offset, which is wrong for half the year in a daylight-saving
+  # region. Setting it here is the fix.
+  timezone: ""

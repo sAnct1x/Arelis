@@ -1,0 +1,628 @@
+ollama:
+  base_url: "http://127.0.0.1:11434"
+  timeout_s: 300
+  # Context window sent with every request. Ollama's own default is small
+  # (2048 tokens on most builds), and anything past it is dropped from the
+  # front of the prompt without warning. That silently defeats
+  # agent.tool_output_chars: the model answers about a file it never saw.
+  # 2026-08-10 dropped this to 8192 because 16384 looked like it cost warm
+  # prefill, and asked for bench_latency evidence before raising it again.
+  # 2026-08-14 has that evidence, and the warm cost did not reproduce: on a
+  # 12GB GPU, warm prefill was 21ms at 8192 and 22ms at 16384, TTFT 168ms
+  # against 174ms, VRAM 4.77 GiB against 5.22 GiB. Only one chat model is hot
+  # at a time, so half a gigabyte is not contended.
+  #
+  # It has to go back up because the tool schemas do not fit. The full registry
+  # serialises to ~31,700 characters, near 7,900 tokens — 97% of an 8192 window.
+  # After the reply and tool-result reserves that left a budget of zero for the
+  # persona and history on any turn offering the full surface, which is every
+  # SMS turn, and Ollama drops the overflow from the front. 12288 is still zero;
+  # 16384 is the first value that leaves real room (~3,900 tokens).
+  num_ctx: 16384
+  # Research (14B) stays on 8192 so deep-dive tok/s does not regress.
+  research_num_ctx: 8192
+  # Vision (qwen2.5vl:3b) one-shot — keep tight; chat is unloaded first.
+  vision_num_ctx: 4096
+
+# Role → Ollama tag. This is the full tier: what a 12GB GPU can hold. Machines
+# with less get a smaller set chosen for them at first run, so nothing here is a
+# floor. Measured on a 12GB card:
+#   qwen2.5:7b   ~4.8 GiB VRAM, ~13s TTFT, ~49 tok/s  → conversation default
+#   qwen2.5:14b  ~9.6 GiB VRAM, ~18s TTFT, ~29 tok/s  → research (~89% of the card)
+#   qwen2.5-coder:7b → code role
+# Do not change these tags until a foundation scoreboard scenario fails.
+# Novelty is exactness and evidence, not weight shopping.
+# One chat model hot at a time (router unload). Embeddings are a separate small
+# model loaded briefly for recall/indexing, not mid-turn chat.
+models:
+  fast: "qwen2.5:7b"
+  research: "qwen2.5:14b"
+  code: "qwen2.5-coder:7b"
+  # Single-frame VL (Ollama), pulled the first time vision is used.
+  # Never resident next to 14B — vision tool unloads chat first.
+  vision: "qwen2.5vl:3b"
+
+router:
+  # Non-default (research/code) residency after a turn. "0" made every research
+  # follow-up cold-load 14B (~18s). "5m" keeps deep sessions warm.
+  keep_alive: "5m"
+  default_role: "fast"     # conversation role; stays pinned between turns
+  # How long the default role stays in VRAM after a request / pin.
+  # Longer = fewer cold TTFTs in a session. Use -1 to keep until Ollama exits.
+  # `/role research` unloads 7B, stops Arelis-owned Comfy, and waits for
+  # /api/ps eviction before the next 14B stream. A VRAM miss ends the turn
+  # (no JSON fallback — that used to start a second 14B load and lock the PC).
+  default_keep_alive: "30m"
+  warm_on_start: true      # pin default model when UI/CLI starts (fail soft)
+  rewarm_after_switch: true  # after research/code, pin fast again (delayed)
+  # H6 sticky hold + delayed 7B re-pin (same clock by default). While the last
+  # heavy model is sticky, auto/fast turns stay on it instead of unloading.
+  # Explicit research/code chip still switches; `/role fast` clears sticky.
+  # Speculative decoding is not available on Ollama+Windows+AMD.
+  rewarm_delay_s: 60
+  # sticky_hold_s: 60   # optional override; defaults to rewarm_delay_s
+
+memory:
+  # Semantic recall / doc index. Pulled: ollama pull nomic-embed-text
+  # The indexer never runs mid-turn; a recall search may load it briefly.
+  embed_model: "nomic-embed-text"
+  docs:
+    # Index readable files under workspace.roots into memory.db between turns.
+    # recall(source=docs|all) can then find project notes, not only chat.
+    enabled: true
+    max_file_bytes: 524288
+    chunk_chars: 1200
+    chunk_overlap: 200
+  mail:
+    # Opt-in. When true, idle ticks peek a sliding window of recent mail into
+    # memory.db (readonly IMAP + BODY.PEEK; never marks read). Off by default
+    # so a large mailbox is not mirrored without asking.
+    enabled: false
+    max_messages: 40
+    retention_days: 30
+    max_body_chars: 4000
+    # Minimum seconds between IMAP syncs while the UI is idle.
+    min_interval_s: 900
+
+agent:
+  max_rounds: 8            # model/tool steps before Arelis is forced to answer
+  tool_output_chars: 14000 # per tool result; keep below num_ctx (see above)
+  confirm_writes: true     # file write/edit needs approval in the UI
+  # Asked about every single send, and never covered by "allow all this turn".
+  # Mail leaves the machine and cannot be recalled.
+  confirm_send: true
+  # Auto-skip Allow cards left open (L10). 0 = wait forever.
+  confirm_timeout_s: 300
+  confirm_image: true      # image generation needs approval in the UI
+  # Open/drive the user's real browser. First Allow in a turn; Allow this turn
+  # covers further browser steps (same as writes/images). Never batches with mail/SMS.
+  confirm_browser: true
+  # See one local image (VL). Separate from confirm_image so disabling Comfy
+  # generation confirm does not disable vision. Allow this turn covers it.
+  confirm_vision: true
+  json_fallback: true      # allow the JSON tool protocol when native calling fails
+  block_private_urls: true # refuse loopback, private, and link-local targets
+  # Per-turn latency to logs/turns.log (and a one-line "timing …" in Thinking).
+  # Leave on while tuning conversation speed; set false to silence the file.
+  turn_telemetry: true
+  # High-value bus events → logs/events.log (confirms, SMS, tools, errors).
+  # Omits ASSISTANT_DELTA / audio. See docs/telemetry.md.
+  event_telemetry: true
+  # ACE-lite: after the static SKILL_CORE prefix, inject a trailing "focus
+  # skills" block for cards matching this turn. false = prefix only (no focus).
+  skill_cards: true
+  # Skip tool schemas when no skill/preflight/exactness warrant (streamed chat).
+  # Any exactness kind (including vision) re-arms tools — not only calc/web.
+  chat_fast_path: true
+  # Tool-bearing model rounds: lower temperature to cut preamble decode bloat.
+  tool_round_temperature: 0.1
+  # Deterministic nudges for clear weather / SMS intents. Never skips Allow.
+  intent_preflight: true
+  # Inject short failure lessons (data/lessons.yaml + built-in seed).
+  lessons: true
+  # At UI/CLI start, mine logs/turns.log and append curated lessons by signature.
+  # Fail soft; never invents free-form text (fixed catalog only).
+  auto_lessons: true
+  # If she searched for news/current events but never scraped, nudge once.
+  scrape_after_search: true
+  # Mid-turn: if a multi-step Plan ran early tools but skipped a later step,
+  # nudge once (e.g. tasks→agenda). Does not call tools or skip Allow.
+  plan_progress: true
+  # If to+body are known but she never called send_sms, nudge once (Allow still).
+  sms_force_call: true
+  # When to+body are already known, raise the Allow card before the first model
+  # round instead of after it. Tool rounds hold the answer back, so a spoken
+  # "text my wife …" showed an empty thread until the 7B decided, which read as
+  # hung and got Esc'd. Allow is still the only thing that sends.
+  sms_preinject: true
+  # Same for email when subject+body are known (Allow still).
+  email_force_call: true
+  # Calendar create draft known but she never called agenda (often chats steps
+  # or falsely picks send_sms / web_search for "reminder to text …").
+  agenda_force_call: true
+  # Image-gen ask clear but she never called image (often picks web_search).
+  image_force_call: true
+  # A task/goal ask that produced no store call gets the call injected. These two
+  # already reported themselves to telemetry as the tasks_force and goals_force
+  # gates, next to five siblings that each had a switch, but they had none: they
+  # were unconditional, so "measure the board with the store forcing off" was a
+  # question the config could not express. Both default on, so nothing moves.
+  tasks_force_call: true
+  goals_force_call: true
+  # The three below were read from config but never listed here, so they were on
+  # and looked like they were not. Each is a real switch; soak_tools turns
+  # weather off to measure the model unaided.
+  #
+  # A weather ask that produced no weather call gets one nudge, then a redirect
+  # if she reaches for web_search/scrape/fetch instead.
+  weather_force_call: true
+  # An ask about an image she can see, where vision never ran: inject it against
+  # the most recent generated image.
+  vision_force_call: true
+  # After a browser CDP failure, tell her once that "open" is a plain OS open and
+  # relaunch is the Allow-gated one, so she does not retry the dead path.
+  browser_relaunch_force: true
+  # An argument the tool never declared is dropped in silence, because tools take
+  # **kwargs and read only the keys they know. The reply is then built on a belief
+  # the tool never honoured: weather(days=2, latitude=39.7) answers for the
+  # profile location without mentioning the coordinate it ignored. Off, that call
+  # runs and quietly returns the wrong place.
+  strict_tool_args: true
+  # Exactness: math must use calculator; contingent facts need an evidence
+  # warrant from tools this turn. See docs/architecture.md.
+  exactness: true
+  numeric_gate: true
+  evidence_gate: true
+  # Research role: prefer two independent web hits before high confidence.
+  research_dual_hit: true
+  # Deep-dive / research-role turns get a higher tool-round budget (agent_loop).
+  research_max_rounds: 12
+  # Research mode finish gate: need this many ok web sources (agent_loop).
+  research_min_sources: 2
+  # When true, research-role / deep-dive turns see a reduced tool schema set.
+  research_tool_subset: true
+  # Everyday turns: offer tools for matched skill cards only. Unmatched turns
+  # keep the full registry (fail open). Outbound SMS/email keep the full set.
+  # Research-mode subset above still wins on deep-dive turns.
+  skill_tool_subset: true
+  # Same-round independent READ tools (weather+inbox, search+scrape with URLs
+  # already in the call) run together. Writes and Allow-gated calls stay serial.
+  read_fanout: true
+  # Mid-turn: escalate fast → research/code once if expected tools never fire.
+  mid_turn_escalate: true
+  escalate_after_rounds: 2
+  # History compress budget (H1/L7). Slash + speak skip model summarize.
+  summarize_max_ms: 8000
+  summarize_skip_slash: true
+  # Sliding-window hard cap (user+assistant messages) before token budget.
+  # Bounds prefill as sessions grow; older turns fold into summarize/drop.
+  history_max_messages: 24
+  # Always keep this many recent prompt-visible messages, even when the
+  # system prefix has already spent the token budget. 6 = prior 2 turns
+  # plus the current user line. Conversation mode used to keep only the
+  # newest line, so follow-ups forgot the last sentence.
+  history_min_recent: 6
+  # Hold ASSISTANT_DELTA until tool rounds settle (H5/R13 retract storms).
+  stream_answer_after_tools: true
+  # Fat scrape/doc/research bodies: cache full text, inject summary card.
+  tool_summary_inject: true
+  # Conversation: run weather/SMS preflight on provisional STT before end-point.
+  voice_speculate_preflight: true
+
+workspace:
+  # Every path Arelis may read or write. Relative entries resolve against the
+  # repo root. Nothing outside these roots is reachable, including via symlink
+  # or "..", because paths are fully resolved before the containment check.
+  #
+  # Flat path strings still work (name = directory basename). Prefer the named
+  # form when you have more than one project; address files as name:relative/path.
+  # Override live roots in data/config.local.yaml (Settings → Roots) so this
+  # shipped default stays a single-root fresh clone.
+  # read_only=true rejects write/edit/create under that root.
+  roots:
+    - "."
+    # Extra projects are opt-in (Settings → Roots, or the workspace dock).
+    # Do not list sibling folders here. Example of a second root, local only:
+    # - name: notes
+    #   path: "C:/Users/you/Documents/notes"
+    #   read_only: false
+
+tools:
+  web:
+    enabled: true
+    user_agent: "ArelisResearchBot/0.1 (+local; personal assistant)"
+    timeout_s: 30
+  scrape:
+    enabled: true
+    max_chars: 120000
+    # When the main URL is a JS shell, retry AMP/print twins found in the HTML.
+    follow_siblings: true
+  search:
+    # How she finds a page in the first place. Without this she can only reach
+    # URLs she already knows, which is why anything current used to end in a
+    # guessed address and an empty page.
+    enabled: true
+    # DuckDuckGo HTML search — no API key, no local container. Not a choice:
+    # search.py builds the DuckDuckGo request directly, so a backend key here
+    # would read as an option that does not exist.
+    max_results: 6
+    timeout_s: 20
+  research:
+    # Deterministic multi-source disposer (search → scrape → markdown artifact).
+    # Attended turns only. Prefer for deep dives / research role.
+    enabled: true
+    max_sources: 3
+    max_chars_per_source: 1200
+    output_dir: "outputs/research"
+  email:
+    # Transport only. Your address and app password live in data/secrets.yaml,
+    # which is gitignored -- see data/secrets.example.yaml. Without that file
+    # neither mail tool is registered at all.
+    enabled: true
+    from_name: "Arelis"
+    smtp_host: "smtp.gmail.com"
+    smtp_port: 587
+    imap_host: "imap.gmail.com"
+    imap_port: 993
+    timeout_s: 30
+    # Caps on how much mail can enter one turn's context. Newest first.
+    max_messages: 20
+    max_body_chars: 4000
+  sms:
+    # Texts leave through your own Android phone running SMSGate
+    # (https://sms-gate.app), so they arrive from your number and replies come
+    # back to your phone. Nothing here is a secret: the base URL and login live
+    # in data/secrets.yaml, and without them send_sms is not registered at all.
+    # Independent of email. Same confirm gate as send_email.
+    #
+    # Named people live in data/contacts.yaml (see data/contacts.example.yaml).
+    enabled: true
+    # A guard on how much the model can put on somebody's phone in one message,
+    # not a protocol limit: the handset splits a long text into segments and the
+    # recipient sees one message.
+    max_body_chars: 1600
+    timeout_s: 30
+    inbound:
+      # Primary: Android "Arelis Notify" companion POSTs Google Messages
+      # notifications (including RCS) to the LAN ingest server. Ingest stays up
+      # with the desktop UI, while hidden in the tray, or via `arelis --core`.
+      # Token: sms.ingest_token in data/secrets.yaml.
+      enabled: true
+      # How an inbound text announces itself is not configured here: it is the
+      # per-channel mode in Settings → Notify → SMS (glass pill, optionally with
+      # a voice cue when idle). Keys here would be read by nothing.
+      ingest:
+        enabled: true
+        host: "0.0.0.0"
+        port: 8765
+      # Optional SMS/MMS fallback via SMSGate Local Server GET /inbox.
+      # Does not see RCS — companion is required for Google Messages chats.
+      fallback_smsgate: true
+      poll_interval_s: 4
+    auto_reply:
+      # Phase 3. Off by default. When enabled, only allowlisted contact aliases
+      # can get a draft reply, and every draft still uses the send_sms confirm
+      # card — never a silent send.
+      enabled: false
+      contacts: []          # e.g. [wife, alex]
+      rules: []             # [{match: "on my way", reply: "Drive safe."}]
+      default_reply: ""     # used only when no rule matches; empty = no draft
+  schedule:
+    # Saved prompts that run on their own and email the answer. Needs email
+    # configured, since delivery is the entire point.
+    enabled: true
+  tasks:
+    # Local to-do list in memory.db (list/add/done/reopen/remove). Writes need
+    # Allow. Open tasks appear in the morning briefing. Needs archive present.
+    enabled: true
+  goals:
+    # Durable goals/commitments in memory.db (beyond chores). Writes need Allow.
+    # Active goals appear in the morning briefing. Same archive gate as tasks.
+    enabled: true
+  browser:
+    # Drive Arelis' own Chrome (data/browser-profile), not daily Chrome.
+    # Install: pip install -e ".[browser]" && playwright install chromium firefox
+    # See docs/browser-control.md. Never enters passwords/OTP. Never taskkills
+    # chrome.exe — relaunch only stops her profile.
+    enabled: true
+    cdp_url: "http://127.0.0.1:9222"
+    max_snapshot_chars: 6000
+    max_read_chars: 3500
+    aliases:
+      youtube: "https://www.youtube.com"
+      gmail: "https://mail.google.com"
+      github: "https://github.com"
+      calendar: "https://calendar.google.com"
+      maps: "https://www.google.com/maps"
+  calendar:
+    # Google Calendar API + Microsoft Graph (explicit OAuth exception).
+    # Credentials in data/secrets.yaml → calendar.google / calendar.outlook.
+    # Auth once: arelis --auth-calendar google|outlook
+    # Writes always open a confirm card (never silent; never batch with allows).
+    enabled: true
+    # Sync this many days back/forward into the local cache on agenda sync/list.
+    sync_past_days: 7
+    sync_future_days: 60
+    # Default calendar id per provider. Empty falls through to the id in
+    # data/secrets.yaml, which is "primary" for Google and the account default
+    # for Outlook — the right answer for almost everyone. Set one of these only
+    # to reach a secondary or shared calendar the authorised account can see.
+    google_calendar_id: ""
+    outlook_calendar_id: ""
+  briefing:
+    # Fixed morning digest (weather, unread mail, open loops, open tasks,
+    # active goals, recent chats, calendar cache and/or local ICS), emailed on a
+    # schedule via schedule(action='create_briefing'). That job builds the digest
+    # in jobs/runner.py without a model, so this section is about the emailed
+    # briefing only.
+    #
+    # 2026-08-14 removed the on-demand briefing tool. Asked for at chat time the
+    # digest is assembled from agenda, inbox and tasks instead — one tool that
+    # stitched five together was a tool the model had to be told to prefer, and
+    # in 484 real turns it was never once called. This key still registers the
+    # agenda tool, because the emailed digest is built from the calendar.
+    enabled: true
+    mail_limit: 10
+    fact_limit: 8
+    task_limit: 12
+    goal_limit: 8
+    session_limit: 5
+    # Measured watchers v1: the deterministic ## Attention section of the emailed
+    # briefing, and the "attention N" count in the world-state prompt line. The
+    # attention tool that also read this was removed on 2026-08-14 — a read-only
+    # aggregate of tasks, goals and agenda that the model never chose, and whose
+    # own owner could not say what it was for. "What needs my attention" now
+    # reads those three directly. No background poller, no silent send.
+    attention:
+      enabled: true
+      limit: 12
+      due_soon_days: 2
+      soon_hours: 24
+      stale_task_days: 7
+      overdue_grace_days: 0
+      # Config-only richer watchers (no second scheduler). Empty by default.
+      # inbox_rules:
+      #   - id: bills
+      #     sender_contains: "billing@"
+      #     subject_contains: ""
+      # file_rules:
+      #   - id: tax_packet
+      #     path: "data/drops/taxes.pdf"
+      #     missing: true
+      #     # older_than_days: 14
+      inbox_rules: []
+      file_rules: []
+    # ICS fallback when APIs are not configured (gitignored). See
+    # data/calendar.example.ics. Prefer Google/Outlook sync when secrets exist.
+    # Optional: set calendar.ics_url in data/secrets.yaml and call
+    # agenda(action=sync, provider=ics) to refresh this file (Allow required).
+    calendar_path: "data/calendar.ics"
+  analyze:
+    enabled: true
+  # System clipboard plain-text read. Always Allow (may hold secrets). Off for
+  # unattended jobs. No write/set clipboard in this pass.
+  clipboard:
+    enabled: true
+    max_chars: 8000
+  # Local Tesseract OCR (CPU). Requires `tesseract` on PATH. action=screen
+  # grabs the primary display. Always Allow (confirm_vision). Not VL / not GPU.
+  ocr:
+    enabled: true
+    max_chars: 12000
+    output_dir: "outputs/images"
+  # Local PDF text extract (pypdf). Paths stay under workspace roots; optional
+  # page_start/page_end. No cloud OCR / no Google Drive. Evidence kind: doc.
+  doc_extract:
+    enabled: true
+    max_chars: 20000
+  image:
+    enabled: true
+    comfy_url: "http://127.0.0.1:8188"
+    output_dir: "outputs/images"
+    # Image generation runs on ComfyUI, which is a separate application and a
+    # large download. Nothing here points anywhere by default: on a machine that
+    # does not have it, the feature simply reports itself unavailable rather than
+    # trying to launch a program that is not there.
+    #
+    # When true, a missing ComfyUI server is started for you (needs launch_cwd).
+    auto_start: false
+    # Folder that contains ComfyUI's main.py or a Windows portable root
+    # (run_amd_gpu.bat / python_embeded). Required for auto-start.
+    launch_cwd: ""
+    # Empty = silent python + main.py (venv_directml when run_directml.bat
+    # exists beside launch_cwd; else python_embeded). Do not use python_embeded
+    # with --directml on AMD — that AV-crashes in torch.cuda.is_available().
+    launch_command: ""
+    startup_timeout_s: 180
+  # See one image (VL). Attended turns only; unload chat → VL → rewarm fast.
+  vision:
+    enabled: true
+    # model defaults to models.vision; num_ctx defaults to ollama.vision_num_ctx
+
+voice:
+  # Master switch. Each direction below has its own toggle under it, so the mic
+  # can work with playback off, or she can speak without ever listening.
+  enabled: true
+  # Substring of the input device name, as Windows reports it, e.g. "Logitech".
+  # Empty follows the system default input.
+  input_device: ""
+  # Substring of the output device name. Empty follows the system default.
+  output_device: ""
+  # Playback level for spoken replies (0.0–1.0). Persists via config.local.yaml.
+  output_volume: 1.0
+  # Recordings are deleted once transcribed. Set true to keep them under
+  # outputs/voice/ when diagnosing a capture problem.
+  keep_recordings: false
+  # Write one line per state change of the conversation loop to logs/voice.log:
+  # mode, whether she is listening, and the three flags that decide it. Turn on
+  # when she stops hearing you and the last few lines will say which one stuck.
+  # Off by default: it is a diagnostic, not something every machine should be
+  # writing to disk forever.
+  debug: false
+
+  # Live onset / end-point detector for conversation and dictate.
+  # silero = neural speech probability (default). energy = RMS floor fallback.
+  # Missing ONNX/deps fall back to energy automatically.
+  vad:
+    backend: silero   # silero | energy
+    threshold: 0.5
+    # End only when EMA drops below this (hysteresis vs threshold) so brief
+    # mid-phrase dips and unstressed last syllables stay voiced.
+    end_threshold: 0.22
+    onset_ms: 160
+    # Empty uses models/silero/silero_vad.onnx
+    model_path: ""
+    allow_download: true
+
+  # Wake phrase ("Arelis" or "Hey Arelis") while idle. Slightly stricter than
+  # conversation so room noise does not false-trigger; lower speech_level if
+  # wake feels deaf. Failed near-misses show a short status with what Whisper heard.
+  # max_utterance_s caps stuck-VAD dumps so Whisper is not fed multi-minute clips.
+  # engine: whisper (legacy STT+regex) | openwakeword (dedicated ONNX; needs
+  # models/wake/hey_arelis.onnx — see models/wake/README.md). Defaults to
+  # openwakeword when that file exists, else whisper.
+  wake:
+    enabled: true
+    engine: auto   # auto | openwakeword | whisper
+    threshold: 0.5
+    cooldown_ms: 1500
+    model_path: ""
+    silence_ms: 900
+    speech_level: 0.03
+    max_utterance_s: 8
+
+  stt:
+    enabled: true
+    # sherpa (default ear) | faster-whisper (fallback if Sherpa or its
+    # model files are missing). Wake still uses Whisper / future ONNX.
+    backend: sherpa
+    model_dir: "models/sherpa"
+    allow_download: true
+    # tiny | base | small | medium | large-v3. Used only by the Whisper
+    # fallback. base is the accuracy/latency knee on CPU.
+    model_size: "base"
+    device: "cpu"
+    # int8 on CPU is about three times faster than float32 here for a
+    # negligible accuracy cost, and the GPU is reserved for the chat models.
+    compute_type: "int8"
+    language: "en"      # "" to auto-detect, at the cost of a beat on short clips
+    beam_size: 1
+    # Post-hoc Silero inside faster-whisper. Off while live Silero already
+    # end-points the clip — a second trim ate last words ("hobbies" → "hub").
+    vad_filter: false
+    # Words Whisper has no reason to expect. Keep this SHORT — a long jargon
+    # list is often echoed back as the whole transcript on noisy clips.
+    # UI/CLI also append active project names via compose_stt_initial_prompt.
+    initial_prompt: "Hey Arelis."
+    sample_rate: 16000  # what Whisper expects; changing this only costs quality
+
+  tts:
+    enabled: true
+    # auto = Kokoro on CPU when espeak G2P + weights are present (or downloadable),
+    # else Piper. Conversation half-duplex is unchanged. kokoro | piper pin one.
+    backend: "auto"
+    # Kokoro-82M (CPU ONNX). First launch may download ~300MB into models/kokoro/.
+    kokoro_model: "models/kokoro/kokoro-v1.0.onnx"
+    kokoro_voices: "models/kokoro/voices-v1.0.bin"
+    kokoro_voice: "af_heart"   # American female; bf_emma for British
+    speed: 1.0                 # Kokoro tempo; 1.0 is the voice's own pace
+    allow_download: true
+    # Piper fallback. Both the .onnx and sibling .onnx.json must be present.
+    voice_model: "models/piper/en_GB-jenny_dioco-medium.onnx"
+    # Full path to piper.exe, if it is not on PATH.
+    piper_exe: ""
+    # 0 means speak the whole answer. Length is handled by being able to
+    # interrupt her, not by truncation; this is a runaway guard only.
+    max_chars: 0
+    # Piper-only pace. Stretches phoneme durations, not pitch. Jenny reads
+    # slowly, so the fallback default is a little under 1.0.
+    length_scale: 0.85
+
+  conversation:
+    # Hands-free mode: how quiet, and for how long, ends an utterance.
+    # Slightly longer windows so mid-thought pauses ("I'm not bad, just…")
+    # are not chopped under Silero.
+    silence_ms: 1400
+    # Adaptive end-point (conversation only): after a short command, end sooner.
+    # Equal to silence_ms so last words are not chopped ("tonight", "hobbies").
+    short_silence_ms: 1400
+    short_utterance_ms: 2800
+    # Level counted as speech, as a fraction of full scale. The floor is also
+    # measured from the room at the start of each listen and the higher of the
+    # two wins, so this is a lower bound rather than the whole test.
+    # (energy backend only; Silero uses voice.vad.threshold)
+    speech_level: 0.015
+    max_utterance_s: 60
+    # Talking over her cuts her off. Turn this off if you use speakers rather
+    # than a headset, where her own voice can trip the microphone.
+    barge_in: true
+
+location:
+  # So you do not have to say which city you are in every time you ask about
+  # the weather. Sources are merged field by field, highest precedence first,
+  # so naming only a city still gets a timezone from the OS and, with the
+  # network layer on, coordinates from the lookup.
+  enabled: true
+  # Standing profile + place live here (gitignored). Copy
+  # data/profile.example.yaml to data/profile.yaml. Optional `user:` fields
+  # (name, answer style, work, …) are injected every turn; `location:` wins
+  # over automatic place sources below. Keep `user:` short — not a 50-field form.
+  profile_path: "data/profile.yaml"
+  # Timezone and country from the operating system. No network, no permission.
+  use_system: true
+  network:
+    # Off deliberately, not merely by default: this asks a third party where
+    # this machine is, and a local-first assistant should be told to do that
+    # rather than assume it. Turn it on if you carry a laptop between cities
+    # and want the answer to follow you.
+    enabled: false
+    # Any service returning JSON with city/region/postal/latitude/longitude
+    # works; the common field spellings are all accepted.
+    url: "https://ipapi.co/json/"
+    timeout_s: 6
+    # Cached under data/ and reused across restarts, so travelling costs one
+    # request a day rather than one per launch.
+    cache_hours: 24
+
+# Always-on presence (core / tray — see docs/architecture.md).
+presence:
+  # Close the window → stay in the OS tray (ingest keeps running). Tray menu
+  # has Quit Arelis for a full stop. Set false for classic close-exits behavior.
+  close_to_tray: true
+  # When true, if a core is already listening the UI will not bind :8765 again.
+  # UI also auto-attaches when a core is detected (or ARELIS_ATTACH_CORE=1).
+  use_external_core: false
+  lock_path: "data/arelis-core.lock"
+  ui_lock_path: "data/arelis-ui.lock"
+  pending_confirms_path: "data/pending_confirms.json"
+  # Core process hosts its own tray (Open Arelis / Quit) when --core runs.
+  core_tray: true
+  # Core↔UI live event bridge (JSON lines). Loopback only — never 0.0.0.0.
+  # Keep 8765 for SMS ingest; IPC defaults to 8766.
+  ipc_enabled: true
+  ipc_host: "127.0.0.1"
+  ipc_port: 8766
+
+ui:
+  window_title: "Arelis"
+  default_width: 1440
+  default_height: 900
+  # First run and "reset layout": conversation glass only. Instruments open from
+  # the View menu, or when content arrives (thinking on tools/traces, workspace
+  # on writes/images). After first run, data/ui_layout.ini wins.
+  thinking_open: false
+  workspace_open: false
+  camera_open: false
+  notifications:
+    channels:
+      sms: voice
+      calendar: visual
+      email: visual
+      job: visual
+      task: visual
+      allow: visual
+    calendar_leads_min: [15, 5, 0]
+    poll_s: 30
+    mail_poll_s: 90
+
+persona_file: "persona/arelis.md"

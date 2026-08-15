@@ -1,0 +1,9 @@
+# Copy to data/lessons.yaml (gitignored) to add machine-local tactics.
+# Entries replace seed lessons by id, or add new ones.
+#
+# lessons:
+#   - id: my-custom
+#     tags: [web, sms]
+#     text: "Example tactic for this machine."
+
+lessons: []

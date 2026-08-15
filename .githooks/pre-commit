@@ -1,0 +1,45 @@
+#!/bin/sh
+# Refuse a commit that would publish somebody's personal data.
+#
+# The guards are pytest tests so they also run in CI and can be read like any
+# other test. This hook is the earlier of the two lines of defence: CI tells you
+# after you pushed, and by then a public repo has already served the commit to
+# anyone watching. The hook tells you before the commit exists.
+#
+# Wired up with `git config core.hooksPath .githooks`, which is already set in
+# this repo and survives a clone in a way .git/hooks does not.
+#
+# To commit anyway — you have read the failure and it is a false positive:
+#     git commit --no-verify
+# Prefer adding the term to data/scrub-allow.local.txt, so the next person does
+# not have to make the same judgement call at the same late hour.
+
+set -e
+
+if [ -x ".venv/Scripts/python.exe" ]; then
+    PY=".venv/Scripts/python.exe"
+elif [ -x ".venv/bin/python" ]; then
+    PY=".venv/bin/python"
+elif command -v python3 >/dev/null 2>&1; then
+    PY="python3"
+elif command -v python >/dev/null 2>&1; then
+    PY="python"
+else
+    echo "pre-commit: no Python found; skipping the personal-data guards." >&2
+    echo "pre-commit: this commit has NOT been checked." >&2
+    exit 0
+fi
+
+echo "pre-commit: checking for personal data…"
+# The builder tests are here because the name rules are only as good as the list
+# they read. A regression in the generator does not fail any rule above -- it
+# empties them, quietly, and they go on reporting success while searching for
+# nothing. That happened: every value under seven digits was being discarded, so
+# no postal code and no coordinate had ever reached the list.
+"$PY" -m pytest -q \
+    tests/test_no_personal_data.py \
+    tests/test_shipped_config_is_impersonal.py \
+    tests/test_scrub_list_builder.py \
+    tests/test_egress.py
+
+exit 0

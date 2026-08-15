@@ -1,0 +1,75 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Local / secrets
+.env
+.env.*
+!.env.example
+secrets/
+*.pem
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Editor and agent tooling. Kept on disk because it is useful while working,
+# untracked because how this was built is nobody's business but the author's,
+# and a published repo answers that question forever.
+.cursor/
+
+# Working notes, superseded plans and old audit write-ups. Moved here rather
+# than deleted: they are worth keeping and not worth publishing.
+.planning/
+
+# Strips agent attribution out of commit messages. Local for the same reason
+# .cursor/ is. The pre-commit hook beside it is tracked on purpose — it runs
+# the personal-data guards, and every contributor should get that.
+.githooks/prepare-commit-msg
+
+# Arelis runtime
+# data/* rather than data/: the directory itself has to stay reachable so the
+# profile template below can be tracked. Git cannot un-ignore a file inside an
+# ignored directory, only inside an ignored directory's contents.
+data/*
+!data/profile.example.yaml
+!data/secrets.example.yaml
+!data/contacts.example.yaml
+!data/calendar.example.ics
+!data/lessons.example.yaml
+# Chat attachments land under data/drops/ (covered by data/* above).
+
+# Android companion build outputs
+android/**/build/
+android/**/.gradle/
+android/**/local.properties
+android/**/.idea/
+logs/
+outputs/
+# layout ini, active project, and the real profile are all local
+*.gguf
+models/
+!models/**/
+!models/**/README.md
+
+# Qt / UI
+*.qmlc
+*.jsc
+arelis/_qt_fonts/

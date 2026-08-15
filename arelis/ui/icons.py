@@ -1,0 +1,205 @@
+from __future__ import annotations
+
+from PySide6.QtCore import QPointF, QRect, QRectF, Qt
+from PySide6.QtGui import QColor, QIcon, QPainter, QPen, QPixmap
+
+# The two voice controls are drawn, not shipped as assets, for the same reason
+# the send flare is: an imported glyph set brings its own weight and corner
+# radius and reads as pasted onto the glass rather than lit behind it.
+_ACCENT = QColor(255, 180, 87, 230)
+_ACCENT_DIM = QColor(255, 217, 168, 200)
+_LIVE = QColor(255, 180, 87, 235)
+_CHROME = QColor(243, 236, 224, 180)
+_CHROME_DIM = QColor(138, 126, 112, 200)
+_STATUS_WHITE = QColor(243, 236, 224, 230)
+
+
+def _chrome_canvas(size: int) -> tuple[QPixmap, QPainter]:
+    pm = QPixmap(size, size)
+    pm.fill(Qt.GlobalColor.transparent)
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+    return pm, p
+
+
+def window_minimize_icon(size: int = 16) -> QIcon:
+    """Minimal line: horizontal dash."""
+    pm, p = _chrome_canvas(size)
+    pen = QPen(_CHROME_DIM)
+    pen.setWidthF(1.4)
+    pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+    p.setPen(pen)
+    y = size * 0.55
+    p.drawLine(QPointF(size * 0.28, y), QPointF(size * 0.72, y))
+    p.end()
+    return QIcon(pm)
+
+
+def window_maximize_icon(size: int = 16, *, restore: bool = False) -> QIcon:
+    """Minimal line square (or overlapped squares for restore)."""
+    pm, p = _chrome_canvas(size)
+    pen = QPen(_CHROME_DIM)
+    pen.setWidthF(1.25)
+    pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+    p.setPen(pen)
+    p.setBrush(Qt.BrushStyle.NoBrush)
+    if restore:
+        # Back square (top-right)
+        p.drawRect(QRectF(size * 0.34, size * 0.22, size * 0.38, size * 0.38))
+        # Front square (bottom-left), drawn second so it reads on top
+        p.drawRect(QRectF(size * 0.24, size * 0.34, size * 0.38, size * 0.38))
+    else:
+        p.drawRect(QRectF(size * 0.28, size * 0.28, size * 0.44, size * 0.44))
+    p.end()
+    return QIcon(pm)
+
+
+def window_close_icon(size: int = 16) -> QIcon:
+    """Minimal line X."""
+    pm, p = _chrome_canvas(size)
+    pen = QPen(_CHROME)
+    pen.setWidthF(1.35)
+    pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+    p.setPen(pen)
+    p.drawLine(QPointF(size * 0.30, size * 0.30), QPointF(size * 0.70, size * 0.70))
+    p.drawLine(QPointF(size * 0.70, size * 0.30), QPointF(size * 0.30, size * 0.70))
+    p.end()
+    return QIcon(pm)
+
+
+def signal_flare_icon(size: int = 28) -> QIcon:
+    """Send affordance: a quiet constellation chevron, not a generic paper plane."""
+    pm = QPixmap(size, size)
+    pm.fill(Qt.GlobalColor.transparent)
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+
+    # Soft glow disc
+    p.setPen(Qt.PenStyle.NoPen)
+    p.setBrush(QColor(255, 180, 87, 28))
+    p.drawEllipse(QRect(2, 2, size - 4, size - 4))
+
+    # Three-star chevron pointing right-up (a "flare" leaving orbit)
+    stars = [
+        (0.28, 0.62, 1.6),
+        (0.48, 0.48, 2.0),
+        (0.70, 0.32, 1.5),
+    ]
+    p.setBrush(QColor(255, 180, 87, 230))
+    for x, y, r in stars:
+        p.drawEllipse(QPointF(size * x, size * y), r, r)
+
+    # Thin vector trail
+    pen = QPen(QColor(255, 217, 168, 200))
+    pen.setWidthF(1.3)
+    pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+    p.setPen(pen)
+    p.drawLine(
+        QPointF(size * 0.30, size * 0.66),
+        QPointF(size * 0.74, size * 0.28),
+    )
+    # Tiny tip spark
+    p.setBrush(QColor(243, 236, 224, 230))
+    p.setPen(Qt.PenStyle.NoPen)
+    p.drawEllipse(QPointF(size * 0.76, size * 0.26), 1.4, 1.4)
+    p.end()
+    return QIcon(pm)
+
+
+def microphone_icon(size: int = 22, *, live: bool = False, pulse: float = 1.0) -> QIcon:
+    """Dictate affordance: a capsule in a listening cradle.
+
+    The live variant brightens the same amber as the rest of the void.
+    ``pulse`` (0-1+) scales the glow disc while live so the control can breathe.
+    """
+    tint = _LIVE if live else _ACCENT
+    glow = int((34 if live else 24) * max(0.35, min(1.35, pulse)))
+    pm = QPixmap(size, size)
+    pm.fill(Qt.GlobalColor.transparent)
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+
+    p.setPen(Qt.PenStyle.NoPen)
+    p.setBrush(QColor(tint.red(), tint.green(), tint.blue(), glow))
+    p.drawEllipse(QRect(2, 2, size - 4, size - 4))
+
+    capsule = QRectF(size * 0.38, size * 0.20, size * 0.24, size * 0.40)
+    p.setBrush(tint)
+    p.drawRoundedRect(capsule, capsule.width() / 2, capsule.width() / 2)
+
+    pen = QPen(QColor(tint.red(), tint.green(), tint.blue(), 205))
+    pen.setWidthF(1.3)
+    pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+    p.setPen(pen)
+    p.setBrush(Qt.BrushStyle.NoBrush)
+    cradle = QRectF(size * 0.29, size * 0.34, size * 0.42, size * 0.38)
+    # Half arc opening downward: the cradle under the capsule.
+    p.drawArc(cradle, 180 * 16, 180 * 16)
+    p.drawLine(QPointF(size * 0.50, size * 0.72), QPointF(size * 0.50, size * 0.82))
+    p.end()
+    return QIcon(pm)
+
+
+def paperclip_icon(size: int = 22) -> QIcon:
+    """Attach affordance: a simple clip, not an emoji."""
+    pm = QPixmap(size, size)
+    pm.fill(Qt.GlobalColor.transparent)
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+    p.setPen(Qt.PenStyle.NoPen)
+    p.setBrush(QColor(255, 180, 87, 24))
+    p.drawEllipse(QRect(2, 2, size - 4, size - 4))
+    pen = QPen(_ACCENT)
+    pen.setWidthF(1.6)
+    pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+    pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+    p.setPen(pen)
+    p.setBrush(Qt.BrushStyle.NoBrush)
+    # Vertical loop with a hook at the top.
+    p.drawRoundedRect(
+        QRectF(size * 0.38, size * 0.22, size * 0.22, size * 0.48),
+        size * 0.11,
+        size * 0.11,
+    )
+    p.drawArc(
+        QRectF(size * 0.30, size * 0.14, size * 0.38, size * 0.28),
+        20 * 16,
+        160 * 16,
+    )
+    p.end()
+    return QIcon(pm)
+
+
+def conversation_icon(size: int = 22, *, live: bool = False, pulse: float = 1.0) -> QIcon:
+    """Hands-free affordance: two arcs answering each other.
+
+    Distinct from the microphone on purpose. Dictation is one person talking
+    into a box; conversation is an exchange, so the glyph is a pair.
+    """
+    tint = _LIVE if live else _ACCENT
+    glow = int((34 if live else 24) * max(0.35, min(1.35, pulse)))
+    pm = QPixmap(size, size)
+    pm.fill(Qt.GlobalColor.transparent)
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+
+    p.setPen(Qt.PenStyle.NoPen)
+    p.setBrush(QColor(tint.red(), tint.green(), tint.blue(), glow))
+    p.drawEllipse(QRect(2, 2, size - 4, size - 4))
+
+    pen = QPen(tint)
+    pen.setWidthF(1.5)
+    pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+    p.setPen(pen)
+    p.setBrush(Qt.BrushStyle.NoBrush)
+    # Left arc opens right, right arc opens left: two speakers facing.
+    p.drawArc(QRectF(size * 0.16, size * 0.22, size * 0.40, size * 0.46), 70 * 16, 220 * 16)
+    pen.setColor(_ACCENT_DIM if not live else tint)
+    p.setPen(pen)
+    p.drawArc(QRectF(size * 0.44, size * 0.32, size * 0.40, size * 0.46), 250 * 16, 220 * 16)
+
+    p.setPen(Qt.PenStyle.NoPen)
+    p.setBrush(QColor(243, 236, 224, 210))
+    p.drawEllipse(QPointF(size * 0.50, size * 0.50), 1.3, 1.3)
+    p.end()
+    return QIcon(pm)

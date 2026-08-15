@@ -1,0 +1,46 @@
+# Copy this file to data/contacts.yaml and fill it in.
+#
+#     Copy-Item data\contacts.example.yaml data\contacts.yaml
+#
+# data/contacts.yaml is gitignored. Named people for send_sms ("text my wife")
+# and send_email when `email:` is set. Fill email for anyone you actually mail —
+# without it, "email Sarah about…" cannot resolve and force will not fire.
+# Texts leave through your own Android phone running SMSGate, so they arrive
+# from your number. SMS needs its own secrets block (see data/secrets.example.yaml);
+# it does not ride Gmail.
+#
+# The YAML key is the primary alias. `aliases` lists every other nickname that
+# should resolve to the same person ("myself", "sam", "sammy", …).
+# A leading "my " is stripped when matching ("my wife" → wife).
+#
+# id + phone are required to text; email is optional but used for send_email.
+# An old `carrier` / `sms_email` field is ignored if still present.
+
+contacts:
+  me:
+    name: ""
+    phone: ""
+    email: ""
+    aliases:
+      - myself
+      - my phone
+      - phone
+  wife:
+    name: ""
+    phone: ""
+    email: ""
+    aliases:
+      - robin
+  # A second named person is what makes multi-recipient texts work, as in
+  # "text my wife and daughter". Uncomment and fill in the phone to enable it.
+  # piper:
+  #   name: "Piper Hale"
+  #   phone: "+15555550123"
+  #   aliases:
+  #     - daughter
+  #     - piper hale
+  # alex:
+  #   name: "Alex Carter"
+  #   phone: "+15555550124"
+  #   aliases:
+  #     - alexander

@@ -1,0 +1,848 @@
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+import re
+import shlex
+from pathlib import Path
+from typing import Any
+from uuid import uuid4
+
+from arelis.attachments import (
+    continue_prior_attachment_ask,
+    continue_prior_image_describe,
+    format_attachments_block,
+)
+from arelis.browser.hold import set_paused
+from arelis.config import load_persona
+from arelis.core.agent_loop import AgentLoop
+from arelis.core.bus import EventBus
+from arelis.core.events import Event, EventType
+from arelis.core.failure_copy import turn_failed_notice
+from arelis.core.memory import SessionMemory, tool_trace_entry, tool_trace_note
+from arelis.core.untrusted import confirm_note_after_external
+from arelis.llm.router import ModelRole, ModelRouter
+from arelis.memory.store import MemoryStore
+from arelis.tools.base import NEVER_BATCH, ToolRegistry
+from arelis.tools.safety import redact_secrets
+from arelis.workspace import _WINDOWS_DRIVE, WorkspaceRoots
+
+# Absolute paths typed in chat that may need a session read grant.
+_ABS_PATH_TOKEN = re.compile(
+    r"(?P<path>"
+    r"(?:[A-Za-z]:[\\/][^\s\"'<>|]+)"
+    r"|(?:/(?:Users|home|tmp|var|etc|opt)[^\s\"'<>|]*))"
+)
+
+log = logging.getLogger(__name__)
+
+ROLES: set[str] = {"fast", "research", "code"}
+
+
+def comms_bypasses_sticky(text: str) -> bool:
+    """True when this turn is SMS/email/agenda and must not keep the coder."""
+    raw = (text or "").strip()
+    if not raw:
+        return False
+    from arelis.core.agenda_complete import (
+        looks_like_calendar_create,
+        looks_like_calendar_delete,
+        looks_like_calendar_read,
+    )
+    from arelis.core.email_complete import looks_like_compose_email
+    from arelis.core.sms_complete import parse_sms_utterance
+
+    if parse_sms_utterance(raw) is not None:
+        return True
+    if looks_like_compose_email(raw):
+        return True
+    return (
+        looks_like_calendar_create(raw)
+        or looks_like_calendar_delete(raw)
+        or looks_like_calendar_read(raw)
+    )
+
+
+# Auto-routing heuristics. Tool-shaped asks are pushed onto fast/code because
+# those models follow the tool schema far more reliably than the reasoning
+# model, which tends to narrate a call instead of emitting one.
+TOOL_LOOP_HINT = re.compile(
+    r"\b(search|web_search|google|scrape|fetch|open|read|list|write|edit"
+    r"|analyze|workspace|web_fetch|file|email|inbox|mail|schedule"
+    r"|weather|forecast|recall|remember|agenda|calendar|tasks?|todo"
+    r"|git|sms|text|inbound|research(?:_report)?|doc_extract|pdf)\b|https?://",
+    re.IGNORECASE,
+)
+FILE_LOOP_HINT = re.compile(
+    r"\b(file|readme|path|workspace|edit|write|refactor|python|code|debug"
+    r"|class|function|lint|git|branch|commit|diff)\b",
+    re.IGNORECASE,
+)
+# Deep / heavy research only → 14b. Short factual "look this up" stays on fast
+# (7b+tools). Bare "research" / "cite" alone no longer force a VRAM swap (H2).
+RESEARCH_HINTS: list[re.Pattern[str]] = [
+    re.compile(
+        r"\b("
+        r"deep\s*-?\s*dive|"
+        r"multi\s*-?\s*source|"
+        r"write\s+a\s+report|"
+        r"thorough\s+research|"
+        r"in\s*-?\s*depth\s+(?:research|look|analysis|report)|"
+        r"investigate|"
+        r"hypothesis|"
+        r"derive|"
+        r"astrophys|interferom|spectrum|"
+        r"research\s+report|"
+        r"cite\s+sources"
+        r")\b",
+        re.IGNORECASE,
+    ),
+]
+
+# Slash commands run a tool directly, bypassing the model and the confirm card.
+# That bypass is intentional and is scoped to text the user typed: naming a tool
+# and its arguments explicitly is itself the confirmation.
+#
+# send_email and send_sms are deliberately absent. Every other tool here is
+# undoable or local; a sent message is neither, and the card showing the
+# recipient and body is the only gate it has. There is no version of typing it
+# out that replaces reading what is about to leave the machine.
+TOOL_CMD = re.compile(
+    r"^/(?P<tool>web_search|web_fetch|scrape|workspace|analyze|image"
+    r"|inbox|schedule)(?:\s+(?P<args>.+))?$",
+    re.IGNORECASE,
+)
+
+
+class Orchestrator:
+    """Turns inbound events into agent turns, and owns per-turn state.
+
+    Cancellation and confirmation both have to work while a turn is mid-flight,
+    which is why the turn runs as its own task rather than inline in the event
+    handler: the bus can keep delivering TOOL_CONFIRM_REPLY and TURN_CANCEL
+    while the agent loop is blocked awaiting one of them.
+    """
+
+    def __init__(
+        self,
+        bus: EventBus,
+        router: ModelRouter,
+        tools: ToolRegistry,
+        config: dict[str, Any],
+        memory: SessionMemory | None = None,
+        workspace: WorkspaceRoots | None = None,
+    ) -> None:
+        self.bus = bus
+        self.router = router
+        self.tools = tools
+        self.config = config
+        self.workspace = workspace or config.get("_workspace") or WorkspaceRoots.from_config(config)
+        self.config["_workspace"] = self.workspace
+        self.memory = memory or SessionMemory()
+        self.persona = load_persona(config)
+        self._cancel = False
+        self._pause = False
+        self._confirm_waiters: dict[str, asyncio.Future[str]] = {}
+        self._turn_task: asyncio.Task[None] | None = None
+        # The loop currently running, so a confirm card can see what this turn
+        # has already done. None between turns.
+        self._agent_loop: AgentLoop | None = None
+        # One turn at a time. Turns share memory, the router (which unloads
+        # models out from under each other) and the cancel flag, so overlapping
+        # them corrupts all three. The desktop composer disables itself while
+        # busy, but voice transcripts and scripts publish on the same channel.
+        self._turn_lock = asyncio.Lock()
+        bus.subscribe(EventType.USER_MESSAGE, self.on_user_message)
+        bus.subscribe(EventType.VOICE_TRANSCRIPT, self.on_voice_transcript)
+        bus.subscribe(EventType.TOOL_CONFIRM_REPLY, self.on_confirm_reply)
+        bus.subscribe(EventType.TURN_CANCEL, self.on_turn_cancel)
+        bus.subscribe(EventType.TURN_PAUSE, self.on_turn_pause)
+        bus.subscribe(EventType.TURN_RESUME, self.on_turn_resume)
+        bus.subscribe(EventType.SESSION_LOAD, self.on_session_load)
+        bus.subscribe(EventType.CHAT_NOTICE, self.on_chat_notice)
+
+    def classify_role(
+        self, text: str, explicit: ModelRole | None = None
+    ) -> tuple[ModelRole, str]:
+        """Pick a model role and a short reason code for telemetry.
+
+        An explicit research/code chip always wins. The fast chip does not,
+        because it is also the default, so there is no way to tell "the user
+        chose fast" from "the user chose nothing" and auto-routing stays useful.
+        """
+        if explicit in {"research", "code"}:
+            return explicit, "chip"
+        # Composer "fast" is an explicit pin — stay on 7b (H2). Mid-turn
+        # escalate may still promote after failed tool rounds.
+        if explicit == "fast":
+            return "fast", "chip"
+        # Deep research-shaped asks before tool/file loops: "write a report"
+        # must not lose to the bare "write" file hint and land on the coder.
+        for pattern in RESEARCH_HINTS:
+            if pattern.search(text):
+                return "research", "research_hint"
+        if TOOL_LOOP_HINT.search(text):
+            if FILE_LOOP_HINT.search(text):
+                return "code", "file_loop"
+            return "fast", "tool_loop"
+        return (explicit or self.router.default_role), "default"
+
+    def choose_role(self, text: str, explicit: ModelRole | None = None) -> ModelRole:
+        """Pick a model role for this message (see classify_role for reason)."""
+        role, _reason = self.classify_role(text, explicit)
+        return role
+
+    async def on_voice_transcript(self, event: Event) -> None:
+        """Turn speech into a message, unless it was only dictation.
+
+        Dictated text is destined for the composer so the user can edit it
+        before sending. Starting a turn from it would take the decision away
+        from them, which is the difference between the two voice modes.
+        """
+        if event.payload.get("deliver") == "dictate":
+            return
+        text = (event.payload.get("text") or "").strip()
+        if text:
+            await self.bus.publish(
+                Event(EventType.USER_MESSAGE, {"text": text, "source": "voice"})
+            )
+
+    async def on_confirm_reply(self, event: Event) -> None:
+        confirm_id = event.payload.get("id")
+        decision = (event.payload.get("decision") or "skip").lower()
+        if event.payload.get("allow_turn"):
+            decision = "allow_turn"
+        fut = self._confirm_waiters.get(str(confirm_id))
+        if fut and not fut.done():
+            fut.set_result(decision)
+
+    async def on_turn_cancel(self, event: Event) -> None:
+        """Stop the current turn as directly as possible.
+
+        Three things are needed and none is sufficient alone. The flag stops the
+        loop at its next cooperative check. Resolving pending confirms unblocks
+        a turn parked on the confirm card, which no cancellation can reach on its
+        own. Cancelling the task interrupts work already in flight: without it a
+        30 second scrape or a long model read ignores stop until it returns.
+        """
+        self._cancel = True
+        self._pause = False
+        set_paused(False)
+        for fut in list(self._confirm_waiters.values()):
+            if not fut.done():
+                fut.set_result("skip")
+        task = self._turn_task
+        if task is not None and not task.done():
+            task.cancel()
+
+    async def on_turn_pause(self, event: Event) -> None:
+        """Freeze the drive. The page stays; Go unblocks the next step."""
+        self._pause = True
+        set_paused(True)
+        await self.bus.publish(Event(EventType.THINKING, {"text": "drive paused"}))
+
+    async def on_turn_resume(self, event: Event) -> None:
+        self._pause = False
+        set_paused(False)
+        await self.bus.publish(Event(EventType.THINKING, {"text": "drive resumed"}))
+
+    async def on_chat_notice(self, event: Event) -> None:
+        """Archive a chat-visible notice (inbound SMS) without starting a turn."""
+        text = str((event.payload or {}).get("text") or "").strip()
+        if not text:
+            return
+        self.memory.add("notice", text)
+
+    async def on_session_load(self, event: Event) -> None:
+        """Swap the in-process working set for an archived conversation.
+
+        Refused while a turn is running: the turn and the load both own
+        SessionMemory, and letting them interleave would paint one conversation
+        while the model answers in another.
+        """
+        task = self._turn_task
+        if task is not None and not task.done():
+            await self.bus.publish(
+                Event(
+                    EventType.SESSION_LOADED,
+                    {"ok": False, "error": "Finish or stop the current turn first."},
+                )
+            )
+            return
+        store = self._memory_store()
+        if store is None:
+            await self.bus.publish(
+                Event(
+                    EventType.SESSION_LOADED,
+                    {"ok": False, "error": "Conversation archive is not available."},
+                )
+            )
+            return
+
+        if event.payload.get("new"):
+            session_id = store.start_session()
+            self.memory.hydrate([], summary="")
+            await self.bus.publish(
+                Event(
+                    EventType.SESSION_LOADED,
+                    {
+                        "ok": True,
+                        "session_id": session_id,
+                        "messages": [],
+                        "summary": "",
+                        "new": True,
+                    },
+                )
+            )
+            return
+
+        session_id = str(event.payload.get("session_id") or "").strip()
+        if not session_id or not store.open_session(session_id):
+            await self.bus.publish(
+                Event(
+                    EventType.SESSION_LOADED,
+                    {"ok": False, "error": f"No conversation {session_id!r}."},
+                )
+            )
+            return
+
+        rows = store.get_messages(session_id)
+        summary = store.get_summary(session_id)
+        self.memory.hydrate(rows, summary=summary)
+        await self.bus.publish(
+            Event(
+                EventType.SESSION_LOADED,
+                {
+                    "ok": True,
+                    "session_id": session_id,
+                    "messages": [
+                        {
+                            "role": row["role"],
+                            "content": row["content"],
+                            "note": row.get("note") or "",
+                        }
+                        for row in rows
+                    ],
+                    "summary": summary,
+                },
+            )
+        )
+
+    def _memory_store(self) -> MemoryStore | None:
+        sink = self.memory.sink
+        return sink if isinstance(sink, MemoryStore) else None
+
+    async def on_user_message(self, event: Event) -> None:
+        text = (event.payload.get("text") or "").strip()
+        attachments = event.payload.get("attachments") or []
+        if not isinstance(attachments, list):
+            attachments = []
+        if not text and not attachments:
+            return
+        explicit = event.payload.get("role")
+        role: ModelRole | None = explicit if explicit in ROLES else None
+
+        # Grant reads for attached source paths (UI usually does this too).
+        for item in attachments:
+            if not isinstance(item, dict):
+                continue
+            source = str(item.get("source_path") or "").strip()
+            if source:
+                self.workspace.grant_external_read(source)
+
+        # Commands answer inline. Every branch has to end in ASSISTANT_DONE or
+        # ERROR: the desktop UI only clears its busy state on those two, so a
+        # branch that returns after a STATUS event leaves the composer disabled
+        # with no way back short of restarting the app.
+        if text:
+            tool_match = TOOL_CMD.match(text)
+            if tool_match:
+                await self._run_tool_command(
+                    tool_match.group("tool"), tool_match.group("args") or ""
+                )
+                return
+
+            if text.startswith("/role"):
+                await self._set_role(text)
+                return
+
+            # Typo /roll must not silently route to research/14b (R14).
+            if re.match(r"(?i)^/roll\b", text):
+                await self.bus.publish(
+                    Event(
+                        EventType.ASSISTANT_DONE,
+                        {
+                            "text": (
+                                "Unknown command `/roll`. Did you mean "
+                                "`/role fast|research|code`? Try `/help`."
+                            )
+                        },
+                    )
+                )
+                return
+
+            if text.startswith("/project"):
+                await self._set_project(text)
+                return
+
+            if text in {"/help", "help"}:
+                await self._emit_help()
+                return
+
+        # Typed absolute paths outside roots need an Allow (read-only session grant).
+        if text and not await self._ensure_external_path_grants(text):
+            await self.bus.publish(
+                Event(
+                    EventType.ASSISTANT_DONE,
+                    {
+                        "text": (
+                            "Skipped — I was not allowed to read the outside-"
+                            "workspace path you named."
+                        )
+                    },
+                )
+            )
+            return
+
+        turn_text = text
+        if attachments:
+            block = format_attachments_block(attachments, user_text=text)
+            if block:
+                turn_text = f"{block}\n\n{text}" if text else block
+            elif not text:
+                turn_text = "Please look at the attached file(s)."
+        elif text:
+            # Bare "yea"/"ok" after an attachment offer: re-inject paths + tools.
+            continued = continue_prior_attachment_ask(
+                text, self.memory.messages
+            )
+            if continued is None:
+                continued = continue_prior_image_describe(
+                    text, self.memory.messages
+                )
+            if continued:
+                turn_text = continued
+
+        source = str(event.payload.get("source") or "chat")
+        await self._run_turn(turn_text, role, source=source)
+
+    async def _ensure_external_path_grants(self, text: str) -> bool:
+        """Confirm + grant each absolute path outside roots. False if user skips."""
+        candidates: list[Path] = []
+        for match in _ABS_PATH_TOKEN.finditer(text):
+            raw = match.group("path").rstrip(".,);]")
+            if not raw:
+                continue
+            if not (_WINDOWS_DRIVE.match(raw) or raw.startswith("/")):
+                continue
+            try:
+                path = Path(raw).expanduser().resolve()
+            except OSError:
+                continue
+            if not path.exists():
+                continue
+            try:
+                self.workspace.resolve(str(path))
+                continue  # already inside a root
+            except PermissionError:
+                pass
+            if self.workspace.has_external_read(path):
+                continue
+            if path not in candidates:
+                candidates.append(path)
+
+        for path in candidates:
+            decision = await self._request_confirm(
+                uuid4().hex,
+                "external_read",
+                {"path": str(path)},
+                f"Read `{path.name}` outside the workspace (read-only)",
+            )
+            if decision not in {"allow", "allow_turn"}:
+                return False
+            self.workspace.grant_external_read(path)
+        return True
+
+    async def _run_turn(
+        self, text: str, role: ModelRole | None, *, source: str = "chat"
+    ) -> None:
+        async with self._turn_lock:
+            self._cancel = False
+            self._pause = False
+            set_paused(False)
+            chosen, route_reason = self.classify_role(text, role)
+            # Sticky hold is for typed research/code follow-ups so VRAM does not
+            # thrash. Conversation must return to fast on small talk — otherwise
+            # a mis-heard "text file" keeps the coder on "how are you tonight".
+            # Typed SMS/email/agenda must also leave the coder (wrong Allow args).
+            if (
+                role not in {"research", "code"}
+                and not self.config.get("_speak_replies")
+                and not comms_bypasses_sticky(text)
+            ):
+                apply_sticky = getattr(self.router, "apply_sticky", None)
+                if callable(apply_sticky):
+                    chosen, route_reason = apply_sticky(chosen, route_reason)
+            loop = AgentLoop(
+                self.bus,
+                self.router,
+                self.tools,
+                self.memory,
+                self.persona,
+                self.config,
+                request_confirm=self._request_confirm,
+                is_cancelled=lambda: self._cancel,
+                is_paused=lambda: self._pause,
+            )
+            self._agent_loop = loop
+            task = asyncio.create_task(
+                loop.run(
+                    text,
+                    chosen,
+                    source=source,
+                    route_reason=route_reason,
+                )
+            )
+            self._turn_task = task
+            try:
+                await task
+            except asyncio.CancelledError:
+                # Distinguish "the user pressed stop" from "this handler is
+                # being torn down". Re-raising the latter keeps shutdown clean;
+                # swallowing the former is what makes stop feel instant.
+                if not task.cancelled():
+                    raise
+                # The loop normally closes itself out on the way past, keeping
+                # whatever it had already written. Only speak up if it did not
+                # get that far, so the turn still ends with one terminal event.
+                if not loop.terminal_sent:
+                    await self.bus.publish(Event(EventType.THINKING, {"text": "cancelled"}))
+                    await self.bus.publish(Event(EventType.ASSISTANT_DONE, {"text": "Stopped."}))
+            except Exception as exc:
+                # Last line of defence. Anything unhandled here would otherwise
+                # end the turn with no terminal event at all.
+                #
+                # It also runs at the worst moment the app has, which is why the
+                # copy matters: this used to publish the exception class into the
+                # message field, and the UI put that in the transcript verbatim.
+                log.exception("Turn failed")
+                chat, detail = turn_failed_notice(exc)
+                await self.bus.publish(
+                    Event(
+                        EventType.ERROR,
+                        {"message": chat, "detail": detail},
+                    )
+                )
+            finally:
+                self._turn_task = None
+                self._agent_loop = None
+                self._pause = False
+                set_paused(False)
+
+    async def _set_role(self, text: str) -> None:
+        parts = text.split(maxsplit=1)
+        wanted = parts[1].strip().lower() if len(parts) > 1 else ""
+        if wanted in ROLES:
+            self.router.default_role = wanted  # type: ignore[assignment]
+            if wanted == "fast":
+                # Operator escape hatch from H6 sticky hold.
+                self.router.clear_sticky()
+            elif wanted in {"research", "code"}:
+                # Flip the chip first, then evict 7B so the next 14B/coder
+                # stream does not share a 12GB card with a 30m-pinned 7B.
+                from arelis.llm.vram import free_gpu_neighbors
+
+                await free_gpu_neighbors(self.config, self.bus)
+                prepare = getattr(self.router, "prepare_heavy_role", None)
+                if callable(prepare):
+                    await self.bus.publish(
+                        Event(
+                            EventType.STATUS,
+                            {
+                                "message": (
+                                    f"Unloading conversation model so `{wanted}` "
+                                    "can fit on the GPU…"
+                                )
+                            },
+                        )
+                    )
+                    try:
+                        await prepare(wanted)
+                    except Exception as exc:
+                        message = (
+                            f"Role set to `{wanted}`, but the previous model is "
+                            f"still in VRAM: {exc}"
+                        )
+                        await self.bus.publish(
+                            Event(EventType.STATUS, {"message": message})
+                        )
+                        await self.bus.publish(
+                            Event(EventType.ASSISTANT_DONE, {"text": message})
+                        )
+                        return
+            message = f"Role set to `{wanted}`. New messages use it unless you pick another chip."
+        else:
+            message = f"Unknown role `{wanted}`. Choose one of: fast, research, code."
+        await self.bus.publish(Event(EventType.STATUS, {"message": message}))
+        await self.bus.publish(Event(EventType.ASSISTANT_DONE, {"text": message}))
+
+    async def _set_project(self, text: str) -> None:
+        """List or switch the active project. Session memory is kept."""
+        parts = text.split(maxsplit=1)
+        wanted = parts[1].strip() if len(parts) > 1 else ""
+        names = self.workspace.names()
+        if not wanted:
+            lines = [
+                (
+                    f"- `{name}`"
+                    + (" (active)" if name == self.workspace.active else "")
+                )
+                for name in names
+            ]
+            message = "Projects:\n" + "\n".join(lines)
+            message += "\n\nSwitch with `/project <name>`. Paths: `name:relative/path`."
+        else:
+            try:
+                self.workspace.set_active(wanted)
+                message = (
+                    f"Active project set to `{wanted}`. "
+                    "Session memory is kept; qualify paths when referring to other projects."
+                )
+            except ValueError as exc:
+                message = str(exc)
+        await self.bus.publish(Event(EventType.STATUS, {"message": message}))
+        await self.bus.publish(Event(EventType.ASSISTANT_DONE, {"text": message}))
+
+    async def _request_confirm(
+        self, confirm_id: str, tool: str, args: dict[str, Any], summary: str
+    ) -> str:
+        """Ask the UI to approve a call and wait for the answer.
+
+        The future is registered before the event is published so a reply that
+        arrives immediately, as it does in the CLI and in the e2e probes, cannot
+        land before there is anything to resolve.
+        """
+        loop = asyncio.get_running_loop()
+        fut: asyncio.Future[str] = loop.create_future()
+        self._confirm_waiters[confirm_id] = fut
+        preview_args = {k: redact_secrets(str(v))[:200] for k, v in args.items()}
+        await self.bus.publish(
+            Event(
+                EventType.TOOL_CONFIRM,
+                {
+                    "id": confirm_id,
+                    "tool": tool,
+                    "args": preview_args,
+                    # Parked/restarted Allow must send these, not the 200-char
+                    # preview. Live turns still execute in-memory full args.
+                    "full_args": {str(k): v for k, v in args.items()},
+                    "summary": summary,
+                    # Full rendering for the card. summary stays as it was, for
+                    # the thinking dock and the CLI, which want one line.
+                    "detail": self.tools.describe_call(tool, args),
+                    "note": self._confirm_note(tool),
+                    "batch_ok": tool not in NEVER_BATCH,
+                },
+            )
+        )
+        agent_cfg = self.config.get("agent") or {}
+        timeout_s = float(agent_cfg.get("confirm_timeout_s", 300) or 0)
+        try:
+            if timeout_s > 0:
+                # asyncio.wait (not wait_for): do not cancel the Future on timeout.
+                done, _pending = await asyncio.wait({fut}, timeout=timeout_s)
+                if fut in done:
+                    return fut.result()
+                # L10: don't leave wall-clock looking like a hung model forever.
+                if not fut.done():
+                    fut.set_result("skip")
+                mins = max(1, int(timeout_s // 60))
+                await self.bus.publish(
+                    Event(
+                        EventType.STATUS,
+                        {
+                            "message": (
+                                f"Confirm timed out after {mins}m — skipped `{tool}`."
+                            )
+                        },
+                    )
+                )
+                await self.bus.publish(
+                    Event(
+                        EventType.THINKING,
+                        {
+                            "text": (
+                                f"phase=confirm timeout_skip tool={tool} "
+                                f"after_s={int(timeout_s)}"
+                            )
+                        },
+                    )
+                )
+                await self.bus.publish(
+                    Event(
+                        EventType.TOOL_CONFIRM_REPLY,
+                        {
+                            "id": confirm_id,
+                            "decision": "skip",
+                            "allow_turn": False,
+                            "reason": "timeout",
+                        },
+                    )
+                )
+                return "skip"
+            return await fut
+        finally:
+            self._confirm_waiters.pop(confirm_id, None)
+
+    def _confirm_note(self, tool: str) -> str:
+        """A warning to put on the card, when this particular call deserves one.
+
+        Read straight off the running loop rather than off the bus. This is
+        called from inside the agent loop's own coroutine, so the set is exactly
+        up to date; a TOOL_RESULT subscriber would race with it.
+        """
+        used = set()
+        loop = self._agent_loop
+        if loop is not None:
+            used = set(loop.tools_used)
+        return confirm_note_after_external(tool, used)
+
+    async def _emit_help(self) -> None:
+        tools = ", ".join(t["name"] for t in self.tools.list()) or "(none)"
+        msg = (
+            "Just talk. Arelis can use tools from natural language "
+            "(reads and web run on their own; writes and images ask first).\n\n"
+            "Power-user slash commands:\n"
+            "  /role fast|research|code\n"
+            "  /project [name]\n"
+            "  /web_search query=...\n"
+            "  /web_fetch url=...\n"
+            "  /scrape url=...\n"
+            "  /workspace action=list|read|write|edit path=...\n"
+            "  /analyze path=... action=summary|head|describe\n"
+            "  /image prompt=...\n"
+            "Slash commands run the tool directly and skip the confirm card.\n"
+            "With multiple projects, paths may be `name:relative/path`.\n"
+            f"Tools: {tools}"
+        )
+        await self.bus.publish(Event(EventType.ASSISTANT_DONE, {"text": msg}))
+
+    async def _run_tool_command(self, tool: str, args: str) -> None:
+        kwargs = self._parse_args(args)
+        await self.bus.publish(Event(EventType.TOOL_START, {"tool": tool, "args": kwargs}))
+        await self.bus.publish(
+            Event(EventType.THINKING, {"text": f"slash  Running tool `{tool}`"})
+        )
+        result = await self.tools.call(tool, **kwargs)
+        await self.bus.publish(
+            Event(
+                EventType.TOOL_RESULT,
+                {"tool": tool, "ok": result.ok, "output": result.output, "data": result.data},
+            )
+        )
+        if tool == "image" and result.ok and result.data.get("path"):
+            await self.bus.publish(Event(EventType.IMAGE_READY, {"path": result.data["path"]}))
+        prefix = "OK" if result.ok else "Failed"
+        # Tool output is data, not prose, so it is fenced. The chat renders
+        # markdown now, and an unfenced Python file would come out with *args
+        # italicised and its indentation collapsed.
+        summary = f"{prefix} `{tool}`\n\n{_as_code_block(redact_secrets(result.output))}"
+        # Slash commands skip the agent loop, so the trace note has to be built
+        # here too. Without it a "/workspace action=write" followed by "now add
+        # a heading to it" has nothing to resolve "it" against.
+        resolved = None
+        if isinstance(result.data, dict):
+            resolved = result.data.get("path")
+        self.memory.add(
+            "assistant",
+            summary,
+            note=tool_trace_note(
+                [tool_trace_entry(tool, kwargs, result.ok, resolved_path=resolved)]
+            ),
+        )
+        await self.bus.publish(Event(EventType.ASSISTANT_DONE, {"text": summary}))
+
+    def _parse_args(self, args: str) -> dict[str, Any]:
+        """Parse slash-command arguments.
+
+        Three accepted forms, in priority order: a JSON object (used by the
+        workspace panel's save button, since file content cannot survive shell
+        splitting), key=value pairs, and a bare URL or bare prompt text.
+        """
+        if not args.strip():
+            return {}
+        if args.strip().startswith("{"):
+            try:
+                data = json.loads(args)
+                if isinstance(data, dict):
+                    return data
+            except json.JSONDecodeError:
+                pass
+        out: dict[str, Any] = {}
+        for token in _tokenize(args):
+            if "=" in token:
+                k, v = token.split("=", 1)
+                out[k] = v
+            elif "url" not in out and token.startswith("http"):
+                out["url"] = token
+        if not out:
+            bare = args.strip()
+            # "/image prompt a spiral galaxy" is a natural thing to type, and
+            # without this the word "prompt" ends up inside the prompt itself.
+            if bare.lower().startswith("prompt "):
+                bare = bare[len("prompt ") :].strip()
+            if bare:
+                out["prompt"] = bare
+        return out
+
+
+def _as_code_block(text: str) -> str:
+    """Fence text so it renders verbatim.
+
+    The fence is one backtick longer than the longest run already in the text,
+    which is what keeps a markdown file that contains its own fences from
+    closing this one early and spilling the rest into the chat as prose.
+    """
+    longest = max((len(run) for run in re.findall(r"`+", text)), default=0)
+    fence = "`" * max(3, longest + 1)
+    return f"{fence}\n{text}\n{fence}"
+
+
+def _tokenize(args: str) -> list[str]:
+    """Split slash-command arguments the way a Windows user would expect.
+
+    Plain shlex.split gets two things wrong here, both silently:
+
+    - POSIX escape rules make a backslash escape the next character, so
+      path=C:\\Users\\you\\notes.txt arrives as path=C:Usersyounotes.txt and
+      the user is told a file that plainly exists cannot be found.
+    - '#' starts a comment, so url=https://host/page#section loses its fragment.
+
+    posix=False fixes the backslashes but stops honouring quotes that begin
+    mid-token, which breaks path="C:\\Program Files\\x". So the lexer is
+    configured directly: POSIX quoting, no escape character, no comments.
+    """
+    try:
+        lexer = shlex.shlex(args, posix=True)
+        lexer.whitespace_split = True
+        lexer.escape = ""
+        lexer.commenters = ""
+        tokens = list(lexer)
+    except ValueError:
+        # Unbalanced quotes. Whitespace splitting still recovers most of it.
+        tokens = [_unquote(token) for token in args.split()]
+    return tokens
+
+
+def _unquote(token: str) -> str:
+    if "=" in token:
+        key, value = token.split("=", 1)
+        return f"{key}={_strip_quotes(value)}"
+    return _strip_quotes(token)
+
+
+def _strip_quotes(value: str) -> str:
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+        return value[1:-1]
+    return value

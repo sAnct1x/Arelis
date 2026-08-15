@@ -1,0 +1,101 @@
+from __future__ import annotations
+
+import argparse
+import sys
+from pathlib import Path
+
+from arelis import __license__, __source_url__, __version__
+from arelis.config import load_config
+from arelis.logging_setup import configure_logging
+
+
+def main(argv: list[str] | None = None) -> int:
+    # Before any subsystem that might log.exception into the void. --run-job
+    # replaces this with its own jobs.log sink once runner.configure_logging runs.
+    configure_logging()
+
+    parser = argparse.ArgumentParser(
+        prog="arelis",
+        description="Arelis personal research assistant",
+    )
+    # Names the licence and the source alongside the number. Someone asking a
+    # program its version is usually about to file a bug or check what they are
+    # running, and both go better with somewhere to go next.
+    #
+    # One line, and deliberately so: argparse runs this through the help
+    # formatter, which collapses newlines, so a multi-line string here would be
+    # reflowed into a paragraph rather than printed as written.
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"arelis {__version__} ({__license__}) {__source_url__}",
+        help="Print the version, licence and source location, then exit.",
+    )
+    parser.add_argument("--cli", action="store_true", help="Run terminal interface")
+    parser.add_argument(
+        "--allow-write",
+        action="store_true",
+        help=(
+            "With --cli when stdin is not a terminal: auto-allow write/image/"
+            "browser confirms. Default is deny (absence of a human is not consent)."
+        ),
+    )
+    parser.add_argument(
+        "--core",
+        action="store_true",
+        help=(
+            "Run the always-on core (inbound SMS/RCS ingest, no glass UI). "
+            "Keeps port 8765 alive after the desktop window is closed."
+        ),
+    )
+    parser.add_argument(
+        "--run-job",
+        type=str,
+        default=None,
+        metavar="ID",
+        help="Run one saved job, email the answer, and exit. Used by the scheduler.",
+    )
+    parser.add_argument("--config", type=str, default=None, help="Optional YAML config path")
+    parser.add_argument(
+        "--auth-calendar",
+        type=str,
+        default=None,
+        metavar="PROVIDER",
+        help=(
+            "One-shot browser OAuth for calendar: google or outlook. "
+            "Writes refresh_token into data/secrets.yaml. See docs/calendar-oauth.md."
+        ),
+    )
+    args = parser.parse_args(argv)
+
+    config = load_config(Path(args.config)) if args.config else load_config()
+
+    if args.auth_calendar:
+        from arelis.calendar.auth import run_auth_calendar
+
+        return run_auth_calendar(args.auth_calendar, config)
+
+    # Imported lazily so `arelis --cli` does not pay for loading PySide6, and so
+    # a machine without a working Qt platform plugin can still use the CLI.
+    if args.run_job:
+        from arelis.jobs.runner import run_job
+
+        return run_job(args.run_job, config)
+
+    if args.core:
+        from arelis.presence.core import run_core
+
+        return run_core(config)
+
+    if args.cli:
+        from arelis.cli import run_cli
+
+        return run_cli(config, allow_write=bool(args.allow_write))
+
+    from arelis.ui.app import run_ui
+
+    return run_ui(config)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
