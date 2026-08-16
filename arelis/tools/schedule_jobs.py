@@ -203,7 +203,7 @@ class ScheduleTool:
 
         role = str(kwargs.get("role") or "research").strip() or "research"
         job = Job(
-            id=make_job_id(name, [j.id for j in load_jobs()]),
+            id="",
             name=name,
             prompt=prompt,
             recipient=recipient,
@@ -215,6 +215,13 @@ class ScheduleTool:
             days_of_month=days_of_month,
             every_minutes=every,
         )
+
+        existing = load_jobs()
+        duplicate = next((j for j in existing if _behaviour(j) == _behaviour(job)), None)
+        if duplicate is not None:
+            return self._already_scheduled(duplicate)
+
+        job.id = make_job_id(name, [j.id for j in existing])
         upsert_job(job)
 
         try:
@@ -245,6 +252,42 @@ class ScheduleTool:
                 f"emailing {job.recipient or 'you'}. {tail}"
             ),
             data={**job.as_dict(), "registered": True},
+        )
+
+    def _already_scheduled(self, job: Job) -> ToolResult:
+        """Report the job that already does this, instead of making a second one.
+
+        Reported as a success, because from the caller's point of view the thing it asked
+        for is true. Returning an error would invite the model to try again with a nudged
+        name, which is how you get "digest" and "digest-2".
+
+        Re-registered on the way out for the case that matters: a job whose task went
+        missing, or which was turned off. Asking for something that already exists is the
+        most natural way for a person to say "this should be running", so making it run is
+        the useful reading of the request.
+        """
+        if not job.enabled:
+            job.enabled = True
+            upsert_job(job)
+        try:
+            win.register(job)
+        except win.ScheduleError as exc:
+            return ToolResult(
+                ok=True,
+                output=(
+                    f"'{job.name}' [{job.id}] is already scheduled {job.schedule_text()}, "
+                    f"but Task Scheduler would not take it: {exc}\n"
+                    f"Run it by hand with: arelis --run-job {job.id}"
+                ),
+                data={**job.as_dict(), "registered": False, "already_existed": True},
+            )
+        return ToolResult(
+            ok=True,
+            output=(
+                f"'{job.name}' [{job.id}] already does exactly this, {job.schedule_text()}, "
+                f"emailing {job.recipient or 'you'}. Left as one job rather than two."
+            ),
+            data={**job.as_dict(), "registered": True, "already_existed": True},
         )
 
     def _delete(self, job_id: str) -> ToolResult:
@@ -295,3 +338,29 @@ class ScheduleTool:
             output=f"Started '{job.name}' now. The result will arrive by email shortly.",
             data={"id": job_id},
         )
+
+
+def _behaviour(job: Job) -> tuple[object, ...]:
+    """Everything about a job that decides what happens, and nothing about how it reads.
+
+    Used to tell "schedule this" apart from "schedule this again". Two jobs with the same
+    prompt, recipient, role and schedule do the same work twice, whatever they are called,
+    so the name is deliberately absent: a duplicate under a different label is still a
+    duplicate. Times, days and days-of-month are compared after normalisation, so 7pm and
+    19:00 are recognised as the same instruction rather than as two.
+
+    Written after finding two identical nightly jobs on a real machine, ids differing only
+    by a "-2" that make_job_id appended in good faith. They had both been running for days,
+    a minute apart, and nothing was wrong enough to notice: each run succeeded.
+    """
+    return (
+        job.prompt.strip().casefold(),
+        job.recipient.strip().casefold(),
+        job.role,
+        job.repeat,
+        tuple(job.times),
+        tuple(job.days),
+        job.date,
+        tuple(job.days_of_month),
+        job.every_minutes,
+    )

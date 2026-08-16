@@ -46,6 +46,87 @@ async def test_create_list_delete_round_trip(jobs_path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_asking_twice_for_the_same_job_does_not_make_two(jobs_path) -> None:
+    """Found on a real machine: two identical nightly jobs, ids differing by a "-2".
+
+    Both had been running for days, a minute apart, each succeeding, so nothing surfaced
+    as broken -- the work simply happened twice every night. The model calling this tool
+    twice for one request is ordinary, whether from a retry or from the user saying it
+    again, so creating a job has to be idempotent rather than merely unique.
+    """
+    tool = ScheduleTool()
+    first = await tool.run(
+        action="create",
+        name="Push and commit work on Arelis at 23:00",
+        prompt="Push and commit work on Arelis at 23:00 tonight.",
+        time="23:00",
+        days="daily",
+    )
+    second = await tool.run(
+        action="create",
+        name="Push and commit work on Arelis at 23:00",
+        prompt="Push and commit work on Arelis at 23:00 tonight.",
+        time="23:00",
+        days="daily",
+    )
+
+    assert first.ok and second.ok
+    assert second.data["already_existed"] is True
+    assert second.data["id"] == first.data["id"]
+    assert [j.id for j in store_mod.load_jobs()] == [first.data["id"]]
+
+
+@pytest.mark.asyncio
+async def test_the_same_work_at_a_different_time_is_a_second_job(jobs_path) -> None:
+    """The non-vacuity half. Deduplicating on the prompt alone would silently refuse a
+    second run of the same report at a different hour, which is a thing people want."""
+    tool = ScheduleTool()
+    evening = await tool.run(
+        action="create", name="Digest", prompt="Summarise the day", time="19:00", days="daily"
+    )
+    morning = await tool.run(
+        action="create", name="Digest", prompt="Summarise the day", time="7am", days="daily"
+    )
+
+    assert evening.data["id"] != morning.data["id"]
+    assert len(store_mod.load_jobs()) == 2
+
+
+@pytest.mark.asyncio
+async def test_a_duplicate_named_differently_is_still_a_duplicate(jobs_path) -> None:
+    """Names are cosmetic; two jobs doing the same work at the same time are one job."""
+    tool = ScheduleTool()
+    first = await tool.run(
+        action="create", name="Nightly push", prompt="Push the work", time="23:00", days="daily"
+    )
+    again = await tool.run(
+        action="create", name="Commit at 11pm", prompt="Push the work", time="23:00", days="daily"
+    )
+
+    assert again.data["id"] == first.data["id"]
+    assert len(store_mod.load_jobs()) == 1
+
+
+@pytest.mark.asyncio
+async def test_asking_again_switches_a_disabled_job_back_on(jobs_path) -> None:
+    """Asking for something that already exists reads as "this should be running"."""
+    tool = ScheduleTool()
+    created = await tool.run(
+        action="create", name="Digest", prompt="Summarise the day", time="19:00", days="daily"
+    )
+    jobs = store_mod.load_jobs()
+    jobs[0].enabled = False
+    store_mod.save_jobs(jobs)
+
+    again = await tool.run(
+        action="create", name="Digest", prompt="Summarise the day", time="19:00", days="daily"
+    )
+
+    assert again.data["id"] == created.data["id"]
+    assert store_mod.load_jobs()[0].enabled is True
+
+
+@pytest.mark.asyncio
 async def test_create_refuses_a_bad_recipient(jobs_path) -> None:
     tool = ScheduleTool()
     result = await tool.run(
