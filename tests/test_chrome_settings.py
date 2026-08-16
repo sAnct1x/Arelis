@@ -12,6 +12,28 @@ from arelis.config import deep_merge, load_config, merge_local_config
 from arelis.ui.window_resize import HTBOTTOM, HTLEFT, HTTOPLEFT, hit_test_resize
 
 
+def test_window_resize_does_not_import_win32_ctypes_at_module_level() -> None:
+    """Linux ctypes has no windll or wintypes.
+
+    Importing them at the top of window_resize.py aborted pytest collection on
+    every Ubuntu runner before a single test ran. The hit-test helpers this
+    file exercises are platform-neutral; only the DWM / WS_THICKFRAME calls
+    need the Win32 names, and those already return on anything but win32.
+    """
+    import ast
+
+    src = Path("arelis/ui/window_resize.py").read_text(encoding="utf-8")
+    tree = ast.parse(src)
+    for node in tree.body:
+        if isinstance(node, ast.ImportFrom) and node.module == "ctypes":
+            names = {alias.name for alias in node.names}
+            forbidden = names & {"windll", "wintypes"}
+            assert not forbidden, (
+                "window_resize.py imports Windows-only ctypes names at "
+                f"module level: {sorted(forbidden)}"
+            )
+
+
 def test_deep_merge_nested() -> None:
     base = {"voice": {"enabled": True, "stt": {"enabled": True}}, "a": 1}
     deep_merge(base, {"voice": {"input_device": "Headset", "stt": {"enabled": False}}})

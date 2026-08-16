@@ -8,12 +8,18 @@ resizable while it still paints frameless.
 from __future__ import annotations
 
 import sys
-from ctypes import byref, c_int, c_short, sizeof, windll, wintypes
+from ctypes import byref, c_int, c_short, sizeof
 from typing import Any
 
 from PySide6.QtCore import QPoint, Qt
 from PySide6.QtGui import QCursor
 from PySide6.QtWidgets import QWidget
+
+# windll and wintypes exist only on Windows. Importing them here used to make
+# `import arelis.ui.window_resize` fail on Linux before any function ran, which
+# aborted pytest collection on every Ubuntu CI leg. The portable ctypes names
+# stay; the Win32 ones are imported inside the functions that already return
+# on anything other than win32.
 
 WM_NCHITTEST = 0x0084
 WM_NCCALCSIZE = 0x0083
@@ -64,6 +70,8 @@ def enable_dark_title_bar(widget: QWidget) -> None:
         hwnd = int(widget.winId())
     except Exception:
         return
+    from ctypes import windll
+
     value = c_int(1)
     dwm = windll.dwmapi
     for attr in (
@@ -86,7 +94,7 @@ def _event_type_bytes(event_type: Any) -> bytes:
         return bytes(event_type)
 
 
-def _msg_from_message(message: Any) -> wintypes.MSG | None:
+def _msg_from_message(message: Any) -> Any:
     try:
         addr = int(message)
     except (TypeError, ValueError, OverflowError):
@@ -94,6 +102,8 @@ def _msg_from_message(message: Any) -> wintypes.MSG | None:
             addr = message.__int__()  # type: ignore[attr-defined]
         except Exception:
             return None
+    from ctypes import wintypes
+
     try:
         return wintypes.MSG.from_address(addr)
     except (TypeError, ValueError, OverflowError):
@@ -177,6 +187,8 @@ def enable_win32_resize_frame(widget: QWidget) -> None:
         hwnd = int(widget.winId())
     except Exception:
         return
+    from ctypes import windll
+
     user32 = windll.user32
     style = int(user32.GetWindowLongW(hwnd, GWL_STYLE))
     new_style = style | WS_THICKFRAME | WS_MAXIMIZEBOX | WS_MINIMIZEBOX | WS_SYSMENU
