@@ -267,6 +267,21 @@ def python_exe() -> Path:
     return TREE / "python.exe"
 
 
+def installed_version() -> str:
+    """Ask the tree what version it is, rather than assuming.
+
+    So the number on the installer is the number in the tree. cwd is the tree itself:
+    the `._pth` resolves its relative entries against the interpreter's own directory
+    rather than the working directory, so this cannot accidentally read the checkout,
+    but relying on that quietly is how the smoke script's console-script bug happened.
+    """
+    return run(
+        [str(python_exe()), "-c", "import arelis; print(arelis.__version__)"],
+        "Reading the version installed in the tree",
+        cwd=TREE,
+    ).strip()
+
+
 def install_locked_dependencies() -> None:
     """Install the lock, with hashes enforced.
 
@@ -315,6 +330,132 @@ def build_and_install_arelis() -> str:
     )
     say(f"  installed {wheels[0].name}")
     return wheels[0].name
+
+
+def replace_console_launchers() -> None:
+    """Throw away pip's .exe launchers and ship .cmd shims that find their own interpreter.
+
+    pip writes the absolute path of the interpreter that installed the wheel into every
+    launcher it generates. Here that is the build directory, so the shipped arelis.exe said
+
+        #!C:\\Users\\...\\Documents\\Arelis\\win-installer\\dist\\Arelis\\python.exe
+
+    which exists on exactly one computer. On the machine that built it the launcher works
+    and runs the *build tree*, so it looks fine and is testing the wrong copy -- that is how
+    this survived a green build and an install. Anywhere else the path is absent.
+
+    What made it worth deleting rather than patching is what the launcher does when the path
+    is wrong. A shebang of a bare name, which is the only relocatable form these launchers
+    accept, is resolved against PATH: measured on this machine, arelis.exe with `#!python.exe`
+    started an unrelated Python 3.11 from %LOCALAPPDATA%\\Programs and imported arelis out of
+    a source checkout. Failing would have been better. `#!..\\python.exe` is simply not
+    understood, and there is no other relative form, so a correct launcher cannot be produced
+    without knowing the install directory, which a per-user install does not know until the
+    user picks it.
+
+    So nothing in the shipped tree is allowed to depend on them. Shortcuts, the uninstall
+    hook, the update relaunch and every scheduled task name {app}\\python[w].exe directly.
+    These shims exist for the person who opens Scripts\\ expecting to find something to run,
+    and %~dp0 makes them work from any directory the tree is ever moved to.
+    """
+    scripts = TREE / "Scripts"
+
+    # Every one of them, not just Arelis's two. The build that first ran this check found
+    # 61: pyside6-designer, tqdm, rdfpipe, sherpa-onnx-cli, huggingface-cli and the rest,
+    # each carrying the same dead path. They are the command-line tools of our dependencies,
+    # nothing in Arelis runs one, and Scripts\ is not on PATH after a per-user install, so
+    # they were 60MB of executables that could only mislead somebody who found them.
+    removed = sorted(p.name for p in scripts.glob("*.exe"))
+    for launcher in scripts.glob("*.exe"):
+        launcher.unlink()
+
+    # pip's own launchers, which land in a bin/ directory inside site-packages rather than in
+    # Scripts\ and so were not swept up when pip itself was removed. Left behind they are
+    # three executables that name a missing interpreter in order to run a missing pip.
+    stray = TREE / "Lib" / "site-packages" / "bin"
+    if stray.is_dir():
+        shutil.rmtree(stray)
+        say("  removed site-packages\\bin, pip's launchers left behind by its own removal")
+
+    # cmd /c resolves %~dp0 to Scripts\ with a trailing backslash, so ..\ climbs to the tree
+    # root where the interpreter lives. Quoted throughout because %LOCALAPPDATA% contains a
+    # space for anybody whose account name does.
+    (scripts / "arelis.cmd").write_text(
+        '@echo off\r\n"%~dp0..\\python.exe" -m arelis %*\r\n',
+        encoding="ascii",
+    )
+    # start "" so the console this was typed into is returned immediately rather than being
+    # held for the lifetime of the window.
+    (scripts / "arelisw.cmd").write_text(
+        '@echo off\r\nstart "" "%~dp0..\\pythonw.exe" -m arelis %*\r\n',
+        encoding="ascii",
+    )
+    say(f"  removed {len(removed)} .exe launchers from Scripts, all naming this machine")
+    say("  wrote arelis.cmd and arelisw.cmd, which locate their own interpreter")
+
+
+def check_no_build_paths_leak() -> None:
+    """Fail the build if any shipped file names the directory it was built in.
+
+    The general form of the launcher bug, and the check that would have caught it. A tree
+    that mentions where it was built is a tree that only works there, and the failure is
+    invisible to whoever built it for exactly that reason.
+
+    UTF-16 as well as ASCII, because Windows binaries embed paths both ways, and the
+    launchers that started this were plain bytes while a .exe manifest may not be.
+
+    Compiled bytecode is exempt, and it is worth being clear that this is a judgement rather
+    than an oversight: 3,149 of the 3,213 files the first run of this check objected to were
+    .pyc. Every one records the source path it was compiled from in ``co_filename``, which
+    Python uses for tracebacks and for nothing else -- import does not consult it, and
+    staleness is decided by the size and mtime of the source file sitting next to the cache.
+    So the cost is a traceback quoting a directory the reader does not have. The alternatives
+    are worse: shipping no bytecode means either recompiling on first import, which an
+    admin-installed tree under Program Files may not be allowed to do at all, or losing the
+    cache permanently and paying for it on every launch. compileall can rewrite the recorded
+    path, but only to another fixed one, and the install directory is chosen by the user.
+    """
+    # Most specific first, and one reason per file: the build tree lives inside the
+    # repository, so its path contains the repository's and every offender would otherwise be
+    # reported twice.
+    needles = (
+        ("the build tree", str(TREE.resolve())),
+        ("the repository", str(REPO_ROOT.resolve())),
+    )
+    encoded = [
+        (label, text.encode("utf-8"), text.encode("utf-16-le")) for label, text in needles
+    ]
+
+    offenders: list[str] = []
+    exempt = 0
+    for path in TREE.rglob("*"):
+        if not path.is_file():
+            continue
+        try:
+            blob = path.read_bytes()
+        except OSError:
+            continue
+        for label, ascii_bytes, wide_bytes in encoded:
+            if ascii_bytes not in blob and wide_bytes not in blob:
+                continue
+            if path.suffix == ".pyc":
+                exempt += 1
+            else:
+                offenders.append(f"    {path.relative_to(TREE)} names {label}")
+            break
+
+    if offenders:
+        sys.stderr.write(
+            "\nFiles in the shipped tree name a path from this machine, so they would be "
+            "wrong on any other:\n" + "\n".join(sorted(offenders)) + "\n\n"
+            "This is what pip's console-script launchers did. Whatever produced these has "
+            "to be given a relative path or removed.\n"
+        )
+        raise SystemExit(1)
+    say(
+        f"  nothing outside bytecode names this machine "
+        f"({exempt:,} .pyc carry a co_filename, which only affects tracebacks)"
+    )
 
 
 def remove_build_only_packages() -> None:
@@ -621,23 +762,98 @@ def report_size(label: str) -> int:
 
 ISS = HERE / "arelis.iss"
 
-# Where Inno Setup installs, and it is a 32-bit program even on 64-bit Windows, so the
-# x86 directory is the usual answer rather than the fallback.
-ISCC_CANDIDATES = (
-    Path(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")) / "Inno Setup 6"
-    / "ISCC.exe",
-    Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "Inno Setup 6" / "ISCC.exe",
+# The directories Inno Setup installs under, most likely first. %LOCALAPPDATA%\Programs
+# leads because that is where it lands from the winget line this file prints: an
+# unelevated `winget install` is a per-user install, and neither Program Files location
+# gets a directory at all. Looked for first because the recommended command produces it.
+ISCC_PARENTS = (
+    Path(os.environ.get("LOCALAPPDATA", "")) / "Programs",
+    # A 32-bit program even on 64-bit Windows, so the x86 directory is the usual answer
+    # for a machine-wide install rather than the fallback.
+    Path(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")),
+    Path(os.environ.get("ProgramFiles", r"C:\Program Files")),
 )
 
 
 def find_iscc() -> Path | None:
+    """PATH first, then the install directories, newest major version first.
+
+    Globbed rather than named, so that Inno Setup 7 is found without an edit here. Inno
+    Setup does not put itself on PATH, so the glob is the path that actually runs.
+    """
     found = shutil.which("ISCC.exe") or shutil.which("iscc")
     if found:
         return Path(found)
-    for candidate in ISCC_CANDIDATES:
-        if candidate.exists():
-            return candidate
+    for parent in ISCC_PARENTS:
+        if not parent.is_dir():
+            continue
+        for directory in sorted(parent.glob("Inno Setup*"), reverse=True):
+            candidate = directory / "ISCC.exe"
+            if candidate.exists():
+                return candidate
     return None
+
+
+def install_over_existing(installer: Path) -> None:
+    """Run the installer we just built, replacing the copy already on this machine.
+
+    For the author's own loop rather than for anybody else: edit the checkout, then
+    promote it to the Arelis actually being used, in one command instead of building and
+    then going to find the .exe.
+
+    An upgrade rather than a second install, because arelis.iss pins AppId -- same
+    directory, same Start Menu entry, one row in Apps & Features. %LOCALAPPDATA%\\Arelis
+    is untouched, so conversations, memory, saved jobs and tokens come straight back.
+
+    /SILENT and not /VERYSILENT: a progress window for something that takes a minute is
+    worth having, and it is the difference between a slow install and a hung one.
+    """
+    say(f"  installing {installer.name} over the existing copy...")
+    result = subprocess.run(
+        [str(installer), "/SILENT", "/SUPPRESSMSGBOXES", "/NORESTART"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        sys.stderr.write(
+            f"\nThe installer exited {result.returncode}.\n"
+            "Exit code 5 is a cancelled elevation prompt; 2 is a cancelled wizard.\n"
+        )
+        sys.stderr.write((result.stdout or "") + "\n" + (result.stderr or "") + "\n")
+        raise SystemExit(result.returncode)
+
+    # Ask the installed copy what it is, rather than reporting what we hoped to install.
+    #
+    # Through {app}\python.exe, and this is the third place the same mistake had to be taken
+    # out. This used to run {app}\Scripts\arelis.exe, and the first build after the launchers
+    # were removed still printed a version from it: the file was left over from the previous
+    # install, because Inno only writes the files it ships and does not delete the ones it no
+    # longer has, and its baked-in shebang pointed at the build tree, which had just been
+    # rebuilt. So the check that exists to confirm the install worked was satisfied by the
+    # build directory. Nothing that verifies an install may go through a launcher.
+    installed = Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Arelis"
+    interpreter = installed / "python.exe"
+    if not interpreter.exists():
+        raise SystemExit(f"the installer reported success but {interpreter} is not there")
+    version = run(
+        [str(interpreter), "-m", "arelis", "--version"], "Reading the installed version"
+    ).strip()
+    say(f"  {installed}")
+    say(f"  {version}")
+
+    # And that it knows it is one, which is the question the updater asks. A tree missing its
+    # uninstaller, or one whose package resolves somewhere else, answers no and quietly never
+    # offers an update again.
+    report = run(
+        [str(interpreter), "-m", "arelis", "--check-update"], "Asking the installed copy"
+    )
+    for line in report.strip().splitlines():
+        say(f"    {line}")
+    if "not an installed copy" in report:
+        raise SystemExit(
+            "the installed copy does not recognise itself as installed, so it would never "
+            "offer an update. See install_root() in arelis/update.py."
+        )
 
 
 def package_installer(version: str) -> Path | None:
@@ -738,31 +954,44 @@ def verify() -> None:
         sys.stderr.write((result.stdout or "") + "\n" + (result.stderr or "") + "\n")
         raise SystemExit(1)
 
-    say("  the two ways Arelis is started...")
-    # -m arelis is the form every scheduled task uses. The console script is the form
-    # the shortcut uses. They go through different code in the interpreter and only one
-    # of them existing is a real state to be in.
+    say("  the ways Arelis is started...")
+    # Every one of these is a real launch path: the shortcuts and the update relaunch use
+    # pythonw.exe -m arelis, scheduled tasks use the same, the uninstall hook uses
+    # python.exe -m arelis, and the shim is what a person finds in Scripts. All four name
+    # the interpreter by its position in the tree, which is what makes the tree movable.
     module = run([str(python_exe()), "-m", "arelis", "--version"], "-m arelis --version").strip()
     say(f"    -m arelis      -> {module}")
-    console = TREE / "Scripts" / "arelis.exe"
-    if not console.exists():
-        raise SystemExit(f"no console script at {console}")
-    script = run([str(console), "--version"], "arelis.exe --version").strip()
-    say(f"    arelis.exe     -> {script}")
-    if module != script:
-        raise SystemExit(f"the two entry points disagree: {module!r} vs {script!r}")
 
-    windowless = TREE / "Scripts" / "arelisw.exe"
-    if not windowless.exists():
-        raise SystemExit(
-            f"no windowless launcher at {windowless}. The shortcut has nothing to point "
-            "at, and pointing it at arelis.exe would flash a console on every launch."
-        )
-    say(f"    arelisw.exe    -> present ({human(windowless.stat().st_size)})")
+    shim = TREE / "Scripts" / "arelis.cmd"
+    if not shim.exists():
+        raise SystemExit(f"no console shim at {shim}")
+    viacmd = run(["cmd", "/c", str(shim), "--version"], "arelis.cmd --version").strip()
+    say(f"    arelis.cmd     -> {viacmd}")
+    if module != viacmd:
+        raise SystemExit(f"the two entry points disagree: {module!r} vs {viacmd!r}")
 
-    say("  pythonw.exe, which is what scheduled jobs run...")
+    for stale in ("arelis.exe", "arelisw.exe"):
+        if (TREE / "Scripts" / stale).exists():
+            raise SystemExit(
+                f"{stale} is back in the tree. pip writes this machine's interpreter path "
+                "into it, so it works here and nowhere else -- see replace_console_launchers."
+            )
+    say("    no pip launchers, which would carry this machine's paths")
+
+    say("  pythonw.exe, which is what shortcuts and scheduled jobs run...")
     if not (TREE / "pythonw.exe").exists():
         raise SystemExit("no pythonw.exe in the tree; scheduled jobs would open a console")
+    windowless = subprocess.run(
+        [str(TREE / "pythonw.exe"), "-c", "import arelis; print(arelis.__version__)"],
+        capture_output=True,
+        text=True,
+    )
+    if windowless.returncode != 0:
+        sys.stderr.write((windowless.stdout or "") + "\n" + (windowless.stderr or "") + "\n")
+        raise SystemExit("pythonw.exe cannot import arelis, so every shortcut would do nothing")
+
+    say("  nothing in the tree names where it was built...")
+    check_no_build_paths_leak()
 
     say("  the installed-copy checks, under the bundled interpreter...")
     # The same script CI runs against a wheel in a clean virtualenv. The bundled tree is
@@ -806,6 +1035,23 @@ def main(argv: list[str] | None = None) -> int:
         help="Report the size of an already-built tree and stop. Builds nothing.",
     )
     parser.add_argument(
+        "--install",
+        action="store_true",
+        help=(
+            "After building, run the installer over the copy already on this machine. "
+            "Promotes this checkout to the Arelis you actually use. Your data is not "
+            "touched."
+        ),
+    )
+    parser.add_argument(
+        "--installer-only",
+        action="store_true",
+        help=(
+            "Compile an existing dist/Arelis without rebuilding it. Verifies the tree "
+            "first, so this is a shortcut past the build and not past the checks."
+        ),
+    )
+    parser.add_argument(
         "--no-installer",
         action="store_true",
         help=(
@@ -826,8 +1072,8 @@ def main(argv: list[str] | None = None) -> int:
     if sys.platform != "win32":
         raise SystemExit(
             "This builds a Windows tree using the bundled interpreter itself, so it has "
-            "to run on Windows. Cross-building is possible with pip --target but cannot "
-            "generate the .exe launchers, which is most of what makes the result usable."
+            "to run on Windows: the verification step imports every dependency and starts "
+            "Qt under the interpreter that will ship, which is the part worth having."
         )
     if not LOCK.exists():
         raise SystemExit(f"no lock at {LOCK}. Run: python win-installer/lock.py")
@@ -839,6 +1085,23 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     started = time.monotonic()
+
+    if args.installer_only:
+        if not TREE.exists():
+            raise SystemExit(f"nothing built at {TREE}. Run without --installer-only.")
+        total = report_size("Existing tree")
+        say("\n== Verification ==")
+        verify()
+        say("\n== Setup .exe ==")
+        installer = package_installer(installed_version())
+        if installer and args.install:
+            say("\n== Install ==")
+            install_over_existing(installer)
+        say("")
+        say(f"{human(total)} in {time.monotonic() - started:,.0f}s")
+        if installer:
+            say(f"Installer: {installer.relative_to(REPO_ROOT)}")
+        return 0
 
     if not args.keep_tree and DIST.exists():
         say(f"Clearing {DIST.relative_to(REPO_ROOT)}...")
@@ -852,6 +1115,7 @@ def main(argv: list[str] | None = None) -> int:
     bootstrap_pip()
     install_locked_dependencies()
     wheel_name = build_and_install_arelis()
+    replace_console_launchers()
     remove_build_only_packages()
 
     before = report_size("Unpruned tree")
@@ -870,10 +1134,10 @@ def main(argv: list[str] | None = None) -> int:
     installer = None
     if not args.no_installer:
         say("\n== Setup .exe ==")
-        # arelis-0.1.0-py3-none-any.whl. Taken from the wheel actually installed rather
-        # than from an import, so the version on the installer is the version in the tree.
-        version = wheel_name.split("-")[1]
-        installer = package_installer(version)
+        installer = package_installer(installed_version())
+        if installer and args.install:
+            say("\n== Install ==")
+            install_over_existing(installer)
 
     say("")
     say(f"Built {TREE.relative_to(REPO_ROOT)} from {wheel_name}")

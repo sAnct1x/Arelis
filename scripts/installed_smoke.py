@@ -271,28 +271,89 @@ def check_the_two_ways_in_both_work() -> None:
     # other reported a missing entry point for a build that had one.
     scripts = Path(sysconfig.get_path("scripts"))
     suffix = ".exe" if sys.platform == "win32" else ""
-    console = scripts / f"arelis{suffix}"
-    assert console.exists(), f"the console script was not installed at {console}"
-    entry = subprocess.run(
-        [str(console), "--version"], capture_output=True, text=True, check=False
+
+    # Any pip launcher that is here must name an interpreter that exists, and this is the
+    # check that was missing rather than a precaution. pip writes the absolute path of the
+    # installing interpreter into each launcher it generates. In a virtualenv that path is
+    # where the virtualenv will stay, so it is correct and these launchers are the ordinary
+    # way to start the program. In a tree assembled for an installer it is the build
+    # directory, so the shipped launcher pointed at a path that exists on one computer --
+    # and on that computer it ran the build tree, so every check passed while testing the
+    # wrong copy. Asserting only that the file exists is what let that through.
+    for name in (f"arelis{suffix}", f"arelisw{suffix}"):
+        launcher = scripts / name
+        if not launcher.exists():
+            continue
+        interpreter = _interpreter_named_inside(launcher)
+        assert interpreter is None or interpreter.is_file(), (
+            f"{launcher} names {interpreter}, which is not on this machine. pip baked in "
+            "the path of whatever interpreter installed the wheel, so this launcher works "
+            "only where it was built. Point shortcuts at the interpreter directly, or ship "
+            "a .cmd shim that resolves its own location."
+        )
+        print(f"  {name} names {interpreter or 'no interpreter'}, which is present")
+
+    # One way to start it other than -m, whichever this install has. A virtualenv gets
+    # pip's console script; the installer's tree gets a .cmd shim, because a launcher whose
+    # interpreter path cannot be made relative is worse than no launcher at all.
+    runnable = next(
+        (p for p in (scripts / f"arelis{suffix}", scripts / "arelis.cmd") if p.exists()),
+        None,
     )
+    assert runnable is not None, (
+        f"no way to start Arelis from {scripts} other than -m arelis. Shortcuts, the "
+        "uninstall hook and scheduled tasks all need something to point at."
+    )
+    argv = ["cmd", "/c", str(runnable)] if runnable.suffix == ".cmd" else [str(runnable)]
+    entry = subprocess.run([*argv, "--version"], capture_output=True, text=True, check=False)
     assert entry.returncode == 0, (
-        f"the console script exited {entry.returncode}: "
+        f"{runnable.name} exited {entry.returncode}: "
         f"{(entry.stderr or entry.stdout).strip()[:400]}"
     )
-    print(f"  {console.name} --version -> {entry.stdout.strip()}")
-
-    # Checked for, never run. This is the launcher a Start Menu shortcut points at, and
-    # its whole purpose is having no console, so asking it to print a version would
-    # write to a stdout that is not there. Its absence is otherwise entirely silent
-    # until somebody double-clicks an icon and watches nothing happen.
-    windowless = scripts / f"arelisw{suffix}"
-    assert windowless.exists(), (
-        f"the windowless launcher was not installed at {windowless}. A desktop or Start "
-        "Menu shortcut has nothing to point at, and pointing one at the console script "
-        "flashes a black window on every launch."
+    assert entry.stdout.strip() == module.stdout.strip(), (
+        f"{runnable.name} and -m arelis disagree about the version: "
+        f"{entry.stdout.strip()!r} vs {module.stdout.strip()!r}. They are running different "
+        "copies of Arelis."
     )
-    print(f"  {windowless.name} present, which is what a shortcut points at")
+    print(f"  {runnable.name} --version -> {entry.stdout.strip()}")
+
+    # The interpreter a shortcut and every scheduled task actually name. Its whole purpose
+    # is having no console, so it is asked to write to a file rather than to a stdout that
+    # is not there.
+    windowless = Path(sys.executable).with_name(f"pythonw{suffix}")
+    if windowless.exists():
+        with tempfile.TemporaryDirectory() as box:
+            proof = Path(box) / "version.txt"
+            subprocess.run(
+                [
+                    str(windowless),
+                    "-c",
+                    f"import arelis, pathlib; pathlib.Path(r'{proof}')"
+                    ".write_text(arelis.__version__)",
+                ],
+                check=False,
+                timeout=120,
+            )
+            assert proof.is_file(), (
+                f"{windowless} could not import arelis. Every shortcut and every scheduled "
+                "task starts this way, and when it fails it fails silently: an icon that "
+                "does nothing when double-clicked."
+            )
+            print(f"  {windowless.name} imports arelis {proof.read_text()}")
+
+
+def _interpreter_named_inside(launcher: Path) -> Path | None:
+    """The interpreter path pip embedded in a generated launcher, if it embedded one.
+
+    These are a small executable stub, a shebang line, then a zip of the script. Read as
+    bytes because the file is mostly not text.
+    """
+    import re
+
+    match = re.search(rb"#!([^\r\n]{1,400}?\.exe)\r?\n", launcher.read_bytes())
+    if match is None:
+        return None
+    return Path(match.group(1).decode("utf-8", "replace").strip('"'))
 
 
 CHECKS = (
