@@ -1,8 +1,41 @@
 from __future__ import annotations
 
 import os
+import shutil
+import tempfile
+from pathlib import Path
 
 import pytest
+
+# Point the whole suite at a throwaway data root, at import time, before anything else.
+#
+# This is not belt-and-braces. Until it existed, a test that forgot to sandbox itself wrote
+# into the developer's live profile: real memory.db, real action_ledger.jsonl, real
+# tool_cache. It was found by noticing that a test run had appended a fixture email and a
+# pytest temp path to a ledger of real actions. Ten test modules set ARELIS_DATA_DIR
+# themselves; the rest trusted the environment, and the environment was somebody's Arelis.
+#
+# Import time rather than an autouse fixture, and that ordering is the whole trick. Modules
+# resolve some paths once -- jobs.store computes JOBS_PATH, memory.store computes its
+# default -- and those run when the test modules are imported during collection, which is
+# before any fixture. A fixture would be correct and useless. conftest is imported before
+# test modules, so this is early enough to be believed.
+#
+# Unconditional, including over an ARELIS_DATA_DIR that is already set, because the value
+# most likely to be sitting in the environment is the one pointing at the real profile.
+# Tests that need a specific root still monkeypatch it, and the handful that assert what a
+# checkout does without an override still delete it.
+_TESTS_DATA_ROOT = Path(tempfile.mkdtemp(prefix="arelis-tests-"))
+os.environ["ARELIS_DATA_DIR"] = str(_TESTS_DATA_ROOT)
+
+
+def pytest_sessionfinish(session, exitstatus):
+    """Delete the throwaway root, and do not fail the run if Windows will not let go.
+
+    ignore_errors because a test that left a SQLite connection open holds a lock Windows
+    honours, and a suite that passed must not report failure over scratch files in TEMP.
+    """
+    shutil.rmtree(_TESTS_DATA_ROOT, ignore_errors=True)
 
 
 @pytest.fixture(scope="session")

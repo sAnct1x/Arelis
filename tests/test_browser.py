@@ -321,9 +321,13 @@ def test_fake_screenshot_then_path() -> None:
         assert path.startswith("outputs/images/browser_")
         assert path.endswith(".png")
         assert "vision" in shot.output.lower()
-        from arelis.config import PROJECT_ROOT
+        # The reported path is relative, and relative to the data root rather than to the
+        # program. Those are the same directory in a checkout, which is why resolving it
+        # against the repository used to work; an installed Arelis writes screenshots under
+        # the user's data and could not write them beside the executable if it wanted to.
+        from arelis.paths import user_data_dir
 
-        full = (PROJECT_ROOT / path).resolve()
+        full = (user_data_dir() / path).resolve()
         assert full.is_file()
         assert full.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
 

@@ -1090,15 +1090,22 @@ async def test_the_working_argument_style_is_remembered(tmp_path, monkeypatch) -
     assert attempts == ["modern", "legacy", "legacy"]
 
 
-def test_relative_voice_paths_resolve_against_the_repo() -> None:
+def test_relative_voice_paths_resolve_against_the_data_root() -> None:
     """Arelis is launched from the Start menu as often as from a terminal, so a
-    relative path cannot mean "wherever the shell happened to be"."""
-    from arelis.config import PROJECT_ROOT
+    relative path cannot mean "wherever the shell happened to be".
+
+    The data root and not the install directory, which used to be the same assertion: in a
+    checkout both are the repository, so nothing distinguished them. They differ once
+    Arelis is installed, and only one answer survives that. Voices are downloaded after
+    install, into a per-user directory; resolving them under the program instead would
+    point at a directory the installer owns and a standard user cannot write to.
+    """
+    from arelis.paths import user_data_dir
     from arelis.voice.tts import TextToSpeech
 
     tts = TextToSpeech({"voice": {"tts": {"voice_model": "models/piper/x.onnx"}}})
     assert Path(tts.voice_model).is_absolute()
-    assert Path(tts.voice_model).is_relative_to(PROJECT_ROOT)
+    assert Path(tts.voice_model).is_relative_to(user_data_dir())
 
 
 @pytest.mark.asyncio
