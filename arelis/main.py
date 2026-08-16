@@ -64,6 +64,15 @@ def main(argv: list[str] | None = None) -> int:
             "the program without this leaves Windows waking on a timer to run nothing."
         ),
     )
+    parser.add_argument(
+        "--check-update",
+        action="store_true",
+        help=(
+            "Ask GitHub whether a newer Arelis has been published, report, and exit. "
+            "Downloads and installs nothing. The same check the app makes once a day, "
+            "runnable where the answer is visible."
+        ),
+    )
     parser.add_argument("--config", type=str, default=None, help="Optional YAML config path")
     parser.add_argument(
         "--auth-calendar",
@@ -85,6 +94,33 @@ def main(argv: list[str] | None = None) -> int:
 
         removed = remove_all_tasks()
         print(f"Removed {len(removed)} scheduled task(s): {', '.join(removed) or 'none'}")
+        return 0
+
+    # Also before load_config: this reports on the program rather than acting on the
+    # user's settings, and it is the thing you reach for when something about updating is
+    # already not working.
+    if args.check_update:
+        import sys as _sys
+
+        from arelis.paths import PACKAGE_ROOT
+        from arelis.update import available_update, install_root, updates_supported
+
+        supported, why = updates_supported()
+        print(f"This copy   : arelis {__version__}")
+        # Printed always, not only on failure. Every question about updating turns out to
+        # be a question about which copy is asking, and the answer is these three lines.
+        print(f"Launched by : {_sys.executable}")
+        print(f"Package     : {PACKAGE_ROOT}")
+        print(f"Install root: {install_root() or 'not an installed copy'}")
+        if not supported:
+            print(f"Not updated here: {why}")
+            return 0
+        release = available_update()
+        if release is None:
+            print("Latest      : nothing newer published (drafts are not offered)")
+            return 0
+        print(f"Available   : {release.tag} ({release.setup_name}, {release.size_text})")
+        print(f"Notes       : {release.page_url}")
         return 0
 
     config = load_config(Path(args.config)) if args.config else load_config()

@@ -3623,6 +3623,14 @@ def run_ui(config: dict[str, Any] | None = None) -> int:
     window.raise_()
     window.activateWindow()
     window.setWindowState(window.windowState() & ~Qt.WindowState.WindowMinimized)
+
+    # After the window, not before: this reaches the network, and the first seconds of a
+    # launch belong to the person who double-clicked something. Declines to do anything at
+    # all unless this copy came from the installer, so a checkout is never offered a
+    # release that would overwrite the code being edited.
+    from arelis.ui.update_prompt import schedule_update_check
+
+    schedule_update_check(window)
     try:
         code = app.exec()
 

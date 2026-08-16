@@ -26,6 +26,11 @@ classifiers = [
 ]
 dependencies = [
   "httpx>=0.27",
+  # Version comparison for the self-updater, which has to know that 0.10.0 is newer than
+  # 0.9.0. Already present as somebody else's transitive dependency; named here because
+  # arelis.update imports it directly, and depending on a package you did not ask for
+  # works right up until the package that dragged it in drops it.
+  "packaging>=23.0",
   "beautifulsoup4>=4.12",
   "lxml>=5.0",
   "pandas>=2.2",
@@ -89,13 +94,17 @@ dev = [
 [project.scripts]
 arelis = "arelis.main:main"
 
-# The same entry point behind a launcher that starts without a console, which is what
-# a Start Menu shortcut and a desktop icon point at. `arelis.exe` keeps its console
+# The same entry point behind a launcher that starts without a console, for anyone who
+# pip-installs Arelis and wants to double-click something. `arelis.exe` keeps its console
 # because --version, --cli and --help are meant to print somewhere a person can read;
 # double-clicking that one would flash a black window and leave it open behind the UI.
-# The two differ only in the launcher stub pip generates, and configure_logging
-# already declines to attach a console handler when stderr is not a tty, so the
+# configure_logging declines to attach a console handler when stderr is not a tty, so the
 # windowless one is not quietly throwing its own diagnostics away.
+#
+# The Windows installer does not ship either of these. pip writes the absolute path of the
+# installing interpreter into the launcher it generates, which is correct in a virtualenv
+# that stays put and wrong in a tree built on one machine to run on another, so build.py
+# deletes them and points every shortcut at {app}\pythonw.exe -m arelis instead.
 [project.gui-scripts]
 arelisw = "arelis.main:main"
 

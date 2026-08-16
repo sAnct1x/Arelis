@@ -55,6 +55,12 @@ ALLOWED: dict[str, str] = {
     # Model and voice weights, downloaded once when a feature is first used and
     # gated behind allow_download in config.
     "github.com": "release assets for Kokoro, Silero and Sherpa weights",
+    # Whether a newer Arelis has been published. One unauthenticated GET a day, from an
+    # installed copy only, carrying nothing but a User-Agent naming the version -- which is
+    # unavoidable in an update check, since asking "is there something newer than this"
+    # requires saying what this is. No answer is sent anywhere, and a source checkout never
+    # asks. See arelis/update.py for what it does with the reply.
+    "api.github.com": "the once-a-day update check made by an installed copy",
     # Places her own browser can be pointed, at the user's request. These are
     # navigation targets, not fetches: nothing is sent that the user did not
     # type or click.
