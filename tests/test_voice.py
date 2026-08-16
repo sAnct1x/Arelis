@@ -1171,6 +1171,27 @@ def test_missing_hardware_is_shown_and_explained(qt_app) -> None:
     assert "microphone" in stage.mic_btn.toolTip()
 
 
+def test_the_explanation_survives_leaving_idle(qt_app) -> None:
+    """The order above is the reverse of the application's own.
+
+    ArelisWindow reports the hardware while it wires voice up, and leaves idle afterwards.
+    In that order set_idle_mode rebuilt the composer last, and it decided the buttons'
+    visibility from availability alone -- so a machine with no microphone showed the
+    disabled control with its reason for exactly as long as the window stayed idle, then
+    hid it. Only a machine without a microphone can see that, which is why CI found it and
+    months of use did not.
+    """
+    from arelis.ui.panels.conversation import ConversationStage
+
+    stage = ConversationStage()
+    stage.show()
+    stage.set_voice_available(False, "No microphone was found.")
+    stage.set_idle_mode(False)
+    assert stage.mic_btn.isVisible()
+    assert not stage.mic_btn.isEnabled()
+    assert "microphone" in stage.mic_btn.toolTip()
+
+
 def test_only_one_voice_mode_can_be_on(qt_app) -> None:
     from arelis.ui.panels.conversation import ConversationStage
 

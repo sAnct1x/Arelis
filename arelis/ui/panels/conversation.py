@@ -526,7 +526,7 @@ class ConversationStage(GlassFrame):
                         self._composer_row.removeWidget(btn)
                         btn.setParent(voice_host)
                         voice_host.layout().addWidget(btn)
-                voice_host.setVisible(bool(getattr(self, "_voice_available", False)))
+                voice_host.setVisible(bool(getattr(self, "_voice_shown", False)))
             self._fit_idle_prompt()
         else:
             if self.input.parent() is not self._composer:
@@ -551,7 +551,7 @@ class ConversationStage(GlassFrame):
             self.role.show()
             self.attach_btn.show()
             self.send_btn.show()
-            visible = bool(getattr(self, "_voice_available", False))
+            visible = bool(getattr(self, "_voice_shown", False))
             for btn in (self.mic_btn, self.conversation_btn):
                 if btn.parent() is not self._composer:
                     host_l = btn.parentWidget().layout() if btn.parentWidget() else None
@@ -610,7 +610,11 @@ class ConversationStage(GlassFrame):
         an explanation in the tooltip.
         """
         self._voice_available = available
-        show = available or bool(reason)
+        # Kept, rather than recomputed by whoever needs it next. set_idle_mode rebuilds the
+        # composer and has to decide this again; deriving it there from _voice_available
+        # alone dropped the "on but unusable" case and hid the tooltip that is the entire
+        # point of it. An unplugged microphone made the controls vanish silently.
+        self._voice_shown = show = available or bool(reason)
         for button in (self.mic_btn, self.conversation_btn):
             button.setVisible(show)
             button.setEnabled(available)
