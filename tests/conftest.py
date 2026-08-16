@@ -25,7 +25,13 @@ import pytest
 # most likely to be sitting in the environment is the one pointing at the real profile.
 # Tests that need a specific root still monkeypatch it, and the handful that assert what a
 # checkout does without an override still delete it.
-_TESTS_DATA_ROOT = Path(tempfile.mkdtemp(prefix="arelis-tests-"))
+# Resolved, and that matters on Windows. An account whose name is longer than eight
+# characters also gets an 8.3 short alias, and tempfile.gettempdir() reports the aliased
+# spelling while resolve() expands it. Two strings, one directory -- so anything that
+# canonicalises a path before comparing it disagrees with anything that does not, which
+# failed two tests on every CI runner and on no machine whose username is short enough to
+# have no alias at all. The runner accounts are the common case, not an exotic one.
+_TESTS_DATA_ROOT = Path(tempfile.mkdtemp(prefix="arelis-tests-")).resolve()
 os.environ["ARELIS_DATA_DIR"] = str(_TESTS_DATA_ROOT)
 
 
