@@ -33,7 +33,8 @@ poll **seeds** the current inbox as already-seen (no backlog flood) — only
    `data/secrets.example.yaml`), or set `ARELIS_INGEST_TOKEN`.
 3. On the phone (same Wi‑Fi), open Arelis Notify and set the server URL to the
    LAN address Arelis shows — typically `http://<PC-LAN-IP>:8765`.
-4. Copy the URL from the desktop: View menu → **Phone Notify URL…** → Copy.
+4. Copy the URL from the desktop: View → **notify url…**, or Settings →
+   Notify, then **Copy primary URL**.
 
 The STATUS line `Inbound notify ready — Phone Notify URL: …` is the same URL.
 
@@ -63,10 +64,10 @@ update the phone companion to http://<PC-LAN-IP>:8766
 
 Act on that rather than closing it. A companion still pointed at `:8765` delivers
 to whatever is there, which will not have your token, so the text is dropped with
-nothing to show you why. View → **Phone Notify URL…** always shows the port
-actually serving *this* Arelis, and the SMS readiness chip distinguishes "your
-ingest is up" from "something else holds that port". Allow the new port through the
-firewall too.
+nothing to show you why. View → **notify url…** (Settings → Notify) always shows
+the port actually serving *this* Arelis, and the SMS readiness chip distinguishes
+"your ingest is up" from "something else holds that port". Allow the new port
+through the firewall too.
 
 ## Operator checklist (misses that look “random”)
 
@@ -76,7 +77,7 @@ Do these before digging in PC code:
    Apps → battery → Unrestricted). Doze silently kills notification listeners.
 2. **Notification access** on for Arelis Notify.
 3. Companion **Test ping** OK; token matches `sms.ingest_token`; URL matches
-   View → Phone Notify URL (DHCP IP drift is common).
+   View → notify url… / Settings → Notify (DHCP IP drift is common).
 4. Same LAN / not Guest Wi‑Fi; firewall TCP **8765** Private.
 5. Google Messages notifications **not muted** for that chat — muted chats never
    notify, so they never bridge.
@@ -94,7 +95,7 @@ doze / battery, not Arelis rate-limiting (there is no inbound rate limiter).
 | No inbound texts | Arelis still running? Token matches? Same Wi‑Fi? |
 | STATUS missing | `tools.sms.inbound` / `ingest` enabled in config; token set |
 | Companion 401 | Wrong or missing `sms.ingest_token` |
-| Companion timeout | Firewall / wrong IP — use View → Phone Notify URL |
+| Companion timeout | Firewall / wrong IP — use View → notify url… / Settings → Notify |
 | Some texts, not others | Muted chat? Battery optimization? See checklist above |
 | Updates in a thread missing | Rebuild/reinstall companion after content-hash fix; check log for `published=false` |
 | Core running, empty glass | UI not IPC-attached — open glass / check STATUS |

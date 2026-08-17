@@ -1,82 +1,91 @@
-# Models — honest fit for this machine
+# Models
 
-Hardware this page assumes: **AMD RX 6700 XT 12 GB**, **64 GB RAM**, **Ollama on
-Windows**, local-first / **no paid APIs**.
+Arelis thinks with models that run on your own machine, through
+[Ollama](https://ollama.com/download). Nothing is sent to a paid API. The
+defaults below are what a **12 GB graphics card** can hold at once — one chat
+model at a time, which is the whole point of the role switcher.
 
-## Short answer
+They are not the best models in the world. Frontier cloud models still beat any
+7B–14B local model on hard reasoning, long agents, and messy tool use. Within
+free and fully on the GPU at this size, Qwen2.5 7B / 14B / Coder 7B is a
+mainstream local choice, not a random weak pick. What is unusual about Arelis
+is the orchestration, the tools and the memory sitting under that, not a bigger
+weight file.
 
-**No — this is not “the best the world has.”** Frontier cloud models (GPT-class,
-Claude-class, Gemini-class) still beat any 7B–14B local model on hard reasoning,
-long agents, and messy tool use.
+## What she uses
 
-**Yes — within free + fully-on-GPU on a 12 GB card, your stack is in the right
-band.** Qwen2.5 7B / 14B / Coder 7B is still a mainstream 2026 local recommendation
-for this VRAM tier. You are not on a random weak pick.
-
-Novelty for Arelis is **orchestration + tools + memory under latency**, not
-winning LMSYS with a bigger weight file.
-
-## What you run today
-
-| Role | Tag | Job | Fit |
-|------|-----|-----|-----|
-| `fast` | `qwen2.5:7b` | Conversation, tools, SMS | ~4.8 GiB, ~49 tok/s warm — right default |
-| `research` | `qwen2.5:14b` | Deeper asks | ~9.6 GiB, ~29 tok/s — quality ceiling that still fits |
+| Role | Tag | Job | Fit on 12 GB |
+|------|-----|-----|----------------|
+| `fast` | `qwen2.5:7b` | Conversation, tools, texts | ~4.8 GiB, ~49 tok/s warm — the default |
+| `research` | `qwen2.5:14b` | Deeper asks | ~9.6 GiB, ~29 tok/s — the quality ceiling that still fits |
 | `code` | `qwen2.5-coder:7b` | Edits / code | Same size class as fast; swap when coding |
-| `vision` | `qwen2.5vl:3b` | See one local image (tool) | Fits 12 GB only when chat is unloaded; never co-resident with 14B |
-| embed | `nomic-embed-text` | Recall / docs | Tiny; load briefly |
-| STT | Sherpa-ONNX Zipformer EN (CPU); faster-whisper `base` fallback | Speech in (dictate / conversation) | Streaming-capable pack; GPU reserved for chat |
-| TTS | Kokoro-82M `af_heart` (CPU ONNX); Piper Jenny fallback | Speech out | Local, barge-in friendly; GPU stays on chat |
+| `vision` | `qwen2.5vl:3b` | See one local image | Fits only when chat is unloaded; never next to 14B |
+| embed | `nomic-embed-text` | Recall / docs | Tiny; loaded briefly |
+| STT | Sherpa-ONNX Zipformer EN (CPU); faster-whisper `base` fallback | Speech in | GPU stays on chat |
+| TTS | Kokoro-82M `af_heart` (CPU ONNX); Piper Jenny fallback | Speech out | Local, barge-in friendly |
 
-Operator pull (not required for pytest): `ollama pull qwen2.5vl:3b`.
-The `vision` tool unloads chat, runs one VL shot, then rewarms fast — see
-[architecture.md](architecture.md).
+Pull the three chat models and the embed model up front (several gigabytes,
+once):
 
-Measured on this box: `logs/utilization_bench.json`, `docs/foundation.md`.
+```powershell
+ollama pull qwen2.5:7b
+ollama pull qwen2.5:14b
+ollama pull qwen2.5-coder:7b
+ollama pull nomic-embed-text
+```
 
-## What “best” would mean (and why we do not)
+If the card is smaller than 12 GB, skip the 14B pull. She will still converse
+on `fast`. The vision model is pulled the first time she looks at a picture
+(`ollama pull qwen2.5vl:3b` if you want it early). Looking at a picture
+unloads chat, runs one shot, then brings `fast` back. Large screenshots are
+downscaled (long edge 1024 px) before they are sent, because a 1440p capture
+does not fit in the vision model's context otherwise.
 
-| Ambition | Reality on this box |
-|----------|---------------------|
-| Best answers in the world | Needs paid cloud or 70B+ (does not fit 12 GB at speed) |
-| Speculative decoding 2× tok/s | Ollama GGUF path on Windows does **not** expose it; MTP is mostly Mac/MLX or llama.cpp+ROCm rabbit holes (and your card is RDNA2, not the RDNA4 recipes people publish) |
-| 32B / Qwen3.6 27B full GPU | Offload → often *slower* than 14B on-GPU |
+The tags live in `arelis/config/default.yaml` under `models:` and
+`memory.embed_model`. Changing them is a config edit, not a rebuild.
+
+## How VRAM is shared
+
+Only **one** chat model is meant to be in graphics memory. `/role research`
+unloads 7B and loads 14B; a few seconds of silence is the swap, not a hang.
+After a research or code turn she keeps that heavier model warm for a minute
+(`router.rewarm_delay_s`, default 60) so a follow-up does not pay the cold
+load, then pins `fast` again. Research and code also use a non-default
+`keep_alive: 5m` so Ollama does not evict them the instant a turn ends.
+
+Speech recognition and speech stay on the CPU, so talking does not kick the
+chat model off the card.
+
+## What “best” would mean, and why it is not the default
+
+| Ambition | Why it is not shipped |
+|----------|------------------------|
+| Best answers in the world | Needs a paid cloud API or 70B+, which does not fit 12 GB at speed |
+| Speculative decoding for 2× tok/s | Ollama's Windows path does not expose it |
+| 32B / a 27B full GPU | Offload is often *slower* than 14B sitting on the card |
 | Whisper `large-v3` | Better transcripts, much slower on CPU; steals the “snappy talk” feel |
-| Best embed in existence | Larger multilings (e.g. bge-m3) help some RAG; nomic remains the simple local default |
+| A larger embed model | Helps some recall; nomic remains the simple local default |
 
-## Optional upgrades (still free — try after live smoke)
+## Optional experiments
 
-Do **not** change defaults until tomorrow’s live test is green. Then A/B with
-`scripts/bench_foundation.py --live` and `scripts/bench_utilization.py`.
+These are not better by default. Try one at a time, and keep it only if it is
+at least as good at tool-calling and not slower to first token than what you
+have.
 
 | Slot | Candidate | Why consider | Risk |
 |------|-----------|--------------|------|
-| fast | `qwen3.5:9b` | Mid-2026 chatter: strong sub-10B tool-calling on 12 GB | Tag may not exist on your Ollama yet; only keep if foundation eval ≥ 7B **and** TTFT not worse |
-| research | `qwen3:14b` (Q4) | Newer Qwen3 family; possibly better agents | Tool-calling + TTFT may regress; measure |
+| fast | `qwen3.5:9b` | Stronger sub-10B tool-calling on 12 GB, when the tag exists | Tag may not be on your Ollama yet |
+| research | `qwen3:14b` (Q4) | Newer Qwen3 family | Tool-calling and first-token time may regress |
 | code | `qwen2.5-coder:14b` | Stronger code than 7B coder | Same VRAM class as research; cold when swapping |
-| fast | `qwen3:8b` | Newer small generalist | Only if tool eval ≥ current 7B **and** TTFT not worse |
-| STT | whisper `small` | Fewer name errors | +latency on every utterance |
-
-Pull example (when you choose to trial):
+| fast | `qwen3:8b` | Newer small generalist | Same measurement bar as the 9B |
+| STT | whisper `small` | Fewer name errors | Extra latency on every utterance |
 
 ```text
 ollama pull qwen3:14b
 ```
 
-Then temporarily set `models.research: "qwen3:14b"` and re-run the live
-foundation matrix before keeping it.
+Then temporarily set `models.research: "qwen3:14b"` in
+`data/config.local.yaml` before keeping it.
 
-## Research-speed on *this* stack (what we actually ship)
-
-1. **Delayed re-warm** (`router.rewarm_delay_s`, default 45 s) — back-to-back
-   research turns keep 14B warm; then VRAM returns to `fast`.
-2. **Non-default `keep_alive: 5m`** — research/code are not evicted the instant
-   a turn ends.
-3. Speculative decoding — **deferred** until a runner you accept supports it
-   without wrecking AMD/Windows simplicity.
-
-## Bottom line
-
-- **Best absolute quality?** No — cloud wins.
-- **Best free local 12 GB assistant stack?** You are on the recommended ridge
-  (Qwen2.5 7B chat + 14B research + coder). Tune with measurement, not hype.
+How the router, the role chips and the vision unload fit the rest of the
+program: [architecture.md](architecture.md).

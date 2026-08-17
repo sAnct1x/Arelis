@@ -13,7 +13,7 @@ running from source, where it is gitignored. Nothing here is sent anywhere.
 | Are Ollama / calendar / SMS / mail up? | UI readiness strip (title bar); CLI `ready …` STATUS |
 | App crash, IMAP, router, indexer exceptions | `logs/arelis.log` |
 | Scheduled job mail digest | `logs/jobs.log` |
-| Conversation mic state machine stuck | `logs/voice.log` (needs `voice.debug: true`) |
+| Conversation mic state machine stuck | `logs/voice.log` (wake decisions always; the rest needs `voice.debug: true`) |
 | Offline / live foundation matrix | `logs/foundation_bench.json` |
 | VRAM / TTFT samples | `logs/utilization_bench.json` |
 | Prefill/decode + gate table | `logs/latency_bench.json` |
@@ -70,8 +70,11 @@ STATUS lines, voice transcripts.
 
 ### `logs/voice.log`
 
-Only when `voice.debug: true`. Rotating 2 MB × 3. State-machine vector per
-transition — last few lines usually explain a stuck mic.
+Wake decisions (`wake_heard`, `wake_ack`, `wake_drop`) are always written, so
+a missed “Hey Arelis” is countable without turning the rest of the loop into a
+firehose. The full state-machine vector per transition is only attached when
+`voice.debug: true`. Rotating 2 MB × 3. With debug on, the last few lines
+usually explain a stuck mic.
 
 ## Correlation
 

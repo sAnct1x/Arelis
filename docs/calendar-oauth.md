@@ -4,7 +4,11 @@ Explicit exception to local-first: Arelis may hold **calendar** refresh tokens
 so she can read/write Google Calendar and Outlook. Models stay local. Writes
 always require an Allow confirm card.
 
-## Operator checklist (only you can do this)
+`data/secrets.yaml` below is under your records folder:
+`%LOCALAPPDATA%\Arelis\data` for an installed copy, or `data\` in the
+repository when running from source. See the README for that split.
+
+## Checklist (only you can do this)
 
 ### A — Google
 
@@ -13,21 +17,29 @@ always require an Allow confirm card.
 3. OAuth consent screen → External → app name `Arelis` → add yourself as test user.
 4. Credentials → OAuth client ID → **Desktop app** → copy client id + secret.
 5. Paste into `data/secrets.yaml` under `calendar.google.client_id` / `client_secret`.
-6. Run:
+6. Sign in from a terminal:
+
+From an installed copy:
+
+```powershell
+& "$env:LOCALAPPDATA\Programs\Arelis\Scripts\arelis.cmd" --auth-calendar google
+```
+
+From a source checkout:
 
 ```powershell
 cd C:\Users\you\Documents\Arelis
 .\.venv\Scripts\arelis.exe --auth-calendar google
 ```
 
-7. Sign in and Allow. `refresh_token` is written into `secrets.yaml`.
+7. Allow access. `refresh_token` is written into `secrets.yaml`.
 
 ### B — Outlook / Microsoft (personal account)
 
-School/work tenants often block app registration. Use a **personal** Microsoft
-account (Outlook.com / Hotmail / live.com) instead.
+School and work tenants often block app registration. Use a **personal**
+Microsoft account (Outlook.com / Hotmail / live.com) instead.
 
-1. Sign out of any `@osu.edu` (or work) session in Azure.
+1. Sign out of any work or school session in Azure.
 2. Open [Azure portal](https://portal.azure.com/) and sign in with your
    **personal** Microsoft account.
 3. If you see tenant / “interaction required” errors: search **Microsoft Entra ID**
@@ -52,11 +64,8 @@ calendar:
     refresh_token: ""
 ```
 
-10. Run:
-
-```powershell
-.\.venv\Scripts\arelis.exe --auth-calendar outlook
-```
+10. Run `--auth-calendar outlook` the same way as the Google step above
+    (installed `arelis.cmd`, or `.\.venv\Scripts\arelis.exe` from a checkout).
 
 Sign in with the **same personal Microsoft account** that owns the Outlook calendar.
 

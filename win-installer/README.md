@@ -51,7 +51,7 @@ anything to a server, which is the entire point of the program.
 ## Changing dependencies
 
 The installer does not install from `pyproject.toml`. It installs from
-`requirements-win-amd64-cp314.txt`, which pins all 76 packages with `==` and a SHA-256
+`requirements-win-amd64-cp314.txt`, which pins all 77 packages with `==` and a SHA-256
 each, and is installed with `--require-hashes`.
 
 After adding or removing a dependency:
@@ -105,9 +105,6 @@ every way of launching it in a subprocess, a scan for files naming this machine,
 Qt prune is defensible — a wrong entry in it fails the build.
 
 ## Working on Arelis while using Arelis
-
-Once you have installed it, there are two copies on the machine and one set of data. That
-is worth being deliberate about.
 
 Once you have installed it, there are two copies on the machine. They do not share a data
 root, and that is worth knowing precisely, because installing does **not** carry your
@@ -217,11 +214,11 @@ What a cautious person can check instead: `build.py` prints the SHA-256 of the s
 `.exe`, and releases publish it. Compare with:
 
 ```powershell
-Get-FileHash .\Arelis-0.1.0-win64-setup.exe -Algorithm SHA256
+Get-FileHash .\Arelis-0.2.1-win64-setup.exe -Algorithm SHA256
 ```
 
 The bundled interpreter is verified during the build against the digest python.org
-publishes in its own release manifest, and all 76 dependencies against the hashes in the
+publishes in its own release manifest, and all 77 dependencies against the hashes in the
 lock, so an installer that builds at all is built from known bytes.
 
 ## Installing and uninstalling

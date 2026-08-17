@@ -56,22 +56,100 @@ def test_every_relative_link_in_the_docs_resolves() -> None:
     )
 
 
-def test_the_readme_does_not_promise_an_installer_that_does_not_exist() -> None:
-    """Honesty about the current state, checked rather than remembered.
+def test_the_readme_offers_the_published_installer() -> None:
+    """The front door must lead with the setup .exe, not a developer install.
 
-    The README is written for a stranger, and the packaged installer is several
-    phases away. Saying "download the installer" before one exists would be the
-    single most damaging sentence in the file. When the installer ships, this
-    test is what tells whoever updates the README that the caveat above the
-    install steps also has to go.
+    This used to pin the opposite sentence — "an installer is coming, and it is
+    not ready yet" — because that was true, and promising a download before one
+    existed would have been the most damaging line on the page. The installer
+    shipped. The damage now is the old caveat surviving. win-installer/ is the
+    proof it can be built; the README has to tell a stranger where to get it,
+    that it is unsigned, and how to check the published digest.
     """
-    text = (PROJECT_ROOT / "README.md").read_text(encoding="utf-8")
-    installer_dir = PROJECT_ROOT / "installer"
-    if installer_dir.is_dir():
-        return  # An installer exists now; the caveat is free to go.
+    assert (PROJECT_ROOT / "win-installer" / "build.py").is_file()
+    assert (PROJECT_ROOT / "win-installer" / "arelis.iss").is_file()
 
-    assert "not ready yet" in text.lower(), (
-        "There is no installer in the tree, so the README must still say so. A "
-        "reader who follows install instructions that cannot work concludes the "
-        "whole project is broken, and they are not wrong to."
+    text = (PROJECT_ROOT / "README.md").read_text(encoding="utf-8")
+    lower = text.lower()
+    assert "not ready yet" not in lower, (
+        "The README still says the installer is not ready. It is published. "
+        "A stranger who reads that walks away from a working download."
+    )
+    assert "an installer is coming" not in lower, (
+        "The README still talks about an installer in the future tense."
+    )
+    assert "releases/latest" in lower or "setup.exe" in lower, (
+        "The README does not point at the published setup .exe or the releases "
+        "page, so a stranger has no way in except from source."
+    )
+    assert "unsigned" in lower or "smartscreen" in lower, (
+        "The installer is not code-signed. The README has to say so, rather "
+        "than leaving SmartScreen as a surprise that reads as malware."
+    )
+    assert "sha-256" in lower or "sha256" in lower, (
+        "The README tells someone the installer is unsigned but does not tell "
+        "them the digest they can actually check."
+    )
+
+
+def test_every_top_level_doc_is_linked_from_the_readme() -> None:
+    """A page under docs/ that the README never mentions is invisible.
+
+    Subfolders (releases, testing) are working notes for a version, not the
+    front door, so they are not required here.
+    """
+    readme = (PROJECT_ROOT / "README.md").read_text(encoding="utf-8")
+    missing = []
+    for path in sorted((PROJECT_ROOT / "docs").glob("*.md")):
+        needle = f"docs/{path.name}"
+        if needle not in readme.replace("\\", "/"):
+            missing.append(path.name)
+    assert not missing, (
+        "These documents are not linked from the README, so a stranger will "
+        "not find them:\n  " + "\n  ".join(missing)
+    )
+
+
+def test_readme_role_models_match_shipped_defaults() -> None:
+    """The role table on the front door has to name the models the code uses.
+
+    Three tags, copied by hand, is how a README quietly describes an assistant
+    that no longer exists after someone retunes default.yaml.
+    """
+    import yaml
+
+    config = yaml.safe_load(
+        (PROJECT_ROOT / "arelis" / "config" / "default.yaml").read_text(
+            encoding="utf-8"
+        )
+    )
+    readme = (PROJECT_ROOT / "README.md").read_text(encoding="utf-8")
+    missing = []
+    for role in ("fast", "research", "code"):
+        tag = str((config.get("models") or {}).get(role) or "").strip()
+        assert tag, f"default.yaml has no models.{role}"
+        if tag not in readme:
+            missing.append(f"{role} -> {tag}")
+    assert not missing, (
+        "The README does not name these shipped models:\n  " + "\n  ".join(missing)
+    )
+
+
+def test_readme_named_scripts_exist() -> None:
+    """A command the README tells someone to run has to be in the tree."""
+    readme = (PROJECT_ROOT / "README.md").read_text(encoding="utf-8")
+    named = re.findall(r"scripts[/\\][\w.-]+", readme)
+    missing = []
+    seen: set[str] = set()
+    for raw in named:
+        rel = raw.replace("\\", "/")
+        if rel in seen:
+            continue
+        seen.add(rel)
+        if not (PROJECT_ROOT / rel).is_file():
+            missing.append(rel)
+    assert named, "The README names no scripts; the check cannot bind."
+    assert not missing, (
+        "The README tells someone to run a script that is not there:\n  "
+        + "\n  ".join(missing)
     )

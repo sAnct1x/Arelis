@@ -150,3 +150,7 @@ own messages, and an issue is public.
 A crash reporter that assembles this for you, shows you the whole thing, and
 sends nothing until you say so, is planned but not built. Until it exists,
 deciding what to share is unfortunately your job.
+
+The Windows installer — how it is built, why it is unsigned, how an installed
+copy updates — is documented in [win-installer/README.md](win-installer/README.md).
+The supported desktop is Windows.

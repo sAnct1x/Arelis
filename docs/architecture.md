@@ -84,6 +84,7 @@ captcha`), **Pause / Go**, **Stop**. Chrome itself stays looking like Chrome.
 | Camera dock | Webcam still → Point-and-Ask (LookGrant). View → camera / Ctrl+5 |
 | History dock | Sessions; pending fact approve/reject |
 | Notifications dock | Inbound SMS while the UI is open |
+| Contacts | Named people for texts (View → contacts / Ctrl+6) |
 | Settings | Audio / Window / Notify / Roots / Memory |
 
 Docked instruments are type in the void (no fill plate). Floating tiles are
@@ -117,8 +118,8 @@ open. Same-round independent READ calls can run together
 
 ## Tools (short)
 
-Registered in `arelis/tools/__init__.py`. Scheduled jobs leave out SMS/browser
-on purpose.
+Registered in `arelis/tools/__init__.py`. Scheduled jobs leave out send, browser,
+vision and the other tools that need a person present.
 
 | Tool | Plain English | Allow? |
 |------|---------------|--------|
@@ -129,14 +130,15 @@ on purpose.
 | `workspace` | List / read / write files in allowed roots | Writes: yes |
 | `analyze` / `doc_extract` / `git_info` | Tables, PDFs, git status | No |
 | `calculator` | Exact math | No |
-| `clipboard` / `ocr` / `vision` / `camera` | Paste, screen text, see an image, webcam still | Yes (camera snapshot is not Allow; seeing is) |
+| `clipboard` / `ocr` / `vision` / `camera` | Paste, screen text, see an image (downscaled so a screenshot fits), webcam still | Yes (camera snapshot is not Allow; seeing is) |
 | `memory` / `recall` / `tasks` / `goals` | Remember, chores, commitments; also answer "what needs my attention" | Mutates: yes |
 | `inbox` / `send_email` / `schedule` | Read mail; send; timed digests | Send/schedule: yes |
 | `send_sms` / `inbound_sms` | Text out / list inbound | Send: yes |
 | `agenda` | Calendar list/sync/create | Writes: yes |
 | `weather` / `user_location` | Forecast / where she thinks you are | No |
 | `image` | Generate a new picture via local ComfyUI | Yes |
-| `image_edit` | Resize / crop / vibrance on a file that exists (Pillow, no model) | Yes |
+| `image_edit` | Resize / crop / vibrance / contrast / brightness / sharpness on a file that exists (Pillow, no model) | Yes |
+| `rooms` | Make or change a named project space | Create/change: yes |
 | `contacts` | Named people for SMS | Mutates: yes |
 
 \*Writes a local artifact; still logged. Outbound mail/SMS always need their own
@@ -236,4 +238,5 @@ Only `arelis/…` paths below are part of the installation.
 | Phone texts | [notify-inbound.md](notify-inbound.md) |
 | Calendar login | [calendar-oauth.md](calendar-oauth.md) |
 | Logs | [telemetry.md](telemetry.md) |
+| Building the installer | [win-installer/README.md](../win-installer/README.md) |
 | Working on Arelis | [CONTRIBUTING.md](../CONTRIBUTING.md) |

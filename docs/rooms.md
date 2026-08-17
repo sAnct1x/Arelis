@@ -99,7 +99,9 @@ leave her with nothing.
 ## Where things live
 
 - `data/rooms.yaml` — the definitions. Hand-editable; see
-  `data/rooms.example.yaml`.
+  `data/rooms.example.yaml`. Under your records folder:
+  `%LOCALAPPDATA%\Arelis\data` installed, or `data\` in the repository from
+  source.
 - `data/memory.db` — the threads. Each conversation row carries the room it
   belongs to, so History shows them and the cold-launch prune cannot touch them.
 

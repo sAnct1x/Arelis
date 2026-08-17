@@ -5,7 +5,11 @@ not your daily Chrome. You watch it. You sign into Google/Maps **in that
 window** once. She does **not** enter passwords, OTP codes, or payment fields.
 Relaunch never runs `taskkill /IM chrome.exe`.
 
-## Install
+The Windows installer already includes the browser extra. She attaches to
+Chrome or Edge that is already on the PC. Firefox's private path still needs
+Playwright's browsers, which from source means the extra step below.
+
+## From source
 
 ```powershell
 cd C:\Users\you\Documents\Arelis
@@ -16,7 +20,7 @@ cd C:\Users\you\Documents\Arelis
 Chromium/CDP attaches to **her** Chrome. Firefox is still an ephemeral private
 path when you ask.
 
-## How open works (Wave 0)
+## How open works
 
 `browser(action=open, url=…)` launches or attaches **Arelis Chrome**, same size
 as the Arelis app, offset down-right so it does not cover chat. The tab opens
@@ -24,7 +28,7 @@ there. Your other Chrome windows are left alone.
 
 First time: she tells you to sign into Google and Maps in that window.
 
-## How CDP connect works (click / snapshot / screenshot)
+## How click / snapshot / screenshot connect
 
 1. If her Chrome already has CDP up at `tools.browser.cdp_url` (default
    `http://127.0.0.1:9222`), attach.
@@ -89,13 +93,13 @@ needs Allow; **Allow this turn** covers further browser steps. Vision uses
 See `tools.browser` and `agent.confirm_browser` in
 `arelis/config/default.yaml`. Unattended jobs do not get this tool.
 
-## Your turn (Wave 2)
+## Your turn
 
 She does not solve captchas, type passwords, or click Book / Pay / Order.
 When she sees one of those walls she freezes, the Drive strip says
 **your turn**, and the page stays. Captcha / sign-in: she continues when
 the wall is gone (or you hit Go). Pay: you click the last button.
 
-Waves 3–6 are in: `read` this tab; `maps` + phone link; search / cart
-(stop before pay); reservations (you click Book). There is no Wave 7 —
-browser control stops here on purpose. Captcha auto-solve stays parked.
+What she will do, and where she stops: `read` this tab; `maps` plus a phone
+link; search and add to cart (stop before pay); reservations (you click Book).
+Captcha auto-solve stays parked on purpose.
