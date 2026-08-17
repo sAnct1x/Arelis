@@ -328,6 +328,11 @@ tools:
     # Durable goals/commitments in memory.db (beyond chores). Writes need Allow.
     # Active goals appear in the morning briefing. Same archive gate as tasks.
     enabled: true
+  rooms:
+    # Named places to work on one thing, in data/rooms.yaml. Each keeps its own
+    # conversation thread and points at one project. Creating or changing a
+    # room needs Allow; entering one is a command, never a tool call.
+    enabled: true
   browser:
     # Drive Arelis' own Chrome (data/browser-profile), not daily Chrome.
     # Install: pip install -e ".[browser]" && playwright install chromium firefox
@@ -390,6 +395,13 @@ tools:
       stale_task_days: 7
       overdue_grace_days: 0
       # Config-only richer watchers (no second scheduler). Empty by default.
+      #
+      # inbox_rules read mail from wherever it has already been fetched, never
+      # by opening a connection of their own. The emailed briefing has the full
+      # unread list to hand, so rules there are exact. The live "attention N" in
+      # her prompt line uses the last headers the notification poller collected,
+      # which means it needs ui.notifications email polling on, and it lags by
+      # up to one poll. file_rules and task/goal rules apply to both, always.
       # inbox_rules:
       #   - id: bills
       #     sender_contains: "billing@"
@@ -443,10 +455,22 @@ tools:
     # with --directml on AMD — that AV-crashes in torch.cuda.is_available().
     launch_command: ""
     startup_timeout_s: 180
+  # Resize, crop and adjust an image that already exists (Pillow, in-process).
+  # No model and no GPU: these have exactly right answers. Always writes a new
+  # file into outputs/images/ and never modifies the source.
+  image_edit:
+    enabled: true
   # See one image (VL). Attended turns only; unload chat → VL → rewarm fast.
   vision:
     enabled: true
     # model defaults to models.vision; num_ctx defaults to ollama.vision_num_ctx
+    # Long edge, in pixels, of what is actually sent. A 1440p screenshot is
+    # ~4,150 tokens against a 4,096 window and Ollama rejects it outright, so
+    # this is what makes vision work on a real screenshot rather than a size
+    # tweak. Cost of the image alone on qwen2.5vl:3b: 1024px ~1,100 tokens,
+    # 1280px ~1,221, 1600px ~1,849 — all answer, so 1024 is for the margin it
+    # leaves the question and the reply. Raise it with ollama.vision_num_ctx.
+    max_edge: 1024
 
 voice:
   # Master switch. Each direction below has its own toggle under it, so the mic
@@ -483,9 +507,10 @@ voice:
     model_path: ""
     allow_download: true
 
-  # Wake phrase ("Arelis" or "Hey Arelis") while idle. Slightly stricter than
-  # conversation so room noise does not false-trigger; lower speech_level if
-  # wake feels deaf. Failed near-misses show a short status with what Whisper heard.
+  # Idle wake requires the compound phrase "Hey Arelis" (not a bare name).
+  # A match enters conversation. Slightly stricter than conversation so room
+  # noise does not false-trigger; lower speech_level if wake feels deaf.
+  # Failed near-misses show a short status with what Whisper heard.
   # max_utterance_s caps stuck-VAD dumps so Whisper is not fed multi-minute clips.
   # engine: whisper (legacy STT+regex) | openwakeword (dedicated ONNX; needs
   # models/wake/hey_arelis.onnx — see models/wake/README.md). Defaults to

@@ -6,7 +6,7 @@ import os
 import sys
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, MutableMapping
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -64,18 +64,25 @@ from arelis.notify.sources import (
     mail_notices,
     peek_contact_mail_sync,
 )
-from arelis.paths import app_icon_path, display_path, outputs_dir
+from arelis.paths import app_icon_path, display_path, logs_dir, outputs_dir
 from arelis.presence.confirm_exec import execute_pending_confirm
 from arelis.presence.confirm_persist import ConfirmPersister
 from arelis.presence.inbound_runtime import InboundRuntime, attach_inbound
 from arelis.presence.ipc_client import IpcClient
+from arelis.presence.ipc_server import IpcServer
 from arelis.presence.lock import external_core_available
 from arelis.presence.pending_confirms import (
     PendingConfirm,
     PendingConfirmStore,
     pending_confirms_path,
 )
-from arelis.presence.readiness import probe_readiness
+from arelis.presence.readiness import ChipLevel, probe_readiness
+from arelis.sms import (
+    SmsSendError,
+    explain_sms_error,
+    resolve_operator_sms_target,
+    send_operator_sms,
+)
 from arelis.sms_auto_reply import SmsAutoReply
 from arelis.sms_inbound import (
     InboundSms,
@@ -87,6 +94,7 @@ from arelis.sms_ingest import InboundIngestServer
 from arelis.tools import build_tool_registry
 from arelis.ui.audio import SpeechPlayer
 from arelis.ui.chrome import TitleBar
+from arelis.ui.contacts_inbox import ContactsInboxWindow
 from arelis.ui.first_run import prompt_for_workspace_root
 from arelis.ui.glass import GlassFrame, advance_rim_pulse, fade_in_widget
 from arelis.ui.glass_dock import GlassDockWidget
@@ -101,6 +109,7 @@ from arelis.ui.layout_store import (
 from arelis.ui.notify_inbox import NotificationsInboxWindow
 from arelis.ui.panels import (
     CameraPanel,
+    ContactsPanel,
     ConversationStage,
     HistoryPanel,
     InstrumentPanel,
@@ -111,19 +120,28 @@ from arelis.ui.panels import (
 from arelis.ui.readiness_strip import ReadinessStrip
 from arelis.ui.settings_dialog import SettingsDialog
 from arelis.ui.shortcuts import ShortcutsSheet
+from arelis.ui.sms_chat import SmsChatRegistry, room_owns_doorbell, seed_bodies
 from arelis.ui.stage import StageBackground, paint_atmosphere
 from arelis.ui.status_copy import (
     THINKING_STATUS,
     WAITING_STATUS,
     tool_status_line,
 )
-from arelis.ui.theme import app_font, load_fonts, qt_font_directory, stylesheet
+from arelis.ui.theme import (
+    COLORS,
+    GLASS,
+    app_font,
+    load_fonts,
+    qt_font_directory,
+    stylesheet,
+)
 from arelis.ui.voice_control import VoiceController
 from arelis.ui.window_resize import (
     cursor_for_hit,
     enable_win32_resize_frame,
     handle_native_resize,
     hit_test_resize,
+    invalidate_window_surface,
     try_system_resize,
 )
 from arelis.voice import VoiceService
@@ -133,7 +151,7 @@ from arelis.workspace import RootEntry, WorkspaceRoots, compose_stt_initial_prom
 
 log = logging.getLogger(__name__)
 
-_WINDOW_RADIUS = 14
+_WINDOW_RADIUS = int(GLASS["radius"])
 
 # If a turn somehow ends without a terminal event, re-enable the composer
 # rather than leaving the user with a dead window. The orchestrator guarantees
@@ -152,6 +170,37 @@ _SPEECH_WATCHDOG_MS = 45000
 # reparents the composer mid-press. Longer than that echo, shorter than a
 # deliberate second chord.
 _VOICE_HOTKEY_ECHO_S = 0.12
+
+
+def voice_restart_notices(
+    *,
+    listen_wanted: bool,
+    listen_live: bool,
+    speak_wanted: bool,
+    speak_live: bool,
+) -> list[str]:
+    """One line per direction the running voice service cannot follow.
+
+    VoiceService reads both directions once, at construction, and only wires
+    itself to the speech events when speak was on at the time. Everything after
+    that is a setting the service never sees: Speak turned on later stays
+    silent, Speak turned off later still talks, and Listen turned on later
+    answers every utterance with "voice input is off". The switch moves, the
+    behaviour does not, and until now nothing said so.
+    """
+    notices: list[str] = []
+    for label, wanted, live in (
+        ("Listen", listen_wanted, listen_live),
+        ("Speak", speak_wanted, speak_live),
+    ):
+        if wanted == live:
+            continue
+        state = "on" if wanted else "off"
+        notices.append(
+            f"Restart Arelis to finish turning {label} {state} — "
+            f"the running voice service still has it {'off' if wanted else 'on'}."
+        )
+    return notices
 
 
 def _hide_dock_title(dock: QDockWidget) -> None:
@@ -176,12 +225,12 @@ def _hide_dock_title(dock: QDockWidget) -> None:
 
 # Frameless float: opaque void plate. Translucent HWND composites chat through
 # the tile (ghost bubbles). Never re-enable translucency on floating docks.
-_FLOATING_DOCK_QSS = """
-QDockWidget {
-    color: #f3ece0;
-    background-color: rgb(10, 8, 6);
+_FLOATING_DOCK_QSS = f"""
+QDockWidget {{
+    color: {COLORS["text"]};
+    background-color: {COLORS["plate"]};
     border: none;
-}
+}}
 """
 
 
@@ -198,7 +247,7 @@ def _glassify_floating_dock(dock: QDockWidget) -> None:
         shell.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
         shell.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent, True)
         shell.setAutoFillBackground(True)
-        shell.setStyleSheet("background-color: rgb(10, 8, 6);")
+        shell.setStyleSheet(f"background-color: {COLORS['plate']};")
         layout = shell.layout()
         if layout is not None:
             layout.setContentsMargins(0, 0, 0, 0)
@@ -344,6 +393,7 @@ class ArelisWindow(QMainWindow):
     # Readiness probe finished on the asyncio thread; payload is ReadinessSnapshot.
     readiness_updated = Signal(object)
     mail_headers_ready = Signal(object)
+    sms_send_finished = Signal(str, bool, str)
 
     def __init__(
         self,
@@ -432,8 +482,12 @@ class ArelisWindow(QMainWindow):
         self.thinking = ThinkingPanel()
         self.workspace = WorkspacePanel()
         self.history = HistoryPanel()
+        self.contacts = ContactsPanel()
         self.notifications = NotificationsPanel()
         self.notify_center = NotificationCenter(config)
+        self.sms_chats = SmsChatRegistry(self)
+        self.sms_chats.set_send_handler(self._on_sms_tile_send)
+        self.sms_chats.set_shown_handler(self._on_sms_tile_shown)
         self.camera = CameraPanel()
         self.workspace.set_projects(
             self.workspace_roots.names(),
@@ -450,12 +504,19 @@ class ArelisWindow(QMainWindow):
         self.sms_auto_reply: SmsAutoReply | None = None
         self.inbound_runtime: InboundRuntime | None = None
         self.ipc_client: IpcClient | None = None
+        # Only one of these is ever set: attached to a core we are its client,
+        # and running alone we are the server a second launch talks to.
+        self.ipc_server: IpcServer | None = None
         presence_cfg = self.config.get("presence") or {}
         self._close_to_tray = bool(presence_cfg.get("close_to_tray", True))
         ui_prefs = load_ui_prefs()
         self._always_on_top = bool(ui_prefs.get("always_on_top", False))
         self._chat_font_scale = float(ui_prefs.get("chat_font_scale", 1.0))
         self._force_quit = False
+        # What the window looked like when it went to the tray. showNormal() on
+        # the way back would answer "not maximized" regardless, which is both the
+        # wrong window and the reason a restore used to flash two of them.
+        self._tray_window_state = Qt.WindowState.WindowNoState
         self._tray: QSystemTrayIcon | None = None
         self._pending_store = PendingConfirmStore(pending_confirms_path(self.config))
         self._pending_queue: list[PendingConfirm] = []
@@ -465,6 +526,11 @@ class ArelisWindow(QMainWindow):
         self._inbound_banner: str = ""
         self._inbound_banner_in_chat = False
 
+        # The four dock object names below are not styling hooks — no QSS rule
+        # targets them. QMainWindow.saveState() identifies docks by object name,
+        # so they are what layout_store writes into ui_layout.ini and matches on
+        # the way back. Drop one and that dock silently stops coming back where
+        # it was left, days later, with nothing to connect it to.
         self.think_dock = GlassDockWidget("thinking", self)
         self.think_dock.setObjectName("ThinkingDock")
         _hide_dock_title(self.think_dock)
@@ -574,6 +640,8 @@ class ArelisWindow(QMainWindow):
 
         self.notify_inbox = NotificationsInboxWindow(self.notifications, self)
         self.notify_inbox.hide()
+        self.contacts_inbox = ContactsInboxWindow(self.contacts, self)
+        self.contacts_inbox.hide()
 
         self._build_view_actions()
         self._voice_hotkey_at = 0.0
@@ -589,6 +657,12 @@ class ArelisWindow(QMainWindow):
         self.conversation.pause_requested.connect(self._on_drive_pause)
         self.conversation.resume_requested.connect(self._on_drive_resume)
         self.conversation.confirm_decided.connect(self._on_confirm_decided)
+        self.conversation.leave_room_requested.connect(self._leave_room)
+        # Armed paths for the two press-again gates that guard unsaved work in
+        # the editor: discarding it by opening over it, and overwriting a file
+        # that changed on disk while it sat open.
+        self._workspace_discard_armed = ""
+        self._workspace_overwrite_armed = ""
         self.workspace.open_requested.connect(self._open_file)
         self.workspace.save_requested.connect(self._save_file)
         self.workspace.project_changed.connect(self._on_project_changed)
@@ -618,6 +692,7 @@ class ArelisWindow(QMainWindow):
             dock.topLevelChanged.connect(lambda _floating: self._sync_panel_margins())
 
         self.notify_inbox.closed.connect(self._on_notify_inbox_closed)
+        self.contacts_inbox.closed.connect(self._on_contacts_inbox_closed)
         overlay = self.conversation.notify_overlay
         overlay.dismiss_requested.connect(self._on_notice_dismiss)
         overlay.snooze_requested.connect(self._on_notice_snooze)
@@ -632,7 +707,9 @@ class ArelisWindow(QMainWindow):
         self.mail_headers_ready.connect(self._on_mail_headers)
         self.notifications.opened.connect(self._on_inbox_opened)
         self.notifications.notice_activated.connect(self._on_notice_activated)
+        self.notifications.chat_requested.connect(self._open_sms_chat)
         self.notifications.mark_read_btn.clicked.connect(self._on_notify_mark_all_read)
+        self.sms_send_finished.connect(self._on_sms_send_finished)
 
         self._assistant_streaming = False
         self._turn_busy = False
@@ -643,6 +720,9 @@ class ArelisWindow(QMainWindow):
         self._job_name = ""
         self._mail_poll_inflight = False
         self._mail_poll_at = 0.0
+        # Last thing said about each background poller, so a source that has
+        # been down for an hour is reported once rather than 120 times.
+        self._poll_state: dict[str, str] = {}
         self._current_role = default_role
         self._current_model = config.get("models", {}).get(default_role, "")
         self._busy_watchdog = QTimer(self)
@@ -709,7 +789,7 @@ class ArelisWindow(QMainWindow):
                 snap = await probe_readiness(self.config, router=self.router)
             except Exception as exc:
                 log.info("Readiness probe failed: %s", exc)
-                from arelis.presence.readiness import ChipLevel, ReadinessChip, ReadinessSnapshot
+                from arelis.presence.readiness import ReadinessChip, ReadinessSnapshot
 
                 snap = ReadinessSnapshot(
                     chips=tuple(
@@ -916,6 +996,14 @@ class ArelisWindow(QMainWindow):
         if deliver == "wake":
             if self._wake_inflight:
                 # Drop the clip rather than queue Whisper behind the last one.
+                ctrl = self.voice_controller
+                if ctrl is not None:
+                    ctrl.trace.record_wake(
+                        "wake_drop",
+                        reason="inflight",
+                        engine="whisper",
+                        **ctrl.debug_state(),
+                    )
                 try:
                     target.unlink(missing_ok=True)
                 except OSError:
@@ -978,9 +1066,10 @@ class ArelisWindow(QMainWindow):
         # Trace what Whisper heard so silent misses are diagnosable.
         ctrl = self.voice_controller
         if ctrl is not None:
-            ctrl.trace.record(
+            ctrl.trace.record_wake(
                 "wake_heard",
                 matched=result.matched,
+                engine="whisper",
                 heard=(result.heard or "")[:80],
                 remainder=(result.remainder or "")[:80],
                 **ctrl.debug_state(),
@@ -994,7 +1083,7 @@ class ArelisWindow(QMainWindow):
                 if len(snippet) > 60:
                     snippet = snippet[:57] + "…"
                 self.thinking.append(
-                    f'heard “{snippet}” — say “Arelis” or “Hey Arelis” to wake',
+                    f'heard “{snippet}” — say “Hey Arelis” to wake',
                     kind="status",
                 )
         except RuntimeError:
@@ -1020,6 +1109,13 @@ class ArelisWindow(QMainWindow):
         self.voice_controller.set_conversation(True)
         if self.voice is not None:
             self.voice.speak_enabled = True
+        self.conversation.ack_wake()
+        self.voice_controller.trace.record_wake(
+            "wake_ack",
+            engine=getattr(self.voice_controller, "_wake_engine", ""),
+            remainder=text[:80],
+            **self.voice_controller.debug_state(),
+        )
         self.thinking.append("Wake heard — listening.", kind="status")
         if not text:
             return
@@ -1219,6 +1315,13 @@ class ArelisWindow(QMainWindow):
         self.act_camera.triggered.connect(self._toggle_camera)
         self.addAction(self.act_camera)
 
+        self.act_contacts = QAction("contacts", self)
+        self.act_contacts.setCheckable(True)
+        self.act_contacts.setChecked(self.contacts_inbox.isVisible())
+        self.act_contacts.setShortcut(QKeySequence("Ctrl+6"))
+        self.act_contacts.triggered.connect(self._toggle_contacts)
+        self.addAction(self.act_contacts)
+
         self.act_reset = QAction("reset layout", self)
         self.act_reset.triggered.connect(self._reset_layout)
         self.addAction(self.act_reset)
@@ -1383,6 +1486,17 @@ class ArelisWindow(QMainWindow):
     def changeEvent(self, event) -> None:
         super().changeEvent(event)
         if event.type() == QEvent.Type.WindowStateChange:
+            # Minimizing is the other way to take the glass off screen, and a
+            # floating instrument is a top-level window that does not go down
+            # with it. Left alone, the panel sits on the desktop with nothing
+            # behind it — same orphan as close-to-tray, reached from the title bar.
+            was_minimized = bool(
+                event.oldState() & Qt.WindowState.WindowMinimized
+            )
+            if self.isMinimized():
+                self._park_floating_docks()
+            elif was_minimized:
+                self._unpark_floating_docks()
             self._sync_chrome_state()
             self._apply_round_mask()
             self._clamp_dock_widths()
@@ -1472,6 +1586,7 @@ class ArelisWindow(QMainWindow):
         menu.addAction(self.act_history)
         menu.addAction(self.act_notifications)
         menu.addAction(self.act_camera)
+        menu.addAction(self.act_contacts)
         menu.addSeparator()
         menu.addAction(self.act_always_on_top)
         menu.addAction(self.act_fullscreen)
@@ -1665,6 +1780,13 @@ class ArelisWindow(QMainWindow):
         if self.voice is not None:
             stt_on = bool((self.config.get("voice") or {}).get("stt", {}).get("enabled", True))
             tts_on = bool((self.config.get("voice") or {}).get("tts", {}).get("enabled", True))
+            for notice in voice_restart_notices(
+                listen_wanted=master and stt_on,
+                listen_live=bool(self.voice.stt_enabled),
+                speak_wanted=master and tts_on,
+                speak_live=bool(self.voice.tts_enabled),
+            ):
+                self.thinking.append(notice, kind="status")
             if not master or not stt_on:
                 if self.voice_controller is not None:
                     self.voice_controller.stop_all()
@@ -1844,6 +1966,7 @@ class ArelisWindow(QMainWindow):
         else:
             self.notify_inbox.hide()
 
+        self._sync_notify_surface()
         self._sync_idle_mode()
 
     def _toggle_camera(self, checked: bool) -> None:
@@ -1854,6 +1977,19 @@ class ArelisWindow(QMainWindow):
         else:
             self.camera.stop()
 
+    def _toggle_contacts(self, checked: bool) -> None:
+        if checked:
+            self.contacts.show_list()
+            self.contacts_inbox.show()
+            self.contacts_inbox.raise_()
+        else:
+            self.contacts_inbox.hide()
+        self._sync_idle_mode()
+
+    def _on_contacts_inbox_closed(self) -> None:
+        self.act_contacts.setChecked(False)
+        self._sync_idle_mode()
+
     def _on_notify_unread(self, count: int) -> None:
         if count > 0:
             self.act_notifications.setText(f"notifications ({count})")
@@ -1862,6 +1998,7 @@ class ArelisWindow(QMainWindow):
 
     def _on_notify_inbox_closed(self) -> None:
         self.act_notifications.setChecked(False)
+        self._sync_notify_surface()
         self._sync_idle_mode()
 
     def _on_inbox_opened(self) -> None:
@@ -1919,14 +2056,19 @@ class ArelisWindow(QMainWindow):
         self.act_history.setChecked(self.history_dock.isVisible())
         self.act_notifications.setChecked(self.notify_inbox.isVisible())
         self.act_camera.setChecked(self.camera_dock.isVisible())
+        if hasattr(self, "act_contacts"):
+            self.act_contacts.setChecked(self.contacts_inbox.isVisible())
 
     def _on_dock_visibility(self, visible: bool) -> None:
         # Ignore the transient hide that setWindowFlags causes while swapping
         # floating chrome — otherwise View checks flip off and the panel vanishes.
+        # _arelis_parked is the same kind of bookkeeping: the glass went to the
+        # tray or the taskbar and took its floating panels with it, which is not
+        # the user turning an instrument off.
         sender = self.sender()
-        if (
-            isinstance(sender, QDockWidget)
-            and getattr(sender, "_arelis_chrome_applying", False)
+        if isinstance(sender, QDockWidget) and (
+            getattr(sender, "_arelis_chrome_applying", False)
+            or getattr(sender, "_arelis_parked", False)
         ):
             return
         self._sync_view_checks()
@@ -2059,12 +2201,15 @@ class ArelisWindow(QMainWindow):
         self.tabifyDockWidget(self.history_dock, self.camera_dock)
         self._style_dock_tabs()
         self.notify_inbox.hide()
+        self.contacts_inbox.hide()
+        self.sms_chats.hide_all()
         self._apply_calm_instrument_defaults()
         self.act_thinking.setChecked(self.think_dock.isVisible())
         self.act_workspace.setChecked(self.work_dock.isVisible())
         self.act_history.setChecked(False)
         self.act_notifications.setChecked(False)
         self.act_camera.setChecked(False)
+        self.act_contacts.setChecked(False)
         self.resize(
             int(self.config.get("ui", {}).get("default_width", 1440)),
             int(self.config.get("ui", {}).get("default_height", 900)),
@@ -2100,7 +2245,7 @@ class ArelisWindow(QMainWindow):
                 self.history_dock,
                 self.camera_dock,
             )
-        ) or self.notify_inbox.isVisible()
+        ) or self.notify_inbox.isVisible() or self.contacts_inbox.isVisible()
         self.readiness_strip.setVisible(not idle or instruments)
         empty = getattr(self.chat, "empty", None)
         if empty is not None and hasattr(empty, "set_side_chrome"):
@@ -2119,6 +2264,7 @@ class ArelisWindow(QMainWindow):
         self.history_dock.hide()
         self.camera_dock.hide()
         self.notify_inbox.hide()
+        self.contacts_inbox.hide()
         overlay = self.conversation.notify_overlay
         if overlay is not None and overlay.expanded:
             overlay.collapse()
@@ -2127,6 +2273,12 @@ class ArelisWindow(QMainWindow):
 
     def _on_idle_readiness(self, snapshot) -> None:
         self._readiness_snap = snapshot
+        # The world-state line wants to know whether a picture can be made, and
+        # this probe already asked. Parking the answer on the config keeps the
+        # question off the per-turn path, which is no place for a socket.
+        chip = snapshot.chip("image") if hasattr(snapshot, "chip") else None
+        if chip is not None:
+            self.config["_image_ready"] = chip.status == ChipLevel.OK
         self._refresh_idle_face()
 
     def _sync_idle_voice_mode(self, mode: str | None = None) -> None:
@@ -2268,6 +2420,8 @@ class ArelisWindow(QMainWindow):
                 self.camera.stop()
             except Exception:
                 pass
+            self._remember_window_state()
+            self._park_floating_docks()
             self.hide()
             self._tray.showMessage(
                 "Arelis",
@@ -2353,10 +2507,75 @@ class ArelisWindow(QMainWindow):
         tray.show()
         self._tray = tray
 
+    def _park_floating_docks(self) -> None:
+        """Take floating instruments with the glass when it leaves the screen.
+
+        A docked instrument is a child widget and disappears with its parent. A
+        floating one is a top-level window of its own — ``_apply_floating_dock_chrome``
+        gives it ``Qt.Window``, where every other companion surface here is a
+        ``Qt.Tool`` and so is hidden by Qt along with its parent. The panel
+        therefore stayed on screen with the glass in the tray, and the next launch
+        painted a whole new Arelis underneath an orphan still sitting on top:
+        two of them, stacked, which is what the ghosting reports were.
+
+        Parked rather than closed, because coming back to a different set of
+        instruments than you left would be its own small betrayal.
+        """
+        for dock in (
+            self.think_dock,
+            self.work_dock,
+            self.history_dock,
+            self.camera_dock,
+        ):
+            if dock.isFloating() and dock.isVisible():
+                dock._arelis_parked = True
+                dock.hide()
+
+    def _unpark_floating_docks(self) -> None:
+        """Bring parked floating instruments back with the glass."""
+        for dock in (
+            self.think_dock,
+            self.work_dock,
+            self.history_dock,
+            self.camera_dock,
+        ):
+            if not getattr(dock, "_arelis_parked", False):
+                continue
+            dock._arelis_parked = False
+            dock.show()
+            dock.raise_()
+            invalidate_window_surface(dock)
+
+    def _remember_window_state(self) -> None:
+        """Record maximized/full-screen before hiding, ignoring Minimized.
+
+        Minimized is never worth coming back to — somebody asking for the window
+        wants to see it — and it is also what the OS leaves set if the glass was
+        minimized on its way to the tray.
+        """
+        state = self.windowState()
+        state &= ~Qt.WindowState.WindowMinimized
+        self._tray_window_state = state
+
     def show_from_tray(self) -> None:
-        self.showNormal()
+        if self.isVisible():
+            # Asking for a window that is already up means "bring it to me", not
+            # "resize it". Take what it is now as the state to come back to —
+            # which also un-minimizes it, since Minimized is stripped there.
+            self._remember_window_state()
+        # setWindowState before show, so the window is only ever mapped once and
+        # at its final size. Showing first and correcting afterwards is what put
+        # a full-screen frame on screen underneath a restored-size one.
+        self.setWindowState(self._tray_window_state)
+        self.show()
         self.raise_()
         self.activateWindow()
+        # The layered surface Windows kept while we were away is stale by
+        # definition: inbound texts, status lines and readiness all keep moving
+        # with the glass hidden. Repaint the real windows, not just this one —
+        # a floating dock is its own top-level HWND with its own stale bitmap.
+        invalidate_window_surface(self)
+        self._unpark_floating_docks()
         self._show_next_pending_confirm()
 
     def quit_from_tray(self) -> None:
@@ -2737,6 +2956,18 @@ class ArelisWindow(QMainWindow):
             self.loop,
         )
 
+    def _leave_room(self) -> None:
+        """The strip's leave button, routed through the same command as typing.
+
+        Publishing the command rather than reaching for the orchestrator keeps
+        the window free of a reference to it, the way session loads already do,
+        and means both routes out of a room share one implementation.
+        """
+        asyncio.run_coroutine_threadsafe(
+            self.bus.publish(Event(EventType.USER_MESSAGE, {"text": "/leave"})),
+            self.loop,
+        )
+
     def _open_file(self, path: str) -> None:
         if not path:
             self.chat.add_system(
@@ -2761,11 +2992,39 @@ class ArelisWindow(QMainWindow):
             self.thinking.append(f"open failed: {exc!r}", kind="status")
             return
         label = hit.qualified(multi=len(self.workspace_roots) > 1)
+        if self.workspace.has_unsaved_changes():
+            # Opening a file replaces the buffer, so an open on top of unsaved
+            # edits is a discard. It stays possible — it is what the operator
+            # clicked — but it says so once first, since the edits are about to
+            # be gone with no undo behind them.
+            if self._workspace_discard_armed != str(hit.path):
+                self._workspace_discard_armed = str(hit.path)
+                self.chat.add_system(
+                    f"Unsaved changes in {self.workspace.loaded_label()}. "
+                    f"Save them first, or press open again to discard them and load {label}."
+                )
+                return
+        self._workspace_discard_armed = ""
         self.workspace.set_file(
-            label, text, root_name=hit.root_name, abs_path=str(hit.path)
+            label, text, root_name=hit.root_name, abs_path=str(hit.path), force=True
         )
         self.workspace.set_recent(push_recent_workspace_file(label))
         self.thinking.append(f"workspace open {label}", kind="status")
+
+    def _disk_moved_under_editor(self, target: Path, content: str) -> bool:
+        """True when target changed since the editor loaded it, and not to this text.
+
+        Only the file the editor is actually holding can be stale — a save to
+        any other path is a plain write with nothing to lose.
+        """
+        loaded = self.workspace.loaded_abs()
+        if not loaded or str(target) != loaded or not target.is_file():
+            return False
+        try:
+            on_disk = target.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return False
+        return on_disk != self.workspace.baseline_text() and on_disk != content
 
     def _save_file(self, path: str, content: str) -> None:
         if not path:
@@ -2778,6 +3037,20 @@ class ArelisWindow(QMainWindow):
             self.chat.add_system(f"I could not save there. {plain_reason(exc)}")
             self.thinking.append(f"save failed: {exc!r}", kind="status")
             return
+        label = hit.qualified(multi=len(self.workspace_roots) > 1)
+        if self._disk_moved_under_editor(hit.path, content):
+            # The other half of the clobber: she edited the file after it was
+            # opened, so this save carries a buffer that predates her work and
+            # would drop it. Overwriting is allowed, once it is a decision.
+            if self._workspace_overwrite_armed != str(hit.path):
+                self._workspace_overwrite_armed = str(hit.path)
+                self.chat.add_system(
+                    f"{label} changed on disk after you opened it — saving now would "
+                    "overwrite that version. Press save again to overwrite it, or open "
+                    "the file again to load what is on disk."
+                )
+                return
+        self._workspace_overwrite_armed = ""
         try:
             hit.path.parent.mkdir(parents=True, exist_ok=True)
             hit.path.write_text(content, encoding="utf-8")
@@ -2785,9 +3058,8 @@ class ArelisWindow(QMainWindow):
             self.chat.add_system(f"I could not save that file. {plain_reason(exc)}")
             self.thinking.append(f"save failed: {exc!r}", kind="status")
             return
-        label = hit.qualified(multi=len(self.workspace_roots) > 1)
         self.workspace.set_file(
-            label, content, root_name=hit.root_name, abs_path=str(hit.path)
+            label, content, root_name=hit.root_name, abs_path=str(hit.path), force=True
         )
         self.workspace.set_recent(push_recent_workspace_file(label))
         self.thinking.append(f"workspace saved {label}", kind="status")
@@ -2932,6 +3204,21 @@ class ArelisWindow(QMainWindow):
             if self._inbound_banner:
                 self.thinking.append(self._inbound_banner, kind="status")
             self._sync_idle_mode()
+        elif t == EventType.ROOM_CHANGED:
+            room_id = str(p.get("room_id") or "")
+            self.conversation.room.set_room(
+                room_id,
+                name=str(p.get("name") or ""),
+                purpose=str(p.get("purpose") or ""),
+                root=str(p.get("root") or ""),
+            )
+            # The room owns a project, so the dock's switcher has to follow or
+            # the two disagree about where a bare path lands.
+            self.workspace.set_active_project(self.workspace_roots.active)
+            self.thinking.append(
+                f"room  {room_id or 'general'}", kind="status"
+            )
+            self._sync_idle_mode()
         elif t == EventType.THINKING:
             self.thinking.append(p.get("text", ""), kind="trace")
             self._reveal_dock(self.think_dock, self.act_thinking)
@@ -3048,7 +3335,7 @@ class ArelisWindow(QMainWindow):
                     out = str(p.get("output") or "").strip()
                     if out:
                         self.conversation.set_drive_status(out.splitlines()[0][:80])
-            if p.get("tool") == "image":
+            if p.get("tool") in {"image", "image_edit"}:
                 if p.get("ok"):
                     self.chat.add_system("Image ready — open in Workspace")
                 else:
@@ -3060,6 +3347,12 @@ class ArelisWindow(QMainWindow):
                     str(p.get("tool") or "job"),
                     ok=bool(p.get("ok")),
                     output=str(p.get("output") or ""),
+                )
+            if p.get("tool") == "send_sms" and p.get("ok"):
+                self.sms_chats.append_outbound(
+                    body=str(data.get("body") or ""),
+                    alias=str(data.get("alias") or ""),
+                    phone=str(data.get("phone") or ""),
                 )
             if p.get("tool") in {"workspace", "analyze"}:
                 out = p.get("output") or ""
@@ -3082,13 +3375,30 @@ class ArelisWindow(QMainWindow):
                 read_from = abs_path or display
                 try:
                     content = Path(read_from).read_text(encoding="utf-8", errors="replace")
-                    self.workspace.set_file(
+                    placed = self.workspace.set_file(
                         display, content, root_name=root_name, abs_path=abs_path
                     )
-                    self.workspace.set_recent(push_recent_workspace_file(display))
+                    if placed:
+                        self.workspace.set_recent(push_recent_workspace_file(display))
+                    else:
+                        self.chat.add_system(
+                            f"I wrote {display}, but you have unsaved edits open in the "
+                            "editor, so I left them alone. Open the file again to see my "
+                            "version — that replaces what is in the editor."
+                        )
                     self._reveal_dock(self.work_dock, self.act_workspace)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    # The write landed; only the editor refresh did not. Saying
+                    # nothing leaves the same impression the clobber bug did —
+                    # that the file on screen is the file on disk.
+                    self.chat.add_system(
+                        f"I wrote {display}, but could not read it back into the "
+                        f"editor: {plain_reason(exc)}. The version on disk is mine; "
+                        "open the file again to see it."
+                    )
+                    self.thinking.append(
+                        f"workspace read-back failed: {exc}", kind="status"
+                    )
         elif t == EventType.IMAGE_READY:
             path = p.get("path")
             if path:
@@ -3126,7 +3436,7 @@ class ArelisWindow(QMainWindow):
                 self._set_busy(False)
 
     def _on_sms_received(self, payload: dict[str, Any]) -> None:
-        """Pill immediately. Voice waits if a turn owns the floor. Never chat glue."""
+        """Bubble first. A visible room swallows the doorbell. Voice waits on the floor."""
         msg = InboundSms(
             id=str(payload.get("id") or ""),
             sender=str(payload.get("from") or "(unknown)"),
@@ -3137,6 +3447,18 @@ class ArelisWindow(QMainWindow):
         )
         alias = msg.contact_alias or ""
         title = msg.display_from
+        self.sms_chats.append_inbound(
+            body=msg.body,
+            alias=alias,
+            phone=msg.sender,
+            sender=msg.sender,
+            title=title,
+        )
+        _window, state = self.sms_chats.room_state(
+            alias=alias, phone=msg.sender, sender=msg.sender
+        )
+        if room_owns_doorbell(state):
+            return
         notice = self.notify_center.add(
             new_notice(
                 kind="sms",
@@ -3197,17 +3519,29 @@ class ArelisWindow(QMainWindow):
         )
 
     def _sync_notify_surface(self) -> None:
+        # Reachable before the mailbox windows exist: restoring a saved layout
+        # that was maximized calls setWindowState from inside __init__, and the
+        # WindowStateChange lands here. That raised AttributeError, which run_ui
+        # turns into "Arelis window failed to start" — so a maximized glass could
+        # be closed one evening and refuse to open at all the next.
+        if not hasattr(self, "notify_inbox"):
+            return
         head = self.notify_center.head()
         extra = self.notify_center.extra_count()
         maximized = self.isMaximized() or self.isFullScreen()
+        mailbox_open = self.notify_inbox.isVisible()
         overlay = self.conversation.notify_overlay
-        overlay.show_notice(head, extra=extra, maximized=maximized)
+        overlay.show_notice(
+            head, extra=extra, maximized=maximized, mailbox_open=mailbox_open
+        )
         chip_text = ""
         if head is not None:
             chip_text = head.pill_label()
             if extra:
                 chip_text = f"{chip_text} · +{extra}"
-        self.readiness_strip.set_notify_chip(chip_text, visible=maximized and head is not None)
+        self.readiness_strip.set_notify_chip(
+            chip_text, visible=maximized and head is not None and not mailbox_open
+        )
         self.notifications.set_notices(
             self.notify_center.visible_items(),
             unread=self.notify_center.unread_count(),
@@ -3238,20 +3572,102 @@ class ArelisWindow(QMainWindow):
         self._sync_notify_surface()
 
     def _on_notice_reply(self, notice_id: str) -> None:
-        notice = self.notify_center.find(notice_id)
-        if notice is None:
-            return
-        alias = str(notice.data.get("alias") or "").strip() or "them"
-        prefix = f"text {alias}: "
-        self.conversation.input.setText(prefix)
-        self.conversation.input.setCursorPosition(len(prefix))
-        self.conversation.input.setFocus()
+        self._open_sms_chat(notice_id)
 
     def _on_notice_open(self, notice_id: str) -> None:
         self.act_notifications.setChecked(True)
         self._toggle_notifications(True)
         if notice_id:
             self.notifications.show_notice(notice_id)
+
+    def _on_sms_tile_shown(self, alias: str, phone: str) -> None:
+        """Showing a room marks that person's SMS group read so the pill drops."""
+        from arelis.contacts import normalize_phone
+
+        keys: list[str] = []
+        if alias:
+            keys.append(f"sms:{alias}")
+        if phone:
+            keys.append(f"sms:{phone}")
+            digits = normalize_phone(phone)
+            if digits and f"sms:{digits}" not in keys:
+                keys.append(f"sms:{digits}")
+        marked = False
+        for key in keys:
+            notice = self.notify_center.find_group(key)
+            if notice is not None and notice.unread:
+                self.notify_center.mark_read(notice.id)
+                marked = True
+        if marked:
+            self._sync_notify_surface()
+
+    def _open_sms_chat(self, notice_id: str) -> None:
+        notice = self.notify_center.find(notice_id)
+        if notice is None or notice.kind != "sms":
+            return
+        alias = str(notice.data.get("alias") or "").strip()
+        phone = str(notice.data.get("from") or "").strip()
+        window = self.sms_chats.open(
+            alias=alias,
+            phone=phone,
+            sender=phone,
+            title=notice.title,
+            seed=seed_bodies(notice),
+        )
+        if window is None:
+            self.thinking.append(
+                "No number on that text — cannot open a chat.",
+                kind="status",
+            )
+            return
+        if notice.unread:
+            self.notify_center.mark_read(notice.id)
+            self._sync_notify_surface()
+
+    def _on_sms_tile_send(self, key: str, body: str, alias: str, phone: str) -> None:
+        if self.loop is None or not self.loop.is_running():
+            self.sms_chats.system(key, "Arelis is not ready to send.")
+            return
+        future = asyncio.run_coroutine_threadsafe(
+            self._operator_send_sms(alias, phone, body),
+            self.loop,
+        )
+        future.add_done_callback(
+            lambda fut, k=key: self._sms_send_resolved(fut, k)
+        )
+
+    async def _operator_send_sms(self, alias: str, phone: str, body: str) -> None:
+        from arelis.sms_android import AndroidSmsProvider, load_sms_account
+
+        resolved = resolve_operator_sms_target(alias=alias, phone=phone)
+        if isinstance(resolved, str):
+            raise SmsSendError(resolved)
+        account = load_sms_account()
+        if account is None:
+            raise SmsSendError("SMS is not configured.")
+        await send_operator_sms(
+            phone=resolved.phone_e164,
+            body=body,
+            provider=AndroidSmsProvider(account),
+        )
+
+    def _sms_send_resolved(self, future, key: str) -> None:
+        try:
+            future.result()
+        except Exception as exc:
+            try:
+                self.sms_send_finished.emit(key, False, explain_sms_error(exc))
+            except RuntimeError:
+                pass
+            return
+        try:
+            self.sms_send_finished.emit(key, True, "")
+        except RuntimeError:
+            pass
+
+    def _on_sms_send_finished(self, key: str, ok: bool, error: str) -> None:
+        if not ok:
+            self.sms_chats.system(key, error or "Send failed.")
 
     def _begin_job(self, tool: str) -> None:
         self._job_name = tool
@@ -3279,13 +3695,33 @@ class ArelisWindow(QMainWindow):
         )
         self._sync_notify_surface()
 
+    def _report_poll_state(self, key: str, message: str) -> None:
+        """Say a poll failure once, then stay quiet until the state changes.
+
+        These run every thirty seconds. A line per attempt would bury the rail
+        it is written to, and a line per attempt is also how a broken poller
+        teaches you to stop reading it — so only transitions speak.
+        """
+        previous = self._poll_state.get(key, "")
+        if previous == message:
+            return
+        self._poll_state[key] = message
+        if message:
+            self.thinking.append(message, kind="status")
+        elif previous:
+            self.thinking.append(f"{key} notifications are working again.", kind="status")
+
     def _on_notify_poll(self) -> None:
         now = datetime.now().astimezone()
         try:
             events = load_today_events(self.config)
             self.notify_center.apply_calendar(events, now)
-        except Exception:
-            pass
+        except Exception as exc:
+            self._report_poll_state(
+                "calendar", f"Calendar notifications stopped: {plain_reason(exc)}"
+            )
+        else:
+            self._report_poll_state("calendar", "")
         if self.store is not None and self.notify_center.enabled("task"):
             try:
                 rows = self.store.list_tasks(status="open", limit=40)
@@ -3293,8 +3729,12 @@ class ArelisWindow(QMainWindow):
                     rows, today=now.date(), remember=self.notify_center.remember_task
                 ):
                     self.notify_center.add(notice)
-            except Exception:
-                pass
+            except Exception as exc:
+                self._report_poll_state(
+                    "task", f"Task due notices stopped: {plain_reason(exc)}"
+                )
+            else:
+                self._report_poll_state("task", "")
         self._sync_notify_surface()
         mail_cfg = (self.config.get("ui") or {}).get("notifications") or {}
         mail_every = max(45.0, float(mail_cfg.get("mail_poll_s") or 90))
@@ -3311,20 +3751,168 @@ class ArelisWindow(QMainWindow):
 
         def _work() -> None:
             try:
-                rows = peek_contact_mail_sync(self.config)
-            except Exception:
-                rows = []
+                rows: object = peek_contact_mail_sync(self.config)
+            except Exception as exc:
+                rows = exc
             self.mail_headers_ready.emit(rows)
 
         threading.Thread(target=_work, daemon=True, name="arelis-mail-peek").start()
 
     def _on_mail_headers(self, rows: object) -> None:
         self._mail_poll_inflight = False
+        if isinstance(rows, BaseException):
+            # Email notices are switched on and the user is waiting for them.
+            # A debug log is not a place anybody is looking.
+            self._report_poll_state("mail", plain_reason(rows))
+            return
         if not isinstance(rows, list):
             return
+        self._report_poll_state("mail", "")
         for notice in mail_notices(rows, remember=self.notify_center.remember_mail):
             self.notify_center.add(notice)
         self._sync_notify_surface()
+
+
+def force_windows_qt_platform(env: MutableMapping[str, str]) -> None:
+    """Insist on the real Windows Qt backend, whatever the environment says.
+
+    A stray QT_QPA_PLATFORM is a process that starts, runs, logs normally and
+    never shows a window — the worst shape a failure can take, because there is
+    nothing to look at while you work out why. offscreen is the value that
+    actually gets set by accident, exported by a test run and inherited by the
+    next launch from the same shell, but minimal and vnc go wrong identically.
+
+    This used to be run_ui.ps1's job, and it no longer has one: the desktop
+    shortcut points straight at pythonw.exe so that no console is ever created
+    for a shell to hide, which means there is no shell left to clear the variable
+    before Python starts.
+
+    ARELIS_ALLOW_OFFSCREEN is the way out, for headless checks that mean it.
+    """
+    if sys.platform != "win32":
+        return
+    if env.get("ARELIS_ALLOW_OFFSCREEN"):
+        return
+    if env.get("QT_QPA_PLATFORM", "windows").lower() != "windows":
+        env["QT_QPA_PLATFORM"] = "windows"
+
+
+async def _drain_event_loop(
+    loop: asyncio.AbstractEventLoop, *, budget_s: float
+) -> None:
+    """Stop what is still running before the loop is taken out from under it.
+
+    Stopping the loop with work in flight is not free, whatever the exit code
+    says. The visible symptom was tidy enough to ignore — "Task was destroyed but
+    it is pending" for EventBus.run and MemoryIndexer.run_batch, then an
+    "Indexed 3 workspace file(s)" line arriving two and a half seconds after quit
+    had finished — but the second half of that is the part that matters. The
+    indexer does its writing in ``asyncio.to_thread``, so cancelling the task
+    only abandons the *await*: the worker thread carries on into memory.db while
+    the interpreter is shutting down around it. A process exiting during a SQLite
+    write is how an archive of every conversation someone has had becomes a file
+    that no longer opens.
+
+    So the order here is deliberate. Cancel first, so nothing new is started;
+    wait for the cancellations to land, so tasks unwind through their own finally
+    blocks; then wait on the default executor, which is the only way to know that
+    the last statement has been written rather than merely that nobody is waiting
+    for it. Async generators go last because closing them can await.
+
+    Every wait is bounded. A shutdown that hangs is worse than one that leaves a
+    warning in the log, and the caller passes a tighter ceiling for tray Quit
+    than for an ordinary close.
+    """
+    current = asyncio.current_task()
+    pending = [t for t in asyncio.all_tasks(loop) if t is not current and not t.done()]
+    for task in pending:
+        task.cancel()
+    if pending:
+        _done, still = await asyncio.wait(pending, timeout=budget_s)
+        if still:
+            log.info(
+                "loop drain: %d task(s) did not stop within %.2fs", len(still), budget_s
+            )
+    # asyncio.wait rather than wait_for throughout, and that is the whole reason
+    # the ceilings above are real. wait_for cancels what it is waiting on and then
+    # waits for *that* to finish, so a task which swallows CancelledError — a bare
+    # `except Exception` around an await is enough — turns the bound into a hang.
+    # asyncio.wait just stops waiting.
+    executor_stopped = asyncio.ensure_future(loop.shutdown_default_executor())
+    _done, still = await asyncio.wait([executor_stopped], timeout=budget_s)
+    if still:
+        # Giving up here means the process may still exit with a write in flight,
+        # which is the thing this function exists to prevent. It is the lesser
+        # evil: a quit that never returns is a program the user has to kill, and
+        # they will then be exiting mid-write anyway with no record of why.
+        log.warning(
+            "loop drain: background writes still running after %.2fs — exiting anyway",
+            budget_s,
+        )
+    try:
+        await loop.shutdown_asyncgens()
+    except Exception:
+        log.debug("loop drain: asyncgen shutdown failed", exc_info=True)
+
+
+def _raise_running_instance(config: dict[str, Any]) -> int:
+    """Second launch: put the Arelis that is already running back on screen.
+
+    The UI lock is held, so this copy must not open a window — two glasses over
+    one memory.db is not a thing anyone wants. But refusing quietly is worse than
+    it sounds: the running instance is usually hidden in the tray, so the visible
+    result of double-clicking Arelis was nothing at all, and the honest response
+    to that is to click it again. Every launch/close/relaunch complaint about this
+    program has started there.
+
+    A held lock always means a living process. Windows releases both the named
+    mutex and the byte lock when a process ends, however it ends, so there is no
+    such thing here as a stale lock left by a crash — if the lock is held, someone
+    is home and the only question is whether they are listening yet.
+
+    Which is why the failure is retried once. A launch two seconds after the last
+    one can arrive while the running copy is still building its window and has not
+    bound its activation port. That is not a wedged Arelis, it is an early one.
+    """
+    from arelis.presence.activate import activate_existing_ui
+    from arelis.ui.dialog import notice
+
+    if activate_existing_ui(config):
+        log.info("second launch: asked the running Arelis to show itself")
+        return 0
+    time.sleep(1.5)
+    if activate_existing_ui(config):
+        log.info("second launch: running Arelis answered on the retry")
+        return 0
+    # Held lock, no answer. Nothing here may kill the other process — it is the
+    # one holding the conversation, the memory and possibly an unsent draft — so
+    # say so and name where to look, which is the one outcome that is neither a
+    # second window nor silence.
+    log.warning("second launch: UI lock held but no Arelis answered on IPC")
+    try:
+        app = QApplication.instance() or QApplication([])
+        app.setApplicationName("Arelis")
+        icon_path = app_icon_path()
+        if icon_path.is_file():
+            app.setWindowIcon(QIcon(str(icon_path)))
+        app.setFont(app_font(load_fonts()))
+        app.setStyleSheet(stylesheet())
+        notice(
+            None,
+            "Arelis is already running",
+            "Arelis is already open, but it did not answer the request to come "
+            "to the front.",
+            detail=(
+                "Look for the Arelis icon in the notification area — Windows "
+                "often keeps it in the overflow behind the chevron — and choose "
+                f"Open Arelis. If it is not responding at all, {logs_dir()}"
+                "\\arelis.log has the last thing it did."
+            ),
+            warning=True,
+        )
+    except Exception:
+        log.exception("second launch: could not show the already-running notice")
+    return 1
 
 
 def run_ui(config: dict[str, Any] | None = None) -> int:
@@ -3332,16 +3920,12 @@ def run_ui(config: dict[str, Any] | None = None) -> int:
     # handed in by a caller (tests, harnesses) must not be silently replaced.
     config_was_given = config is not None
     config = config or load_config()
-    # Single glass: second launch activates the existing UI via core IPC.
-    from arelis.presence.activate import activate_existing_ui
+    # Single glass: a second launch raises the first rather than opening again.
     from arelis.presence.lock import PresenceLock, ui_lock_path
 
     ui_lock = PresenceLock(ui_lock_path(config))
     if not ui_lock.acquire():
-        if activate_existing_ui(config):
-            return 0
-        # No core IPC — still refuse a second window (avoids triple taskbar).
-        return 0
+        return _raise_running_instance(config)
 
     def _bind_workspace(cfg: dict[str, Any]) -> WorkspaceRoots:
         roots = WorkspaceRoots.from_config(cfg)
@@ -3353,14 +3937,7 @@ def run_ui(config: dict[str, Any] | None = None) -> int:
         return roots
 
     workspace = _bind_workspace(config)
-    # A stray QT_QPA_PLATFORM=offscreen leaves the app running with no visible
-    # window, which is a confusing failure to debug, so it is corrected here.
-    # ARELIS_ALLOW_OFFSCREEN opts out for headless checks that genuinely want it.
-    if (
-        os.environ.get("QT_QPA_PLATFORM", "").lower() == "offscreen"
-        and not os.environ.get("ARELIS_ALLOW_OFFSCREEN")
-    ):
-        os.environ["QT_QPA_PLATFORM"] = "windows"
+    force_windows_qt_platform(os.environ)
     os.environ.setdefault("QT_QPA_FONTDIR", str(qt_font_directory()))
 
     # A scheduled task holds the absolute path it was created with, so installing a
@@ -3423,13 +4000,9 @@ def run_ui(config: dict[str, Any] | None = None) -> int:
     from arelis.memory.backup import backup_memory_db
 
     backup_memory_db(store.path)
-    # Skip empty shells left by a short launch or an unused "new", so restore
-    # picks up a conversation that actually has turns.
-    restore_id = store.latest_session_id(require_messages=True)
-    if restore_id:
-        store.open_session(restore_id)
-    else:
-        store.start_session()
+    # Cold glass launch is a new conversation (ChatGPT-style). Last night
+    # stays in History. Tray / un-minimize do not come through here.
+    store.start_glass_session()
     tools = build_tool_registry(
         config,
         workspace,
@@ -3504,7 +4077,7 @@ def run_ui(config: dict[str, Any] | None = None) -> int:
             bus,
             voice,
             store=store,
-            restore_session_id=restore_id,
+            restore_session_id=None,
             indexer=indexer,
             router=router,
         )
@@ -3599,6 +4172,37 @@ def run_ui(config: dict[str, Any] | None = None) -> int:
                 bus.publish(Event(EventType.STATUS, {"message": message})),
                 loop,
             )
+        # With no core there is nothing on the bridge port, and a second launch
+        # asking to be shown was talking to nobody — which is the whole of why
+        # clicking the shortcut while tray-hidden did nothing. The UI answers for
+        # itself in that case, over the same protocol and the same fall-forward
+        # ports, so activate_existing_ui does not care which of the two replied.
+        if bool(presence_cfg.get("ipc_enabled", True)):
+            try:
+                window.ipc_server = IpcServer(
+                    bus,
+                    host=str(presence_cfg.get("ipc_host") or "127.0.0.1"),
+                    port=int(presence_cfg.get("ipc_port") or 8766),
+                    on_open_ui=lambda _reason: QTimer.singleShot(
+                        0, window.show_from_tray
+                    ),
+                )
+            except ValueError as exc:
+                log.warning("UI activation listener not started: %s", exc)
+            else:
+
+                async def _serve_activation() -> None:
+                    assert window.ipc_server is not None
+                    try:
+                        await window.ipc_server.start()
+                    except OSError as exc:
+                        # Not fatal and not worth a dialog: everything else about
+                        # this launch works, and the cost is that the next
+                        # double-click has to fall back to the tray icon.
+                        log.warning("UI activation listener could not bind: %s", exc)
+                        window.ipc_server = None
+
+                asyncio.run_coroutine_threadsafe(_serve_activation(), loop)
 
     window.setup_tray(app)
     parked = window._pending_store.list()
@@ -3634,10 +4238,22 @@ def run_ui(config: dict[str, Any] | None = None) -> int:
     try:
         code = app.exec()
 
+        # Tray Quit is meant to feel instant, so every wait below is a ceiling
+        # rather than a duration, and the force-quit ceilings are the tighter of
+        # the two — the same distinction closeEvent already draws.
+        force = bool(window._force_quit)
+        drain_budget_s = 0.75 if force else 3.0
+
         async def shutdown() -> None:
             if window.ipc_client is not None:
                 await window.ipc_client.stop()
                 window.ipc_client = None
+            if window.ipc_server is not None:
+                try:
+                    await asyncio.wait_for(window.ipc_server.stop(), timeout=1.0)
+                except Exception:
+                    pass
+                window.ipc_server = None
             if window.inbound_runtime is not None:
                 # closeEvent may already have stopped owned inbound; tolerate double-stop.
                 try:
@@ -3661,12 +4277,13 @@ def run_ui(config: dict[str, Any] | None = None) -> int:
                     await asyncio.wait_for(session.close(), timeout=2.0)
             except Exception:
                 pass
+            await _drain_event_loop(loop, budget_s=drain_budget_s)
 
         fut = asyncio.run_coroutine_threadsafe(shutdown(), loop)
         try:
-            fut.result(timeout=3)
+            fut.result(timeout=2.0 if force else 8.0)
         except Exception:
-            pass
+            log.warning("shutdown did not finish in time", exc_info=True)
         loop.call_soon_threadsafe(loop.stop)
         thread.join(timeout=2)
         return code

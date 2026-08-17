@@ -119,6 +119,19 @@ async def test_image_saves_a_finished_job_locally(tmp_path, monkeypatch) -> None
     assert saved.read_bytes().startswith(b"\x89PNG")
 
 
+def test_registry_does_not_auto_start_comfy_by_default() -> None:
+    """The shipped YAML says false; the code used to read it as true."""
+    from arelis.tools import build_tool_registry
+
+    registry = build_tool_registry(
+        {"tools": {"image": {"enabled": True}}, "workspace": {"roots": ["."]}},
+        allow_send=False,
+    )
+    tool = registry.get("image")
+    assert tool is not None
+    assert tool.auto_start is False
+
+
 @pytest.mark.asyncio
 async def test_image_requires_a_prompt(tmp_path) -> None:
     tool = ImageTool("http://127.0.0.1:8188", str(tmp_path))

@@ -61,6 +61,7 @@ _CHIP_ORDER = (
     "embed",
     "search",
     "ocr",
+    "image",
 )
 
 
@@ -175,6 +176,7 @@ async def probe_readiness(
     chips["embed"] = _embed_chip(config, available)
     chips["search"] = await _search_chip(config)
     chips["ocr"] = _ocr_chip(config)
+    chips["image"] = await _image_chip(config)
 
     ordered = tuple(chips[key] for key in _CHIP_ORDER if key in chips)
     return ReadinessSnapshot(chips=ordered)
@@ -452,4 +454,50 @@ def _ocr_chip(config: dict[str, Any]) -> ReadinessChip:
         "OCR",
         ChipLevel.WARN,
         "tesseract not on PATH; ocr tool will soft-fail until installed.",
+    )
+
+
+async def _image_chip(config: dict[str, Any]) -> ReadinessChip:
+    """Whether a picture can actually be made right now.
+
+    The image tool stays registered whether or not ComfyUI is up, because
+    ComfyUI is a separate program the user can start at any moment and a
+    registry built at launch would keep saying no for the rest of the session.
+    That leaves this chip as the honest signal, re-probed on the same 30s tick
+    as the rest of the strip.
+    """
+    image_cfg = (config.get("tools") or {}).get("image") or {}
+    if not bool(image_cfg.get("enabled", True)):
+        return ReadinessChip(
+            "image",
+            "Image",
+            ChipLevel.OFF,
+            "image tool disabled in config.",
+        )
+    url = str(image_cfg.get("comfy_url") or "http://127.0.0.1:8188").strip()
+    from arelis.tools.comfy_lifecycle import comfy_is_healthy_async
+
+    if await comfy_is_healthy_async(url, timeout_s=1.5):
+        return ReadinessChip(
+            "image",
+            "Image",
+            ChipLevel.OK,
+            f"ComfyUI answering at {url}.",
+        )
+    auto = bool(image_cfg.get("auto_start", False)) and bool(
+        str(image_cfg.get("launch_cwd") or "").strip()
+    )
+    if auto:
+        return ReadinessChip(
+            "image",
+            "Image",
+            ChipLevel.WARN,
+            f"ComfyUI not running at {url}; the first image starts it.",
+        )
+    return ReadinessChip(
+        "image",
+        "Image",
+        ChipLevel.WARN,
+        f"ComfyUI not running at {url}, so image generation is unavailable. "
+        "Start ComfyUI, or set tools.image.auto_start with tools.image.launch_cwd.",
     )

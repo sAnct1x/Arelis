@@ -54,6 +54,7 @@ GOALS_WRITE_ACTIONS = {
     "remove",
 }
 MEMORY_WRITE_ACTIONS = {"remember", "forget", "prefer", "decide", "episode"}
+ROOMS_WRITE_ACTIONS = {"create", "update", "forget"}
 
 # Approved one at a time, never covered by "allow all this turn". A file write
 # can be undone by editing the file; a sent email, SMS, or calendar mutate
@@ -103,7 +104,15 @@ def capability_class(
         return "READ"
     if tool == "research_report":
         return "WRITE_LOCAL_ARTIFACT"
-    if tool in {"image", "browser", "vision", "camera", "clipboard", "ocr"}:
+    if tool in {
+        "image",
+        "image_edit",
+        "browser",
+        "vision",
+        "camera",
+        "clipboard",
+        "ocr",
+    }:
         return "SIDE_EFFECT_LOCAL"
     if tool == "workspace":
         return "WRITE_LOCAL" if action in WORKSPACE_WRITE_ACTIONS else "READ"
@@ -115,6 +124,8 @@ def capability_class(
         return "WRITE_LOCAL" if action in GOALS_WRITE_ACTIONS else "READ"
     if tool == "memory":
         return "WRITE_LOCAL" if action in MEMORY_WRITE_ACTIONS else "READ"
+    if tool == "rooms":
+        return "WRITE_LOCAL" if action in ROOMS_WRITE_ACTIONS else "READ"
     return "READ"
 
 
@@ -203,7 +214,10 @@ class ToolRegistry:
         args = args or {}
         if name in {"send_email", "send_sms"}:
             return confirm_send
-        if name == "image":
+        if name in {"image", "image_edit"}:
+            # image_edit shares the image toggle rather than confirm_writes: what
+            # it produces is a picture, and it writes a new file beside the
+            # original rather than over anything that existed.
             return confirm_image
         if name == "browser":
             return confirm_browser
@@ -237,6 +251,9 @@ class ToolRegistry:
         if name == "goals":
             action = str(args.get("action") or "").lower()
             return confirm_writes if action in GOALS_WRITE_ACTIONS else False
+        if name == "rooms":
+            action = str(args.get("action") or "").lower()
+            return confirm_writes if action in ROOMS_WRITE_ACTIONS else False
         if tool.risk == "side_effect":
             return confirm_image
         if tool.risk == "write":

@@ -39,6 +39,9 @@ ALLOWED: dict[str, str] = {
     "html.duckduckgo.com": "web_search, on a turn the user started",
     # Weather, when the user asks about weather.
     "api.open-meteo.com": "weather tool; no key, no account, no identifier sent",
+    # Same provider, same terms. Reached only when the profile names a city and
+    # gives no coordinates, and it is sent that city name and nothing else.
+    "geocoding-api.open-meteo.com": "place name -> lat/lon for a city the user typed",
     # Off by default in config and documented as off deliberately.
     "ipapi.co": "optional coarse location, opt-in via location.network.enabled",
     # Calendar and mail, reachable only once the user has pasted their own

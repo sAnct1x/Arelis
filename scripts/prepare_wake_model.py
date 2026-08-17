@@ -32,7 +32,7 @@ def main() -> int:
     print()
     print("Recommended:")
     print("  1. Install easy-oww (https://github.com/pjdoland/easy-oww)")
-    print("  2. Generate Piper synthetic clips for 'Hey Arelis' / 'Arelis'")
+    print("  2. Generate Piper synthetic clips for 'Hey Arelis' only (not bare 'Arelis')")
     print("  3. Train + export ONNX")
     print(f"  4. Copy to {TARGET}")
     print()

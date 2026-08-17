@@ -61,9 +61,13 @@ class EventType(str, Enum):
     Allow, send, spoken reply), then flushes as one batched system note — not
     into an agent turn, and not into the outbound draft.
 
-    CHAT_NOTICE is a transcript line that belongs in the conversation archive
-    (inbound SMS after it is shown in chat). The orchestrator write-throughs it
-    like user/assistant turns so it survives restart until the session is deleted.
+    ROOM_CHANGED announces that the open room changed, which is a bigger event
+    than it sounds: the conversation thread, the active project and the model
+    role all moved at once. It is published after the swap has happened, and it
+    carries the whole new state rather than a delta, so a surface that missed an
+    earlier one still paints the truth. An empty room id means the general
+    conversation. SESSION_LOADED still carries the messages — this event says
+    which room they belong to.
     """
 
     USER_MESSAGE = "user_message"
@@ -89,7 +93,7 @@ class EventType(str, Enum):
     SESSION_LOAD = "session_load"
     SESSION_LOADED = "session_loaded"
     SMS_RECEIVED = "sms_received"
-    CHAT_NOTICE = "chat_notice"
+    ROOM_CHANGED = "room_changed"
 
 
 @dataclass(slots=True)

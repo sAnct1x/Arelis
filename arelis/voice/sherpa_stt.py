@@ -16,7 +16,7 @@ from urllib.request import urlretrieve
 
 import numpy as np
 
-from arelis.paths import models_dir, user_data_dir
+from arelis.paths import models_dir, resolve_model_path
 
 log = logging.getLogger(__name__)
 
@@ -53,7 +53,9 @@ def sherpa_package_available() -> bool:
 def resolve_model_dir(stt_config: dict[str, Any] | None = None) -> Path:
     raw = str((stt_config or {}).get("model_dir") or "models/sherpa").strip()
     path = Path(raw)
-    return path if path.is_absolute() else user_data_dir() / path
+    if path.is_absolute():
+        return path
+    return resolve_model_path(path)
 
 
 def find_transducer_files(root: Path) -> dict[str, Path] | None:

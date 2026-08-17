@@ -26,6 +26,7 @@ _TEXT = COLORS["text"]
 _TEXT_DIM = COLORS["text_dim"]
 _AMBER = COLORS.get("status_amber", COLORS["amber"])
 _STATUS_WHITE = COLORS.get("status_white", COLORS["text"])
+_BUBBLE = COLORS["bubble_wash"]
 _ASSISTANT_LABEL = (
     '<div style="margin:14px 18% 3px 0;">'
     f'<div style="color:{_TEXT_DIM};font-size:11px;'
@@ -33,7 +34,7 @@ _ASSISTANT_LABEL = (
 )
 _ASSISTANT_OPEN = (
     '<div style="margin:0 18% 8px 0;">'
-    f'<div style="background:rgba(10,8,6,110);padding:8px 12px;border-radius:8px;color:{_TEXT};">'
+    f'<div style="background:{_BUBBLE};padding:8px 12px;border-radius:8px;color:{_TEXT};">'
 )
 _ASSISTANT_CLOSE = "</div></div>"
 
@@ -82,9 +83,6 @@ class ChatPanel(QWidget):
         self.progress = QLabel("")
         self.progress.setObjectName("ChatProgress")
         self.progress.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.progress.setStyleSheet(
-            f"color:{_AMBER};font-size:13px;padding:10px 8px;letter-spacing:0.04em;"
-        )
         self.progress.hide()
         self._progress_fx = QGraphicsOpacityEffect(self.progress)
         self.progress.setGraphicsEffect(self._progress_fx)
@@ -520,7 +518,7 @@ def _user_bubble_html(
         "<tr><td align=\"right\">"
         f'<div style="color:{_TEXT_DIM};font-size:11px;letter-spacing:0.08em;margin:0 2px 3px 0;" '
         f'align="right">you</div>'
-        f'<div style="background:rgba(10,8,6,110);padding:8px 12px;'
+        f'<div style="background:{_BUBBLE};padding:8px 12px;'
         f'border-radius:8px;color:{_TEXT_DIM};text-align:left;">'
         f"{inner}</div>"
         "</td></tr></table>"

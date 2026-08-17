@@ -36,6 +36,12 @@ HTBOTTOMRIGHT = 17
 GWL_STYLE = -16
 # GWLP_HWNDPARENT clears the owner so floating docks don't raise with the main window.
 GWLP_HWNDPARENT = -8
+
+RDW_INVALIDATE = 0x0001
+RDW_ERASE = 0x0004
+RDW_FRAME = 0x0400
+RDW_ALLCHILDREN = 0x0080
+
 WS_THICKFRAME = 0x00040000
 WS_MAXIMIZEBOX = 0x00010000
 WS_MINIMIZEBOX = 0x00020000
@@ -60,6 +66,51 @@ def detach_owned_window(widget: QWidget) -> None:
     different approach than SetWindowLongPtr(GWLP_HWNDPARENT, 0).
     """
     return
+
+
+def invalidate_window_surface(widget: QWidget) -> None:
+    """Force Windows to hand this window a paint before it presents it again.
+
+    A frameless widget with WA_TranslucentBackground is a layered window, and Qt
+    uploads its pixels with UpdateLayeredWindow. The uploaded bitmap belongs to
+    the OS, not to Qt, so it survives ShowWindow(SW_HIDE) and is presented again
+    the instant the window comes back — before any paintEvent has run. Whatever
+    the glass looked like when it went to the tray is therefore what appears
+    first, which is wrong every time something changed while it was away: a text
+    arrived, the status line moved, the window is a different size than it was.
+
+    Marking the whole window and every child dirty is the point. Qt flushes only
+    the region it believes changed, which on a re-show is nothing, so the parts
+    of the layered bitmap Qt has no reason to touch are the parts that keep the
+    old picture. This asks for all of it back.
+
+    Deliberately not RDW_UPDATENOW: a synchronous WM_PAINT from inside a show
+    means painting re-entrantly into a window Qt is still mapping, and one frame
+    of latency is not worth finding out what that does.
+    """
+    if sys.platform != "win32":
+        return
+    if not widget.isVisible():
+        return
+    # winId() is only an HWND under the windows backend. The offscreen platform
+    # the widget tests run on hands back an internal id, and passing that to
+    # user32 would be a syscall on a number that means nothing.
+    from PySide6.QtGui import QGuiApplication
+
+    if QGuiApplication.platformName() != "windows":
+        return
+    try:
+        hwnd = int(widget.winId())
+    except Exception:
+        return
+    from ctypes import windll
+
+    windll.user32.RedrawWindow(
+        hwnd,
+        None,
+        None,
+        RDW_INVALIDATE | RDW_ERASE | RDW_FRAME | RDW_ALLCHILDREN,
+    )
 
 
 def enable_dark_title_bar(widget: QWidget) -> None:

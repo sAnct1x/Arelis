@@ -309,7 +309,7 @@ class VoiceController(QObject):
             )
         else:
             engine = self._wake_engine
-            self.status.emit(f"Listening for Arelis ({engine}).")
+            self.status.emit(f"Listening for Hey Arelis ({engine}).")
 
     def _leave(self, *, flush: bool, resume_wake: bool, announce_off: bool = False) -> None:
         mode = self._mode
@@ -329,7 +329,9 @@ class VoiceController(QObject):
             self.status.emit("Voice input off.")
 
     def _apply_detector_for_mode(self) -> None:
-        defaults = self._wake_detector_defaults if self._mode == WAKE else self._detector_defaults
+        defaults = (
+            self._wake_detector_defaults if self._mode == WAKE else self._detector_defaults
+        )
         cfg = DetectorConfig(
             sample_rate=self.recorder.sample_rate or self.recorder.requested_rate,
             channels=max(1, self.recorder.channels),
@@ -570,8 +572,10 @@ class VoiceController(QObject):
                 log.exception("openWakeWord feed failed")
                 hit = False
             if hit:
-                self.trace.record(
-                    "wake_oww",
+                self.trace.record_wake(
+                    "wake_heard",
+                    matched=True,
+                    engine="openwakeword",
                     score=getattr(self._openwake, "last_score", None),
                     **self.debug_state(),
                 )

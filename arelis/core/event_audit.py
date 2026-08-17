@@ -38,7 +38,6 @@ _AUDITED: frozenset[EventType] = frozenset(
         EventType.TURN_RESUME,
         EventType.MODEL_SWITCH,
         EventType.SMS_RECEIVED,
-        EventType.CHAT_NOTICE,
         EventType.SESSION_LOAD,
         EventType.SESSION_LOADED,
         EventType.VOICE_TRANSCRIPT,
@@ -201,8 +200,6 @@ def _format_event(event: Event) -> str:
         )
         fields["from"] = who
         fields["preview"] = _clip(str(payload.get("body") or ""), 80)
-    elif event.type == EventType.CHAT_NOTICE:
-        fields["preview"] = _clip(str(payload.get("text") or ""), 80)
     elif event.type in {EventType.SESSION_LOAD, EventType.SESSION_LOADED}:
         fields["session"] = payload.get("session_id") or "?"
         if "ok" in payload:

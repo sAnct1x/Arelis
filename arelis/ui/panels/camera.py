@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
 
 from arelis.core.failure_copy import plain_reason
 from arelis.paths import outputs_dir
+from arelis.ui.theme import METRICS
 
 log = logging.getLogger(__name__)
 
@@ -98,8 +99,8 @@ class CameraPanel(QWidget):
         row = QHBoxLayout()
         row.setSpacing(6)
         self.device_combo = QComboBox()
-        self.device_combo.setObjectName("InstrumentSearch")
-        self.device_combo.setFixedHeight(28)
+        self.device_combo.setObjectName("InstrumentCombo")
+        self.device_combo.setFixedHeight(METRICS["row"])
         self.device_combo.setMinimumWidth(140)
         self.device_combo.setToolTip("Camera device")
         self.device_combo.currentIndexChanged.connect(self._on_device_changed)
@@ -110,7 +111,7 @@ class CameraPanel(QWidget):
         self.ask_btn = QPushButton("ask Arelis")
         for btn in (self.start_btn, self.stop_btn, self.snap_btn, self.ask_btn):
             btn.setObjectName("InstrumentAction")
-            btn.setFixedHeight(28)
+            btn.setFixedHeight(METRICS["row"])
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.start_btn.clicked.connect(self.start)
         self.stop_btn.clicked.connect(self.stop)

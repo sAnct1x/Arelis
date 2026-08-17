@@ -26,6 +26,22 @@ class _FakeProvider:
         self.closed = True
 
 
+def _comfy(healthy: bool):
+    async def _probe(*_a: object, **_k: object) -> bool:
+        return healthy
+
+    return _probe
+
+
+@pytest.fixture(autouse=True)
+def _no_live_comfy(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The image chip probes a real port; a suite must not depend on one."""
+    monkeypatch.setattr(
+        "arelis.tools.comfy_lifecycle.comfy_is_healthy_async",
+        _comfy(False),
+    )
+
+
 def _base_config() -> dict:
     return {
         "models": {
@@ -92,6 +108,11 @@ async def test_probe_ok_when_tags_and_integrations_ready(
         model_for=lambda role=None: "qwen2.5:7b",
     )
 
+    monkeypatch.setattr(
+        "arelis.tools.comfy_lifecycle.comfy_is_healthy_async",
+        _comfy(True),
+    )
+
     snap = await probe_readiness(_base_config(), router=router)
     assert [c.key for c in snap.chips] == [
         "ollama",
@@ -104,7 +125,9 @@ async def test_probe_ok_when_tags_and_integrations_ready(
         "embed",
         "search",
         "ocr",
+        "image",
     ]
+    assert snap.chip("image") and snap.chip("image").status == ChipLevel.OK
     assert snap.chip("ollama") and snap.chip("ollama").status == ChipLevel.OK
     assert snap.chip("models") and snap.chip("models").status == ChipLevel.OK
     assert snap.chip("role") and snap.chip("role").status == ChipLevel.OK
@@ -224,6 +247,45 @@ async def test_search_and_ocr_chips(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "duckduckgo" in search.detail.lower()
     ocr = snap.chip("ocr")
     assert ocr is not None and ocr.status == ChipLevel.OK
+
+
+@pytest.mark.asyncio
+async def test_image_chip_says_comfy_is_missing_before_she_tries(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Draw-me-a-picture is offered to everyone; only some machines can do it."""
+    monkeypatch.setattr(
+        "arelis.presence.readiness.load_calendar_secrets",
+        lambda: CalendarSecrets(google=None, outlook=None),
+    )
+    monkeypatch.setattr(
+        "arelis.presence.readiness.probe_ingest_health",
+        lambda **kwargs: False,
+    )
+    monkeypatch.setattr("arelis.presence.readiness.load_account", lambda: None)
+
+    cfg = _base_config()
+    cfg["tools"]["image"] = {"enabled": True, "comfy_url": "http://127.0.0.1:8188"}
+    snap = await probe_readiness(cfg, provider=_FakeProvider(["qwen2.5:7b"]))
+    chip = snap.chip("image")
+    assert chip is not None
+    assert chip.status == ChipLevel.WARN
+    assert "unavailable" in chip.detail
+
+    # Auto-start configured is a different sentence: it will come up by itself.
+    cfg["tools"]["image"]["auto_start"] = True
+    cfg["tools"]["image"]["launch_cwd"] = "C:/ComfyUI"
+    snap = await probe_readiness(cfg, provider=_FakeProvider(["qwen2.5:7b"]))
+    chip = snap.chip("image")
+    assert chip is not None
+    assert chip.status == ChipLevel.WARN
+    assert "starts it" in chip.detail
+
+    cfg["tools"]["image"]["enabled"] = False
+    snap = await probe_readiness(cfg, provider=_FakeProvider(["qwen2.5:7b"]))
+    chip = snap.chip("image")
+    assert chip is not None
+    assert chip.status == ChipLevel.OFF
 
 
 def test_readiness_strip_applies_statuses(qt_app) -> None:

@@ -89,6 +89,13 @@ def world_state_prompt_line(
         log.debug("world_state sms skipped: %s", exc)
 
     try:
+        image = _image_part(config)
+        if image:
+            parts.append(image)
+    except Exception as exc:
+        log.debug("world_state image skipped: %s", exc)
+
+    try:
         confirms = _pending_confirms_part(config)
         if confirms:
             parts.append(confirms)
@@ -150,7 +157,16 @@ def _active_goals_part(store: Any) -> str:
 
 
 def _attention_count_part(store: Any, config: dict[str, Any]) -> str:
-    """Count-only attention (tasks/goals/file rules; no IMAP/agenda)."""
+    """Count attention over the same rules the emailed briefing applies.
+
+    Events and mail used to be passed in empty here, which quietly made
+    ``inbox_rules`` a setting that only worked in an email nobody reads until
+    7am. Both are now honoured, but only from what is already on this machine:
+    the calendar cache the notify poller reads, and the headers the mail poller
+    last fetched. Nothing on this path opens a socket — it runs on every turn,
+    and an IMAP round trip between a question and its answer is not a price
+    worth paying for one number.
+    """
     if store is None:
         return ""
     briefing_cfg = ((config.get("tools") or {}).get("briefing") or {})
@@ -161,6 +177,7 @@ def _attention_count_part(store: Any, config: dict[str, Any]) -> str:
 
     from arelis.briefing.attention import collect_attention, snapshot_file_rules
     from arelis.config import PROJECT_ROOT
+    from arelis.notify.sources import cached_unread_mail, load_today_events
 
     list_tasks = getattr(store, "list_tasks", None)
     list_goals = getattr(store, "list_goals", None)
@@ -169,13 +186,18 @@ def _attention_count_part(store: Any, config: dict[str, Any]) -> str:
     now = datetime.now().astimezone()
     file_rules = list(attention_cfg.get("file_rules") or [])
     snaps = snapshot_file_rules(file_rules, project_root=PROJECT_ROOT, now=now)
+    try:
+        events = load_today_events(config)
+    except Exception as exc:
+        log.debug("world_state agenda unread: %s", exc)
+        events = []
     items = collect_attention(
         now=now,
         tasks=tasks,
         goals=goals,
-        events=[],
-        mail=[],
-        inbox_rules=[],
+        events=events,
+        mail=cached_unread_mail(),
+        inbox_rules=list(attention_cfg.get("inbox_rules") or []),
         file_rules=file_rules,
         file_snapshots=snaps,
         overdue_grace_days=int(attention_cfg.get("overdue_grace_days") or 0),
@@ -215,6 +237,20 @@ def _sms_part() -> str:
     if account is not None:
         return "SMS companion configured"
     return "SMS companion not configured"
+
+
+def _image_part(config: dict[str, Any]) -> str:
+    """Only spoken when a picture cannot be made, so she offers instead of failing.
+
+    Read from the readiness probe's last answer rather than probed here: this
+    line is assembled on every turn, and ComfyUI's own health check is a socket
+    the hot path has no business opening. Absent key means nobody has looked
+    (CLI, jobs), which is not the same as unavailable, so it stays quiet.
+    """
+    state = config.get("_image_ready")
+    if state is None or bool(state):
+        return ""
+    return "image generation needs ComfyUI running"
 
 
 def _pending_confirms_part(config: dict[str, Any]) -> str:

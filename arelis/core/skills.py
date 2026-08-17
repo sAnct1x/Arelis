@@ -574,6 +574,47 @@ SKILL_CARDS: dict[str, SkillCard] = {
   only; agenda owns Google/Outlook events.
 """.strip(),
     ),
+    "rooms": SkillCard(
+        id="rooms",
+        hints=(
+            "a room",
+            "new room",
+            "make a room",
+            "create a room",
+            "set up a room",
+            "dedicated space",
+            "workspace for",
+            "this room",
+            "the room",
+            "rooms",
+        ),
+        requires_tool="rooms",
+        negative_hints=(
+            "living room",
+            "dining room",
+            "bedroom",
+            "hotel room",
+            "room temperature",
+            "make room",
+            "room for",
+        ),
+        body="""
+### Rooms
+- A room is a named place for one long-running piece of work. It keeps its own
+  conversation thread, points at one workspace project, and gives you its
+  purpose at the start of every turn inside it.
+- When the user asks for a room, or for a dedicated space for a project, call
+  rooms(action=create). Fill purpose and root from what they already said —
+  do not make them repeat it. Ask only for what is genuinely missing.
+- purpose is written for you to read later. Say what the work is and what a
+  good answer in this room looks like, in a sentence or two.
+- root must be an existing workspace project name. If you are not sure one
+  exists, check before guessing; a wrong root silently points the room at the
+  wrong folder.
+- You cannot enter a room yourself. After creating one, tell the user to say
+  "let's work on <name>" or type /room <name>.
+""".strip(),
+    ),
     "schedule": SkillCard(
         id="schedule",
         hints=(
@@ -628,6 +669,55 @@ SKILL_CARDS: dict[str, SkillCard] = {
 - After one successful image this turn, stop — do not call image again.
 - To describe or answer questions about an existing local image/screenshot,
   use vision — not image.
+- To resize, crop, or adjust an image that already exists, use image_edit.
+  image cannot modify a file: it only makes a new picture from a prompt, so
+  using it for "resize this" returns something the user did not send.
+""".strip(),
+    ),
+    "image_edit": SkillCard(
+        id="image_edit",
+        hints=(
+            "make this more vibrant",
+            "more vibrant",
+            "make it vibrant",
+            "resize this",
+            "resize it",
+            "resize the image",
+            "crop this",
+            "crop it",
+            "youtube thumbnail",
+            "thumbnail size",
+            "make it brighter",
+            "make it darker",
+            "more contrast",
+            "sharpen this",
+            "saturate",
+            "aspect ratio",
+            "16:9",
+            "resize and",
+        ),
+        negative_hints=(
+            # Window geometry and layout talk, which is not a picture.
+            "resize the window",
+            "resize the panel",
+            "resize the dock",
+        ),
+        requires_tool="image_edit",
+        body="""
+### Editing an image that already exists
+- Call image_edit with the path and what was asked for: width+height or
+  preset=youtube_thumbnail, and vibrance/contrast/brightness/sharpness where
+  1.0 is unchanged and 1.3 is noticeably more.
+- "More vibrant" with no number means vibrance=1.3. "A lot more" means 1.5.
+  Do not ask which number they meant; make the ordinary choice and say what you
+  used, so they can ask for more or less.
+- A YouTube thumbnail is preset=youtube_thumbnail (1280x720). Do not compute
+  the dimensions with the calculator — a resolution is not arithmetic.
+- It writes a new file and never touches the original. One call is enough:
+  after it succeeds, say what changed and stop. Do not call vision to check
+  your own work.
+- image_edit changes a file; image generates a new picture from a prompt;
+  vision looks at one. Resizing is image_edit, never image.
 """.strip(),
     ),
     "vision": SkillCard(

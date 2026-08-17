@@ -28,14 +28,17 @@ def test_reset_layout_is_conversation_only(qt_app) -> None:
         window.think_dock.show()
         window.work_dock.show()
         window.history_dock.show()
+        window.contacts_inbox.show()
         window._reset_layout()
         # isVisible() stays false while the window itself is hidden; isHidden()
         # is the dock's own show/hide latch.
         assert window.think_dock.isHidden()
         assert window.work_dock.isHidden()
         assert window.history_dock.isHidden()
+        assert window.contacts_inbox.isHidden()
         assert window.notify_inbox.isHidden()
         assert not window.act_thinking.isChecked()
+        assert not window.act_contacts.isChecked()
     finally:
         window.hide()
         window.loop.close()

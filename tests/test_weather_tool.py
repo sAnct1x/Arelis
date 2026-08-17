@@ -70,7 +70,11 @@ async def test_weather_tool_formats_forecast(monkeypatch: pytest.MonkeyPatch) ->
 
 
 @pytest.mark.asyncio
-async def test_weather_tool_needs_coords() -> None:
+async def test_weather_tool_needs_coords(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def _no_geo(_name: str, **_kw: Any):
+        return None
+
+    monkeypatch.setattr("arelis.tools.weather.geocode_place", _no_geo)
     tool = WeatherTool(_FakeLocation(UserLocation(city="Nowhere")))
     result = await tool.run()
     assert not result.ok
@@ -125,13 +129,51 @@ def test_weather_declares_every_argument_it_reads() -> None:
 
 
 @pytest.mark.asyncio
-async def test_missing_coords_points_at_user_location_not_at_arguments() -> None:
+async def test_missing_coords_points_at_user_location_not_at_arguments(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """The old message asked for arguments the tool does not accept."""
+
+    async def _no_geo(_name: str, **_kw: Any):
+        return None
+
+    monkeypatch.setattr("arelis.tools.weather.geocode_place", _no_geo)
     tool = WeatherTool(_FakeLocation(UserLocation(city="Nowhere")))
     result = await tool.run()
     assert not result.ok
     assert "user_location" in result.output
     assert "do not pass coordinates" in result.output.lower()
+
+
+@pytest.mark.asyncio
+async def test_weather_geocodes_profile_city_when_coords_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def _geo(name: str, **_kw: Any):
+        assert "Springfield" in name
+        return (39.7817, -89.6501)
+
+    async def _fake_forecast(lat: float, lon: float, *, days: int = 3, **_kw: Any):
+        assert lat == 39.7817
+        assert lon == -89.6501
+        return {
+            "current": {
+                "temperature_2m": 70.0,
+                "apparent_temperature": 70.0,
+                "precipitation": 0,
+                "weather_code": 0,
+            },
+            "daily": [],
+        }
+
+    monkeypatch.setattr("arelis.tools.weather.geocode_place", _geo)
+    monkeypatch.setattr("arelis.tools.weather.fetch_forecast", _fake_forecast)
+    tool = WeatherTool(
+        _FakeLocation(UserLocation(city="Springfield", region="Illinois"))
+    )
+    result = await tool.run()
+    assert result.ok
+    assert "Springfield" in result.output
 
 
 def test_the_weather_skill_card_does_not_promise_a_named_place() -> None:

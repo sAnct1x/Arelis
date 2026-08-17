@@ -1,0 +1,37 @@
+# Copy to rooms.yaml to hand-write rooms, or just ask:
+#   "make me a physics room that works in my Lab Notes folder"
+#
+# A room is a named place to work on one thing. It keeps its own conversation
+# thread, points at one workspace project, and hands Arelis its purpose at the
+# start of every turn inside it.
+#
+#   /rooms                  what exists
+#   /room physics           go in  (or say "let's work on physics")
+#   /leave                  come back out
+#
+# kind: analysis | code | general | research | writing
+#   Sets which model she reaches for first and which skills she leans on. It is
+#   a lean, not a limit — every tool still works in every room.
+#
+# tools: optional, and usually leave it out. Listing tool names locks the room
+#   to exactly those, which is occasionally what you want and more often means
+#   she has to refuse an ordinary question you happened to ask in here.
+
+rooms:
+  physics:
+    name: Physics
+    purpose: >-
+      Data analysis for the physics projects in this folder. Work from the data
+      and the scripts that are already here rather than from memory. Show the
+      numbers you used, and say plainly when a result is uncertain or the data
+      is too thin to answer from.
+    root: Lab Notes
+    kind: analysis
+
+  arelis:
+    name: Arelis
+    purpose: >-
+      Building Arelis herself. Read the code before proposing a change, keep
+      diffs small, and run the tests.
+    root: Arelis
+    kind: code

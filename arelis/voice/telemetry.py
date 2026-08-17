@@ -47,13 +47,25 @@ class VoiceTrace:
 
     def __init__(self, enabled: bool = False, *, log_dir: Path | None = None) -> None:
         self.enabled = bool(enabled)
+        self._log_dir = log_dir
         self._entries: deque[str] = deque(maxlen=_RING)
         if self.enabled:
-            _attach_file_handler(log_dir or logs_dir())
+            _attach_file_handler(self._log_dir or logs_dir())
 
     def record(self, event: str, **state: Any) -> None:
         if not self.enabled:
             return
+        line = _format(event, state)
+        self._entries.append(line)
+        log.info(line)
+
+    def record_wake(self, event: str, **state: Any) -> None:
+        """Wake decisions always hit the ring and logs/voice.log.
+
+        Full debug stays opt-in. Matching, missing, and the UI ack have to be
+        countable without turning the rest of the voice loop into a firehose.
+        """
+        _attach_file_handler(self._log_dir or logs_dir())
         line = _format(event, state)
         self._entries.append(line)
         log.info(line)

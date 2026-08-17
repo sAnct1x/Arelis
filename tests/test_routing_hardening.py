@@ -359,13 +359,14 @@ def test_hide_daily_wander_drops_browser_on_sms() -> None:
     from arelis.core.agent_loop import _hide_daily_wander
 
     out = _hide_daily_wander(
-        {"send_sms", "browser", "web_search", "scrape", "contacts"},
+        {"send_sms", "browser", "web_search", "scrape", "contacts", "image"},
         {"send_sms"},
     )
     assert "send_sms" in out
     assert "browser" not in out
     assert "web_search" not in out
     assert "scrape" not in out
+    assert "image" not in out
 
 
 def test_hide_daily_wander_drops_browser_on_tasks() -> None:

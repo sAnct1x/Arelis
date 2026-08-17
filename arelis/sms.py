@@ -49,6 +49,64 @@ class ResolvedSms:
     phone_e164: str
 
 
+def resolve_operator_sms_target(
+    *,
+    alias: str = "",
+    phone: str = "",
+    contacts: dict[str, Contact] | None = None,
+) -> ResolvedSms | str:
+    """Resolve a human-typed tile send. Digits are enough; a nickname is optional.
+
+    The agent path still uses resolve_sms_target and refuses unknown names.
+    The operator already opened this room, so a raw number is a valid address.
+    """
+    from arelis.contacts import load_contacts, normalize_phone, to_e164
+
+    book = contacts if contacts is not None else load_contacts()
+    alias = (alias or "").strip()
+    phone = (phone or "").strip()
+    if alias:
+        resolved = resolve_sms_target(alias, book)
+        if not isinstance(resolved, str):
+            return resolved
+    e164 = to_e164(phone)
+    if e164:
+        digits = normalize_phone(phone)
+        contact = next(
+            (
+                item
+                for item in book.values()
+                if item.digits == digits or item.e164 == e164
+            ),
+            None,
+        )
+        return ResolvedSms(
+            contact=contact,
+            label=contact.display_name if contact else (phone or e164),
+            phone_display=(contact.phone if contact else "") or phone or e164,
+            phone_e164=e164,
+        )
+    if alias:
+        return f"No phone number for {alias}."
+    return "No number to send to."
+
+
+async def send_operator_sms(
+    *,
+    phone: str,
+    body: str,
+    provider: SmsProvider,
+    max_chars: int = DEFAULT_MAX_BODY_CHARS,
+) -> str:
+    """Send a text the operator typed. No confirm card, no agent loop."""
+    text, _truncated = prepare_body(body, max_chars=max_chars)
+    if not text:
+        raise SmsSendError("Nothing to send.")
+    if not (phone or "").strip():
+        raise SmsSendError("No number to send to.")
+    return await provider.send(phone=phone, body=text)
+
+
 def resolve_sms_target(to: str, contacts: dict[str, Contact]) -> ResolvedSms | str:
     """Return a ResolvedSms, or an error string the tool can show the model."""
     from arelis.contacts import list_aliases, resolve_contact

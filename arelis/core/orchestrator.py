@@ -24,6 +24,7 @@ from arelis.core.memory import SessionMemory, tool_trace_entry, tool_trace_note
 from arelis.core.untrusted import confirm_note_after_external
 from arelis.llm.router import ModelRole, ModelRouter
 from arelis.memory.store import MemoryStore
+from arelis.rooms import Room, RoomStore, match_enter_intent, match_leave_intent
 from arelis.tools.base import NEVER_BATCH, ToolRegistry
 from arelis.tools.safety import redact_secrets
 from arelis.workspace import _WINDOWS_DRIVE, WorkspaceRoots
@@ -139,6 +140,15 @@ class Orchestrator:
         self.config = config
         self.workspace = workspace or config.get("_workspace") or WorkspaceRoots.from_config(config)
         self.config["_workspace"] = self.workspace
+        # Explicit None: RoomStore has __len__, so `or` would replace a shared
+        # store that merely happens to be empty — which is every first launch.
+        # The tool and the loop would then be looking at a different object.
+        shared_rooms = config.get("_rooms")
+        self.rooms: RoomStore = shared_rooms if shared_rooms is not None else RoomStore()
+        self.config["_rooms"] = self.rooms
+        # The general thread to come back to when a room closes. Empty until a
+        # room is entered from one.
+        self._general_session = ""
         self.memory = memory or SessionMemory()
         self.persona = load_persona(config)
         self._cancel = False
@@ -160,7 +170,6 @@ class Orchestrator:
         bus.subscribe(EventType.TURN_PAUSE, self.on_turn_pause)
         bus.subscribe(EventType.TURN_RESUME, self.on_turn_resume)
         bus.subscribe(EventType.SESSION_LOAD, self.on_session_load)
-        bus.subscribe(EventType.CHAT_NOTICE, self.on_chat_notice)
 
     def classify_role(
         self, text: str, explicit: ModelRole | None = None
@@ -246,13 +255,6 @@ class Orchestrator:
         self._pause = False
         set_paused(False)
         await self.bus.publish(Event(EventType.THINKING, {"text": "drive resumed"}))
-
-    async def on_chat_notice(self, event: Event) -> None:
-        """Archive a chat-visible notice (inbound SMS) without starting a turn."""
-        text = str((event.payload or {}).get("text") or "").strip()
-        if not text:
-            return
-        self.memory.add("notice", text)
 
     async def on_session_load(self, event: Event) -> None:
         """Swap the in-process working set for an archived conversation.
@@ -386,9 +388,30 @@ class Orchestrator:
                 await self._set_project(text)
                 return
 
+            if re.match(r"(?i)^/rooms?\b", text):
+                await self._room_command(text)
+                return
+
+            if re.match(r"(?i)^/leave\b", text):
+                await self._leave_room()
+                return
+
             if text in {"/help", "help"}:
                 await self._emit_help()
                 return
+
+            # Spoken navigation, after the slash commands so a typed command
+            # always wins. Both of these only fire on a name that resolves to a
+            # room that already exists, so ordinary sentences fall through.
+            if match_leave_intent(text) and self.rooms.active is not None:
+                await self._leave_room()
+                return
+            spoken = match_enter_intent(text)
+            if spoken:
+                target = self.rooms.find(spoken)
+                if target is not None and target.id != self.rooms.active_id:
+                    await self._enter_room(target)
+                    return
 
         # Typed absolute paths outside roots need an Allow (read-only session grant).
         if text and not await self._ensure_external_path_grants(text):
@@ -614,6 +637,313 @@ class Orchestrator:
         await self.bus.publish(Event(EventType.STATUS, {"message": message}))
         await self.bus.publish(Event(EventType.ASSISTANT_DONE, {"text": message}))
 
+    # -- rooms ---------------------------------------------------------------
+
+    async def _room_command(self, text: str) -> None:
+        """`/room`, `/rooms`, and the four things you can do to one."""
+        parts = text.split(maxsplit=2)
+        verb = parts[1].strip().lower() if len(parts) > 1 else ""
+        rest = parts[2].strip() if len(parts) > 2 else ""
+
+        if not verb:
+            await self._say(self._rooms_overview())
+            return
+        if verb == "new":
+            await self._create_room(rest)
+            return
+        if verb == "set":
+            message = self._set_room_field(rest)
+            # Repaint before answering. The strip shows the purpose and the
+            # folder, so changing either without republishing leaves the banner
+            # describing a room that no longer exists in that form — and the
+            # banner is the only place either one is visible.
+            room = self.rooms.active
+            if room is not None:
+                await self._publish_room_only(room)
+            await self._say(message)
+            return
+        if verb == "forget":
+            await self._say(self._forget_room(rest))
+            return
+        if verb in {"leave", "general"}:
+            await self._leave_room()
+            return
+
+        wanted = f"{verb} {rest}".strip()
+        room = self.rooms.find(wanted)
+        if room is None:
+            await self._say(
+                f"No room called `{wanted}`. "
+                f"Make one with `/room new {wanted}`, or `/rooms` to see what exists."
+            )
+            return
+        await self._enter_room(room)
+
+    def _rooms_overview(self) -> str:
+        rooms = self.rooms.all()
+        if not rooms:
+            return (
+                "No rooms yet. A room is a named place to work on one thing — it "
+                "keeps its own conversation, points at one project folder, and "
+                "remembers what it is for.\n\n"
+                "Make one with `/room new <name>`, then `/room set purpose <what "
+                "it is for>` and `/room set root <project>`."
+            )
+        active = self.rooms.active_id
+        lines = []
+        for room in rooms:
+            mark = " (open)" if room.id == active else ""
+            detail = room.purpose or room.spec.blurb
+            where = f" · `{room.root}`" if room.root else ""
+            lines.append(f"- `{room.id}`{mark} — {detail}{where}")
+        body = "Rooms:\n" + "\n".join(lines)
+        if active:
+            body += "\n\nLeave with `/leave`."
+        else:
+            body += "\n\nEnter one with `/room <name>`."
+        return body
+
+    async def _create_room(self, rest: str) -> None:
+        name = rest.strip()
+        if not name:
+            await self._say("Name it: `/room new physics`.")
+            return
+        try:
+            room = self.rooms.create(name)
+        except ValueError as exc:
+            await self._say(str(exc))
+            return
+        await self._enter_room(
+            room,
+            preamble=(
+                f"Made the `{room.id}` room and opened it. Tell me what it is for "
+                f"with `/room set purpose …`, and point it at a folder with "
+                f"`/room set root <project>` — `/project` lists them."
+            ),
+        )
+
+    def _set_room_field(self, rest: str) -> str:
+        room = self.rooms.active
+        if room is None:
+            return "No room is open. `/room <name>` first, or `/rooms` to see them."
+        parts = rest.split(maxsplit=1)
+        field = parts[0].strip().lower() if parts else ""
+        value = parts[1].strip() if len(parts) > 1 else ""
+        if field not in {"purpose", "root", "kind", "name"}:
+            return (
+                "Set `purpose`, `root`, `kind` or `name`. "
+                "For example: `/room set purpose analysing the survey data`."
+            )
+        if not value:
+            return f"Give it a value: `/room set {field} …`."
+        if field == "root" and value not in self.workspace.names():
+            return (
+                f"No project called `{value}`. Existing: "
+                + ", ".join(f"`{n}`" for n in self.workspace.names())
+                + ". Add a folder in the workspace dock first."
+            )
+        try:
+            updated = self.rooms.update(room.id, **{field: value})
+        except ValueError as exc:
+            return str(exc)
+        if field == "root":
+            self._point_workspace_at(updated)
+        if field == "kind" and updated.role is not None:
+            # Entering a room applies its lean, so setting the kind from inside
+            # one would otherwise do nothing until you left and came back —
+            # which reads as the command having been ignored.
+            self.router.default_role = updated.role  # type: ignore[assignment]
+        return f"`{updated.id}`: {field} set to {value}."
+
+    def _forget_room(self, rest: str) -> str:
+        wanted = rest.strip()
+        room = self.rooms.find(wanted) if wanted else self.rooms.active
+        if room is None:
+            return f"No room called `{wanted}`." if wanted else "No room is open."
+        self.rooms.remove(room.id)
+        return (
+            f"Forgot the `{room.id}` room. Its conversations are still in History "
+            "— only the room itself is gone."
+        )
+
+    def _point_workspace_at(self, room: Room) -> str:
+        """Make the room's folder active. Returns a note if it could not be."""
+        if not room.root:
+            return ""
+        try:
+            self.workspace.set_active(room.root)
+        except ValueError:
+            return (
+                f" Its folder `{room.root}` is not a project any more, so paths "
+                "still resolve against "
+                f"`{self.workspace.active}`."
+            )
+        return ""
+
+    async def _enter_room(self, room: Room, *, preamble: str = "") -> None:
+        """Open a room: its thread, its folder, its role — all three at once.
+
+        Refused mid-turn for the same reason a session load is: the running turn
+        owns SessionMemory, and swapping the thread underneath it would answer
+        one conversation into another.
+        """
+        task = self._turn_task
+        if task is not None and not task.done():
+            await self._say("Finish or stop the current turn first.")
+            return
+        store = self._memory_store()
+        if store is None:
+            await self._say("Rooms need the conversation archive, which is not available.")
+            return
+
+        if self.rooms.active is None and store.session_id:
+            self._general_session = store.session_id
+
+        session_id = store.latest_session_id(room_id=room.id, require_messages=False)
+        if session_id is None or not store.open_session(session_id):
+            session_id = store.start_session(room_id=room.id)
+            rows: list[dict[str, Any]] = []
+            summary = ""
+        else:
+            rows = store.get_messages(session_id)
+            summary = store.get_summary(session_id)
+        self.memory.hydrate(rows, summary=summary)
+        self.rooms.set_active(room.id)
+
+        note = self._point_workspace_at(room)
+        if room.role is not None:
+            self.router.default_role = room.role  # type: ignore[assignment]
+
+        await self._publish_room(room, session_id, rows, summary)
+
+        opened = "Picking up where we left off." if rows else "New thread."
+        lines = [preamble] if preamble else [f"In the `{room.id}` room. {opened}"]
+        if room.purpose:
+            lines.append(room.purpose)
+        where = []
+        if room.root:
+            where.append(f"working in `{room.root}`")
+        if room.role:
+            where.append(f"`{room.role}` model")
+        if where:
+            # Only the first letter. str.capitalize() lowercases the rest, which
+            # turned the project `Arelis Source` into `arelis source` in the one
+            # line whose job is telling you which folder she is about to write to.
+            sentence = " · ".join(where)
+            lines.append(sentence[0].upper() + sentence[1:] + ".")
+        if note:
+            lines.append(note.strip())
+        await self._say("\n\n".join(part for part in lines if part))
+
+    async def _leave_room(self) -> None:
+        """Back to the general conversation, and the thread it was on."""
+        room = self.rooms.active
+        if room is None:
+            await self._say("No room is open.")
+            return
+        task = self._turn_task
+        if task is not None and not task.done():
+            await self._say("Finish or stop the current turn first.")
+            return
+        store = self._memory_store()
+        if store is None:
+            await self._say("Rooms need the conversation archive, which is not available.")
+            return
+
+        self.rooms.leave()
+        rows: list[dict[str, Any]] = []
+        summary = ""
+        target = self._general_session or store.latest_session_id(
+            room_id="", require_messages=True
+        )
+        if target and store.open_session(target):
+            rows = store.get_messages(target)
+            summary = store.get_summary(target)
+        else:
+            target = store.start_session()
+        self.memory.hydrate(rows, summary=summary)
+        self._general_session = ""
+
+        await self._publish_room(None, target, rows, summary)
+        await self._say(f"Out of the `{room.id}` room. Back to the general conversation.")
+
+    async def _publish_room_only(self, room: Room) -> None:
+        """The room's details changed, but the thread did not.
+
+        Separate from _publish_room because that one is followed by
+        SESSION_LOADED, and repainting the transcript after `/room set purpose`
+        would scroll the conversation to the top for a one-word edit.
+        """
+        await self.bus.publish(
+            Event(
+                EventType.ROOM_CHANGED,
+                {
+                    "room_id": room.id,
+                    "name": room.name,
+                    "purpose": room.purpose,
+                    "root": room.root,
+                    "kind": room.kind,
+                    "session_id": self._memory_store().session_id
+                    if self._memory_store() is not None
+                    else "",
+                },
+            )
+        )
+
+    async def _publish_room(
+        self,
+        room: Room | None,
+        session_id: str,
+        rows: list[dict[str, Any]],
+        summary: str,
+    ) -> None:
+        """Tell the surfaces the thread moved, then hand them the messages.
+
+        Order matters: ROOM_CHANGED first so the chat knows which room it is
+        painting before the transcript lands in it.
+        """
+        await self.bus.publish(
+            Event(
+                EventType.ROOM_CHANGED,
+                {
+                    "room_id": room.id if room else "",
+                    "name": room.name if room else "",
+                    "purpose": room.purpose if room else "",
+                    "root": room.root if room else "",
+                    "kind": room.kind if room else "",
+                    "session_id": session_id,
+                },
+            )
+        )
+        await self.bus.publish(
+            Event(
+                EventType.SESSION_LOADED,
+                {
+                    "ok": True,
+                    "session_id": session_id,
+                    "messages": [
+                        {
+                            "role": row["role"],
+                            "content": row["content"],
+                            "note": row.get("note") or "",
+                        }
+                        for row in rows
+                    ],
+                    "summary": summary,
+                    "room_id": room.id if room else "",
+                },
+            )
+        )
+
+    async def _say(self, message: str) -> None:
+        """A command's whole reply. Both events, because the UI needs both.
+
+        STATUS paints the line and ASSISTANT_DONE releases the composer; a
+        branch that publishes only the first leaves the box disabled.
+        """
+        await self.bus.publish(Event(EventType.STATUS, {"message": message}))
+        await self.bus.publish(Event(EventType.ASSISTANT_DONE, {"text": message}))
+
     async def _request_confirm(
         self, confirm_id: str, tool: str, args: dict[str, Any], summary: str
     ) -> str:
@@ -716,6 +1046,12 @@ class Orchestrator:
             "Power-user slash commands:\n"
             "  /role fast|research|code\n"
             "  /project [name]\n"
+            "  /rooms                       list rooms\n"
+            "  /room <name>                 open one (or say \"let's work on <name>\")\n"
+            "  /room new <name>             make one\n"
+            "  /room set purpose|root|kind|name <value>\n"
+            "  /room forget <name>          drop the room, keep its conversations\n"
+            "  /leave                       back to the general conversation\n"
             "  /web_search query=...\n"
             "  /web_fetch url=...\n"
             "  /scrape url=...\n"

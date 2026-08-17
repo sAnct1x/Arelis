@@ -303,7 +303,7 @@ async def ensure_comfy_running(
     launch_command: str = "",
     launch_cwd: str = "",
     startup_timeout_s: float = 120.0,
-    auto_start: bool = True,
+    auto_start: bool = False,
 ) -> str | None:
     """Make ComfyUI reachable. Returns None on success, else an error message."""
     global _process

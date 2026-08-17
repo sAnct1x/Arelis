@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QSize, Qt, Signal
+from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QListWidget,
     QListWidgetItem,
+    QMenu,
     QPushButton,
     QVBoxLayout,
     QWidget,
@@ -22,6 +24,7 @@ class NotificationsPanel(QWidget):
     unread_changed = Signal(int)
     opened = Signal()
     notice_activated = Signal(str)
+    chat_requested = Signal(str)
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -51,6 +54,9 @@ class NotificationsPanel(QWidget):
         self.list.setVerticalScrollMode(QListWidget.ScrollMode.ScrollPerPixel)
         self.list.itemClicked.connect(self._on_item)
         self.list.itemActivated.connect(self._on_item)
+        self.list.itemDoubleClicked.connect(self._on_double)
+        self.list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.list.customContextMenuRequested.connect(self._on_menu)
         layout.addWidget(self.list, stretch=1)
 
         self.detail = QLabel("")
@@ -166,6 +172,31 @@ class NotificationsPanel(QWidget):
             self._rebuild()
             self.unread_changed.emit(self._unread)
         self.notice_activated.emit(mid)
+
+    def _kind_for(self, notice_id: str) -> str:
+        for entry in self._items:
+            if str(entry.get("id")) == notice_id:
+                return str(entry.get("kind") or "")
+        return ""
+
+    def _on_double(self, item: QListWidgetItem) -> None:
+        mid = str(item.data(Qt.ItemDataRole.UserRole) or "")
+        if mid and self._kind_for(mid) == "sms":
+            self.chat_requested.emit(mid)
+
+    def _on_menu(self, pos) -> None:
+        item = self.list.itemAt(pos)
+        if item is None:
+            return
+        mid = str(item.data(Qt.ItemDataRole.UserRole) or "")
+        if not mid or self._kind_for(mid) != "sms":
+            return
+        menu = QMenu(self)
+        open_act = QAction("Open as chat", menu)
+        menu.addAction(open_act)
+        chosen = menu.exec(self.list.mapToGlobal(pos))
+        if chosen is open_act:
+            self.chat_requested.emit(mid)
 
     def _rebuild(self) -> None:
         self.list.clear()

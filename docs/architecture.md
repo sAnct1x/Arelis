@@ -103,7 +103,7 @@ Launch redocks saved floats.
 | Browser | `arelis/browser/` | Her Chrome: launch, drive, walls, maps, search |
 | UI | `arelis/ui/` | Void window, orbit, docks, Drive strip |
 | Presence | `arelis/presence/` | Core, tray, IPC, readiness |
-| Voice | `arelis/voice/` | STT + Kokoro/Piper TTS |
+| Voice | `arelis/voice/` | STT + Kokoro/Piper TTS. Idle wake is **Hey Arelis** (compound phrase), then conversation. See [voice-wake.md](voice-wake.md). |
 | Config | `arelis/config/default.yaml` | Defaults (overrides in `data/`) |
 
 Only **one** chat model is meant to be in VRAM. Roles: `fast` (7B), `research`
@@ -135,7 +135,8 @@ on purpose.
 | `send_sms` / `inbound_sms` | Text out / list inbound | Send: yes |
 | `agenda` | Calendar list/sync/create | Writes: yes |
 | `weather` / `user_location` | Forecast / where she thinks you are | No |
-| `image` | Generate via local ComfyUI | Yes |
+| `image` | Generate a new picture via local ComfyUI | Yes |
+| `image_edit` | Resize / crop / vibrance on a file that exists (Pillow, no model) | Yes |
 | `contacts` | Named people for SMS | Mutates: yes |
 
 \*Writes a local artifact; still logged. Outbound mail/SMS always need their own
@@ -162,6 +163,15 @@ A glass Drive strip is the cockpit. Captcha, sign-in, and Book / Pay / Checkout
 freeze the drive — she does not solve puzzles or click the last button. Add to
 cart is allowed. Reservations fill party / date / time; you click Book.
 [browser-control.md](browser-control.md).
+
+## Rooms
+
+A **room** is a named place to work on one thing — its own conversation thread,
+one workspace project, a purpose she is given every turn, and a model lean.
+`/room physics` or "let's work on physics" goes in; `/leave` comes out. The
+general conversation stays forgettable; rooms are where the work that lasts
+lives. Definitions in `data/rooms.yaml`, threads in `memory.db` tagged with the
+room. Full surface: [rooms.md](rooms.md).
 
 ## Memory and safety
 
@@ -208,6 +218,7 @@ Only `arelis/…` paths below are part of the installation.
 | `data/config.local.yaml` | Your overrides (gitignored) |
 | `data/secrets.yaml` | Tokens (gitignored) |
 | `data/profile.yaml` | Who/where you are |
+| `data/rooms.yaml` | Your rooms — [rooms.md](rooms.md) |
 | `data/memory.db` | Facts, goals, tasks |
 | `data/backups/` | Dated `memory-YYYYMMDD.db` copies |
 | `data/browser-profile/` | Her Chrome backpack |
@@ -218,6 +229,8 @@ Only `arelis/…` paths below are part of the installation.
 
 | Topic | Doc |
 |-------|-----|
+| Rooms | [rooms.md](rooms.md) |
+| Voice wake / listen | [voice-wake.md](voice-wake.md) |
 | Models / VRAM | [models.md](models.md) |
 | Browser | [browser-control.md](browser-control.md) |
 | Phone texts | [notify-inbound.md](notify-inbound.md) |

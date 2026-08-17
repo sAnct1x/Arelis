@@ -64,14 +64,16 @@ SKILL_TOOLS: dict[str, frozenset[str]] = {
     "analyze": frozenset({"analyze", "workspace"}),
     "docs": frozenset({"doc_extract"}),
     "attachments": frozenset(
-        {"vision", "ocr", "doc_extract", "analyze", "workspace"}
+        {"vision", "ocr", "image_edit", "doc_extract", "analyze", "workspace"}
     ),
     "calculator": frozenset({"calculator"}),
     "clipboard": frozenset({"clipboard"}),
     "ocr": frozenset({"ocr"}),
     "agenda": frozenset({"agenda"}),
     "schedule": frozenset({"schedule"}),
+    "rooms": frozenset({"rooms", "workspace"}),
     "image": frozenset({"image"}),
+    "image_edit": frozenset({"image_edit", "vision"}),
     "vision": frozenset({"vision", "camera", "ocr"}),
     "browser": frozenset({"browser"}),
     "research": frozenset(

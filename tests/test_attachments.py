@@ -15,6 +15,7 @@ from arelis.attachments import (
     session_title_from_turn,
     stage_files,
     stage_image_bytes,
+    wants_image_edit,
     wants_image_text,
 )
 
@@ -111,6 +112,43 @@ def test_route_image_describe_uses_vision() -> None:
 def test_route_image_text_ask_uses_ocr() -> None:
     assert route_tool("image", "extract text from this image") == "ocr"
     assert wants_image_text("read the text in this screenshot")
+
+
+def test_route_image_edit_ask_uses_image_edit() -> None:
+    """An instruction about the file, not a question about it.
+
+    Routing these to vision is what sent the thumbnail ask hunting: vision can
+    only look, so she worked down to the image generator and produced a
+    different picture at the right size.
+    """
+    for ask in (
+        "make this image more vibrant and resize it for a youtube thumbnail",
+        "resize this to 1280 x 720",
+        "crop this to 16:9",
+        "make it brighter",
+        "sharpen this screenshot",
+        "can you saturate this a bit",
+    ):
+        assert route_tool("image", ask) == "image_edit", ask
+        assert wants_image_edit(ask), ask
+
+    # Describing is still describing, and reading glyphs is still OCR.
+    assert not wants_image_edit("describe this photo")
+    assert route_tool("image", "what is in this picture") == "vision"
+    assert route_tool("image", "read the text in this screenshot") == "ocr"
+
+
+def test_the_edit_rule_names_the_three_tools_that_were_tried_instead() -> None:
+    block = format_attachments_block(
+        [{"path": "data/drops/20260817/paste.png", "kind": "image"}],
+        user_text="make this more vibrant and resize it to 1280 x 720",
+    )
+    assert "→ image_edit" in block
+    assert "data/drops/20260817/paste.png" in block
+    lowered = block.lower()
+    assert "do not call image " in lowered
+    assert "do not call vision" in lowered
+    assert "calculator" in lowered
 
 
 def test_format_attachments_image_forbids_doc_extract() -> None:

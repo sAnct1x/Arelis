@@ -44,6 +44,43 @@ def describe_weather_code(code: Any) -> str:
     return _WMO.get(value, f"conditions code {value}")
 
 
+async def geocode_place(
+    name: str,
+    *,
+    client: httpx.AsyncClient | None = None,
+    timeout_s: float = 15.0,
+) -> tuple[float, float] | None:
+    """Resolve a profile place name to coordinates via Open-Meteo geocoding.
+
+    Used when the user named a city but did not paste lat/lon. Never accepts
+    model-invented coordinates — only a place string we already trust.
+    """
+    query = " ".join((name or "").split())
+    if not query:
+        return None
+    url = "https://geocoding-api.open-meteo.com/v1/search"
+    owns = client is None
+    if client is None:
+        client = httpx.AsyncClient(timeout=timeout_s)
+    try:
+        response = await client.get(url, params={"name": query, "count": 1})
+        response.raise_for_status()
+        data = response.json()
+    finally:
+        if owns:
+            await client.aclose()
+    results = data.get("results") or []
+    if not results:
+        return None
+    first = results[0] or {}
+    try:
+        lat = float(first["latitude"])
+        lon = float(first["longitude"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    return lat, lon
+
+
 async def fetch_forecast(
     latitude: float,
     longitude: float,

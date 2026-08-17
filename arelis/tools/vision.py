@@ -2,20 +2,33 @@
 
 from __future__ import annotations
 
-import base64
+import asyncio
 import hashlib
 import re
 from pathlib import Path
 from typing import Any, Protocol
 
-from arelis.paths import display_path, outputs_dir, user_data_dir
+from arelis.paths import display_path
 from arelis.tools.base import ToolResult
+from arelis.tools.image_io import (
+    DEFAULT_MAX_EDGE,
+    IMAGE_SUFFIXES,
+    encode_for_vision,
+    resolve_image,
+)
 from arelis.workspace import WorkspaceRoots
 
-_IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
+_IMAGE_SUFFIXES = IMAGE_SUFFIXES
 _DEFAULT_QUESTION = "Describe this image clearly for the assistant."
 _MODEL_MISSING = re.compile(
     r"model\s+['\"]?[\w.:-]+['\"]?\s+not\s+found|not\s+found|pull\s+",
+    re.I,
+)
+# Ollama's 400 when the image plus the question outgrow num_ctx. Worth its own
+# message: "vision failed" for a 1440p screenshot sent nobody anywhere.
+_CONTEXT_FULL = re.compile(
+    r"exceed(?:s)?\s+the\s+available\s+context|exceed_context_size|"
+    r"context\s+size\s+\(\d+\s+tokens\)",
     re.I,
 )
 
@@ -34,10 +47,12 @@ class _VisionRunner(Protocol):
 class VisionTool:
     name = "vision"
     description = (
-        "See one local image (png/jpg/webp/gif under workspace roots or "
-        "outputs/images/). Use to describe a screenshot, photo, or diagram, or "
-        "answer a question about it. Args: path, optional question. "
-        "This is NOT image generation — use the image tool to generate via ComfyUI."
+        "Look at one local image (png/jpg/webp/gif under a workspace root, "
+        "outputs/, or a staged attachment under data/drops/). Use to describe a "
+        "screenshot, photo, or diagram, or answer a question about it. "
+        "Args: path, optional question. "
+        "This only looks — it cannot change an image. To resize, crop or adjust "
+        "one use image_edit; to create a new one from a prompt use image."
     )
     risk = "side_effect"
     parameters_schema: dict[str, Any] = {
@@ -68,47 +83,20 @@ class VisionTool:
         model: str = "qwen2.5vl:3b",
         num_ctx: int = 4096,
         model_available: Any | None = None,
+        max_edge: int = DEFAULT_MAX_EDGE,
     ) -> None:
         self.workspace = workspace
         self.runner = runner
         self.model = model
         self.num_ctx = int(num_ctx)
+        # Long edge of what actually gets sent. See arelis.tools.image_io: a
+        # full-size screenshot does not fit in the context window at all.
+        self.max_edge = int(max_edge)
         # Optional async callable () -> bool; when set, missing models fail loud.
         self._model_available = model_available
 
     def _resolve_image(self, path_str: str) -> Path:
-        raw = (path_str or "").strip()
-        if not raw:
-            raise ValueError("Missing path")
-
-        # Prefer workspace / granted-external; then outputs/images/.
-        try:
-            resolved = self.workspace.resolve_read(raw)
-            path = resolved.path
-        except (ValueError, PermissionError, FileNotFoundError):
-            # Allow outputs/images even when multi-root resolve is picky.
-            candidate = Path(raw)
-            if not candidate.is_absolute():
-                candidate = (user_data_dir() / candidate).resolve()
-            else:
-                candidate = candidate.resolve()
-            images_root = (outputs_dir() / "images").resolve()
-            try:
-                candidate.relative_to(images_root)
-            except ValueError as exc:
-                raise PermissionError(
-                    f"Path is outside workspace roots and outputs/images/: {raw}"
-                ) from exc
-            path = candidate
-
-        if path.suffix.lower() not in _IMAGE_SUFFIXES:
-            raise ValueError(
-                f"Unsupported image type `{path.suffix}` "
-                f"(use png/jpg/webp/gif)"
-            )
-        if not path.is_file():
-            raise FileNotFoundError(f"Image not found: {path}")
-        return path
+        return resolve_image(self.workspace, path_str)
 
     async def run(self, **kwargs: Any) -> ToolResult:
         path_str = str(kwargs.get("path") or "").strip()
@@ -141,11 +129,12 @@ class VisionTool:
                 )
 
         try:
-            raw = path.read_bytes()
+            b64, prepared = await asyncio.to_thread(
+                encode_for_vision, path, max_edge=self.max_edge
+            )
         except OSError as exc:
             return ToolResult(ok=False, output=f"Could not read image: {exc}")
 
-        b64 = base64.b64encode(raw).decode("ascii")
         try:
             answer = await self.runner.run_vision(
                 question,
@@ -164,10 +153,23 @@ class VisionTool:
                     ),
                     data={"model": self.model, "code": "MODEL_MISSING"},
                 )
+            if _CONTEXT_FULL.search(msg):
+                # Reachable again only if a downscaled image still will not fit,
+                # so say the number rather than repeating "it failed".
+                return ToolResult(
+                    ok=False,
+                    output=(
+                        f"The image was still too large for the vision context at "
+                        f"{prepared.get('sent_px') or 'its current size'} "
+                        f"(num_ctx={self.num_ctx}). Lower tools.vision.max_edge or "
+                        f"raise ollama.vision_num_ctx.\n({msg[:200]})"
+                    ),
+                    data={"model": self.model, "code": "VISION_CONTEXT", **prepared},
+                )
             return ToolResult(
                 ok=False,
                 output=f"Vision failed: {msg[:500]}",
-                data={"model": self.model, "code": "VISION_FAILED"},
+                data={"model": self.model, "code": "VISION_FAILED", **prepared},
             )
 
         answer = (answer or "").strip()
@@ -188,5 +190,6 @@ class VisionTool:
                 "model": self.model,
                 "answer_len": len(answer),
                 "answer_hash": digest,
+                **prepared,
             },
         )

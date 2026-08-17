@@ -151,6 +151,8 @@ async def run_cli_async(
     from arelis.memory.backup import backup_memory_db
 
     backup_memory_db(store.path)
+    # CLI continues the last real thread. The glass UI starts a new chat
+    # on cold launch instead (see MemoryStore.start_glass_session).
     restore_id = store.latest_session_id(require_messages=True)
     if restore_id:
         store.open_session(restore_id)

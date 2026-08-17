@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -133,6 +134,94 @@ def test_world_state_store_without_list_tasks_is_fine() -> None:
     )
     assert "open tasks" not in line
     assert line.startswith("World state:")
+
+
+def _attention_config(**attention) -> dict:
+    base = {"enabled": True}
+    base.update(attention)
+    return {"tools": {"briefing": {"attention": base}}}
+
+
+def test_attention_applies_configured_inbox_rules(tmp_path: Path, monkeypatch) -> None:
+    """Editing inbox_rules used to change the 7am email and nothing she says."""
+    import arelis.notify.sources as sources
+
+    monkeypatch.setattr(sources, "load_today_events", lambda config=None: [])
+    monkeypatch.setattr(
+        sources,
+        "cached_unread_mail",
+        lambda **_kw: [
+            {"id": "1", "from": "billing@utility.example", "subject": "Your bill"}
+        ],
+    )
+    store = MemoryStore(tmp_path / "memory.db")
+    try:
+        rule = _attention_config(
+            inbox_rules=[{"id": "bills", "sender_contains": "billing@"}]
+        )
+        assert "attention 1" in world_state_prompt_line(
+            rule, role="fast", model="m", store=store
+        )
+        # Same mail, no rule about it: nothing needs attention.
+        assert "attention" not in world_state_prompt_line(
+            _attention_config(), role="fast", model="m", store=store
+        )
+    finally:
+        store.close()
+
+
+def test_attention_reads_the_calendar_cache(tmp_path: Path, monkeypatch) -> None:
+    from datetime import timedelta
+
+    import arelis.notify.sources as sources
+
+    soon = datetime.now().astimezone() + timedelta(minutes=30)
+    monkeypatch.setattr(
+        sources,
+        "load_today_events",
+        lambda config=None: [
+            SimpleNamespace(starts_at=soon, summary="Dentist", all_day=False)
+        ],
+    )
+    monkeypatch.setattr(sources, "cached_unread_mail", lambda **_kw: [])
+    store = MemoryStore(tmp_path / "memory.db")
+    try:
+        line = world_state_prompt_line(
+            _attention_config(), role="fast", model="m", store=store
+        )
+        assert "attention 1" in line
+    finally:
+        store.close()
+
+
+def test_attention_survives_an_unreadable_calendar(tmp_path: Path, monkeypatch) -> None:
+    import arelis.notify.sources as sources
+
+    def _boom(config=None):
+        raise RuntimeError("cache locked")
+
+    monkeypatch.setattr(sources, "load_today_events", _boom)
+    monkeypatch.setattr(sources, "cached_unread_mail", lambda **_kw: [])
+    store = MemoryStore(tmp_path / "memory.db")
+    try:
+        line = world_state_prompt_line(
+            _attention_config(), role="fast", model="m", store=store
+        )
+        assert line.startswith("World state:")
+    finally:
+        store.close()
+
+
+def test_world_state_flags_image_generation_only_when_it_cannot_run() -> None:
+    """So she offers "once ComfyUI is running" instead of trying and failing."""
+    assert "ComfyUI" in world_state_prompt_line(
+        {"_image_ready": False}, role="fast", model="m"
+    )
+    assert "ComfyUI" not in world_state_prompt_line(
+        {"_image_ready": True}, role="fast", model="m"
+    )
+    # Nobody has probed (CLI, jobs): silence, not a claim either way.
+    assert "ComfyUI" not in world_state_prompt_line({}, role="fast", model="m")
 
 
 def test_world_state_no_competitor_names() -> None:

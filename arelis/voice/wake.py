@@ -4,9 +4,11 @@ Whisper will not spell the name the same way every time. Accept a short list of
 spellings and return the remainder of the utterance, or None when this was not
 a wake.
 
-"Hey" / "Hi" is optional. Leading Whisper fillers ("and", "uh", …) are ignored.
-If the name appears later in a long hallucinated clip, the first clear wake in
-the transcript still counts — remainder is everything after that match.
+The compound phrase is required: "Hey" (or Whisper's "Hay" / leading "Pay")
+plus the name. Bare "Arelis", "Hi Arelis", and "Okay Arelis" do not wake —
+those fire too easily on Discord and room talk. Leading Whisper fillers
+("and", "uh", …) are ignored. A long clip may still wake if it contains
+"Hey Arelis" later; a bare name later in the transcript does not.
 """
 
 from __future__ import annotations
@@ -14,38 +16,46 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-# Name spellings Whisper commonly produces (including Airelyse / Aurelis).
+# Name spellings Whisper commonly produces for ah-REL-is / uh-rell-iss.
+# Includes the double-r "Arrelis" it actually writes. Excludes cousins that
+# match ordinary speech ("or Ellis", "air Elise").
 _NAME = (
-    r"(?:airelyse|airelease|aurelyse|aurelis|arellis|aerolyse|"
-    r"air\s*elise|air\s*elis|"
-    r"arelyse|arelys|areliss|arelis|a\s*relis|"
-    r"or\s*elis|orelis)"
+    r"(?:airelyse|airelease|aurelyse|aurelis|arellis|"
+    r"arelyse|areliss|arelis|arrellis|arreliss|arrelis|"
+    r"arrelas|arella|relus|relis)"
 )
 
-# Junk Whisper often sticks before the name on noisy/long clips.
+# Junk Whisper often sticks before the greeting on noisy/long clips.
 _FILLER = (
     r"(?:and|uh|um|er|ah|oh|so|well|the|a|yeah|like|hmm|mm|"
     r"you\s+know)\s*,?\s*"
 )
 
-_GREETING = r"(?:hey|hi|okay|ok)\s*,?\s*"
+# Required. "hay" is a frequent Whisper misspelling of "hey".
+# "hi" / "ok" / "okay" are too common in calls to be wake greetings.
+_GREETING = r"(?:hey|hay)\s*,?\s*"
+# "pay" is hey-as-heard, but only at the start — mid-clip "pay Aurelis"
+# is ordinary speech.
+_GREETING_START = r"(?:hey|hay|pay)\s*,?\s*"
+# Whisper also writes "Hey a relus" / "Pay a relus".
+_ARTICLE = r"(?:a\s+)?"
 
-# Strict: start of string after optional fillers + optional greeting.
+# Strict: start of string after optional fillers + required greeting.
 _WAKE_AT_START = re.compile(
-    rf"^\s*(?:{_FILLER}){{0,6}}(?:{_GREETING})?{_NAME}\b[\s,.\?!;:]*",
+    rf"^\s*(?:{_FILLER}){{0,6}}{_GREETING_START}{_ARTICLE}{_NAME}\b[\s,.\?!;:]*",
     re.IGNORECASE,
 )
 
-# Anywhere: greeting+name or bare name (used when start match fails).
+# Anywhere: greeting+name only (used when start match fails).
 _WAKE_ANYWHERE = re.compile(
-    rf"(?:{_GREETING})?{_NAME}\b[\s,.\?!;:]*",
+    rf"{_GREETING}{_ARTICLE}{_NAME}\b[\s,.\?!;:]*",
     re.IGNORECASE,
 )
 
-# Soft hint that Whisper heard the name but match_wake still failed.
+# Soft hint that Whisper heard the compound phrase but match_wake still failed.
 _NAME_HINT = re.compile(
-    r"(?i)\b(?:hey\s+)?(?:air\s*)?(?:elise|elis|arelys|arelis|airelyse|"
-    r"aurelis|aurelyse|orelis)\b"
+    r"(?i)\b(?:hey|hay|pay)\s+(?:a\s+)?(?:airelyse|airelease|aurelis|aurelyse|"
+    r"arellis|arelyse|areliss|arelis|arrelis|arrelas|arella|relus|relis)\b"
 )
 
 
@@ -63,16 +73,15 @@ def _peel_leading_wakes(rest: str) -> str:
     while True:
         again = _WAKE_AT_START.match(rest)
         if again is None:
-            # Also peel bare mid-string wakes at the front after punctuation.
             again = re.match(
-                rf"^\s*(?:{_GREETING})?{_NAME}\b[\s,.\?!;:]*",
+                rf"^\s*{_GREETING_START}{_ARTICLE}{_NAME}\b[\s,.\?!;:]*",
                 rest,
                 re.IGNORECASE,
             )
             if again is None:
                 break
         rest = rest[again.end() :].strip()
-    # Trailing "Arelis. Arelis." echoes after a command.
+    # Trailing "Arelis. Arelis." echoes after a command (hey optional here).
     trail = re.compile(
         rf"(?i)(?:\s*[.\?!;:]?\s*(?:{_GREETING})?{_NAME}\b)+[\s,.\?!;:]*$"
     )
@@ -81,11 +90,12 @@ def _peel_leading_wakes(rest: str) -> str:
 
 
 def match_wake(text: str) -> str | None:
-    """If text contains a wake phrase, return the remainder (may be empty).
+    """If text contains "Hey Arelis" (or a spelling variant), return the rest.
 
     Returns None when the clip was ordinary speech that should be ignored while
     idle-listening. Prefers a match at the start (after fillers); otherwise
-    uses the first name hit in the transcript so long noisy clips still wake.
+    uses the first greeting+name hit so a long clip can still wake. A bare
+    name without "Hey" / "Hay" never matches.
     """
     raw = (text or "").strip()
     if not raw:
@@ -95,7 +105,6 @@ def match_wake(text: str) -> str | None:
     if match is not None:
         return _peel_leading_wakes(raw[match.end() :].strip())
 
-    # Long ambient/VAD dumps: find the first real wake and take what follows.
     match = _WAKE_ANYWHERE.search(raw)
     if match is None:
         return None

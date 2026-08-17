@@ -52,10 +52,13 @@ class Contact:
     digits: str
     email: str = ""
     aliases: tuple[str, ...] = field(default_factory=tuple)
+    title: str = ""
+    work_phone: str = ""
+    notes: str = ""
 
     @property
     def display_name(self) -> str:
-        return self.name or self.alias
+        return self.name or self.title or self.alias
 
     @property
     def e164(self) -> str:
@@ -70,6 +73,12 @@ class Contact:
             key = _norm_key(item)
             if key:
                 out.add(key)
+        title_key = _norm_key(self.title)
+        if title_key:
+            out.add(title_key)
+            stripped = _norm_key(_LEADING_MY.sub("", self.title))
+            if stripped:
+                out.add(stripped)
         return frozenset(out)
 
 
@@ -103,8 +112,36 @@ def to_e164(value: str, *, country_code: str = "1") -> str:
     return f"+{digits}"
 
 
-def load_contacts(path: Path | None = None) -> dict[str, Contact]:
-    """Return primary-alias → Contact. Empty dict when the file is missing or blank."""
+def _contact_from_mapping(alias: str, value: dict[str, Any]) -> Contact | None:
+    """Build one Contact from a YAML mapping. Phone may be empty (UI drafts)."""
+    key = _norm_key(alias)
+    if not key:
+        return None
+    phone = str(value.get("phone") or "").strip()
+    extra: list[str] = []
+    raw_aliases = value.get("aliases") or []
+    if isinstance(raw_aliases, str):
+        raw_aliases = [raw_aliases]
+    if isinstance(raw_aliases, list):
+        for item in raw_aliases:
+            norm = _norm_key(str(item or ""))
+            if norm and norm != key:
+                extra.append(norm)
+    return Contact(
+        alias=key,
+        name=str(value.get("name") or "").strip(),
+        phone=phone,
+        digits=normalize_phone(phone),
+        email=str(value.get("email") or "").strip(),
+        aliases=tuple(extra),
+        title=str(value.get("title") or "").strip(),
+        work_phone=str(value.get("work_phone") or "").strip(),
+        notes=str(value.get("notes") or "").strip(),
+    )
+
+
+def load_all_contacts(path: Path | None = None) -> dict[str, Contact]:
+    """Every YAML entry, including drafts with no phone or email yet."""
     path = path or CONTACTS_PATH
     try:
         raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
@@ -120,34 +157,26 @@ def load_contacts(path: Path | None = None) -> dict[str, Contact]:
 
     out: dict[str, Contact] = {}
     for key, value in section.items():
-        alias = _norm_key(str(key or ""))
-        if not alias or not isinstance(value, dict):
+        if not isinstance(value, dict):
             continue
-        phone = str(value.get("phone") or "").strip()
-        digits = normalize_phone(phone)
-        email = str(value.get("email") or "").strip()
-        # An entry with no number cannot be texted, and a half-written contact
-        # in the book is worse than none: it resolves, then fails at send time.
-        if not digits:
-            continue
-        extra: list[str] = []
-        raw_aliases = value.get("aliases") or []
-        if isinstance(raw_aliases, str):
-            raw_aliases = [raw_aliases]
-        if isinstance(raw_aliases, list):
-            for item in raw_aliases:
-                norm = _norm_key(str(item or ""))
-                if norm and norm != alias:
-                    extra.append(norm)
-        out[alias] = Contact(
-            alias=alias,
-            name=str(value.get("name") or "").strip(),
-            phone=phone,
-            digits=digits,
-            email=email,
-            aliases=tuple(extra),
-        )
+        contact = _contact_from_mapping(str(key or ""), value)
+        if contact is not None:
+            out[contact.alias] = contact
     return out
+
+
+def load_contacts(path: Path | None = None) -> dict[str, Contact]:
+    """Addressable contacts: a mobile number and/or an email.
+
+    Name-only drafts stay in the file for the Contacts panel, but they are not
+    offered to send_sms / send_email — resolving then failing at send time is
+    worse than saying the person is not in the book yet.
+    """
+    return {
+        key: contact
+        for key, contact in load_all_contacts(path).items()
+        if contact.digits or contact.email
+    }
 
 
 def resolve_contact(
@@ -256,6 +285,9 @@ def match_contact_label(
     for contact in contacts.values():
         names = {_norm_label(contact.alias), _norm_label(contact.name)}
         names.update(_norm_label(a) for a in contact.aliases)
+        if contact.title:
+            names.add(_norm_label(contact.title))
+            names.add(_norm_label(_LEADING_MY.sub("", contact.title)))
         names.discard("")
         if candidates & names:
             return contact
@@ -328,10 +360,16 @@ def contact_to_mapping(contact: Contact) -> dict[str, Any]:
         "name": contact.name,
         "phone": contact.phone,
     }
+    if contact.title:
+        data["title"] = contact.title
+    if contact.work_phone:
+        data["work_phone"] = contact.work_phone
     if contact.email:
         data["email"] = contact.email
     if contact.aliases:
         data["aliases"] = list(contact.aliases)
+    if contact.notes:
+        data["notes"] = contact.notes
     return data
 
 
@@ -340,9 +378,17 @@ def format_contact(contact: Contact) -> str:
     phone = contact.phone or "(none)"
     lines = [
         f"{contact.display_name} [{contact.alias}]",
-        f"  SMS phone: {phone}",
-        f"  also:    {nicks}",
     ]
+    if contact.title:
+        lines.append(f"  title:   {contact.title}")
+    lines.extend(
+        [
+            f"  SMS phone: {phone}",
+            f"  also:    {nicks}",
+        ]
+    )
+    if contact.work_phone:
+        lines.append(f"  work:    {contact.work_phone}")
     if contact.email:
         lines.append(f"  email:   {contact.email} (not a phone number)")
     else:
@@ -400,7 +446,7 @@ def contacts_prompt_line(path: Path | None = None) -> str:
     email_parts: list[str] = []
     for alias in sorted(book):
         contact = book[alias]
-        label = contact.name or alias
+        label = contact.name or contact.title or alias
         extras = list(contact.aliases[:3])
         if extras:
             parts.append(f"{alias} ({label}; also {', '.join(extras)})")
@@ -447,7 +493,7 @@ def save_contacts(
     text = (
         "# Gitignored. Named people for send_sms.\n"
         "# Template: data/contacts.example.yaml\n"
-        "# Edited by Arelis (contacts tool) or by hand.\n\n"
+        "# Edited by the Contacts panel, the contacts tool, or by hand.\n\n"
         + yaml.safe_dump(
             body, default_flow_style=False, allow_unicode=True, sort_keys=False
         )
@@ -474,6 +520,20 @@ def find_alias_owner(
     return None
 
 
+def suggest_alias(*, handle: str = "", title: str = "", name: str = "") -> str:
+    """Primary key from the card: handle, then title ('My Wife' → wife), then name."""
+    handle_key = _norm_key(handle)
+    if handle_key:
+        return handle_key
+    title_key = _norm_key(_LEADING_MY.sub("", title or ""))
+    if title_key:
+        return title_key
+    name_key = _norm_key(name)
+    if name_key:
+        return name_key.split()[0]
+    return ""
+
+
 def add_contact(
     *,
     key: str,
@@ -481,11 +541,14 @@ def add_contact(
     phone: str = "",
     aliases: Any = None,
     email: str = "",
+    title: str = "",
+    work_phone: str = "",
+    notes: str = "",
     path: Path | None = None,
 ) -> Contact | str:
     """Create a new contact. Fails if the id already exists."""
     path = path or CONTACTS_PATH
-    book = load_contacts(path)
+    book = load_all_contacts(path)
     primary = _norm_key(key)
     if not primary:
         return "Contact id is missing. Pick a short key like 'dave' or 'coach'."
@@ -508,7 +571,11 @@ def add_contact(
         phone=phone,
         aliases=aliases,
         email=email,
+        title=title,
+        work_phone=work_phone,
+        notes=notes,
         replace_aliases=True,
+        require_phone=True,
         path=path,
     )
 
@@ -520,12 +587,15 @@ def update_contact(
     phone: str = "",
     aliases: Any = None,
     email: str = "",
+    title: str = "",
+    work_phone: str = "",
+    notes: str = "",
     replace_aliases: bool = False,
     path: Path | None = None,
 ) -> Contact | str:
     """Update an existing contact (matched by any nickname)."""
     path = path or CONTACTS_PATH
-    book = load_contacts(path)
+    book = load_all_contacts(path)
     existing = resolve_contact(who, book)
     if existing is None:
         return (
@@ -540,7 +610,54 @@ def update_contact(
         phone=phone,
         aliases=aliases,
         email=email,
+        title=title,
+        work_phone=work_phone,
+        notes=notes,
         replace_aliases=replace_aliases,
+        require_phone=True,
+        path=path,
+    )
+
+
+def upsert_contact_record(
+    *,
+    alias: str = "",
+    name: str = "",
+    title: str = "",
+    phone: str = "",
+    work_phone: str = "",
+    email: str = "",
+    aliases: Any = None,
+    notes: str = "",
+    previous_alias: str = "",
+    path: Path | None = None,
+) -> Contact | str:
+    """Create or replace a contact from the Contacts panel. Phone is optional."""
+    path = path or CONTACTS_PATH
+    book = load_all_contacts(path)
+    primary = suggest_alias(handle=alias, title=title, name=name)
+    if not primary:
+        return "Need a name, title, or handle before saving."
+
+    previous = _norm_key(previous_alias)
+    base = book.get(previous) if previous else book.get(primary)
+    if previous and previous != primary and previous in book:
+        del book[previous]
+
+    return _write_contact(
+        book,
+        primary=primary,
+        base=base,
+        name=name,
+        phone=phone,
+        aliases=aliases,
+        email=email,
+        title=title,
+        work_phone=work_phone,
+        notes=notes,
+        replace_aliases=True,
+        require_phone=False,
+        blank_clears=True,
         path=path,
     )
 
@@ -554,15 +671,29 @@ def _write_contact(
     phone: str,
     aliases: Any,
     email: str,
+    title: str,
+    work_phone: str,
+    notes: str,
     replace_aliases: bool,
+    require_phone: bool,
     path: Path,
+    blank_clears: bool = False,
 ) -> Contact | str:
-    new_name = (name or "").strip() or (base.name if base else "")
-    new_phone = (phone or "").strip() or (base.phone if base else "")
-    new_email = (email or "").strip() or (base.email if base else "")
+    def _keep(incoming: str, previous: str) -> str:
+        text = (incoming or "").strip()
+        if blank_clears:
+            return text
+        return text or previous
+
+    new_name = _keep(name, base.name if base else "")
+    new_phone = _keep(phone, base.phone if base else "")
+    new_email = _keep(email, base.email if base else "")
+    new_title = _keep(title, base.title if base else "")
+    new_work = _keep(work_phone, base.work_phone if base else "")
+    new_notes = _keep(notes, base.notes if base else "")
     digits = normalize_phone(new_phone)
 
-    if not digits:
+    if require_phone and not digits:
         return "Need a phone number. Ask the user for it before saving."
 
     if aliases is None and base is not None:
@@ -578,7 +709,15 @@ def _write_contact(
 
     new_aliases = [a for a in new_aliases if a != primary]
 
-    for nick in [primary, *new_aliases]:
+    title_nicks: list[str] = []
+    title_key = _norm_key(new_title)
+    if title_key:
+        title_nicks.append(title_key)
+        stripped_title = _norm_key(_LEADING_MY.sub("", new_title))
+        if stripped_title:
+            title_nicks.append(stripped_title)
+
+    for nick in [primary, *new_aliases, *title_nicks]:
         owner = find_alias_owner(nick, book, excluding=primary)
         if owner is not None:
             return (
@@ -593,6 +732,9 @@ def _write_contact(
         digits=digits,
         email=new_email,
         aliases=tuple(new_aliases),
+        title=new_title,
+        work_phone=new_work,
+        notes=new_notes,
     )
     book[primary] = contact
     save_contacts(book, path)
@@ -606,7 +748,7 @@ def remove_contact(
 ) -> Contact | str:
     """Delete a contact by any nickname. Returns the removed Contact or an error."""
     path = path or CONTACTS_PATH
-    book = load_contacts(path)
+    book = load_all_contacts(path)
     contact = resolve_contact(who, book)
     if contact is None:
         return f"No contact matches {who!r}."

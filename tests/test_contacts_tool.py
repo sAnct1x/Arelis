@@ -160,3 +160,54 @@ def test_job_runner_has_no_contacts_tool(tmp_path, monkeypatch) -> None:
         {"tools": {}, "agent": {}}, workspace, allow_send=False
     )
     assert "contacts" not in unattended.names()
+
+
+def test_upsert_draft_stays_off_the_sms_book(tmp_path) -> None:
+    from arelis.contacts import load_all_contacts, upsert_contact_record
+
+    path = tmp_path / "contacts.yaml"
+    result = upsert_contact_record(
+        name="Alex Carter",
+        title="Coach",
+        path=path,
+    )
+    assert not isinstance(result, str)
+    assert result.alias == "coach"
+    assert load_contacts(path) == {}
+    book = load_all_contacts(path)
+    assert book["coach"].name == "Alex Carter"
+    assert resolve_contact("coach", book) is book["coach"]
+
+
+def test_upsert_mobile_makes_contact_addressable(tmp_path) -> None:
+    from arelis.contacts import upsert_contact_record
+
+    path = tmp_path / "contacts.yaml"
+    result = upsert_contact_record(
+        name="Alex Carter",
+        title="Coach",
+        phone="5551112222",
+        email="you@example.com",
+        path=path,
+    )
+    assert not isinstance(result, str)
+    book = load_contacts(path)
+    assert book["coach"].digits == "5551112222"
+    assert book["coach"].title == "Coach"
+    assert resolve_contact("coach", book) is book["coach"]
+
+
+def test_tool_add_keeps_title_and_work_phone(tmp_path) -> None:
+    path = tmp_path / "contacts.yaml"
+    result = add_contact(
+        key="coach",
+        name="Alex Carter",
+        title="Coach",
+        phone="5551112222",
+        work_phone="5559990000",
+        path=path,
+    )
+    assert not isinstance(result, str)
+    contact = load_contacts(path)["coach"]
+    assert contact.title == "Coach"
+    assert contact.work_phone == "5559990000"

@@ -27,7 +27,7 @@ _DEFAULT_PATH = state_dir() / "memory.db"
 
 # Bump when the on-disk shape changes, and add a _migrate_to_N step. Opening an
 # older file without this is what turns a weekend of chat into a hard error.
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 
 _SCHEMA_V1 = """
 CREATE TABLE IF NOT EXISTS sessions (
@@ -450,18 +450,69 @@ class MemoryStore:
             )
         self._conn.executescript(_SCHEMA_V9)
 
-    def start_session(self, session_id: str | None = None) -> str:
+    def _migrate_to_10(self) -> None:
+        """Which room a conversation belongs to. Empty string means general.
+
+        A nullable column would make "general" and "unknown" the same value, and
+        every existing archive is general by definition — it predates rooms.
+        """
+        cols = {
+            str(row[1])
+            for row in self._conn.execute("PRAGMA table_info(sessions)").fetchall()
+        }
+        if "room_id" not in cols:
+            self._conn.execute(
+                "ALTER TABLE sessions ADD COLUMN room_id TEXT NOT NULL DEFAULT ''"
+            )
+        self._conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_sessions_room ON sessions(room_id)"
+        )
+
+    def start_session(self, session_id: str | None = None, *, room_id: str = "") -> str:
         """Begin a new session and make it the sink target for later writes."""
         sid = session_id or uuid4().hex
         self._conn.execute(
-            "INSERT INTO sessions (id, started_at, title) VALUES (?, ?, '')",
-            (sid, _utc_now()),
+            "INSERT INTO sessions (id, started_at, title, room_id) VALUES (?, ?, '', ?)",
+            (sid, _utc_now(), room_id or ""),
         )
         self._conn.commit()
         self.session_id = sid
         self._ordinal = 0
         self._title_set = False
         return sid
+
+    def start_glass_session(self) -> str:
+        """Cold glass launch: new conversation. Last real thread stays in history.
+
+        An unused empty shell from a short launch is pruned so History does
+        not fill with blank 'new' rows. Tray / un-minimize never call this.
+
+        The shell is re-checked for messages before it is deleted. started_at
+        has one-second resolution, so two sessions opened inside the same
+        second are ordered arbitrarily, and these two queries can break that
+        tie differently — which would cascade-delete a real conversation.
+
+        Both lookups are scoped to general conversations. A room's thread is
+        durable by design and is never the leftover shell of a short launch,
+        so it must not be reachable by this prune even when it happens to be
+        the newest row in the table.
+        """
+        leftover = self.latest_session_id(require_messages=False, room_id="")
+        filled = self.latest_session_id(require_messages=True, room_id="")
+        if (
+            leftover
+            and leftover != filled
+            and not self._session_has_messages(leftover)
+        ):
+            self.delete_session(leftover)
+        return self.start_session()
+
+    def _session_has_messages(self, session_id: str) -> bool:
+        row = self._conn.execute(
+            "SELECT 1 FROM messages WHERE session_id = ? LIMIT 1",
+            (session_id,),
+        ).fetchone()
+        return row is not None
 
     def open_session(self, session_id: str) -> bool:
         """Point the sink at an existing session. False if it is not in the archive."""
@@ -1146,39 +1197,53 @@ class MemoryStore:
             ).fetchall()
         return [dict(row) for row in rows]
 
-    def latest_session_id(self, *, require_messages: bool = True) -> str | None:
-        """Most recent session, optionally skipping empty shells from short launches."""
+    def latest_session_id(
+        self, *, require_messages: bool = True, room_id: str | None = None
+    ) -> str | None:
+        """Most recent session, optionally skipping empty shells from short launches.
+
+        rowid breaks the tie because started_at is only second-resolution, and
+        without it two sessions opened in the same second come back in whatever
+        order the query plan happens to produce.
+
+        room_id=None searches every conversation; room_id="" searches only the
+        general ones. The distinction matters to the glass-launch prune, which
+        must not reach into a room's thread.
+        """
+        where = ["1=1"]
+        params: list[Any] = []
         if require_messages:
-            row = self._conn.execute(
-                """
-                SELECT s.id
-                FROM sessions s
-                WHERE EXISTS (
-                    SELECT 1 FROM messages m WHERE m.session_id = s.id
-                )
-                ORDER BY s.started_at DESC
-                LIMIT 1
-                """
-            ).fetchone()
-        else:
-            row = self._conn.execute(
-                """
-                SELECT id FROM sessions
-                ORDER BY started_at DESC
-                LIMIT 1
-                """
-            ).fetchone()
+            where.append("EXISTS (SELECT 1 FROM messages m WHERE m.session_id = s.id)")
+        if room_id is not None:
+            where.append("s.room_id = ?")
+            params.append(room_id)
+        row = self._conn.execute(
+            f"""
+            SELECT s.id
+            FROM sessions s
+            WHERE {" AND ".join(where)}
+            ORDER BY s.started_at DESC, s.rowid DESC
+            LIMIT 1
+            """,
+            params,
+        ).fetchone()
         return str(row["id"]) if row is not None else None
 
-    def list_sessions(self, *, limit: int = 50) -> list[dict[str, Any]]:
+    def list_sessions(
+        self, *, limit: int = 50, room_id: str | None = None
+    ) -> list[dict[str, Any]]:
+        where = "WHERE room_id = ?" if room_id is not None else ""
+        params: list[Any] = [room_id] if room_id is not None else []
+        params.append(limit)
         rows = self._conn.execute(
-            """
-            SELECT id, started_at, ended_at, title
+            f"""
+            SELECT id, started_at, ended_at, title, room_id
             FROM sessions
+            {where}
             ORDER BY started_at DESC
             LIMIT ?
             """,
-            (limit,),
+            params,
         ).fetchall()
         return [dict(row) for row in rows]
 
@@ -1199,7 +1264,7 @@ class MemoryStore:
     def get_session(self, session_id: str) -> dict[str, Any] | None:
         row = self._conn.execute(
             """
-            SELECT id, started_at, ended_at, title
+            SELECT id, started_at, ended_at, title, room_id
             FROM sessions
             WHERE id = ?
             """,

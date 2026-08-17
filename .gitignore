@@ -52,6 +52,7 @@ data/*
 !data/profile.example.yaml
 !data/secrets.example.yaml
 !data/contacts.example.yaml
+!data/rooms.example.yaml
 !data/calendar.example.ics
 !data/lessons.example.yaml
 # Chat attachments land under data/drops/ (covered by data/* above).

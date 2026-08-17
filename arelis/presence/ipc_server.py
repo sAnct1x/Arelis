@@ -32,11 +32,16 @@ class IpcServer:
         host: str = "127.0.0.1",
         port: int = 8766,
         on_shutdown: Any | None = None,
+        on_open_ui: Any | None = None,
     ) -> None:
         self.bus = bus
         self.host = assert_loopback_host(host)
         self.port = int(port)
         self._on_shutdown = on_shutdown
+        # Set when the process hosting this server owns a window. A core can only
+        # pass open_ui on to whoever is attached; a UI hosting its own server is
+        # the thing being asked for and has to answer for itself.
+        self._on_open_ui = on_open_ui
         self._server: asyncio.Server | None = None
         self._clients: set[asyncio.StreamWriter] = set()
         self._attached = 0
@@ -146,7 +151,11 @@ class IpcServer:
         writer: asyncio.StreamWriter,
     ) -> None:
         peer = writer.get_extra_info("peername")
-        log.info("IPC client connected from %s", peer)
+        # Debug, not info: a bare connection means nothing yet. The readiness probe
+        # walks these ports every few seconds hunting for its ingest server, and
+        # logging each one filled the log with hundreds of lines an hour that no
+        # UI was ever on the other end of. The hello below is the real event.
+        log.debug("IPC connection from %s", peer)
         self._clients.add(writer)
         greeted = False
         try:
@@ -157,8 +166,15 @@ class IpcServer:
                 try:
                     msg = decode_line(line)
                 except Exception as exc:
-                    log.warning("IPC bad line from %s: %s", peer, exc)
-                    continue
+                    # Something that is not us. The ports either side of this one
+                    # are the inbound-ingest fall-forward range, and the readiness
+                    # probe walks them with an HTTP request looking for its own
+                    # ingest server — so an HTTP verb arriving here is ordinary
+                    # and used to produce five identical warnings per probe, one
+                    # per header line. Hang up instead: whoever this is, they are
+                    # not going to start speaking JSON on line six.
+                    log.debug("IPC non-JSON line from %s: %s", peer, exc)
+                    break
                 if msg is None:
                     continue
                 op = str(msg.get("op") or "").strip()
@@ -205,9 +221,13 @@ class IpcServer:
                         )
                     continue
                 if op == "open_ui_request":
-                    await self.request_open_ui(
-                        reason=str(msg.get("reason") or "open_ui_request")
-                    )
+                    reason = str(msg.get("reason") or "open_ui_request")
+                    if callable(self._on_open_ui):
+                        try:
+                            self._on_open_ui(reason)
+                        except Exception:
+                            log.exception("IPC on_open_ui failed")
+                    await self.request_open_ui(reason=reason)
                     continue
                 if op == "shutdown":
                     reason = str(msg.get("reason") or "quit")

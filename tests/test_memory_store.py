@@ -179,3 +179,83 @@ def test_the_job_runner_builds_session_memory_with_no_sink() -> None:
         for keyword in call.keywords:
             assert keyword.arg != "sink", "job runner must not attach a memory sink"
         assert call.args == [], "job runner must use the bare SessionMemory() default"
+
+
+def test_glass_launch_starts_new_and_prunes_empty_shells(tmp_path: Path) -> None:
+    store = MemoryStore(tmp_path / "memory.db")
+    filled = store.start_session()
+    memory = SessionMemory(sink=store)
+    memory.add("user", "last night")
+    empty = store.start_session()
+    assert store.latest_session_id(require_messages=False) == empty
+    fresh = store.start_glass_session()
+    assert fresh != filled
+    assert fresh != empty
+    assert store.get_session(empty) is None
+    assert store.get_session(filled) is not None
+    assert store.get_messages(filled)[0]["content"] == "last night"
+    store.close()
+
+
+def test_glass_launch_refuses_to_prune_a_shell_that_has_messages(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """The prune deletes by ordering, so it has to re-check emptiness.
+
+    started_at is second-resolution and the leftover/filled lookups are two
+    different queries, so two conversations opened in the same second can be
+    ordered differently by each — at which point the newest-overall row is a
+    thread with messages and deleting it cascades the messages with it. The
+    disagreement is forced here rather than waited for.
+    """
+    store = MemoryStore(tmp_path / "memory.db")
+    older = store.start_session()
+    memory = SessionMemory(sink=store)
+    memory.add("user", "real thread")
+    newer = store.start_session()
+    memory.add("user", "also real")
+    monkeypatch.setattr(
+        store,
+        "latest_session_id",
+        lambda *, require_messages=True, room_id=None: newer if require_messages else older,
+    )
+
+    store.start_glass_session()
+
+    assert store.get_session(older) is not None
+    assert store.get_messages(older)[0]["content"] == "real thread"
+    assert store.get_session(newer) is not None
+    store.close()
+
+
+def test_a_conversation_remembers_which_room_it_belongs_to(tmp_path: Path) -> None:
+    store = MemoryStore(tmp_path / "memory.db")
+    general = store.start_session()
+    in_room = store.start_session(room_id="physics")
+
+    assert store.get_session(general)["room_id"] == ""
+    assert store.get_session(in_room)["room_id"] == "physics"
+    assert [s["id"] for s in store.list_sessions(room_id="physics")] == [in_room]
+    assert [s["id"] for s in store.list_sessions(room_id="")] == [general]
+    assert len(store.list_sessions()) == 2
+    store.close()
+
+
+def test_a_cold_launch_cannot_prune_a_rooms_empty_thread(tmp_path: Path) -> None:
+    """A room's thread is durable by design, including before it has anything in it.
+
+    Make a room, say nothing, close the app: the prune looks for the newest
+    empty shell and that is exactly what a just-created room thread is. Deleting
+    it would mean rooms silently lose their continuity whenever you open one and
+    get distracted, which is most of the times you open one.
+    """
+    store = MemoryStore(tmp_path / "memory.db")
+    memory = SessionMemory(sink=store)
+    store.start_session()
+    memory.add("user", "general talk")
+    room_thread = store.start_session(room_id="physics")
+
+    store.start_glass_session()
+
+    assert store.get_session(room_thread) is not None
+    store.close()

@@ -126,6 +126,49 @@ def models_dir() -> Path:
     return user_data_dir() / "models"
 
 
+def published_data_dir() -> Path | None:
+    """The installed app's profile on this machine, when it is not the one in use.
+
+    A checkout writes to the repository; the published shortcut writes to
+    ``%LOCALAPPDATA%\\Arelis``. Voice weights already downloaded for the
+    installed copy should be reusable while testing the checkout, instead of
+    reporting "no voice configured" because ``models/`` in the repo is empty.
+    """
+    if sys.platform != "win32":
+        return None
+    base = os.environ.get("LOCALAPPDATA", "").strip()
+    if not base:
+        return None
+    published = (Path(base) / APP_NAME).resolve()
+    try:
+        if published == user_data_dir().resolve():
+            return None
+    except OSError:
+        return None
+    if not published.is_dir():
+        return None
+    return published
+
+
+def resolve_model_path(relative: str | Path) -> Path:
+    """Resolve a models/… path, then fall back to the installed app's weights."""
+    raw = str(relative or "").strip()
+    if not raw:
+        return Path()
+    path = Path(raw)
+    if path.is_absolute():
+        return path
+    primary = (user_data_dir() / path).resolve()
+    if primary.exists():
+        return primary
+    published = published_data_dir()
+    if published is not None:
+        alt = (published / path).resolve()
+        if alt.exists():
+            return alt
+    return primary
+
+
 def cache_dir() -> Path:
     """Regenerable scratch space. Deleting all of it must cost nothing but time.
 

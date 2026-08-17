@@ -18,10 +18,11 @@ from __future__ import annotations
 
 import logging
 
-from PySide6.QtCore import QObject, Qt, QThread, QTimer, Signal
-from PySide6.QtWidgets import QApplication, QMessageBox, QProgressDialog, QWidget
+from PySide6.QtCore import QObject, QThread, QTimer, Signal
+from PySide6.QtWidgets import QApplication, QProgressBar, QWidget
 
 from arelis import __version__
+from arelis.ui.dialog import GlassDialog, confirm, notice
 from arelis.update import (
     Release,
     UpdateError,
@@ -69,6 +70,32 @@ class _DownloadThread(QThread):
             self.finished_with.emit(exc)
 
 
+class _DownloadDialog(GlassDialog):
+    """Progress plate for the installer download.
+
+    Not closable by its own chrome: Cancel is the only way out, so the download
+    cannot be orphaned behind a dismissed window with nothing left to report to.
+    """
+
+    cancelled = Signal()
+
+    def __init__(self, version: str, parent: QWidget | None = None) -> None:
+        super().__init__("Update Arelis", parent=parent, width=400, closable=False)
+        self.label = self.add_text(f"Downloading Arelis {version}…")
+        self.bar = QProgressBar()
+        self.bar.setObjectName("DialogProgress")
+        self.bar.setRange(0, 100)
+        self.bar.setValue(0)
+        self.bar.setTextVisible(False)
+        self.body.addWidget(self.bar)
+        cancel = self.add_button("Cancel")
+        cancel.clicked.connect(self.cancelled.emit)
+        cancel.setFocus()
+
+    def reject(self) -> None:  # type: ignore[override]
+        self.cancelled.emit()
+
+
 class UpdatePrompt(QObject):
     """Owns the two threads and the dialogs, and keeps itself alive until it is done.
 
@@ -82,7 +109,7 @@ class UpdatePrompt(QObject):
         self._window = parent
         self._check: _CheckThread | None = None
         self._download: _DownloadThread | None = None
-        self._progress: QProgressDialog | None = None
+        self._progress: _DownloadDialog | None = None
 
     def start(self) -> None:
         supported, why = updates_supported()
@@ -103,33 +130,26 @@ class UpdatePrompt(QObject):
         if not isinstance(release, Release):
             return
         log.info("update available: %s", release.tag)
-        answer = QMessageBox.question(
+        accepted = confirm(
             self._window,
             "Update Arelis",
             f"Arelis {release.version} is available. You have {__version__}.\n\n"
-            f"Download {release.size_text} and install it now?\n\n"
-            "Arelis will close, update, and reopen. Your conversations, memory, "
-            "settings and scheduled jobs are not touched.",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.Yes,
+            f"Download {release.size_text} and install it now?",
+            detail=(
+                "Arelis will close, update, and reopen. Your conversations, memory, "
+                "settings and scheduled jobs are not touched."
+            ),
+            confirm_text="Download and install",
+            cancel_text="Not now",
         )
-        if answer != QMessageBox.StandardButton.Yes:
+        if not accepted:
             log.info("update declined by the user")
             return
         self._begin_download(release)
 
     def _begin_download(self, release: Release) -> None:
-        self._progress = QProgressDialog(
-            f"Downloading Arelis {release.version}...", "Cancel", 0, 100, self._window
-        )
-        self._progress.setWindowTitle("Update Arelis")
-        self._progress.setWindowModality(Qt.WindowModality.WindowModal)
-        self._progress.setAutoClose(False)
-        self._progress.setAutoReset(False)
-        # Otherwise Qt shows it only after four seconds, which for a 150MB download looks
-        # like the button did nothing.
-        self._progress.setMinimumDuration(0)
-        self._progress.canceled.connect(self._cancel)
+        self._progress = _DownloadDialog(release.version, self._window)
+        self._progress.cancelled.connect(self._cancel)
         self._progress.show()
 
         self._download = _DownloadThread(release, self)
@@ -141,11 +161,11 @@ class UpdatePrompt(QObject):
         if self._progress is None:
             return
         if total <= 0:
-            self._progress.setRange(0, 0)
+            self._progress.bar.setRange(0, 0)
             return
-        self._progress.setValue(int(received * 100 / total))
-        self._progress.setLabelText(
-            f"Downloading Arelis... {received / (1024 * 1024):.0f} of "
+        self._progress.bar.setValue(int(received * 100 / total))
+        self._progress.label.setText(
+            f"Downloading Arelis… {received / (1024 * 1024):.0f} of "
             f"{total / (1024 * 1024):.0f}MB"
         )
 
@@ -171,11 +191,12 @@ class UpdatePrompt(QObject):
         self._close_progress()
         if isinstance(result, Exception):
             log.warning("update download failed: %s", result)
-            QMessageBox.warning(
+            notice(
                 self._window,
                 "Update Arelis",
-                f"The update could not be installed.\n\n{result}\n\n"
-                "Nothing has changed. Arelis will try again tomorrow.",
+                f"The update could not be installed.\n\n{result}",
+                detail="Nothing has changed. Arelis will try again tomorrow.",
+                warning=True,
             )
             return
 
@@ -183,8 +204,11 @@ class UpdatePrompt(QObject):
             start_installer(result)  # type: ignore[arg-type]
         except (UpdateError, OSError) as exc:
             log.warning("could not start the installer: %s", exc)
-            QMessageBox.warning(
-                self._window, "Update Arelis", f"The installer would not start.\n\n{exc}"
+            notice(
+                self._window,
+                "Update Arelis",
+                f"The installer would not start.\n\n{exc}",
+                warning=True,
             )
             return
 

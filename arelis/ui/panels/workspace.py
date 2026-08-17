@@ -20,6 +20,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from arelis.ui.theme import METRICS
+
 # Cap browse listing the same way the workspace tool caps directory list.
 _MAX_BROWSE_ENTRIES = 500
 
@@ -40,6 +42,13 @@ class WorkspacePanel(QWidget):
         self._root_name = ""
         self._image_mode = False
         self._browse_cwd = Path(".")
+        # What the editor held when the file was last loaded or saved. Dirty is
+        # derived from it rather than latched, so setPlainText() firing
+        # textChanged does not mark a freshly loaded file as edited.
+        self._baseline = ""
+        self._loaded_abs = ""
+        self._loaded_label = ""
+        self._dirty = False
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
@@ -47,20 +56,21 @@ class WorkspacePanel(QWidget):
         path_row = QHBoxLayout()
         path_row.setSpacing(6)
         self.project_combo = QComboBox()
-        self.project_combo.setFixedHeight(28)
+        self.project_combo.setObjectName("InstrumentCombo")
+        self.project_combo.setFixedHeight(METRICS["row"])
         self.project_combo.setMinimumWidth(120)
         self.project_combo.setToolTip("Active project")
         self.project_combo.currentTextChanged.connect(self._on_project_changed)
         self.path_edit = QLineEdit()
         self.path_edit.setObjectName("InstrumentSearch")
         self.path_edit.setPlaceholderText("path under allowed roots…")
-        self.path_edit.setFixedHeight(28)
+        self.path_edit.setFixedHeight(METRICS["row"])
         self.open_btn = QPushButton("open")
         self.open_btn.setObjectName("InstrumentAction")
         self.save_btn = QPushButton("save")
         self.save_btn.setObjectName("InstrumentAction")
-        self.open_btn.setFixedHeight(28)
-        self.save_btn.setFixedHeight(28)
+        self.open_btn.setFixedHeight(METRICS["row"])
+        self.save_btn.setFixedHeight(METRICS["row"])
         self.open_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.save_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         path_row.addWidget(self.project_combo)
@@ -91,12 +101,15 @@ class WorkspacePanel(QWidget):
         for label, tip, slot in root_actions:
             btn = QPushButton(label)
             btn.setObjectName("InstrumentAction")
-            btn.setFixedHeight(24)
+            btn.setFixedHeight(METRICS["row"])
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
             btn.setToolTip(tip)
             btn.clicked.connect(slot)
             roots_row.addWidget(btn)
         roots_row.addStretch(1)
+        self.dirty_label = QLabel("")
+        self.dirty_label.setObjectName("InstrumentHint")
+        roots_row.addWidget(self.dirty_label)
         layout.addLayout(roots_row)
 
         recent_row = QHBoxLayout()
@@ -104,8 +117,8 @@ class WorkspacePanel(QWidget):
         recent_label = QLabel("recent")
         recent_label.setObjectName("InstrumentHint")
         self.recent_combo = QComboBox()
-        self.recent_combo.setObjectName("InstrumentSearch")
-        self.recent_combo.setFixedHeight(28)
+        self.recent_combo.setObjectName("InstrumentCombo")
+        self.recent_combo.setFixedHeight(METRICS["row"])
         self.recent_combo.setMinimumWidth(160)
         self.recent_combo.setToolTip("Recently opened or saved workspace files")
         self.recent_combo.activated.connect(self._on_recent_activated)
@@ -130,12 +143,12 @@ class WorkspacePanel(QWidget):
         self.browse_label.setObjectName("InstrumentHint")
         up_btn = QPushButton("up")
         up_btn.setObjectName("InstrumentAction")
-        up_btn.setFixedHeight(24)
+        up_btn.setFixedHeight(METRICS["row"])
         up_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         up_btn.clicked.connect(self._browse_up)
         refresh_btn = QPushButton("refresh")
         refresh_btn.setObjectName("InstrumentAction")
-        refresh_btn.setFixedHeight(24)
+        refresh_btn.setFixedHeight(METRICS["row"])
         refresh_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         refresh_btn.clicked.connect(self.refresh_browse)
         browse_head.addWidget(self.browse_label, stretch=1)
@@ -143,7 +156,9 @@ class WorkspacePanel(QWidget):
         browse_head.addWidget(refresh_btn)
         left_l.addLayout(browse_head)
         self.browse_list = QListWidget()
-        self.browse_list.setObjectName("OutputView")
+        # Not #OutputView: that is the code editor's rule and it set filenames
+        # in the mono face, which made a folder listing look like a diff.
+        self.browse_list.setObjectName("BrowseList")
         self.browse_list.itemActivated.connect(self._on_browse_activated)
         left_l.addWidget(self.browse_list, stretch=1)
 
@@ -194,6 +209,7 @@ class WorkspacePanel(QWidget):
 
         self.open_btn.clicked.connect(self._on_open)
         self.save_btn.clicked.connect(self._on_save)
+        self.editor.textChanged.connect(self._sync_dirty)
 
     def set_projects(
         self,
@@ -401,6 +417,26 @@ class WorkspacePanel(QWidget):
             return raw
         return f"{active}:{raw}"
 
+    def has_unsaved_changes(self) -> bool:
+        return self._dirty
+
+    def baseline_text(self) -> str:
+        """Editor contents as of the last load or save — what a diff is against."""
+        return self._baseline
+
+    def loaded_abs(self) -> str:
+        return self._loaded_abs
+
+    def loaded_label(self) -> str:
+        return self._loaded_label or self.path_edit.text().strip()
+
+    def _sync_dirty(self) -> None:
+        dirty = self.editor.toPlainText() != self._baseline
+        if dirty == self._dirty:
+            return
+        self._dirty = dirty
+        self.dirty_label.setText("unsaved changes" if dirty else "")
+
     def set_file(
         self,
         path: str,
@@ -408,7 +444,18 @@ class WorkspacePanel(QWidget):
         root_name: str = "",
         *,
         abs_path: str = "",
-    ) -> None:
+        force: bool = False,
+    ) -> bool:
+        """Put a file in the editor. False means unsaved edits were kept instead.
+
+        Arelis writing a file the operator has open used to replace the buffer
+        underneath them, and typing for ten minutes into a file she then touched
+        lost ten minutes of work with no message and nothing to undo. Her write
+        still lands on disk; it just does not get to overwrite the editor. The
+        caller says force=True for replacements the operator asked for.
+        """
+        if not force and self._dirty and content != self.editor.toPlainText():
+            return False
         self._set_image_mode(False)
         display = path
         owning = root_name
@@ -419,7 +466,11 @@ class WorkspacePanel(QWidget):
                 display = rest or "."
         self._root_name = owning
         self.path_edit.setText(display)
+        self._baseline = content
+        self._loaded_abs = abs_path
+        self._loaded_label = path
         self.editor.setPlainText(content)
+        self._sync_dirty()
         if abs_path:
             parent = Path(abs_path).parent
             self.root_label.setToolTip(str(parent))
@@ -435,6 +486,7 @@ class WorkspacePanel(QWidget):
                 self.project_combo.setCurrentText(owning)
                 self.project_combo.blockSignals(False)
         self.refresh_browse()
+        return True
 
     def append_output(self, text: str) -> None:
         self.output.appendPlainText(text)

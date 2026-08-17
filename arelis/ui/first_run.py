@@ -22,81 +22,53 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (
-    QDialog,
-    QFileDialog,
-    QHBoxLayout,
-    QLabel,
-    QPushButton,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import QFileDialog, QWidget
 
 from arelis import onboarding
-from arelis.ui.theme import COLORS, FONTS
+from arelis.ui.dialog import GlassDialog
 
 
-class FirstRunDialog(QDialog):
-    """Confirm or change the folder Arelis may work in."""
+class FirstRunDialog(GlassDialog):
+    """Confirm or change the folder Arelis may work in.
+
+    On the same glass as the rest of the app rather than a native dialog,
+    because this is the first thing anyone sees and a grey Windows box in front
+    of a black window is a first impression of two programs, not one.
+    """
 
     def __init__(self, suggested: Path, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self.setWindowTitle("Welcome to Arelis")
-        self.setModal(True)
+        super().__init__("Welcome to Arelis", parent=parent, width=520)
         self._root = suggested
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(24, 22, 24, 20)
-        layout.setSpacing(14)
-
-        heading = QLabel("Choose the folder Arelis may work in")
-        heading.setStyleSheet("font-size: 16px; font-weight: 600;")
-        layout.addWidget(heading)
-
+        self.add_text("Choose the folder Arelis may work in", role="DialogHeading")
         # The permission in plain words. "Work in" is friendly and imprecise, so
         # the sentence that follows says exactly what it means, including delete.
-        body = QLabel(
+        self.add_text(
             "Arelis can read, create, change and delete files inside this "
             "folder, and nowhere else on your PC. Everything it makes for you — "
             "reports, screenshots, voice clips — is saved here too.\n\n"
             "You can change this later, or add more folders, in "
             "Settings → Roots."
         )
-        body.setWordWrap(True)
-        body.setStyleSheet(f"color: {COLORS['text']};")
-        layout.addWidget(body)
 
-        self._path_label = QLabel(str(self._root))
-        self._path_label.setWordWrap(True)
+        self._path_label = self.add_text(str(self._root), role="DialogPath")
         # Selectable so it can be copied. Someone deciding whether to grant this
         # may well want to go and look at the folder first.
         self._path_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        self._path_label.setStyleSheet(
-            f"font-family: {FONTS['mono']}; color: {COLORS['accent2']};"
-            f"padding: 8px 10px; border: 1px solid {COLORS['edge']};"
-            "border-radius: 6px;"
-        )
-        layout.addWidget(self._path_label)
 
-        note = QLabel(
+        self.add_text(
             "This folder will be created if it does not exist yet. Your "
             "settings, contacts and conversation history are kept separately, "
-            "outside it."
+            "outside it.",
+            role="DialogNote",
         )
-        note.setWordWrap(True)
-        note.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 11px;")
-        layout.addWidget(note)
 
-        buttons = QHBoxLayout()
-        change = QPushButton("Choose a different folder…")
+        change = self.add_button("Choose a different folder…", leading=True)
         change.clicked.connect(self._choose)
-        buttons.addWidget(change)
-        buttons.addStretch(1)
-        accept = QPushButton("Start Arelis")
-        accept.setDefault(True)
+        accept = self.add_button("Start Arelis", primary=True)
         accept.clicked.connect(self.accept)
-        buttons.addWidget(accept)
-        layout.addLayout(buttons)
+        accept.setDefault(True)
+        accept.setFocus()
 
     @property
     def root(self) -> Path:

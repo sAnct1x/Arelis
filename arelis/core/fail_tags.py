@@ -68,9 +68,11 @@ def tool_fail_replan_notice(
     if tool == "image":
         return (
             f"Tool replan: image failed ({tag}). "
-            "Tell the user ComfyUI/image generation failed. "
-            "Do NOT call send_sms or send_email. Do not invent a picture path. "
-            "Ask them to start ComfyUI by hand if it crashed, then retry image once."
+            "Tell the user ComfyUI is not running or image generation failed. "
+            "Do NOT call send_sms, send_email, comfyui, or search_images — those "
+            "tools do not exist or do not start ComfyUI. Do not fetch stock "
+            "photos unless they asked for a description or a web search. "
+            "They must start ComfyUI themselves (or set tools.image.auto_start)."
         )
     return (
         f"Tool replan: {tool} failed ({tag}). "

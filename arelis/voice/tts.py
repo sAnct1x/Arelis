@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from arelis.paths import user_data_dir
+from arelis.paths import resolve_model_path, user_data_dir
 from arelis.voice.kokoro_tts import (
     KokoroSynthesizer,
     KokoroUnavailableError,
@@ -241,13 +241,12 @@ def _resolve_model(value: str) -> str:
 
     Arelis is started from the Start menu as often as from a terminal, and a
     relative models/piper/... path has to mean the same thing either way.
+    A checkout with an empty models/ folder still reuses weights already
+    downloaded for the installed copy on this PC.
     """
     if not value:
         return ""
-    path = Path(value)
-    if not path.is_absolute():
-        path = (user_data_dir() / path).resolve()
-    return str(path)
+    return str(resolve_model_path(value))
 
 
 def _resolve_command(configured: str) -> list[str]:

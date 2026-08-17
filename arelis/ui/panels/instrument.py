@@ -6,7 +6,7 @@ from PySide6.QtWidgets import QDockWidget, QHBoxLayout, QLabel, QVBoxLayout, QWi
 
 from arelis.ui.chrome import FloatingDockTitleBar
 from arelis.ui.glass import GlassFrame
-from arelis.ui.theme import GLASS
+from arelis.ui.theme import COLORS, GLASS
 
 # How far the pointer must travel on the header before a docked panel pops out.
 _UNDOCK_DRAG_PX = 24
@@ -27,7 +27,7 @@ class InstrumentPanel(GlassFrame):
             parent,
             object_name="GlassDockContent",
             fill_alpha=_DOCKED_FILL_ALPHA,
-            radius=float(GLASS.get("radius", 16.0)),
+            radius=float(GLASS["radius"]),
             pulse_rim=False,
         )
         self._title = title
@@ -122,7 +122,7 @@ class InstrumentPanel(GlassFrame):
                 shell.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
                 shell.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent, True)
                 shell.setAutoFillBackground(True)
-                shell.setStyleSheet("background-color: rgb(10, 8, 6);")
+                shell.setStyleSheet(f"background-color: {COLORS['plate']};")
             else:
                 shell.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
                 shell.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent, False)

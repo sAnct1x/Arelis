@@ -1147,6 +1147,59 @@ async def test_each_sentence_is_announced_as_its_own_clip(tmp_path) -> None:
 # --------------------------------------------------------------------------
 
 
+def test_ack_wake_says_listening_on_the_composer(qt_app) -> None:
+    from arelis.ui.panels.conversation import ConversationStage
+
+    stage = ConversationStage()
+    try:
+        stage.set_voice_available(True)
+        stage.set_idle_mode(False)
+        stage.ack_wake()
+        assert stage.conversation_btn.isChecked()
+        assert stage.input.placeholderText() == "listening"
+        assert stage._wake_acking
+        stage._end_wake_ack()
+        # Back to the composer's resting copy. The idle prompt reads "what are
+        # we working on", but that is the centered VoidIdlePlaceholder label and
+        # the Qt placeholder is deliberately blank in idle mode — so this stage,
+        # which is not idle, has only ever said "message Arelis…" here.
+        assert stage.input.placeholderText() == "message Arelis…"
+        assert not stage._wake_acking
+    finally:
+        stage.deleteLater()
+
+
+def test_ack_wake_says_listening_on_the_orbit(qt_app) -> None:
+    from arelis.ui.panels.conversation import ConversationStage
+
+    stage = ConversationStage()
+    try:
+        stage.set_voice_available(True)
+        stage.set_idle_mode(True)
+        stage.ack_wake()
+        assert stage.chat.empty.listen_word.text() == "listening"
+        stage._end_wake_ack()
+        assert "talking" in stage.chat.empty.listen_word.text()
+    finally:
+        stage.deleteLater()
+
+
+def test_voice_trace_wake_lines_write_when_debug_is_off(tmp_path) -> None:
+    from arelis.voice.telemetry import VoiceTrace
+
+    trace = VoiceTrace(False, log_dir=tmp_path)
+    trace.record("enter", mode="wake")
+    trace.record_wake("wake_heard", matched=True, engine="whisper", heard="hey arelis")
+    assert trace.recent()
+    assert any("wake_heard" in line for line in trace.recent())
+    assert not any("enter" in line and "wake_heard" not in line for line in trace.recent())
+    log_file = tmp_path / "voice.log"
+    assert log_file.is_file()
+    text = log_file.read_text(encoding="utf-8")
+    assert "wake_heard" in text
+    assert "matched=1" in text
+
+
 def test_voice_controls_are_hidden_when_voice_is_off(qt_app) -> None:
     """An affordance for a switched-off feature is noise."""
     from arelis.ui.panels.conversation import ConversationStage
@@ -1782,45 +1835,67 @@ def test_match_wake_strips_hey_arelis() -> None:
     assert match_wake("Hey Airelease, hello") == "hello"
     assert match_wake("Hey Arelis") == ""
     assert match_wake("Hey Arelis.") == ""
+    assert match_wake("hay arelis, hello") == "hello"
     assert match_wake("what is the weather") is None
     assert match_wake("") is None
 
 
-def test_match_wake_optional_hey() -> None:
+def test_match_wake_requires_hey() -> None:
     from arelis.voice.wake import classify_wake, match_wake
 
-    # Bare name — what Whisper often produces without "Hey".
-    assert match_wake("Arelis") == ""
-    assert match_wake("arelis. What is the difficulty with using wake words?") == (
-        "What is the difficulty with using wake words?"
-    )
-    assert match_wake("Airelyse, what's up") == "what's up"
-    assert match_wake("Hi Arelis") == ""
+    # Bare name and casual greetings must not wake (Discord / room talk).
+    assert match_wake("Arelis") is None
+    assert match_wake("arelis. What is the difficulty with using wake words?") is None
+    assert match_wake("Airelyse, what's up") is None
+    assert match_wake("Hi Arelis") is None
+    assert match_wake("Okay Arelis") is None
+    assert match_wake("or Ellis, can you hear me") is None
+    # Mid-clip "pay" is a verb, not a wake greeting.
+    assert match_wake("I need to pay Aurelis later") is None
     # Double wake must not become a user turn.
     assert match_wake("Hey Arelis. Hey Arelis.") == ""
-    hit = classify_wake("Arelis")
+    hit = classify_wake("Hey Arelis")
     assert hit.matched and hit.remainder == ""
-    miss = classify_wake("what is the weather")
+    miss = classify_wake("Arelis")
     assert not miss.matched
+    weather = classify_wake("what is the weather")
+    assert not weather.matched
 
 
 def test_match_wake_leading_filler_and_mid_clip() -> None:
     from arelis.voice.wake import match_wake
 
-    # Whisper prepended "and" — user never said it.
-    assert match_wake("and arelis. Send a text message to my wife") == (
+    # Whisper prepended "and" — still needs Hey.
+    assert match_wake("and hey arelis. Send a text message to my wife") == (
         "Send a text message to my wife"
     )
-    # Long hallucination then a real wake (Aurelis spelling).
+    assert match_wake("and arelis. Send a text message to my wife") is None
+    # Long hallucination then a real compound wake (Aurelis spelling).
     heard = (
         "Available for peeking over the air balloon reactor. "
         "Hey, Aurelis. What's the weather"
     )
     assert match_wake(heard) == "What's the weather"
+    # Bare name later in a clip is not a wake (Discord said "Arelis").
+    assert match_wake("yeah Arelis is the name of the app") is None
     # Repeated name at the end after a command.
     assert match_wake(
-        "and arelis. Send a text to my wife. Arelis. Arelis."
+        "and hey arelis. Send a text to my wife. Arelis. Arelis."
     ) == "Send a text to my wife"
+
+
+def test_match_wake_accepts_whisper_arrelis() -> None:
+    """Live clips: Whisper wrote Arrelis / Pay a relus and the list said no."""
+    from arelis.voice.wake import classify_wake, match_wake
+
+    assert match_wake("Hey, Arrelis") == ""
+    assert match_wake("Hey, Arrelis. How are you today?") == "How are you today?"
+    assert match_wake("Pay Arellis") == ""
+    assert match_wake("Pay a relus") == ""
+    assert match_wake("Hey, Arrelas") == ""
+    assert match_wake("Hey, Aurelis") == ""
+    hit = classify_wake("Hey, Arrelis")
+    assert hit.matched and hit.remainder == ""
 
 
 def test_looks_like_prompt_echo() -> None:

@@ -9,7 +9,14 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QAction
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QMenu, QToolButton, QWidget
+from PySide6.QtWidgets import (
+    QHBoxLayout,
+    QLabel,
+    QMenu,
+    QToolButton,
+    QWidget,
+    QWidgetAction,
+)
 
 from arelis.presence.readiness import ChipLevel, ReadinessChip, ReadinessSnapshot
 
@@ -26,6 +33,7 @@ _SYSTEMS_KEYS = (
     "embed",
     "search",
     "ocr",
+    "image",
 )
 
 
@@ -84,7 +92,7 @@ class ReadinessStrip(QWidget):
         layout.addStretch(1)
 
         self.notify_chip = QToolButton()
-        self.notify_chip.setObjectName("ReadinessChip")
+        self.notify_chip.setObjectName("ReadinessNotifyChip")
         self.notify_chip.setProperty("status", "warn")
         self.notify_chip.setCursor(Qt.CursorShape.PointingHandCursor)
         self.notify_chip.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
@@ -175,6 +183,16 @@ class ReadinessStrip(QWidget):
 
     def _rebuild_systems_menu(self) -> None:
         self._systems_menu.clear()
+        # Every row below is disabled, because this menu reports and does not
+        # act — the things it names are changed in Settings, not here. Saying so
+        # at the top is cheaper than making eight status lines clickable and
+        # then having to decide where each one should go.
+        caption = QLabel("status · read only")
+        caption.setObjectName("ReadinessSystemsCaption")
+        header = QWidgetAction(self._systems_menu)
+        header.setDefaultWidget(caption)
+        header.setEnabled(False)
+        self._systems_menu.addAction(header)
         if self._confirm_waiting:
             allow = QAction("Allow card open — decide in chat", self._systems_menu)
             allow.setEnabled(False)

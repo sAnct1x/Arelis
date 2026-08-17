@@ -164,6 +164,23 @@ def test_title_bar_has_settings(qt_app) -> None:
     bar.close()
 
 
+def test_every_dock_keeps_an_object_name() -> None:
+    """No QSS targets these names, which makes them look deletable. They are not.
+
+    QMainWindow.saveState() identifies docks by object name, and layout_store
+    writes that state to ui_layout.ini. A dock without one is simply dropped
+    from the saved layout, so it stops returning to where it was left — a
+    failure that shows up a day later with nothing pointing back to the cause.
+    """
+    from pathlib import Path
+
+    src = Path("arelis/ui/app.py").read_text(encoding="utf-8")
+    for dock in ("ThinkingDock", "WorkspaceDock", "HistoryDock", "CameraDock"):
+        assert f'setObjectName("{dock}")' in src, (
+            f"{dock} lost its object name; saved layouts will forget that dock"
+        )
+
+
 def test_view_menu_omits_settings() -> None:
     """Settings is title-bar only — View must not duplicate it."""
     from pathlib import Path

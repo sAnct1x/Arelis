@@ -132,8 +132,8 @@ def looks_like_prompt_echo(text: str, prompt: str) -> bool:
     Short/noisy clips often come back as the bias prompt ("Arelis, Ollama,
     ComfyUI, Whisper…") rather than what the user said.
 
-    Never treats a bare wake phrase as echo — the prompt is *supposed* to bias
-    toward "Hey Arelis", and scrubbing that broke wake entirely.
+    Never treats a compound wake phrase as echo — the prompt is *supposed* to
+    bias toward "Hey Arelis", and scrubbing that broke wake entirely.
     """
     from arelis.voice.wake import match_wake
 
@@ -143,7 +143,7 @@ def looks_like_prompt_echo(text: str, prompt: str) -> bool:
         return False
 
     rem = match_wake(heard)
-    # Bare "Hey Arelis" / "Arelis" is a successful wake transcript, not echo.
+    # "Hey Arelis" with no command is a successful wake transcript, not echo.
     if rem is not None and not rem.strip():
         return False
 
@@ -275,8 +275,8 @@ class SpeechToText:
             )
 
     async def preload(self) -> None:
-        """Build the model ahead of time, off the loop. Safe to call twice."""
-        if not self.available() or self.loaded():
+        """Build the models ahead of time, off the loop. Safe to call twice."""
+        if not self.available():
             return
         async with self._lock:
             await asyncio.to_thread(self._ensure_active)
@@ -295,12 +295,17 @@ class SpeechToText:
                     raise
             else:
                 return soften_stt_case(scrub_transcript(text))
-        return soften_stt_case(self._transcribe_whisper(audio_path))
+        return soften_stt_case(self._transcribe_whisper(audio_path, purpose))
 
-    def _transcribe_whisper(self, audio_path: str) -> str:
+    def _transcribe_whisper(self, audio_path: str, purpose: str = "turn") -> str:
         model = self._ensure_model()
         language = self.config.get("language") or None
         prompt = str(self.config.get("initial_prompt") or "").strip() or None
+        # Do not prime idle wake clips with "Hey Arelis." — Whisper then
+        # regurgitates the prompt from Discord / room noise and we treat that
+        # as a real wake. Conversation turns may still use the seed.
+        if purpose == "wake":
+            prompt = None
         segments, _info = model.transcribe(
             audio_path,
             language=language,
@@ -320,19 +325,32 @@ class SpeechToText:
         return text
 
     def _ensure_active(self) -> None:
-        if self.resolved_backend() == "sherpa":
+        """Warm every backend this session will use.
+
+        Wake resolves to faster-whisper while turns run on Sherpa, so warming
+        only the configured backend left Whisper to load inside the first wake
+        clip — tens of seconds on a cold profile, with no status, because
+        loaded() reports the turn backend and it was already warm. The user
+        says "Hey Arelis", nothing happens, and there is nothing to see.
+        """
+        backends = {
+            self.resolved_backend(),
+            self.resolved_backend(purpose="wake"),
+        }
+        if "sherpa" in backends:
             try:
                 self._sherpa_engine().ensure_loaded()
-                return
             except Exception as exc:
                 from arelis.voice.sherpa_stt import SherpaUnavailableError
 
                 if isinstance(exc, SherpaUnavailableError) and self._whisper_installed():
                     log.warning("Sherpa STT preload failed (%s); using faster-whisper", exc)
                     self._sherpa_failed = True
+                    backends.add("faster-whisper")
                 else:
                     raise
-        self._ensure_model()
+        if "faster-whisper" in backends:
+            self._ensure_model()
 
     def _ensure_model(self):
         """Construct the Whisper model. Only ever called inside a worker thread."""

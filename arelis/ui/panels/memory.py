@@ -29,7 +29,7 @@ class ActiveFactsPanel(QWidget):
         self._facts: list[dict[str, object]] = []
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 12, 8, 8)
+        layout.setContentsMargins(14, 16, 14, 12)
         layout.setSpacing(8)
 
         hint = QLabel(

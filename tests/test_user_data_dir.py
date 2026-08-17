@@ -378,6 +378,23 @@ def test_the_override_wins_over_everything(
     assert paths.user_data_dir() == tmp_path / "elsewhere"
 
 
+def test_resolve_model_path_reuses_installed_weights(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A checkout with an empty models/ folder still speaks from the published copy."""
+    checkout = tmp_path / "checkout"
+    published = tmp_path / "published"
+    voice = published / "models" / "piper" / "jenny.onnx"
+    voice.parent.mkdir(parents=True)
+    voice.write_bytes(b"onnx")
+    monkeypatch.setenv(paths.DATA_DIR_ENV, str(checkout))
+    monkeypatch.setattr(paths, "published_data_dir", lambda: published)
+    found = paths.resolve_model_path("models/piper/jenny.onnx")
+    assert found == voice.resolve()
+    missing = paths.resolve_model_path("models/piper/missing.onnx")
+    assert missing == (checkout / "models" / "piper" / "missing.onnx").resolve()
+
+
 def test_an_empty_override_is_ignored_rather_than_obeyed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

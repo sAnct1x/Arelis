@@ -80,7 +80,8 @@ async def test_session_load_hydrates_memory_from_the_archive(tmp_path: Path) -> 
 
 
 @pytest.mark.asyncio
-async def test_chat_notice_is_archived_without_starting_a_turn(tmp_path: Path) -> None:
+async def test_inbound_text_is_not_written_into_the_archive(tmp_path: Path) -> None:
+    """Texts live for the session, not forever. History must not reload them."""
     store = MemoryStore(tmp_path / "memory.db")
     store.start_session()
     bus = EventBus()
@@ -90,18 +91,20 @@ async def test_chat_notice_is_archived_without_starting_a_turn(tmp_path: Path) -
     try:
         await bus.publish(
             Event(
-                EventType.CHAT_NOTICE,
-                {"text": "Text from Robin Hale: Bro that man is SSG"},
+                EventType.SMS_RECEIVED,
+                {
+                    "id": "m1",
+                    "from": "+15551112222",
+                    "body": "Bro that man is SSG",
+                    "contact_name": "Robin Hale",
+                },
             )
         )
         await bus.drain()
     finally:
         bus.stop()
         task.cancel()
-    rows = store.get_messages(store.session_id or "")
-    assert len(rows) == 1
-    assert rows[0]["role"] == "notice"
-    assert "Bro that man is SSG" in rows[0]["content"]
+    assert store.get_messages(store.session_id or "") == []
     assert memory.as_ollama() == []
     store.close()
 

@@ -54,8 +54,8 @@ _LINK_PARTS = re.compile(r"^\[([^\]\n]*)\]\(([^)\s]+)\)$")
 # The theme quotes font names with double quotes, which would close the style
 # attribute the moment it was interpolated into one and drop everything after it.
 _MONO = FONTS["mono"].replace('"', "'")
-_CODE_BG = "rgba(12, 10, 8, 170)"
-_EDGE = "rgba(255, 180, 87, 40)"
+_CODE_BG = COLORS["code_fill"]
+_EDGE = COLORS["edge_soft"]
 
 # No border here. Qt's rich text engine keeps borders on table cells but drops
 # them on block elements, so declaring one would be styling that never renders.

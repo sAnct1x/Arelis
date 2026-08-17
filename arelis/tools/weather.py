@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from arelis.briefing.weather import describe_weather_code, fetch_forecast
+from arelis.briefing.weather import (
+    describe_weather_code,
+    fetch_forecast,
+    geocode_place,
+)
 from arelis.tools.base import ToolResult
 
 
@@ -56,19 +60,55 @@ class WeatherTool:
         snap = None
         if self.location is not None and hasattr(self.location, "snapshot"):
             snap = self.location.snapshot()
-        if snap is None or not snap.has_coordinates():
+        refresh = getattr(self.location, "refresh", None)
+        # Kept so the failure below can name its real cause. "No coordinates on
+        # file" sends the user to edit a profile that was never the problem.
+        refresh_failed = ""
+        if (
+            snap is not None
+            and not snap.has_coordinates()
+            and callable(refresh)
+        ):
+            try:
+                maybe = refresh()
+                if hasattr(maybe, "__await__"):
+                    snap = await maybe
+                else:
+                    snap = maybe
+            except Exception as exc:
+                refresh_failed = str(exc) or type(exc).__name__
+        lat: float | None = None
+        lon: float | None = None
+        place = snap.place() if snap is not None else ""
+        if snap is not None and snap.has_coordinates():
+            lat = float(snap.latitude)
+            lon = float(snap.longitude)
+        elif place:
+            try:
+                coords = await geocode_place(place)
+            except Exception as exc:
+                return ToolResult(
+                    ok=False,
+                    output=f"[fail:weather] weather failed: {exc}",
+                )
+            if coords is not None:
+                lat, lon = coords
+        if lat is None or lon is None:
+            cause = (
+                f" The location refresh failed first: {refresh_failed}."
+                if refresh_failed
+                else ""
+            )
             return ToolResult(
                 ok=False,
                 output=(
-                    "No coordinates on file, so there is no location to forecast. "
-                    "Call user_location to refresh them, or set latitude and "
-                    "longitude in data/profile.yaml. Do not pass coordinates to "
+                    "[fail:weather] No coordinates on file, so there is no "
+                    f"location to forecast.{cause} Set city plus latitude and "
+                    "longitude in data/profile.yaml, or call user_location after "
+                    "enabling location.network. Do not pass coordinates to "
                     "weather; it does not accept them."
                 ),
             )
-        lat = float(snap.latitude)
-        lon = float(snap.longitude)
-        place = snap.place()
 
         days = int(kwargs.get("days") or 3)
         days = max(1, min(7, days))

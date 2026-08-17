@@ -13,13 +13,13 @@ from PySide6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QMenu,
-    QMessageBox,
     QPushButton,
     QVBoxLayout,
     QWidget,
 )
 
 from arelis.attachments import session_title_from_turn
+from arelis.ui.dialog import confirm
 
 
 class HistoryPanel(QWidget):
@@ -233,14 +233,14 @@ class HistoryPanel(QWidget):
         if chosen is open_act:
             self.session_selected.emit(sid)
         elif chosen is delete_act:
-            reply = QMessageBox.question(
+            if confirm(
                 self,
                 "Delete conversation",
-                f"Delete this conversation?\n\n{title}\n\nThis cannot be undone.",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.No,
-            )
-            if reply == QMessageBox.StandardButton.Yes:
+                f"Delete “{title}”?",
+                detail="This cannot be undone.",
+                confirm_text="Delete",
+                destructive=True,
+            ):
                 self.session_delete_requested.emit(sid)
 
     def _decide_selected(self, widget: QListWidget, status: str) -> None:

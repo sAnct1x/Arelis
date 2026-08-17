@@ -628,6 +628,17 @@ def sms_intent_this_turn(text: str) -> bool:
     return parse_sms_utterance(raw) is not None
 
 
+_DESCRIBE_FOLLOWUP = re.compile(
+    r"(?i)^\s*(?:please\s+|just\s+)*(?:describe|tell me about)\s+"
+    r"(?:it|that|this)\b"
+)
+
+
+def looks_like_describe_followup(text: str) -> bool:
+    """True for 'just describe it' after a failed image — not an SMS body."""
+    return bool(_DESCRIBE_FOLLOWUP.match((text or "").strip()))
+
+
 def looks_like_stale_sms_skip(
     text: str, history: list[Any] | None = None
 ) -> bool:
@@ -643,6 +654,7 @@ def looks_like_stale_sms_skip(
         or looks_like_contacts_followup(text, history)
         or looks_like_workspace_write(text)
         or looks_like_image_gen(text)
+        or looks_like_describe_followup(text)
         or looks_like_browser_or_url(text)
         or looks_like_look_or_file(text)
     )

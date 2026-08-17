@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from arelis.ui.theme import COLORS
+from arelis.ui.theme import METRICS
 
 
 class AttachmentChip(QWidget):
@@ -24,6 +24,7 @@ class AttachmentChip(QWidget):
 
     def __init__(self, attachment: dict[str, Any], parent=None) -> None:
         super().__init__(parent)
+        self.setObjectName("AttachmentChip")
         self.attachment_id = str(attachment.get("id") or "")
         name = str(attachment.get("name") or "file")
         kind = str(attachment.get("kind") or "other")
@@ -35,29 +36,17 @@ class AttachmentChip(QWidget):
         row.setContentsMargins(8, 2, 4, 2)
         row.setSpacing(4)
         label = QLabel(f"{_kind_mark(kind)} {name}")
+        label.setObjectName("AttachmentChipName")
         label.setToolTip(tip)
-        label.setStyleSheet(
-            f"color: {COLORS['text']}; font-size: 11px; background: transparent;"
-        )
         btn = QToolButton()
+        btn.setObjectName("AttachmentChipRemove")
         btn.setText("\u00d7")
         btn.setAutoRaise(True)
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
         btn.setToolTip("Remove attachment")
-        btn.setStyleSheet(
-            f"color: {COLORS['text_dim']}; font-size: 14px; border: none; padding: 0 2px;"
-        )
         btn.clicked.connect(lambda: self.remove_requested.emit(self.attachment_id))
         row.addWidget(label)
         row.addWidget(btn)
-        self.setStyleSheet(
-            "AttachmentChip {"
-            "background: rgba(22,16,12,140);"
-            "border: 1px solid rgba(255,180,87,40);"
-            "border-radius: 10px;"
-            "}"
-        )
-        self.setObjectName("AttachmentChip")
 
 
 class AttachBar(QWidget):
@@ -79,8 +68,8 @@ class AttachBar(QWidget):
         scroll.setFrameShape(QScrollArea.Shape.NoFrame)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll.setFixedHeight(34)
-        scroll.setStyleSheet("background: transparent;")
+        scroll.setObjectName("AttachBarScroll")
+        scroll.setFixedHeight(METRICS["control"])
 
         self._inner = QWidget()
         self._row = QHBoxLayout(self._inner)
@@ -135,24 +124,17 @@ class DropOverlay(QWidget):
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
+        self.setObjectName("DropOverlay")
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
-        self.setStyleSheet(
-            "background: rgba(10, 8, 6, 200);"
-            f"color: {COLORS['accent']};"
-            "font-size: 16px;"
-            "border-radius: 18px;"
-        )
         layout = QVBoxLayout(self)
         layout.addStretch(1)
         label = QLabel("Drop files for Arelis")
+        label.setObjectName("DropOverlayTitle")
         label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        label.setStyleSheet("background: transparent; font-size: 18px;")
         layout.addWidget(label)
         hint = QLabel("They will attach to your next message")
+        hint.setObjectName("DropOverlayHint")
         hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        hint.setStyleSheet(
-            f"background: transparent; color: {COLORS['text_dim']}; font-size: 12px;"
-        )
         layout.addWidget(hint)
         layout.addStretch(1)
         self.hide()

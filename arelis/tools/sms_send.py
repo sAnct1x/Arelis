@@ -111,6 +111,7 @@ class SendSmsTool:
                 "to": resolved.label,
                 "alias": resolved.contact.alias if resolved.contact else "",
                 "phone": resolved.phone_e164,
+                "body": body,
                 "message_id": message_id,
                 "truncated": truncated,
             },

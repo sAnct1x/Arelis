@@ -254,3 +254,5 @@ def test_fail_replan_image() -> None:
     assert notice is not None
     assert "send_sms" in notice
     assert "Do NOT" in notice
+    assert "comfyui" in notice.lower()
+    assert "Ask them to start ComfyUI by hand" not in notice

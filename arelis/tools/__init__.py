@@ -10,6 +10,7 @@ from arelis.mail import Mailer, load_account
 from arelis.memory import MemoryStore
 from arelis.memory.indexer import DEFAULT_EMBED_MODEL
 from arelis.paths import user_data_dir
+from arelis.rooms import RoomStore
 from arelis.sms import DEFAULT_MAX_BODY_CHARS
 from arelis.sms_android import AndroidSmsProvider, load_sms_account
 from arelis.tools.agenda import AgendaTool
@@ -26,12 +27,15 @@ from arelis.tools.email_send import SendEmailTool
 from arelis.tools.git_info import GitInfoTool
 from arelis.tools.goals import GoalsTool
 from arelis.tools.image import ImageTool
+from arelis.tools.image_edit import ImageEditTool
+from arelis.tools.image_io import DEFAULT_MAX_EDGE
 from arelis.tools.inbound_sms import InboundSmsTool
 from arelis.tools.inbox import InboxTool
 from arelis.tools.memory_tool import MemoryTool
 from arelis.tools.ocr import OcrTool
 from arelis.tools.recall import RecallTool
 from arelis.tools.research_report import ResearchReportTool
+from arelis.tools.rooms_tool import RoomsTool
 from arelis.tools.schedule_jobs import ScheduleTool
 from arelis.tools.scrape import ScrapeTool
 from arelis.tools.search import build_search_tool
@@ -124,6 +128,17 @@ def build_tool_registry(
             registry.register(GoalsTool(archive))
         # Contact book edits need a person present for the confirm card.
         registry.register(ContactsTool())
+
+    if tools_cfg.get("rooms", {}).get("enabled", True):
+        # The store is put on the config here rather than built inside the tool
+        # so the orchestrator, the agent loop and this tool all read the same
+        # one. A tool with a private copy would create rooms that the command
+        # entering them cannot see until something reloads the file.
+        rooms_store = config.get("_rooms")
+        if rooms_store is None:
+            rooms_store = RoomStore()
+            config["_rooms"] = rooms_store
+        registry.register(RoomsTool(rooms_store))
 
     web_fetch_tool: WebFetchTool | None = None
     if web_cfg.get("enabled", True):
@@ -295,12 +310,17 @@ def build_tool_registry(
             ImageTool(
                 comfy_url=image_cfg.get("comfy_url", "http://127.0.0.1:8188"),
                 output_dir=str(out_path.resolve()),
-                auto_start=bool(image_cfg.get("auto_start", True)),
+                auto_start=bool(image_cfg.get("auto_start", False)),
                 launch_command=str(image_cfg.get("launch_command") or ""),
                 launch_cwd=launch_cwd,
                 startup_timeout_s=float(image_cfg.get("startup_timeout_s", 120)),
             )
         )
+    # Deterministic pixel work: no model, no GPU, no network. Registered even
+    # for unattended jobs, because resizing a file cannot go anywhere or ask
+    # anyone anything — unlike vision, which needs somebody present to Allow.
+    if (tools_cfg.get("image_edit") or {}).get("enabled", True):
+        registry.register(ImageEditTool(workspace))
     # Single-frame VL: attended only (Allow card). Jobs skip (allow_send=False).
     if allow_send and vision_cfg.get("enabled", True) and router is not None:
         ollama_cfg = config.get("ollama") or {}
@@ -331,6 +351,7 @@ def build_tool_registry(
                 model=vl_model,
                 num_ctx=num_ctx,
                 model_available=_vision_available,
+                max_edge=int(vision_cfg.get("max_edge") or DEFAULT_MAX_EDGE),
             )
         )
         # Look-on-ask webcam stills — same Allow gate as vision; UI owns capture.

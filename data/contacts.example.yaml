@@ -14,7 +14,9 @@
 # A leading "my " is stripped when matching ("my wife" → wife).
 #
 # id + phone are required to text; email is optional but used for send_email.
-# An old `carrier` / `sms_email` field is ignored if still present.
+# Optional card fields: title (e.g. My Wife), work_phone, notes.
+# The View → contacts panel writes the same file. An old `carrier` /
+# `sms_email` field is ignored if still present.
 
 contacts:
   me:
@@ -27,7 +29,9 @@ contacts:
       - phone
   wife:
     name: ""
+    title: ""
     phone: ""
+    work_phone: ""
     email: ""
     aliases:
       - robin

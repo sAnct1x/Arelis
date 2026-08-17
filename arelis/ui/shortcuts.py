@@ -36,6 +36,7 @@ SHORTCUTS: tuple[tuple[str, str, str], ...] = (
     ("panels", "Ctrl+3", "history — past conversations"),
     ("panels", "Ctrl+4", "notifications"),
     ("panels", "Ctrl+5", "camera"),
+    ("panels", "Ctrl+6", "contacts"),
     ("window", "Ctrl+,", "settings"),
     ("window", "F11", "fullscreen"),
     ("window", "F1", "this sheet"),

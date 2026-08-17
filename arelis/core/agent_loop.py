@@ -141,6 +141,7 @@ from arelis.core.sms_complete import (
     looks_like_stale_sms_skip,
     looks_like_tasks_utterance,
     sms_force_call_notice,
+    sms_intent_this_turn,
 )
 from arelis.core.tool_args import cross_tool_arg_error, schema_keys
 from arelis.core.tool_results import PreparedToolOutput, prepare_tool_output
@@ -210,7 +211,16 @@ _LOCAL_STORE = frozenset({"memory", "tasks", "goals", "contacts", "recall"})
 _SEE_TOOLS = frozenset({"vision", "ocr", "camera", "clipboard", "image", "git_info"})
 _WEATHER_WANDER = frozenset({"web_search", "scrape", "web_fetch"})
 _SMS_WANDER = frozenset(
-    {"web_search", "user_location", "browser", "scrape", "web_fetch"}
+    {
+        "web_search",
+        "user_location",
+        "browser",
+        "scrape",
+        "web_fetch",
+        "image",
+        "vision",
+        "camera",
+    }
 )
 
 
@@ -687,6 +697,16 @@ class AgentLoop:
         else:
             self.max_rounds = self._default_max_rounds
         available_all = set(self.tools.names())
+        # A room that named its tools is capped here rather than downstream,
+        # because `visible` is recomputed several times below — on escalation,
+        # on expected-tool rescue — and each of those reads available_all. Cap
+        # the source and every later recompute inherits it. Rooms leave `tools`
+        # empty by default: leaning is the feature, caging is opt-in.
+        active_room = getattr(self.config.get("_rooms"), "active", None)
+        if active_room is not None and active_room.tools:
+            capped = available_all & set(active_room.tools)
+            if capped:
+                available_all = capped
         visible = filter_tool_names(
             available_all,
             role=role,
@@ -862,6 +882,13 @@ class AgentLoop:
             project_line = workspace.prompt_line()
             if project_line:
                 system_messages.append({"role": "system", "content": project_line})
+        # A room's purpose rides every turn taken inside it. It sits after the
+        # project line because it explains what the project is *for*, and before
+        # the standing profile because it is the narrower context of the two.
+        if active_room is not None:
+            system_messages.append(
+                {"role": "system", "content": active_room.prompt_block()}
+            )
         location = self.config.get("_location")
         if location is not None:
             # Injected rather than left to the user_location tool. A 7B model
@@ -960,6 +987,8 @@ class AgentLoop:
         agenda_nudge_used = 0
         math_nudge_used = False
         weather_nudge_used = 0
+        weather_attempted = False
+        image_attempted = False
         memory_nudge_used = 0
         last_ok_tool_out = ""
         skip_finish_text = ""
@@ -1047,9 +1076,16 @@ class AgentLoop:
         # Allow is still the only thing that sends, and the model still writes
         # the reply on the round after the tool result.
         sms_preinject: dict[str, Any] | None = None
-        if sms_draft is not None and sms_draft.complete and not skip_sms_draft:
+        if (
+            "send_sms" in self._expected_tools
+            and "send_sms" not in available_all
+            and sms_intent_this_turn(text)
+        ):
+            await self._explain_missing_send_sms(available_all)
+        elif sms_draft is not None and sms_draft.complete and not skip_sms_draft:
             if "send_sms" not in tool_names:
-                await self._explain_missing_send_sms(available_all)
+                if sms_intent_this_turn(text):
+                    await self._explain_missing_send_sms(available_all)
             elif bool(agent_cfg.get("sms_force_call", True)) and bool(
                 agent_cfg.get("sms_preinject", True)
             ):
@@ -1540,6 +1576,7 @@ class AgentLoop:
                     bool(agent_cfg.get("image_force_call", True))
                     and "image" in self._expected_tools
                     and "image" not in self.tools_used
+                    and not image_attempted
                     and "image" in tool_names
                     and (
                         looks_like_image_gen(text)
@@ -1671,6 +1708,7 @@ class AgentLoop:
                         or "weather" in self._expected_tools
                     )
                     and "weather" not in self.tools_used
+                    and not weather_attempted
                     and "weather" in tool_names
                 ):
                     if weather_nudge_used < 1:
@@ -2277,6 +2315,12 @@ class AgentLoop:
                             f"Unknown tool `{name}`. "
                             f"Available: {', '.join(sorted(tool_names))}"
                         )
+                        if name in {"comfyui", "search_images", "generate_image"}:
+                            err += (
+                                ". Image generation is the `image` tool. There is "
+                                "no start-ComfyUI tool and no stock-photo search; "
+                                "start ComfyUI yourself or set tools.image.auto_start."
+                            )
                         await self.bus.publish(
                             Event(EventType.THINKING, {"text": f"reject  {err}"})
                         )
@@ -2318,6 +2362,7 @@ class AgentLoop:
                         or "weather" in self._expected_tools
                     )
                     and "weather" not in self.tools_used
+                    and not weather_attempted
                     and "weather" in tool_names
                 ):
                     notice = (
@@ -3045,6 +3090,10 @@ class AgentLoop:
                         {"text": f"round {round_i}/{self.max_rounds}  tool  {summary}"},
                     )
                 )
+                if name == "weather":
+                    weather_attempted = True
+                if name == "image":
+                    image_attempted = True
                 if fanout_results is not None:
                     ms, result = fanout_results[call_i]
                 else:
@@ -3357,13 +3406,26 @@ class AgentLoop:
                         },
                     )
                 )
-                if name == "image" and result.ok and data_dict and data_dict.get("path"):
+                if (
+                    name in {"image", "image_edit"}
+                    and result.ok
+                    and data_dict
+                    and data_dict.get("path")
+                ):
                     await self.bus.publish(
                         Event(EventType.IMAGE_READY, {"path": data_dict["path"]})
                     )
                     # Finish now — otherwise the 7B often re-calls image and
-                    # spams Allow (same class of bug as double-SMS).
+                    # spams Allow (same class of bug as double-SMS). image_edit
+                    # joins it because the round after a finished edit is where
+                    # she reached for vision to check her own work and then the
+                    # calculator to verify the pixel count.
                     path = str(data_dict["path"])
+                    if name == "image_edit":
+                        # Its own sentence already names the sizes and the
+                        # adjustments, which is the part worth reading.
+                        await self._finish(str(result.output).strip(), sources, streamed="")
+                        return
                     await self._finish(
                         f"Image ready — open in Workspace ({path}).",
                         sources,

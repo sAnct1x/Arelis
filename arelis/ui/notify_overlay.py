@@ -60,7 +60,7 @@ class NotifyOverlay(QWidget):
             self,
             object_name="NotifyCard",
             fill_alpha=int(GLASS.get("fill_float", 255)),
-            radius=14.0,
+            radius=float(GLASS["radius"]),
             pulse_rim=False,
         )
         self.card.setFixedWidth(280)
@@ -87,7 +87,7 @@ class NotifyOverlay(QWidget):
         actions.setSpacing(6)
         self.dismiss_btn = QPushButton("dismiss")
         self.snooze_btn = QPushButton("snooze")
-        self.reply_btn = QPushButton("reply")
+        self.reply_btn = QPushButton("chat")
         self.open_btn = QPushButton("open")
         for btn in (
             self.dismiss_btn,
@@ -121,11 +121,12 @@ class NotifyOverlay(QWidget):
         *,
         extra: int = 0,
         maximized: bool = False,
+        mailbox_open: bool = False,
     ) -> None:
         self._notice = notice
         self._extra = max(0, int(extra))
         self._maximized = bool(maximized)
-        if notice is None:
+        if notice is None or mailbox_open:
             self.collapse()
             self.hide()
             return
@@ -211,7 +212,10 @@ class NotifyOverlay(QWidget):
     def eventFilter(self, obj, event) -> bool:  # type: ignore[override]
         clicked_card = obj in {self.card_title, self.card_body}
         if clicked_card and event.type() == QEvent.Type.MouseButtonRelease:
-            self._on_open()
+            if self._notice is not None and self._notice.kind == "sms":
+                self._on_reply()
+            else:
+                self._on_open()
             return True
         return super().eventFilter(obj, event)
 

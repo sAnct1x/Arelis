@@ -1,4 +1,9 @@
-# Launch Arelis desktop UI from this checkout (forces a real Windows Qt surface).
+# Launch Arelis desktop UI from this checkout, from a terminal you already have open.
+#
+# Not for shortcuts. A .lnk pointing at powershell.exe -File this-script gets a console
+# allocated before PowerShell can hide it, so a black window blinks on every launch.
+# install_desktop_shortcut.ps1 therefore targets pythonw.exe -m arelis directly, and
+# arelis.ui.app corrects QT_QPA_PLATFORM itself so nothing is lost by skipping this.
 #
 # A checkout's data root is the repository root, so this reads and writes the real
 # data\profile.yaml, data\contacts.yaml, data\secrets.yaml and data\memory.db, and

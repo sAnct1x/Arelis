@@ -14,6 +14,28 @@ from arelis.core.intent_catalog import exactness_match
 
 # Clear arithmetic / percentage / "what is X of Y" — must use calculator.
 # Bare "x" as multiply needs spaces (filenames like beam-1965x1106.png are NOT math).
+# "17 x 19" / "3 x 4". Spaces are required so an unspaced image dimension
+# (1965x1106) never matches — which was the whole guard, and it does not hold:
+# "1280 x 720 pixels" is how a person writes a size. See _PICTURE_SIZE.
+_SPACED_TIMES = re.compile(
+    r"\b(?:\d+(?:\.\d+)?)\s+x\s+(?:\d+(?:\.\d+)?)\b",
+    re.I,
+)
+
+# Words that make a pair of numbers a shape rather than a multiplication. A
+# resolution is not a sum, and forcing the calculator onto one ends where it did
+# in practice: calculator(expression="1280, 720"), which is not an expression,
+# followed by a refusal for a request that had nothing to calculate.
+_PICTURE_SIZE = re.compile(
+    r"(?i)\b("
+    r"px|pixels?|"
+    r"thumbnail|resolution|dimensions?|aspect\s+ratio|"
+    r"resize|resized|resizing|crop|cropped|"
+    r"wallpaper|banner|canvas|"
+    r"image|images|photo|photos|picture|pictures|screenshot"
+    r")\b"
+)
+
 _MATH_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(
         r"\b(?:what\s+is|what's|calculate|compute|how\s+much\s+is)\b.{0,40}?"
@@ -27,11 +49,7 @@ _MATH_PATTERNS: tuple[re.Pattern[str], ...] = (
         r"(?:\d+(?:\.\d+)?)\b",
         re.I,
     ),
-    # "17 x 19" / "3 x 4" — spaces required so image dims (1965x1106) never match.
-    re.compile(
-        r"\b(?:\d+(?:\.\d+)?)\s+x\s+(?:\d+(?:\.\d+)?)\b",
-        re.I,
-    ),
+    _SPACED_TIMES,
     re.compile(
         r"\b(?:square\s+root|sqrt|factorial|mod(?:ulo)?)\b.{0,30}\d",
         re.I | re.S,
@@ -300,7 +318,16 @@ def detect_math_ask(text: str) -> bool:
         return False
     if _SYMBOLIC_MATH.search(lowered):
         return False
-    return any(p.search(lowered) for p in _MATH_PATTERNS)
+    hits = [p for p in _MATH_PATTERNS if p.search(lowered)]
+    if not hits:
+        return False
+    # When "N x N" is the only arithmetic shape present and the sentence is
+    # plainly about the size of a picture, there is nothing to compute. Narrow on
+    # purpose: "what is 17 x 19" still forces the calculator, because that has no
+    # picture in it.
+    if hits == [_SPACED_TIMES] and _PICTURE_SIZE.search(lowered):
+        return False
+    return True
 
 
 def detect_inbox_ask(text: str) -> bool:

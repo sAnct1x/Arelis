@@ -46,13 +46,27 @@ def test_notify_overlay_pill_and_extra(qt_app) -> None:
     assert overlay.expanded
     assert overlay.card.isVisible()
     assert overlay.dismiss_btn.text() == "dismiss"
-    assert overlay.reply_btn.text() == "reply"
+    assert overlay.reply_btn.text() == "chat"
     overlay.collapse()
     assert not overlay.expanded
     opened: list[str] = []
     overlay.open_requested.connect(opened.append)
     overlay.pill.click()
     assert opened == [notice.id]
+    overlay.deleteLater()
+
+
+def test_mailbox_open_hides_the_pill(qt_app) -> None:
+    from arelis.notify.center import new_notice
+    from arelis.ui.notify_overlay import NotifyOverlay
+
+    overlay = NotifyOverlay()
+    notice = new_notice(kind="sms", title="Robin", body="On my way")
+    overlay.show_notice(notice, mailbox_open=True)
+    assert overlay.isHidden()
+    overlay.show_notice(notice, mailbox_open=False)
+    assert overlay.pill.isVisible()
+    assert not overlay.isHidden()
     overlay.deleteLater()
 
 
@@ -78,3 +92,25 @@ def test_short_sender_and_body_are_not_elided(qt_app) -> None:
     assert hint.width() >= 240
     assert hint.height() >= 36
     panel.close()
+
+
+def test_notifications_inbox_is_opaque_and_rounded(qt_app) -> None:
+    """Opaque HWND + mask: no see-through plate, no black corner square."""
+    from PySide6.QtCore import Qt
+
+    from arelis.ui.glass import GlassFrame
+    from arelis.ui.notify_inbox import NotificationsInboxWindow
+
+    panel = NotificationsPanel()
+    inbox = NotificationsInboxWindow(panel)
+    try:
+        inbox.show()
+        qt_app.processEvents()
+        assert not inbox.testAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        assert not inbox.mask().isEmpty()
+        plates = inbox.findChildren(GlassFrame)
+        assert plates and plates[0]._round_cutout
+    finally:
+        inbox.hide()
+        inbox.deleteLater()
+        panel.deleteLater()

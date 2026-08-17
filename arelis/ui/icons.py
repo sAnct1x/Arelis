@@ -3,15 +3,28 @@ from __future__ import annotations
 from PySide6.QtCore import QPointF, QRect, QRectF, Qt
 from PySide6.QtGui import QColor, QIcon, QPainter, QPen, QPixmap
 
+from arelis.ui.theme import color
+
 # The two voice controls are drawn, not shipped as assets, for the same reason
 # the send flare is: an imported glyph set brings its own weight and corner
 # radius and reads as pasted onto the glass rather than lit behind it.
-_ACCENT = QColor(255, 180, 87, 230)
-_ACCENT_DIM = QColor(255, 217, 168, 200)
-_LIVE = QColor(255, 180, 87, 235)
-_CHROME = QColor(243, 236, 224, 180)
-_CHROME_DIM = QColor(138, 126, 112, 200)
-_STATUS_WHITE = QColor(243, 236, 224, 230)
+
+
+def _tint(name: str, alpha: int) -> QColor:
+    value = color(name)
+    value.setAlpha(alpha)
+    return value
+
+
+_ACCENT = _tint("accent", 230)
+_ACCENT_DIM = _tint("accent2", 200)
+_LIVE = _tint("accent", 235)
+_CHROME = _tint("text", 180)
+_CHROME_DIM = _tint("text_dim", 200)
+_STATUS_WHITE = _tint("status_white", 230)
+_HALO = _tint("accent", 28)
+_HALO_SOFT = _tint("accent", 24)
+_SPARK = _tint("status_white", 210)
 
 
 def _chrome_canvas(size: int) -> tuple[QPixmap, QPainter]:
@@ -76,7 +89,7 @@ def signal_flare_icon(size: int = 28) -> QIcon:
 
     # Soft glow disc
     p.setPen(Qt.PenStyle.NoPen)
-    p.setBrush(QColor(255, 180, 87, 28))
+    p.setBrush(_HALO)
     p.drawEllipse(QRect(2, 2, size - 4, size - 4))
 
     # Three-star chevron pointing right-up (a "flare" leaving orbit)
@@ -85,12 +98,12 @@ def signal_flare_icon(size: int = 28) -> QIcon:
         (0.48, 0.48, 2.0),
         (0.70, 0.32, 1.5),
     ]
-    p.setBrush(QColor(255, 180, 87, 230))
+    p.setBrush(_ACCENT)
     for x, y, r in stars:
         p.drawEllipse(QPointF(size * x, size * y), r, r)
 
     # Thin vector trail
-    pen = QPen(QColor(255, 217, 168, 200))
+    pen = QPen(_ACCENT_DIM)
     pen.setWidthF(1.3)
     pen.setCapStyle(Qt.PenCapStyle.RoundCap)
     p.setPen(pen)
@@ -99,7 +112,7 @@ def signal_flare_icon(size: int = 28) -> QIcon:
         QPointF(size * 0.74, size * 0.28),
     )
     # Tiny tip spark
-    p.setBrush(QColor(243, 236, 224, 230))
+    p.setBrush(_STATUS_WHITE)
     p.setPen(Qt.PenStyle.NoPen)
     p.drawEllipse(QPointF(size * 0.76, size * 0.26), 1.4, 1.4)
     p.end()
@@ -147,7 +160,7 @@ def paperclip_icon(size: int = 22) -> QIcon:
     p = QPainter(pm)
     p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
     p.setPen(Qt.PenStyle.NoPen)
-    p.setBrush(QColor(255, 180, 87, 24))
+    p.setBrush(_HALO_SOFT)
     p.drawEllipse(QRect(2, 2, size - 4, size - 4))
     pen = QPen(_ACCENT)
     pen.setWidthF(1.6)
@@ -177,7 +190,7 @@ def conversation_icon(size: int = 22, *, live: bool = False, pulse: float = 1.0)
     into a box; conversation is an exchange, so the glyph is a pair.
     """
     tint = _LIVE if live else _ACCENT
-    glow = int((34 if live else 24) * max(0.35, min(1.35, pulse)))
+    glow = int((34 if live else 24) * max(0.35, min(1.85, pulse)))
     pm = QPixmap(size, size)
     pm.fill(Qt.GlobalColor.transparent)
     p = QPainter(pm)
@@ -199,7 +212,7 @@ def conversation_icon(size: int = 22, *, live: bool = False, pulse: float = 1.0)
     p.drawArc(QRectF(size * 0.44, size * 0.32, size * 0.40, size * 0.46), 250 * 16, 220 * 16)
 
     p.setPen(Qt.PenStyle.NoPen)
-    p.setBrush(QColor(243, 236, 224, 210))
+    p.setBrush(_SPARK)
     p.drawEllipse(QPointF(size * 0.50, size * 0.50), 1.3, 1.3)
     p.end()
     return QIcon(pm)

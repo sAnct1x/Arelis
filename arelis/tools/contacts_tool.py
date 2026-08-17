@@ -82,6 +82,21 @@ class ContactsTool:
                 "type": "string",
                 "description": "Optional email address for this person",
             },
+            "title": {
+                "type": "string",
+                "description": (
+                    "Relationship or role on the card, such as 'My Wife' "
+                    "or 'Coach'. Resolves the same way as an alias."
+                ),
+            },
+            "work_phone": {
+                "type": "string",
+                "description": "Optional work number. SMS still uses phone=.",
+            },
+            "notes": {
+                "type": "string",
+                "description": "Optional free-text note on the contact card.",
+            },
             "replace_aliases": {
                 "type": "boolean",
                 "description": (
@@ -142,8 +157,11 @@ class ContactsTool:
                     {
                         "id": c.alias,
                         "name": c.display_name,
+                        "title": c.title,
                         "phone": c.phone,
+                        "work_phone": c.work_phone,
                         "aliases": list(c.aliases),
+                        "email": c.email,
                     }
                     for c in book.values()
                 ]
@@ -163,7 +181,9 @@ class ContactsTool:
             data={
                 "id": contact.alias,
                 "name": contact.display_name,
+                "title": contact.title,
                 "phone": contact.phone,
+                "work_phone": contact.work_phone,
                 "aliases": list(contact.aliases),
                 "email": contact.email,
             },
@@ -177,6 +197,9 @@ class ContactsTool:
             phone=str(kwargs.get("phone") or ""),
             aliases=kwargs.get("aliases"),
             email=str(kwargs.get("email") or ""),
+            title=str(kwargs.get("title") or ""),
+            work_phone=str(kwargs.get("work_phone") or ""),
+            notes=str(kwargs.get("notes") or ""),
             path=self.path,
         )
         if isinstance(result, str):
@@ -197,6 +220,9 @@ class ContactsTool:
             phone=str(kwargs.get("phone") or ""),
             aliases=kwargs.get("aliases"),
             email=str(kwargs.get("email") or ""),
+            title=str(kwargs.get("title") or ""),
+            work_phone=str(kwargs.get("work_phone") or ""),
+            notes=str(kwargs.get("notes") or ""),
             replace_aliases=bool(kwargs.get("replace_aliases")),
             path=self.path,
         )

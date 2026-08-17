@@ -9,7 +9,7 @@ from __future__ import annotations
 import math
 
 from PySide6.QtCore import QPoint, QPointF, QSize, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QFont, QMouseEvent, QPainter, QPaintEvent, QPen, QRadialGradient
+from PySide6.QtGui import QColor, QMouseEvent, QPainter, QPaintEvent, QPen, QRadialGradient
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -18,9 +18,22 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from arelis.ui.glass import Hairline
 from arelis.ui.stage import BLOOM_X, BLOOM_Y
+from arelis.ui.theme import FILAMENT, color
 
 _GHOST_WIDTH = 220
+
+_ACCENT = color("accent")
+_CORE = QColor(*FILAMENT["core"])
+_CORE_HALO = QColor(*FILAMENT["core_halo"])
+_TICK = QColor(*FILAMENT["tick"])
+_TICK_HALO = QColor(*FILAMENT["tick_halo"])
+_CLEAR = QColor(0, 0, 0, 0)
+
+
+def _lit(base: QColor, alpha: float) -> QColor:
+    return QColor(base.red(), base.green(), base.blue(), max(0, min(255, int(alpha))))
 
 # The line under the orbit is the only place the idle face can say which voice
 # mode is latched. The two-arc button is 34px of parked chrome and reads as
@@ -33,6 +46,7 @@ _GHOST_WIDTH = 220
 _LISTEN_IDLE = "ctrl+shift+m to talk"
 _LISTEN_TALKING = "talking · ctrl+shift+m to stop"
 _LISTEN_DICTATING = "dictating · ctrl+m to stop"
+_LISTEN_ACK = "listening"
 
 # Shown in the ghost column only while there is no history to put there, and
 # gone for good after the first conversation. The face is deliberately bare —
@@ -85,16 +99,16 @@ class OrbitCanvas(QWidget):
         r = 68.0 * s
 
         halo = QRadialGradient(QPointF(cx, cy), r + 18.0 * s)
-        halo.setColorAt(0.72, QColor(255, 180, 87, 0))
-        halo.setColorAt(0.88, QColor(255, 180, 87, int(28 * d)))
-        halo.setColorAt(1.0, QColor(255, 180, 87, 0))
+        halo.setColorAt(0.72, _CLEAR)
+        halo.setColorAt(0.88, _lit(_ACCENT, 28 * d))
+        halo.setColorAt(1.0, _CLEAR)
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(halo)
         painter.drawEllipse(QPointF(cx, cy), r + 18.0 * s, r + 18.0 * s)
 
         painter.setBrush(Qt.BrushStyle.NoBrush)
         for width, alpha in ((3.2, 18), (1.4, 40)):
-            ring = QPen(QColor(255, 180, 87, int(alpha * d)))
+            ring = QPen(_lit(_ACCENT, alpha * d))
             ring.setWidthF(max(1.0, width * s))
             painter.setPen(ring)
             painter.drawEllipse(QPointF(cx, cy), r, r)
@@ -104,25 +118,25 @@ class OrbitCanvas(QWidget):
         ty = cy - r * math.cos(rad)
         tick_r = 16.0 * s
         tick_glow = QRadialGradient(QPointF(tx, ty), tick_r)
-        tick_glow.setColorAt(0.0, QColor(255, 200, 120, int(190 * d)))
-        tick_glow.setColorAt(0.45, QColor(255, 180, 87, int(70 * d)))
-        tick_glow.setColorAt(1.0, QColor(255, 180, 87, 0))
+        tick_glow.setColorAt(0.0, _lit(_TICK_HALO, 190 * d))
+        tick_glow.setColorAt(0.45, _lit(_ACCENT, 70 * d))
+        tick_glow.setColorAt(1.0, _CLEAR)
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(tick_glow)
         painter.drawEllipse(QPointF(tx, ty), tick_r, tick_r)
-        painter.setBrush(QColor(255, 210, 150, int(255 * d)))
+        painter.setBrush(_lit(_TICK, 255 * d))
         painter.drawEllipse(QPointF(tx, ty), 2.4 * s, 2.4 * s)
 
         t = 0.5 - 0.5 * math.cos(self._beat * 6.283185307179586)
         glow_r = (22.0 + 10.0 * t) * s
         core_glow = QRadialGradient(QPointF(cx, cy), glow_r)
-        core_glow.setColorAt(0.0, QColor(255, 220, 170, int((160 + 50 * t) * d)))
-        core_glow.setColorAt(0.35, QColor(255, 180, 87, int((70 + 30 * t) * d)))
-        core_glow.setColorAt(1.0, QColor(255, 180, 87, 0))
+        core_glow.setColorAt(0.0, _lit(_CORE_HALO, (160 + 50 * t) * d))
+        core_glow.setColorAt(0.35, _lit(_ACCENT, (70 + 30 * t) * d))
+        core_glow.setColorAt(1.0, _CLEAR)
         painter.setBrush(core_glow)
         painter.drawEllipse(QPointF(cx, cy), glow_r, glow_r)
         core_r = (2.4 + 1.2 * t) * s
-        painter.setBrush(QColor(255, 230, 190, int(255 * d)))
+        painter.setBrush(_lit(_CORE, 255 * d))
         painter.drawEllipse(QPointF(cx, cy), core_r, core_r)
 
 
@@ -246,9 +260,6 @@ class OrbitIdle(QWidget):
         # room is left for the ghosts and the readout on either side.
         self.listen_word.setWordWrap(True)
         self.listen_word.setMaximumWidth(300)
-        font = self.listen_word.font()
-        font.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 2.4)
-        self.listen_word.setFont(font)
         col.addSpacing(28)
         col.addWidget(self.listen_word)
         self.prompt_host = QWidget()
@@ -268,9 +279,7 @@ class OrbitIdle(QWidget):
         )
         col.addSpacing(8)
         col.addWidget(self.prompt_host, alignment=Qt.AlignmentFlag.AlignHCenter)
-        self.idle_hairline = QWidget()
-        self.idle_hairline.setFixedSize(280, 1)
-        self.idle_hairline.setStyleSheet("background: rgba(255, 180, 87, 26);")
+        self.idle_hairline = Hairline(width=280)
         col.addSpacing(18)
         col.addWidget(self.idle_hairline, alignment=Qt.AlignmentFlag.AlignHCenter)
         self.voice_host = QWidget()
@@ -358,12 +367,14 @@ class OrbitIdle(QWidget):
 
         ``mode`` is the controller's mode: conversation, dictate, wake, or off.
         Wake and off are both "nothing is latched" as far as the operator is
-        concerned — idle is always listening for the name.
+        concerned — idle is always listening for Hey Arelis.
         """
         if mode == "conversation":
             text, live = _LISTEN_TALKING, True
         elif mode == "dictate":
             text, live = _LISTEN_DICTATING, True
+        elif mode == "ack":
+            text, live = _LISTEN_ACK, True
         else:
             text, live = _LISTEN_IDLE, False
         if self.listen_word.text() == text:

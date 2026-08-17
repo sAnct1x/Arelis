@@ -51,6 +51,35 @@ def test_image_filename_dimensions_are_not_math() -> None:
     assert detect_math_ask("calculate 3*4")
 
 
+def test_a_spaced_resolution_is_not_math_either() -> None:
+    """The unspaced guard above assumed sizes arrive as 1965x1106. They do not.
+
+    "1280 x 720 pixels" is how a person writes a thumbnail size, and the spaces
+    in it defeated that guard. What followed was calculator(expression="1280,
+    720") — not an expression — and then a refusal, for a request that had
+    nothing in it to calculate.
+    """
+    ask = (
+        "make this image more vibrant and resize it to the correct size for a "
+        "youtube thumbnail. The ideal YouTube thumbnail size is 1280 x 720 "
+        "pixels with a 16:9 aspect ratio"
+    )
+    assert not detect_math_ask(ask)
+    assert not detect_exactness_need(ask).needs_calculator
+
+    for phrasing in (
+        "resize it to 1280 x 720",
+        "crop the screenshot to 1920 x 1080",
+        "what resolution is 2560 x 1440",
+        "make the wallpaper 3840 x 2160",
+    ):
+        assert not detect_math_ask(phrasing), phrasing
+
+    # Arithmetic with no picture in it is still arithmetic.
+    for phrasing in ("what is 1280 x 720", "calculate 40 x 12", "how much is 8 x 7"):
+        assert detect_math_ask(phrasing), phrasing
+
+
 def test_detect_news_needs_web() -> None:
     need = detect_exactness_need("What did the WSJ say about AI virus genomes?")
     assert need.needs_web_evidence

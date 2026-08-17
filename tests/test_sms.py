@@ -18,7 +18,9 @@ from arelis.core.agent_loop import TOOL_POLICY
 from arelis.sms import (
     format_sms_confirm,
     prepare_body,
+    resolve_operator_sms_target,
     resolve_sms_target,
+    send_operator_sms,
 )
 from arelis.sms_android import (
     AndroidSmsProvider,
@@ -181,6 +183,33 @@ def test_resolve_sms_target_ok() -> None:
     assert not isinstance(resolved, str)
     assert resolved.phone_e164 == "+15551112222"
     assert resolved.label == "W"
+
+
+def test_operator_target_accepts_digits_without_a_contact() -> None:
+    resolved = resolve_operator_sms_target(phone="5551112222", contacts={})
+    assert not isinstance(resolved, str)
+    assert resolved.phone_e164 == "+15551112222"
+
+
+def test_agent_target_still_refuses_unknown_names() -> None:
+    err = resolve_sms_target("5551112222", {})
+    assert isinstance(err, str)
+
+
+@pytest.mark.asyncio
+async def test_operator_send_hits_the_radio_without_confirm() -> None:
+    sent: list[tuple[str, str]] = []
+
+    class _Prov:
+        async def send(self, *, phone: str, body: str) -> str:
+            sent.append((phone, body))
+            return "op-1"
+
+    message_id = await send_operator_sms(
+        phone="+15551112222", body="good night", provider=_Prov()
+    )
+    assert message_id == "op-1"
+    assert sent == [("+15551112222", "good night")]
 
 
 def test_prepare_body_truncates() -> None:

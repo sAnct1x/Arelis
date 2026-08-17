@@ -5,20 +5,55 @@ from __future__ import annotations
 import asyncio
 
 from arelis.core.bus import EventBus
-from arelis.ui.theme import COLORS, GLASS
+from arelis.ui.theme import COLORS, GLASS, color
 from arelis.ui.void_idle import OrbitCanvas, OrbitIdle
 
 
 def test_orbit_tokens() -> None:
-    assert COLORS["bg0"].lower() == "#0a0806"
-    assert COLORS["text"].lower() == "#f3ece0"
-    assert COLORS["dim"].lower() == "#4a4238"
     assert COLORS["accent"].lower() == "#ffb457"
     assert COLORS["accent2"].lower() == "#ffd9a8"
-    assert COLORS["text_dim"].lower() == "#8a7e70"
     assert int(GLASS["fill_float"]) == 255
+    assert int(GLASS["fill_settings"]) == 255
     assert int(GLASS["fill_docked"]) == 0
     assert int(GLASS["fill_stage"]) == 0
+
+
+def test_every_surface_is_lit_by_one_warm_source() -> None:
+    """No neutral and no green anywhere on the ramp.
+
+    This asserts the light model rather than the hexes, because the hexes are
+    the thing that gets retuned. What must not change is that a surface reads as
+    firelight: red above green above blue at every step, and the darker it gets
+    the more saturated it is, which is what makes a shadow an ember rather than
+    grey paint with a tint on it.
+    """
+    ramp = ("bg0", "bg1", "bg2", "dim", "text_dim", "thinking", "hint", "text")
+    previous = -1.0
+    for name in ramp:
+        tint = color(name)
+        assert tint.red() > tint.green() > tint.blue(), f"{name} is not warm"
+        assert tint.hueF() * 360 < 45, f"{name} has drifted to yellow-green"
+        lightness = tint.lightnessF()
+        assert lightness > previous, f"{name} is not brighter than the step below"
+        previous = lightness
+
+    # Body text on the surface it is actually painted on. Below about 4:1 the
+    # dim ramp stops being legible at 13px, which is the size all of it is.
+    assert _contrast(color("text"), color("panel_fill")) > 7.0
+    assert _contrast(color("hint"), color("panel_fill")) > 4.0
+    assert _contrast(color("text_dim"), color("panel_fill")) > 2.5
+
+
+def _contrast(a, b) -> float:
+    def channel(v: float) -> float:
+        return v / 12.92 if v <= 0.03928 else ((v + 0.055) / 1.055) ** 2.4
+
+    def luminance(c) -> float:
+        r, g, bl = (channel(x) for x in (c.redF(), c.greenF(), c.blueF()))
+        return 0.2126 * r + 0.7152 * g + 0.0722 * bl
+
+    lo, hi = sorted((luminance(a), luminance(b)))
+    return (hi + 0.05) / (lo + 0.05)
 
 
 def test_orbit_idle_widget(qt_app) -> None:
@@ -270,7 +305,7 @@ def test_a_latched_voice_mode_does_not_push_the_ghosts_off(qt_app) -> None:
     idle.set_sessions([("s1", "Morning brief"), ("s2", "Reply to Robin")])
     idle.set_side_chrome(ghosts=True, readout=True)
     qt_app.processEvents()
-    for mode in ("off", "conversation", "dictate", "wake"):
+    for mode in ("off", "conversation", "dictate", "wake", "ack"):
         idle.set_voice_mode(mode)
         idle._layout_idle()
         assert idle._ghosts.isVisible(), f"{mode} hid the session ghosts"

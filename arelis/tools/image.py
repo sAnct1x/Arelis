@@ -70,11 +70,17 @@ DEFAULT_WORKFLOW = {
 class ImageTool:
     name = "image"
     description = (
-        "Generate an image via local ComfyUI (create pixels from a text prompt). "
-        "If ComfyUI is not running and auto-start is configured, it is started "
-        "automatically. The finished file is saved for the Workspace panel. "
+        "Generate a NEW image via local ComfyUI (create pixels from a text prompt). "
+        "ComfyUI is a separate program that has to be running on this machine, and "
+        "the shipped setup does not start it for you: if the world state says image "
+        "generation needs ComfyUI, say it can be done once ComfyUI is running rather "
+        "than calling this and reporting a failure. "
+        "The finished file is saved for the Workspace panel. "
         "Args: prompt, optional negative/width/height/seed. "
-        "To see/describe an existing local image, use the vision tool instead."
+        "This cannot modify an image that already exists — width/height here set "
+        "the size of something invented from the prompt, so using it to 'resize' "
+        "a file returns a different picture. To change an existing image use "
+        "image_edit; to look at one use vision."
     )
     risk = "side_effect"
     parameters_schema: dict[str, Any] = {
@@ -94,7 +100,10 @@ class ImageTool:
         comfy_url: str,
         output_dir: str,
         *,
-        auto_start: bool = True,
+        # Starting a program on someone's machine is not a thing to do by
+        # omission. The shipped config says false; a caller that wants a launch
+        # has to ask for one.
+        auto_start: bool = False,
         launch_command: str = "",
         launch_cwd: str = "",
         startup_timeout_s: float = 120.0,

@@ -38,6 +38,11 @@ dependencies = [
   "PySide6>=6.6",
   "PyYAML>=6.0",
   "pypdf>=5.0",
+  # Pixel work with an exactly right answer: resizing and colour adjustment for
+  # the image_edit tool, and downscaling a screenshot so it fits in the vision
+  # model's context at all. A core dependency rather than an extra because
+  # without it a pasted screenshot cannot be looked at, which is not a niche.
+  "Pillow>=10.0",
   "google-auth>=2.0",
   "google-auth-oauthlib>=1.2",
   "msal>=1.28",

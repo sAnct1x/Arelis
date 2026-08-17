@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from arelis.ui.glass import GlassFrame, advance_rim_pulse
+from arelis.ui.glass import GlassFrame, advance_rim_pulse, seal_tool_window
 from arelis.ui.icons import window_close_icon
 from arelis.ui.panels.notifications import NotificationsPanel
 from arelis.ui.theme import GLASS
@@ -31,10 +31,10 @@ class NotificationsInboxWindow(QWidget):
         self.setWindowFlags(
             Qt.WindowType.Tool
             | Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.NoDropShadowWindowHint
             | Qt.WindowType.Window
         )
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
-        self.setAutoFillBackground(False)
+        seal_tool_window(self, round_corners=True)
         self._drag_origin: QPoint | None = None
         self._rim_pulse = QTimer(self)
         self._rim_pulse.setInterval(100)
@@ -48,8 +48,9 @@ class NotificationsInboxWindow(QWidget):
             self,
             object_name="NotifyInboxGlass",
             fill_alpha=int(GLASS.get("fill_float", 255)),
-            radius=float(GLASS.get("radius", 16.0)),
+            radius=float(GLASS["radius"]),
             pulse_rim=False,
+            round_cutout=True,
         )
         outer.addWidget(plate)
 

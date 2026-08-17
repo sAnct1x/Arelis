@@ -113,10 +113,34 @@ _IMAGE_TEXT_ASK = re.compile(
 
 _IMAGE_SUFFIXES = _IMAGE
 
+# User asked for the picture itself to come back changed, not described. Without
+# this the routing block told her to call vision, which can only look, and she
+# spent the turn hunting for a tool that would do it -- ending on the image
+# generator, which produced a different picture at the requested size.
+_IMAGE_EDIT_ASK = re.compile(
+    r"(?i)\b("
+    r"resize|resized|resizing|"
+    r"re-?scale|scale\s+(?:it|this|that|the\s+image)|"
+    r"crop|cropped|"
+    r"vibrant|vibrance|saturate|saturation|"
+    r"brighten|brighter|darken|darker|"
+    r"contrast|sharpen|sharper|"
+    r"thumbnail|"
+    r"(?:make|convert|turn)\s+(?:it|this|that)\s+into\s+a\s+\w+|"
+    r"aspect\s+ratio|"
+    r"\d{2,5}\s*(?:x|\u00d7|by)\s*\d{2,5}"
+    r")\b"
+)
+
 
 def wants_image_text(user_text: str = "") -> bool:
     """True when the user asked to read text *in* an image (OCR), not describe it."""
     return bool(_IMAGE_TEXT_ASK.search(user_text or ""))
+
+
+def wants_image_edit(user_text: str = "") -> bool:
+    """True when the ask is to change the picture: size, crop, or strength."""
+    return bool(_IMAGE_EDIT_ASK.search(user_text or ""))
 
 
 def route_tool(kind: str, user_text: str = "") -> str:
@@ -127,7 +151,13 @@ def route_tool(kind: str, user_text: str = "") -> str:
     if looks_like_compose_email(user_text):
         return "send_email"
     if kind == "image":
-        return "ocr" if wants_image_text(user_text) else "vision"
+        if wants_image_text(user_text):
+            return "ocr"
+        # Editing beats describing: "make this more vibrant" is an instruction
+        # about the file, and answering it with a description is a non-answer.
+        if wants_image_edit(user_text):
+            return "image_edit"
+        return "vision"
     if kind == "pdf":
         return "doc_extract"
     if kind == "data":
@@ -518,6 +548,18 @@ def format_attachments_block(
                 "Images: call ocr(action=text, path=…). "
                 "Do not call doc_extract (PDF-only) or analyze (tables only) "
                 "on images, whatever verb the user used."
+            )
+        elif wants_image_edit(user_text):
+            # The three wrong tools are named because all three were tried on
+            # this exact ask before image_edit existed.
+            rules.append(
+                "Images: call image_edit with the exact staged path above and the "
+                "size and adjustments asked for (e.g. preset=youtube_thumbnail or "
+                "width=1280 height=720, vibrance=1.3). It writes a new file and "
+                "leaves the original alone. Do not call image — that generates a "
+                "different picture from a text prompt and cannot modify this file. "
+                "Do not call vision, which can only look at it. Do not call the "
+                "calculator for the pixel dimensions."
             )
         else:
             rules.append(

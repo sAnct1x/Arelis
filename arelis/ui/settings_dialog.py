@@ -32,7 +32,7 @@ from arelis.notify.center import CHANNELS, load_channels
 from arelis.presence.lock import find_my_ingest_port
 from arelis.sms_ingest import format_ingest_listen_urls
 from arelis.ui.audio import list_audio_input_names, list_audio_output_names
-from arelis.ui.glass import GlassFrame, advance_rim_pulse
+from arelis.ui.glass import GlassFrame, advance_rim_pulse, seal_tool_window
 from arelis.ui.icons import window_close_icon
 from arelis.ui.panels.memory import ActiveFactsPanel
 from arelis.ui.theme import GLASS
@@ -68,10 +68,10 @@ class SettingsDialog(QDialog):
         self.setWindowFlags(
             Qt.WindowType.Dialog
             | Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.NoDropShadowWindowHint
             | Qt.WindowType.Window
         )
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
-        self.setAutoFillBackground(False)
+        seal_tool_window(self, round_corners=True)
         self._on_test_mic = on_test_mic
         self._on_test_speak = on_test_speak
         self._on_reset_layout = on_reset_layout
@@ -94,9 +94,10 @@ class SettingsDialog(QDialog):
         panel = GlassFrame(
             self,
             object_name="SettingsGlass",
-            fill_alpha=int(GLASS.get("fill_settings", 200)),
-            radius=float(GLASS.get("radius", 16.0)),
+            fill_alpha=int(GLASS.get("fill_settings", 255)),
+            radius=float(GLASS["radius"]),
             pulse_rim=False,
+            round_cutout=True,
         )
         outer.addWidget(panel)
 
@@ -170,12 +171,20 @@ class SettingsDialog(QDialog):
         vol_row.addWidget(self.volume_slider, stretch=1)
         vol_row.addWidget(self.volume_label)
 
+        # These three read as live switches and are not: the voice service picks
+        # the flags up once, when it is built. Saying so on the control beats
+        # saying so afterwards, which is a report of something already gone
+        # wrong rather than a warning.
+        _restart_note = "takes effect after a restart"
         self.voice_enabled = QCheckBox("Voice features")
         self.voice_enabled.setChecked(bool(voice.get("enabled", True)))
+        self.voice_enabled.setToolTip(f"Turning voice on or off {_restart_note}.")
         self.stt_enabled = QCheckBox("Listen (speech to text)")
         self.stt_enabled.setChecked(bool(stt.get("enabled", True)))
+        self.stt_enabled.setToolTip(f"Turning listening on or off {_restart_note}.")
         self.tts_enabled = QCheckBox("Speak (text to speech)")
         self.tts_enabled.setChecked(bool(tts.get("enabled", True)))
+        self.tts_enabled.setToolTip(f"Turning speech on or off {_restart_note}.")
 
         test_row = QHBoxLayout()
         self.test_mic_btn = QPushButton("Test mic")

@@ -740,6 +740,8 @@ def test_look_and_calendar_are_stale_sms_skips() -> None:
     assert looks_like_stale_sms_skip("Look at this image with vision")
     assert looks_like_stale_sms_skip("Summarize the file I just attached.")
     assert looks_like_stale_sms_skip("What's the git status of this repo?")
+    assert looks_like_stale_sms_skip("Just describe it to me please")
+    assert looks_like_stale_sms_skip("describe that")
     assert not looks_like_stale_sms_skip(
         "text my wife: Arelis allow-deny test - please ignore"
     )

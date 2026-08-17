@@ -31,7 +31,7 @@ from PySide6.QtWidgets import (
 
 from arelis.attachments import stage_files, stage_image_bytes
 from arelis.ui.attach_bar import AttachBar, DropOverlay
-from arelis.ui.glass import GlassFrame
+from arelis.ui.glass import GlassFrame, Hairline
 from arelis.ui.icons import (
     conversation_icon,
     microphone_icon,
@@ -42,7 +42,9 @@ from arelis.ui.notify_overlay import NotifyOverlay
 from arelis.ui.panels.chat import ChatPanel
 from arelis.ui.panels.confirm import ConfirmCard
 from arelis.ui.panels.drive import DriveStrip
+from arelis.ui.panels.room import RoomStrip
 from arelis.ui.stage import paint_corner_ticks
+from arelis.ui.theme import METRICS
 from arelis.ui.void_idle import OrbitCanvas
 
 
@@ -67,7 +69,7 @@ class _ComposerLineEdit(QPlainTextEdit):
         self.setWordWrapMode(QTextOption.WrapMode.WrapAtWordBoundaryOrAnywhere)
         self.document().setDocumentMargin(2)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        self.setFixedHeight(36)
+        self.setFixedHeight(METRICS["control"])
 
     def text(self) -> str:
         return self.toPlainText()
@@ -126,6 +128,7 @@ class ConversationStage(GlassFrame):
     attach_errors = Signal(list)  # list[str] for STATUS / system lines
     idle_conditions_changed = Signal()
     session_clicked = Signal(str)
+    leave_room_requested = Signal()
 
     def __init__(self, default_role: str = "fast", parent=None) -> None:
         super().__init__(
@@ -140,6 +143,11 @@ class ConversationStage(GlassFrame):
         # Gutter so corner ticks sit outside fast / send / chat labels.
         layout.setContentsMargins(22, 14, 22, 16)
         layout.setSpacing(8)
+
+        # Above the transcript: whose conversation this is. Hidden in general.
+        self.room = RoomStrip()
+        layout.addWidget(self.room)
+        self.room.leave_requested.connect(self.leave_room_requested.emit)
 
         self.chat = ChatPanel(embedded=True)
         layout.addWidget(self.chat, stretch=1)
@@ -156,10 +164,7 @@ class ConversationStage(GlassFrame):
         self.drive.resume_requested.connect(self.resume_requested.emit)
         self.drive.stop_requested.connect(self.stop_requested.emit)
 
-        self._hairline = QWidget()
-        self._hairline.setObjectName("VoidHairline")
-        self._hairline.setFixedHeight(1)
-        self._hairline.setStyleSheet("background: rgba(255, 180, 87, 26);")
+        self._hairline = Hairline()
         layout.addWidget(self._hairline)
 
         self.attach_bar = AttachBar()
@@ -178,7 +183,7 @@ class ConversationStage(GlassFrame):
         self.role.addItems(["fast", "research", "code"])
         if default_role in {"fast", "research", "code"}:
             self.role.setCurrentText(default_role)
-        self.role.setFixedHeight(34)
+        self.role.setFixedHeight(METRICS["control"])
         # Fit longest label ("research") — avoid a wide empty popup.
         self.role.setSizeAdjustPolicy(
             QComboBox.SizeAdjustPolicy.AdjustToContents
@@ -201,8 +206,10 @@ class ConversationStage(GlassFrame):
 
         self.input = _ComposerLineEdit()
         self.input.setObjectName("ComposerInput")
-        self.input.setPlaceholderText("what are we working on")
-        self.input.setFixedHeight(36)
+        # Same copy _sync_composer_buttons() settles on, so the two agree. The
+        # idle prompt is the centered VoidIdlePlaceholder label, not this.
+        self.input.setPlaceholderText("message Arelis…")
+        self.input.setFixedHeight(METRICS["control"])
         self.input.image_paste_requested.connect(self._paste_clipboard_image)
         self.input.textChanged.connect(self._on_composer_text)
 
@@ -210,8 +217,8 @@ class ConversationStage(GlassFrame):
         # Dictation is one person filling the composer and never sends on its
         # own; conversation is hands-free and sends when you stop talking.
         # Either can be on, never both.
-        _btn = 34
-        _icon = 24
+        _btn = METRICS["control"]
+        _icon = METRICS["icon"]
         self.attach_btn = QToolButton()
         self.attach_btn.setObjectName("AttachButton")
         self.attach_btn.setIcon(paperclip_icon(_icon))
@@ -299,6 +306,8 @@ class ConversationStage(GlassFrame):
         self._driving = False
         self._idle_mode = False
         self._pulse_phase = 0.0
+        self._wake_acking = False
+        self._ack_saved_placeholder: str | None = None
         self._listen_pulse = QTimer(self)
         self._listen_pulse.setInterval(50)
         self._listen_pulse.timeout.connect(self._tick_listen_pulse)
@@ -541,7 +550,7 @@ class ConversationStage(GlassFrame):
             self.input.setMinimumWidth(0)
             self.input.setMaximumWidth(16777215)
             self.input.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-            self.input.setFixedHeight(36)
+            self.input.setFixedHeight(METRICS["control"])
             self.input.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
             self.input.setClearButtonEnabled(True)
             self._composer.show()
@@ -671,6 +680,46 @@ class ConversationStage(GlassFrame):
         self._set_toggle(self.conversation_btn, active, conversation_icon(24, live=active))
         self._sync_listen_pulse()
 
+    def ack_wake(self) -> None:
+        """Receipt that the doorbell rang: icon flares, copy says listening."""
+        self._wake_acking = True
+        self._pulse_phase = 0.0
+        if not self.conversation_btn.isChecked():
+            self.set_conversing(True)
+        self.conversation_btn.setToolTip("listening")
+        self._apply_listening_copy(True)
+        self._sync_listen_pulse()
+        self._tick_listen_pulse()
+        QTimer.singleShot(1200, self._end_wake_ack)
+
+    def _end_wake_ack(self) -> None:
+        self._wake_acking = False
+        self._apply_listening_copy(False)
+        if self.conversation_btn.isChecked():
+            self.conversation_btn.setToolTip("hands-free conversation (Ctrl+Shift+M)")
+        self._sync_listen_pulse()
+
+    def _apply_listening_copy(self, listening: bool) -> None:
+        empty = getattr(self.chat, "empty", None)
+        if listening:
+            if empty is not None and hasattr(empty, "set_voice_mode"):
+                empty.set_voice_mode("ack")
+            if not self._idle_mode:
+                if self._ack_saved_placeholder is None:
+                    self._ack_saved_placeholder = self.input.placeholderText()
+                self.input.setPlaceholderText("listening")
+            return
+        if empty is not None and hasattr(empty, "set_voice_mode"):
+            if self.conversation_btn.isChecked():
+                empty.set_voice_mode("conversation")
+            elif self.mic_btn.isChecked():
+                empty.set_voice_mode("dictate")
+            else:
+                empty.set_voice_mode("off")
+        if self._ack_saved_placeholder is not None:
+            self.input.setPlaceholderText(self._ack_saved_placeholder)
+            self._ack_saved_placeholder = None
+
     def _set_toggle(self, button: QToolButton, active: bool, icon) -> None:
         button.blockSignals(True)
         button.setChecked(active)
@@ -700,20 +749,24 @@ class ConversationStage(GlassFrame):
             self._listen_pulse.start()
         elif not live and self._listen_pulse.isActive():
             self._listen_pulse.stop()
-            self._hairline.setStyleSheet("background: rgba(255, 180, 87, 26);")
+            self._hairline.rest()
 
     def _tick_listen_pulse(self) -> None:
         if not (self.mic_btn.isChecked() or self.conversation_btn.isChecked()):
             self._listen_pulse.stop()
             return
-        self._pulse_phase += 0.14
-        amp = 0.55 + 0.45 * (0.5 + 0.5 * math.sin(self._pulse_phase))
+        self._pulse_phase += 0.22 if self._wake_acking else 0.14
+        if self._wake_acking:
+            amp = 1.35 + 0.45 * (0.5 + 0.5 * math.sin(self._pulse_phase * 1.6))
+            glow = 110
+        else:
+            amp = 0.55 + 0.45 * (0.5 + 0.5 * math.sin(self._pulse_phase))
+            glow = int(26 + 40 * (amp - 0.55) / 0.45)
         if self.mic_btn.isChecked():
             self.mic_btn.setIcon(microphone_icon(24, live=True, pulse=amp))
         if self.conversation_btn.isChecked():
             self.conversation_btn.setIcon(conversation_icon(24, live=True, pulse=amp))
-        glow = int(26 + 40 * (amp - 0.55) / 0.45)
-        self._hairline.setStyleSheet(f"background: rgba(255, 180, 87, {max(26, min(90, glow))});")
+        self._hairline.set_glow(glow)
 
     def insert_dictation(self, text: str) -> None:
         """Append transcribed speech to the composer without sending it.
