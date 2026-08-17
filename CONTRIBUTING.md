@@ -141,6 +141,9 @@ Do not include attribution to any tool used to write the change.
 
 ## Reporting a bug
 
+A security hole is different: see [SECURITY.md](SECURITY.md) and report it
+privately. Do not open a public issue for that.
+
 Open an issue describing what you did, what you expected and what happened. Logs
 stay on your machine: in `%LOCALAPPDATA%\Arelis\logs` for an installed copy, or
 `logs/` in the repository when running from source. Attach the relevant part if it

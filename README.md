@@ -269,7 +269,9 @@ that is worth an issue rather than an assumption that you did it wrong.
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). One rule matters more than the rest:
+See [CONTRIBUTING.md](CONTRIBUTING.md). To report a security hole, see
+[SECURITY.md](SECURITY.md) and use the private report, not a public issue.
+One rule matters more than the rest:
 nothing that identifies a real person goes in this repository, including in
 test fixtures. That is enforced by a test rather than by trust.
 
