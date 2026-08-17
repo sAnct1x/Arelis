@@ -185,6 +185,10 @@ async def test_ensure_starts_and_waits(tmp_path: Path, monkeypatch) -> None:
     life._process = None
 
 
+@pytest.mark.skipif(
+    __import__("sys").platform != "win32",
+    reason="CREATE_NO_WINDOW exists only on Windows; elsewhere there is no console to hide",
+)
 def test_start_comfy_hides_console_not_detached(monkeypatch, tmp_path: Path) -> None:
     captured: dict = {}
 

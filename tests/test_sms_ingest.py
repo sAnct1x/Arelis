@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import socket
 from pathlib import Path
 
 import httpx
@@ -122,31 +123,40 @@ async def test_ingest_http_server(tmp_path: Path) -> None:
     loop = asyncio.get_running_loop()
     task = asyncio.create_task(bus.run())
     seen = SeenMessageStore(tmp_path / "seen.json")
+    # Asked for rather than hard-coded. The fixed 18765 is the port the phone
+    # talks to, which means a test using it fails whenever a real Arelis is
+    # running on the machine, and on Linux it also collided with its own
+    # previous run: a listening socket sits in TIME_WAIT after close, and
+    # rebinding it without SO_REUSEADDR is refused.
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        probe.bind(("127.0.0.1", 0))
+        port = int(probe.getsockname()[1])
+    base = f"http://127.0.0.1:{port}"
     server = InboundIngestServer(
         bus,
         loop,
         token="test-token",
         host="127.0.0.1",
-        port=18765,
+        port=port,
         seen=seen,
     )
     server.start()
     try:
         async with httpx.AsyncClient() as client:
-            health = await client.get("http://127.0.0.1:18765/inbound/health")
+            health = await client.get(f"{base}/inbound/health")
             assert health.status_code == 200
             assert health.json()["ok"] is True
-            bad = await client.get("http://127.0.0.1:18765/inbound/ping")
+            bad = await client.get(f"{base}/inbound/ping")
             assert bad.status_code == 401
             ping = await client.get(
-                "http://127.0.0.1:18765/inbound/ping",
+                f"{base}/inbound/ping",
                 headers={"X-Arelis-Token": "test-token"},
             )
             assert ping.status_code == 200
             assert ping.json()["ok"] is True
 
             post = await client.post(
-                "http://127.0.0.1:18765/inbound/sms",
+                f"{base}/inbound/sms",
                 headers={"Authorization": "Bearer test-token"},
                 json={
                     "id": "notif:abc",
