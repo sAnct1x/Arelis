@@ -259,3 +259,15 @@ def test_a_cold_launch_cannot_prune_a_rooms_empty_thread(tmp_path: Path) -> None
 
     assert store.get_session(room_thread) is not None
     store.close()
+
+
+def test_cancelled_user_turn_is_omitted_from_the_prompt() -> None:
+    """2.4: stop keeps the bubble, but the next turn must not continue that ask."""
+    memory = SessionMemory()
+    memory.add("user", "Write me five paragraphs about the history of optics")
+    memory.mark_last_user_cancelled()
+    memory.add("user", "what is an if else loop?")
+    prompt = " ".join(m["content"] for m in memory.as_ollama())
+    assert "five paragraphs" not in prompt
+    assert "if else" in prompt
+    assert memory.messages[0].content.startswith("Write me")

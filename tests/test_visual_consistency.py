@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import re
 
+from PySide6.QtWidgets import QPlainTextEdit
+
 from arelis.ui.panels.camera import CameraPanel
 from arelis.ui.panels.conversation import ConversationStage
 from arelis.ui.panels.workspace import WorkspacePanel
@@ -44,6 +46,36 @@ def test_composer_controls_line_up(qt_app) -> None:
         ):
             assert widget.height() == control, widget.objectName()
     finally:
+        stage.deleteLater()
+
+
+def test_workbench_composer_keeps_long_text_after_a_tool_sync(qt_app) -> None:
+    """NoWrap + a one-line height clipped drafts; a tool turn then reset it."""
+    stage = ConversationStage()
+    try:
+        stage.set_idle_mode(False)
+        stage.resize(900, 200)
+        stage.show()
+        qt_app.processEvents()
+        draft = "search for interferometry videos and tell me the top three " * 6
+        stage.input.setText(draft)
+        stage.input.setCursorPosition(len(draft))
+        qt_app.processEvents()
+        assert stage.input.toPlainText() == draft
+        assert (
+            stage.input.lineWrapMode()
+            == QPlainTextEdit.LineWrapMode.WidgetWidth
+        )
+        assert stage.input.height() >= METRICS["control"]
+        # Same hammer a tool start / Allow / ASSISTANT_DONE used to apply.
+        stage.set_busy(True)
+        stage.set_idle_mode(False)
+        stage.set_busy(False)
+        qt_app.processEvents()
+        assert stage.input.toPlainText() == draft
+        assert stage.input.textCursor().position() > 0
+    finally:
+        stage.hide()
         stage.deleteLater()
 
 
@@ -109,6 +141,17 @@ def test_every_colour_in_the_stylesheet_came_from_a_token() -> None:
         found for found in emitted if re.sub(r"\s+", "", found).lower() not in known
     }
     assert not stray, f"colours with no token behind them: {sorted(stray)}"
+
+
+def test_native_lists_and_dock_tabs_use_opaque_ember() -> None:
+    """Translucent QSS on QTabBar/QListWidget is how Windows grey leaks in."""
+    from arelis.ui.theme import dock_tab_bar_qss
+
+    qss = stylesheet()
+    assert "#SettingsList" in qss
+    dock = dock_tab_bar_qss()
+    assert COLORS["tab_selected"] in dock
+    assert COLORS["raised"] in dock
 
 
 def test_one_corner_radius(qt_app) -> None:

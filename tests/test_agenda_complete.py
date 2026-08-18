@@ -7,6 +7,8 @@ from datetime import datetime
 from arelis.core.agenda_complete import (
     complete_agenda_draft,
     fill_agenda_args,
+    looks_like_calendar_create,
+    looks_like_calendar_read,
     normalize_agenda_start,
     parse_agenda_utterance,
 )
@@ -162,6 +164,20 @@ def test_calendar_read_does_not_need_google_id() -> None:
         "Delete the Arelis operator e2e calendar event",
     )
     assert locked.get("keep") == 0
+
+
+def test_put_quoted_title_on_calendar_is_create_not_read() -> None:
+    """10.2: 'Put TITLE on my calendar' must create once, not list tomorrow."""
+    ask = "Put 'Arelis test event' on my calendar for tomorrow at 3pm."
+    assert looks_like_calendar_create(ask)
+    assert not looks_like_calendar_read(ask)
+    draft = complete_agenda_draft(ask)
+    assert draft is not None and draft.complete
+    assert draft.summary == "Arelis test event"
+    start = datetime.fromisoformat(draft.start)
+    assert start.hour == 15
+    delta = (start.date() - datetime.now().astimezone().date()).days
+    assert delta == 1
 
 
 def test_parse_two_weeks_from_today_at_3pm() -> None:

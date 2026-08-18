@@ -587,6 +587,9 @@ _LOOK_OR_FILE = re.compile(
     r"with vision|"
     r"ocr this|"
     r"describe (?:the|this|that) (?:image|file|diagram|picture|photo)|"
+    r"what(?:'s| is) in (?:this|the|that) (?:image|screenshot|photo|picture|pic)|"
+    r"what in this|"
+    r"what's in this|"
     r"summarize (?:the|this|that) file|"
     r"git status|"
     r"what(?:'s| is) on my clipboard|"
@@ -667,7 +670,15 @@ def looks_like_closing_chitchat(text: str) -> bool:
 
 def looks_like_image_gen(text: str) -> bool:
     """True when the utterance is Comfy/image generate, not an SMS body."""
-    return bool(_IMAGE_GEN.search(text or ""))
+    raw = text or ""
+    from arelis.attachments import split_attachments_turn, wants_image_edit
+
+    _block, ask = split_attachments_turn(raw)
+    check = ask or raw
+    # Edit phrasing ("make this more vibrant") must not count as generate.
+    if wants_image_edit(check):
+        return False
+    return bool(_IMAGE_GEN.search(check))
 
 
 def looks_like_browser_or_url(text: str) -> bool:

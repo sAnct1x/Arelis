@@ -2,15 +2,25 @@
 
 from __future__ import annotations
 
+import pytest
+
 from arelis.contacts import Contact, normalize_phone
 from arelis.core.email_complete import (
     complete_email_draft,
+    draft_schedule_briefing_args,
     fill_send_email_args,
+    looks_like_bare_confirm,
     parse_email_utterance,
     resolve_email_address,
+    rewrite_schedule_calls,
 )
 from arelis.core.memory import ChatMessage
 from arelis.core.preflight import detect_intents
+
+
+@pytest.fixture(autouse=True)
+def _no_standing_inbox(monkeypatch) -> None:
+    monkeypatch.setattr("arelis.profile.load_profile_email", lambda **k: "")
 
 
 def _book(**people: dict) -> dict[str, Contact]:
@@ -225,6 +235,105 @@ def test_analyze_json_does_not_revive_compose_email() -> None:
     kinds = [h.kind for h in hints]
     assert "compose_email" not in kinds
     assert "analyze" in kinds
+
+
+def test_email_me_quoted_subject_comma_body(monkeypatch) -> None:
+    """9.3: subject 'X', body 'Y' (comma) and me → the user's inbox."""
+    monkeypatch.setattr(
+        "arelis.profile.load_profile_email", lambda **k: "you@example.com"
+    )
+    ask = "Email me a test: subject 'Arelis test', body 'this is a test'."
+    draft = parse_email_utterance(ask)
+    assert draft is not None
+    assert draft.tool_subject == "Arelis test"
+    assert "this is a test" in draft.tool_body.lower()
+    assert "email me a test" not in draft.tool_body.lower()
+    assert draft.tool_to == "you@example.com"
+    filled = fill_send_email_args({}, draft)
+    assert filled["to"] == "you@example.com"
+    assert filled["subject"] == "Arelis test"
+
+
+def test_email_me_does_not_use_smtp_from(monkeypatch) -> None:
+    """'me' is the user, not the Gmail Arelis sends from."""
+    from arelis.mail import MailAccount
+
+    monkeypatch.setattr("arelis.profile.load_profile_email", lambda **k: "")
+    monkeypatch.setattr(
+        "arelis.mail.load_account",
+        lambda path=None: MailAccount(
+            address="bot@example.com",
+            password="x",
+            default_recipient="",
+        ),
+    )
+    assert resolve_email_address("me") == ""
+    monkeypatch.setattr(
+        "arelis.mail.load_account",
+        lambda path=None: MailAccount(
+            address="bot@example.com",
+            password="x",
+            default_recipient="you@example.com",
+        ),
+    )
+    assert resolve_email_address("me") == "you@example.com"
+
+
+def test_subject_colon_body_colon_splits() -> None:
+    draft = parse_email_utterance(
+        "email you@example.com subject: test, body: just a test"
+    )
+    assert draft is not None
+    assert draft.tool_subject == "test"
+    assert "just a test" in draft.tool_body
+    assert "subject" not in draft.tool_body.lower()
+
+
+def test_recurring_weather_email_is_a_scheduled_job() -> None:
+    """11.1: every day at 7am is a scheduled job, not send_email this turn."""
+    ask = "Every day at 7am, email me a summary of the weather."
+    assert complete_email_draft(ask) is None
+    assert parse_email_utterance(ask) is None
+    hints = detect_intents(ask)
+    tools = {t for h in hints for t in h.expected_tools}
+    kinds = [h.kind for h in hints]
+    assert "schedule" in tools
+    assert "send_email" not in tools
+    assert "weather" not in tools
+    assert "compose_email" not in kinds
+    from arelis.core.skills import select_skill_ids
+
+    ids = select_skill_ids(
+        ask,
+        available_tools={"schedule", "send_email", "weather", "inbox"},
+    )
+    assert "schedule" in ids
+    args = draft_schedule_briefing_args(ask)
+    assert args["action"] == "create_briefing"
+    assert args["time"] == "7am"
+    rewritten = rewrite_schedule_calls(
+        ask,
+        [("schedule", {"action": "create", "prompt": "weather", "time": "7am"})],
+        schedule_used=False,
+        schedule_available=True,
+    )
+    assert rewritten == [("schedule", args)]
+    confirm = rewrite_schedule_calls(
+        "confirm",
+        [("schedule", {"action": "run_now", "id": "daily-weather-summary"})],
+        schedule_used=True,
+        schedule_available=True,
+    )
+    assert confirm == []
+    assert looks_like_bare_confirm("confirm")
+    assert looks_like_bare_confirm("yes")
+    assert not looks_like_bare_confirm("confirm the weather job for friday")
+
+
+def test_non_recurring_email_me_a_test_still_drafts() -> None:
+    draft = complete_email_draft("email me a test saying hello")
+    assert draft is not None
+    assert draft.complete
 
 
 def test_analyze_followup_does_not_complete_pending_email() -> None:

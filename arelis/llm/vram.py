@@ -7,6 +7,7 @@ are stopped here; Ollama eviction lives on the router.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -22,26 +23,28 @@ _HEAVY_BLOCK_DEDICATED_BYTES = 5 * 1024**3
 
 
 async def free_gpu_neighbors(config: dict[str, Any], bus: EventBus | None) -> None:
-    """Stop Arelis-owned GPU neighbors (Comfy) before loading 14B."""
+    """Park Comfy before loading a heavy chat model so the user does not."""
     try:
-        from arelis.tools.comfy_lifecycle import comfy_is_healthy, stop_comfy
+        from arelis.tools.comfy_lifecycle import comfy_is_healthy, park_comfy
     except Exception:
         return
     image = (config.get("tools") or {}).get("image") or {}
     url = str(image.get("comfy_url") or "http://127.0.0.1:8188")
     stopped = False
     try:
-        stopped = bool(stop_comfy())
+        stopped = bool(park_comfy(url))
     except Exception:
-        log.warning("Could not stop ComfyUI before a heavy model load", exc_info=True)
-    if bus is not None and stopped:
-        await bus.publish(
-            Event(
-                EventType.STATUS,
-                {"message": "Stopped ComfyUI so the research model can use the GPU."},
+        log.warning("Could not park ComfyUI before a heavy model load", exc_info=True)
+    if stopped:
+        # AMD/Windows can take a beat to actually release the allocation.
+        await asyncio.sleep(2.0)
+        if bus is not None:
+            await bus.publish(
+                Event(
+                    EventType.STATUS,
+                    {"message": "Parked ComfyUI so the model can use the GPU."},
+                )
             )
-        )
-        return
     try:
         still = bool(comfy_is_healthy(url, timeout_s=1.0))
     except Exception:
@@ -52,8 +55,8 @@ async def free_gpu_neighbors(config: dict[str, Any], bus: EventBus | None) -> No
                 EventType.STATUS,
                 {
                     "message": (
-                        "ComfyUI is still using the GPU. Close it if the "
-                        "research model fails to load."
+                        "ComfyUI is still on the GPU after parking. Close games "
+                        "or extra Chrome if the model fails to load."
                     )
                 },
             )
@@ -82,5 +85,5 @@ def host_vram_blocks_heavy(dedicated_bytes: int | None) -> str | None:
     gib = dedicated_bytes / (1024**3)
     return (
         f"GPU still has {gib:.1f} GB dedicated in use after unloading Ollama. "
-        "Close ComfyUI, games, or extra Chrome, then try again."
+        "Close games or extra Chrome, then try again."
     )

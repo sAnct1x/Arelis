@@ -117,6 +117,18 @@ def test_same_open_url_treats_slash_as_same() -> None:
     assert _same_open_url("https://x.com/", "https://x.com")
     assert not _same_open_url("about:blank", "https://x.com")
     assert not _same_open_url("https://x.com/", "https://youtube.com")
+    assert not _same_open_url(
+        "https://www.youtube.com/",
+        "https://www.youtube.com/results?search_query=interferometry",
+    )
+    assert not _same_open_url(
+        "https://www.youtube.com/results?search_query=interferometry",
+        "https://www.youtube.com/",
+    )
+    assert _same_open_url(
+        "https://www.youtube.com/results?search_query=interferometry",
+        "https://www.youtube.com/results?search_query=interferometry",
+    )
 
 
 def test_window_placement_sits_beside_not_on_top() -> None:
@@ -611,6 +623,9 @@ def test_browser_read_preflight() -> None:
     assert not any(h.kind == "browser_vision" for h in hints)
     shot = detect_intents("Screenshot this page and tell me what you see")
     assert any(h.kind == "browser_vision" for h in shot)
+    aloud = detect_intents("read this page to me")
+    assert any(h.kind == "browser_read" for h in aloud)
+    assert not any(h.kind == "browser_vision" for h in aloud)
 
 
 def test_maps_directions_url_and_phone_link() -> None:
@@ -760,6 +775,58 @@ def test_browser_reserve_preflight() -> None:
     assert "Book" in hint.nudge
     # Calendar create must not steal a table ask.
     assert not any(h.kind == "browser_reserve" for h in detect_intents("take me to x.com"))
+
+
+def test_click_sign_in_preflight_is_snapshot_not_a_fake_action() -> None:
+    hints = detect_intents("go to sign in")
+    assert any(h.kind == "browser_click" for h in hints)
+    hint = next(h for h in hints if h.kind == "browser_click")
+    assert hint.expected_tools == ("browser",)
+    assert "action=snapshot" in hint.nudge
+    assert "click" in hint.nudge.lower()
+    click = detect_intents("click on the sign in the top right corner")
+    assert any(h.kind == "browser_click" for h in click)
+    assert any(h.kind == "browser_click" for h in detect_intents("take me to the login"))
+    assert any(h.kind == "browser_click" for h in detect_intents("sign me in"))
+
+
+def test_invented_sign_in_action_becomes_snapshot() -> None:
+    session = BrowserSession.fake()
+    tool = BrowserTool(session)
+
+    async def _run() -> None:
+        opened = await tool.run(action="open", url="youtube")
+        assert opened.ok
+        got = await tool.run(action="goto_sign_in")
+        assert got.ok
+        assert "no action" in got.output.lower()
+        assert "goto_sign_in" in got.output
+        unknown = await tool.run(action="teleport")
+        assert not unknown.ok
+        assert "Unknown action" in unknown.output
+
+    asyncio.run(_run())
+
+
+def test_snapshot_picks_header_sign_in_not_sidebar_pitch() -> None:
+    from arelis.core.preflight import draft_signin_click_args
+
+    session = BrowserSession.fake()
+    tool = BrowserTool(session)
+
+    async def _run() -> None:
+        opened = await tool.run(action="open", url="youtube")
+        assert opened.ok
+        snap = await tool.run(action="snapshot")
+        assert snap.ok
+        inj = draft_signin_click_args(snap.output)
+        assert inj == {"action": "click", "ref": "e11"}
+        clicked = await tool.run(**inj)
+        assert clicked.ok
+        assert "e11" in clicked.output
+        assert "e11" in getattr(session._driver, "clicked", [])
+
+    asyncio.run(_run())
 
 
 def test_browser_session_close_is_idempotent() -> None:

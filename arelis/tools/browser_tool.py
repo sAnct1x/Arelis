@@ -10,6 +10,7 @@ from uuid import uuid4
 
 from arelis.browser.aliases import resolve_target
 from arelis.browser.session import BrowserSession
+from arelis.core.preflight import rewrite_browser_action
 from arelis.paths import display_path as _project_rel
 from arelis.paths import outputs_dir
 from arelis.tools.base import ToolResult
@@ -62,6 +63,9 @@ class BrowserTool:
         "Prefer search when they ask to look something up on YouTube / "
         "Google / Amazon in her window. Add to cart is fine; stop before "
         "Checkout / Pay / Buy now. "
+        "Sign in on the current page: snapshot, then click Sign in by ref. "
+        "There is no goto_sign_in action. Username they provide can be typed "
+        "into a non-secret field; never type passwords or OTP. "
         "Prefer reserve when they ask to book a table / make a reservation. "
         "That opens OpenTable (or Resy / Google) with party, date, and time "
         "filled in the URL. Type remaining non-secret fields. Never click "
@@ -213,6 +217,15 @@ class BrowserTool:
         action = str(kwargs.get("action") or "").strip().lower()
         browser = str(kwargs.get("browser") or "default").strip().lower()
         private = bool(kwargs.get("private"))
+        rewritten = rewrite_browser_action(action)
+        invented_note = ""
+        if rewritten is not None:
+            invented_note = (
+                f"There is no action {action!r}. Snapshot of the current tab. "
+                "Next: click the Sign in / Log in control by ref. Do not invent "
+                "a receipt. Password/OTP fields are their turn."
+            )
+            action = rewritten
         if action not in _ACTIONS:
             return ToolResult(
                 ok=False,
@@ -248,10 +261,23 @@ class BrowserTool:
         if action == "snapshot":
             ensured = await self._ensure(browser, private)
             if not ensured.ok:
+                if invented_note:
+                    return ToolResult(
+                        ok=False,
+                        output=invented_note + "\n" + (ensured.output or ""),
+                        data=dict(ensured.data or {}),
+                    )
                 return ensured
             result = await self.session.snapshot()
             self._emit("browser_snapshot", ok=result.ok)
-            return _to_tool(result)
+            tool = _to_tool(result)
+            if invented_note:
+                return ToolResult(
+                    ok=tool.ok,
+                    output=invented_note + "\n" + (tool.output or ""),
+                    data=dict(tool.data or {}),
+                )
+            return tool
 
         if action == "read":
             ensured = await self._ensure(browser, private)
@@ -409,11 +435,16 @@ class BrowserTool:
             self._emit("browser_search", query=query, site=site, ok=opened.ok)
             if not opened.ok:
                 return opened
-            extra = (
-                f"\n\nSearch ({site}): {query}\n"
-                "Snapshot or read if you need to click a result. "
-                "Add to cart is fine. Stop before Checkout / Pay / Buy now."
+            tab = await self.session.read()
+            extra_parts = [f"Search ({site}): {query}"]
+            if tab.ok and (tab.output or "").strip():
+                extra_parts.append(tab.output.strip())
+            extra_parts.append(
+                "Answer from this tab. Snapshot or click a result if they "
+                "asked to open one. Add to cart is fine. Stop before "
+                "Checkout / Pay / Buy now."
             )
+            extra = "\n\n" + "\n\n".join(extra_parts)
             data = dict(opened.data or {})
             data.update({"search_url": url, "query": query, "site": site})
             return ToolResult(

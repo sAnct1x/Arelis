@@ -86,6 +86,21 @@ def test_receipt_browser_and_research_report() -> None:
     assert rr["path"].endswith(".md")
 
 
+def test_receipt_schedule_create_includes_job_id() -> None:
+    r = action_receipt(
+        "schedule",
+        ok=True,
+        args={"action": "create_briefing", "name": "Daily Weather Summary", "time": "7am"},
+        data={"id": "daily-weather-summary", "name": "Daily Weather Summary"},
+    )
+    assert r is not None
+    assert r["action"] == "schedule.create_briefing"
+    assert "id=daily-weather-summary" in r["ids"]
+    line = format_action_receipt(r)
+    assert "daily-weather-summary" in line
+    assert action_receipt("schedule", ok=True, args={"action": "list"}) is None
+
+
 def test_append_action_ledger(tmp_path: Path) -> None:
     path = tmp_path / "ledger.jsonl"
     r = action_receipt(

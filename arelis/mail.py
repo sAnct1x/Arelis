@@ -46,12 +46,35 @@ class MailAccount:
     default_recipient: str = ""
 
     def recipient(self, requested: str = "") -> str:
-        """Where a message goes when the caller did not say.
+        """Where a message goes when the caller did not name someone else.
 
-        Falls back to the user's own address, so a job created without a
-        recipient mails them rather than failing at 7pm.
+        "Email me" and jobs with a blank recipient use the user's inbox
+        (profile ``user.email`` or ``default_recipient``), never the SMTP
+        from-address. That from-address is Arelis — a future user saying
+        "email me" must not land in her mailbox.
         """
-        return (requested or self.default_recipient or self.address).strip()
+        asked = (requested or "").strip()
+        if asked:
+            return asked
+        return owner_inbox(self)
+
+
+def owner_inbox(account: MailAccount | None = None) -> str:
+    """The human's inbox: profile email, then default_recipient. Not SMTP from."""
+    from arelis.profile import load_profile_email
+
+    profile = (load_profile_email() or "").strip()
+    if profile and valid_address(profile):
+        return profile
+    acc = account
+    if acc is None:
+        acc = load_account()
+    if acc is None:
+        return ""
+    rec = (acc.default_recipient or "").strip()
+    if rec and valid_address(rec):
+        return rec
+    return ""
 
 
 def load_account(path: Path | None = None) -> MailAccount | None:

@@ -62,7 +62,7 @@ _WITH_SUBJECT = re.compile(
 # listed explicitly alongside the straight forms.
 _QUOTED_SUBJECT_BODY = re.compile(
     r"(?i)\b(?:with\s+)?subject\s*[:=]?\s*[\"'“”‘’](?P<subject>[^\"'“”‘’]+)[\"'“”‘’]"  # noqa: RUF001
-    r"(?:\s+and)?\s+body\s*[:=]?\s*[\"'“”‘’](?P<body>[^\"'“”‘’]+)[\"'“”‘’]"  # noqa: RUF001
+    r"(?:\s*,)?(?:\s+and)?\s+body\s*[:=]?\s*[\"'“”‘’](?P<body>[^\"'“”‘’]+)[\"'“”‘’]"  # noqa: RUF001
 )
 
 _FILE_PATH = re.compile(
@@ -83,6 +83,113 @@ _COMPOSE_EMAIL_SHAPE = re.compile(
     r"e-?mail|send\s+(?:an?\s+)?(?:e-?mail|mail)|compose\s+(?:an?\s+)?(?:e-?mail|mail)"
     r")\b"
 )
+
+# Recurring / "at 7am every day" is a Windows job, not a send this turn.
+_SCHEDULED_SEND = re.compile(
+    r"(?i)\b("
+    r"every\s+day|"
+    r"every\s+morning|"
+    r"every\s+evening|"
+    r"every\s+weekday|"
+    r"each\s+day|"
+    r"once\s+a\s+day|"
+    r"daily\s+at|"
+    r"schedule\s+a\s+(?:job|briefing|task)|"
+    r"recurring"
+    r")\b"
+)
+_SCHEDULED_SEND_PAYLOAD = re.compile(
+    r"(?i)\b(e-?mail|mail|text|sms|briefing|weather|summary|digest)\b"
+)
+
+
+def looks_like_scheduled_send(text: str) -> bool:
+    """True when they asked to mail/text later on a timer, not send now."""
+    raw = text or ""
+    if not _SCHEDULED_SEND.search(raw):
+        return False
+    if _SCHEDULED_SEND_PAYLOAD.search(raw):
+        return True
+    return bool(re.search(r"(?i)\bschedule\s+a\s+(?:job|briefing|task)\b", raw))
+
+
+_BARE_CONFIRM = re.compile(
+    r"(?i)^\s*(confirm|yes|yeah|yep|ok|okay|do it|please do|go ahead)\.?\s*$"
+)
+_SCHEDULE_TIME = re.compile(
+    r"(?i)\b(?:at\s+)?(\d{1,2}(?::\d{2})?\s*(?:a\.?m\.?|p\.?m\.?))\b"
+)
+
+
+def looks_like_bare_confirm(text: str) -> bool:
+    """A one-word 'confirm' after Allow already created the job — not run_now."""
+    return bool(_BARE_CONFIRM.match(text or ""))
+
+
+def draft_schedule_briefing_args(text: str) -> dict[str, str]:
+    """schedule(action=create_briefing) from 'every day at 7am, email me weather'."""
+    raw = text or ""
+    time_s = "7am"
+    match = _SCHEDULE_TIME.search(raw)
+    if match:
+        time_s = re.sub(r"\s+", "", match.group(1))
+    name = "Morning briefing"
+    if re.search(r"(?i)\bweather\b", raw):
+        name = "Daily Weather Summary"
+    days = "daily"
+    if re.search(r"(?i)\bweekday", raw):
+        days = "weekdays"
+    return {
+        "action": "create_briefing",
+        "time": time_s,
+        "days": days,
+        "name": name,
+    }
+
+
+def rewrite_schedule_calls(
+    text: str,
+    calls: list[tuple[str, dict[str, Any]]],
+    *,
+    schedule_used: bool,
+    schedule_available: bool,
+) -> list[tuple[str, dict[str, Any]]]:
+    """Force create_briefing for a timer ask; never treat 'confirm' as run_now."""
+    if looks_like_bare_confirm(text):
+        return [
+            (name, args)
+            for name, args in calls
+            if not (
+                name == "schedule"
+                and str((args or {}).get("action") or "").lower() == "run_now"
+            )
+        ]
+    if not looks_like_scheduled_send(text) or not schedule_available:
+        return calls
+    drafted = draft_schedule_briefing_args(text)
+    out: list[tuple[str, dict[str, Any]]] = []
+    saw_schedule = False
+    for name, args in calls:
+        if name in {"weather", "send_email"}:
+            continue
+        if name != "schedule":
+            out.append((name, args))
+            continue
+        saw_schedule = True
+        action = str((args or {}).get("action") or "").lower()
+        if action == "run_now":
+            continue
+        if action in {"create", "create_briefing", ""}:
+            merged = dict(drafted)
+            given = str((args or {}).get("name") or "").strip()
+            if given:
+                merged["name"] = given
+            out.append(("schedule", merged))
+        else:
+            out.append((name, args))
+    if not saw_schedule and not schedule_used:
+        out.append(("schedule", drafted))
+    return out
 
 
 _ABOUT_SUBJECT = re.compile(
@@ -192,7 +299,7 @@ class EmailDraft:
             return self.resolved_to
         raw = self.to.strip()
         if not raw or raw.lower() in _SELF_TO:
-            return ""
+            return _self_email()
         raw = repair_email_address(raw)
         if valid_address(raw):
             return raw
@@ -271,13 +378,20 @@ def _clean_text(raw: str) -> str:
     return text
 
 
+def _self_email() -> str:
+    """The user's inbox for me/myself/empty — never Arelis's SMTP from-address."""
+    from arelis.mail import owner_inbox
+
+    return owner_inbox()
+
+
 def resolve_email_address(
     to: str, contacts: dict[str, Contact] | None = None
 ) -> str:
     """Map a spoken name or address to a usable send_email `to` value."""
     raw = _clean_to(to)
     if not raw or raw.lower() in _SELF_TO:
-        return ""
+        return _self_email()
     raw = repair_email_address(raw)
     if valid_address(raw):
         return raw
@@ -419,6 +533,8 @@ def parse_email_utterance(text: str) -> EmailDraft | None:
     """Parse a single user utterance into an email draft (maybe incomplete)."""
     raw = (text or "").strip()
     if not raw:
+        return None
+    if looks_like_scheduled_send(raw):
         return None
     attach = _extract_file_path(raw)
 
@@ -715,6 +831,8 @@ def complete_email_draft(
 ) -> EmailDraft | None:
     """Best draft for this turn: current utterance, or fields merged from history."""
     book = contacts if contacts is not None else load_contacts()
+    if looks_like_scheduled_send(user_text):
+        return None
     if _looks_like_analyze_file_ask(user_text):
         return None
     current = parse_email_utterance(user_text)

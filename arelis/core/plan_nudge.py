@@ -137,6 +137,7 @@ _BROWSER_SEARCH = re.compile(
     r"search\s+(?:on\s+|for\s+)?(?:youtube|yt)|"
     r"search\s+youtube|"
     r"search\s+google\s+for|"
+    r"search\s+for\s+.{0,80}\bvideos?\b|"
     r"add\s+(?:it\s+|that\s+|this\s+)?to\s+(?:(?:the|my)\s+)?(?:cart|bag)"
     r")\b"
 )
@@ -158,6 +159,24 @@ _BROWSER_READ = re.compile(
     r"what(?:'s|\s+is)\s+on\s+(?:this|the|my)\s+(?:tab|page)|"
     r"what\s+does\s+(?:this|the)\s+(?:tab|page)\s+say"
     r")\b"
+)
+
+_LOGIN_NOUN = r"(?:sign[\s-]?in|log[\s-]?in|login)"
+_BROWSER_CLICK_SIGNIN = re.compile(
+    r"(?i)\b("
+    r"(?:click|press|tap)\s+(?:on\s+)?(?:the\s+)?" + _LOGIN_NOUN + r"|"
+    r"(?:go|navigate|take\s+me|bring\s+me)\s+to\s+(?:the\s+)?" + _LOGIN_NOUN + r"|"
+    r"open\s+(?:the\s+)?" + _LOGIN_NOUN + r"|"
+    r"proceed\s+with\s+(?:sign(?:ing)?|log(?:ging)?)[\s-]?in|"
+    r"sign\s+me\s+in|"
+    r"log\s+me\s+in"
+    r")\b"
+)
+_HOWTO_SIGNIN = re.compile(
+    r"(?i)\bhow\s+(?:do\s+i|to)\s+(?:sign|log)\s*in\b"
+)
+_BARE_SIGNIN = re.compile(
+    r"(?i)^\s*(?:please\s+)?(?:sign|log)\s*in\s*[.!?]*$"
 )
 
 _CLIPBOARD = re.compile(
@@ -392,8 +411,21 @@ _PLAN_BROWSER_READ = PlanSpec(
     message=(
         "Plan: 1) browser(action=read) on the tab she is on (Allow). "
         "That is compact text of the open page, not scrape. "
-        "2) Answer from that text. Do not invent page contents. "
+        "2) Answer from that text as it is now. Do not recap a previous "
+        "search list unless the read still shows those titles. "
         "Use screenshot+vision only if they asked to see pixels."
+    ),
+    steps=("browser",),
+)
+
+_PLAN_BROWSER_CLICK = PlanSpec(
+    id="browser_click",
+    message=(
+        "Plan: 1) browser(action=snapshot) on the tab she is on (Allow). "
+        "2) browser(action=click, ref=…) on Sign in / Log in. "
+        "There is no goto_sign_in action. Do not invent a URL or a receipt. "
+        "Username they give can go in a non-secret field. Never type a "
+        "password or OTP — that is their turn."
     ),
     steps=("browser",),
 )
@@ -515,6 +547,12 @@ def select_plan(
 
     if raw and _BROWSER_READ.search(raw) and "screenshot" not in raw.lower():
         return _PLAN_BROWSER_READ
+
+    if raw and (
+        (_BROWSER_CLICK_SIGNIN.search(raw) or _BARE_SIGNIN.match(raw))
+        and not _HOWTO_SIGNIN.search(raw)
+    ):
+        return _PLAN_BROWSER_CLICK
 
     if (
         "browser" in skills

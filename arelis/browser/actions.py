@@ -122,14 +122,25 @@ _FAKE_PNG = (
 
 
 def _same_open_url(current: str, wanted: str) -> bool:
-    """True when the tab is already on this open target (ignore trailing slash)."""
-    a = (current or "").strip().rstrip("/").lower()
-    b = (wanted or "").strip().rstrip("/").lower()
+    """True when the tab is already on this open target (ignore trailing slash).
+
+    A results URL is not the site home: youtube.com must not count as already
+    being /results?search_query=…, and opening youtube.com while already on
+    /results must navigate.
+    """
+    a = (current or "").strip().lower()
+    b = (wanted or "").strip().lower()
     if not a or not b:
         return False
     if a.startswith("chrome://") or a.startswith("about:"):
         return False
-    return a == b or a.startswith(b + "/") or b.startswith(a + "/")
+    a_base, _, a_q = a.partition("?")
+    b_base, _, b_q = b.partition("?")
+    a_base = a_base.rstrip("/")
+    b_base = b_base.rstrip("/")
+    if b_q:
+        return a_base == b_base and a_q == b_q
+    return a_base == b_base
 
 
 # Glow beat before click. Tests set this to 0.
@@ -331,6 +342,18 @@ class FakeDriver:
                 tag="button",
                 role="button",
                 text="Pay",
+            ),
+            "e11": ElementInfo(
+                ref="e11",
+                tag="button",
+                role="button",
+                text="Sign in",
+            ),
+            "e24": ElementInfo(
+                ref="e24",
+                tag="button",
+                role="button",
+                text="Sign in to like videos, comment, and subscribe",
             ),
         }
         # Optional extra signals for tests: {"recaptcha": True} etc.

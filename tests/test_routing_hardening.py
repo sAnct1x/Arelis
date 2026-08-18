@@ -387,6 +387,20 @@ def test_hide_daily_wander_drops_browser_on_tasks() -> None:
     assert "send_sms" not in out_sms
 
 
+def test_hide_daily_wander_drops_web_search_on_browser() -> None:
+    from arelis.core.agent_loop import _hide_daily_wander
+
+    out = _hide_daily_wander(
+        {"browser", "web_search", "scrape", "web_fetch", "research_report", "weather"},
+        {"browser"},
+    )
+    assert "browser" in out
+    assert "web_search" not in out
+    assert "scrape" not in out
+    assert "web_fetch" not in out
+    assert "research_report" not in out
+
+
 # ---------------------------------------------------------------------------
 # AgentLoop: first wrong tool injects the daily tool (clunk board)
 # ---------------------------------------------------------------------------
@@ -538,6 +552,35 @@ async def test_weather_web_search_injects_weather_same_turn() -> None:
     assert search.calls == []
     assert weather.calls
     assert "inject  weather from intent" in thinking
+
+
+@pytest.mark.asyncio
+async def test_video_search_web_search_injects_browser_same_turn() -> None:
+    browser = _Stub("browser")
+    search = _Stub("web_search")
+    scrape = _Stub("scrape")
+    starts, thinking = await _run_clunk(
+        "Search for interferometry videos and tell me the top three results.",
+        [browser, search, scrape],
+        [
+            [
+                (
+                    "tool_calls",
+                    [_native("web_search", {"query": "interferometry videos"})],
+                )
+            ],
+            [("token", "Here are three videos from the YouTube tab.")],
+        ],
+        {"scrape_after_search": True},
+    )
+    assert starts == ["browser"]
+    assert search.calls == []
+    assert scrape.calls == []
+    assert browser.calls
+    assert browser.calls[0].get("action") == "search"
+    assert "youtube" in str(browser.calls[0].get("site") or "").lower()
+    assert "tell me" not in str(browser.calls[0].get("query") or "").lower()
+    assert "inject  browser from intent" in thinking
 
 
 @pytest.mark.asyncio

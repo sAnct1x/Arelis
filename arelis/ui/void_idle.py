@@ -71,11 +71,24 @@ class OrbitCanvas(QWidget):
         self.setFixedSize(self._box, self._box)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._angle = 0.0
         self._beat = 0.0
+        self._thinking = False
         self._timer = QTimer(self)
         self._timer.setInterval(40)
         self._timer.timeout.connect(self._tick)
+
+    def set_thinking(self, on: bool) -> None:
+        """Brighter, slower breath while a turn is in flight — never hide/show."""
+        want = bool(on)
+        if want == self._thinking:
+            return
+        self._thinking = want
+        self._dim = 0.92 if want else 0.42
+        if want and not self._timer.isActive():
+            self._timer.start()
+        self.update()
 
     def set_animating(self, on: bool) -> None:
         if on:
@@ -86,8 +99,10 @@ class OrbitCanvas(QWidget):
             self.update()
 
     def _tick(self) -> None:
-        self._angle = (self._angle + 360.0 * 0.04 / 14.0) % 360.0
-        self._beat = (self._beat + 0.04 / 3.2) % 1.0
+        step = 0.03 if self._thinking else 0.04
+        period = 4.8 if self._thinking else 3.2
+        self._angle = (self._angle + 360.0 * step / 14.0) % 360.0
+        self._beat = (self._beat + step / period) % 1.0
         self.update()
 
     def paintEvent(self, event: QPaintEvent) -> None:

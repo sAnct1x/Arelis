@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import sys
 from pathlib import Path
 
 import arelis.logging_setup as logging_setup
@@ -31,3 +32,25 @@ def test_configure_logging_is_idempotent(tmp_path: Path, monkeypatch) -> None:
     before = len(logging.getLogger().handlers)
     logging_setup.configure_logging(tmp_path)
     assert len(logging.getLogger().handlers) == before
+
+
+def test_uncaught_exception_lands_in_the_log(tmp_path: Path, monkeypatch) -> None:
+    """pythonw has no console; the hook is what makes a silent crash visible."""
+    monkeypatch.setattr(logging_setup, "_configured", False)
+    monkeypatch.setattr(logging_setup.sys.stderr, "isatty", lambda: False)
+
+    logging_setup.configure_logging(tmp_path)
+    previous = sys.excepthook
+    monkeypatch.setattr(sys, "__excepthook__", lambda *args: None)
+    try:
+        logging_setup.install_unhandled_hook()
+        try:
+            raise RuntimeError("silent pythonw death")
+        except RuntimeError:
+            sys.excepthook(*sys.exc_info())
+    finally:
+        sys.excepthook = previous
+
+    text = (tmp_path / "arelis.log").read_text(encoding="utf-8")
+    assert "silent pythonw death" in text
+    assert "unhandled exception" in text

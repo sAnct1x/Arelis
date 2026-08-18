@@ -72,11 +72,24 @@ def test_a_corrupt_file_does_not_raise(tmp_path) -> None:
     assert load_account(path) is None
 
 
-def test_recipient_falls_back_to_the_user(tmp_path) -> None:
-    account = MailAccount("me@example.com", "pw", default_recipient="digest@example.com")
+def test_recipient_uses_inbox_not_smtp_from(monkeypatch) -> None:
+    monkeypatch.setattr("arelis.profile.load_profile_email", lambda **k: "")
+    account = MailAccount(
+        "bot@example.com", "pw", default_recipient="digest@example.com"
+    )
     assert account.recipient("someone@else.com") == "someone@else.com"
     assert account.recipient("") == "digest@example.com"
-    assert MailAccount("me@example.com", "pw").recipient("") == "me@example.com"
+    assert MailAccount("bot@example.com", "pw").recipient("") == ""
+
+
+def test_recipient_prefers_profile_email(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "arelis.profile.load_profile_email", lambda **k: "you@example.com"
+    )
+    account = MailAccount(
+        "bot@example.com", "pw", default_recipient="digest@example.com"
+    )
+    assert account.recipient("") == "you@example.com"
 
 
 def test_address_validation_is_loose_but_catches_nonsense() -> None:
@@ -155,8 +168,15 @@ class _FakeMailer:
 
 
 def _tool(mailer, **account_kwargs):
+    account_kwargs.setdefault("default_recipient", "you@example.com")
     account = MailAccount("me@example.com", "pw", **account_kwargs)
     return SendEmailTool(account, mailer)
+
+
+@pytest.fixture(autouse=True)
+def _no_standing_inbox(monkeypatch) -> None:
+    """Mail tests must not pick up the developer profile.yaml."""
+    monkeypatch.setattr("arelis.profile.load_profile_email", lambda **k: "")
 
 
 @pytest.mark.asyncio
@@ -164,7 +184,7 @@ async def test_send_goes_to_the_user_when_no_recipient_is_named() -> None:
     mailer = _FakeMailer()
     result = await _tool(mailer).run(subject="Hi", body="Body")
     assert result.ok
-    assert mailer.sent[0]["to"] == "me@example.com"
+    assert mailer.sent[0]["to"] == "you@example.com"
 
 
 @pytest.mark.asyncio

@@ -68,6 +68,7 @@ class _ComposerLineEdit(QPlainTextEdit):
         self.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
         self.setWordWrapMode(QTextOption.WrapMode.WrapAtWordBoundaryOrAnywhere)
         self.document().setDocumentMargin(2)
+        self.setCursorWidth(1)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.setFixedHeight(METRICS["control"])
 
@@ -110,6 +111,7 @@ class _ComposerLineEdit(QPlainTextEdit):
             event.accept()
             return
         super().keyPressEvent(event)
+        self.ensureCursorVisible()
 
 
 class ConversationStage(GlassFrame):
@@ -387,7 +389,7 @@ class ConversationStage(GlassFrame):
             self.attach_bar.add_many([a.as_dict() for a in result.ok])
 
     def set_drive(self, driving: bool, status: str = "") -> None:
-        """Show the glass Drive strip while a browser tool is in flight."""
+        """Show the glass Drive strip while she is driving her Chrome."""
         self._driving = bool(driving)
         if status:
             self.drive.set_status(status)
@@ -418,8 +420,12 @@ class ConversationStage(GlassFrame):
         """
         self._busy = busy
         self._turn_visible = False
+        if hasattr(self, "_parked_orbit"):
+            self._parked_orbit.set_thinking(busy)
         self._sync_composer_buttons()
         self.idle_conditions_changed.emit()
+        if not busy:
+            self.restore_composer_caret()
 
     def set_turn_visible(self, visible: bool) -> None:
         """The running turn has put something on screen (tokens or a tool line).
@@ -458,6 +464,8 @@ class ConversationStage(GlassFrame):
     def _on_composer_text(self) -> None:
         if self._idle_mode:
             self._fit_idle_prompt()
+        else:
+            self._fit_workbench_prompt()
 
     def _fit_idle_prompt(self) -> None:
         """Widen with the sentence, then wrap — never clip the start."""
@@ -505,6 +513,44 @@ class ConversationStage(GlassFrame):
         if hasattr(empty, "fit_prompt"):
             empty.fit_prompt(width, height, typing=typing)
 
+    def _fit_workbench_prompt(self) -> None:
+        """Wrap and grow a few lines so a long draft is not clipped off-screen."""
+        if self._idle_mode:
+            return
+        fm = self.input.fontMetrics()
+        raw = self.input.text()
+        line_h = max(fm.lineSpacing(), fm.height())
+        inner = max(1, self.input.viewport().width() - 8)
+        wrapped = fm.boundingRect(
+            QRect(0, 0, inner, 10_000), Qt.TextFlag.TextWordWrap, raw or " "
+        )
+        content_h = wrapped.height() + 12
+        rest = int(METRICS["control"])
+        height = rest if not raw.strip() else max(rest, min(line_h * 5 + 16, content_h))
+        overflow = bool(raw.strip()) and content_h > height
+        self.input.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded
+            if overflow
+            else Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+        self.input.setFixedHeight(height)
+        self.input.ensureCursorVisible()
+
+    def restore_composer_caret(self) -> None:
+        """Put the caret back after Allow or a tool turn stole focus.
+
+        The confirm card focuses Allow. When it hides, Qt often leaves no
+        caret — the placeholder shows and typed-ahead text looks gone.
+        """
+        focus = QApplication.focusWidget()
+        if focus is not None and focus is not self.input:
+            from PySide6.QtWidgets import QLineEdit, QTextEdit
+
+            if isinstance(focus, (QLineEdit, QPlainTextEdit, QTextEdit)):
+                return
+        self.input.setFocus(Qt.FocusReason.OtherFocusReason)
+        self.input.ensureCursorVisible()
+
     def _place_composer(self, idle: bool) -> None:
         """Idle: the real editor sits under the orbit. Workbench: bottom row."""
         host = getattr(self.chat.empty, "prompt_host", None)
@@ -538,20 +584,21 @@ class ConversationStage(GlassFrame):
                 voice_host.setVisible(bool(getattr(self, "_voice_shown", False)))
             self._fit_idle_prompt()
         else:
-            if self.input.parent() is not self._composer:
+            parked = self.input.parent() is self._composer
+            if not parked:
                 host_l = host.layout() if host is not None else None
                 if host_l is not None:
                     host_l.removeWidget(self.input)
                 self.input.setParent(self._composer)
                 self._composer_row.insertWidget(1, self.input, stretch=1)
                 moved = True
-            self.input.setAlignment(Qt.AlignmentFlag.AlignLeft)
-            self.input.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
-            self.input.setMinimumWidth(0)
-            self.input.setMaximumWidth(16777215)
-            self.input.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-            self.input.setFixedHeight(METRICS["control"])
-            self.input.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+                self.input.setAlignment(Qt.AlignmentFlag.AlignLeft)
+                self.input.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
+                self.input.setMinimumWidth(0)
+                self.input.setMaximumWidth(16777215)
+                self.input.setSizePolicy(
+                    QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+                )
             self.input.setClearButtonEnabled(True)
             self._composer.show()
             self._hairline.show()
@@ -575,9 +622,11 @@ class ConversationStage(GlassFrame):
             voice_host = getattr(empty, "voice_host", None) if empty is not None else None
             if voice_host is not None:
                 voice_host.hide()
+            self._fit_workbench_prompt()
         if moved and focused:
             self.input.setFocus(Qt.FocusReason.OtherFocusReason)
             self.input.setCursorPosition(cursor)
+            self.input.ensureCursorVisible()
 
     def _sync_parked_orbit(self, idle: bool) -> None:
         """Keep a small dim orbit in the corner once a thread exists."""
@@ -598,16 +647,19 @@ class ConversationStage(GlassFrame):
         if self._parked_orbit.isHidden():
             self.chat.set_parked_gutter(0)
             return
-        # Leave a thin strip for the chat scrollbar; park the orbit to its left.
-        scrollbar_gutter = 18
-        margin_r = scrollbar_gutter
+        # Orbit lives in a reserved right strip, not over the transcript.
+        # edge = gap to the window; air = gap between chat's right edge and
+        # the orbit's left edge. Scrollbar stays inside the chat view.
+        edge = 8
+        air = 12
+        orbit_w = self._parked_orbit.width()
         composer_h = self._composer.height() if self._composer.isVisible() else 0
         margin_b = 18 + composer_h
         self._parked_orbit.move(
-            max(8, self.width() - self._parked_orbit.width() - margin_r),
-            max(8, self.height() - self._parked_orbit.height() - margin_b),
+            max(edge, self.width() - orbit_w - edge),
+            max(edge, self.height() - self._parked_orbit.height() - margin_b),
         )
-        self.chat.set_parked_gutter(self._parked_orbit.width() + scrollbar_gutter)
+        self.chat.set_parked_gutter(orbit_w + air + edge)
 
     def set_voice_available(self, available: bool, reason: str = "") -> None:
         """Show the voice controls only when they can actually do something.
@@ -824,10 +876,12 @@ class ConversationStage(GlassFrame):
         self.confirm.dismiss()
         self._sync_composer_buttons()
         self.idle_conditions_changed.emit()
+        self.restore_composer_caret()
 
     def _on_confirm_decided(self, confirm_id: str, decision: str, allow_turn: bool) -> None:
         self._sync_composer_buttons()
         self.confirm_decided.emit(confirm_id, decision, allow_turn)
+        self.restore_composer_caret()
 
     def _submit(self) -> None:
         # Enter on an open confirm = allow (Allow has focus; Return still lands

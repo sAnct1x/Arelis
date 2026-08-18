@@ -34,6 +34,7 @@ def test_host_vram_blocks_heavy_threshold() -> None:
     reason = host_vram_blocks_heavy(11 * 1024**3)
     assert reason is not None
     assert "11.0 GB" in reason
+    assert "Close ComfyUI" not in reason
 
 
 @pytest.mark.asyncio

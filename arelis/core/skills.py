@@ -230,6 +230,13 @@ SKILL_CARDS: dict[str, SkillCard] = {
             "compose",
         ),
         requires_tool="inbox",
+        negative_hints=(
+            "every day",
+            "every morning",
+            "every evening",
+            "schedule a job",
+            "recurring",
+        ),
         body="""
 ### Email
 - Email addresses are never guessed. If the user says to email someone you have
@@ -596,7 +603,6 @@ SKILL_CARDS: dict[str, SkillCard] = {
             "hotel room",
             "room temperature",
             "make room",
-            "room for",
         ),
         body="""
 ### Rooms
@@ -784,6 +790,11 @@ SKILL_CARDS: dict[str, SkillCard] = {
             "open youtube",
             "open gmail",
             "bring up",
+            "go to sign in",
+            "go to signin",
+            "click sign in",
+            "sign in",
+            "log in",
             "directions to",
             "how do i get to",
             "maps to",
@@ -801,6 +812,10 @@ SKILL_CARDS: dict[str, SkillCard] = {
   browser(action=open, url or alias like youtube). That just opens the URL
   (new tab/window) — no Chrome restart. System default unless they name a browser.
 - For click-around control: snapshot → click/type by ref. Never type passwords/OTP.
+- Sign in / Log in on the page she is on: snapshot, then click the Sign in
+  control by ref. There is no goto_sign_in or sign_in action. Do not invent a
+  URL or a receipt. If they give a username or email, type it into a non-secret
+  field after snapshot. Never type a password or OTP — that is their turn.
 - To read the tab she is on: browser(action=read). That is compact text of the
   open page, not scrape / web_fetch. Do not invent page contents.
 - To see pixels: browser(action=screenshot) then vision(path=…) with the Saved

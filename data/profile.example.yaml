@@ -15,6 +15,9 @@ user:
   name: ""
   # What she should call you in chat.
   prefer_called: ""
+  # Your inbox. "Email me" and scheduled digests go here — not the Gmail
+  # Arelis sends from (that lives in secrets.yaml as email.address).
+  email: ""
   # Optional. Example: he/him
   pronouns: ""
   # One short line. Example: backend engineer at a logistics company

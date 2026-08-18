@@ -19,6 +19,7 @@ log = logging.getLogger(__name__)
 
 # Keep this short. A 50-field schema burns context and goes stale; these are
 # the fields worth typing once. Empty values are omitted from the prompt.
+# `email` is loaded separately for "email me" routing and is not injected here.
 _FIELD_ORDER: tuple[tuple[str, str], ...] = (
     ("name", "Name"),
     ("prefer_called", "Prefer to be called"),
@@ -87,6 +88,44 @@ def load_standing_profile(
             text = text[: _MAX_FIELD_CHARS - 1].rstrip() + "…"
         out[key] = text
     return out
+
+
+def load_profile_email(
+    path: Path | str | None = None,
+    *,
+    config: dict[str, Any] | None = None,
+) -> str:
+    """The user's inbox from profile.yaml, or empty.
+
+    Used for "email me" and scheduled digests. Not the Gmail Arelis sends from,
+    and not included in the standing prompt (it is a routing key, not chatter).
+    """
+    file_path = Path(path) if path is not None else resolve_profile_path(config)
+    try:
+        raw = yaml.safe_load(file_path.read_text(encoding="utf-8")) or {}
+    except FileNotFoundError:
+        return ""
+    except (OSError, yaml.YAMLError) as exc:
+        log.warning("Could not read profile email %s: %s", file_path, exc)
+        return ""
+    if not isinstance(raw, dict):
+        return ""
+    section: Any = None
+    for key in ("user", "about", "identity"):
+        if isinstance(raw.get(key), dict):
+            section = raw[key]
+            break
+    if section is None:
+        section = {k: v for k, v in raw.items() if k != "location"}
+    if not isinstance(section, dict):
+        return ""
+    text = " ".join(str(section.get("email") or "").split())
+    if not text or "@" not in text:
+        return ""
+    local, _, domain = text.partition("@")
+    if not local or "." not in domain or " " in text:
+        return ""
+    return text
 
 
 def standing_profile_prompt_line(

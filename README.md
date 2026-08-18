@@ -57,7 +57,7 @@ the installer; building from source is below, for people changing the code.
 
 Download the latest setup from
 [the GitHub releases page](https://github.com/sAnct1x/arelis/releases/latest).
-The current file is `Arelis-0.2.1-win64-setup.exe`, about 155 MB to download
+The current file is `Arelis-0.2.2-win64-setup.exe`, about 155 MB to download
 and about 640 MB once installed. It is per-user, into
 `%LOCALAPPDATA%\Programs\Arelis`, and does not ask for administrator
 permission.
@@ -69,8 +69,8 @@ beside the installer on the same release (a small `.sha256` file). Download
 both, then in PowerShell:
 
 ```powershell
-Get-FileHash .\Arelis-0.2.1-win64-setup.exe -Algorithm SHA256
-Get-Content .\Arelis-0.2.1-win64-setup.exe.sha256
+Get-FileHash .\Arelis-0.2.2-win64-setup.exe -Algorithm SHA256
+Get-Content .\Arelis-0.2.2-win64-setup.exe.sha256
 ```
 
 The two hashes should match. That catches a truncated or corrupted download. It

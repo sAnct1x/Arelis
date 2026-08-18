@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 
+from PySide6.QtCore import QPoint
+
 from arelis.core.bus import EventBus
 from arelis.ui.theme import COLORS, GLASS, color
 from arelis.ui.void_idle import OrbitCanvas, OrbitIdle
@@ -148,6 +150,39 @@ def test_cold_start_is_orbit_idle(qt_app) -> None:
         assert not window.chat.empty.isHidden()
         assert window.conversation.input.parent() is window.chat.empty.prompt_host
         assert window.conversation._parked_orbit.isHidden()
+    finally:
+        window.hide()
+        window.loop.close()
+
+
+def test_parked_orbit_sits_in_a_chat_gutter(qt_app) -> None:
+    """Chat layout, not CSS padding, keeps the transcript off the small orbit."""
+    from arelis.ui.app import ArelisWindow, BusBridge
+
+    window = ArelisWindow(
+        {
+            "ui": {"default_width": 800, "default_height": 600},
+            "router": {"default_role": "fast"},
+            "voice": {"enabled": False},
+        },
+        BusBridge(),
+        asyncio.new_event_loop(),
+        EventBus(),
+    )
+    try:
+        window.resize(800, 600)
+        window.chat.add_user("hello")
+        window._sync_idle_mode()
+        window.conversation._place_parked_orbit()
+        orbit = window.conversation._parked_orbit
+        chat = window.conversation.chat
+        assert not orbit.isHidden()
+        _l, _t, right, _b = chat.layout().getContentsMargins()
+        assert right >= orbit.width()
+        view_right = chat.view.mapTo(
+            window.conversation, QPoint(chat.view.width(), 0)
+        ).x()
+        assert orbit.x() >= view_right
     finally:
         window.hide()
         window.loop.close()

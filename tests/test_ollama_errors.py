@@ -70,6 +70,13 @@ def test_vram_lock_skips_json_fallback() -> None:
     )
     assert fail.chat == OLLAMA_VRAM_NOTICE
     assert fail.skip_tool_fallback is True
+    assert "ComfyUI, games" not in fail.chat
+    code = classify_ollama_failure(
+        RuntimeError("GPU still has 11.0 GB dedicated in use after unloading Ollama."),
+        role="code",
+    )
+    assert "code model" in code.chat
+    assert "research model" not in code.chat
 
 
 def test_unknown_exception_stays_generic() -> None:

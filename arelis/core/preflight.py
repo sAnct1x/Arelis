@@ -12,8 +12,13 @@ import re
 from typing import Any
 
 from arelis.attachments import (
+    attachment_kinds_from_turn,
     continue_prior_attachment_ask,
     is_short_affirmation,
+    route_tool,
+    split_attachments_turn,
+    wants_image_edit,
+    wants_image_text,
 )
 from arelis.core.agenda_complete import (
     agenda_preflight_nudge,
@@ -23,7 +28,11 @@ from arelis.core.agenda_complete import (
     looks_like_calendar_delete,
     looks_like_calendar_read,
 )
-from arelis.core.email_complete import complete_email_draft, email_preflight_nudge
+from arelis.core.email_complete import (
+    complete_email_draft,
+    email_preflight_nudge,
+    looks_like_scheduled_send,
+)
 from arelis.core.image_refs import (
     CAMERA_FRESH_S,
     latest_camera_image_file,
@@ -53,8 +62,15 @@ __all__ = [
     "IntentHint",
     "detect_intents",
     "draft_browser_args",
+    "draft_rooms_create_args",
+    "draft_signin_click_args",
+    "looks_like_browser_click_signin",
+    "looks_like_room_create",
     "plan_system_message",
     "preflight_system_message",
+    "rewrite_browser_action",
+    "rewrite_browser_calls",
+    "signin_ref_from_snapshot",
 ]
 
 # Path-like token with a table extension, or explicit csv/xlsx/tsv (etc.).
@@ -74,7 +90,12 @@ _BROWSER = re.compile(
     r"open\s+up|"
     r"take\s+me\s+to|"
     r"navigate\s+to|"
-    r"open\s+(?:in\s+)?(?:the\s+)?browser|"
+    r"open\s+(?:in\s+)?(?:the\s+|your\s+|my\s+)?browser|"
+    r"open\s+.{0,48}\s+in\s+(?:your|the|my)\s+browser|"
+    r"in\s+your\s+browser|"
+    r"your\s+browser|"
+    r"control\s+(?:your|the)\s+browser|"
+    r"drive\s+(?:your|the)\s+browser|"
     r"open\s*x\.?\s*com|"
     r"openx\.com|"
     r"open\s+(?:https?://\S+|(?:[a-z0-9\-]+\.)+(?:com|org|net|io|dev|app|co)\b)|"
@@ -126,6 +147,7 @@ _BROWSER_SEARCH = re.compile(
     r"find\s+.{0,48}\s+on\s+youtube|"
     r"search\s+google\s+for|"
     r"google\s+this\s+in\s+(?:the\s+)?(?:browser|chrome)|"
+    r"search\s+for\s+.{0,80}\bvideos?\b|"
     r"search\s+(?:on\s+)?amazon|"
     r"look\s+(?:up|for)\s+.{0,48}\s+on\s+amazon"
     r")\b"
@@ -136,6 +158,63 @@ _BROWSER_CART = re.compile(
     r"add\s+(?:it\s+|that\s+|this\s+|them\s+)?to\s+(?:(?:the|my)\s+)?(?:cart|bag)|"
     r"put\s+(?:it\s+|that\s+|this\s+)?in\s+(?:(?:the|my)\s+)?(?:cart|bag)"
     r")\b"
+)
+
+# Click Sign in / Log in / login on the tab she is already on — not a fake
+# action, not a guessed accounts.google.com URL.
+_LOGIN_NOUN = r"(?:sign[\s-]?in|log[\s-]?in|login)"
+_BROWSER_CLICK_SIGNIN = re.compile(
+    r"(?i)\b("
+    r"(?:click|press|tap)\s+(?:on\s+)?(?:the\s+)?" + _LOGIN_NOUN + r"|"
+    r"(?:go|navigate|take\s+me|bring\s+me)\s+to\s+(?:the\s+)?" + _LOGIN_NOUN + r"|"
+    r"open\s+(?:the\s+)?" + _LOGIN_NOUN + r"|"
+    r"proceed\s+with\s+(?:sign(?:ing)?|log(?:ging)?)[\s-]?in|"
+    r"sign\s+me\s+in|"
+    r"log\s+me\s+in"
+    r")\b"
+)
+_HOWTO_SIGNIN = re.compile(
+    r"(?i)\bhow\s+(?:do\s+i|to)\s+(?:sign|log)\s*in\b"
+)
+_BARE_SIGNIN = re.compile(
+    r"(?i)^\s*(?:please\s+)?(?:sign|log)\s*in\s*[.!?]*$"
+)
+# Invented 7B actions that must become snapshot (then click Sign in by ref).
+_INVENTED_SIGNIN_ACTIONS = frozenset(
+    {
+        "goto_sign_in",
+        "go_to_sign_in",
+        "goto_signin",
+        "sign_in",
+        "signin",
+        "log_in",
+        "login",
+        "goto_login",
+        "goto_log_in",
+        "click_sign_in",
+        "click_signin",
+        "navigate_sign_in",
+    }
+)
+_BROWSER_REAL_ACTIONS = frozenset(
+    {
+        "open",
+        "navigate",
+        "snapshot",
+        "read",
+        "maps",
+        "search",
+        "reserve",
+        "click",
+        "type",
+        "tabs",
+        "relaunch",
+        "screenshot",
+        "scroll",
+        "press",
+        "select",
+        "wait",
+    }
 )
 
 # Table / venue reservation in her Chrome (not agenda calendar).
@@ -211,15 +290,183 @@ _URL_TOKEN = re.compile(
     r")\b"
 )
 
+_BROWSER_ALIASES = (
+    ("youtube", "https://www.youtube.com"),
+    ("gmail", "https://mail.google.com"),
+    ("github", "https://github.com"),
+    ("reddit", "https://www.reddit.com"),
+    ("twitter", "https://x.com"),
+    ("x.com", "https://x.com"),
+)
+
+
+def looks_like_room_create(text: str) -> bool:
+    """True for 'make me a room for X' — not living rooms or 'make room'."""
+    raw = text or ""
+    if re.search(
+        r"(?i)\b(?:living|dining|bed|hotel|guest)\s+room\b|"
+        r"room\s+temperature|"
+        r"\bmake\s+room\b",
+        raw,
+    ):
+        return False
+    return bool(
+        re.search(
+            r"(?i)\b(?:make|create|set\s+up)\s+(?:me\s+)?(?:a\s+)?(?:new\s+)?room\b",
+            raw,
+        )
+    )
+
+
+def draft_rooms_create_args(text: str) -> dict[str, str]:
+    """rooms(action=create) args from 'make me a room for astrophysics'."""
+    raw = (text or "").strip()
+    name = ""
+    match = re.search(r"(?i)\broom\s+for\s+(?P<name>.+)$", raw)
+    if match:
+        name = (match.group("name") or "").strip().rstrip(".!")
+    if not name:
+        match = re.search(r"(?i)\broom\s+(?:called|named)\s+(?P<name>.+)$", raw)
+        if match:
+            name = (match.group("name") or "").strip().rstrip(".!")
+    name = name.split(",")[0].strip() or "new"
+    return {
+        "action": "create",
+        "name": name,
+        "purpose": f"Work on {name}.",
+    }
+
+
+def looks_like_browser_click_signin(text: str) -> bool:
+    """True for 'go to sign in' / 'click Sign in' — not 'how do I sign in'."""
+    raw = text or ""
+    if _HOWTO_SIGNIN.search(raw):
+        return False
+    return bool(_BROWSER_CLICK_SIGNIN.search(raw) or _BARE_SIGNIN.match(raw))
+
+
+_SNAP_EL = re.compile(r"^\[(?P<ref>e\d+)\]\s+(?P<rest>.+)$", re.I | re.M)
+_SIGNIN_EXACT = re.compile(r"(?i)^(?:sign[\s-]?in|log[\s-]?in|login)$")
+_SIGNIN_LOOSE = re.compile(r"(?i)\b(?:sign[\s-]?in|log[\s-]?in|login)\b")
+
+
+def signin_ref_from_snapshot(output: str) -> str | None:
+    """First snapshot ref whose label is Sign in / Log in, not the sidebar pitch."""
+    exact: list[str] = []
+    loose: list[str] = []
+    for match in _SNAP_EL.finditer(output or ""):
+        ref = match.group("ref")
+        rest = match.group("rest") or ""
+        quoted = re.findall(r"['\"]([^'\"]+)['\"]", rest)
+        label = " ".join((quoted[0] if quoted else rest).split())
+        if _SIGNIN_EXACT.match(label):
+            exact.append(ref)
+        elif _SIGNIN_LOOSE.search(label) and len(label) < 24:
+            loose.append(ref)
+    if exact:
+        return exact[0]
+    if loose:
+        return loose[0]
+    return None
+
+
+def draft_signin_click_args(snapshot: str) -> dict[str, str] | None:
+    """click(ref=…) for Sign in after a snapshot, or None if none found."""
+    ref = signin_ref_from_snapshot(snapshot)
+    if not ref:
+        return None
+    return {"action": "click", "ref": ref}
+
+
+def rewrite_browser_action(action: str) -> str | None:
+    """Map invented actions (goto_sign_in, sign_in, goto_*) to snapshot."""
+    raw = str(action or "").strip().lower().replace("-", "_")
+    if not raw or raw in _BROWSER_REAL_ACTIONS:
+        return None
+    if raw in _INVENTED_SIGNIN_ACTIONS or raw.startswith("goto_"):
+        return "snapshot"
+    return None
+
+
+def rewrite_browser_calls(
+    calls: list[tuple[str, dict[str, Any]]],
+    *,
+    text: str = "",
+) -> list[tuple[str, dict[str, Any]]]:
+    """Replace invented / guessed sign-in drives with snapshot before Allow."""
+    signin = looks_like_browser_click_signin(text)
+    keep = {"snapshot", "click", "type", "wait"}
+    out: list[tuple[str, dict[str, Any]]] = []
+    for name, args in calls:
+        if name != "browser":
+            out.append((name, args))
+            continue
+        action = str((args or {}).get("action") or "")
+        rewritten = rewrite_browser_action(action)
+        if rewritten is None and signin:
+            raw = action.strip().lower().replace("-", "_")
+            if raw and raw not in keep:
+                rewritten = "snapshot"
+        if rewritten is None:
+            out.append((name, args))
+            continue
+        merged = dict(args or {})
+        merged["action"] = rewritten
+        if rewritten == "snapshot":
+            merged.pop("url", None)
+            merged.pop("target", None)
+        out.append(("browser", merged))
+    return out
+
 
 def draft_browser_args(text: str) -> dict[str, str]:
     """Open/read args when the 7B never called browser."""
     raw = text or ""
+    if looks_like_browser_click_signin(raw):
+        return {"action": "snapshot"}
     if _BROWSER_READ.search(raw):
         return {"action": "read"}
+    if _BROWSER_SEARCH.search(raw) and not re.search(
+        r"(?i)\bsearch\s+the\s+web\b", raw
+    ):
+        query = raw
+        q_m = re.search(
+            r"(?i)\bsearch\s+(?:on\s+(?:youtube|google|amazon)\s+)?(?:for\s+)?(.+)$",
+            raw,
+        )
+        if q_m:
+            query = (q_m.group(1) or "").strip().rstrip(".!?")
+        query = re.sub(
+            r"(?i)\s+(?:and\s+)?(?:then\s+)?tell\s+me\s+(?:the\s+)?"
+            r"(?:top\s+)?(?:\d+|two|three|four|five|ten)\s+results?\s*$",
+            "",
+            query,
+        )
+        query = re.sub(
+            r"(?i)\s+in\s+(?:your|the|my)\s+browser\s*$",
+            "",
+            query,
+        )
+        query = query.strip().rstrip(".!?")
+        site = "youtube" if re.search(r"(?i)youtube|\bvideos?\b", raw) else "google"
+        return {"action": "search", "query": query[:200], "site": site}
     match = _URL_TOKEN.search(raw)
     url = (match.group(1) if match else "").rstrip(".,)!?")
-    return {"action": "open", "url": url or "x.com"}
+    if not url:
+        lowered = raw.lower()
+        for alias, href in _BROWSER_ALIASES:
+            if alias in lowered:
+                url = href
+                break
+    if url:
+        return {"action": "open", "url": url}
+    return {"action": "read"}
+
+
+def _turn_ask(raw: str) -> str:
+    """User ask with the attachments boilerplate stripped, when present."""
+    _block, ask = split_attachments_turn(raw or "")
+    return (ask or raw or "").strip() or (raw or "")
 
 
 def detect_intents(
@@ -340,7 +587,9 @@ def detect_intents(
                 ),
             )
         )
-    elif _BROWSER_SEARCH.search(raw):
+    elif _BROWSER_SEARCH.search(raw) and not re.search(
+        r"(?i)\bsearch\s+the\s+web\b", raw
+    ):
         hints.append(
             IntentHint(
                 kind="browser_search",
@@ -368,6 +617,25 @@ def detect_intents(
                 ),
             )
         )
+    elif looks_like_browser_click_signin(raw):
+        hints.append(
+            IntentHint(
+                kind="browser_click",
+                expected_tools=("browser",),
+                nudge=(
+                    "Intent preflight: this message asks to open Sign in on "
+                    "the tab she is already on. Call browser(action=snapshot), "
+                    "then browser(action=click, ref=…) on the Sign in / Log in "
+                    "control. Do not stop after snapshot to list refs. Prefer "
+                    "the header Sign in, not the sidebar pitch. There is no "
+                    "goto_sign_in or sign_in action — do not invent a URL or a "
+                    "receipt. If they give a username or email, type it into a "
+                    "non-secret field after snapshot. "
+                    "Never type a password or OTP — that is their turn. Allow "
+                    "still applies — do not ask permission in chat."
+                ),
+            )
+        )
     elif _BROWSER_READ.search(raw):
         hints.append(
             IntentHint(
@@ -376,9 +644,12 @@ def detect_intents(
                 nudge=(
                     "Intent preflight: this message asks what is on the open "
                     "tab. Call browser(action=read) for compact text of that "
-                    "page. Do not scrape or web_fetch instead. Use screenshot "
-                    "+ vision only if they asked to see pixels. Allow still "
-                    "applies — do not ask permission in chat."
+                    "page as it is now. Answer from that text — describe the "
+                    "tab (title, Sign in, ads, sidebar); do not recap a previous "
+                    "search list unless the read still shows those titles. Do "
+                    "not scrape or web_fetch instead. Use screenshot + vision "
+                    "only if they asked to see pixels. Allow still applies — "
+                    "do not ask permission in chat."
                 ),
             )
         )
@@ -443,7 +714,43 @@ def detect_intents(
             )
         )
 
-    if looks_like_image_gen(raw) and not _VISION.search(raw):
+    ask_text = _turn_ask(raw)
+    image_attached = "image" in attachment_kinds_from_turn(raw)
+    image_route = route_tool("image", ask_text) if image_attached else ""
+    if image_attached and image_route == "vision" and not any(
+        h.kind == "vision" for h in hints
+    ):
+        hints.append(
+            IntentHint(
+                kind="vision",
+                expected_tools=("vision",),
+                nudge=(
+                    "Intent preflight: an image is attached and they asked "
+                    "what is in it. Call vision with the staged path. Do not "
+                    "send_sms. Do not invent pixel contents. Allow still "
+                    "applies — do not ask permission in chat."
+                ),
+            )
+        )
+
+    if (
+        wants_image_edit(ask_text)
+        or image_route == "image_edit"
+    ) and not wants_image_text(ask_text):
+        hints.append(
+            IntentHint(
+                kind="image_edit",
+                expected_tools=("image_edit",),
+                nudge=(
+                    "Intent preflight: this message asks to change an existing "
+                    "picture (size, crop, or strength). Call image_edit with "
+                    "the staged path. Do not call image — that generates a new "
+                    "picture from a prompt. Do not call vision. Allow still "
+                    "applies — do not ask permission in chat."
+                ),
+            )
+        )
+    elif looks_like_image_gen(ask_text) and not _VISION.search(ask_text):
         hints.append(
             IntentHint(
                 kind="image_gen",
@@ -543,19 +850,59 @@ def detect_intents(
             )
         )
 
-    # Goals / file-write / image-gen / calendar / browser turns win over a stale
-    # pending SMS draft (and over "text …" buried inside a calendar reminder).
+    if looks_like_room_create(raw):
+        name = draft_rooms_create_args(raw).get("name") or "new"
+        hints.append(
+            IntentHint(
+                kind="rooms",
+                expected_tools=("rooms",),
+                nudge=(
+                    "Intent preflight: this message asks to create an Arelis "
+                    f"room named {name}. Call rooms(action=create) with that "
+                    "name and a short purpose from the topic. Do not enter the "
+                    "room yourself — tell them to say let's work on "
+                    f"{name} or type /room {name}. Do not design furniture. "
+                    "Allow still applies — do not ask permission in chat."
+                ),
+            )
+        )
+
+    if looks_like_scheduled_send(raw):
+        hints.append(
+            IntentHint(
+                kind="schedule",
+                expected_tools=("schedule",),
+                nudge=(
+                    "Intent preflight: this message asks to run something later "
+                    "or on a timer. Call schedule(action='create_briefing') with "
+                    "the time they named (and the weather/email wording as the "
+                    "job). Do not send_email or weather now — those run when "
+                    "the job fires. Allow still applies — do not ask permission "
+                    "in chat."
+                ),
+            )
+        )
+
+    # Goals / file-write / image-gen / calendar / browser / look turns win over
+    # a stale pending SMS draft (and over "text …" buried inside a calendar reminder).
     skip_sms = (
         (
             looks_like_stale_sms_skip(raw, history)
             or bool(GOALS.matches(raw))
             or bool(_WORKSPACE_WRITE.search(raw))
             or looks_like_image_gen(raw)
+            or wants_image_edit(ask_text)
             or looks_like_calendar_create(raw)
             or looks_like_calendar_delete(raw)
             or looks_like_calendar_read(raw)
             or looks_like_browser_or_url(raw)
-            or any(h.kind == "analyze" for h in hints)
+            or looks_like_browser_click_signin(raw)
+            or looks_like_scheduled_send(raw)
+            or any(
+                h.kind in {"analyze", "vision", "image_edit", "rooms", "browser_click"}
+                for h in hints
+            )
+            or (image_attached and not _EXPLICIT_SMS_VERB.match(raw))
         )
         and not _EXPLICIT_SMS_VERB.match(raw)
     )
@@ -569,16 +916,20 @@ def detect_intents(
             )
         )
 
-    # Inbox / analyze / vision / calendar / image must not revive a prior compose.
-    skip_email = (
+    # Inbox / analyze / vision / calendar / image / schedule must not revive a compose.
+    skip_email = looks_like_scheduled_send(raw) or (
         (
             bool(INBOX.matches(raw))
-            or any(h.kind == "analyze" for h in hints)
+            or any(
+                h.kind in {"analyze", "vision", "image_edit", "schedule", "rooms"}
+                for h in hints
+            )
             or looks_like_image_gen(raw)
             or looks_like_calendar_create(raw)
             or looks_like_calendar_delete(raw)
             or looks_like_calendar_read(raw)
             or looks_like_browser_or_url(raw)
+            or looks_like_browser_click_signin(raw)
             or looks_like_closing_chitchat(raw)
         )
         and not _EMAIL_SEND_VERB.search(raw)
@@ -592,6 +943,25 @@ def detect_intents(
                 nudge=email_preflight_nudge(email_draft),
             )
         )
+
+    if looks_like_scheduled_send(raw):
+        hints = [
+            h
+            for h in hints
+            if h.kind not in {"weather", "compose_email", "sms_send"}
+        ]
+        if not any(h.kind == "schedule" for h in hints):
+            hints.append(
+                IntentHint(
+                    kind="schedule",
+                    expected_tools=("schedule",),
+                    nudge=(
+                        "Intent preflight: this message asks to run something "
+                        "later or on a timer. Call schedule now. Do not "
+                        "send_email or weather this turn."
+                    ),
+                )
+            )
 
     if looks_like_contacts_utterance(raw) or looks_like_contacts_followup(
         raw, history

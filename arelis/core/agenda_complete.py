@@ -20,6 +20,8 @@ _CREATE = re.compile(
     r"create\s+(?:an?\s+)?(?:calendar\s+)?(?:event|meeting|appointment|reminder)|"
     r"schedule\s+(?:an?\s+)?(?:calendar\s+)?(?:event|meeting|appointment|reminder)|"
     r"put\s+(?:this\s+)?on\s+(?:my\s+)?calendar|"
+    r"put\s+.+\s+on\s+(?:my\s+)?calendar|"
+    r"add\s+.+\s+to\s+(?:my\s+)?calendar|"
     r"calendar\s+event\s+for|"
     r"set\s+(?:an?\s+)?(?:calendar\s+)?reminder"
     r")\b"
@@ -39,6 +41,16 @@ _DELETE = re.compile(
 )
 _GOOGLE_EVENT_ID = re.compile(r"\bgoogle:[A-Za-z0-9_\-.:]+")
 
+_PUT_ON_CALENDAR = re.compile(
+    r"(?i)\bput\s+"
+    r"(?:['\"](?P<quoted>[^'\"]+)['\"]|(?P<plain>.+?))\s+"
+    r"on\s+(?:my\s+)?calendar"
+)
+_ADD_TO_CALENDAR = re.compile(
+    r"(?i)\badd\s+"
+    r"(?:['\"](?P<quoted>[^'\"]+)['\"]|(?P<plain>.+?))\s+"
+    r"to\s+(?:my\s+)?calendar"
+)
 # "called X" / "titled X" / "named X" / "about X"
 # Stop at a period so "titled Foo. i want this event…" does not eat the rest.
 _TITLE = re.compile(
@@ -504,6 +516,20 @@ def normalize_agenda_start(start: str, *, now: datetime | None = None) -> str:
     )
     return combined.isoformat()
 
+def _title_from_put_or_add(raw: str) -> str:
+    """Quoted or plain title from 'put X on my calendar' / 'add X to my calendar'."""
+    skip = {"this", "that", "it", "an event", "a event", "the event"}
+    for pat in (_PUT_ON_CALENDAR, _ADD_TO_CALENDAR):
+        match = pat.search(raw)
+        if not match:
+            continue
+        title = (match.group("quoted") or match.group("plain") or "").strip()
+        title = title.strip("'\"").strip()
+        if title and title.lower() not in skip:
+            return title
+    return ""
+
+
 def _extract_title(raw: str) -> tuple[str, str]:
     """Return (summary, description) from titled/reminder phrasing."""
     title_m = _TITLE.search(raw)
@@ -534,6 +560,9 @@ def _extract_title(raw: str) -> tuple[str, str]:
         if len(summary) > 80:
             summary = summary[:77].rstrip() + "…"
         return summary, clause
+    put_title = _title_from_put_or_add(raw)
+    if put_title:
+        return put_title, ""
     return "", ""
 
 

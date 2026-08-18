@@ -166,6 +166,15 @@ def test_reservation_ask_selects_browser_card() -> None:
     assert "browser" in ids
 
 
+def test_sign_in_ask_selects_browser_card() -> None:
+    ids = select_skill_ids(
+        "go to sign in",
+        available_tools={"browser", "web_search", "send_sms"},
+    )
+    assert "browser" in ids
+    assert "sms" not in ids
+
+
 def test_force_all_matches_export() -> None:
     assert assemble_tool_policy(force_all=True) == TOOL_POLICY
 

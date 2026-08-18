@@ -9,7 +9,7 @@ from arelis.ui.glass import GlassFrame
 
 
 class DriveStrip(GlassFrame):
-    """Thin cockpit above the composer. Hidden unless a browser tool is in flight."""
+    """Thin cockpit above the composer. Hidden unless she is driving her Chrome."""
 
     pause_requested = Signal()
     resume_requested = Signal()

@@ -53,6 +53,7 @@ _ERRANDS: dict[str, str] = {
     "recall": "looking back through our conversations",
     "research_report": "researching",
     "scrape": "reading the page",
+    "schedule": "setting up the schedule",
     "send_email": "writing the email",
     "send_sms": "writing the text",
     "tasks": "checking your tasks",
@@ -90,6 +91,13 @@ _BY_ACTION: dict[str, dict[str, str]] = {
         "list": "checking your email",
         "read": "reading the email",
         "search": "searching your email",
+    },
+    "schedule": {
+        "create": "setting up the schedule",
+        "create_briefing": "setting up the morning briefing",
+        "delete": "removing that schedule",
+        "list": "checking your schedules",
+        "run_now": "running that job now",
     },
 }
 

@@ -130,8 +130,21 @@ class ChatPanel(QWidget):
         self.session_clicked.emit(session_id)
 
     def set_parked_gutter(self, px: int) -> None:
-        """Reserve the right edge so chat text misses the parked orbit."""
+        """Reserve the right edge so chat text misses the parked orbit.
+
+        CSS padding-right on QTextBrowser does not inset HTML tables (the
+        right-aligned ``you`` bubbles), so this is a real layout margin.
+        The orbit sits in that strip; it is not painted over the transcript.
+        """
         self._parked_gutter = max(0, int(px))
+        lay = self.layout()
+        if lay is not None:
+            lay.setContentsMargins(0, 0, self._parked_gutter, 0)
+            # Inset the view now rather than on the next event-loop pass. The
+            # orbit is positioned in the same turn as this reservation, so a
+            # deferred relayout leaves one frame where the orbit overlaps the
+            # transcript instead of sitting in the strip reserved for it.
+            lay.activate()
         self._apply_view_style()
 
     def set_text_scale(self, scale: float) -> None:
@@ -145,8 +158,9 @@ class ChatPanel(QWidget):
 
     def _apply_view_style(self) -> None:
         body = max(10, min(24, round(14 * self._text_scale)))
-        pad_r = 28 + self._parked_gutter
-        self.view.setStyleSheet(f"font-size: {body}px; padding-right: {pad_r}px;")
+        # Inner pad only. The parked orbit uses layout contentsMargins, because
+        # Qt rich-text tables ignore stylesheet padding-right.
+        self.view.setStyleSheet(f"font-size: {body}px; padding-right: 16px;")
 
     def _ensure_view(self) -> None:
         if not self._has_messages:
@@ -271,9 +285,11 @@ class ChatPanel(QWidget):
         """Shimmering status gate while a long tool (e.g. Comfy) runs."""
         self._ensure_view()
         self.progress.setText(text)
+        appearing = not self.progress.isVisible()
         self.progress.show()
-        self._progress_fx.setOpacity(1.0)
-        self._shimmer_dir = -1
+        if appearing:
+            self._progress_fx.setOpacity(1.0)
+            self._shimmer_dir = -1
         if not self._shimmer_timer.isActive():
             self._shimmer_timer.start()
 
@@ -287,9 +303,9 @@ class ChatPanel(QWidget):
         if not self.progress.isVisible():
             self._shimmer_timer.stop()
             return
-        op = float(self._progress_fx.opacity()) + self._shimmer_dir * 0.06
-        if op <= 0.35:
-            op = 0.35
+        op = float(self._progress_fx.opacity()) + self._shimmer_dir * 0.04
+        if op <= 0.62:
+            op = 0.62
             self._shimmer_dir = 1
         elif op >= 1.0:
             op = 1.0

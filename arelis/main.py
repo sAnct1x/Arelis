@@ -6,13 +6,17 @@ from pathlib import Path
 
 from arelis import __license__, __source_url__, __version__
 from arelis.config import load_config
-from arelis.logging_setup import configure_logging
+from arelis.logging_setup import configure_logging, install_unhandled_hook
 
 
 def main(argv: list[str] | None = None) -> int:
     # Before any subsystem that might log.exception into the void. --run-job
     # replaces this with its own jobs.log sink once runner.configure_logging runs.
     configure_logging()
+    install_unhandled_hook()
+    from arelis.hidden_proc import install_hidden_subprocess
+
+    install_hidden_subprocess()
 
     parser = argparse.ArgumentParser(
         prog="arelis",

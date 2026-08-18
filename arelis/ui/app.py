@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
     QDockWidget,
     QMainWindow,
     QMenu,
+    QStyleFactory,
     QSystemTrayIcon,
     QTabBar,
     QToolBar,
@@ -131,6 +132,7 @@ from arelis.ui.theme import (
     COLORS,
     GLASS,
     app_font,
+    dock_tab_bar_qss,
     load_fonts,
     qt_font_directory,
     stylesheet,
@@ -591,6 +593,12 @@ class ArelisWindow(QMainWindow):
         )
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.camera_dock)
         self.tabifyDockWidget(self.history_dock, self.camera_dock)
+        # QWidget.setStyle does not take ownership. A local QStyle is collected
+        # when _style_dock_tabs returns; the next paint then walks a freed
+        # pointer and pythonw dies with no traceback.
+        self._dock_tab_style = QStyleFactory.create("Fusion")
+        if self._dock_tab_style is not None:
+            self._dock_tab_style.setParent(self)
         self._style_dock_tabs()
 
         # Keep instruments readable while the OS live-resizes the frameless shell.
@@ -637,6 +645,8 @@ class ArelisWindow(QMainWindow):
         self._later(250, self._sanitize_floating_docks)
         self._later(0, self._clamp_dock_widths)
         self._later(0, self._sync_panel_margins)
+        self._later(0, self._style_dock_tabs)
+        self._later(250, self._style_dock_tabs)
 
         self.notify_inbox = NotificationsInboxWindow(self.notifications, self)
         self.notify_inbox.hide()
@@ -713,6 +723,7 @@ class ArelisWindow(QMainWindow):
 
         self._assistant_streaming = False
         self._turn_busy = False
+        self._drive_session = False
         self._readiness_snap = None
         self._idle_ghosts: list[tuple[str, str]] = []
         self._held_inbound: list[InboundSms] = []
@@ -1956,6 +1967,7 @@ class ArelisWindow(QMainWindow):
         if checked:
             self._refresh_history()
             self._animate_dock(self.history_dock)
+        self._style_dock_tabs()
 
     def _toggle_notifications(self, checked: bool) -> None:
         if checked:
@@ -1976,6 +1988,7 @@ class ArelisWindow(QMainWindow):
             self._animate_dock(self.camera_dock)
         else:
             self.camera.stop()
+        self._style_dock_tabs()
 
     def _toggle_contacts(self, checked: bool) -> None:
         if checked:
@@ -2177,16 +2190,30 @@ class ArelisWindow(QMainWindow):
         """History/camera tabs live on QMainWindow, not inside QDockWidget.
 
         Qt's tabify bar is a sibling of the docks, so `QDockWidget QTabBar`
-        never matches and Windows paints the thick grey strip.
+        never matches. Windows also ignores translucent QSS on QTabBar and
+        paints a grey selected chip — so this bar gets Fusion + an opaque
+        widget stylesheet, after layout restore recreates it.
         """
+        qss = dock_tab_bar_qss()
+        fusion = getattr(self, "_dock_tab_style", None)
         for bar in self.findChildren(QTabBar):
-            parent = bar.parent()
-            if parent is not self and not isinstance(parent, QMainWindow):
-                continue
+            labels = {bar.tabText(i).strip().lower() for i in range(bar.count())}
+            if not labels.intersection({"history", "camera"}):
+                parent = bar.parent()
+                if parent is not self and not isinstance(parent, QMainWindow):
+                    continue
             bar.setObjectName("DockTabBar")
             bar.setDocumentMode(True)
             bar.setDrawBase(False)
             bar.setExpanding(False)
+            # Without this Qt shrinks a tabified dock's bar to fit the dock and
+            # elides the labels to "hist…"/"cam…". The names are short; show them.
+            bar.setElideMode(Qt.TextElideMode.ElideNone)
+            bar.setUsesScrollButtons(False)
+            bar.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+            if fusion is not None:
+                bar.setStyle(fusion)
+            bar.setStyleSheet(qss)
 
     def _reset_layout(self) -> None:
         self.camera.stop()
@@ -2476,6 +2503,13 @@ class ArelisWindow(QMainWindow):
                 log.info("indexer flush skipped on quit (timeout)")
             except Exception:
                 log.warning("indexer flush failed during quit", exc_info=True)
+        try:
+            from arelis.tools.comfy_lifecycle import cancel_comfy_idle, park_comfy
+
+            cancel_comfy_idle()
+            park_comfy()
+        except Exception:
+            log.debug("Comfy park on quit failed", exc_info=True)
         if self._tray is not None:
             self._tray.hide()
         try:
@@ -2680,6 +2714,8 @@ class ArelisWindow(QMainWindow):
         self.thinking.append(tip, kind="status")
         if self.conversation.confirm_open():
             return
+        if self.conversation.input.text().strip():
+            return
         self.conversation.input.setPlaceholderText(tip)
 
     def _clear_model_loading(self) -> None:
@@ -2709,6 +2745,7 @@ class ArelisWindow(QMainWindow):
         # something the user has already abandoned.
         self._stop_speech()
         self.thinking.append("stop requested", kind="status")
+        self._drive_session = False
         self.conversation.set_drive(False)
         self._busy_watchdog.start(_BUSY_WATCHDOG_MS)
         asyncio.run_coroutine_threadsafe(
@@ -2835,7 +2872,11 @@ class ArelisWindow(QMainWindow):
         if not busy:
             self._busy_watchdog.stop()
             self._clear_model_loading()
-            self.conversation.set_drive(False)
+            if self._drive_session:
+                if not self.conversation.drive.is_paused():
+                    self.conversation.set_drive_status("page stays")
+            else:
+                self.conversation.set_drive(False)
         if self.voice_controller is not None:
             if busy:
                 self.voice_controller.notify_turn_started()
@@ -3118,7 +3159,11 @@ class ArelisWindow(QMainWindow):
             self._on_speech_synthesized(int(p.get("clips") or 0))
         elif t == EventType.ASSISTANT_DELTA:
             self._clear_model_loading()
-            # The answer is painting, so the status has nothing left to say.
+            # The answer is painting, so the status text has nothing left to
+            # say. The parked orbit is a separate widget and stays up: retract
+            # cycles (preamble then a tool) used to hide and show *it* every
+            # round, which read as the orb popping in and out rather than
+            # breathing. Keep the orbit, clear the status line.
             self.chat.clear_progress()
             self.conversation.set_turn_visible(True)
             if not self._assistant_streaming:
@@ -3195,6 +3240,8 @@ class ArelisWindow(QMainWindow):
             self._refresh_history()
             if sid:
                 self.history.set_active(sid)
+            self._drive_session = False
+            self.conversation.set_drive(False)
             if p.get("new"):
                 self.thinking.append("new conversation", kind="status")
             elif sid:
@@ -3305,6 +3352,7 @@ class ArelisWindow(QMainWindow):
                 self._begin_job(str(tool))
             if str(tool or "") == "browser":
                 action = str(args.get("action") or "")
+                self._drive_session = True
                 self.conversation.set_drive(True, format_drive_status(action, args))
         elif t == EventType.TOOL_RESULT:
             self.thinking.append(f"ok={p.get('ok')} {p.get('tool')}", kind="tool")

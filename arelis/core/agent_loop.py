@@ -12,6 +12,12 @@ from datetime import datetime
 from typing import Any
 from uuid import uuid4
 
+from arelis.attachments import (
+    attachment_kinds_from_turn,
+    parse_attachments_from_turn,
+    split_attachments_turn,
+    wants_image_edit,
+)
 from arelis.contacts import (
     contacts_prompt_line,
     format_contact_spoken,
@@ -62,7 +68,10 @@ from arelis.core.email_complete import (
     draft_send_email_args,
     email_force_call_notice,
     fill_send_email_args,
+    looks_like_bare_confirm,
     looks_like_compose_email,
+    looks_like_scheduled_send,
+    rewrite_schedule_calls,
 )
 from arelis.core.episodes import episodes_prompt_line
 from arelis.core.events import Event, EventType
@@ -111,7 +120,12 @@ from arelis.core.plan_nudge import (
 from arelis.core.preflight import (
     detect_intents,
     draft_browser_args,
+    draft_rooms_create_args,
+    draft_signin_click_args,
+    looks_like_browser_click_signin,
+    looks_like_room_create,
     preflight_system_message,
+    rewrite_browser_calls,
 )
 from arelis.core.read_fanout import should_fanout_reads
 from arelis.core.receipts import (
@@ -189,7 +203,7 @@ _MAX_THINKING_SNIPPET = 240
 _STREAM_DECIDE_CHARS = 20
 
 # Tools whose results are web sources and therefore have to be citable.
-_WEB_TOOLS = {"web_fetch", "scrape", "research_report"}
+_WEB_TOOLS = {"web_fetch", "scrape", "research_report", "browser"}
 
 _FILE_ESCALATE = re.compile(
     r"(?i)\b(file|readme|path|workspace|edit|write|refactor|python|code|"
@@ -208,7 +222,9 @@ _MAX_TOOL_NUDGES = 2
 _FILE_ANSWER_TOOLS = frozenset({"workspace", "analyze", "doc_extract"})
 _DAILY_WANDER = frozenset({"weather", "send_sms", "send_email", "agenda"})
 _LOCAL_STORE = frozenset({"memory", "tasks", "goals", "contacts", "recall"})
-_SEE_TOOLS = frozenset({"vision", "ocr", "camera", "clipboard", "image", "git_info"})
+_SEE_TOOLS = frozenset(
+    {"vision", "ocr", "camera", "clipboard", "image", "image_edit", "git_info"}
+)
 _WEATHER_WANDER = frozenset({"web_search", "scrape", "web_fetch"})
 _SMS_WANDER = frozenset(
     {
@@ -222,6 +238,33 @@ _SMS_WANDER = frozenset(
         "camera",
     }
 )
+_SEE_NO_SMS_REDIRECT = frozenset(
+    {"vision", "ocr", "image", "image_edit", "camera"}
+)
+_BROWSER_WANDER = frozenset(
+    {"web_search", "scrape", "web_fetch", "research_report"}
+)
+_HIDE_WANDER_FOR = _DAILY_WANDER | _LOCAL_STORE | _SEE_TOOLS | {"browser"}
+
+
+def should_redirect_wander_to_sms(
+    name: str,
+    expected: set[str],
+    *,
+    tools_used: set[str] | None = None,
+    sms_failed: bool = False,
+) -> bool:
+    """True when a wander tool should be rewritten to send_sms.
+
+    Looking at or editing a picture is never a text. Even a leftover SMS
+    expected-set must not steal vision / ocr / image / image_edit / camera.
+    """
+    used = tools_used or set()
+    if name in _SEE_NO_SMS_REDIRECT:
+        return False
+    if "send_sms" not in expected or "send_sms" in used or sms_failed:
+        return False
+    return name in _SMS_WANDER
 
 
 def _hide_daily_wander(visible: set[str], expected: set[str]) -> set[str]:
@@ -233,6 +276,14 @@ def _hide_daily_wander(visible: set[str], expected: set[str]) -> set[str]:
         hide.update(_SMS_WANDER)
         if "weather" not in expected:
             hide.add("weather")
+    # A look/edit turn must still see those tools even if SMS leaked in.
+    if expected & _SEE_NO_SMS_REDIRECT:
+        hide -= set(_SEE_NO_SMS_REDIRECT)
+        hide.add("send_sms")
+    if "image_edit" in expected:
+        hide.add("image")
+    if "browser" in expected:
+        hide.update(_BROWSER_WANDER)
     if expected & _LOCAL_STORE and "browser" not in expected:
         hide.update(
             {"browser", "scrape", "web_fetch", "weather", "web_search"}
@@ -745,6 +796,10 @@ class AgentLoop:
             or looks_like_calendar_delete(text)
             or looks_like_calendar_read(text)
             or detect_analyze_ask(text)
+            or wants_image_edit(split_attachments_turn(text)[1] or text)
+            or looks_like_scheduled_send(text)
+            or looks_like_room_create(text)
+            or "image" in attachment_kinds_from_turn(text)
         ) and not re.match(
             r"(?i)^\s*(?:text|sms|txt|send\s+(?:a\s+)?(?:text|sms|message))\b",
             text or "",
@@ -755,12 +810,19 @@ class AgentLoop:
             else complete_sms_draft(text, history=self.memory.messages)
         )
         skip_email_draft = (
-            looks_like_stale_sms_skip(text, self.memory.messages)
-            or looks_like_calendar_create(text)
-            or looks_like_calendar_delete(text)
-            or looks_like_calendar_read(text)
-            or detect_analyze_ask(text)
-        ) and not looks_like_compose_email(text)
+            looks_like_scheduled_send(text)
+            or looks_like_room_create(text)
+            or (
+                (
+                    looks_like_stale_sms_skip(text, self.memory.messages)
+                    or looks_like_calendar_create(text)
+                    or looks_like_calendar_delete(text)
+                    or looks_like_calendar_read(text)
+                    or detect_analyze_ask(text)
+                )
+                and not looks_like_compose_email(text)
+            )
+        )
         email_draft = (
             None
             if skip_email_draft
@@ -784,6 +846,18 @@ class AgentLoop:
                 self._expected_tools.add("tasks")
             if looks_like_goals_utterance(text):
                 self._expected_tools.add("goals")
+            if (
+                self._expected_tools & _SEE_NO_SMS_REDIRECT
+                and not sms_intent_this_turn(text)
+            ):
+                self._expected_tools.discard("send_sms")
+            if "image_edit" in self._expected_tools:
+                self._expected_tools.discard("image")
+            if "schedule" in self._expected_tools:
+                self._expected_tools.discard("send_email")
+                self._expected_tools.discard("weather")
+            if "browser" in self._expected_tools:
+                self._expected_tools.discard("web_search")
             nudge = preflight_system_message(text, history=self.memory.messages)
             if nudge:
                 system_messages.append({"role": "system", "content": nudge})
@@ -836,7 +910,7 @@ class AgentLoop:
                 available.discard("vision")
                 available.discard("camera")
                 visible = available
-        if self._expected_tools & (_DAILY_WANDER | _LOCAL_STORE | _SEE_TOOLS):
+        if self._expected_tools & _HIDE_WANDER_FOR:
             available = _hide_daily_wander(set(available), self._expected_tools)
             visible = available
         available = _offer_expected(available, self._expected_tools, available_all)
@@ -991,6 +1065,8 @@ class AgentLoop:
         image_attempted = False
         memory_nudge_used = 0
         last_ok_tool_out = ""
+        last_browser_snapshot = ""
+        browser_clicked = False
         skip_finish_text = ""
         agenda_create_ok = False
         evidence_nudge_used = False
@@ -1035,6 +1111,9 @@ class AgentLoop:
             and "web_search" not in self._expected_tools
             and "scrape" not in self._expected_tools
         ):
+            wants_fresh_page = False
+        # A YouTube / Chrome drive is not a scrape-the-web turn.
+        if "browser" in self._expected_tools:
             wants_fresh_page = False
         # Chat fast-path: skip tool schemas + hold_paint when nothing suggests
         # a tool. Cuts prefill and lets short replies stream (felt TTFT).
@@ -1122,7 +1201,7 @@ class AgentLoop:
                     if look_tools:
                         available = look_tools
                         visible = look_tools
-                if self._expected_tools & (_DAILY_WANDER | _LOCAL_STORE | _SEE_TOOLS):
+                if self._expected_tools & _HIDE_WANDER_FOR:
                     available = _hide_daily_wander(
                         set(available), self._expected_tools
                     )
@@ -1205,6 +1284,7 @@ class AgentLoop:
                         base_url=str(
                             (self.config.get("ollama") or {}).get("base_url") or ""
                         ),
+                        role=str(self._turn_role or ""),
                     )
                     if (
                         self.json_fallback
@@ -1574,6 +1654,11 @@ class AgentLoop:
                     )
                 elif (
                     bool(agent_cfg.get("image_force_call", True))
+                    and "image_edit" not in self._expected_tools
+                    and "image_edit" not in preflight_kinds
+                    and not wants_image_edit(
+                        split_attachments_turn(text)[1] or text
+                    )
                     and "image" in self._expected_tools
                     and "image" not in self.tools_used
                     and not image_attempted
@@ -1618,6 +1703,42 @@ class AgentLoop:
                             {"text": "inject  image from intent"},
                         )
                     )
+                elif (
+                    bool(agent_cfg.get("image_force_call", True))
+                    and "image_edit" in self._expected_tools
+                    and "image_edit" not in self.tools_used
+                    and "image_edit" in tool_names
+                    and (
+                        wants_image_edit(split_attachments_turn(text)[1] or text)
+                        or "image_edit" in preflight_kinds
+                    )
+                ):
+                    ask = split_attachments_turn(text)[1] or text
+                    rows = parse_attachments_from_turn(text)
+                    path = str(rows[0].get("path") or "") if rows else ""
+                    if path:
+                        inj_edit: dict[str, Any] = {"path": path}
+                        if re.search(r"(?i)youtube|\bthumbnail\b", ask):
+                            inj_edit["preset"] = "youtube_thumbnail"
+                        if re.search(r"(?i)vibrant|vibrance|saturat", ask):
+                            inj_edit["vibrance"] = 1.3
+                        size = re.search(
+                            r"(?i)(\d{2,5})\s*(?:x|\u00d7|by)\s*(\d{2,5})",
+                            ask,
+                        )
+                        if size:
+                            inj_edit["width"] = int(size.group(1))
+                            inj_edit["height"] = int(size.group(2))
+                            inj_edit.pop("preset", None)
+                        calls = [("image_edit", inj_edit)]
+                        tool_calls = [_native_tool_call("image_edit", inj_edit)]
+                        await self._retract()
+                        await self.bus.publish(
+                            Event(
+                                EventType.THINKING,
+                                {"text": "inject  image_edit from intent"},
+                            )
+                        )
                 elif self._look is not None:
                     nxt = next_look_call(
                         self._look.intent,
@@ -1907,6 +2028,90 @@ class AgentLoop:
                             {"text": "inject  browser from intent"},
                         )
                     )
+                elif (
+                    looks_like_browser_click_signin(text)
+                    and "browser" in self.tools_used
+                    and not browser_clicked
+                    and "browser" in tool_names
+                ):
+                    inj = draft_signin_click_args(last_browser_snapshot)
+                    if inj:
+                        calls = [("browser", inj)]
+                        tool_calls = [_native_tool_call("browser", inj)]
+                        await self._retract()
+                        await self.bus.publish(
+                            Event(
+                                EventType.THINKING,
+                                {
+                                    "text": (
+                                        "inject  browser click Sign in "
+                                        f"ref={inj.get('ref')}"
+                                    )
+                                },
+                            )
+                        )
+                elif (
+                    (
+                        "rooms" in self._expected_tools
+                        or looks_like_room_create(text)
+                    )
+                    and "rooms" not in self.tools_used
+                    and "rooms" in tool_names
+                ):
+                    inj = draft_rooms_create_args(text)
+                    calls = [("rooms", inj)]
+                    tool_calls = [_native_tool_call("rooms", inj)]
+                    await self._retract()
+                    await self.bus.publish(
+                        Event(
+                            EventType.THINKING,
+                            {"text": "inject  rooms create from intent"},
+                        )
+                    )
+
+                before_sched = list(calls)
+                stripped_run_now = looks_like_bare_confirm(text) and any(
+                    n == "schedule"
+                    and str((a or {}).get("action") or "").lower() == "run_now"
+                    for n, a in before_sched
+                )
+                calls = rewrite_schedule_calls(
+                    text,
+                    calls,
+                    schedule_used="schedule" in self.tools_used,
+                    schedule_available="schedule" in tool_names,
+                )
+                if calls != before_sched:
+                    tool_calls = [
+                        _native_tool_call(n, a) for n, a in calls
+                    ]
+                    if not before_sched and calls:
+                        await self._retract()
+                        await self.bus.publish(
+                            Event(
+                                EventType.THINKING,
+                                {"text": "inject  schedule briefing from intent"},
+                            )
+                        )
+                if stripped_run_now and not calls:
+                    await self._finish(
+                        "The job is already scheduled. It will run at the time "
+                        "you set — no need to fire it now."
+                    )
+                    return
+
+                before_browser = list(calls)
+                calls = rewrite_browser_calls(calls, text=text)
+                if calls != before_browser:
+                    tool_calls = [
+                        _native_tool_call(n, a) for n, a in calls
+                    ]
+                    await self.bus.publish(
+                        Event(
+                            EventType.THINKING,
+                            {"text": "rewrite  invented browser action → snapshot"},
+                        )
+                    )
 
                 if not calls:
                     # Searched but never opened a page — one forced scrape round.
@@ -1915,6 +2120,8 @@ class AgentLoop:
                         and wants_fresh_page
                         and not scrape_nudge_used
                         and "web_search" in self.tools_used
+                        and "browser" not in self._expected_tools
+                        and "browser" not in self.tools_used
                         and not (self.tools_used & _WEB_TOOLS)
                         and ("scrape" in tool_names or "research_report" in tool_names)
                     ):
@@ -2309,6 +2516,10 @@ class AgentLoop:
                             }
                             and "agenda" in self._expected_tools
                         )
+                        or (
+                            name in _BROWSER_WANDER
+                            and "browser" in self._expected_tools
+                        )
                     )
                     if not daily_miss:
                         err = (
@@ -2393,6 +2604,44 @@ class AgentLoop:
                         )
                     # Fall through to execute injected weather.
 
+                # Browser drive: never run web_search/scrape; inject browser.
+                elif (
+                    name in _BROWSER_WANDER
+                    and (
+                        "browser" in self._expected_tools
+                        or looks_like_browser_or_url(text)
+                    )
+                    and "browser" not in self.tools_used
+                    and "browser" in tool_names
+                ):
+                    inj = draft_browser_args(text)
+                    notice = (
+                        "Blocked: this turn expects the browser tool, not "
+                        f"{name}. Call browser now."
+                    )
+                    await self.bus.publish(
+                        Event(
+                            EventType.THINKING,
+                            {"text": f"redirect  {name} → browser"},
+                        )
+                    )
+                    messages.append(self._tool_message(name, notice))
+                    _drop_wander(*_BROWSER_WANDER)
+                    name = "browser"
+                    args = inj
+                    await self.bus.publish(
+                        Event(
+                            EventType.THINKING,
+                            {"text": "inject  browser from intent"},
+                        )
+                    )
+                    if self._timer is not None:
+                        self._timer.mark(
+                            "exactness",
+                            gate="browser_redirect",
+                            action="inject",
+                        )
+
                 # Local store ask: never run weather/search instead of tasks/goals.
                 elif (
                     name
@@ -2454,7 +2703,12 @@ class AgentLoop:
                 # or add a number instead of injecting the same bad card.
                 elif (
                     (
-                        name in _SMS_WANDER
+                        should_redirect_wander_to_sms(
+                            name,
+                            self._expected_tools,
+                            tools_used=self.tools_used,
+                            sms_failed=sms_failed,
+                        )
                         or (
                             name == "contacts"
                             and sms_draft is not None
@@ -3117,6 +3371,12 @@ class AgentLoop:
                     self.tools_used.add(name)
                     fail_counts.pop(call_fp, None)
                     last_ok_tool_out = str(result.output or "")
+                    if name == "browser":
+                        b_act = str(args.get("action") or "").strip().lower()
+                        if b_act == "snapshot":
+                            last_browser_snapshot = str(result.output or "")
+                        if b_act == "click":
+                            browser_clicked = True
                     if name == "web_search":
                         q = str(args.get("query") or "").strip().casefold()
                         if q:
@@ -3432,6 +3692,16 @@ class AgentLoop:
                         streamed="",
                     )
                     return
+                if (
+                    name == "schedule"
+                    and result.ok
+                    and str(args.get("action") or "").lower()
+                    in {"create", "create_briefing"}
+                ):
+                    # Keep [job.id] in the transcript. The 7B otherwise
+                    # paraphrases the tool output and the id vanishes.
+                    await self._finish(str(result.output).strip(), sources, streamed="")
+                    return
                 messages.append(self._tool_message(name, out))
                 # Successful weather → answer from it; do not re-fetch all round.
                 if name == "weather" and result.ok:
@@ -3617,6 +3887,7 @@ class AgentLoop:
                 exc,
                 model=self.router.model_for(self._turn_role),
                 base_url=str((self.config.get("ollama") or {}).get("base_url") or ""),
+                role=str(self._turn_role or ""),
             )
             await self._publish_error(failure.chat, detail=failure.detail)
             return
@@ -4394,6 +4665,7 @@ class AgentLoop:
         # again, which would lose the terminal event and hang the composer.
         self.bus.publish_nowait(Event(EventType.THINKING, {"text": "cancelled"}))
         self.bus.publish_nowait(Event(EventType.ASSISTANT_DONE, {"text": text}))
+        self.memory.mark_last_user_cancelled()
 
     async def _publish_error(self, message: str, *, detail: str = "") -> None:
         self.terminal_sent = True

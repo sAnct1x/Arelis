@@ -329,6 +329,11 @@ def _facts_loosely_match(query: str, stored: str) -> bool:
     if not q_toks or not s_toks:
         return False
     overlap = q_toks & s_toks
+    if not overlap:
+        return False
+    # Distinctive words all match: "climb on tuesdays" vs "You climb on Tuesdays".
+    if overlap == q_toks or overlap == s_toks:
+        return True
     return len(overlap) >= 3 and overlap >= (q_toks if len(q_toks) <= 4 else set())
 
 
@@ -728,7 +733,7 @@ class MemoryStore:
             """
             UPDATE facts
             SET status = 'rejected', updated_at = ?
-            WHERE status = 'active' AND text = ?
+            WHERE status = 'active' AND lower(text) = lower(?)
             """,
             (_utc_now(), cleaned),
         )

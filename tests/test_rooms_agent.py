@@ -181,3 +181,22 @@ async def test_a_cage_naming_only_unknown_tools_is_ignored(tmp_path: Path) -> No
         t["function"]["name"] for t in recorder.seen[0]["tools"] if "function" in t
     }
     assert "calculator" in offered
+
+
+def test_make_me_a_room_for_topic_expects_rooms() -> None:
+    """13.9: natural-language room create, not furniture."""
+    from arelis.core.preflight import detect_intents, looks_like_room_create
+    from arelis.core.skills import select_skill_ids
+
+    ask = "Make me a room for astrophysics."
+    assert looks_like_room_create(ask)
+    hints = detect_intents(ask)
+    tools = {t for h in hints for t in h.expected_tools}
+    assert "rooms" in tools
+    ids = select_skill_ids(
+        ask,
+        available_tools={"rooms", "image", "web_search", "workspace"},
+    )
+    assert "rooms" in ids
+    assert not looks_like_room_create("make room in the suitcase")
+    assert not looks_like_room_create("the living room needs paint")

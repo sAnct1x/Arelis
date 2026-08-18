@@ -10,13 +10,13 @@ from __future__ import annotations
 import asyncio
 import logging
 import shutil
-import subprocess
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from arelis.core.look import OcrInspect, inspect_ocr_text
+from arelis.hidden_proc import hidden_run
 from arelis.paths import outputs_dir, user_data_dir
 from arelis.tools.base import ToolResult
 from arelis.tools.safety import redact_secrets
@@ -62,7 +62,7 @@ def run_tesseract_inspect(path: Path, *, lang: str = "eng") -> OcrInspect:
         )
     if not path.is_file():
         raise FileNotFoundError(f"Image not found: {path}")
-    proc = subprocess.run(
+    proc = hidden_run(
         [exe, str(path), "stdout", "-l", lang, "--psm", "3", "tsv"],
         capture_output=True,
         text=True,

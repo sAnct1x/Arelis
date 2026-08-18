@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from arelis.core.agent_loop import should_offer_tools
+from arelis.attachments import format_attachments_block, wants_image_edit
+from arelis.core.agent_loop import should_offer_tools, should_redirect_wander_to_sms
 from arelis.core.claims import detect_exactness_need, detect_vision_ask
 from arelis.core.image_refs import (
     CAMERA_FRESH_S,
@@ -253,3 +254,91 @@ def test_skill_selects_vision_on_camera_look() -> None:
 def test_vision_ask_on_camera_look() -> None:
     assert detect_vision_ask("look at the webcam")
     assert detect_vision_ask("what do you see")
+
+
+def _attach_image_turn(ask: str) -> str:
+    block = format_attachments_block(
+        [
+            {
+                "path": r"C:\Users\you\Documents\Arelis\data\drops\20260817\paste.png",
+                "kind": "image",
+            }
+        ],
+        user_text=ask,
+    )
+    return f"{block}\n\n{ask}"
+
+
+def test_whats_in_this_image_expects_vision_not_sms() -> None:
+    """7.1: a pasted screenshot + 'what's in this image?' is vision, never SMS."""
+    ask = "what's in this image?"
+    text = _attach_image_turn(ask)
+    need = detect_exactness_need(ask)
+    assert need.needs_vision
+    assert "vision" in need.kinds
+    hints = detect_intents(text)
+    tools = {t for h in hints for t in h.expected_tools}
+    kinds = [h.kind for h in hints]
+    assert "vision" in tools
+    assert "send_sms" not in tools
+    assert "sms_send" not in kinds
+
+
+def test_what_in_this_with_image_is_not_sms() -> None:
+    """Shorter follow-up on a pasted shot must not arm send_sms."""
+    text = _attach_image_turn("what in this?")
+    hints = detect_intents(text)
+    tools = {t for h in hints for t in h.expected_tools}
+    assert "vision" in tools
+    assert "send_sms" not in tools
+
+
+def test_vision_does_not_redirect_to_sms_when_sms_is_stale_expected() -> None:
+    """Calling vision while a leftover SMS expected-set exists must not rewrite."""
+    assert not should_redirect_wander_to_sms("vision", {"send_sms"})
+    assert not should_redirect_wander_to_sms("ocr", {"send_sms"})
+    assert not should_redirect_wander_to_sms("image", {"send_sms"})
+    assert not should_redirect_wander_to_sms("image_edit", {"send_sms"})
+    assert not should_redirect_wander_to_sms("camera", {"send_sms"})
+    assert should_redirect_wander_to_sms("web_search", {"send_sms"})
+
+
+def test_stale_sms_draft_does_not_revive_on_vision_ask() -> None:
+    history = [
+        {"role": "user", "content": "text Alex that I am running late"},
+        {"role": "assistant", "content": "What should the message say?"},
+    ]
+    hints = detect_intents(_attach_image_turn("what's in this image?"), history=history)
+    assert "sms_send" not in [h.kind for h in hints]
+
+
+def test_vibrant_thumbnail_expects_image_edit_not_generate() -> None:
+    """7.2: edit the attached pixels; do not force Comfy generate."""
+    ask = "Make this more vibrant and resize it for a YouTube thumbnail."
+    text = _attach_image_turn(ask)
+    assert wants_image_edit(ask)
+    assert not looks_like_image_gen(ask)
+    assert not looks_like_image_gen(text)
+    hints = detect_intents(text)
+    tools = {t for h in hints for t in h.expected_tools}
+    kinds = [h.kind for h in hints]
+    assert "image_edit" in tools
+    assert "image" not in tools
+    assert "image_gen" not in kinds
+    ids = select_skill_ids(
+        ask,
+        available_tools={"image", "image_edit", "vision", "web_search"},
+    )
+    assert "image_edit" in ids
+    assert "image" not in ids
+
+
+def test_spiral_galaxy_generate_still_expects_image() -> None:
+    """7.3 must stay generate — do not treat it as an edit."""
+    ask = "generate an image of a spiral galaxy"
+    assert looks_like_image_gen(ask)
+    assert not wants_image_edit(ask)
+    hints = detect_intents(ask)
+    tools = {t for h in hints for t in h.expected_tools}
+    assert "image" in tools
+    assert "image_edit" not in tools

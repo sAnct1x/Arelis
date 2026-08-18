@@ -89,6 +89,22 @@ def test_memory_tool_is_write_gated(tmp_path: Path) -> None:
     store.close()
 
 
+def test_forget_matches_you_climb_on_tuesdays(tmp_path: Path) -> None:
+    """4.6: stored 'You climb on Tuesdays' must match 'I climb on tuesdays'."""
+    store = MemoryStore(tmp_path / "memory.db")
+    store.start_session()
+    store.add_fact(
+        "You climb on Tuesdays",
+        source="explicit",
+        status="active",
+        session_id=store.session_id,
+    )
+    n = store.forget_fact("I climb on tuesdays")
+    assert n == 1
+    assert store.active_fact_texts() == []
+    store.close()
+
+
 @pytest.mark.asyncio
 async def test_memory_tool_can_forget_an_active_fact(tmp_path: Path) -> None:
     store = MemoryStore(tmp_path / "memory.db")

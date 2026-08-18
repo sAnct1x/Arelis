@@ -129,6 +129,10 @@ def test_analyze_git_agenda_clipboard_ocr_plans() -> None:
     reserve_plan = plan_system_message("book a table at The Inn") or ""
     assert "action=reserve" in reserve_plan
     assert "Book" in reserve_plan
+    signin_plan = plan_system_message("go to sign in") or ""
+    assert "action=snapshot" in signin_plan
+    assert "goto_sign_in" in signin_plan
+    assert "1) browser(action=screenshot)" not in signin_plan
 
 
 def test_remember_that_does_not_plan_recall() -> None:

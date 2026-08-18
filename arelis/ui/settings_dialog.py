@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QListWidget,
     QPushButton,
     QSlider,
+    QStyleFactory,
     QTabWidget,
     QToolButton,
     QVBoxLayout,
@@ -128,6 +129,14 @@ class SettingsDialog(QDialog):
         tabs.setObjectName("SettingsTabs")
         tabs.setDocumentMode(True)
         tabs.setUsesScrollButtons(False)
+        self._fusion_style = QStyleFactory.create("Fusion")
+        if self._fusion_style is not None:
+            self._fusion_style.setParent(self)
+            tabs.setStyle(self._fusion_style)
+            tab_bar = tabs.tabBar()
+            if tab_bar is not None:
+                tab_bar.setDrawBase(False)
+                tab_bar.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         root.addWidget(tabs, stretch=1)
 
         # --- Audio ---
@@ -330,7 +339,10 @@ class SettingsDialog(QDialog):
         roots_l.addWidget(roots_hint)
 
         self.roots_list = QListWidget()
-        self.roots_list.setObjectName("SettingsField")
+        self.roots_list.setObjectName("SettingsList")
+        self.roots_list.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        if self._fusion_style is not None:
+            self.roots_list.setStyle(self._fusion_style)
         self.roots_list.currentRowChanged.connect(self._on_root_selected)
         roots_l.addWidget(self.roots_list, stretch=1)
 
@@ -386,6 +398,8 @@ class SettingsDialog(QDialog):
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
         buttons.setObjectName("SettingsButtons")
+        if self._fusion_style is not None:
+            buttons.setStyle(self._fusion_style)
         buttons.accepted.connect(self._accept)
         buttons.rejected.connect(self.reject)
         root.addWidget(buttons)

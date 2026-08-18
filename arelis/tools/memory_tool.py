@@ -256,16 +256,16 @@ class MemoryTool:
             # Exact match only: guessing which active fact they meant would
             # deactivate the wrong one.
             active = self.store.active_fact_texts(limit=12)
-            hint = ""
             if active:
                 listed = "; ".join(active)
-                hint = f" Active facts look like: {listed}"
+                extra = (
+                    f" Do not say there is no such fact. Active facts: {listed}."
+                )
+            else:
+                extra = " There are no active facts stored."
             return ToolResult(
                 ok=False,
-                output=(
-                    f"No active fact matched {fact!r} exactly. Quote it the way "
-                    f"it was stored.{hint}"
-                ),
+                output=f"No active fact matched {fact!r}.{extra}",
             )
         return ToolResult(
             ok=True,

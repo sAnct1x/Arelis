@@ -35,6 +35,7 @@ _RECEIPT_TOOLS = frozenset(
         "look",
         "research_report",
         "contacts",
+        "schedule",
     }
 )
 
@@ -48,6 +49,7 @@ _GOALS_MUTATE = frozenset(
 _WORKSPACE_MUTATE = frozenset({"write", "edit"})
 _MEMORY_MUTATE = frozenset({"remember", "forget", "prefer", "decide", "episode"})
 _CONTACTS_MUTATE = frozenset({"add", "update", "remove"})
+_SCHEDULE_MUTATE = frozenset({"create", "create_briefing", "delete", "run_now"})
 _BROWSER_MUTATE = frozenset(
     {"open", "navigate", "click", "type", "relaunch", "screenshot"}
 )
@@ -79,6 +81,8 @@ def action_receipt(
     if tool == "memory" and action not in _MEMORY_MUTATE:
         return None
     if tool == "contacts" and action not in _CONTACTS_MUTATE:
+        return None
+    if tool == "schedule" and action not in _SCHEDULE_MUTATE:
         return None
     if tool == "browser" and action not in _BROWSER_MUTATE:
         return None
@@ -155,6 +159,8 @@ def action_receipt(
         receipt["ok_count"] = data.get("ok_count")
     elif tool == "contacts":
         receipt["who"] = str(args.get("who") or args.get("id") or "").strip()[:80]
+    elif tool == "schedule":
+        receipt["title"] = str(data.get("name") or args.get("name") or "")[:120]
     return receipt
 
 

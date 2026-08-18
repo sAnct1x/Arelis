@@ -18,7 +18,6 @@ import json
 import os
 import platform
 import re
-import subprocess
 import time
 from dataclasses import asdict, dataclass, field
 from typing import Any
@@ -179,11 +178,15 @@ def _sample_gpu_windows() -> tuple[int | None, int | None, float | None, str, li
         notes.append("gpu counters: non-Windows host")
         return None, None, None, "", notes
     try:
-        proc = subprocess.run(
+        from arelis.hidden_proc import hidden_run
+
+        proc = hidden_run(
             [
                 "powershell",
                 "-NoProfile",
                 "-NonInteractive",
+                "-WindowStyle",
+                "Hidden",
                 "-Command",
                 _GPU_PS,
             ],

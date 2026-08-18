@@ -216,3 +216,33 @@ def test_start_comfy_hides_console_not_detached(monkeypatch, tmp_path: Path) -> 
         except Exception:
             pass
         life._log_handle = None
+
+
+def test_url_is_loopback() -> None:
+    assert life._url_is_loopback("http://127.0.0.1:8188")
+    assert life._url_is_loopback("http://localhost:8188")
+    assert not life._url_is_loopback("http://example.com:8188")
+
+
+def test_park_comfy_skips_remote(monkeypatch) -> None:
+    monkeypatch.setattr(life, "cancel_comfy_idle", lambda: None)
+    monkeypatch.setattr(life, "stop_comfy", lambda: True)
+    monkeypatch.setattr(life, "comfy_is_healthy", lambda url, timeout_s=1.0: True)
+
+    def boom(_port: int) -> bool:
+        raise AssertionError("must not kill a remote Comfy")
+
+    monkeypatch.setattr(life, "_kill_local_port", boom)
+    assert life.park_comfy("http://example.com:8188") is True
+
+
+def test_park_comfy_kills_leftover_local_listener(monkeypatch) -> None:
+    monkeypatch.setattr(life, "cancel_comfy_idle", lambda: None)
+    monkeypatch.setattr(life, "stop_comfy", lambda: False)
+    monkeypatch.setattr(life, "comfy_is_healthy", lambda url, timeout_s=1.0: True)
+    killed: list[int] = []
+    monkeypatch.setattr(
+        life, "_kill_local_port", lambda port: killed.append(port) or True
+    )
+    assert life.park_comfy("http://127.0.0.1:8188") is True
+    assert killed == [8188]

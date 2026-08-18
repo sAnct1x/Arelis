@@ -32,6 +32,8 @@ class ChatMessage:
     # Context-only suffix, never shown in the chat. Used for the tool trace: the
     # model needs to know a file was written, the user already watched it happen.
     note: str = ""
+    # Stop/Esc: keep the bubble in History, hide it from the next model prompt.
+    cancelled: bool = False
 
 
 @dataclass
@@ -77,6 +79,13 @@ class SessionMemory:
         if self.sink is not None:
             self.sink.on_message(role, content, note)
 
+    def mark_last_user_cancelled(self) -> None:
+        """Tag the latest user turn as dead for the next prompt, keep the bubble."""
+        for message in reversed(self.messages):
+            if message.role == "user":
+                message.cancelled = True
+                return
+
     def set_summary(self, text: str) -> None:
         self.summary = text
         if self.sink is not None and text:
@@ -94,6 +103,8 @@ class SessionMemory:
         out: list[dict[str, str]] = []
         for m in self.messages:
             if m.role == "notice":
+                continue
+            if m.cancelled:
                 continue
             content = m.content
             if include_notes and m.note:
@@ -145,6 +156,7 @@ class SessionMemory:
                         role=str(item.get("role") or "user"),
                         content=str(item.get("content") or ""),
                         note=str(item.get("note") or ""),
+                        cancelled=bool(item.get("cancelled")),
                     )
                 )
         self.summary = summary

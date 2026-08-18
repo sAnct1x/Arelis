@@ -25,12 +25,19 @@ OLLAMA_REJECT_NOTICE = (
 OLLAMA_GENERIC_NOTICE = (
     "The model failed mid-turn. Check that Ollama is still running, then send again."
 )
-OLLAMA_VRAM_NOTICE = (
-    "The research model could not fit on the GPU. I unloaded it and put the "
-    "conversation model back so the machine stays usable. Close other GPU apps "
-    "(ComfyUI, games, extra Chrome), then try the research ask again — or stay "
-    "on `/role fast`."
-)
+
+
+def vram_notice(role: str = "") -> str:
+    """Chat copy when a heavy model will not fit. Code is not 'research'."""
+    label = "code" if (role or "").strip().lower() == "code" else "research"
+    return (
+        f"The {label} model could not fit on the GPU. I parked ComfyUI and put "
+        "the conversation model back so the machine stays usable. Close games "
+        "or extra Chrome if it still fails — or stay on `/role fast`."
+    )
+
+
+OLLAMA_VRAM_NOTICE = vram_notice("research")
 
 _VRAM_MARKERS = (
     "could not load `",
@@ -65,6 +72,7 @@ def classify_ollama_failure(
     *,
     model: str = "",
     base_url: str = "",
+    role: str = "",
 ) -> OllamaFailure:
     """Map an Ollama exception to chat copy plus a Thinking line."""
     detail = _debug_detail(exc, model=model, base_url=base_url)
@@ -75,7 +83,7 @@ def classify_ollama_failure(
     if isinstance(exc, _UNREACHABLE):
         return OllamaFailure(OLLAMA_DOWN_NOTICE, detail, skip_tool_fallback=True)
     if is_vram_failure(lower):
-        return OllamaFailure(OLLAMA_VRAM_NOTICE, detail, skip_tool_fallback=True)
+        return OllamaFailure(vram_notice(role), detail, skip_tool_fallback=True)
     if _is_missing_model(lower):
         return OllamaFailure(
             OLLAMA_MODEL_NOTICE.format(model=tag),

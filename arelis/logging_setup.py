@@ -66,3 +66,20 @@ def configure_logging(log_dir: Path | None = None) -> None:
         force=True,
     )
     _configured = True
+
+
+def install_unhandled_hook() -> None:
+    """Send uncaught exceptions to the log file.
+
+    pythonw has no console. sys.excepthook writes to stderr, which goes
+    nowhere, so a crash at launch looks like the process just vanished.
+    """
+
+    def _hook(exc_type: type[BaseException], exc: BaseException, tb: object) -> None:
+        logging.getLogger("arelis").critical(
+            "unhandled exception",
+            exc_info=(exc_type, exc, tb),
+        )
+        sys.__excepthook__(exc_type, exc, tb)
+
+    sys.excepthook = _hook

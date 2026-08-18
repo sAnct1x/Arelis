@@ -275,6 +275,37 @@ def color(name: str) -> QColor:
     return QColor(value)
 
 
+def dock_tab_bar_qss() -> str:
+    """Opaque ember tabs. Translucent QSS on a Windows QTabBar shows grey through."""
+    c = COLORS
+    return f"""
+    QTabBar {{
+        background: transparent;
+    }}
+    QTabBar::tab {{
+        background-color: {c['raised']};
+        color: {c['text_dim']};
+        border: 1px solid {c['edge']};
+        border-radius: 8px;
+        padding: 6px 16px;
+        margin-right: 4px;
+        min-width: 52px;
+        font-size: 12px;
+        letter-spacing: 0.06em;
+    }}
+    QTabBar::tab:selected {{
+        color: {c['accent2']};
+        background-color: {c['tab_selected']};
+        border-color: {c['edge_hot']};
+    }}
+    QTabBar::tab:hover {{
+        color: {c['accent']};
+        background-color: {c['hover_strong']};
+        border-color: {c['edge_strong']};
+    }}
+    """
+
+
 def stylesheet() -> str:
     c = COLORS
     f = FONTS
@@ -416,7 +447,7 @@ def stylesheet() -> str:
         background: transparent;
     }}
     #SettingsTabs QTabBar::tab {{
-        background-color: {c['chip']};
+        background-color: {c['raised']};
         border: 1px solid {c['edge']};
         border-radius: 8px;
         color: {c['text_dim']};
@@ -437,6 +468,27 @@ def stylesheet() -> str:
     #SettingsField {{
         min-width: 180px;
     }}
+    #SettingsList {{
+        background-color: {c['well']};
+        border: 1px solid {c['edge']};
+        border-radius: 8px;
+        color: {c['text']};
+        outline: none;
+        padding: 4px;
+    }}
+    #SettingsList::item {{
+        color: {c['text']};
+        padding: 6px 8px;
+        border-radius: 6px;
+    }}
+    #SettingsList::item:selected {{
+        background-color: {c['tab_selected']};
+        color: {c['accent2']};
+    }}
+    #SettingsList::item:hover {{
+        background-color: {c['hover_strong']};
+        color: {c['accent']};
+    }}
     #SettingsSlider::groove:horizontal {{
         height: 6px;
         border-radius: 3px;
@@ -454,6 +506,14 @@ def stylesheet() -> str:
     #SettingsButtons QPushButton {{
         min-width: 72px;
         padding: 6px 16px;
+        background-color: {c['raised']};
+        color: {c['text']};
+        border: 1px solid {c['edge_strong']};
+    }}
+    #SettingsTabBody QPushButton {{
+        background-color: {c['raised']};
+        color: {c['text']};
+        border: 1px solid {c['edge']};
     }}
     QCheckBox {{
         color: {c['text']};
@@ -931,19 +991,24 @@ def stylesheet() -> str:
         background: transparent;
     }}
     QDockWidget QTabBar::tab, #DockTabBar::tab {{
-        background: transparent;
+        background-color: {c['raised']};
         color: {c['text_dim']};
-        border: none;
+        border: 1px solid {c['edge']};
+        border-radius: 8px;
         padding: 5px 14px;
         font-size: 11px;
         letter-spacing: 0.06em;
+        margin-right: 4px;
     }}
     QDockWidget QTabBar::tab:selected, #DockTabBar::tab:selected {{
-        color: {c['accent']};
-        background: {c['hover_soft']};
+        color: {c['accent2']};
+        background-color: {c['tab_selected']};
+        border-color: {c['edge_hot']};
     }}
     QDockWidget QTabBar::tab:hover, #DockTabBar::tab:hover {{
         color: {c['accent']};
+        background-color: {c['hover_strong']};
+        border-color: {c['edge_strong']};
     }}
     QTextEdit, QPlainTextEdit {{
         background-color: transparent;
@@ -1011,7 +1076,7 @@ def stylesheet() -> str:
         border: none;
     }}
     QLineEdit {{
-        background-color: {c['inset']};
+        background-color: {c['well']};
         border: 1px solid {c['edge']};
         border-radius: 8px;
         padding: 5px 10px;
@@ -1022,11 +1087,11 @@ def stylesheet() -> str:
         border: 1px solid {c['accent']};
     }}
     QPushButton {{
-        background-color: {c['chip']};
-        border: 1px solid {c['rim']};
+        background-color: {c['raised']};
+        border: 1px solid {c['edge']};
         border-radius: 8px;
         padding: 4px 12px;
-        color: {c['text_dim']};
+        color: {c['text']};
         font-size: 11px;
         font-family: {f['mono']};
         font-weight: 500;

@@ -9,7 +9,7 @@ from typing import Any
 import httpx
 
 from arelis.tools.base import ToolResult
-from arelis.tools.comfy_lifecycle import ensure_comfy_running
+from arelis.tools.comfy_lifecycle import ensure_comfy_running, schedule_comfy_idle_stop
 
 # Poll budget for a queued job. Generation on a mid-range GPU is tens of
 # seconds, so one minute of one-second polls covers the common case without
@@ -214,6 +214,7 @@ class ImageTool:
                 local_path = self.output_dir / image_name
                 if view.status_code == 200:
                     local_path.write_bytes(view.content)
+                    schedule_comfy_idle_stop()
                     return ToolResult(
                         ok=True,
                         output=(
@@ -222,6 +223,7 @@ class ImageTool:
                         ),
                         data={"path": str(local_path), "prompt_id": prompt_id, "seed": seed},
                     )
+                schedule_comfy_idle_stop()
                 return ToolResult(
                     ok=True,
                     output=f"ComfyUI produced {image_name} (prompt_id={prompt_id}, seed={seed})",

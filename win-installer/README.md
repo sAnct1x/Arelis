@@ -214,7 +214,7 @@ What a cautious person can check instead: `build.py` prints the SHA-256 of the s
 `.exe`, and releases publish it. Compare with:
 
 ```powershell
-Get-FileHash .\Arelis-0.2.1-win64-setup.exe -Algorithm SHA256
+Get-FileHash .\Arelis-0.2.2-win64-setup.exe -Algorithm SHA256
 ```
 
 The bundled interpreter is verified during the build against the digest python.org

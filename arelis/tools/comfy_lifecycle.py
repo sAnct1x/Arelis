@@ -246,6 +246,148 @@ def stop_comfy() -> bool:
     return True
 
 
+# Seconds to keep Comfy warm for a follow-up image, then park it.
+_IDLE_STOP_S = 45.0
+_idle_task: asyncio.Task[None] | None = None
+
+
+def cancel_comfy_idle() -> None:
+    """Cancel a pending idle-park so a new image can reuse the server."""
+    global _idle_task
+    task = _idle_task
+    _idle_task = None
+    if task is not None and not task.done():
+        task.cancel()
+
+
+def schedule_comfy_idle_stop(delay_s: float = _IDLE_STOP_S) -> None:
+    """Park Comfy after the last image so /role code can fit on the card."""
+    global _idle_task
+    cancel_comfy_idle()
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        park_comfy()
+        return
+
+    async def _wait() -> None:
+        await asyncio.sleep(max(5.0, float(delay_s)))
+        parked = await asyncio.to_thread(park_comfy)
+        if parked:
+            log.info("Parked ComfyUI after idle (%ss)", delay_s)
+
+    _idle_task = loop.create_task(_wait())
+
+
+def _url_is_loopback(comfy_url: str) -> bool:
+    host, _port = _host_port(comfy_url)
+    return host in {"127.0.0.1", "localhost", "::1"}
+
+
+def park_comfy(comfy_url: str = "http://127.0.0.1:8188") -> bool:
+    """Stop Arelis-owned Comfy, then anyone still listening on that local port.
+
+    Image gen starts Comfy when needed. Chat / code / research cannot share a
+    12GB card with it, so parking is the default — the user should not have to
+    close a window by hand. Only loopback URLs are killed; a remote Comfy is left
+    alone.
+    """
+    cancel_comfy_idle()
+    stopped = False
+    try:
+        stopped = bool(stop_comfy())
+    except Exception:
+        log.warning("Could not stop Arelis-owned ComfyUI", exc_info=True)
+    url = (comfy_url or "http://127.0.0.1:8188").strip()
+    if not _url_is_loopback(url):
+        return stopped
+    try:
+        still = bool(comfy_is_healthy(url, timeout_s=1.0))
+    except Exception:
+        still = False
+    if not still:
+        return stopped
+    _, port = _host_port(url)
+    return _kill_local_port(port) or stopped
+
+
+def _kill_local_port(port: int) -> bool:
+    """Terminate listeners on a loopback port. Hidden console on Windows."""
+    if port <= 0 or port > 65535:
+        return False
+    pids = _pids_listening(port)
+    if not pids:
+        return False
+    self_pid = os.getpid()
+    killed = False
+    for pid in pids:
+        if pid <= 0 or pid == self_pid:
+            continue
+        log.info("Stopping leftover ComfyUI listener pid=%s port=%s", pid, port)
+        if _terminate_pid(pid):
+            killed = True
+    return killed
+
+
+def _pids_listening(port: int) -> list[int]:
+    if os.name != "nt":
+        return []
+    try:
+        from arelis.hidden_proc import hidden_run
+
+        proc = hidden_run(
+            [
+                "powershell",
+                "-NoProfile",
+                "-NonInteractive",
+                "-WindowStyle",
+                "Hidden",
+                "-Command",
+                (
+                    f"(Get-NetTCPConnection -LocalPort {int(port)} "
+                    "-State Listen -ErrorAction SilentlyContinue)."
+                    "OwningProcess"
+                ),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=8,
+            check=False,
+        )
+    except Exception:
+        log.warning("Could not list listeners on port %s", port, exc_info=True)
+        return []
+    raw = (proc.stdout or "").strip()
+    pids: list[int] = []
+    for token in raw.replace(",", " ").split():
+        try:
+            pid = int(token)
+        except ValueError:
+            continue
+        if pid > 0:
+            pids.append(pid)
+    return pids
+
+
+def _terminate_pid(pid: int) -> bool:
+    if os.name != "nt":
+        return False
+    try:
+        from arelis.hidden_proc import hidden_run
+
+        proc = hidden_run(
+            ["taskkill", "/PID", str(pid), "/T", "/F"],
+            capture_output=True,
+            text=True,
+            timeout=8,
+            check=False,
+        )
+    except Exception:
+        log.warning("Could not taskkill pid %s", pid, exc_info=True)
+        return False
+    return proc.returncode == 0
+
+
 def start_comfy(argv: list[str], cwd: Path) -> subprocess.Popen[bytes]:
     """Spawn ComfyUI with no console window; capture stdout/stderr to a log."""
     global _process, _log_handle
@@ -307,6 +449,7 @@ async def ensure_comfy_running(
 ) -> str | None:
     """Make ComfyUI reachable. Returns None on success, else an error message."""
     global _process
+    cancel_comfy_idle()
     if await comfy_is_healthy_async(comfy_url):
         return None
     if not auto_start:

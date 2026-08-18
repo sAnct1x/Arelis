@@ -233,6 +233,88 @@ def test_tasks_and_goal_delete_intents() -> None:
     assert any(h.kind == "browser" for h in detect_intents("reopen x.com"))
     assert any(h.kind == "browser_read" for h in detect_intents("whats on this page?"))
 
+    youtube = draft_browser_args("Open YouTube in your browser.")
+    assert youtube["action"] == "open"
+    assert "youtube" in youtube["url"].lower()
+    assert "x.com" not in youtube["url"].lower()
+    yt_hints = detect_intents("Open YouTube in your browser.")
+    assert "browser" in {t for h in yt_hints for t in h.expected_tools}
+    assert "web_search" not in {t for h in yt_hints for t in h.expected_tools}
+
+    video_search = detect_intents(
+        "Search for interferometry videos and tell me the top three results."
+    )
+    video_tools = {t for h in video_search for t in h.expected_tools}
+    assert "browser" in video_tools
+    assert "web_search" not in video_tools
+    drafted = draft_browser_args(
+        "Search for interferometry videos and tell me the top three results."
+    )
+    assert drafted["action"] == "search"
+    assert drafted["site"] == "youtube"
+    assert "interferometry" in drafted["query"].lower()
+    assert "tell me" not in drafted["query"].lower()
+    assert "top three" not in drafted["query"].lower()
+
+    web = detect_intents("Search the web for recent news about interferometry")
+    web_tools = {t for h in web for t in h.expected_tools}
+    # 6.3: must not become a browser drive.
+    assert "browser" not in web_tools
+
+    from arelis.core.preflight import rewrite_browser_calls
+
+    for phrase in (
+        "go to sign in",
+        "click on the sign in the top right corner",
+        "i would like to proceed with signing in.",
+        "sign me in",
+        "take me to the login",
+        "log me in",
+        "go to the login page",
+        "go to signin",
+    ):
+        hints = detect_intents(phrase)
+        assert any(h.kind == "browser_click" for h in hints), phrase
+        assert draft_browser_args(phrase) == {"action": "snapshot"}
+        nudge = next(h.nudge for h in hints if h.kind == "browser_click")
+        assert "snapshot" in nudge.lower()
+        assert "goto_sign_in" in nudge
+    howto = detect_intents("how do I sign in to github from the terminal")
+    assert not any(h.kind == "browser_click" for h in howto)
+    rewritten = rewrite_browser_calls(
+        [("browser", {"action": "goto_sign_in"})]
+    )
+    assert rewritten == [("browser", {"action": "snapshot"})]
+    kept = rewrite_browser_calls([("browser", {"action": "click", "ref": "e3"})])
+    assert kept == [("browser", {"action": "click", "ref": "e3"})]
+    navigated = rewrite_browser_calls(
+        [
+            (
+                "browser",
+                {
+                    "action": "navigate",
+                    "url": "https://www.youtube.com/account_signin",
+                },
+            )
+        ],
+        text="go to signin",
+    )
+    assert navigated == [("browser", {"action": "snapshot"})]
+
+    from arelis.core.preflight import draft_signin_click_args, signin_ref_from_snapshot
+
+    snap = (
+        "title: optics videos - YouTube\n"
+        "url: https://www.youtube.com/results?search_query=optics+videos\n"
+        "elements:\n"
+        "[e5] input type=search\n"
+        "[e11] button 'Sign in'\n"
+        "[e24] button 'Sign in to like videos, comment, and subscribe'\n"
+    )
+    assert signin_ref_from_snapshot(snap) == "e11"
+    assert draft_signin_click_args(snap) == {"action": "click", "ref": "e11"}
+    assert signin_ref_from_snapshot("elements:\n[e1] a 'Home'\n") is None
+
 
 def _expected(text: str) -> set[str]:
     out: set[str] = set()

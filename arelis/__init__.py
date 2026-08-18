@@ -7,7 +7,7 @@ somebody remembers to change both, and the one a user is shown should be the
 one the package actually is.
 """
 
-__version__ = "0.2.1"
+__version__ = "0.2.2"
 
 # SPDX identifier. The full text is in LICENSE at the root of the repository.
 __license__ = "AGPL-3.0-or-later"

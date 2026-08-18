@@ -46,6 +46,21 @@ def test_standing_profile_prompt_omits_empties_and_skips_missing_file(
     assert "Pronouns" not in line
 
 
+def test_load_profile_email_is_routing_only(tmp_path: Path) -> None:
+    from arelis.profile import load_profile_email
+
+    path = tmp_path / "profile.yaml"
+    path.write_text(
+        "user:\n  name: Sam\n  email: you@example.com\n",
+        encoding="utf-8",
+    )
+    assert load_profile_email(path) == "you@example.com"
+    line = standing_profile_prompt_line(path=path)
+    assert "you@example.com" not in line
+    assert "Name: Sam" in line
+    assert load_profile_email(tmp_path / "absent.yaml") == ""
+
+
 def test_standing_profile_accepts_flat_non_location_keys(tmp_path: Path) -> None:
     path = tmp_path / "profile.yaml"
     path.write_text(
