@@ -97,6 +97,7 @@ from arelis.ui.audio import SpeechPlayer
 from arelis.ui.chrome import TitleBar
 from arelis.ui.contacts_inbox import ContactsInboxWindow
 from arelis.ui.first_run import prompt_for_workspace_root
+from arelis.ui.foreground import flash_taskbar, process_owns_foreground
 from arelis.ui.glass import GlassFrame, advance_rim_pulse, fade_in_widget
 from arelis.ui.glass_dock import GlassDockWidget
 from arelis.ui.layout_store import (
@@ -108,7 +109,6 @@ from arelis.ui.layout_store import (
     save_ui_prefs,
     save_window_layout,
 )
-from arelis.ui.foreground import flash_taskbar, process_owns_foreground
 from arelis.ui.notify_inbox import NotificationsInboxWindow
 from arelis.ui.panels import (
     CameraPanel,

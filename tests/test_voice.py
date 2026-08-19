@@ -1568,7 +1568,7 @@ def test_conversation_keeps_listening_when_nothing_was_heard(qt_app) -> None:
 
 def test_confirm_card_keeps_conversation_listening(qt_app) -> None:
     """Conversation mode hears allow / deny. The mic stays on for the card."""
-    controller, recorder = _controller(qt_app)
+    controller, _recorder = _controller(qt_app)
     listening: list[bool] = []
     controller.listening_changed.connect(listening.append)
 
