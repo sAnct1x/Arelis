@@ -1,44 +1,54 @@
 # Arelis
 
-*(say it "ah-REL-is")*
+*ah-REL-is*
 
-Arelis lives on your Windows PC. A window you talk or type into. A mind that
-runs on your graphics card. Hands that can read your files, search the web,
-drive her own browser, send mail and texts, keep a calendar, and remember
-work in named **rooms**.
+She lives on your Windows PC. Not in a tab. Not on a server with your
+chats. A window, a voice, a mind that runs on **your** graphics card.
 
-No account. No server holding your chats. If the internet drops, she still
-works.
+Talk to her. Type to her. She can work in the folder you gave her, search
+the web, drive her own browser, send mail and texts after you allow it,
+keep a calendar, and remember work in named **rooms**.
+
+No account. If the internet dies, she is still here.
 
 ```mermaid
-flowchart TB
-  you[You]
-  ui[Window, voice, or terminal]
-  brain[Orchestrator + local model]
-  tools[Tools]
-  world[Files, web, browser, mail, texts, calendar]
-  you --> ui --> brain --> tools --> world
+%%{init: {"theme": "dark", "themeVariables": {"primaryColor": "#3d2418", "primaryTextColor": "#f6ead9", "primaryBorderColor": "#e08a4a", "lineColor": "#c4784a", "secondaryColor": "#1a1210", "tertiaryColor": "#2a1810", "fontFamily": "trebuchet ms"}}}%%
+flowchart LR
+  subgraph pc["this PC"]
+    direction TB
+    you(("you"))
+    glass["window · voice · CLI"]
+    brain["one local model"]
+    hands["tools"]
+    you --> glass --> brain --> hands
+  end
+  subgraph out["only if you pointed her"]
+    world["files · web · her browser<br/>mail · texts · calendar"]
+  end
+  hands --> world
 ```
 
-## What she will not do
+How the pieces actually fit: [architecture.md](docs/architecture.md).
+
+## 🔒 The deal
 
 **Nothing about you leaves this machine unless you pointed it somewhere.**
 
-No sign-up. No analytics. No crash report sent anywhere. Logs stay on your
-disk. Conversations, contacts, and memory are ordinary files you can read,
-back up, or delete.
+No sign-up. No analytics. No crash report sent anywhere. Logs stay on
+your disk. Conversations, contacts, and memory are ordinary files you can
+read, back up, or delete.
 
-She uses the network when you asked: search, weather, mail, a calendar you
-connected, your own phone. An installed copy also asks GitHub once a day
-whether a newer version exists. A source checkout never asks. Hosts are
-pinned by a test, so a new destination fails the build.
+She uses the network when you asked: search, weather, mail, a calendar
+you connected, your own phone. An installed copy also asks GitHub once a
+day whether a newer version exists. A source checkout never asks. Hosts
+are pinned by a test, so a new destination fails the build.
 
 Risky work pauses. A card, two lowercase buttons (**allow** / **deny**),
-a headline like *text wife* or *write note.txt*. Mail and texts always show
-the exact message. She will not send those while you are away from the
-keyboard. Settings → Allow is the list.
+a headline like *text wife* or *write note.txt*. Mail and texts always
+show the exact message. She will not send those while you are away from
+the keyboard. Settings → Allow is the list.
 
-## Installing
+## 📦 Get her on this PC
 
 Windows 10 or later, 64-bit.
 
@@ -58,15 +68,28 @@ Get-FileHash .\Arelis-0.2.3-win64-setup.exe -Algorithm SHA256
 Get-Content .\Arelis-0.2.3-win64-setup.exe.sha256
 ```
 
-The hashes should match. That catches a bad download. It is not a signature.
-Both files come from the same release.
+The hashes should match. That catches a bad download. It is not a
+signature. Both files come from the same release.
 
-The installer includes voice and her browser extra. It does not include the
-models. First open she looks at this PC and recommends one chat model
-(`qwen3.5:9b` on a typical 8–16 GB card). Confirm it, or pick Gemma or
-DeepSeek. If [Ollama](https://ollama.com/download) is missing, she downloads
-the free local engine first, about 1.4 GB, then the model. A vision model
-(`qwen2.5vl:3b`) downloads the first time she looks at a picture.
+The installer includes voice and her browser extra. It does **not**
+include the models. First open is two questions, not a tour:
+
+```mermaid
+%%{init: {"theme": "dark", "themeVariables": {"primaryColor": "#3d2418", "primaryTextColor": "#f6ead9", "primaryBorderColor": "#e08a4a", "lineColor": "#c4784a"}}}%%
+flowchart TD
+  start([Start Arelis]) --> folder["which folder may she work in?<br/>read · create · change · delete"]
+  folder --> look["look at this PC"]
+  look --> rec["recommend one model<br/>qwen3.5:9b on a typical 8–16 GB card"]
+  rec --> pick{"use this · or pick Gemma / DeepSeek"}
+  pick --> engine["Ollama if missing, then the tag"]
+  engine --> ready["she's ready"]
+```
+
+Confirm the recommendation, or choose Gemma / DeepSeek. One model at a
+time — both composer chips are the same tag. If [Ollama](https://ollama.com/download)
+is missing, she downloads the free local engine first, about 1.4 GB, then
+the model. A vision model (`qwen2.5vl:3b`) downloads the first time she
+looks at a picture.
 
 From source, you can still pull by hand:
 
@@ -79,12 +102,11 @@ Ollama is system-wide. An older 0.2.2 install on the same PC still names
 Qwen2.5 7B / 14B / Coder 7B. Do not delete those tags while that copy is
 installed. Details: [models.md](docs/models.md).
 
-Start **Arelis** from the Start menu. First open, she asks which folder she
-may work in, then which model. An installed copy looks for updates. A
-source checkout does not.
+Start **Arelis** from the Start menu. An installed copy looks for
+updates. A source checkout does not.
 
-Installing does **not** copy a profile from this repository. The two copies
-keep separate records on purpose.
+Installing does **not** copy a profile from this repository. The two
+copies keep separate records on purpose.
 
 How the installer is built: [win-installer/README.md](win-installer/README.md).
 
@@ -121,13 +143,13 @@ Desktop icon from a checkout:
 .\scripts\install_desktop_shortcut.ps1
 ```
 
-That writes **Arelis (dev)** so it cannot overwrite the installed **Arelis**
-shortcut.
+That writes **Arelis (dev)** so it cannot overwrite the installed
+**Arelis** shortcut.
 
-## Where your things live
+## 📁 Where your things live
 
-First open, she asks which folder she may work in. She can change files
-inside it and nowhere else.
+The folder question is a permission. She can change files inside it and
+nowhere else.
 
 | | Installed | What |
 |---|---|---|
@@ -135,17 +157,17 @@ inside it and nowhere else.
 | Your records | `%LOCALAPPDATA%\Arelis` | Profile, contacts, mail login, memory, settings, logs |
 | Her workspace | the folder you chose | Files she may read and edit |
 
-Contacts and passwords do not sit in a folder a language model can delete.
-Updating the program does not wipe your records. Two people on one PC get
-two unrelated sets.
+Contacts and passwords do not sit in a folder a language model can
+delete. Updating the program does not wipe your records. Two people on
+one PC get two unrelated sets.
 
 From source, records and workspace are the repository itself (`data/`).
 An installed copy and a checkout on the same PC do not share a profile.
 
-## Setting her up
+## ✏️ Setting her up
 
-Three files in `data/` under your records folder. Copy the examples. Fill
-them in. They are gitignored.
+Three files in `data/` under your records folder. Copy the examples.
+Fill them in. They are gitignored.
 
 | Copy this | To this | For |
 |---|---|---|
@@ -153,45 +175,49 @@ them in. They are gitignored.
 | `data/contacts.example.yaml` | `data/contacts.yaml` | People she can text or email |
 | `data/secrets.example.yaml` | `data/secrets.yaml` | Mail login, phone pair, calendar |
 
-## Using her
+Mail, phone, and calendar can wait. They live in Settings when you want
+them.
 
-**The window.** Empty orbit, a ring, a box under it. Type there. After you
-send, you get the workbench: chat, composer, docks for thinking, files,
-history, contacts, notifications. Press **F1** for shortcuts and the
-version.
+## 🌙 Using her
 
-**Rooms.** The general chat is forgettable. Work you come back to belongs
+**🪟 The window.** Empty orbit, a ring, a box under it. Type there. After
+you send, you get the workbench: chat, composer, docks for thinking,
+files, history, contacts, notifications. Press **F1** for shortcuts and
+the version.
+
+**🚪 Rooms.** The general chat is forgettable. Work you come back to belongs
 in a **room**: a name, a folder, its own thread. `/room physics` goes in.
 `/leave` comes out. [rooms.md](docs/rooms.md).
 
-**Roles.** Two chips: `/role fast` and `/role research`. One chat model on
-the card. File and git work stays on `fast`. Both chips are the same
+**⚡ Roles.** Two chips: `/role fast` and `/role research`. One chat model
+on the card. File and git work stays on `fast`. Both chips are the same
 weights after setup (`qwen3.5:9b` unless you picked another). Research
 means a longer loop, not a bigger file. [models.md](docs/models.md).
 
-**Phone.** One sideloaded **Arelis** app. Scan the QR in Settings → Notify.
-Google Messages stays your messenger. She sends from your SIM after you
-allow the card. [notify-inbound.md](docs/notify-inbound.md).
+**📱 Phone.** One sideloaded **Arelis** app. Scan the QR in Settings →
+Notify. Google Messages stays your messenger. She sends from your SIM
+after you allow the card. [notify-inbound.md](docs/notify-inbound.md).
 
-**Her browser.** Not your daily Chrome. Her own window. You watch. She
+**🧭 Her browser.** Not your daily Chrome. Her own window. You watch. She
 never types a password or clicks Book / Pay / Checkout.
 
-**Voice.** Say **Hey Arelis**. A bare name does not wake her.
+**🎙️ Voice.** Say **Hey Arelis**. A bare name does not wake her.
 [voice-wake.md](docs/voice-wake.md).
 
-**Memory.** Settings → Memory. Dated backups in `data\backups\` for a
+**🗂️ Memory.** Settings → Memory. Dated backups in `data\backups\` for a
 fortnight.
 
-## What she can do
+## ✨ What she can do
 
 Rooms. Files in folders you allowed. Web search and real page reads. Her
 own browser. Mail. Calendar. Texts through your Android phone. Facts,
-goals, tasks, a morning briefing. OCR. Look at pictures. Resize a picture
-on disk. Generate pictures if ComfyUI is set up. Listen and speak.
+goals, tasks, a morning briefing. OCR. Look at pictures. Resize a
+picture on disk. Generate pictures if ComfyUI is set up. Listen and
+speak.
 
-Tests cover this. Voice timing, a real handset, and image generation have
-only been run end to end on the author's hardware. Odd behaviour on yours
-is worth an issue. The published installer is **0.2.3**. Notes:
+Tests cover this. Voice timing, a real handset, and image generation
+have only been run end to end on the author's hardware. Odd behaviour on
+yours is worth an issue. The published installer is **0.2.3**. Notes:
 [whats-new.md](docs/whats-new.md).
 
 ## More
@@ -205,7 +231,7 @@ is worth an issue. The published installer is **0.2.3**. Notes:
 | [browser-control.md](docs/browser-control.md) | Her browser |
 | [notify-inbound.md](docs/notify-inbound.md) | Phone app |
 | [calendar-oauth.md](docs/calendar-oauth.md) | Connecting a calendar |
-| [architecture.md](docs/architecture.md) | How it fits |
+| [architecture.md](docs/architecture.md) | How the pieces fit |
 | [telemetry.md](docs/telemetry.md) | Logs, on your disk |
 | [win-installer/README.md](win-installer/README.md) | Building the installer |
 
@@ -222,5 +248,5 @@ enforces that.
 [GNU Affero General Public License, version 3 or later](LICENSE).
 
 You can use it, read it, change it, and share it. If you share a changed
-version, including by running it as a service other people connect to, you
-have to make your changes available under the same licence.
+version, including by running it as a service other people connect to,
+you have to make your changes available under the same licence.

@@ -1,4 +1,4 @@
-# Calendar OAuth
+# 📅 Calendar OAuth
 
 Explicit exception to local-first: Arelis may hold **calendar** refresh
 tokens so she can read and write Google Calendar and Outlook. Models

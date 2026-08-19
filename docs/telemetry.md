@@ -1,4 +1,4 @@
-# Logs
+# Logs — they stay here
 
 Where to look when something feels wrong. `logs/` is under the user data
 root: `%LOCALAPPDATA%\Arelis\logs` for an installed copy, or the

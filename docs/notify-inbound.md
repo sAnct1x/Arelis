@@ -1,4 +1,4 @@
-# Phone companion
+# 📱 Phone companion
 
 Arelis talks to one **Arelis** app on the phone. That companion is both
 the radio (SMS out from your SIM after you allow it on the PC) and the
@@ -8,10 +8,17 @@ pairs. SMSGate can come off too unless you still want its inbox poll.
 
 Sending still pauses for allow / deny on the PC. No silent SMS.
 
-```text
-OUT:  PC  --HTTP-->  Arelis radio on the handset  --SIM-->  SMS
-IN:   Google Messages notif  →  Arelis app  →  POST :8765/inbound/sms
-IN:   SMSGate Local Server   →  inbox poll  (optional leftover)
+```mermaid
+%%{init: {"theme": "dark", "themeVariables": {"primaryColor": "#3d2418", "primaryTextColor": "#f6ead9", "primaryBorderColor": "#e08a4a", "lineColor": "#c4784a"}}}%%
+flowchart LR
+  subgraph out["out"]
+    pc[PC] -->|HTTP| radio[Arelis radio]
+    radio -->|SIM| sms[SMS]
+  end
+  subgraph inn["in"]
+    gm[Google Messages] --> app[Arelis app]
+    app -->|POST :8765| pc2[PC]
+  end
 ```
 
 | Path | Covers | Needs |

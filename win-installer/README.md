@@ -1,10 +1,11 @@
 # Building the Windows installer
 
-Produces a setup `.exe` that installs Arelis on a machine that has never
-had Python.
+A setup `.exe` that puts Arelis on a machine that has never had Python.
+Not a frozen blob: a real interpreter, so scheduled jobs can still say
+`pythonw.exe -m arelis`.
 
-Do not run this unless you mean to build a tree. The live install
-at `%LOCALAPPDATA%\Programs\Arelis` is a different copy.
+Do not run this unless you mean to build a tree. The live install at
+`%LOCALAPPDATA%\Programs\Arelis` is a different copy.
 
 ## Build it
 

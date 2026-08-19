@@ -1,4 +1,4 @@
-# Rooms
+# 🚪 Rooms
 
 A room is a named place to work on one thing. Like walking into a studio
 with the lights already on.
@@ -9,6 +9,15 @@ the weather" or "text him I'm running late". It is wrong for work you
 come back to: a three-week analysis, a paper, a codebase. That work needs
 somewhere that already knows the folder, and does not have to be
 re-explained every launch.
+
+```mermaid
+%%{init: {"theme": "dark", "themeVariables": {"primaryColor": "#3d2418", "primaryTextColor": "#f6ead9", "primaryBorderColor": "#e08a4a", "lineColor": "#c4784a"}}}%%
+stateDiagram-v2
+  [*] --> orbit: cold launch
+  orbit --> room: /room physics
+  room --> orbit: /leave
+  room --> room: same thread tomorrow
+```
 
 ## What a room carries
 

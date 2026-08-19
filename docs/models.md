@@ -1,24 +1,44 @@
-# Models
+# Models — the brain on this PC
 
-Arelis thinks with models that live on your machine, through
-[Ollama](https://ollama.com/download). Nothing is sent to a paid API.
-Only one chat model is hot at a time.
+Arelis thinks with models that live on **this** machine, through
+[Ollama](https://ollama.com/download). Nothing is sent to a paid chat
+API. Only one chat model is hot at a time — the card is not a buffet.
 
 Ollama is system-wide. An installed copy and a source checkout share the
-same `ollama` tags. Do not `ollama rm` a tag another copy on this PC
-still names.
+same tags. Do not `ollama rm` a tag another copy on this PC still names.
 
-## First open
+## First open names a brain
 
 A new copy looks at this PC (graphics memory, RAM, disk) and recommends
-**one** chat model. Confirm it, or pick another. Whatever you confirm is
-both `fast` and `research`. No toys, no cloud tags, no 671B.
+**one** chat model, with a why you can read. Confirm it, or pick another.
+Whatever you confirm is both `fast` and `research`. No toys, no cloud
+tags, no 671B.
 
-The auto-pick is the largest **Qwen 3.5** that fits the card. Qwen is the
-default family because that is what we run every day. Gemma and DeepSeek
-are in the list; they are never the auto-pick. Gemma 4 12B sat thinking
-for minutes on a two-tool turn on a 12 GB card. DeepSeek is opt-in
-reasoning.
+The auto-pick is the largest **Qwen 3.5** that fits the card. That is
+what we run every day, not a beauty contest. Gemma and DeepSeek are in
+the list; they are never the auto-pick. Gemma 4 12B sat thinking for
+minutes on a two-tool turn on a 12 GB card. DeepSeek is opt-in reasoning.
+
+```mermaid
+%%{init: {"theme": "dark", "themeVariables": {"primaryColor": "#3d2418", "primaryTextColor": "#f6ead9", "primaryBorderColor": "#e08a4a", "lineColor": "#c4784a"}}}%%
+flowchart LR
+  subgraph hw["what we saw"]
+    m["modest / ~6–7 GB<br/>or no card"]
+    t["~8–16 GB"]
+    b["~24 GB"]
+    h["~32 GB+"]
+  end
+  subgraph pick["auto-pick — always Qwen"]
+    q4["qwen3.5:4b"]
+    q9["qwen3.5:9b"]
+    q27["qwen3.5:27b"]
+    q35["qwen3.5:35b"]
+  end
+  m --> q4
+  t --> q9
+  b --> q27
+  h --> q35
+```
 
 | This PC | Auto-pick |
 |---------|-----------|
