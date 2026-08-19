@@ -1,4 +1,4 @@
-# Diagnose Arelis Notify LAN ingest (port 8765).
+# Diagnose Arelis phone ingest (port 8765).
 # Run on the PC while Arelis desktop is open:
 #   powershell -ExecutionPolicy Bypass -File scripts\check_inbound.ps1
 

@@ -46,6 +46,9 @@ def test_a_room_survives_being_written_and_read_back(tmp_path: Path) -> None:
     assert room.root == "Lab Notes"
     assert room.kind == "analysis"
     assert room.role == KINDS["analysis"].role
+    assert "code" not in KINDS["analysis"].skills
+    assert "science" in KINDS["analysis"].skills
+    assert "analyze" in KINDS["analysis"].skills
 
 
 def test_the_file_is_the_interface_so_a_typo_costs_one_room(tmp_path: Path) -> None:

@@ -145,7 +145,7 @@ def format_sms_confirm(to: str, body: str, *, contacts: dict[str, Contact] | Non
         return f"To:      {to.strip() or '(missing)'}\n\n{text}"
     return (
         f"To:      {resolved.label} ({resolved.phone_display})\n"
-        f"Via:     your phone (SMSGate)\n"
+        f"Via:     your phone\n"
         f"(arrives from your number; replies come back to your phone)\n\n"
         f"{text}"
     )

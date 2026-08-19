@@ -15,11 +15,13 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QFileDialog,
     QFormLayout,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QListWidget,
     QPushButton,
+    QSizePolicy,
     QSlider,
     QStyleFactory,
     QTabWidget,
@@ -31,7 +33,8 @@ from PySide6.QtWidgets import (
 from arelis.core.failure_copy import plain_reason
 from arelis.notify.center import CHANNELS, load_channels
 from arelis.presence.lock import find_my_ingest_port
-from arelis.sms_ingest import format_ingest_listen_urls
+from arelis.sms_ingest import format_ingest_listen_urls, load_ingest_token
+from arelis.sms_pairing import load_companion, make_ticket
 from arelis.ui.audio import list_audio_input_names, list_audio_output_names
 from arelis.ui.glass import GlassFrame, advance_rim_pulse, seal_tool_window
 from arelis.ui.icons import window_close_icon
@@ -67,7 +70,7 @@ class SettingsDialog(QDialog):
         self.setObjectName("SettingsDialog")
         self.setWindowTitle("Settings")
         self.setModal(True)
-        self.resize(520, 560)
+        self.resize(560, 700)
         self.setWindowFlags(
             Qt.WindowType.Dialog
             | Qt.WindowType.FramelessWindowHint
@@ -334,21 +337,26 @@ class SettingsDialog(QDialog):
         notify = QWidget()
         notify.setObjectName("SettingsTabBody")
         notify_l = QVBoxLayout(notify)
-        notify_l.setContentsMargins(14, 16, 14, 12)
-        notify_l.setSpacing(12)
-        channels_blurb = QLabel(
-            "Live pill while Arelis is open. Voice cues only when idle, "
-            "and never during a turn. Same bits later for "
-            "“stop telling me about calendar events.”"
+        notify_l.setContentsMargins(16, 16, 16, 12)
+        notify_l.setSpacing(10)
+
+        notices_h = QLabel("Notices")
+        notices_h.setObjectName("SettingsSection")
+        notices_blurb = QLabel(
+            "How the glass tells you. Voice only when idle — never mid-turn."
         )
-        channels_blurb.setObjectName("SettingsHint")
-        channels_blurb.setWordWrap(True)
-        notify_l.addWidget(channels_blurb)
-        channel_form = QFormLayout()
-        channel_form.setSpacing(8)
-        channel_form.setLabelAlignment(
-            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+        notices_blurb.setObjectName("SettingsHint")
+        notices_blurb.setWordWrap(True)
+        notices_blurb.setSizePolicy(
+            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum
         )
+        notify_l.addWidget(notices_h)
+        notify_l.addWidget(notices_blurb)
+        channel_grid = QGridLayout()
+        channel_grid.setContentsMargins(0, 4, 0, 8)
+        channel_grid.setHorizontalSpacing(16)
+        channel_grid.setVerticalSpacing(8)
+        channel_grid.setColumnStretch(1, 1)
         labels = {
             "sms": "SMS",
             "calendar": "Calendar",
@@ -359,36 +367,84 @@ class SettingsDialog(QDialog):
         }
         current = load_channels(config)
         self._notify_channels: dict[str, QComboBox] = {}
-        for key in CHANNELS:
+        for row, key in enumerate(CHANNELS):
+            name = QLabel(labels.get(key, key))
+            name.setObjectName("SettingsFieldLabel")
             combo = QComboBox()
             combo.setObjectName("SettingsField")
             combo.addItem("Off", "off")
             combo.addItem("Visual", "visual")
             combo.addItem("Visual + voice", "voice")
             self._select_by_data(combo, current.get(key, "visual"))
-            channel_form.addRow(labels.get(key, key), combo)
+            channel_grid.addWidget(
+                name, row, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+            )
+            channel_grid.addWidget(combo, row, 1)
             self._notify_channels[key] = combo
-        notify_l.addLayout(channel_form)
+        notify_l.addLayout(channel_grid)
 
+        phone_h = QLabel("Phone")
+        phone_h.setObjectName("SettingsSection")
         phone_blurb = QLabel(
-            "Phone ingest URL for the Android companion on the same Wi-Fi. "
-            "Keep Arelis running (tray is OK)."
+            "Point the Arelis app at this code (same Wi-Fi). That is the pair. "
+            "Google Messages stays your messenger."
         )
         phone_blurb.setObjectName("SettingsHint")
         phone_blurb.setWordWrap(True)
+        phone_blurb.setSizePolicy(
+            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum
+        )
+        notify_l.addWidget(phone_h)
+        notify_l.addWidget(phone_blurb)
+
+        self.pair_qr = QLabel()
+        self.pair_qr.setObjectName("SettingsPairQr")
+        self.pair_qr.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.pair_qr.setSizePolicy(
+            QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed
+        )
+        self.pair_qr.setScaledContents(False)
+        qr_row = QHBoxLayout()
+        qr_row.addStretch(1)
+        qr_row.addWidget(self.pair_qr)
+        qr_row.addStretch(1)
+        notify_l.addLayout(qr_row)
+
         self.notify_url = QLabel(self._notify_url_text(config))
         self.notify_url.setObjectName("SettingsNotifyUrl")
         self.notify_url.setWordWrap(True)
         self.notify_url.setTextInteractionFlags(
             Qt.TextInteractionFlag.TextSelectableByMouse
         )
-        copy_btn = QPushButton("Copy primary URL")
-        copy_btn.clicked.connect(lambda: self._copy_notify_url(config))
-        notify_l.addWidget(phone_blurb)
         notify_l.addWidget(self.notify_url)
-        notify_l.addWidget(copy_btn, alignment=Qt.AlignmentFlag.AlignLeft)
+
+        self.pair_status = QLabel("")
+        self.pair_status.setObjectName("SettingsHint")
+        self.pair_status.setWordWrap(True)
+        self.pair_status.setSizePolicy(
+            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum
+        )
+        copy_url = QPushButton("Copy URL")
+        copy_url.clicked.connect(lambda: self._copy_notify_url(config))
+        copy_pair = QPushButton("Copy for paste")
+        copy_pair.setToolTip(
+            "Clipboard. On the phone, use Paste instead of Scan if the camera cannot read this."
+        )
+        copy_pair.clicked.connect(self._copy_pairing_text)
+        refresh_qr = QPushButton("New QR")
+        refresh_qr.clicked.connect(lambda: self._refresh_pairing_qr(config, rotate=True))
+        pair_btns = QHBoxLayout()
+        pair_btns.setSpacing(8)
+        pair_btns.addWidget(refresh_qr)
+        pair_btns.addWidget(copy_url)
+        pair_btns.addWidget(copy_pair)
+        pair_btns.addStretch(1)
+        notify_l.addLayout(pair_btns)
+        notify_l.addWidget(self.pair_status)
         notify_l.addStretch(1)
         tabs.addTab(notify, "Notify")
+        self._pairing_text = ""
+        self._refresh_pairing_qr(config, rotate=False)
 
         # --- Roots (projects Arelis may read/write) ---
         roots_tab = QWidget()
@@ -559,7 +615,71 @@ class SettingsDialog(QDialog):
         clip = QApplication.clipboard()
         if clip is not None:
             clip.setText(primary)
-        self.test_status.setText(f"Copied: {primary}")
+        self.pair_status.setText(f"Copied {primary}")
+
+    def _copy_pairing_text(self) -> None:
+        if not self._pairing_text:
+            self.pair_status.setText("No pairing ticket yet.")
+            return
+        clip = QApplication.clipboard()
+        if clip is not None:
+            clip.setText(self._pairing_text)
+        self.pair_status.setText(
+            "Copied. On the phone, tap Paste instead of Scan."
+        )
+
+    def _set_pair_qr(self, pixmap) -> None:
+        self.pair_qr.setPixmap(pixmap)
+        self.pair_qr.setFixedSize(pixmap.size())
+
+    def _refresh_pairing_qr(self, config: dict[str, Any], *, rotate: bool = False) -> None:
+        token = load_ingest_token()
+        if not token:
+            self._pairing_text = ""
+            self.pair_qr.clear()
+            self.pair_qr.setFixedSize(0, 0)
+            self.pair_status.setText(
+                "Set sms.ingest_token in data/secrets.yaml, then open this tab again."
+            )
+            return
+        _, primary = self._notify_urls(config)
+        port = find_my_ingest_port(config)
+        if port is None:
+            tail = primary.rsplit(":", 1)[-1] if primary else ""
+            if tail.isdigit():
+                port = int(tail)
+            else:
+                sms_cfg = (config.get("tools") or {}).get("sms") or {}
+                ingest = (sms_cfg.get("inbound") or {}).get("ingest") or {}
+                port = int(ingest.get("port") or 8765)
+        try:
+            ticket = make_ticket(token, int(port), rotate=rotate)
+        except Exception as exc:
+            self._pairing_text = ""
+            self.pair_qr.clear()
+            self.pair_qr.setFixedSize(0, 0)
+            self.pair_status.setText(f"Could not build a pairing ticket: {exc}")
+            return
+        self._pairing_text = ticket.as_text()
+        companion = load_companion()
+        if companion and companion.get("base_url"):
+            self.pair_status.setText(
+                f"Paired. Radio at {companion['base_url']}. Scan again after DHCP moves, "
+                "or tap New QR to rotate."
+            )
+        else:
+            self.pair_status.setText(
+                "Not paired yet. Scan with the new Arelis app — that writes sms.companion."
+            )
+        try:
+            from arelis.ui.qr_image import pairing_pixmap
+
+            self._set_pair_qr(pairing_pixmap(self._pairing_text, scale=4, pad=16))
+        except Exception:
+            self.pair_qr.clear()
+            self.pair_qr.setFixedSize(0, 0)
+            self.pair_status.setText("Could not draw the QR. Use Copy for paste.")
+
 
     def _run_test_mic(self) -> None:
         if self._on_test_mic is None:

@@ -1,8 +1,8 @@
 """Launching, closing and relaunching — the parts of it that a test can reach.
 
 Three of the four defects behind this file are only observable as pixels or as
-process counts, and are verified by hand instead (docs/testing/v0.2.1-full-test.md,
-and arelis/ui/_verify_tray_restore.py for the window measurements). What is left
+process counts, and are verified by hand instead
+(arelis/ui/_verify_tray_restore.py for the window measurements). What is left
 here is everything with a decidable answer:
 
   - a floating instrument is a top-level window of its own, so hiding the glass

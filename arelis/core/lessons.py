@@ -102,6 +102,17 @@ _SEED: list[dict[str, Any]] = [
         ),
     },
     {
+        "id": "science-use-cas-units",
+        "tags": ["science", "general"],
+        "text": (
+            "Integrals, derivatives, and ODEs call cas. Conversions and "
+            "published constants call units. Charts call plot (Allow). Named "
+            "catalogs (arXiv, Horizons, APOD, ADS) call catalog. Never "
+            "recite CODATA or a closed form from memory, never fake a "
+            "chart in text, and never invent a paper or an ephemeris."
+        ),
+    },
+    {
         "id": "routing-gap-call-tools",
         "tags": ["web", "general"],
         "text": (

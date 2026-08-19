@@ -47,6 +47,24 @@ def test_exactness_math_gate_proposes_lesson() -> None:
     )
 
 
+def test_exactness_science_gate_proposes_lesson() -> None:
+    text = (
+        "turn 01:00:00.000 exactness    id=abcd gate=symbolic action=force\n"
+        "turn 01:00:01.000 exactness    id=abce gate=units action=force\n"
+        "turn 01:00:02.000 exactness    id=abcf gate=plot action=force\n"
+        "turn 01:00:03.000 exactness    id=abcg gate=catalog action=force\n"
+    )
+    fails, _oks, _lines, exact, routing = parse_turns_log(text)
+    assert exact["symbolic"] == 1
+    assert exact["units"] == 1
+    assert exact["plot"] == 1
+    assert exact["catalog"] == 1
+    proposed = propose_lesson_ids(fails, exactness_gates=exact, routing_gaps=routing)
+    assert "science-use-cas-units" in proposed
+    ids = {lesson.id for lesson in load_lessons()}
+    assert "science-use-cas-units" in ids
+
+
 def test_routing_gap_proposes_lesson() -> None:
     text = (
         "turn 01:00:00.000 routing_gap  id=abcd t=1200 "

@@ -222,7 +222,7 @@ def test_confirm_card_shows_phone_gateway_and_body() -> None:
     detail = format_sms_confirm("wife", "running late", contacts=book)
     assert "Partner" in detail
     assert "5551112222" in detail
-    assert "your phone (SMSGate)" in detail
+    assert "your phone" in detail
     assert "vtext.com" not in detail
     assert "email-to-SMS" not in detail
     assert detail.endswith("running late")
@@ -301,6 +301,28 @@ async def test_android_provider_posts_text_message(monkeypatch) -> None:
     assert b"+15551112222" in raw
     assert b"hello" in raw
     assert b"textMessage" in raw
+
+
+@pytest.mark.asyncio
+async def test_live_provider_posts_to_fresh_companion_url(monkeypatch) -> None:
+    transport = _Transport()
+    stale = SmsGateAccount(
+        "http://192.168.1.10:8080", "arelis", "old", via="companion"
+    )
+    fresh = SmsGateAccount(
+        "http://192.168.1.99:8080", "arelis", "new", via="companion"
+    )
+    provider = AndroidSmsProvider(stale, timeout_s=5, live=True)
+    monkeypatch.setattr("arelis.sms_android.load_sms_account", lambda: fresh)
+    original = httpx.AsyncClient
+
+    def _client(*args, **kwargs):
+        kwargs["transport"] = transport
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(httpx, "AsyncClient", _client)
+    await provider.send(phone="+15551112222", body="hello")
+    assert str(transport.requests[0].url).startswith("http://192.168.1.99:8080/")
 
 
 @pytest.mark.asyncio
@@ -399,7 +421,7 @@ def test_describe_call_uses_full_sms_body(tmp_path) -> None:
     detail = registry.describe_call("send_sms", args)
     assert "…" in summary
     assert "Partner" in detail
-    assert "your phone (SMSGate)" in detail
+    assert "your phone" in detail
     assert "vtext.com" not in detail
     assert detail.endswith(body.strip())
 

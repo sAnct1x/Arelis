@@ -1411,7 +1411,7 @@ class ArelisWindow(QMainWindow):
         self.addAction(self.act_font_reset)
 
         self.act_notify_url = QAction("notify url…", self)
-        self.act_notify_url.setToolTip("Show and copy the Arelis Notify companion URL")
+        self.act_notify_url.setToolTip("Show and copy the phone companion URL")
         self.act_notify_url.triggered.connect(lambda: self._open_settings("Notify"))
         self.addAction(self.act_notify_url)
 
@@ -3882,7 +3882,7 @@ class ArelisWindow(QMainWindow):
         await send_operator_sms(
             phone=resolved.phone_e164,
             body=body,
-            provider=AndroidSmsProvider(account),
+            provider=AndroidSmsProvider(account, live=True),
         )
 
     def _sms_send_resolved(self, future, key: str) -> None:

@@ -6,7 +6,7 @@ from pathlib import Path
 
 import yaml
 from PySide6.QtCore import QPoint
-from PySide6.QtWidgets import QWidget
+from PySide6.QtWidgets import QSizePolicy, QWidget
 
 from arelis.config import deep_merge, load_config, merge_local_config
 from arelis.ui.window_resize import HTBOTTOM, HTLEFT, HTTOPLEFT, hit_test_resize
@@ -265,5 +265,8 @@ def test_settings_opens_notify_tab(qt_app) -> None:
     )
     try:
         assert dlg.tabs.tabText(dlg.tabs.currentIndex()) == "Notify"
+        assert dlg.pair_qr.sizePolicy().horizontalPolicy() == QSizePolicy.Policy.Fixed
+        assert dlg.pair_qr.hasScaledContents() is False
+        assert dlg.pair_status.wordWrap() is True
     finally:
         dlg.close()

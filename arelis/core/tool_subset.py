@@ -35,14 +35,17 @@ RESEARCH_TOOL_ALLOWLIST = frozenset(
         "scrape",
         "web_fetch",
         "calculator",
+        "cas",
+        "units",
         "recall",
         "weather",
         "user_location",
+        "catalog",
     }
 )
 
 # Tiny schemas that exactness still needs when a turn otherwise shrinks.
-ALWAYS_ON_TOOLS = frozenset({"calculator"})
+ALWAYS_ON_TOOLS = frozenset({"calculator", "cas", "units"})
 
 # Fail-open unmatched chat used to keep these. The 7B then replayed the last
 # SMS draft (grocery to wife) on "how are you today?".
@@ -67,6 +70,7 @@ SKILL_TOOLS: dict[str, frozenset[str]] = {
         {"vision", "ocr", "image_edit", "doc_extract", "analyze", "workspace"}
     ),
     "calculator": frozenset({"calculator"}),
+    "science": frozenset({"cas", "units", "calculator", "plot", "analyze", "catalog"}),
     "clipboard": frozenset({"clipboard"}),
     "ocr": frozenset({"ocr"}),
     "agenda": frozenset({"agenda"}),
@@ -77,7 +81,17 @@ SKILL_TOOLS: dict[str, frozenset[str]] = {
     "vision": frozenset({"vision", "camera", "ocr"}),
     "browser": frozenset({"browser"}),
     "research": frozenset(
-        {"research_report", "web_search", "scrape", "web_fetch", "calculator"}
+        {
+            "research_report",
+            "web_search",
+            "scrape",
+            "web_fetch",
+            "calculator",
+            "cas",
+            "units",
+            "plot",
+            "catalog",
+        }
     ),
     "deadline": frozenset({"tasks", "agenda"}),
 }

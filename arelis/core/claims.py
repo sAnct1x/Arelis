@@ -62,8 +62,73 @@ _SYMBOLIC_MATH = re.compile(
     r"integral|integrate|antiderivative|"
     r"derivative|differentiate|differentiating|"
     r"d/dx|partial\s+derivative|"
-    r"limit\s+as|symbolic"
+    r"limit\s+as|symbolic|"
+    r"\bode\b|differential\s+equation|"
+    r"closed\s+form"
     r")\b"
+)
+
+# Force the CAS — tighter than _SYMBOLIC_MATH so "integrate this with Outlook"
+# does not open a SymPy round.
+_CAS_FORCE = (
+    re.compile(r"(?i)\bintegral\s+of\b"),
+    re.compile(r"(?i)\bantiderivative\b"),
+    re.compile(r"(?i)\bwhat(?:'s|\s+is)\s+the\s+integral\b"),
+    re.compile(
+        r"(?i)\bintegrate\s+[a-zA-Z](?:\s|\*\*|\^|\(|$)"
+    ),
+    re.compile(r"(?i)\bderivative\s+of\b"),
+    re.compile(r"(?i)\bdifferentiate\b"),
+    re.compile(r"(?i)\bd/dx\b"),
+    re.compile(r"(?i)\bpartial\s+derivative\b"),
+    re.compile(r"(?i)\b(solve\s+(this\s+|the\s+)?(ode|differential\s+equation))\b"),
+    re.compile(r"(?i)\bdifferential\s+equation\b"),
+    re.compile(r"(?i)\b\bode\b"),
+    re.compile(
+        r"(?i)\bsimplify\s+(?:this|the)\s+(?:expression|equation|algebra)\b"
+    ),
+    re.compile(r"(?i)\bclosed\s+form\b"),
+    re.compile(r"(?i)\bcheck\s+the\s+algebra\b"),
+    re.compile(r"(?i)\bsymbolic\s+(?:algebra|integral|derivative)\b"),
+)
+
+_UNIT_NAMES = (
+    r"meters?|metres?|kilometers?|kilometres?|kg|kilograms?|"
+    r"feet|foot|inches|inch|pounds?|lbs?|kelvin|celsius|fahrenheit|"
+    r"eV|joules?|watts?|newtons?|parsecs?|\bau\b|nm|μm|um|"
+    r"solar\s+masses?"
+)
+_FILE_CONVERT = re.compile(
+    r"(?i)\b(file|pdf|docx?|xlsx|csv|mp3|png|jpe?g|video|audio|txt)\b"
+)
+_UNITS_FORCE = (
+    re.compile(
+        rf"(?i)\bconvert\b.{{0,48}}\bto\s+(?:{_UNIT_NAMES})\b",
+    ),
+    re.compile(
+        rf"(?i)\b(?:in|into|to)\s+(?:{_UNIT_NAMES})\b",
+    ),
+    re.compile(r"(?i)\b\d+(?:\.\d+)?\s*(?:ft|feet)\s+\d+(?:\.\d+)?\s*(?:in|inches)\b"),
+    re.compile(r"(?i)\bdimensional\s+analysis\b"),
+    re.compile(rf"(?i)\bhow\s+many\s+(?:{_UNIT_NAMES})\b"),
+)
+_CMB_FRAME = re.compile(
+    r"(?i)\b(cmb\s+frame|rest\s+frame|comoving)\b"
+)
+_CONSTANT_FORCE = (
+    re.compile(r"(?i)\bgravitational\s+constant\b"),
+    re.compile(r"(?i)\bnewtonian\s+constant\b"),
+    re.compile(r"(?i)\bspeed\s+of\s+light\b"),
+    re.compile(r"(?i)\bplanck(?:'s)?\s+constant\b"),
+    re.compile(r"(?i)\bstefan[- ]boltzmann\b"),
+    re.compile(r"(?i)\bavogadro(?:'s)?\s+(?:number|constant)\b"),
+    re.compile(r"(?i)\bboltzmann\s+constant\b"),
+    re.compile(r"(?i)\bhubble\s+constant\b"),
+    re.compile(r"(?i)\bastronomical\s+unit\b"),
+    re.compile(r"(?i)\bsolar\s+mass\b"),
+    re.compile(r"(?i)\bsolar\s+radius\b"),
+    re.compile(r"(?i)\bwhat(?:'s|\s+is)\s+(?:the\s+)?(?:value\s+of\s+)?G\b"),
+    re.compile(r"(?i)\bCODATA\b"),
 )
 
 # High-precision contingent asks that need a tool warrant this turn.
@@ -309,7 +374,83 @@ class ExactnessNeed:
     needs_attention: bool = False
     needs_analyze: bool = False
     needs_vision: bool = False
+    needs_cas: bool = False
+    needs_units: bool = False
+    needs_plot: bool = False
+    needs_catalog: bool = False
     kinds: tuple[str, ...] = ()
+
+
+_PLOT_FORCE = (
+    re.compile(r"(?i)\bplot\s+(?:this|the|my|it)\b"),
+    re.compile(r"(?i)\b(?:scatter|line)\s+plot\b"),
+    re.compile(r"(?i)\bplot\s+residuals\b"),
+    re.compile(r"(?i)\bfit\s+a\s+line\b"),
+    re.compile(r"(?i)\b(?:line|bar|scatter)\s+chart\b"),
+    re.compile(r"(?i)\bchart\s+(?:this|the|my)\b"),
+    re.compile(r"(?i)\bmake\s+a\s+(?:plot|chart|graph)\b"),
+    re.compile(r"(?i)\bplot\s+.{0,40}\b(?:csv|tsv|xlsx|spreadsheet|columns?)\b"),
+)
+
+
+def detect_plot_ask(text: str) -> bool:
+    """True when the ask wants a chart file, not a movie plot or a garden."""
+    raw = text or ""
+    if not raw.strip():
+        return False
+    if re.search(r"(?i)\b(plot\s+twist|movie\s+plot|plot\s+of\s+(?:land|the\s+film))\b", raw):
+        return False
+    return any(p.search(raw) for p in _PLOT_FORCE)
+
+
+_CATALOG_FORCE = (
+    re.compile(r"(?i)\barxiv\b"),
+    re.compile(r"(?i)\bpreprints?\b"),
+    re.compile(r"(?i)\bjpl\s+horizons\b"),
+    re.compile(r"(?i)\bephemeris\b"),
+    re.compile(
+        r"(?i)\bwhere is (?:mercury|venus|mars|jupiter|saturn|uranus|"
+        r"neptune|pluto|the moon)\b.{0,24}\b(tonight|today|now)\b"
+    ),
+    re.compile(r"(?i)\b(apod|astronomy picture of the day)\b"),
+    re.compile(r"(?i)\bnasa'?s? (?:photo|picture) of the day\b"),
+    re.compile(r"(?i)\b(nasa\s+ads|adsabs|astrophysics data system)\b"),
+)
+
+
+def detect_catalog_ask(text: str) -> bool:
+    """True when the ask named a science catalog, not a shopping catalog."""
+    raw = text or ""
+    if not raw.strip():
+        return False
+    return any(p.search(raw) for p in _CATALOG_FORCE)
+
+
+def detect_cas_ask(text: str) -> bool:
+    """True when a closed form needs the CAS, not the pocket calculator."""
+    raw = text or ""
+    if not raw.strip():
+        return False
+    return any(p.search(raw) for p in _CAS_FORCE)
+
+
+def detect_units_ask(text: str) -> bool:
+    """True for unit conversion or published-constant asks.
+
+    File conversions and CMB-frame boosts are not Pint.
+    """
+    raw = text or ""
+    if not raw.strip():
+        return False
+    if _CMB_FRAME.search(raw):
+        return False
+    if any(p.search(raw) for p in _CONSTANT_FORCE):
+        return True
+    if _FILE_CONVERT.search(raw) and not re.search(
+        rf"(?i)\b(?:{_UNIT_NAMES})\b", raw
+    ):
+        return False
+    return any(p.search(raw) for p in _UNITS_FORCE)
 
 
 def detect_math_ask(text: str) -> bool:
@@ -501,13 +642,33 @@ def detect_exactness_need(text: str) -> ExactnessNeed:
     """What warrants this user turn requires before a final answer is honest."""
     kinds: list[str] = []
     needs_calc = detect_math_ask(text)
+    needs_cas = detect_cas_ask(text)
+    needs_units = detect_units_ask(text)
+    needs_plot = detect_plot_ask(text)
+    needs_catalog = detect_catalog_ask(text)
     needs_vision = detect_vision_ask(text)
     # Image-describe turns often include dimensioned filenames (1965x1106.png).
     # Prefer the vision warrant; never force calculator on those asks.
     if needs_vision and needs_calc:
         needs_calc = False
+    if needs_cas:
+        needs_calc = False
+        needs_units = False
+    if needs_calc and needs_units:
+        # "17% of 240 in a table" is arithmetic, not Pint — unless they
+        # clearly named a physical unit conversion.
+        if not any(p.search(text or "") for p in _UNITS_FORCE[:1]):
+            needs_units = False
     if needs_calc:
         kinds.append("math")
+    if needs_cas:
+        kinds.append("symbolic")
+    if needs_units:
+        kinds.append("units")
+    if needs_plot:
+        kinds.append("plot")
+    if needs_catalog:
+        kinds.append("catalog")
     needs_web = (
         any(p.search(text or "") for p in _NEWS_PATTERNS)
         or any(p.search(text or "") for p in _PRICE_PATTERNS)
@@ -565,6 +726,10 @@ def detect_exactness_need(text: str) -> ExactnessNeed:
         needs_attention=needs_attention,
         needs_analyze=needs_analyze,
         needs_vision=needs_vision,
+        needs_cas=needs_cas,
+        needs_units=needs_units,
+        needs_plot=needs_plot,
+        needs_catalog=needs_catalog,
         kinds=tuple(kinds),
     )
 
@@ -575,18 +740,61 @@ _CALC_FORCE_NOTICE = (
     "Do not invent the number from memory."
 )
 
+_CAS_FORCE_NOTICE = (
+    "Exactness: this question needs a closed form from the CAS. "
+    "Call the cas tool now (integrate, diff, simplify, solve, or dsolve). "
+    "Do not recite an integral or ODE solution from memory."
+)
+
+_UNITS_FORCE_NOTICE = (
+    "Exactness: this question needs a unit conversion or a published constant. "
+    "Call the units tool now (action=convert or action=constant). "
+    "Do not recite CODATA or convert by vibe."
+)
+
+_PLOT_FORCE_NOTICE = (
+    "Exactness: this question needs a chart file from the plot tool. "
+    "Call plot now (line, scatter, or residuals) with a table path or xs/ys. "
+    "Do not draw an ASCII chart or invent a trend. Allow still applies."
+)
+
 _EVIDENCE_FORCE_NOTICE = (
     "Exactness: you are about to assert a contingent fact without a warrant "
     "from this turn's tools. Call the required tool now "
     "(weather, web_search+scrape, recall, inbox, inbound_sms, "
-    "doc_extract, agenda, git_info, tasks, goals, analyze, or vision), "
+    "doc_extract, agenda, git_info, tasks, goals, analyze, vision, "
+    "cas, units, plot, or catalog), "
     "or say you do not know. "
     "Do not guess."
 )
 
 
+_CATALOG_FORCE_NOTICE = (
+    "Exactness: this question named a science catalog. "
+    "Call catalog now (arxiv, horizons, apod, or ads). "
+    "Do not invent a bibcode, an abstract, or an ephemeris. "
+    "Do not scrape NASA or arXiv JavaScript."
+)
+
+
 def math_force_notice() -> str:
     return _CALC_FORCE_NOTICE
+
+
+def cas_force_notice() -> str:
+    return _CAS_FORCE_NOTICE
+
+
+def units_force_notice() -> str:
+    return _UNITS_FORCE_NOTICE
+
+
+def plot_force_notice() -> str:
+    return _PLOT_FORCE_NOTICE
+
+
+def catalog_force_notice() -> str:
+    return _CATALOG_FORCE_NOTICE
 
 
 def evidence_force_notice() -> str:
@@ -836,6 +1044,14 @@ def unsupported_exactness_reply(
     *,
     calc_failed: bool = False,
     calc_detail: str = "",
+    cas_failed: bool = False,
+    cas_detail: str = "",
+    units_failed: bool = False,
+    units_detail: str = "",
+    plot_failed: bool = False,
+    plot_detail: str = "",
+    catalog_failed: bool = False,
+    catalog_detail: str = "",
 ) -> str:
     """Deterministic unknown when a force round still lacks warrants."""
     kinds = [k for k in missing if k]
@@ -855,6 +1071,63 @@ def unsupported_exactness_reply(
         return (
             "I don't know — this needs a calculator result and I don't have a "
             "reliable computed value for it."
+        )
+    if "symbolic" in kinds:
+        if cas_failed:
+            detail = (cas_detail or "").lower()
+            if "closed form" in detail or "no closed" in detail:
+                return (
+                    "No closed form — the CAS could not find one, and I will "
+                    "not invent it."
+                )
+            if "timeout" in detail:
+                return (
+                    "The CAS timed out on that expression. I will not guess a "
+                    "closed form."
+                )
+            return (
+                "The CAS couldn't evaluate that. I will not recite a symbolic "
+                "result from memory."
+            )
+        return (
+            "I don't know — this needs a CAS result and I don't have a "
+            "closed form from this turn."
+        )
+    if "units" in kinds:
+        if units_failed:
+            detail = (units_detail or "").lower()
+            if "not a unit" in detail or "cmb" in detail:
+                return (
+                    "That is not a unit conversion — a frame change needs a "
+                    "boost with published numbers, and I will not fake it."
+                )
+            return (
+                "The units tool couldn't convert or look that up. I will not "
+                "recite CODATA or invent a conversion."
+            )
+        return (
+            "I don't know — this needs a units or constants result this turn, "
+            "and I will not recite one from memory."
+        )
+    if "plot" in kinds:
+        if plot_failed:
+            return (
+                "The plot tool couldn't draw that. I will not fake a chart "
+                "in text."
+            )
+        return (
+            "I don't know — this needs a plot file from this turn, and I "
+            "will not draw one in ASCII."
+        )
+    if "catalog" in kinds:
+        if catalog_failed:
+            return (
+                "The catalog tool couldn't fetch that. I will not invent "
+                "a paper or an ephemeris."
+            )
+        return (
+            "I don't know — this needs an arXiv, Horizons, APOD, or ADS "
+            "result this turn, and I will not invent one."
         )
     if "web" in kinds:
         return (

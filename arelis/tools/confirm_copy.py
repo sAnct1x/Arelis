@@ -63,6 +63,9 @@ def confirm_headline(tool: str, args: dict[str, Any] | None = None) -> str:
         return "make a picture"
     if name == "image_edit":
         return "edit this picture"
+    if name == "plot":
+        leaf = Path(str(args.get("out") or "").replace("\\", "/")).name
+        return f"write {leaf}" if leaf else "write a plot"
     if name == "browser":
         target = _who(args, "url", "target", "query", "destination", "place")
         if action in {"open", "navigate"}:
@@ -95,7 +98,7 @@ def confirm_headline(tool: str, args: dict[str, Any] | None = None) -> str:
     if name == "agenda":
         if action in {"create", "update"}:
             title = _who(args, "summary", "title")
-            return f"add to calendar" if not title else f"calendar: {title}"
+            return "add to calendar" if not title else f"calendar: {title}"
         if action == "delete":
             return "delete a calendar event"
         if action == "sync":
@@ -117,7 +120,7 @@ def confirm_headline(tool: str, args: dict[str, Any] | None = None) -> str:
     if name == "rooms":
         room = _who(args, "name", "id")
         if action == "create":
-            return f"make a room" if not room else f"make room {room}"
+            return "make a room" if not room else f"make room {room}"
         if action == "forget":
             return f"forget room {room}" if room else "forget this room"
         return "change this room"

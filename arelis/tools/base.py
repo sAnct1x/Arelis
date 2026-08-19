@@ -129,6 +129,8 @@ def capability_class(
         return "WRITE_LOCAL" if action in ROOMS_WRITE_ACTIONS else "READ"
     if tool == "schedule":
         return "WRITE_LOCAL" if action in SCHEDULE_WRITE_ACTIONS else "READ"
+    if tool == "plot":
+        return "WRITE_LOCAL"
     return "READ"
 
 

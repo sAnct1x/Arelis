@@ -1,4 +1,4 @@
-package app.arelis.notify
+package app.arelis
 
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -18,12 +18,11 @@ class ArelisClient(
     private val baseUrl = normalizeBaseUrl(baseUrl)
     private val http = OkHttpClient.Builder()
         .connectTimeout(8, TimeUnit.SECONDS)
-        .readTimeout(8, TimeUnit.SECONDS)
-        .writeTimeout(8, TimeUnit.SECONDS)
+        .readTimeout(12, TimeUnit.SECONDS)
+        .writeTimeout(12, TimeUnit.SECONDS)
         .build()
 
     fun ping(): String {
-        // Health first (no token): proves the phone can reach the PC at all.
         try {
             val healthReq = Request.Builder()
                 .url("$baseUrl/inbound/health")
@@ -32,8 +31,7 @@ class ArelisClient(
             http.newCall(healthReq).execute().use { resp ->
                 if (!resp.isSuccessful) {
                     throw IllegalStateException(
-                        "Reached PC but /inbound/health returned HTTP ${resp.code}. " +
-                            "Is an older Arelis build still running?"
+                        "Reached the PC but /inbound/health returned HTTP ${resp.code}.",
                     )
                 }
             }
@@ -49,15 +47,50 @@ class ArelisClient(
         http.newCall(req).execute().use { resp ->
             val body = resp.body?.string().orEmpty()
             if (resp.code == 401) {
-                throw IllegalStateException(
-                    "Reached Arelis, but the token does not match " +
-                        "sms.ingest_token in data/secrets.yaml."
-                )
+                throw IllegalStateException("Reached Arelis, but the token does not match.")
             }
             if (!resp.isSuccessful) {
                 throw IllegalStateException("HTTP ${resp.code}: $body")
             }
             return body
+        }
+    }
+
+    fun pair(instance: String, pair: String, listenUrl: String, deviceKey: String): String {
+        val json = JSONObject()
+            .put("instance", instance)
+            .put("pair", pair)
+            .put("listen_url", listenUrl)
+            .put("device_key", deviceKey)
+            .toString()
+        val req = Request.Builder()
+            .url("$baseUrl/inbound/pair")
+            .header("X-Arelis-Token", token)
+            .header("Content-Type", "application/json")
+            .post(json.toRequestBody(JSON))
+            .build()
+        try {
+            http.newCall(req).execute().use { resp ->
+                val text = resp.body?.string().orEmpty()
+                if (resp.code == 401) {
+                    throw IllegalStateException("Token does not match this Arelis.")
+                }
+                if (resp.code == 409) {
+                    throw IllegalStateException("That QR belongs to a different Arelis on this PC.")
+                }
+                if (resp.code == 403) {
+                    throw IllegalStateException(
+                        "Pairing expired. Open Settings → Notify on the PC and scan again.",
+                    )
+                }
+                if (!resp.isSuccessful) {
+                    throw IllegalStateException("HTTP ${resp.code}: $text")
+                }
+                return text
+            }
+        } catch (exc: Exception) {
+            if (exc is IllegalStateException) throw exc
+            throw IOException(explainConnectFailure(exc, baseUrl), exc)
         }
     }
 
@@ -78,7 +111,7 @@ class ArelisClient(
             .url("$baseUrl/inbound/sms")
             .header("X-Arelis-Token", token)
             .header("Content-Type", "application/json")
-            .post(json.toRequestBody(JSON.toMediaType()))
+            .post(json.toRequestBody(JSON))
             .build()
         try {
             http.newCall(req).execute().use { resp ->
@@ -95,15 +128,20 @@ class ArelisClient(
     }
 
     companion object {
-        private val JSON = "application/json; charset=utf-8"
+        private val JSON = "application/json; charset=utf-8".toMediaType()
 
         fun normalizeBaseUrl(url: String): String {
             var value = url.trim()
             while (value.endsWith("/")) {
                 value = value.dropLast(1)
             }
-            // People sometimes paste the full ping path into the URL field.
-            for (suffix in listOf("/inbound/ping", "/inbound/health", "/inbound/sms", "/inbound")) {
+            for (suffix in listOf(
+                "/inbound/ping",
+                "/inbound/health",
+                "/inbound/sms",
+                "/inbound/pair",
+                "/inbound",
+            )) {
                 if (value.endsWith(suffix)) {
                     value = value.removeSuffix(suffix)
                     break
@@ -116,14 +154,11 @@ class ArelisClient(
             val root = generateSequence(exc) { it.cause }.last()
             return when (root) {
                 is ConnectException ->
-                    "Cannot connect to $baseUrl. Open Arelis on the PC, confirm " +
-                        "Thinking shows the listening URL, update the IP if DHCP " +
-                        "changed it, and allow TCP 8765 on a Private network."
+                    "Cannot reach $baseUrl. Is Arelis open on the PC, same Wi-Fi, firewall allowing the port?"
                 is SocketTimeoutException ->
-                    "Timed out reaching $baseUrl. Same Wi‑Fi? Firewall blocking " +
-                        "TCP 8765? PC asleep?"
+                    "Timed out reaching $baseUrl. PC asleep? Guest Wi-Fi?"
                 is UnknownHostException ->
-                    "Unknown host in $baseUrl. Use the PC LAN IP, e.g. http://192.168.x.x:8765"
+                    "Unknown host in $baseUrl."
                 else ->
                     "Failed to reach $baseUrl: ${root.message ?: root.javaClass.simpleName}"
             }

@@ -334,7 +334,7 @@ RESEARCH = IntentSpec(
         "in chat."
     ),
     schema_tools=frozenset(
-        {"research_report", "web_search", "scrape", "web_fetch", "calculator"}
+        {"research_report", "web_search", "scrape", "web_fetch", "calculator", "cas", "units"}
     ),
     exactness=_DEEP_DIVE_EXACT,
     auto_hint=True,
@@ -443,6 +443,59 @@ DOCS = IntentSpec(
     research_extra=True,
 )
 
+_PLOT_MENTION = (
+    re.compile(r"(?i)\bplot\s+(?:this|the|my|it)\b"),
+    re.compile(r"(?i)\b(?:scatter|line)\s+plot\b"),
+    re.compile(r"(?i)\bplot\s+residuals\b"),
+    re.compile(r"(?i)\bfit\s+a\s+line\b"),
+    re.compile(r"(?i)\b(?:line|bar|scatter)\s+chart\b"),
+    re.compile(r"(?i)\bchart\s+(?:this|the|my)\b"),
+    re.compile(r"(?i)\bmake\s+a\s+(?:plot|chart|graph)\b"),
+    re.compile(r"(?i)\bplot\s+.{0,40}\b(?:csv|tsv|xlsx|spreadsheet|columns?)\b"),
+)
+
+PLOT = IntentSpec(
+    kind="plot",
+    patterns=_PLOT_MENTION,
+    expected_tools=("plot",),
+    nudge=(
+        "Intent preflight: this message asks for a chart. Call plot now "
+        "(line, scatter, or residuals). It writes a PNG and needs Allow. "
+        "Do not draw an ASCII chart. Do not call image."
+    ),
+    schema_tools=frozenset({"plot", "analyze"}),
+    auto_hint=True,
+    research_extra=True,
+)
+
+_CATALOG_MENTION = (
+    re.compile(r"(?i)\barxiv\b"),
+    re.compile(r"(?i)\bpreprints?\b"),
+    re.compile(r"(?i)\bjpl\s+horizons\b"),
+    re.compile(r"(?i)\bephemeris\b"),
+    re.compile(
+        r"(?i)\bwhere is (?:mercury|venus|mars|jupiter|saturn|uranus|"
+        r"neptune|pluto|the moon)\b.{0,24}\b(tonight|today|now)\b"
+    ),
+    re.compile(r"(?i)\b(apod|astronomy picture of the day)\b"),
+    re.compile(r"(?i)\bnasa'?s? (?:photo|picture) of the day\b"),
+    re.compile(r"(?i)\b(nasa\s+ads|adsabs|astrophysics data system)\b"),
+)
+
+SCIENCE_CATALOG = IntentSpec(
+    kind="catalog",
+    patterns=_CATALOG_MENTION,
+    expected_tools=("catalog",),
+    nudge=(
+        "Intent preflight: this message named a science catalog. Call catalog "
+        "now (arxiv, horizons, apod, or ads). Do not invent a paper or "
+        "ephemeris. Do not scrape NASA JavaScript."
+    ),
+    schema_tools=frozenset({"catalog"}),
+    auto_hint=True,
+    research_extra=True,
+)
+
 CATALOG: tuple[IntentSpec, ...] = (
     WEATHER,
     RECALL,
@@ -458,6 +511,8 @@ CATALOG: tuple[IntentSpec, ...] = (
     BRIEFING,
     TASKS,
     DOCS,
+    PLOT,
+    SCIENCE_CATALOG,
 )
 
 BY_KIND: dict[str, IntentSpec] = {s.kind: s for s in CATALOG}

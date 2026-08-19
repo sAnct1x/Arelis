@@ -71,6 +71,18 @@ _CATALOG: dict[str, dict[str, Any]] = {
         ),
         "when": "exactness math force appears in turns.log",
     },
+    "science-use-cas-units": {
+        "id": "science-use-cas-units",
+        "tags": ["science", "general"],
+        "text": (
+            "Integrals, derivatives, and ODEs call cas. Conversions and "
+            "published constants call units. Charts call plot (Allow). Named "
+            "catalogs (arXiv, Horizons, APOD, ADS) call catalog. Never "
+            "recite CODATA or a closed form from memory, never fake a "
+            "chart in text, and never invent a paper or an ephemeris."
+        ),
+        "when": "exactness symbolic, units, plot, or catalog force appears in turns.log",
+    },
     "routing-gap-call-tools": {
         "id": "routing-gap-call-tools",
         "tags": ["web", "general"],
@@ -149,6 +161,13 @@ def propose_lesson_ids(
     gates = exactness_gates or Counter()
     if gates.get("math", 0) >= 1:
         proposed.append("math-use-calculator")
+    if (
+        gates.get("symbolic", 0) >= 1
+        or gates.get("units", 0) >= 1
+        or gates.get("plot", 0) >= 1
+        or gates.get("catalog", 0) >= 1
+    ):
+        proposed.append("science-use-cas-units")
     gaps = routing_gaps or Counter()
     if gaps.get("routing_gap", 0) >= 1:
         proposed.append("routing-gap-call-tools")

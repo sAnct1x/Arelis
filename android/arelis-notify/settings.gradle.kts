@@ -12,5 +12,5 @@ dependencyResolutionManagement {
         mavenCentral()
     }
 }
-rootProject.name = "ArelisNotify"
+rootProject.name = "Arelis"
 include(":app")

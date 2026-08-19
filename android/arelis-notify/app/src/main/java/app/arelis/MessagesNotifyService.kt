@@ -1,19 +1,21 @@
-package app.arelis.notify
+package app.arelis
 
 import android.app.Notification
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import android.util.Log
+import androidx.work.ExistingWorkPolicy
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkManager
 import java.time.Instant
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
-import kotlin.math.min
 
 /**
  * Forwards Google Messages notifications to Arelis over the LAN.
  *
  * RCS and SMS both surface here when the user has notifications enabled for
- * that conversation — which is the durable bridge SMSGate cannot provide.
+ * that conversation — which is the durable bridge a SEND_SMS radio cannot provide.
  */
 class MessagesNotifyService : NotificationListenerService() {
     private val executor = Executors.newSingleThreadExecutor()
@@ -24,7 +26,7 @@ class MessagesNotifyService : NotificationListenerService() {
         if (sbn.packageName != MESSAGES_PACKAGE) return
         val prefs = Prefs(this)
         if (!prefs.enabled) return
-        if (prefs.baseUrl.isBlank() || prefs.token.isBlank()) return
+        if (!prefs.readyToTalk) return
         if (sbn.isOngoing) return
 
         val extras = sbn.notification.extras
@@ -38,37 +40,28 @@ class MessagesNotifyService : NotificationListenerService() {
             .orEmpty()
 
         if (title.isEmpty() && text.isEmpty()) return
-        // Group summaries / "X new messages" without a body are noisy.
         if (text.isEmpty()) return
 
         val baseKey = sbn.key?.takeIf { it.isNotBlank() }
             ?: "${sbn.packageName}:${sbn.id}:${title.hashCode()}"
-        // Include body hash so conversation *updates* that reuse the same
-        // notification key still forward (otherwise looks like random misses).
         val id = "$baseKey:${text.hashCode()}"
         val now = System.currentTimeMillis()
         prune(now)
         if (recentIds.putIfAbsent(id, now) != null) return
 
-        val client = ArelisClient(prefs.baseUrl, prefs.token)
         val timeIso = Instant.ofEpochMilli(sbn.postTime).toString()
+        val from = title.ifEmpty { "(unknown)" }
         executor.execute {
-            var attempt = 0
-            var delayMs = 1_000L
-            while (attempt < 4) {
-                try {
-                    client.postInbound(id, title.ifEmpty { "(unknown)" }, text, timeIso)
-                    return@execute
-                } catch (exc: Exception) {
-                    Log.w(TAG, "POST failed attempt=${attempt + 1}: $exc")
-                    attempt += 1
-                    try {
-                        Thread.sleep(delayMs)
-                    } catch (_: InterruptedException) {
-                        return@execute
-                    }
-                    delayMs = min(delayMs * 2, 8_000L)
-                }
+            try {
+                ArelisClient(prefs.baseUrl, prefs.token).postInbound(id, from, text, timeIso)
+            } catch (exc: Exception) {
+                Log.w(TAG, "POST failed, queued: $exc")
+                InboundQueue(this).enqueue(id, from, text, timeIso)
+                WorkManager.getInstance(this).enqueueUniqueWork(
+                    InboundWorker.UNIQUE,
+                    ExistingWorkPolicy.REPLACE,
+                    OneTimeWorkRequestBuilder<InboundWorker>().build(),
+                )
             }
         }
     }

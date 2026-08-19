@@ -41,6 +41,8 @@ from arelis.core.bus import EventBus
 from arelis.core.claims import (
     answer_looks_like_ack_only,
     answer_looks_like_refusal,
+    cas_force_notice,
+    catalog_force_notice,
     contact_who_from_text,
     detect_analyze_ask,
     detect_exactness_need,
@@ -50,7 +52,9 @@ from arelis.core.claims import (
     local_store_inject_args,
     lock_memory_forget_args,
     math_force_notice,
+    plot_force_notice,
     send_claim_missing_kinds,
+    units_force_notice,
     unsupported_exactness_reply,
     unsupported_send_claim_reply,
     weather_force_notice,
@@ -1086,8 +1090,11 @@ class AgentLoop:
         vision_nudge_used = 0
         agenda_nudge_used = 0
         math_nudge_used = False
+        cas_nudge_used = False
+        units_nudge_used = False
+        plot_nudge_used = False
+        catalog_nudge_used = False
         weather_nudge_used = 0
-        weather_attempted = False
         weather_ok_places: set[str] = set()
         weather_days_retried: set[str] = set()
         schedule_managed_ok = False
@@ -2303,6 +2310,90 @@ class AgentLoop:
                         if self._timer is not None:
                             self._timer.mark("exactness", gate="math", action="force")
                         continue
+                    if (
+                        numeric_gate
+                        and exact_need.needs_cas
+                        and not cas_nudge_used
+                        and not ledger.has_ok("cas")
+                        and "cas" in tool_names
+                        and not answer_looks_like_refusal(content)
+                    ):
+                        cas_nudge_used = True
+                        await self._retract()
+                        messages.append({"role": "assistant", "content": content})
+                        messages.append({"role": "user", "content": cas_force_notice()})
+                        await self.bus.publish(
+                            Event(
+                                EventType.THINKING,
+                                {"text": "exactness  symbolic without cas; forcing tool"},
+                            )
+                        )
+                        if self._timer is not None:
+                            self._timer.mark("exactness", gate="symbolic", action="force")
+                        continue
+                    if (
+                        numeric_gate
+                        and exact_need.needs_units
+                        and not units_nudge_used
+                        and not ledger.has_ok("units")
+                        and "units" in tool_names
+                        and not answer_looks_like_refusal(content)
+                    ):
+                        units_nudge_used = True
+                        await self._retract()
+                        messages.append({"role": "assistant", "content": content})
+                        messages.append({"role": "user", "content": units_force_notice()})
+                        await self.bus.publish(
+                            Event(
+                                EventType.THINKING,
+                                {"text": "exactness  units without tool; forcing tool"},
+                            )
+                        )
+                        if self._timer is not None:
+                            self._timer.mark("exactness", gate="units", action="force")
+                        continue
+                    if (
+                        numeric_gate
+                        and exact_need.needs_plot
+                        and not plot_nudge_used
+                        and not ledger.has_ok("plot")
+                        and "plot" in tool_names
+                        and not answer_looks_like_refusal(content)
+                    ):
+                        plot_nudge_used = True
+                        await self._retract()
+                        messages.append({"role": "assistant", "content": content})
+                        messages.append({"role": "user", "content": plot_force_notice()})
+                        await self.bus.publish(
+                            Event(
+                                EventType.THINKING,
+                                {"text": "exactness  plot without file; forcing tool"},
+                            )
+                        )
+                        if self._timer is not None:
+                            self._timer.mark("exactness", gate="plot", action="force")
+                        continue
+                    if (
+                        numeric_gate
+                        and exact_need.needs_catalog
+                        and not catalog_nudge_used
+                        and not ledger.has_ok("catalog")
+                        and "catalog" in tool_names
+                        and not answer_looks_like_refusal(content)
+                    ):
+                        catalog_nudge_used = True
+                        await self._retract()
+                        messages.append({"role": "assistant", "content": content})
+                        messages.append({"role": "user", "content": catalog_force_notice()})
+                        await self.bus.publish(
+                            Event(
+                                EventType.THINKING,
+                                {"text": "exactness  catalog without fetch; forcing tool"},
+                            )
+                        )
+                        if self._timer is not None:
+                            self._timer.mark("exactness", gate="catalog", action="force")
+                        continue
                     # Exactness: contingent fact without a matching warrant.
                     if (
                         evidence_gate
@@ -2312,7 +2403,18 @@ class AgentLoop:
                     ):
                         missing = ledger.missing_kinds(exact_need.kinds)
                         # Math/weather have dedicated forces above.
-                        missing = [k for k in missing if k not in {"math", "weather"}]
+                        missing = [
+                            k
+                            for k in missing
+                            if k not in {
+                                "math",
+                                "weather",
+                                "symbolic",
+                                "units",
+                                "plot",
+                                "catalog",
+                            }
+                        ]
                         if missing:
                             evidence_nudge_used = True
                             await self._retract()
@@ -3456,8 +3558,6 @@ class AgentLoop:
                         {"text": f"round {round_i}/{self.max_rounds}  tool  {summary}"},
                     )
                 )
-                if name == "weather":
-                    weather_attempted = True
                 if name == "image":
                     image_attempted = True
                 if fanout_results is not None:
@@ -4904,9 +5004,9 @@ _EVIDENCE_KINDS = frozenset(
 )
 
 
-_PROJECT_CONTEXT_SKILLS = frozenset({"workspace", "analyze", "docs"})
+_PROJECT_CONTEXT_SKILLS = frozenset({"workspace", "analyze", "docs", "science"})
 _PROJECT_CONTEXT_TOOLS = frozenset(
-    {"workspace", "analyze", "git_info", "doc_extract"}
+    {"workspace", "analyze", "git_info", "doc_extract", "plot"}
 )
 
 
@@ -5068,7 +5168,7 @@ def _exactness_finish_refuse(
         return None
     missing = ledger.missing_kinds(kinds)
     if not numeric_gate:
-        missing = [k for k in missing if k != "math"]
+        missing = [k for k in missing if k not in {"math", "symbolic", "units", "plot", "catalog"}]
     if not evidence_gate:
         missing = [k for k in missing if k not in _EVIDENCE_KINDS]
     if not missing:
@@ -5081,6 +5181,42 @@ def _exactness_finish_refuse(
         if calc_fail is not None:
             return unsupported_exactness_reply(
                 missing, calc_failed=True, calc_detail=calc_fail.span
+            )
+    if "symbolic" in missing:
+        cas_fail = next(
+            (w for w in ledger.items if w.kind == "cas" and not w.ok),
+            None,
+        )
+        if cas_fail is not None:
+            return unsupported_exactness_reply(
+                missing, cas_failed=True, cas_detail=cas_fail.span
+            )
+    if "units" in missing:
+        units_fail = next(
+            (w for w in ledger.items if w.kind == "units" and not w.ok),
+            None,
+        )
+        if units_fail is not None:
+            return unsupported_exactness_reply(
+                missing, units_failed=True, units_detail=units_fail.span
+            )
+    if "plot" in missing:
+        plot_fail = next(
+            (w for w in ledger.items if w.kind == "plot" and not w.ok),
+            None,
+        )
+        if plot_fail is not None:
+            return unsupported_exactness_reply(
+                missing, plot_failed=True, plot_detail=plot_fail.span
+            )
+    if "catalog" in missing:
+        catalog_fail = next(
+            (w for w in ledger.items if w.kind == "catalog" and not w.ok),
+            None,
+        )
+        if catalog_fail is not None:
+            return unsupported_exactness_reply(
+                missing, catalog_failed=True, catalog_detail=catalog_fail.span
             )
     return unsupported_exactness_reply(missing)
 

@@ -1,14 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Arelis Notify</string>
-    <string name="hint_url">http://192.168.x.x:8765</string>
-    <string name="hint_token">same as sms.ingest_token</string>
-    <string name="label_url">Arelis URL</string>
-    <string name="label_token">Ingest token</string>
-    <string name="token_hint_eye">Tap the eye icon to show or hide the token. Copy it from data/secrets.yaml on the PC (sms.ingest_token) — you do not need to recover it from the phone.</string>
-    <string name="label_enabled">Forward Messages notifications</string>
-    <string name="btn_save">Save</string>
-    <string name="btn_ping">Test ping</string>
-    <string name="btn_access">Notification access</string>
-    <string name="status_idle">Save settings, grant notification access, then test ping while Arelis is open.</string>
+    <string name="app_name">Arelis</string>
+    <string name="radio_channel_name">Arelis radio</string>
+    <string name="radio_notification">Radio on — texts leave from this SIM after you allow them on the PC.</string>
 </resources>

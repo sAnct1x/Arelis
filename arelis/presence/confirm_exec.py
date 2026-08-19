@@ -44,10 +44,11 @@ async def execute_pending_confirm(
                 )
             sms_cfg = (config.get("tools") or {}).get("sms") or {}
             send = SendSmsTool(
-                AndroidSmsProvider(
-                    account,
-                    timeout_s=float(sms_cfg.get("timeout_s", 30)),
-                ),
+            AndroidSmsProvider(
+                account,
+                timeout_s=float(sms_cfg.get("timeout_s", 30)),
+                live=True,
+            ),
                 max_body_chars=int(sms_cfg.get("max_body_chars", DEFAULT_MAX_BODY_CHARS)),
             )
             result = await send.run(**args)

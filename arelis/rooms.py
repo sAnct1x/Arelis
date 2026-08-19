@@ -138,8 +138,8 @@ KINDS: dict[str, RoomKind] = {
         id="analysis",
         label="Analysis",
         role="fast",
-        skills=("workspace", "code", "calculator"),
-        blurb="Data, maths and plots over files that already exist.",
+        skills=("workspace", "analyze", "science", "calculator"),
+        blurb="Data, maths, plots, and named catalogs over files that already exist. Charts use plot (Allow).",
     ),
     "writing": RoomKind(
         id="writing",

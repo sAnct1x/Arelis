@@ -428,6 +428,23 @@ def stylesheet() -> str:
         border: 1px solid {c['edge_warm']};
         border-radius: 10px;
     }}
+    #SettingsPairQr {{
+        background: {c['text']};
+        border-radius: 12px;
+    }}
+    #SettingsSection {{
+        color: {c['accent2']};
+        font-size: 13px;
+        font-weight: 600;
+        background: transparent;
+        padding-top: 6px;
+    }}
+    #SettingsFieldLabel {{
+        color: {c['text']};
+        font-size: 13px;
+        background: transparent;
+        padding-right: 8px;
+    }}
     #SettingsTabs {{
         background: transparent;
         border: none;

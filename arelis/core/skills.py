@@ -503,6 +503,73 @@ SKILL_CARDS: dict[str, SkillCard] = {
 ### Calculator
 - Prefer calculator for arithmetic, percentages, and unit-style numeric math;
   do not guess numeric results.
+- This is not a CAS. Integrals, derivatives, simplify, and ODEs use cas.
+  Conversions and published constants use units.
+""".strip(),
+    ),
+    "science": SkillCard(
+        id="science",
+        hints=(
+            "integral",
+            "integrate",
+            "antiderivative",
+            "derivative",
+            "differentiate",
+            "d/dx",
+            "ode",
+            "dimensional analysis",
+            "gravitational constant",
+            "speed of light",
+            "schwarzschild",
+            "in meters",
+            "to meters",
+            "to metres",
+            "ft 8",
+            "hubble constant",
+            "planck constant",
+            "solar mass",
+            "simplify this expression",
+            "plot residuals",
+            "scatter plot",
+            "fit a line",
+            "line chart",
+            "arxiv",
+            "preprint",
+            "jpl horizons",
+            "ephemeris",
+            "apod",
+            "nasa ads",
+        ),
+        negative_hints=(
+            "room temperature",
+            "text wife",
+            "text brian",
+            "weather",
+            "forecast",
+            "convert this file",
+            "convert the pdf",
+            "plot twist",
+            "movie plot",
+            "plot of land",
+        ),
+        requires_tool="cas",
+        body="""
+### Science (CAS, units, constants, plots, catalogs)
+- Arithmetic stays on calculator. Closed forms (integrate, diff, simplify,
+  solve, dsolve) call cas. Do not recite an antiderivative from memory.
+- Conversions and published constants call units. The tool result names the
+  source year (CODATA / IAU / Planck). Do not present those as measured
+  this turn.
+- A CMB or cosmological frame is a boost, not a Pint conversion.
+- Charts call plot (line, scatter, residuals). It writes a PNG under
+  outputs/plots/ and needs Allow. Do not draw an ASCII chart. Do not use
+  image (Comfy) for data.
+- Papers on arXiv, JPL Horizons, NASA APOD, and NASA ADS call catalog.
+  Acknowledge arXiv. Do not scrape NASA JavaScript. APOD and ADS need a
+  free key in data/secrets.yaml; say so if the tool reports it is missing.
+  Do not invent a bibcode or an ephemeris.
+- Papers already on disk use doc_extract. Do not invent citations.
+- Walk the derivation; let cas check the algebra. Do not stamp homework.
 """.strip(),
     ),
     "clipboard": SkillCard(
@@ -1034,6 +1101,10 @@ def select_skill_ids_detailed(
                     continue
                 elif card_id == "location" and "user_location" not in available_tools:
                     continue
+                elif card_id == "science" and not (
+                    available_tools & {"cas", "units", "plot", "catalog"}
+                ):
+                    continue
                 elif card_id not in {
                     "sms",
                     "email",
@@ -1049,6 +1120,7 @@ def select_skill_ids_detailed(
                     "goals",
                     "attention",
                     "location",
+                    "science",
                 }:
                     continue
         score, best_len = _score_card(card, lowered)

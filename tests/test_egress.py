@@ -18,7 +18,7 @@ their own mail server, their own phone, their own Ollama. And it proves what the
 code *can* name, not what it did on any given day. It is a boundary on the design,
 not a packet capture.
 
-`docs/your-data.md` points at this file. That is the point of it: a privacy claim
+The README privacy section points at this file. That is the point of it: a privacy claim
 worth making is one a reader can check.
 """
 
@@ -84,6 +84,14 @@ ALLOWED: dict[str, str] = {
     # Fixtures in the offline evaluation harness. Never fetched by the app.
     "example.com": "eval fixture host",
     "www.wsj.com": "eval fixture host, never requested",
+    # Science catalogs, on a turn the user started. arXiv and Horizons need
+    # no key. NASA APOD and ADS fire only after the user pastes a free key.
+    "export.arxiv.org": "catalog arXiv search, on a turn the user started",
+    "ssd.jpl.nasa.gov": "catalog JPL Horizons ephemerides, on a turn the user started",
+    "api.nasa.gov": "catalog NASA APOD, only with a key the user pasted",
+    "api.adsabs.harvard.edu": "catalog NASA ADS search, only with a token the user pasted",
+    # Atom XML namespace in the arXiv parser. Never fetched.
+    "www.w3.org": "Atom namespace string in catalog; not a request",
 }
 
 

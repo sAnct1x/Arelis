@@ -75,6 +75,22 @@ class EvidenceLedger:
                 ok=ok,
             )
             return
+        if name == "cas":
+            span = str(data.get("result") or output or "")[:200]
+            self.add(source="cas", kind="cas", span=span, ok=ok)
+            return
+        if name == "units":
+            span = str(data.get("value") or output or "")[:300]
+            self.add(source="units", kind="units", span=span, ok=ok)
+            return
+        if name == "plot":
+            span = str(data.get("path") or output or "")[:300]
+            self.add(source="plot", kind="plot", span=span, ok=ok)
+            return
+        if name == "catalog":
+            span = str(data.get("query") or data.get("target") or output or "")[:300]
+            self.add(source="catalog", kind="catalog", span=span, ok=ok)
+            return
         if name == "weather":
             self.add(
                 source="weather",
@@ -301,6 +317,14 @@ class EvidenceLedger:
         for kind in need_kinds:
             if kind == "math" and not self.has_ok("calc"):
                 missing.append("math")
+            elif kind == "symbolic" and not self.has_ok("cas"):
+                missing.append("symbolic")
+            elif kind == "units" and not self.has_ok("units"):
+                missing.append("units")
+            elif kind == "plot" and not self.has_ok("plot"):
+                missing.append("plot")
+            elif kind == "catalog" and not self.has_ok("catalog"):
+                missing.append("catalog")
             elif kind == "web" and not self.has_ok("web"):
                 missing.append("web")
             elif kind == "weather" and not self.has_ok("weather"):

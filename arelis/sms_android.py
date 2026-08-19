@@ -1,10 +1,11 @@
-"""Texts through your own Android phone, using SMSGate.
+"""Texts through your own Android phone.
 
-The phone is the radio and Arelis is the brain. SMSGate (https://sms-gate.app)
-runs a small HTTP server on the handset, and a POST here becomes a normal SMS
-off the SIM already in it. So the text arrives from your number, the reply comes
-back to your phone, and it costs nothing beyond the plan you already pay for —
-which is the whole reason this replaced carrier email gateways.
+The phone is the radio and Arelis is the brain. The Arelis companion (or
+SMSGate as a leftover) runs a small HTTP server on the handset, and a POST
+here becomes a normal SMS off the SIM already in it. So the text arrives from
+your number, the reply comes back to your phone, and it costs nothing beyond
+the plan you already pay for — which is the whole reason this replaced
+carrier email gateways.
 
 Credentials live in data/secrets.yaml beside the mail account and load the same
 way: absent means None, and None means send_sms is never registered at all.
@@ -32,15 +33,16 @@ PASSWORD_ENV = "ARELIS_SMSGATE_PASSWORD"
 SECRETS_PATH = state_dir() / "secrets.yaml"
 
 SETUP_HINT = (
-    "SMS is not configured. Install SMSGate (https://sms-gate.app) on your "
-    "Android phone, then copy the base URL, username, and password it shows "
-    "into the sms: block of data/secrets.yaml. See README > SMS."
+    "SMS is not configured. Pair the Arelis companion (Settings → Notify on "
+    "this PC, scan the QR on the phone), or paste an SMSGate leftover "
+    "(https://sms-gate.app) base URL, username, and password into the sms: "
+    "block of data/secrets.yaml."
 )
 
 
 @dataclass(frozen=True)
 class SmsGateAccount:
-    """Where SMSGate is listening, and how to log in to it."""
+    """Where the phone radio is listening, and how to log in to it."""
 
     base_url: str
     username: str
@@ -54,6 +56,8 @@ class SmsGateAccount:
     inbox_base_url: str = ""
     inbox_username: str = ""
     inbox_password: str = ""
+    # "companion" when send goes to the Arelis APK; "smsgate" for the old radio.
+    via: str = "smsgate"
 
     @property
     def messages_url(self) -> str:
@@ -98,7 +102,14 @@ class SmsGateAccount:
         return user, password
 
     def supports_inbox_poll(self) -> bool:
-        """True when the inbox base is a Local Server URL, not Cloud."""
+        """True when the inbox base is a Local Server URL, not Cloud.
+
+        The companion radio has no GET /inbox. Poll only when an explicit
+        SMSGate leftover inbox URL is set, or when send itself is still SMSGate
+        Local Server.
+        """
+        if self.via == "companion" and not str(self.inbox_base_url or "").strip():
+            return False
         base = (self.inbox_base_url or self.base_url).strip().lower()
         return bool(base) and "api.sms-gate.app" not in base
 
@@ -126,9 +137,6 @@ def load_sms_account(path: Path | None = None) -> SmsGateAccount | None:
     username = str(data.get("username") or "").strip()
     raw_password = os.environ.get(PASSWORD_ENV) or str(data.get("password") or "")
     password = raw_password.strip()
-    if not (base_url and username and password):
-        return None
-
     try:
         sim_number = int(data.get("sim_number") or 0)
     except (TypeError, ValueError):
@@ -138,6 +146,26 @@ def load_sms_account(path: Path | None = None) -> SmsGateAccount | None:
     inbox_username = str(data.get("inbox_username") or "").strip()
     raw_inbox_password = str(data.get("inbox_password") or "")
     inbox_password = raw_inbox_password.strip()
+
+    companion = data.get("companion") if isinstance(data.get("companion"), dict) else {}
+    companion_url = str(companion.get("base_url") or "").strip()
+    companion_key = str(companion.get("device_key") or "").strip()
+    if companion_url and companion_key:
+        from arelis.sms_pairing import COMPANION_USER
+
+        return SmsGateAccount(
+            base_url=companion_url,
+            username=COMPANION_USER,
+            password=companion_key,
+            sim_number=sim_number,
+            inbox_base_url=inbox_base_url,
+            inbox_username=inbox_username,
+            inbox_password=inbox_password,
+            via="companion",
+        )
+
+    if not (base_url and username and password):
+        return None
     return SmsGateAccount(
         base_url=base_url,
         username=username,
@@ -146,6 +174,7 @@ def load_sms_account(path: Path | None = None) -> SmsGateAccount | None:
         inbox_base_url=inbox_base_url,
         inbox_username=inbox_username,
         inbox_password=inbox_password,
+        via="smsgate",
     )
 
 
@@ -158,56 +187,73 @@ class AndroidSmsProvider:
     mail for a domain that stopped existing.
     """
 
-    def __init__(self, account: SmsGateAccount, *, timeout_s: float = 30.0) -> None:
+    def __init__(
+        self,
+        account: SmsGateAccount,
+        *,
+        timeout_s: float = 30.0,
+        live: bool = False,
+    ) -> None:
         self.account = account
         self.timeout_s = timeout_s
+        # When True, re-read secrets on every send so a DHCP re-pair (new
+        # listen URL) is used without restarting Arelis. Tests leave this off
+        # so a fixture account is not replaced by the developer's secrets.yaml.
+        self.live = live
+
+    def _account(self) -> SmsGateAccount:
+        if self.live:
+            loaded = load_sms_account()
+            if loaded is not None:
+                return loaded
+        return self.account
 
     async def send(self, *, phone: str, body: str) -> str:
+        account = self._account()
         payload: dict[str, Any] = {
             "phoneNumbers": [phone],
             "textMessage": {"text": body},
         }
-        if self.account.sim_number:
-            payload["simNumber"] = self.account.sim_number
+        if account.sim_number:
+            payload["simNumber"] = account.sim_number
 
-        url = self.account.messages_url
+        url = account.messages_url
         # Deliberately not run through check_url_allowed, unlike the web tools.
         # A private LAN address is the point of Local Server mode, and this URL
         # came out of the user's own secrets file rather than out of a model.
+        radio = "the phone companion" if account.via == "companion" else "SMSGate"
         try:
             async with httpx.AsyncClient(timeout=self.timeout_s) as client:
                 response = await client.post(
                     url,
                     json=payload,
-                    auth=(self.account.username, self.account.password),
+                    auth=(account.username, account.password),
                 )
         except httpx.TimeoutException:
             raise SmsSendError(
-                f"SMSGate did not answer within {self.timeout_s:g}s. Check the "
-                f"phone is awake, on the network, and still running the server."
+                f"{radio} did not answer within {self.timeout_s:g}s. Check the "
+                f"phone is awake, on the network, and still running the radio."
             )
         except httpx.HTTPError as exc:
             raise SmsSendError(
-                f"Could not reach SMSGate at {url}: {exc}. Local Server mode "
-                f"needs the phone on this network with the server switched on; "
-                f"Cloud mode needs the phone online."
+                f"Could not reach {radio} at {url}: {exc}. The phone needs to "
+                f"be on this network with the companion radio on."
             )
 
         if response.status_code in {401, 403}:
             raise SmsSendError(
-                "SMSGate rejected the credentials. Copy the username and "
-                "password the app shows into the sms: block of "
-                "data/secrets.yaml."
+                f"{radio} rejected the credentials. Pair again from "
+                f"Settings → Notify, or copy SMSGate login into data/secrets.yaml."
             )
         if response.status_code == 404:
             raise SmsSendError(
-                f"SMSGate returned 404 for {url}. base_url needs the prefix for "
-                f"the mode you turned on: https://api.sms-gate.app/3rdparty/v1 "
-                f"for Cloud, http://PHONE_IP:8080 for Local Server."
+                f"{radio} returned 404 for {url}. For SMSGate Cloud use "
+                f"https://api.sms-gate.app/3rdparty/v1; for the companion or "
+                f"Local Server use http://PHONE_IP:8080."
             )
         if response.status_code >= 400:
             raise SmsSendError(
-                f"SMSGate refused the message ({response.status_code}): "
+                f"{radio} refused the message ({response.status_code}): "
                 f"{_detail(response)}"
             )
         return _message_id(response)

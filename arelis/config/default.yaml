@@ -279,11 +279,11 @@ tools:
     max_messages: 20
     max_body_chars: 4000
   sms:
-    # Texts leave through your own Android phone running SMSGate
-    # (https://sms-gate.app), so they arrive from your number and replies come
-    # back to your phone. Nothing here is a secret: the base URL and login live
-    # in data/secrets.yaml, and without them send_sms is not registered at all.
-    # Independent of email. Same confirm gate as send_email.
+    # Texts leave through your own Android phone (Arelis companion radio, or
+    # SMSGate as a leftover). They arrive from your number; replies come back
+    # to the phone. Credentials live in data/secrets.yaml; without a pair or
+    # an SMSGate block, send_sms is not registered at all. Independent of
+    # email. Same confirm gate as send_email.
     #
     # Named people live in data/contacts.yaml (see data/contacts.example.yaml).
     enabled: true
@@ -293,10 +293,10 @@ tools:
     max_body_chars: 1600
     timeout_s: 30
     inbound:
-      # Primary: Android "Arelis Notify" companion POSTs Google Messages
+      # Primary: Android Arelis companion POSTs Google Messages
       # notifications (including RCS) to the LAN ingest server. Ingest stays up
       # with the desktop UI, while hidden in the tray, or via `arelis --core`.
-      # Token: sms.ingest_token in data/secrets.yaml.
+      # Token: sms.ingest_token in data/secrets.yaml. Pair from Settings → Notify.
       enabled: true
       # How an inbound text announces itself is not configured here: it is the
       # per-channel mode in Settings → Notify → SMS (glass pill, optionally with
@@ -420,6 +420,20 @@ tools:
     # agenda(action=sync, provider=ics) to refresh this file (Allow required).
     calendar_path: "data/calendar.ics"
   analyze:
+    enabled: true
+  # Symbolic algebra (SymPy). Read, no Allow; unattended jobs may call it.
+  cas:
+    enabled: true
+  # Pint conversions + a tiny cited constants table. Read, no Allow.
+  units:
+    enabled: true
+  # arXiv + JPL Horizons (no key). NASA APOD / ADS after a free pasted key.
+  # Read, no Allow. Jobs may call it. DEMO_KEY is refused.
+  catalog:
+    enabled: true
+  # Matplotlib charts from a table or a short number list. Writes PNG under
+  # outputs/plots/. Always Allow (confirm_writes). Off for unattended jobs.
+  plot:
     enabled: true
   # System clipboard plain-text read. Always Allow (may hold secrets). Off for
   # unattended jobs. No write/set clipboard in this pass.

@@ -20,6 +20,7 @@ EXTERNAL_CONTENT_TOOLS = frozenset(
         "clipboard",
         "browser",
         "vision",
+        "catalog",
     }
 )
 

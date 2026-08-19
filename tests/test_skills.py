@@ -138,6 +138,50 @@ def test_analyze_card_in_catalog() -> None:
     assert SKILL_CARDS["analyze"].requires_tool == "analyze"
 
 
+def test_science_card_in_catalog() -> None:
+    assert "science" in SKILL_CARDS
+    assert SKILL_CARDS["science"].requires_tool == "cas"
+    ids = select_skill_ids(
+        "what is the integral of x squared sin x",
+        available_tools={"cas", "units", "calculator", "send_sms"},
+    )
+    assert "science" in ids
+    assert "sms" not in ids
+    conv = select_skill_ids(
+        "convert 5 ft 8 in to meters",
+        available_tools={"cas", "units", "calculator", "weather"},
+    )
+    assert "science" in conv
+    assert "weather" not in conv
+    units_only = select_skill_ids(
+        "convert 5 ft 8 in to meters",
+        available_tools={"units", "calculator"},
+    )
+    assert "science" in units_only
+    sms = select_skill_ids(
+        "Text Brian: I'm late",
+        available_tools={"send_sms", "cas", "units"},
+    )
+    assert "sms" in sms
+    assert "science" not in sms
+    weather = select_skill_ids(
+        "What's the weather today?",
+        available_tools={"weather", "cas", "units"},
+    )
+    assert "weather" in weather
+    assert "science" not in weather
+    plot = select_skill_ids(
+        "fit a line and plot residuals",
+        available_tools={"cas", "units", "plot", "calculator"},
+    )
+    assert "science" in plot
+    arxiv = select_skill_ids(
+        "search arxiv for gravitational waves",
+        available_tools={"cas", "units", "catalog", "calculator"},
+    )
+    assert "science" in arxiv
+
+
 def test_calendar_ask_selects_agenda_not_schedule_jobs() -> None:
     ids = select_skill_ids(
         "Delete that calendar event on Google",

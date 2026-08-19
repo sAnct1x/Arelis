@@ -71,7 +71,7 @@ def list_lan_ipv4() -> list[str]:
 
 
 def format_ingest_listen_urls(port: int, *, host: str = DEFAULT_HOST) -> str:
-    """Human-readable URLs to paste into Arelis Notify."""
+    """Human-readable LAN URLs for the phone companion."""
     ips = list_lan_ipv4()
     if ips:
         return ", ".join(f"http://{ip}:{port}" for ip in ips[:3])
@@ -297,14 +297,14 @@ class InboundIngestServer:
 
             def do_POST(self) -> None:
                 path = self.path.split("?", 1)[0]
-                if path not in {"/inbound/sms", "/inbound/message"}:
+                length = int(self.headers.get("Content-Length") or 0)
+                raw = self.rfile.read(max(0, length)) if length else b"{}"
+                if path not in {"/inbound/sms", "/inbound/message", "/inbound/pair"}:
                     self._reply(404, {"ok": False, "error": "not found"})
                     return
                 if not self._token_ok():
                     self._reply(401, {"ok": False, "error": "unauthorized"})
                     return
-                length = int(self.headers.get("Content-Length") or 0)
-                raw = self.rfile.read(max(0, length)) if length else b"{}"
                 try:
                     data = json.loads(raw.decode("utf-8") or "{}")
                 except (UnicodeDecodeError, json.JSONDecodeError):
@@ -312,6 +312,18 @@ class InboundIngestServer:
                     return
                 if not isinstance(data, dict):
                     self._reply(400, {"ok": False, "error": "expected object"})
+                    return
+                if path == "/inbound/pair":
+                    from arelis.sms_pairing import apply_pair
+
+                    code, body = apply_pair(data)
+                    if code == 200:
+                        log.info(
+                            "Companion radio %s listen_url=%s",
+                            "updated" if body.get("updated") else "paired",
+                            body.get("listen_url"),
+                        )
+                    self._reply(code, body)
                     return
                 msg = parse_ingest_payload(data)
                 if msg is None:

@@ -9,6 +9,8 @@ from arelis.core.claims import (
     answer_looks_like_refusal,
     detect_agenda_ask,
     detect_analyze_ask,
+    detect_cas_ask,
+    detect_catalog_ask,
     detect_doc_ask,
     detect_exactness_need,
     detect_git_ask,
@@ -16,8 +18,10 @@ from arelis.core.claims import (
     detect_inbound_sms_ask,
     detect_inbox_ask,
     detect_math_ask,
+    detect_plot_ask,
     detect_send_success_claim,
     detect_tasks_ask,
+    detect_units_ask,
     detect_vision_ask,
     send_claim_missing_kinds,
     unsupported_exactness_reply,
@@ -164,6 +168,26 @@ def test_ledger_records_calculator_and_scrape_fail() -> None:
         args={"expression": "0.175*840"},
     )
     assert ledger.has_ok("calc")
+    cas = EvidenceLedger()
+    cas.record_tool(
+        "cas",
+        ok=True,
+        output="integrate(x**2) = x**3/3",
+        data={"result": "x**3/3"},
+        args={"action": "integrate", "expr": "x**2"},
+    )
+    assert cas.has_ok("cas")
+    assert cas.satisfies(("symbolic",))
+    units = EvidenceLedger()
+    units.record_tool(
+        "units",
+        ok=True,
+        output="5 ft 8 in = 1.7272 meter",
+        data={"value": 1.7272},
+        args={"action": "convert", "quantity": "5 ft 8 in", "to": "meter"},
+    )
+    assert units.has_ok("units")
+    assert units.satisfies(("units",))
     ledger.record_tool(
         "scrape",
         ok=False,
@@ -186,6 +210,42 @@ def test_integral_is_not_forced_calculator_math() -> None:
     assert detect_math_ask("what is 0 divided by 0?")
     need = detect_exactness_need("what is the integral of x^2?")
     assert not need.needs_calculator
+    assert need.needs_cas
+    assert "symbolic" in need.kinds
+    assert not detect_cas_ask("integrate this with my calendar")
+    assert detect_cas_ask("integrate x**2")
+
+
+def test_units_and_constants_are_forced() -> None:
+    conv = detect_exactness_need("convert 5 ft 8 in to meters")
+    assert conv.needs_units
+    assert not conv.needs_calculator
+    g = detect_exactness_need("what is the gravitational constant?")
+    assert g.needs_units
+    assert "units" in g.kinds
+    assert detect_units_ask("speed of light")
+    assert not detect_units_ask("convert this file to pdf")
+    assert not detect_units_ask("2.7 K to the CMB frame")
+
+
+def test_plot_asks_are_forced() -> None:
+    need = detect_exactness_need("fit a line and plot residuals")
+    assert need.needs_plot
+    assert "plot" in need.kinds
+    assert detect_plot_ask("plot this csv")
+    assert not detect_plot_ask("I loved the plot twist")
+    assert not detect_plot_ask("What's the weather today?")
+
+
+def test_catalog_asks_are_forced() -> None:
+    need = detect_exactness_need("search arxiv for gravitational waves")
+    assert need.needs_catalog
+    assert "catalog" in need.kinds
+    assert detect_catalog_ask("where is mars tonight")
+    assert detect_catalog_ask("jpl horizons for Jupiter")
+    assert not detect_catalog_ask("I loved the plot twist")
+    assert not detect_catalog_ask("What's the weather today?")
+    assert not detect_catalog_ask("where's the mars bar")
 
 
 def test_failed_calculator_has_honest_copy() -> None:
@@ -197,6 +257,14 @@ def test_failed_calculator_has_honest_copy() -> None:
         ["math"], calc_failed=True, calc_detail="Could not evaluate: unknown name"
     )
     assert "integral" in symbolic.lower() or "arithmetic" in symbolic.lower()
+    cas = unsupported_exactness_reply(
+        ["symbolic"], cas_failed=True, cas_detail="no closed form"
+    )
+    assert "closed form" in cas.lower()
+    units = unsupported_exactness_reply(
+        ["units"], units_failed=True, units_detail="not a unit"
+    )
+    assert "not a unit" in units.lower() or "boost" in units.lower()
 
 
 def test_local_store_inject_args_parses_titles() -> None:
@@ -485,6 +553,76 @@ async def test_math_forces_calculator_scenario() -> None:
     result = await run_scripted_scenario(scenario)
     assert result.ok, result.reasons
     assert "calculator" in result.tools_called
+
+
+@pytest.mark.asyncio
+async def test_integral_forces_cas_scenario() -> None:
+    scenario = next(s for s in SCENARIOS if s.id == "integral_forces_cas")
+    result = await run_scripted_scenario(scenario)
+    assert result.ok, result.reasons
+    assert "cas" in result.tools_called
+    assert "calculator" not in result.tools_called
+
+
+@pytest.mark.asyncio
+async def test_integral_hard_refuses_second_invent() -> None:
+    scenario = next(s for s in SCENARIOS if s.id == "integral_refuses_without_cas")
+    result = await run_scripted_scenario(scenario)
+    assert result.ok, result.reasons
+    assert "don't know" in result.final_text.lower()
+    assert "x^3" not in result.final_text.lower()
+    assert "x**3" not in result.final_text.lower()
+
+
+@pytest.mark.asyncio
+async def test_convert_forces_units_scenario() -> None:
+    scenario = next(s for s in SCENARIOS if s.id == "convert_forces_units")
+    result = await run_scripted_scenario(scenario)
+    assert result.ok, result.reasons
+    assert "units" in result.tools_called
+
+
+@pytest.mark.asyncio
+async def test_constant_hard_refuses_without_units() -> None:
+    scenario = next(s for s in SCENARIOS if s.id == "constant_refuses_without_units")
+    result = await run_scripted_scenario(scenario)
+    assert result.ok, result.reasons
+    assert "don't know" in result.final_text.lower()
+    assert "6.674" not in result.final_text
+
+
+@pytest.mark.asyncio
+async def test_plot_forces_plot_scenario() -> None:
+    scenario = next(s for s in SCENARIOS if s.id == "plot_forces_plot")
+    result = await run_scripted_scenario(scenario)
+    assert result.ok, result.reasons
+    assert "plot" in result.tools_called
+
+
+@pytest.mark.asyncio
+async def test_plot_hard_refuses_ascii() -> None:
+    scenario = next(s for s in SCENARIOS if s.id == "plot_refuses_without_plot")
+    result = await run_scripted_scenario(scenario)
+    assert result.ok, result.reasons
+    assert "don't know" in result.final_text.lower()
+    assert "rising" not in result.final_text.lower()
+
+
+@pytest.mark.asyncio
+async def test_arxiv_forces_catalog_scenario() -> None:
+    scenario = next(s for s in SCENARIOS if s.id == "arxiv_forces_catalog")
+    result = await run_scripted_scenario(scenario)
+    assert result.ok, result.reasons
+    assert "catalog" in result.tools_called
+
+
+@pytest.mark.asyncio
+async def test_arxiv_hard_refuses_invented_id() -> None:
+    scenario = next(s for s in SCENARIOS if s.id == "arxiv_refuses_without_catalog")
+    result = await run_scripted_scenario(scenario)
+    assert result.ok, result.reasons
+    assert "don't know" in result.final_text.lower()
+    assert "1234.5678" not in result.final_text
 
 
 @pytest.mark.asyncio

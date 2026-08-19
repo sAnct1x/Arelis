@@ -82,6 +82,9 @@ _EVERYDAY = set(RESEARCH_TOOL_ALLOWLIST) | {
     "tasks",
     "goals",
     "ocr",
+    "cas",
+    "units",
+    "plot",
 }
 
 
@@ -96,10 +99,49 @@ def test_weather_turn_hides_sends_and_image() -> None:
     assert "weather" in visible
     assert "user_location" in visible
     assert ALWAYS_ON_TOOLS <= visible
+    assert "plot" not in ALWAYS_ON_TOOLS
+    assert "plot" not in visible
+    assert "catalog" not in visible
     assert "send_sms" not in visible
     assert "image" not in visible
     assert "browser" not in visible
     assert "web_search" not in visible
+
+
+def test_chart_ask_offers_plot_not_sms() -> None:
+    visible = filter_tool_names(
+        _EVERYDAY,
+        role="fast",
+        text="fit a line and plot residuals",
+        enabled=True,
+        skill_subset=True,
+    )
+    assert "plot" in visible
+    assert "send_sms" not in visible
+
+
+def test_arxiv_ask_offers_catalog_not_sms() -> None:
+    visible = filter_tool_names(
+        _EVERYDAY,
+        role="fast",
+        text="search arxiv for gravitational waves",
+        enabled=True,
+        skill_subset=True,
+    )
+    assert "catalog" in visible
+    assert "send_sms" not in visible
+
+
+def test_research_plot_ask_adds_plot_via_extra() -> None:
+    available = set(RESEARCH_TOOL_ALLOWLIST) | {"plot", "send_sms"}
+    visible = filter_tool_names(
+        available,
+        role="research",
+        text="fit a line and plot residuals",
+        enabled=True,
+    )
+    assert "plot" in visible
+    assert "send_sms" not in visible
 
 
 def test_unmatched_chat_fails_open_without_sends() -> None:

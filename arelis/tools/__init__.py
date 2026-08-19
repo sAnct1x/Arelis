@@ -19,6 +19,8 @@ from arelis.tools.base import ToolRegistry
 from arelis.tools.browser_tool import BrowserTool
 from arelis.tools.calculator import CalculatorTool
 from arelis.tools.camera_capture import CameraTool
+from arelis.tools.cas import CasTool
+from arelis.tools.catalog import CatalogTool
 from arelis.tools.clipboard import ClipboardTool
 from arelis.tools.code_workspace import CodeWorkspaceTool
 from arelis.tools.contacts_tool import ContactsTool
@@ -33,6 +35,7 @@ from arelis.tools.inbound_sms import InboundSmsTool
 from arelis.tools.inbox import InboxTool
 from arelis.tools.memory_tool import MemoryTool
 from arelis.tools.ocr import OcrTool
+from arelis.tools.plot import PlotTool
 from arelis.tools.recall import RecallTool
 from arelis.tools.research_report import ResearchReportTool
 from arelis.tools.rooms_tool import RoomsTool
@@ -41,6 +44,7 @@ from arelis.tools.scrape import ScrapeTool
 from arelis.tools.search import build_search_tool
 from arelis.tools.sms_send import SendSmsTool
 from arelis.tools.tasks import TasksTool
+from arelis.tools.units import UnitsTool
 from arelis.tools.user_location import UserLocationTool
 from arelis.tools.vision import VisionTool
 from arelis.tools.weather import WeatherTool
@@ -204,6 +208,7 @@ def build_tool_registry(
                         AndroidSmsProvider(
                             sms_account,
                             timeout_s=float(sms_cfg.get("timeout_s", 30)),
+                            live=True,
                         ),
                         max_body_chars=int(
                             sms_cfg.get("max_body_chars", DEFAULT_MAX_BODY_CHARS)
@@ -277,6 +282,18 @@ def build_tool_registry(
             )
         )
     registry.register(CalculatorTool())
+    if tools_cfg.get("cas", {}).get("enabled", True):
+        registry.register(CasTool())
+    if tools_cfg.get("units", {}).get("enabled", True):
+        registry.register(UnitsTool())
+    # Named catalogs (arXiv / Horizons / APOD / ADS). Read, no Allow.
+    # Jobs included — the user aimed the scheduled ask. APOD/ADS fail
+    # honestly until a free key is pasted.
+    if tools_cfg.get("catalog", {}).get("enabled", True):
+        registry.register(CatalogTool())
+    # Charts write a PNG (Allow). Jobs skip — nobody is there to approve the file.
+    if allow_send and (tools_cfg.get("plot") or {}).get("enabled", True):
+        registry.register(PlotTool(workspace))
     registry.register(CodeWorkspaceTool(workspace))
     # Read-only git; same roots as workspace. Always on when workspace is.
     registry.register(GitInfoTool(workspace))

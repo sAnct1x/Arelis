@@ -181,6 +181,7 @@ def attach_inbound(
             AndroidSmsProvider(
                 sms_account,
                 timeout_s=float(sms_cfg.get("timeout_s", 30)),
+                live=True,
             ),
             max_body_chars=int(sms_cfg.get("max_body_chars", DEFAULT_MAX_BODY_CHARS)),
         )

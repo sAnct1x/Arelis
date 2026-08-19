@@ -76,7 +76,20 @@ def scenario_category(scenario: Scenario) -> str:
         for x in ("sms", "email", "inbox", "inbound", "send_claim", "agenda", "tasks")
     ):
         return "comms"
-    if any(x in sid for x in ("math", "calculator", "refuses", "warrant", "exact")):
+    if any(
+        x in sid
+        for x in (
+            "math",
+            "calculator",
+            "cas",
+            "units",
+            "plot",
+            "catalog",
+            "refuses",
+            "warrant",
+            "exact",
+        )
+    ):
         return "exactness"
     if scenario.failure_class in {
         "incomplete_fulfillment",
@@ -264,6 +277,164 @@ SCENARIOS: list[Scenario] = [
         script=[
             [("token", "That would be about 147.")],
             [("token", "I'm sure the answer is 147.")],
+        ],
+    ),
+    Scenario(
+        id="integral_forces_cas",
+        user="what is the integral of x^2?",
+        expect_tools=("cas",),
+        failure_class="knowing_doing_gap",
+        notes="Exactness: a closed form must force cas, not calculator.",
+        script=[
+            [("token", "That's x^3/3 plus a constant.")],
+            [
+                (
+                    "tool_calls",
+                    [
+                        _tool_call(
+                            "cas",
+                            {"action": "integrate", "expr": "x**2", "wrt": "x"},
+                        )
+                    ],
+                )
+            ],
+            [("token", "x**3/3 + C.")],
+        ],
+    ),
+    Scenario(
+        id="integral_refuses_without_cas",
+        user="what is the integral of x^2?",
+        expect_tools=(),
+        allow_no_tools=True,
+        offline_only=True,
+        expect_answer_contains=("don't know",),
+        forbid_claim_if_no_tool=("x^3", "x**3"),
+        failure_class="knowing_doing_gap",
+        notes="Exactness hard refuse: second recited integral must not ship.",
+        script=[
+            [("token", "That's x^3/3 plus a constant.")],
+            [("token", "Definitely x^3/3 + C.")],
+        ],
+    ),
+    Scenario(
+        id="convert_forces_units",
+        user="convert 5 ft 8 in to meters",
+        expect_tools=("units",),
+        failure_class="knowing_doing_gap",
+        notes="Exactness: a unit conversion must force units.",
+        script=[
+            [("token", "About 1.73 meters.")],
+            [
+                (
+                    "tool_calls",
+                    [
+                        _tool_call(
+                            "units",
+                            {
+                                "action": "convert",
+                                "quantity": "5 ft 8 in",
+                                "to": "meter",
+                            },
+                        )
+                    ],
+                )
+            ],
+            [("token", "1.7272 meter.")],
+        ],
+    ),
+    Scenario(
+        id="constant_refuses_without_units",
+        user="what is the gravitational constant?",
+        expect_tools=(),
+        allow_no_tools=True,
+        offline_only=True,
+        expect_answer_contains=("don't know",),
+        forbid_claim_if_no_tool=("6.674",),
+        failure_class="knowing_doing_gap",
+        notes="Exactness hard refuse: recited CODATA must not ship.",
+        script=[
+            [("token", "G is 6.674e-11 in SI units.")],
+            [("token", "It's 6.67430e-11 m^3/kg/s^2.")],
+        ],
+    ),
+    Scenario(
+        id="plot_forces_plot",
+        user="plot this csv: fit a line and plot residuals",
+        expect_tools=("plot",),
+        expect_confirm_tools=("plot",),
+        failure_class="knowing_doing_gap",
+        notes="Exactness: a chart ask must force plot, not ASCII.",
+        script=[
+            [("token", "Here's an ASCII trend: /\\/\\ rising.")],
+            [
+                (
+                    "tool_calls",
+                    [
+                        _tool_call(
+                            "plot",
+                            {
+                                "action": "residuals",
+                                "path": "data/lab.csv",
+                                "x": "t",
+                                "y": "y",
+                            },
+                        )
+                    ],
+                )
+            ],
+            [("token", "Wrote outputs/plots/plot-residuals.png.")],
+        ],
+    ),
+    Scenario(
+        id="plot_refuses_without_plot",
+        user="fit a line and plot residuals",
+        expect_tools=(),
+        allow_no_tools=True,
+        offline_only=True,
+        expect_answer_contains=("don't know",),
+        forbid_claim_if_no_tool=("rising",),
+        failure_class="knowing_doing_gap",
+        notes="Exactness hard refuse: a fake ASCII chart must not ship.",
+        script=[
+            [("token", "Here's an ASCII trend: rising.")],
+            [("token", "Definitely rising on the chart.")],
+        ],
+    ),
+    Scenario(
+        id="arxiv_forces_catalog",
+        user="search arxiv for gravitational waves",
+        expect_tools=("catalog",),
+        failure_class="knowing_doing_gap",
+        notes="Exactness: an arXiv ask must force catalog, not invented papers.",
+        script=[
+            [("token", "A famous paper is 1234.5678 with a made-up abstract.")],
+            [
+                (
+                    "tool_calls",
+                    [
+                        _tool_call(
+                            "catalog",
+                            {"action": "arxiv", "query": "gravitational waves"},
+                        )
+                    ],
+                )
+            ],
+            [("token", "arXiv returned hits from export.arxiv.org.")],
+        ],
+    ),
+    Scenario(
+        id="arxiv_refuses_without_catalog",
+        user="search arxiv for gravitational waves",
+        expect_tools=(),
+        allow_no_tools=True,
+        offline_only=True,
+        expect_answer_contains=("don't know",),
+        forbid_claim_if_no_tool=("1234.5678",),
+        failure_class="knowing_doing_gap",
+        notes="Exactness hard refuse: an invented arXiv id must not ship.",
+        script=[
+            [("token", "The hit is 1234.5678 with a made-up abstract.")],
+            [("token", "Definitely 1234.5678 is the paper.")],
         ],
     ),
     Scenario(
