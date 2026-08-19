@@ -7,11 +7,9 @@ that Arelis "can read, create, change and delete files here" has agreed to what 
 really being granted, and can weigh it. Anything vaguer would be collecting a
 click rather than consent.
 
-Deliberately not a wizard. There is exactly one decision, it has a sane default
-already filled in, and the fastest correct path through it is a single click. No
-tour, no account, no model download, no telephone number -- everything else Arelis
-needs it asks for at the moment it needs it, which is also the moment the request
-makes sense.
+Deliberately not a tour of the product. There is exactly one permission on
+this glass: the folder. Model setup is a separate dialog after this, because
+that is a recommendation, not a grant. No account, no phone number.
 
 See ``arelis.onboarding`` for what gets written down; this module is only the
 asking.
@@ -65,7 +63,7 @@ class FirstRunDialog(GlassDialog):
 
         change = self.add_button("Choose a different folder…", leading=True)
         change.clicked.connect(self._choose)
-        accept = self.add_button("Start Arelis", primary=True)
+        accept = self.add_button("Continue", primary=True)
         accept.clicked.connect(self.accept)
         accept.setDefault(True)
         accept.setFocus()

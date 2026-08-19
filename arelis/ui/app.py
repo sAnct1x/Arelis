@@ -122,6 +122,7 @@ from arelis.ui.panels import (
 )
 from arelis.ui.readiness_strip import ReadinessStrip
 from arelis.ui.settings_dialog import SettingsDialog
+from arelis.ui.setup_wizard import prompt_for_model_setup
 from arelis.ui.shortcuts import ShortcutsSheet
 from arelis.ui.sms_chat import SmsChatRegistry, room_owns_doorbell, seed_bodies
 from arelis.ui.stage import StageBackground, paint_atmosphere
@@ -4208,6 +4209,9 @@ def run_ui(config: dict[str, Any] | None = None) -> int:
     # Returns None when the question has already been answered, which is every
     # launch after the first.
     if not config_was_given and prompt_for_workspace_root() is not None:
+        config = load_config()
+        workspace = _bind_workspace(config)
+    if not config_was_given and prompt_for_model_setup() is not None:
         config = load_config()
         workspace = _bind_workspace(config)
     # Required so hiding the last window to the tray does not kill the process.

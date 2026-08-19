@@ -92,15 +92,20 @@ def record_choice(root: Path | str | None) -> Path:
 
 
 def _write_marker(root: Path) -> None:
-    payload: dict[str, Any] = {
-        "version": MARKER_VERSION,
-        "workspace_root": str(root),
-        "answered_at": datetime.now(UTC).isoformat(timespec="seconds"),
-    }
+    payload: dict[str, Any] = {}
+    path = marker_path()
+    if path.is_file():
+        try:
+            existing = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(existing, dict):
+                payload.update(existing)
+        except (OSError, json.JSONDecodeError):
+            pass
+    payload["version"] = MARKER_VERSION
+    payload["workspace_root"] = str(root)
+    payload["answered_at"] = datetime.now(UTC).isoformat(timespec="seconds")
     try:
         ensure(state_dir())
-        marker_path().write_text(
-            json.dumps(payload, indent=2) + "\n", encoding="utf-8"
-        )
+        path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     except OSError as exc:
         log.warning("Could not record the first-run marker: %s", exc)

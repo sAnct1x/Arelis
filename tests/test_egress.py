@@ -59,7 +59,7 @@ ALLOWED: dict[str, str] = {
     "sms-gate.app": "named in setup copy so the user can find the app",
     # Model and voice weights, downloaded once when a feature is first used and
     # gated behind allow_download in config.
-    "github.com": "release assets for Kokoro, Silero and Sherpa weights",
+    "github.com": "release assets for Kokoro, Silero, Sherpa, and the Ollama engine if missing",
     # Whether a newer Arelis has been published. One unauthenticated GET a day, from an
     # installed copy only, carrying nothing but a User-Agent naming the version -- which is
     # unavoidable in an update check, since asking "is there something newer than this"

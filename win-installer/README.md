@@ -3,7 +3,7 @@
 Produces a setup `.exe` that installs Arelis on a machine that has never
 had Python.
 
-Do not run this unless you mean to build a tree. The live 0.2.2 install
+Do not run this unless you mean to build a tree. The live install
 at `%LOCALAPPDATA%\Programs\Arelis` is a different copy.
 
 ## Build it
@@ -169,7 +169,7 @@ What a cautious person can check instead: `build.py` prints the SHA-256
 of the setup `.exe`, and releases publish it.
 
 ```powershell
-Get-FileHash .\Arelis-0.2.2-win64-setup.exe -Algorithm SHA256
+Get-FileHash .\Arelis-0.2.3-win64-setup.exe -Algorithm SHA256
 ```
 
 The bundled interpreter is verified during the build against the digest

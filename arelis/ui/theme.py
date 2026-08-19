@@ -1492,6 +1492,24 @@ def stylesheet() -> str:
         background: {c['accent']};
         border-radius: 5px;
     }}
+    #SetupChoice {{
+        color: {c['text']};
+        font-size: {FONT_PX}px;
+        spacing: 10px;
+        padding: 4px 0;
+        background: transparent;
+    }}
+    #SetupChoice::indicator {{
+        width: 14px;
+        height: 14px;
+        border-radius: 7px;
+        border: 1px solid {c['edge_mid']};
+        background: {c['inset']};
+    }}
+    #SetupChoice::indicator:checked {{
+        background: {c['accent']};
+        border-color: {c['edge_hot']};
+    }}
     #DialogButton, #DialogPrimary {{
         background: {c['button_fill']};
         color: {c['text']};

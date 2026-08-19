@@ -19,23 +19,20 @@ ollama:
   # SMS turn, and Ollama drops the overflow from the front. 12288 is still zero;
   # 16384 is the first value that leaves real room (~3,900 tokens).
   num_ctx: 16384
-  # Research (14B) stays on 8192 so deep-dive tok/s does not regress.
+  # Research loop stays on 8192 so deep-dive tok/s does not regress.
   research_num_ctx: 8192
   # Vision (qwen2.5vl:3b) one-shot — keep tight; chat is unloaded first.
   vision_num_ctx: 4096
 
-# Role → Ollama tag. Shipped 0.2.2 set (Qwen2.5). The 14B dense niche is gone
-# in Qwen3.5 (9B then 27B). There is no code role: file/git/debug work uses
-# fast plus workspace/code skills. 18 Aug 2026 checkout overlays both chat
-# roles onto qwen3.5:9b via data/config.local.yaml — not a version bump.
-# See docs/models.md. Measured on a 12GB card at ship:
-#   qwen2.5:7b   ~4.8 GiB VRAM, ~13s TTFT, ~49 tok/s  → conversation default
-#   qwen2.5:14b  ~9.6 GiB VRAM, ~18s TTFT, ~29 tok/s  → research (~89% of the card)
-# One chat model hot at a time (router unload). Embeddings are a separate small
-# model loaded briefly for recall/indexing, not mid-turn chat.
+# Role → Ollama tag. First open recommends one chat model from hardware and
+# pins both chips to that tag in config.local.yaml. These are the last-resort
+# shipped names if setup has not run yet: the measured daily driver, one file.
+# There is no code role: file/git/debug work uses fast plus workspace skills.
+# See docs/models.md. One chat model hot at a time. Embeddings are a separate
+# small model loaded briefly for recall/indexing, not mid-turn chat.
 models:
-  fast: "qwen2.5:7b"
-  research: "qwen2.5:14b"
+  fast: "qwen3.5:9b"
+  research: "qwen3.5:9b"
   # Single-frame VL (Ollama), pulled the first time vision is used.
   # Never resident next to 14B — vision tool unloads chat first.
   vision: "qwen2.5vl:3b"

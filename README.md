@@ -46,7 +46,7 @@ Windows 10 or later, 64-bit.
 
 Latest setup:
 [GitHub releases](https://github.com/sAnct1x/arelis/releases/latest).
-The current file is `Arelis-0.2.2-win64-setup.exe`. About 155 MB to
+The current file is `Arelis-0.2.3-win64-setup.exe`. About 155 MB to
 download, about 640 MB installed. Per-user, into
 `%LOCALAPPDATA%\Programs\Arelis`. No administrator prompt.
 
@@ -54,38 +54,34 @@ It is **not code-signed.** SmartScreen will warn on first run. That is
 Windows doing its job. Check the SHA-256 next to the installer:
 
 ```powershell
-Get-FileHash .\Arelis-0.2.2-win64-setup.exe -Algorithm SHA256
-Get-Content .\Arelis-0.2.2-win64-setup.exe.sha256
+Get-FileHash .\Arelis-0.2.3-win64-setup.exe -Algorithm SHA256
+Get-Content .\Arelis-0.2.3-win64-setup.exe.sha256
 ```
 
 The hashes should match. That catches a bad download. It is not a signature.
 Both files come from the same release.
 
 The installer includes voice and her browser extra. It does not include the
-models. Those come from [Ollama](https://ollama.com/download), once, on this
-PC.
+models. First open she looks at this PC and recommends one chat model
+(`qwen3.5:9b` on a typical 8–16 GB card). Confirm it, or pick Gemma or
+DeepSeek. If [Ollama](https://ollama.com/download) is missing, she downloads
+the free local engine first, about 1.4 GB, then the model. A vision model
+(`qwen2.5vl:3b`) downloads the first time she looks at a picture.
 
-**0.2.2** still thinks with Qwen2.5 7B / 14B / Coder 7B. Skip the 14B pull
-if the card is under 12 GB.
+From source, you can still pull by hand:
 
 ```powershell
-ollama pull qwen2.5:7b
-ollama pull qwen2.5:14b
-ollama pull qwen2.5-coder:7b
+ollama pull qwen3.5:9b
 ollama pull nomic-embed-text
 ```
 
-A source checkout may pin both chat chips to `qwen3.5:9b` in
-`data/config.local.yaml`. That is not a version bump. See
-[models.md](docs/models.md). Ollama is shared with the installed copy. Do
-not delete 7B / 14B / coder while 0.2.2 is still installed.
-
-A vision model (`qwen2.5vl:3b`) downloads the first time she looks at a
-picture. Ollama needs to be running when you start her.
+Ollama is system-wide. An older 0.2.2 install on the same PC still names
+Qwen2.5 7B / 14B / Coder 7B. Do not delete those tags while that copy is
+installed. Details: [models.md](docs/models.md).
 
 Start **Arelis** from the Start menu. First open, she asks which folder she
-may work in. An installed copy looks for updates. A source checkout does
-not.
+may work in, then which model. An installed copy looks for updates. A
+source checkout does not.
 
 Installing does **not** copy a profile from this repository. The two copies
 keep separate records on purpose.
@@ -169,8 +165,8 @@ in a **room**: a name, a folder, its own thread. `/room physics` goes in.
 `/leave` comes out. [rooms.md](docs/rooms.md).
 
 **Roles.** Two chips: `/role fast` and `/role research`. One chat model on
-the card. File and git work stays on `fast`. On **0.2.2** those chips are
-two Qwen2.5 files. On **this checkout** both are `qwen3.5:9b`; research
+the card. File and git work stays on `fast`. Both chips are the same
+weights after setup (`qwen3.5:9b` unless you picked another). Research
 means a longer loop, not a bigger file. [models.md](docs/models.md).
 
 **Phone.** One sideloaded **Arelis** app. Scan the QR in Settings → Notify.
@@ -195,18 +191,14 @@ on disk. Generate pictures if ComfyUI is set up. Listen and speak.
 
 Tests cover this. Voice timing, a real handset, and image generation have
 only been run end to end on the author's hardware. Odd behaviour on yours
-is worth an issue.
-
-The published installer is still **0.2.2**. This source checkout is the
-day-to-day try. The phone app here has been paired end to end on one
-desk: scan, send, receive. The rest of the window has pytest from the
-sittings, not a full person walk. Notes: [whats-new.md](docs/whats-new.md).
+is worth an issue. The published installer is **0.2.3**. Notes:
+[whats-new.md](docs/whats-new.md).
 
 ## More
 
 | Document | What |
 |---|---|
-| [whats-new.md](docs/whats-new.md) | This checkout on top of 0.2.2 |
+| [whats-new.md](docs/whats-new.md) | This checkout on top of 0.2.3 |
 | [rooms.md](docs/rooms.md) | Named project spaces |
 | [models.md](docs/models.md) | Which models, and why |
 | [voice-wake.md](docs/voice-wake.md) | Hey Arelis |

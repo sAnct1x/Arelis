@@ -103,12 +103,11 @@ Settings → Notify has the pairing QR.
 | Voice | `arelis/voice/` | Listen and speak. [voice-wake.md](voice-wake.md) |
 | Config | `arelis/config/default.yaml` | Defaults. Overrides in `data/` |
 
-Only one chat model sits in graphics memory. Shipped **0.2.2** maps
-fast / research to Qwen2.5 7B and 14B, plus a code chip on coder 7B.
-This checkout dropped the code role and overlays both remaining chips
-onto `qwen3.5:9b`. Research is a deeper loop on the same weights. File
-work stays on fast. Vision stays `qwen2.5vl:3b`. Tags:
-[models.md](models.md).
+Only one chat model sits in graphics memory. First open recommends one
+tag from hardware and pins both chips to it. Shipped last-resort in
+`default.yaml` is `qwen3.5:9b` for fast and research. Research is a
+deeper loop on the same weights. File work stays on fast. Vision stays
+`qwen2.5vl:3b`. Tags: [models.md](models.md).
 
 Everyday turns may shrink the tools array to matched skill cards.
 Unmatched turns still fail open. Independent reads in the same round can
