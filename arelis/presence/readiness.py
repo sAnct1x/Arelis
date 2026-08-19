@@ -228,7 +228,7 @@ def _role_chip(
                 "Model",
                 ChipLevel.OK,
                 f"Hot model {role}:{model} (VRAM pin). "
-                "Composer fast/research/code picks the reply role for the next message; "
+                "Composer fast/research picks the reply role for the next message; "
                 "auto-routing may load a different model for a turn.",
             )
         if model:

@@ -44,6 +44,40 @@ def test_reset_layout_is_conversation_only(qt_app) -> None:
         window.loop.close()
 
 
+def test_away_rest_collapses_then_click_restores(qt_app) -> None:
+    from arelis.ui.app import ArelisWindow, BusBridge
+
+    window = ArelisWindow(
+        {
+            "ui": {"default_width": 800, "default_height": 600},
+            "router": {"default_role": "fast"},
+            "voice": {"enabled": False},
+        },
+        BusBridge(),
+        asyncio.new_event_loop(),
+        EventBus(),
+    )
+    try:
+        window._reset_layout()
+        window.history_dock.show()
+        window.think_dock.show()
+        window._away_rest = True
+        window._enter_away_rest()
+        assert window._away_resting
+        assert window.history_dock.isHidden()
+        assert window.think_dock.isHidden()
+        window._note_engagement()
+        assert not window._away_resting
+        assert not window.history_dock.isHidden()
+        assert not window.think_dock.isHidden()
+        window._enter_away_rest()
+        window._on_event(Event(EventType.THINKING, {"text": "boot noise"}))
+        assert window.think_dock.isHidden()
+    finally:
+        window.hide()
+        window.loop.close()
+
+
 def test_thinking_trace_reveals_the_dock(qt_app) -> None:
     from arelis.ui.app import ArelisWindow, BusBridge
 
@@ -131,13 +165,13 @@ def test_role_status_syncs_composer_combo(qt_app) -> None:
                 EventType.STATUS,
                 {
                     "message": (
-                        "Role set to `code`. New messages use it unless you pick another chip."
+                        "Role set to `research`. New messages use it unless you pick another chip."
                     )
                 },
             )
         )
-        assert window.conversation.role.currentText() == "code"
-        assert window._current_role == "code"
+        assert window.conversation.role.currentText() == "research"
+        assert window._current_role == "research"
     finally:
         window.hide()
         window.loop.close()
@@ -264,7 +298,7 @@ def test_esc_does_not_kill_a_turn_that_has_painted_nothing(qt_app) -> None:
 
 
 def test_a_confirm_card_is_something_to_stop(qt_app) -> None:
-    """Esc on an open Allow card is skip, not cancel, and not decline-silent."""
+    """Esc on an open card is deny (wire: skip), not cancel, and not silent."""
     from arelis.ui.panels.conversation import ConversationStage
 
     stage = ConversationStage()

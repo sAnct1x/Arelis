@@ -462,7 +462,7 @@ def main() -> int:
             "active_room": "physics",
             "strip_visible": True,
             "workspace_active": "Arelis Source",
-            "router_role": "code",
+            "router_role": "fast",
             "memory_first_message": lambda m: m.startswith("three weeks"),
         },
     )

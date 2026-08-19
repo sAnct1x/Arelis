@@ -29,9 +29,9 @@ def test_chip_research_wins() -> None:
     assert reason == "chip"
 
 
-def test_file_loop_routes_code() -> None:
+def test_file_loop_stays_fast() -> None:
     role, reason = _orch().classify_role("please edit the python file and lint it")
-    assert role == "code"
+    assert role == "fast"
     assert reason == "file_loop"
 
 

@@ -124,6 +124,7 @@ def test_cold_start_is_orbit_idle(qt_app) -> None:
         window._sync_idle_mode()
         assert window.conversation._idle_mode
         assert window.conversation.input.parent() is window.chat.empty.prompt_host
+        assert window.chat.empty._want_ghosts is False
         window.conversation.conversation_btn.setChecked(True)
         window._sync_idle_mode()
         assert window._idle_eligible()
@@ -150,6 +151,45 @@ def test_cold_start_is_orbit_idle(qt_app) -> None:
         assert not window.chat.empty.isHidden()
         assert window.conversation.input.parent() is window.chat.empty.prompt_host
         assert window.conversation._parked_orbit.isHidden()
+    finally:
+        window.hide()
+        window.loop.close()
+
+
+def test_inbound_notify_status_does_not_leave_orbit(qt_app) -> None:
+    """Phone-notify URL is operator setup, not the start of a conversation."""
+    from arelis.core.events import Event, EventType
+    from arelis.ui.app import ArelisWindow, BusBridge
+
+    window = ArelisWindow(
+        {
+            "ui": {"default_width": 800, "default_height": 600},
+            "router": {"default_role": "fast"},
+            "voice": {"enabled": False},
+        },
+        BusBridge(),
+        asyncio.new_event_loop(),
+        EventBus(),
+    )
+    try:
+        window._reset_layout()
+        window._on_event(
+            Event(
+                EventType.STATUS,
+                {
+                    "message": (
+                        "Inbound notify ready — Phone Notify URL: "
+                        "http://127.0.0.1:8765"
+                    )
+                },
+            )
+        )
+        window._sync_idle_mode()
+        assert window._idle_eligible()
+        assert window.conversation._idle_mode
+        assert not window.chat.has_messages
+        assert not window.chat.empty.isHidden()
+        assert window._inbound_banner.startswith("Inbound notify ready")
     finally:
         window.hide()
         window.loop.close()

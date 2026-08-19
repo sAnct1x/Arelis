@@ -47,7 +47,6 @@ def _base_config() -> dict:
         "models": {
             "fast": "qwen2.5:7b",
             "research": "qwen2.5:14b",
-            "code": "qwen2.5-coder:7b",
         },
         "router": {"default_role": "fast"},
         "memory": {"embed_model": "nomic-embed-text"},
@@ -99,7 +98,6 @@ async def test_probe_ok_when_tags_and_integrations_ready(
             [
                 "qwen2.5:7b",
                 "qwen2.5:14b",
-                "qwen2.5-coder:7b",
                 "nomic-embed-text",
             ]
         ),
@@ -176,7 +174,6 @@ async def test_probe_warns_on_missing_configured_tags(
     assert models is not None
     assert models.status == ChipLevel.WARN
     assert "qwen2.5:14b" in models.detail
-    assert "qwen2.5-coder:7b" in models.detail
     assert "alternative" not in models.detail.lower()
 
     embed = snap.chip("embed")

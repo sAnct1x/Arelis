@@ -8,8 +8,11 @@ from arelis.tools.search import (
     DuckDuckGoBackend,
     SearchResult,
     WebSearchTool,
+    WikipediaBackend,
     build_search_tool,
     parse_duckduckgo,
+    parse_duckduckgo_lite,
+    parse_wikipedia_search,
 )
 
 
@@ -72,6 +75,54 @@ def test_a_result_without_a_snippet_is_still_returned() -> None:
 
 def test_limit_is_respected() -> None:
     assert len(parse_duckduckgo(_ddg_html(), limit=1)) == 1
+
+
+def _lite_html() -> str:
+    return """<!DOCTYPE html>
+<html><body>
+<table>
+<tr>
+  <td>
+    <a class="result-link" rel="nofollow"
+       href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.org%2Fperseids&amp;rut=9f">
+       Perseid meteor shower peaks tonight</a>
+  </td>
+</tr>
+<tr>
+  <td class="result-snippet">The shower peaks after midnight local time.</td>
+</tr>
+<tr>
+  <td>
+    <a class="result-link" href="//duckduckgo.com/y.js?ad=1">Buy a telescope</a>
+  </td>
+</tr>
+</table>
+</body></html>"""
+
+
+def test_parses_lite_results_and_unwraps_the_redirect() -> None:
+    results = parse_duckduckgo_lite(_lite_html(), limit=10)
+    assert [r.url for r in results] == ["https://example.org/perseids"]
+    assert results[0].title.strip() == "Perseid meteor shower peaks tonight"
+    assert "midnight" in results[0].snippet
+
+
+def test_parses_wikipedia_search_json() -> None:
+    payload = {
+        "query": {
+            "search": [
+                {
+                    "title": "Perseids",
+                    "snippet": "The <span class='searchmatch'>Perseids</span> are a meteor shower.",
+                }
+            ]
+        }
+    }
+    results = parse_wikipedia_search(payload, limit=5)
+    assert results[0].title == "Perseids"
+    assert results[0].url == "https://en.wikipedia.org/wiki/Perseids"
+    assert "<span" not in results[0].snippet
+    assert "meteor shower" in results[0].snippet
 
 
 class _Fake:
@@ -205,15 +256,66 @@ async def test_recency_reaches_duckduckgo_as_a_time_filter(monkeypatch) -> None:
     assert "Mozilla" in seen["ua"]
 
 
-def test_build_search_tool_uses_duckduckgo_only() -> None:
+def test_build_search_tool_uses_html_then_lite_then_wikipedia() -> None:
     plain = build_search_tool({})
-    assert [b.name for b in plain.backends] == ["duckduckgo"]
+    assert [b.name for b in plain.backends] == [
+        "duckduckgo",
+        "duckduckgo_lite",
+        "wikipedia",
+    ]
 
-    # Legacy backend keys are ignored — DuckDuckGo is the only path.
+    # Legacy backend keys are ignored — order is fixed, no container.
     legacy = build_search_tool(
         {"backend": "searxng", "searxng_url": "http://127.0.0.1:8080"}
     )
-    assert [b.name for b in legacy.backends] == ["duckduckgo"]
+    assert [b.name for b in legacy.backends] == [
+        "duckduckgo",
+        "duckduckgo_lite",
+        "wikipedia",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_empty_html_falls_through_to_lite() -> None:
+    html = _Fake("duckduckgo", [])
+    lite = _Fake("duckduckgo_lite", [SearchResult("T", "https://example.org/p")])
+    wiki = _Fake("wikipedia", [SearchResult("W", "https://en.wikipedia.org/wiki/T")])
+    result = await WebSearchTool([html, lite, wiki]).run(query="anything")
+    assert result.ok
+    assert lite.calls
+    assert not wiki.calls
+    assert result.data["results"][0]["url"] == "https://example.org/p"
+
+
+@pytest.mark.asyncio
+async def test_empty_html_and_lite_fall_through_to_wikipedia() -> None:
+    html = _Fake("duckduckgo", [])
+    lite = _Fake("duckduckgo_lite", [])
+    wiki = _Fake("wikipedia", [SearchResult("W", "https://en.wikipedia.org/wiki/T")])
+    result = await WebSearchTool([html, lite, wiki]).run(query="perseids")
+    assert result.ok
+    assert wiki.calls
+    assert result.data["results"][0]["url"] == "https://en.wikipedia.org/wiki/T"
+
+
+@pytest.mark.asyncio
+async def test_news_recency_skips_wikipedia() -> None:
+    html = _Fake("duckduckgo", [])
+    lite = _Fake("duckduckgo_lite", [])
+    wiki = WikipediaBackend()
+    result = await WebSearchTool([html, lite, wiki]).run(
+        query="breaking", recency="day"
+    )
+    assert not result.ok
+    assert "wikipedia" not in " ".join(result.data.get("backend_errors") or [])
+
+
+def test_wikipedia_backend_skips_day_and_week_recency() -> None:
+    wiki = WikipediaBackend()
+    assert wiki.skip_for_recency("day")
+    assert wiki.skip_for_recency("week")
+    assert not wiki.skip_for_recency("month")
+    assert not wiki.skip_for_recency(None)
 
 
 def test_the_tool_is_registered_and_can_be_switched_off(tmp_path) -> None:

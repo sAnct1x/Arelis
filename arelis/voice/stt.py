@@ -123,6 +123,29 @@ def scrub_transcript(text: str) -> str:
         lead = (stop.group("lead") or "").strip()
         if len(lead) >= 24 and re.match(r"(?i)^i(?:'m| am) going to\b", lead):
             return (stop.group("stop") or "stop").strip()
+    return repair_stt_mail_words(raw)
+
+
+_IN_BOX = re.compile(r"(?i)\bin\s+box\b")
+_EMILES = re.compile(r"(?i)\bemiles\b")
+_EMILE = re.compile(r"(?i)\bemile\b")
+_EMIL = re.compile(r"(?i)\bemil\b")
+
+
+def repair_stt_mail_words(text: str) -> str:
+    """Sherpa Zipformer mail homophones and splits.
+
+    "email" often comes back as the French name Émile / Emil, and "inbox"
+    as two words. Repair here so skill, preflight, and the model all see
+    the same words the operator said.
+    """
+    raw = text or ""
+    if not raw:
+        return ""
+    raw = _IN_BOX.sub("inbox", raw)
+    raw = _EMILES.sub("emails", raw)
+    raw = _EMILE.sub("email", raw)
+    raw = _EMIL.sub("email", raw)
     return raw
 
 

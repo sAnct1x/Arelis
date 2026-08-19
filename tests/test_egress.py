@@ -37,6 +37,8 @@ LOOPBACK = frozenset({"127.0.0.1", "localhost", "0.0.0.0", "::1"})
 ALLOWED: dict[str, str] = {
     # Search and reading, when the user asks a question that needs the web.
     "html.duckduckgo.com": "web_search, on a turn the user started",
+    "lite.duckduckgo.com": "web_search fallback, same vendor, on a turn the user started",
+    "en.wikipedia.org": "web_search encyclopedia fallback when HTML search is empty",
     # Weather, when the user asks about weather.
     "api.open-meteo.com": "weather tool; no key, no account, no identifier sent",
     # Same provider, same terms. Reached only when the profile names a city and

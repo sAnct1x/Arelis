@@ -13,9 +13,9 @@ from arelis.llm.ollama import OllamaProvider, same_ollama_model
 
 log = logging.getLogger(__name__)
 
-ModelRole = Literal["fast", "research", "code"]
+ModelRole = Literal["fast", "research"]
 
-_HEAVY_ROLES: frozenset[str] = frozenset({"research", "code"})
+_HEAVY_ROLES: frozenset[str] = frozenset({"research"})
 
 # Fallback when config omits router.default_keep_alive. Long enough that a
 # normal session does not reload 7B between turns; still finite so idle PCs
@@ -122,6 +122,13 @@ class ModelRouter:
             return next(iter(self.models.values()))
         raise RuntimeError("No models configured. Set `models:` in arelis/config/default.yaml.")
 
+    def same_chat_weights(self, a: str, b: str) -> bool:
+        """True when two roles resolve to the same Ollama tag."""
+        try:
+            return same_ollama_model(self.model_for(a), self.model_for(b))  # type: ignore[arg-type]
+        except Exception:
+            return False
+
     def keep_alive_for(self, role: ModelRole) -> str | int:
         """Resident TTL for this role's model after a request."""
         if role == self.default_role:
@@ -155,8 +162,8 @@ class ModelRouter:
     ) -> tuple[ModelRole, str]:
         """Absorb fast/default downgrades while a heavy model is sticky.
 
-        Explicit research↔code switches still happen (different weights). Only
-        the costly unload-to-7B path is deferred until the hold expires.
+        File/git work stays on fast (same weights plus skills). Only the
+        costly unload-to-conversation path is deferred until the hold expires.
         """
         if not self.sticky_active():
             if self._sticky_role and time.monotonic() >= self._sticky_until:
@@ -177,14 +184,17 @@ class ModelRouter:
         return wanted, reason
 
     async def prepare_heavy_role(self, role: ModelRole) -> None:
-        """Free VRAM for research/code without loading the heavy model yet.
+        """Free VRAM for research without loading the heavy model yet.
 
         `/role research` used to only flip `default_role` while 7B stayed
         pinned for 30m. The next 14B stream then fought 7B for 12GB and hung
         with model=0ms. Evict everything now; the first research ask loads
-        14B into an empty card.
+        14B into an empty card. Same-tag overlays (fast == research) skip this.
         """
         if role not in _HEAVY_ROLES:
+            return
+        if self.same_chat_weights("fast", role):
+            self.active_role = role
             return
         self._cancel_rewarm()
         self.reserve_vram_for_heavy = True
@@ -310,7 +320,7 @@ class ModelRouter:
         if role != self.default_role:
             # A follow-up research/code turn should not race a pending fast pin.
             self._cancel_rewarm()
-        if role in _HEAVY_ROLES:
+        if role in _HEAVY_ROLES and not self.same_chat_weights("fast", role):
             self.reserve_vram_for_heavy = True
         model = self.model_for(role)
         try:
@@ -336,7 +346,7 @@ class ModelRouter:
         return model
 
     def _schedule_rewarm(self, role: ModelRole) -> None:
-        """After research/code, pin `fast` again — delayed so follow-ups stay warm.
+        """After research, pin `fast` again — delayed so follow-ups stay warm.
 
         Immediate re-warm made every research turn pay a cold 14B load. Waiting
         `rewarm_delay_s` keeps the research model resident for back-to-back

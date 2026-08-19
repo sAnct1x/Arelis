@@ -22,7 +22,7 @@ def test_escalate_to_research_when_expected_tools_missing() -> None:
     assert target == "research"
 
 
-def test_escalate_to_code_on_file_shaped_ask() -> None:
+def test_no_escalate_on_file_shaped_ask() -> None:
     target = decide_mid_turn_escalate(
         role="fast",
         text="please edit the python file and fix the lint",
@@ -31,7 +31,7 @@ def test_escalate_to_code_on_file_shaped_ask() -> None:
         tools_used=set(),
         already_escalated=False,
     )
-    assert target == "code"
+    assert target is None
 
 
 def test_escalate_write_a_report_goes_research_not_code() -> None:

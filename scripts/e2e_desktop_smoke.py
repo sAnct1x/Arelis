@@ -210,7 +210,7 @@ async def run_cases() -> list[CaseResult]:
     await case(
         "slash_workspace_list",
         '/workspace action=list path="."',
-        "code",
+        "fast",
         check_slash_list,
     )
     await case(

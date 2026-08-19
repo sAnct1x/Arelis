@@ -596,8 +596,9 @@ def evidence_force_notice() -> str:
 def weather_force_notice() -> str:
     """One-shot nudge when a weather ask never called the weather tool."""
     return (
-        "This turn asks about the weather/forecast/temperature outside. "
-        "Call the weather tool now (omit lat/lon unless they named another place). "
+        "This turn asks about the weather/forecast/temperature. "
+        "Call the weather tool now. For another city pass place (a name, not "
+        "coordinates). days includes today: tomorrow needs 2 or more (default 3). "
         "Do not web_search or scrape AccuWeather/weather.com. Do not invent a forecast."
     )
 

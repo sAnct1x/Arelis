@@ -115,31 +115,34 @@ _INBOUND_SMS_EXACT = (
 
 _INBOX_PRE = re.compile(
     r"(?i)\b("
-    r"(?:any|new)\s+(?:emails?|e-?mails?|mail|messages?)|"
-    r"check\s+(?:my\s+)?(?:inbox|email|e-?mail|mail)|"
-    r"what(?:'s|\s+is)\s+in\s+(?:my\s+)?(?:inbox|mail)|"
+    r"(?:any|new)\s+(?:emails?|e-?mails?|emiles?|emil|mail|messages?)|"
+    r"(?:any\s+)?new\s+(?:emails?|emiles?|emil)|"
+    r"check\s+(?:my\s+|your\s+|the\s+)?(?:inbox|in\s+box|email|e-?mail|emiles?|emil|mail)|"
+    r"what(?:'s|\s+is)\s+in\s+(?:my\s+|your\s+)?(?:inbox|in\s+box|mail)|"
     r"unread\s+(?:mail|email|e-?mail)|"
-    r"(?:did\s+i|have\s+i)\s+(?:get|got|received)\s+(?:any\s+)?(?:mail|email)|"
-    r"emails?\s+today"
+    r"(?:did\s+(?:i|you)|have\s+(?:i|you))\s+(?:get|got|received|check)(?:\s+any)?\s+(?:new\s+)?(?:mail|email|emiles?|emil)|"
+    r"(?:emails?|emiles?)\s+today|"
+    r"in\s+box"
     r")\b"
 )
 _INBOX_EXACT = (
     re.compile(
         r"(?:what(?:'s|\s+is)|anything|any(?:thing)?\s+new).{0,24}"
-        r"(?:in\s+)?(?:my\s+)?(?:inbox|email|mail)\b",
+        r"(?:in\s+)?(?:my\s+|your\s+)?(?:inbox|in\s+box|email|emiles?|emil|mail)\b",
         re.I | re.S,
     ),
     re.compile(
-        r"\b(?:check|look\s+(?:at|in)|open|read)\s+(?:my\s+)?"
-        r"(?:inbox|email|mail)\b",
+        r"\b(?:check|look\s+(?:at|in)|open|read)\s+(?:my\s+|your\s+|the\s+)?"
+        r"(?:inbox|in\s+box|email|mail|emiles?|emil)\b",
         re.I,
     ),
     re.compile(
         r"\b(?:did\s+i\s+get|have\s+i\s+(?:got|gotten)|any)\s+"
-        r"(?:an?\s+)?(?:email|mail|message)\s+from\b",
+        r"(?:an?\s+)?(?:email|mail|emile|emil|message)\s+from\b",
         re.I,
     ),
-    re.compile(r"\b(?:emails?|mail)\s+from\b", re.I),
+    re.compile(r"\b(?:emails?|mail|emiles?)\s+from\b", re.I),
+    re.compile(r"\bin\s+box\b", re.I),
 )
 
 _DEEP_DIVE = re.compile(
@@ -226,7 +229,9 @@ DOC_ASK = re.compile(
     r"what(?:'s|\s+is)\s+in|what\s+does|go\s+through)\s+"
     r"(?:(?:this|the|that|my|those|these)\s+)?(?:documents?|pdfs?)\b"
 )
-_INBOX_MENTION = re.compile(r"(?i)\b(inbox|email|e-?mail|gmail|mail)\b")
+_INBOX_MENTION = re.compile(
+    r"(?i)\b(inbox|in\s+box|email|e-?mail|gmail|mail|emiles?|emil)\b"
+)
 
 WEATHER = IntentSpec(
     kind="weather",
@@ -234,7 +239,9 @@ WEATHER = IntentSpec(
     expected_tools=("weather",),
     nudge=(
         "Intent preflight: this message asks about weather. "
-        "Call the weather tool now. Do not scrape forecast websites "
+        "Call the weather tool now. For another city pass place "
+        "(a name, not coordinates). days includes today; tomorrow "
+        "needs 2 or more. Do not scrape forecast websites "
         "and do not ask permission in chat."
     ),
     schema_tools=frozenset({"weather", "user_location", "web_fetch"}),

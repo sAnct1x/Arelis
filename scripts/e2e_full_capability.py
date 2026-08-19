@@ -763,7 +763,7 @@ async def run_nl(probe: TurnProbe, run_id: str, fixtures: dict[str, Path]) -> li
         "fast",
         lambda r: ("natural language" in (r.get("assistant") or "").lower() or "/workspace" in (r.get("assistant") or ""), _head(r.get("assistant") or "")),
     )
-    for role in ("research", "code", "fast"):
+    for role in ("research", "fast"):
         await case(
             f"slash_role_{role}",
             f"/role {role}",
@@ -776,7 +776,7 @@ async def run_nl(probe: TurnProbe, run_id: str, fixtures: dict[str, Path]) -> li
     await case(
         "slash_workspace_list",
         '/workspace action=list path="."',
-        "code",
+        "fast",
         lambda r: (has_tool(r, "workspace") or "[dir]" in (r.get("assistant") or "") or "[file]" in (r.get("assistant") or ""), _head(r.get("assistant") or "")),
     )
     await case(
@@ -836,7 +836,7 @@ async def run_nl(probe: TurnProbe, run_id: str, fixtures: dict[str, Path]) -> li
     await case(
         "nl_write_not_sms",
         f"Write a temp file data/e2e_nl_{run_id}.txt containing exactly: nl-ok-{run_id}",
-        "code",
+        "fast",
         lambda r: (
             has_tool(r, "workspace") and not has_tool(r, "send_sms") and (PROJECT_ROOT / "data" / f"e2e_nl_{run_id}.txt").is_file(),
             f"tools={r.get('tools')} file={(PROJECT_ROOT / 'data' / f'e2e_nl_{run_id}.txt').is_file()}",

@@ -12,6 +12,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from arelis.tools.confirm_copy import confirm_headline
+
 # Enough to read a short email in full without the card taking over the window.
 _DETAIL_MAX_HEIGHT = 220
 
@@ -50,13 +52,13 @@ class ConfirmCard(QWidget):
         self.note.setWordWrap(True)
         self.note.hide()
 
-        self.allow_turn = QCheckBox("allow writes this turn")
+        self.allow_turn = QCheckBox("rest of this ask")
         self.allow_turn.setObjectName("ConfirmAllowTurn")
 
         row = QHBoxLayout()
         row.setSpacing(8)
         self.allow_btn = QPushButton("allow")
-        self.skip_btn = QPushButton("skip")
+        self.skip_btn = QPushButton("deny")
         self.allow_btn.setObjectName("ConfirmAllow")
         self.skip_btn.setObjectName("ConfirmSkip")
         self.allow_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -84,15 +86,17 @@ class ConfirmCard(QWidget):
         detail: str = "",
         note: str = "",
         batch_ok: bool = True,
+        headline: str = "",
     ) -> None:
         self._confirm_id = confirm_id
-        summary_line = (summary or "").strip() or f"`{tool}`"
-        # Always keep the one-line summary visible (to/subject for email, etc.).
-        self.summary.setText(f"allow `{tool}`?\n{summary_line}")
+        title = (headline or "").strip() or confirm_headline(tool, {})
+        self.summary.setText(title)
 
         body = (detail or "").strip()
-        # Detail pane only when it adds more than the summary already shows.
-        show_detail = bool(body) and body != summary_line
+        summary_line = (summary or "").strip()
+        # Detail pane when it adds more than the headline. Never dump the
+        # tool(arg=…) trace onto the card — that lives in Thinking.
+        show_detail = bool(body) and body != title and body != summary_line
         self.detail.setPlainText(body)
         self.detail.setVisible(show_detail)
 
@@ -103,13 +107,8 @@ class ConfirmCard(QWidget):
         # silently widen the next approval to the whole turn.
         self.allow_turn.setChecked(False)
         self.allow_turn.setVisible(batch_ok)
-        tool_l = (tool or "").strip().lower()
-        if tool_l in {"browser", "vision", "camera"}:
-            self.allow_turn.setText("allow browser/vision this turn")
-        elif tool_l in {"send_sms", "send_email"}:
-            self.allow_turn.setText("allow sends this turn")
-        else:
-            self.allow_turn.setText("allow writes this turn")
+        self.allow_turn.setText("rest of this ask")
+        self.allow_turn.setToolTip("further steps in this reply, not forever")
         self.show()
         self.allow_btn.setFocus()
 

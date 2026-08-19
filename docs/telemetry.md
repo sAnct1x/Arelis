@@ -9,6 +9,7 @@ running from source, where it is gitignored. Nothing here is sent anywhere.
 | Question | File |
 |----------|------|
 | Why was that turn slow / which tools ran? | `logs/turns.log` + `logs/turns.jsonl` |
+| Did she enter JSON fallback or answer from a tool result? | Thinking dock (`empty after tool` vs `JSON fallback`); also `logs/turns.jsonl` |
 | Did a confirm / SMS / error fire on the bus? | `logs/events.log` |
 | Are Ollama / calendar / SMS / mail up? | UI readiness strip (title bar); CLI `ready …` STATUS |
 | App crash, IMAP, router, indexer exceptions | `logs/arelis.log` |
@@ -36,7 +37,7 @@ painted token — not Ollama engine TTFT), `ollama_metrics` (per-round
 `exactness` (math / evidence / quote / dual_hit / sms_force /
 scrape_after_search / refuse / pass), `done` (includes `model_prefill_ms` /
 `model_decode_ms` when present). STT spans use `span=` ids.
-Restored Allow sends also write a `restored_send` line.
+Restored sends also write a `restored_send` line.
 
 Each finished turn also appends one JSON object to **`logs/turns.jsonl`**
 (user preview, timings, tools, browser actions). That is the file to read

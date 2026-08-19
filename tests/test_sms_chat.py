@@ -6,6 +6,7 @@ from PySide6.QtWidgets import QWidget
 
 from arelis.notify.center import new_notice
 from arelis.ui.sms_chat import (
+    SmsChatMessage,
     SmsChatRegistry,
     SmsChatWindow,
     chat_target,
@@ -23,7 +24,7 @@ def test_thread_keys_alias_and_digits() -> None:
     assert thread_keys(phone="+1 (555) 111-2222") == ("digits:5551112222",)
 
 
-def test_registry_merges_alias_and_later_digits() -> None:
+def test_registry_merges_alias_and_later_digits(qt_app) -> None:
     host = QWidget()
     try:
         registry = SmsChatRegistry(host)
@@ -132,7 +133,11 @@ def test_room_state_hidden_until_shown(qt_app) -> None:
         host.deleteLater()
 
 
-def test_attention_on_visible_unfocused_tile(qt_app) -> None:
+def test_attention_on_visible_unfocused_tile(qt_app, monkeypatch) -> None:
+    # This process owns the OS foreground in the test. The production path
+    # also pulses when Qt still says the tile is active but another app is
+    # in front — see test_attention_when_qt_still_thinks_the_tile_is_active.
+    monkeypatch.setattr("arelis.ui.sms_chat.process_owns_foreground", lambda: True)
     window = SmsChatWindow(key="k", title="Alex", alias="coach", phone="+1555112222")
     other = QWidget()
     try:
@@ -169,6 +174,114 @@ def test_attention_on_visible_unfocused_tile(qt_app) -> None:
         window.hide()
         window.deleteLater()
         other.deleteLater()
+
+
+def test_thread_scroll_stops_at_the_last_message(qt_app) -> None:
+    """A stretch under the bubbles used to make a void you could scroll into.
+
+    New inbound then jumped to that fake bottom instead of the last text.
+    """
+    window = SmsChatWindow(key="k", title="Alex", alias="coach", phone="+1555112222")
+    try:
+        window.resize(360, 280)
+        window.show()
+        qt_app.processEvents()
+        for i in range(18):
+            window.append_message(
+                SmsChatMessage(direction="in", body=f"line {i} is a bit of text")
+            )
+        qt_app.processEvents()
+        window._scroll_to_end()
+        qt_app.processEvents()
+        last = window._last_bubble()
+        assert last is not None
+        view = window._scroll.viewport()
+        bottom = last.mapTo(view, last.rect().bottomLeft()).y()
+        assert 0 < bottom <= view.height() + 8
+        window.append_message(SmsChatMessage(direction="in", body="newest"))
+        qt_app.processEvents()
+        window._scroll_to_end()
+        qt_app.processEvents()
+        newest = window._last_bubble()
+        assert newest is not None
+        assert newest.text() == "newest"
+        newest_bottom = newest.mapTo(view, newest.rect().bottomLeft()).y()
+        assert 0 < newest_bottom <= view.height() + 8
+        host = window._scroll.widget()
+        assert host is not None
+        assert host.height() <= host.layout().sizeHint().height() + 16
+    finally:
+        window.hide()
+        window.deleteLater()
+
+
+def test_attention_when_qt_still_thinks_the_tile_is_active(qt_app, monkeypatch) -> None:
+    """Another app can be in front while Qt still reports the tile as active.
+
+    That is the Cursor-covering-the-chat case. Pulse anyway.
+    """
+    monkeypatch.setattr("arelis.ui.sms_chat.process_owns_foreground", lambda: False)
+    window = SmsChatWindow(key="k", title="Alex", alias="coach", phone="+1555112222")
+    try:
+        window.show()
+        window.activateWindow()
+        qt_app.processEvents()
+        window.attention()
+        assert window.has_attention
+    finally:
+        window.hide()
+        window.deleteLater()
+
+
+def test_append_inbound_pulses_when_another_app_owns_foreground(
+    qt_app, monkeypatch
+) -> None:
+    monkeypatch.setattr("arelis.ui.sms_chat.process_owns_foreground", lambda: False)
+    host = QWidget()
+    host.show()
+    registry = SmsChatRegistry(host)
+    try:
+        window = registry.open(alias="coach", phone="5551112222", title="Alex")
+        assert window is not None
+        window.show()
+        window.activateWindow()
+        qt_app.processEvents()
+        registry.append_inbound(body="later", alias="coach", phone="5551112222")
+        assert window.has_attention
+        window.close()
+    finally:
+        host.deleteLater()
+
+
+def test_inbound_sms_flashes_the_taskbar_when_another_app_is_in_front(
+    arelis_window, monkeypatch
+) -> None:
+    win = arelis_window()
+    flashes: list[object] = []
+    monkeypatch.setattr("arelis.ui.app.process_owns_foreground", lambda: False)
+    monkeypatch.setattr("arelis.ui.app.flash_taskbar", lambda w: flashes.append(w))
+    win._alert_if_background()
+    assert flashes == [win]
+    flashes.clear()
+    monkeypatch.setattr("arelis.ui.app.process_owns_foreground", lambda: True)
+    win._alert_if_background()
+    assert flashes == []
+
+
+def test_inbound_sms_asks_for_taskbar_alert(arelis_window, monkeypatch) -> None:
+    win = arelis_window()
+    asked: list[bool] = []
+    monkeypatch.setattr(win, "_alert_if_background", lambda: asked.append(True))
+    win._on_sms_received(
+        {
+            "id": "m-alert",
+            "from": "5551112222",
+            "body": "hey",
+            "contact_alias": "wife",
+            "contact_name": "Robin",
+        }
+    )
+    assert asked == [True]
 
 
 def test_hidden_tile_badges_instead_of_pulse(qt_app) -> None:
@@ -276,7 +389,7 @@ def test_thread_outlives_the_tile_but_not_the_app(arelis_window, qt_app) -> None
         "and the gate",
     ]
     # The whole thread is painted back, not only what arrived while it was shut.
-    assert reopened._thread.count() - 1 == 2
+    assert reopened._thread.count() == 2
 
     restarted = SmsChatRegistry(win)
     assert restarted.messages(key) == []

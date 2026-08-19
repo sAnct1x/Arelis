@@ -7,7 +7,7 @@ under Systems ▾ so the strip does not compete with the composer role picker
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QHBoxLayout,
@@ -51,6 +51,8 @@ def _aggregate(statuses: list[str]) -> str:
 class ReadinessStrip(QWidget):
     """Thin row: Ollama chip + Systems menu."""
 
+    settings_requested = Signal(str)
+
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self.setObjectName("ReadinessStrip")
@@ -65,6 +67,7 @@ class ReadinessStrip(QWidget):
         self._confirm_waiting = False
         self._systems_base_status = ChipLevel.OFF.value
         self._pulse_on = False
+        self._apply_sig: tuple[tuple[str, str, str], ...] | None = None
         self._pulse = QTimer(self)
         self._pulse.setInterval(700)
         self._pulse.timeout.connect(self._tick_confirm_pulse)
@@ -130,6 +133,12 @@ class ReadinessStrip(QWidget):
 
     def apply(self, snapshot: ReadinessSnapshot) -> None:
         """Update Ollama + rebuild the Systems menu."""
+        sig = tuple(
+            (item.key, item.status.value, item.detail) for item in snapshot.chips
+        )
+        if sig == self._apply_sig:
+            return
+        self._apply_sig = sig
         by_key = {item.key: item for item in snapshot.chips}
         self._systems_details = {
             key: by_key[key] for key in _SYSTEMS_KEYS if key in by_key
@@ -183,18 +192,16 @@ class ReadinessStrip(QWidget):
 
     def _rebuild_systems_menu(self) -> None:
         self._systems_menu.clear()
-        # Every row below is disabled, because this menu reports and does not
-        # act — the things it names are changed in Settings, not here. Saying so
-        # at the top is cheaper than making eight status lines clickable and
-        # then having to decide where each one should go.
-        caption = QLabel("status · read only")
+        # Most rows report only. Allow opens Settings so the gates are not
+        # a dead status sentence.
+        caption = QLabel("status · allow opens settings")
         caption.setObjectName("ReadinessSystemsCaption")
         header = QWidgetAction(self._systems_menu)
         header.setDefaultWidget(caption)
         header.setEnabled(False)
         self._systems_menu.addAction(header)
         if self._confirm_waiting:
-            allow = QAction("Allow card open — decide in chat", self._systems_menu)
+            allow = QAction("card open — allow or deny in chat", self._systems_menu)
             allow.setEnabled(False)
             self._systems_menu.addAction(allow)
             self._systems_menu.addSeparator()
@@ -214,7 +221,13 @@ class ReadinessStrip(QWidget):
                 tip = item.detail
             action = QAction(text, self._systems_menu)
             action.setToolTip(tip)
-            action.setEnabled(False)
+            if key == "confirm":
+                action.setEnabled(True)
+                action.triggered.connect(
+                    lambda _checked=False: self.settings_requested.emit("Allow")
+                )
+            else:
+                action.setEnabled(False)
             self._systems_menu.addAction(action)
 
     def _tick_confirm_pulse(self) -> None:
@@ -227,6 +240,8 @@ class ReadinessStrip(QWidget):
 
     @staticmethod
     def _set_status(widget: QWidget, status: str) -> None:
+        if widget.property("status") == status:
+            return
         widget.setProperty("status", status)
         style = widget.style()
         style.unpolish(widget)

@@ -83,6 +83,22 @@ def test_inbox_is_read_not_compose() -> None:
     assert "send_sms" not in visible
 
 
+def test_inbox_hears_in_box_and_emiles() -> None:
+    from arelis.core.skills import select_skill_ids
+
+    for ask in (
+        "Check your in box",
+        "check your inbox",
+        "any new emiles today",
+        "Did you get any new emile",
+    ):
+        assert INBOX.matches(ask), ask
+        assert detect_inbox_ask(ask), ask
+        assert any(h.kind == "inbox" for h in detect_intents(ask)), ask
+        ids = select_skill_ids(ask, available_tools={"inbox", "send_email"})
+        assert "email" in ids, ask
+
+
 def test_unmatched_chat_fails_open() -> None:
     visible = filter_tool_names(
         _EVERYDAY,

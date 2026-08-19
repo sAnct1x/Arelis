@@ -106,6 +106,54 @@ async def test_scrape_retries_amp_when_main_is_shell(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
+async def test_scrape_reads_an_rss_sibling_when_the_page_is_a_shell(monkeypatch) -> None:
+    shell = """
+    <html><head>
+      <link rel="alternate" type="application/rss+xml" href="https://example.com/feed.xml"/>
+      <title>Shell</title>
+    </head><body><div id="app"></div></body></html>
+    """
+    feed = """<?xml version="1.0"?>
+    <rss version="2.0"><channel>
+      <title>Lab notes</title>
+      <item>
+        <title>Fringes overnight</title>
+        <link>https://example.com/fringes</link>
+        <description>The interferometer held lock for six hours.</description>
+        <pubDate>Wed, 19 Aug 2026 00:00:00 GMT</pubDate>
+      </item>
+    </channel></rss>
+    """
+    _patch_fetch(
+        monkeypatch,
+        {
+            "https://example.com/story": shell,
+            "https://example.com/feed.xml": feed,
+        },
+        content_types={"https://example.com/feed.xml": "application/rss+xml"},
+    )
+    result = await ScrapeTool("test-agent", block_private_urls=False).run(
+        url="https://example.com/story"
+    )
+    assert result.ok
+    assert "interferometer held lock" in result.output
+    assert result.data.get("strategy") == "rss-feed"
+
+
+@pytest.mark.asyncio
+async def test_js_shell_tells_her_to_open_the_page_in_the_browser(monkeypatch) -> None:
+    html = "<html><body><div id='app'></div></body></html>"
+    _patch_fetch(monkeypatch, {"https://example.com/spa": html})
+    result = await ScrapeTool("test-agent", block_private_urls=False).run(
+        url="https://example.com/spa"
+    )
+    assert not result.ok
+    assert result.data.get("fail_class") == "fail:js_shell"
+    assert "browser(action=open" in result.output
+    assert "https://example.com/spa" in result.output
+
+
+@pytest.mark.asyncio
 async def test_scrape_honours_max_chars(monkeypatch) -> None:
     body = "word " * 400
     html = f"<html><body><article><p>{body}</p></article></body></html>"

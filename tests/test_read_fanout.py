@@ -88,11 +88,20 @@ def test_search_and_scrape_fanout_when_urls_already_present() -> None:
     )
 
 
-def test_duplicate_weather_in_round_stays_serial() -> None:
+def test_duplicate_weather_same_place_stays_serial() -> None:
     assert not _ok(
         [
-            ("weather", {"place": "home"}),
-            ("weather", {"place": "work"}),
+            ("weather", {"place": "springfield"}),
+            ("weather", {"place": "springfield"}),
+        ]
+    )
+
+
+def test_two_weather_places_may_fanout() -> None:
+    assert _ok(
+        [
+            ("weather", {"place": "Springfield, Illinois"}),
+            ("weather", {"place": "Metropolis, Illinois"}),
         ]
     )
 

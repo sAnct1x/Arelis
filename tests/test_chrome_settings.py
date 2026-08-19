@@ -71,6 +71,23 @@ def test_recent_workspace_files_roundtrip(tmp_path: Path, monkeypatch) -> None:
     ]
 
 
+def test_away_rest_prefs_roundtrip(tmp_path: Path, monkeypatch) -> None:
+    from arelis.ui.layout_store import (
+        clamp_away_rest_min,
+        load_ui_prefs,
+        save_ui_prefs,
+    )
+
+    ini = tmp_path / "ui_layout.ini"
+    monkeypatch.setattr("arelis.ui.layout_store._settings_path", lambda: ini)
+    assert clamp_away_rest_min(40) == 45
+    assert clamp_away_rest_min("60") == 60
+    save_ui_prefs(away_rest=True, away_rest_min=30)
+    prefs = load_ui_prefs()
+    assert prefs["away_rest"] is True
+    assert prefs["away_rest_min"] == 30
+
+
 def test_settings_roots_values(qt_app) -> None:
     from arelis.ui.settings_dialog import SettingsDialog
 
@@ -98,7 +115,41 @@ def test_settings_roots_values(qt_app) -> None:
     channels = values["ui"]["notifications"]["channels"]
     assert channels["sms"] == "voice"
     assert channels["calendar"] == "visual"
+    prefs = values["ui_prefs"]
+    assert prefs["away_rest"] is False
+    assert prefs["away_rest_min"] == 45
     dlg.close()
+
+
+def test_settings_allow_tab(qt_app) -> None:
+    from arelis.ui.settings_dialog import SettingsDialog
+
+    dlg = SettingsDialog(
+        {
+            "voice": {},
+            "presence": {},
+            "agent": {"confirm_browser": False, "confirm_send": True},
+            "workspace": {
+                "named_roots": [
+                    {"name": "arelis", "path": str(Path.cwd()), "read_only": False}
+                ]
+            },
+            "tools": {"sms": {"inbound": {"ingest": {}}}},
+        },
+        initial_tab="Allow",
+    )
+    try:
+        assert dlg.tabs.tabText(dlg.tabs.currentIndex()) == "Allow"
+        assert dlg.confirm_browser.isChecked() is False
+        assert dlg.confirm_send.isChecked() is True
+        dlg._preset_allow_trust_local()
+        values = dlg.values()["agent"]
+        assert values["confirm_writes"] is False
+        assert values["confirm_send"] is True
+        dlg._preset_allow_everything()
+        assert dlg.values()["agent"]["confirm_browser"] is True
+    finally:
+        dlg.close()
 
 
 def test_load_config_merges_local(tmp_path: Path, monkeypatch) -> None:

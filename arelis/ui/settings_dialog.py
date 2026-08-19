@@ -54,6 +54,8 @@ class SettingsDialog(QDialog):
         *,
         always_on_top: bool = False,
         chat_font_scale: float = 1.0,
+        away_rest: bool = False,
+        away_rest_min: int = 45,
         active_facts: list[dict[str, object]] | None = None,
         parent: QWidget | None = None,
         on_test_mic: Callable[[], str] | None = None,
@@ -238,6 +240,23 @@ class SettingsDialog(QDialog):
             "Closing the window leaves Arelis in the tray so inbound Notify keeps working."
         )
 
+        self.away_rest = QCheckBox("Collapse unused panels")
+        self.away_rest.setChecked(bool(away_rest))
+        self.away_rest.setToolTip(
+            "After a stretch with no click, type, send, or wake word, "
+            "History and Thinking fold away. Click or talk brings them back. "
+            "Mouse movement does not count."
+        )
+        self.away_rest_min = QComboBox()
+        self.away_rest_min.setObjectName("SettingsField")
+        for mins in (30, 45, 60):
+            self.away_rest_min.addItem(f"{mins} minutes", mins)
+        want_min = int(away_rest_min) if away_rest_min else 45
+        idx = self.away_rest_min.findData(want_min)
+        self.away_rest_min.setCurrentIndex(idx if idx >= 0 else 1)
+        self.away_rest_min.setEnabled(self.away_rest.isChecked())
+        self.away_rest.toggled.connect(self.away_rest_min.setEnabled)
+
         self.font_slider = QSlider(Qt.Orientation.Horizontal)
         self.font_slider.setObjectName("SettingsSlider")
         self.font_slider.setRange(75, 175)
@@ -258,9 +277,58 @@ class SettingsDialog(QDialog):
 
         win_form.addRow(self.always_on_top)
         win_form.addRow(self.close_to_tray)
+        win_form.addRow(self.away_rest)
+        win_form.addRow("After", self.away_rest_min)
         win_form.addRow("Chat text size", font_row)
         win_form.addRow(self.reset_layout_btn)
         tabs.addTab(window, "Window")
+
+        # --- Allow ---
+        allow_tab = QWidget()
+        allow_tab.setObjectName("SettingsTabBody")
+        allow_l = QVBoxLayout(allow_tab)
+        allow_l.setContentsMargins(14, 16, 14, 12)
+        allow_l.setSpacing(12)
+        allow_blurb = QLabel(
+            "She pauses on these unless you already asked. A drive you typed "
+            "or said is the grant — her window just moves. Mail and texts "
+            "still show the exact message. Conversation mode: say allow or deny."
+        )
+        allow_blurb.setObjectName("SettingsHint")
+        allow_blurb.setWordWrap(True)
+        allow_l.addWidget(allow_blurb)
+        agent = config.get("agent") or {}
+        self.confirm_writes = QCheckBox("files, memory, calendar, rooms")
+        self.confirm_writes.setChecked(bool(agent.get("confirm_writes", True)))
+        self.confirm_image = QCheckBox("pictures")
+        self.confirm_image.setChecked(bool(agent.get("confirm_image", True)))
+        self.confirm_browser = QCheckBox("her window, when she offers it")
+        self.confirm_browser.setChecked(bool(agent.get("confirm_browser", True)))
+        self.confirm_vision = QCheckBox("seeing images and the screen")
+        self.confirm_vision.setChecked(bool(agent.get("confirm_vision", True)))
+        self.confirm_send = QCheckBox("mail and texts")
+        self.confirm_send.setChecked(bool(agent.get("confirm_send", True)))
+        for box in (
+            self.confirm_writes,
+            self.confirm_image,
+            self.confirm_browser,
+            self.confirm_vision,
+            self.confirm_send,
+        ):
+            allow_l.addWidget(box)
+        preset_row = QHBoxLayout()
+        ask_all = QPushButton("ask me everything")
+        ask_all.setObjectName("SettingsField")
+        ask_all.clicked.connect(self._preset_allow_everything)
+        trust_local = QPushButton("don't ask about files, pictures, or her window")
+        trust_local.setObjectName("SettingsField")
+        trust_local.clicked.connect(self._preset_allow_trust_local)
+        preset_row.addWidget(ask_all)
+        preset_row.addWidget(trust_local)
+        preset_row.addStretch(1)
+        allow_l.addLayout(preset_row)
+        allow_l.addStretch(1)
+        tabs.addTab(allow_tab, "Allow")
 
         # --- Notify ---
         notify = QWidget()
@@ -636,6 +704,20 @@ class SettingsDialog(QDialog):
         self.root_read_only.setChecked(False)
         self.test_status.setText(f"Removed root `{removed.get('name')}`.")
 
+    def _preset_allow_everything(self) -> None:
+        self.confirm_writes.setChecked(True)
+        self.confirm_image.setChecked(True)
+        self.confirm_browser.setChecked(True)
+        self.confirm_vision.setChecked(True)
+        self.confirm_send.setChecked(True)
+
+    def _preset_allow_trust_local(self) -> None:
+        self.confirm_writes.setChecked(False)
+        self.confirm_image.setChecked(False)
+        self.confirm_browser.setChecked(False)
+        self.confirm_vision.setChecked(False)
+        self.confirm_send.setChecked(True)
+
     def values(self) -> dict[str, Any]:
         return {
             "voice": {
@@ -652,6 +734,8 @@ class SettingsDialog(QDialog):
             "ui_prefs": {
                 "always_on_top": self.always_on_top.isChecked(),
                 "chat_font_scale": self.font_slider.value() / 100.0,
+                "away_rest": self.away_rest.isChecked(),
+                "away_rest_min": int(self.away_rest_min.currentData() or 45),
             },
             "workspace": {
                 "roots": [
@@ -670,6 +754,13 @@ class SettingsDialog(QDialog):
                         for key, combo in self._notify_channels.items()
                     }
                 }
+            },
+            "agent": {
+                "confirm_writes": self.confirm_writes.isChecked(),
+                "confirm_image": self.confirm_image.isChecked(),
+                "confirm_browser": self.confirm_browser.isChecked(),
+                "confirm_vision": self.confirm_vision.isChecked(),
+                "confirm_send": self.confirm_send.isChecked(),
             },
         }
 

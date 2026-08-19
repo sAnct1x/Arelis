@@ -28,10 +28,10 @@ OLLAMA_GENERIC_NOTICE = (
 
 
 def vram_notice(role: str = "") -> str:
-    """Chat copy when a heavy model will not fit. Code is not 'research'."""
-    label = "code" if (role or "").strip().lower() == "code" else "research"
+    """Chat copy when a heavy model will not fit."""
+    del role
     return (
-        f"The {label} model could not fit on the GPU. I parked ComfyUI and put "
+        "The research model could not fit on the GPU. I parked ComfyUI and put "
         "the conversation model back so the machine stays usable. Close games "
         "or extra Chrome if it still fails — or stay on `/role fast`."
     )

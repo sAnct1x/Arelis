@@ -55,6 +55,7 @@ GOALS_WRITE_ACTIONS = {
 }
 MEMORY_WRITE_ACTIONS = {"remember", "forget", "prefer", "decide", "episode"}
 ROOMS_WRITE_ACTIONS = {"create", "update", "forget"}
+SCHEDULE_WRITE_ACTIONS = {"create", "create_briefing", "delete", "run_now"}
 
 # Approved one at a time, never covered by "allow all this turn". A file write
 # can be undone by editing the file; a sent email, SMS, or calendar mutate
@@ -126,6 +127,8 @@ def capability_class(
         return "WRITE_LOCAL" if action in MEMORY_WRITE_ACTIONS else "READ"
     if tool == "rooms":
         return "WRITE_LOCAL" if action in ROOMS_WRITE_ACTIONS else "READ"
+    if tool == "schedule":
+        return "WRITE_LOCAL" if action in SCHEDULE_WRITE_ACTIONS else "READ"
     return "READ"
 
 
@@ -254,6 +257,9 @@ class ToolRegistry:
         if name == "rooms":
             action = str(args.get("action") or "").lower()
             return confirm_writes if action in ROOMS_WRITE_ACTIONS else False
+        if name == "schedule":
+            action = str(args.get("action") or "").lower()
+            return confirm_writes if action in SCHEDULE_WRITE_ACTIONS else False
         if tool.risk == "side_effect":
             return confirm_image
         if tool.risk == "write":
@@ -324,7 +330,7 @@ class ToolRegistry:
         if name == "external_read":
             path = str(args.get("path") or "").strip() or "(path)"
             return (
-                "Allow read-only access to a file outside the workspace roots "
+                "Read-only access to a file outside the workspace roots "
                 "for this session.\n\n"
                 f"Path: {path}\n\n"
                 "Arelis will not write or edit this path."
@@ -381,7 +387,7 @@ class ToolRegistry:
             if action == "navigate":
                 lines.append(
                     "Navigates a controlled browser tab. If the browser is open "
-                    "without debugging, may restart it with control after Allow."
+                    "without debugging, may restart it with control."
                 )
             if action == "relaunch":
                 lines.append(
@@ -440,7 +446,7 @@ class ToolRegistry:
         if name == "clipboard":
             return (
                 "Read system clipboard text\n"
-                "May include passwords or private notes — approve only if you "
+                "May include passwords or private notes — only if you "
                 "intend to share what is currently copied."
             )
         if name == "ocr":

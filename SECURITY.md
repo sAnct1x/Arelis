@@ -30,7 +30,7 @@ There is no bounty. The thanks is genuine; the budget is not.
 ## What counts
 
 In scope: anything that sends your data off the machine without you aiming
-it there, anything that sends mail or a text without an Allow card, anything
+it there, anything that sends mail or a text without you allowing it, anything
 that bypasses the folder permissions you set, and any secret or personal
 detail that has landed in this public repository.
 

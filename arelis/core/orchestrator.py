@@ -18,6 +18,7 @@ from arelis.browser.hold import set_paused
 from arelis.config import load_persona
 from arelis.core.agent_loop import AgentLoop
 from arelis.core.bus import EventBus
+from arelis.core.confirm_speech import classify_confirm_utterance
 from arelis.core.events import Event, EventType
 from arelis.core.failure_copy import turn_failed_notice
 from arelis.core.memory import SessionMemory, tool_trace_entry, tool_trace_note
@@ -26,6 +27,7 @@ from arelis.llm.router import ModelRole, ModelRouter
 from arelis.memory.store import MemoryStore
 from arelis.rooms import Room, RoomStore, match_enter_intent, match_leave_intent
 from arelis.tools.base import NEVER_BATCH, ToolRegistry
+from arelis.tools.confirm_copy import confirm_headline
 from arelis.tools.safety import redact_secrets
 from arelis.workspace import _WINDOWS_DRIVE, WorkspaceRoots
 
@@ -38,11 +40,33 @@ _ABS_PATH_TOKEN = re.compile(
 
 log = logging.getLogger(__name__)
 
-ROLES: set[str] = {"fast", "research", "code"}
+ROLES: set[str] = {"fast", "research"}
+
+
+def research_needs_vram_swap(router: object) -> bool:
+    """True when research is a different Ollama tag from fast."""
+    same = getattr(router, "same_chat_weights", None)
+    if callable(same):
+        try:
+            return not bool(same("fast", "research"))
+        except Exception:
+            return True
+    model_for = getattr(router, "model_for", None)
+    if not callable(model_for):
+        return True
+    try:
+        from arelis.llm.ollama import same_ollama_model
+
+        return not same_ollama_model(
+            str(model_for("fast") or ""),
+            str(model_for("research") or ""),
+        )
+    except Exception:
+        return True
 
 
 def comms_bypasses_sticky(text: str) -> bool:
-    """True when this turn is SMS/email/agenda and must not keep the coder."""
+    """True when this turn is SMS/email/agenda and must not keep a sticky hold."""
     raw = (text or "").strip()
     if not raw:
         return False
@@ -65,9 +89,9 @@ def comms_bypasses_sticky(text: str) -> bool:
     )
 
 
-# Auto-routing heuristics. Tool-shaped asks are pushed onto fast/code because
-# those models follow the tool schema far more reliably than the reasoning
-# model, which tends to narrate a call instead of emitting one.
+# Auto-routing heuristics. Tool-shaped asks stay on fast because
+# that path follows the tool schema far more reliably than a long
+# research loop, which tends to narrate a call instead of emitting one.
 TOOL_LOOP_HINT = re.compile(
     r"\b(search|web_search|google|scrape|fetch|open|read|list|write|edit"
     r"|analyze|workspace|web_fetch|file|email|inbox|mail|schedule"
@@ -176,24 +200,25 @@ class Orchestrator:
     ) -> tuple[ModelRole, str]:
         """Pick a model role and a short reason code for telemetry.
 
-        An explicit research/code chip always wins. The fast chip does not,
+        An explicit research chip always wins. The fast chip does not,
         because it is also the default, so there is no way to tell "the user
         chose fast" from "the user chose nothing" and auto-routing stays useful.
+        File/git/debug asks stay on fast (workspace/code skills), not a third role.
         """
-        if explicit in {"research", "code"}:
+        if explicit == "research":
             return explicit, "chip"
-        # Composer "fast" is an explicit pin — stay on 7b (H2). Mid-turn
+        # Composer "fast" is an explicit pin — stay on conversation (H2). Mid-turn
         # escalate may still promote after failed tool rounds.
         if explicit == "fast":
             return "fast", "chip"
         # Deep research-shaped asks before tool/file loops: "write a report"
-        # must not lose to the bare "write" file hint and land on the coder.
+        # must not lose to the bare "write" file hint.
         for pattern in RESEARCH_HINTS:
             if pattern.search(text):
                 return "research", "research_hint"
         if TOOL_LOOP_HINT.search(text):
             if FILE_LOOP_HINT.search(text):
-                return "code", "file_loop"
+                return "fast", "file_loop"
             return "fast", "tool_loop"
         return (explicit or self.router.default_role), "default"
 
@@ -208,10 +233,31 @@ class Orchestrator:
         Dictated text is destined for the composer so the user can edit it
         before sending. Starting a turn from it would take the decision away
         from them, which is the difference between the two voice modes.
+
+        Conversation mode plus an open card: yes-list allows, no-list denies,
+        anything else is ignored (not a new turn).
         """
         if event.payload.get("deliver") == "dictate":
             return
         text = (event.payload.get("text") or "").strip()
+        conversing = bool(self.config.get("_speak_replies"))
+        if conversing and self._confirm_waiters:
+            decision = classify_confirm_utterance(text)
+            if decision:
+                confirm_id = next(iter(self._confirm_waiters), "")
+                if confirm_id:
+                    await self.bus.publish(
+                        Event(
+                            EventType.TOOL_CONFIRM_REPLY,
+                            {
+                                "id": confirm_id,
+                                "decision": decision,
+                                "allow_turn": False,
+                                "reason": "voice",
+                            },
+                        )
+                    )
+            return
         if text:
             await self.bus.publish(
                 Event(EventType.USER_MESSAGE, {"text": text, "source": "voice"})
@@ -377,7 +423,7 @@ class Orchestrator:
                         {
                             "text": (
                                 "Unknown command `/roll`. Did you mean "
-                                "`/role fast|research|code`? Try `/help`."
+                                "`/role fast|research`? Try `/help`."
                             )
                         },
                     )
@@ -495,12 +541,12 @@ class Orchestrator:
             self._pause = False
             set_paused(False)
             chosen, route_reason = self.classify_role(text, role)
-            # Sticky hold is for typed research/code follow-ups so VRAM does not
+            # Sticky hold is for typed research follow-ups so VRAM does not
             # thrash. Conversation must return to fast on small talk — otherwise
-            # a mis-heard "text file" keeps the coder on "how are you tonight".
-            # Typed SMS/email/agenda must also leave the coder (wrong Allow args).
+            # a mis-heard "text file" keeps research on "how are you tonight".
+            # Typed SMS/email/agenda must also leave the hold (wrong Allow args).
             if (
-                role not in {"research", "code"}
+                role != "research"
                 and not self.config.get("_speak_replies")
                 and not comms_bypasses_sticky(text)
             ):
@@ -571,9 +617,9 @@ class Orchestrator:
             if wanted == "fast":
                 # Operator escape hatch from H6 sticky hold.
                 self.router.clear_sticky()
-            elif wanted in {"research", "code"}:
-                # Flip the chip first, then evict 7B so the next 14B/coder
-                # stream does not share a 12GB card with a 30m-pinned 7B.
+            elif wanted == "research" and research_needs_vram_swap(self.router):
+                # Flip the chip first, then evict conversation so the next
+                # research stream does not share a 12GB card with a 30m pin.
                 from arelis.llm.vram import free_gpu_neighbors
 
                 await free_gpu_neighbors(self.config, self.bus)
@@ -606,7 +652,7 @@ class Orchestrator:
                         return
             message = f"Role set to `{wanted}`. New messages use it unless you pick another chip."
         else:
-            message = f"Unknown role `{wanted}`. Choose one of: fast, research, code."
+            message = f"Unknown role `{wanted}`. Choose one of: fast, research."
         await self.bus.publish(Event(EventType.STATUS, {"message": message}))
         await self.bus.publish(Event(EventType.ASSISTANT_DONE, {"text": message}))
 
@@ -968,6 +1014,7 @@ class Orchestrator:
                     # preview. Live turns still execute in-memory full args.
                     "full_args": {str(k): v for k, v in args.items()},
                     "summary": summary,
+                    "headline": confirm_headline(tool, args),
                     # Full rendering for the card. summary stays as it was, for
                     # the thinking dock and the CLI, which want one line.
                     "detail": self.tools.describe_call(tool, args),
@@ -1044,7 +1091,7 @@ class Orchestrator:
             "Just talk. Arelis can use tools from natural language "
             "(reads and web run on their own; writes and images ask first).\n\n"
             "Power-user slash commands:\n"
-            "  /role fast|research|code\n"
+            "  /role fast|research\n"
             "  /project [name]\n"
             "  /rooms                       list rooms\n"
             "  /room <name>                 open one (or say \"let's work on <name>\")\n"

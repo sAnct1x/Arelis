@@ -56,7 +56,7 @@ async def _run_live(scenario: Scenario, model: str, base_url: str) -> EvalResult
     provider = OllamaProvider(base_url=base_url, timeout_s=300)
     router = ModelRouter(
         provider,
-        {"fast": model, "research": model, "code": model},
+        {"fast": model, "research": model},
         keep_alive="0",
         default_role="fast",
         options={"num_ctx": 8192},

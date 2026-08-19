@@ -123,7 +123,7 @@ KINDS: dict[str, RoomKind] = {
     "code": RoomKind(
         id="code",
         label="Code",
-        role="code",
+        role="fast",
         skills=("workspace", "code"),
         blurb="Reading and writing files in the project, running the tests.",
     ),
@@ -137,7 +137,7 @@ KINDS: dict[str, RoomKind] = {
     "analysis": RoomKind(
         id="analysis",
         label="Analysis",
-        role="code",
+        role="fast",
         skills=("workspace", "code", "calculator"),
         blurb="Data, maths and plots over files that already exist.",
     ),

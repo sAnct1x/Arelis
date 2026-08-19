@@ -108,17 +108,20 @@ def test_notify_chip_is_dressed_as_a_button(qt_app) -> None:
         strip.deleteLater()
 
 
-def test_systems_menu_says_it_is_read_only(qt_app) -> None:
-    """Every row in it is disabled, so the menu has to admit that up front."""
+def test_systems_menu_allow_opens_settings(qt_app) -> None:
+    """Most rows report only. Allow is the way into Settings."""
     strip = ReadinessStrip()
     try:
         strip._rebuild_systems_menu()
         actions = strip._systems_menu.actions()
         assert actions
-        assert not any(action.isEnabled() for action in actions)
         header = actions[0].defaultWidget()
         assert header is not None
         assert header.objectName() == "ReadinessSystemsCaption"
+        assert "allow" in header.text().lower()
+        enabled = [a for a in actions if a.isEnabled()]
+        assert len(enabled) == 1
+        assert "Allow" in enabled[0].text()
     finally:
         strip.deleteLater()
 

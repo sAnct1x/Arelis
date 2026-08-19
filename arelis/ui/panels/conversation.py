@@ -30,6 +30,7 @@ from PySide6.QtWidgets import (
 )
 
 from arelis.attachments import stage_files, stage_image_bytes
+from arelis.core.confirm_speech import classify_confirm_utterance
 from arelis.ui.attach_bar import AttachBar, DropOverlay
 from arelis.ui.glass import GlassFrame, Hairline
 from arelis.ui.icons import (
@@ -182,8 +183,8 @@ class ConversationStage(GlassFrame):
 
         self.role = QComboBox()
         self.role.setObjectName("RoleSelect")
-        self.role.addItems(["fast", "research", "code"])
-        if default_role in {"fast", "research", "code"}:
+        self.role.addItems(["fast", "research"])
+        if default_role in {"fast", "research"}:
             self.role.setCurrentText(default_role)
         self.role.setFixedHeight(METRICS["control"])
         # Fit longest label ("research") — avoid a wide empty popup.
@@ -198,9 +199,10 @@ class ConversationStage(GlassFrame):
         self.role.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.role.setCursor(Qt.CursorShape.PointingHandCursor)
         self.role.setToolTip(
-            "Reply role for this message (fast / research / code). "
-            "Auto-routing may still load another model for a heavy turn; "
-            "Systems → Model shows what is hot in VRAM."
+            "Reply role for this message (fast / research). "
+            "File and git work stays on fast. Auto-routing may still "
+            "switch to research for a deep-dive; Systems → Model shows "
+            "what is hot in VRAM."
         )
         role_view = self.role.view()
         if role_view is not None:
@@ -443,6 +445,8 @@ class ConversationStage(GlassFrame):
     def set_idle_mode(self, idle: bool) -> None:
         """Orbit empty face vs workbench. Does not change tools or Allow."""
         want = bool(idle)
+        if want == self._idle_mode:
+            return
         self._idle_mode = want
         self.set_fill_alpha(0)
         self.set_pulse_rim(False)
@@ -710,7 +714,7 @@ class ConversationStage(GlassFrame):
         self.attach_btn.setEnabled(not blocked)
         self.stop_btn.setVisible(self._busy or self._speaking)
         if self.confirm_open():
-            self.input.setPlaceholderText("Enter = allow · Esc = skip…")
+            self.input.setPlaceholderText("Enter = allow · Esc = deny…")
         elif self._idle_mode:
             # Idle prompt is the centered VoidIdlePlaceholder label; Qt's own
             # placeholder paints left-aligned and shoves the line off-axis.
@@ -859,9 +863,16 @@ class ConversationStage(GlassFrame):
         detail: str = "",
         note: str = "",
         batch_ok: bool = True,
+        headline: str = "",
     ) -> None:
         self.confirm.ask(
-            confirm_id, tool, summary, detail=detail, note=note, batch_ok=batch_ok
+            confirm_id,
+            tool,
+            summary,
+            detail=detail,
+            note=note,
+            batch_ok=batch_ok,
+            headline=headline,
         )
         self._sync_composer_buttons()
         self.idle_conditions_changed.emit()
@@ -884,9 +895,18 @@ class ConversationStage(GlassFrame):
         self.restore_composer_caret()
 
     def _submit(self) -> None:
-        # Enter on an open confirm = allow (Allow has focus; Return still lands
-        # here when the composer has focus and submit would otherwise no-op).
+        # Enter on an open card: empty or yes-list = allow; no-list = deny.
         if self.confirm_open():
+            typed = self.input.text().strip()
+            decision = classify_confirm_utterance(typed)
+            if decision == "skip":
+                self.input.clear()
+                self.confirm._skip()
+                return
+            if typed and decision is None:
+                # They started a message — do not treat it as allow.
+                return
+            self.input.clear()
             self.confirm._allow()
             return
         if self._busy:
@@ -914,9 +934,9 @@ class ConversationStage(GlassFrame):
             if callable(sync):
                 sync()
             return
-        # Esc is one ladder: fullscreen → skip gate → collapse pill → cut
+        # Esc is one ladder: fullscreen → deny the card → collapse pill → cut
         # speech / stop a visible turn → clear the composer → back to the orbit.
-        # Skip is not gated on idle — mid-turn Allow still means Esc = skip.
+        # Deny is this step only — mid-turn allow still means Esc = deny.
         if self.confirm_open():
             self.confirm._skip()
             return

@@ -100,6 +100,7 @@ from arelis.ui.first_run import prompt_for_workspace_root
 from arelis.ui.glass import GlassFrame, advance_rim_pulse, fade_in_widget
 from arelis.ui.glass_dock import GlassDockWidget
 from arelis.ui.layout_store import (
+    clamp_away_rest_min,
     load_recent_workspace_files,
     load_ui_prefs,
     push_recent_workspace_file,
@@ -107,6 +108,7 @@ from arelis.ui.layout_store import (
     save_ui_prefs,
     save_window_layout,
 )
+from arelis.ui.foreground import flash_taskbar, process_owns_foreground
 from arelis.ui.notify_inbox import NotificationsInboxWindow
 from arelis.ui.panels import (
     CameraPanel,
@@ -160,6 +162,8 @@ _WINDOW_RADIUS = int(GLASS["radius"])
 # ASSISTANT_DONE or ERROR, so reaching this is a bug, but a desktop app should
 # not need restarting to recover from one.
 _BUSY_WATCHDOG_MS = 8000
+# One amber hairline on the thinking plate after a click, then rest.
+_THINK_PULSE_MS = 600
 
 # A spoken reply holds the microphone closed, so losing its terminal event
 # costs the user conversation mode entirely. This is the backstop, sized for
@@ -369,7 +373,7 @@ def _parse_role_set_message(message: str) -> str | None:
     rest = message.split(marker, 1)[1]
     role, _, _ = rest.partition("`")
     role = role.strip().lower()
-    if role in {"fast", "research", "code"}:
+    if role in {"fast", "research"}:
         return role
     return None
 
@@ -463,6 +467,7 @@ class ArelisWindow(QMainWindow):
         self.addToolBar(Qt.ToolBarArea.TopToolBarArea, self.chrome_bar)
         self.title_bar.view_menu_requested.connect(self._show_view_menu)
         self.title_bar.settings_requested.connect(self._open_settings)
+        self.readiness_strip.settings_requested.connect(self._open_settings)
         self.readiness_updated.connect(self.readiness_strip.apply)
 
         # Central host (transparent — atmosphere painted full-bleed on the window)
@@ -478,6 +483,7 @@ class ArelisWindow(QMainWindow):
         default_role = config.get("router", {}).get("default_role", "fast")
         self.conversation = ConversationStage(default_role=default_role)
         self.chat = self.conversation.chat
+        self.chat.progress_clicked.connect(self._on_thinking_status_clicked)
         self._stage_layout.addWidget(self.conversation, stretch=1)
 
         # Dockable instruments — full glass bodies, no broken native title chrome
@@ -514,6 +520,10 @@ class ArelisWindow(QMainWindow):
         ui_prefs = load_ui_prefs()
         self._always_on_top = bool(ui_prefs.get("always_on_top", False))
         self._chat_font_scale = float(ui_prefs.get("chat_font_scale", 1.0))
+        self._away_rest = bool(ui_prefs.get("away_rest", False))
+        self._away_rest_min = clamp_away_rest_min(ui_prefs.get("away_rest_min", 45))
+        self._away_resting = False
+        self._away_hidden: dict[str, bool] = {}
         self._force_quit = False
         # What the window looked like when it went to the tray. showNormal() on
         # the way back would answer "not maximized" regardless, which is both the
@@ -526,7 +536,6 @@ class ArelisWindow(QMainWindow):
         # Survives thinking.clear() on session restore so a wiped STATUS line
         # cannot hide "ingest is down / needs token".
         self._inbound_banner: str = ""
-        self._inbound_banner_in_chat = False
 
         # The four dock object names below are not styling hooks — no QSS rule
         # targets them. QMainWindow.saveState() identifies docks by object name,
@@ -661,6 +670,7 @@ class ArelisWindow(QMainWindow):
         self._apply_always_on_top(self._always_on_top, persist=False)
         self._apply_chat_font_scale(self._chat_font_scale, persist=False)
         self.conversation.submitted.connect(self._on_submit)
+        self.conversation.input.textChanged.connect(lambda _t: self._note_engagement())
         self.conversation.attach_errors.connect(self._on_attach_errors)
         self.conversation.stop_requested.connect(self._on_stop)
         self.conversation.stop_declined.connect(self._on_stop_declined)
@@ -726,6 +736,10 @@ class ArelisWindow(QMainWindow):
         self._drive_session = False
         self._readiness_snap = None
         self._idle_ghosts: list[tuple[str, str]] = []
+        self._away_timer = QTimer(self)
+        self._away_timer.setSingleShot(True)
+        self._away_timer.timeout.connect(self._enter_away_rest)
+        self._arm_away_rest_timer()
         self._held_inbound: list[InboundSms] = []
         self._job_t0: float | None = None
         self._job_name = ""
@@ -739,6 +753,10 @@ class ArelisWindow(QMainWindow):
         self._busy_watchdog = QTimer(self)
         self._busy_watchdog.setSingleShot(True)
         self._busy_watchdog.timeout.connect(self._on_busy_watchdog)
+        self._think_pulse_timer = QTimer(self)
+        self._think_pulse_timer.setSingleShot(True)
+        self._think_pulse_timer.setInterval(_THINK_PULSE_MS)
+        self._think_pulse_timer.timeout.connect(self._on_think_pulse_done)
 
         self._build_voice()
         if self.voice_controller is not None:
@@ -839,12 +857,31 @@ class ArelisWindow(QMainWindow):
 
     def _reveal_dock(self, dock: QDockWidget, action: QAction | None = None) -> None:
         """Show an instrument once, with the same fade used by the View menu."""
+        if getattr(self, "_away_resting", False):
+            return
         if dock.isVisible():
             return
         dock.show()
         if action is not None:
             action.setChecked(True)
         self._animate_dock(dock)
+
+    def _on_thinking_status_clicked(self) -> None:
+        """The status line is a control: open Thinking, or pulse that plate."""
+        # isVisible() is false whenever the parent window is hidden (tests, tray),
+        # so the open/closed latch is isHidden() — same as the rest of the UI.
+        if not self.think_dock.isHidden():
+            self._pulse_thinking_instrument()
+            return
+        self._reveal_dock(self.think_dock, self.act_thinking)
+
+    def _pulse_thinking_instrument(self) -> None:
+        """One short amber hairline on the thinking plate, then rest."""
+        self.think_host.set_attention(True, ember=True)
+        self._think_pulse_timer.start()
+
+    def _on_think_pulse_done(self) -> None:
+        self.think_host.set_attention(False)
 
     def _tick_atmosphere(self) -> None:
         if self.isMinimized():
@@ -1102,6 +1139,7 @@ class ArelisWindow(QMainWindow):
 
     def _on_wake_detected(self, remainder: object) -> None:
         """Wake phrase matched. Enter conversation; send remainder if any."""
+        self._note_engagement()
         if remainder is None or self.voice_controller is None:
             return
         # Empty string is a valid match (wake-only utterance).
@@ -1401,6 +1439,9 @@ class ArelisWindow(QMainWindow):
         the mode turned on and straight back off and the orbit looked dead.
         """
         et = event.type()
+        if et == QEvent.Type.MouseButtonPress:
+            self._note_engagement()
+            return super().eventFilter(obj, event)
         if et not in {QEvent.Type.ShortcutOverride, QEvent.Type.KeyPress}:
             return super().eventFilter(obj, event)
         if not isinstance(event, QKeyEvent) or not self._voice_hotkeys_allowed():
@@ -1421,6 +1462,7 @@ class ArelisWindow(QMainWindow):
         if now - self._voice_hotkey_at < _VOICE_HOTKEY_ECHO_S:
             return
         self._voice_hotkey_at = now
+        self._note_engagement()
         if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
             self.conversation.toggle_conversation()
         else:
@@ -1474,6 +1516,7 @@ class ArelisWindow(QMainWindow):
         self._sync_chrome_state()
         self.setMouseTracking(True)
         self._sync_browser_anchor()
+        self._sync_idle_mode()
 
     def _sync_browser_anchor(self) -> None:
         """Her Chrome matches this window's size and sits beside chat."""
@@ -1658,6 +1701,8 @@ class ArelisWindow(QMainWindow):
             self.config,
             always_on_top=self._always_on_top,
             chat_font_scale=self._chat_font_scale,
+            away_rest=self._away_rest,
+            away_rest_min=self._away_rest_min,
             active_facts=active_facts,
             parent=self,
             on_test_mic=self._settings_test_mic,
@@ -1761,6 +1806,12 @@ class ArelisWindow(QMainWindow):
             self.notify_center.set_config(self.config)
             self._sync_notify_surface()
 
+        agent_patch = values.get("agent") or {}
+        if agent_patch:
+            deep_merge(self.config.setdefault("agent", {}), agent_patch)
+            merge_local_config({"agent": dict(agent_patch)})
+            self._schedule_readiness_probe()
+
         workspace_patch = values.get("workspace") or {}
         if "roots" in workspace_patch:
             self._apply_workspace_roots(list(workspace_patch.get("roots") or []))
@@ -1780,6 +1831,19 @@ class ArelisWindow(QMainWindow):
             self._apply_always_on_top(bool(ui_prefs["always_on_top"]))
         if "chat_font_scale" in ui_prefs:
             self._apply_chat_font_scale(float(ui_prefs["chat_font_scale"]))
+        if "away_rest" in ui_prefs or "away_rest_min" in ui_prefs:
+            if "away_rest" in ui_prefs:
+                self._away_rest = bool(ui_prefs["away_rest"])
+            if "away_rest_min" in ui_prefs:
+                self._away_rest_min = clamp_away_rest_min(ui_prefs["away_rest_min"])
+            save_ui_prefs(
+                away_rest=self._away_rest,
+                away_rest_min=self._away_rest_min,
+            )
+            if not self._away_rest and self._away_resting:
+                self._wake_from_away_rest()
+            else:
+                self._arm_away_rest_timer()
 
         # Soft-apply listen/speak availability without a full restart when possible.
         master = bool((self.config.get("voice") or {}).get("enabled", True))
@@ -1953,16 +2017,19 @@ class ArelisWindow(QMainWindow):
         )
 
     def _toggle_thinking(self, checked: bool) -> None:
+        self._note_engagement()
         self.think_dock.setVisible(checked)
         if checked:
             self._animate_dock(self.think_dock)
 
     def _toggle_workspace(self, checked: bool) -> None:
+        self._note_engagement()
         self.work_dock.setVisible(checked)
         if checked:
             self._animate_dock(self.work_dock)
 
     def _toggle_history(self, checked: bool) -> None:
+        self._note_engagement()
         self.history_dock.setVisible(checked)
         if checked:
             self._refresh_history()
@@ -1970,6 +2037,7 @@ class ArelisWindow(QMainWindow):
         self._style_dock_tabs()
 
     def _toggle_notifications(self, checked: bool) -> None:
+        self._note_engagement()
         if checked:
             self._on_notify_poll()
             self.notify_inbox.show()
@@ -1982,6 +2050,7 @@ class ArelisWindow(QMainWindow):
         self._sync_idle_mode()
 
     def _toggle_camera(self, checked: bool) -> None:
+        self._note_engagement()
         self.camera_dock.setVisible(checked)
         if checked:
             self.camera.start()
@@ -1991,6 +2060,7 @@ class ArelisWindow(QMainWindow):
         self._style_dock_tabs()
 
     def _toggle_contacts(self, checked: bool) -> None:
+        self._note_engagement()
         if checked:
             self.contacts.show_list()
             self.contacts_inbox.show()
@@ -2172,7 +2242,7 @@ class ArelisWindow(QMainWindow):
         self._sync_panel_margins()
         if redocked:
             # Persist docked state so the next launch does not rehydrate ghosts.
-            save_window_layout(self)
+            self._persist_window_layout()
 
     def _animate_dock(self, dock: QDockWidget) -> None:
         # Never opacity-fade a floating top-level dock — QGraphicsOpacityEffect
@@ -2265,19 +2335,21 @@ class ArelisWindow(QMainWindow):
         idle = self._idle_eligible()
         self.conversation.set_idle_mode(idle)
         instruments = any(
-            dock.isVisible()
+            not dock.isHidden()
             for dock in (
                 self.think_dock,
                 self.work_dock,
                 self.history_dock,
                 self.camera_dock,
             )
-        ) or self.notify_inbox.isVisible() or self.contacts_inbox.isVisible()
+        ) or (not self.notify_inbox.isHidden()) or (not self.contacts_inbox.isHidden())
         self.readiness_strip.setVisible(not idle or instruments)
         empty = getattr(self.chat, "empty", None)
         if empty is not None and hasattr(empty, "set_side_chrome"):
             empty.set_side_chrome(
-                ghosts=idle and not self.history_dock.isVisible(),
+                ghosts=idle
+                and self.history_dock.isHidden()
+                and self.camera_dock.isHidden(),
                 readout=idle and not self.readiness_strip.isVisible(),
             )
         self._refresh_idle_face()
@@ -2295,8 +2367,107 @@ class ArelisWindow(QMainWindow):
         overlay = self.conversation.notify_overlay
         if overlay is not None and overlay.expanded:
             overlay.collapse()
+        self._away_resting = False
+        self._away_hidden = {}
         self.conversation.input.clear()
         self._sync_idle_mode()
+
+    def _away_rest_blocked(self) -> bool:
+        if self._turn_busy:
+            return True
+        if self.conversation.confirm_open():
+            return True
+        if self.conversation.conversation_btn.isChecked():
+            return True
+        if self.conversation.mic_btn.isChecked():
+            return True
+        if self._drive_session:
+            return True
+        return False
+
+    def _arm_away_rest_timer(self) -> None:
+        timer = getattr(self, "_away_timer", None)
+        if timer is None:
+            return
+        if not self._away_rest or self._away_resting:
+            timer.stop()
+            return
+        timer.start(max(1, int(self._away_rest_min)) * 60 * 1000)
+
+    def _note_engagement(self) -> None:
+        """A real use: click, type, send, wake, Allow — not mouse-move or STATUS."""
+        if self._away_resting:
+            self._wake_from_away_rest()
+            return
+        self._arm_away_rest_timer()
+
+    def _enter_away_rest(self) -> None:
+        if not self._away_rest or self._away_resting:
+            return
+        if self._away_rest_blocked():
+            self._arm_away_rest_timer()
+            return
+        hidden = {
+            "thinking": not self.think_dock.isHidden(),
+            "workspace": not self.work_dock.isHidden(),
+            "history": not self.history_dock.isHidden(),
+            "camera": not self.camera_dock.isHidden(),
+            "notify": not self.notify_inbox.isHidden(),
+            "contacts": not self.contacts_inbox.isHidden(),
+        }
+        if not any(hidden.values()):
+            return
+        self._away_hidden = hidden
+        self._away_resting = True
+        self.think_dock.hide()
+        self.work_dock.hide()
+        self.history_dock.hide()
+        self.camera_dock.hide()
+        self.notify_inbox.hide()
+        self.contacts_inbox.hide()
+        if hidden.get("camera"):
+            try:
+                self.camera.stop()
+            except Exception:
+                pass
+        overlay = self.conversation.notify_overlay
+        if overlay is not None and overlay.expanded:
+            overlay.collapse()
+        self._away_timer.stop()
+        self._sync_idle_mode()
+
+    def _wake_from_away_rest(self) -> None:
+        if not self._away_resting:
+            self._arm_away_rest_timer()
+            return
+        hidden = dict(self._away_hidden)
+        self._away_resting = False
+        self._away_hidden = {}
+        if hidden.get("thinking"):
+            self.think_dock.show()
+        if hidden.get("workspace"):
+            self.work_dock.show()
+        if hidden.get("history"):
+            self.history_dock.show()
+            self._refresh_history()
+        if hidden.get("camera"):
+            self.camera_dock.show()
+            self.camera.start()
+        if hidden.get("notify"):
+            self.notify_inbox.show()
+            self.notify_inbox.raise_()
+        if hidden.get("contacts"):
+            self.contacts_inbox.show()
+            self.contacts_inbox.raise_()
+        self._style_dock_tabs()
+        self._sync_idle_mode()
+        self._arm_away_rest_timer()
+
+    def _persist_window_layout(self) -> None:
+        """Write geometry. Rest must not persist a collapsed window."""
+        if self._away_resting:
+            self._wake_from_away_rest()
+        save_window_layout(self)
 
     def _on_idle_readiness(self, snapshot) -> None:
         self._readiness_snap = snapshot
@@ -2439,7 +2610,7 @@ class ArelisWindow(QMainWindow):
             and self._tray is not None
             and self._tray.isVisible()
         ):
-            save_window_layout(self)
+            self._persist_window_layout()
             if self.voice_controller is not None:
                 self.voice_controller.stop_all()
             self._stop_speech()
@@ -2462,7 +2633,7 @@ class ArelisWindow(QMainWindow):
 
         quit_t0 = time.monotonic()
         log.info("quit_begin force=%s", self._force_quit)
-        save_window_layout(self)
+        self._persist_window_layout()
         # Release the microphone and the audio device before the window goes.
         # Qt will not do it for us and Windows keeps both claimed.
         if self.voice_controller is not None:
@@ -2678,6 +2849,7 @@ class ArelisWindow(QMainWindow):
                 self.chat.add_system(text)
 
     def _on_submit(self, text: str, role: str, attachments: list | None = None) -> None:
+        self._note_engagement()
         attachments = list(attachments or [])
         self._current_role = role
         # Grant session read on each original absolute path (attach = consent).
@@ -2793,6 +2965,7 @@ class ArelisWindow(QMainWindow):
             self.chat.add_system("Turn ended without a reply. Input re-enabled.")
 
     def _on_confirm_decided(self, confirm_id: str, decision: str, allow_turn: bool) -> None:
+        self._note_engagement()
         # Clear the voice hold before the reply hits the bus so conversation
         # mode is not stuck deaf for an extra event-loop hop after Allow/Skip.
         self._set_confirm_pending(False)
@@ -3159,12 +3332,9 @@ class ArelisWindow(QMainWindow):
             self._on_speech_synthesized(int(p.get("clips") or 0))
         elif t == EventType.ASSISTANT_DELTA:
             self._clear_model_loading()
-            # The answer is painting, so the status text has nothing left to
-            # say. The parked orbit is a separate widget and stays up: retract
-            # cycles (preamble then a tool) used to hide and show *it* every
-            # round, which read as the orb popping in and out rather than
-            # breathing. Keep the orbit, clear the status line.
-            self.chat.clear_progress()
+            # Keep the status line until the answer is finished. Clearing it on
+            # the first token made tool turns flash: a preamble hid "thinking…",
+            # then retract put it back. Tool copy still replaces this line.
             self.conversation.set_turn_visible(True)
             if not self._assistant_streaming:
                 self.chat.begin_assistant()
@@ -3246,8 +3416,8 @@ class ArelisWindow(QMainWindow):
                 self.thinking.append("new conversation", kind="status")
             elif sid:
                 self.thinking.append(f"loaded conversation {sid[:8]}", kind="status")
-            # Re-surface in thinking after clear/load; chat already had its
-            # one-shot banner (R6 — don't re-paint STATUS as a Sources-like line).
+            # Re-surface in thinking after clear/load. This line is not a
+            # conversation; painting it into chat used to hide the orbit.
             if self._inbound_banner:
                 self.thinking.append(self._inbound_banner, kind="status")
             self._sync_idle_mode()
@@ -3267,17 +3437,20 @@ class ArelisWindow(QMainWindow):
             )
             self._sync_idle_mode()
         elif t == EventType.THINKING:
-            self.thinking.append(p.get("text", ""), kind="trace")
+            text = str(p.get("text") or "")
+            if p.get("stream"):
+                self.thinking.extend_stream(text)
+            else:
+                self.thinking.append(text, kind="trace")
             self._reveal_dock(self.think_dock, self.act_thinking)
         elif t == EventType.STATUS:
             msg = p.get("message", "")
             self.thinking.append(msg, kind="status")
-            # Inbound listen/token: keep in thinking; one short chat line once.
+            # Inbound listen/token belongs in thinking, not chat. A system
+            # line here used to mark the thread as started and hide the orbit
+            # on a cold launch the operator never typed into.
             if str(msg).startswith("Inbound notify"):
                 self._inbound_banner = str(msg)
-                if not self._inbound_banner_in_chat:
-                    self.chat.add_system(str(msg))
-                    self._inbound_banner_in_chat = True
             if msg.startswith("Active project set to"):
                 self.workspace.set_active_project(self.workspace_roots.active)
             # /role ack: keep the composer pill in sync with the default role.
@@ -3304,6 +3477,7 @@ class ArelisWindow(QMainWindow):
                 detail=str(p.get("detail") or ""),
                 note=str(p.get("note") or ""),
                 batch_ok=bool(p.get("batch_ok", True)),
+                headline=str(p.get("headline") or ""),
             )
             self._set_confirm_pending(True)
             # The turn is blocked on a person, not working. Shimmering "writing
@@ -3312,7 +3486,7 @@ class ArelisWindow(QMainWindow):
                 self.chat.show_progress(WAITING_STATUS)
             self.conversation.set_turn_visible(True)
             self._reveal_dock(self.think_dock, self.act_thinking)
-            self.thinking.append(f"allow  {p.get('summary')}", kind="tool")
+            self.thinking.append(f"allow  {p.get('headline') or p.get('summary')}", kind="tool")
         elif t == EventType.TOOL_CONFIRM_REPLY:
             # Timeout / remote skip — dismiss the open card if it matches.
             cid = str(p.get("id") or "")
@@ -3321,7 +3495,10 @@ class ArelisWindow(QMainWindow):
                 self.conversation.dismiss_confirm()
                 self._set_confirm_pending(False)
                 if p.get("reason") == "timeout":
-                    self.thinking.append("confirm timed out — skipped", kind="status")
+                    self.thinking.append("confirm timed out — denied", kind="status")
+                elif p.get("reason") == "voice":
+                    said = "allow" if p.get("decision") == "allow" else "deny"
+                    self.thinking.append(f"voice {said}", kind="status")
         elif t == EventType.TOOL_START:
             tool = p.get("tool")
             args = p.get("args") or {}
@@ -3502,6 +3679,7 @@ class ArelisWindow(QMainWindow):
             sender=msg.sender,
             title=title,
         )
+        self._alert_if_background()
         _window, state = self.sms_chats.room_state(
             alias=alias, phone=msg.sender, sender=msg.sender
         )
@@ -3529,6 +3707,12 @@ class ArelisWindow(QMainWindow):
             self._held_inbound.append(msg)
             return
         self._maybe_voice_sms([msg])
+
+    def _alert_if_background(self) -> None:
+        """Flash the Arelis taskbar button when another app is in front."""
+        if process_owns_foreground():
+            return
+        flash_taskbar(self)
 
     def _floor_busy(self) -> bool:
         speaking = self._speech_expected or self._speech_playing or (
@@ -3595,7 +3779,9 @@ class ArelisWindow(QMainWindow):
             unread=self.notify_center.unread_count(),
         )
         self._on_notify_unread(self.notify_center.unread_count())
-        self._sync_idle_mode()
+        idle = self._idle_eligible()
+        if idle != bool(self.conversation._idle_mode):
+            self._sync_idle_mode()
 
     def _on_notify_pill_clicked(self) -> None:
         head = self.notify_center.head()

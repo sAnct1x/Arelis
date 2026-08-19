@@ -1423,6 +1423,11 @@ def stylesheet() -> str:
         font-size: {FONT_PX}px;
         padding: 10px 8px;
         letter-spacing: 0.04em;
+        text-decoration: none;
+    }}
+    #ChatProgress:hover {{
+        color: {c['accent2']};
+        text-decoration: none;
     }}
     /* Frameless in-app dialogs: first run, confirms, the update prompt. */
     #DialogHeading, #GlassDialogHeading {{

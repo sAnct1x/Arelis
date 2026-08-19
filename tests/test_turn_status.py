@@ -132,14 +132,17 @@ def test_status_shows_without_being_asked_and_never_outlives_the_turn(
     assert "thinking" in window.chat.progress.text()
 
     window._on_event(Event(EventType.ASSISTANT_DELTA, {"text": "It will be"}))
-    assert window.chat.progress.isHidden()
+    # First tokens used to hide the line, so a preamble-then-tool flash was
+    # "thinking…" gone then back. Stay up until the answer is finished.
+    assert not window.chat.progress.isHidden()
+    assert "thinking" in window.chat.progress.text()
 
     # A draft that turns out to be a preamble empties the thread again. This is
     # the moment that made three spoken SMS turns look dead.
     window._on_event(Event(EventType.ASSISTANT_RETRACT, {}))
     assert not window.chat.progress.isHidden()
 
-    window._set_busy(False)
+    window._on_event(Event(EventType.ASSISTANT_DONE, {"text": "It will be sunny."}))
     assert window.chat.progress.isHidden()
 
 
@@ -157,3 +160,23 @@ def test_an_allow_card_says_it_is_waiting_on_you_not_working(arelis_window) -> N
         )
     )
     assert "waiting for you" in window.chat.progress.text()
+
+
+def test_clicking_thinking_status_opens_the_dock_or_pulses_it(arelis_window) -> None:
+    """The line is a control, not a hyperlink. Closed dock opens; open dock pulses."""
+    from PySide6.QtCore import Qt
+
+    window = arelis_window()
+    window.think_dock.hide()
+    window._set_busy(True)
+    assert window.chat.progress.cursor().shape() == Qt.CursorShape.PointingHandCursor
+    window.chat.progress_clicked.emit()
+    # isVisible() is false for any child of a hidden window; isHidden() is the
+    # widget's own show/hide latch.
+    assert not window.think_dock.isHidden()
+    assert not window.think_host.has_attention
+
+    window.chat.progress_clicked.emit()
+    assert window.think_host.has_attention
+    window._on_think_pulse_done()
+    assert not window.think_host.has_attention

@@ -261,7 +261,7 @@ def cancel_comfy_idle() -> None:
 
 
 def schedule_comfy_idle_stop(delay_s: float = _IDLE_STOP_S) -> None:
-    """Park Comfy after the last image so /role code can fit on the card."""
+    """Park Comfy after the last image so research can fit on the card."""
     global _idle_task
     cancel_comfy_idle()
     try:

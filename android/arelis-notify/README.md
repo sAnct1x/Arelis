@@ -34,5 +34,5 @@ ingest is up (desktop open, hidden in the tray, or `arelis --core`).
 - Phone and PC must be on the same Wi‑Fi; allow TCP 8765 on the PC firewall.
 - If ping fails, run `.\scripts\check_inbound.ps1` on the PC (see main README).
 - Muted / silenced chats do not produce notifications and will not bridge.
-- Outbound texts still go through SMSGate + Arelis confirm; this app is
+- Outbound texts still go through SMSGate + allow / deny on the PC; this app is
   inbound only.

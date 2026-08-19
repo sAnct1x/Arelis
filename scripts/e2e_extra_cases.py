@@ -111,7 +111,7 @@ async def main() -> int:
 
     r = await probe.run(
         "Create or overwrite the file data/e2e_scratch.txt with exactly the text: e2e-ok-skip",
-        "code",
+        "fast",
         "skip",
     )
     wrote = scratch.exists()
@@ -126,7 +126,7 @@ async def main() -> int:
 
     r = await probe.run(
         "Write the file data/e2e_scratch.txt with exactly: e2e-ok-allow",
-        "code",
+        "fast",
         "allow",
     )
     content = scratch.read_text(encoding="utf-8") if scratch.exists() else ""

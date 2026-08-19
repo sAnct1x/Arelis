@@ -27,6 +27,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urljoin, urlparse, urlunparse
+from xml.etree import ElementTree as ET
 
 from bs4 import BeautifulSoup, NavigableString, Tag
 
@@ -115,6 +116,7 @@ class ArticleExtract:
     amp_url: str = ""
     print_url: str = ""
     canonical_url: str = ""
+    feed_urls: list[str] = field(default_factory=list)
     outbound: list[tuple[str, str]] = field(default_factory=list)  # (text, url)
     word_count: int = 0
 
@@ -174,14 +176,17 @@ def extract_article(html: str, *, base_url: str = "") -> ArticleExtract:
     if noscript is not None:
         candidates.append(noscript)
 
-    if meta.description and len(meta.description) >= 80:
+    if meta.description and not thin_readable(meta.description):
+        # A non-thin OG/twitter description is enough to count as a read on a
+        # JS shell. Do not discount it below a scrap of chrome, or the teaser
+        # loses ranking and the page looks empty.
         candidates.append(
             _pack(
                 meta,
                 title=meta.title,
                 text=meta.description,
                 strategy="og-description",
-                score=_score(meta.description, "og-description") * 0.55,
+                score=_score(meta.description, "og-description"),
             )
         )
 
@@ -208,6 +213,7 @@ def extract_article(html: str, *, base_url: str = "") -> ArticleExtract:
             amp_url=meta.amp_url,
             print_url=meta.print_url,
             canonical_url=meta.canonical_url,
+            feed_urls=list(meta.feed_urls),
             diagnosis=_diagnose(html, ""),
         )
         return empty
@@ -236,8 +242,14 @@ def extract_article(html: str, *, base_url: str = "") -> ArticleExtract:
         best.print_url = meta.print_url
     if not best.canonical_url:
         best.canonical_url = meta.canonical_url
+    best.feed_urls = list(meta.feed_urls)
     # Re-score after scrub — paywall CTAs shouldn't inflate length.
     best.score = _score(best.text, best.strategy.split("+")[0])
+    if (
+        best.strategy.split("+")[0] == "og-description"
+        and not thin_readable(best.text)
+    ):
+        best.score = max(best.score, 40.0)
     if not best.ok:
         best.diagnosis = _diagnose(html, best.text)
     return best
@@ -294,6 +306,8 @@ def sibling_urls(extract: ArticleExtract, *, page_url: str) -> list[str]:
 
     for candidate in (extract.amp_url, extract.print_url):
         _add(candidate)
+    for feed in extract.feed_urls:
+        _add(feed)
 
     parsed = urlparse(page_url)
     if parsed.scheme in {"http", "https"} and parsed.path:
@@ -307,7 +321,100 @@ def sibling_urls(extract: ArticleExtract, *, page_url: str) -> list[str]:
             if "amp" not in q and "outputType" not in q:
                 q["amp"] = "1"
                 _add(urlunparse(parsed._replace(query=urlencode(q))))
-    return out[:5]
+    return out[:8]
+
+
+def looks_like_feed(body: str, content_type: str = "") -> bool:
+    """True when this response is RSS or Atom, not an HTML article."""
+    main = (content_type or "").split(";", 1)[0].strip().lower()
+    sample = (body or "").lstrip()[:1200].lower()
+    if "rss+xml" in main or "atom+xml" in main:
+        return True
+    if main in {"application/xml", "text/xml", "application/rss+xml"}:
+        return "<rss" in sample or "<feed" in sample
+    return sample.startswith("<?xml") and ("<rss" in sample or "<feed" in sample)
+
+
+def parse_feed(xml: str, *, page_url: str = "", limit: int = 8) -> ArticleExtract:
+    """Turn a small RSS/Atom document into article-shaped text."""
+    raw = (xml or "").strip()
+    if not raw:
+        return ArticleExtract(diagnosis="Feed was empty.")
+    try:
+        root = ET.fromstring(raw)
+    except ET.ParseError:
+        return ArticleExtract(diagnosis="Feed XML did not parse.")
+    tag = root.tag.lower()
+    entries: list[tuple[str, str, str, str]] = []
+    title = ""
+    if tag.endswith("rss") or tag == "rss":
+        channel = root.find("channel")
+        if channel is None:
+            channel = root
+        title = _xml_text(channel.find("title"))
+        for item in channel.findall("item")[:limit]:
+            entries.append(
+                (
+                    _xml_text(item.find("title")),
+                    _xml_text(item.find("link")),
+                    _strip_xml_tags(_xml_text(item.find("description"))),
+                    _xml_text(item.find("pubDate")),
+                )
+            )
+    elif tag.endswith("feed"):
+        ns = ""
+        if root.tag.startswith("{"):
+            ns = root.tag.split("}", 1)[0] + "}"
+        title = _xml_text(root.find(f"{ns}title"))
+        for item in root.findall(f"{ns}entry")[:limit]:
+            link_el = item.find(f"{ns}link")
+            href = ""
+            if link_el is not None:
+                href = str(link_el.get("href") or "").strip() or _xml_text(link_el)
+            summary = _xml_text(item.find(f"{ns}summary")) or _xml_text(
+                item.find(f"{ns}content")
+            )
+            entries.append(
+                (
+                    _xml_text(item.find(f"{ns}title")),
+                    href,
+                    _strip_xml_tags(summary),
+                    _xml_text(item.find(f"{ns}updated"))
+                    or _xml_text(item.find(f"{ns}published")),
+                )
+            )
+    if not entries:
+        return ArticleExtract(title=title, diagnosis="Feed had no entries.")
+    lines: list[str] = []
+    if title:
+        lines.append(f"Feed: {title}")
+        lines.append("")
+    for item_title, href, summary, when in entries:
+        stamp = f"{when} " if when else ""
+        lines.append(f"- {stamp}{item_title or href}".strip())
+        if summary:
+            lines.append(f"  {summary[:400]}")
+        if href:
+            lines.append(f"  URL: {href}")
+    text = "\n".join(lines).strip()
+    return ArticleExtract(
+        title=title or (urlparse(page_url).netloc if page_url else "Feed"),
+        text=text,
+        strategy="rss-feed",
+        score=_score(text, "rss-feed"),
+        canonical_url=page_url,
+        word_count=len(text.split()),
+    )
+
+
+def _xml_text(node: ET.Element | None) -> str:
+    if node is None or node.text is None:
+        return ""
+    return " ".join(str(node.text).split()).strip()
+
+
+def _strip_xml_tags(raw: str) -> str:
+    return " ".join(_TAG_RE.sub(" ", raw or "").split()).strip()
 
 
 # --- internals -------------------------------------------------------------
@@ -323,6 +430,7 @@ class _Meta:
     amp_url: str = ""
     print_url: str = ""
     canonical_url: str = ""
+    feed_urls: list[str] = field(default_factory=list)
 
 
 def _pack(
@@ -348,6 +456,7 @@ def _pack(
         amp_url=meta.amp_url,
         print_url=meta.print_url,
         canonical_url=meta.canonical_url,
+        feed_urls=list(meta.feed_urls),
         outbound=outbound or [],
         word_count=len(text.split()),
     )
@@ -395,6 +504,20 @@ def _meta_bundle(soup: BeautifulSoup, *, base_url: str) -> _Meta:
     canon = soup.find("link", rel=lambda v: v and "canonical" in str(v).lower())
     if canon and canon.get("href"):
         canonical = urljoin(base_url, str(canon["href"]).strip())
+    feed_urls: list[str] = []
+    for link in soup.find_all("link", href=True):
+        rel = link.get("rel")
+        rel_text = " ".join(rel) if isinstance(rel, list) else str(rel or "")
+        typ = str(link.get("type") or "").lower()
+        if "alternate" not in rel_text.lower():
+            continue
+        if "rss+xml" not in typ and "atom+xml" not in typ:
+            continue
+        href = str(link.get("href") or "").strip()
+        if href:
+            absolute = urljoin(base_url, href)
+            if absolute not in feed_urls:
+                feed_urls.append(absolute)
     return _Meta(
         title=title,
         description=description,
@@ -404,6 +527,7 @@ def _meta_bundle(soup: BeautifulSoup, *, base_url: str) -> _Meta:
         amp_url=amp,
         print_url=print_url,
         canonical_url=canonical,
+        feed_urls=feed_urls,
     )
 
 
@@ -804,6 +928,7 @@ def _merge_unique_paragraphs(primary: ArticleExtract, secondary: ArticleExtract)
         amp_url=primary.amp_url or secondary.amp_url,
         print_url=primary.print_url or secondary.print_url,
         canonical_url=primary.canonical_url or secondary.canonical_url,
+        feed_urls=list(primary.feed_urls or secondary.feed_urls),
         outbound=(primary.outbound or secondary.outbound)[:8],
         word_count=len(merged_text.split()),
     )
@@ -857,6 +982,10 @@ def _score(text: str, strategy: str) -> float:
         score += 20.0
     elif strategy == "noscript":
         score += 18.0
+    elif strategy == "og-description":
+        score += 25.0
+    elif strategy == "rss-feed":
+        score += 32.0
     elif strategy == "full-body":
         score -= 15.0
     # Penalize nav-ish dumps heavy on pipes / short tokens.
@@ -883,7 +1012,8 @@ def _diagnose(html: str, text: str) -> str:
         return (
             "Almost no readable HTML text — likely a JavaScript app shell. "
             "Scrape cannot run site JS. Prefer a different URL, an AMP/print "
-            "link if available, or summarize from a source that ships real HTML."
+            "link if available, or browser(action=open) with this URL. "
+            "Do not invent what the page says."
         )
     return (
         "Extraction was weak (nav noise or short body). "

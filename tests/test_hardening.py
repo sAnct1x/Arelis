@@ -544,6 +544,115 @@ async def test_http_400_on_tools_still_json_falls_back() -> None:
     assert router.calls == 2
 
 
+class _ScrapeStub:
+    """Read tool that succeeds; used to prove empty-after-tool skips JSON mode."""
+
+    name = "scrape"
+    description = "fetch a page"
+    risk = "read"
+    parameters_schema = {
+        "type": "object",
+        "properties": {"url": {"type": "string"}},
+    }
+
+    async def run(self, **kwargs: Any) -> ToolResult:
+        del kwargs
+        return ToolResult(
+            ok=True,
+            output="NASDAQ:SPCX last $143.34",
+        )
+
+
+@pytest.mark.asyncio
+async def test_empty_after_successful_tool_skips_json_fallback() -> None:
+    """Qwen3.5 left chat content empty after a good scrape and the loop
+    started JSON fallback even though native calling had already worked."""
+    bus = EventBus()
+    router = _ScriptedRouter(
+        [
+            [
+                (
+                    "tool_calls",
+                    [
+                        {
+                            "type": "function",
+                            "function": {
+                                "name": "scrape",
+                                "arguments": {
+                                    "url": "https://example.com/SPCX",
+                                },
+                            },
+                        }
+                    ],
+                )
+            ],
+            [("token", "")],
+        ]
+    )
+    tools = ToolRegistry()
+    tools.register(_ScrapeStub())
+    cfg = _config()
+    cfg["agent"]["chat_fast_path"] = False
+    cfg["agent"]["max_rounds"] = 8
+    loop = AgentLoop(
+        bus,
+        router,  # type: ignore[arg-type]
+        tools,
+        SessionMemory(),
+        "persona",
+        cfg,
+        request_confirm=_deny,
+        is_cancelled=lambda: False,
+    )
+    events = await _collect(bus, loop.run("what is SPCX trading at?", "fast"))
+    thinking = " ".join(
+        str(e.payload.get("text") or "")
+        for e in events
+        if e.type == EventType.THINKING
+    )
+    assert "JSON fallback" not in thinking
+    assert "empty after tool; answering from result" in thinking
+    done = next(e for e in events if e.type == EventType.ASSISTANT_DONE)
+    assert "NASDAQ:SPCX last $143.34" in done.payload["text"]
+    assert router.i == 2
+
+
+@pytest.mark.asyncio
+async def test_empty_first_round_still_json_falls_back() -> None:
+    """No tool has run yet — blank content must still enter JSON fallback."""
+    bus = EventBus()
+    router = _ScriptedRouter(
+        [
+            [("token", "")],
+            [("token", '{"final":"hi from json mode"}')],
+        ]
+    )
+    tools = ToolRegistry()
+    tools.register(_ScrapeStub())
+    cfg = _config()
+    cfg["agent"]["chat_fast_path"] = False
+    loop = AgentLoop(
+        bus,
+        router,  # type: ignore[arg-type]
+        tools,
+        SessionMemory(),
+        "persona",
+        cfg,
+        request_confirm=_deny,
+        is_cancelled=lambda: False,
+    )
+    events = await _collect(bus, loop.run("hello", "fast"))
+    thinking = " ".join(
+        str(e.payload.get("text") or "")
+        for e in events
+        if e.type == EventType.THINKING
+    )
+    assert "empty tool response; JSON fallback" in thinking
+    assert "empty after tool" not in thinking
+    done = next(e for e in events if e.type == EventType.ASSISTANT_DONE)
+    assert "hi from json mode" in done.payload["text"]
+
+
 async def _deny(cid: str, tool: str, args: dict[str, Any], summary: str) -> str:
     return "skip"
 
@@ -572,6 +681,11 @@ async def test_role_research_unloads_conversation_model() -> None:
             super().__init__([[("token", "hi")]])
             self.prepared: list[str] = []
 
+        def model_for(self, role=None):
+            return {"fast": "qwen-fast", "research": "qwen-big"}.get(
+                role or self.default_role, "mock"
+            )
+
         async def prepare_heavy_role(self, role) -> None:
             self.prepared.append(role)
 
@@ -591,6 +705,36 @@ async def test_role_research_unloads_conversation_model() -> None:
         if e.type == EventType.STATUS
     ]
     assert any("Unloading conversation model" in m for m in status)
+    done = next(e for e in events if e.type == EventType.ASSISTANT_DONE)
+    assert "Role set to `research`" in str(done.payload.get("text") or "")
+
+
+@pytest.mark.asyncio
+async def test_role_research_skips_unload_when_same_weights() -> None:
+    class SpyRouter(_ScriptedRouter):
+        def __init__(self) -> None:
+            super().__init__([[("token", "hi")]])
+            self.prepared: list[str] = []
+
+        async def prepare_heavy_role(self, role) -> None:
+            self.prepared.append(role)
+
+        def clear_sticky(self) -> None:
+            return None
+
+    bus = EventBus()
+    router = SpyRouter()
+    Orchestrator(bus, router, ToolRegistry(), _config(), SessionMemory())  # type: ignore[arg-type]
+    events = await _collect(
+        bus, bus.publish(Event(EventType.USER_MESSAGE, {"text": "/role research"}))
+    )
+    assert router.prepared == []
+    status = [
+        str((e.payload or {}).get("message") or "")
+        for e in events
+        if e.type == EventType.STATUS
+    ]
+    assert not any("Unloading conversation model" in m for m in status)
     done = next(e for e in events if e.type == EventType.ASSISTANT_DONE)
     assert "Role set to `research`" in str(done.payload.get("text") or "")
 

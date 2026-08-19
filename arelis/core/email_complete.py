@@ -85,12 +85,10 @@ _COMPOSE_EMAIL_SHAPE = re.compile(
 )
 
 # Recurring / "at 7am every day" is a Windows job, not a send this turn.
+# Intensifiers are a closed list so "every time it rains" stays a weather ask.
 _SCHEDULED_SEND = re.compile(
     r"(?i)\b("
-    r"every\s+day|"
-    r"every\s+morning|"
-    r"every\s+evening|"
-    r"every\s+weekday|"
+    r"every\s+(?:single\s+|last\s+|other\s+)?(?:day|morning|evening|night|weekday)|"
     r"each\s+day|"
     r"once\s+a\s+day|"
     r"daily\s+at|"
@@ -100,6 +98,28 @@ _SCHEDULED_SEND = re.compile(
 )
 _SCHEDULED_SEND_PAYLOAD = re.compile(
     r"(?i)\b(e-?mail|mail|text|sms|briefing|weather|summary|digest)\b"
+)
+_STANDARD_BRIEFING = re.compile(
+    r"(?i)\b("
+    r"morning\s+briefing|"
+    r"morning\s+summary|"
+    r"what'?s\s+going\s+on\s+today|"
+    r"create_briefing"
+    r")\b"
+)
+_CUSTOM_JOB_TONE = re.compile(
+    r"(?i)\b(fun|friendly|witty|jok(?:e|y)|keep\s+it\s+brief)\b"
+)
+_SCHEDULE_MANAGE = re.compile(
+    r"(?i)\b(?:"
+    r"(?:show|list|see|delete|remove|cancel|stop|disable|"
+    r"what(?:'s|s|\s+are)?|which)\b"
+    r".{0,80}\b(?:briefings?|automations?|scheduled\s+jobs?|"
+    r"(?:my|the)\s+jobs?)"
+    r"|"
+    r"(?:briefings?|automations?|scheduled\s+jobs?)\b.{0,40}\b"
+    r"(?:do\s+i\s+have|have\s+i|are\s+there)"
+    r")"
 )
 
 
@@ -111,6 +131,39 @@ def looks_like_scheduled_send(text: str) -> bool:
     if _SCHEDULED_SEND_PAYLOAD.search(raw):
         return True
     return bool(re.search(r"(?i)\bschedule\s+a\s+(?:job|briefing|task)\b", raw))
+
+
+def looks_like_schedule_manage(text: str) -> bool:
+    """True when they asked to list, inspect, or delete a saved job.
+
+    Nouns in a job title ('Morning Weather Briefing') are not this-turn
+    weather or mail. A create-timer ask is scheduled_send, not manage.
+    """
+    raw = text or ""
+    if looks_like_scheduled_send(raw):
+        return False
+    return bool(_SCHEDULE_MANAGE.search(raw))
+
+
+def looks_like_standard_briefing(text: str) -> bool:
+    """True for the canned morning digest, not a custom standing prompt.
+
+    create_briefing emails home weather plus mail and open loops. Named extra
+    cities, a tone, or any other recurring task is schedule(action=create).
+    """
+    raw = text or ""
+    if _STANDARD_BRIEFING.search(raw):
+        return True
+    if not looks_like_scheduled_send(raw):
+        return False
+    from arelis.tools.weather import extract_weather_places
+
+    extra = [p for p in extract_weather_places(raw) if p]
+    if extra:
+        return False
+    if _CUSTOM_JOB_TONE.search(raw):
+        return False
+    return bool(re.search(r"(?i)\bweather\b", raw))
 
 
 _BARE_CONFIRM = re.compile(
@@ -147,6 +200,26 @@ def draft_schedule_briefing_args(text: str) -> dict[str, str]:
     }
 
 
+def draft_schedule_job_args(text: str) -> dict[str, str]:
+    """schedule(action=create) with the user's standing instruction as the prompt."""
+    raw = " ".join((text or "").split()).strip()
+    time_s = "7am"
+    match = _SCHEDULE_TIME.search(raw)
+    if match:
+        time_s = re.sub(r"\s+", "", match.group(1))
+    days = "daily"
+    if re.search(r"(?i)\bweekday", raw):
+        days = "weekdays"
+    name = raw[:40].strip() or "Scheduled job"
+    return {
+        "action": "create",
+        "name": name,
+        "prompt": raw,
+        "time": time_s,
+        "days": days,
+    }
+
+
 def rewrite_schedule_calls(
     text: str,
     calls: list[tuple[str, dict[str, Any]]],
@@ -166,11 +239,15 @@ def rewrite_schedule_calls(
         ]
     if not looks_like_scheduled_send(text) or not schedule_available:
         return calls
-    drafted = draft_schedule_briefing_args(text)
+    drafted = (
+        draft_schedule_briefing_args(text)
+        if looks_like_standard_briefing(text)
+        else draft_schedule_job_args(text)
+    )
     out: list[tuple[str, dict[str, Any]]] = []
     saw_schedule = False
     for name, args in calls:
-        if name in {"weather", "send_email"}:
+        if name in {"weather", "send_email", "send_sms"}:
             continue
         if name != "schedule":
             out.append((name, args))
@@ -184,6 +261,9 @@ def rewrite_schedule_calls(
             given = str((args or {}).get("name") or "").strip()
             if given:
                 merged["name"] = given
+            given_prompt = str((args or {}).get("prompt") or "").strip()
+            if given_prompt and str(merged.get("action") or "") == "create":
+                merged["prompt"] = given_prompt
             out.append(("schedule", merged))
         else:
             out.append((name, args))

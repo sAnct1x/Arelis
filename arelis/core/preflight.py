@@ -31,6 +31,7 @@ from arelis.core.agenda_complete import (
 from arelis.core.email_complete import (
     complete_email_draft,
     email_preflight_nudge,
+    looks_like_schedule_manage,
     looks_like_scheduled_send,
 )
 from arelis.core.image_refs import (
@@ -71,6 +72,7 @@ __all__ = [
     "rewrite_browser_action",
     "rewrite_browser_calls",
     "signin_ref_from_snapshot",
+    "user_asked_for_browser",
 ]
 
 # Path-like token with a table extension, or explicit csv/xlsx/tsv (etc.).
@@ -343,6 +345,25 @@ def looks_like_browser_click_signin(text: str) -> bool:
     if _HOWTO_SIGNIN.search(raw):
         return False
     return bool(_BROWSER_CLICK_SIGNIN.search(raw) or _BARE_SIGNIN.match(raw))
+
+
+def user_asked_for_browser(text: str) -> bool:
+    """True when this utterance is already a grant to drive her window.
+
+    Bare URLs in a scrape/summarize ask are not a grant — those still pause
+    if she offers the window after a JS shell.
+    """
+    raw = text or ""
+    if looks_like_browser_click_signin(raw):
+        return True
+    return bool(
+        _BROWSER.search(raw)
+        or _BROWSER_SEARCH.search(raw)
+        or _BROWSER_MAPS.search(raw)
+        or _BROWSER_CART.search(raw)
+        or _BROWSER_SCREENSHOT.search(raw)
+        or _BROWSER_READ.search(raw)
+    )
 
 
 _SNAP_EL = re.compile(r"^\[(?P<ref>e\d+)\]\s+(?P<rest>.+)$", re.I | re.M)
@@ -872,14 +893,14 @@ def detect_intents(
             IntentHint(
                 kind="schedule",
                 expected_tools=("schedule",),
-                nudge=(
-                    "Intent preflight: this message asks to run something later "
-                    "or on a timer. Call schedule(action='create_briefing') with "
-                    "the time they named (and the weather/email wording as the "
-                    "job). Do not send_email or weather now — those run when "
-                    "the job fires. Allow still applies — do not ask permission "
-                    "in chat."
-                ),
+                    nudge=(
+                        "Intent preflight: this message asks to run something later "
+                        "or on a timer. Call schedule now: create_briefing for the "
+                        "canned morning digest, or create with a stand-alone prompt "
+                        "for any other recurring job. Do not send_email, send_sms, "
+                        "or weather this turn — those run when the job fires. "
+                        "Allow still applies — do not ask permission in chat."
+                    ),
             )
         )
 
@@ -898,6 +919,7 @@ def detect_intents(
             or looks_like_browser_or_url(raw)
             or looks_like_browser_click_signin(raw)
             or looks_like_scheduled_send(raw)
+            or looks_like_schedule_manage(raw)
             or any(
                 h.kind in {"analyze", "vision", "image_edit", "rooms", "browser_click"}
                 for h in hints
@@ -917,7 +939,7 @@ def detect_intents(
         )
 
     # Inbox / analyze / vision / calendar / image / schedule must not revive a compose.
-    skip_email = looks_like_scheduled_send(raw) or (
+    skip_email = looks_like_scheduled_send(raw) or looks_like_schedule_manage(raw) or (
         (
             bool(INBOX.matches(raw))
             or any(
@@ -958,7 +980,27 @@ def detect_intents(
                     nudge=(
                         "Intent preflight: this message asks to run something "
                         "later or on a timer. Call schedule now. Do not "
-                        "send_email or weather this turn."
+                        "send_email, send_sms, or weather this turn."
+                    ),
+                )
+            )
+
+    if looks_like_schedule_manage(raw):
+        hints = [
+            h
+            for h in hints
+            if h.kind not in {"weather", "compose_email", "sms_send"}
+        ]
+        if not any(h.kind == "schedule" for h in hints):
+            hints.append(
+                IntentHint(
+                    kind="schedule",
+                    expected_tools=("schedule",),
+                    nudge=(
+                        "Intent preflight: this message asks to list or change "
+                        "a saved job. Call schedule (list or delete). Do not "
+                        "weather, send_email, or send_sms this turn — a word "
+                        "in a job name is not the ask."
                     ),
                 )
             )

@@ -244,10 +244,10 @@ def test_preflight_detects_missing_configured_models() -> None:
     available = ["qwen2.5:7b", "deepseek-r1:8b-instruct"]
     assert model_is_available(available, "qwen2.5:7b")
     assert model_is_available(available, "deepseek-r1:8b")
-    assert not model_is_available(available, "qwen2.5-coder:7b")
+    assert not model_is_available(available, "qwen2.5:14b")
     assert missing_models(
-        available, {"fast": "qwen2.5:7b", "code": "qwen2.5-coder:7b", "research": "deepseek-r1:8b"}
-    ) == [("code", "qwen2.5-coder:7b")]
+        available, {"fast": "qwen2.5:7b", "research": "qwen2.5:14b"}
+    ) == [("research", "qwen2.5:14b")]
 
 
 @pytest.mark.asyncio

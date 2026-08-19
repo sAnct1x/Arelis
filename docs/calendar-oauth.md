@@ -2,7 +2,7 @@
 
 Explicit exception to local-first: Arelis may hold **calendar** refresh tokens
 so she can read/write Google Calendar and Outlook. Models stay local. Writes
-always require an Allow confirm card.
+always wait for allow / deny.
 
 `data/secrets.yaml` below is under your records folder:
 `%LOCALAPPDATA%\Arelis\data` for an installed copy, or `data\` in the

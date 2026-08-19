@@ -8,8 +8,12 @@ from arelis.contacts import Contact, normalize_phone
 from arelis.core.email_complete import (
     complete_email_draft,
     draft_schedule_briefing_args,
+    draft_schedule_job_args,
     fill_send_email_args,
     looks_like_bare_confirm,
+    looks_like_schedule_manage,
+    looks_like_scheduled_send,
+    looks_like_standard_briefing,
     parse_email_utterance,
     resolve_email_address,
     rewrite_schedule_calls,
@@ -328,6 +332,65 @@ def test_recurring_weather_email_is_a_scheduled_job() -> None:
     assert looks_like_bare_confirm("confirm")
     assert looks_like_bare_confirm("yes")
     assert not looks_like_bare_confirm("confirm the weather job for friday")
+
+
+def test_every_single_morning_is_still_a_scheduled_job() -> None:
+    ask = (
+        "I want you to send me an email, every single morning at 7 am, "
+        "giving me a summary of what the weather is going to be like in "
+        "springfield illinois, and metropolis illinois. keep it brief, friendly, and fun."
+    )
+    assert looks_like_scheduled_send(ask)
+    assert not looks_like_standard_briefing(ask)
+    hints = detect_intents(ask)
+    tools = {t for h in hints for t in h.expected_tools}
+    kinds = [h.kind for h in hints]
+    assert "schedule" in tools
+    assert "send_email" not in tools
+    assert "weather" not in tools
+    assert "compose_email" not in kinds
+    rewritten = rewrite_schedule_calls(
+        ask,
+        [("weather", {"place": "Metropolis, Illinois"}), ("schedule", {"action": "create"})],
+        schedule_used=False,
+        schedule_available=True,
+    )
+    assert len(rewritten) == 1
+    name, args = rewritten[0]
+    assert name == "schedule"
+    assert args["action"] == "create"
+    assert "metropolis" in args["prompt"].lower()
+    assert args["time"].lower().replace(" ", "") in {"7am", "7:00am"}
+
+
+def test_every_other_day_headlines_are_a_custom_job() -> None:
+    ask = "Every other day at 7am, email me the headlines."
+    assert looks_like_scheduled_send(ask)
+    assert not looks_like_standard_briefing(ask)
+    args = draft_schedule_job_args(ask)
+    assert args["action"] == "create"
+    assert "headlines" in args["prompt"].lower()
+
+
+def test_schedule_manage_does_not_force_weather_or_mail() -> None:
+    delete = "please delete the second briefing named Morning Weather Briefing"
+    listing = "can you show me all of my briefings? or all of my automations?"
+    assert looks_like_schedule_manage(delete)
+    assert looks_like_schedule_manage(listing)
+    assert not looks_like_scheduled_send(delete)
+    for ask in (delete, listing):
+        hints = detect_intents(ask)
+        tools = {t for h in hints for t in h.expected_tools}
+        kinds = [h.kind for h in hints]
+        assert "schedule" in tools
+        assert "weather" not in tools
+        assert "send_email" not in tools
+        assert "compose_email" not in kinds
+    assert not looks_like_schedule_manage("What's the weather in Springfield?")
+
+
+def test_every_time_it_rains_is_not_a_timer() -> None:
+    assert not looks_like_scheduled_send("tell me every time it rains")
 
 
 def test_non_recurring_email_me_a_test_still_drafts() -> None:

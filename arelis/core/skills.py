@@ -108,8 +108,11 @@ SKILL_CARDS: dict[str, SkillCard] = {
 - If the first search is thin, rephrase once before giving up.
 - Prefer scrape for human-readable pages (news, docs, articles). It pulls the
   main article (JSON-LD / microdata / <article> / paragraph lattice / density),
-  not the whole page chrome, and will retry AMP/print twins when the main URL
-  is a JS shell. Use web_fetch for APIs, JSON, and non-HTML endpoints.
+  not the whole page chrome, and will retry AMP/print twins and an RSS/Atom
+  alternate when the main URL is a JS shell. Use web_fetch for APIs, JSON,
+  and non-HTML endpoints.
+- If scrape says the page is a JavaScript shell, call browser(action=open)
+  with that same URL (Allow). Read the tab. Do not invent what the page says.
 - After using web_fetch or scrape, end with a short numbered **Sources:** list.
 - Separate established facts, inferences, and speculation when researching.
 """.strip(),
@@ -132,9 +135,11 @@ SKILL_CARDS: dict[str, SkillCard] = {
 ### Weather
 - Call the weather tool. Do not scrape AccuWeather, weather.com, or other
   forecast sites (they are JavaScript shells). Do not hand-build Open-Meteo URLs.
-- weather reports the user's own location and takes no place argument. It cannot
-  forecast another city, so say that plainly rather than guessing coordinates or
-  reaching for a search.
+- Default is the user's own location. Another city is place (a name this tool
+  geocodes). Never pass coordinates. days includes today: 1 is today only,
+  tomorrow needs 2 or more, default 3.
+- Two named cities: call weather once per place, then answer. Do not stop
+  after the first city.
 """.strip(),
     ),
     # "Where do you think I am" had no card and no intent, so it fell through to
@@ -225,7 +230,11 @@ SKILL_CARDS: dict[str, SkillCard] = {
             "e-mail",
             "gmail",
             "inbox",
+            "in box",
             "mail",
+            "emile",
+            "emiles",
+            "emil",
             "send mail",
             "compose",
         ),
@@ -628,6 +637,9 @@ SKILL_CARDS: dict[str, SkillCard] = {
             "remind",
             "every day",
             "every morning",
+            "every single morning",
+            "automations",
+            "scheduled jobs",
             "cron",
             "recurring",
             "briefing",
@@ -646,6 +658,8 @@ SKILL_CARDS: dict[str, SkillCard] = {
 - When the user asks for something to happen later or regularly (Windows Task
   Scheduler jobs), use schedule rather than promising to remember. Pass `date`
   for a one-off. Write the job's prompt so it stands on its own.
+- "every single morning" and "show/delete my automations" are schedule, not
+  weather or send this turn. A word in a job title is not this-turn weather.
 - Hand the schedule tool the user's own words for times — "tomorrow",
   "next Friday", "8am and 6pm". Do not convert them to cron first.
 - Calendar events are agenda, not schedule. Never pass a Google/Outlook
@@ -833,7 +847,8 @@ SKILL_CARDS: dict[str, SkillCard] = {
   filled in the URL. Snapshot and type remaining non-secret fields. Never click
   Book / Reserve / Confirm reservation — that is their turn.
 - Use web_search/scrape when YOU need to read the web without opening a window.
-  Prefer browser when they said pull up / open / go to / show me in the browser.
+  Prefer browser when they said pull up / open / go to / show me in the browser,
+  or when scrape already failed as a JavaScript shell on that URL.
 - Firefox private only when they ask for Firefox private; default is system default.
 """.strip(),
     ),

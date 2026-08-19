@@ -163,7 +163,7 @@ def test_project_line_stays_off_chitchat_and_on_for_files() -> None:
         role="fast", skill_ids=[], expected_tools=set()
     )
     assert _wants_project_context(
-        role="code", skill_ids=[], expected_tools=set()
+        role="research", skill_ids=[], expected_tools=set()
     )
     assert _wants_project_context(
         role="fast", skill_ids=["workspace"], expected_tools=set()

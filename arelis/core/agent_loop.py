@@ -70,6 +70,7 @@ from arelis.core.email_complete import (
     fill_send_email_args,
     looks_like_bare_confirm,
     looks_like_compose_email,
+    looks_like_schedule_manage,
     looks_like_scheduled_send,
     rewrite_schedule_calls,
 )
@@ -77,6 +78,7 @@ from arelis.core.episodes import episodes_prompt_line
 from arelis.core.events import Event, EventType
 from arelis.core.evidence import (
     EvidenceLedger,
+    classify_fetch_failure,
     dual_hit_notice,
     quote_first_notice,
 )
@@ -126,6 +128,7 @@ from arelis.core.preflight import (
     looks_like_room_create,
     preflight_system_message,
     rewrite_browser_calls,
+    user_asked_for_browser,
 )
 from arelis.core.read_fanout import should_fanout_reads
 from arelis.core.receipts import (
@@ -169,6 +172,13 @@ from arelis.memory.store import MemoryStore
 from arelis.profile import standing_profile_prompt_line
 from arelis.tools.base import ToolRegistry, confirm_args_blocked
 from arelis.tools.safety import redact_secrets, truncate_tool_output
+from arelis.tools.weather import (
+    draft_weather_args,
+    fill_weather_args,
+    weather_place_key,
+    weather_places_missing,
+    weather_wants_beyond_today,
+)
 
 # Conversation turns rarely scrape huge pages; reserving a full tool-output
 # slab leaves almost no room for chat history, so after a few spoken turns the
@@ -192,9 +202,9 @@ log = logging.getLogger(__name__)
 ConfirmFn = Callable[[str, str, dict[str, Any], str], Awaitable[str]]
 # confirm(id, tool, args, summary) -> "allow" | "allow_turn" | "skip"
 
-# Reasoning text is shown in the thinking dock, not the chat. Long chunks are
-# dropped rather than wrapped: the dock is a calm status strip, and a wall of
-# chain of thought buries the tool and model lines that make a turn debuggable.
+# Reasoning text is shown in the thinking dock, not the chat. Token-sized
+# Ollama `thinking` chunks are streamed into one wrapping paragraph. Discrete
+# status/tool/round lines stay one per event. Preamble snippets still cap.
 _MAX_THINKING_SNIPPET = 240
 
 # Visible characters buffered before any of a round is painted into the chat.
@@ -204,11 +214,6 @@ _STREAM_DECIDE_CHARS = 20
 
 # Tools whose results are web sources and therefore have to be citable.
 _WEB_TOOLS = {"web_fetch", "scrape", "research_report", "browser"}
-
-_FILE_ESCALATE = re.compile(
-    r"(?i)\b(file|readme|path|workspace|edit|write|refactor|python|code|"
-    r"debug|class|function|lint|git|branch|commit|diff)\b"
-)
 
 # Outbound drafts must keep the full tool surface — never escalate away.
 _OUTBOUND_LOCK = re.compile(
@@ -367,6 +372,12 @@ _SCRAPE_AFTER_SEARCH_NOTICE = (
     "You used web_search but have not scraped or fetched a page yet. "
     "Snippets are not enough for a current-events answer. Call scrape now "
     "with the URL: value from the best hit (must start with http), then answer."
+)
+
+_JS_SHELL_BROWSER_NOTICE = (
+    "That page is a JavaScript shell — scrape cannot read it. Call "
+    "browser(action=open, url={url}) so they can Allow her window. "
+    "Read the tab after it loads. Do not invent what the page says."
 )
 
 # Room left for the summary pin when deciding what still fits as raw history.
@@ -713,21 +724,32 @@ class AgentLoop:
         await self.bus.publish(
             Event(EventType.STATUS, {"message": f"Role `{role}` -> model `{model}`"})
         )
-        if (role or "").strip().lower() in {"research", "code"}:
-            from arelis.llm.vram import free_gpu_neighbors
+        if (role or "").strip().lower() == "research":
+            from arelis.llm.ollama import same_ollama_model
 
-            await free_gpu_neighbors(self.config, self.bus)
-            await self.bus.publish(
-                Event(
-                    EventType.STATUS,
-                    {
-                        "message": (
-                            f"Loading `{model}` — previous chat model was "
-                            "unloaded so it can fit."
-                        )
-                    },
+            needs_swap = True
+            try:
+                fast_tag = str(self.router.model_for("fast") or "")
+                needs_swap = not same_ollama_model(fast_tag, model)
+            except Exception:
+                needs_swap = True
+            if active and same_ollama_model(str(active), model):
+                needs_swap = False
+            if needs_swap:
+                from arelis.llm.vram import free_gpu_neighbors
+
+                await free_gpu_neighbors(self.config, self.bus)
+                await self.bus.publish(
+                    Event(
+                        EventType.STATUS,
+                        {
+                            "message": (
+                                f"Loading `{model}` — previous chat model was "
+                                "unloaded so it can fit."
+                            )
+                        },
+                    )
                 )
-            )
         await self.bus.publish(
             Event(
                 EventType.THINKING,
@@ -798,6 +820,7 @@ class AgentLoop:
             or detect_analyze_ask(text)
             or wants_image_edit(split_attachments_turn(text)[1] or text)
             or looks_like_scheduled_send(text)
+            or looks_like_schedule_manage(text)
             or looks_like_room_create(text)
             or "image" in attachment_kinds_from_turn(text)
         ) and not re.match(
@@ -811,6 +834,7 @@ class AgentLoop:
         )
         skip_email_draft = (
             looks_like_scheduled_send(text)
+            or looks_like_schedule_manage(text)
             or looks_like_room_create(text)
             or (
                 (
@@ -1053,6 +1077,8 @@ class AgentLoop:
         fallback_mode = False
         nudges = 0
         scrape_nudge_used = False
+        js_shell_nudge_used = False
+        js_shell_url = ""
         plan_progress_used = False
         sms_nudge_used = 0
         email_nudge_used = 0
@@ -1062,6 +1088,9 @@ class AgentLoop:
         math_nudge_used = False
         weather_nudge_used = 0
         weather_attempted = False
+        weather_ok_places: set[str] = set()
+        weather_days_retried: set[str] = set()
+        schedule_managed_ok = False
         image_attempted = False
         memory_nudge_used = 0
         last_ok_tool_out = ""
@@ -1396,6 +1425,28 @@ class AgentLoop:
                     continue
 
                 if not content and not fallback_mode and ollama_tools and self.json_fallback:
+                    # Qwen3.5 often puts the wrap-up in thinking and leaves
+                    # chat content empty. Native calling still worked — a tool
+                    # already ran — so do not enter the sticky-note protocol.
+                    # First round still blank with no tools yet? Fall through
+                    # to JSON fallback as before.
+                    if last_ok_tool_out:
+                        await self.bus.publish(
+                            Event(
+                                EventType.THINKING,
+                                {
+                                    "text": (
+                                        "empty after tool; answering from result"
+                                    )
+                                },
+                            )
+                        )
+                        await self._finish(
+                            _tool_followup_fallback(last_ok_tool_out),
+                            sources,
+                            streamed="",
+                        )
+                        return
                     await self._retract()
                     fallback_mode = True
                     await self.bus.publish(
@@ -1824,15 +1875,14 @@ class AgentLoop:
                         )
                 elif (
                     bool(agent_cfg.get("weather_force_call", True))
-                    and (
-                        exact_need.needs_weather
-                        or "weather" in self._expected_tools
-                    )
-                    and "weather" not in self.tools_used
-                    and not weather_attempted
+                    and exact_need.needs_weather
+                    and not looks_like_scheduled_send(text)
+                    and not looks_like_schedule_manage(text)
+                    and not schedule_managed_ok
+                    and weather_places_missing(text, weather_ok_places)
                     and "weather" in tool_names
                 ):
-                    if weather_nudge_used < 1:
+                    if weather_nudge_used < 1 and not weather_ok_places:
                         weather_nudge_used += 1
                         await self._retract()
                         messages.append({"role": "assistant", "content": content})
@@ -1854,7 +1904,13 @@ class AgentLoop:
                                 "exactness", gate="weather_force", action="nudge"
                             )
                         continue
-                    inj: dict[str, Any] = {}
+                    inj = draft_weather_args(text)
+                    missing = weather_places_missing(text, weather_ok_places)
+                    if missing:
+                        if missing[0]:
+                            inj["place"] = missing[0]
+                        else:
+                            inj.pop("place", None)
                     calls = [("weather", inj)]
                     tool_calls = [_native_tool_call("weather", inj)]
                     await self._retract()
@@ -2145,6 +2201,50 @@ class AgentLoop:
                             self._timer.mark(
                                 "exactness",
                                 gate="scrape_after_search",
+                                action="nudge",
+                            )
+                        continue
+                    if (
+                        bool(agent_cfg.get("browser_after_js_shell", True))
+                        and js_shell_url
+                        and not js_shell_nudge_used
+                        and "browser" in available_all
+                        and "browser" not in self.tools_used
+                        and not (self._expected_tools & {"weather", "send_sms", "send_email"})
+                    ):
+                        js_shell_nudge_used = True
+                        # Web-skill turns do not offer browser up front (or she
+                        # skips scrape). Offer it now so the nudge can land.
+                        if "browser" not in tool_names:
+                            visible = set(visible) | {"browser"}
+                            available = set(available) | {"browser"}
+                            tool_names = set(visible)
+                            if offer_tools:
+                                ollama_tools = self.tools.ollama_tools(visible)
+                        await self._retract()
+                        messages.append({"role": "assistant", "content": content})
+                        messages.append(
+                            {
+                                "role": "user",
+                                "content": _JS_SHELL_BROWSER_NOTICE.format(
+                                    url=js_shell_url
+                                ),
+                            }
+                        )
+                        await self.bus.publish(
+                            Event(
+                                EventType.THINKING,
+                                {
+                                    "text": (
+                                        "js shell; asking to open the page in her window"
+                                    )
+                                },
+                            )
+                        )
+                        if self._timer is not None:
+                            self._timer.mark(
+                                "exactness",
+                                gate="browser_after_js_shell",
                                 action="nudge",
                             )
                         continue
@@ -2542,6 +2642,8 @@ class AgentLoop:
                 # arriving as calculator(to=…, body=…). Tools take **kwargs and
                 # read only the keys they know, so without this the call looks
                 # like a silent miss and the model retries it.
+                if name == "weather":
+                    args = fill_weather_args(args, text)
                 tool_obj = self.tools.get(name)
                 cross = cross_tool_arg_error(
                     name,
@@ -2568,12 +2670,11 @@ class AgentLoop:
                 if (
                     name in _WEATHER_WANDER
                     and bool(agent_cfg.get("weather_force_call", True))
-                    and (
-                        exact_need.needs_weather
-                        or "weather" in self._expected_tools
-                    )
-                    and "weather" not in self.tools_used
-                    and not weather_attempted
+                    and exact_need.needs_weather
+                    and not looks_like_scheduled_send(text)
+                    and not looks_like_schedule_manage(text)
+                    and not schedule_managed_ok
+                    and weather_places_missing(text, weather_ok_places)
                     and "weather" in tool_names
                 ):
                     notice = (
@@ -2589,7 +2690,13 @@ class AgentLoop:
                     messages.append(self._tool_message(name, notice))
                     _drop_wander(*_WEATHER_WANDER)
                     name = "weather"
-                    args = {}
+                    args = draft_weather_args(text)
+                    missing = weather_places_missing(text, weather_ok_places)
+                    if missing:
+                        if missing[0]:
+                            args["place"] = missing[0]
+                        else:
+                            args.pop("place", None)
                     await self.bus.publish(
                         Event(
                             EventType.THINKING,
@@ -3091,20 +3198,23 @@ class AgentLoop:
                         self._trace.append("camera look_cap")
                         continue
 
-                # One successful weather fetch per turn — otherwise the 7B
+                # One successful weather fetch per place — otherwise the 7B
                 # re-calls weather until max_rounds (83s of duplicate Open-Meteo).
-                if name == "weather" and "weather" in self.tools_used:
-                    notice = (
-                        "Already fetched weather this turn; not calling it "
-                        "again. Answer the user from the prior weather result "
-                        "in plain prose and stop."
-                    )
-                    await self.bus.publish(
-                        Event(EventType.THINKING, {"text": f"skip  {notice}"})
-                    )
-                    messages.append(self._tool_message(name, notice))
-                    self._trace.append(f"{name} duplicate fetch blocked")
-                    continue
+                if name == "weather":
+                    wx_key = weather_place_key(str(args.get("place") or ""))
+                    if wx_key in weather_ok_places:
+                        notice = (
+                            "Already fetched weather for that place this turn; "
+                            "not calling it again. Answer the user from the "
+                            "prior weather result in plain prose and stop, or "
+                            "call weather for a city you have not fetched yet."
+                        )
+                        await self.bus.publish(
+                            Event(EventType.THINKING, {"text": f"skip  {notice}"})
+                        )
+                        messages.append(self._tool_message(name, notice))
+                        self._trace.append(f"{name} duplicate fetch blocked")
+                        continue
 
                 if name == "web_search":
                     q = str(args.get("query") or "").strip().casefold()
@@ -3211,6 +3321,8 @@ class AgentLoop:
                     confirm_vision=self.confirm_vision
                     and not allow_writes_this_turn,
                 )
+                if name == "browser" and user_asked_for_browser(text):
+                    needs = False
                 if (
                     self._look is not None
                     and name in {"ocr", "vision"}
@@ -3367,6 +3479,26 @@ class AgentLoop:
                         tool_fields["action"] = action
                     self._timer.mark("tool", **tool_fields)
                 data_dict = result.data if isinstance(result.data, dict) else None
+                if name in {"scrape", "web_fetch"} and not result.ok:
+                    tag = ""
+                    if isinstance(data_dict, dict):
+                        tag = str(data_dict.get("fail_class") or "")
+                    if not tag:
+                        tag = classify_fetch_failure(str(result.output or ""))
+                    if tag == "fail:js_shell":
+                        url = ""
+                        if isinstance(data_dict, dict):
+                            url = str(data_dict.get("url") or "").strip()
+                        if not url.startswith("http"):
+                            url = str(args.get("url") or "").strip()
+                        if url.startswith("http"):
+                            js_shell_url = url
+                            if "browser" in available_all:
+                                visible = set(visible) | {"browser"}
+                                available = set(available) | {"browser"}
+                                tool_names = set(visible)
+                                if offer_tools:
+                                    ollama_tools = self.tools.ollama_tools(visible)
                 if result.ok:
                     self.tools_used.add(name)
                     fail_counts.pop(call_fp, None)
@@ -3703,30 +3835,103 @@ class AgentLoop:
                     await self._finish(str(result.output).strip(), sources, streamed="")
                     return
                 messages.append(self._tool_message(name, out))
+                if (
+                    name == "schedule"
+                    and result.ok
+                    and str(args.get("action") or "").lower() in {"list", "delete"}
+                ):
+                    schedule_managed_ok = True
                 # Successful weather → answer from it; do not re-fetch all round.
+                # days=1 is today only; if they asked tomorrow, one retry with
+                # days=3. fill_weather_args usually bumps that before the call.
+                # Two named cities are two readings; lock per place, not the tool.
                 if name == "weather" and result.ok:
-                    if "weather" in tool_names:
-                        visible = {t for t in tool_names if t != "weather"}
-                        tool_names = set(visible)
-                        ollama_tools = (
-                            self.tools.ollama_tools(visible)
-                            if offer_tools and visible
-                            else []
-                        )
-                    messages.append(
-                        {
-                            "role": "user",
-                            "content": (
-                                "You already have a successful weather tool "
-                                "result this turn. Answer the user now in plain "
-                                "prose from that reading. Do not call weather "
-                                "again."
-                            ),
-                        }
+                    used_days = 3
+                    try:
+                        used_days = int(args.get("days") or 3)
+                    except (TypeError, ValueError):
+                        used_days = 3
+                    wx_key = weather_place_key(str(args.get("place") or ""))
+                    retry_days = (
+                        used_days < 2
+                        and weather_wants_beyond_today(text)
+                        and wx_key not in weather_days_retried
                     )
+                    if retry_days:
+                        weather_days_retried.add(wx_key)
+                        keep_place = str(args.get("place") or "").strip()
+                        retry_msg = (
+                            "That reading is today only. Call weather "
+                            "again with days=3 (keep place if you used "
+                            "one). Then answer the user from that."
+                        )
+                        if keep_place:
+                            retry_msg = (
+                                "That reading is today only. Call weather "
+                                f"again with days=3 and place={keep_place}. "
+                                "Then answer the user from that."
+                            )
+                        messages.append(
+                            {
+                                "role": "user",
+                                "content": retry_msg,
+                            }
+                        )
+                    else:
+                        weather_ok_places.add(wx_key)
+                        missing = weather_places_missing(text, weather_ok_places)
+                        if missing:
+                            nxt = missing[0]
+                            if nxt:
+                                more_msg = (
+                                    "You already have a successful weather "
+                                    f"reading this turn. Call weather now with "
+                                    f"place={nxt} and days=3 for the other city. "
+                                    "Then answer from every reading. Do not "
+                                    "skip a named city."
+                                )
+                            else:
+                                more_msg = (
+                                    "You already have a successful weather "
+                                    "reading this turn. Call weather now "
+                                    "without place for the user's own location. "
+                                    "Then answer from every reading."
+                                )
+                            messages.append(
+                                {"role": "user", "content": more_msg}
+                            )
+                        else:
+                            if "weather" in tool_names:
+                                visible = {t for t in tool_names if t != "weather"}
+                                tool_names = set(visible)
+                                ollama_tools = (
+                                    self.tools.ollama_tools(visible)
+                                    if offer_tools and visible
+                                    else []
+                                )
+                            messages.append(
+                                {
+                                    "role": "user",
+                                    "content": (
+                                        "You already have a successful weather tool "
+                                        "result this turn. Answer the user now in plain "
+                                        "prose from that reading. Do not call weather "
+                                        "again."
+                                    ),
+                                }
+                            )
                     if self._timer is not None:
                         self._timer.mark(
-                            "weather_once", action="answer_now"
+                            "weather_once",
+                            action=(
+                                "retry_days"
+                                if retry_days
+                                else (
+                                    "need_place"
+                                    if weather_places_missing(text, weather_ok_places)
+                                    else "answer_now"
+                                )
+                            ),
                         )
                 # Successful SMS to every draft recipient → confirm and stop.
                 # Otherwise the model re-opens Allow and double-texts.
@@ -4030,7 +4235,7 @@ class AgentLoop:
         round_i: int,
         agent_cfg: dict[str, Any],
     ) -> bool:
-        """Once per turn: fast → research/code when expected tools never fire."""
+        """Once per turn: fast → research when expected tools never fire."""
         target = decide_mid_turn_escalate(
             role=self._turn_role,
             text=text,
@@ -4411,9 +4616,11 @@ class AgentLoop:
             if self.is_paused():
                 await self._hold_if_paused()
             if kind == "thinking":
-                snippet = str(payload).strip()
-                if snippet and len(snippet) < _MAX_THINKING_SNIPPET:
-                    await self.bus.publish(Event(EventType.THINKING, {"text": snippet}))
+                chunk = str(payload)
+                if chunk:
+                    await self.bus.publish(
+                        Event(EventType.THINKING, {"text": chunk, "stream": True})
+                    )
             elif kind == "token":
                 chunk = str(payload)
                 content_parts.append(chunk)
@@ -4714,7 +4921,7 @@ def _wants_project_context(
     Always injecting it on conversation follow-ups is how a missing last
     turn gets replaced by a guess about the interferometer root.
     """
-    if (role or "").strip().lower() in {"code", "research"}:
+    if (role or "").strip().lower() == "research":
         return True
     if _PROJECT_CONTEXT_SKILLS & set(skill_ids):
         return True
@@ -4823,13 +5030,11 @@ def decide_mid_turn_escalate(
     if not expected and tools_used:
         return None
     # Research-shaped asks win over bare "write" in FILE_ESCALATE (e.g. "write
-    # a report" must escalate to research, not code).
+    # a report" must escalate to research, not stay on a file-shaped miss).
     if "research_report" in expected or is_deep_dive_ask(text):
         return "research"
     if expected & {"web_search", "scrape", "web_fetch", "research_report"}:
         return "research"
-    if _FILE_ESCALATE.search(text or ""):
-        return "code"
     return None
 
 

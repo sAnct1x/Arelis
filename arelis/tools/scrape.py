@@ -13,6 +13,8 @@ from arelis.tools.article import (
     ArticleExtract,
     extract_article,
     format_article,
+    looks_like_feed,
+    parse_feed,
     scrape_headers,
     sibling_urls,
 )
@@ -108,6 +110,10 @@ class ScrapeTool:
                     score=80.0,
                     word_count=len(body.split()),
                 )
+            elif looks_like_feed(html, ctype):
+                extract = await asyncio.to_thread(
+                    parse_feed, html, page_url=final
+                )
             else:
                 extract = await asyncio.to_thread(
                     extract_article, html, base_url=final
@@ -133,15 +139,20 @@ class ScrapeTool:
                     alt_html, alt_final, alt_ctype = await self._download(alt)
                 except Exception:
                     continue
-                if content_type_main({"content-type": alt_ctype}) not in {
+                if looks_like_feed(alt_html, alt_ctype):
+                    alt_extract = await asyncio.to_thread(
+                        parse_feed, alt_html, page_url=alt_final
+                    )
+                elif content_type_main({"content-type": alt_ctype}) not in {
                     "",
                     "text/html",
                     "application/xhtml+xml",
                 } and "<html" not in alt_html[:500].lower():
                     continue
-                alt_extract = await asyncio.to_thread(
-                    extract_article, alt_html, base_url=alt_final
-                )
+                else:
+                    alt_extract = await asyncio.to_thread(
+                        extract_article, alt_html, base_url=alt_final
+                    )
                 if alt_extract.score > extract.score:
                     extract = alt_extract
                     final = alt_final
@@ -168,6 +179,14 @@ class ScrapeTool:
                 "web_fetch if you need raw JSON/API bytes."
             )
             body = "\n".join(extras)
+            fail_class = classify_fetch_failure(body)
+            if fail_class == "fail:js_shell":
+                extras.append(
+                    f"This page needs browser(action=open, url={page_url}). "
+                    "Do not invent what it says."
+                )
+                body = "\n".join(extras)
+                fail_class = classify_fetch_failure(body)
             return ToolResult(
                 ok=False,
                 output=_fail_output(body),
@@ -177,7 +196,7 @@ class ScrapeTool:
                     "strategy": extract.strategy,
                     "diagnosis": extract.diagnosis,
                     "tried": tried,
-                    "fail_class": classify_fetch_failure(body),
+                    "fail_class": fail_class,
                 },
             )
 
@@ -213,6 +232,8 @@ class ScrapeTool:
             or "<body" in sample
         )
         if looks_html:
+            return None
+        if looks_like_feed(body, main):
             return None
         if main in {"application/json", "text/json"} or sample.startswith(("{", "[")):
             return ToolResult(

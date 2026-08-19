@@ -117,7 +117,7 @@ class CliPrinter:
                 file=sys.stderr,
             )
             return "skip", False
-        prompt = f"\nConfirm: {summary}\n  [y] allow  [n] skip  [a] allow all this turn > "
+        prompt = f"\nConfirm: {summary}\n  [y] allow  [n] deny  [a] rest of this ask > "
         try:
             answer = (await asyncio.to_thread(input, prompt)).strip().lower()
         except (EOFError, KeyboardInterrupt):

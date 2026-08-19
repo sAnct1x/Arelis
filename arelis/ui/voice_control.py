@@ -459,10 +459,11 @@ class VoiceController(QObject):
     def notify_confirm_pending(self, pending: bool) -> None:
         """A confirm card is open (tool write, send, or auto-reply draft).
 
-        Holds conversation listening the same way a busy turn does, so the mic
-        does not treat a spoken "allow" or room noise as the next question while
-        the card is still waiting. Cleared as soon as the card is decided or
-        dismissed, so the deaf window does not outlive the choice.
+        Holds conversation listening the same way a busy turn does when the
+        card is not in conversation mode, so the mic does not treat a spoken
+        "allow" as the next question. Conversation mode keeps the mic on so
+        you can allow or deny out loud. Cleared as soon as the card is decided
+        or dismissed.
         """
         pending = bool(pending)
         if pending == self._confirm_pending:
@@ -481,12 +482,12 @@ class VoiceController(QObject):
         if self._mode != CONVERSATION:
             # Wake and dictation are never held: neither one waits on a turn.
             return True
-        return not (
-            self._turn_busy
-            or self._awaiting_turn
-            or self._speaking
-            or self._confirm_pending
-        )
+        if self._speaking:
+            return False
+        # A card in conversation mode is her asking you — keep the mic on.
+        if self._confirm_pending:
+            return True
+        return not (self._turn_busy or self._awaiting_turn)
 
     def _sync_listening(self, *, announce: bool = True) -> None:
         """Bring the microphone and the indicator in line with the state."""

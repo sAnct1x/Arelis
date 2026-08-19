@@ -2,16 +2,14 @@
 
 *(say it "ah-REL-is")*
 
-Arelis is an assistant that lives on your own Windows PC. She has a desktop
-window you talk or type into, she thinks using models running on your own
-graphics card, and she can actually do things — read your files, search the
-web, drive her own browser window, send mail and texts, keep your calendar,
-remember what you told her last week, and keep named **rooms** for work that
+Arelis lives on your Windows PC. She is yours: a window you talk or type into,
+a mind that runs on your graphics card, and hands that can actually do things —
+read your files, search the web, drive her own browser, send mail and texts,
+keep a calendar, remember last week, and keep named **rooms** for work that
 lasts, each with its own conversation and folder.
 
-The part that makes her different from a chatbot in a browser tab is where she
-runs. There is no account. There is no server holding your conversations. If
-your internet goes down, she still works.
+She is not a chatbot in someone else's tab. There is no account. There is no
+server holding your conversations. If your internet goes down, she still works.
 
 ```mermaid
 flowchart TB
@@ -36,17 +34,24 @@ you leaves your machine unless you pointed it somewhere yourself.**
   them, back them up, or delete them, without asking anybody.
 
 She reaches the internet when you asked her to: a web search, the weather, your
-mail provider, a calendar you connected, your own phone. An installed copy also
-asks GitHub once a day whether a newer version exists, sending only a
-User-Agent that names the version it already is — that is unavoidable if the
-question is "is there anything newer than this." A copy you run from source
-never asks. The full list of hosts is pinned by a test, so a future change that
-adds a new destination fails the build rather than shipping quietly.
+mail provider, a calendar you connected, your own phone. Search is a quiet
+lookup (no window). If a site is an app she cannot read, she asks once to open
+it in **her** Chrome. An installed copy also asks GitHub once a day whether a
+newer version exists, sending only a User-Agent that names the version it
+already is — that is unavoidable if the question is "is there anything newer
+than this." A copy you run from source never asks. The full list of hosts is
+pinned by a test, so a future change that adds a new destination fails the
+build rather than shipping quietly.
 
-She also asks before acting. Writing a file, sending a message, driving the
-browser, remembering something permanently — each one shows a card, and nothing
-happens until you allow it. She will not send texts or mail while you are away
-from the keyboard.
+She also asks before acting — in language you can read. Writing a file,
+sending a message, remembering something permanently: a card with two
+lowercase buttons, **allow** and **deny**, and a headline like *text wife*
+or *write note.txt*. Conversation mode hears those words too. A browser
+drive you already typed or said is the grant — her window just moves. If
+*she* offers a window you did not ask for, that still pauses. Mail and
+texts always show the exact message. Settings → Allow is the list of what
+pauses; **Systems ▾ → Allow gates** opens it. She will not send texts or
+mail while you are away from the keyboard.
 
 ## Installing
 
@@ -82,9 +87,9 @@ not give you the models she thinks with. Those come from
 [Ollama](https://ollama.com/download), which you install once, separately, and
 which runs on your machine.
 
-Get the models. This downloads several gigabytes, once. The 14B research model
-wants most of a 12 GB graphics card; if yours is smaller, skip that pull and
-she will still converse on the 7B.
+Get the models. This downloads several gigabytes, once. The **0.2.2 installer**
+still thinks with Qwen2.5 7B / 14B / Coder 7B. Skip the 14B pull if the card
+is smaller than 12 GB — she will still converse on 7B.
 
 ```powershell
 ollama pull qwen2.5:7b
@@ -92,6 +97,11 @@ ollama pull qwen2.5:14b
 ollama pull qwen2.5-coder:7b
 ollama pull nomic-embed-text
 ```
+
+A source checkout as of 18 Aug 2026 may overlay all chat roles onto
+`qwen3.5:9b` via `data/config.local.yaml` (not a version bump). That pin is
+documented in [models.md](docs/models.md). Ollama is shared with the installed
+copy — do not delete 7B/14B/coder while 0.2.2 is still installed.
 
 A vision model (`qwen2.5vl:3b`) is pulled the first time she looks at a
 picture, so you do not have to fetch it up front. Ollama itself needs to be
@@ -197,7 +207,10 @@ excluded from the project, so there is no way to commit them by accident.
 box under it. Type there. Once you send something you get the workbench: the
 conversation, a composer at the bottom, and panels you can open for what she is
 thinking, the files she is working with, your history, your contacts, and
-notifications.
+notifications. A Phone Notify URL on launch is a thinking-dock status line, not
+a chat message, so the orbit stays empty until you type. Settings → Window can
+optionally collapse unused panels after 30–60 minutes unused; it is off unless
+you turn it on.
 
 **Press F1** for every keyboard shortcut, and the version you are running.
 
@@ -209,24 +222,26 @@ the folder the work lives in. `/room physics` or "let's work on physics" goes
 in; `/leave` comes out. You always start in the general orbit and step in on
 purpose. [rooms.md](docs/rooms.md) is the full surface.
 
-**Roles.** Three settings for how hard she thinks, switchable in the composer
-or with `/role fast`, `/role research`, `/role code`. Only one model sits on
-your graphics card at a time, so switching costs a few seconds.
-
-| Role | Model | Good for |
-|---|---|---|
-| `fast` | `qwen2.5:7b` | Normal conversation |
-| `research` | `qwen2.5:14b` | Harder questions |
-| `code` | `qwen2.5-coder:7b` | Programming |
+**Roles.** Two chips in the composer (`/role fast`, `/role research`).
+Only one chat model sits on the graphics card. File and git work stays on
+`fast` (workspace and code skills) — there is no third chip. On **0.2.2**
+those chips are two different Qwen2.5 files (`qwen2.5:7b` and
+`qwen2.5:14b`), so a switch costs a few seconds. On **this checkout**
+(18 Aug 2026 overlay) both chips are `qwen3.5:9b`: `research` means a
+deeper tool loop, not a bigger weight file. Details: [models.md](docs/models.md).
 
 **Her browser.** She does not touch your everyday browser, with your tabs and
 your logins. She has her own window that you watch while she works, with stop
-and pause controls on the Arelis side. She never types a password or a
-one-time code, and she never clicks Book, Pay or Checkout — those are yours.
+and pause controls on the Arelis side. Ask her to open YouTube and she does.
+If she offers a window you did not ask for, you still get allow / deny. She
+never types a password or a one-time code, and she never clicks Book, Pay or
+Checkout — those are yours.
 
 **Voice.** Say **“Hey Arelis”** to start a conversation; a bare name does not
-wake her. How that matching works, and how to read `logs/voice.log` when it
-doesn't, is in [voice-wake.md](docs/voice-wake.md).
+wake her. Wake listening is Whisper until a dedicated wake file exists;
+talking and dictate use Sherpa-ONNX. Spoken “in box” / “emile” are repaired
+to inbox / email. How wake matching works, and how to read `logs/voice.log`
+when it doesn't, is in [voice-wake.md](docs/voice-wake.md).
 
 **Memory.** Things worth keeping live under Settings → Memory, and you can edit
 or delete any of them. A dated backup lands in `data\backups\` beside your
@@ -253,10 +268,19 @@ timing, texts through a real handset, image generation — has only been run
 end to end on the author's own hardware. If something behaves oddly on yours,
 that is worth an issue rather than an assumption that you did it wrong.
 
+The published installer is still **0.2.2**. The source checkout is the
+day-to-day try (9B overlay, two roles, quieter search, allow / deny).
+**A person has not walked it yet** — only the automated tests from the
+sitting. What landed on top of 0.2.2: [whats-new.md](docs/whats-new.md).
+How it fits together: [architecture.md](docs/architecture.md) and
+[models.md](docs/models.md). Remaining work is that walk, plus a full 9B
+pass — not a missing subsystem.
+
 ## Digging deeper
 
 | Document | What it covers |
 |---|---|
+| [whats-new.md](docs/whats-new.md) | What this checkout added on top of 0.2.2 |
 | [rooms.md](docs/rooms.md) | Named project spaces |
 | [models.md](docs/models.md) | Which models she uses and why |
 | [voice-wake.md](docs/voice-wake.md) | “Hey Arelis”, and what does not wake her |

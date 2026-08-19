@@ -137,8 +137,11 @@ class GlassFrame(QFrame):
 
     def paintEvent(self, event: QPaintEvent) -> None:
         a = self._fill_alpha
-        # Idle conversation stage is a hole in the void — no plate, no rim.
-        if a <= 4:
+        # Docked instruments are type in the void (alpha 0) — no plate.
+        # A one-shot attention rim still has to paint, or a click on
+        # "thinking…" cannot flash that dock without turning it into a TV.
+        rim_only = a <= 4 and (self._pulse_rim or self._attention or self._ember)
+        if a <= 4 and not rim_only:
             return
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
@@ -149,45 +152,48 @@ class GlassFrame(QFrame):
         # Near-opaque floating plates: seal the body so other HWNDs (chat) cannot
         # composite through. Void is a color, not a transparent HWND.
         # Round-cutout plates skip the sharp fillRect — that was the black frame.
-        if a >= 240:
-            if not self._round_cutout:
-                painter.fillRect(self.rect(), _PLATE_SEAL)
-            painter.fillPath(path, _PLATE_BODY)
-        body = QLinearGradient(rect.topLeft(), rect.bottomLeft())
-        if a >= 240:
-            for stop, (r, g, b) in _PLATE_OPAQUE:
-                body.setColorAt(stop, QColor(r, g, b, 255))
-        else:
-            for stop, (r, g, b), lift in _PLATE_SMOKED:
-                body.setColorAt(stop, QColor(r, g, b, max(28, min(255, a + lift))))
-        painter.fillPath(path, body)
-
         catch = color("accent2")
         glint = color("accent")
-        sheen = QLinearGradient(rect.topLeft(), rect.bottomRight())
-        if a >= 240:
-            sheen.setColorAt(0.0, _alpha(catch, 36))
-            sheen.setColorAt(0.22, _alpha(glint, 16))
-        else:
-            sheen.setColorAt(0.0, _alpha(catch, 16))
-            sheen.setColorAt(0.28, _alpha(glint, 6))
-        sheen.setColorAt(1.0, _CLEAR)
-        painter.fillPath(path, sheen)
+        if not rim_only:
+            if a >= 240:
+                if not self._round_cutout:
+                    painter.fillRect(self.rect(), _PLATE_SEAL)
+                painter.fillPath(path, _PLATE_BODY)
+            body = QLinearGradient(rect.topLeft(), rect.bottomLeft())
+            if a >= 240:
+                for stop, (r, g, b) in _PLATE_OPAQUE:
+                    body.setColorAt(stop, QColor(r, g, b, 255))
+            else:
+                for stop, (r, g, b), lift in _PLATE_SMOKED:
+                    body.setColorAt(stop, QColor(r, g, b, max(28, min(255, a + lift))))
+            painter.fillPath(path, body)
 
-        # Floats need an edge you can see. Docked plates never get here (alpha 0).
+            sheen = QLinearGradient(rect.topLeft(), rect.bottomRight())
+            if a >= 240:
+                sheen.setColorAt(0.0, _alpha(catch, 36))
+                sheen.setColorAt(0.22, _alpha(glint, 16))
+            else:
+                sheen.setColorAt(0.0, _alpha(catch, 16))
+                sheen.setColorAt(0.28, _alpha(glint, 6))
+            sheen.setColorAt(1.0, _CLEAR)
+            painter.fillPath(path, sheen)
+
+        # Floats need an edge you can see. Docked plates skip this unless a
+        # one-shot click pulse asked for a hairline (rim_only).
         # No outer glow — that was the three-TV silhouette.
         if self._attention or self._ember:
             if self._attention:
                 t = (math.sin(self._attention_phase) + 1.0) * 0.5
-                rim_a = int(70 + (160 - 70) * t)
-                glow = QLinearGradient(rect.topLeft(), rect.bottomRight())
-                glow.setColorAt(0.0, _alpha(glint, 22 + 20 * t))
-                glow.setColorAt(0.35, _alpha(catch, 10 + 10 * t))
-                glow.setColorAt(1.0, _CLEAR)
-                painter.fillPath(path, glow)
+                rim_a = int(110 + (230 - 110) * t)
+                if not rim_only:
+                    glow = QLinearGradient(rect.topLeft(), rect.bottomRight())
+                    glow.setColorAt(0.0, _alpha(glint, 36 + 28 * t))
+                    glow.setColorAt(0.35, _alpha(catch, 16 + 14 * t))
+                    glow.setColorAt(1.0, _CLEAR)
+                    painter.fillPath(path, glow)
             else:
-                rim_a = 110
-            width = 1.4
+                rim_a = 140
+            width = 2.4
         else:
             rim_a = 42 if not self._pulse_rim else _pulse_rim_alpha(22, 48)
             if a < 240:

@@ -11,6 +11,7 @@ from PySide6.QtGui import QKeySequence, QMouseEvent, QShortcut
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
+    QLayout,
     QLineEdit,
     QPushButton,
     QScrollArea,
@@ -22,6 +23,7 @@ from PySide6.QtWidgets import (
 
 from arelis.contacts import load_contacts, normalize_phone, resolve_contact, to_e164
 from arelis.notify.center import Notice
+from arelis.ui.foreground import process_owns_foreground
 from arelis.ui.glass import GlassFrame, advance_rim_pulse, seal_tool_window
 from arelis.ui.icons import window_close_icon, window_minimize_icon
 from arelis.ui.theme import GLASS, METRICS
@@ -182,12 +184,19 @@ class SmsChatWindow(QWidget):
         self._scroll.setWidgetResizable(True)
         self._scroll.setFrameShape(QScrollArea.Shape.NoFrame)
         self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        # AlignBottom keeps a short thread on the composer. Do not put a
+        # stretch in this layout: QScrollArea then lets you scroll past the
+        # last bubble into empty space, and _scroll_to_end follows that void.
+        self._scroll.setAlignment(
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignBottom
+        )
         host = QWidget()
         host.setObjectName("SmsChatThread")
+        host.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         self._thread = QVBoxLayout(host)
         self._thread.setContentsMargins(0, 0, 4, 0)
         self._thread.setSpacing(6)
-        self._thread.addStretch(1)
+        self._thread.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
         self._scroll.setWidget(host)
         root.addWidget(self._scroll, stretch=1)
 
@@ -244,8 +253,14 @@ class SmsChatWindow(QWidget):
         super().mousePressEvent(event)
 
     def attention(self) -> None:
-        """Warm rim if this room is on screen but not the active window."""
-        if not self.isVisible() or self.isActiveWindow():
+        """Warm rim if this room is on screen but they are not in it.
+
+        Qt can still report isActiveWindow() after you click into another
+        app. If this process does not own the OS foreground, pulse anyway.
+        """
+        if not self.isVisible():
+            return
+        if process_owns_foreground() and self.isActiveWindow():
             return
         self._plate.set_attention(True)
         self._attention_until = time.monotonic() + ATTENTION_BREATH_S
@@ -292,13 +307,13 @@ class SmsChatWindow(QWidget):
         else:
             label.setObjectName("SmsBubbleIn")
             label.setAlignment(Qt.AlignmentFlag.AlignLeft)
-        self._thread.insertWidget(self._thread.count() - 1, label)
+        self._thread.addWidget(label)
         QTimer.singleShot(0, self._scroll_to_end)
         if self._ready and not self.isVisible() and not silent:
             self.badge()
 
     def set_messages(self, messages: list[SmsChatMessage]) -> None:
-        while self._thread.count() > 1:
+        while self._thread.count():
             item = self._thread.takeAt(0)
             widget = item.widget()
             if widget is not None:
@@ -314,7 +329,19 @@ class SmsChatWindow(QWidget):
         self.append_message(SmsChatMessage(direction="out", body=text))
         self.send_requested.emit(text)
 
+    def _last_bubble(self) -> QWidget | None:
+        for i in range(self._thread.count() - 1, -1, -1):
+            item = self._thread.itemAt(i)
+            widget = item.widget() if item is not None else None
+            if widget is not None:
+                return widget
+        return None
+
     def _scroll_to_end(self) -> None:
+        last = self._last_bubble()
+        if last is not None:
+            self._scroll.ensureWidgetVisible(last, 0, 6)
+            return
         bar = self._scroll.verticalScrollBar()
         bar.setValue(bar.maximum())
 
@@ -493,7 +520,7 @@ class SmsChatRegistry:
                 window._base_title = title
                 if window.isVisible():
                     window._set_heading(title)
-            if window.isVisible() and not window.isActiveWindow():
+            if window.isVisible():
                 window.attention()
 
     def append_outbound(

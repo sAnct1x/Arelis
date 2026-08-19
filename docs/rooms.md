@@ -1,6 +1,7 @@
 # Rooms
 
-A room is a named place to work on one thing.
+A room is a named place to work on one thing — like walking into a studio
+with the lights already on.
 
 The general conversation is meant to be forgettable. Cold launch gives you an
 empty orbit, last night sits in History, and that is right for "what's the
@@ -44,8 +45,8 @@ Ask:
 > make me a physics room for analysing the survey data, working in my Lab Notes
 > folder
 
-She fills in the purpose and the folder from what you said and shows an Allow
-card before anything is written. Or do it by hand:
+She fills in the purpose and the folder from what you said and shows an
+allow / deny card before anything is written. Or do it by hand:
 
 ```
 /room new physics
@@ -62,8 +63,8 @@ History** — only the room is gone.
 | kind | model | for |
 |---|---|---|
 | `general` | whatever you were using | no lean |
-| `code` | code | reading and writing files, running tests |
-| `analysis` | code | data, maths and plots over files that exist |
+| `code` | fast | reading and writing files, running tests |
+| `analysis` | fast | data, maths and plots over files that exist |
 | `research` | research | reading widely, keeping notes, citing sources |
 | `writing` | research | drafting and revising documents |
 

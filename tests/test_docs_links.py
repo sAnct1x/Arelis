@@ -113,7 +113,7 @@ def test_every_top_level_doc_is_linked_from_the_readme() -> None:
 def test_readme_role_models_match_shipped_defaults() -> None:
     """The role table on the front door has to name the models the code uses.
 
-    Three tags, copied by hand, is how a README quietly describes an assistant
+    Two tags, copied by hand, is how a README quietly describes an assistant
     that no longer exists after someone retunes default.yaml.
     """
     import yaml
@@ -125,7 +125,7 @@ def test_readme_role_models_match_shipped_defaults() -> None:
     )
     readme = (PROJECT_ROOT / "README.md").read_text(encoding="utf-8")
     missing = []
-    for role in ("fast", "research", "code"):
+    for role in ("fast", "research"):
         tag = str((config.get("models") or {}).get(role) or "").strip()
         assert tag, f"default.yaml has no models.{role}"
         if tag not in readme:

@@ -2,7 +2,11 @@
 
 Arelis can receive texts that land as Android notifications (including RCS via
 Google Messages) through the **Arelis Notify** companion app. Sending SMS is
-separate — that still uses your phone as a modem after you Allow `send_sms`.
+separate — that still uses your phone as a modem after you allow `send_sms`.
+
+When a text arrives and you are in another window, Arelis flashes on the
+taskbar. The phone tile pulses if this process does not own the OS
+foreground. The thread ends at the last bubble.
 
 ## Two inbound paths
 
@@ -37,13 +41,15 @@ poll **seeds** the current inbox as already-seen (no backlog flood) — only
    Notify, then **Copy primary URL**.
 
 The STATUS line `Inbound notify ready — Phone Notify URL: …` is the same URL.
+It is written to the **thinking dock**, not chat. A system line in chat used
+to hide the empty orbit on a cold launch.
 
 ### Core + UI
 
 If you run `arelis --core` (or attach to an external core), the glass UI does
 **not** bind `:8765` itself. Inbound reaches chat only when the UI shows a live
 IPC bridge attached. Without that bridge, core still logs the SMS and emits a
-STATUS that nothing is attached — open the glass to see it in chat.
+STATUS (thinking dock) that nothing is attached — open the glass to see it.
 
 ## Firewall
 
@@ -93,7 +99,7 @@ doze / battery, not Arelis rate-limiting (there is no inbound rate limiter).
 | Symptom | Check |
 |---------|--------|
 | No inbound texts | Arelis still running? Token matches? Same Wi‑Fi? |
-| STATUS missing | `tools.sms.inbound` / `ingest` enabled in config; token set |
+| STATUS missing | `tools.sms.inbound` / `ingest` enabled in config; token set; thinking dock (`Ctrl+1`), not the orbit |
 | Companion 401 | Wrong or missing `sms.ingest_token` |
 | Companion timeout | Firewall / wrong IP — use View → notify url… / Settings → Notify |
 | Some texts, not others | Muted chat? Battery optimization? See checklist above |

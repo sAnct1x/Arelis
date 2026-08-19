@@ -24,20 +24,18 @@ ollama:
   # Vision (qwen2.5vl:3b) one-shot — keep tight; chat is unloaded first.
   vision_num_ctx: 4096
 
-# Role → Ollama tag. This is the full tier: what a 12GB GPU can hold. Machines
-# with less get a smaller set chosen for them at first run, so nothing here is a
-# floor. Measured on a 12GB card:
+# Role → Ollama tag. Shipped 0.2.2 set (Qwen2.5). The 14B dense niche is gone
+# in Qwen3.5 (9B then 27B). There is no code role: file/git/debug work uses
+# fast plus workspace/code skills. 18 Aug 2026 checkout overlays both chat
+# roles onto qwen3.5:9b via data/config.local.yaml — not a version bump.
+# See docs/models.md. Measured on a 12GB card at ship:
 #   qwen2.5:7b   ~4.8 GiB VRAM, ~13s TTFT, ~49 tok/s  → conversation default
 #   qwen2.5:14b  ~9.6 GiB VRAM, ~18s TTFT, ~29 tok/s  → research (~89% of the card)
-#   qwen2.5-coder:7b → code role
-# Do not change these tags until a foundation scoreboard scenario fails.
-# Novelty is exactness and evidence, not weight shopping.
 # One chat model hot at a time (router unload). Embeddings are a separate small
 # model loaded briefly for recall/indexing, not mid-turn chat.
 models:
   fast: "qwen2.5:7b"
   research: "qwen2.5:14b"
-  code: "qwen2.5-coder:7b"
   # Single-frame VL (Ollama), pulled the first time vision is used.
   # Never resident next to 14B — vision tool unloads chat first.
   vision: "qwen2.5vl:3b"
@@ -88,17 +86,17 @@ agent:
   max_rounds: 8            # model/tool steps before Arelis is forced to answer
   tool_output_chars: 14000 # per tool result; keep below num_ctx (see above)
   confirm_writes: true     # file write/edit needs approval in the UI
-  # Asked about every single send, and never covered by "allow all this turn".
+  # Asked about every single send, and never covered by "rest of this ask".
   # Mail leaves the machine and cannot be recalled.
   confirm_send: true
-  # Auto-skip Allow cards left open (L10). 0 = wait forever.
+  # Auto-deny cards left open (L10). 0 = wait forever.
   confirm_timeout_s: 300
   confirm_image: true      # image generation needs approval in the UI
-  # Open/drive the user's real browser. First Allow in a turn; Allow this turn
-  # covers further browser steps (same as writes/images). Never batches with mail/SMS.
+  # Pause when she *offers* her window. A drive you already typed or said is
+  # the grant. rest of this ask covers further steps. Never batches with mail/SMS.
   confirm_browser: true
   # See one local image (VL). Separate from confirm_image so disabling Comfy
-  # generation confirm does not disable vision. Allow this turn covers it.
+  # generation confirm does not disable vision. rest of this ask covers it.
   confirm_vision: true
   json_fallback: true      # allow the JSON tool protocol when native calling fails
   block_private_urls: true # refuse loopback, private, and link-local targets
@@ -125,6 +123,9 @@ agent:
   auto_lessons: true
   # If she searched for news/current events but never scraped, nudge once.
   scrape_after_search: true
+  # If scrape or web_fetch hit a JavaScript shell, nudge once to open that URL
+  # in her window. Allow still gates the first browser call. Never injects.
+  browser_after_js_shell: true
   # Mid-turn: if a multi-step Plan ran early tools but skipped a later step,
   # nudge once (e.g. tasks→agenda). Does not call tools or skip Allow.
   plan_progress: true
@@ -188,7 +189,7 @@ agent:
   # Same-round independent READ tools (weather+inbox, search+scrape with URLs
   # already in the call) run together. Writes and Allow-gated calls stay serial.
   read_fanout: true
-  # Mid-turn: escalate fast → research/code once if expected tools never fire.
+  # Mid-turn: escalate fast → research once if expected tools never fire.
   mid_turn_escalate: true
   escalate_after_rounds: 2
   # History compress budget (H1/L7). Slash + speak skip model summarize.
@@ -251,9 +252,9 @@ tools:
     # URLs she already knows, which is why anything current used to end in a
     # guessed address and an empty page.
     enabled: true
-    # DuckDuckGo HTML search — no API key, no local container. Not a choice:
-    # search.py builds the DuckDuckGo request directly, so a backend key here
-    # would read as an option that does not exist.
+    # Silent lookup, no API key, no container, not a Settings picker.
+    # Order is fixed in search.py: DuckDuckGo HTML, DuckDuckGo Lite, then
+    # Wikipedia (Wikipedia is skipped when recency is day or week).
     max_results: 6
     timeout_s: 20
   research:
@@ -647,6 +648,8 @@ ui:
   thinking_open: false
   workspace_open: false
   camera_open: false
+  # Away rest (collapse unused panels) lives in ui_layout.ini via Settings →
+  # Window, off by default. Not a shipped-on timer.
   notifications:
     channels:
       sms: voice

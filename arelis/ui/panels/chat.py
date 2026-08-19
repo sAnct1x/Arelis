@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtGui import QTextCursor
+from PySide6.QtGui import QMouseEvent, QTextCursor
 from PySide6.QtWidgets import (
     QGraphicsOpacityEffect,
     QLabel,
@@ -41,6 +41,28 @@ _ASSISTANT_CLOSE = "</div></div>"
 _CARET_GLYPHS = {"▍", "|", "▌"}
 
 
+class ChatProgress(QLabel):
+    """Turn-status line above the composer. Looks like copy; click is a control."""
+
+    clicked = Signal()
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.setObjectName("ChatProgress")
+        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
+        self.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
+
+    def mousePressEvent(self, event: QMouseEvent) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit()
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+
 class ChatPanel(QWidget):
     """Message surface. When embedded=True, lives inside ConversationStage glass.
 
@@ -55,6 +77,8 @@ class ChatPanel(QWidget):
     session_clicked = Signal(str)
     # An opening suggestion from the empty orbit, on its way to the composer.
     suggestion_clicked = Signal(str)
+    # The thinking line above the composer: open Thinking, or pulse it.
+    progress_clicked = Signal()
 
     def __init__(self, parent=None, *, embedded: bool = False) -> None:
         super().__init__(parent)
@@ -79,11 +103,11 @@ class ChatPanel(QWidget):
         self.view.hide()
         layout.addWidget(self.view, stretch=1)
 
-        # In-chat loading gate (image gen, etc.) — shimmer, not a console window.
-        self.progress = QLabel("")
-        self.progress.setObjectName("ChatProgress")
-        self.progress.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        # In-chat loading gate — shimmer, not a console window. Clickable so
+        # the Thinking dock can stay closed until she asks for it.
+        self.progress = ChatProgress()
         self.progress.hide()
+        self.progress.clicked.connect(self.progress_clicked.emit)
         self._progress_fx = QGraphicsOpacityEffect(self.progress)
         self.progress.setGraphicsEffect(self._progress_fx)
         self._progress_fx.setOpacity(1.0)
@@ -136,7 +160,13 @@ class ChatPanel(QWidget):
         right-aligned ``you`` bubbles), so this is a real layout margin.
         The orbit sits in that strip; it is not painted over the transcript.
         """
-        self._parked_gutter = max(0, int(px))
+        want = max(0, int(px))
+        # Notify/readiness polls (~30s) re-place the orbit even when nothing
+        # moved. Restyling QTextBrowser there shoves the transcript up a line.
+        if want == self._parked_gutter:
+            return
+        follow = self._near_bottom()
+        self._parked_gutter = want
         lay = self.layout()
         if lay is not None:
             lay.setContentsMargins(0, 0, self._parked_gutter, 0)
@@ -146,6 +176,7 @@ class ChatPanel(QWidget):
             # transcript instead of sitting in the strip reserved for it.
             lay.activate()
         self._apply_view_style()
+        self._scroll(follow=follow)
 
     def set_text_scale(self, scale: float) -> None:
         """Scale chat body (Ctrl+Plus / Settings). Idle type stays small."""

@@ -190,3 +190,13 @@ async def test_saved_but_unregistered_is_still_ok(jobs_path, monkeypatch) -> Non
     assert result.data["registered"] is False
     assert "could not be registered" in result.output
     assert store_mod.get_job(result.data["id"]) is not None
+
+
+def test_schedule_list_does_not_need_confirm() -> None:
+    from arelis.tools.base import ToolRegistry
+
+    registry = ToolRegistry()
+    registry.register(ScheduleTool())
+    assert not registry.needs_confirm("schedule", {"action": "list"})
+    for action in ("create", "create_briefing", "delete", "run_now"):
+        assert registry.needs_confirm("schedule", {"action": action})

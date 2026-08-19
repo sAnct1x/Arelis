@@ -10,6 +10,8 @@ from arelis.paths import state_dir
 
 _DEFAULT_CHAT_FONT_SCALE = 1.0
 _RECENT_WORKSPACE_LIMIT = 12
+_AWAY_REST_MINUTES = (30, 45, 60)
+_DEFAULT_AWAY_REST_MIN = 45
 
 
 def _settings_path() -> Path:
@@ -88,6 +90,25 @@ def restore_window_layout(window: QMainWindow, default_size: QSize) -> bool:
     return restored
 
 
+def _as_bool(raw: Any, default: bool = False) -> bool:
+    if isinstance(raw, str):
+        return raw.strip().lower() in {"1", "true", "yes"}
+    if raw is None:
+        return default
+    return bool(raw)
+
+
+def clamp_away_rest_min(raw: Any) -> int:
+    """Only 30 / 45 / 60 minutes. Anything else snaps to the nearest."""
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return _DEFAULT_AWAY_REST_MIN
+    if value in _AWAY_REST_MINUTES:
+        return value
+    return min(_AWAY_REST_MINUTES, key=lambda m: abs(m - value))
+
+
 def load_ui_prefs() -> dict[str, Any]:
     s = settings()
     raw_scale = s.value("chat_font_scale", _DEFAULT_CHAT_FONT_SCALE)
@@ -96,14 +117,13 @@ def load_ui_prefs() -> dict[str, Any]:
     except (TypeError, ValueError):
         scale = _DEFAULT_CHAT_FONT_SCALE
     scale = max(0.75, min(1.75, scale))
-    always = s.value("always_on_top", False)
-    if isinstance(always, str):
-        always_on_top = always.strip().lower() in {"1", "true", "yes"}
-    else:
-        always_on_top = bool(always)
     return {
-        "always_on_top": always_on_top,
+        "always_on_top": _as_bool(s.value("always_on_top", False)),
         "chat_font_scale": scale,
+        "away_rest": _as_bool(s.value("away_rest", False)),
+        "away_rest_min": clamp_away_rest_min(
+            s.value("away_rest_min", _DEFAULT_AWAY_REST_MIN)
+        ),
     }
 
 
@@ -111,10 +131,16 @@ def save_ui_prefs(
     *,
     always_on_top: bool | None = None,
     chat_font_scale: float | None = None,
+    away_rest: bool | None = None,
+    away_rest_min: int | None = None,
 ) -> None:
     s = settings()
     if always_on_top is not None:
         s.setValue("always_on_top", bool(always_on_top))
     if chat_font_scale is not None:
         s.setValue("chat_font_scale", float(chat_font_scale))
+    if away_rest is not None:
+        s.setValue("away_rest", bool(away_rest))
+    if away_rest_min is not None:
+        s.setValue("away_rest_min", clamp_away_rest_min(away_rest_min))
     s.sync()

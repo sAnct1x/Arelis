@@ -14,6 +14,21 @@ _REDIRECT_EXPECTED = frozenset({"weather", "send_sms", "send_email", "agenda"})
 _DUP_GATED = frozenset({"weather", "image", "vision", "send_sms", "send_email"})
 
 
+def _distinct_weather_places(
+    calls: list[tuple[str, dict[str, Any]]],
+    names: list[str],
+) -> bool:
+    """Two weather calls may fan out when each names a different place."""
+    if any(names.count(n) > 1 and n != "weather" and n in _DUP_GATED for n in names):
+        return False
+    keys = [
+        str((args or {}).get("place") or "").strip().casefold()
+        for name, args in calls
+        if name == "weather"
+    ]
+    return len(keys) >= 2 and len(keys) == len(set(keys))
+
+
 def should_fanout_reads(
     calls: list[tuple[str, dict[str, Any]]],
     *,
@@ -34,7 +49,8 @@ def should_fanout_reads(
         return False
     names = [str(name or "") for name, _args in calls]
     if any(names.count(n) > 1 and n in _DUP_GATED for n in names):
-        return False
+        if not _distinct_weather_places(calls, names):
+            return False
     used = tools_used or set()
     search_ok = web_search_ok or set()
     redirect_risk = bool(expected_tools & _REDIRECT_EXPECTED)

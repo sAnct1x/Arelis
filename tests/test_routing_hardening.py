@@ -555,7 +555,82 @@ async def test_weather_web_search_injects_weather_same_turn() -> None:
 
 
 @pytest.mark.asyncio
-async def test_video_search_web_search_injects_browser_same_turn() -> None:
+async def test_named_city_weather_search_injects_place() -> None:
+    weather = _Stub("weather")
+    search = _Stub("web_search")
+    starts, thinking = await _run_clunk(
+        "web search Metropolis Illinois weather tomorrow",
+        [weather, search],
+        [
+            [("tool_calls", [_native("web_search", {"query": "Metropolis Illinois weather"})])],
+            [("token", "Rain tomorrow in Metropolis, high 81.")],
+        ],
+    )
+    assert starts == ["weather"]
+    assert search.calls == []
+    assert weather.calls
+    args = weather.calls[0]
+    assert "metropolis" in str(args.get("place") or "").lower()
+    assert int(args.get("days") or 0) >= 2
+    assert "inject  weather from intent" in thinking
+
+
+@pytest.mark.asyncio
+async def test_two_city_weather_keeps_the_second_place() -> None:
+    weather = _Stub("weather")
+    starts, thinking = await _run_clunk(
+        "What's the weather in Springfield Illinois and Metropolis Illinois?",
+        [weather],
+        [
+            [
+                (
+                    "tool_calls",
+                    [_native("weather", {"place": "Metropolis, Illinois", "days": 3})],
+                )
+            ],
+            [
+                (
+                    "tool_calls",
+                    [_native("weather", {"place": "Springfield, Illinois", "days": 3})],
+                )
+            ],
+            [("token", "Both look mild.")],
+        ],
+    )
+    assert len(weather.calls) == 2
+    blob = " ".join(str(c.get("place") or "") for c in weather.calls).lower()
+    assert "springfield" in blob
+    assert "metropolis" in blob
+    assert "Unknown tool" not in thinking
+    assert starts.count("weather") == 2
+
+
+@pytest.mark.asyncio
+async def test_delete_named_weather_briefing_does_not_inject_weather() -> None:
+    schedule = _Stub("schedule", risk="write")
+    weather = _Stub("weather")
+    starts, thinking = await _run_clunk(
+        "please delete the second briefing named Morning Weather Briefing",
+        [schedule, weather],
+        [
+            [
+                (
+                    "tool_calls",
+                    [
+                        _native(
+                            "schedule",
+                            {"action": "delete", "id": "morning-weather-briefing"},
+                        )
+                    ],
+                )
+            ],
+            [("token", "Deleted Morning Weather Briefing.")],
+        ],
+    )
+    assert starts == ["schedule"]
+    assert weather.calls == []
+    assert "inject  weather" not in thinking
+    assert "weather ask" not in thinking
     browser = _Stub("browser")
     search = _Stub("web_search")
     scrape = _Stub("scrape")

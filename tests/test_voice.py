@@ -1566,31 +1566,22 @@ def test_conversation_keeps_listening_when_nothing_was_heard(qt_app) -> None:
     assert len(sent) == 2, "the next thing said must still be heard"
 
 
-def test_confirm_card_holds_conversation_listening_until_decided(qt_app) -> None:
-    """Auto-reply and mid-turn confirms must not leave the mic open for the
-    next utterance while the card is still waiting."""
+def test_confirm_card_keeps_conversation_listening(qt_app) -> None:
+    """Conversation mode hears allow / deny. The mic stays on for the card."""
     controller, recorder = _controller(qt_app)
     listening: list[bool] = []
-    statuses: list[str] = []
-    sent: list[str] = []
     controller.listening_changed.connect(listening.append)
-    controller.status.connect(statuses.append)
-    controller.utterance.connect(lambda pcm, rate, ch, deliver: sent.append(deliver))
 
     controller.set_conversation(True)
     assert listening[-1] is True
 
+    controller.notify_turn_started()
     controller.notify_confirm_pending(True)
-    assert listening[-1] is False
-    assert any("confirm" in s.lower() for s in statuses)
-
-    recorder.push(_tone(1.0) + _silence(1.4))
-    assert sent == [], "speech while a confirm is open must not start a turn"
+    assert listening[-1] is True
 
     controller.notify_confirm_pending(False)
+    controller.notify_turn_finished()
     assert listening[-1] is True
-    recorder.push(_tone(1.0) + _silence(1.4))
-    assert sent == ["turn"]
 
 
 def test_a_voice_error_does_not_end_someone_elses_turn(qt_app) -> None:
@@ -2005,6 +1996,20 @@ def test_scrub_transcript_strips_hallucination_and_dupes() -> None:
         "I'm going to have a call with you in the office. "
         "I'm going to be the last one in the office. All right, stop"
     ) == "All right, stop"
+
+
+def test_scrub_transcript_repairs_mail_stt() -> None:
+    from arelis.voice.stt import repair_stt_mail_words, scrub_transcript
+
+    assert repair_stt_mail_words("Check your in box") == "Check your inbox"
+    assert repair_stt_mail_words("any new emiles today") == "any new emails today"
+    assert repair_stt_mail_words("Did you get any new emile") == (
+        "Did you get any new email"
+    )
+    assert repair_stt_mail_words("access to my emil for sure") == (
+        "access to my email for sure"
+    )
+    assert scrub_transcript("Check your in box") == "Check your inbox"
 
 
 @pytest.mark.asyncio

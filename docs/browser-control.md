@@ -5,6 +5,9 @@ not your daily Chrome. You watch it. You sign into Google/Maps **in that
 window** once. She does **not** enter passwords, OTP codes, or payment fields.
 Relaunch never runs `taskkill /IM chrome.exe`.
 
+Ask her to open a page and she does. If she *offers* a window you did not
+ask for, you still get allow / deny. Living notes: [whats-new.md](whats-new.md).
+
 The Windows installer already includes the browser extra. She attaches to
 Chrome or Edge that is already on the PC. Firefox's private path still needs
 Playwright's browsers, which from source means the extra step below.
@@ -34,8 +37,9 @@ First time: she tells you to sign into Google and Maps in that window.
    `http://127.0.0.1:9222`), attach.
 2. If not: launch Chrome/Edge with `--remote-debugging-port` and
    `data/browser-profile/` (never `%LOCALAPPDATA%\Google\Chrome\User Data`).
-3. If her window is wedged (process up, CDP down), Allow `relaunch` — that
-   stops **her** profile processes only.
+3. If her window is wedged (process up, CDP down), she can `relaunch` —
+   that stops **her** profile processes only. If you asked her to restart
+   it, that is the grant. If she offers it, allow / deny.
 
 Daily Chrome can stay open. That used to look like “profile locked.”
 
@@ -60,7 +64,7 @@ only).
   The body is framed as untrusted data.
 - `maps` opens Google Maps directions in her window and returns a **phone
   link** (destination-only, so the phone can start from GPS). If you asked
-  her to text it, she calls `send_sms` with that link (Allow).
+  her to text it, she calls `send_sms` with that link (allow / deny).
 - `search` opens Google / YouTube / Amazon results in her window. She can
   type non-secret fields and click **Add to cart**. **Checkout / Pay /
   Buy now** is still your turn.
@@ -73,9 +77,11 @@ only).
 - `screenshot` writes a PNG under `outputs/images/browser_….png`. Describe
   pixels with `vision` in a **separate** call. Optional `full_page=true`.
 
-Allow: `agent.confirm_browser` (default true). First browser call in a turn
-needs Allow; **Allow this turn** covers further browser steps. Vision uses
-`confirm_vision` separately. Never batches with mail/SMS.
+A drive you typed or said is the grant — her window just moves. If she
+*offers* the window (a JS shell scrape cannot read), that still pauses for
+allow / deny. `agent.confirm_browser` (default true) is that offer gate.
+**rest of this ask** covers further browser steps in the same reply. Vision
+uses `confirm_vision` separately. Never batches with mail/SMS.
 
 ## vs search / scrape
 
@@ -87,6 +93,7 @@ needs Allow; **Allow this turn** covers further browser steps. Vision uses
 | Search YouTube / Google / Amazon in her window | `browser(action=search)` |
 | Book a table (you click Book) | `browser(action=reserve)` |
 | Read the web for *her* answer (no window) | `web_search` / `scrape` |
+| Page is a JS app scrape cannot read | `browser(action=open)` on that URL |
 
 ## Config
 

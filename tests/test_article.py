@@ -150,6 +150,38 @@ def test_amp_link_discovered_for_siblings() -> None:
     assert any("amp=1" in u or u.endswith("/amp") for u in alts)
 
 
+def test_feed_alternate_is_a_sibling() -> None:
+    html = """
+    <html><head>
+      <link rel="alternate" type="application/rss+xml" href="/feed.xml"/>
+      <title>Shell</title>
+    </head><body><div id="app"></div></body></html>
+    """
+    art = extract_article(html, base_url="https://news.example/story")
+    alts = sibling_urls(art, page_url="https://news.example/story")
+    assert "https://news.example/feed.xml" in alts
+
+
+def test_og_description_can_carry_a_js_shell() -> None:
+    html = """
+    <html><head>
+      <meta property="og:title" content="A public post"/>
+      <meta property="og:description" content="The lab posted the fringe numbers after the overnight lock."/>
+    </head><body><div id="root"></div></body></html>
+    """
+    art = extract_article(html, base_url="https://example.com/post/1")
+    assert art.ok
+    assert "fringe numbers" in art.text
+    assert art.strategy == "og-description"
+
+
+def test_js_shell_diagnosis_points_at_her_browser() -> None:
+    html = "<html><body><div id='app'></div></body></html>"
+    art = extract_article(html)
+    assert not art.ok
+    assert "browser(action=open)" in (art.diagnosis or "")
+
+
 def test_paywall_diagnosis_on_thin_subscriber_page() -> None:
     html = """
     <html><body>

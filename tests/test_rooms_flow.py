@@ -177,9 +177,11 @@ async def test_changing_the_kind_leans_the_model_now_not_next_time(harness) -> N
     await harness.say("/room physics")
     assert harness.orchestrator.router.default_role == "fast"
 
-    await harness.say("/room set kind analysis")
+    await harness.say("/room set kind research")
+    assert harness.orchestrator.router.default_role == "research"
 
-    assert harness.orchestrator.router.default_role == "code"
+    await harness.say("/room set kind analysis")
+    assert harness.orchestrator.router.default_role == "fast"
 
 
 @pytest.mark.asyncio
@@ -211,11 +213,11 @@ async def test_a_room_whose_folder_vanished_still_opens(harness) -> None:
 
 @pytest.mark.asyncio
 async def test_the_room_kind_sets_the_model_chip(harness) -> None:
-    harness.rooms.create("Physics", kind="analysis")
+    harness.rooms.create("Physics", kind="research")
 
     await harness.say("/room physics")
 
-    assert harness.orchestrator.router.default_role == "code"
+    assert harness.orchestrator.router.default_role == "research"
 
 
 @pytest.mark.asyncio

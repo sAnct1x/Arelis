@@ -1,7 +1,7 @@
 """Race live Ollama brains on this PC with real tools.
 
 Does not send SMS or email. Does not write default.yaml or config.local.yaml.
-Pins fast/research/code in memory for one model at a time.
+Pins fast/research in memory for one model at a time.
 
   .\\.venv\\Scripts\\python.exe scripts\\race_models.py --pull
   .\\.venv\\Scripts\\python.exe scripts\\race_models.py --skip-pull
@@ -203,7 +203,6 @@ def _pin_config(model: str, num_ctx: int) -> dict[str, Any]:
     models = dict(config.get("models") or {})
     models["fast"] = model
     models["research"] = model
-    models["code"] = model
     config["models"] = models
     ollama = dict(config.get("ollama") or {})
     ollama["num_ctx"] = int(num_ctx)
@@ -292,7 +291,7 @@ async def _run_jobs(
         (
             "write",
             f"Write a temp file {write_rel} containing exactly: {token}",
-            "code",
+            "fast",
             240,
             lambda r: (
                 "workspace" in r["tools"]

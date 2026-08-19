@@ -115,18 +115,18 @@ async def test_sticky_hold_absorbs_fast_downgrade() -> None:
 
 
 @pytest.mark.asyncio
-async def test_sticky_allows_code_switch() -> None:
+async def test_sticky_absorbs_file_loop_into_research() -> None:
     provider = FakeProvider()
     router = ModelRouter(
         provider,  # type: ignore[arg-type]
-        {"fast": "qwen-fast", "research": "qwen-big", "code": "qwen-code"},
+        {"fast": "qwen-fast", "research": "qwen-big"},
         rewarm_after_switch=False,
         sticky_hold_s=60,
     )
     router.mark_sticky("research")
-    role, reason = router.apply_sticky("code", "file_loop")
-    assert role == "code"
-    assert reason == "file_loop"
+    role, reason = router.apply_sticky("fast", "file_loop")
+    assert role == "research"
+    assert reason == "sticky_hold"
 
 
 @pytest.mark.asyncio

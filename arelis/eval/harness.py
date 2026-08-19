@@ -93,7 +93,7 @@ _STUB_SCHEMAS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     ),
     "user_location": ((), ("refresh",)),
     "vision": (("path",), ("path", "question")),
-    "weather": ((), ("days",)),
+    "weather": ((), ("days", "place")),
     "web_fetch": (("url",), ("max_chars", "url")),
     "web_search": (("query",), ("max_results", "query", "recency")),
     "workspace": (

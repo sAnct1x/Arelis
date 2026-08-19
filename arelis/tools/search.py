@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import re
 from dataclasses import dataclass
 from typing import Any, Protocol
-from urllib.parse import parse_qs, unquote, urlparse
+from urllib.parse import parse_qs, quote, unquote, urlparse
 
 import httpx
 from bs4 import BeautifulSoup
@@ -24,7 +26,11 @@ _BROWSER_UA = (
 )
 
 _DDG_URL = "https://html.duckduckgo.com/html/"
+_DDG_LITE_URL = "https://lite.duckduckgo.com/lite/"
+_WIKI_API = "https://en.wikipedia.org/w/api.php"
 _DDG_RECENCY = {"day": "d", "week": "w", "month": "m", "year": "y"}
+_NEWS_RECENCY = frozenset({"day", "week"})
+_TAG_RE = re.compile(r"<[^>]+>")
 
 _MAX_RESULTS = 10
 _SNIPPET_CHARS = 300
@@ -95,6 +101,59 @@ def parse_duckduckgo(html: str, limit: int) -> list[SearchResult]:
     return out
 
 
+def parse_duckduckgo_lite(html: str, limit: int) -> list[SearchResult]:
+    """Pull results out of lite.duckduckgo.com's table markup."""
+    soup = BeautifulSoup(html or "", "lxml")
+    out: list[SearchResult] = []
+    links = soup.select("a.result-link") or [
+        a
+        for a in soup.find_all("a", href=True)
+        if "uddg=" in str(a.get("href") or "") or str(a.get("rel") or "") == "nofollow"
+    ]
+    for link in links:
+        href = str(link.get("href") or "")
+        if "y.js" in href:
+            continue
+        url = _unwrap_ddg(href)
+        if not url.startswith(("http://", "https://")):
+            continue
+        title = link.get_text(" ", strip=True)
+        snippet = ""
+        row = link.find_parent("tr")
+        nxt = row.find_next_sibling("tr") if row is not None else None
+        if nxt is not None:
+            cell = nxt.select_one("td.result-snippet") or nxt.find("td")
+            if cell is not None:
+                snippet = cell.get_text(" ", strip=True)
+        out.append(SearchResult(title=title, url=url, snippet=snippet))
+        if len(out) >= limit:
+            break
+    return out
+
+
+def parse_wikipedia_search(payload: dict[str, Any], limit: int) -> list[SearchResult]:
+    """Turn a MediaWiki search JSON blob into the same Title/URL rows."""
+    hits = ((payload or {}).get("query") or {}).get("search") or []
+    out: list[SearchResult] = []
+    for row in hits:
+        title = str(row.get("title") or "").strip()
+        if not title:
+            continue
+        slug = quote(title.replace(" ", "_"), safe="()_,!'*")
+        snippet = _TAG_RE.sub(" ", str(row.get("snippet") or ""))
+        snippet = " ".join(snippet.split())
+        out.append(
+            SearchResult(
+                title=title,
+                url=f"https://en.wikipedia.org/wiki/{slug}",
+                snippet=snippet,
+            )
+        )
+        if len(out) >= limit:
+            break
+    return out
+
+
 class DuckDuckGoBackend:
     """Zero-setup default: no key, no account, no quota to run out of."""
 
@@ -118,6 +177,65 @@ class DuckDuckGoBackend:
         # Parsing is CPU bound and the loop also carries stop and confirm
         # traffic, same reason scrape offloads its extraction.
         return await asyncio.to_thread(parse_duckduckgo, html, limit)
+
+
+class DuckDuckGoLiteBackend:
+    """Same vendor, simpler page, when the HTML endpoint is empty or an anomaly."""
+
+    name = "duckduckgo_lite"
+
+    def __init__(self, timeout_s: float = 20.0) -> None:
+        self.timeout_s = timeout_s
+
+    async def search(
+        self, query: str, *, limit: int, recency: str | None
+    ) -> list[SearchResult]:
+        params = {"q": query}
+        if recency in _DDG_RECENCY:
+            params["df"] = _DDG_RECENCY[recency]
+        headers = {"User-Agent": _BROWSER_UA, "Accept-Language": "en-US,en;q=0.9"}
+        url = str(httpx.URL(_DDG_LITE_URL, params=params))
+        async with httpx.AsyncClient(timeout=self.timeout_s) as client:
+            response = await guarded_get(client, url, headers=headers)
+            response.raise_for_status()
+            html = response.text
+        return await asyncio.to_thread(parse_duckduckgo_lite, html, limit)
+
+
+class WikipediaBackend:
+    """Encyclopedia fallback. Not news — skipped for recency=day/week."""
+
+    name = "wikipedia"
+
+    def __init__(self, timeout_s: float = 20.0) -> None:
+        self.timeout_s = timeout_s
+
+    def skip_for_recency(self, recency: str | None) -> bool:
+        return recency in _NEWS_RECENCY
+
+    async def search(
+        self, query: str, *, limit: int, recency: str | None
+    ) -> list[SearchResult]:
+        if self.skip_for_recency(recency):
+            return []
+        params = {
+            "action": "query",
+            "list": "search",
+            "srsearch": query,
+            "srlimit": str(limit),
+            "format": "json",
+            "utf8": "1",
+        }
+        headers = {
+            "User-Agent": _BROWSER_UA,
+            "Accept": "application/json",
+        }
+        url = str(httpx.URL(_WIKI_API, params=params))
+        async with httpx.AsyncClient(timeout=self.timeout_s) as client:
+            response = await guarded_get(client, url, headers=headers)
+            response.raise_for_status()
+            payload = json.loads(response.text)
+        return parse_wikipedia_search(payload, limit)
 
 
 class WebSearchTool:
@@ -196,6 +314,9 @@ class WebSearchTool:
         results: list[SearchResult] = []
         errors: list[str] = []
         for backend in self.backends:
+            skip = getattr(backend, "skip_for_recency", None)
+            if callable(skip) and skip(recency):
+                continue
             try:
                 results = await backend.search(query, limit=limit, recency=recency)
             except Exception as exc:
@@ -252,9 +373,15 @@ class WebSearchTool:
 
 def build_search_tool(cfg: dict[str, Any], *, timeout_s: float = 20.0) -> WebSearchTool:
     timeout = float(cfg.get("timeout_s", timeout_s))
-    # DuckDuckGo only — no local metasearch container.
+    # Fixed order, no keys, no container. DuckDuckGo HTML first; Lite when that
+    # page is empty or the anomaly stub; Wikipedia only when both miss, and
+    # never for recency=day/week (that is news, not an encyclopedia stub).
     return WebSearchTool(
-        [DuckDuckGoBackend(timeout_s=timeout)],
+        [
+            DuckDuckGoBackend(timeout_s=timeout),
+            DuckDuckGoLiteBackend(timeout_s=timeout),
+            WikipediaBackend(timeout_s=timeout),
+        ],
         max_results=int(cfg.get("max_results", 6)),
     )
 
