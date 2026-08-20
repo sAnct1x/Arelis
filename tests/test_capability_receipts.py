@@ -19,6 +19,7 @@ def test_capability_classes() -> None:
     assert capability_class("cas") == "READ"
     assert capability_class("units") == "READ"
     assert capability_class("plot") == "WRITE_LOCAL"
+    assert capability_class("document") == "WRITE_LOCAL_ARTIFACT"
     assert capability_class("workspace", {"action": "read"}) == "READ"
     assert capability_class("workspace", {"action": "write"}) == "WRITE_LOCAL"
     assert capability_class("tasks", {"action": "add"}) == "WRITE_LOCAL"

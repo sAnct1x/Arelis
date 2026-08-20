@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <style name="Theme.Arelis" parent="Theme.AppCompat.NoActionBar">
-        <item name="android:statusBarColor">#0c0705</item>
-        <item name="android:navigationBarColor">#0c0705</item>
-        <item name="android:windowBackground">#0c0705</item>
-        <item name="android:colorBackground">#0c0705</item>
-        <item name="android:textColorPrimary">#f7e4d2</item>
-        <item name="android:textColor">#f7e4d2</item>
+        <item name="android:statusBarColor">#160d07</item>
+        <item name="android:navigationBarColor">#160d07</item>
+        <item name="android:windowBackground">#160d07</item>
+        <item name="android:colorBackground">#160d07</item>
+        <item name="android:textColorPrimary">#fae8dc</item>
+        <item name="android:textColor">#fae8dc</item>
         <item name="android:windowLightStatusBar">false</item>
     </style>
 </resources>

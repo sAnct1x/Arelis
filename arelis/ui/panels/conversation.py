@@ -445,6 +445,8 @@ class ConversationStage(GlassFrame):
     def set_idle_mode(self, idle: bool) -> None:
         """Orbit empty face vs workbench. Does not change tools or Allow."""
         want = bool(idle)
+        if self.graphicsEffect() is not None:
+            self.setGraphicsEffect(None)
         if want == self._idle_mode:
             return
         self._idle_mode = want

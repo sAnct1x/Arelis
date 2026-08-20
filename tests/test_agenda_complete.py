@@ -108,6 +108,30 @@ def test_looks_like_calendar_create_not_sms_lead() -> None:
     assert not looks_like_calendar_create("text my wife that I love her")
 
 
+def test_voice_at_an_event_for_tomorrow_is_calendar_create() -> None:
+    from arelis.core.agenda_complete import (
+        looks_like_calendar_create,
+        looks_like_calendar_delete,
+        parse_agenda_utterance,
+    )
+    from arelis.core.preflight import detect_intents
+
+    ask = "At an event for to morrow at eleven a m to go to the lab"
+    assert looks_like_calendar_create(ask)
+    draft = parse_agenda_utterance(ask)
+    assert draft is not None and draft.complete
+    assert "lab" in draft.summary.lower()
+    start = datetime.fromisoformat(draft.start)
+    assert start.hour == 11
+    kinds = [h.kind for h in detect_intents(ask)]
+    assert "agenda_create" in kinds
+    assert "schedule" not in kinds
+    assert looks_like_calendar_delete(
+        "Delight the calendar event for to morrow"
+    )
+    assert not looks_like_calendar_create("is there an event for tomorrow")
+
+
 def test_delete_two_of_them_is_calendar_delete() -> None:
     from arelis.core.agenda_complete import (
         event_id_from_text,
@@ -164,6 +188,51 @@ def test_calendar_read_does_not_need_google_id() -> None:
         "Delete the Arelis operator e2e calendar event",
     )
     assert locked.get("keep") == 0
+
+
+def test_open_my_calendar_is_open_not_read_or_website() -> None:
+    from arelis.core.agenda_complete import (
+        looks_like_calendar_open,
+        looks_like_calendar_read,
+    )
+
+    assert looks_like_calendar_open("open my calendar")
+    assert looks_like_calendar_open("pull up my calendar")
+    assert looks_like_calendar_open("show me my calendar")
+    assert looks_like_calendar_open("bring up the calendar tile")
+    assert not looks_like_calendar_read("open my calendar")
+    assert not looks_like_calendar_read("show me my calendar")
+    assert looks_like_calendar_read("What's on my calendar tomorrow?")
+    assert looks_like_calendar_read("show me my calendar for today")
+    assert not looks_like_calendar_open("What's on my calendar?")
+    assert not looks_like_calendar_open("show me my calendar for today")
+    assert not looks_like_calendar_open("open calendar.google.com")
+    assert not looks_like_calendar_open("open my calendar in chrome")
+    assert not looks_like_calendar_open("pull up YouTube")
+
+
+def test_close_my_calendar_is_close_not_delete() -> None:
+    from arelis.core.agenda_complete import (
+        looks_like_calendar_close,
+        looks_like_calendar_delete,
+        looks_like_calendar_open,
+        looks_like_calendar_read,
+    )
+
+    assert looks_like_calendar_close("close my calendar")
+    assert looks_like_calendar_close("hide the calendar")
+    assert looks_like_calendar_close("put away the calendar tile")
+    assert not looks_like_calendar_open("close my calendar")
+    assert not looks_like_calendar_read("close my calendar")
+    assert not looks_like_calendar_delete("close my calendar")
+    assert not looks_like_calendar_close("close the calendar event")
+    assert not looks_like_calendar_close("open my calendar")
+    assert looks_like_calendar_close(
+        "Delight the calendar event for tomorrow and then close my calendar"
+    )
+    assert looks_like_calendar_delete(
+        "Delight the calendar event for tomorrow and then close my calendar"
+    )
 
 
 def test_put_quoted_title_on_calendar_is_create_not_read() -> None:

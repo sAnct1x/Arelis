@@ -17,6 +17,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QSizePolicy, QToolButton
 
 from arelis.ui.glass import GlassFrame
+from arelis.ui.theme import GLASS
 
 
 class RoomStrip(GlassFrame):
@@ -28,8 +29,8 @@ class RoomStrip(GlassFrame):
         super().__init__(
             parent,
             object_name="RoomStrip",
-            fill_alpha=96,
-            radius=10.0,
+            fill_alpha=int(GLASS.get("fill_strip", 120)),
+            radius=float(GLASS["radius"]),
             pulse_rim=False,
         )
         self.setFixedHeight(38)

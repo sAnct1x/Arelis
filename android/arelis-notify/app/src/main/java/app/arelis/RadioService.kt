@@ -10,6 +10,7 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 
 class RadioService : Service() {
     private var server: RadioServer? = null
@@ -27,7 +28,7 @@ class RadioService : Service() {
             .setContentTitle(getString(R.string.app_name))
             .setContentText(getString(R.string.radio_notification))
             .setOngoing(true)
-            .setColor(0xFFFFB457.toInt())
+            .setColor(ContextCompat.getColor(this, R.color.accent))
             .setContentIntent(
                 PendingIntent.getActivity(
                     this,

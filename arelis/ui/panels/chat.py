@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
-from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtGui import QMouseEvent, QTextCursor
+from PySide6.QtCore import Qt, QTimer, QUrl, QUrlQuery, Signal
+from PySide6.QtGui import QDesktopServices, QMouseEvent, QTextCursor
 from PySide6.QtWidgets import (
     QGraphicsOpacityEffect,
     QLabel,
@@ -11,6 +13,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
+from arelis.local_open import open_local_file, reveal_local_file
 
 from arelis.ui.markdown import render_markdown
 from arelis.ui.theme import COLORS
@@ -99,7 +103,11 @@ class ChatPanel(QWidget):
         self.view = QTextBrowser()
         self.view.setObjectName("ChatView")
         self.view.setReadOnly(True)
-        self.view.setOpenExternalLinks(True)
+        # Custom arelis-file: links (Open / Show in folder) must not go through
+        # Windows "choose an app". http/https/mailto are opened in _on_anchor.
+        self.view.setOpenExternalLinks(False)
+        self.view.setOpenLinks(False)
+        self.view.anchorClicked.connect(self._on_anchor)
         self.view.hide()
         layout.addWidget(self.view, stretch=1)
 
@@ -129,6 +137,8 @@ class ChatPanel(QWidget):
         # append a duplicate copy below the user line.
         self._last_assistant_body: str | None = None
         self._pending_notices: list[str] = []
+        self._pending_files: list[tuple[str, str]] = []
+        self._file_tokens: dict[str, tuple[str, str]] = {}
         self._caret_timer = QTimer(self)
         self._caret_timer.setInterval(530)
         self._caret_timer.timeout.connect(self._blink_caret)
@@ -312,6 +322,61 @@ class ChatPanel(QWidget):
         self.view.append(_notice_html(text))
         self._scroll(follow=follow)
 
+    def add_file_card(self, name: str, path: str) -> None:
+        """A clickable Open / Show-in-folder card for a file she just wrote."""
+        label = (name or Path(path).name).strip() or "file"
+        abs_path = (path or "").strip()
+        if not abs_path:
+            return
+        if self._stream_open:
+            self._pending_files.append((label, abs_path))
+            return
+        follow = self._near_bottom()
+        self._stop_caret()
+        self._close_stream()
+        self._ensure_view()
+        self.view.append(self._file_card_html(label, abs_path))
+        self._scroll(follow=follow)
+
+    def _file_card_html(self, name: str, path: str) -> str:
+        open_token = uuid4().hex
+        reveal_token = uuid4().hex
+        self._file_tokens[open_token] = ("open", path)
+        self._file_tokens[reveal_token] = ("reveal", path)
+        open_href = f"arelis-file://local/?t={open_token}"
+        reveal_href = f"arelis-file://local/?t={reveal_token}"
+        return (
+            f'<p style="margin:6px 8% 12px 0;text-align:left;">'
+            f'<span style="background:{_BUBBLE};padding:8px 12px;border-radius:8px;'
+            f'display:inline-block;color:{_TEXT};">'
+            f'<span style="letter-spacing:0.06em;font-size:11px;color:{_TEXT_DIM};">'
+            f"file</span><br/>"
+            f"<b>{_esc(name)}</b><br/>"
+            f'<a href="{open_href}" style="color:{_ACCENT};">open</a>'
+            f'<span style="color:{_TEXT_DIM};"> · </span>'
+            f'<a href="{reveal_href}" style="color:{_ACCENT};">show in folder</a>'
+            f"</span></p>"
+        )
+
+    def _on_anchor(self, url: QUrl) -> None:
+        scheme = (url.scheme() or "").lower()
+        if scheme in {"http", "https", "mailto"}:
+            QDesktopServices.openUrl(url)
+            return
+        if scheme != "arelis-file":
+            return
+        token = QUrlQuery(url).queryItemValue("t")
+        action, path = self._file_tokens.get(token, ("", ""))
+        if not path:
+            return
+        try:
+            if action == "reveal":
+                reveal_local_file(path)
+            else:
+                open_local_file(path)
+        except OSError:
+            self.add_system(f"I could not open {path}.")
+
     def show_progress(self, text: str = "✦ Generating image…") -> None:
         """Shimmering status gate while a long tool (e.g. Comfy) runs."""
         self._ensure_view()
@@ -359,6 +424,8 @@ class ChatPanel(QWidget):
         self._stream_text = []
         self._last_assistant_body = None
         self._pending_notices = []
+        self._pending_files = []
+        self._file_tokens = {}
         self.view.clear()
         self.view.hide()
         self.empty.show()
@@ -394,14 +461,18 @@ class ChatPanel(QWidget):
     def _flush_pending_notices(self) -> None:
         """Paint notices that arrived while an assistant bubble was open."""
         pending = self._pending_notices
+        files = self._pending_files
         self._pending_notices = []
-        if not pending:
+        self._pending_files = []
+        if not pending and not files:
             return
         self._ensure_view()
         for line in pending:
             text = (line or "").strip()
             if text:
                 self.view.append(_notice_html(text))
+        for name, path in files:
+            self.view.append(self._file_card_html(name, path))
 
     def _end_position(self) -> int:
         cursor = self.view.textCursor()

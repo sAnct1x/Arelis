@@ -61,9 +61,9 @@ class _Harness:
         self.store.start_session()
         self.rooms = RoomStore(tmp_path / "rooms.yaml")
         lab = tmp_path / "lab"
-        lab.mkdir()
+        lab.mkdir(exist_ok=True)
         notes = tmp_path / "notes"
-        notes.mkdir()
+        notes.mkdir(exist_ok=True)
         self.workspace = WorkspaceRoots.from_paths(
             [str(lab), str(notes)], active="lab"
         )
@@ -362,3 +362,73 @@ async def test_the_room_list_names_the_open_one(harness) -> None:
     listing = harness.said[-1]
     assert "`physics` (open)" in listing
     assert "`writing`" in listing
+
+
+@pytest.mark.asyncio
+async def test_launch_resumes_the_room_you_were_in(tmp_path: Path) -> None:
+    """Cold orbit every time was the hole. The strip is how you see it."""
+    first = _Harness(tmp_path)
+    await first.start()
+    try:
+        first.rooms.create("Physics", root="notes")
+        await first.say("/room physics")
+        first.memory.add("user", "three weeks of analysis")
+        assert first.rooms.active_id == "physics"
+    finally:
+        await first.stop()
+
+    second = _Harness(tmp_path)
+    await second.start()
+    try:
+        assert second.rooms.active_id == ""
+        assert second.rooms.last_active_id == "physics"
+        assert await second.orchestrator.resume_last_room() is True
+        await second.bus.drain()
+        assert second.rooms.active_id == "physics"
+        assert any(
+            m.get("content") == "three weeks of analysis"
+            for m in second.memory.as_ollama()
+        )
+        assert second.rooms_seen[-1]["room_id"] == "physics"
+        assert second.said == []
+    finally:
+        await second.stop()
+
+
+@pytest.mark.asyncio
+async def test_launch_does_not_enter_a_room_you_only_created(tmp_path: Path) -> None:
+    first = _Harness(tmp_path)
+    await first.start()
+    try:
+        first.rooms.create("Physics")
+    finally:
+        await first.stop()
+
+    second = _Harness(tmp_path)
+    await second.start()
+    try:
+        assert await second.orchestrator.resume_last_room() is False
+        assert second.rooms.active_id == ""
+        assert second.rooms_seen == []
+    finally:
+        await second.stop()
+
+
+@pytest.mark.asyncio
+async def test_launch_stays_in_orbit_if_you_left(tmp_path: Path) -> None:
+    first = _Harness(tmp_path)
+    await first.start()
+    try:
+        first.rooms.create("Physics")
+        await first.say("/room physics")
+        await first.say("/leave")
+    finally:
+        await first.stop()
+
+    second = _Harness(tmp_path)
+    await second.start()
+    try:
+        assert await second.orchestrator.resume_last_room() is False
+        assert second.rooms.active_id == ""
+    finally:
+        await second.stop()

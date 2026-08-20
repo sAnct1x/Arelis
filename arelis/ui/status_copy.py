@@ -43,6 +43,7 @@ _ERRANDS: dict[str, str] = {
     "clipboard": "reading your clipboard",
     "contacts": "looking up the contact",
     "doc_extract": "reading the document",
+    "document": "writing the file",
     "git_info": "checking the repo",
     "goals": "checking your goals",
     "image": "generating an image",

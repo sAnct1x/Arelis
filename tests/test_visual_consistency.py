@@ -6,6 +6,7 @@ import re
 
 from PySide6.QtWidgets import QPlainTextEdit
 
+from arelis.ui.panels.calendar import CalendarPanel
 from arelis.ui.panels.camera import CameraPanel
 from arelis.ui.panels.conversation import ConversationStage
 from arelis.ui.panels.workspace import WorkspacePanel
@@ -16,6 +17,7 @@ from arelis.ui.theme import COLORS, GLASS, METRICS, stylesheet
 def test_dock_furniture_is_one_height(qt_app) -> None:
     """Three tiers of button height is how a row ends up looking assembled."""
     panel = WorkspacePanel()
+    calendar = CalendarPanel()
     try:
         row = METRICS["row"]
         for widget in (
@@ -24,10 +26,17 @@ def test_dock_furniture_is_one_height(qt_app) -> None:
             panel.open_btn,
             panel.save_btn,
             panel.recent_combo,
+            calendar.prev_btn,
+            calendar.today_btn,
+            calendar.next_btn,
+            calendar.sync_btn,
+            calendar.new_btn,
         ):
-            assert widget.height() == row, widget.objectName()
+            assert widget.minimumHeight() == row, widget.objectName()
+            assert widget.maximumHeight() == row, widget.objectName()
     finally:
         panel.deleteLater()
+        calendar.deleteLater()
 
 
 def test_composer_controls_line_up(qt_app) -> None:
@@ -152,23 +161,67 @@ def test_native_lists_and_dock_tabs_use_opaque_ember() -> None:
 
     qss = stylesheet()
     assert "#SettingsList" in qss
+    assert "#CalendarAgendaList" in qss
+    assert "#CalendarTabs" in qss
     dock = dock_tab_bar_qss()
     assert COLORS["tab_selected"] in dock
     assert COLORS["raised"] in dock
 
 
+def test_every_tile_dock_and_line_is_in_the_stylesheet() -> None:
+    """A surface with no object-name rule is a second palette."""
+    qss = stylesheet()
+    for hook in (
+        "QDockWidget",
+        "#DockTabBar",
+        "#GlassDockContent",
+        "#InstrumentTitle",
+        "#InstrumentAction",
+        "#InstrumentSearch",
+        "#CalendarWindow",
+        "#CalendarTabs",
+        "#CalendarWindowGlass",
+        "#ContactsInbox",
+        "#NotificationsInbox",
+        "#SmsChat",
+        "#SettingsDialog",
+        "#NotifyCard",
+        "#NotifyPill",
+        "#DriveStrip",
+        "#RoomStrip",
+        "#TitleBar",
+        "#ChromeTitle",
+        "#VoidHairline",
+        "#DropOverlay",
+        "#ChatView",
+        "#ThinkingView",
+        "#ConfirmAllow",
+    ):
+        assert hook in qss, hook
+
+
 def test_one_corner_radius(qt_app) -> None:
     """Floating plates used to hardcode 16, the notify card 14, the drop overlay 18."""
+    from PySide6.QtWidgets import QLabel
+
+    from arelis.ui.calendar_window import CalendarWindow
     from arelis.ui.contacts_inbox import ContactsInboxWindow
-    from arelis.ui.glass import GlassFrame
+    from arelis.ui.glass import GlassFrame, Hairline
     from arelis.ui.notify_inbox import NotificationsInboxWindow
+    from arelis.ui.notify_overlay import NotifyOverlay
+    from arelis.ui.panels.calendar import CalendarPanel
     from arelis.ui.panels.contacts import ContactsPanel
+    from arelis.ui.panels.drive import DriveStrip
+    from arelis.ui.panels.instrument import InstrumentPanel
     from arelis.ui.panels.notifications import NotificationsPanel
+    from arelis.ui.panels.room import RoomStrip
+    from arelis.ui.theme import HAIRLINE
 
     radius = float(GLASS["radius"])
     plates = (
         (ContactsInboxWindow, ContactsPanel),
         (NotificationsInboxWindow, NotificationsPanel),
+        (CalendarWindow, CalendarPanel),
     )
     for factory, panel in plates:
         window = factory(panel())
@@ -178,3 +231,23 @@ def test_one_corner_radius(qt_app) -> None:
             assert all(frame._radius == radius for frame in frames)
         finally:
             window.deleteLater()
+
+    drive = DriveStrip()
+    room = RoomStrip()
+    dock = InstrumentPanel("thinking", QLabel("body"))
+    overlay = NotifyOverlay()
+    line = Hairline()
+    try:
+        assert drive._radius == radius
+        assert room._radius == radius
+        assert dock._radius == radius
+        assert overlay.card._radius == radius
+        assert drive._fill_alpha == int(GLASS["fill_strip"])
+        assert room._fill_alpha == int(GLASS["fill_strip"])
+        assert line.glow == int(HAIRLINE["rest"])
+    finally:
+        drive.deleteLater()
+        room.deleteLater()
+        dock.deleteLater()
+        overlay.deleteLater()
+        line.deleteLater()

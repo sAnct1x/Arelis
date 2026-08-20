@@ -52,6 +52,23 @@ class IntentSpec:
         )
 
 
+# The clock is already in the system prompt (now_line). These asks must not
+# take the unmatched "what/who/when" web fallback, which fail-opens every
+# tool schema and costs a 30s prefill for the time of day.
+_LOCAL_CLOCK = re.compile(
+    r"(?i)^\s*(?:"
+    r"what\s+time\s+is\s+it(?:\s+(?:now|right\s+now|currently))?"
+    r"|what(?:'s|\s+is)\s+the\s+time(?:\s+(?:now|right\s+now))?"
+    r"|what(?:'s|\s+is)\s+(?:the\s+)?current\s+time"
+    r"|tell\s+me\s+the\s+time"
+    r"|what\s+day\s+is\s+it(?:\s+today)?"
+    r"|what(?:'s|\s+is)\s+today'?s\s+date"
+    r"|what\s+date\s+is\s+it"
+    r"|what(?:'s|\s+is)\s+the\s+date(?:\s+today)?"
+    r"|what\s+day\s+of\s+the\s+week(?:\s+is\s+it)?"
+    r")[?!.\s]*$"
+)
+
 # --- matchers (moved verbatim from preflight / claims) ---
 
 _WEATHER_PRE = re.compile(
@@ -218,7 +235,7 @@ _TASK_MENTION = re.compile(
     r"(?:a\s+|my\s+|the\s+|that\s+)?tasks?"
     r")\b"
 )
-_DOC_MENTION = re.compile(r"(?i)\b(\.pdf\b|pdf|document extract)\b")
+_DOC_MENTION = re.compile(r"(?i)\b(document extract)\b")
 # A document ask rarely says "pdf". "analyze the document I gave you" and "what
 # does this document say" both used to match nothing, so the ask arrived with no
 # expected tool at all. The noun has to be asked *about* — a bare "document" also
@@ -443,6 +460,43 @@ DOCS = IntentSpec(
     research_extra=True,
 )
 
+_DOCUMENT_CREATE = (
+    re.compile(
+        r"(?i)\b(?:create|make|write|generate|export|draft)\s+"
+        r"(?:(?:me\s+)?(?:a\s+|an\s+|the\s+)?)?"
+        r"(?:pdf|docx|xlsx|csv|spreadsheet|workbook|"
+        r"word\s+doc(?:ument)?|markdown(?:\s+file)?|text\s+file)\b"
+    ),
+    re.compile(
+        r"(?i)\b(?:save|export|download)\s+"
+        r"(?:(?:it|this|that|them|the\s+\w+)\s+)?"
+        r"(?:as|to)\s+(?:a\s+|an\s+)?"
+        r"(?:pdf|docx|xlsx|csv|excel|word|markdown)\b"
+    ),
+    re.compile(
+        r"(?i)\b(?:create|make|write|generate)\s+"
+        r"(?:(?:me\s+)?(?:a\s+|an\s+)?)?"
+        r"(?:\d+\s*[-\s]?\s*page\s+)?(?:pdf\s+)?report\b"
+        r".{0,40}\b(?:pdf|docx|word)\b"
+    ),
+)
+
+DOCUMENT = IntentSpec(
+    kind="document",
+    patterns=_DOCUMENT_CREATE,
+    expected_tools=("document",),
+    nudge=(
+        "Intent preflight: this message asks for a file they can open. "
+        "Call document now with format (pdf, docx, xlsx, csv, md, or txt), "
+        "a title, and the full body. Do not dump the document into chat. "
+        "Do not call doc_extract — that reads an existing PDF. "
+        "Allow still applies — do not ask permission in chat."
+    ),
+    schema_tools=frozenset({"document"}),
+    auto_hint=True,
+    research_extra=True,
+)
+
 _PLOT_MENTION = (
     re.compile(r"(?i)\bplot\s+(?:this|the|my|it)\b"),
     re.compile(r"(?i)\b(?:scatter|line)\s+plot\b"),
@@ -510,6 +564,7 @@ CATALOG: tuple[IntentSpec, ...] = (
     AGENDA,
     BRIEFING,
     TASKS,
+    DOCUMENT,
     DOCS,
     PLOT,
     SCIENCE_CATALOG,
@@ -568,3 +623,29 @@ def must_keep_full_surface_text(text: str) -> bool:
         skip = set(SMS_SEND.surface_phrases)
         return any(w in lowered for w in FULL_SURFACE_PHRASES if w not in skip)
     return any(w in lowered for w in FULL_SURFACE_PHRASES)
+
+
+def looks_like_local_clock_ask(text: str) -> bool:
+    """True when now_line already answers — local time/date, not a meeting."""
+    return bool(_LOCAL_CLOCK.match((text or "").strip()))
+
+
+def is_tiny_prompt_ask(text: str) -> bool:
+    """Clock, hello, or thanks — no full tool surface, no web fallback.
+
+    Unmatched real work still fail-opens. A place ("what time is it in Tokyo")
+    does not match: that still needs a tool.
+    """
+    from arelis.core.sms_complete import (
+        looks_like_closing_chitchat,
+        looks_like_greeting,
+    )
+
+    raw = (text or "").strip()
+    if not raw:
+        return False
+    return (
+        looks_like_local_clock_ask(raw)
+        or looks_like_greeting(raw)
+        or looks_like_closing_chitchat(raw)
+    )

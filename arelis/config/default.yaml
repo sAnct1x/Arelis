@@ -148,8 +148,7 @@ agent:
   tasks_force_call: true
   goals_force_call: true
   # The three below were read from config but never listed here, so they were on
-  # and looked like they were not. Each is a real switch; soak_tools turns
-  # weather off to measure the model unaided.
+  # and looked like they were not. Each is a real switch.
   #
   # A weather ask that produced no weather call gets one nudge, then a redirect
   # if she reaches for web_search/scrape/fetch instead.
@@ -361,6 +360,10 @@ tools:
     # to reach a secondary or shared calendar the authorised account can see.
     google_calendar_id: ""
     outlook_calendar_id: ""
+    # Pull Google's subscribed holiday calendars (en.usa#holiday@… and siblings)
+    # in addition to primary. They are a separate calendarList entry, not events
+    # on the primary calendar.
+    include_holidays: true
   briefing:
     # Fixed morning digest (weather, unread mail, open loops, open tasks,
     # active goals, recent chats, calendar cache and/or local ICS), emailed on a
@@ -431,6 +434,10 @@ tools:
   # Matplotlib charts from a table or a short number list. Writes PNG under
   # outputs/plots/. Always Allow (confirm_writes). Off for unattended jobs.
   plot:
+    enabled: true
+  # PDF, Word, Excel, CSV, markdown, text under outputs/documents/. Allow
+  # (confirm_writes). Off for unattended jobs.
+  document:
     enabled: true
   # System clipboard plain-text read. Always Allow (may hold secrets). Off for
   # unattended jobs. No write/set clipboard in this pass.

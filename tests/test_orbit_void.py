@@ -7,17 +7,20 @@ import asyncio
 from PySide6.QtCore import QPoint
 
 from arelis.core.bus import EventBus
-from arelis.ui.theme import COLORS, GLASS, color
+from arelis.ui.theme import BLOOM, COLORS, GLASS, HAIRLINE, PLATE, color
 from arelis.ui.void_idle import OrbitCanvas, OrbitIdle
 
 
 def test_orbit_tokens() -> None:
-    assert COLORS["accent"].lower() == "#ffb457"
-    assert COLORS["accent2"].lower() == "#ffd9a8"
+    assert COLORS["accent"].lower() == "#ff7a22"
+    assert COLORS["accent2"].lower() == "#ffc08a"
     assert int(GLASS["fill_float"]) == 255
     assert int(GLASS["fill_settings"]) == 255
     assert int(GLASS["fill_docked"]) == 0
     assert int(GLASS["fill_stage"]) == 0
+    # Sodium orange, not harvest gold. #ffb457 sat at hue ~33 and read yellow.
+    hue = color("accent").hueF() * 360
+    assert 18 <= hue <= 28, f"accent hue {hue:.1f} is not sodium orange"
 
 
 def test_every_surface_is_lit_by_one_warm_source() -> None:
@@ -34,7 +37,7 @@ def test_every_surface_is_lit_by_one_warm_source() -> None:
     for name in ramp:
         tint = color(name)
         assert tint.red() > tint.green() > tint.blue(), f"{name} is not warm"
-        assert tint.hueF() * 360 < 45, f"{name} has drifted to yellow-green"
+        assert tint.hueF() * 360 < 32, f"{name} has drifted to yellow"
         lightness = tint.lightnessF()
         assert lightness > previous, f"{name} is not brighter than the step below"
         previous = lightness
@@ -44,6 +47,30 @@ def test_every_surface_is_lit_by_one_warm_source() -> None:
     assert _contrast(color("text"), color("panel_fill")) > 7.0
     assert _contrast(color("hint"), color("panel_fill")) > 4.0
     assert _contrast(color("text_dim"), color("panel_fill")) > 2.5
+    # The room light has to actually read. A 40-alpha inner bloom is a stain.
+    assert BLOOM["inner"][0][1][3] >= 70
+    assert PLATE["seal"][:3] == (
+        color("bg0").red(),
+        color("bg0").green(),
+        color("bg0").blue(),
+    )
+    assert HAIRLINE["rest"] == int(GLASS["rim_pulse_lo"])
+    assert HAIRLINE["live"] >= 180
+    assert int(GLASS["fill_strip"]) >= 100
+
+    # Every named fill, rim, and type token — not just the eight-step ramp.
+    # Danger is the one family allowed off-amber. Pulse min/max are alphas.
+    skip = {"rim_pulse_min", "rim_pulse_max"}
+    for name, raw in COLORS.items():
+        if name in skip or name.startswith("danger"):
+            continue
+        if not raw.startswith(("#", "rgb")):
+            continue
+        tint = color(name)
+        if tint.alpha() == 0:
+            continue
+        assert tint.red() > tint.green() > tint.blue(), f"{name} is not warm"
+        assert tint.hueF() * 360 < 34, f"{name} has drifted off sodium amber"
 
 
 def _contrast(a, b) -> float:
@@ -86,6 +113,75 @@ def test_app_icon_paint_is_orbit_amber(qt_app) -> None:
     assert center.red() > 80
     tile = image.pixelColor(8, 8)
     assert tile.red() >= tile.blue()
+
+
+def test_companion_campfire_matches_desktop_tokens() -> None:
+    """Phone Compose + XML chrome must not drift back to harvest gold."""
+    import re
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    kt = (
+        root
+        / "android"
+        / "arelis-notify"
+        / "app"
+        / "src"
+        / "main"
+        / "java"
+        / "app"
+        / "arelis"
+        / "Campfire.kt"
+    ).read_text(encoding="utf-8")
+    xml = (
+        root
+        / "android"
+        / "arelis-notify"
+        / "app"
+        / "src"
+        / "main"
+        / "res"
+        / "values"
+        / "colors.xml"
+    ).read_text(encoding="utf-8")
+
+    def compose_hex(name: str) -> str:
+        match = re.search(
+            rf"val {name} = Color\(0xFF([0-9A-Fa-f]{{6}})\)",
+            kt,
+        )
+        assert match, f"{name} missing from Campfire.kt"
+        return f"#{match.group(1).lower()}"
+
+    def xml_hex(name: str) -> str:
+        match = re.search(
+            rf'<color name="{name}">#([0-9A-Fa-f]{{6}})</color>',
+            xml,
+        )
+        assert match, f"{name} missing from colors.xml"
+        return f"#{match.group(1).lower()}"
+
+    assert compose_hex("bg0") == COLORS["bg0"].lower()
+    assert compose_hex("accent") == COLORS["accent"].lower()
+    assert compose_hex("accent2") == COLORS["accent2"].lower()
+    assert xml_hex("void_bg") == COLORS["bg0"].lower()
+    assert xml_hex("accent") == COLORS["accent"].lower()
+
+
+def test_social_preview_is_sodium_orbit(qt_app) -> None:
+    from pathlib import Path
+
+    from PySide6.QtGui import QImage
+
+    committed = Path(__file__).resolve().parents[1] / "docs" / "social-preview.png"
+    assert committed.is_file()
+    image = QImage(str(committed))
+    assert image.width() == 1280
+    assert image.height() == 640
+    center = image.pixelColor(image.width() // 2, image.height() // 2)
+    assert center.red() > center.blue()
+    assert center.red() > center.green()
+    assert center.hue() < 34
 
 
 def test_parked_orbit_canvas(qt_app) -> None:
@@ -154,6 +250,24 @@ def test_cold_start_is_orbit_idle(qt_app) -> None:
     finally:
         window.hide()
         window.loop.close()
+
+
+def test_idle_keeps_one_orbit_when_docks_open(arelis_window) -> None:
+    """A fade pixmap plus the live face is the two-orbit screenshot."""
+    from arelis.ui.void_idle import OrbitCanvas
+
+    window = arelis_window()
+    window._reset_layout()
+    window.history_dock.show()
+    window.think_dock.show()
+    window._sync_idle_mode()
+    assert window.conversation.graphicsEffect() is None
+    assert window.chat.empty.graphicsEffect() is None
+    assert not window.chat.empty.isHidden()
+    assert window.chat.view.isHidden()
+    assert window.conversation._parked_orbit.isHidden()
+    visible = [c for c in window.findChildren(OrbitCanvas) if not c.isHidden()]
+    assert visible == [window.chat.empty.orbit]
 
 
 def test_inbound_notify_status_does_not_leave_orbit(qt_app) -> None:
@@ -476,3 +590,21 @@ def test_drive_strip_pause_go(qt_app) -> None:
         assert stage.drive.pause_btn.text() == "go"
     finally:
         stage.deleteLater()
+
+
+def test_fade_in_drops_the_opacity_effect(qt_app) -> None:
+    """A leftover QGraphicsOpacityEffect is the duplicate-tick ghost."""
+    from PySide6.QtTest import QTest
+    from PySide6.QtWidgets import QWidget
+
+    from arelis.ui.glass import fade_in_widget
+
+    widget = QWidget()
+    widget.resize(80, 80)
+    widget.show()
+    qt_app.processEvents()
+    fade_in_widget(widget, 10)
+    QTest.qWait(40)
+    qt_app.processEvents()
+    assert widget.graphicsEffect() is None
+    widget.deleteLater()

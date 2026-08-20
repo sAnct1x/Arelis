@@ -443,20 +443,69 @@ SKILL_CARDS: dict[str, SkillCard] = {
     "docs": SkillCard(
         id="docs",
         hints=(
-            "pdf",
-            ".pdf",
-            "document",
             "what does this pdf",
             "quote from the pdf",
             "extract from the pdf",
             "pages of the pdf",
+            "read this pdf",
+            "analyze this pdf",
         ),
         requires_tool="doc_extract",
+        negative_hints=(
+            "create a pdf",
+            "make a pdf",
+            "save as pdf",
+            "export to pdf",
+            "write a pdf",
+        ),
         body="""
 ### Local documents
 - For PDF content or quotes, call doc_extract with the path (workspace,
   data/drops/ attachment, or granted absolute). Use page_start/page_end when
   the user names pages. Do not invent PDF text.
+- Creating a new PDF, Word, Excel, CSV, or markdown file uses document, not
+  doc_extract.
+""".strip(),
+    ),
+    "document": SkillCard(
+        id="document",
+        hints=(
+            "create a pdf",
+            "make a pdf",
+            "write a pdf",
+            "save as pdf",
+            "export to pdf",
+            "create a word",
+            "make a spreadsheet",
+            "export csv",
+            "save as excel",
+            "create a document",
+            "make a docx",
+            "make an xlsx",
+        ),
+        requires_tool="document",
+        negative_hints=(
+            "what does this pdf",
+            "read this pdf",
+            "extract from the pdf",
+            "quote from the pdf",
+        ),
+        body="""
+### Create a file they can open
+- When they ask to create, make, write, generate, export, or save a PDF,
+  Word doc, Excel sheet, CSV, markdown, or text file, call document with
+  format, title, and the full body. Spreadsheets need rows (JSON lists or
+  CSV) or a markdown table.
+- In a room with a folder, the file lands in that project's documents/
+  directory. Otherwise it lands under outputs/documents/. Tell them the
+  path. Do not paste the document into chat. Allow is required.
+- replace=true overwrites the same name (fix / update / export that).
+  "Make another" writes a new file beside it.
+- from_path reads an existing .md/.txt to export as PDF/Word without
+  retyping the body.
+- In a writing room, a write-up with no named format is markdown.
+- doc_extract reads an existing PDF. workspace write is for source files in
+  the project folder, not office files.
 """.strip(),
     ),
     "attachments": SkillCard(
@@ -626,6 +675,10 @@ SKILL_CARDS: dict[str, SkillCard] = {
             "add to my calendar",
             "create an event",
             "calendar event",
+            "open my calendar",
+            "close my calendar",
+            "pull up my calendar",
+            "show me my calendar",
             "reminder to",
             "delete that event",
             "delete the event",
@@ -640,6 +693,11 @@ SKILL_CARDS: dict[str, SkillCard] = {
   call agenda with action=today, tomorrow, range, or list. List without dates
   covers the next week. Summarize time, title, place, and a one-line note from
   the tool. Never invent meetings. Never ask for or quote a Google event id.
+- To open the Arelis calendar tile ("open my calendar", "pull up my calendar"),
+  call agenda(action=open). Do not open calendar.google.com in the browser
+  unless they asked for the website or to open it in Chrome.
+- To hide that tile ("close my calendar", "hide the calendar"), call
+  agenda(action=close). That is not delete — it only hides the window.
 - To refresh a private ICS subscription into the local file, call
   agenda(action=sync, provider=ics) — Allow required; needs calendar.ics_url
   in secrets. Do not invent a URL.
@@ -916,6 +974,9 @@ SKILL_CARDS: dict[str, SkillCard] = {
 - Use web_search/scrape when YOU need to read the web without opening a window.
   Prefer browser when they said pull up / open / go to / show me in the browser,
   or when scrape already failed as a JavaScript shell on that URL.
+- "Open my calendar" is agenda(action=open), the Arelis tile — not the
+  calendar browser alias. Use browser only if they named calendar.google.com
+  or asked to open it in Chrome/the browser.
 - Firefox private only when they ask for Firefox private; default is system default.
 """.strip(),
     ),
@@ -1030,10 +1091,14 @@ def select_skill_ids(
     *,
     available_tools: set[str] | None = None,
     max_cards: int = 4,
+    extra_ids: list[str] | tuple[str, ...] | None = None,
 ) -> list[str]:
     """Pick skill cards for this user turn (order = priority)."""
     return select_skill_ids_detailed(
-        text, available_tools=available_tools, max_cards=max_cards
+        text,
+        available_tools=available_tools,
+        max_cards=max_cards,
+        extra_ids=extra_ids,
     )[0]
 
 
@@ -1042,6 +1107,7 @@ def select_skill_ids_detailed(
     *,
     available_tools: set[str] | None = None,
     max_cards: int = 4,
+    extra_ids: list[str] | tuple[str, ...] | None = None,
 ) -> tuple[list[str], bool]:
     """Skill cards for this turn, plus whether they came from the web fallback.
 
@@ -1082,6 +1148,8 @@ def select_skill_ids_detailed(
                     continue
                 elif card_id == "docs" and "doc_extract" not in available_tools:
                     continue
+                elif card_id == "document" and "document" not in available_tools:
+                    continue
                 elif card_id == "research" and not (
                     available_tools
                     & {"research_report", "web_search", "scrape", "web_fetch"}
@@ -1114,6 +1182,7 @@ def select_skill_ids_detailed(
                     "agenda",
                     "schedule",
                     "docs",
+                    "document",
                     "research",
                     "deadline",
                     "vision",
@@ -1128,16 +1197,43 @@ def select_skill_ids_detailed(
             scored.append((score, best_len, card_id))
     scored.sort(key=lambda item: (-item[0], -item[1], item[2]))
     chosen = [card_id for _, _, card_id in scored[:max_cards]]
+    extras: list[str] = []
+    for sid in extra_ids or ():
+        if sid in extras or sid in chosen:
+            continue
+        card = SKILL_CARDS.get(sid)
+        if card is None:
+            continue
+        if available_tools is not None and card.requires_tool:
+            if card.requires_tool not in available_tools:
+                continue
+        extras.append(sid)
     # Always keep web available-ish for vague "what is" currency questions when
     # search exists and nothing else matched — small models otherwise invent.
+    # Clock / hello / thanks are not those: now_line already has the time, and
+    # `\bwhat\b` on "what time is it" used to tag skills=web and fail-open.
+    fallback_only = False
+    from arelis.core.intent_catalog import is_tiny_prompt_ask
+
     if (
         not chosen
+        and not extras
         and available_tools
         and "web_search" in available_tools
         and re.search(r"\b(what|who|when|where|how much|latest)\b", lowered)
+        and not is_tiny_prompt_ask(text)
     ):
-        return ["web"], True
-    return chosen, False
+        chosen = ["web"]
+        fallback_only = True
+    merged: list[str] = []
+    seen: set[str] = set()
+    for sid in extras + chosen:
+        if sid in seen:
+            continue
+        seen.add(sid)
+        merged.append(sid)
+    cap = max(max_cards, len(extras))
+    return merged[:cap], fallback_only
 
 
 def assemble_tool_policy(
@@ -1177,6 +1273,7 @@ def assemble_skill_focus(
     *,
     available_tools: set[str] | None = None,
     max_cards: int = 4,
+    extra_ids: list[str] | tuple[str, ...] | None = None,
 ) -> str:
     """Selected skill card bodies only — trailing focus, not the static prefix.
 
@@ -1184,7 +1281,10 @@ def assemble_skill_focus(
     This optional trailer highlights the cards that match the user text.
     """
     ids = select_skill_ids(
-        text, available_tools=available_tools, max_cards=max_cards
+        text,
+        available_tools=available_tools,
+        max_cards=max_cards,
+        extra_ids=extra_ids,
     )
     if available_tools:
         for fallback in ("calculator",):

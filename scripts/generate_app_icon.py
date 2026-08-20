@@ -24,14 +24,25 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import QApplication
 
+if str(Path(__file__).resolve().parents[1]) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from arelis.ui.theme import BLOOM, FILAMENT, color
+
 ROOT = Path(__file__).resolve().parents[1]
 ASSETS = ROOT / "arelis" / "assets"
 SIZES = (256, 128, 64, 48, 32, 16)
 
-_VOID = QColor(10, 8, 6, 255)
-_AMBER = QColor(255, 180, 87, 255)
-_AMBER_SOFT = QColor(255, 217, 168, 255)
-_IVORY = QColor(243, 236, 224, 255)
+_VOID = color("bg0")
+_AMBER = color("accent")
+_AMBER_SOFT = color("accent2")
+_GRAIN = QColor(*BLOOM["grain"])
+_CORE = QColor(*FILAMENT["core"])
+_TICK = QColor(*FILAMENT["tick"])
+
+
+def _a(base: QColor, alpha: int) -> QColor:
+    return QColor(base.red(), base.green(), base.blue(), max(0, min(255, int(alpha))))
 
 
 def _paint(size: int) -> QImage:
@@ -47,9 +58,9 @@ def _paint(size: int) -> QImage:
     cx, cy = size * 0.50, size * 0.50
 
     glow = QRadialGradient(QPointF(cx, cy), size * 0.52)
-    glow.setColorAt(0.0, QColor(255, 180, 87, 48 if size >= 48 else 28))
-    glow.setColorAt(0.55, QColor(210, 120, 48, 16))
-    glow.setColorAt(1.0, QColor(10, 8, 6, 0))
+    glow.setColorAt(0.0, _a(_GRAIN, 72 if size >= 48 else 40))
+    glow.setColorAt(0.55, _a(_AMBER, 24))
+    glow.setColorAt(1.0, _a(_VOID, 0))
     p.setPen(Qt.PenStyle.NoPen)
     p.setBrush(glow)
     p.drawEllipse(QRectF(0, 0, size, size))
@@ -58,9 +69,10 @@ def _paint(size: int) -> QImage:
     p.drawRoundedRect(tile, radius, radius)
 
     bloom = QRadialGradient(QPointF(cx, cy), size * 0.38)
-    bloom.setColorAt(0.0, QColor(255, 176, 96, 40 if size >= 48 else 22))
-    bloom.setColorAt(0.55, QColor(80, 42, 18, 10))
-    bloom.setColorAt(1.0, QColor(10, 8, 6, 0))
+    inner_rgb = BLOOM["inner"][0][1]
+    bloom.setColorAt(0.0, QColor(inner_rgb[0], inner_rgb[1], inner_rgb[2], 64 if size >= 48 else 36))
+    bloom.setColorAt(0.55, _a(_AMBER, 16))
+    bloom.setColorAt(1.0, _a(_VOID, 0))
     p.setBrush(bloom)
     p.drawRoundedRect(tile, radius, radius)
 
@@ -68,7 +80,7 @@ def _paint(size: int) -> QImage:
     if size >= 24:
         p.setBrush(Qt.BrushStyle.NoBrush)
         for width, alpha in ((size * 0.028, 28), (max(1.0, size * 0.012), 170)):
-            ring = QPen(QColor(255, 180, 87, alpha))
+            ring = QPen(_a(_AMBER, alpha))
             ring.setWidthF(max(1.0, width))
             ring.setCapStyle(Qt.PenCapStyle.RoundCap)
             p.setPen(ring)
@@ -80,9 +92,9 @@ def _paint(size: int) -> QImage:
         ty = cy - ring_r * math.cos(rad)
         tick_r = size * 0.055
         tick_glow = QRadialGradient(QPointF(tx, ty), tick_r * 2.4)
-        tick_glow.setColorAt(0.0, QColor(255, 200, 120, 210))
-        tick_glow.setColorAt(0.45, QColor(255, 180, 87, 80))
-        tick_glow.setColorAt(1.0, QColor(255, 180, 87, 0))
+        tick_glow.setColorAt(0.0, _a(_TICK, 210))
+        tick_glow.setColorAt(0.45, _a(_AMBER, 80))
+        tick_glow.setColorAt(1.0, _a(_AMBER, 0))
         p.setPen(Qt.PenStyle.NoPen)
         p.setBrush(tick_glow)
         p.drawEllipse(QPointF(tx, ty), tick_r * 2.2, tick_r * 2.2)
@@ -91,17 +103,17 @@ def _paint(size: int) -> QImage:
 
     core_glow_r = size * (0.12 if size >= 32 else 0.16)
     core_glow = QRadialGradient(QPointF(cx, cy), core_glow_r)
-    core_glow.setColorAt(0.0, QColor(255, 230, 190, 220))
-    core_glow.setColorAt(0.35, QColor(255, 180, 87, 90))
-    core_glow.setColorAt(1.0, QColor(255, 180, 87, 0))
+    core_glow.setColorAt(0.0, _a(_CORE, 220))
+    core_glow.setColorAt(0.35, _a(_AMBER, 90))
+    core_glow.setColorAt(1.0, _a(_AMBER, 0))
     p.setPen(Qt.PenStyle.NoPen)
     p.setBrush(core_glow)
     p.drawEllipse(QPointF(cx, cy), core_glow_r, core_glow_r)
     core_r = max(1.2, size * (0.028 if size >= 32 else 0.12))
-    p.setBrush(_IVORY)
+    p.setBrush(_CORE)
     p.drawEllipse(QPointF(cx, cy), core_r, core_r)
 
-    edge = QPen(QColor(255, 180, 87, 70 if size >= 48 else 100))
+    edge = QPen(_a(_AMBER, 70 if size >= 48 else 100))
     edge.setWidthF(max(1.0, size * 0.012))
     p.setPen(edge)
     p.setBrush(Qt.BrushStyle.NoBrush)

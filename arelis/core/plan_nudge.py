@@ -70,10 +70,20 @@ _ANALYZE = re.compile(
 
 _DOC = re.compile(
     r"(?i)\b("
-    r"pdf|"
     r"what\s+does\s+(?:this|the)\s+(?:pdf|document|doc)\s+say|"
     r"extract\s+text\s+from|"
     r"read\s+(?:this|the)\s+pdf"
+    r")\b"
+)
+
+_DOCUMENT = re.compile(
+    r"(?i)\b("
+    r"(?:create|make|write|generate|export|draft)\s+"
+    r"(?:(?:me\s+)?(?:a\s+|an\s+|the\s+)?)?"
+    r"(?:pdf|docx|xlsx|csv|spreadsheet|"
+    r"word\s+doc(?:ument)?|markdown(?:\s+file)?|text\s+file)|"
+    r"(?:save|export)\s+(?:(?:it|this|that)\s+)?(?:as|to)\s+(?:a\s+)?"
+    r"(?:pdf|docx|xlsx|csv|excel|word|markdown)"
     r")\b"
 )
 
@@ -109,7 +119,8 @@ _AGENDA_CREATE = re.compile(
     r"add\s+(?:an?\s+)?(?:calendar\s+)?(?:event|meeting|appointment|reminder)|"
     r"calendar\s+event\s+for|"
     r"set\s+(?:an?\s+)?(?:calendar\s+)?reminder|"
-    r"put\s+(?:this\s+)?on\s+(?:my\s+)?calendar"
+    r"put\s+(?:this\s+)?on\s+(?:my\s+)?calendar|"
+    r"at\s+an?\s+event\s+for"
     r")\b"
 )
 
@@ -300,6 +311,20 @@ _PLAN_ANALYZE = PlanSpec(
     steps=("analyze",),
 )
 
+_PLAN_DOCUMENT = PlanSpec(
+    id="document",
+    message=(
+        "Plan: 1) Call document with format (pdf, docx, xlsx, csv, md, or txt), "
+        "title, and the full body (rows for a spreadsheet). "
+        "2) Tell them the path (the room's documents folder when a room is "
+        "open, otherwise outputs/documents/). "
+        "Set replace=true when they asked to fix, update, or export that file. "
+        "Use from_path for an existing markdown draft. "
+        "Do not paste the file into chat. Do not call doc_extract. Allow still applies."
+    ),
+    steps=("document",),
+)
+
 _PLAN_DOC = PlanSpec(
     id="docs",
     message=(
@@ -326,6 +351,25 @@ _PLAN_GIT = PlanSpec(
         "2) Report branch state from the tool — do not invent commits."
     ),
     steps=("git_info",),
+)
+
+_PLAN_AGENDA_OPEN = PlanSpec(
+    id="agenda_open",
+    message=(
+        "Plan: 1) Call agenda with action=open. That opens the Arelis "
+        "calendar tile. Do not open calendar.google.com in the browser "
+        "unless they asked for the website."
+    ),
+    steps=("agenda",),
+)
+
+_PLAN_AGENDA_CLOSE = PlanSpec(
+    id="agenda_close",
+    message=(
+        "Plan: 1) Call agenda with action=close. That hides the Arelis "
+        "calendar tile. Do not delete events."
+    ),
+    steps=("agenda",),
 )
 
 _PLAN_AGENDA = PlanSpec(
@@ -469,10 +513,18 @@ def select_plan(
     raw = (text or "").strip()
     if not raw and not kinds and not skills:
         return None
+    from arelis.core.intent_catalog import looks_like_local_clock_ask
     from arelis.core.sms_complete import looks_like_closing_chitchat
 
     if raw and looks_like_closing_chitchat(raw):
         return None
+    # now_line already has the time. The unmatched web fallback used to pass
+    # skill_ids=["web"] and inject a scrape plan for "what time is it".
+    if raw and looks_like_local_clock_ask(raw):
+        return None
+
+    if "document" in kinds or "document" in skills or (raw and _DOCUMENT.search(raw)):
+        return _PLAN_DOCUMENT
 
     if (
         "research" in kinds
@@ -535,6 +587,17 @@ def select_plan(
 
     if "git" in skills or (raw and _GIT.search(raw)):
         return _PLAN_GIT
+
+    from arelis.core.agenda_complete import (
+        looks_like_calendar_close,
+        looks_like_calendar_open,
+    )
+
+    if "agenda_close" in kinds or (raw and looks_like_calendar_close(raw)):
+        return _PLAN_AGENDA_CLOSE
+
+    if "agenda_open" in kinds or (raw and looks_like_calendar_open(raw)):
+        return _PLAN_AGENDA_OPEN
 
     if raw and _BROWSER_MAPS.search(raw):
         return _PLAN_BROWSER_MAPS

@@ -65,6 +65,10 @@ _STUB_SCHEMAS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
         (),
         ("action", "out", "path", "title", "x", "xlabel", "xs", "y", "ylabel", "ys"),
     ),
+    "document": (
+        ("format",),
+        ("body", "filename", "format", "from_path", "replace", "rows", "title"),
+    ),
     "catalog": (
         ("action",),
         ("action", "date", "query", "target"),
@@ -485,6 +489,7 @@ def foundation_registry() -> ToolRegistry:
         ("cas", "read"),
         ("units", "read"),
         ("plot", "write"),
+        ("document", "write"),
         ("catalog", "read"),
         ("workspace", "read"),
         ("git_info", "read"),

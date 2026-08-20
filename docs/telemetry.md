@@ -1,4 +1,4 @@
-# Logs — they stay here
+# Logs
 
 Where to look when something feels wrong. `logs/` is under the user data
 root: `%LOCALAPPDATA%\Arelis\logs` for an installed copy, or the
@@ -12,13 +12,10 @@ Nothing here is sent anywhere.
 | Why was that turn slow / which tools ran? | `logs/turns.log` plus `logs/turns.jsonl` |
 | Did she enter JSON fallback or answer from a tool result? | Thinking dock. Also `logs/turns.jsonl` |
 | Did a confirm / SMS / error fire on the bus? | `logs/events.log` |
-| Are Ollama / calendar / SMS / mail up? | UI readiness strip. CLI `ready …` STATUS |
+| Are Ollama / calendar / SMS / mail up? | UI **Systems** menu (mail / SMS / calendar only show once connected). CLI `ready …` STATUS |
 | App crash, IMAP, router, indexer exceptions | `logs/arelis.log` |
 | Scheduled job mail digest | `logs/jobs.log` |
 | Conversation mic stuck | `logs/voice.log` (wake decisions always. The rest needs `voice.debug: true`) |
-| Offline / live foundation matrix | `logs/foundation_bench.json` |
-| VRAM / TTFT samples | `logs/utilization_bench.json` |
-| Prefill / decode plus gate table | `logs/latency_bench.json` |
 
 ## Files
 
@@ -53,22 +50,8 @@ when ids do not join: `id=` (turn), `session=`, `span=` (STT), `eid=`
 | `voice.debug` | `false` | Extra voice.log |
 | `agent.auto_lessons` | `true` | Mines `turns.log` signatures into lessons |
 
-```powershell
-.\.venv\Scripts\python.exe scripts\mine_lessons.py
-# or --write to append catalog hits into data/lessons.yaml
-```
-
-Latency benches:
-
-```powershell
-.\.venv\Scripts\python.exe scripts\bench_latency.py --num-ctx 8192
-```
-
-Repeat summaries land in `logs/latency_bench_runs/`.
-
 ## What is still not logged
 
 - Full assistant token streams (thinking dock only. `events.log` keeps a
   240-char preview on ASSISTANT_DONE)
 - Entire tool result bodies (400-char preview in `events.log`)
-- Continuous VRAM sampling (manual `bench_utilization.py`)

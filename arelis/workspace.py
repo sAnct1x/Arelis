@@ -104,6 +104,11 @@ class WorkspaceRoots:
     def active_root(self) -> RootEntry:
         return self._by_name[self._active]
 
+    def root_named(self, name: str) -> RootEntry | None:
+        """The configured project with this name, or None."""
+        key = (name or "").strip()
+        return self._by_name.get(key)
+
     def set_active(self, name: str, *, persist: bool = True) -> None:
         if name not in self._by_name:
             known = ", ".join(self.names())

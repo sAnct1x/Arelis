@@ -42,6 +42,13 @@ def _no_live_comfy(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
+@pytest.fixture(autouse=True)
+def _no_live_phone_or_ics(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pairing and ICS live in the user's secrets.yaml; tests must not read it."""
+    monkeypatch.setattr("arelis.presence.readiness.load_sms_account", lambda: None)
+    monkeypatch.setattr("arelis.presence.readiness.load_ics_url", lambda: "")
+
+
 def _base_config() -> dict:
     return {
         "models": {
@@ -92,6 +99,10 @@ async def test_probe_ok_when_tags_and_integrations_ready(
     monkeypatch.setattr(
         "arelis.presence.readiness.load_account",
         lambda: MailAccount(address="me@example.com", password="pw"),
+    )
+    monkeypatch.setattr(
+        "arelis.presence.readiness.load_sms_account",
+        lambda: SimpleNamespace(via="companion"),
     )
     router = SimpleNamespace(
         provider=_FakeProvider(
@@ -187,8 +198,8 @@ async def test_probe_warns_on_missing_configured_tags(
     assert "cold" in role.detail.lower() or "router not attached" in role.detail
 
     assert snap.chip("calendar") and snap.chip("calendar").status == ChipLevel.OFF
-    assert snap.chip("sms") and snap.chip("sms").status == ChipLevel.WARN
-    assert snap.chip("mail") and snap.chip("mail").status == ChipLevel.WARN
+    assert snap.chip("sms") and snap.chip("sms").status == ChipLevel.OFF
+    assert snap.chip("mail") and snap.chip("mail").status == ChipLevel.OFF
 
 
 @pytest.mark.asyncio
@@ -320,3 +331,29 @@ def test_readiness_strip_applies_statuses(qt_app) -> None:
     strip.set_confirm_waiting(False)
     assert "allow" not in strip.systems_btn.text().lower()
     assert strip.systems_btn.property("status") == "warn"
+
+
+def test_readiness_strip_hides_disconnected_mail_sms_calendar(qt_app) -> None:
+    from arelis.presence.readiness import ReadinessChip, ReadinessSnapshot
+    from arelis.ui.readiness_strip import ReadinessStrip
+
+    strip = ReadinessStrip()
+    snap = ReadinessSnapshot(
+        chips=(
+            ReadinessChip("ollama", "Ollama", ChipLevel.OK, "up"),
+            ReadinessChip("models", "Models", ChipLevel.OK, "tags"),
+            ReadinessChip("role", "Model", ChipLevel.OK, "hot"),
+            ReadinessChip("confirm", "Allow gates", ChipLevel.OK, "gates on"),
+            ReadinessChip("calendar", "Calendar", ChipLevel.OFF, "not connected"),
+            ReadinessChip("sms", "SMS", ChipLevel.OFF, "not paired"),
+            ReadinessChip("mail", "Mail", ChipLevel.OFF, "no account"),
+            ReadinessChip("embed", "Embed", ChipLevel.OK, "ready"),
+        )
+    )
+    strip.apply(snap)
+    assert strip.systems_btn.property("status") == "ok"
+    menu_text = " ".join(a.text() for a in strip._systems_menu.actions())
+    assert "Calendar" not in menu_text
+    assert "SMS" not in menu_text
+    assert "Mail" not in menu_text
+    assert "Allow gates" in menu_text

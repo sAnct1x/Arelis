@@ -6,7 +6,10 @@ import logging
 from datetime import datetime, timedelta
 from typing import Any
 
-from arelis.calendar.google_client import GoogleCalendarClient
+from arelis.calendar.google_client import (
+    GoogleCalendarClient,
+    extra_google_calendar_ids,
+)
 from arelis.calendar.outlook_client import OutlookCalendarClient
 from arelis.calendar.secrets import CalendarSecrets, load_calendar_secrets
 from arelis.calendar.store import CalendarStore
@@ -46,10 +49,38 @@ async def sync_calendars(
                 events = await client.list_events(
                     time_min=start, time_max=end, calendar_id=cal_id
                 )
+                extra_ids: list[str] = []
+                if bool(cal_cfg.get("include_holidays", True)):
+                    try:
+                        extra_ids = extra_google_calendar_ids(
+                            await client.list_calendar_list(),
+                            primary_id=cal_id or "primary",
+                        )
+                        for extra_id in extra_ids:
+                            events.extend(
+                                await client.list_events(
+                                    time_min=start,
+                                    time_max=end,
+                                    calendar_id=extra_id,
+                                )
+                            )
+                    except Exception as exc:
+                        log.warning("Google holiday calendars skipped: %s", exc)
+                seen: set[str] = set()
+                deduped: list[Any] = []
+                for ev in events:
+                    if ev.id in seen:
+                        continue
+                    seen.add(ev.id)
+                    deduped.append(ev)
                 n = store.replace_provider_window(
-                    "google", events, start=start, end=end
+                    "google", deduped, start=start, end=end
                 )
-                summary["providers"]["google"] = {"count": n, "ok": True}
+                summary["providers"]["google"] = {
+                    "count": n,
+                    "ok": True,
+                    "calendars": 1 + len(extra_ids),
+                }
             except Exception as exc:
                 log.warning("Google calendar sync failed: %s", exc)
                 summary["providers"]["google"] = {"ok": False, "error": str(exc)}

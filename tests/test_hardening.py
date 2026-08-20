@@ -617,6 +617,95 @@ async def test_empty_after_successful_tool_skips_json_fallback() -> None:
     assert router.i == 2
 
 
+class _AgendaStub:
+    """Write tool whose wrap-up round strips schemas (agenda_create_ok)."""
+
+    name = "agenda"
+    description = "calendar"
+    risk = "write"
+    parameters_schema = {
+        "type": "object",
+        "properties": {
+            "action": {"type": "string"},
+            "provider": {"type": "string"},
+            "summary": {"type": "string"},
+            "start": {"type": "string"},
+        },
+    }
+
+    async def run(self, **kwargs: Any) -> ToolResult:
+        del kwargs
+        return ToolResult(
+            ok=True,
+            output="Created on google: go to the lab @ 2026-08-20T10:00:00-04:00",
+        )
+
+
+@pytest.mark.asyncio
+async def test_empty_after_agenda_create_answers_from_result() -> None:
+    """After a successful create, round 2 offers no tools so Qwen can wrap up.
+
+    Qwen3.5 still puts that wrap-up in thinking. The empty-after-tool fallback
+    used to require ollama_tools to still be on, so the turn shipped
+    'model unloaded' even though Google already had the event.
+    """
+    bus = EventBus()
+    router = _ScriptedRouter(
+        [
+            [
+                (
+                    "tool_calls",
+                    [
+                        {
+                            "type": "function",
+                            "function": {
+                                "name": "agenda",
+                                "arguments": {
+                                    "action": "create",
+                                    "provider": "google",
+                                    "summary": "go to the lab",
+                                    "start": "2026-08-20T10:00:00-04:00",
+                                },
+                            },
+                        }
+                    ],
+                )
+            ],
+            [("thinking", "Your event is set."), ("token", "")],
+        ]
+    )
+    tools = ToolRegistry()
+    tools.register(_AgendaStub())
+    cfg = _config()
+    cfg["agent"]["chat_fast_path"] = False
+    cfg["agent"]["confirm_writes"] = False
+    cfg["agent"]["max_rounds"] = 8
+    loop = AgentLoop(
+        bus,
+        router,  # type: ignore[arg-type]
+        tools,
+        SessionMemory(),
+        "persona",
+        cfg,
+        request_confirm=_deny,
+        is_cancelled=lambda: False,
+    )
+    events = await _collect(
+        bus, loop.run('create a calendar event for tomorrow at 10am', "fast")
+    )
+    thinking = " ".join(
+        str(e.payload.get("text") or "")
+        for e in events
+        if e.type == EventType.THINKING
+    )
+    assert "empty after tool; answering from result" in thinking
+    assert "JSON fallback" not in thinking
+    done = next(e for e in events if e.type == EventType.ASSISTANT_DONE)
+    assert "go to the lab" in done.payload["text"]
+    assert "empty reply" not in done.payload["text"].lower()
+    assert router.i == 2
+
+
 @pytest.mark.asyncio
 async def test_empty_first_round_still_json_falls_back() -> None:
     """No tool has run yet — blank content must still enter JSON fallback."""
@@ -641,7 +730,7 @@ async def test_empty_first_round_still_json_falls_back() -> None:
         request_confirm=_deny,
         is_cancelled=lambda: False,
     )
-    events = await _collect(bus, loop.run("hello", "fast"))
+    events = await _collect(bus, loop.run("search the web for hello", "fast"))
     thinking = " ".join(
         str(e.payload.get("text") or "")
         for e in events

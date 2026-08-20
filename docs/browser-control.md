@@ -1,4 +1,4 @@
-# 🧭 Browser control
+# Browser control
 
 Arelis drives **her own Chrome window** (profile under
 `data/browser-profile/`), not your daily Chrome. You watch it. You sign
@@ -7,8 +7,7 @@ OTP codes, or payment fields. Relaunch never runs `taskkill /IM
 chrome.exe`.
 
 Ask her to open a page and she does. If she offers a window you did not
-ask for, you still get allow / deny. Living notes:
-[whats-new.md](whats-new.md).
+ask for, you still get allow / deny.
 
 The Windows installer already includes the browser extra. She attaches
 to Chrome or Edge that is already on the PC. Firefox's private path still
@@ -73,7 +72,7 @@ Override per call: `browser=edge`, `browser=firefox`, `private=true`
 - `reserve` opens OpenTable (or Resy / Google) with party, date, and
   time in the URL. She can type remaining non-secret fields. Book /
   Reserve / Confirm is still your turn.
-- A glass **Drive strip** in Arelis (not in Chrome) shows Stop / Pause /
+- A **Drive strip** in Arelis (not in Chrome) shows Stop / Pause /
   "about to click…". Pause freezes the glow beat and the next step. The
   page stays. Go continues. Stop aborts the turn.
 - `screenshot` writes a PNG under `outputs/images/browser_….png`.

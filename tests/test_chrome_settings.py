@@ -226,10 +226,16 @@ def test_every_dock_keeps_an_object_name() -> None:
     from pathlib import Path
 
     src = Path("arelis/ui/app.py").read_text(encoding="utf-8")
-    for dock in ("ThinkingDock", "WorkspaceDock", "HistoryDock", "CameraDock"):
+    for dock in (
+        "ThinkingDock",
+        "WorkspaceDock",
+        "HistoryDock",
+        "CameraDock",
+    ):
         assert f'setObjectName("{dock}")' in src, (
             f"{dock} lost its object name; saved layouts will forget that dock"
         )
+    assert 'setObjectName("CalendarDock")' not in src
 
 
 def test_view_menu_omits_settings() -> None:

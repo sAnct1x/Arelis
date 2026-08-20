@@ -9,107 +9,99 @@ from arelis.paths import cache_dir, ensure
 
 log = logging.getLogger(__name__)
 
-# Orbit void — one light source, an incandescent filament at roughly 2300K
-# burning in an unlit room, and every colour below is a reading off it.
-#
-# The rule that keeps it from going bronze: as a surface gets darker it also
-# gets *redder*, because that is what a cooling ember does. Hue runs from ~17
-# in the deepest fills to ~33 at the accent, and saturation stays high all the
-# way down. A dark that is only 20% saturated is not a shadow, it is grey paint
-# with a warm tint on it, and a mid-value 30%-saturated orange is not lamplight
-# either — it is metal. Both were what the palette used to be made of.
-#
-# Practical consequence: nothing here is neutral. There is no grey in the app.
+# Orbit void — sodium lamp in a dark room. Exposure is locked: do not chase
+# brightness here. The last pass was gold (#ffb457, hue ~33) and read as yellow.
+# This lock is hue. The filament pinprick can be cream; everything it throws
+# (rims, type, bloom, chrome) stays orange-amber (~22–26), like high-pressure
+# sodium at night. Darker is still orange, not chocolate-red. Floating HWNDs
+# stay opaque.
 
 COLORS = {
     # --- the void -------------------------------------------------------
-    "bg0": "#0c0705",
-    "bg1": "#140c08",
-    "bg2": "#1e120b",
-    "plate": "rgba(12, 7, 5, 255)",  # opaque body of a floating tool window
-    "panel_fill": "rgba(24, 14, 10, 255)",  # settings pane, sms thread
-    "veil": "rgba(12, 7, 5, 28)",  # barely-there wash over the atmosphere
-    "scrim": "rgba(12, 7, 5, 200)",  # drop target over the live chat
-    "code_fill": "rgba(10, 6, 4, 170)",  # fenced code inside a transcript bubble
-    "glass": "rgba(12, 7, 5, 128)",
-    "glass_strong": "rgba(14, 9, 6, 168)",
-    "glass_soft": "rgba(22, 13, 9, 96)",
-    "glass_fill": "rgba(12, 7, 5, 248)",
-    "glass_fill_float": "rgba(12, 7, 5, 248)",
-    "glass_fill_docked": "rgba(12, 7, 5, 0)",
-    "glass_fill_settings": "rgba(12, 7, 5, 255)",
-    "bubble_fill": "rgba(14, 8, 6, 120)",
-    "bubble_wash": "rgba(10, 6, 4, 110)",  # transcript bubbles, written as HTML
-    "menu_fill": "rgba(18, 11, 8, 238)",
+    "bg0": "#160d07",
+    "bg1": "#221408",
+    "bg2": "#321c0e",
+    "plate": "rgba(22, 13, 7, 255)",  # opaque body of a floating tool window
+    "panel_fill": "rgba(32, 20, 10, 255)",  # settings pane, sms thread
+    "veil": "rgba(22, 13, 7, 36)",  # barely-there wash over the atmosphere
+    "scrim": "rgba(22, 13, 7, 200)",  # drop target over the live chat
+    "code_fill": "rgba(16, 10, 6, 180)",  # fenced code inside a transcript bubble
+    "glass": "rgba(22, 13, 7, 140)",
+    "glass_strong": "rgba(26, 16, 8, 176)",
+    "glass_soft": "rgba(40, 24, 12, 110)",
+    "glass_fill": "rgba(22, 13, 7, 248)",
+    "glass_fill_float": "rgba(22, 13, 7, 248)",
+    "glass_fill_docked": "rgba(22, 13, 7, 0)",
+    "glass_fill_settings": "rgba(22, 13, 7, 255)",
+    "bubble_fill": "rgba(28, 16, 8, 130)",
+    "bubble_wash": "rgba(24, 14, 8, 120)",  # transcript bubbles, written as HTML
+    "menu_fill": "rgba(30, 18, 10, 242)",
 
     # --- surfaces the light falls on ------------------------------------
-    "inset": "rgba(14, 8, 6, 140)",  # sunken well inside a plate
-    "well": "rgba(26, 15, 10, 255)",  # text field at rest
-    "well_focus": "rgba(36, 20, 12, 255)",
-    "well_soft": "rgba(24, 14, 9, 120)",
-    "card_fill": "rgba(24, 14, 9, 150)",
-    "raised": "rgba(30, 17, 11, 255)",
-    "raised_warm": "rgba(44, 25, 13, 255)",
-    "sunk": "rgba(22, 12, 7, 255)",  # pressed
-    "sunk_soft": "rgba(22, 12, 7, 180)",
-    "tab_selected": "rgba(60, 34, 15, 255)",
-    "groove": "rgba(28, 16, 11, 160)",
-    "chip": "rgba(28, 16, 11, 96)",
-    "chip_solid": "rgba(28, 16, 11, 210)",
-    "row_hover": "rgba(50, 28, 14, 72)",
-    "row_selected": "rgba(72, 40, 17, 96)",
-    "hover_soft": "rgba(50, 28, 14, 96)",
-    "hover": "rgba(50, 28, 14, 130)",
-    "hover_strong": "rgba(72, 40, 17, 200)",
-    "button_fill": "rgba(50, 28, 14, 160)",
-    "button_hover": "rgba(84, 46, 18, 200)",
-    "button_hover_hot": "rgba(130, 70, 26, 200)",
-    "button_hover_soft": "rgba(72, 40, 17, 140)",
-    "live_fill": "rgba(106, 60, 20, 130)",  # a latched capture control
-    "selection": "rgba(104, 56, 20, 180)",
-    "selection_strong": "rgba(104, 56, 20, 200)",
+    "inset": "rgba(26, 16, 8, 150)",  # sunken well inside a plate
+    "well": "rgba(38, 22, 12, 255)",  # text field at rest
+    "well_focus": "rgba(52, 30, 14, 255)",
+    "well_soft": "rgba(40, 24, 12, 130)",
+    "card_fill": "rgba(42, 24, 12, 160)",
+    "raised": "rgba(46, 26, 12, 255)",
+    "raised_warm": "rgba(64, 36, 16, 255)",
+    "sunk": "rgba(28, 16, 8, 255)",  # pressed
+    "sunk_soft": "rgba(28, 16, 8, 190)",
+    "tab_selected": "rgba(88, 50, 18, 255)",
+    "groove": "rgba(42, 24, 12, 170)",
+    "chip": "rgba(48, 28, 12, 110)",
+    "chip_solid": "rgba(48, 28, 12, 220)",
+    "row_hover": "rgba(90, 50, 18, 80)",
+    "row_selected": "rgba(110, 60, 20, 110)",
+    "hover_soft": "rgba(90, 50, 18, 110)",
+    "hover": "rgba(90, 50, 18, 150)",
+    "hover_strong": "rgba(120, 66, 22, 210)",
+    "button_fill": "rgba(80, 44, 16, 170)",
+    "button_hover": "rgba(120, 66, 22, 210)",
+    "button_hover_hot": "rgba(160, 86, 28, 220)",
+    "button_hover_soft": "rgba(100, 56, 20, 150)",
+    "live_fill": "rgba(140, 76, 24, 150)",  # a latched capture control
+    "selection": "rgba(140, 76, 24, 190)",
+    "selection_strong": "rgba(150, 82, 26, 210)",
 
     # --- rims: the filament seen edge-on --------------------------------
-    "rim": "rgba(255, 180, 87, 55)",
-    "rim_glow": "rgba(255, 180, 87, 22)",
-    "rim_pulse_min": "36",
-    "rim_pulse_max": "70",
-    "hairline_faint": "rgba(255, 180, 87, 16)",
-    "hairline": "rgba(255, 180, 87, 26)",
-    "hairline_mid": "rgba(255, 180, 87, 34)",
-    "edge_soft": "rgba(255, 180, 87, 35)",
-    "edge": "rgba(255, 180, 87, 48)",
-    "edge_mid": "rgba(255, 180, 87, 70)",
-    "edge_strong": "rgba(255, 180, 87, 90)",
-    "edge_hot": "rgba(255, 180, 87, 170)",
-    "edge_warm": "rgba(255, 217, 168, 55)",
-    "edge_bright": "rgba(255, 217, 168, 90)",
-    "catch": "rgba(255, 217, 168, 40)",
+    "rim": "rgba(255, 122, 34, 110)",
+    "rim_glow": "rgba(255, 122, 34, 56)",
+    "rim_pulse_min": "68",
+    "rim_pulse_max": "128",
+    "hairline_faint": "rgba(255, 122, 34, 44)",
+    "hairline": "rgba(255, 122, 34, 68)",
+    "hairline_mid": "rgba(255, 122, 34, 88)",
+    "edge_soft": "rgba(255, 122, 34, 70)",
+    "edge": "rgba(255, 122, 34, 96)",
+    "edge_mid": "rgba(255, 122, 34, 130)",
+    "edge_strong": "rgba(255, 122, 34, 165)",
+    "edge_hot": "rgba(255, 122, 34, 210)",
+    "edge_warm": "rgba(255, 192, 138, 96)",
+    "edge_bright": "rgba(255, 192, 138, 140)",
+    "catch": "rgba(255, 192, 138, 80)",
 
-    # --- type: warm ivory down to the coals -----------------------------
-    "text": "#f7e4d2",
-    "hint": "#e0b683",  # secondary prose: soft gold, one step under the light
-    "thinking": "#b4936f",
-    "text_dim": "#9a7c62",
-    # Idle ghosts use dim; workbench labels sit a step up so they stay readable.
-    "dim": "#5a4030",
-    "status_white": "#f7e4d2",
-    # Type that sits *in* the bloom rather than on a plate. Kept as alphas of a
-    # warm ivory so the void still shows through — an opaque colour here would
-    # flatten the orbit face. The base is tinted because ivory over black
-    # composites to grey, which is how the idle prompt ended up olive.
-    "text_soft": "rgba(255, 224, 186, 158)",
-    "text_muted": "rgba(255, 224, 186, 108)",
-    "text_faint": "rgba(255, 224, 186, 62)",
+    # --- type: sodium-lit, still bright — hue shift, not a dimmer --------
+    "text": "#fae8dc",
+    "hint": "#f0c7a8",
+    "thinking": "#e4b596",
+    "text_dim": "#d8a482",
+    "dim": "#c4906e",
+    "status_white": "#fae8dc",
+    # Type that sits *in* the bloom rather than on a plate. Orange cream,
+    # not lemon — cream over the void is how the idle line went yellow.
+    "text_soft": "rgba(255, 210, 160, 200)",
+    "text_muted": "rgba(255, 210, 160, 150)",
+    "text_faint": "rgba(255, 210, 160, 96)",
 
-    # --- the light itself -----------------------------------------------
-    "accent": "#ffb457",
-    "accent2": "#ffd9a8",
-    "amber": "#ffb457",
-    "status_amber": "#ffb457",
+    # --- the light itself: sodium orange, not harvest gold --------------
+    "accent": "#ff7a22",
+    "accent2": "#ffc08a",
+    "amber": "#ff7a22",
+    "status_amber": "#ff7a22",
     # Attention without leaving the family: hotter and redder than the accent,
     # so a warn chip is not the same pixel value as an ok one.
-    "warn": "#ff9d3d",
+    "warn": "#ff5e12",
 
     # --- alarm: the one thing allowed off the ramp ----------------------
     "danger": "#F0A0A8",
@@ -119,27 +111,35 @@ COLORS = {
     "danger_fill": "rgba(160, 60, 70, 180)",
     "danger_wash": "rgba(40, 16, 22, 90)",
 
-    "user_bubble": "rgba(28, 22, 16, 0)",
-    "assistant_bubble": "rgba(18, 14, 10, 0)",
+    "user_bubble": "rgba(36, 24, 14, 0)",
+    "assistant_bubble": "rgba(28, 18, 10, 0)",
 }
 
-# The orbit core is the filament seen directly rather than the glow it throws,
-# so it runs hotter and whiter than the accent. Same ramp for the travelling
-# tick, one step cooler, so the tick reads as a bead of the same light.
+# The orbit core is the filament seen directly rather than the glow it throws.
+# Cream only here — a pinprick of hot metal. The halo and tick are the sodium
+# orange the rest of the room is made of.
 FILAMENT = {
-    "core": (255, 233, 202),
-    "core_halo": (255, 222, 180),
-    "tick": (255, 214, 160),
-    "tick_halo": (255, 200, 128),
+    "core": (255, 220, 175),
+    "core_halo": (255, 170, 100),
+    "tick": (255, 140, 50),
+    "tick_halo": (255, 122, 34),
 }
 
-# The atmosphere behind everything: the lamp itself, blooming through the room.
-# Stops are (r, g, b, a) at a gradient position.
+# Same exposure as the last pass (alphas stay). Hue is what changed: gold
+# bloom was the yellow wash across the stage.
 BLOOM = {
-    "inner": ((0.0, (255, 170, 88, 40)), (0.22, (232, 110, 40, 24)), (0.55, (96, 40, 14, 12))),
-    "outer": ((0.0, (180, 80, 28, 16)), (0.45, (48, 20, 10, 9))),
-    "grain": (255, 180, 87),
-    "vignette": (10, 5, 3, 80),
+    "inner": (
+        (0.0, (255, 150, 72, 92)),
+        (0.16, (255, 120, 40, 62)),
+        (0.42, (200, 80, 24, 32)),
+        (0.72, (96, 36, 10, 12)),
+    ),
+    "outer": (
+        (0.0, (255, 118, 36, 40)),
+        (0.38, (140, 50, 14, 18)),
+    ),
+    "grain": (255, 148, 64),
+    "vignette": (16, 8, 3, 48),
 }
 
 # Floating must stay opaque: WA_TranslucentBackground on a separate HWND
@@ -150,12 +150,28 @@ GLASS = {
     "fill_float": 255,  # opaque plate; void is a color, not a transparent HWND
     "fill_stage": 0,
     "fill_settings": 255,
+    "fill_strip": 120,  # room / chrome-drive banners over the void
     "radius": 12.0,
     "radius_stage": 12.0,
     "rim_pulse_seconds": 6.0,
-    "rim_pulse_lo": 36,
-    "rim_pulse_hi": 70,
+    "rim_pulse_lo": 68,
+    "rim_pulse_hi": 128,
 }
+
+# Opaque float plates (calendar, contacts, notify, settings). Same lamp as
+# COLORS; kept here so GlassFrame is not a second palette.
+PLATE = {
+    "seal": (22, 13, 7, 255),
+    "body": (34, 20, 10, 255),
+    "opaque": ((0.0, (86, 40, 12)), (0.36, (40, 22, 10)), (1.0, (22, 13, 7))),
+    "smoked": (
+        (0.0, (56, 32, 14), 20),
+        (0.42, (28, 16, 9), 4),
+        (1.0, (18, 11, 7), -6),
+    ),
+}
+
+HAIRLINE = {"rest": 68, "live": 200}
 
 # Control heights. Two tiers on purpose, and only two: dock furniture, and the
 # composer, which is the one row that is not furniture. A third tier is how the
@@ -331,7 +347,8 @@ def stylesheet() -> str:
     }}
     /* Glass panels: painted in code — keep stylesheets transparent */
     #GlassPanel, #GlassDockContent, #ChatStage, #ChatPanelInner, #ComposerInner,
-    #SettingsGlass, #NotifyInboxGlass, #ChatEmpty, #VoidPromptHost,
+    #SettingsGlass, #NotifyInboxGlass, #CalendarWindowGlass, #NotifyCard,
+    #DriveStrip, #RoomStrip, #ChatEmpty, #VoidPromptHost,
     #VoidVoiceHost, #GlassDialogGlass {{
         background: transparent;
         border: none;
@@ -378,7 +395,7 @@ def stylesheet() -> str:
         background: {c['hover']};
     }}
     #SettingsDialog, #ContactsInbox, #NotificationsInbox, #SmsChat,
-    #GlassDialog {{
+    #GlassDialog, #CalendarWindow {{
         background: {c['plate']};
         border: none;
         color: {c['text']};
@@ -871,6 +888,105 @@ def stylesheet() -> str:
         background: transparent;
         padding: 0 0 2px 2px;
     }}
+    #CalendarTabs {{
+        background: transparent;
+        border: none;
+    }}
+    #CalendarTabs::pane {{
+        border: none;
+        background: transparent;
+        top: 6px;
+        padding: 0;
+    }}
+    #CalendarTabBody, #CalendarTasksPage, #CalendarEventSheet {{
+        background: transparent;
+        border: none;
+    }}
+    #CalendarTabs QTabBar {{
+        background: transparent;
+    }}
+    #CalendarTabs QTabBar::tab {{
+        background-color: {c['raised']};
+        border: 1px solid {c['edge']};
+        border-radius: 8px;
+        color: {c['text_dim']};
+        padding: 6px 14px;
+        margin-right: 6px;
+        min-width: 52px;
+    }}
+    #CalendarTabs QTabBar::tab:hover {{
+        color: {c['accent']};
+        border-color: {c['edge_strong']};
+        background: {c['hover']};
+    }}
+    #CalendarTabs QTabBar::tab:selected {{
+        color: {c['accent2']};
+        border-color: {c['edge_hot']};
+        background: {c['tab_selected']};
+    }}
+    #CalendarMonthTitle {{
+        color: {c['accent2']};
+        font-size: 15px;
+        font-family: {f['display']};
+        letter-spacing: 0.04em;
+        background: transparent;
+        padding: 0 8px;
+    }}
+    #CalendarDate, #CalendarTime {{
+        background-color: {c['well']};
+        border: 1px solid {c['edge']};
+        border-radius: 8px;
+        color: {c['text']};
+        padding: 2px 8px;
+        font-size: 12px;
+        font-family: {f['body']};
+        min-height: {m['row'] - 8}px;
+    }}
+    #CalendarDate:focus, #CalendarTime:focus {{
+        border: 1px solid {c['accent']};
+        background-color: {c['well_focus']};
+    }}
+    #CalendarAgendaList, #CalendarTaskList {{
+        background-color: {c['well']};
+        border: 1px solid {c['edge']};
+        border-radius: 8px;
+        color: {c['text']};
+        outline: none;
+        padding: 4px;
+    }}
+    #CalendarAgendaList::item, #CalendarTaskList::item {{
+        color: {c['text']};
+        padding: 6px 8px;
+        border-radius: 6px;
+    }}
+    #CalendarAgendaList::item:selected, #CalendarTaskList::item:selected {{
+        background-color: {c['tab_selected']};
+        color: {c['accent2']};
+    }}
+    #CalendarAgendaList::item:hover, #CalendarTaskList::item:hover {{
+        background-color: {c['hover_strong']};
+        color: {c['accent']};
+    }}
+    #CalendarTaskTitle {{
+        color: {c['text']};
+        background: transparent;
+        font-size: {FONT_PX}px;
+        font-family: {f['body']};
+    }}
+    #CalendarDelete {{
+        background-color: {c['danger_fill_soft']};
+        border: 1px solid {c['danger_edge_soft']};
+        color: {c['danger']};
+    }}
+    #CalendarDelete:hover {{
+        background-color: {c['danger_fill']};
+        border-color: {c['danger_edge']};
+        color: {c['danger']};
+    }}
+    #CalendarEventSheet QLabel {{
+        color: {c['text_dim']};
+        background: transparent;
+    }}
     #InstrumentHint {{
         color: {c['hint']};
         font-size: 12px;
@@ -961,18 +1077,19 @@ def stylesheet() -> str:
         subcontrol-origin: padding;
         subcontrol-position: center right;
     }}
-    /* min-height rather than a fixed one: the tier belongs to the row, and a
-       widget that forgets to ask for it should still land on it. */
+    /* The row is 28px including the 1px border. min/max here are the
+       content box — padding used to steal another 8px and land on 26. */
     #InstrumentAction {{
         background-color: {c['button_fill']};
         border: 1px solid {c['edge_mid']};
         border-radius: 8px;
-        padding: 4px 10px;
+        padding: 0px 10px;
         color: {c['accent2']};
         font-size: 11px;
         font-family: {f['mono']};
         font-weight: 400;
-        min-height: {m['row'] - 12}px;
+        min-height: {m['row'] - 2}px;
+        max-height: {m['row'] - 2}px;
     }}
     #InstrumentAction:hover {{
         background-color: {c['button_hover']};

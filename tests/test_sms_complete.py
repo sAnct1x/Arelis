@@ -607,13 +607,12 @@ async def test_a_ready_send_says_why_send_sms_is_unavailable(monkeypatch) -> Non
         except asyncio.CancelledError:
             pass
 
-    said = " ".join(
-        str(e.payload.get("text") or e.payload.get("message") or "")
-        for e in events
-        if e.type in {EventType.THINKING, EventType.STATUS}
-    )
-    assert "not registered" in said
-    assert "secrets.yaml" in said
+    done = [e for e in events if e.type == EventType.ASSISTANT_DONE]
+    assert done
+    text = str(done[-1].payload.get("text") or "")
+    assert "Settings → Notify" in text
+    assert "scan the QR" in text
+    assert router.i == 0
 
 
 def test_greeting_does_not_revive_prior_sms_draft() -> None:

@@ -7,11 +7,13 @@ from __future__ import annotations
 
 from arelis.calendar.models import CachedEvent
 from arelis.calendar.secrets import CalendarSecrets, load_calendar_secrets
+from arelis.calendar.service import CalendarService
 from arelis.calendar.store import CalendarStore
 
 __all__ = [
     "CachedEvent",
     "CalendarSecrets",
+    "CalendarService",
     "CalendarStore",
     "load_calendar_secrets",
 ]

@@ -5,6 +5,7 @@ from typing import Any
 
 from arelis.llm.ollama import OllamaProvider
 from arelis.llm.router import ModelRouter
+from arelis.calendar.secrets import calendar_connected
 from arelis.location import build_location
 from arelis.mail import Mailer, load_account
 from arelis.memory import MemoryStore
@@ -25,6 +26,7 @@ from arelis.tools.clipboard import ClipboardTool
 from arelis.tools.code_workspace import CodeWorkspaceTool
 from arelis.tools.contacts_tool import ContactsTool
 from arelis.tools.doc_extract import DocExtractTool
+from arelis.tools.document import DocumentTool
 from arelis.tools.email_send import SendEmailTool
 from arelis.tools.git_info import GitInfoTool
 from arelis.tools.goals import GoalsTool
@@ -198,11 +200,12 @@ def build_tool_registry(
     # configure SMS, and losing one does not take the other down with it.
     sms_cfg = tools_cfg.get("sms") or {}
     if sms_cfg.get("enabled", True):
-        # Read-only: recent inbound announced while the UI was open.
-        registry.register(InboundSmsTool())
-        if allow_send:
-            sms_account = load_sms_account()
-            if sms_account is not None:
+        # None when the phone is not paired. Both tools then stay unregistered,
+        # so she says she cannot text rather than offering a tool that fails.
+        sms_account = load_sms_account()
+        if sms_account is not None:
+            registry.register(InboundSmsTool())
+            if allow_send:
                 registry.register(
                     SendSmsTool(
                         AndroidSmsProvider(
@@ -255,9 +258,13 @@ def build_tool_registry(
     # and a user who disabled the calendar while leaving briefings on still wants
     # the agenda the digest is built from.
     cal_cfg = tools_cfg.get("calendar") or {}
-    if allow_send and (
-        cal_cfg.get("enabled", True)
-        or tools_cfg.get("briefing", {}).get("enabled", True)
+    if (
+        allow_send
+        and (
+            cal_cfg.get("enabled", True)
+            or tools_cfg.get("briefing", {}).get("enabled", True)
+        )
+        and calendar_connected()
     ):
         registry.register(AgendaTool(config))
     # Clipboard read needs a person for the Allow card (privacy).
@@ -294,6 +301,10 @@ def build_tool_registry(
     # Charts write a PNG (Allow). Jobs skip — nobody is there to approve the file.
     if allow_send and (tools_cfg.get("plot") or {}).get("enabled", True):
         registry.register(PlotTool(workspace))
+    # PDF / Word / Excel / CSV / markdown. Allow. Jobs skip — nobody is there
+    # to approve a file landing on disk.
+    if allow_send and (tools_cfg.get("document") or {}).get("enabled", True):
+        registry.register(DocumentTool(workspace, config.get("_rooms")))
     registry.register(CodeWorkspaceTool(workspace))
     # Read-only git; same roots as workspace. Always on when workspace is.
     registry.register(GitInfoTool(workspace))

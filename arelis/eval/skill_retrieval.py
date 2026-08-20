@@ -27,6 +27,7 @@ EVERYDAY_TOOLS: frozenset[str] = frozenset(RESEARCH_TOOL_ALLOWLIST) | {
     "cas",
     "units",
     "plot",
+    "document",
     "workspace",
     "git_info",
     "analyze",
@@ -170,6 +171,15 @@ RETRIEVAL_CASES: tuple[RetrievalCase, ...] = (
         must_exclude=("sms",),
         must_offer_tools=("plot",),
         notes="Chart asks keep plot visible and do not pull SMS.",
+    ),
+    RetrievalCase(
+        id="create_pdf_selects_document_not_docs",
+        user="create a pdf about the dirac equation",
+        must_include=("document",),
+        must_exclude=("docs", "sms"),
+        must_offer_tools=("document",),
+        must_hide_tools=("doc_extract", "send_sms"),
+        notes="Make-a-file asks must not route to the PDF reader.",
     ),
     RetrievalCase(
         id="arxiv_selects_science",

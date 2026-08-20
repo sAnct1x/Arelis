@@ -68,6 +68,14 @@ class EventType(str, Enum):
     earlier one still paints the truth. An empty room id means the general
     conversation. SESSION_LOADED still carries the messages — this event says
     which room they belong to.
+
+    CALENDAR_CHANGED fires after a Google/Outlook write or a cache sync, from
+    the operator's calendar tile or from the agenda tool. The tile reloads; it
+    is not a turn event. TASKS_CHANGED is the same idea for local chores in
+    memory.db.
+
+    FILE_READY is a document (or other openable file) that just landed on disk.
+    The chat paints a card with Open / Show in folder. It does not auto-open.
     """
 
     USER_MESSAGE = "user_message"
@@ -90,10 +98,13 @@ class EventType(str, Enum):
     VOICE_AUDIO_READY = "voice_audio_ready"
     VOICE_SPEECH_DONE = "voice_speech_done"
     IMAGE_READY = "image_ready"
+    FILE_READY = "file_ready"
     SESSION_LOAD = "session_load"
     SESSION_LOADED = "session_loaded"
     SMS_RECEIVED = "sms_received"
     ROOM_CHANGED = "room_changed"
+    CALENDAR_CHANGED = "calendar_changed"
+    TASKS_CHANGED = "tasks_changed"
 
 
 @dataclass(slots=True)

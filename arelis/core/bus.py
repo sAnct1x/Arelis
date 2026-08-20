@@ -12,6 +12,8 @@ Handler = Callable[[Event], Awaitable[None] | None]
 
 log = logging.getLogger(__name__)
 
+_APP_BUS: EventBus | None = None
+
 
 class EventBus:
     """Simple asyncio pub/sub hub for Arelis modules.
@@ -93,3 +95,20 @@ class EventBus:
     async def drain(self) -> None:
         """Wait until every published event has finished being handled."""
         await self._queue.join()
+
+
+def bind_app_bus(bus: EventBus | None) -> None:
+    """The desktop window binds the live bus so calendar/tasks writes wake the tile."""
+    global _APP_BUS
+    _APP_BUS = bus
+
+
+def emit_nowait(event: Event) -> None:
+    """Publish if the desktop bus is bound. No-op in headless tool tests."""
+    bus = _APP_BUS
+    if bus is None:
+        return
+    try:
+        bus.publish_nowait(event)
+    except Exception:
+        log.debug("emit_nowait dropped %s", getattr(event, "type", event), exc_info=True)

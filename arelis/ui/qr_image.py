@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from PySide6.QtGui import QColor, QImage, QPixmap
+from PySide6.QtGui import QImage, QPixmap
 
 from arelis.qr import qr_modules
+from arelis.ui.theme import color
 
 
 def pairing_pixmap(text: str, *, scale: int = 5, pad: int = 12) -> QPixmap:
@@ -14,15 +15,15 @@ def pairing_pixmap(text: str, *, scale: int = 5, pad: int = 12) -> QPixmap:
     inner = n * scale
     side = inner + 2 * pad
     img = QImage(side, side, QImage.Format.Format_RGB32)
-    dark = QColor(12, 7, 5)
-    light = QColor(247, 228, 210)
+    dark = color("bg0")
+    light = color("text")
     img.fill(light)
     for r in range(n):
         for c in range(n):
-            color = dark if modules[r][c] else light
+            pixel = dark if modules[r][c] else light
             x0 = pad + c * scale
             y0 = pad + r * scale
             for y in range(scale):
                 for x in range(scale):
-                    img.setPixelColor(x0 + x, y0 + y, color)
+                    img.setPixelColor(x0 + x, y0 + y, pixel)
     return QPixmap.fromImage(img)

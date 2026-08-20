@@ -148,6 +148,30 @@ def test_chat_fast_path_still_skips_pure_chat() -> None:
     )
 
 
+def test_chat_fast_path_skips_a_clock_ask() -> None:
+    """`what` used to web-fallback, which re-armed every schema (~11k tokens)."""
+    from arelis.core.plan_nudge import select_plan
+    from arelis.core.skills import select_skill_ids
+
+    text = "what time is it"
+    tools = {"web_search", "scrape", "web_fetch", "weather", "calculator"}
+    ids = select_skill_ids(text, available_tools=tools)
+    plan = select_plan(text, skill_ids=ids)
+    need = detect_exactness_need(text)
+    assert "web" not in ids
+    assert plan is None
+    assert not should_offer_tools(
+        chat_fast_path=True,
+        skill_ids=ids,
+        preflight_kinds=[],
+        research_mode=False,
+        expected_tools=set(),
+        exact_need=need,
+        wants_fresh_page=False,
+        active_plan=plan,
+    )
+
+
 def test_fill_vision_args_from_history_path(tmp_path: Path) -> None:
     history = [
         {

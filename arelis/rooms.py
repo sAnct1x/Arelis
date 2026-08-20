@@ -21,10 +21,10 @@ set `tools:` explicitly, and then it is a decision somebody made rather than a
 side effect of naming a folder.
 
 Definitions live in data/rooms.yaml so they are readable and editable by hand,
-matching contacts.yaml. Which room is active is *not* stored: you land in the
-general orbit every launch and step into a room on purpose. Persisting it would
-mean a launch silently resuming three-week-old context with no way to see that
-it had happened.
+matching contacts.yaml. The last room you *entered* is stored as last_active
+and resumed on launch (the strip names it). Leaving writes an empty last_active,
+so orbit stays orbit. Creating a room does not enter it. A forgotten room is
+not recreated.
 """
 
 from __future__ import annotations
@@ -148,8 +148,8 @@ KINDS: dict[str, RoomKind] = {
         id="writing",
         label="Writing",
         role="research",
-        skills=("workspace",),
-        blurb="Drafting and revising documents in the project.",
+        skills=("workspace", "document"),
+        blurb="Drafting and revising documents in the project's documents folder.",
     ),
 }
 
@@ -202,6 +202,16 @@ class Room:
             lines.append(self.purpose.strip())
         if self.root:
             lines.append(f"Work happens in the `{self.root}` project unless told otherwise.")
+            if self.kind == "writing":
+                lines.append(
+                    "Drafts belong in this project's documents folder. "
+                    "A write-up with no format is markdown; PDF, Word, and "
+                    "Excel are exports you ask for."
+                )
+            else:
+                lines.append(
+                    "Files she creates land in this project's documents folder."
+                )
         lines.append(
             "This is a continuing thread about this work. Earlier turns in this "
             "room are yours to build on."
@@ -226,15 +236,15 @@ class Room:
 class RoomStore:
     """Room definitions on disk, plus which one is open right now.
 
-    The active room is in-process state, the way the external-read grants on
-    WorkspaceRoots are: it belongs to this run of the program. Everything else
-    here is the file.
+    Being *in* a room is in-process. last_active is the disk hint for the next
+    launch: only a room that was entered, still exists, and was not left.
     """
 
     def __init__(self, path: Path | None = None) -> None:
         self.path = path if path is not None else ROOMS_PATH
         self._rooms: dict[str, Room] = {}
         self._active: str = ""
+        self._resume_id: str = ""
         self.reload()
 
     # -- disk ------------------------------------------------------------
@@ -247,6 +257,8 @@ class RoomStore:
             if room is not None:
                 rooms[room.id] = room
         self._rooms = rooms
+        saved = slugify(str(raw.get("last_active") or ""))
+        self._resume_id = saved if saved in rooms else ""
         if self._active not in self._rooms:
             self._active = ""
 
@@ -298,7 +310,7 @@ class RoomStore:
         body = {
             room_id: self._rooms[room_id].to_yaml() for room_id in sorted(self._rooms)
         }
-        text = (
+        header = (
             "# Arelis rooms — a named place to work on one thing.\n"
             "#\n"
             "# Each room keeps its own conversation thread, points at one\n"
@@ -307,9 +319,14 @@ class RoomStore:
             "#\n"
             "# kind: " + " | ".join(sorted(KINDS)) + "\n"
             "# tools: optional. Leave it out and the room leans without\n"
-            "#        restricting; list tool names to lock the room to them.\n\n"
-        ) + yaml.safe_dump(
-            {"rooms": body},
+            "#        restricting; list tool names to lock the room to them.\n"
+            "# last_active: written on enter/leave. Launch resumes that room.\n\n"
+        )
+        payload: dict[str, Any] = {"rooms": body}
+        if self._resume_id and self._resume_id in self._rooms:
+            payload["last_active"] = self._resume_id
+        text = header + yaml.safe_dump(
+            payload,
             default_flow_style=False,
             allow_unicode=True,
             sort_keys=False,
@@ -363,13 +380,22 @@ class RoomStore:
     def active_id(self) -> str:
         return self._active if self._active in self._rooms else ""
 
+    @property
+    def last_active_id(self) -> str:
+        """Room to resume on launch, if it still exists. Not entered yet."""
+        return self._resume_id if self._resume_id in self._rooms else ""
+
     def set_active(self, room_id: str) -> Room | None:
         room = self.get(room_id) if room_id else None
         self._active = room.id if room is not None else ""
+        self._resume_id = self._active
+        self.save()
         return room
 
     def leave(self) -> None:
         self._active = ""
+        self._resume_id = ""
+        self.save()
 
     # -- writing ---------------------------------------------------------
 
@@ -444,5 +470,7 @@ class RoomStore:
         del self._rooms[room.id]
         if self._active == room.id:
             self._active = ""
+        if self._resume_id == room.id:
+            self._resume_id = ""
         self.save()
         return True

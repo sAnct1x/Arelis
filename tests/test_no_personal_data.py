@@ -425,6 +425,31 @@ def _local_terms(path: Path) -> set[str]:
     }
 
 
+def test_holiday_copy_does_not_use_a_live_country_title() -> None:
+    """Google's UI string is also a profile `country` value.
+
+    A 13-character term from that field flagged default.yaml:363 and the
+    calendar fixtures. Match holidays by mailbox id. Do not paste the live
+    country title into git — a scrub-allow of that name would hide a
+    person-name leak that happened to use the same words.
+    """
+    banned = (
+        "Holidays in United States",
+        "Holidays in United Kingdom",
+    )
+    hits = []
+    for path, text in _readable_tracked():
+        for needle in banned:
+            if needle in text:
+                hits.append(f"{path.relative_to(PROJECT_ROOT)}")
+                break
+    assert not hits, (
+        "A Google holiday UI title is in a tracked file. That title is a "
+        "real country name and will fail the name-scrub for anyone whose "
+        "profile location is that country:\n" + _report(hits)
+    )
+
+
 def test_nothing_from_the_operators_own_records_reaches_a_tracked_file() -> None:
     """The check that knows who you are, using a list that is never committed.
 

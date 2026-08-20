@@ -9,11 +9,10 @@ but because that board cannot see them.
 
 This module holds the corpus that can. Each case is an utterance whose right
 answer is not in dispute, paired with every tool that would be a defensible pick,
-so a miss is a real miss rather than a difference of opinion. Running it needs a
-live model, which is why the runner lives in ``scripts/audit_tool_choice.py``;
-what lives here is the corpus itself, plus the coherence checks that keep it from
-rotting quietly. A case naming a tool the registry no longer offers is a case that
-can never pass, and that is the failure mode worth a test.
+so a miss is a real miss rather than a difference of opinion. The corpus
+and its coherence checks live here. A case naming a tool the registry no
+longer offers is a case that can never pass, and that is the failure mode
+worth a test.
 """
 
 from __future__ import annotations
@@ -70,6 +69,8 @@ CHOICE_CASES: tuple[ChoiceCase, ...] = (
     ),
     ChoiceCase("summarise the columns in data/sales.csv", ("analyze",)),
     ChoiceCase("pull the quotes out of docs/spec.pdf", ("doc_extract",)),
+    ChoiceCase("create a pdf about the dirac equation", ("document",)),
+    ChoiceCase("export this as a csv", ("document", "workspace")),
     ChoiceCase("what's on my clipboard?", ("clipboard",)),
     ChoiceCase("describe outputs/images/demo.png for me", ("vision",)),
     ChoiceCase("read the text in outputs/images/receipt.png", ("ocr", "vision")),

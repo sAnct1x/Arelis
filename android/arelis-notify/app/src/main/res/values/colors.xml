@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="void_bg">#0c0705</color>
-    <color name="accent">#ffb457</color>
-    <color name="ivory">#f7e4d2</color>
+    <color name="void_bg">#160d07</color>
+    <color name="accent">#ff7a22</color>
+    <color name="ivory">#fae8dc</color>
 </resources>

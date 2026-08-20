@@ -1117,6 +1117,32 @@ def _with_attach_from_history(
             attach_path=att,
         )
 
+    # Last written document for "email that" / "email the file".
+    from arelis.core.document_refs import (
+        latest_document_path,
+        mentions_recent_document,
+    )
+
+    wants_doc = bool(_MEDIA_ATTACH_CUE.search(user_text or "")) or mentions_recent_document(
+        user_text or ""
+    )
+    if wants_doc and not _IMAGE_ATTACH_CUE.search(user_text or ""):
+        path = latest_document_path(history or []) or ""
+        if path:
+            from pathlib import Path
+
+            body = draft.body.strip()
+            if not body or body.lower() == "please see the attached file.":
+                body = f"Please see the attached file ({Path(path).name})."
+            return EmailDraft(
+                to=draft.to,
+                subject=draft.subject,
+                body=body,
+                resolved_to=draft.resolved_to,
+                source=draft.source,
+                attach_path=path,
+            )
+
     # Generated-image fill only for explicit image/photo asks — never for
     # "document" / "file" / spreadsheet turns.
     if not _IMAGE_ATTACH_CUE.search(user_text or ""):

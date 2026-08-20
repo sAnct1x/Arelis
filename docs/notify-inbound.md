@@ -1,4 +1,4 @@
-# 📱 Phone companion
+# Phone companion
 
 Arelis talks to one **Arelis** app on the phone. That companion is both
 the radio (SMS out from your SIM after you allow it on the PC) and the
@@ -6,20 +6,9 @@ Google Messages notification bridge (SMS, MMS, RCS in). Google Messages
 stays your daily messenger. Uninstall the old Notify APK after this
 pairs. SMSGate can come off too unless you still want its inbox poll.
 
-Sending still pauses for allow / deny on the PC. No silent SMS.
-
-```mermaid
-%%{init: {"theme": "dark", "themeVariables": {"primaryColor": "#3d2418", "primaryTextColor": "#f6ead9", "primaryBorderColor": "#e08a4a", "lineColor": "#c4784a"}}}%%
-flowchart LR
-  subgraph out["out"]
-    pc[PC] -->|HTTP| radio[Arelis radio]
-    radio -->|SIM| sms[SMS]
-  end
-  subgraph inn["in"]
-    gm[Google Messages] --> app[Arelis app]
-    app -->|POST :8765| pc2[PC]
-  end
-```
+Sending still pauses for allow / deny on the PC. No silent SMS. Until
+the phone is paired, `send_sms` is not registered and chat will say she
+cannot text.
 
 | Path | Covers | Needs |
 |------|--------|-------|
@@ -66,10 +55,10 @@ dock, not chat.
 
 ### Core + UI
 
-If you run `arelis --core` (or attach to an external core), the glass UI
+If you run `arelis --core` (or attach to an external core), the window
 does not bind `:8765` itself. Inbound reaches chat only when the UI
 shows a live IPC bridge attached. Without that bridge, core still logs
-the SMS. Open the glass to see it.
+the SMS. Open the window to see it.
 
 ## Firewall
 
@@ -122,7 +111,7 @@ PC is back.
 | Pairing 409 | QR was for a different Windows account's Arelis |
 | Some texts, not others | Muted chat? Battery optimization? |
 | Updates in a thread missing | Rebuild / reinstall companion. Check log for `published=false` |
-| Core running, empty glass | UI not IPC-attached |
+| Core running, empty window | UI not IPC-attached |
 | SMS radio never sees RCS | Expected. Keep Google Messages plus notification access |
 
 ## Related

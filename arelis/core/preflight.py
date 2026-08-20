@@ -26,6 +26,8 @@ from arelis.core.agenda_complete import (
     complete_agenda_draft,
     looks_like_calendar_create,
     looks_like_calendar_delete,
+    looks_like_calendar_close,
+    looks_like_calendar_open,
     looks_like_calendar_read,
 )
 from arelis.core.email_complete import (
@@ -674,7 +676,7 @@ def detect_intents(
                 ),
             )
         )
-    elif _BROWSER.search(raw):
+    elif _BROWSER.search(raw) and not looks_like_calendar_open(raw):
         hints.append(
             IntentHint(
                 kind="browser",
@@ -855,6 +857,44 @@ def detect_intents(
                 ),
             )
         )
+        if looks_like_calendar_close(raw):
+            hints.append(
+                IntentHint(
+                    kind="agenda_close",
+                    expected_tools=("agenda",),
+                    nudge=(
+                        "Intent preflight: after deleting, hide the Arelis "
+                        "calendar tile. Call agenda with action=close. Do not "
+                        "call browser."
+                    ),
+                )
+            )
+    elif looks_like_calendar_close(raw):
+        hints.append(
+            IntentHint(
+                kind="agenda_close",
+                expected_tools=("agenda",),
+                nudge=(
+                    "Intent preflight: this message asks to hide the Arelis "
+                    "calendar tile. Call agenda now with action=close. Do not "
+                    "delete events. Do not call browser."
+                ),
+            )
+        )
+    elif looks_like_calendar_open(raw):
+        hints.append(
+            IntentHint(
+                kind="agenda_open",
+                expected_tools=("agenda",),
+                nudge=(
+                    "Intent preflight: this message asks to open the Arelis "
+                    "calendar tile. Call agenda now with action=open. Do not "
+                    "call browser with the calendar alias unless they asked "
+                    "for calendar.google.com or to open it in Chrome/the "
+                    "browser."
+                ),
+            )
+        )
     elif looks_like_calendar_read(raw):
         action = agenda_read_action(raw)
         hints.append(
@@ -915,6 +955,8 @@ def detect_intents(
             or wants_image_edit(ask_text)
             or looks_like_calendar_create(raw)
             or looks_like_calendar_delete(raw)
+            or looks_like_calendar_close(raw)
+            or looks_like_calendar_open(raw)
             or looks_like_calendar_read(raw)
             or looks_like_browser_or_url(raw)
             or looks_like_browser_click_signin(raw)
@@ -949,6 +991,8 @@ def detect_intents(
             or looks_like_image_gen(raw)
             or looks_like_calendar_create(raw)
             or looks_like_calendar_delete(raw)
+            or looks_like_calendar_close(raw)
+            or looks_like_calendar_open(raw)
             or looks_like_calendar_read(raw)
             or looks_like_browser_or_url(raw)
             or looks_like_browser_click_signin(raw)

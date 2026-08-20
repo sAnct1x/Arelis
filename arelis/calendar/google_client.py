@@ -18,6 +18,12 @@ GOOGLE_TOKEN = "https://oauth2.googleapis.com/token"
 GOOGLE_CAL_BASE = "https://www.googleapis.com/calendar/v3"
 SCOPES = ("https://www.googleapis.com/auth/calendar",)
 
+# Google's public holiday calendars (US, UK, …) use this mailbox.
+_HOLIDAY_ID_MARKERS = (
+    "holiday@group.v.calendar.google.com",
+    "holiday@group.calendar.google.com",
+)
+
 
 class GoogleCalendarClient:
     def __init__(self, creds: GoogleCalendarCreds) -> None:
@@ -210,6 +216,50 @@ class GoogleCalendarClient:
             raise RuntimeError(
                 f"Google delete failed ({resp.status_code}): {resp.text[:240]}"
             )
+
+    async def list_calendar_list(self) -> list[dict[str, Any]]:
+        """Calendars the account can read, including subscribed holidays."""
+        token = await self.access_token()
+        url = f"{GOOGLE_CAL_BASE}/users/me/calendarList"
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(
+                url,
+                params={"minAccessRole": "reader", "maxResults": "250"},
+                headers={"Authorization": f"Bearer {token}"},
+            )
+        if resp.status_code >= 400:
+            raise RuntimeError(
+                f"Google calendar list failed ({resp.status_code}): {resp.text[:240]}"
+            )
+        items = (resp.json() or {}).get("items") or []
+        return [item for item in items if isinstance(item, dict)]
+
+
+def is_google_holiday_calendar(entry: dict[str, Any]) -> bool:
+    cid = str(entry.get("id") or "").lower()
+    summary = str(entry.get("summary") or "").lower()
+    if any(marker in cid for marker in _HOLIDAY_ID_MARKERS):
+        return True
+    return "holiday" in summary
+
+
+def extra_google_calendar_ids(
+    entries: list[dict[str, Any]],
+    *,
+    primary_id: str,
+) -> list[str]:
+    """Holiday calendars to pull in addition to the primary id."""
+    skip = {primary_id.strip(), "primary", ""}
+    extra: list[str] = []
+    for entry in entries:
+        cid = str(entry.get("id") or "").strip()
+        if not cid or cid in skip:
+            continue
+        if not is_google_holiday_calendar(entry):
+            continue
+        extra.append(cid)
+        skip.add(cid)
+    return extra
 
 
 def _rfc3339(dt: datetime) -> str:

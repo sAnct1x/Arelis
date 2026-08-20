@@ -25,7 +25,9 @@ from arelis.contacts import (
 )
 from arelis.core.agenda_complete import (
     agenda_force_call_notice,
+    agenda_force_close_notice,
     agenda_force_delete_notice,
+    agenda_force_open_notice,
     agenda_force_read_notice,
     agenda_read_action,
     complete_agenda_draft,
@@ -35,6 +37,8 @@ from arelis.core.agenda_complete import (
     lock_agenda_delete_args,
     looks_like_calendar_create,
     looks_like_calendar_delete,
+    looks_like_calendar_close,
+    looks_like_calendar_open,
     looks_like_calendar_read,
 )
 from arelis.core.bus import EventBus
@@ -46,6 +50,7 @@ from arelis.core.claims import (
     contact_who_from_text,
     detect_analyze_ask,
     detect_exactness_need,
+    document_force_notice,
     evidence_force_notice,
     file_answer_force_notice,
     last_store_ids_from_context,
@@ -94,6 +99,10 @@ from arelis.core.image_refs import (
     image_force_call_notice,
     latest_camera_image_file,
     mentions_camera_look,
+)
+from arelis.core.document_refs import (
+    fill_doc_extract_args,
+    fill_document_args,
 )
 from arelis.core.json_tools import (
     ThinkingStripper,
@@ -784,6 +793,7 @@ class AgentLoop:
             capped = available_all & set(active_room.tools)
             if capped:
                 available_all = capped
+        room_skills = tuple(active_room.spec.skills) if active_room is not None else ()
         visible = filter_tool_names(
             available_all,
             role=role,
@@ -791,6 +801,7 @@ class AgentLoop:
             enabled=bool(agent_cfg.get("research_tool_subset", True)),
             skill_subset=bool(agent_cfg.get("skill_tool_subset", True)),
             history=self.memory.messages,
+            extra_skill_ids=room_skills,
         )
         available = visible
         if self._look is not None:
@@ -809,7 +820,9 @@ class AgentLoop:
         # lines trail as a dynamic trailer — never ahead of the static block.
         system_messages = static_system_prefix(self.persona)
         if bool(agent_cfg.get("skill_cards", True)):
-            focus = assemble_skill_focus(text, available_tools=available)
+            focus = assemble_skill_focus(
+                text, available_tools=available, extra_ids=room_skills
+            )
             if focus:
                 system_messages.append({"role": "system", "content": focus})
         # SMS / email / agenda drafts from this turn + recent history.
@@ -818,8 +831,10 @@ class AgentLoop:
         # verb ("text Brian: …").
         skip_sms_draft = (
             looks_like_stale_sms_skip(text, self.memory.messages)
-            or looks_like_calendar_create(text)
+            or             looks_like_calendar_create(text)
             or looks_like_calendar_delete(text)
+            or looks_like_calendar_close(text)
+            or looks_like_calendar_open(text)
             or looks_like_calendar_read(text)
             or detect_analyze_ask(text)
             or wants_image_edit(split_attachments_turn(text)[1] or text)
@@ -843,9 +858,11 @@ class AgentLoop:
             or (
                 (
                     looks_like_stale_sms_skip(text, self.memory.messages)
-                    or looks_like_calendar_create(text)
-                    or looks_like_calendar_delete(text)
-                    or looks_like_calendar_read(text)
+                    or             looks_like_calendar_create(text)
+            or looks_like_calendar_delete(text)
+            or looks_like_calendar_close(text)
+            or looks_like_calendar_open(text)
+            or looks_like_calendar_read(text)
                     or detect_analyze_ask(text)
                 )
                 and not looks_like_compose_email(text)
@@ -895,7 +912,9 @@ class AgentLoop:
                         kinds=",".join(preflight_kinds),
                         expected=",".join(sorted(self._expected_tools)) or "-",
                     )
-        skill_ids = select_skill_ids(text, available_tools=available)
+        skill_ids = select_skill_ids(
+            text, available_tools=available, extra_ids=room_skills
+        )
         # Short thanks/bye must not revive weather (or a stale web_search habit).
         if looks_like_closing_chitchat(text):
             available = set(available)
@@ -954,6 +973,35 @@ class AgentLoop:
         active_plan = select_plan(
             text, preflight_kinds=preflight_kinds, skill_ids=skill_ids
         )
+        if (
+            active_plan is not None
+            and active_plan.steps
+            and not any(s in available_all for s in active_plan.steps)
+        ):
+            active_plan = None
+        disconnected = disconnected_integration_reply(
+            expected=self._expected_tools,
+            available=available_all,
+            want_sms=bool(
+                (sms_draft is not None and sms_draft.complete and not skip_sms_draft)
+                or sms_intent_this_turn(text)
+            ),
+            want_mail=bool(
+                (email_draft is not None and email_draft.complete)
+                or looks_like_compose_email(text)
+            ),
+            want_calendar=bool(
+                (agenda_draft is not None and agenda_draft.complete)
+                or looks_like_calendar_read(text)
+                or looks_like_calendar_create(text)
+                or looks_like_calendar_delete(text)
+                or looks_like_calendar_open(text)
+                or looks_like_calendar_close(text)
+            ),
+        )
+        if disconnected:
+            await self._finish(disconnected, [])
+            return
         self._active_plan = active_plan
         plan_msg = active_plan.message if active_plan else None
         if plan_msg:
@@ -1094,6 +1142,7 @@ class AgentLoop:
         units_nudge_used = False
         plot_nudge_used = False
         catalog_nudge_used = False
+        document_nudge_used = False
         weather_nudge_used = 0
         weather_ok_places: set[str] = set()
         weather_days_retried: set[str] = set()
@@ -1431,12 +1480,12 @@ class AgentLoop:
                     )
                     continue
 
-                if not content and not fallback_mode and ollama_tools and self.json_fallback:
+                if not content and not fallback_mode:
                     # Qwen3.5 often puts the wrap-up in thinking and leaves
                     # chat content empty. Native calling still worked — a tool
-                    # already ran — so do not enter the sticky-note protocol.
-                    # First round still blank with no tools yet? Fall through
-                    # to JSON fallback as before.
+                    # already ran — so do not enter the sticky-note protocol
+                    # and do not ship the "empty reply / model unloaded" notice.
+                    # Tools may already be stripped (agenda/SMS/email wrap-up).
                     if last_ok_tool_out:
                         await self.bus.publish(
                             Event(
@@ -1454,12 +1503,17 @@ class AgentLoop:
                             streamed="",
                         )
                         return
-                    await self._retract()
-                    fallback_mode = True
-                    await self.bus.publish(
-                        Event(EventType.THINKING, {"text": "empty tool response; JSON fallback"})
-                    )
-                    continue
+                    if ollama_tools and self.json_fallback:
+                        # First round still blank with no tools yet? JSON fallback.
+                        await self._retract()
+                        fallback_mode = True
+                        await self.bus.publish(
+                            Event(
+                                EventType.THINKING,
+                                {"text": "empty tool response; JSON fallback"},
+                            )
+                        )
+                        continue
                 # Complete SMS draft but recipients remain — nudge once, then inject.
                 sms_remaining = []
                 if sms_draft is not None and sms_draft.complete:
@@ -1664,6 +1718,82 @@ class AgentLoop:
                         Event(
                             EventType.THINKING,
                             {"text": "inject  agenda delete"},
+                        )
+                    )
+                elif (
+                    bool(agent_cfg.get("agenda_force_call", True))
+                    and looks_like_calendar_close(text)
+                    and "agenda" in tool_names
+                    and "agenda" not in self.tools_used
+                ):
+                    if agenda_nudge_used < 1:
+                        agenda_nudge_used += 1
+                        await self._retract()
+                        messages.append({"role": "assistant", "content": content})
+                        messages.append(
+                            {
+                                "role": "user",
+                                "content": agenda_force_close_notice(),
+                            }
+                        )
+                        await self.bus.publish(
+                            Event(
+                                EventType.THINKING,
+                                {
+                                    "text": (
+                                        "agenda close ready; asking for a real "
+                                        "agenda close call"
+                                    )
+                                },
+                            )
+                        )
+                        continue
+                    inj = {"action": "close"}
+                    calls = [("agenda", inj)]
+                    tool_calls = [_native_tool_call("agenda", inj)]
+                    await self._retract()
+                    await self.bus.publish(
+                        Event(
+                            EventType.THINKING,
+                            {"text": "inject  agenda close from intent"},
+                        )
+                    )
+                elif (
+                    bool(agent_cfg.get("agenda_force_call", True))
+                    and looks_like_calendar_open(text)
+                    and "agenda" in tool_names
+                    and "agenda" not in self.tools_used
+                ):
+                    if agenda_nudge_used < 1:
+                        agenda_nudge_used += 1
+                        await self._retract()
+                        messages.append({"role": "assistant", "content": content})
+                        messages.append(
+                            {
+                                "role": "user",
+                                "content": agenda_force_open_notice(),
+                            }
+                        )
+                        await self.bus.publish(
+                            Event(
+                                EventType.THINKING,
+                                {
+                                    "text": (
+                                        "agenda open ready; asking for a real "
+                                        "agenda open call"
+                                    )
+                                },
+                            )
+                        )
+                        continue
+                    inj = {"action": "open"}
+                    calls = [("agenda", inj)]
+                    tool_calls = [_native_tool_call("agenda", inj)]
+                    await self._retract()
+                    await self.bus.publish(
+                        Event(
+                            EventType.THINKING,
+                            {"text": "inject  agenda open from intent"},
                         )
                     )
                 elif (
@@ -2078,6 +2208,8 @@ class AgentLoop:
                         "browser" in self._expected_tools
                         or looks_like_browser_or_url(text)
                     )
+                    and not looks_like_calendar_open(text)
+                    and not looks_like_calendar_close(text)
                     and "browser" not in self.tools_used
                     and "browser" in tool_names
                 ):
@@ -2374,6 +2506,26 @@ class AgentLoop:
                             self._timer.mark("exactness", gate="plot", action="force")
                         continue
                     if (
+                        exact_need.needs_document
+                        and not document_nudge_used
+                        and not ledger.has_ok("document")
+                        and "document" in tool_names
+                        and not answer_looks_like_refusal(content)
+                    ):
+                        document_nudge_used = True
+                        await self._retract()
+                        messages.append({"role": "assistant", "content": content})
+                        messages.append({"role": "user", "content": document_force_notice()})
+                        await self.bus.publish(
+                            Event(
+                                EventType.THINKING,
+                                {"text": "exactness  document without file; forcing tool"},
+                            )
+                        )
+                        if self._timer is not None:
+                            self._timer.mark("exactness", gate="document", action="force")
+                        continue
+                    if (
                         numeric_gate
                         and exact_need.needs_catalog
                         and not catalog_nudge_used
@@ -2413,6 +2565,7 @@ class AgentLoop:
                                 "units",
                                 "plot",
                                 "catalog",
+                                "document",
                             }
                         ]
                         if missing:
@@ -2715,6 +2868,7 @@ class AgentLoop:
                                 "contacts",
                                 "user_location",
                                 "weather",
+                                "schedule",
                             }
                             and "agenda" in self._expected_tools
                         )
@@ -2813,6 +2967,37 @@ class AgentLoop:
                         )
                     # Fall through to execute injected weather.
 
+                elif (
+                    name == "browser"
+                    and looks_like_calendar_open(text)
+                    and "agenda" in tool_names
+                ):
+                    notice = (
+                        "Blocked: this turn expects the Arelis calendar tile, "
+                        f"not {name}. Call agenda with action=open."
+                    )
+                    await self.bus.publish(
+                        Event(
+                            EventType.THINKING,
+                            {"text": "redirect  browser → agenda"},
+                        )
+                    )
+                    messages.append(self._tool_message(name, notice))
+                    name = "agenda"
+                    args = {"action": "open"}
+                    await self.bus.publish(
+                        Event(
+                            EventType.THINKING,
+                            {"text": "inject  agenda open from intent"},
+                        )
+                    )
+                    if self._timer is not None:
+                        self._timer.mark(
+                            "exactness",
+                            gate="agenda_redirect",
+                            action="inject",
+                        )
+
                 # Browser drive: never run web_search/scrape; inject browser.
                 elif (
                     name in _BROWSER_WANDER
@@ -2820,6 +3005,8 @@ class AgentLoop:
                         "browser" in self._expected_tools
                         or looks_like_browser_or_url(text)
                     )
+                    and not looks_like_calendar_open(text)
+                    and not looks_like_calendar_close(text)
                     and "browser" not in self.tools_used
                     and "browser" in tool_names
                 ):
@@ -3043,7 +3230,13 @@ class AgentLoop:
 
                 # Calendar: block wander; inject create or delete on first miss.
                 elif (
-                    name in {"web_search", "contacts", "user_location", "weather"}
+                    name in {
+                        "web_search",
+                        "contacts",
+                        "user_location",
+                        "weather",
+                        "schedule",
+                    }
                     and "agenda" in self._expected_tools
                     and not agenda_create_ok
                 ):
@@ -3057,10 +3250,16 @@ class AgentLoop:
                         self._tool_message(
                             name,
                             "Blocked: this turn expects agenda, not "
-                            f"{name}. Call agenda (list, create, or delete).",
+                            f"{name}. Call agenda (open, close, list, create, or delete).",
                         )
                     )
-                    _drop_wander("web_search", "contacts", "user_location", "weather")
+                    _drop_wander(
+                        "web_search",
+                        "contacts",
+                        "user_location",
+                        "weather",
+                        "schedule",
+                    )
                     if (
                         looks_like_calendar_delete(text)
                         and "agenda" in tool_names
@@ -3103,6 +3302,36 @@ class AgentLoop:
                                 gate="agenda_redirect",
                                 action="inject",
                             )
+                    elif looks_like_calendar_close(text) and "agenda" in tool_names:
+                        name = "agenda"
+                        args = {"action": "close"}
+                        await self.bus.publish(
+                            Event(
+                                EventType.THINKING,
+                                {"text": "inject  agenda close from intent"},
+                            )
+                        )
+                        if self._timer is not None:
+                            self._timer.mark(
+                                "exactness",
+                                gate="agenda_redirect",
+                                action="inject",
+                            )
+                    elif looks_like_calendar_open(text) and "agenda" in tool_names:
+                        name = "agenda"
+                        args = {"action": "open"}
+                        await self.bus.publish(
+                            Event(
+                                EventType.THINKING,
+                                {"text": "inject  agenda open from intent"},
+                            )
+                        )
+                        if self._timer is not None:
+                            self._timer.mark(
+                                "exactness",
+                                gate="agenda_redirect",
+                                action="inject",
+                            )
                     elif looks_like_calendar_read(text) and "agenda" in tool_names:
                         name = "agenda"
                         args = {"action": agenda_read_action(text)}
@@ -3125,8 +3354,9 @@ class AgentLoop:
                                 "content": agenda_force_call_notice(agenda_draft)
                                 if agenda_draft is not None and agenda_draft.complete
                                 else (
-                                    "Call agenda with action=today, tomorrow, "
-                                    "list, create, or delete. Do not web_search."
+                                    "Call agenda with action=open, close, today, "
+                                    "tomorrow, list, create, or delete. Do not "
+                                    "web_search."
                                 ),
                             }
                         )
@@ -3278,6 +3508,26 @@ class AgentLoop:
                         )
                         if self._look.path and not str(args.get("path") or "").strip():
                             args["path"] = self._look.path
+
+                if name == "document":
+                    room_kind = ""
+                    if active_room is not None:
+                        room_kind = str(active_room.kind or "")
+                    args = fill_document_args(
+                        args,
+                        user_text=text,
+                        history=self.memory.messages,
+                        receipts=self._receipts,
+                        room_kind=room_kind,
+                    )
+
+                if name == "doc_extract":
+                    args = fill_doc_extract_args(
+                        args,
+                        user_text=text,
+                        history=self.memory.messages,
+                        receipts=self._receipts,
+                    )
 
                 if self._look is not None:
                     blocked_look = look_call_blocked(name, args)
@@ -3924,6 +4174,25 @@ class AgentLoop:
                         streamed="",
                     )
                     return
+                if (
+                    name == "document"
+                    and result.ok
+                    and data_dict
+                    and data_dict.get("abs_path")
+                ):
+                    await self.bus.publish(
+                        Event(
+                            EventType.FILE_READY,
+                            {
+                                "path": str(data_dict.get("path") or ""),
+                                "abs_path": str(data_dict.get("abs_path") or ""),
+                                "format": str(data_dict.get("format") or ""),
+                                "title": str(data_dict.get("title") or ""),
+                                "show_card": True,
+                                "open": False,
+                            },
+                        )
+                    )
                 if (
                     name == "schedule"
                     and result.ok
@@ -5004,9 +5273,9 @@ _EVIDENCE_KINDS = frozenset(
 )
 
 
-_PROJECT_CONTEXT_SKILLS = frozenset({"workspace", "analyze", "docs", "science"})
+_PROJECT_CONTEXT_SKILLS = frozenset({"workspace", "analyze", "docs", "document", "science"})
 _PROJECT_CONTEXT_TOOLS = frozenset(
-    {"workspace", "analyze", "git_info", "doc_extract", "plot"}
+    {"workspace", "analyze", "git_info", "doc_extract", "plot", "document"}
 )
 
 
@@ -5026,6 +5295,52 @@ def _wants_project_context(
     if _PROJECT_CONTEXT_SKILLS & set(skill_ids):
         return True
     return bool(expected_tools & _PROJECT_CONTEXT_TOOLS)
+
+
+def disconnected_integration_reply(
+    *,
+    expected: set[str],
+    available: set[str],
+    want_sms: bool = False,
+    want_mail: bool = False,
+    want_calendar: bool = False,
+) -> str | None:
+    """Chat line when they asked for mail/SMS/calendar that is not connected.
+
+    Returns None when those tools are registered, or when the turn also needs
+    some other registered tool. Mixed work stays with the model.
+    """
+    integration = {"send_sms", "inbound_sms", "send_email", "inbox", "agenda"}
+    if set(expected) - integration:
+        return None
+    if want_sms or expected & {"send_sms", "inbound_sms"}:
+        needed = set()
+        if want_sms or "send_sms" in expected:
+            needed.add("send_sms")
+        if "inbound_sms" in expected:
+            needed.add("inbound_sms")
+        if needed and not (needed & available):
+            return (
+                "I can't text until the phone is paired. "
+                "Open Settings → Notify and scan the QR."
+            )
+    if want_mail or expected & {"send_email", "inbox"}:
+        needed = set()
+        if want_mail or "send_email" in expected:
+            needed.add("send_email")
+        if "inbox" in expected:
+            needed.add("inbox")
+        if needed and not (needed & available):
+            return (
+                "I can't send or read mail until an account is in Settings → Mail."
+            )
+    if want_calendar or "agenda" in expected:
+        if "agenda" not in available:
+            return (
+                "I can't use the calendar until Google is connected. "
+                "That's in Settings."
+            )
+    return None
 
 
 def should_offer_tools(
@@ -5168,7 +5483,7 @@ def _exactness_finish_refuse(
         return None
     missing = ledger.missing_kinds(kinds)
     if not numeric_gate:
-        missing = [k for k in missing if k not in {"math", "symbolic", "units", "plot", "catalog"}]
+        missing = [k for k in missing if k not in {"math", "symbolic", "units", "plot", "catalog", "document"}]
     if not evidence_gate:
         missing = [k for k in missing if k not in _EVIDENCE_KINDS]
     if not missing:
@@ -5217,6 +5532,15 @@ def _exactness_finish_refuse(
         if catalog_fail is not None:
             return unsupported_exactness_reply(
                 missing, catalog_failed=True, catalog_detail=catalog_fail.span
+            )
+    if "document" in missing:
+        document_fail = next(
+            (w for w in ledger.items if w.kind == "document" and not w.ok),
+            None,
+        )
+        if document_fail is not None:
+            return unsupported_exactness_reply(
+                missing, document_failed=True, document_detail=document_fail.span
             )
     return unsupported_exactness_reply(missing)
 

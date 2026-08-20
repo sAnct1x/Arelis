@@ -29,19 +29,47 @@ def test_reset_layout_is_conversation_only(qt_app) -> None:
         window.work_dock.show()
         window.history_dock.show()
         window.contacts_inbox.show()
+        window.calendar_window.show()
         window._reset_layout()
         # isVisible() stays false while the window itself is hidden; isHidden()
         # is the dock's own show/hide latch.
         assert window.think_dock.isHidden()
         assert window.work_dock.isHidden()
         assert window.history_dock.isHidden()
+        assert window.calendar_window.isHidden()
         assert window.contacts_inbox.isHidden()
         assert window.notify_inbox.isHidden()
         assert not window.act_thinking.isChecked()
         assert not window.act_contacts.isChecked()
+        assert not window.act_calendar.isChecked()
     finally:
         window.hide()
         window.loop.close()
+
+
+def test_typing_in_the_window_composer_notes_engagement(arelis_window, qt_app) -> None:
+    """The live TypeError was the window slot, not ConversationStage.
+
+    QPlainTextEdit.textChanged has no argument. Connecting a one-arg lambda
+    logged CRITICAL on every keystroke and never called _note_engagement.
+    Typing into ConversationStage alone does not cover that connection.
+    """
+    from PySide6.QtTest import QTest
+
+    window = arelis_window()
+    window._reset_layout()
+    window.history_dock.show()
+    window._away_rest = True
+    window._enter_away_rest()
+    assert window._away_resting
+
+    composer = window.conversation.input
+    composer.setFocus()
+    QTest.keyClicks(composer, "hi")
+    qt_app.processEvents()
+
+    assert composer.toPlainText() == "hi"
+    assert not window._away_resting
 
 
 def test_away_rest_collapses_then_click_restores(qt_app) -> None:

@@ -44,7 +44,7 @@ from arelis.config import (
     load_config,
     merge_local_config,
 )
-from arelis.core.bus import EventBus
+from arelis.core.bus import EventBus, bind_app_bus
 from arelis.core.events import Event, EventType
 from arelis.core.failure_copy import plain_reason, tool_failure_notice
 from arelis.core.memory import SessionMemory
@@ -65,6 +65,7 @@ from arelis.notify.sources import (
     mail_notices,
     peek_contact_mail_sync,
 )
+from arelis.local_open import open_local_file, reveal_local_file
 from arelis.paths import app_icon_path, display_path, logs_dir, outputs_dir
 from arelis.presence.confirm_exec import execute_pending_confirm
 from arelis.presence.confirm_persist import ConfirmPersister
@@ -98,7 +99,7 @@ from arelis.ui.chrome import TitleBar
 from arelis.ui.contacts_inbox import ContactsInboxWindow
 from arelis.ui.first_run import prompt_for_workspace_root
 from arelis.ui.foreground import flash_taskbar, process_owns_foreground
-from arelis.ui.glass import GlassFrame, advance_rim_pulse, fade_in_widget
+from arelis.ui.glass import GlassFrame, advance_rim_pulse
 from arelis.ui.glass_dock import GlassDockWidget
 from arelis.ui.layout_store import (
     clamp_away_rest_min,
@@ -109,8 +110,10 @@ from arelis.ui.layout_store import (
     save_ui_prefs,
     save_window_layout,
 )
+from arelis.ui.calendar_window import CalendarWindow
 from arelis.ui.notify_inbox import NotificationsInboxWindow
 from arelis.ui.panels import (
+    CalendarPanel,
     CameraPanel,
     ContactsPanel,
     ConversationStage,
@@ -401,6 +404,11 @@ class ArelisWindow(QMainWindow):
     readiness_updated = Signal(object)
     mail_headers_ready = Signal(object)
     sms_send_finished = Signal(str, bool, str)
+    # Closures posted from the asyncio thread. Queued onto the Qt thread the
+    # same way utterance_settled is — QTimer.singleShot from that thread is
+    # not, which left the calendar tile on syncing… / sync failed after Google
+    # had already returned 200.
+    _ui_call = Signal(object)
 
     def __init__(
         self,
@@ -423,6 +431,7 @@ class ArelisWindow(QMainWindow):
         self.bridge = bridge
         self.loop = loop
         self.bus = bus
+        bind_app_bus(bus)
         self.voice = voice
         self.store = store
         self.indexer = indexer
@@ -498,6 +507,7 @@ class ArelisWindow(QMainWindow):
         self.sms_chats.set_send_handler(self._on_sms_tile_send)
         self.sms_chats.set_shown_handler(self._on_sms_tile_shown)
         self.camera = CameraPanel()
+        self.calendar = CalendarPanel(memory=self.store)
         self.workspace.set_projects(
             self.workspace_roots.names(),
             self.workspace_roots.active,
@@ -603,6 +613,7 @@ class ArelisWindow(QMainWindow):
         )
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.camera_dock)
         self.tabifyDockWidget(self.history_dock, self.camera_dock)
+
         # QWidget.setStyle does not take ownership. A local QStyle is collected
         # when _style_dock_tabs returns; the next paint then walks a freed
         # pointer and pythonw dies with no traceback.
@@ -662,6 +673,9 @@ class ArelisWindow(QMainWindow):
         self.notify_inbox.hide()
         self.contacts_inbox = ContactsInboxWindow(self.contacts, self)
         self.contacts_inbox.hide()
+        self.calendar_window = CalendarWindow(self.calendar, self)
+        self.calendar_window.hide()
+        self._calendar_placed = False
 
         self._build_view_actions()
         self._voice_hotkey_at = 0.0
@@ -671,7 +685,8 @@ class ArelisWindow(QMainWindow):
         self._apply_always_on_top(self._always_on_top, persist=False)
         self._apply_chat_font_scale(self._chat_font_scale, persist=False)
         self.conversation.submitted.connect(self._on_submit)
-        self.conversation.input.textChanged.connect(lambda _t: self._note_engagement())
+        # QPlainTextEdit.textChanged has no arg; a `_t` lambda TypeError'd every keystroke.
+        self.conversation.input.textChanged.connect(self._note_engagement)
         self.conversation.attach_errors.connect(self._on_attach_errors)
         self.conversation.stop_requested.connect(self._on_stop)
         self.conversation.stop_declined.connect(self._on_stop_declined)
@@ -711,9 +726,11 @@ class ArelisWindow(QMainWindow):
         ):
             dock.dockLocationChanged.connect(lambda _area: self._sync_panel_margins())
             dock.topLevelChanged.connect(lambda _floating: self._sync_panel_margins())
+            dock.topLevelChanged.connect(lambda _floating: self._flush_glass_surface())
 
         self.notify_inbox.closed.connect(self._on_notify_inbox_closed)
         self.contacts_inbox.closed.connect(self._on_contacts_inbox_closed)
+        self.calendar_window.closed.connect(self._on_calendar_window_closed)
         overlay = self.conversation.notify_overlay
         overlay.dismiss_requested.connect(self._on_notice_dismiss)
         overlay.snooze_requested.connect(self._on_notice_snooze)
@@ -731,6 +748,7 @@ class ArelisWindow(QMainWindow):
         self.notifications.chat_requested.connect(self._open_sms_chat)
         self.notifications.mark_read_btn.clicked.connect(self._on_notify_mark_all_read)
         self.sms_send_finished.connect(self._on_sms_send_finished)
+        self._ui_call.connect(self._run_ui_call)
 
         self._assistant_streaming = False
         self._turn_busy = False
@@ -788,6 +806,21 @@ class ArelisWindow(QMainWindow):
         )
         self._notify_timer.timeout.connect(self._on_notify_poll)
         self._notify_timer.start()
+        self._calendar_sync_inflight = False
+        self._calendar_sync_timeout_ms = 20_000
+        self._calendar_sync_timer = QTimer(self)
+        self._calendar_sync_timer.setInterval(300_000)
+        self._calendar_sync_timer.timeout.connect(self._kick_calendar_sync)
+        self._calendar_sync_watchdog = QTimer(self)
+        self._calendar_sync_watchdog.setSingleShot(True)
+        self._calendar_sync_watchdog.timeout.connect(self._on_calendar_sync_watchdog)
+        self.calendar.create_requested.connect(self._on_calendar_create)
+        self.calendar.update_requested.connect(self._on_calendar_update)
+        self.calendar.delete_requested.connect(self._on_calendar_delete)
+        self.calendar.sync_requested.connect(self._kick_calendar_sync)
+        self.calendar.task_add_requested.connect(self._on_calendar_task_add)
+        self.calendar.task_status_requested.connect(self._on_calendar_task_status)
+        self.calendar.task_remove_requested.connect(self._on_calendar_task_remove)
         self._job_tick = QTimer(self)
         self._job_tick.setInterval(1000)
         self._job_tick.timeout.connect(self._on_job_tick)
@@ -799,7 +832,6 @@ class ArelisWindow(QMainWindow):
         self._atmosphere_timer.start()
 
         self._later(0, self._schedule_readiness_probe)
-        self._later(40, lambda: fade_in_widget(self.conversation, 320))
         self._later(80, self.conversation.focus_input)
         if self._restore_session_id:
             # Bus is already running on the background thread by the time the
@@ -855,6 +887,9 @@ class ArelisWindow(QMainWindow):
         if not ui_cfg.get("camera_open", False):
             self.camera_dock.hide()
         self.history_dock.hide()
+        cal = getattr(self, "calendar_window", None)
+        if cal is not None:
+            cal.hide()
 
     def _reveal_dock(self, dock: QDockWidget, action: QAction | None = None) -> None:
         """Show an instrument once, with the same fade used by the View menu."""
@@ -891,8 +926,16 @@ class ArelisWindow(QMainWindow):
         # Slow grain drift. Rim on plates is a static hairline, not a pulse circus.
         advance_rim_pulse(0.1)
         self.update()
+        # Do not update the conversation plate. It is type in the void (fill 0)
+        # and only paints corner ticks — a 10 Hz repaint on that translucent
+        # surface is the duplicate-orbit / ghost-tick path.
         for frame in self.findChildren(GlassFrame):
-            frame.update()
+            if frame is self.conversation:
+                continue
+            if frame.has_attention or getattr(frame, "_pulse_rim", False):
+                frame.update()
+            elif getattr(frame, "_fill_alpha", 0) > 4:
+                frame.update()
 
     def _build_voice(self) -> None:
         """Attach the microphone and the speaker, if voice is switched on.
@@ -1372,6 +1415,13 @@ class ArelisWindow(QMainWindow):
         self.act_contacts.triggered.connect(self._toggle_contacts)
         self.addAction(self.act_contacts)
 
+        self.act_calendar = QAction("calendar", self)
+        self.act_calendar.setCheckable(True)
+        self.act_calendar.setChecked(not self.calendar_window.isHidden())
+        self.act_calendar.setShortcut(QKeySequence("Ctrl+7"))
+        self.act_calendar.triggered.connect(self._toggle_calendar)
+        self.addAction(self.act_calendar)
+
         self.act_reset = QAction("reset layout", self)
         self.act_reset.triggered.connect(self._reset_layout)
         self.addAction(self.act_reset)
@@ -1588,6 +1638,7 @@ class ArelisWindow(QMainWindow):
     def _on_resize_settled(self) -> None:
         self._apply_round_mask()
         self._clamp_dock_widths()
+        self._flush_glass_surface()
 
     def _clamp_dock_widths(self) -> None:
         """Repair docks crushed by a bad saved layout or a mid-resize layout pass."""
@@ -1642,6 +1693,7 @@ class ArelisWindow(QMainWindow):
         menu.addAction(self.act_notifications)
         menu.addAction(self.act_camera)
         menu.addAction(self.act_contacts)
+        menu.addAction(self.act_calendar)
         menu.addSeparator()
         menu.addAction(self.act_always_on_top)
         menu.addAction(self.act_fullscreen)
@@ -2070,8 +2122,247 @@ class ArelisWindow(QMainWindow):
             self.contacts_inbox.hide()
         self._sync_idle_mode()
 
+    def _toggle_calendar(self, checked: bool) -> None:
+        self._note_engagement()
+        if checked:
+            if not getattr(self, "_calendar_placed", False):
+                geo = self.frameGeometry()
+                self.calendar_window.move(geo.x() + 40, geo.y() + 40)
+                self._calendar_placed = True
+            self.calendar_window.show()
+            self.calendar_window.raise_()
+            self.calendar.reload()
+            self._kick_calendar_sync()
+            self._calendar_sync_timer.start()
+        else:
+            self.calendar_window.hide()
+            self._calendar_sync_timer.stop()
+            self._calendar_sync_watchdog.stop()
+        self._sync_idle_mode()
+
+    def _run_ui_call(self, fn) -> None:
+        if getattr(self, "_disposed", False):
+            return
+        if callable(fn):
+            fn()
+
+    def _calendar_service(self):
+        from arelis.calendar.service import CalendarService
+
+        return CalendarService(self.config)
+
+    def _run_calendar(self, coro, *, ok_status: str = "google · just now") -> None:
+        if getattr(self, "_disposed", False):
+            return
+        if not self.loop.is_running():
+            coro.close()
+            return
+        fut = asyncio.run_coroutine_threadsafe(coro, self.loop)
+
+        def _done() -> None:
+            try:
+                fut.result()
+            except Exception as exc:
+                from arelis.ui.dialog import notice
+
+                self.calendar.set_status("sync failed", failed=True)
+                notice(
+                    self,
+                    "calendar",
+                    "Google did not take that change.",
+                    detail=plain_reason(exc),
+                    warning=True,
+                )
+                return
+            self.calendar.reload()
+            self.calendar.set_status(ok_status)
+
+        fut.add_done_callback(lambda _f: self._ui_call.emit(_done))
+
+    def _kick_calendar_sync(self) -> None:
+        if self.calendar_window.isHidden():
+            return
+        self.calendar.reload()
+        if getattr(self, "_calendar_sync_inflight", False):
+            return
+        from arelis.calendar.secrets import load_calendar_secrets
+
+        if not load_calendar_secrets().any_authorized():
+            self.calendar.set_status("authorize google")
+            return
+        if not self.loop.is_running():
+            return
+        self._calendar_sync_inflight = True
+        self.calendar.set_status("syncing…")
+        self._calendar_sync_watchdog.start(int(self._calendar_sync_timeout_ms))
+        fut = asyncio.run_coroutine_threadsafe(
+            self._calendar_service().sync(), self.loop
+        )
+
+        def _done() -> None:
+            try:
+                if getattr(self, "_disposed", False):
+                    return
+                try:
+                    summary = fut.result()
+                except Exception as exc:
+                    self.calendar.set_status("sync failed", failed=True)
+                    self._report_poll_state(
+                        "calendar_tile", f"Calendar sync stopped: {plain_reason(exc)}"
+                    )
+                    return
+                self._report_poll_state("calendar_tile", "")
+                self.calendar.reload()
+                if summary.get("ok"):
+                    names = [
+                        name
+                        for name, info in (summary.get("providers") or {}).items()
+                        if info.get("ok")
+                    ]
+                    self.calendar.set_status(
+                        f"{', '.join(names) or 'calendar'} · just now"
+                    )
+                else:
+                    err = "; ".join(summary.get("errors") or []) or "sync failed"
+                    self.calendar.set_status("sync failed", failed=True)
+                    from arelis.ui.dialog import notice
+
+                    notice(
+                        self,
+                        "calendar",
+                        "Could not refresh the calendar.",
+                        detail=err,
+                        warning=True,
+                    )
+            finally:
+                self._calendar_sync_inflight = False
+                timer = getattr(self, "_calendar_sync_watchdog", None)
+                if timer is not None:
+                    try:
+                        timer.stop()
+                    except RuntimeError:
+                        pass
+
+        fut.add_done_callback(lambda _f: self._ui_call.emit(_done))
+
+    def _on_calendar_sync_watchdog(self) -> None:
+        if not getattr(self, "_calendar_sync_inflight", False):
+            return
+        self._calendar_sync_inflight = False
+        self.calendar.set_status("sync failed", failed=True)
+
+    def _on_calendar_create(self, payload: dict[str, Any]) -> None:
+        self._run_calendar(
+            self._calendar_service().create(
+                summary=str(payload.get("summary") or ""),
+                starts_at=payload["starts_at"],
+                ends_at=payload.get("ends_at"),
+                all_day=bool(payload.get("all_day")),
+                location=str(payload.get("location") or ""),
+                description=str(payload.get("description") or ""),
+                provider=str(payload.get("provider") or "") or None,
+                calendar_id=str(payload.get("calendar_id") or "") or None,
+            ),
+            ok_status="created",
+        )
+
+    def _on_calendar_update(self, payload: dict[str, Any]) -> None:
+        event_id = str(payload.get("event_id") or "")
+        if not event_id:
+            return
+        self._run_calendar(
+            self._calendar_service().update(
+                event_id,
+                summary=str(payload.get("summary") or ""),
+                starts_at=payload.get("starts_at"),
+                ends_at=payload.get("ends_at"),
+                all_day=bool(payload.get("all_day")),
+                location=str(payload.get("location") or ""),
+                description=str(payload.get("description") or ""),
+                provider=str(payload.get("provider") or "") or None,
+                calendar_id=str(payload.get("calendar_id") or "") or None,
+            ),
+            ok_status="updated",
+        )
+
+    def _on_calendar_delete(self, event_id: str) -> None:
+        from arelis.ui.dialog import confirm
+
+        if not confirm(
+            self,
+            "delete event",
+            "Remove this from Google Calendar?",
+            confirm_text="Delete",
+            destructive=True,
+        ):
+            return
+        ev = None
+        try:
+            ev = self._calendar_service().get(event_id)
+        except Exception:
+            ev = None
+        self._run_calendar(
+            self._calendar_service().delete(
+                event_id,
+                provider=ev.provider if ev else None,
+                calendar_id=ev.calendar_id if ev else None,
+            ),
+            ok_status="deleted",
+        )
+
+    def _on_calendar_task_add(self, title: str, due: str) -> None:
+        if self.store is None:
+            return
+        try:
+            self.store.add_task(title, due=due or None, source="explicit")
+        except Exception as exc:
+            from arelis.ui.dialog import notice
+
+            notice(self, "tasks", "Could not add that task.", detail=str(exc), warning=True)
+            return
+        from arelis.core.bus import emit_nowait
+
+        emit_nowait(Event(EventType.TASKS_CHANGED, {"action": "add"}))
+        self.calendar.reload_tasks()
+
+    def _on_calendar_task_status(self, task_id: int, status: str) -> None:
+        if self.store is None:
+            return
+        self.store.set_task_status(task_id, status)
+        from arelis.core.bus import emit_nowait
+
+        emit_nowait(Event(EventType.TASKS_CHANGED, {"action": status, "id": task_id}))
+        self.calendar.reload_tasks()
+
+    def _on_calendar_task_remove(self, task_id: int) -> None:
+        from arelis.ui.dialog import confirm
+
+        if self.store is None:
+            return
+        existing = self.store.get_task(task_id)
+        label = str((existing or {}).get("title") or "this task")
+        if not confirm(
+            self,
+            "remove task",
+            f"Remove {label}?",
+            confirm_text="Remove",
+            destructive=True,
+        ):
+            return
+        self.store.remove_task(task_id)
+        from arelis.core.bus import emit_nowait
+
+        emit_nowait(Event(EventType.TASKS_CHANGED, {"action": "remove", "id": task_id}))
+        self.calendar.reload_tasks()
+
     def _on_contacts_inbox_closed(self) -> None:
         self.act_contacts.setChecked(False)
+        self._sync_idle_mode()
+
+    def _on_calendar_window_closed(self) -> None:
+        self.act_calendar.setChecked(False)
+        self._calendar_sync_timer.stop()
+        self._calendar_sync_watchdog.stop()
         self._sync_idle_mode()
 
     def _on_notify_unread(self, count: int) -> None:
@@ -2142,6 +2433,8 @@ class ArelisWindow(QMainWindow):
         self.act_camera.setChecked(self.camera_dock.isVisible())
         if hasattr(self, "act_contacts"):
             self.act_contacts.setChecked(self.contacts_inbox.isVisible())
+        if hasattr(self, "act_calendar"):
+            self.act_calendar.setChecked(not self.calendar_window.isHidden())
 
     def _on_dock_visibility(self, visible: bool) -> None:
         # Ignore the transient hide that setWindowFlags causes while swapping
@@ -2157,6 +2450,7 @@ class ArelisWindow(QMainWindow):
             return
         self._sync_view_checks()
         self._sync_panel_margins()
+        self._flush_glass_surface()
         if visible:
             dock = sender
             if isinstance(dock, QDockWidget) and dock.isFloating():
@@ -2174,7 +2468,9 @@ class ArelisWindow(QMainWindow):
         """Keep outer and inter-panel gutters equal (history | chat | thinking)."""
         left = self._docked_in(
             self.history_dock, Qt.DockWidgetArea.LeftDockWidgetArea
-        ) or self._docked_in(self.camera_dock, Qt.DockWidgetArea.LeftDockWidgetArea)
+        ) or self._docked_in(
+            self.camera_dock, Qt.DockWidgetArea.LeftDockWidgetArea
+        )
         # Thinking on the right abuts the chat glass.
         right = self._docked_in(
             self.think_dock, Qt.DockWidgetArea.RightDockWidgetArea
@@ -2221,11 +2517,12 @@ class ArelisWindow(QMainWindow):
             )
 
     def _sanitize_floating_docks(self) -> None:
-        """Launch cleanup: redock every float, then seal chrome if any remain.
+        """Launch cleanup: redock stray floats, then seal chrome if any remain.
 
         Saved layouts often restore thinking/history as translucent top-level
-        HWNDs over chat (ghost bubbles). Force docked on startup so one glass
-        shell owns the instruments; user can undock again mid-session (opaque).
+        HWNDs over chat (ghost bubbles). Force those docked on startup so one
+        glass shell owns the instruments; user can undock again mid-session
+        (opaque). Calendar is not a dock.
         """
         redocked = False
         for dock in (
@@ -2241,21 +2538,31 @@ class ArelisWindow(QMainWindow):
                 redocked = True
             _apply_floating_dock_chrome(dock, dock.isFloating())
         self._sync_panel_margins()
+        self._flush_glass_surface()
         if redocked:
             # Persist docked state so the next launch does not rehydrate ghosts.
             self._persist_window_layout()
 
+    def _flush_glass_surface(self) -> None:
+        """Ask Windows to re-upload the layered bitmap after a layout change."""
+        if self.conversation.graphicsEffect() is not None:
+            self.conversation.setGraphicsEffect(None)
+        empty = getattr(self.chat, "empty", None)
+        if empty is not None and empty.graphicsEffect() is not None:
+            empty.setGraphicsEffect(None)
+        self.update()
+        invalidate_window_surface(self)
+
     def _animate_dock(self, dock: QDockWidget) -> None:
-        # Never opacity-fade a floating top-level dock — QGraphicsOpacityEffect
-        # on the window punches a see-through hole (chat ghosts through) and
-        # makes the glass title bar disappear.
-        if dock.isFloating():
-            if dock.graphicsEffect() is not None:
-                dock.setGraphicsEffect(None)
-            return
+        # Docked instruments are type in the void (fill 0). An opacity fade
+        # on that glass caches a pixmap and ghosts ticks/strips across the
+        # resize that opening a dock just caused. Floating plates are already
+        # opaque — fading them punches a hole through to chat.
+        if dock.graphicsEffect() is not None:
+            dock.setGraphicsEffect(None)
         target = dock.widget()
-        if target is not None:
-            fade_in_widget(target, 280)
+        if target is not None and target.graphicsEffect() is not None:
+            target.setGraphicsEffect(None)
 
     def _style_dock_tabs(self) -> None:
         """History/camera tabs live on QMainWindow, not inside QDockWidget.
@@ -2300,6 +2607,9 @@ class ArelisWindow(QMainWindow):
         self._style_dock_tabs()
         self.notify_inbox.hide()
         self.contacts_inbox.hide()
+        self.calendar_window.hide()
+        self._calendar_sync_timer.stop()
+        self._calendar_sync_watchdog.stop()
         self.sms_chats.hide_all()
         self._apply_calm_instrument_defaults()
         self.act_thinking.setChecked(self.think_dock.isVisible())
@@ -2308,12 +2618,15 @@ class ArelisWindow(QMainWindow):
         self.act_notifications.setChecked(False)
         self.act_camera.setChecked(False)
         self.act_contacts.setChecked(False)
+        self.act_calendar.setChecked(False)
+        self._calendar_placed = False
         self.resize(
             int(self.config.get("ui", {}).get("default_width", 1440)),
             int(self.config.get("ui", {}).get("default_height", 900)),
         )
         self._sync_panel_margins()
-        fade_in_widget(self.conversation, 280)
+        if self.conversation.graphicsEffect() is not None:
+            self.conversation.setGraphicsEffect(None)
         self._sync_idle_mode()
 
     def _idle_eligible(self) -> bool:
@@ -2343,7 +2656,9 @@ class ArelisWindow(QMainWindow):
                 self.history_dock,
                 self.camera_dock,
             )
-        ) or (not self.notify_inbox.isHidden()) or (not self.contacts_inbox.isHidden())
+        ) or (not self.notify_inbox.isHidden()) or (not self.contacts_inbox.isHidden()) or (
+            not self.calendar_window.isHidden()
+        )
         self.readiness_strip.setVisible(not idle or instruments)
         empty = getattr(self.chat, "empty", None)
         if empty is not None and hasattr(empty, "set_side_chrome"):
@@ -2363,6 +2678,9 @@ class ArelisWindow(QMainWindow):
         self.work_dock.hide()
         self.history_dock.hide()
         self.camera_dock.hide()
+        self.calendar_window.hide()
+        self._calendar_sync_timer.stop()
+        self._calendar_sync_watchdog.stop()
         self.notify_inbox.hide()
         self.contacts_inbox.hide()
         overlay = self.conversation.notify_overlay
@@ -2413,6 +2731,7 @@ class ArelisWindow(QMainWindow):
             "workspace": not self.work_dock.isHidden(),
             "history": not self.history_dock.isHidden(),
             "camera": not self.camera_dock.isHidden(),
+            "calendar": not self.calendar_window.isHidden(),
             "notify": not self.notify_inbox.isHidden(),
             "contacts": not self.contacts_inbox.isHidden(),
         }
@@ -2424,6 +2743,9 @@ class ArelisWindow(QMainWindow):
         self.work_dock.hide()
         self.history_dock.hide()
         self.camera_dock.hide()
+        self.calendar_window.hide()
+        self._calendar_sync_timer.stop()
+        self._calendar_sync_watchdog.stop()
         self.notify_inbox.hide()
         self.contacts_inbox.hide()
         if hidden.get("camera"):
@@ -2454,6 +2776,12 @@ class ArelisWindow(QMainWindow):
         if hidden.get("camera"):
             self.camera_dock.show()
             self.camera.start()
+        if hidden.get("calendar"):
+            self.calendar_window.show()
+            self.calendar_window.raise_()
+            self.calendar.reload()
+            self._kick_calendar_sync()
+            self._calendar_sync_timer.start()
         if hidden.get("notify"):
             self.notify_inbox.show()
             self.notify_inbox.raise_()
@@ -2560,6 +2888,7 @@ class ArelisWindow(QMainWindow):
         if self._disposed:
             return
         self._disposed = True
+        bind_app_bus(None)
 
         app = QApplication.instance()
         if app is not None:
@@ -2634,6 +2963,7 @@ class ArelisWindow(QMainWindow):
 
         quit_t0 = time.monotonic()
         log.info("quit_begin force=%s", self._force_quit)
+        bind_app_bus(None)
         self._persist_window_layout()
         # Release the microphone and the audio device before the window goes.
         # Qt will not do it for us and Windows keeps both claimed.
@@ -2647,6 +2977,8 @@ class ArelisWindow(QMainWindow):
         self._index_timer.stop()
         self._atmosphere_timer.stop()
         self._notify_timer.stop()
+        self._calendar_sync_timer.stop()
+        self._calendar_sync_watchdog.stop()
         self._job_tick.stop()
         # Tray Quit must feel instant. Stop notify first (phone listener), then
         # best-effort flush — never wait on model unload / long indexer work.
@@ -2736,6 +3068,10 @@ class ArelisWindow(QMainWindow):
             if dock.isFloating() and dock.isVisible():
                 dock._arelis_parked = True
                 dock.hide()
+        cal = getattr(self, "calendar_window", None)
+        if cal is not None and not cal.isHidden():
+            cal._arelis_parked = True
+            cal.hide()
 
     def _unpark_floating_docks(self) -> None:
         """Bring parked floating instruments back with the glass."""
@@ -2751,6 +3087,11 @@ class ArelisWindow(QMainWindow):
             dock.show()
             dock.raise_()
             invalidate_window_surface(dock)
+        cal = getattr(self, "calendar_window", None)
+        if cal is not None and getattr(cal, "_arelis_parked", False):
+            cal._arelis_parked = False
+            cal.show()
+            cal.raise_()
 
     def _remember_window_state(self) -> None:
         """Record maximized/full-screen before hiding, ignoring Minimized.
@@ -3437,6 +3778,12 @@ class ArelisWindow(QMainWindow):
                 f"room  {room_id or 'general'}", kind="status"
             )
             self._sync_idle_mode()
+        elif t == EventType.CALENDAR_CHANGED:
+            if not self.calendar_window.isHidden():
+                self.calendar.reload()
+        elif t == EventType.TASKS_CHANGED:
+            if not self.calendar_window.isHidden():
+                self.calendar.reload_tasks()
         elif t == EventType.THINKING:
             text = str(p.get("text") or "")
             if p.get("stream"):
@@ -3541,6 +3888,12 @@ class ArelisWindow(QMainWindow):
                 self.chat.show_progress(THINKING_STATUS)
             data = p.get("data") or {}
             intro = str(data.get("intro") or "").strip()
+            if p.get("tool") == "agenda" and p.get("ok") and data.get("open"):
+                self.act_calendar.setChecked(True)
+                self._toggle_calendar(True)
+            if p.get("tool") == "agenda" and p.get("ok") and data.get("close"):
+                self.act_calendar.setChecked(False)
+                self._toggle_calendar(False)
             if p.get("tool") == "browser":
                 if intro:
                     self.chat.add_system(intro)
@@ -3630,6 +3983,23 @@ class ArelisWindow(QMainWindow):
             if path:
                 self.workspace.show_image(path)
                 self._reveal_dock(self.work_dock, self.act_workspace)
+        elif t == EventType.FILE_READY:
+            abs_path = str(p.get("abs_path") or p.get("path") or "").strip()
+            name = str(p.get("title") or "").strip()
+            if not name and abs_path:
+                name = Path(abs_path).name
+            if abs_path and p.get("show_card", True):
+                self.chat.add_file_card(name or Path(abs_path).name, abs_path)
+            if abs_path and p.get("open"):
+                try:
+                    open_local_file(abs_path)
+                except OSError as exc:
+                    self.chat.add_system(f"I could not open that file. {plain_reason(exc)}")
+            if abs_path and p.get("reveal"):
+                try:
+                    reveal_local_file(abs_path)
+                except OSError as exc:
+                    self.chat.add_system(f"I could not show that file. {plain_reason(exc)}")
         elif t == EventType.SMS_RECEIVED:
             self._on_sms_received(p)
         elif t == EventType.TURN_PAUSE:
@@ -4249,7 +4619,7 @@ def run_ui(config: dict[str, Any] | None = None) -> int:
         router=router,
     )
     memory = SessionMemory(sink=store)
-    Orchestrator(bus, router, tools, config, memory, workspace=workspace)
+    orchestrator = Orchestrator(bus, router, tools, config, memory, workspace=workspace)
     voice = VoiceService(bus, config)
     embed_model = str(
         (config.get("memory") or {}).get("embed_model") or DEFAULT_EMBED_MODEL
@@ -4323,6 +4693,7 @@ def run_ui(config: dict[str, Any] | None = None) -> int:
         logging.getLogger(__name__).exception("Arelis window failed to start")
         ui_lock.release()
         raise
+    asyncio.run_coroutine_threadsafe(orchestrator.resume_last_room(), loop)
     # Inbound: by default the UI owns ingest. Close-to-tray keeps it alive when
     # the window hides; `arelis --core` can own ingest instead.
     presence_cfg = config.get("presence") or {}

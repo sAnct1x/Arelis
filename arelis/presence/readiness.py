@@ -11,11 +11,12 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any
 
-from arelis.calendar.secrets import load_calendar_secrets
+from arelis.calendar.secrets import load_calendar_secrets, load_ics_url
 from arelis.llm.preflight import missing_models, model_is_available
 from arelis.mail import load_account
 from arelis.memory import DEFAULT_EMBED_MODEL
 from arelis.presence.lock import find_my_ingest_port, probe_ingest_health
+from arelis.sms_android import load_sms_account
 
 log = logging.getLogger(__name__)
 
@@ -273,32 +274,48 @@ def _calendar_chip(config: dict[str, Any]) -> ReadinessChip:
         )
     secrets = load_calendar_secrets()
     google = secrets.google
-    if google is None:
-        return ReadinessChip(
-            "calendar",
-            "Calendar",
-            ChipLevel.OFF,
-            "Google calendar credentials not configured.",
-        )
-    if google.authorized:
+    outlook = secrets.outlook
+    if secrets.any_authorized():
+        if google is not None and google.authorized:
+            return ReadinessChip(
+                "calendar",
+                "Calendar",
+                ChipLevel.OK,
+                f"Google authorized (calendar {google.calendar_id}).",
+            )
+        if outlook is not None and outlook.authorized:
+            return ReadinessChip(
+                "calendar",
+                "Calendar",
+                ChipLevel.OK,
+                "Outlook authorized.",
+            )
+    if load_ics_url():
         return ReadinessChip(
             "calendar",
             "Calendar",
             ChipLevel.OK,
-            f"Google authorized (calendar {google.calendar_id}).",
+            "ICS feed configured.",
         )
-    if google.configured:
+    if google is not None and google.configured:
         return ReadinessChip(
             "calendar",
             "Calendar",
             ChipLevel.WARN,
             "Google client present but refresh token missing.",
         )
+    if outlook is not None and outlook.configured:
+        return ReadinessChip(
+            "calendar",
+            "Calendar",
+            ChipLevel.WARN,
+            "Outlook client present but refresh token missing.",
+        )
     return ReadinessChip(
         "calendar",
         "Calendar",
         ChipLevel.OFF,
-        "Google calendar credentials incomplete.",
+        "Calendar not connected.",
     )
 
 
@@ -326,6 +343,14 @@ def _sms_chip(config: dict[str, Any]) -> ReadinessChip:
             "SMS",
             ChipLevel.OFF,
             "SMS ingest disabled in config.",
+        )
+    account = load_sms_account()
+    if account is None:
+        return ReadinessChip(
+            "sms",
+            "SMS",
+            ChipLevel.OFF,
+            "Phone not paired.",
         )
     port = int(ingest.get("port") or 8765)
     # Asks which port *this user's* ingest is on, not whether anything answers on
@@ -369,8 +394,8 @@ def _mail_chip(config: dict[str, Any]) -> ReadinessChip:
         return ReadinessChip(
             "mail",
             "Mail",
-            ChipLevel.WARN,
-            "Mail account not configured in secrets.",
+            ChipLevel.OFF,
+            "Mail account not configured.",
         )
     return ReadinessChip(
         "mail",

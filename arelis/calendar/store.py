@@ -91,6 +91,33 @@ class CalendarStore:
         self._conn.commit()
         return len(events)
 
+    def put(self, ev: CachedEvent) -> None:
+        """Insert or replace a single cached event."""
+        now = datetime.now().astimezone().isoformat()
+        self._conn.execute(
+            """
+            INSERT OR REPLACE INTO events (
+                id, provider, calendar_id, summary, starts_at, ends_at,
+                all_day, location, description, etag, raw_id, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                ev.id,
+                ev.provider,
+                ev.calendar_id,
+                ev.summary,
+                ev.starts_at.isoformat(),
+                ev.ends_at.isoformat() if ev.ends_at else None,
+                1 if ev.all_day else 0,
+                ev.location,
+                ev.description,
+                ev.etag,
+                ev.raw_id or ev.id,
+                now,
+            ),
+        )
+        self._conn.commit()
+
     def list_range(
         self,
         start_day: date,

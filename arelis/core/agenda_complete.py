@@ -23,13 +23,15 @@ _CREATE = re.compile(
     r"put\s+.+\s+on\s+(?:my\s+)?calendar|"
     r"add\s+.+\s+to\s+(?:my\s+)?calendar|"
     r"calendar\s+event\s+for|"
-    r"set\s+(?:an?\s+)?(?:calendar\s+)?reminder"
+    r"set\s+(?:an?\s+)?(?:calendar\s+)?reminder|"
+    # Whisper often hears "add an event for" as "at an event for".
+    r"at\s+an?\s+event\s+for"
     r")\b"
 )
 
 _DELETE = re.compile(
     r"(?i)\b("
-    r"(?:delete|remove|cancel)\s+"
+    r"(?:delete|remove|cancel|delight|delate)\s+"
     r"(?:that\s+|the\s+|this\s+|my\s+)?"
     r"(?:anniversary\s+)?"
     r"(?:[\w'+\-]+\s+){0,8}"
@@ -140,6 +142,46 @@ _EXPLICIT_SMS_VERB = re.compile(
     r"(?i)^\s*(?:text|sms|txt|send\s+(?:a\s+)?(?:text|sms|message))\b"
 )
 
+_SPOKEN_HOURS = {
+    "one": "1",
+    "two": "2",
+    "three": "3",
+    "four": "4",
+    "five": "5",
+    "six": "6",
+    "seven": "7",
+    "eight": "8",
+    "nine": "9",
+    "ten": "10",
+    "eleven": "11",
+    "twelve": "12",
+}
+
+
+def normalize_calendar_speech(text: str) -> str:
+    """Fold common calendar ASR splits ('to morrow', 'eleven a m')."""
+    raw = (text or "").strip()
+    if not raw:
+        return raw
+    raw = re.sub(r"(?i)\bto[\s-]+morrow\b", "tomorrow", raw)
+    raw = re.sub(r"(?i)\bto[\s-]+night\b", "tonight", raw)
+    raw = re.sub(r"(?i)\b([ap])(?:\s*\.?\s*|\s+)m\.?\b", r"\1m", raw)
+
+    def _hour(match: re.Match[str]) -> str:
+        word = (match.group("h") or "").lower()
+        digit = match.group("d")
+        ap = (match.group("ap") or "").lower()
+        n = digit or _SPOKEN_HOURS.get(word) or word
+        return f"{n}{ap}"
+
+    return re.sub(
+        r"(?i)\b(?:(?P<h>one|two|three|four|five|six|seven|eight|nine|ten|"
+        r"eleven|twelve)|(?P<d>\d{1,2}))\s+(?P<ap>am|pm)\b",
+        _hour,
+        raw,
+    )
+
+
 _SEND_CONFIRM = re.compile(
     r"(?i)^\s*("
     r"(?:yes|yep|yeah|ok|okay|go\s+ahead|do\s+it|please)"
@@ -176,7 +218,7 @@ class AgendaDraft:
 
 def looks_like_calendar_create(text: str) -> bool:
     """True when the utterance asks to add/create a calendar event (not SMS)."""
-    raw = (text or "").strip()
+    raw = normalize_calendar_speech(text)
     if not raw:
         return False
     if _EXPLICIT_SMS_VERB.match(raw):
@@ -188,7 +230,7 @@ def looks_like_calendar_create(text: str) -> bool:
 
 def looks_like_calendar_delete(text: str) -> bool:
     """True when the utterance asks to delete/cancel a calendar event."""
-    raw = (text or "").strip()
+    raw = normalize_calendar_speech(text)
     if not raw:
         return False
     return bool(_DELETE.search(raw)) or bool(_GOOGLE_EVENT_ID.search(raw))
@@ -226,20 +268,117 @@ _CREATED_LINE = re.compile(
 )
 
 _DELETE_TITLED = re.compile(
-    r"(?i)\bdelete\s+(?:the\s+)?(?P<title>.+?)\s+(?:calendar\s+)?event\b"
+    r"(?i)\b(?:delete|delight|delate)\s+(?:the\s+)?(?P<title>.+?)\s+"
+    r"(?:calendar\s+)?event\b"
 )
 
 _CLOCK = re.compile(
     r"(?i)\b(?:the\s+)?(?P<h>\d{1,2})(?::(?P<m>\d{2}))?\s*(?P<ap>am|pm)\b"
 )
 
+# Surface the Arelis calendar tile — not a list of events, not calendar.google.com.
+_OPEN = re.compile(
+    r"(?i)\b("
+    r"(?:open|launch|pop\s+up)\s+"
+    r"(?:(?:up|me|the|my|our)\s+)*"
+    r"(?:google\s+)?"
+    r"(?:calendar|agenda)"
+    r"(?:\s+(?:tile|window|panel|app))?"
+    r"|"
+    r"(?:bring|pull)\s+up\s+"
+    r"(?:(?:the|my|our)\s+)*"
+    r"(?:google\s+)?"
+    r"(?:calendar|agenda)"
+    r"(?:\s+(?:tile|window|panel|app))?"
+    r"|"
+    r"(?:show|display)\s+"
+    r"(?:me\s+)?"
+    r"(?:(?:the|my|our)\s+)?"
+    r"(?:google\s+)?"
+    r"(?:calendar|agenda)"
+    r"(?:\s+(?:tile|window|panel))?"
+    r")\b"
+)
+_CALENDAR_WEBSITE = re.compile(
+    r"(?i)("
+    r"calendar\.google|"
+    r"google\.com/calendar|"
+    r"\bin\s+(?:the\s+|your\s+|my\s+)?browser\b|"
+    r"\bin\s+(?:chrome|edge|firefox)\b|"
+    r"\bwebsite\b|"
+    r"\bweb\s*site\b"
+    r")"
+)
+_OPEN_SCHEDULE_ASK = re.compile(
+    r"(?i)\b("
+    r"today|tomorrow|tonight|this\s+week|this\s+morning|this\s+afternoon|"
+    r"what(?:'s|\s+is|\s+are)\s+on|"
+    r"anything\s+on|"
+    r"upcoming|"
+    r"for\s+(?:today|tomorrow|this\s+week)|"
+    r"events?|meetings?|appointments?"
+    r")\b"
+)
+_CLOSE = re.compile(
+    r"(?i)\b("
+    r"(?:close|hide|dismiss|shut)\s+"
+    r"(?:(?:the|my|our)\s+)*"
+    r"(?:google\s+)?"
+    r"(?:calendar|agenda)"
+    r"(?:\s+(?:tile|window|panel|app))?"
+    r"|"
+    r"put\s+away\s+"
+    r"(?:(?:the|my|our)\s+)*"
+    r"(?:google\s+)?"
+    r"(?:calendar|agenda)"
+    r")\b"
+)
+_CLOSE_EVENT = re.compile(
+    r"(?i)\b(?:close|hide|dismiss|shut)\s+"
+    r"(?:(?:the|my|our)\s+)*"
+    r"(?:google\s+)?"
+    r"(?:calendar|agenda)\s+(?:event|meeting|appointment|reminder)\b"
+)
 
-def looks_like_calendar_read(text: str) -> bool:
-    """True when they want events described, not created or deleted."""
-    raw = (text or "").strip()
+
+def looks_like_calendar_open(text: str) -> bool:
+    """True when they want the Arelis calendar tile shown, not a website."""
+    raw = normalize_calendar_speech(text)
     if not raw:
         return False
     if looks_like_calendar_create(raw) or looks_like_calendar_delete(raw):
+        return False
+    if looks_like_calendar_close(raw):
+        return False
+    if _CALENDAR_WEBSITE.search(raw):
+        return False
+    if not _OPEN.search(raw):
+        return False
+    if _OPEN_SCHEDULE_ASK.search(raw):
+        return False
+    return True
+
+
+def looks_like_calendar_close(text: str) -> bool:
+    """True when they want the Arelis calendar tile hidden."""
+    raw = normalize_calendar_speech(text)
+    if not raw:
+        return False
+    if looks_like_calendar_create(raw):
+        return False
+    if _CLOSE_EVENT.search(raw):
+        return False
+    return bool(_CLOSE.search(raw))
+
+
+def looks_like_calendar_read(text: str) -> bool:
+    """True when they want events described, not created, deleted, or opened."""
+    raw = normalize_calendar_speech(text)
+    if not raw:
+        return False
+    if looks_like_calendar_create(raw) or looks_like_calendar_delete(raw):
+        return False
+    if looks_like_calendar_open(raw) or looks_like_calendar_close(raw):
         return False
     return bool(_READ.search(raw))
 
@@ -295,23 +434,24 @@ def draft_agenda_delete_args(
     history: list[Any] | None = None,
 ) -> dict[str, Any]:
     """Delete by title/time. Only include event_id when the user pasted one."""
+    raw = normalize_calendar_speech(text)
     out: dict[str, Any] = {"action": "delete", "provider": "google"}
-    eid = event_id_from_text(text)
+    eid = event_id_from_text(raw)
     if eid:
         out["event_id"] = eid
         return out
-    titled = _DELETE_TITLED.search(text or "")
-    if titled and not looks_like_duplicate_delete(text):
+    titled = _DELETE_TITLED.search(raw)
+    if titled and not looks_like_duplicate_delete(raw):
         out["summary"] = titled.group("title").strip()
     else:
         summary = last_agenda_create_summary(receipts=receipts, history=history)
         if summary:
             out["summary"] = summary
-    if looks_like_duplicate_delete(text):
+    if looks_like_duplicate_delete(raw):
         out["keep"] = 1
     else:
         out["keep"] = 0
-    clock = _CLOCK.search(text or "")
+    clock = _CLOCK.search(raw)
     if clock:
         hour = int(clock.group("h"))
         minute = int(clock.group("m") or 0)
@@ -332,6 +472,21 @@ def agenda_force_read_notice(action: str) -> str:
         f"Call agenda now with action={act}. Summarize the tool output "
         "(time, title, place, one-line notes). Never invent meetings. "
         "Never ask the user for a Google event id."
+    )
+
+
+def agenda_force_open_notice() -> str:
+    return (
+        "Call agenda now with action=open. That opens the Arelis calendar "
+        "tile. Do not call browser with the calendar alias unless they asked "
+        "for calendar.google.com or to open it in Chrome/the browser."
+    )
+
+
+def agenda_force_close_notice() -> str:
+    return (
+        "Call agenda now with action=close. That hides the Arelis calendar "
+        "tile. Do not delete events. Do not call browser."
     )
 
 
@@ -563,11 +718,16 @@ def _extract_title(raw: str) -> tuple[str, str]:
     put_title = _title_from_put_or_add(raw)
     if put_title:
         return put_title, ""
+    to_m = re.search(r"(?i)(?:[ap]m)\s+to\s+(?P<title>.+)$", raw)
+    if to_m:
+        title = (to_m.group("title") or "").strip().rstrip(".,!;:")
+        if title:
+            return title[:1].upper() + title[1:], ""
     return "", ""
 
 
 def parse_agenda_utterance(text: str) -> AgendaDraft | None:
-    raw = (text or "").strip()
+    raw = normalize_calendar_speech(text)
     if not raw or not _CREATE.search(raw):
         return None
     summary, description = _extract_title(raw)

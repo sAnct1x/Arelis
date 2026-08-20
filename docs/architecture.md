@@ -1,106 +1,38 @@
-# 🗺️ How she is put together
+# How she is put together
 
 Install and day-to-day stay in the [README](../README.md). Living notes
-for this checkout: [whats-new.md](whats-new.md). This page is the map of
-the house: rooms, wiring, and which door she is not allowed through.
+for this checkout: [whats-new.md](whats-new.md). This page is the map:
+rooms, wiring, and which door she is not allowed through.
 
 ## This PC, then the rest
 
 Everything she *thinks* stays here. The rest of the world is a tool call
 you started, or a card you allowed.
 
-```mermaid
-%%{init: {"theme": "dark", "themeVariables": {"primaryColor": "#3d2418", "primaryTextColor": "#f6ead9", "primaryBorderColor": "#e08a4a", "lineColor": "#c4784a", "secondaryColor": "#1a1210", "tertiaryColor": "#2a1810"}}}%%
-flowchart TB
-  you(("you"))
-
-  subgraph glass["glass"]
-    ui["window · orbit · docks"]
-    voice["Hey Arelis"]
-    cli["terminal"]
-    phone["your phone app"]
-  end
-
-  subgraph mind["one turn at a time"]
-    bus((event bus))
-    orch["orchestrator"]
-    loop["agent loop"]
-    ollama["Ollama — one chat model hot"]
-  end
-
-  subgraph hands["hands"]
-    files["workspace"]
-    search["search · scrape"]
-    chrome["her browser"]
-    send["mail · SMS"]
-    extra["calendar · weather · science"]
-  end
-
-  you --> ui
-  you --> voice
-  you --> cli
-  you --> phone
-  ui --> bus
-  voice --> bus
-  cli --> bus
-  phone --> bus
-  bus --> orch --> loop --> ollama
-  loop --> files & search & chrome & send & extra
-  send -.->|allow / deny| you
-```
-
-You talk through a surface. Messages fly on a small event bus. The brain
-decides what to say and which tools to call. Tools reach the outside
-world. Mail and texts do not go out on a hope.
+You talk through the window, voice, the terminal, or the phone app.
+Messages fly on a small event bus. The orchestrator runs one turn at a
+time. The agent loop talks to Ollama and calls tools. Mail and texts do
+not go out on a hope.
 
 ## First open
 
-Not a tour. Two glasses. The folder is a **permission**. The model is a
-**recommendation**.
+Not a tour. Two questions. The folder is a **permission**. On this
+checkout, the model is a **recommendation**. The published 0.2.2
+installer still only asks the folder.
 
-```mermaid
-%%{init: {"theme": "dark", "themeVariables": {"primaryColor": "#3d2418", "primaryTextColor": "#f6ead9", "primaryBorderColor": "#e08a4a", "lineColor": "#c4784a"}}}%%
-sequenceDiagram
-  actor You
-  participant Glass
-  participant PC as this PC
-  participant Ollama
+1. Start Arelis.
+2. Which folder may she read, create, change, and delete?
+3. This checkout then looks at graphics memory, RAM, and disk, and
+   recommends one Qwen 3.5 tag. Confirm it, or pick Gemma / DeepSeek.
+4. If Ollama is missing, she downloads the official Windows engine into
+   `%LOCALAPPDATA%\Arelis-runtime`, then pulls that tag plus
+   `nomic-embed-text`.
 
-  You->>Glass: Start Arelis
-  Glass->>You: which folder? read · create · change · delete
-  You->>Glass: this one
-  Glass->>PC: graphics memory, RAM, disk
-  PC-->>Glass: what fits
-  Glass->>You: recommended Qwen 3.5 — here is why
-  You->>Glass: use this / pick another
-  alt engine missing
-    Glass->>Ollama: official Windows setup into %LOCALAPPDATA%\Arelis-runtime
-  end
-  Glass->>Ollama: pull one chat tag + nomic-embed-text
-  Ollama-->>Glass: ready
-  Glass->>You: type under the ring. say Hey Arelis.
-```
-
-Pins both composer chips to that one tag in `config.local.yaml`. A copy
+That pins both composer chips to one tag in `config.local.yaml`. A copy
 that already pinned `models.fast` is not asked again. Vision waits until
 the first picture. Tags: [models.md](models.md).
 
 ## One turn
-
-```mermaid
-%%{init: {"theme": "dark", "themeVariables": {"primaryColor": "#3d2418", "primaryTextColor": "#f6ead9", "primaryBorderColor": "#e08a4a", "lineColor": "#c4784a"}}}%%
-flowchart TD
-  in["you type, or she heard you"] --> think["the role model thinks"]
-  think --> tools{"tool?"}
-  tools -->|read, search, weather| go["do it"]
-  tools -->|write, send, her window| card["allow / deny"]
-  card -->|allow| go
-  card -->|deny| skip["this step only — the turn keeps going"]
-  go --> back["result into the turn"]
-  skip --> back
-  back --> think
-  think --> out["she answers with what she actually got"]
-```
 
 1. Your text (or a voice transcript) hits the orchestrator.
 2. The role model thinks. It may call tools.
@@ -123,19 +55,22 @@ step only. Conversation mode hears allow or deny without starting a new
 turn. **Settings → Allow** is the list. Mail, texts, and calendar never
 ride along with **rest of this ask**.
 
+A tiny ask (the time, a greeting, thanks) does not load the full tool
+list. Unmatched real work still fail-opens.
+
 ## Ways to run her
 
 | How | When |
 |-----|------|
-| Glass UI (`.\scripts\run_ui.ps1`) | Normal: chat, docks, Settings |
+| Window (`.\scripts\run_ui.ps1`) | Normal: chat, docks, Settings |
 | CLI (`arelis --cli`) | Same brain in a terminal |
-| Core (`.\scripts\run_core.ps1`) | Background: phone ingest, jobs, no glass |
-| Tray | UI hidden but still alive |
+| Core (`.\scripts\run_core.ps1`) | Background: phone ingest, jobs, no window |
+| Tray | Window hidden but still alive |
 
 Core and UI talk over a small loopback bridge so inbound texts and
-"open the window" still work when the glass is closed.
+"open the window" still work when the window is closed.
 
-## Glass UI
+## Window
 
 Empty session is the orbit: warm void, a ring, a box under it. Typing
 stays there until you send. Then you get the workbench: chat, composer,
@@ -145,7 +80,7 @@ docks.
 |-------|-----|
 | Composer | Idle: centered prompt. Workbench: bottom row plus `fast` / `research` |
 | Title strip | arelis, view, settings, window buttons |
-| Readiness | Ollama chip and **Systems ▾** (model, Allow gates, calendar / SMS / mail) |
+| Readiness | Ollama chip and **Systems ▾**. Mail / SMS / calendar only appear there once connected |
 | Chat stage | Orbit, streaming answer, Sources, allow / deny cards |
 | Drive strip | Stop / Pause / your-turn while her browser is in flight |
 | Thinking dock | Status, tools, rounds, and a wrapping think paragraph |
@@ -154,6 +89,7 @@ docks.
 | History dock | Sessions, pending fact approve / reject |
 | Notifications | Inbound SMS while the UI is open |
 | Contacts | Named people for texts. View → contacts / Ctrl+6 |
+| Calendar | Local tile, Ctrl+7. Empty of Google events until you authorize |
 | Settings | Audio / Window / Allow / Notify / Roots / Memory |
 
 Settings → Window can fold unused panels after 30, 45, or 60 minutes
@@ -172,7 +108,7 @@ Settings → Notify has the pairing QR.
 | Piece | Path | Job |
 |-------|------|-----|
 | Bus | `arelis/core/bus.py` | Events between UI and brain |
-| Orchestrator | `arelis/core/orchestrator.py` | One turn at a time |
+| Orchestrator | `arelis/core/orchestrator.py` | One turn at a time. Resumes the last room on launch |
 | Agent loop | `arelis/core/agent_loop.py` | Model, tools, confirms, finish rules |
 | Skills | `arelis/core/skills.py` | Which tools she leans on |
 | Router | `arelis/llm/` | Pick the role model, warm, unload |
@@ -190,19 +126,6 @@ tag from hardware and pins both chips to it. Shipped last-resort in
 deeper loop on the same weights. File work stays on fast. Vision stays
 `qwen2.5vl:3b`. Tags: [models.md](models.md).
 
-```mermaid
-%%{init: {"theme": "dark", "themeVariables": {"primaryColor": "#3d2418", "primaryTextColor": "#f6ead9", "primaryBorderColor": "#e08a4a", "lineColor": "#c4784a"}}}%%
-flowchart LR
-  subgraph vram["the card — one resident"]
-    chat["fast and research<br/>same tag"]
-  end
-  fast["/role fast"] --> chat
-  research["/role research"] -->|"deeper loop, not a bigger file"| chat
-  pic["look at a picture"] -->|"unload chat"| vl["qwen2.5vl:3b"]
-  vl -->|"pin fast again"| chat
-  voice["listen / speak"] -.->|"CPU, not VRAM"| cpu["Sherpa · Kokoro"]
-```
-
 Everyday turns may shrink the tools array to matched skill cards.
 Unmatched turns still fail open. Independent reads in the same round can
 run together. Writes and pause-gated tools stay serial.
@@ -210,8 +133,12 @@ run together. Writes and pause-gated tools stay serial.
 ## Tools (short)
 
 Registered in `arelis/tools/__init__.py`. Scheduled jobs leave out send,
-browser, vision, plot, and the other tools that need a person present.
+browser, vision, plot, document, and the other tools that need a person present.
 `cas`, `units`, and `catalog` may run unattended.
+
+`send_email` / `inbox`, `send_sms` / `inbound_sms`, and `agenda` are
+registered only when mail, the phone, or a calendar source is actually
+connected. Otherwise chat says she cannot.
 
 | Tool | Plain English | Pause? |
 |------|---------------|--------|
@@ -224,6 +151,7 @@ browser, vision, plot, and the other tools that need a person present.
 | `calculator` | Arithmetic | No |
 | `cas` / `units` | Closed forms, conversions, constants | No |
 | `plot` | PNG under `outputs/plots/` | Yes |
+| `document` | PDF, Word, Excel, CSV, markdown. Room → `documents/` in the project; orbit → `outputs/documents/` | Yes |
 | `catalog` | arXiv, Horizons; APOD / ADS after a free key | No |
 | `clipboard` / `ocr` / `vision` / `camera` | Paste, screen text, see an image, webcam | Yes (the still is free; seeing it pauses) |
 | `memory` / `recall` / `tasks` / `goals` | Remember, chores, "what needs my attention" | Mutates: yes |
@@ -246,7 +174,7 @@ Scrape reads a URL for her, no window. `browser` moves her Chrome under
 
 A room is a named place to work on one thing: its own thread, a folder,
 a purpose she reads every turn. `/room physics` goes in. `/leave` comes
-out. [rooms.md](rooms.md).
+out. Launch resumes the last room you entered. [rooms.md](rooms.md).
 
 ## Memory and safety
 

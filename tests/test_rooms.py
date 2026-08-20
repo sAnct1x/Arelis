@@ -49,6 +49,8 @@ def test_a_room_survives_being_written_and_read_back(tmp_path: Path) -> None:
     assert "code" not in KINDS["analysis"].skills
     assert "science" in KINDS["analysis"].skills
     assert "analyze" in KINDS["analysis"].skills
+    assert "document" in KINDS["writing"].skills
+    assert "workspace" in KINDS["writing"].skills
 
 
 def test_the_file_is_the_interface_so_a_typo_costs_one_room(tmp_path: Path) -> None:
@@ -95,6 +97,13 @@ def test_a_name_resolves_by_id_name_or_unique_prefix(store: RoomStore) -> None:
     assert store.find("read").id == "reading-group"
 
 
+def test_writing_room_prompt_names_the_documents_folder(store: RoomStore) -> None:
+    room = store.create("Essay", root="Lab Notes", kind="writing")
+    block = room.prompt_block()
+    assert "documents folder" in block
+    assert "markdown" in block.lower()
+
+
 def test_an_ambiguous_name_resolves_to_nothing(store: RoomStore) -> None:
     """Entering the wrong room swaps the thread and the folder silently.
 
@@ -136,7 +145,52 @@ def test_forgetting_a_room_leaves_the_others_and_closes_it(store: RoomStore) -> 
 
     assert store.remove("physics") is True
     assert store.active is None
+    assert store.last_active_id == ""
     assert [r.id for r in store.all()] == ["writing"]
+
+
+def test_last_entered_room_survives_a_reopen(tmp_path: Path) -> None:
+    path = tmp_path / "rooms.yaml"
+    first = RoomStore(path)
+    first.create("Physics")
+    first.create("Writing")
+    first.set_active("physics")
+
+    reopened = RoomStore(path)
+    assert reopened.active_id == ""
+    assert reopened.last_active_id == "physics"
+
+
+def test_creating_a_room_does_not_count_as_entering(tmp_path: Path) -> None:
+    path = tmp_path / "rooms.yaml"
+    first = RoomStore(path)
+    first.create("Physics")
+
+    reopened = RoomStore(path)
+    assert reopened.last_active_id == ""
+    assert reopened.active_id == ""
+
+
+def test_leaving_clears_the_resume_hint(tmp_path: Path) -> None:
+    path = tmp_path / "rooms.yaml"
+    first = RoomStore(path)
+    first.create("Physics")
+    first.set_active("physics")
+    first.leave()
+
+    reopened = RoomStore(path)
+    assert reopened.last_active_id == ""
+
+
+def test_a_forgotten_room_is_not_resumed(tmp_path: Path) -> None:
+    path = tmp_path / "rooms.yaml"
+    first = RoomStore(path)
+    first.create("Physics")
+    first.set_active("physics")
+    first.remove("physics")
+
+    reopened = RoomStore(path)
+    assert reopened.last_active_id == ""
 
 
 def test_the_purpose_reaches_the_prompt_with_the_folder(store: RoomStore) -> None:

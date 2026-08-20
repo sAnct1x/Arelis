@@ -1,23 +1,14 @@
-# 🚪 Rooms
+# Rooms
 
-A room is a named place to work on one thing. Like walking into a studio
-with the lights already on.
+A room is a named place to work on one thing: its own thread, a folder,
+and a purpose she reads at the start of every turn.
 
-The general conversation is meant to be forgettable. Cold launch gives
-you an empty orbit. Last night sits in History. That is right for "what's
-the weather" or "text him I'm running late". It is wrong for work you
-come back to: a three-week analysis, a paper, a codebase. That work needs
-somewhere that already knows the folder, and does not have to be
-re-explained every launch.
+The general conversation is meant to be forgettable. Last night in
+orbit sits in History. Work you come back to belongs in a room, and
+that room comes back with you.
 
-```mermaid
-%%{init: {"theme": "dark", "themeVariables": {"primaryColor": "#3d2418", "primaryTextColor": "#f6ead9", "primaryBorderColor": "#e08a4a", "lineColor": "#c4784a"}}}%%
-stateDiagram-v2
-  [*] --> orbit: cold launch
-  orbit --> room: /room physics
-  room --> orbit: /leave
-  room --> room: same thread tomorrow
-```
+Cold launch: if you left inside a room, you are in it again. If you
+left with `/leave`, you are in orbit.
 
 ## What a room carries
 
@@ -39,8 +30,8 @@ The thread is the part that matters. Everything else is convenience.
 ```
 
 Or say it: "let's work on physics", "open the physics room", "leave the
-room". Spoken navigation only fires on a name that already exists. "Let's
-work on the budget" in a house with no budget room is an ordinary
+room". Spoken navigation only fires on a name that already exists.
+"Let's work on the budget" in a house with no budget room is an ordinary
 sentence.
 
 ## Making one
@@ -60,8 +51,12 @@ allow / deny card before anything is written. Or do it by hand:
 /room set kind analysis
 ```
 
+`/room new` also enters the room. Creating one in `rooms.yaml` by hand,
+without going in, does not.
+
 `/room forget physics` removes the definition. Its conversations stay in
-History. Only the room is gone.
+History. Only the room is gone. A forgotten room is not recreated on
+launch.
 
 ## Kinds
 
@@ -71,10 +66,11 @@ History. Only the room is gone.
 | `code` | fast | reading and writing files, running tests |
 | `analysis` | fast | data, maths, plots, named catalogs |
 | `research` | research | reading widely, keeping notes, citing sources |
-| `writing` | research | drafting and revising documents |
+| `writing` | research | drafting and revising documents in the project's `documents` folder |
 
 A kind is a starting chip, not a lock. `/role` still overrides it. Every
-tool still works in every room.
+tool still works in every room. The kind's skills are offered first on
+every turn in that room — that is the lean.
 
 ## Rooms lean, they do not cage
 
@@ -110,12 +106,16 @@ leave her with nothing.
 - `data/memory.db`: the threads. Each conversation row carries the room
   it belongs to, so History shows them and the cold-launch prune cannot
   touch them.
+- Files she creates (PDF, Word, spreadsheet, markdown) land in
+  `<project>/documents/` while you are in a room with a folder. Orbit
+  one-offs still go to `outputs/documents/`.
 
-## What rooms deliberately do not do
+## Launch
 
-They do not survive a launch. You always start in the general orbit and
-step into a room on purpose.
+The last room you actually entered comes back on the next start. Leave
+first if you want orbit. A room you only created is not entered. Jobs
+never resume a room.
 
-They are not a second window. The room paints a strip above the
-transcript with its name, purpose, and folder, and a way out. The
-conversation itself is the same surface it always was.
+This is not a second window. A strip above the transcript names the
+room, its purpose, and its folder, and a way out. The conversation
+itself is the same surface it always was.

@@ -216,9 +216,12 @@ def _calendar_part() -> str:
 
     secrets = load_calendar_secrets()
     google = secrets.google
+    outlook = secrets.outlook
     if google is not None and google.authorized:
         return "calendar Google authorized"
-    return "calendar Google not authorized"
+    if outlook is not None and outlook.authorized:
+        return "calendar Outlook authorized"
+    return ""
 
 
 def _mail_part() -> str:
@@ -227,7 +230,7 @@ def _mail_part() -> str:
     account = load_account()
     if account is not None:
         return "mail configured"
-    return "mail not configured"
+    return ""
 
 
 def _sms_part() -> str:
@@ -236,7 +239,7 @@ def _sms_part() -> str:
     account = load_sms_account()
     if account is not None:
         return "SMS companion configured"
-    return "SMS companion not configured"
+    return ""
 
 
 def _image_part(config: dict[str, Any]) -> str:

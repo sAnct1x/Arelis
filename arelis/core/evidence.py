@@ -87,6 +87,10 @@ class EvidenceLedger:
             span = str(data.get("path") or output or "")[:300]
             self.add(source="plot", kind="plot", span=span, ok=ok)
             return
+        if name == "document":
+            span = str(data.get("path") or output or "")[:300]
+            self.add(source="document", kind="document", span=span, ok=ok)
+            return
         if name == "catalog":
             span = str(data.get("query") or data.get("target") or output or "")[:300]
             self.add(source="catalog", kind="catalog", span=span, ok=ok)
@@ -323,6 +327,8 @@ class EvidenceLedger:
                 missing.append("units")
             elif kind == "plot" and not self.has_ok("plot"):
                 missing.append("plot")
+            elif kind == "document" and not self.has_ok("document"):
+                missing.append("document")
             elif kind == "catalog" and not self.has_ok("catalog"):
                 missing.append("catalog")
             elif kind == "web" and not self.has_ok("web"):

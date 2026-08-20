@@ -16,12 +16,10 @@ from arelis.briefing.calendar import (
     load_agenda,
     resolve_calendar_path,
 )
-from arelis.calendar.google_client import GoogleCalendarClient
 from arelis.calendar.models import CachedEvent
-from arelis.calendar.outlook_client import OutlookCalendarClient
 from arelis.calendar.secrets import load_calendar_secrets
+from arelis.calendar.service import CalendarService
 from arelis.calendar.store import CalendarStore
-from arelis.calendar.sync import sync_calendars
 from arelis.tools.base import ToolResult
 
 log = logging.getLogger(__name__)
@@ -38,11 +36,14 @@ def _local_now() -> datetime:
 class AgendaTool:
     name = "agenda"
     description = (
-        "Calendar: list today's/tomorrow's events or a date range; sync from "
-        "Google/Outlook; create/update/delete events (writes need Allow). "
-        "Never invent meetings — list first and cite the tool (time, title, "
-        "place, one-line notes). Never ask the user for a Google event id; "
-        "delete by title/time. provider=google|outlook|all|ics."
+        "Calendar: open or close the Arelis calendar tile; list today's/"
+        "tomorrow's events or a date range; sync from Google/Outlook; "
+        "create/update/delete events (writes need Allow). Never invent "
+        "meetings — list first and cite the tool (time, title, place, "
+        "one-line notes). Never ask the user for a Google event id; delete "
+        "by title/time. provider=google|outlook|all|ics. action=open shows "
+        "the local tile; action=close hides it — do not use the browser "
+        "calendar alias unless they asked for the website."
     )
     # Registered as read; write actions gated in ToolRegistry.needs_confirm.
     risk = "read"
@@ -57,11 +58,14 @@ class AgendaTool:
                     "range",
                     "list",
                     "sync",
+                    "open",
+                    "close",
                     "create",
                     "update",
                     "delete",
                 ],
                 "description": (
+                    "open/close show or hide the Arelis calendar tile; "
                     "today/tomorrow/range/list read; sync refreshes Google/Outlook "
                     "cache (or provider=ics writes local ICS from secrets URL); "
                     "create/update/delete change cloud calendars (Allow required)."
@@ -121,16 +125,24 @@ class AgendaTool:
 
     async def run(self, **kwargs: Any) -> ToolResult:
         action = str(kwargs.get("action") or "").strip().lower()
-        if action in _READ_ACTIONS or action in AGENDA_WRITE_ACTIONS:
+        if (
+            action in _READ_ACTIONS
+            or action in AGENDA_WRITE_ACTIONS
+            or action in {"open", "close"}
+        ):
             pass
         else:
             return ToolResult(
                 ok=False,
                 output=(
-                    "Unknown action. Use today, tomorrow, range, list, sync, "
-                    "create, update, or delete."
+                    "Unknown action. Use open, close, today, tomorrow, range, "
+                    "list, sync, create, update, or delete."
                 ),
             )
+        if action == "open":
+            return await self._open()
+        if action == "close":
+            return await self._close()
         if action == "sync":
             return await self._sync(kwargs)
         if action in {"today", "tomorrow", "range", "list"}:
@@ -142,6 +154,20 @@ class AgendaTool:
         if action == "delete":
             return await self._delete(kwargs)
         return ToolResult(ok=False, output=f"Unknown action: {action}")
+
+    async def _open(self) -> ToolResult:
+        return ToolResult(
+            ok=True,
+            output="Opened the Arelis calendar.",
+            data={"open": True},
+        )
+
+    async def _close(self) -> ToolResult:
+        return ToolResult(
+            ok=True,
+            output="Closed the Arelis calendar.",
+            data={"close": True},
+        )
 
     async def _sync(self, kwargs: dict[str, Any]) -> ToolResult:
         provider = str(kwargs.get("provider") or "all").strip().lower()
@@ -175,7 +201,7 @@ class AgendaTool:
             providers = (provider,)
         else:
             providers = ("google", "outlook")
-        summary = await sync_calendars(self._config, providers=providers)
+        summary = await CalendarService(self._config).sync(providers=providers)
         lines = ["Calendar sync:"]
         for name, info in (summary.get("providers") or {}).items():
             if info.get("ok"):
@@ -205,10 +231,7 @@ class AgendaTool:
             # Soft sync when authorized so reads stay fresh without a separate call.
             if secrets.any_authorized() and provider != "ics":
                 try:
-                    await sync_calendars(
-                        self._config,
-                        store=store,
-                        secrets=secrets,
+                    await CalendarService(self._config, store=store).sync(
                         providers=(
                             (provider,)
                             if provider in {"google", "outlook"}
@@ -344,19 +367,19 @@ class AgendaTool:
             store.close()
 
         try:
-            client = self._client(provider)
-            ev = await client.create_event(
+            svc = CalendarService(self._config, client_factory=self._client)
+            ev = await svc.create(
                 summary=summary,
                 starts_at=starts_at,
                 ends_at=ends_at,
                 all_day=all_day,
                 location=location,
                 description=description,
+                provider=provider,
                 calendar_id=calendar_id,
             )
         except Exception as exc:
             return ToolResult(ok=False, output=f"create failed: {exc}")
-        self._cache_upsert(ev)
         return ToolResult(
             ok=True,
             output=(
@@ -369,7 +392,7 @@ class AgendaTool:
         event_id = str(kwargs.get("event_id") or "").strip()
         if not event_id:
             return ToolResult(ok=False, output="update requires event_id.")
-        provider, raw_id = _split_id(event_id, kwargs.get("provider"))
+        provider, _raw_id = _split_id(event_id, kwargs.get("provider"))
         if provider not in {"google", "outlook"}:
             return ToolResult(
                 ok=False,
@@ -388,9 +411,9 @@ class AgendaTool:
             except ValueError as exc:
                 return ToolResult(ok=False, output=str(exc))
         try:
-            client = self._client(provider)
-            ev = await client.update_event(
-                raw_id,
+            svc = CalendarService(self._config, client_factory=self._client)
+            ev = await svc.update(
+                event_id,
                 summary=str(kwargs["summary"]).strip()
                 if kwargs.get("summary") is not None
                 else None,
@@ -403,11 +426,11 @@ class AgendaTool:
                 description=str(kwargs.get("description")).strip()
                 if kwargs.get("description") is not None
                 else None,
+                provider=provider,
                 calendar_id=str(kwargs.get("calendar_id") or "").strip() or None,
             )
         except Exception as exc:
             return ToolResult(ok=False, output=f"update failed: {exc}")
-        self._cache_upsert(ev)
         return ToolResult(
             ok=True,
             output=f"Updated on {provider}: {ev.summary} (id={ev.id})",
@@ -558,10 +581,7 @@ class AgendaTool:
         try:
             if secrets.any_authorized() and provider != "ics":
                 try:
-                    await sync_calendars(
-                        self._config,
-                        store=store,
-                        secrets=secrets,
+                    await CalendarService(self._config, store=store).sync(
                         providers=(
                             (provider,)
                             if provider in {"google", "outlook"}
@@ -592,79 +612,20 @@ class AgendaTool:
                 output="Could not resolve provider; pass provider=google|outlook.",
             )
         try:
-            client = self._client(provider)
-            await client.delete_event(raw_id, calendar_id=calendar_id)
+            svc = CalendarService(self._config, client_factory=self._client)
+            await svc.delete(
+                event_id, provider=provider, calendar_id=calendar_id
+            )
         except Exception as exc:
             return ToolResult(ok=False, output=f"delete failed: {exc}")
-        store = CalendarStore()
-        try:
-            store.delete_id(event_id)
-            store.delete_id(f"{provider}:{raw_id}")
-        finally:
-            store.close()
         return ToolResult(
             ok=True,
             output=f"Deleted on {provider}: {raw_id}",
             data={"action": "delete", "event_id": event_id, "provider": provider},
         )
 
-    def _client(self, provider: str) -> GoogleCalendarClient | OutlookCalendarClient:
-        secrets = load_calendar_secrets()
-        cal_cfg = (self._config.get("tools") or {}).get("calendar") or {}
-        if provider == "google":
-            if secrets.google is None or not secrets.google.authorized:
-                raise RuntimeError(
-                    "Google Calendar not authorized. "
-                    "Run: arelis --auth-calendar google"
-                )
-            # Apply config calendar id override via a shallow copy of creds fields
-            from arelis.calendar.secrets import GoogleCalendarCreds
-
-            creds = secrets.google
-            override = str(cal_cfg.get("google_calendar_id") or "").strip()
-            if override and override != creds.calendar_id:
-                creds = GoogleCalendarCreds(
-                    client_id=creds.client_id,
-                    client_secret=creds.client_secret,
-                    refresh_token=creds.refresh_token,
-                    calendar_id=override,
-                )
-            return GoogleCalendarClient(creds)
-        if secrets.outlook is None or not secrets.outlook.authorized:
-            raise RuntimeError(
-                "Outlook not authorized. Run: arelis --auth-calendar outlook"
-            )
-        from arelis.calendar.secrets import OutlookCalendarCreds
-
-        creds = secrets.outlook
-        override = str(cal_cfg.get("outlook_calendar_id") or "").strip()
-        if override and override != creds.calendar_id:
-            creds = OutlookCalendarCreds(
-                client_id=creds.client_id,
-                client_secret=creds.client_secret,
-                refresh_token=creds.refresh_token,
-                tenant=creds.tenant,
-                calendar_id=override,
-            )
-        return OutlookCalendarClient(creds)
-
-    def _cache_upsert(self, ev: CachedEvent) -> None:
-        store = CalendarStore()
-        try:
-            start = ev.starts_at - timedelta(hours=1)
-            end = (ev.ends_at or ev.starts_at) + timedelta(hours=1)
-            existing = store.list_range(
-                start.date(),
-                end.date(),
-                provider=ev.provider,
-            )
-            by_id = {e.id: e for e in existing}
-            by_id[ev.id] = ev
-            store.replace_provider_window(
-                ev.provider, list(by_id.values()), start=start, end=end
-            )
-        finally:
-            store.close()
+    def _client(self, provider: str):
+        return CalendarService(self._config).client(provider)
 
     def _window(
         self,

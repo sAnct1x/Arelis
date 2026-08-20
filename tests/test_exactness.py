@@ -19,6 +19,7 @@ from arelis.core.claims import (
     detect_inbox_ask,
     detect_math_ask,
     detect_plot_ask,
+    detect_document_ask,
     detect_send_success_claim,
     detect_tasks_ask,
     detect_units_ask,
@@ -235,6 +236,15 @@ def test_plot_asks_are_forced() -> None:
     assert detect_plot_ask("plot this csv")
     assert not detect_plot_ask("I loved the plot twist")
     assert not detect_plot_ask("What's the weather today?")
+
+
+def test_document_asks_are_forced() -> None:
+    need = detect_exactness_need("create a pdf about the dirac equation")
+    assert need.needs_document
+    assert "document" in need.kinds
+    assert detect_document_ask("save it as a pdf")
+    assert not detect_document_ask("what does this pdf say")
+    assert not detect_document_ask("What's the weather today?")
 
 
 def test_catalog_asks_are_forced() -> None:

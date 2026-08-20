@@ -1,3 +1,4 @@
+from arelis.ui.panels.calendar import CalendarPanel
 from arelis.ui.panels.camera import CameraPanel
 from arelis.ui.panels.contacts import ContactsPanel
 from arelis.ui.panels.conversation import ConversationStage
@@ -10,6 +11,7 @@ from arelis.ui.panels.workspace import WorkspacePanel
 
 __all__ = [
     "ActiveFactsPanel",
+    "CalendarPanel",
     "CameraPanel",
     "ContactsPanel",
     "ConversationStage",

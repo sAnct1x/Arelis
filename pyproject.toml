@@ -45,6 +45,11 @@ dependencies = [
   # Charts from tables. PSF license (BSD-compatible). Core, not an extra: a
   # stranger's pip install -e . should plot a CSV without knowing a extra name.
   "matplotlib>=3.8",
+  # Documents the user can double-click: PDF, Word, Excel. Core, not an extra —
+  # "make me a pdf" is the ask, not a niche.
+  "fpdf2>=2.8",
+  "python-docx>=1.1",
+  "openpyxl>=3.1",
   # Pixel work with an exactly right answer: resizing and colour adjustment for
   # the image_edit tool, and downscaling a screenshot so it fits in the vision
   # model's context at all. A core dependency rather than an extra because

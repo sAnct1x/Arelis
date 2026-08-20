@@ -22,6 +22,7 @@ from arelis.sms import (
     resolve_sms_target,
     send_operator_sms,
 )
+from arelis.mail import MailAccount
 from arelis.sms_android import (
     AndroidSmsProvider,
     SmsGateAccount,
@@ -442,6 +443,7 @@ def test_no_sms_secrets_means_no_sms_tool(tmp_path, monkeypatch) -> None:
     registry = tools_pkg.build_tool_registry({"tools": {}, "agent": {}}, workspace)
     assert "send_email" in registry.names()
     assert "send_sms" not in registry.names()
+    assert "inbound_sms" not in registry.names()
 
 
 def test_sms_without_email_still_registers(tmp_path, monkeypatch) -> None:
@@ -458,6 +460,7 @@ def test_sms_without_email_still_registers(tmp_path, monkeypatch) -> None:
     registry = tools_pkg.build_tool_registry({"tools": {}, "agent": {}}, workspace)
     assert "send_email" not in registry.names()
     assert "send_sms" in registry.names()
+    assert "inbound_sms" in registry.names()
 
 
 def test_job_runner_gets_no_sms(tmp_path, monkeypatch) -> None:
@@ -499,7 +502,15 @@ def test_sms_can_be_disabled_in_config(tmp_path, monkeypatch) -> None:
     assert "send_sms" not in registry.names()
 
 
-def test_contacts_prompt_line_lists_aliases(tmp_path) -> None:
+def test_contacts_prompt_line_lists_aliases(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "arelis.sms_android.load_sms_account",
+        lambda: SmsGateAccount("http://192.168.1.10:8080", "u", "p"),
+    )
+    monkeypatch.setattr(
+        "arelis.mail.load_account",
+        lambda: MailAccount("me@example.com", "pw"),
+    )
     path = _contacts_file(
         tmp_path,
         """
@@ -518,6 +529,27 @@ contacts:
     assert "send_email" in line
     assert "robbie@example.com" in line
     assert contacts_prompt_line(tmp_path / "missing.yaml") == ""
+
+
+def test_contacts_prompt_line_does_not_offer_send_when_disconnected(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setattr("arelis.sms_android.load_sms_account", lambda: None)
+    monkeypatch.setattr("arelis.mail.load_account", lambda: None)
+    path = _contacts_file(
+        tmp_path,
+        """
+contacts:
+  wife:
+    name: Robin
+    phone: "5555550123"
+    email: "robbie@example.com"
+""",
+    )
+    line = contacts_prompt_line(path)
+    assert "wife" in line
+    assert "send_sms" not in line
+    assert "send_email" not in line
 
 
 def test_tool_policy_tells_model_to_call_send_sms_not_reask() -> None:

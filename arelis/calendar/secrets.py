@@ -61,6 +61,17 @@ class CalendarSecrets:
         )
 
 
+def calendar_connected(path: Path | None = None) -> bool:
+    """True when a live source exists: OAuth or an ICS URL.
+
+    The agenda tool stays unregistered otherwise, so chat can say it cannot
+    instead of calling a tool that fails every time.
+    """
+    if load_calendar_secrets(path).any_authorized():
+        return True
+    return bool(load_ics_url(path))
+
+
 def load_calendar_secrets(path: Path | None = None) -> CalendarSecrets:
     path = path or SECRETS_PATH
     data = _calendar_section(path)

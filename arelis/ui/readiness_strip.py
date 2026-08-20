@@ -35,6 +35,9 @@ _SYSTEMS_KEYS = (
     "ocr",
     "image",
 )
+# Optional integrations. Off means not connected yet — hide them rather than
+# paint Systems as broken for mail/SMS/calendar nobody has set up.
+_OPTIONAL_SYSTEMS = frozenset({"calendar", "sms", "mail"})
 
 
 def _rank(status: str) -> int:
@@ -155,10 +158,13 @@ class ReadinessStrip(QWidget):
             widget.setToolTip(item.detail)
             self._set_status(widget, item.status.value)
 
-        sys_statuses = [item.status.value for item in self._systems_details.values()]
-        for key in _SYSTEMS_KEYS:
-            if key not in self._systems_details:
-                sys_statuses.append(ChipLevel.OFF.value)
+        sys_statuses = [
+            item.status.value
+            for item in self._systems_details.values()
+            if not (
+                item.key in _OPTIONAL_SYSTEMS and item.status == ChipLevel.OFF
+            )
+        ]
         if self._confirm_waiting:
             sys_statuses.append("wait")
         agg = _aggregate(sys_statuses)
@@ -183,6 +189,7 @@ class ReadinessStrip(QWidget):
         tip_bits = [
             f"{item.label}: {item.status.value} — {item.detail}"
             for item in self._systems_details.values()
+            if not (item.key in _OPTIONAL_SYSTEMS and item.status == ChipLevel.OFF)
         ]
         if self._confirm_waiting:
             tip_bits.insert(0, "Allow card open — Allow or Skip in the chat")
@@ -207,6 +214,10 @@ class ReadinessStrip(QWidget):
             self._systems_menu.addSeparator()
         for key in _SYSTEMS_KEYS:
             item = self._systems_details.get(key)
+            if key in _OPTIONAL_SYSTEMS and (
+                item is None or item.status == ChipLevel.OFF
+            ):
+                continue
             if item is None:
                 # Friendly labels when the probe has not reported yet.
                 labels = {

@@ -18,6 +18,7 @@ from typing import Any
 from arelis.core.intent_catalog import (
     FULL_SURFACE_KINDS,
     RESEARCH,
+    is_tiny_prompt_ask,
     must_keep_full_surface_text,
     research_extras_for_text,
 )
@@ -66,6 +67,7 @@ SKILL_TOOLS: dict[str, frozenset[str]] = {
     "attention": frozenset({"tasks", "goals", "agenda"}),
     "analyze": frozenset({"analyze", "workspace"}),
     "docs": frozenset({"doc_extract"}),
+    "document": frozenset({"document"}),
     "attachments": frozenset(
         {"vision", "ocr", "image_edit", "doc_extract", "analyze", "workspace"}
     ),
@@ -153,6 +155,7 @@ def _skill_subset(
     *,
     history: list[Any] | None = None,
     skill_ids: Iterable[str] | None = None,
+    extra_skill_ids: Iterable[str] | None = None,
 ) -> set[str]:
     """Shrink to skill + preflight tools, or return *available* when unsure."""
     expected: set[str] = set()
@@ -161,13 +164,22 @@ def _skill_subset(
         if veto_sms and hint.kind in {"sms_send", "inbound_sms", "sms"}:
             continue
         expected.update(hint.expected_tools)
+    extra = [sid for sid in (extra_skill_ids or ()) if sid]
     if skill_ids is not None:
         ids = list(skill_ids)
         fallback_only = False
     else:
         ids, fallback_only = select_skill_ids_detailed(
-            text, available_tools=available
+            text, available_tools=available, extra_ids=()
         )
+    # now_line / hello / thanks already have the answer. Fail-open here is
+    # how "what time is it" paid ~11k prompt tokens.
+    if is_tiny_prompt_ask(text) and not expected:
+        allow = set(ALWAYS_ON_TOOLS)
+        allow |= tools_for_skill_ids(ids)
+        allow |= tools_for_skill_ids(extra)
+        visible = {n for n in available if n in allow}
+        return _without_unauthorized_sends(visible, text, expected)
     if not ids and not expected:
         return _without_unauthorized_sends(set(available), text, expected)
     # The web fallback is a floor on the prompt, not a menu. Treating it as one
@@ -177,6 +189,7 @@ def _skill_subset(
         return _without_unauthorized_sends(set(available), text, expected)
     allow = set(ALWAYS_ON_TOOLS)
     allow |= tools_for_skill_ids(ids)
+    allow |= tools_for_skill_ids(extra)
     allow |= expected
     allow |= _extras_for_text(text)
     visible = {n for n in available if n in allow}
@@ -214,6 +227,7 @@ def filter_tool_names(
     skill_subset: bool = True,
     history: list[Any] | None = None,
     skill_ids: Iterable[str] | None = None,
+    extra_skill_ids: Iterable[str] | None = None,
 ) -> set[str]:
     """Return the tool names the model may see this turn.
 
@@ -223,6 +237,7 @@ def filter_tool_names(
     applies, is unchanged from the original allowlist.
     """
     names = set(available)
+    extra = set(tools_for_skill_ids(extra_skill_ids or ()))
     if not enabled and not skill_subset:
         return names
     if _must_keep_full_surface(text, history):
@@ -233,10 +248,14 @@ def filter_tool_names(
         }
         return _without_unauthorized_sends(names, text, expected)
     if enabled and should_apply_research_subset(role, text, history=history):
-        allow = set(RESEARCH_TOOL_ALLOWLIST) | _extras_for_text(text)
+        allow = set(RESEARCH_TOOL_ALLOWLIST) | _extras_for_text(text) | extra
         return {n for n in names if n in allow}
     if not skill_subset:
         return names
     return _skill_subset(
-        names, text, history=history, skill_ids=skill_ids
+        names,
+        text,
+        history=history,
+        skill_ids=skill_ids,
+        extra_skill_ids=extra_skill_ids,
     )

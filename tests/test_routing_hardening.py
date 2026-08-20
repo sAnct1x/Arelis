@@ -184,6 +184,32 @@ def test_agenda_read_preflight_and_plan() -> None:
     assert "never invent meetings" in plan.message.lower()
 
 
+def test_agenda_open_preflight_and_plan() -> None:
+    from arelis.core.preflight import detect_intents
+
+    raw = "open my calendar"
+    kinds = [h.kind for h in detect_intents(raw)]
+    assert "agenda_open" in kinds
+    assert "browser" not in kinds
+    plan = select_plan(raw, preflight_kinds=kinds, skill_ids=["browser"])
+    assert plan is not None
+    assert plan.id == "agenda_open"
+    website = detect_intents("open calendar.google.com")
+    assert not any(h.kind == "agenda_open" for h in website)
+
+
+def test_agenda_close_preflight_and_plan() -> None:
+    from arelis.core.preflight import detect_intents
+
+    raw = "close my calendar"
+    kinds = [h.kind for h in detect_intents(raw)]
+    assert "agenda_close" in kinds
+    assert "agenda_delete" not in kinds
+    plan = select_plan(raw, preflight_kinds=kinds)
+    assert plan is not None
+    assert plan.id == "agenda_close"
+
+
 def test_email_that_image_with_subject_and_history_path() -> None:
     history = [
         ChatMessage(

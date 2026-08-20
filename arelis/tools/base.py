@@ -80,6 +80,18 @@ def confirm_args_blocked(name: str, args: dict[str, Any] | None) -> str | None:
         content = str(args.get("content") or "")
         if not content.strip():
             return "workspace write has empty content — nothing to Allow."
+    if tool == "document":
+        body = str(args.get("body") or "")
+        rows = str(args.get("rows") or "")
+        title = str(args.get("title") or "")
+        from_path = str(args.get("from_path") or "")
+        if (
+            not body.strip()
+            and not rows.strip()
+            and not title.strip()
+            and not from_path.strip()
+        ):
+            return "document has empty body — nothing to Allow."
     if tool == "contacts" and action in CONTACTS_WRITE_ACTIONS:
         phone = str(args.get("phone") or args.get("number") or "").strip()
         if phone and _PLACEHOLDER_ARG.search(phone):
@@ -131,6 +143,8 @@ def capability_class(
         return "WRITE_LOCAL" if action in SCHEDULE_WRITE_ACTIONS else "READ"
     if tool == "plot":
         return "WRITE_LOCAL"
+    if tool == "document":
+        return "WRITE_LOCAL_ARTIFACT"
     return "READ"
 
 
@@ -337,6 +351,27 @@ class ToolRegistry:
                 f"Path: {path}\n\n"
                 "Arelis will not write or edit this path."
             )
+        if name == "document":
+            tool = self.get(name)
+            preview = getattr(tool, "preview_path", None)
+            dest = ""
+            if callable(preview):
+                try:
+                    dest = str(preview(args))
+                except Exception:
+                    dest = ""
+            title = str(args.get("title") or "").strip()
+            fmt = str(args.get("format") or "").strip() or "file"
+            lines = [
+                f"Write a {fmt} they can open.",
+                f"Lands at: {dest or '(documents folder)'}",
+            ]
+            if title:
+                lines.append(f"Title: {title}")
+            source = str(args.get("from_path") or "").strip()
+            if source:
+                lines.append(f"From: {source}")
+            return "\n".join(lines)
         if name == "vision":
             path = str(args.get("path") or "").strip() or "(path)"
             question = str(args.get("question") or "").strip()

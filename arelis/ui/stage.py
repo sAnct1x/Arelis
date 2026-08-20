@@ -21,7 +21,12 @@ _GRAIN = [
 ]
 
 
-def paint_atmosphere(painter: QPainter, rect: QRect, *, drift: float = 0.0) -> None:
+def paint_atmosphere(
+    painter: QPainter,
+    rect: QRect,
+    *,
+    drift: float = 0.0,
+) -> None:
     """Warm void: amber bloom in the middle, not a cold black field."""
     painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
     w, h = rect.width(), rect.height()
@@ -33,13 +38,13 @@ def paint_atmosphere(painter: QPainter, rect: QRect, *, drift: float = 0.0) -> N
     cx = rect.left() + w * BLOOM_X
     cy = rect.top() + h * BLOOM_Y
     # Wide ellipse-ish bloom: a large disc plus a softer wider one.
-    inner = QRadialGradient(QPointF(cx, cy), max(w, h) * 0.42)
+    inner = QRadialGradient(QPointF(cx, cy), max(w, h) * 0.58)
     for stop, rgba in BLOOM["inner"]:
         inner.setColorAt(stop, QColor(*rgba))
     inner.setColorAt(1.0, QColor(0, 0, 0, 0))
     painter.fillRect(rect, inner)
 
-    outer = QRadialGradient(QPointF(cx, cy), max(w, h) * 0.72)
+    outer = QRadialGradient(QPointF(cx, cy), max(w, h) * 0.88)
     for stop, rgba in BLOOM["outer"]:
         outer.setColorAt(stop, QColor(*rgba))
     outer.setColorAt(1.0, QColor(0, 0, 0, 0))
@@ -53,11 +58,11 @@ def paint_atmosphere(painter: QPainter, rect: QRect, *, drift: float = 0.0) -> N
         painter.setBrush(QColor(grain_r, grain_g, grain_b, a))
         painter.drawRect(QRectF(rect.left() + x * w + dx, rect.top() + y * h + dy, 1.0, 1.0))
 
-    # Barely-there edge falloff — keep the middle warm.
-    vignette = QRadialGradient(QPointF(rect.center()), max(w, h) * 0.92)
+    vr, vg, vb, va = BLOOM["vignette"]
+    vignette = QRadialGradient(QPointF(cx, cy), max(w, h) * 0.92)
     vignette.setColorAt(0.0, QColor(0, 0, 0, 0))
     vignette.setColorAt(0.70, QColor(0, 0, 0, 0))
-    vignette.setColorAt(1.0, QColor(*BLOOM["vignette"]))
+    vignette.setColorAt(1.0, QColor(vr, vg, vb, va))
     painter.fillRect(rect, vignette)
 
 
@@ -67,9 +72,9 @@ def paint_corner_ticks(
     """HTML-style amber corner ticks on the shell."""
     painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
     tick = color("accent")
-    tick.setAlpha(72)
+    tick.setAlpha(150)
     pen = QPen(tick)
-    pen.setWidthF(1.0)
+    pen.setWidthF(1.15)
     painter.setPen(pen)
     left = rect.left() + inset
     t = rect.top() + inset

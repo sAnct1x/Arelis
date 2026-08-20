@@ -160,6 +160,22 @@ def test_browser_intent_pull_up() -> None:
     assert browser.expected_tools == ("browser",)
 
 
+def test_open_my_calendar_is_agenda_not_browser() -> None:
+    hints = detect_intents("open my calendar")
+    assert any(h.kind == "agenda_open" for h in hints)
+    assert not any(h.kind == "browser" for h in hints)
+    pulled = detect_intents("pull up my calendar")
+    assert any(h.kind == "agenda_open" for h in pulled)
+    assert not any(h.kind == "browser" for h in pulled)
+
+
+def test_close_my_calendar_is_agenda_close() -> None:
+    hints = detect_intents("close my calendar")
+    assert any(h.kind == "agenda_close" for h in hints)
+    assert not any(h.kind == "agenda_delete" for h in hints)
+    assert not any(h.kind == "browser" for h in hints)
+
+
 def test_openx_com_does_not_revive_pending_sms() -> None:
     history = [
         {"role": "user", "content": "text Sam Brightley and tell him"},
@@ -389,4 +405,16 @@ def test_the_document_words_that_are_not_asks_stay_put() -> None:
         "email me the pdf",
         "save it as a pdf",
     ):
+        assert "doc_extract" not in _expected(phrase), phrase
+
+
+def test_create_a_pdf_reaches_document_not_extract() -> None:
+    for phrase in (
+        "create a pdf about the dirac equation",
+        "make a pdf",
+        "save it as a pdf",
+        "export this as a csv",
+        "write a word document",
+    ):
+        assert "document" in _expected(phrase), phrase
         assert "doc_extract" not in _expected(phrase), phrase

@@ -88,6 +88,28 @@ def test_calendar_store_roundtrip(tmp_path: Path) -> None:
     store.close()
 
 
+def test_calendar_store_put_upserts(tmp_path: Path) -> None:
+    store = CalendarStore(tmp_path / "cal.db")
+    start = datetime(2026, 8, 19, 10, 0, tzinfo=UTC)
+    ev = CachedEvent(
+        id="google:put1",
+        provider="google",
+        calendar_id="primary",
+        summary="Walk",
+        starts_at=start,
+        ends_at=start + timedelta(hours=1),
+        all_day=False,
+        raw_id="put1",
+    )
+    store.put(ev)
+    ev.summary = "Walk the dog"
+    store.put(ev)
+    rows = store.list_range(start.date(), start.date())
+    assert len(rows) == 1
+    assert rows[0].summary == "Walk the dog"
+    store.close()
+
+
 def test_parse_google_and_outlook_events() -> None:
     g = _parse_google_event(
         {
@@ -122,10 +144,47 @@ def test_parse_google_and_outlook_events() -> None:
     assert o.location == "Lab"
 
 
+def test_google_holiday_calendars_are_extra_ids() -> None:
+    from arelis.calendar.google_client import extra_google_calendar_ids
+
+    extra = extra_google_calendar_ids(
+        [
+            {"id": "primary", "summary": "Me", "primary": True},
+            {
+                "id": "en.usa#holiday@group.v.calendar.google.com",
+                "summary": "Public holidays (en.usa)",
+            },
+            {
+                "id": "en.uk#holiday@group.v.calendar.google.com",
+                "summary": "Public holidays (en.uk)",
+            },
+            {"id": "family-shared", "summary": "Family"},
+            {"id": "addressbook#contacts@group.v.calendar.google.com", "summary": "Birthdays"},
+        ],
+        primary_id="primary",
+    )
+    assert extra == [
+        "en.usa#holiday@group.v.calendar.google.com",
+        "en.uk#holiday@group.v.calendar.google.com",
+    ]
+
+
+def test_google_holiday_summary_without_group_id() -> None:
+    from arelis.calendar.google_client import extra_google_calendar_ids
+
+    extra = extra_google_calendar_ids(
+        [{"id": "c_abc123", "summary": "Public holidays"}],
+        primary_id="primary",
+    )
+    assert extra == ["c_abc123"]
+
+
 def test_agenda_write_needs_confirm_and_never_batch() -> None:
     reg = ToolRegistry()
     reg.register(AgendaTool({}))
     assert not reg.needs_confirm("agenda", {"action": "today"})
+    assert not reg.needs_confirm("agenda", {"action": "open"})
+    assert not reg.needs_confirm("agenda", {"action": "close"})
     assert reg.needs_confirm("agenda", {"action": "create", "summary": "X"})
     assert "agenda" in NEVER_BATCH
     text = reg.describe_call(
@@ -139,6 +198,22 @@ def test_agenda_write_needs_confirm_and_never_batch() -> None:
     )
     assert "Dentist" in text
     assert "google" in text
+
+
+@pytest.mark.asyncio
+async def test_agenda_open_returns_open_flag() -> None:
+    result = await AgendaTool({}).run(action="open")
+    assert result.ok
+    assert result.data.get("open") is True
+    assert "calendar" in result.output.lower()
+
+
+@pytest.mark.asyncio
+async def test_agenda_close_returns_close_flag() -> None:
+    result = await AgendaTool({}).run(action="close")
+    assert result.ok
+    assert result.data.get("close") is True
+    assert "calendar" in result.output.lower()
 
 
 @pytest.mark.asyncio
@@ -210,6 +285,10 @@ async def test_delete_duplicates_by_title_keeps_one(tmp_path: Path, monkeypatch)
         lambda: CalendarStore(db),
     )
     monkeypatch.setattr(
+        "arelis.calendar.service.CalendarStore",
+        lambda: CalendarStore(db),
+    )
+    monkeypatch.setattr(
         "arelis.tools.agenda.load_calendar_secrets",
         lambda: __import__(
             "arelis.calendar.secrets", fromlist=["CalendarSecrets"]
@@ -258,6 +337,10 @@ async def test_delete_titled_event_keep_0_removes_the_only_copy(
 
     monkeypatch.setattr(
         "arelis.tools.agenda.CalendarStore",
+        lambda: CalendarStore(db),
+    )
+    monkeypatch.setattr(
+        "arelis.calendar.service.CalendarStore",
         lambda: CalendarStore(db),
     )
     monkeypatch.setattr(
@@ -324,6 +407,10 @@ async def test_delete_without_id_is_ambiguous_when_titles_differ(
     store.close()
     monkeypatch.setattr(
         "arelis.tools.agenda.CalendarStore",
+        lambda: CalendarStore(db),
+    )
+    monkeypatch.setattr(
+        "arelis.calendar.service.CalendarStore",
         lambda: CalendarStore(db),
     )
     monkeypatch.setattr(

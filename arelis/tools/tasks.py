@@ -10,8 +10,14 @@ from typing import Any
 
 from arelis.memory.store import MemoryStore
 from arelis.tools.base import ToolResult
+from arelis.core.bus import emit_nowait
+from arelis.core.events import Event, EventType
 
 WRITE_ACTIONS = frozenset({"add", "done", "reopen", "remove", "attach", "detach"})
+
+
+def _notify_tasks(action: str, **extra: Any) -> None:
+    emit_nowait(Event(EventType.TASKS_CHANGED, {"action": action, **extra}))
 
 
 def _format_task(row: dict[str, Any]) -> str:
@@ -183,6 +189,7 @@ class TasksTool:
             "due": due,
             "goal_id": goal_id,
         }
+        _notify_tasks("add", id=task_id)
         return ToolResult(
             ok=True,
             output=f"Added: {_format_task(row)}",
@@ -206,6 +213,7 @@ class TasksTool:
             return ToolResult(ok=False, output=f"Could not update task {tid}.")
         row = self.store.get_task(tid) or {**existing, "status": status}
         verb = "Done" if status == "done" else "Reopened"
+        _notify_tasks(status, id=tid)
         return ToolResult(
             ok=True,
             output=f"{verb}: {_format_task(row)}",
@@ -226,6 +234,7 @@ class TasksTool:
             return ToolResult(ok=False, output=f"No task with id {tid}.")
         if not self.store.remove_task(tid):
             return ToolResult(ok=False, output=f"Could not remove task {tid}.")
+        _notify_tasks("remove", id=tid)
         return ToolResult(
             ok=True,
             output=f"Removed: {_format_task(existing)}",
@@ -254,6 +263,7 @@ class TasksTool:
         except ValueError as exc:
             return ToolResult(ok=False, output=str(exc))
         row = self.store.get_task(tid) or {**existing, "goal_id": goal_id}
+        _notify_tasks("attach", id=tid, goal_id=goal_id)
         return ToolResult(
             ok=True,
             output=f"Attached: {_format_task(row)}",
@@ -276,6 +286,7 @@ class TasksTool:
         if not self.store.set_task_goal(tid, None):
             return ToolResult(ok=False, output=f"Could not detach task {tid}.")
         row = self.store.get_task(tid) or {**existing, "goal_id": None}
+        _notify_tasks("detach", id=tid)
         return ToolResult(
             ok=True,
             output=f"Detached: {_format_task(row)}",

@@ -189,13 +189,26 @@ _AGENDA_PATTERNS: tuple[re.Pattern[str], ...] = (
         re.I,
     ),
     re.compile(
+        r"\b(?:open|pull\s+up|bring\s+up|show)\s+"
+        r"(?:(?:me\s+)?(?:the\s+|my\s+)?)?(?:google\s+)?"
+        r"(?:calendar|agenda)\b",
+        re.I,
+    ),
+    re.compile(
+        r"\b(?:close|hide|dismiss|put\s+away)\s+"
+        r"(?:(?:the\s+|my\s+)?)?(?:google\s+)?"
+        r"(?:calendar|agenda)\b",
+        re.I,
+    ),
+    re.compile(
         r"\b(?:create|add|schedule|set)\s+(?:an?\s+)?"
         r"(?:calendar\s+)?(?:event|meeting|appointment|reminder)\b",
         re.I,
     ),
     re.compile(
         r"\b(?:add\s+to\s+(?:my\s+)?calendar|calendar\s+event|"
-        r"put\s+(?:this\s+)?on\s+(?:my\s+)?calendar)\b",
+        r"put\s+(?:this\s+)?on\s+(?:my\s+)?calendar|"
+        r"at\s+an?\s+event\s+for)\b",
         re.I,
     ),
 )
@@ -378,6 +391,7 @@ class ExactnessNeed:
     needs_units: bool = False
     needs_plot: bool = False
     needs_catalog: bool = False
+    needs_document: bool = False
     kinds: tuple[str, ...] = ()
 
 
@@ -401,6 +415,32 @@ def detect_plot_ask(text: str) -> bool:
     if re.search(r"(?i)\b(plot\s+twist|movie\s+plot|plot\s+of\s+(?:land|the\s+film))\b", raw):
         return False
     return any(p.search(raw) for p in _PLOT_FORCE)
+
+
+_DOCUMENT_FORCE = (
+    re.compile(
+        r"(?i)\b(?:create|make|write|generate|export|draft)\s+"
+        r"(?:(?:me\s+)?(?:a\s+|an\s+|the\s+)?)?"
+        r"(?:pdf|docx|xlsx|csv|spreadsheet|workbook|"
+        r"word\s+doc(?:ument)?|markdown(?:\s+file)?|text\s+file)\b"
+    ),
+    re.compile(
+        r"(?i)\b(?:save|export|download)\s+"
+        r"(?:(?:it|this|that|them|the\s+\w+)\s+)?"
+        r"(?:as|to)\s+(?:a\s+|an\s+)?"
+        r"(?:pdf|docx|xlsx|csv|excel|word|markdown)\b"
+    ),
+)
+
+
+def detect_document_ask(text: str) -> bool:
+    """True when they want a new file they can open, not a PDF read."""
+    raw = text or ""
+    if not raw.strip():
+        return False
+    if detect_doc_ask(raw):
+        return False
+    return any(p.search(raw) for p in _DOCUMENT_FORCE)
 
 
 _CATALOG_FORCE = (
@@ -646,6 +686,7 @@ def detect_exactness_need(text: str) -> ExactnessNeed:
     needs_units = detect_units_ask(text)
     needs_plot = detect_plot_ask(text)
     needs_catalog = detect_catalog_ask(text)
+    needs_document = detect_document_ask(text)
     needs_vision = detect_vision_ask(text)
     # Image-describe turns often include dimensioned filenames (1965x1106.png).
     # Prefer the vision warrant; never force calculator on those asks.
@@ -669,6 +710,8 @@ def detect_exactness_need(text: str) -> ExactnessNeed:
         kinds.append("plot")
     if needs_catalog:
         kinds.append("catalog")
+    if needs_document:
+        kinds.append("document")
     needs_web = (
         any(p.search(text or "") for p in _NEWS_PATTERNS)
         or any(p.search(text or "") for p in _PRICE_PATTERNS)
@@ -730,6 +773,7 @@ def detect_exactness_need(text: str) -> ExactnessNeed:
         needs_units=needs_units,
         needs_plot=needs_plot,
         needs_catalog=needs_catalog,
+        needs_document=needs_document,
         kinds=tuple(kinds),
     )
 
@@ -758,12 +802,19 @@ _PLOT_FORCE_NOTICE = (
     "Do not draw an ASCII chart or invent a trend. Allow still applies."
 )
 
+_DOCUMENT_FORCE_NOTICE = (
+    "Exactness: this question asks for a file they can open. "
+    "Call document now with format (pdf, docx, xlsx, csv, md, or txt), "
+    "a title, and the full body. Do not paste the document into chat. "
+    "Do not call doc_extract. Allow still applies."
+)
+
 _EVIDENCE_FORCE_NOTICE = (
     "Exactness: you are about to assert a contingent fact without a warrant "
     "from this turn's tools. Call the required tool now "
     "(weather, web_search+scrape, recall, inbox, inbound_sms, "
     "doc_extract, agenda, git_info, tasks, goals, analyze, vision, "
-    "cas, units, plot, or catalog), "
+    "cas, units, plot, catalog, or document), "
     "or say you do not know. "
     "Do not guess."
 )
@@ -791,6 +842,10 @@ def units_force_notice() -> str:
 
 def plot_force_notice() -> str:
     return _PLOT_FORCE_NOTICE
+
+
+def document_force_notice() -> str:
+    return _DOCUMENT_FORCE_NOTICE
 
 
 def catalog_force_notice() -> str:
@@ -1052,6 +1107,8 @@ def unsupported_exactness_reply(
     plot_detail: str = "",
     catalog_failed: bool = False,
     catalog_detail: str = "",
+    document_failed: bool = False,
+    document_detail: str = "",
 ) -> str:
     """Deterministic unknown when a force round still lacks warrants."""
     kinds = [k for k in missing if k]
@@ -1118,6 +1175,16 @@ def unsupported_exactness_reply(
         return (
             "I don't know — this needs a plot file from this turn, and I "
             "will not draw one in ASCII."
+        )
+    if "document" in kinds:
+        if document_failed:
+            return (
+                "I couldn't write that file. I will not paste a fake document "
+                "into chat."
+            )
+        return (
+            "I don't know — this needs a real file from this turn, and I "
+            "will not pretend the chat is the document."
         )
     if "catalog" in kinds:
         if catalog_failed:

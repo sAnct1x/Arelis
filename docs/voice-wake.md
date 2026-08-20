@@ -1,4 +1,4 @@
-# 🎙️ Voice wake and conversation listen
+# Voice wake and conversation listen
 
 How to start talking without touching the keyboard, and what she will
 not treat as a wake.

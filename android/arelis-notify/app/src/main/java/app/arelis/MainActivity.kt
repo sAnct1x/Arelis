@@ -8,8 +8,6 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -62,16 +60,7 @@ class MainActivity : ComponentActivity() {
             )
         }
         setContent {
-            MaterialTheme(
-                colorScheme = darkColorScheme(
-                    background = Campfire.bg0,
-                    surface = Campfire.bg1,
-                    primary = Campfire.accent,
-                    onPrimary = Campfire.bg0,
-                    onBackground = Campfire.text,
-                    onSurface = Campfire.text,
-                ),
-            ) {
+            ArelisTheme {
                 HomeScreen(
                     state = HomeState(headline, grants, paste, busy, paired),
                     onOpenRestricted = { openAppDetails(this) },

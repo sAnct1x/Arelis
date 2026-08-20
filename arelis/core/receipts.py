@@ -34,6 +34,7 @@ _RECEIPT_TOOLS = frozenset(
         "vision",
         "look",
         "research_report",
+        "document",
         "contacts",
         "schedule",
     }
@@ -97,7 +98,7 @@ def action_receipt(
 
     if tool.startswith("send_"):
         receipt_action = tool
-    elif tool in {"image", "vision", "look", "research_report"}:
+    elif tool in {"image", "vision", "look", "research_report", "document"}:
         receipt_action = tool
     elif tool == "browser":
         receipt_action = f"browser.{action or '?'}"
@@ -157,6 +158,10 @@ def action_receipt(
     elif tool == "research_report":
         receipt["path"] = str(data.get("path") or "").strip()[:200]
         receipt["ok_count"] = data.get("ok_count")
+    elif tool == "document":
+        receipt["path"] = str(data.get("path") or args.get("filename") or "").strip()[:200]
+        receipt["abs_path"] = str(data.get("abs_path") or "").strip()[:400]
+        receipt["format"] = str(data.get("format") or args.get("format") or "")[:12]
     elif tool == "contacts":
         receipt["who"] = str(args.get("who") or args.get("id") or "").strip()[:80]
     elif tool == "schedule":

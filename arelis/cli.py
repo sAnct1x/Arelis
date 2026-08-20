@@ -168,10 +168,11 @@ async def run_cli_async(
     memory = SessionMemory(sink=store)
     if restore_id:
         memory.hydrate(store.get_messages(restore_id), summary=store.get_summary(restore_id))
-    Orchestrator(bus, router, tools, config, memory, workspace=workspace)
+    orchestrator = Orchestrator(bus, router, tools, config, memory, workspace=workspace)
     VoiceService(bus, _muted(config))
 
     bus_task = asyncio.create_task(bus.run())
+    await orchestrator.resume_last_room()
     # Strong reference: a bare create_task can be collected before it runs.
     async def _startup_models() -> None:
         try:

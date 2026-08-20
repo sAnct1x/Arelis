@@ -177,12 +177,14 @@ async def test_agenda_tool_range_requires_dates(tmp_path) -> None:
     assert "start" in result.output.lower()
 
 
-def test_agenda_registered_with_briefing(tmp_path) -> None:
+def test_agenda_registered_with_briefing(tmp_path, monkeypatch) -> None:
     """briefing.enabled still turns the calendar on, with no briefing tool.
 
     The emailed digest is built from the agenda, so someone who left briefings on
-    while the calendar section was off still needs agenda registered.
+    while the calendar section was off still needs agenda registered — but only
+    once a calendar source is actually connected.
     """
+    monkeypatch.setattr("arelis.tools.calendar_connected", lambda: True)
     workspace = WorkspaceRoots.from_config(
         {"workspace": {"roots": [{"name": "t", "path": str(tmp_path)}]}}
     )
@@ -198,6 +200,21 @@ def test_agenda_registered_with_briefing(tmp_path) -> None:
     assert "agenda" in registry.names()
     assert "briefing" not in registry.names()
     assert "attention" not in registry.names()
+
+
+def test_agenda_not_registered_until_connected(tmp_path, monkeypatch) -> None:
+    """No OAuth, no ICS URL: do not offer a tool that fails every call."""
+    monkeypatch.setattr("arelis.tools.calendar_connected", lambda: False)
+    workspace = WorkspaceRoots.from_config(
+        {"workspace": {"roots": [{"name": "t", "path": str(tmp_path)}]}}
+    )
+    registry = build_tool_registry(
+        {"tools": {"calendar": {"enabled": True}}, "agent": {}},
+        workspace,
+        allow_send=True,
+        memory_store=None,
+    )
+    assert "agenda" not in registry.names()
 
 
 def test_agenda_not_registered_when_calendar_and_briefing_disabled(tmp_path) -> None:
@@ -278,7 +295,8 @@ async def test_ics_sync_downloads_into_calendar_path(tmp_path, monkeypatch) -> N
 
 
 @pytest.mark.asyncio
-async def test_agenda_ics_sync_uses_allow_gate(tmp_path) -> None:
+async def test_agenda_ics_sync_uses_allow_gate(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr("arelis.tools.calendar_connected", lambda: True)
     workspace = WorkspaceRoots.from_config(
         {"workspace": {"roots": [{"name": "t", "path": str(tmp_path)}]}}
     )

@@ -56,6 +56,39 @@ def test_every_relative_link_in_the_docs_resolves() -> None:
     )
 
 
+def test_named_installer_matches_the_running_version() -> None:
+    """Front-door copy must name this version's setup .exe, not a future tag.
+
+    README, whats-new, and the installer notes once named 0.2.3 while GitHub
+    latest was still Arelis-0.2.2-win64-setup.exe. A stranger was told to
+    hash a file that was not there.
+    """
+    import arelis
+
+    version = arelis.__version__
+    setup = f"Arelis-{version}-win64-setup.exe"
+    readme = (PROJECT_ROOT / "README.md").read_text(encoding="utf-8")
+    whats = (PROJECT_ROOT / "docs" / "whats-new.md").read_text(encoding="utf-8")
+    win = (PROJECT_ROOT / "win-installer" / "README.md").read_text(encoding="utf-8")
+    assert setup in readme, (
+        f"README must name {setup}. A different filename is a download that "
+        "does not exist on the current GitHub release."
+    )
+    assert f"The published installer is **{version}**" in readme
+    assert f"The installer on GitHub is **{version}**" in whats
+    assert f"Published: [v{version}]" in whats
+    assert setup in win
+    named = re.findall(
+        r"Arelis-(\d+\.\d+\.\d+)-win64-setup\.exe",
+        "\n".join((readme, win)),
+    )
+    wrong = [v for v in named if v != version]
+    assert not wrong, (
+        "A setup .exe other than this version is named in the docs: "
+        + ", ".join(wrong)
+    )
+
+
 def test_the_readme_offers_the_published_installer() -> None:
     """The front door must lead with the setup .exe, not a developer install.
 

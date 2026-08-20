@@ -459,6 +459,30 @@ class Orchestrator:
                     await self._enter_room(target)
                     return
 
+            from arelis.core.document_refs import (
+                latest_document_path,
+                match_open_last_document,
+            )
+
+            if match_open_last_document(text):
+                path = latest_document_path(self.memory.messages)
+                if not path:
+                    await self._say("There isn't a file from this conversation to open.")
+                    return
+                await self.bus.publish(
+                    Event(
+                        EventType.FILE_READY,
+                        {
+                            "path": path,
+                            "abs_path": path,
+                            "show_card": False,
+                            "open": True,
+                        },
+                    )
+                )
+                await self._say(f"Opening {Path(path).name}.")
+                return
+
         # Typed absolute paths outside roots need an Allow (read-only session grant).
         if text and not await self._ensure_external_path_grants(text):
             await self.bus.publish(
@@ -826,7 +850,20 @@ class Orchestrator:
             )
         return ""
 
-    async def _enter_room(self, room: Room, *, preamble: str = "") -> None:
+    async def resume_last_room(self) -> bool:
+        """Open the room this process last left in, if it still exists.
+
+        Does not create a room. Orbit if they left, or if the room was forgotten.
+        Silent: the strip and the thread are the proof, not a launch speech.
+        """
+        wanted = self.rooms.last_active_id
+        room = self.rooms.get(wanted) if wanted else None
+        if room is None:
+            return False
+        await self._enter_room(room, silent=True)
+        return True
+
+    async def _enter_room(self, room: Room, *, preamble: str = "", silent: bool = False) -> None:
         """Open a room: its thread, its folder, its role — all three at once.
 
         Refused mid-turn for the same reason a session load is: the running turn
@@ -861,7 +898,8 @@ class Orchestrator:
             self.router.default_role = room.role  # type: ignore[assignment]
 
         await self._publish_room(room, session_id, rows, summary)
-
+        if silent:
+            return
         opened = "Picking up where we left off." if rows else "New thread."
         lines = [preamble] if preamble else [f"In the `{room.id}` room. {opened}"]
         if room.purpose:
@@ -1126,6 +1164,20 @@ class Orchestrator:
         )
         if tool == "image" and result.ok and result.data.get("path"):
             await self.bus.publish(Event(EventType.IMAGE_READY, {"path": result.data["path"]}))
+        if tool == "document" and result.ok and result.data.get("abs_path"):
+            await self.bus.publish(
+                Event(
+                    EventType.FILE_READY,
+                    {
+                        "path": str(result.data.get("path") or ""),
+                        "abs_path": str(result.data.get("abs_path") or ""),
+                        "format": str(result.data.get("format") or ""),
+                        "title": str(result.data.get("title") or ""),
+                        "show_card": True,
+                        "open": False,
+                    },
+                )
+            )
         prefix = "OK" if result.ok else "Failed"
         # Tool output is data, not prose, so it is fenced. The chat renders
         # markdown now, and an unfenced Python file would come out with *args

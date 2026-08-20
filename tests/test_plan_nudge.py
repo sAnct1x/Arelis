@@ -58,6 +58,13 @@ def test_plain_chat_has_no_plan() -> None:
     assert plan_system_message("Thanks!") is None
 
 
+def test_clock_ask_does_not_plan_web() -> None:
+    """Live 20 Aug 2026: 'what time is it' logged plan_nudge skills=web."""
+    assert plan_system_message("what time is it") is None
+    assert plan_system_message("what time is it", skill_ids=["web"]) is None
+    assert select_plan("what time is it", skill_ids=["web"]) is None
+
+
 def test_research_beats_web_skill() -> None:
     msg = plan_system_message(
         "deep dive into lithium",

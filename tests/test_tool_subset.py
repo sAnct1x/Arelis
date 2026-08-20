@@ -85,6 +85,7 @@ _EVERYDAY = set(RESEARCH_TOOL_ALLOWLIST) | {
     "cas",
     "units",
     "plot",
+    "document",
 }
 
 
@@ -120,6 +121,19 @@ def test_chart_ask_offers_plot_not_sms() -> None:
     assert "send_sms" not in visible
 
 
+def test_create_pdf_offers_document_not_extract() -> None:
+    visible = filter_tool_names(
+        _EVERYDAY,
+        role="fast",
+        text="create a pdf about the dirac equation",
+        enabled=True,
+        skill_subset=True,
+    )
+    assert "document" in visible
+    assert "doc_extract" not in visible
+    assert "send_sms" not in visible
+
+
 def test_arxiv_ask_offers_catalog_not_sms() -> None:
     visible = filter_tool_names(
         _EVERYDAY,
@@ -144,11 +158,42 @@ def test_research_plot_ask_adds_plot_via_extra() -> None:
     assert "send_sms" not in visible
 
 
+def test_research_create_pdf_adds_document_via_extra() -> None:
+    available = set(RESEARCH_TOOL_ALLOWLIST) | {"document", "doc_extract", "send_sms"}
+    visible = filter_tool_names(
+        available,
+        role="research",
+        text="create a pdf about the dirac equation",
+        enabled=True,
+    )
+    assert "document" in visible
+    assert "doc_extract" not in visible
+    assert "send_sms" not in visible
+
+
+def test_writing_room_lean_offers_document_in_research_mode() -> None:
+    available = set(RESEARCH_TOOL_ALLOWLIST) | {
+        "document",
+        "workspace",
+        "git_info",
+        "send_sms",
+    }
+    visible = filter_tool_names(
+        available,
+        role="research",
+        text="how's the draft going",
+        extra_skill_ids=("workspace", "document"),
+    )
+    assert "document" in visible
+    assert "workspace" in visible
+    assert "send_sms" not in visible
+
+
 def test_unmatched_chat_fails_open_without_sends() -> None:
     visible = filter_tool_names(
         _EVERYDAY,
         role="fast",
-        text="Thanks, that's all for now.",
+        text="how do I tie a necktie",
         enabled=True,
         skill_subset=True,
     )
@@ -156,6 +201,49 @@ def test_unmatched_chat_fails_open_without_sends() -> None:
     assert "calculator" in visible
     assert "send_sms" not in visible
     assert "send_email" not in visible
+
+
+def test_room_lean_does_not_cage_unmatched_chat() -> None:
+    visible = filter_tool_names(
+        _EVERYDAY,
+        role="fast",
+        text="how do I tie a necktie",
+        extra_skill_ids=("workspace", "document"),
+    )
+    assert "weather" in visible
+    assert "document" in visible
+
+
+def test_clock_ask_does_not_load_the_full_surface() -> None:
+    """now_line already has the time. Web fallback used to fail-open ~26 schemas."""
+    for text in (
+        "what time is it",
+        "what's the time",
+        "hello",
+        "Thanks!",
+    ):
+        visible = filter_tool_names(
+            _EVERYDAY,
+            role="fast",
+            text=text,
+            enabled=True,
+            skill_subset=True,
+        )
+        assert "web_search" not in visible, text
+        assert "weather" not in visible, text
+        assert "send_sms" not in visible, text
+        assert len(visible) <= len(ALWAYS_ON_TOOLS) + 1, f"{text} offered {sorted(visible)}"
+
+
+def test_clock_in_another_city_still_fail_opens() -> None:
+    visible = filter_tool_names(
+        _EVERYDAY,
+        role="fast",
+        text="what time is it in Tokyo",
+        enabled=True,
+        skill_subset=True,
+    )
+    assert "web_search" in visible or "weather" in visible or "user_location" in visible
 
 
 def test_how_are_you_today_does_not_offer_sms() -> None:

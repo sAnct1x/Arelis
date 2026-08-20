@@ -1,8 +1,11 @@
-# 📅 Calendar OAuth
+# Calendar OAuth
 
 Explicit exception to local-first: Arelis may hold **calendar** refresh
 tokens so she can read and write Google Calendar and Outlook. Models
-stay local. Writes always wait for allow / deny.
+stay local. Writes always wait for allow / deny. Until Google, Outlook,
+or an ICS URL is connected, the agenda tool is not offered and chat
+will say she cannot use the calendar. Ctrl+7 still opens the local
+tile.
 
 `data/secrets.yaml` is under your records folder:
 `%LOCALAPPDATA%\Arelis\data` installed, or `data\` in the repository

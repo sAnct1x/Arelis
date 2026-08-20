@@ -107,11 +107,12 @@ def test_unmatched_chat_fails_open() -> None:
     visible = filter_tool_names(
         _EVERYDAY,
         role="fast",
-        text="Thanks, that's all for now.",
+        text="how do I tie a necktie",
         enabled=True,
         skill_subset=True,
     )
     assert "calculator" in visible
+    assert "weather" in visible
     assert "send_sms" not in visible
     assert "send_email" not in visible
 

@@ -32,6 +32,15 @@ def test_web_fallback_reports_itself() -> None:
     assert fallback is False
 
 
+def test_clock_ask_does_not_take_the_web_fallback() -> None:
+    tools = {"web_search", "scrape", "web_fetch", "workspace"}
+    ids, fallback = select_skill_ids_detailed(
+        "what time is it", available_tools=tools
+    )
+    assert "web" not in ids
+    assert fallback is False
+
+
 def test_full_policy_keeps_legacy_assertions() -> None:
     assert "Prefer scrape" in TOOL_POLICY or "prefer scrape" in TOOL_POLICY.lower()
     assert "web_search first" in TOOL_POLICY
@@ -147,6 +156,26 @@ def test_science_card_in_catalog() -> None:
     )
     assert "science" in ids
     assert "sms" not in ids
+
+
+def test_document_card_in_catalog() -> None:
+    assert "document" in SKILL_CARDS
+    assert SKILL_CARDS["document"].requires_tool == "document"
+    ids = select_skill_ids(
+        "create a pdf about the dirac equation",
+        available_tools={"document", "doc_extract", "calculator", "send_sms"},
+    )
+    assert "document" in ids
+    assert "docs" not in ids
+    assert "sms" not in ids
+    leaned = select_skill_ids(
+        "how's the weather",
+        available_tools={"document", "workspace", "weather"},
+        extra_ids=("workspace", "document"),
+    )
+    assert leaned[0] in {"workspace", "document"}
+    assert "document" in leaned
+    assert "workspace" in leaned
     conv = select_skill_ids(
         "convert 5 ft 8 in to meters",
         available_tools={"cas", "units", "calculator", "weather"},

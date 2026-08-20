@@ -51,25 +51,27 @@ class ScanActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContent {
             val message by status
-            Box(Modifier.fillMaxSize()) {
-                AndroidView(
-                    modifier = Modifier.fillMaxSize(),
-                    factory = { ctx ->
-                        PreviewView(ctx).also { preview ->
-                            preview.implementationMode = PreviewView.ImplementationMode.COMPATIBLE
-                            preview.tag = "preview"
-                            this@ScanActivity.previewView = preview
-                            maybeStartCamera()
-                        }
-                    },
-                )
-                Text(
-                    text = message,
-                    color = Campfire.accent2,
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(24.dp),
-                )
+            ArelisTheme {
+                Box(Modifier.fillMaxSize()) {
+                    AndroidView(
+                        modifier = Modifier.fillMaxSize(),
+                        factory = { ctx ->
+                            PreviewView(ctx).also { preview ->
+                                preview.implementationMode = PreviewView.ImplementationMode.COMPATIBLE
+                                preview.tag = "preview"
+                                this@ScanActivity.previewView = preview
+                                maybeStartCamera()
+                            }
+                        },
+                    )
+                    Text(
+                        text = message,
+                        color = Campfire.accent2,
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(24.dp),
+                    )
+                }
             }
         }
     }

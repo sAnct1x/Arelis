@@ -66,6 +66,25 @@ def confirm_headline(tool: str, args: dict[str, Any] | None = None) -> str:
     if name == "plot":
         leaf = Path(str(args.get("out") or "").replace("\\", "/")).name
         return f"write {leaf}" if leaf else "write a plot"
+    if name == "document":
+        leaf = Path(str(args.get("filename") or "").replace("\\", "/")).name
+        title = _who(args, "title")
+        fmt = str(args.get("format") or "").strip().lower()
+        replacing = str(args.get("replace") or "").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+            "replace",
+        }
+        verb = "replace" if replacing else "write"
+        if leaf:
+            return f"{verb} {leaf}"
+        if title and fmt:
+            return f"{verb} {title}.{fmt}"
+        if fmt:
+            return f"{verb} a {fmt}"
+        return f"{verb} a file"
     if name == "browser":
         target = _who(args, "url", "target", "query", "destination", "place")
         if action in {"open", "navigate"}:

@@ -14,22 +14,21 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import QFrame, QGraphicsOpacityEffect, QWidget
 
-from arelis.ui.theme import GLASS, color
+from arelis.ui.theme import GLASS, HAIRLINE, PLATE, color
 
 # The plate is lit from above by the same lamp as everything else: a warm
-# shoulder at the top edge falling to the void at the bottom. It used to open
-# on QColor(38, 26, 16), a mid brown at hue 30, which is the colour of bronze
-# and read as one whether or not it was next to anything.
-_PLATE_SEAL = QColor(12, 7, 5, 255)
-_PLATE_BODY = QColor(20, 12, 8, 255)
-_PLATE_OPAQUE = ((0.0, (46, 25, 14)), (0.45, (22, 13, 9)), (1.0, (12, 7, 5)))
-_PLATE_SMOKED = ((0.0, (28, 16, 11), 10), (0.42, (15, 9, 7), 0), (1.0, (10, 6, 4), -10))
+# shoulder at the top edge falling to the void at the bottom. Rim alphas come
+# from GLASS / HAIRLINE so a dock, a float, and the composer line stay one light.
+_PLATE_SEAL = QColor(*PLATE["seal"])
+_PLATE_BODY = QColor(*PLATE["body"])
+_PLATE_OPAQUE = PLATE["opaque"]
+_PLATE_SMOKED = PLATE["smoked"]
 
 _CLEAR = QColor(0, 0, 0, 0)
 
 # Resting and fully-lit alpha for the composer hairline.
-_HAIRLINE_REST = 26
-_HAIRLINE_LIVE = 120
+_HAIRLINE_REST = int(HAIRLINE["rest"])
+_HAIRLINE_LIVE = int(HAIRLINE["live"])
 
 
 def _alpha(base: QColor, value: float) -> QColor:
@@ -57,8 +56,8 @@ def advance_rim_pulse(dt_seconds: float = 0.1) -> float:
 
 
 def _pulse_rim_alpha(lo: int | None = None, hi: int | None = None) -> int:
-    lo_a = int(GLASS.get("rim_pulse_lo", 36) if lo is None else lo)
-    hi_a = int(GLASS.get("rim_pulse_hi", 70) if hi is None else hi)
+    lo_a = int(GLASS.get("rim_pulse_lo", 68) if lo is None else lo)
+    hi_a = int(GLASS.get("rim_pulse_hi", 128) if hi is None else hi)
     t = (math.sin(_rim_pulse_phase) + 1.0) * 0.5
     return int(lo_a + (hi_a - lo_a) * t)
 
@@ -170,35 +169,38 @@ class GlassFrame(QFrame):
 
             sheen = QLinearGradient(rect.topLeft(), rect.bottomRight())
             if a >= 240:
+                sheen.setColorAt(0.0, _alpha(catch, 80))
+                sheen.setColorAt(0.22, _alpha(glint, 36))
+            else:
                 sheen.setColorAt(0.0, _alpha(catch, 36))
                 sheen.setColorAt(0.22, _alpha(glint, 16))
-            else:
-                sheen.setColorAt(0.0, _alpha(catch, 16))
-                sheen.setColorAt(0.28, _alpha(glint, 6))
             sheen.setColorAt(1.0, _CLEAR)
             painter.fillPath(path, sheen)
 
         # Floats need an edge you can see. Docked plates skip this unless a
         # one-shot click pulse asked for a hairline (rim_only).
         # No outer glow — that was the three-TV silhouette.
+        rest = int(HAIRLINE["rest"])
+        live = int(HAIRLINE["live"])
         if self._attention or self._ember:
             if self._attention:
                 t = (math.sin(self._attention_phase) + 1.0) * 0.5
-                rim_a = int(110 + (230 - 110) * t)
+                rim_a = int(rest + (live - rest) * t)
                 if not rim_only:
                     glow = QLinearGradient(rect.topLeft(), rect.bottomRight())
-                    glow.setColorAt(0.0, _alpha(glint, 36 + 28 * t))
-                    glow.setColorAt(0.35, _alpha(catch, 16 + 14 * t))
+                    glow.setColorAt(0.0, _alpha(glint, 44 + 36 * t))
+                    glow.setColorAt(0.35, _alpha(catch, 20 + 18 * t))
                     glow.setColorAt(1.0, _CLEAR)
                     painter.fillPath(path, glow)
             else:
-                rim_a = 140
+                rim_a = live
             width = 2.4
         else:
-            rim_a = 42 if not self._pulse_rim else _pulse_rim_alpha(22, 48)
-            if a < 240:
-                rim_a = 28 if not self._pulse_rim else _pulse_rim_alpha(18, 36)
-            width = 1.0
+            if a >= 240:
+                rim_a = int(GLASS["rim_pulse_hi"]) if not self._pulse_rim else _pulse_rim_alpha()
+            else:
+                rim_a = rest if not self._pulse_rim else _pulse_rim_alpha()
+            width = 1.15
         pen = QPen(_alpha(glint, rim_a))
         pen.setWidthF(width)
         painter.setPen(pen)
@@ -300,6 +302,15 @@ def fade_in_widget(widget: QWidget, duration_ms: int = 280) -> QPropertyAnimatio
     anim.setStartValue(0.0)
     anim.setEndValue(1.0)
     anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+
+    def _drop() -> None:
+        # The effect caches a pixmap. Left on a translucent plate it keeps
+        # the previous frame after a resize — duplicate corner ticks, leftover
+        # dock strips. Take it off the moment the fade is done.
+        if widget.graphicsEffect() is effect:
+            widget.setGraphicsEffect(None)
+
+    anim.finished.connect(_drop)
     anim.start()
     widget._arelis_fade_anim = anim
     return anim

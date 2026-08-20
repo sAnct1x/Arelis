@@ -62,8 +62,8 @@ def test_world_state_calendar_and_mail_fail_soft(monkeypatch) -> None:
     )
     line = world_state_prompt_line({}, role="fast", model="m")
     assert "calendar Google authorized" in line
-    assert "mail not configured" in line
-    assert "SMS companion not configured" in line
+    assert "mail not configured" not in line
+    assert "SMS companion not configured" not in line
     assert "pending confirms" not in line
 
 
@@ -79,7 +79,7 @@ def test_world_state_mail_configured(monkeypatch) -> None:
     monkeypatch.setattr("arelis.sms_android.load_sms_account", lambda: None)
     line = world_state_prompt_line({}, role="fast", model="m")
     assert "mail configured" in line
-    assert "calendar Google not authorized" in line
+    assert "calendar Google" not in line
 
 
 def test_world_state_sms_and_pending_confirms(monkeypatch) -> None:

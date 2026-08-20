@@ -442,6 +442,11 @@ def contacts_prompt_line(path: Path | None = None) -> str:
     book = load_contacts(path)
     if not book:
         return ""
+    from arelis.mail import load_account
+    from arelis.sms_android import load_sms_account
+
+    sms_ok = load_sms_account() is not None
+    mail_ok = load_account() is not None
     parts: list[str] = []
     email_parts: list[str] = []
     for alias in sorted(book):
@@ -455,11 +460,14 @@ def contacts_prompt_line(path: Path | None = None) -> str:
         if contact.email:
             email_parts.append(f"{alias}→{contact.email}")
     body = "; ".join(parts)
-    text = (
-        "Contacts — when the user asks to text someone, call send_sms with "
-        f"to set to one of these aliases: {body}. "
-    )
-    if email_parts:
+    if sms_ok:
+        text = (
+            "Contacts — when the user asks to text someone, call send_sms with "
+            f"to set to one of these aliases: {body}. "
+        )
+    else:
+        text = f"Contacts — known people: {body}. "
+    if email_parts and mail_ok:
         emails = "; ".join(email_parts)
         text += (
             "Email aliases are not phone numbers. When they ask to email "

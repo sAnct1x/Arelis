@@ -54,6 +54,7 @@ _TOOL_NOTICES: dict[str, str] = {
     "workspace": "I could not read that file. The path is in Workspace.",
     "image": "Image generation failed. The details are in Workspace.",
     "doc_extract": "I could not read that PDF. The details are in Workspace.",
+    "document": "I could not write that file. The details are in Thinking.",
     "vision": "I could not open that image.",
 }
 

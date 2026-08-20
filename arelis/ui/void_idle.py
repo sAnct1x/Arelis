@@ -61,6 +61,70 @@ FIRST_RUN_ASKS: tuple[str, ...] = (
 )
 
 
+def paint_orbit(
+    painter: QPainter,
+    cx: float,
+    cy: float,
+    *,
+    box: float = 220.0,
+    dim: float = 1.0,
+    angle: float = 0.0,
+    beat: float = 0.0,
+) -> None:
+    """Ring, tick, beating core. Same painter the idle canvas uses."""
+    s = box / 220.0
+    d = max(0.2, min(1.0, float(dim)))
+    r = 68.0 * s
+
+    painter.setPen(Qt.PenStyle.NoPen)
+    room = QRadialGradient(QPointF(cx, cy), r + 52.0 * s)
+    room.setColorAt(0.0, _lit(_CORE_HALO, 40 * d))
+    room.setColorAt(0.4, _lit(_ACCENT, 22 * d))
+    room.setColorAt(1.0, _CLEAR)
+    painter.setBrush(room)
+    painter.drawEllipse(QPointF(cx, cy), r + 52.0 * s, r + 52.0 * s)
+
+    halo = QRadialGradient(QPointF(cx, cy), r + 18.0 * s)
+    halo.setColorAt(0.72, _CLEAR)
+    halo.setColorAt(0.88, _lit(_ACCENT, 52 * d))
+    halo.setColorAt(1.0, _CLEAR)
+    painter.setBrush(halo)
+    painter.drawEllipse(QPointF(cx, cy), r + 18.0 * s, r + 18.0 * s)
+
+    painter.setBrush(Qt.BrushStyle.NoBrush)
+    for width, alpha in ((3.2, 48), (1.4, 110)):
+        ring = QPen(_lit(_ACCENT, alpha * d))
+        ring.setWidthF(max(1.0, width * s))
+        painter.setPen(ring)
+        painter.drawEllipse(QPointF(cx, cy), r, r)
+
+    rad = math.radians(angle)
+    tx = cx + r * math.sin(rad)
+    ty = cy - r * math.cos(rad)
+    tick_r = 16.0 * s
+    tick_glow = QRadialGradient(QPointF(tx, ty), tick_r)
+    tick_glow.setColorAt(0.0, _lit(_TICK_HALO, 190 * d))
+    tick_glow.setColorAt(0.45, _lit(_ACCENT, 70 * d))
+    tick_glow.setColorAt(1.0, _CLEAR)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(tick_glow)
+    painter.drawEllipse(QPointF(tx, ty), tick_r, tick_r)
+    painter.setBrush(_lit(_TICK, 255 * d))
+    painter.drawEllipse(QPointF(tx, ty), 2.4 * s, 2.4 * s)
+
+    t = 0.5 - 0.5 * math.cos(beat * 6.283185307179586)
+    glow_r = (22.0 + 10.0 * t) * s
+    core_glow = QRadialGradient(QPointF(cx, cy), glow_r)
+    core_glow.setColorAt(0.0, _lit(_CORE_HALO, (160 + 50 * t) * d))
+    core_glow.setColorAt(0.35, _lit(_ACCENT, (70 + 30 * t) * d))
+    core_glow.setColorAt(1.0, _CLEAR)
+    painter.setBrush(core_glow)
+    painter.drawEllipse(QPointF(cx, cy), glow_r, glow_r)
+    core_r = (2.4 + 1.2 * t) * s
+    painter.setBrush(_lit(_CORE, 255 * d))
+    painter.drawEllipse(QPointF(cx, cy), core_r, core_r)
+
+
 class OrbitCanvas(QWidget):
     """QPainter orbit: ring, one tick, beating core. Soft bloom, not CAD lines."""
 
@@ -108,51 +172,15 @@ class OrbitCanvas(QWidget):
     def paintEvent(self, event: QPaintEvent) -> None:
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        cx, cy = self.width() / 2.0, self.height() / 2.0
-        s = self._box / 220.0
-        d = self._dim
-        r = 68.0 * s
-
-        halo = QRadialGradient(QPointF(cx, cy), r + 18.0 * s)
-        halo.setColorAt(0.72, _CLEAR)
-        halo.setColorAt(0.88, _lit(_ACCENT, 28 * d))
-        halo.setColorAt(1.0, _CLEAR)
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(halo)
-        painter.drawEllipse(QPointF(cx, cy), r + 18.0 * s, r + 18.0 * s)
-
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-        for width, alpha in ((3.2, 18), (1.4, 40)):
-            ring = QPen(_lit(_ACCENT, alpha * d))
-            ring.setWidthF(max(1.0, width * s))
-            painter.setPen(ring)
-            painter.drawEllipse(QPointF(cx, cy), r, r)
-
-        rad = math.radians(self._angle)
-        tx = cx + r * math.sin(rad)
-        ty = cy - r * math.cos(rad)
-        tick_r = 16.0 * s
-        tick_glow = QRadialGradient(QPointF(tx, ty), tick_r)
-        tick_glow.setColorAt(0.0, _lit(_TICK_HALO, 190 * d))
-        tick_glow.setColorAt(0.45, _lit(_ACCENT, 70 * d))
-        tick_glow.setColorAt(1.0, _CLEAR)
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(tick_glow)
-        painter.drawEllipse(QPointF(tx, ty), tick_r, tick_r)
-        painter.setBrush(_lit(_TICK, 255 * d))
-        painter.drawEllipse(QPointF(tx, ty), 2.4 * s, 2.4 * s)
-
-        t = 0.5 - 0.5 * math.cos(self._beat * 6.283185307179586)
-        glow_r = (22.0 + 10.0 * t) * s
-        core_glow = QRadialGradient(QPointF(cx, cy), glow_r)
-        core_glow.setColorAt(0.0, _lit(_CORE_HALO, (160 + 50 * t) * d))
-        core_glow.setColorAt(0.35, _lit(_ACCENT, (70 + 30 * t) * d))
-        core_glow.setColorAt(1.0, _CLEAR)
-        painter.setBrush(core_glow)
-        painter.drawEllipse(QPointF(cx, cy), glow_r, glow_r)
-        core_r = (2.4 + 1.2 * t) * s
-        painter.setBrush(_lit(_CORE, 255 * d))
-        painter.drawEllipse(QPointF(cx, cy), core_r, core_r)
+        paint_orbit(
+            painter,
+            self.width() / 2.0,
+            self.height() / 2.0,
+            box=float(self._box),
+            dim=self._dim,
+            angle=self._angle,
+            beat=self._beat,
+        )
 
 
 class _GhostRow(QWidget):
@@ -472,11 +500,10 @@ class OrbitIdle(QWidget):
         orbit_h = self.orbit.height()
         cx = bloom.x() - cw // 2
         cy = bloom.y() - orbit_h // 2
-        # Docks overlay the void. Do not re-center into the leftover column.
-        if bloom.x() < 0 or bloom.x() > w:
-            cx = max(margin, min(cx, w - cw - margin))
-        if bloom.y() < 0 or bloom.y() > h:
-            cy = max(margin, min(cy, h - hint_h - ch - margin))
+        # Stay inside the leftover column. Pinning to window bloom without this
+        # let the face hang into a transparent dock — a second orbit on the right.
+        cx = max(margin, min(cx, w - cw - margin))
+        cy = max(margin, min(cy, h - hint_h - ch - margin))
         self._center.move(cx, cy)
         self._center.raise_()
 
