@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +26,24 @@ def deep_merge(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
         else:
             base[key] = value
     return base
+
+
+@lru_cache(maxsize=1)
+def shipped_num_ctx() -> int:
+    """``ollama.num_ctx`` as shipped in default.yaml.
+
+    Callers that build a config by hand — the eval harnesses, the job runner,
+    tests — used to write their own number, and 8192 stayed in three of them
+    long after the shipped default had moved. A harness pinned to a window
+    nobody runs is not measuring the product. Read it from the one file that
+    declares it instead of copying the digits.
+    """
+    try:
+        with DEFAULT_CONFIG_PATH.open(encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
+        return int(((data.get("ollama") or {}).get("num_ctx")) or 0) or 32768
+    except (OSError, ValueError, TypeError):
+        return 32768
 
 
 def merge_local_config(patch: dict[str, Any], path: Path | None = None) -> Path:

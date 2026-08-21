@@ -1,14 +1,22 @@
-"""Skill cards: retrieveable slices of tool policy (ACE-lite).
+"""Skill cards: the tool policy, authored one capability at a time.
 
-A 7B with an 8k context cannot usefully hold every SMS, mail, scrape, and
-schedule rule on every turn. Research on Agentic Context Engineering (ACE)
-and failure-aware tool agents says: inject the *relevant* playbook items,
-not a monolithic rewrite every time.
+A card is a section of the policy — the SMS rules, the mail rules, the scrape
+rules — kept separate so each can be read and reviewed on its own. The union of
+every card is ``TOOL_POLICY`` in agent_loop, and that union is what ships on
+every turn.
 
-``TOOL_POLICY`` in agent_loop is the union of all cards, kept for tests and for
-turns where selection is disabled. Live turns call ``assemble_skill_focus``,
-which ships ``SKILL_CORE`` plus the selected cards; ``assemble_tool_policy`` is
-the union-building helper underneath it.
+It did not used to. Cards were originally *retrieved*: at num_ctx 8192-16384 the
+whole policy plus the tool schemas came to more than the window, so only the
+handful of cards whose keywords matched the user text were injected. That was a
+correct answer to a real constraint, and the constraint is gone — the window is
+now large enough to hold all of it (see the note on ``STATIC_TOOL_POLICY``).
+Selecting stopped being a saving and stayed a way to ship a turn missing the one
+rule it needed.
+
+``select_skill_ids`` survives the change because it turned out to be doing a
+second, unrelated job: classifying what a turn is about. tool_subset, plan_nudge
+and lessons all ask it, and none of them are building a prompt. Read it as an
+intent signal, not as prompt assembly.
 
 Selection is weighted (phrases over tokens, generic landmines demoted, negative
 hints veto a card). Unmatched turns fail open in tool_subset — see
@@ -1319,45 +1327,8 @@ def assemble_tool_policy(
     return "\n\n".join(parts)
 
 
-def assemble_skill_focus(
-    text: str = "",
-    *,
-    available_tools: set[str] | None = None,
-    max_cards: int = 4,
-    extra_ids: list[str] | tuple[str, ...] | None = None,
-) -> str:
-    """Selected skill card bodies only — trailing focus, not the static prefix.
-
-    Live turns already pin the full TOOL_POLICY up front for cache stability.
-    This optional trailer highlights the cards that match the user text.
-    """
-    ids = select_skill_ids(
-        text,
-        available_tools=available_tools,
-        max_cards=max_cards,
-        extra_ids=extra_ids,
-    )
-    if available_tools:
-        for fallback in ("calculator",):
-            if fallback in SKILL_CARDS and fallback not in ids:
-                tool = SKILL_CARDS[fallback].requires_tool
-                if tool and tool in available_tools and any(
-                    h in (text or "").lower()
-                    for h in SKILL_CARDS[fallback].hints
-                ):
-                    ids.append(fallback)
-    bodies: list[str] = []
-    for card_id in ids:
-        card = SKILL_CARDS.get(card_id)
-        if card:
-            bodies.append(card.body)
-    if not bodies:
-        return ""
-    return "### This turn — focus skills\n" + "\n\n".join(bodies)
-
-
 def full_tool_policy() -> str:
-    """Union of every card — used by tests and as the static export."""
+    """Every card, in order. This is the policy that ships on every turn."""
     return assemble_tool_policy(force_all=True)
 
 

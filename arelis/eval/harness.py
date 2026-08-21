@@ -8,6 +8,7 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Any
 
+from arelis.config import shipped_num_ctx
 from arelis.core.agent_loop import AgentLoop
 from arelis.core.bus import EventBus
 from arelis.core.events import Event, EventType
@@ -607,7 +608,9 @@ async def run_scripted_scenario(
         persona="You are Arelis under eval.",
         config={
             "agent": agent_cfg,
-            "ollama": {"num_ctx": 8192},
+            # The shipped window, not a number of its own. An eval pinned to a
+            # window nobody runs is not measuring the product.
+            "ollama": {"num_ctx": shipped_num_ctx()},
         },
         request_confirm=_confirm,
         is_cancelled=lambda: False,

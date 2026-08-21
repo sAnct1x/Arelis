@@ -18,6 +18,7 @@ from arelis.attachments import (
     split_attachments_turn,
     wants_image_edit,
 )
+from arelis.config import shipped_num_ctx
 from arelis.contacts import (
     contacts_prompt_line,
     format_contact_spoken,
@@ -155,8 +156,6 @@ from arelis.core.receipts import (
     format_action_receipt,
 )
 from arelis.core.skills import (
-    SKILL_CORE,
-    assemble_skill_focus,
     full_tool_policy,
     select_skill_ids,
 )
@@ -427,21 +426,35 @@ FACTS:
 # Hard cap: even a chatty compress pass cannot flood the History review queue.
 _MAX_PROPOSED_FACTS = 2
 
-# Full union of skill cards — tests/docs assert against this export.
+# Every rule, in one block, on every turn. Cards remain how the text is
+# authored and reviewed — one section per capability — but selection between
+# them is no longer part of building a prompt.
 TOOL_POLICY = full_tool_policy()
 
-# Live static prefix uses SKILL_CORE only (~1.3k chars). Shipping the full
-# ~15k TOOL_POLICY every turn blew the context budget (forced summarize) and
-# dominated prefill on ROCm where prefix-cache hits are unreliable. Selected
-# skill card bodies trail as a dynamic focus block.
-STATIC_TOOL_POLICY = SKILL_CORE
+# The whole policy is the static prefix. It used to be SKILL_CORE alone (333
+# tokens) with four matched cards trailing behind it, because at num_ctx 16384
+# the full policy plus the tool schemas came to 108% of the window and did not
+# fit. At 65536 the same prompt is 27% (persona 905 + policy 6,248 + schemas
+# 10,674 = 17,827 tokens; see scripts/measure_prompt_budget.py), which buys back
+# two things selection was costing:
+#
+#   A rule the model needs is always present. Selection is keyword matching, and
+#   a miss shipped a turn with no rule for the tool it was about to call — the
+#   failure mode the fallback bug showed when a local file path went to
+#   web_fetch.
+#
+#   The prefix is byte-stable much deeper. The focus block sat ahead of the
+#   conversation, so changing which cards matched re-prefilled all of history
+#   behind it. Now only the short tail varies: preflight, facts, world state,
+#   clock.
+STATIC_TOOL_POLICY = TOOL_POLICY
 
 
 def static_system_prefix(persona: str) -> list[dict[str, str]]:
     """Byte-stable system prefix for KV/prefix cache across turns.
 
-    Persona + SKILL_CORE only. Everything turn-specific (clock, skill focus,
-    preflight, facts, …) must trail this list.
+    Persona + the whole tool policy. Everything turn-specific (clock, preflight,
+    facts, …) must trail this list.
     """
     return [
         {"role": "system", "content": persona},
@@ -817,16 +830,10 @@ class AgentLoop:
                 visible=len(visible),
                 available=len(available_all),
             )
-        # Static prefix first (persona + SKILL_CORE) so the front of the prompt
-        # is byte-stable across turns. Skill focus and other turn-specific
-        # lines trail as a dynamic trailer — never ahead of the static block.
+        # Static prefix first (persona + the whole tool policy) so the front of
+        # the prompt is byte-stable across turns. Turn-specific lines trail it,
+        # never precede it.
         system_messages = static_system_prefix(self.persona)
-        if bool(agent_cfg.get("skill_cards", True)):
-            focus = assemble_skill_focus(
-                text, available_tools=available, extra_ids=room_skills
-            )
-            if focus:
-                system_messages.append({"role": "system", "content": focus})
         # SMS / email / agenda drafts from this turn + recent history.
         # Image-gen / goals / file-write / calendar-create must not revive a
         # stale SMS draft for force unless this turn itself starts with an SMS
@@ -1088,7 +1095,7 @@ class AgentLoop:
         # this the persona and tool policy are the first things a long session
         # loses, and every later answer is given by a model with no identity.
         ollama_cfg = self.config.get("ollama") or {}
-        num_ctx = int(ollama_cfg.get("num_ctx") or 8192)
+        num_ctx = int(ollama_cfg.get("num_ctx") or shipped_num_ctx())
         if role == "research" and ollama_cfg.get("research_num_ctx"):
             num_ctx = int(ollama_cfg["research_num_ctx"])
         # Sticky for the turn so mid-escalate does not shrink under a built prompt.

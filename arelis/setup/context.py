@@ -40,9 +40,17 @@ _LADDER = (131072, 98304, 65536, 49152, 32768, 24576, 16384, 12288, 8192)
 # Never pin more than this from a guess, however large the card. The gain past
 # here is theoretical for a desktop assistant and the cost is real.
 _MAX_PINNED = 131072
-# Below this the tool schemas stop fitting beside the persona, which is the
-# failure the old 8192 default produced.
-_MIN_PINNED = 16384
+# The floor, and not a cautious one — a window under this does not hold the
+# prompt. Persona (905) + the whole tool policy (6,248) + the tool schemas for
+# 34 tools (10,674) is 17,827 tokens before a single word of conversation, so
+# 16384 overflows on turn one and Ollama drops the persona off the front. 32768
+# leaves roughly 15,000 tokens for history and the reply.
+#
+# This is a floor rather than a compromise because a card too small for 32768 is
+# too small for the weights: the 9B measures 5.62 GiB at 16384 and 6.15 GiB at
+# 32768, so anything that can load the model at all can afford the difference.
+# tests/test_prompt_fits_window.py holds the arithmetic.
+_MIN_PINNED = 32768
 
 
 def kv_gib_per_k(model: CatalogModel) -> float:

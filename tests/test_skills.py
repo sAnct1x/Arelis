@@ -1,11 +1,16 @@
-"""Skill-card selection and full policy export."""
+"""What a turn is about, and that every rule ships.
+
+``select_skill_ids`` is an intent classifier. It no longer decides which rules
+reach the prompt — the whole policy does, every turn — but tool_subset,
+plan_nudge and lessons all ask it what the turn is about, so its answers still
+matter.
+"""
 
 from __future__ import annotations
 
 from arelis.core.agent_loop import TOOL_POLICY
 from arelis.core.skills import (
     SKILL_CARDS,
-    assemble_tool_policy,
     select_skill_ids,
     select_skill_ids_detailed,
 )
@@ -41,14 +46,26 @@ def test_clock_ask_does_not_take_the_web_fallback() -> None:
     assert fallback is False
 
 
-def test_full_policy_keeps_legacy_assertions() -> None:
-    assert "Prefer scrape" in TOOL_POLICY or "prefer scrape" in TOOL_POLICY.lower()
-    assert "web_search first" in TOOL_POLICY
-    assert "weather tool" in TOOL_POLICY.lower()
-    assert "send_sms" in TOOL_POLICY
-    assert "memory tool" in TOOL_POLICY
-    assert "recall" in TOOL_POLICY
-    assert "analyze" in TOOL_POLICY.lower()
+def test_every_tool_with_rules_has_them_shipped() -> None:
+    """Structural, not textual.
+
+    This replaces a list of substrings ("weather tool", "web_search first",
+    "Prefer scrape") that had to be edited by hand every time the policy was
+    reworded, so a clearer sentence read as a regression. What actually matters
+    is that a card claiming to cover a tool ends up in the policy that ships.
+    """
+    for card_id, card in SKILL_CARDS.items():
+        assert card.body.strip(), f"{card_id} card is empty"
+        assert card.body in TOOL_POLICY, f"{card_id} card is not in the policy"
+
+
+def test_a_card_names_the_tool_it_governs() -> None:
+    """A card whose rules never mention its own tool cannot be followed."""
+    for card_id, card in SKILL_CARDS.items():
+        tool = card.requires_tool
+        if not tool:
+            continue
+        assert tool in card.body, f"{card_id} card never mentions {tool}"
 
 
 def test_weather_turn_selects_weather_card() -> None:
@@ -57,12 +74,6 @@ def test_weather_turn_selects_weather_card() -> None:
         available_tools={"weather", "web_search", "scrape"},
     )
     assert "weather" in ids
-    policy = assemble_tool_policy(
-        "What's the weather today?",
-        available_tools={"weather", "web_search", "scrape"},
-    )
-    assert "Weather" in policy or "weather tool" in policy.lower()
-    assert len(policy) < len(TOOL_POLICY)
 
 
 def test_sms_turn_selects_sms_card() -> None:
@@ -248,8 +259,10 @@ def test_sign_in_ask_selects_browser_card() -> None:
     assert "sms" not in ids
 
 
-def test_force_all_matches_export() -> None:
-    assert assemble_tool_policy(force_all=True) == TOOL_POLICY
+def test_the_policy_is_built_from_every_card() -> None:
+    from arelis.core.skills import full_tool_policy
+
+    assert full_tool_policy() == TOOL_POLICY
 
 
 def test_ocr_text_does_not_select_sms() -> None:
