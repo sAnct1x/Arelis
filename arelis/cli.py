@@ -175,6 +175,8 @@ async def run_cli_async(
     bus_task = asyncio.create_task(bus.run())
     await orchestrator.resume_last_room()
     # Strong reference: a bare create_task can be collected before it runs.
+    router.arm_warmup()
+
     async def _startup_models() -> None:
         try:
             from arelis.presence.readiness import probe_readiness
@@ -185,14 +187,17 @@ async def run_cli_async(
             )
         except Exception:
             pass
-        await run_model_preflight(bus, router.provider, config.get("models"))
-        await run_model_warmup(
-            bus, router, prefix=prefix_warmup_for(config, tools)
-        )
-        agent_cfg = config.get("agent") or {}
-        await run_auto_lessons(
-            bus, enabled=bool(agent_cfg.get("auto_lessons", True))
-        )
+        try:
+            await run_model_preflight(bus, router.provider, config.get("models"))
+            await run_model_warmup(
+                bus, router, prefix=prefix_warmup_for(config, tools)
+            )
+            agent_cfg = config.get("agent") or {}
+            await run_auto_lessons(
+                bus, enabled=bool(agent_cfg.get("auto_lessons", True))
+            )
+        finally:
+            router.mark_warmup_done()
 
     preflight_task = asyncio.create_task(_startup_models())
     print("Arelis CLI — type /help, or chat. Ctrl+C to exit.")

@@ -4894,16 +4894,23 @@ def run_ui(config: dict[str, Any] | None = None) -> int:
     thread = threading.Thread(target=loop_thread, name="arelis-asyncio", daemon=True)
     thread.start()
 
-    # Non-blocking: a slow or absent Ollama must not delay the window.
+    # Non-blocking for the window: a slow or absent Ollama must not delay
+    # Qt. The first chat turn does wait — otherwise it races this warmup
+    # and pays the prefix prefill twice.
+    router.arm_warmup()
+
     async def _startup_models() -> None:
-        await run_model_preflight(bus, router.provider, config.get("models"))
-        await run_model_warmup(
-            bus, router, prefix=prefix_warmup_for(config, tools)
-        )
-        agent_cfg = config.get("agent") or {}
-        await run_auto_lessons(
-            bus, enabled=bool(agent_cfg.get("auto_lessons", True))
-        )
+        try:
+            await run_model_preflight(bus, router.provider, config.get("models"))
+            await run_model_warmup(
+                bus, router, prefix=prefix_warmup_for(config, tools)
+            )
+            agent_cfg = config.get("agent") or {}
+            await run_auto_lessons(
+                bus, enabled=bool(agent_cfg.get("auto_lessons", True))
+            )
+        finally:
+            router.mark_warmup_done()
 
     asyncio.run_coroutine_threadsafe(_startup_models(), loop)
 

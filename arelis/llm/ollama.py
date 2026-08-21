@@ -387,20 +387,31 @@ class OllamaProvider:
         except Exception:
             log.debug("chat keep_alive=0 after unload of %s failed", model, exc_info=True)
 
-    async def pin(self, model: str, *, keep_alive: str | int = "30m") -> None:
+    async def pin(
+        self,
+        model: str,
+        *,
+        keep_alive: str | int = "30m",
+        options: dict[str, Any] | None = None,
+    ) -> None:
         """Load (or refresh) a model in VRAM without generating tokens.
 
         Used at UI/CLI start and after a research/code detour so the next
         conversation turn does not pay a cold TTFT. keep_alive=0 unloads.
+        Pass the same ``num_ctx`` a turn will use, or Ollama loads at its
+        default window and rebuilds the runner on the first real request.
         """
+        payload: dict[str, Any] = {
+            "model": model,
+            "prompt": "",
+            "keep_alive": keep_alive,
+            "stream": False,
+        }
+        if options:
+            payload["options"] = options
         response = await self._client.post(
             "/api/generate",
-            json={
-                "model": model,
-                "prompt": "",
-                "keep_alive": keep_alive,
-                "stream": False,
-            },
+            json=payload,
         )
         if response.status_code >= 400:
             detail = response.text.strip()[:400]

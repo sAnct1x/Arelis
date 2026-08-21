@@ -5000,6 +5000,23 @@ class AgentLoop:
                 },
             )
         )
+        # Eval/scripted fakes are not ModelRouter. Asking them for the
+        # gate used to AttributeError, which the loop treated as a dead
+        # Ollama — no tool calls, no ASSISTANT_DONE.
+        if getattr(self.router, "warmup_pending", lambda: False)():
+            await self.bus.publish(
+                Event(
+                    EventType.THINKING,
+                    {
+                        "text": (
+                            "waiting for the conversation model to finish "
+                            "loading — first reply after that is quick"
+                        )
+                    },
+                )
+            )
+            if self._timer is not None:
+                self._timer.mark("warmup_wait")
 
         async for kind, payload in self.router.stream(
             role,

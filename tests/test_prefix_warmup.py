@@ -30,6 +30,7 @@ from arelis.llm.startup import (
 class _Provider:
     def __init__(self, *, explode: bool = False) -> None:
         self.pins: list[tuple[str, str | int]] = []
+        self.pin_options: list[dict[str, Any] | None] = []
         self.streams: list[dict[str, Any]] = []
         self._explode = explode
 
@@ -42,8 +43,15 @@ class _Provider:
     async def unload(self, model: str) -> None:
         await self.pin(model, keep_alive=0)
 
-    async def pin(self, model: str, *, keep_alive: str | int = "30m") -> None:
+    async def pin(
+        self,
+        model: str,
+        *,
+        keep_alive: str | int = "30m",
+        options: dict[str, Any] | None = None,
+    ) -> None:
         self.pins.append((model, keep_alive))
+        self.pin_options.append(options)
 
     async def close(self) -> None:
         return None
@@ -153,6 +161,69 @@ def test_the_warmed_prefix_is_the_prefix_a_turn_sends() -> None:
     assert warm.messages == static_system_prefix(load_persona(config))
     # The full surface, because that is what a turn now offers.
     assert len(warm.tools) == len(tools.ollama_tools())
+
+
+@pytest.mark.asyncio
+async def test_pin_uses_the_same_window_a_turn_will() -> None:
+    """A pin at Ollama's default ctx is thrown away when the seed asks for 65k."""
+    provider = _Provider()
+    router = _router(provider)
+    await router.warm_default()
+    assert provider.pin_options[-1] == {"num_ctx": 65536}
+
+
+@pytest.mark.asyncio
+async def test_a_turn_waits_for_an_in_flight_warmup() -> None:
+    """The first message used to race the seed and pay the prefill twice."""
+    import asyncio
+
+    provider = _Provider()
+    router = _router(provider)
+    router.arm_warmup()
+    order: list[str] = []
+
+    async def _warm() -> None:
+        await asyncio.sleep(0.05)
+        order.append("warm")
+        router.mark_warmup_done()
+
+    async def _turn() -> None:
+        chunks = [
+            item
+            async for item in router.stream(
+                "fast", [{"role": "user", "content": "hi"}]
+            )
+        ]
+        order.append("turn")
+        assert chunks
+
+    await asyncio.gather(_warm(), _turn())
+    assert order == ["warm", "turn"]
+
+
+@pytest.mark.asyncio
+async def test_a_failed_warmup_still_releases_the_first_turn() -> None:
+    class _DeadPin(_Provider):
+        async def pin(
+            self,
+            model: str,
+            *,
+            keep_alive: str | int = "30m",
+            options: dict[str, Any] | None = None,
+        ) -> None:
+            raise RuntimeError("ollama is down")
+
+    router = _router(_DeadPin())
+    router.arm_warmup()
+    await run_model_warmup(EventBus(), router, prefix=_prefix())
+    assert not router.warmup_pending()
+    chunks = [
+        item
+        async for item in router.stream(
+            "fast", [{"role": "user", "content": "hi"}]
+        )
+    ]
+    assert chunks
 
 
 def test_an_unbuildable_prefix_returns_none_rather_than_raising() -> None:

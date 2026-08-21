@@ -150,12 +150,28 @@ async def run_model_warmup(
     now the larger half of a first turn: the persona, the whole tool policy and
     the tool schemas come to roughly 17,800 tokens, which on a 12 GB AMD card
     prefills at a few hundred tokens a second. Passing ``prefix`` sends that
-    block once here, so Ollama's prefix cache already holds it when the user
-    types — turning a slow first reply into startup work nobody is waiting on.
+    block once here, so Ollama's prefix cache already holds it.
+
+    The first user turn waits for this to finish (``router.arm_warmup``). If it
+    does not, the seed and the turn hit Ollama together and the first token
+    waits on two prefills — a minute instead of one 40s load.
 
     Fail soft throughout: a down Ollama must not block the UI. Toggle with
-    `router.warm_on_start`.
+    `router.warm_on_start`. Always releases the warmup gate so a failed pin
+    cannot stall the first message forever.
     """
+    try:
+        await _run_model_warmup(bus, router, prefix=prefix)
+    finally:
+        router.mark_warmup_done()
+
+
+async def _run_model_warmup(
+    bus: EventBus,
+    router: ModelRouter,
+    *,
+    prefix: PrefixWarmup | None = None,
+) -> None:
     if not router.warm_on_start:
         return
     role = router.default_role

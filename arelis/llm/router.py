@@ -95,6 +95,10 @@ class ModelRouter:
         self._rewarm_task: asyncio.Task[None] | None = None
         self._sticky_role: ModelRole | None = None
         self._sticky_until: float = 0.0
+        # Set by the UI/CLI when startup warmup is scheduled. A first turn
+        # that does not wait for it races the prefix seed and pays the
+        # prefill twice — that is the minute-to-first-token on a cold boot.
+        self._warmup_gate: asyncio.Event | None = None
 
     def options_for(self, role: ModelRole) -> dict[str, Any]:
         """Base options with an optional per-role num_ctx override."""
@@ -102,6 +106,26 @@ class ModelRouter:
         if role in self.role_num_ctx:
             merged["num_ctx"] = self.role_num_ctx[role]
         return merged
+
+    def arm_warmup(self) -> None:
+        """First stream must wait until mark_warmup_done (startup pin + prefill)."""
+        if self._warmup_gate is None:
+            self._warmup_gate = asyncio.Event()
+
+    def mark_warmup_done(self) -> None:
+        """Release waiters. Safe to call when warmup was never armed."""
+        if self._warmup_gate is not None:
+            self._warmup_gate.set()
+
+    def warmup_pending(self) -> bool:
+        """True when a startup warmup was armed and has not finished."""
+        gate = self._warmup_gate
+        return gate is not None and not gate.is_set()
+
+    async def wait_warmup(self) -> None:
+        """No-op unless the UI/CLI armed a startup warmup."""
+        if self._warmup_gate is not None:
+            await self._warmup_gate.wait()
 
     def model_for(self, role: ModelRole | None = None) -> str:
         """Resolve a role to a model name.
@@ -342,7 +366,15 @@ class ModelRouter:
         self.clear_sticky()
         self.reserve_vram_for_heavy = False
         model = await self.ensure_role(self.default_role, force=True)
-        await self.provider.pin(model, keep_alive=self.default_keep_alive)
+        # Same window a real turn uses. Pinning without num_ctx lets Ollama
+        # load at its default (often 2k/4k); the prefix seed then rebuilds
+        # the runner at 65k and the first message waits on two loads.
+        opts = self.options_for(self.default_role)
+        await self.provider.pin(
+            model,
+            keep_alive=self.default_keep_alive,
+            options=opts or None,
+        )
         return model
 
     def _schedule_rewarm(self, role: ModelRole) -> None:
@@ -539,6 +571,7 @@ class ModelRouter:
         force: bool = False,
     ) -> AsyncIterator[tuple[str, Any]]:
         """Yield (kind, payload) where kind is token|thinking|tool_calls|metrics."""
+        await self.wait_warmup()
         if not force:
             role, _ = self.apply_sticky(role, "stream")
         if role != self.default_role:

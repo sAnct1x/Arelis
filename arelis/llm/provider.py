@@ -25,7 +25,13 @@ class LLMProvider(Protocol):
     async def unload(self, model: str) -> None:
         ...
 
-    async def pin(self, model: str, *, keep_alive: str | int = "30m") -> None:
+    async def pin(
+        self,
+        model: str,
+        *,
+        keep_alive: str | int = "30m",
+        options: dict[str, Any] | None = None,
+    ) -> None:
         ...
 
     async def close(self) -> None:
