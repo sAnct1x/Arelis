@@ -407,3 +407,42 @@ def test_the_location_card_does_not_swallow_weather_or_web() -> None:
         skill_subset=True,
     )
     assert "web_search" in web
+
+
+def test_email_followup_keeps_send_email() -> None:
+    history = [
+        {"role": "user", "content": "make a pdf about solitons"},
+        {"role": "assistant", "content": "Wrote outputs/documents/solitons.pdf"},
+        {"role": "user", "content": "email the pdf to me"},
+        {"role": "assistant", "content": "I do not have a send_email tool."},
+    ]
+    visible = filter_tool_names(
+        _EVERYDAY,
+        role="fast",
+        text="you have my email, it's me@example.com",
+        enabled=True,
+        skill_subset=True,
+        history=history,
+    )
+    assert "send_email" in visible
+    again = filter_tool_names(
+        _EVERYDAY,
+        role="fast",
+        text="email the pdf to me@example.com",
+        enabled=True,
+        skill_subset=True,
+        history=history,
+    )
+    assert "send_email" in again
+
+
+def test_delete_mail_does_not_keep_send_email() -> None:
+    visible = filter_tool_names(
+        _EVERYDAY,
+        role="fast",
+        text="delete the email from Claude",
+        enabled=True,
+        skill_subset=True,
+    )
+    assert "inbox" in visible
+    assert "send_email" not in visible

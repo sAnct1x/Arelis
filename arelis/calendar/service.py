@@ -8,8 +8,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Callable
 from datetime import date, datetime
-from typing import Any, Callable
+from typing import Any
 
 from arelis.calendar.google_client import GoogleCalendarClient
 from arelis.calendar.models import CachedEvent
@@ -98,7 +99,7 @@ class CalendarService:
                     ),
                     timeout=float(SYNC_TIMEOUT_S),
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 log.warning("calendar sync timed out after %.1fs", SYNC_TIMEOUT_S)
                 summary = {
                     "ok": False,

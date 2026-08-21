@@ -14,8 +14,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from arelis.core.document_refs import files_in_turn
 from arelis.local_open import open_local_file, reveal_local_file
-
 from arelis.ui.markdown import render_markdown
 from arelis.ui.theme import COLORS
 from arelis.ui.void_idle import OrbitIdle
@@ -323,7 +323,7 @@ class ChatPanel(QWidget):
         self._scroll(follow=follow)
 
     def add_file_card(self, name: str, path: str) -> None:
-        """A clickable Open / Show-in-folder card for a file she just wrote."""
+        """A clickable open / show-in-folder chip for a file she just wrote."""
         label = (name or Path(path).name).strip() or "file"
         abs_path = (path or "").strip()
         if not abs_path:
@@ -346,16 +346,17 @@ class ChatPanel(QWidget):
         open_href = f"arelis-file://local/?t={open_token}"
         reveal_href = f"arelis-file://local/?t={reveal_token}"
         return (
-            f'<p style="margin:6px 8% 12px 0;text-align:left;">'
-            f'<span style="background:{_BUBBLE};padding:8px 12px;border-radius:8px;'
+            f'<div style="margin:2px 18% 12px 0;">'
+            f'<div style="background:{_BUBBLE};padding:8px 12px;border-radius:8px;'
             f'display:inline-block;color:{_TEXT};">'
-            f'<span style="letter-spacing:0.06em;font-size:11px;color:{_TEXT_DIM};">'
-            f"file</span><br/>"
-            f"<b>{_esc(name)}</b><br/>"
-            f'<a href="{open_href}" style="color:{_ACCENT};">open</a>'
+            f'<div style="color:{_TEXT};font-size:13px;margin-bottom:4px;">'
+            f"{_esc(name)}</div>"
+            f'<a href="{open_href}" style="color:{_ACCENT};text-decoration:none;">'
+            f"open</a>"
             f'<span style="color:{_TEXT_DIM};"> · </span>'
-            f'<a href="{reveal_href}" style="color:{_ACCENT};">show in folder</a>'
-            f"</span></p>"
+            f'<a href="{reveal_href}" style="color:{_ACCENT};text-decoration:none;">'
+            f"show in folder</a>"
+            f"</div></div>"
         )
 
     def _on_anchor(self, url: QUrl) -> None:
@@ -375,7 +376,8 @@ class ChatPanel(QWidget):
             else:
                 open_local_file(path)
         except OSError:
-            self.add_system(f"I could not open {path}.")
+            leaf = Path(path).name or "that file"
+            self.add_system(f"I could not open {leaf}.")
 
     def show_progress(self, text: str = "✦ Generating image…") -> None:
         """Shimmering status gate while a long tool (e.g. Comfy) runs."""
@@ -435,6 +437,7 @@ class ChatPanel(QWidget):
 
         Built as one HTML document rather than N appends: long History reloads
         used to accumulate QTextEdit merge quirks so markdown drifted (L2).
+        Document paths in the note still rebuild the open / show-in-folder chip.
         """
         self.clear()
         chunks: list[str] = []
@@ -442,15 +445,22 @@ class ChatPanel(QWidget):
         for message in messages:
             role = str(message.get("role") or "")
             content = str(message.get("content") or "")
-            if not content:
+            note = str(message.get("note") or "")
+            if not content and role != "assistant":
                 continue
             if role == "user":
+                if not content:
+                    continue
                 chunks.append(_user_bubble_html(content))
             elif role == "assistant":
-                chunks.append(_assistant_bubble_html(content))
-                last_assistant = content
+                if content:
+                    chunks.append(_assistant_bubble_html(content))
+                    last_assistant = content
+                for name, path in files_in_turn(content, note):
+                    chunks.append(self._file_card_html(name, path))
             elif role in {"notice", "system"}:
-                chunks.append(_notice_html(content))
+                if content:
+                    chunks.append(_notice_html(content))
         if not chunks:
             return
         self._ensure_view()

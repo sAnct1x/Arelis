@@ -98,7 +98,7 @@ class EventBus:
 
 
 def bind_app_bus(bus: EventBus | None) -> None:
-    """The desktop window binds the live bus so calendar/tasks writes wake the tile."""
+    """The desktop window binds the live bus so calendar/tasks/jobs writes wake the tile."""
     global _APP_BUS
     _APP_BUS = bus
 

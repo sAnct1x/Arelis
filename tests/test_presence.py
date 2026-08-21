@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from pathlib import Path
 
 import httpx
@@ -13,7 +14,9 @@ from arelis.presence.inbound_runtime import InboundRuntime, attach_inbound
 from arelis.presence.lock import (
     PresenceLock,
     external_core_available,
+    lock_file_pid,
     lock_held_by_other,
+    pid_is_alive,
     probe_ingest_health,
     ui_lock_path,
 )
@@ -33,6 +36,20 @@ def test_presence_lock_is_exclusive(tmp_path: Path) -> None:
     assert not lock_held_by_other(path)
     assert second.acquire()
     second.release()
+
+
+def test_lock_file_records_this_process(tmp_path: Path) -> None:
+    path = tmp_path / "arelis-ui.lock"
+    lock = PresenceLock(path)
+    assert lock.acquire()
+    try:
+        assert lock_file_pid(path) == os.getpid()
+        assert pid_is_alive(os.getpid())
+        assert not pid_is_alive(0)
+    finally:
+        lock.release()
+    assert lock_file_pid(path) is None
+    assert not path.with_name(path.name + ".pid").exists()
 
 
 def test_ui_lock_path_and_detect(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

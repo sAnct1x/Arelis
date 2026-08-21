@@ -15,6 +15,7 @@ from arelis.contacts import (
     to_e164,
 )
 from arelis.core.agent_loop import TOOL_POLICY
+from arelis.mail import MailAccount
 from arelis.sms import (
     format_sms_confirm,
     prepare_body,
@@ -22,7 +23,6 @@ from arelis.sms import (
     resolve_sms_target,
     send_operator_sms,
 )
-from arelis.mail import MailAccount
 from arelis.sms_android import (
     AndroidSmsProvider,
     SmsGateAccount,

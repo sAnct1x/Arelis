@@ -12,6 +12,7 @@ from arelis.core.claims import (
     detect_cas_ask,
     detect_catalog_ask,
     detect_doc_ask,
+    detect_document_ask,
     detect_exactness_need,
     detect_git_ask,
     detect_goals_ask,
@@ -19,7 +20,6 @@ from arelis.core.claims import (
     detect_inbox_ask,
     detect_math_ask,
     detect_plot_ask,
-    detect_document_ask,
     detect_send_success_claim,
     detect_tasks_ask,
     detect_units_ask,
@@ -256,6 +256,12 @@ def test_catalog_asks_are_forced() -> None:
     assert not detect_catalog_ask("I loved the plot twist")
     assert not detect_catalog_ask("What's the weather today?")
     assert not detect_catalog_ask("where's the mars bar")
+    assert detect_catalog_ask(
+        "Find me a paper on Chip-Scale Ultrafast Soliton Laser"
+    )
+    assert detect_catalog_ask("look up a paper on graphene")
+    assert detect_catalog_ask("papers on topological insulators")
+    assert not detect_catalog_ask("show me the shopping catalog")
 
 
 def test_failed_calculator_has_honest_copy() -> None:

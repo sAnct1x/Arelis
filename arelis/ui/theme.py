@@ -12,7 +12,7 @@ log = logging.getLogger(__name__)
 # Orbit void — sodium lamp in a dark room. Exposure is locked: do not chase
 # brightness here. The last pass was gold (#ffb457, hue ~33) and read as yellow.
 # This lock is hue. The filament pinprick can be cream; everything it throws
-# (rims, type, bloom, chrome) stays orange-amber (~22–26), like high-pressure
+# (rims, type, bloom, chrome) stays orange-amber (~22-26), like high-pressure
 # sodium at night. Darker is still orange, not chocolate-red. Floating HWNDs
 # stay opaque.
 
@@ -898,7 +898,7 @@ def stylesheet() -> str:
         top: 6px;
         padding: 0;
     }}
-    #CalendarTabBody, #CalendarTasksPage, #CalendarEventSheet {{
+    #CalendarTabBody, #CalendarTasksPage, #CalendarJobsPage, #CalendarEventSheet {{
         background: transparent;
         border: none;
     }}
@@ -946,7 +946,7 @@ def stylesheet() -> str:
         border: 1px solid {c['accent']};
         background-color: {c['well_focus']};
     }}
-    #CalendarAgendaList, #CalendarTaskList {{
+    #CalendarAgendaList, #CalendarTaskList, #CalendarJobList {{
         background-color: {c['well']};
         border: 1px solid {c['edge']};
         border-radius: 8px;
@@ -954,22 +954,31 @@ def stylesheet() -> str:
         outline: none;
         padding: 4px;
     }}
-    #CalendarAgendaList::item, #CalendarTaskList::item {{
+    #CalendarAgendaList::item, #CalendarTaskList::item, #CalendarJobList::item {{
         color: {c['text']};
         padding: 6px 8px;
         border-radius: 6px;
     }}
-    #CalendarAgendaList::item:selected, #CalendarTaskList::item:selected {{
+    #CalendarAgendaList::item:selected, #CalendarTaskList::item:selected, #CalendarJobList::item:selected {{
         background-color: {c['tab_selected']};
         color: {c['accent2']};
     }}
-    #CalendarAgendaList::item:hover, #CalendarTaskList::item:hover {{
+    #CalendarAgendaList::item:hover, #CalendarTaskList::item:hover, #CalendarJobList::item:hover {{
         background-color: {c['hover_strong']};
         color: {c['accent']};
     }}
     #CalendarTaskTitle {{
         color: {c['text']};
         background: transparent;
+        font-size: {FONT_PX}px;
+        font-family: {f['body']};
+    }}
+    #CalendarJobPrompt {{
+        background-color: {c['well']};
+        border: 1px solid {c['edge']};
+        border-radius: 8px;
+        color: {c['text']};
+        padding: 6px 8px;
         font-size: {FONT_PX}px;
         font-family: {f['body']};
     }}
@@ -983,7 +992,7 @@ def stylesheet() -> str:
         border-color: {c['danger_edge']};
         color: {c['danger']};
     }}
-    #CalendarEventSheet QLabel {{
+    #CalendarEventSheet QLabel, #CalendarJobsPage QLabel {{
         color: {c['text_dim']};
         background: transparent;
     }}
@@ -1099,6 +1108,26 @@ def stylesheet() -> str:
     #InstrumentAction:pressed {{
         background-color: {c['sunk']};
     }}
+    /* Square siblings of #InstrumentAction. Padding 0 so the glyph sits
+       in the same 28px row without the word-button's horizontal inset. */
+    QToolButton#InstrumentIcon {{
+        background-color: {c['button_fill']};
+        border: 1px solid {c['edge_mid']};
+        border-radius: 8px;
+        padding: 0px;
+        color: {c['accent2']};
+        min-width: {m['row'] - 2}px;
+        max-width: {m['row'] - 2}px;
+        min-height: {m['row'] - 2}px;
+        max-height: {m['row'] - 2}px;
+    }}
+    QToolButton#InstrumentIcon:hover {{
+        background-color: {c['button_hover']};
+        border-color: {c['accent']};
+    }}
+    QToolButton#InstrumentIcon:pressed {{
+        background-color: {c['sunk']};
+    }}
     QDockWidget {{
         color: {c['text_dim']};
         background: transparent;
@@ -1168,7 +1197,7 @@ def stylesheet() -> str:
         border: none;
         padding: 4px 2px;
     }}
-    #Editor, #OutputView {{
+    #Editor {{
         font-family: {f['mono']};
         font-size: 12px;
         background-color: transparent;
@@ -1176,6 +1205,16 @@ def stylesheet() -> str:
         border-radius: 0;
         color: {c['text']};
         padding: 8px 2px;
+    }}
+    #OutputView {{
+        font-family: {f['mono']};
+        font-size: 12px;
+        background-color: transparent;
+        border: none;
+        border-top: 1px solid {c['hairline_faint']};
+        border-radius: 0;
+        color: {c['text_dim']};
+        padding: 6px 2px;
     }}
     #WorkspaceImageWell {{
         border: none;

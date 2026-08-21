@@ -72,7 +72,7 @@ class EventType(str, Enum):
     CALENDAR_CHANGED fires after a Google/Outlook write or a cache sync, from
     the operator's calendar tile or from the agenda tool. The tile reloads; it
     is not a turn event. TASKS_CHANGED is the same idea for local chores in
-    memory.db.
+    memory.db. JOBS_CHANGED is for Windows scheduled jobs in jobs.yaml.
 
     FILE_READY is a document (or other openable file) that just landed on disk.
     The chat paints a card with Open / Show in folder. It does not auto-open.
@@ -105,6 +105,7 @@ class EventType(str, Enum):
     ROOM_CHANGED = "room_changed"
     CALENDAR_CHANGED = "calendar_changed"
     TASKS_CHANGED = "tasks_changed"
+    JOBS_CHANGED = "jobs_changed"
 
 
 @dataclass(slots=True)

@@ -460,12 +460,14 @@ class Orchestrator:
                     return
 
             from arelis.core.document_refs import (
-                latest_document_path,
+                latest_openable_path,
                 match_open_last_document,
+                match_reveal_last_document,
             )
 
-            if match_open_last_document(text):
-                path = latest_document_path(self.memory.messages)
+            reveal = match_reveal_last_document(text)
+            if reveal or match_open_last_document(text):
+                path = latest_openable_path(self.memory.messages)
                 if not path:
                     await self._say("There isn't a file from this conversation to open.")
                     return
@@ -476,11 +478,16 @@ class Orchestrator:
                             "path": path,
                             "abs_path": path,
                             "show_card": False,
-                            "open": True,
+                            "open": not reveal,
+                            "reveal": reveal,
                         },
                     )
                 )
-                await self._say(f"Opening {Path(path).name}.")
+                name = Path(path).name
+                if reveal:
+                    await self._say(f"Showing {name} in the folder.")
+                else:
+                    await self._say(f"Opening {name}.")
                 return
 
         # Typed absolute paths outside roots need an Allow (read-only session grant).
@@ -1164,7 +1171,7 @@ class Orchestrator:
         )
         if tool == "image" and result.ok and result.data.get("path"):
             await self.bus.publish(Event(EventType.IMAGE_READY, {"path": result.data["path"]}))
-        if tool == "document" and result.ok and result.data.get("abs_path"):
+        if tool in {"document", "plot"} and result.ok and result.data.get("abs_path"):
             await self.bus.publish(
                 Event(
                     EventType.FILE_READY,
@@ -1188,7 +1195,7 @@ class Orchestrator:
         # a heading to it" has nothing to resolve "it" against.
         resolved = None
         if isinstance(result.data, dict):
-            resolved = result.data.get("path")
+            resolved = result.data.get("abs_path") or result.data.get("path")
         self.memory.add(
             "assistant",
             summary,

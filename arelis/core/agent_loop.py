@@ -35,9 +35,9 @@ from arelis.core.agenda_complete import (
     draft_agenda_delete_args,
     fill_agenda_args,
     lock_agenda_delete_args,
+    looks_like_calendar_close,
     looks_like_calendar_create,
     looks_like_calendar_delete,
-    looks_like_calendar_close,
     looks_like_calendar_open,
     looks_like_calendar_read,
 )
@@ -49,8 +49,12 @@ from arelis.core.claims import (
     catalog_force_notice,
     contact_who_from_text,
     detect_analyze_ask,
+    detect_catalog_ask,
     detect_exactness_need,
+    detect_math_ask,
+    detect_plot_ask,
     document_force_notice,
+    draft_catalog_args,
     evidence_force_notice,
     file_answer_force_notice,
     last_store_ids_from_context,
@@ -72,6 +76,10 @@ from arelis.core.context import (
     prompt_char_count,
     split_recent_history,
 )
+from arelis.core.document_refs import (
+    fill_doc_extract_args,
+    fill_document_args,
+)
 from arelis.core.email_complete import (
     complete_email_draft,
     draft_send_email_args,
@@ -79,6 +87,7 @@ from arelis.core.email_complete import (
     fill_send_email_args,
     looks_like_bare_confirm,
     looks_like_compose_email,
+    looks_like_mailbox_mutate,
     looks_like_schedule_manage,
     looks_like_scheduled_send,
     rewrite_schedule_calls,
@@ -100,10 +109,7 @@ from arelis.core.image_refs import (
     latest_camera_image_file,
     mentions_camera_look,
 )
-from arelis.core.document_refs import (
-    fill_doc_extract_args,
-    fill_document_args,
-)
+from arelis.core.intent_catalog import WEATHER
 from arelis.core.json_tools import (
     ThinkingStripper,
     extract_native_tool_calls,
@@ -170,9 +176,11 @@ from arelis.core.sms_complete import (
     looks_like_memory_utterance,
     looks_like_stale_sms_skip,
     looks_like_tasks_utterance,
+    looks_like_workspace_write,
     sms_force_call_notice,
     sms_intent_this_turn,
 )
+from arelis.core.tile_complete import match_tile_intent, tile_tool_args
 from arelis.core.tool_args import cross_tool_arg_error, schema_keys
 from arelis.core.tool_results import PreparedToolOutput, prepare_tool_output
 from arelis.core.tool_subset import filter_tool_names, is_deep_dive_ask, is_research_mode
@@ -184,6 +192,7 @@ from arelis.llm.router import ModelRole, ModelRouter
 from arelis.memory.store import MemoryStore
 from arelis.profile import standing_profile_prompt_line
 from arelis.tools.base import ToolRegistry, confirm_args_blocked
+from arelis.tools.inbox import draft_inbox_mutate_args, fill_inbox_args
 from arelis.tools.safety import redact_secrets, truncate_tool_output
 from arelis.tools.weather import (
     draft_weather_args,
@@ -368,17 +377,11 @@ def _is_ollama_object_400(exc: BaseException) -> bool:
     return "http 400" in text or "closing '}'" in text
 
 
-def _tool_followup_fallback(out: str) -> str:
+def _tool_followup_fallback(out: str, tool: str = "") -> str:
     """Use the last successful tool output when the model cannot phrase it."""
-    body = (out or "").strip()
-    if not body:
-        return (
-            "The tool finished, but the model could not write a follow-up. "
-            "Send the same ask again."
-        )
-    if len(body) > 1600:
-        body = body[:1597].rstrip() + "…"
-    return body
+    from arelis.core.failure_copy import chat_followup_from_tool
+
+    return chat_followup_from_tool(tool, out)
 
 # One extra round when the model tries to answer news from search snippets alone.
 _SCRAPE_AFTER_SEARCH_NOTICE = (
@@ -836,6 +839,7 @@ class AgentLoop:
             or looks_like_calendar_close(text)
             or looks_like_calendar_open(text)
             or looks_like_calendar_read(text)
+            or match_tile_intent(text)
             or detect_analyze_ask(text)
             or wants_image_edit(split_attachments_turn(text)[1] or text)
             or looks_like_scheduled_send(text)
@@ -855,6 +859,7 @@ class AgentLoop:
             looks_like_scheduled_send(text)
             or looks_like_schedule_manage(text)
             or looks_like_room_create(text)
+            or looks_like_mailbox_mutate(text)
             or (
                 (
                     looks_like_stale_sms_skip(text, self.memory.messages)
@@ -863,7 +868,14 @@ class AgentLoop:
             or looks_like_calendar_close(text)
             or looks_like_calendar_open(text)
             or looks_like_calendar_read(text)
+                    or match_tile_intent(text)
                     or detect_analyze_ask(text)
+                    or detect_catalog_ask(text)
+                    or detect_plot_ask(text)
+                    or detect_math_ask(text)
+                    or looks_like_workspace_write(text)
+                    or looks_like_tasks_utterance(text)
+                    or WEATHER.matches(text)
                 )
                 and not looks_like_compose_email(text)
             )
@@ -995,8 +1007,6 @@ class AgentLoop:
                 or looks_like_calendar_read(text)
                 or looks_like_calendar_create(text)
                 or looks_like_calendar_delete(text)
-                or looks_like_calendar_open(text)
-                or looks_like_calendar_close(text)
             ),
         )
         if disconnected:
@@ -1150,6 +1160,8 @@ class AgentLoop:
         image_attempted = False
         memory_nudge_used = 0
         last_ok_tool_out = ""
+        last_ok_tool_name = ""
+        inbox_mutated_ok = False
         last_browser_snapshot = ""
         browser_clicked = False
         skip_finish_text = ""
@@ -1408,7 +1420,7 @@ class AgentLoop:
                             )
                         )
                         await self._finish(
-                            _tool_followup_fallback(last_ok_tool_out),
+                            _tool_followup_fallback(last_ok_tool_out, last_ok_tool_name),
                             sources,
                             streamed="",
                         )
@@ -1426,7 +1438,7 @@ class AgentLoop:
                             )
                         )
                         await self._finish(
-                            _tool_followup_fallback(last_ok_tool_out),
+                            _tool_followup_fallback(last_ok_tool_out, last_ok_tool_name),
                             sources,
                             streamed="",
                         )
@@ -1498,7 +1510,7 @@ class AgentLoop:
                             )
                         )
                         await self._finish(
-                            _tool_followup_fallback(last_ok_tool_out),
+                            _tool_followup_fallback(last_ok_tool_out, last_ok_tool_name),
                             sources,
                             streamed="",
                         )
@@ -1627,6 +1639,34 @@ class AgentLoop:
                         self._timer.mark(
                             "exactness", gate="email_force", action="inject"
                         )
+                elif (
+                    looks_like_mailbox_mutate(text)
+                    and "inbox" in tool_names
+                    and not inbox_mutated_ok
+                ):
+                    inbox = self.tools.get("inbox")
+                    hits = getattr(inbox, "last_hits", None) if inbox is not None else None
+                    inj = draft_inbox_mutate_args(
+                        text,
+                        last_hits=hits if isinstance(hits, list) else None,
+                    )
+                    action = str(inj.get("action") or "").lower()
+                    if action == "search" and "inbox" in self.tools_used:
+                        inj = {}
+                    if inj:
+                        calls = [("inbox", inj)]
+                        tool_calls = [_native_tool_call("inbox", inj)]
+                        await self._retract()
+                        await self.bus.publish(
+                            Event(
+                                EventType.THINKING,
+                                {"text": "inject  inbox from intent"},
+                            )
+                        )
+                        if self._timer is not None:
+                            self._timer.mark(
+                                "exactness", gate="inbox_mutate", action="inject"
+                            )
                 # Complete agenda create — force on missing create success, not
                 # any agenda list/today call.
                 elif (
@@ -1796,6 +1836,34 @@ class AgentLoop:
                             {"text": "inject  agenda open from intent"},
                         )
                     )
+                elif (
+                    match_tile_intent(text)
+                    and "tile" in tool_names
+                    and "tile" not in self.tools_used
+                ):
+                    from arelis.tools.tile import TileTool
+
+                    hit = match_tile_intent(text)
+                    calendar_uses_agenda = (
+                        hit is not None
+                        and hit[1] == "calendar"
+                        and "agenda" in tool_names
+                    )
+                    inj = (
+                        None
+                        if calendar_uses_agenda
+                        else tile_tool_args(text, last_name=TileTool.last_name)
+                    )
+                    if inj:
+                        calls = [("tile", inj)]
+                        tool_calls = [_native_tool_call("tile", inj)]
+                        await self._retract()
+                        await self.bus.publish(
+                            Event(
+                                EventType.THINKING,
+                                {"text": "inject  tile from intent"},
+                            )
+                        )
                 elif (
                     bool(agent_cfg.get("agenda_force_call", True))
                     and looks_like_calendar_read(text)
@@ -2062,6 +2130,50 @@ class AgentLoop:
                             "exactness", gate="weather_force", action="inject"
                         )
                 elif (
+                    not (content or "").strip()
+                    and numeric_gate
+                    and exact_need.needs_catalog
+                    and not ledger.has_ok("catalog")
+                    and "catalog" in tool_names
+                    and "catalog" not in self.tools_used
+                ):
+                    if not catalog_nudge_used:
+                        catalog_nudge_used = True
+                        await self._retract()
+                        messages.append({"role": "assistant", "content": content})
+                        messages.append(
+                            {"role": "user", "content": catalog_force_notice()}
+                        )
+                        await self.bus.publish(
+                            Event(
+                                EventType.THINKING,
+                                {
+                                    "text": (
+                                        "catalog ask; asking for a real catalog call"
+                                    )
+                                },
+                            )
+                        )
+                        if self._timer is not None:
+                            self._timer.mark(
+                                "exactness", gate="catalog_force", action="nudge"
+                            )
+                        continue
+                    inj = draft_catalog_args(text)
+                    calls = [("catalog", inj)]
+                    tool_calls = [_native_tool_call("catalog", inj)]
+                    await self._retract()
+                    await self.bus.publish(
+                        Event(
+                            EventType.THINKING,
+                            {"text": "inject  catalog from intent"},
+                        )
+                    )
+                    if self._timer is not None:
+                        self._timer.mark(
+                            "exactness", gate="catalog_force", action="inject"
+                        )
+                elif (
                     bool(agent_cfg.get("tasks_force_call", True))
                     and (
                         exact_need.needs_tasks
@@ -2210,6 +2322,7 @@ class AgentLoop:
                     )
                     and not looks_like_calendar_open(text)
                     and not looks_like_calendar_close(text)
+                    and not match_tile_intent(text)
                     and "browser" not in self.tools_used
                     and "browser" in tool_names
                 ):
@@ -2998,6 +3111,36 @@ class AgentLoop:
                             action="inject",
                         )
 
+                elif (
+                    name == "browser"
+                    and match_tile_intent(text)
+                    and "tile" in tool_names
+                ):
+                    from arelis.tools.tile import TileTool
+
+                    inj = tile_tool_args(text, last_name=TileTool.last_name)
+                    if inj:
+                        notice = (
+                            "Blocked: this turn expects an Arelis tile, "
+                            f"not {name}. Call tile with action="
+                            f"{inj['action']} and name={inj['name']}."
+                        )
+                        await self.bus.publish(
+                            Event(
+                                EventType.THINKING,
+                                {"text": "redirect  browser → tile"},
+                            )
+                        )
+                        messages.append(self._tool_message(name, notice))
+                        name = "tile"
+                        args = inj
+                        await self.bus.publish(
+                            Event(
+                                EventType.THINKING,
+                                {"text": "inject  tile from intent"},
+                            )
+                        )
+
                 # Browser drive: never run web_search/scrape; inject browser.
                 elif (
                     name in _BROWSER_WANDER
@@ -3007,6 +3150,7 @@ class AgentLoop:
                     )
                     and not looks_like_calendar_open(text)
                     and not looks_like_calendar_close(text)
+                    and not match_tile_intent(text)
                     and "browser" not in self.tools_used
                     and "browser" in tool_names
                 ):
@@ -3509,6 +3653,15 @@ class AgentLoop:
                         if self._look.path and not str(args.get("path") or "").strip():
                             args["path"] = self._look.path
 
+                if name == "inbox":
+                    inbox = self.tools.get("inbox")
+                    hits = getattr(inbox, "last_hits", None) if inbox is not None else None
+                    args = fill_inbox_args(
+                        args,
+                        user_text=text,
+                        last_hits=hits if isinstance(hits, list) else None,
+                    )
+
                 if name == "document":
                     room_kind = ""
                     if active_room is not None:
@@ -3853,6 +4006,13 @@ class AgentLoop:
                     self.tools_used.add(name)
                     fail_counts.pop(call_fp, None)
                     last_ok_tool_out = str(result.output or "")
+                    last_ok_tool_name = name
+                    if name == "inbox" and str(args.get("action") or "").lower() in {
+                        "trash",
+                        "archive",
+                        "delete",
+                    }:
+                        inbox_mutated_ok = True
                     if name == "browser":
                         b_act = str(args.get("action") or "").strip().lower()
                         if b_act == "snapshot":
@@ -3893,7 +4053,7 @@ class AgentLoop:
                     self.tools_used.add(name)
                 resolved = None
                 if data_dict:
-                    resolved = data_dict.get("path")
+                    resolved = data_dict.get("abs_path") or data_dict.get("path")
                 if name == "browser" and data_dict:
                     mode = str(data_dict.get("mode") or "").strip()
                     code = str(data_dict.get("code") or "").strip()
@@ -4175,7 +4335,7 @@ class AgentLoop:
                     )
                     return
                 if (
-                    name == "document"
+                    name in {"document", "plot"}
                     and result.ok
                     and data_dict
                     and data_dict.get("abs_path")
@@ -5483,7 +5643,11 @@ def _exactness_finish_refuse(
         return None
     missing = ledger.missing_kinds(kinds)
     if not numeric_gate:
-        missing = [k for k in missing if k not in {"math", "symbolic", "units", "plot", "catalog", "document"}]
+        missing = [
+            k
+            for k in missing
+            if k not in {"math", "symbolic", "units", "plot", "catalog", "document"}
+        ]
     if not evidence_gate:
         missing = [k for k in missing if k not in _EVIDENCE_KINDS]
     if not missing:

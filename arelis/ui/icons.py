@@ -216,3 +216,142 @@ def conversation_icon(size: int = 22, *, live: bool = False, pulse: float = 1.0)
     p.drawEllipse(QPointF(size * 0.50, size * 0.50), 1.3, 1.3)
     p.end()
     return QIcon(pm)
+
+
+# Workspace chrome is drawn in the same line language as the send flare,
+# not imported from a glyph set that would sit on the glass at the wrong weight.
+
+
+def _draw_folder_body(p: QPainter, size: int, pen: QPen) -> None:
+    p.setPen(pen)
+    p.setBrush(Qt.BrushStyle.NoBrush)
+    p.drawRoundedRect(QRectF(size * 0.22, size * 0.30, size * 0.28, size * 0.16), 1.6, 1.6)
+    p.drawRoundedRect(QRectF(size * 0.18, size * 0.40, size * 0.64, size * 0.40), 2.2, 2.2)
+
+
+def folder_plus_icon(size: int = 16) -> QIcon:
+    """Add an existing folder as a project."""
+    pm, p = _chrome_canvas(size)
+    pen = QPen(_ACCENT)
+    pen.setWidthF(1.35)
+    pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+    _draw_folder_body(p, size, pen)
+    p.drawLine(QPointF(size * 0.50, size * 0.50), QPointF(size * 0.50, size * 0.70))
+    p.drawLine(QPointF(size * 0.40, size * 0.60), QPointF(size * 0.60, size * 0.60))
+    p.end()
+    return QIcon(pm)
+
+
+def folder_new_icon(size: int = 16) -> QIcon:
+    """Create a folder and add it as a project."""
+    pm, p = _chrome_canvas(size)
+    pen = QPen(_ACCENT)
+    pen.setWidthF(1.35)
+    pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+    _draw_folder_body(p, size, pen)
+    p.setPen(Qt.PenStyle.NoPen)
+    p.setBrush(_SPARK)
+    p.drawEllipse(QPointF(size * 0.72, size * 0.30), 1.6, 1.6)
+    p.end()
+    return QIcon(pm)
+
+
+def folder_minus_icon(size: int = 16) -> QIcon:
+    """Remove a project from the workspace (files stay on disk)."""
+    pm, p = _chrome_canvas(size)
+    pen = QPen(_ACCENT)
+    pen.setWidthF(1.35)
+    pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+    _draw_folder_body(p, size, pen)
+    p.drawLine(QPointF(size * 0.38, size * 0.60), QPointF(size * 0.62, size * 0.60))
+    p.end()
+    return QIcon(pm)
+
+
+def folder_up_icon(size: int = 16) -> QIcon:
+    """Go up one folder in browse."""
+    pm, p = _chrome_canvas(size)
+    pen = QPen(_ACCENT)
+    pen.setWidthF(1.4)
+    pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+    pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+    p.setPen(pen)
+    p.setBrush(Qt.BrushStyle.NoBrush)
+    p.drawLine(QPointF(size * 0.50, size * 0.28), QPointF(size * 0.50, size * 0.74))
+    p.drawLine(QPointF(size * 0.50, size * 0.28), QPointF(size * 0.32, size * 0.46))
+    p.drawLine(QPointF(size * 0.50, size * 0.28), QPointF(size * 0.68, size * 0.46))
+    p.end()
+    return QIcon(pm)
+
+
+def refresh_icon(size: int = 16) -> QIcon:
+    """Reload the browse list."""
+    pm, p = _chrome_canvas(size)
+    pen = QPen(_ACCENT)
+    pen.setWidthF(1.35)
+    pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+    p.setPen(pen)
+    p.setBrush(Qt.BrushStyle.NoBrush)
+    p.drawArc(QRectF(size * 0.24, size * 0.24, size * 0.52, size * 0.52), 50 * 16, 260 * 16)
+    p.drawLine(QPointF(size * 0.68, size * 0.28), QPointF(size * 0.80, size * 0.22))
+    p.drawLine(QPointF(size * 0.68, size * 0.28), QPointF(size * 0.72, size * 0.42))
+    p.end()
+    return QIcon(pm)
+
+
+def file_open_icon(size: int = 16) -> QIcon:
+    """Open a file into the editor."""
+    pm, p = _chrome_canvas(size)
+    pen = QPen(_ACCENT)
+    pen.setWidthF(1.35)
+    pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+    pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+    p.setPen(pen)
+    p.setBrush(Qt.BrushStyle.NoBrush)
+    p.drawRoundedRect(QRectF(size * 0.26, size * 0.20, size * 0.40, size * 0.56), 1.8, 1.8)
+    p.drawLine(QPointF(size * 0.48, size * 0.20), QPointF(size * 0.66, size * 0.36))
+    p.drawLine(QPointF(size * 0.48, size * 0.36), QPointF(size * 0.66, size * 0.36))
+    p.end()
+    return QIcon(pm)
+
+
+def file_save_icon(size: int = 16) -> QIcon:
+    """Save the editor buffer to disk."""
+    pm, p = _chrome_canvas(size)
+    pen = QPen(_ACCENT)
+    pen.setWidthF(1.4)
+    pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+    pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+    p.setPen(pen)
+    p.setBrush(Qt.BrushStyle.NoBrush)
+    p.drawLine(QPointF(size * 0.50, size * 0.22), QPointF(size * 0.50, size * 0.58))
+    p.drawLine(QPointF(size * 0.50, size * 0.58), QPointF(size * 0.36, size * 0.44))
+    p.drawLine(QPointF(size * 0.50, size * 0.58), QPointF(size * 0.64, size * 0.44))
+    p.drawLine(QPointF(size * 0.28, size * 0.74), QPointF(size * 0.72, size * 0.74))
+    p.end()
+    return QIcon(pm)
+
+
+def browse_folder_icon(size: int = 14) -> QIcon:
+    """List decoration for a directory."""
+    pm, p = _chrome_canvas(size)
+    pen = QPen(_ACCENT_DIM)
+    pen.setWidthF(1.2)
+    _draw_folder_body(p, size, pen)
+    p.end()
+    return QIcon(pm)
+
+
+def browse_file_icon(size: int = 14) -> QIcon:
+    """List decoration for a file."""
+    pm, p = _chrome_canvas(size)
+    pen = QPen(_ACCENT_DIM)
+    pen.setWidthF(1.2)
+    pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+    p.setPen(pen)
+    p.setBrush(Qt.BrushStyle.NoBrush)
+    p.drawRoundedRect(QRectF(size * 0.30, size * 0.20, size * 0.40, size * 0.58), 1.5, 1.5)
+    p.drawLine(QPointF(size * 0.52, size * 0.20), QPointF(size * 0.70, size * 0.36))
+    p.drawLine(QPointF(size * 0.52, size * 0.36), QPointF(size * 0.70, size * 0.36))
+    p.end()
+    return QIcon(pm)

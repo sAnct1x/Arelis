@@ -403,6 +403,7 @@ _PLOT_FORCE = (
     re.compile(r"(?i)\b(?:line|bar|scatter)\s+chart\b"),
     re.compile(r"(?i)\bchart\s+(?:this|the|my)\b"),
     re.compile(r"(?i)\bmake\s+a\s+(?:plot|chart|graph)\b"),
+    re.compile(r"(?i)\bshow\s+me\s+a\s+(?:plot|chart|graph)\b"),
     re.compile(r"(?i)\bplot\s+.{0,40}\b(?:csv|tsv|xlsx|spreadsheet|columns?)\b"),
 )
 
@@ -455,6 +456,15 @@ _CATALOG_FORCE = (
     re.compile(r"(?i)\b(apod|astronomy picture of the day)\b"),
     re.compile(r"(?i)\bnasa'?s? (?:photo|picture) of the day\b"),
     re.compile(r"(?i)\b(nasa\s+ads|adsabs|astrophysics data system)\b"),
+    re.compile(r"(?i)\bfind me a paper\b"),
+    re.compile(r"(?i)\blook up a paper\b"),
+    re.compile(r"(?i)\bpapers on\b"),
+    re.compile(r"(?i)\bsearch arxiv\b"),
+)
+
+_PAPER_QUERY = re.compile(
+    r"(?i)(?:find me a paper|look up a paper|search arxiv|papers?)\s+"
+    r"(?:on|about|for)\s+(.+)$"
 )
 
 
@@ -464,6 +474,19 @@ def detect_catalog_ask(text: str) -> bool:
     if not raw.strip():
         return False
     return any(p.search(raw) for p in _CATALOG_FORCE)
+
+
+def draft_catalog_args(text: str) -> dict[str, str]:
+    """catalog(action=arxiv) from 'find me a paper on …'."""
+    raw = " ".join((text or "").split()).strip()
+    query = raw
+    match = _PAPER_QUERY.search(raw)
+    if match:
+        query = match.group(1).strip(" ?.!")
+    elif re.search(r"(?i)\barxiv\b", raw):
+        query = re.sub(r"(?i)\b(?:search\s+)?arxiv(?:\s+for)?\b", " ", raw)
+        query = " ".join(query.split()).strip(" ?.!") or raw
+    return {"action": "arxiv", "query": query or raw}
 
 
 def detect_cas_ask(text: str) -> bool:
@@ -518,6 +541,10 @@ def detect_inbox_ask(text: str) -> bool:
     # Definitional: "what is an inbox / what does inbox mean"
     if re.search(r"\bwhat\s+(?:is|does)\s+(?:an?\s+)?inbox\b", raw, re.I):
         return False
+    from arelis.core.email_complete import looks_like_mailbox_mutate
+
+    if looks_like_mailbox_mutate(raw):
+        return True
     return exactness_match("inbox", raw)
 
 

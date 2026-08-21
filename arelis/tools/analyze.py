@@ -4,8 +4,6 @@ import asyncio
 from pathlib import Path
 from typing import Any
 
-import pandas as pd
-
 from arelis.tools.base import ToolResult
 from arelis.workspace import WorkspaceRoots
 
@@ -69,7 +67,7 @@ class AnalyzeTool:
     def _resolve(self, path_str: str):
         return self.workspace.resolve_read(path_str)
 
-    def _load(self, path: Path) -> pd.DataFrame:
+    def _load(self, path: Path) -> Any:
         """Read a table, capped at _MAX_ROWS_READ.
 
         The cap is applied by the reader rather than after loading, so a file
@@ -77,6 +75,8 @@ class AnalyzeTool:
         process down. pandas ignores nrows for Excel and JSON, so those formats
         are trimmed after the fact.
         """
+        import pandas as pd
+
         suffix = path.suffix.lower()
         if suffix == ".csv":
             return pd.read_csv(path, nrows=_MAX_ROWS_READ)

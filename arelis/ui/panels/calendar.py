@@ -1,4 +1,4 @@
-"""Orbit-void calendar tile: month/week/day/agenda plus a tasks tab."""
+"""Orbit-void calendar tile: month/week/day/agenda plus tasks and jobs."""
 
 from __future__ import annotations
 
@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QListWidget,
     QListWidgetItem,
+    QPlainTextEdit,
     QPushButton,
     QSizePolicy,
     QStackedWidget,
@@ -39,8 +40,9 @@ from arelis.calendar.layout import (
 )
 from arelis.calendar.models import CachedEvent
 from arelis.calendar.store import CalendarStore
+from arelis.jobs.store import DAY_NAMES, Job, load_jobs
 from arelis.memory.store import MemoryStore
-from arelis.ui.theme import COLORS, METRICS, color
+from arelis.ui.theme import METRICS, color
 
 CHROME_TILE_SIZE = (1100, 800)
 _HOUR_START = 6
@@ -53,7 +55,7 @@ def _c(name: str) -> QColor:
 
 
 class _Hit:
-    __slots__ = ("rect", "kind", "payload")
+    __slots__ = ("kind", "payload", "rect")
 
     def __init__(self, rect: QRect, kind: str, payload: Any) -> None:
         self.rect = rect
@@ -100,7 +102,7 @@ class CalendarMonthView(QWidget):
     def sizeHint(self) -> QSize:
         return QSize(720, 520)
 
-    def paintEvent(self, event) -> None:  # noqa: ARG002
+    def paintEvent(self, event) -> None:
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         self._hits = []
@@ -145,7 +147,11 @@ class CalendarMonthView(QWidget):
             font = p.font()
             font.setPixelSize(12)
             p.setFont(font)
-            p.drawText(num, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, str(day.day))
+            p.drawText(
+                num,
+                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                str(day.day),
+            )
 
             y = rect.y() + 22
             for ev in events_on_day(self._events, day)[:4]:
@@ -233,7 +239,7 @@ class CalendarWeekView(QWidget):
         self._events = list(events)
         self.update()
 
-    def paintEvent(self, event) -> None:  # noqa: ARG002
+    def paintEvent(self, event) -> None:
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         self._hits = []
@@ -348,7 +354,7 @@ class CalendarDayView(CalendarWeekView):
         super().__init__(parent)
         self.setObjectName("CalendarDayView")
 
-    def paintEvent(self, event) -> None:  # noqa: ARG002
+    def paintEvent(self, event) -> None:
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         self._hits = []
@@ -356,7 +362,12 @@ class CalendarDayView(CalendarWeekView):
         hours = _HOUR_END - _HOUR_START
         gutter = 52
         bounds = self.rect().adjusted(0, 0, -1, -1)
-        body = QRect(bounds.x() + gutter, bounds.y() + 8, bounds.width() - gutter, bounds.height() - 16)
+        body = QRect(
+            bounds.x() + gutter,
+            bounds.y() + 8,
+            bounds.width() - gutter,
+            bounds.height() - 16,
+        )
         ch = max(1, body.height() / hours)
         p.setPen(_c("dim"))
         font = p.font()
@@ -709,6 +720,234 @@ class TasksPage(QWidget):
         self.title_edit.clear()
 
 
+class JobsPage(QWidget):
+    """Windows automations: a prompt, a time, and where the result is mailed."""
+
+    save_requested = Signal(dict)
+    delete_requested = Signal(str)
+    run_now_requested = Signal(str)
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.setObjectName("CalendarJobsPage")
+        self._jobs: list[Job] = []
+        self._job_id = ""
+        self._filling = False
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(8)
+
+        hint = QLabel(
+            "Arelis jobs. They run on this PC even if the window is closed, "
+            "and email you the result. Chores (buy milk) live on the tasks tab."
+        )
+        hint.setObjectName("InstrumentHint")
+        hint.setWordWrap(True)
+        root.addWidget(hint)
+
+        self.list = QListWidget()
+        self.list.setObjectName("CalendarJobList")
+        self.list.currentRowChanged.connect(self._on_row)
+        root.addWidget(self.list, stretch=1)
+
+        actions = QHBoxLayout()
+        actions.setSpacing(6)
+        self.new_btn = _row_button("new")
+        self.new_btn.clicked.connect(self._on_new)
+        self.save_btn = _row_button("save")
+        self.save_btn.clicked.connect(self._on_save)
+        self.run_btn = _row_button("run now")
+        self.run_btn.clicked.connect(self._on_run)
+        self.delete_btn = _row_button("delete")
+        self.delete_btn.setObjectName("CalendarDelete")
+        self.delete_btn.clicked.connect(self._on_delete)
+        actions.addWidget(self.new_btn)
+        actions.addWidget(self.save_btn)
+        actions.addWidget(self.run_btn)
+        actions.addWidget(self.delete_btn)
+        actions.addStretch(1)
+        root.addLayout(actions)
+
+        form = QFormLayout()
+        form.setContentsMargins(0, 0, 0, 0)
+        form.setSpacing(6)
+        self.name_edit = QLineEdit()
+        self.name_edit.setObjectName("InstrumentSearch")
+        self.name_edit.setPlaceholderText("name")
+        self.name_edit.setFixedHeight(METRICS["row"])
+        self.time_edit = QLineEdit()
+        self.time_edit.setObjectName("InstrumentSearch")
+        self.time_edit.setPlaceholderText("9am")
+        self.time_edit.setFixedHeight(METRICS["row"])
+        self.days_edit = QLineEdit()
+        self.days_edit.setObjectName("InstrumentSearch")
+        self.days_edit.setPlaceholderText("daily")
+        self.days_edit.setFixedHeight(METRICS["row"])
+        when = QHBoxLayout()
+        when.setContentsMargins(0, 0, 0, 0)
+        when.setSpacing(6)
+        when.addWidget(self.time_edit)
+        when.addWidget(self.days_edit)
+        when_wrap = QWidget()
+        when_wrap.setLayout(when)
+        self.date_edit = QLineEdit()
+        self.date_edit.setObjectName("InstrumentSearch")
+        self.date_edit.setPlaceholderText("one-off date, or blank")
+        self.date_edit.setFixedHeight(METRICS["row"])
+        self.month_edit = QLineEdit()
+        self.month_edit.setObjectName("InstrumentSearch")
+        self.month_edit.setPlaceholderText("monthly day, or blank")
+        self.month_edit.setFixedHeight(METRICS["row"])
+        extra = QHBoxLayout()
+        extra.setContentsMargins(0, 0, 0, 0)
+        extra.setSpacing(6)
+        extra.addWidget(self.date_edit)
+        extra.addWidget(self.month_edit)
+        extra_wrap = QWidget()
+        extra_wrap.setLayout(extra)
+        self.recipient_edit = QLineEdit()
+        self.recipient_edit.setObjectName("InstrumentSearch")
+        self.recipient_edit.setPlaceholderText("email, or blank for you")
+        self.recipient_edit.setFixedHeight(METRICS["row"])
+        self.enabled = QCheckBox("enabled")
+        self.enabled.setChecked(True)
+        self.prompt_edit = QPlainTextEdit()
+        self.prompt_edit.setObjectName("CalendarJobPrompt")
+        self.prompt_edit.setPlaceholderText("what to do each time, written as a fresh ask")
+        self.prompt_edit.setMinimumHeight(72)
+        self.last_label = QLabel("")
+        self.last_label.setObjectName("InstrumentHint")
+        self.last_label.setWordWrap(True)
+        form.addRow("name", self.name_edit)
+        form.addRow("when", when_wrap)
+        form.addRow("once / month", extra_wrap)
+        form.addRow("to", self.recipient_edit)
+        form.addRow("", self.enabled)
+        form.addRow("does", self.prompt_edit)
+        form.addRow("", self.last_label)
+        root.addLayout(form)
+        self._on_new()
+
+    def current_id(self) -> str:
+        return self._job_id
+
+    def set_jobs(self, jobs: list[Job], *, select_id: str = "") -> None:
+        wanted = (select_id or self._job_id).strip()
+        self._jobs = list(jobs)
+        self._filling = True
+        self.list.blockSignals(True)
+        self.list.clear()
+        if not self._jobs:
+            item = QListWidgetItem("no scheduled jobs")
+            item.setFlags(Qt.ItemFlag.NoItemFlags)
+            self.list.addItem(item)
+            self.list.blockSignals(False)
+            self._filling = False
+            self._on_new()
+            return
+        select_row = 0
+        for index, job in enumerate(self._jobs):
+            state = "" if job.enabled else " (disabled)"
+            last = ""
+            if job.last_run:
+                last = f"\nlast {job.last_run}: {job.last_status or 'unknown'}"
+            text = f"{job.name}{state}\n{job.schedule_text()}{last}"
+            item = QListWidgetItem(text)
+            item.setData(Qt.ItemDataRole.UserRole, job.id)
+            self.list.addItem(item)
+            if wanted and job.id == wanted:
+                select_row = index
+        self.list.setCurrentRow(select_row)
+        self.list.blockSignals(False)
+        self._filling = False
+        self._load_job(self._jobs[select_row])
+
+    def _on_row(self, row: int) -> None:
+        if self._filling or row < 0 or row >= len(self._jobs):
+            return
+        self._load_job(self._jobs[row])
+
+    def _load_job(self, job: Job) -> None:
+        self._job_id = job.id
+        self.name_edit.setText(job.name)
+        self.time_edit.setText(", ".join(job.times))
+        if job.repeat == "weekly":
+            self.days_edit.setText(_days_field(job.days))
+        else:
+            self.days_edit.clear()
+        self.date_edit.setText(job.date if job.repeat == "once" else "")
+        self.month_edit.setText(
+            ",".join(str(d) for d in job.days_of_month) if job.repeat == "monthly" else ""
+        )
+        self.recipient_edit.setText(job.recipient)
+        self.enabled.setChecked(job.enabled)
+        self.prompt_edit.setPlainText(job.prompt)
+        who = job.recipient or "you"
+        last = ""
+        if job.last_run:
+            last = f" Last run {job.last_run}: {job.last_status or 'unknown'}."
+        self.last_label.setText(f"[{job.id}] emails {who}.{last}")
+        self.run_btn.setEnabled(True)
+        self.delete_btn.setEnabled(True)
+
+    def _on_new(self) -> None:
+        self._job_id = ""
+        self.list.clearSelection()
+        self.name_edit.clear()
+        self.time_edit.setText("9am")
+        self.days_edit.setText("daily")
+        self.date_edit.clear()
+        self.month_edit.clear()
+        self.recipient_edit.clear()
+        self.enabled.setChecked(True)
+        self.prompt_edit.clear()
+        self.last_label.setText("New job. Save registers it with Windows.")
+        self.run_btn.setEnabled(False)
+        self.delete_btn.setEnabled(False)
+
+    def set_note(self, text: str) -> None:
+        self.last_label.setText(text)
+
+    def _on_save(self) -> None:
+        name = self.name_edit.text().strip()
+        prompt = self.prompt_edit.toPlainText().strip()
+        if not prompt:
+            return
+        self.save_requested.emit(
+            {
+                "id": self._job_id,
+                "name": name,
+                "prompt": prompt,
+                "time": self.time_edit.text().strip(),
+                "days": self.days_edit.text().strip(),
+                "date": self.date_edit.text().strip(),
+                "day_of_month": self.month_edit.text().strip(),
+                "recipient": self.recipient_edit.text().strip(),
+                "enabled": self.enabled.isChecked(),
+            }
+        )
+
+    def _on_delete(self) -> None:
+        if self._job_id:
+            self.delete_requested.emit(self._job_id)
+
+    def _on_run(self) -> None:
+        if self._job_id:
+            self.run_now_requested.emit(self._job_id)
+
+
+def _days_field(days: list[str]) -> str:
+    names = list(DAY_NAMES)
+    if days == names:
+        return "daily"
+    if days == names[:5]:
+        return "weekdays"
+    if days == names[5:]:
+        return "weekends"
+    return ",".join(d[:3] for d in days)
+
+
 class CalendarPanel(QWidget):
     create_requested = Signal(dict)
     update_requested = Signal(dict)
@@ -717,6 +956,9 @@ class CalendarPanel(QWidget):
     task_add_requested = Signal(str, str)
     task_status_requested = Signal(int, str)
     task_remove_requested = Signal(int)
+    job_save_requested = Signal(dict)
+    job_delete_requested = Signal(str)
+    job_run_requested = Signal(str)
 
     def __init__(self, parent=None, *, memory: MemoryStore | None = None) -> None:
         super().__init__(parent)
@@ -817,6 +1059,12 @@ class CalendarPanel(QWidget):
         self.tasks_page.remove_requested.connect(self.task_remove_requested.emit)
         self.tabs.addTab(self.tasks_page, "tasks")
 
+        self.jobs_page = JobsPage()
+        self.jobs_page.save_requested.connect(self.job_save_requested.emit)
+        self.jobs_page.delete_requested.connect(self.job_delete_requested.emit)
+        self.jobs_page.run_now_requested.connect(self.job_run_requested.emit)
+        self.tabs.addTab(self.jobs_page, "jobs")
+
         self.reload()
 
     def set_status(self, text: str, *, failed: bool = False) -> None:
@@ -833,6 +1081,7 @@ class CalendarPanel(QWidget):
         finally:
             store.close()
         self.reload_tasks()
+        self.reload_jobs()
         self._paint()
 
     def reload_tasks(self) -> None:
@@ -845,6 +1094,16 @@ class CalendarPanel(QWidget):
                 self._tasks = []
         self.tasks_page.set_tasks(self._tasks)
         self._paint()
+
+    def reload_jobs(self, *, select_id: str = "") -> None:
+        try:
+            jobs = load_jobs()
+        except Exception:
+            jobs = []
+        self.jobs_page.set_jobs(jobs, select_id=select_id)
+
+    def show_jobs_tab(self) -> None:
+        self.tabs.setCurrentWidget(self.jobs_page)
 
     def set_events(self, events: list[CachedEvent]) -> None:
         """Test hook: skip the cache and paint these events."""
@@ -866,7 +1125,11 @@ class CalendarPanel(QWidget):
         return cells[0], cells[-1]
 
     def _paint(self) -> None:
-        self.title_label.setText(month_title(self._anchor) if self._view == "month" else self._anchor.strftime("%A, %d %B").lower())
+        if self._view == "month":
+            title = month_title(self._anchor)
+        else:
+            title = self._anchor.strftime("%A, %d %B").lower()
+        self.title_label.setText(title)
         for view in (self.month_view, self.week_view, self.day_view, self.agenda_view):
             view.set_anchor(self._anchor)
             view.set_events(self._events)

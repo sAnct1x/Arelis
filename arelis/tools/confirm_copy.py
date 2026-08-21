@@ -136,6 +136,28 @@ def confirm_headline(tool: str, args: dict[str, Any] | None = None) -> str:
         if action == "run_now":
             return "run this job now"
         return "change a scheduled job"
+    if name == "inbox":
+        if action == "delete":
+            action = "trash"
+        ids = _who(args, "id")
+        n = len([p for p in ids.replace(";", ",").split(",") if p.strip()]) if ids else 0
+        folder = _who(args, "folder")
+        sender = _who(args, "sender")
+        who = sender or (f"{n} messages" if n > 1 else "this message")
+        if action == "trash":
+            return f"trash mail from {sender}" if sender else f"trash {who}"
+        if action == "archive":
+            return f"archive {who}"
+        if action == "mark_read":
+            return f"mark {who} read"
+        if action == "mark_unread":
+            return f"mark {who} unread"
+        if action == "move":
+            dest = folder or "a folder"
+            return f"move {who} to {dest}"
+        if action == "create_folder":
+            return f"create folder {folder}" if folder else "create a mail folder"
+        return "change the mailbox"
     if name == "rooms":
         room = _who(args, "name", "id")
         if action == "create":

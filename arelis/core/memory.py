@@ -205,7 +205,7 @@ def tool_trace_entry(
         parts.append(action)
     for key in _TRACE_KEYS:
         if key == "path" and resolved_path:
-            parts.append(str(resolved_path)[:_MAX_TRACE_TARGET])
+            parts.append(str(resolved_path)[:240])
             break
         value = args.get(key)
         if value:

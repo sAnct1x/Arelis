@@ -44,6 +44,19 @@ _MODEL_DIRECTED = re.compile(
     r")"
 )
 
+# Instruction footers on a successful tool result. Strip only when that result
+# is about to become chat because Qwen left the wrap-up empty.
+_SUCCESS_FOOTER = re.compile(
+    r"(?i)("
+    r"summarize these events|"
+    r"do not invent(?:\s+events)?|"
+    r"do not quote(?:\s+(?:event\s+ids|google/outlook))|"
+    r"do not quote event ids"
+    r")"
+)
+
+_WORKSPACE_LISTING_LINE = re.compile(r"(?m)^\[(?:dir|file)\]\s")
+
 # Human copy for the tools whose failures reach the transcript, used when the raw
 # output turns out to be model-directed. Keyed by tool name.
 _TOOL_NOTICES: dict[str, str] = {
@@ -134,8 +147,51 @@ def tool_failure_notice(tool: str, output: str) -> str:
     return first
 
 
+def _strip_success_footers(text: str) -> str:
+    """Drop model-only instruction lines; keep the person-facing body."""
+    kept: list[str] = []
+    for line in (text or "").splitlines():
+        if _SUCCESS_FOOTER.search(line):
+            continue
+        if is_model_directed(line):
+            continue
+        kept.append(line)
+    return "\n".join(kept).strip()
+
+
+def chat_followup_from_tool(tool: str, output: str) -> str:
+    """Person-facing copy when the model leaves chat empty after a tool.
+
+    The model still sees the raw tool result (including instruction footers).
+    This path is only the last-resort chat line.
+    """
+    body = (output or "").strip()
+    name = (tool or "").strip()
+    if not body:
+        return (
+            "The tool finished, but I could not write a follow-up. "
+            "Send the same ask again."
+        )
+    listing = _WORKSPACE_LISTING_LINE.search(body) or body.lstrip().startswith(
+        ("[dir]", "[file]")
+    )
+    if name == "workspace" and listing:
+        return "That listing is in Workspace."
+    if listing and name in {"", "workspace"}:
+        return "That listing is in Workspace."
+    cleaned = _strip_success_footers(body)
+    if not cleaned:
+        if name == "agenda":
+            return "No events in this window."
+        return "The tool finished. The details are in Workspace."
+    if len(cleaned) > 1600:
+        cleaned = cleaned[:1597].rstrip() + "…"
+    return cleaned
+
+
 __all__ = [
     "TURN_FAILED_NOTICE",
+    "chat_followup_from_tool",
     "is_model_directed",
     "plain_reason",
     "tool_failure_notice",

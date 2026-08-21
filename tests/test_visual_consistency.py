@@ -9,7 +9,11 @@ from PySide6.QtWidgets import QPlainTextEdit
 from arelis.ui.panels.calendar import CalendarPanel
 from arelis.ui.panels.camera import CameraPanel
 from arelis.ui.panels.conversation import ConversationStage
-from arelis.ui.panels.workspace import WorkspacePanel
+from arelis.ui.panels.workspace import (
+    WorkspacePanel,
+    is_workspace_listing,
+    status_for_tool_result,
+)
 from arelis.ui.readiness_strip import ReadinessStrip
 from arelis.ui.theme import COLORS, GLASS, METRICS, stylesheet
 
@@ -25,6 +29,11 @@ def test_dock_furniture_is_one_height(qt_app) -> None:
             panel.path_edit,
             panel.open_btn,
             panel.save_btn,
+            panel.add_root_btn,
+            panel.new_root_btn,
+            panel.remove_root_btn,
+            panel.up_btn,
+            panel.refresh_btn,
             panel.recent_combo,
             calendar.prev_btn,
             calendar.today_btn,
@@ -162,6 +171,7 @@ def test_native_lists_and_dock_tabs_use_opaque_ember() -> None:
     qss = stylesheet()
     assert "#SettingsList" in qss
     assert "#CalendarAgendaList" in qss
+    assert "#CalendarJobList" in qss
     assert "#CalendarTabs" in qss
     dock = dock_tab_bar_qss()
     assert COLORS["tab_selected"] in dock
@@ -177,9 +187,11 @@ def test_every_tile_dock_and_line_is_in_the_stylesheet() -> None:
         "#GlassDockContent",
         "#InstrumentTitle",
         "#InstrumentAction",
+        "#InstrumentIcon",
         "#InstrumentSearch",
         "#CalendarWindow",
         "#CalendarTabs",
+        "#CalendarJobList",
         "#CalendarWindowGlass",
         "#ContactsInbox",
         "#NotificationsInbox",
@@ -251,3 +263,260 @@ def test_one_corner_radius(qt_app) -> None:
         dock.deleteLater()
         overlay.deleteLater()
         line.deleteLater()
+
+
+def test_workspace_actions_are_icon_only(qt_app) -> None:
+    """Words live in the tooltip; the row is glyphs."""
+    panel = WorkspacePanel()
+    try:
+        assert panel.root_label.isHidden()
+        for btn, tip in (
+            (panel.open_btn, "Open file"),
+            (panel.save_btn, "Save file"),
+            (panel.add_root_btn, "Add an existing folder as a project"),
+            (panel.new_root_btn, "Create a folder and add it as a project"),
+            (
+                panel.remove_root_btn,
+                "Remove this project from the workspace — files stay on disk",
+            ),
+            (panel.up_btn, "Up one folder"),
+            (panel.refresh_btn, "Refresh this folder"),
+        ):
+            assert btn.objectName() == "InstrumentIcon", tip
+            assert btn.text() == "", tip
+            assert btn.toolTip() == tip
+            assert btn.accessibleName() == tip
+            assert not btn.icon().isNull(), tip
+    finally:
+        panel.deleteLater()
+
+
+def test_browse_hides_junk_and_keeps_gitignore(qt_app, tmp_path) -> None:
+    root = tmp_path / "lab"
+    root.mkdir()
+    (root / "notes.txt").write_text("ok", encoding="utf-8")
+    (root / ".gitignore").write_text("*.pyc\n", encoding="utf-8")
+    (root / "src").mkdir()
+    (root / "__pycache__").mkdir()
+    (root / "pkg.egg-info").mkdir()
+    (root / ".git").mkdir()
+    (root / "build").mkdir()
+    (root / "gone.pyc").write_text("x", encoding="utf-8")
+
+    panel = WorkspacePanel()
+    try:
+        panel.set_projects(["lab"], "lab", paths={"lab": str(root)})
+        names = [
+            panel.browse_list.item(i).text()
+            for i in range(panel.browse_list.count())
+        ]
+        assert "notes.txt" in names
+        assert ".gitignore" in names
+        assert "src" in names
+        assert "build" in names
+        assert "__pycache__" not in names
+        assert "pkg.egg-info" not in names
+        assert ".git" not in names
+        assert "gone.pyc" not in names
+        assert all(not name.startswith("[dir]") for name in names)
+        assert all(not name.startswith("[file]") for name in names)
+        notes = panel.browse_list.item(names.index("notes.txt"))
+        src = panel.browse_list.item(names.index("src"))
+        assert not notes.icon().isNull()
+        assert not src.icon().isNull()
+    finally:
+        panel.deleteLater()
+
+
+def test_workspace_log_stays_a_strip(qt_app) -> None:
+    panel = WorkspacePanel()
+    try:
+        assert panel.output.isHidden()
+        panel.append_output("\n".join(str(n) for n in range(40)))
+        lines = panel.output.toPlainText().splitlines()
+        assert lines == ["0"]
+        assert panel.output.maximumHeight() == METRICS["row"] + 4
+        assert panel.output.maximumHeight() < 1000
+        assert not panel.output.isHidden()
+    finally:
+        panel.deleteLater()
+
+
+def test_status_strip_ignores_listings_and_keeps_wrote() -> None:
+    listing = "[dir] docs\n[file] LICENSE\n[file] README.md"
+    assert (
+        status_for_tool_result("workspace", ok=True, action="list", output=listing)
+        is None
+    )
+    assert (
+        status_for_tool_result("workspace", ok=True, action="read", output="hello")
+        is None
+    )
+    assert (
+        status_for_tool_result(
+            "analyze", ok=True, output="n=3\nmean=1.2"
+        )
+        is None
+    )
+    assert (
+        status_for_tool_result(
+            "workspace",
+            ok=True,
+            action="write",
+            output="Wrote theory_of_relativity.md\nextra chatter",
+        )
+        == "Wrote theory_of_relativity.md"
+    )
+    assert (
+        status_for_tool_result(
+            "workspace", ok=False, output="Not a file: C:/typo.csv"
+        )
+        == "Not a file: C:/typo.csv"
+    )
+    assert is_workspace_listing("list", listing, "")
+    assert is_workspace_listing("", listing, "")
+    assert not is_workspace_listing("write", "Wrote notes.md", "")
+
+
+def test_browse_to_opens_the_listed_folder(qt_app, tmp_path) -> None:
+    root = tmp_path / "lab"
+    docs = root / "docs"
+    docs.mkdir(parents=True)
+    (docs / "guide.md").write_text("hi", encoding="utf-8")
+    (root / "notes.txt").write_text("ok", encoding="utf-8")
+    panel = WorkspacePanel()
+    try:
+        panel.set_projects(["lab"], "lab", paths={"lab": str(root)})
+        panel.browse_to(str(docs), root_name="lab")
+        names = [
+            panel.browse_list.item(i).text()
+            for i in range(panel.browse_list.count())
+        ]
+        assert "guide.md" in names
+        assert "notes.txt" not in names
+        assert panel.browse_label.text() == "docs"
+    finally:
+        panel.deleteLater()
+
+
+def test_a_workspace_list_does_not_fill_the_dock(arelis_window, tmp_path) -> None:
+    from arelis.core.events import Event, EventType
+
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "guide.md").write_text("hi", encoding="utf-8")
+    win = arelis_window()
+    name = tmp_path.name
+    win.workspace.set_projects([name], name, paths={name: str(tmp_path)})
+    listing = "[file] LICENSE\n[file] README.md"
+    win._on_event(
+        Event(
+            EventType.TOOL_START,
+            {"tool": "workspace", "args": {"action": "list", "path": "docs"}},
+        )
+    )
+    win._on_event(
+        Event(
+            EventType.TOOL_RESULT,
+            {
+                "tool": "workspace",
+                "ok": True,
+                "output": listing,
+                "args": {"action": "list"},
+                "data": {
+                    "path": "docs",
+                    "abs_path": str(docs),
+                    "root_name": name,
+                },
+            },
+        )
+    )
+    assert win.workspace.output.isHidden()
+    assert "[file]" not in win.workspace.output.toPlainText()
+    names = [
+        win.workspace.browse_list.item(i).text()
+        for i in range(win.workspace.browse_list.count())
+    ]
+    assert "guide.md" in names
+
+
+def test_directory_read_back_does_not_permission_deny(arelis_window, tmp_path) -> None:
+    from arelis.core.events import Event, EventType
+
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "guide.md").write_text("hi", encoding="utf-8")
+    win = arelis_window()
+    name = tmp_path.name
+    win.workspace.set_projects([name], name, paths={name: str(tmp_path)})
+    said: list[str] = []
+    win.chat.add_system = said.append  # type: ignore[method-assign]
+    win._on_event(
+        Event(
+            EventType.TOOL_RESULT,
+            {
+                "tool": "workspace",
+                "ok": True,
+                "output": "listed .",
+                "args": {"action": "read", "path": "."},
+                "data": {
+                    "path": ".",
+                    "abs_path": str(docs),
+                    "root_name": name,
+                },
+            },
+        )
+    )
+    assert not any("Permission denied" in line for line in said)
+    names = [
+        win.workspace.browse_list.item(i).text()
+        for i in range(win.workspace.browse_list.count())
+    ]
+    assert "guide.md" in names
+
+
+def test_a_wrote_status_is_one_line_in_the_dock(arelis_window) -> None:
+    from arelis.core.events import Event, EventType
+
+    win = arelis_window()
+    win._on_event(
+        Event(
+            EventType.ASSISTANT_DONE,
+            {"text": "Wrote theory_of_relativity.md. Here is a long essay about it."},
+        )
+    )
+    assert win.workspace.output.isHidden()
+    win._on_event(
+        Event(
+            EventType.TOOL_RESULT,
+            {
+                "tool": "workspace",
+                "ok": True,
+                "output": "Wrote theory_of_relativity.md",
+                "args": {"action": "write"},
+                "data": {"path": "never-a-real-file-xyz.md"},
+            },
+        )
+    )
+    assert win.workspace.output.toPlainText() == "Wrote theory_of_relativity.md"
+    assert win.workspace.output.maximumHeight() == METRICS["row"] + 4
+    assert not win.workspace.output.isHidden()
+
+
+def test_python_files_get_quiet_highlight(qt_app, tmp_path) -> None:
+    panel = WorkspacePanel()
+    try:
+        py_path = tmp_path / "sample.py"
+        txt_path = tmp_path / "notes.txt"
+        py_path.write_text("def foo():\n    return 1\n", encoding="utf-8")
+        txt_path.write_text("hello\n", encoding="utf-8")
+        panel.set_file(
+            "sample.py",
+            py_path.read_text(encoding="utf-8"),
+            abs_path=str(py_path),
+        )
+        assert panel._highlight._on
+        panel.set_file("notes.txt", "hello\n", abs_path=str(txt_path))
+        assert not panel._highlight._on
+    finally:
+        panel.deleteLater()

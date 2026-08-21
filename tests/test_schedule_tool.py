@@ -192,6 +192,39 @@ async def test_saved_but_unregistered_is_still_ok(jobs_path, monkeypatch) -> Non
     assert store_mod.get_job(result.data["id"]) is not None
 
 
+@pytest.mark.asyncio
+async def test_save_job_from_payload_updates_prompt(jobs_path) -> None:
+    from arelis.tools.schedule_jobs import save_job_from_payload
+
+    tool = ScheduleTool()
+    created = await tool.run(
+        action="create",
+        name="Morning weather email",
+        prompt="Weather for Springfield.",
+        time="9am",
+        days="daily",
+        recipient="you@example.com",
+    )
+    assert created.ok
+    job_id = created.data["id"]
+    updated = save_job_from_payload(
+        {
+            "id": job_id,
+            "name": "Morning weather email",
+            "prompt": "Weather for Springfield IL and Metropolis IL.",
+            "time": "9am",
+            "days": "daily",
+            "recipient": "you@example.com",
+            "enabled": True,
+        }
+    )
+    assert updated.ok
+    assert "Updated" in updated.output
+    job = store_mod.get_job(job_id)
+    assert job is not None
+    assert "Metropolis" in job.prompt
+
+
 def test_schedule_list_does_not_need_confirm() -> None:
     from arelis.tools.base import ToolRegistry
 

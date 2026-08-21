@@ -24,15 +24,16 @@ from arelis.core.agenda_complete import (
     agenda_preflight_nudge,
     agenda_read_action,
     complete_agenda_draft,
+    looks_like_calendar_close,
     looks_like_calendar_create,
     looks_like_calendar_delete,
-    looks_like_calendar_close,
     looks_like_calendar_open,
     looks_like_calendar_read,
 )
 from arelis.core.email_complete import (
     complete_email_draft,
     email_preflight_nudge,
+    looks_like_mailbox_mutate,
     looks_like_schedule_manage,
     looks_like_scheduled_send,
 )
@@ -60,6 +61,7 @@ from arelis.core.sms_complete import (
     looks_like_stale_sms_skip,
     sms_preflight_nudge,
 )
+from arelis.core.tile_complete import match_tile_intent
 
 __all__ = [
     "IntentHint",
@@ -262,6 +264,34 @@ _EMAIL_SEND_VERB = re.compile(
     r"compose\s+(?:an?\s+)?(?:e-?mail|mail)|"
     r"send\s+(?:the\s+)?(?:e-?mail|mail|it))\b"
 )
+
+_GRAPH_ASK = re.compile(
+    r"(?i)\b(?:show|make|draw|plot)\s+(?:me\s+)?(?:a\s+)?(?:graph|plot|chart)\b"
+)
+
+
+def _skip_compose_for_other_work(raw: str) -> bool:
+    """True when this turn is plot/weather/files/catalog/tasks/math, not mail."""
+    from arelis.core.claims import (
+        detect_catalog_ask,
+        detect_math_ask,
+        detect_plot_ask,
+    )
+    from arelis.core.intent_catalog import WEATHER
+    from arelis.core.sms_complete import (
+        looks_like_tasks_utterance,
+        looks_like_workspace_write,
+    )
+
+    return bool(
+        detect_plot_ask(raw)
+        or _GRAPH_ASK.search(raw or "")
+        or WEATHER.matches(raw)
+        or looks_like_workspace_write(raw)
+        or detect_catalog_ask(raw)
+        or looks_like_tasks_utterance(raw)
+        or detect_math_ask(raw)
+    )
 
 _EXPLICIT_SMS_VERB = re.compile(
     r"(?i)^\s*(?:text|sms|txt|send\s+(?:a\s+)?(?:text|sms|message))\b"
@@ -873,11 +903,12 @@ def detect_intents(
         hints.append(
             IntentHint(
                 kind="agenda_close",
-                expected_tools=("agenda",),
+                expected_tools=("agenda", "tile"),
                 nudge=(
                     "Intent preflight: this message asks to hide the Arelis "
-                    "calendar tile. Call agenda now with action=close. Do not "
-                    "delete events. Do not call browser."
+                    "calendar tile. Call agenda now with action=close. If "
+                    "agenda is unavailable, call tile(action=close, "
+                    "name=calendar). Do not delete events. Do not call browser."
                 ),
             )
         )
@@ -885,13 +916,14 @@ def detect_intents(
         hints.append(
             IntentHint(
                 kind="agenda_open",
-                expected_tools=("agenda",),
+                expected_tools=("agenda", "tile"),
                 nudge=(
                     "Intent preflight: this message asks to open the Arelis "
-                    "calendar tile. Call agenda now with action=open. Do not "
-                    "call browser with the calendar alias unless they asked "
-                    "for calendar.google.com or to open it in Chrome/the "
-                    "browser."
+                    "calendar tile. Call agenda now with action=open. If "
+                    "agenda is unavailable, call tile(action=open, "
+                    "name=calendar). Do not call browser with the calendar "
+                    "alias unless they asked for calendar.google.com or to "
+                    "open it in Chrome/the browser."
                 ),
             )
         )
@@ -910,6 +942,35 @@ def detect_intents(
                 ),
             )
         )
+
+    tile_hit = match_tile_intent(raw)
+    if tile_hit is not None and tile_hit[1] != "calendar":
+        action, name = tile_hit
+        label = name or "the last tile"
+        if action == "close":
+            hints.append(
+                IntentHint(
+                    kind="tile_close",
+                    expected_tools=("tile",),
+                    nudge=(
+                        "Intent preflight: hide an Arelis tile. Call tile "
+                        f"with action=close and name={label}. Do not call "
+                        "browser. Calendar events still use agenda."
+                    ),
+                )
+            )
+        else:
+            hints.append(
+                IntentHint(
+                    kind="tile_open",
+                    expected_tools=("tile",),
+                    nudge=(
+                        "Intent preflight: show an Arelis tile. Call tile "
+                        f"with action=open and name={label}. Do not call "
+                        "browser."
+                    ),
+                )
+            )
 
     if looks_like_room_create(raw):
         name = draft_rooms_create_args(raw).get("name") or "new"
@@ -984,6 +1045,7 @@ def detect_intents(
     skip_email = looks_like_scheduled_send(raw) or looks_like_schedule_manage(raw) or (
         (
             bool(INBOX.matches(raw))
+            or looks_like_mailbox_mutate(raw)
             or any(
                 h.kind in {"analyze", "vision", "image_edit", "schedule", "rooms"}
                 for h in hints
@@ -997,6 +1059,8 @@ def detect_intents(
             or looks_like_browser_or_url(raw)
             or looks_like_browser_click_signin(raw)
             or looks_like_closing_chitchat(raw)
+            or match_tile_intent(raw) is not None
+            or _skip_compose_for_other_work(raw)
         )
         and not _EMAIL_SEND_VERB.search(raw)
     )

@@ -3,6 +3,8 @@ from __future__ import annotations
 from typing import Any
 
 from arelis.briefing.builder import BRIEFING_PROMPT
+from arelis.core.bus import emit_nowait
+from arelis.core.events import Event, EventType
 from arelis.jobs import schedule as win
 from arelis.jobs.store import (
     Job,
@@ -20,6 +22,179 @@ from arelis.jobs.store import (
 )
 from arelis.mail import valid_address
 from arelis.tools.base import ToolResult
+
+
+def _notify_jobs(action: str, **extra: Any) -> None:
+    emit_nowait(Event(EventType.JOBS_CHANGED, {"action": action, **extra}))
+
+
+def build_job_from_fields(kwargs: dict[str, Any]) -> Job:
+    """Turn the schedule tool's (or the jobs tab's) fields into a Job.
+
+    Raises JobError for anything a person can fix by editing the form.
+    """
+    name = str(kwargs.get("name") or "").strip()
+    prompt = str(kwargs.get("prompt") or "").strip()
+    if not prompt:
+        raise JobError("Missing prompt: say what it should do each time.")
+    if not name:
+        name = prompt[:40].strip()
+
+    recipient = str(kwargs.get("recipient") or "").strip()
+    if recipient and not valid_address(recipient):
+        raise JobError(f"{recipient!r} is not a usable email address.")
+
+    raw_date = str(kwargs.get("date") or "").strip()
+    raw_month_days = str(kwargs.get("day_of_month") or "").strip()
+    times = normalize_times(kwargs.get("time") or "19:00")
+    days = normalize_days(kwargs.get("days"))
+    days_of_month = normalize_days_of_month(raw_month_days)
+    every = normalize_interval(kwargs.get("every"))
+    when = normalize_date(raw_date)
+
+    # The mode follows from what was supplied, so the caller does not have to
+    # name it and cannot contradict itself by naming the wrong one.
+    if when:
+        repeat = "once"
+    elif days_of_month:
+        repeat = "monthly"
+    else:
+        repeat = "weekly"
+
+    if repeat == "once" and len(times) > 1:
+        raise JobError("A one-off runs at a single time. Give one time, or drop the date.")
+
+    role = str(kwargs.get("role") or "research").strip() or "research"
+    enabled = kwargs.get("enabled", True)
+    if isinstance(enabled, str):
+        enabled = enabled.strip().lower() not in {"0", "false", "no", "off"}
+    return Job(
+        id="",
+        name=name,
+        prompt=prompt,
+        recipient=recipient,
+        role=role,
+        repeat=repeat,
+        times=times,
+        days=days,
+        date=when,
+        days_of_month=days_of_month,
+        every_minutes=every,
+        enabled=bool(enabled),
+    )
+
+
+def save_job_from_payload(payload: dict[str, Any]) -> ToolResult:
+    """Create or replace a job from the calendar jobs tab.
+
+    Same store and Task Scheduler path the schedule tool uses, so a job you
+    edit by hand is the same object Arelis created in chat.
+    """
+    job_id = str(payload.get("id") or "").strip()
+    try:
+        job = build_job_from_fields(payload)
+    except JobError as exc:
+        return ToolResult(ok=False, output=str(exc))
+
+    existing = get_job(job_id) if job_id else None
+    others = [j for j in load_jobs() if existing is None or j.id != existing.id]
+    duplicate = next((j for j in others if _behaviour(j) == _behaviour(job)), None)
+    if duplicate is not None and existing is None:
+        return _already_scheduled_result(duplicate)
+    if duplicate is not None and existing is not None and duplicate.id != existing.id:
+        return ToolResult(
+            ok=False,
+            output=(
+                f"'{duplicate.name}' [{duplicate.id}] already does exactly this. "
+                "Change the prompt, time, or recipient, or delete that job first."
+            ),
+        )
+
+    if existing is not None:
+        job.id = existing.id
+        job.last_run = existing.last_run
+        job.last_status = existing.last_status
+        if not str(payload.get("every") or "").strip():
+            job.every_minutes = existing.every_minutes
+        if existing.role and not str(payload.get("role") or "").strip():
+            job.role = existing.role
+    else:
+        job.id = make_job_id(job.name, [j.id for j in load_jobs()])
+
+    return _commit_job(job, created=existing is None)
+
+
+def _commit_job(job: Job, *, created: bool) -> ToolResult:
+    upsert_job(job)
+    try:
+        win.register(job)
+    except win.ScheduleError as exc:
+        _notify_jobs("save", id=job.id, registered=False)
+        return ToolResult(
+            ok=True,
+            output=(
+                f"Saved '{job.name}' as [{job.id}], but it could not be "
+                f"registered with Task Scheduler: {exc}\n"
+                f"Run it by hand with: arelis --run-job {job.id}"
+            ),
+            data={**job.as_dict(), "registered": False},
+        )
+
+    _notify_jobs("create" if created else "update", id=job.id)
+    tail = (
+        "It runs once and then removes itself."
+        if job.one_off
+        else "It runs whether or not Arelis is open, and catches up if the "
+        "machine was asleep."
+    )
+    verb = "Scheduled" if created else "Updated"
+    return ToolResult(
+        ok=True,
+        output=(
+            f"{verb} '{job.name}' [{job.id}] {job.schedule_text()}, "
+            f"emailing {job.recipient or 'you'}. {tail}"
+        ),
+        data={**job.as_dict(), "registered": True},
+    )
+
+
+def _already_scheduled_result(job: Job) -> ToolResult:
+    """Report the job that already does this, instead of making a second one.
+
+    Reported as a success, because from the caller's point of view the thing it asked
+    for is true. Returning an error would invite the model to try again with a nudged
+    name, which is how you get "digest" and "digest-2".
+
+    Re-registered on the way out for the case that matters: a job whose task went
+    missing, or which was turned off. Asking for something that already exists is the
+    most natural way for a person to say "this should be running", so making it run is
+    the useful reading of the request.
+    """
+    if not job.enabled:
+        job.enabled = True
+        upsert_job(job)
+    try:
+        win.register(job)
+    except win.ScheduleError as exc:
+        _notify_jobs("save", id=job.id, registered=False)
+        return ToolResult(
+            ok=True,
+            output=(
+                f"'{job.name}' [{job.id}] is already scheduled {job.schedule_text()}, "
+                f"but Task Scheduler would not take it: {exc}\n"
+                f"Run it by hand with: arelis --run-job {job.id}"
+            ),
+            data={**job.as_dict(), "registered": False, "already_existed": True},
+        )
+    _notify_jobs("save", id=job.id, already_existed=True)
+    return ToolResult(
+        ok=True,
+        output=(
+            f"'{job.name}' [{job.id}] already does exactly this, {job.schedule_text()}, "
+            f"emailing {job.recipient or 'you'}. Left as one job rather than two."
+        ),
+        data={**job.as_dict(), "registered": True, "already_existed": True},
+    )
 
 
 class ScheduleTool:
@@ -164,131 +339,18 @@ class ScheduleTool:
         return result
 
     def _create(self, kwargs: dict[str, Any]) -> ToolResult:
-        name = str(kwargs.get("name") or "").strip()
-        prompt = str(kwargs.get("prompt") or "").strip()
-        if not prompt:
-            return ToolResult(ok=False, output="Missing prompt: say what it should do each time.")
-        if not name:
-            name = prompt[:40].strip()
-
-        recipient = str(kwargs.get("recipient") or "").strip()
-        if recipient and not valid_address(recipient):
-            return ToolResult(ok=False, output=f"{recipient!r} is not a usable email address.")
-
-        raw_date = str(kwargs.get("date") or "").strip()
-        raw_month_days = str(kwargs.get("day_of_month") or "").strip()
         try:
-            times = normalize_times(kwargs.get("time") or "19:00")
-            days = normalize_days(kwargs.get("days"))
-            days_of_month = normalize_days_of_month(raw_month_days)
-            every = normalize_interval(kwargs.get("every"))
-            when = normalize_date(raw_date)
+            job = build_job_from_fields(kwargs)
         except JobError as exc:
             return ToolResult(ok=False, output=str(exc))
-
-        # The mode follows from what was supplied, so the model does not have to
-        # name it and cannot contradict itself by naming the wrong one.
-        if when:
-            repeat = "once"
-        elif days_of_month:
-            repeat = "monthly"
-        else:
-            repeat = "weekly"
-
-        if repeat == "once" and len(times) > 1:
-            return ToolResult(
-                ok=False,
-                output="A one-off runs at a single time. Give one time, or drop the date.",
-            )
-
-        role = str(kwargs.get("role") or "research").strip() or "research"
-        job = Job(
-            id="",
-            name=name,
-            prompt=prompt,
-            recipient=recipient,
-            role=role,
-            repeat=repeat,
-            times=times,
-            days=days,
-            date=when,
-            days_of_month=days_of_month,
-            every_minutes=every,
-        )
 
         existing = load_jobs()
         duplicate = next((j for j in existing if _behaviour(j) == _behaviour(job)), None)
         if duplicate is not None:
-            return self._already_scheduled(duplicate)
+            return _already_scheduled_result(duplicate)
 
-        job.id = make_job_id(name, [j.id for j in existing])
-        upsert_job(job)
-
-        try:
-            win.register(job)
-        except win.ScheduleError as exc:
-            # Saved but not scheduled is a real, recoverable state, and saying
-            # so is better than rolling back work the user asked for.
-            return ToolResult(
-                ok=True,
-                output=(
-                    f"Saved '{job.name}' as [{job.id}], but it could not be "
-                    f"registered with Task Scheduler: {exc}\n"
-                    f"Run it by hand with: arelis --run-job {job.id}"
-                ),
-                data={**job.as_dict(), "registered": False},
-            )
-
-        tail = (
-            "It runs once and then removes itself."
-            if job.one_off
-            else "It runs whether or not Arelis is open, and catches up if the "
-            "machine was asleep."
-        )
-        return ToolResult(
-            ok=True,
-            output=(
-                f"Scheduled '{job.name}' [{job.id}] {job.schedule_text()}, "
-                f"emailing {job.recipient or 'you'}. {tail}"
-            ),
-            data={**job.as_dict(), "registered": True},
-        )
-
-    def _already_scheduled(self, job: Job) -> ToolResult:
-        """Report the job that already does this, instead of making a second one.
-
-        Reported as a success, because from the caller's point of view the thing it asked
-        for is true. Returning an error would invite the model to try again with a nudged
-        name, which is how you get "digest" and "digest-2".
-
-        Re-registered on the way out for the case that matters: a job whose task went
-        missing, or which was turned off. Asking for something that already exists is the
-        most natural way for a person to say "this should be running", so making it run is
-        the useful reading of the request.
-        """
-        if not job.enabled:
-            job.enabled = True
-            upsert_job(job)
-        try:
-            win.register(job)
-        except win.ScheduleError as exc:
-            return ToolResult(
-                ok=True,
-                output=(
-                    f"'{job.name}' [{job.id}] is already scheduled {job.schedule_text()}, "
-                    f"but Task Scheduler would not take it: {exc}\n"
-                    f"Run it by hand with: arelis --run-job {job.id}"
-                ),
-                data={**job.as_dict(), "registered": False, "already_existed": True},
-            )
-        return ToolResult(
-            ok=True,
-            output=(
-                f"'{job.name}' [{job.id}] already does exactly this, {job.schedule_text()}, "
-                f"emailing {job.recipient or 'you'}. Left as one job rather than two."
-            ),
-            data={**job.as_dict(), "registered": True, "already_existed": True},
-        )
+        job.id = make_job_id(job.name, [j.id for j in existing])
+        return _commit_job(job, created=True)
 
     def _delete(self, job_id: str) -> ToolResult:
         job_id = job_id.strip()
@@ -317,6 +379,7 @@ class ScheduleTool:
         except win.ScheduleError as exc:
             return ToolResult(ok=False, output=f"Could not remove the scheduled task: {exc}")
         delete_job(job_id)
+        _notify_jobs("delete", id=job_id)
         return ToolResult(ok=True, output=f"Deleted job [{job_id}] and its scheduled task.")
 
     def _run_now(self, job_id: str) -> ToolResult:

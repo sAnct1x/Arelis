@@ -56,6 +56,7 @@ from arelis.llm import (
     run_model_warmup,
 )
 from arelis.llm.router import ModelRouter
+from arelis.local_open import open_local_file, reveal_local_file
 from arelis.mail import load_account
 from arelis.memory import DEFAULT_EMBED_MODEL, MemoryIndexer, MemoryStore
 from arelis.notify import NotificationCenter, new_notice
@@ -65,7 +66,6 @@ from arelis.notify.sources import (
     mail_notices,
     peek_contact_mail_sync,
 )
-from arelis.local_open import open_local_file, reveal_local_file
 from arelis.paths import app_icon_path, display_path, logs_dir, outputs_dir
 from arelis.presence.confirm_exec import execute_pending_confirm
 from arelis.presence.confirm_persist import ConfirmPersister
@@ -95,6 +95,7 @@ from arelis.sms_inbound import (
 from arelis.sms_ingest import InboundIngestServer
 from arelis.tools import build_tool_registry
 from arelis.ui.audio import SpeechPlayer
+from arelis.ui.calendar_window import CalendarWindow
 from arelis.ui.chrome import TitleBar
 from arelis.ui.contacts_inbox import ContactsInboxWindow
 from arelis.ui.first_run import prompt_for_workspace_root
@@ -110,7 +111,6 @@ from arelis.ui.layout_store import (
     save_ui_prefs,
     save_window_layout,
 )
-from arelis.ui.calendar_window import CalendarWindow
 from arelis.ui.notify_inbox import NotificationsInboxWindow
 from arelis.ui.panels import (
     CalendarPanel,
@@ -123,6 +123,7 @@ from arelis.ui.panels import (
     ThinkingPanel,
     WorkspacePanel,
 )
+from arelis.ui.panels.workspace import is_workspace_listing, status_for_tool_result
 from arelis.ui.readiness_strip import ReadinessStrip
 from arelis.ui.settings_dialog import SettingsDialog
 from arelis.ui.setup_wizard import prompt_for_model_setup
@@ -699,6 +700,7 @@ class ArelisWindow(QMainWindow):
         # that changed on disk while it sat open.
         self._workspace_discard_armed = ""
         self._workspace_overwrite_armed = ""
+        self._workspace_tool_args: dict[str, Any] = {}
         self.workspace.open_requested.connect(self._open_file)
         self.workspace.save_requested.connect(self._save_file)
         self.workspace.project_changed.connect(self._on_project_changed)
@@ -821,6 +823,9 @@ class ArelisWindow(QMainWindow):
         self.calendar.task_add_requested.connect(self._on_calendar_task_add)
         self.calendar.task_status_requested.connect(self._on_calendar_task_status)
         self.calendar.task_remove_requested.connect(self._on_calendar_task_remove)
+        self.calendar.job_save_requested.connect(self._on_calendar_job_save)
+        self.calendar.job_delete_requested.connect(self._on_calendar_job_delete)
+        self.calendar.job_run_requested.connect(self._on_calendar_job_run)
         self._job_tick = QTimer(self)
         self._job_tick.setInterval(1000)
         self._job_tick.timeout.connect(self._on_job_tick)
@@ -2140,6 +2145,25 @@ class ArelisWindow(QMainWindow):
             self._calendar_sync_watchdog.stop()
         self._sync_idle_mode()
 
+    def _apply_tile(self, name: str, *, show: bool) -> None:
+        """Show or hide a View-menu tile from the tile tool."""
+        key = (name or "").strip().lower()
+        mapping = {
+            "thinking": (self.act_thinking, self._toggle_thinking),
+            "workspace": (self.act_workspace, self._toggle_workspace),
+            "history": (self.act_history, self._toggle_history),
+            "notifications": (self.act_notifications, self._toggle_notifications),
+            "camera": (self.act_camera, self._toggle_camera),
+            "contacts": (self.act_contacts, self._toggle_contacts),
+            "calendar": (self.act_calendar, self._toggle_calendar),
+        }
+        pair = mapping.get(key)
+        if pair is None:
+            return
+        action, toggle = pair
+        action.setChecked(show)
+        toggle(show)
+
     def _run_ui_call(self, fn) -> None:
         if getattr(self, "_disposed", False):
             return
@@ -2354,6 +2378,62 @@ class ArelisWindow(QMainWindow):
 
         emit_nowait(Event(EventType.TASKS_CHANGED, {"action": "remove", "id": task_id}))
         self.calendar.reload_tasks()
+
+    def _reveal_calendar_jobs(self) -> None:
+        self.act_calendar.setChecked(True)
+        self._toggle_calendar(True)
+        self.calendar.show_jobs_tab()
+        self.calendar.reload_jobs()
+
+    def _on_calendar_job_save(self, payload: dict[str, Any]) -> None:
+        from arelis.tools.schedule_jobs import save_job_from_payload
+        from arelis.ui.dialog import notice
+
+        result = save_job_from_payload(payload)
+        if not result.ok:
+            notice(self, "jobs", "Could not save that job.", detail=str(result.output), warning=True)
+            return
+        job_id = str((result.data or {}).get("id") or "")
+        self.calendar.reload_jobs(select_id=job_id)
+        if result.data and result.data.get("registered") is False:
+            notice(
+                self,
+                "jobs",
+                "Saved, but Windows would not register it.",
+                detail=str(result.output),
+                warning=True,
+            )
+
+    def _on_calendar_job_delete(self, job_id: str) -> None:
+        from arelis.jobs.store import get_job
+        from arelis.tools.schedule_jobs import ScheduleTool
+        from arelis.ui.dialog import confirm, notice
+
+        job = get_job(job_id)
+        label = job.name if job else job_id
+        if not confirm(
+            self,
+            "delete job",
+            f"Stop {label} and remove it from Windows?",
+            confirm_text="Delete",
+            destructive=True,
+        ):
+            return
+        result = ScheduleTool()._delete(job_id)
+        if not result.ok:
+            notice(self, "jobs", "Could not delete that job.", detail=str(result.output), warning=True)
+            return
+        self.calendar.reload_jobs()
+
+    def _on_calendar_job_run(self, job_id: str) -> None:
+        from arelis.tools.schedule_jobs import ScheduleTool
+        from arelis.ui.dialog import notice
+
+        result = ScheduleTool()._run_now(job_id)
+        if not result.ok:
+            notice(self, "jobs", "Could not start that job.", detail=str(result.output), warning=True)
+            return
+        self.calendar.jobs_page.set_note("Started. The result will arrive by email.")
 
     def _on_contacts_inbox_closed(self) -> None:
         self.act_contacts.setChecked(False)
@@ -2965,6 +3045,20 @@ class ArelisWindow(QMainWindow):
         log.info("quit_begin force=%s", self._force_quit)
         bind_app_bus(None)
         self._persist_window_layout()
+        # Tray Quit must drop the glass immediately. Inbound stop can take a
+        # couple of seconds; leaving the window up for that is what made Quit
+        # feel like a hang, and a second shortcut click then stacked another.
+        if self._force_quit:
+            self._park_floating_docks()
+            if self._tray is not None:
+                try:
+                    self._tray.hide()
+                except RuntimeError:
+                    pass
+            try:
+                self.hide()
+            except RuntimeError:
+                pass
         # Release the microphone and the audio device before the window goes.
         # Qt will not do it for us and Windows keeps both claimed.
         if self.voice_controller is not None:
@@ -3034,7 +3128,7 @@ class ArelisWindow(QMainWindow):
         menu = QMenu()
         act_show = QAction("Open Arelis", menu)
         act_quit = QAction("Quit Arelis", menu)
-        act_show.triggered.connect(self.show_from_tray)
+        act_show.triggered.connect(self._on_activation_request)
         act_quit.triggered.connect(self.quit_from_tray)
         menu.addAction(act_show)
         menu.addSeparator()
@@ -3104,7 +3198,15 @@ class ArelisWindow(QMainWindow):
         state &= ~Qt.WindowState.WindowMinimized
         self._tray_window_state = state
 
+    def _on_activation_request(self) -> None:
+        """Second-launch IPC / tray Open. No-op once Quit has started."""
+        if self._force_quit or self._disposed:
+            return
+        self.show_from_tray()
+
     def show_from_tray(self) -> None:
+        if self._force_quit or self._disposed:
+            return
         if self.isVisible():
             # Asking for a window that is already up means "bring it to me", not
             # "resize it". Take what it is now as the state to come back to —
@@ -3148,7 +3250,7 @@ class ArelisWindow(QMainWindow):
             QSystemTrayIcon.ActivationReason.Trigger,
             QSystemTrayIcon.ActivationReason.DoubleClick,
         }:
-            self.show_from_tray()
+            self._on_activation_request()
 
     def queue_pending_confirms(self, items: list[PendingConfirm]) -> None:
         """Show stored send confirms (e.g. from `arelis --core` drafts)."""
@@ -3719,13 +3821,6 @@ class ArelisWindow(QMainWindow):
                 self._arm_speech()
             self._set_busy(False)
             self._refresh_history()
-            # Reveal the dock after a write. Reads and listings are already
-            # mirrored there by the TOOL_RESULT branch below. The old prefix
-            # test here looked for an em dash the message has never contained,
-            # so it never fired.
-            if "Wrote " in text:
-                self.workspace.append_output(text)
-                self._reveal_dock(self.work_dock, self.act_workspace)
         elif t == EventType.SESSION_LOADED:
             if not p.get("ok"):
                 self.chat.add_system(str(p.get("error") or "Could not load that conversation."))
@@ -3741,6 +3836,7 @@ class ArelisWindow(QMainWindow):
                         {
                             "role": str(m.get("role") or ""),
                             "content": str(m.get("content") or ""),
+                            "note": str(m.get("note") or ""),
                         }
                         for m in messages
                         if isinstance(m, dict)
@@ -3784,6 +3880,9 @@ class ArelisWindow(QMainWindow):
         elif t == EventType.TASKS_CHANGED:
             if not self.calendar_window.isHidden():
                 self.calendar.reload_tasks()
+        elif t == EventType.JOBS_CHANGED:
+            if not self.calendar_window.isHidden():
+                self.calendar.reload_jobs(select_id=str(p.get("id") or ""))
         elif t == EventType.THINKING:
             text = str(p.get("text") or "")
             if p.get("stream"):
@@ -3853,6 +3952,8 @@ class ArelisWindow(QMainWindow):
             # Short args for thinking — never dump file bodies
             brief = {k: (str(v)[:60] + "…" if len(str(v)) > 60 else v) for k, v in args.items()}
             self.thinking.append(f"{tool} {brief}", kind="tool")
+            if str(tool or "") == "workspace" and isinstance(args, dict):
+                self._workspace_tool_args = dict(args)
             # Said in the transcript, in the user's words, whether or not the
             # Thinking dock is open. `weather {'days': 2}` is for me; "checking
             # the weather" is for her.
@@ -3894,6 +3995,16 @@ class ArelisWindow(QMainWindow):
             if p.get("tool") == "agenda" and p.get("ok") and data.get("close"):
                 self.act_calendar.setChecked(False)
                 self._toggle_calendar(False)
+            if p.get("tool") == "schedule" and p.get("ok"):
+                self._reveal_calendar_jobs()
+                job_id = str(data.get("id") or "")
+                if job_id:
+                    self.calendar.reload_jobs(select_id=job_id)
+            if p.get("tool") == "tile" and p.get("ok"):
+                self._apply_tile(
+                    str(data.get("name") or ""),
+                    show=bool(data.get("open")) and not data.get("close"),
+                )
             if p.get("tool") == "browser":
                 if intro:
                     self.chat.add_system(intro)
@@ -3934,9 +4045,21 @@ class ArelisWindow(QMainWindow):
                     phone=str(data.get("phone") or ""),
                 )
             if p.get("tool") in {"workspace", "analyze"}:
-                out = p.get("output") or ""
-                if out:
-                    self.workspace.append_output(out[:2000])
+                payload_args = p.get("args") if isinstance(p.get("args"), dict) else {}
+                action = str(
+                    payload_args.get("action")
+                    or self._workspace_tool_args.get("action")
+                    or ""
+                )
+                out = str(p.get("output") or "")
+                status = status_for_tool_result(
+                    str(p.get("tool") or ""),
+                    ok=bool(p.get("ok")),
+                    action=action,
+                    output=out,
+                )
+                if status:
+                    self.workspace.append_output(status)
                 if not p.get("ok") and out:
                     # Wrong/empty path used to look like a silent Open no-op, so
                     # the failure still reaches chat. It goes through the copy
@@ -3947,41 +4070,77 @@ class ArelisWindow(QMainWindow):
                         tool_failure_notice(str(p.get("tool") or ""), str(out))
                     )
                     self._reveal_dock(self.work_dock, self.act_workspace)
-            if p.get("tool") == "workspace" and p.get("ok") and data.get("path"):
-                display = str(data["path"])
+            if p.get("tool") == "workspace" and p.get("ok"):
+                payload_args = p.get("args") if isinstance(p.get("args"), dict) else {}
+                action = str(
+                    payload_args.get("action")
+                    or self._workspace_tool_args.get("action")
+                    or ""
+                )
+                display = str(data.get("path") or "")
                 abs_path = str(data.get("abs_path") or "")
                 root_name = str(data.get("root_name") or "")
-                read_from = abs_path or display
-                try:
-                    content = Path(read_from).read_text(encoding="utf-8", errors="replace")
-                    placed = self.workspace.set_file(
-                        display, content, root_name=root_name, abs_path=abs_path
-                    )
-                    if placed:
-                        self.workspace.set_recent(push_recent_workspace_file(display))
-                    else:
-                        self.chat.add_system(
-                            f"I wrote {display}, but you have unsaved edits open in the "
-                            "editor, so I left them alone. Open the file again to see my "
-                            "version — that replaces what is in the editor."
-                        )
+                if is_workspace_listing(action, str(p.get("output") or ""), abs_path):
+                    self.workspace.browse_to(abs_path, root_name=root_name)
                     self._reveal_dock(self.work_dock, self.act_workspace)
-                except Exception as exc:
-                    # The write landed; only the editor refresh did not. Saying
-                    # nothing leaves the same impression the clobber bug did —
-                    # that the file on screen is the file on disk.
-                    self.chat.add_system(
-                        f"I wrote {display}, but could not read it back into the "
-                        f"editor: {plain_reason(exc)}. The version on disk is mine; "
-                        "open the file again to see it."
-                    )
-                    self.thinking.append(
-                        f"workspace read-back failed: {exc}", kind="status"
-                    )
+                elif display:
+                    read_from = abs_path or display
+                    target = Path(read_from)
+                    if target.is_dir():
+                        self.workspace.browse_to(read_from, root_name=root_name)
+                        self._reveal_dock(self.work_dock, self.act_workspace)
+                    elif target.is_file():
+                        try:
+                            content = Path(read_from).read_text(
+                                encoding="utf-8", errors="replace"
+                            )
+                            placed = self.workspace.set_file(
+                                display, content, root_name=root_name, abs_path=abs_path
+                            )
+                            if placed:
+                                self.workspace.set_recent(
+                                    push_recent_workspace_file(display)
+                                )
+                            else:
+                                self.chat.add_system(
+                                    f"I wrote {display}, but you have unsaved edits open in the "
+                                    "editor, so I left them alone. Open the file again to see my "
+                                    "version — that replaces what is in the editor."
+                                )
+                            self._reveal_dock(self.work_dock, self.act_workspace)
+                        except Exception as exc:
+                            # The write landed; only the editor refresh did not. Saying
+                            # nothing leaves the same impression the clobber bug did —
+                            # that the file on screen is the file on disk.
+                            self.chat.add_system(
+                                f"I wrote {display}, but could not read it back into the "
+                                f"editor: {plain_reason(exc)}. The version on disk is mine; "
+                                "open the file again to see it."
+                            )
+                            self.thinking.append(
+                                f"workspace read-back failed: {exc}", kind="status"
+                            )
+                    else:
+                        # ok=True naming a path that is neither a file nor a
+                        # directory. The editor cannot move, and staying quiet
+                        # reads the same way the clobber bug did: whatever is on
+                        # screen looks like what is on disk.
+                        self.chat.add_system(
+                            f"I reported writing {display}, but could not read it "
+                            "back — nothing is at that path now. Treat the write as "
+                            "failed and check the file before relying on it."
+                        )
+                        self.thinking.append(
+                            f"workspace read-back failed: {read_from} is not on disk",
+                            kind="status",
+                        )
+            if p.get("tool") == "workspace":
+                self._workspace_tool_args = {}
         elif t == EventType.IMAGE_READY:
             path = p.get("path")
             if path:
                 self.workspace.show_image(path)
+                self.workspace.append_output(f"Image ready — {Path(str(path)).name}")
                 self._reveal_dock(self.work_dock, self.act_workspace)
         elif t == EventType.FILE_READY:
             abs_path = str(p.get("abs_path") or p.get("path") or "").strip()
@@ -3994,12 +4153,18 @@ class ArelisWindow(QMainWindow):
                 try:
                     open_local_file(abs_path)
                 except OSError as exc:
-                    self.chat.add_system(f"I could not open that file. {plain_reason(exc)}")
+                    leaf = Path(abs_path).name or "that file"
+                    self.chat.add_system(
+                        f"I could not open {leaf}. {plain_reason(exc)}"
+                    )
             if abs_path and p.get("reveal"):
                 try:
                     reveal_local_file(abs_path)
                 except OSError as exc:
-                    self.chat.add_system(f"I could not show that file. {plain_reason(exc)}")
+                    leaf = Path(abs_path).name or "that file"
+                    self.chat.add_system(
+                        f"I could not show {leaf}. {plain_reason(exc)}"
+                    )
         elif t == EventType.SMS_RECEIVED:
             self._on_sms_received(p)
         elif t == EventType.TURN_PAUSE:
@@ -4460,6 +4625,11 @@ async def _drain_event_loop(
         log.debug("loop drain: asyncgen shutdown failed", exc_info=True)
 
 
+_HANDOFF_WAIT_S = 8.0
+_HANDOFF_SLICE_S = 0.35
+_HANDOFF_MAX_TRIES = 24
+
+
 def _raise_running_instance(config: dict[str, Any]) -> int:
     """Second launch: put the Arelis that is already running back on screen.
 
@@ -4473,21 +4643,15 @@ def _raise_running_instance(config: dict[str, Any]) -> int:
     A held lock always means a living process. Windows releases both the named
     mutex and the byte lock when a process ends, however it ends, so there is no
     such thing here as a stale lock left by a crash — if the lock is held, someone
-    is home and the only question is whether they are listening yet.
-
-    Which is why the failure is retried once. A launch two seconds after the last
-    one can arrive while the running copy is still building its window and has not
-    bound its activation port. That is not a wedged Arelis, it is an early one.
+    is home. The wait-and-retry lives in ``_second_launch``; this function is the
+    last-resort notice after that wait has already asked and the other copy still
+    did not answer.
     """
     from arelis.presence.activate import activate_existing_ui
     from arelis.ui.dialog import notice
 
     if activate_existing_ui(config):
         log.info("second launch: asked the running Arelis to show itself")
-        return 0
-    time.sleep(1.5)
-    if activate_existing_ui(config):
-        log.info("second launch: running Arelis answered on the retry")
         return 0
     # Held lock, no answer. Nothing here may kill the other process — it is the
     # one holding the conversation, the memory and possibly an unsent draft — so
@@ -4520,6 +4684,41 @@ def _raise_running_instance(config: dict[str, Any]) -> int:
     return 1
 
 
+def _second_launch(config: dict[str, Any], ui_lock: Any) -> int | None:
+    """Ask the living glass to show, or wait for it to finish quitting.
+
+    Returns an exit code if this process should stop, or None if it now holds
+    the UI lock and should open a window. The gap this covers is Quit: IPC is
+    already down, the lock is still held, and a shortcut click in that window
+    used to either show the already-running dialog or (if the lock then dropped
+    mid-click) open a second glass on top of the dying one.
+    """
+    from arelis.presence.activate import activate_existing_ui
+    from arelis.presence.lock import lock_file_pid, pid_is_alive
+
+    if activate_existing_ui(config):
+        log.info("second launch: asked the running Arelis to show itself")
+        return 0
+    deadline = time.monotonic() + _HANDOFF_WAIT_S
+    tries = 0
+    while tries < _HANDOFF_MAX_TRIES and time.monotonic() < deadline:
+        time.sleep(_HANDOFF_SLICE_S)
+        tries += 1
+        if activate_existing_ui(config):
+            log.info("second launch: running Arelis answered on the retry")
+            return 0
+        if ui_lock.acquire():
+            log.info("second launch: previous Arelis exited; this copy will open")
+            return None
+        path = getattr(ui_lock, "path", None)
+        if path is not None:
+            pid = lock_file_pid(path)
+            if pid is not None and not pid_is_alive(pid) and ui_lock.acquire():
+                log.info("second launch: lock holder is gone; this copy will open")
+                return None
+    return _raise_running_instance(config)
+
+
 def run_ui(config: dict[str, Any] | None = None) -> int:
     # Remembered because first run may need to reload from disk, and a config
     # handed in by a caller (tests, harnesses) must not be silently replaced.
@@ -4530,7 +4729,20 @@ def run_ui(config: dict[str, Any] | None = None) -> int:
 
     ui_lock = PresenceLock(ui_lock_path(config))
     if not ui_lock.acquire():
-        return _raise_running_instance(config)
+        handed = _second_launch(config, ui_lock)
+        if handed is not None:
+            return handed
+
+    _ui_lock_gate = threading.Lock()
+    _ui_lock_out = False
+
+    def _release_ui_lock() -> None:
+        nonlocal _ui_lock_out
+        with _ui_lock_gate:
+            if _ui_lock_out:
+                return
+            _ui_lock_out = True
+            ui_lock.release()
 
     def _bind_workspace(cfg: dict[str, Any]) -> WorkspaceRoots:
         roots = WorkspaceRoots.from_config(cfg)
@@ -4605,9 +4817,6 @@ def run_ui(config: dict[str, Any] | None = None) -> int:
     # sink, so scheduled turns neither read nor pollute this file. The same
     # store is handed to recall so search sees what this session just wrote.
     store = MemoryStore()
-    from arelis.memory.backup import backup_memory_db
-
-    backup_memory_db(store.path)
     # Cold glass launch is a new conversation (ChatGPT-style). Last night
     # stays in History. Tray / un-minimize do not come through here.
     store.start_glass_session()
@@ -4691,7 +4900,7 @@ def run_ui(config: dict[str, Any] | None = None) -> int:
         )
     except Exception:
         logging.getLogger(__name__).exception("Arelis window failed to start")
-        ui_lock.release()
+        _release_ui_lock()
         raise
     asyncio.run_coroutine_threadsafe(orchestrator.resume_last_room(), loop)
     # Inbound: by default the UI owns ingest. Close-to-tray keeps it alive when
@@ -4720,7 +4929,7 @@ def run_ui(config: dict[str, Any] | None = None) -> int:
                     host=str(presence_cfg.get("ipc_host") or "127.0.0.1"),
                     port=int(presence_cfg.get("ipc_port") or 8766),
                     on_open_ui=lambda _msg: QTimer.singleShot(
-                        0, window.show_from_tray
+                        0, window._on_activation_request
                     ),
                     # Our own core may have fallen forward past the configured
                     # port because another account on this PC holds it. The
@@ -4793,7 +5002,7 @@ def run_ui(config: dict[str, Any] | None = None) -> int:
                     host=str(presence_cfg.get("ipc_host") or "127.0.0.1"),
                     port=int(presence_cfg.get("ipc_port") or 8766),
                     on_open_ui=lambda _reason: QTimer.singleShot(
-                        0, window.show_from_tray
+                        0, window._on_activation_request
                     ),
                 )
             except ValueError as exc:
@@ -4837,6 +5046,20 @@ def run_ui(config: dict[str, Any] | None = None) -> int:
     window.activateWindow()
     window.setWindowState(window.windowState() & ~Qt.WindowState.WindowMinimized)
 
+    def _deferred_memory_backup() -> None:
+        try:
+            from arelis.memory.backup import backup_memory_db
+
+            backup_memory_db(store.path)
+        except Exception:
+            log.debug("deferred memory backup failed", exc_info=True)
+
+    threading.Thread(
+        target=_deferred_memory_backup,
+        name="arelis-memory-backup",
+        daemon=True,
+    ).start()
+
     # After the window, not before: this reaches the network, and the first seconds of a
     # launch belong to the person who double-clicked something. Declines to do anything at
     # all unless this copy came from the installer, so a checkout is never offered a
@@ -4873,6 +5096,11 @@ def run_ui(config: dict[str, Any] | None = None) -> int:
                     window.sms_ingest = None
                     window.sms_watcher = None
                     window.sms_auto_reply = None
+            # IPC and ingest are down. Drop the single-instance lock before
+            # model unload / browser close so a shortcut click during Quit
+            # can take over instead of stacking a second glass or waiting on
+            # a lock the dying copy still holds.
+            _release_ui_lock()
             bus.stop()
             # Do not await model unload forever — just drop the HTTP client.
             try:
@@ -4897,4 +5125,4 @@ def run_ui(config: dict[str, Any] | None = None) -> int:
         thread.join(timeout=2)
         return code
     finally:
-        ui_lock.release()
+        _release_ui_lock()

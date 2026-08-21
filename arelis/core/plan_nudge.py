@@ -372,6 +372,16 @@ _PLAN_AGENDA_CLOSE = PlanSpec(
     steps=("agenda",),
 )
 
+_PLAN_TILE = PlanSpec(
+    id="tile",
+    message=(
+        "Plan: 1) Call tile with action=open or close and the tile name "
+        "(thinking, workspace, history, notifications, camera, contacts, "
+        "calendar). That is the View menu. Do not use the browser."
+    ),
+    steps=("tile",),
+)
+
 _PLAN_AGENDA = PlanSpec(
     id="agenda",
     message=(
@@ -598,6 +608,15 @@ def select_plan(
 
     if "agenda_open" in kinds or (raw and looks_like_calendar_open(raw)):
         return _PLAN_AGENDA_OPEN
+
+    if "tile_open" in kinds or "tile_close" in kinds:
+        return _PLAN_TILE
+
+    if raw:
+        from arelis.core.tile_complete import match_tile_intent
+
+        if match_tile_intent(raw):
+            return _PLAN_TILE
 
     if raw and _BROWSER_MAPS.search(raw):
         return _PLAN_BROWSER_MAPS

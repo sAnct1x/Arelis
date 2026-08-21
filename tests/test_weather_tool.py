@@ -275,6 +275,32 @@ def test_extract_weather_places_splits_two_cities() -> None:
     ) == ""
 
 
+def test_going_to_be_tomorrow_is_home_not_a_city() -> None:
+    from arelis.tools.weather import (
+        extract_weather_place,
+        extract_weather_places,
+        weather_place_key,
+        weather_places_missing,
+    )
+
+    ask = "what's the weather going to be like tomorrow?"
+    assert extract_weather_places(ask) == []
+    assert extract_weather_place(ask) == ""
+    assert weather_places_missing(ask, {weather_place_key("")}) == []
+
+
+def test_city_state_right_now_does_not_keep_right() -> None:
+    from arelis.tools.weather import extract_weather_place, extract_weather_places
+
+    ask = "whats the weather in springfield illinois right now?"
+    places = extract_weather_places(ask)
+    assert places
+    joined = " ".join(places).lower()
+    assert "springfield" in joined
+    assert "right" not in joined
+    assert extract_weather_place(ask).lower().startswith("springfield")
+
+
 def test_the_weather_skill_card_geocodes_a_named_place() -> None:
     from arelis.core.skills import SKILL_CARDS
 

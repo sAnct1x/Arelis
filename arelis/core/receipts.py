@@ -36,6 +36,7 @@ _RECEIPT_TOOLS = frozenset(
         "research_report",
         "document",
         "contacts",
+        "inbox",
         "schedule",
     }
 )
@@ -51,6 +52,17 @@ _WORKSPACE_MUTATE = frozenset({"write", "edit"})
 _MEMORY_MUTATE = frozenset({"remember", "forget", "prefer", "decide", "episode"})
 _CONTACTS_MUTATE = frozenset({"add", "update", "remove"})
 _SCHEDULE_MUTATE = frozenset({"create", "create_briefing", "delete", "run_now"})
+_INBOX_MUTATE = frozenset(
+    {
+        "trash",
+        "delete",
+        "archive",
+        "mark_read",
+        "mark_unread",
+        "move",
+        "create_folder",
+    }
+)
 _BROWSER_MUTATE = frozenset(
     {"open", "navigate", "click", "type", "relaunch", "screenshot"}
 )
@@ -84,6 +96,8 @@ def action_receipt(
     if tool == "contacts" and action not in _CONTACTS_MUTATE:
         return None
     if tool == "schedule" and action not in _SCHEDULE_MUTATE:
+        return None
+    if tool == "inbox" and action not in _INBOX_MUTATE:
         return None
     if tool == "browser" and action not in _BROWSER_MUTATE:
         return None

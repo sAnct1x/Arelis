@@ -1,13 +1,8 @@
-"""Read-only access to the user's mailbox over IMAP.
+"""IMAP mailbox: peek to read, Allow to change.
 
-Read-only in three separate senses, because this is the first input source a
-stranger controls and the blast radius should be as small as it can be:
-
-- The mailbox is opened with readonly=True and every fetch uses BODY.PEEK, so
-  asking Arelis what arrived does not mark anything as read.
-- There is no delete, archive, or move action. A bug or an injected instruction
-  cannot lose your mail because there is no code here that could.
-- Attachments are named, never downloaded.
+Looking does not mark mail read (readonly select + BODY.PEEK). Attachments
+are named, never downloaded. Trash / archive / move / flags need Allow, and
+unattended jobs do not get those actions. Delivered mail cannot be rewritten.
 """
 
 from __future__ import annotations
@@ -33,6 +28,24 @@ log = logging.getLogger(__name__)
 
 _SNIPPET_CHARS = 160
 _ISO_DATE = re.compile(r"^(\d{4})-(\d{2})-(\d{2})$")
+_FROM_IN_ASK = re.compile(r"(?i)\bfrom\s+([A-Za-z0-9._%+\-@]+)")
+_UID_SPLIT = re.compile(r"[\s,;]+")
+
+INBOX_READ_ACTIONS = frozenset(
+    {"list", "search", "read", "summarize", "folders"}
+)
+INBOX_WRITE_ACTIONS = frozenset(
+    {
+        "trash",
+        "delete",
+        "archive",
+        "mark_read",
+        "mark_unread",
+        "move",
+        "create_folder",
+    }
+)
+_ALL_ACTIONS = INBOX_READ_ACTIONS | INBOX_WRITE_ACTIONS
 _MONTHS = (
     "Jan", "Feb", "Mar", "Apr", "May", "Jun",
     "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
@@ -48,32 +61,42 @@ class Headers:
     unread: bool
 
 
-class InboxTool:
-    name = "inbox"
-    description = (
-        "Read the user's email. `list` shows recent unread messages by default "
-        "(pass unread_only=false for everything), `search` finds them by "
-        "sender, subject, or text, `read` opens one by its id, and `summarize` "
-        "returns a structured triage of recent mail (subject/from/date/snippet) "
-        "via BODY.PEEK only. Strictly read-only: there is no delete, trash, "
-        "archive, move, or mark-as-read action. If asked to change the mailbox, "
-        "refuse and say the user must do that in Gmail."
-    )
-    risk = "read"
-    parameters_schema: dict[str, Any] = {
+def _inbox_schema(*, mutate: bool) -> dict[str, Any]:
+    actions = ["list", "search", "read", "summarize", "folders"]
+    if mutate:
+        actions.extend(
+            [
+                "trash",
+                "delete",
+                "archive",
+                "mark_read",
+                "mark_unread",
+                "move",
+                "create_folder",
+            ]
+        )
+    return {
         "type": "object",
         "properties": {
             "action": {
                 "type": "string",
-                "enum": ["list", "search", "read", "summarize"],
+                "enum": actions,
                 "description": (
-                    "list recent mail, search it, read one message, or summarize "
-                    "recent mail (peek-only subject/from/date/snippet)"
+                    "list / search / read / summarize (peek-only), folders, "
+                    "or with Allow: trash, archive, mark_read, mark_unread, "
+                    "move, create_folder. delete is trash (Gmail Bin)."
                 ),
             },
             "id": {
                 "type": "string",
-                "description": "Message id, for action=read. Comes from list or search.",
+                "description": (
+                    "Message id from list or search. Required for read, trash, "
+                    "archive, mark_read, mark_unread, move. Comma-separated ok."
+                ),
+            },
+            "folder": {
+                "type": "string",
+                "description": "Mailbox or Gmail label, for move or create_folder",
             },
             "sender": {
                 "type": "string",
@@ -104,6 +127,38 @@ class InboxTool:
         "required": ["action"],
     }
 
+
+def _inbox_description(*, mutate: bool) -> str:
+    head = (
+        "Read and organise the user's email. `list` shows recent unread "
+        "messages by default (pass unread_only=false for everything), `search` "
+        "finds them by sender, subject, or text, `read` opens one by its id, "
+        "`summarize` returns a structured triage (subject/from/date/snippet) "
+        "via BODY.PEEK only, and `folders` lists mailboxes/labels. Looking "
+        "does not mark mail read. Attachments are named, never downloaded. "
+        "Delivered mail cannot be edited — send a new message instead."
+    )
+    if not mutate:
+        return (
+            head
+            + " This session cannot change the mailbox (jobs are read-only)."
+        )
+    return (
+        head
+        + " Changes need Allow: `trash` (delete is the same — Gmail Bin, not "
+        "permanent), `archive` (leave Inbox), `mark_read` / `mark_unread`, "
+        "`move` to a folder/label, `create_folder`. Call list or search first "
+        "and pass the id in brackets. Never claim a change without a tool "
+        "result this turn."
+    )
+
+
+class InboxTool:
+    name = "inbox"
+    description = _inbox_description(mutate=True)
+    risk = "read"
+    parameters_schema: dict[str, Any] = _inbox_schema(mutate=True)
+
     def __init__(
         self,
         account: MailAccount,
@@ -113,6 +168,7 @@ class InboxTool:
         timeout_s: float = 30.0,
         max_messages: int = 20,
         max_body_chars: int = 4000,
+        allow_mutate: bool = True,
     ) -> None:
         self.account = account
         self.host = host
@@ -120,16 +176,33 @@ class InboxTool:
         self.timeout_s = timeout_s
         self.max_messages = max_messages
         self.max_body_chars = max_body_chars
+        self.allow_mutate = allow_mutate
+        self.last_hits: list[dict[str, Any]] = []
+        if not allow_mutate:
+            self.description = _inbox_description(mutate=False)
+            self.parameters_schema = _inbox_schema(mutate=False)
 
     async def run(self, **kwargs: Any) -> ToolResult:
         action = str(kwargs.get("action") or "list").strip().lower()
-        if action not in {"list", "search", "read", "summarize"}:
+        if action == "delete":
+            action = "trash"
+            kwargs = {**kwargs, "action": "trash"}
+        allowed = _ALL_ACTIONS if self.allow_mutate else INBOX_READ_ACTIONS
+        if action not in allowed:
+            if action in INBOX_WRITE_ACTIONS:
+                return ToolResult(
+                    ok=False,
+                    output="Jobs cannot change the mailbox. Ask in chat so Allow can run.",
+                )
+            extra = ""
+            if action == "edit":
+                extra = (
+                    " Delivered mail cannot be edited. Trash it or send a new message."
+                )
+            verbs = ", ".join(sorted(allowed))
             return ToolResult(
                 ok=False,
-                output=(
-                    f"Unknown action {action!r}. "
-                    "Use list, search, read, or summarize."
-                ),
+                output=f"Unknown action {action!r}. Use {verbs}.{extra}",
             )
         try:
             # imaplib is blocking and a slow mailbox would stall the bus, which
@@ -143,21 +216,28 @@ class InboxTool:
     # ------------------------------------------------------------- blocking
 
     def _run_sync(self, action: str, kwargs: dict[str, Any]) -> ToolResult:
-        with self._connect() as conn:
+        writable = action in INBOX_WRITE_ACTIONS
+        with self._connect(writable=writable) as conn:
             if action == "read":
                 return self._read(conn, str(kwargs.get("id") or "").strip())
+            if action == "folders":
+                return self._folders(conn)
+            if action == "create_folder":
+                return self._create_folder(conn, str(kwargs.get("folder") or "").strip())
+            if action in INBOX_WRITE_ACTIONS:
+                return self._change(conn, action, kwargs)
             criteria = _list_criteria(action, kwargs)
             limit = _clamp(kwargs.get("limit"), self.max_messages)
             if action == "summarize":
                 return self._summarize(conn, criteria, limit)
             return self._list(conn, criteria, limit, searching=action == "search")
 
-    def _connect(self) -> imaplib.IMAP4_SSL:
+    def _connect(self, *, writable: bool = False) -> imaplib.IMAP4_SSL:
         conn = imaplib.IMAP4_SSL(self.host, self.port, timeout=self.timeout_s)
         conn.login(self.account.address, self.account.password)
         # readonly so the act of looking does not set the \Seen flag. Without
         # it, asking "anything new?" would answer no the second time.
-        conn.select("INBOX", readonly=True)
+        conn.select("INBOX", readonly=not writable)
         return conn
 
     def _list(
@@ -182,6 +262,7 @@ class InboxTool:
             summary = f"No messages {where}."
             if total or unread:
                 summary += f" Mailbox has {total} messages, {unread} unread."
+            self.last_hits = []
             return ToolResult(
                 ok=True,
                 output=summary,
@@ -198,6 +279,10 @@ class InboxTool:
         chosen = [u.decode() for u in uids[-limit:]][::-1]
         rows = [self._headers(conn, uid) for uid in chosen]
         found = [r for r in rows if r is not None]
+        self.last_hits = [
+            {"id": r.uid, "from": r.sender, "subject": r.subject}
+            for r in found
+        ]
 
         lines: list[str] = []
         for item in found:
@@ -279,13 +364,16 @@ class InboxTool:
         ]
         if attachments:
             header.append(f"Files:   {', '.join(attachments)} (not downloaded)")
+        sender = _decode(message.get("From"))
+        subject = _decode(message.get("Subject"))
+        self.last_hits = [{"id": uid, "from": sender, "subject": subject}]
         return ToolResult(
             ok=True,
             output="\n".join(header) + "\n\n" + truncated + note,
             data={
                 "id": uid,
-                "from": _decode(message.get("From")),
-                "subject": _decode(message.get("Subject")),
+                "from": sender,
+                "subject": subject,
                 "attachments": attachments,
             },
         )
@@ -310,6 +398,7 @@ class InboxTool:
             summary = f"No messages {where} to summarize."
             if total or unread:
                 summary += f" Mailbox has {total} messages, {unread} unread."
+            self.last_hits = []
             return ToolResult(
                 ok=True,
                 output=summary,
@@ -346,6 +435,9 @@ class InboxTool:
             if snippet:
                 lines.append(f"      {snippet}")
 
+        self.last_hits = [
+            {"id": r["id"], "from": r["from"], "subject": r["subject"]} for r in rows
+        ]
         lines.append("")
         scope = "unread" if unread_only else "matching"
         lines.append(
@@ -380,6 +472,159 @@ class InboxTool:
         if len(text) <= _SNIPPET_CHARS:
             return text
         return text[: _SNIPPET_CHARS - 1] + "…"
+
+    def _folders(self, conn: imaplib.IMAP4_SSL) -> ToolResult:
+        boxes = _list_mailboxes(conn)
+        if not boxes:
+            return ToolResult(ok=False, output="Could not list folders.")
+        lines = [f"{len(boxes)} folder(s):"]
+        for name, flags in boxes:
+            flag = f"  [{', '.join(sorted(flags))}]" if flags else ""
+            lines.append(f"- {name}{flag}")
+        return ToolResult(
+            ok=True,
+            output="\n".join(lines),
+            data={"folders": [{"name": n, "flags": sorted(f)} for n, f in boxes]},
+        )
+
+    def _create_folder(self, conn: imaplib.IMAP4_SSL, name: str) -> ToolResult:
+        folder = name.strip().strip('"')
+        if not folder or len(folder) > 80:
+            return ToolResult(
+                ok=False,
+                output="create_folder needs a short folder or label name.",
+            )
+        if any(ch in folder for ch in "\r\n"):
+            return ToolResult(ok=False, output="Folder name cannot contain a newline.")
+        status, data = conn.create(_quote(folder))
+        if status != "OK":
+            detail = _as_text(data[0] if data else status)
+            return ToolResult(
+                ok=False,
+                output=f"Could not create {folder}: {detail}",
+            )
+        return ToolResult(
+            ok=True,
+            output=f"Created folder {folder}.",
+            data={"folder": folder, "action": "create_folder"},
+        )
+
+    def _change(
+        self, conn: imaplib.IMAP4_SSL, action: str, kwargs: dict[str, Any]
+    ) -> ToolResult:
+        uids = _parse_uids(str(kwargs.get("id") or ""))
+        if not uids:
+            return ToolResult(
+                ok=False,
+                output=(
+                    "Missing id. List or search first, then pass the number "
+                    "in brackets (comma-separated is fine)."
+                ),
+            )
+        uid_blob = ",".join(uids)
+        labels = self._peek_labels(conn, uids)
+        if action == "trash":
+            dest = _special_mailbox(conn, "trash") or "[Gmail]/Trash"
+            _uid_move(conn, uid_blob, dest)
+            verb = f"Moved {len(uids)} message(s) to Trash"
+        elif action == "archive":
+            dest = _special_mailbox(conn, "all") or _special_mailbox(conn, "archive")
+            if dest:
+                _uid_move(conn, uid_blob, dest)
+            else:
+                _uid_store(conn, uid_blob, "+FLAGS", r"(\Deleted)")
+                _uid_expunge(conn, uid_blob)
+            verb = f"Archived {len(uids)} message(s) out of Inbox"
+        elif action == "mark_read":
+            _uid_store(conn, uid_blob, "+FLAGS", r"(\Seen)")
+            verb = f"Marked {len(uids)} message(s) read"
+        elif action == "mark_unread":
+            _uid_store(conn, uid_blob, "-FLAGS", r"(\Seen)")
+            verb = f"Marked {len(uids)} message(s) unread"
+        elif action == "move":
+            dest = str(kwargs.get("folder") or "").strip().strip('"')
+            if not dest:
+                return ToolResult(
+                    ok=False,
+                    output="move needs folder (a mailbox or Gmail label from folders).",
+                )
+            _uid_move(conn, uid_blob, dest)
+            verb = f"Moved {len(uids)} message(s) to {dest}"
+        else:
+            return ToolResult(ok=False, output=f"Unknown action {action!r}.")
+        named = "; ".join(labels) if labels else uid_blob
+        return ToolResult(
+            ok=True,
+            output=f"{verb}: {named}.",
+            data={"action": action, "ids": uids, "subjects": labels},
+        )
+
+    def _peek_labels(self, conn: imaplib.IMAP4_SSL, uids: list[str]) -> list[str]:
+        out: list[str] = []
+        for uid in uids[:20]:
+            headers = self._headers(conn, uid)
+            if headers is None:
+                out.append(uid)
+            else:
+                out.append(f"{headers.subject} ({headers.sender})")
+        return out
+
+
+def fill_inbox_args(
+    args: dict[str, Any],
+    *,
+    user_text: str = "",
+    last_hits: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Fill trash/archive/mark/move ids from the last list or search."""
+    out = dict(args)
+    action = str(out.get("action") or "").strip().lower()
+    if action == "delete":
+        out["action"] = "trash"
+        action = "trash"
+    if action not in {"trash", "archive", "mark_read", "mark_unread", "move"}:
+        return out
+    if str(out.get("id") or "").strip():
+        return out
+    hits = list(last_hits or [])
+    sender = str(out.get("sender") or "").strip()
+    if not sender:
+        match = _FROM_IN_ASK.search(user_text or "")
+        if match:
+            sender = match.group(1)
+    if sender:
+        needle = sender.lower()
+        filtered = [
+            h
+            for h in hits
+            if needle in str(h.get("from") or "").lower()
+            or needle in str(h.get("sender") or "").lower()
+        ]
+        if filtered:
+            hits = filtered
+    ids = [str(h.get("id") or "").strip() for h in hits if str(h.get("id") or "").strip()]
+    if ids:
+        out["id"] = ",".join(ids[:20])
+    return out
+
+
+def draft_inbox_mutate_args(
+    user_text: str,
+    last_hits: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """trash when last_hits name the mail; otherwise search so the next fill can."""
+    filled = fill_inbox_args(
+        {"action": "trash"},
+        user_text=user_text,
+        last_hits=last_hits,
+    )
+    if str(filled.get("id") or "").strip():
+        return filled
+    match = _FROM_IN_ASK.search(user_text or "")
+    sender = match.group(1) if match else ""
+    if sender:
+        return {"action": "search", "sender": sender}
+    return {"action": "search", "text": " ".join((user_text or "").split())[:80]}
 
 
 # ------------------------------------------------------------------ helpers
@@ -420,7 +665,30 @@ def extract_body(message: Message) -> tuple[str, list[str]]:
         _, body = extract_text("\n".join(html_parts))
     else:
         body = ""
-    return body.strip(), attachments
+    return _clean_mail_body(body), attachments
+
+
+_INVISIBLE_MAIL = re.compile(
+    r"[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f"
+    r"\u034f\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]"
+)
+
+
+def _clean_mail_body(text: str) -> str:
+    """Drop format/invisible sludge (ZWSP, CGJ) and collapse empty-line runs."""
+    raw = _INVISIBLE_MAIL.sub("", text or "")
+    lines: list[str] = []
+    blank = 0
+    for line in raw.splitlines():
+        clipped = line.rstrip()
+        if not clipped.strip():
+            blank += 1
+            if blank <= 1:
+                lines.append("")
+            continue
+        blank = 0
+        lines.append(clipped)
+    return "\n".join(lines).strip()
 
 
 def _list_criteria(action: str, kwargs: dict[str, Any]) -> list[str]:
@@ -494,6 +762,102 @@ def _status_int(text: str, key: str) -> int:
         return int(match.group(1))
     except ValueError:
         return 0
+
+
+def _parse_uids(raw: str) -> list[str]:
+    parts = [p for p in _UID_SPLIT.split((raw or "").strip()) if p]
+    return [p for p in parts if p.isdigit()][:20]
+
+
+def _list_mailboxes(conn: imaplib.IMAP4_SSL) -> list[tuple[str, frozenset[str]]]:
+    try:
+        status, data = conn.list()
+    except (imaplib.IMAP4.error, OSError):
+        return []
+    if status != "OK" or not data:
+        return []
+    out: list[tuple[str, frozenset[str]]] = []
+    for raw in data:
+        parsed = _parse_mailbox_list_line(raw)
+        if parsed is not None:
+            out.append(parsed)
+    return out
+
+
+def _parse_mailbox_list_line(raw: Any) -> tuple[str, frozenset[str]] | None:
+    text = _as_text(raw).strip()
+    if not text.startswith("("):
+        return None
+    close = text.find(")")
+    if close < 0:
+        return None
+    flags = frozenset(
+        a.lstrip("\\").lower() for a in text[1:close].split() if a and a != "\\noselect"
+    )
+    rest = text[close + 1 :].strip()
+    if rest.startswith('"'):
+        end = rest.find('"', 1)
+        rest = rest[end + 1 :].strip() if end >= 0 else rest
+    name = rest.strip()
+    if name.startswith('"') and name.endswith('"') and len(name) >= 2:
+        name = name[1:-1]
+    name = name.replace('\\"', '"')
+    if not name:
+        return None
+    return name, flags
+
+
+def _special_mailbox(conn: imaplib.IMAP4_SSL, kind: str) -> str:
+    want = kind.lower()
+    aliases = {
+        "trash": frozenset({"trash"}),
+        "all": frozenset({"all", "allmail"}),
+        "archive": frozenset({"archive"}),
+    }
+    wanted = aliases.get(want, frozenset({want}))
+    for name, flags in _list_mailboxes(conn):
+        lowered = {f.replace("\\", "") for f in flags}
+        if lowered & wanted:
+            return name
+        leaf = name.replace("\\", "/").rsplit("/", 1)[-1].lower()
+        if want == "trash" and leaf in {"trash", "bin"}:
+            return name
+        if want == "all" and leaf in {"all mail", "allmail"}:
+            return name
+    return ""
+
+
+def _uid_store(conn: imaplib.IMAP4_SSL, uids: str, op: str, flags: str) -> None:
+    status, data = conn.uid("STORE", uids, op, flags)
+    if status != "OK":
+        detail = _as_text(data[0] if data else status)
+        raise imaplib.IMAP4.error(f"STORE failed: {detail}")
+
+
+def _uid_expunge(conn: imaplib.IMAP4_SSL, uids: str) -> None:
+    try:
+        status, _ = conn.uid("EXPUNGE", uids)
+        if status == "OK":
+            return
+    except (imaplib.IMAP4.error, TypeError, AttributeError):
+        pass
+    conn.expunge()
+
+
+def _uid_move(conn: imaplib.IMAP4_SSL, uids: str, dest: str) -> None:
+    quoted = _quote(dest)
+    try:
+        status, data = conn.uid("MOVE", uids, quoted)
+    except (imaplib.IMAP4.error, TypeError, AttributeError):
+        status, data = "NO", []
+    if status == "OK":
+        return
+    status, data = conn.uid("COPY", uids, quoted)
+    if status != "OK":
+        detail = _as_text(data[0] if data else status)
+        raise imaplib.IMAP4.error(f"Could not copy to {dest}: {detail}")
+    _uid_store(conn, uids, "+FLAGS", r"(\Deleted)")
+    _uid_expunge(conn, uids)
 
 
 def _quote(value: str) -> str:

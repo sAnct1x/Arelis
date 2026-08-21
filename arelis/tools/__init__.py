@@ -3,9 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from arelis.calendar.secrets import calendar_connected
 from arelis.llm.ollama import OllamaProvider
 from arelis.llm.router import ModelRouter
-from arelis.calendar.secrets import calendar_connected
 from arelis.location import build_location
 from arelis.mail import Mailer, load_account
 from arelis.memory import MemoryStore
@@ -46,6 +46,7 @@ from arelis.tools.scrape import ScrapeTool
 from arelis.tools.search import build_search_tool
 from arelis.tools.sms_send import SendSmsTool
 from arelis.tools.tasks import TasksTool
+from arelis.tools.tile import TileTool
 from arelis.tools.units import UnitsTool
 from arelis.tools.user_location import UserLocationTool
 from arelis.tools.vision import VisionTool
@@ -86,6 +87,11 @@ def build_tool_registry(
     """
     registry = ToolRegistry()
     workspace = workspace or WorkspaceRoots.from_config(config)
+    # One RoomStore for rooms, documents, plots, and the orchestrator.
+    # Created here so a write in a room lands in that project's folder even
+    # if the rooms tool is later turned off.
+    if config.get("_rooms") is None:
+        config["_rooms"] = RoomStore()
     tools_cfg = config.get("tools", {})
     agent_cfg = config.get("agent", {})
     web_cfg = tools_cfg.get("web", {})
@@ -136,15 +142,9 @@ def build_tool_registry(
         registry.register(ContactsTool())
 
     if tools_cfg.get("rooms", {}).get("enabled", True):
-        # The store is put on the config here rather than built inside the tool
-        # so the orchestrator, the agent loop and this tool all read the same
-        # one. A tool with a private copy would create rooms that the command
-        # entering them cannot see until something reloads the file.
-        rooms_store = config.get("_rooms")
-        if rooms_store is None:
-            rooms_store = RoomStore()
-            config["_rooms"] = rooms_store
-        registry.register(RoomsTool(rooms_store))
+        # Same store the document tool holds. Created at the top of this
+        # function so both tools and the orchestrator see one object.
+        registry.register(RoomsTool(config["_rooms"]))
 
     web_fetch_tool: WebFetchTool | None = None
     if web_cfg.get("enabled", True):
@@ -244,6 +244,7 @@ def build_tool_registry(
                 timeout_s=timeout,
                 max_messages=int(email_cfg.get("max_messages", 20)),
                 max_body_chars=int(email_cfg.get("max_body_chars", 4000)),
+                allow_mutate=allow_send,
             )
             registry.register(inbox_tool)
             # Scheduling exists to deliver mail, so it follows the same gate.
@@ -300,11 +301,11 @@ def build_tool_registry(
         registry.register(CatalogTool())
     # Charts write a PNG (Allow). Jobs skip — nobody is there to approve the file.
     if allow_send and (tools_cfg.get("plot") or {}).get("enabled", True):
-        registry.register(PlotTool(workspace))
+        registry.register(PlotTool(workspace, config["_rooms"]))
     # PDF / Word / Excel / CSV / markdown. Allow. Jobs skip — nobody is there
     # to approve a file landing on disk.
     if allow_send and (tools_cfg.get("document") or {}).get("enabled", True):
-        registry.register(DocumentTool(workspace, config.get("_rooms")))
+        registry.register(DocumentTool(workspace, config["_rooms"]))
     registry.register(CodeWorkspaceTool(workspace))
     # Read-only git; same roots as workspace. Always on when workspace is.
     registry.register(GitInfoTool(workspace))
@@ -401,4 +402,7 @@ def build_tool_registry(
             max_read_chars=int(browser_cfg.get("max_read_chars") or 3500),
         )
         registry.register(BrowserTool(session, aliases=aliases))
+    # View-menu tiles. Attended only — there is no window in a job.
+    if allow_send:
+        registry.register(TileTool())
     return registry

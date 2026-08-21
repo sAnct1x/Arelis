@@ -218,10 +218,66 @@ def test_the_retry_is_what_covers_an_instance_still_starting_up(monkeypatch) -> 
     from arelis.presence import activate
     from arelis.ui import app as app_module
 
+    class _StillHeld:
+        path = Path("unused")
+
+        def acquire(self) -> bool:
+            return False
+
     answers = iter([False, True])
     monkeypatch.setattr(activate, "activate_existing_ui", lambda _cfg: next(answers))
     monkeypatch.setattr(time, "sleep", lambda _s: None)
-    assert app_module._raise_running_instance({}) == 0
+    assert app_module._second_launch({}, _StillHeld()) == 0
+
+
+def test_second_launch_opens_once_the_first_one_has_exited(monkeypatch) -> None:
+    """Quit drops IPC before the lock; a shortcut in that gap must wait, not stack."""
+    from arelis.presence import activate
+    from arelis.ui import app as app_module
+
+    class _ThenFree:
+        path = Path("unused")
+        n = 0
+
+        def acquire(self) -> bool:
+            self.n += 1
+            return self.n >= 2
+
+    monkeypatch.setattr(activate, "activate_existing_ui", lambda _cfg: False)
+    monkeypatch.setattr(time, "sleep", lambda _s: None)
+    assert app_module._second_launch({}, _ThenFree()) is None
+
+
+def test_second_launch_that_never_hears_back_says_so(monkeypatch, qt_app) -> None:
+    from arelis.presence import activate
+    from arelis.ui import app as app_module
+    from arelis.ui import dialog
+
+    class _Held:
+        path = Path("unused")
+
+        def acquire(self) -> bool:
+            return False
+
+    monkeypatch.setattr(activate, "activate_existing_ui", lambda _cfg: False)
+    monkeypatch.setattr(time, "sleep", lambda _s: None)
+    monkeypatch.setattr(app_module, "_HANDOFF_MAX_TRIES", 2)
+    told: list[str] = []
+    monkeypatch.setattr(
+        dialog, "notice", lambda *a, **k: told.append(str(a[1]) if len(a) > 1 else "")
+    )
+    assert app_module._second_launch({}, _Held()) == 1
+    assert told
+
+
+def test_activation_is_ignored_while_quitting(arelis_window) -> None:
+    """Raising a dying window is how a tray-quit relaunch stacked two glasses."""
+    window = arelis_window()
+    window.hide()
+    window._force_quit = True
+    window._on_activation_request()
+    window.show_from_tray()
+    assert window.isHidden()
 
 
 def test_draining_the_loop_cancels_what_is_still_running() -> None:

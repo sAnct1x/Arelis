@@ -1,4 +1,8 @@
-"""Resolve the last written document for 'email that' / 'open that' / export."""
+"""Resolve the last written file for 'email that' / 'open that' / export.
+
+Documents stay office files. Charts (PNG) share the open / show-in-folder
+path so History and 'open that' still work after a plot.
+"""
 
 from __future__ import annotations
 
@@ -9,21 +13,23 @@ from typing import Any
 from arelis.paths import outputs_dir
 
 _DOC_SUFFIXES = frozenset({".pdf", ".docx", ".xlsx", ".csv", ".md", ".txt"})
+_OPEN_SUFFIXES = _DOC_SUFFIXES | {".png"}
+_OPENABLE_TOOLS = frozenset({"document", "plot"})
 
 _PATH_MENTION = re.compile(
     r"(?i)("
     r"(?:[A-Za-z]:[\\/][^\s\"'<>|]+[/\\])?"
-    r"(?:outputs[/\\]documents[/\\]|documents[/\\])"
-    r"[^\s\"'<>|]+\.(?:pdf|docx|xlsx|csv|md|txt)"
+    r"(?:outputs[/\\](?:documents|plots)[/\\]|(?:documents|plots)[/\\])"
+    r"[^\s\"'<>|]+\.(?:pdf|docx|xlsx|csv|md|txt|png)"
     r"|"
-    r"[A-Za-z]:[\\/][^\s\"'<>|]+\.(?:pdf|docx|xlsx|csv|md|txt)"
+    r"[A-Za-z]:[\\/][^\s\"'<>|]+\.(?:pdf|docx|xlsx|csv|md|txt|png)"
     r")"
 )
 
 _JUST_DOCUMENT = re.compile(
     r"(?i)\b("
     r"(?:just\s+)?(?:wrote|created|made|saved|exported)|"
-    r"(?:this|that|the)\s+(?:file|document|pdf|docx|spreadsheet|csv|markdown|note)|"
+    r"(?:this|that|the)\s+(?:file|document|pdf|docx|spreadsheet|csv|markdown|note|chart|graph|plot)|"
     r"the\s+(?:file|document|pdf)\s+(?:you|we)\s+(?:just\s+)?"
     r"(?:wrote|created|made|saved|exported)"
     r")\b"
@@ -51,15 +57,25 @@ _EXPORT = re.compile(
     r")\b"
 )
 
+_REVEAL_LAST = re.compile(
+    r"(?i)^\s*(?:please\s+)?"
+    r"(?:"
+    r"(?:show|open)\s+(?:that|this|it)"
+    r"(?:\s+(?:file|document|chart|graph|plot))?"
+    r"|"
+    r"(?:show|open)\s+the\s+(?:file|document|chart|graph|plot)"
+    r")\s+"
+    r"in\s+(?:explorer|the\s+folder|folder|finder)"
+    r"\s*[.!]?\s*$"
+)
+
 _OPEN_LAST = re.compile(
     r"(?i)^\s*(?:please\s+)?"
     r"(?:"
     r"(?:open|show)\s+(?:that|this|it)\b"
-    r"(?:\s+(?:file|document|pdf|docx|spreadsheet|csv|markdown|note))?"
+    r"(?:\s+(?:file|document|pdf|docx|spreadsheet|csv|markdown|note|chart|graph|plot|png))?"
     r"|"
-    r"(?:open|show)\s+the\s+(?:file|document|pdf|docx|spreadsheet|csv|markdown|note)\b"
-    r"|"
-    r"show\s+(?:that|this|it|the\s+file)\s+in\s+(?:explorer|folder|finder)"
+    r"(?:open|show)\s+the\s+(?:file|document|pdf|docx|spreadsheet|csv|markdown|note|chart|graph|plot|png)\b"
     r")\s*[.!]?\s*$"
 )
 
@@ -88,9 +104,17 @@ def detect_document_export(text: str) -> bool:
     return bool(_EXPORT.search(text or ""))
 
 
+def match_reveal_last_document(text: str) -> bool:
+    """True for a whole-utterance 'show that in folder' / Explorer."""
+    return bool(_REVEAL_LAST.match((text or "").strip()))
+
+
 def match_open_last_document(text: str) -> bool:
     """True for a whole-utterance 'open that' / 'open the file'."""
-    return bool(_OPEN_LAST.match((text or "").strip()))
+    raw = (text or "").strip()
+    if match_reveal_last_document(raw):
+        return False
+    return bool(_OPEN_LAST.match(raw))
 
 
 def format_from_text(text: str) -> str:
@@ -128,18 +152,23 @@ def _history_pairs(history: list[Any] | None) -> list[tuple[str, str, str]]:
     return out
 
 
-def _usable_file(raw: str) -> str:
+def _usable_file(
+    raw: str, *, suffixes: frozenset[str] | None = None
+) -> str:
+    allowed = suffixes if suffixes is not None else _OPEN_SUFFIXES
     text = (raw or "").strip().strip("\"'`")
     if not text:
         return ""
     path = Path(text)
     if not path.is_file():
-        alt = outputs_dir() / "documents" / path.name
-        if alt.is_file():
-            path = alt
+        for folder in (outputs_dir() / "documents", outputs_dir() / "plots"):
+            alt = folder / path.name
+            if alt.is_file():
+                path = alt
+                break
         else:
             return ""
-    if path.suffix.lower() not in _DOC_SUFFIXES:
+    if path.suffix.lower() not in allowed:
         return ""
     try:
         return str(path.resolve())
@@ -147,20 +176,20 @@ def _usable_file(raw: str) -> str:
         return ""
 
 
-def latest_document_path(
-    history: list[Any] | None = None,
-    receipts: list[Any] | None = None,
+def _latest_named_file(
+    history: list[Any] | None,
+    receipts: list[Any] | None,
+    *,
+    tools: frozenset[str],
+    suffixes: frozenset[str],
 ) -> str:
-    """Newest written document in this thread, or empty."""
     for rec in reversed(list(receipts or [])):
         if not isinstance(rec, dict):
             continue
-        if str(rec.get("tool") or rec.get("action") or "") not in {
-            "document",
-        }:
+        if str(rec.get("tool") or rec.get("action") or "") not in tools:
             continue
         for key in ("abs_path", "path"):
-            hit = _usable_file(str(rec.get(key) or ""))
+            hit = _usable_file(str(rec.get(key) or ""), suffixes=suffixes)
             if hit:
                 return hit
     blobs: list[str] = []
@@ -169,10 +198,58 @@ def latest_document_path(
             blobs.append(f"{content}\n{note}")
     for blob in blobs:
         for match in reversed(list(_PATH_MENTION.finditer(blob))):
-            hit = _usable_file(match.group(1))
+            hit = _usable_file(match.group(1), suffixes=suffixes)
             if hit:
                 return hit
     return ""
+
+
+def latest_document_path(
+    history: list[Any] | None = None,
+    receipts: list[Any] | None = None,
+) -> str:
+    """Newest written office file in this thread, or empty.
+
+    Charts are not documents. Use latest_openable_path for 'open that'
+    after a plot.
+    """
+    return _latest_named_file(
+        history,
+        receipts,
+        tools=frozenset({"document"}),
+        suffixes=_DOC_SUFFIXES,
+    )
+
+
+def latest_openable_path(
+    history: list[Any] | None = None,
+    receipts: list[Any] | None = None,
+) -> str:
+    """Newest written file this thread can open — document or chart."""
+    return _latest_named_file(
+        history,
+        receipts,
+        tools=_OPENABLE_TOOLS,
+        suffixes=_OPEN_SUFFIXES,
+    )
+
+
+def files_in_turn(content: str, note: str = "") -> list[tuple[str, str]]:
+    """Existing written files named in this turn, oldest first.
+
+    Used to rebuild the open / show-in-folder card when History or a room
+    comes back. Missing files are skipped — a dead link is worse than none.
+    """
+    seen: set[str] = set()
+    out: list[tuple[str, str]] = []
+    blob = f"{content or ''}\n{note or ''}"
+    for match in _PATH_MENTION.finditer(blob):
+        hit = _usable_file(match.group(1), suffixes=_OPEN_SUFFIXES)
+        if not hit or hit in seen:
+            continue
+        seen.add(hit)
+        out.append((Path(hit).name, hit))
+    return out
 
 
 def fill_document_args(

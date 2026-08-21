@@ -13,6 +13,26 @@ from arelis.tools.cas import CasTool, parse_cas_expr
 from arelis.workspace import WorkspaceRoots
 
 
+def test_importing_cas_does_not_load_sympy() -> None:
+    """build_tool_registry imports CasTool on every launch; SymPy must stay lazy."""
+    import ast
+    from pathlib import Path
+
+    tree = ast.parse(
+        (Path(__file__).resolve().parents[1] / "arelis" / "tools" / "cas.py").read_text(
+            encoding="utf-8"
+        )
+    )
+    top: list[str] = []
+    for node in tree.body:
+        if isinstance(node, ast.Import):
+            top.extend(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            top.append(node.module)
+    assert "sympy" not in top
+    assert not any(name.startswith("sympy") for name in top)
+
+
 def test_parse_rejects_import_and_attributes() -> None:
     for expr in (
         "__import__('os').system('echo hi')",

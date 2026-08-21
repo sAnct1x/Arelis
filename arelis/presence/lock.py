@@ -115,6 +115,10 @@ class PresenceLock:
         fh.write(str(os.getpid()))
         fh.flush()
         self._fh = fh
+        try:
+            _pid_sidecar(self.path).write_text(str(os.getpid()), encoding="utf-8")
+        except OSError:
+            pass
         return True
 
     def release(self) -> None:
@@ -142,6 +146,10 @@ class PresenceLock:
                 self.path.unlink(missing_ok=True)
             except OSError:
                 pass
+            try:
+                _pid_sidecar(self.path).unlink(missing_ok=True)
+            except OSError:
+                pass
         if mutex is not None and os.name == "nt":
             try:
                 import ctypes
@@ -149,6 +157,70 @@ class PresenceLock:
                 ctypes.windll.kernel32.CloseHandle(mutex)  # type: ignore[attr-defined]
             except Exception:
                 pass
+
+
+def _pid_sidecar(path: Path | str) -> Path:
+    """Unlocked neighbour of the lock file, so a waiter can read the holder pid."""
+    lock = Path(path)
+    return lock.with_name(lock.name + ".pid")
+
+
+def lock_file_pid(path: Path | str) -> int | None:
+    """PID of the process that holds this lock, if we can read it.
+
+    Windows mandatory-locks the first byte of the lock file itself, so another
+    handle cannot read that file while it is held. The pid is also written to a
+    sidecar that is not locked.
+    """
+    lock = Path(path)
+    for candidate in (_pid_sidecar(lock), lock):
+        try:
+            raw = candidate.read_text(encoding="utf-8").strip()
+        except OSError:
+            continue
+        if not raw:
+            continue
+        token = raw.split()[0]
+        try:
+            pid = int(token)
+        except ValueError:
+            continue
+        if pid > 0:
+            return pid
+    return None
+
+
+def pid_is_alive(pid: int) -> bool:
+    """True when that OS process still exists."""
+    if pid <= 0:
+        return False
+    if os.name == "nt":
+        import ctypes
+
+        kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+        process_query_limited = 0x1000
+        still_active = 259
+        access_denied = 5
+        kernel32.SetLastError(0)
+        handle = kernel32.OpenProcess(process_query_limited, False, int(pid))
+        if not handle:
+            return int(kernel32.GetLastError()) == access_denied
+        try:
+            code = ctypes.c_ulong()
+            if not kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
+                return True
+            return int(code.value) == still_active
+        finally:
+            kernel32.CloseHandle(handle)
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+    return True
 
 
 def lock_held_by_other(path: Path | str) -> bool:

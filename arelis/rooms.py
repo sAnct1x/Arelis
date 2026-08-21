@@ -141,7 +141,7 @@ KINDS: dict[str, RoomKind] = {
         skills=("workspace", "analyze", "science", "calculator"),
         blurb=(
             "Data, maths, plots, and named catalogs over files that already exist. "
-            "Charts use plot (Allow)."
+            "Charts use plot (Allow) and land in the project's plots folder."
         ),
     ),
     "writing": RoomKind(

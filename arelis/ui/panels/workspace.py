@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QPixmap
+from PySide6.QtCore import QSize, Qt, Signal
+from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import (
     QComboBox,
     QFileDialog,
@@ -13,17 +13,146 @@ from PySide6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QPlainTextEdit,
-    QPushButton,
     QSizePolicy,
     QSplitter,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
+from arelis.ui.code_highlight import QuietPythonHighlighter
+from arelis.ui.icons import (
+    browse_file_icon,
+    browse_folder_icon,
+    file_open_icon,
+    file_save_icon,
+    folder_minus_icon,
+    folder_new_icon,
+    folder_plus_icon,
+    folder_up_icon,
+    refresh_icon,
+)
 from arelis.ui.theme import METRICS
 
 # Cap browse listing the same way the workspace tool caps directory list.
 _MAX_BROWSE_ENTRIES = 500
+_JUNK_DIR_NAMES = frozenset(
+    {
+        "__pycache__",
+        "node_modules",
+        "venv",
+        ".venv",
+        ".git",
+        ".hg",
+        ".svn",
+        ".pytest_cache",
+        ".ruff_cache",
+        ".mypy_cache",
+        ".tox",
+        ".eggs",
+        ".cursor",
+    }
+)
+_LOG_LINES = 12
+_STATUS_HEIGHT = METRICS["row"] + 4
+_STATUS_CHARS = 240
+
+
+def _icon_btn(glyph: QIcon, tip: str) -> QToolButton:
+    btn = QToolButton()
+    btn.setObjectName("InstrumentIcon")
+    btn.setText("")
+    btn.setIcon(glyph)
+    btn.setIconSize(QSize(16, 16))
+    btn.setFixedSize(METRICS["row"], METRICS["row"])
+    btn.setMinimumHeight(METRICS["row"])
+    btn.setMaximumHeight(METRICS["row"])
+    btn.setToolTip(tip)
+    btn.setAccessibleName(tip)
+    btn.setCursor(Qt.CursorShape.PointingHandCursor)
+    btn.setAutoRaise(False)
+    btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+    btn.setFocusPolicy(Qt.FocusPolicy.TabFocus)
+    return btn
+
+
+def _clip_log(text: str, limit: int = _LOG_LINES) -> str:
+    lines = text.splitlines()
+    if len(lines) <= limit:
+        return text.rstrip("\n")
+    extra = len(lines) - limit
+    return "\n".join(lines[:limit]) + f"\n[{extra} more lines not shown]"
+
+
+def _first_status_line(text: str) -> str:
+    line = (text or "").strip().splitlines()[0] if text else ""
+    return line[:_STATUS_CHARS]
+
+
+def is_workspace_listing(action: str, output: str, abs_path: str = "") -> bool:
+    """True when the result is a directory listing, not a file body."""
+    act = (action or "").strip().lower()
+    if act == "list":
+        return True
+    if act:
+        return False
+    line = (output or "").lstrip()
+    if line.startswith("[dir]") or line.startswith("[file]"):
+        return True
+    if not abs_path:
+        return False
+    try:
+        return Path(abs_path).is_dir()
+    except OSError:
+        return False
+
+
+def status_for_tool_result(
+    tool: str,
+    *,
+    ok: bool,
+    action: str = "",
+    output: str = "",
+) -> str | None:
+    """One line for the dock strip, or None when the well should stay quiet.
+
+    Listings belong in browse. File bodies belong in the editor. Analyze
+    tables belong in chat. The strip is Wrote / Edited / a failure.
+    """
+    line = _first_status_line(output)
+    name = (tool or "").strip()
+    act = (action or "").strip().lower()
+    if name == "analyze":
+        return line if (not ok and line) else None
+    if name in {"image", "image_edit"}:
+        return line if (not ok and line) else None
+    if name != "workspace":
+        return None
+    if not ok:
+        return line or None
+    if act in {"list", "read"}:
+        return None
+    if act in {"write", "edit"}:
+        return line or None
+    lowered = line.lower()
+    if lowered.startswith("wrote ") or lowered.startswith("edited "):
+        return line
+    if line.startswith("[dir]") or line.startswith("[file]"):
+        return None
+    return None
+
+
+def _browse_junk(path: Path) -> bool:
+    name = path.name
+    if name.endswith(".pyc") or name.endswith(".pyo"):
+        return True
+    if not path.is_dir():
+        return False
+    if name.startswith("."):
+        return True
+    if name in _JUNK_DIR_NAMES:
+        return True
+    return name.endswith(".egg-info")
 
 
 class WorkspacePanel(QWidget):
@@ -63,16 +192,10 @@ class WorkspacePanel(QWidget):
         self.project_combo.currentTextChanged.connect(self._on_project_changed)
         self.path_edit = QLineEdit()
         self.path_edit.setObjectName("InstrumentSearch")
-        self.path_edit.setPlaceholderText("path under allowed roots…")
+        self.path_edit.setPlaceholderText("file in this project…")
         self.path_edit.setFixedHeight(METRICS["row"])
-        self.open_btn = QPushButton("open")
-        self.open_btn.setObjectName("InstrumentAction")
-        self.save_btn = QPushButton("save")
-        self.save_btn.setObjectName("InstrumentAction")
-        self.open_btn.setFixedHeight(METRICS["row"])
-        self.save_btn.setFixedHeight(METRICS["row"])
-        self.open_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.save_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.open_btn = _icon_btn(file_open_icon(16), "Open file")
+        self.save_btn = _icon_btn(file_save_icon(16), "Save file")
         path_row.addWidget(self.project_combo)
         path_row.addWidget(self.path_edit, stretch=1)
         path_row.addWidget(self.open_btn)
@@ -81,54 +204,40 @@ class WorkspacePanel(QWidget):
 
         roots_row = QHBoxLayout()
         roots_row.setSpacing(6)
-        root_actions = (
-            (
-                "add folder",
-                "Add an existing folder as a workspace root",
-                self.add_root_requested.emit,
-            ),
-            (
-                "new folder",
-                "Create a folder and add it as a workspace root",
-                self.new_root_requested.emit,
-            ),
-            (
-                "remove",
-                "Remove the active project from the workspace (files stay on disk)",
-                self.remove_root_requested.emit,
-            ),
+        self.add_root_btn = _icon_btn(
+            folder_plus_icon(16),
+            "Add an existing folder as a project",
         )
-        for label, tip, slot in root_actions:
-            btn = QPushButton(label)
-            btn.setObjectName("InstrumentAction")
-            btn.setFixedHeight(METRICS["row"])
-            btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn.setToolTip(tip)
-            btn.clicked.connect(slot)
-            roots_row.addWidget(btn)
-        roots_row.addStretch(1)
+        self.new_root_btn = _icon_btn(
+            folder_new_icon(16),
+            "Create a folder and add it as a project",
+        )
+        self.remove_root_btn = _icon_btn(
+            folder_minus_icon(16),
+            "Remove this project from the workspace — files stay on disk",
+        )
+        self.add_root_btn.clicked.connect(self.add_root_requested.emit)
+        self.new_root_btn.clicked.connect(self.new_root_requested.emit)
+        self.remove_root_btn.clicked.connect(self.remove_root_requested.emit)
+        roots_row.addWidget(self.add_root_btn)
+        roots_row.addWidget(self.new_root_btn)
+        roots_row.addWidget(self.remove_root_btn)
+        self.recent_combo = QComboBox()
+        self.recent_combo.setObjectName("InstrumentCombo")
+        self.recent_combo.setFixedHeight(METRICS["row"])
+        self.recent_combo.setMinimumWidth(160)
+        self.recent_combo.setToolTip("Recently opened or saved files")
+        self.recent_combo.setPlaceholderText("recent")
+        self.recent_combo.activated.connect(self._on_recent_activated)
+        roots_row.addWidget(self.recent_combo, stretch=1)
         self.dirty_label = QLabel("")
         self.dirty_label.setObjectName("InstrumentHint")
         roots_row.addWidget(self.dirty_label)
         layout.addLayout(roots_row)
 
-        recent_row = QHBoxLayout()
-        recent_row.setSpacing(6)
-        recent_label = QLabel("recent")
-        recent_label.setObjectName("InstrumentHint")
-        self.recent_combo = QComboBox()
-        self.recent_combo.setObjectName("InstrumentCombo")
-        self.recent_combo.setFixedHeight(METRICS["row"])
-        self.recent_combo.setMinimumWidth(160)
-        self.recent_combo.setToolTip("Recently opened or saved workspace files")
-        self.recent_combo.activated.connect(self._on_recent_activated)
-        recent_row.addWidget(recent_label)
-        recent_row.addWidget(self.recent_combo, stretch=1)
-        layout.addLayout(recent_row)
-
         self.root_label = QLabel("")
         self.root_label.setObjectName("InstrumentHint")
-        layout.addWidget(self.root_label)
+        self.root_label.hide()
 
         self.split = QSplitter(Qt.Orientation.Horizontal)
 
@@ -141,25 +250,23 @@ class WorkspacePanel(QWidget):
         browse_head.setSpacing(6)
         self.browse_label = QLabel("browse")
         self.browse_label.setObjectName("InstrumentHint")
-        up_btn = QPushButton("up")
-        up_btn.setObjectName("InstrumentAction")
-        up_btn.setFixedHeight(METRICS["row"])
-        up_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        up_btn.clicked.connect(self._browse_up)
-        refresh_btn = QPushButton("refresh")
-        refresh_btn.setObjectName("InstrumentAction")
-        refresh_btn.setFixedHeight(METRICS["row"])
-        refresh_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        refresh_btn.clicked.connect(self.refresh_browse)
+        self.up_btn = _icon_btn(folder_up_icon(16), "Up one folder")
+        self.up_btn.clicked.connect(self._browse_up)
+        self.refresh_btn = _icon_btn(refresh_icon(16), "Refresh this folder")
+        self.refresh_btn.clicked.connect(self.refresh_browse)
         browse_head.addWidget(self.browse_label, stretch=1)
-        browse_head.addWidget(up_btn)
-        browse_head.addWidget(refresh_btn)
+        browse_head.addWidget(self.up_btn)
+        browse_head.addWidget(self.refresh_btn)
         left_l.addLayout(browse_head)
         self.browse_list = QListWidget()
         # Not #OutputView: that is the code editor's rule and it set filenames
         # in the mono face, which made a folder listing look like a diff.
         self.browse_list.setObjectName("BrowseList")
+        self.browse_list.setIconSize(QSize(14, 14))
+        self.browse_list.setToolTip("Caches and dot-folders are hidden")
         self.browse_list.itemActivated.connect(self._on_browse_activated)
+        self._folder_icon = browse_folder_icon(14)
+        self._file_icon = browse_file_icon(14)
         left_l.addWidget(self.browse_list, stretch=1)
 
         mid = QWidget()
@@ -172,6 +279,8 @@ class WorkspacePanel(QWidget):
         self.editor.setPlaceholderText("file contents…")
         self.editor.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.editor.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
+        self._highlight = QuietPythonHighlighter(self.editor.document())
+        self._highlight.set_enabled(False)
         mid_l.addWidget(self.editor)
 
         right = QWidget()
@@ -180,7 +289,7 @@ class WorkspacePanel(QWidget):
         right_layout.setContentsMargins(0, 0, 0, 0)
         right_layout.setSpacing(6)
 
-        # Image is the hero when present; tool log collapses underneath.
+        # Image is the hero when present; otherwise this column collapses.
         self.image_label = QLabel()
         self.image_label.setMinimumHeight(220)
         self.image_label.setSizePolicy(
@@ -189,23 +298,31 @@ class WorkspacePanel(QWidget):
         self.image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.image_label.setObjectName("WorkspaceImageWell")
         self.image_label.hide()
-
-        self.output = QPlainTextEdit()
-        self.output.setObjectName("OutputView")
-        self.output.setReadOnly(True)
-        self.output.setPlaceholderText("tool output…")
-        self.output.setMaximumHeight(140)
-        self.output.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.output.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
-
-        right_layout.addWidget(self.image_label, stretch=5)
-        right_layout.addWidget(self.output, stretch=1)
+        right_layout.addWidget(self.image_label)
 
         self.split.addWidget(left)
         self.split.addWidget(mid)
         self.split.addWidget(right)
-        self.split.setSizes([200, 360, 320])
+        self.split.setStretchFactor(0, 0)
+        self.split.setStretchFactor(1, 1)
+        self.split.setStretchFactor(2, 0)
+        self.split.setCollapsible(0, False)
+        self.split.setCollapsible(1, False)
+        self.split.setCollapsible(2, True)
+        self.split.setSizes([220, 720, 0])
         layout.addWidget(self.split, stretch=1)
+
+        self.output = QPlainTextEdit()
+        self.output.setObjectName("OutputView")
+        self.output.setReadOnly(True)
+        self.output.setPlaceholderText("")
+        self.output.setFixedHeight(_STATUS_HEIGHT)
+        self.output.setMaximumBlockCount(1)
+        self.output.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.output.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.output.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
+        self.output.hide()
+        layout.addWidget(self.output)
 
         self.open_btn.clicked.connect(self._on_open)
         self.save_btn.clicked.connect(self._on_save)
@@ -258,12 +375,16 @@ class WorkspacePanel(QWidget):
         if name and path:
             self.root_label.setText(f"project: {name} — {path}")
             self.root_label.setToolTip(path)
-            self.root_label.show()
+            self.project_combo.setToolTip(path)
         elif name:
             self.root_label.setText(f"project: {name}")
-            self.root_label.show()
+            self.root_label.setToolTip("")
+            self.project_combo.setToolTip("Active project")
         else:
-            self.root_label.hide()
+            self.root_label.setText("")
+            self.root_label.setToolTip("")
+            self.project_combo.setToolTip("Active project")
+        self.root_label.hide()
 
     def _on_project_changed(self, name: str) -> None:
         if name and name in self._project_names:
@@ -291,6 +412,7 @@ class WorkspacePanel(QWidget):
         if root is None:
             self.browse_list.clear()
             self.browse_label.setText("browse")
+            self.browse_label.setToolTip("")
             return
         try:
             cwd = self._browse_cwd.resolve()
@@ -298,7 +420,8 @@ class WorkspacePanel(QWidget):
         except (OSError, ValueError):
             cwd = root.resolve()
             self._browse_cwd = cwd
-        self.browse_label.setText(f"browse · {cwd.name or cwd}")
+        self.browse_label.setText(cwd.name or str(cwd))
+        self.browse_label.setToolTip(str(cwd))
         self.browse_list.clear()
         try:
             entries = sorted(
@@ -306,15 +429,16 @@ class WorkspacePanel(QWidget):
             )
         except OSError:
             return
-        shown = entries[:_MAX_BROWSE_ENTRIES]
+        visible = [entry for entry in entries if not _browse_junk(entry)]
+        shown = visible[:_MAX_BROWSE_ENTRIES]
         for entry in shown:
-            kind = "[dir] " if entry.is_dir() else "[file] "
-            item = QListWidgetItem(kind + entry.name)
+            item = QListWidgetItem(entry.name)
+            item.setIcon(self._folder_icon if entry.is_dir() else self._file_icon)
             item.setData(Qt.ItemDataRole.UserRole, str(entry))
             self.browse_list.addItem(item)
-        if len(entries) > len(shown):
+        if len(visible) > len(shown):
             self.browse_list.addItem(
-                QListWidgetItem(f"[{len(entries) - len(shown)} more not shown]")
+                QListWidgetItem(f"[{len(visible) - len(shown)} more not shown]")
             )
 
     def _browse_up(self) -> None:
@@ -470,6 +594,9 @@ class WorkspacePanel(QWidget):
         self._loaded_abs = abs_path
         self._loaded_label = path
         self.editor.setPlainText(content)
+        self._highlight.set_enabled(
+            Path(abs_path or display).suffix.lower() in {".py", ".pyw"}
+        )
         self._sync_dirty()
         if abs_path:
             parent = Path(abs_path).parent
@@ -488,14 +615,32 @@ class WorkspacePanel(QWidget):
         self.refresh_browse()
         return True
 
+    def browse_to(self, abs_path: str, root_name: str = "") -> None:
+        """Point browse at a folder the workspace tool just listed."""
+        if root_name and root_name in self._project_names:
+            self.project_combo.blockSignals(True)
+            self.project_combo.setCurrentText(root_name)
+            self.project_combo.blockSignals(False)
+            self._sync_root_label(root_name)
+        if abs_path:
+            path = Path(abs_path)
+            try:
+                target = path if path.is_dir() else path.parent
+                if target.is_dir():
+                    self._browse_cwd = target
+            except OSError:
+                pass
+        self.refresh_browse()
+
     def append_output(self, text: str) -> None:
-        self.output.appendPlainText(text)
-        if self._image_mode:
-            self.output.setMaximumHeight(72)
-            self.output.show()
-        else:
-            self.output.setMaximumHeight(16777215)
-            self.output.show()
+        """One status line. A dump cannot become a third column again."""
+        line = _first_status_line(text)
+        if not line:
+            return
+        clipped = _clip_log(line, limit=1)
+        self.output.setPlainText(clipped)
+        self.output.setFixedHeight(_STATUS_HEIGHT)
+        self.output.show()
 
     def show_image(self, path: str) -> None:
         pix = QPixmap(path)
@@ -519,21 +664,21 @@ class WorkspacePanel(QWidget):
         self.image_label.setToolTip(str(Path(path)))
 
     def _set_image_mode(self, on: bool) -> None:
-        """When an image is showing: hide the empty editor, collapse empty log."""
+        """Image takes the right well; the editor yields. Status stays a strip."""
         self._image_mode = on
         if on:
             self.editor.hide()
-            self.output.setPlaceholderText("generation log…")
-            if not self.output.toPlainText().strip():
-                self.output.hide()
-            else:
-                self.output.setMaximumHeight(72)
-                self.output.show()
-            self.split.setSizes([160, 0, 640])
+            self.image_label.show()
+            self.split.setCollapsible(1, True)
+            self.split.setCollapsible(2, False)
+            self.split.setSizes([180, 0, 620])
         else:
             self.editor.show()
             self.image_label.hide()
+            self.split.setCollapsible(1, False)
+            self.split.setCollapsible(2, True)
+            self.split.setSizes([220, 700, 0])
+        if self.output.toPlainText().strip():
             self.output.show()
-            self.output.setMaximumHeight(140)
-            self.output.setPlaceholderText("tool output…")
-            self.split.setSizes([200, 360, 320])
+        else:
+            self.output.hide()

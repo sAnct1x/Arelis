@@ -139,6 +139,7 @@ _INBOX_PRE = re.compile(
     r"unread\s+(?:mail|email|e-?mail)|"
     r"(?:did\s+(?:i|you)|have\s+(?:i|you))\s+(?:get|got|received|check)(?:\s+any)?\s+(?:new\s+)?(?:mail|email|emiles?|emil)|"
     r"(?:emails?|emiles?)\s+today|"
+    r"(?:delete|trash|archive|remove)\s+(?:the\s+|that\s+|this\s+)?(?:e-?mail|mail|message)|"
     r"in\s+box"
     r")\b"
 )
@@ -159,6 +160,11 @@ _INBOX_EXACT = (
         re.I,
     ),
     re.compile(r"\b(?:emails?|mail|emiles?)\s+from\b", re.I),
+    re.compile(
+        r"\b(?:delete|trash|archive|remove)\s+(?:the\s+|that\s+|this\s+)?"
+        r"(?:e-?mail|mail|message)\b",
+        re.I,
+    ),
     re.compile(r"\bin\s+box\b", re.I),
 )
 

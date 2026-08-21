@@ -60,7 +60,7 @@ async def test_writes_pdf_with_pages(project, tool) -> None:
     result = await tool.run(
         format="pdf",
         title="Dirac equation",
-        body="# Dirac\n\nThe free Dirac equation is\n\n(i γ^μ ∂_μ − m) ψ = 0\n\n- spin 1/2\n- antimatter",
+        body="# Dirac\n\nThe free Dirac equation is\n\n(i γ^μ ∂_μ − m) ψ = 0\n\n- spin 1/2\n- antimatter",  # noqa: RUF001
     )
     assert result.ok, result.output
     dest = Path(result.data["abs_path"])
@@ -147,6 +147,12 @@ def test_document_needs_confirm_writes_and_skips_jobs(project) -> None:
         confirm_headline("document", {"filename": "dirac.pdf", "replace": "true"})
         == "replace dirac.pdf"
     )
+    assert registry.get("document").rooms is config["_rooms"]
+    detail = registry.describe_call(
+        "document", {"format": "md", "title": "Notes", "body": "hi"}
+    )
+    assert "you can open" in detail
+    assert "Lands in:" in detail
 
 
 def test_create_pdf_is_not_a_pdf_read() -> None:

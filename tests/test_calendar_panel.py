@@ -62,6 +62,8 @@ def test_calendar_furniture_is_one_height(qt_app) -> None:
             panel.sync_btn,
             panel.new_btn,
             panel.tasks_page.add_btn,
+            panel.jobs_page.save_btn,
+            panel.jobs_page.new_btn,
         ):
             assert widget.minimumHeight() == row, widget.objectName()
             assert widget.maximumHeight() == row, widget.objectName()
@@ -203,6 +205,59 @@ def test_agenda_close_tool_result_hides_the_calendar_window(
     qt_app.processEvents()
     assert window.calendar_window.isHidden()
     assert not window.act_calendar.isChecked()
+
+
+def test_jobs_tab_lists_a_saved_job(qt_app, tmp_path, monkeypatch) -> None:
+    from arelis.jobs import store as store_mod
+    from arelis.jobs.store import Job, upsert_job
+
+    path = tmp_path / "jobs.yaml"
+    monkeypatch.setattr(store_mod, "JOBS_PATH", path)
+    upsert_job(
+        Job(
+            id="morning-weather-email",
+            name="Morning weather email",
+            prompt="Weather for Springfield IL and Metropolis IL.",
+            times=["09:00"],
+            recipient="you@example.com",
+        )
+    )
+    panel = CalendarPanel()
+    try:
+        panel.reload_jobs()
+        panel.show_jobs_tab()
+        assert panel.tabs.currentWidget() is panel.jobs_page
+        assert panel.tabs.widget(1) is panel.tasks_page
+        assert panel.tabs.widget(2) is panel.jobs_page
+        assert panel.jobs_page.list.count() == 1
+        assert "Morning weather email" in panel.jobs_page.list.item(0).text()
+        assert panel.jobs_page.current_id() == "morning-weather-email"
+        assert "you@example.com" in panel.jobs_page.recipient_edit.text()
+    finally:
+        panel.hide()
+        panel.deleteLater()
+
+
+def test_schedule_tool_result_opens_the_jobs_tab(arelis_window, qt_app) -> None:
+    from arelis.core.events import Event, EventType
+
+    window = arelis_window()
+    assert window.calendar_window.isHidden()
+    window._on_event(
+        Event(
+            EventType.TOOL_RESULT,
+            {
+                "tool": "schedule",
+                "ok": True,
+                "output": "Scheduled 'Morning weather email'",
+                "data": {"id": "morning-weather-email", "registered": True},
+            },
+        )
+    )
+    qt_app.processEvents()
+    assert not window.calendar_window.isHidden()
+    assert window.act_calendar.isChecked()
+    assert window.calendar.tabs.currentWidget() is window.calendar.jobs_page
 
 
 def test_hung_calendar_sync_clears_inflight(arelis_window, qt_app) -> None:

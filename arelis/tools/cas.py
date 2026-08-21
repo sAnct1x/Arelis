@@ -11,13 +11,6 @@ import ast
 import concurrent.futures
 from typing import Any
 
-import sympy as sp
-from sympy.parsing.sympy_parser import (
-    convert_xor,
-    parse_expr,
-    standard_transformations,
-)
-
 from arelis.tools.base import ToolResult
 
 _MAX_CHARS = 500
@@ -27,51 +20,81 @@ _ACTIONS = frozenset({"integrate", "diff", "simplify", "solve", "dsolve"})
 _BINOPS = (ast.Add, ast.Sub, ast.Mult, ast.Div, ast.FloorDiv, ast.Mod, ast.Pow)
 _UNARYOPS = (ast.UAdd, ast.USub)
 
-# Constructors parse_expr emits after transformations (Symbol('x'), Integer(2), …).
-# Users cannot pass string arguments: the AST gate rejects string constants.
-_SAFE_SYMPY: dict[str, Any] = {
-    "Symbol": sp.Symbol,
-    "Integer": sp.Integer,
-    "Float": sp.Float,
-    "Rational": sp.Rational,
-    "Pow": sp.Pow,
-    "Mul": sp.Mul,
-    "Add": sp.Add,
-    "Mod": sp.Mod,
-    "Tuple": sp.Tuple,
-    "sin": sp.sin,
-    "cos": sp.cos,
-    "tan": sp.tan,
-    "asin": sp.asin,
-    "acos": sp.acos,
-    "atan": sp.atan,
-    "sinh": sp.sinh,
-    "cosh": sp.cosh,
-    "tanh": sp.tanh,
-    "exp": sp.exp,
-    "log": sp.log,
-    "ln": sp.log,
-    "sqrt": sp.sqrt,
-    "Abs": sp.Abs,
-    "abs": sp.Abs,
-    "pi": sp.pi,
-    "E": sp.E,
-    "I": sp.I,
-    "oo": sp.oo,
-    "Eq": sp.Eq,
-    "diff": sp.diff,
-    "Derivative": sp.Derivative,
-    "Function": sp.Function,
-    "exp_polar": sp.exp,
-    "factorial": sp.factorial,
-    "gamma": sp.gamma,
-    "erf": sp.erf,
-    "Heaviside": sp.Heaviside,
-    "Min": sp.Min,
-    "Max": sp.Max,
-    "floor": sp.floor,
-    "ceiling": sp.ceiling,
-}
+# Loaded on first parse. Importing this module must not pull SymPy into a
+# cold glass launch — build_tool_registry imports CasTool at startup.
+sp: Any = None
+parse_expr: Any = None
+standard_transformations: Any = None
+convert_xor: Any = None
+_SAFE_SYMPY: dict[str, Any] | None = None
+
+
+def _ensure_sympy() -> None:
+    """Import SymPy and fill the locked parse namespace. Idempotent."""
+    global sp, parse_expr, standard_transformations, convert_xor, _SAFE_SYMPY
+    if _SAFE_SYMPY is not None:
+        return
+    import sympy as sympy_mod
+    from sympy.parsing.sympy_parser import (
+        convert_xor as _convert_xor,
+    )
+    from sympy.parsing.sympy_parser import (
+        parse_expr as _parse_expr,
+    )
+    from sympy.parsing.sympy_parser import (
+        standard_transformations as _standard_transformations,
+    )
+
+    sp = sympy_mod
+    parse_expr = _parse_expr
+    standard_transformations = _standard_transformations
+    convert_xor = _convert_xor
+    # Constructors parse_expr emits after transformations (Symbol('x'), …).
+    # Users cannot pass string arguments: the AST gate rejects string constants.
+    _SAFE_SYMPY = {
+        "Symbol": sp.Symbol,
+        "Integer": sp.Integer,
+        "Float": sp.Float,
+        "Rational": sp.Rational,
+        "Pow": sp.Pow,
+        "Mul": sp.Mul,
+        "Add": sp.Add,
+        "Mod": sp.Mod,
+        "Tuple": sp.Tuple,
+        "sin": sp.sin,
+        "cos": sp.cos,
+        "tan": sp.tan,
+        "asin": sp.asin,
+        "acos": sp.acos,
+        "atan": sp.atan,
+        "sinh": sp.sinh,
+        "cosh": sp.cosh,
+        "tanh": sp.tanh,
+        "exp": sp.exp,
+        "log": sp.log,
+        "ln": sp.log,
+        "sqrt": sp.sqrt,
+        "Abs": sp.Abs,
+        "abs": sp.Abs,
+        "pi": sp.pi,
+        "E": sp.E,
+        "I": sp.I,
+        "oo": sp.oo,
+        "Eq": sp.Eq,
+        "diff": sp.diff,
+        "Derivative": sp.Derivative,
+        "Function": sp.Function,
+        "exp_polar": sp.exp,
+        "factorial": sp.factorial,
+        "gamma": sp.gamma,
+        "erf": sp.erf,
+        "Heaviside": sp.Heaviside,
+        "Min": sp.Min,
+        "Max": sp.Max,
+        "floor": sp.floor,
+        "ceiling": sp.ceiling,
+    }
+
 
 _ALLOWED_NODES = (
     ast.Expression,
@@ -216,13 +239,14 @@ class _CasResult:
 
 def parse_cas_expr(expression: str) -> Any:
     """Parse a CAS expression after an AST whitelist. Raises ValueError."""
+    _ensure_sympy()
     raw = _preprocess(expression)
     try:
         tree = ast.parse(raw, mode="eval")
     except SyntaxError as exc:
         raise ValueError(f"invalid expression ({exc.msg})") from exc
     _assert_safe_ast(raw)
-    local_dict = dict(_SAFE_SYMPY)
+    local_dict = dict(_SAFE_SYMPY or {})
     for node in ast.walk(tree):
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
             if node.func.id not in local_dict and not node.func.id.startswith("_"):
@@ -356,6 +380,7 @@ def _compute(
 
 
 def _ode_function(symbol: str | None) -> Any:
+    _ensure_sympy()
     name = (symbol or "y").strip() or "y"
     if not name.isidentifier() or name.startswith("_"):
         raise ValueError("dsolve symbol must be a plain name like y")

@@ -24,5 +24,13 @@ Older: [v0.2.1](releases/v0.2.1.md).
   markdown note. She writes a real file — click **open** or **show in
   folder**. In a room it lands in that room's `documents` folder. In
   orbit it lands under `outputs/documents/`. Chat is not the document.
-- **First open can name a model** (the 0.2.3 draft). The published
-  0.2.2 installer still only asks which folder.
+- **Charts.** Same open / show chip as documents. In a room the PNG
+  lands in that room's `plots` folder. In orbit it lands under
+  `outputs/plots/`.
+- **Mail.** She can trash, archive, mark read/unread, move, and make a
+  folder — Allow first. Looking still does not mark mail read. Jobs
+  cannot change the mailbox. Delivered mail cannot be rewritten.
+- **Calendar tile.** Ctrl+7 still opens the local calendar. Chat will not
+  pretend Google is connected until you connect it.
+- **First open can name a model.** This checkout asks after the folder
+  question. The published 0.2.2 installer still only asks which folder.

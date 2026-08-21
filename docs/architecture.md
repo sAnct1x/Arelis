@@ -150,12 +150,12 @@ connected. Otherwise chat says she cannot.
 | `analyze` / `doc_extract` / `git_info` | Tables, PDFs, git | No |
 | `calculator` | Arithmetic | No |
 | `cas` / `units` | Closed forms, conversions, constants | No |
-| `plot` | PNG under `outputs/plots/` | Yes |
+| `plot` | PNG. Room → `plots/` in the project; orbit → `outputs/plots/` | Yes |
 | `document` | PDF, Word, Excel, CSV, markdown. Room → `documents/` in the project; orbit → `outputs/documents/` | Yes |
 | `catalog` | arXiv, Horizons; APOD / ADS after a free key | No |
 | `clipboard` / `ocr` / `vision` / `camera` | Paste, screen text, see an image, webcam | Yes (the still is free; seeing it pauses) |
 | `memory` / `recall` / `tasks` / `goals` | Remember, chores, "what needs my attention" | Mutates: yes |
-| `inbox` / `send_email` / `schedule` | Mail and timed jobs | Send: yes. Schedule writes: yes; list is free |
+| `inbox` / `send_email` / `schedule` | Mail and timed jobs | Send: yes. Inbox list is free; trash / archive / move / flags: yes |
 | `send_sms` / `inbound_sms` | Text out / list inbound | Send: yes |
 | `agenda` | Calendar | Writes: yes |
 | `weather` / `user_location` | Forecast / where she thinks you are | No |

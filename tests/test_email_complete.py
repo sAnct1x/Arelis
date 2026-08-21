@@ -363,6 +363,13 @@ def test_every_single_morning_is_still_a_scheduled_job() -> None:
     assert args["time"].lower().replace(" ", "") in {"7am", "7:00am"}
 
 
+def test_schedule_create_fills_a_named_recipient() -> None:
+    ask = "every day at 7am email me@example.com the headlines"
+    args = draft_schedule_job_args(ask)
+    assert args["action"] == "create"
+    assert args["recipient"] == "me@example.com"
+
+
 def test_every_other_day_headlines_are_a_custom_job() -> None:
     ask = "Every other day at 7am, email me the headlines."
     assert looks_like_scheduled_send(ask)

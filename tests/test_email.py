@@ -15,7 +15,8 @@ from arelis.mail import (
     markdown_to_html,
     valid_address,
 )
-from arelis.tools.base import NEVER_BATCH, ToolRegistry
+from arelis.tools.base import NEVER_BATCH, ToolRegistry, capability_class, confirm_args_blocked
+from arelis.tools.confirm_copy import confirm_headline
 from arelis.tools.email_send import SendEmailTool
 from arelis.tools.inbox import (
     InboxTool,
@@ -23,8 +24,10 @@ from arelis.tools.inbox import (
     _decode,
     _imap_date,
     _list_criteria,
+    _parse_mailbox_list_line,
     _quote,
     extract_body,
+    fill_inbox_args,
 )
 
 
@@ -239,6 +242,7 @@ def test_sending_is_gated_by_its_own_flag_not_the_image_one() -> None:
 def test_sending_can_never_be_batch_approved() -> None:
     assert "send_email" in NEVER_BATCH
     assert "send_sms" in NEVER_BATCH
+    assert "inbox" in NEVER_BATCH
 
 
 def test_the_card_shows_the_whole_email_not_eighty_characters() -> None:
@@ -348,22 +352,23 @@ def test_list_defaults_to_unread_only_with_an_all_opt_out() -> None:
 @pytest.mark.asyncio
 async def test_an_unknown_inbox_action_fails_without_connecting() -> None:
     tool = InboxTool(MailAccount("me@example.com", "pw"))
-    result = await tool.run(action="delete")
+    result = await tool.run(action="forward")
     assert not result.ok
-    assert "list, search, read, or summarize" in result.output
+    assert "list" in result.output
+    assert "trash" in result.output
 
 
-def test_inbox_exposes_no_mailbox_mutation_actions() -> None:
-    """Capability honesty: delete is not a soft refusal, it is absent."""
+def test_inbox_exposes_mailbox_mutation_when_attended() -> None:
     actions = InboxTool.parameters_schema["properties"]["action"]["enum"]
-    assert actions == ["list", "search", "read", "summarize"]
-    assert "delete" not in actions
-    assert "trash" not in actions
+    assert "trash" in actions
+    assert "delete" in actions
+    assert "archive" in actions
+    assert "move" in actions
+    assert "folders" in actions
     lowered = InboxTool.description.lower()
-    assert "read-only" in lowered or "strictly read-only" in lowered
-    assert "delete" in lowered
-    assert "summarize" in lowered
-    assert "body.peek" in lowered
+    assert "allow" in lowered
+    assert "trash" in lowered
+    assert "cannot be edited" in lowered
 
 
 def test_summarize_criteria_default_unread_like_list() -> None:
@@ -423,7 +428,7 @@ class _FakeImap:
 async def test_summarize_returns_structured_peek_only(monkeypatch) -> None:
     tool = InboxTool(MailAccount("me@example.com", "pw"), max_messages=5)
     fake = _FakeImap()
-    monkeypatch.setattr(tool, "_connect", lambda: fake)
+    monkeypatch.setattr(tool, "_connect", lambda **_k: fake)
     result = await tool.run(action="summarize", limit=2)
     assert result.ok
     assert result.data is not None
@@ -440,12 +445,125 @@ async def test_summarize_returns_structured_peek_only(monkeypatch) -> None:
     )
 
 
+class _FakeMutatingImap(_FakeImap):
+    def __init__(self) -> None:
+        super().__init__()
+        self.commands: list[tuple[str, tuple[object, ...]]] = []
+        self.created: list[str] = []
+        self.writable: bool | None = None
+
+    def select(self, _mailbox: str, readonly: bool = False):
+        self.writable = not readonly
+        return "OK", [b"1"]
+
+    def list(self, *_args: object):
+        return "OK", [
+            b'(\\HasNoChildren) "/" "INBOX"',
+            b'(\\HasNoChildren \\Trash) "/" "[Gmail]/Trash"',
+            b'(\\HasNoChildren \\All) "/" "[Gmail]/All Mail"',
+        ]
+
+    def create(self, name: str):
+        self.created.append(name)
+        return "OK", [None]
+
+    def uid(self, command: str, *args: object):
+        self.commands.append((command, args))
+        if command in {"MOVE", "COPY", "STORE"}:
+            return "OK", [None]
+        if command == "EXPUNGE":
+            return "OK", [None]
+        return super().uid(command, *args)
+
+    def expunge(self):
+        self.commands.append(("EXPUNGE", ()))
+        return "OK", [None]
+
+
+@pytest.mark.asyncio
+async def test_trash_moves_to_gmail_bin(monkeypatch) -> None:
+    tool = InboxTool(MailAccount("me@example.com", "pw"))
+    fake = _FakeMutatingImap()
+
+    def _connect(*, writable: bool = False):
+        fake.select("INBOX", readonly=not writable)
+        return fake
+
+    monkeypatch.setattr(tool, "_connect", _connect)
+    result = await tool.run(action="delete", id="11")
+    assert result.ok, result.output
+    assert fake.writable is True
+    assert any(cmd == "MOVE" for cmd, _args in fake.commands)
+    assert "Trash" in result.output
+    assert "Hello 11" in result.output
+
+
+@pytest.mark.asyncio
+async def test_jobs_cannot_trash_even_if_asked() -> None:
+    tool = InboxTool(MailAccount("me@example.com", "pw"), allow_mutate=False)
+    result = await tool.run(action="trash", id="11")
+    assert not result.ok
+    assert "cannot change" in result.output.lower()
+
+
+def test_fill_inbox_args_takes_ids_from_the_last_search() -> None:
+    filled = fill_inbox_args(
+        {"action": "delete"},
+        user_text="delete the email from Claude",
+        last_hits=[
+            {"id": "10", "from": "Claude Team <team@anthropic.com>", "subject": "Hi"},
+            {"id": "11", "from": "Other <a@b.c>", "subject": "Nope"},
+        ],
+    )
+    assert filled["action"] == "trash"
+    assert filled["id"] == "10"
+
+
+def test_invisible_unicode_is_stripped_from_mail_bodies() -> None:
+    sludge = "Hello\u034f\n\n\n\u200bWorld"
+    msg = _message(
+        "MIME-Version: 1.0\nContent-Type: text/plain; charset=utf-8\n\n"
+        f"{sludge}\n"
+    )
+    body, _ = extract_body(msg)
+    assert "\u034f" not in body
+    assert "\u200b" not in body
+    assert "Hello" in body
+    assert "World" in body
+    assert "\n\n\n" not in body
+
+
+def test_inbox_write_needs_confirm_and_an_id() -> None:
+    from arelis.tools.base import ToolRegistry
+
+    registry = ToolRegistry()
+    registry.register(InboxTool(MailAccount("me@example.com", "pw")))
+    assert not registry.needs_confirm("inbox", {"action": "list"})
+    assert registry.needs_confirm("inbox", {"action": "trash", "id": "11"})
+    assert capability_class("inbox", {"action": "trash"}) == "WRITE_EXTERNAL"
+    assert capability_class("inbox", {"action": "list"}) == "READ"
+    assert confirm_args_blocked("inbox", {"action": "trash"})
+    assert confirm_headline("inbox", {"action": "trash", "sender": "Claude Team"}) == (
+        "trash mail from Claude Team"
+    )
+
+
+def test_mailbox_list_line_parses_gmail_trash() -> None:
+    parsed = _parse_mailbox_list_line(
+        b'(\\HasNoChildren \\Trash) "/" "[Gmail]/Trash"'
+    )
+    assert parsed is not None
+    name, flags = parsed
+    assert name == "[Gmail]/Trash"
+    assert "trash" in flags
+
+
 def test_tool_policy_forbids_claiming_mail_was_deleted() -> None:
     """The failure mode was narrating success after confirm with no tool."""
     text = TOOL_POLICY.lower()
-    assert "read-only" in text
     assert "never claim you deleted" in text
     assert "confirmation without a tool is a lie" in text
+    assert "trash" in text
 
 
 def test_persona_forbids_narrating_side_effects_without_a_tool() -> None:
@@ -503,6 +621,12 @@ def test_the_job_runner_gets_no_way_to_send(tmp_path, monkeypatch) -> None:
     assert "schedule" not in unattended.names()
     # Reading is still allowed: a digest may well be about your mail.
     assert "inbox" in unattended.names()
+    job_inbox = unattended.get("inbox")
+    job_actions = job_inbox.parameters_schema["properties"]["action"]["enum"]
+    assert "trash" not in job_actions
+    assert "list" in job_actions
+    live = attended.get("inbox")
+    assert "trash" in live.parameters_schema["properties"]["action"]["enum"]
     # Chat archive tools are not: an unattended turn must not search or
     # rewrite what you said in private conversations.
     assert "recall" not in unattended.names()

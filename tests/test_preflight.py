@@ -68,6 +68,39 @@ def test_inbox_read_not_compose_email() -> None:
         }, phrase
 
 
+def test_delete_mail_is_inbox_not_compose() -> None:
+    history = [
+        {
+            "role": "user",
+            "content": "Email Brian subject: Hi body: Hello there friend.",
+        },
+        {"role": "assistant", "content": "Ready to send when you say so."},
+    ]
+    ask = "delete the email from Claude"
+    hints = detect_intents(ask, history=history)
+    tools = {t for h in hints for t in h.expected_tools}
+    kinds = [h.kind for h in hints]
+    assert "inbox" in tools
+    assert "send_email" not in tools
+    assert "compose_email" not in kinds
+
+
+def test_graph_ask_after_email_does_not_expect_send() -> None:
+    history = [
+        {
+            "role": "user",
+            "content": "Email Brian subject: Hi body: Hello there friend.",
+        },
+        {"role": "assistant", "content": "Ready to send when you say so."},
+    ]
+    ask = "show me a graph of y=x^2"
+    hints = detect_intents(ask, history=history)
+    tools = {t for h in hints for t in h.expected_tools}
+    kinds = [h.kind for h in hints]
+    assert "send_email" not in tools
+    assert "compose_email" not in kinds
+
+
 def test_plain_chat_has_no_preflight() -> None:
     assert preflight_system_message("Good morning") is None
 

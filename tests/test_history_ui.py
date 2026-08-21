@@ -169,6 +169,70 @@ def test_chat_clear_and_load_messages_reset_stream_state(qt_app) -> None:
     assert panel._has_messages
 
 
+def test_history_reload_keeps_the_file_card(qt_app, tmp_path: Path) -> None:
+    dest = tmp_path / "note.pdf"
+    dest.write_bytes(b"%PDF-1.4")
+    from arelis.ui.panels.chat import ChatPanel
+
+    panel = ChatPanel()
+    panel.load_messages(
+        [
+            {"role": "user", "content": "make a pdf"},
+            {
+                "role": "assistant",
+                "content": "Wrote note.pdf in the shared drop tray. Open that file.",
+                "note": f"[tools used this turn: document {dest}]",
+            },
+        ]
+    )
+    text = panel.view.toPlainText().lower()
+    assert "note.pdf" in text
+    assert "open" in text
+    assert "show in folder" in text
+    assert panel._file_tokens
+
+
+def test_history_reload_keeps_a_plot_card(qt_app, tmp_path: Path) -> None:
+    dest = tmp_path / "plot-line.png"
+    dest.write_bytes(b"\x89PNG\r\n\x1a\n")
+    from arelis.ui.panels.chat import ChatPanel
+
+    panel = ChatPanel()
+    panel.load_messages(
+        [
+            {"role": "user", "content": "plot these numbers"},
+            {
+                "role": "assistant",
+                "content": "Wrote plot-line.png in the shared drop tray. Open that file.",
+                "note": f"[tools used this turn: plot {dest}]",
+            },
+        ]
+    )
+    text = panel.view.toPlainText().lower()
+    assert "plot-line.png" in text
+    assert "open" in text
+    assert "show in folder" in text
+    assert panel._file_tokens
+
+
+def test_history_reload_skips_a_missing_file_card(qt_app, tmp_path: Path) -> None:
+    gone = tmp_path / "gone.pdf"
+    from arelis.ui.panels.chat import ChatPanel
+
+    panel = ChatPanel()
+    panel.load_messages(
+        [
+            {
+                "role": "assistant",
+                "content": "Wrote gone.pdf.",
+                "note": f"[tools used this turn: document {gone}]",
+            }
+        ]
+    )
+    assert panel._file_tokens == {}
+    assert "show in folder" not in panel.view.toPlainText().lower()
+
+
 def test_switching_sessions_mid_turn_is_refused_in_the_window(qt_app, tmp_path: Path) -> None:
     from arelis.ui.app import ArelisWindow, BusBridge
 

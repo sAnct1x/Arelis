@@ -122,6 +122,22 @@ _SCHEDULE_MANAGE = re.compile(
     r")"
 )
 
+_MAILBOX_MUTATE = re.compile(
+    r"(?i)\b(?:delete|trash|archive|remove)\s+"
+    r"(?:the\s+|that\s+|this\s+)?"
+    r"(?:e-?mail|mail|message)\b"
+)
+
+_EMAIL_SEND_FOLLOWUP = re.compile(
+    r"(?i)\b("
+    r"you have my e-?mail|"
+    r"(?:use|failed to use)\s+the correct tool|"
+    r"(?:e-?mail|send)\s+(?:it|the\s+(?:pdf|file|document)|that)\s+to|"
+    r"e-?mail the pdf|"
+    r"send the pdf"
+    r")\b"
+)
+
 
 def looks_like_scheduled_send(text: str) -> bool:
     """True when they asked to mail/text later on a timer, not send now."""
@@ -143,6 +159,41 @@ def looks_like_schedule_manage(text: str) -> bool:
     if looks_like_scheduled_send(raw):
         return False
     return bool(_SCHEDULE_MANAGE.search(raw))
+
+
+def looks_like_mailbox_mutate(text: str) -> bool:
+    """True for delete/trash/archive that email — inbox, not send_email."""
+    return bool(_MAILBOX_MUTATE.search(text or ""))
+
+
+def _history_had_email_send(history: list[Any] | None) -> bool:
+    if not history:
+        return False
+    for item in history[-8:]:
+        if isinstance(item, dict):
+            role = str(item.get("role") or "")
+            content = str(item.get("content") or "")
+        else:
+            role = str(getattr(item, "role", "") or "")
+            content = str(getattr(item, "content", "") or "")
+        blob = f"{role} {content}".lower()
+        if "send_email" in blob or looks_like_compose_email(content):
+            return True
+    return False
+
+
+def looks_like_email_send_followup(
+    text: str, history: list[Any] | None = None
+) -> bool:
+    """True when this turn is still a send, even after a summarize drop."""
+    raw = text or ""
+    if looks_like_mailbox_mutate(raw):
+        return False
+    if looks_like_compose_email(raw) or named_address_in_text(raw):
+        return True
+    if _EMAIL_SEND_FOLLOWUP.search(raw) and _history_had_email_send(history):
+        return True
+    return False
 
 
 def looks_like_standard_briefing(text: str) -> bool:
@@ -211,13 +262,17 @@ def draft_schedule_job_args(text: str) -> dict[str, str]:
     if re.search(r"(?i)\bweekday", raw):
         days = "weekdays"
     name = raw[:40].strip() or "Scheduled job"
-    return {
+    args: dict[str, str] = {
         "action": "create",
         "name": name,
         "prompt": raw,
         "time": time_s,
         "days": days,
     }
+    to = named_address_in_text(raw)
+    if to:
+        args["recipient"] = to
+    return args
 
 
 def rewrite_schedule_calls(
@@ -264,6 +319,9 @@ def rewrite_schedule_calls(
             given_prompt = str((args or {}).get("prompt") or "").strip()
             if given_prompt and str(merged.get("action") or "") == "create":
                 merged["prompt"] = given_prompt
+            given_to = str((args or {}).get("recipient") or "").strip()
+            if given_to:
+                merged["recipient"] = given_to
             out.append(("schedule", merged))
         else:
             out.append((name, args))
@@ -647,7 +705,11 @@ def parse_email_utterance(text: str) -> EmailDraft | None:
     match = _EMAIL_SEND.search(raw)
     if not match:
         named = named_address_in_text(raw)
-        if named and _EMAIL_VERB.search(raw):
+        if named and (
+            _EMAIL_VERB.search(raw)
+            or _EMAIL_SEND_FOLLOWUP.search(raw)
+            or _MEDIA_ATTACH_CUE.search(raw)
+        ):
             to = named
         else:
             return None
@@ -1126,7 +1188,8 @@ def _with_attach_from_history(
     wants_doc = bool(_MEDIA_ATTACH_CUE.search(user_text or "")) or mentions_recent_document(
         user_text or ""
     )
-    if wants_doc and not _IMAGE_ATTACH_CUE.search(user_text or ""):
+    followup = bool(_EMAIL_SEND_FOLLOWUP.search(user_text or ""))
+    if (wants_doc or followup) and not _IMAGE_ATTACH_CUE.search(user_text or ""):
         path = latest_document_path(history or []) or ""
         if path:
             from pathlib import Path

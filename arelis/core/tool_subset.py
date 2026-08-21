@@ -96,6 +96,7 @@ SKILL_TOOLS: dict[str, frozenset[str]] = {
         }
     ),
     "deadline": frozenset({"tasks", "agenda"}),
+    "tile": frozenset({"tile"}),
 }
 
 
@@ -119,10 +120,14 @@ def _must_keep_full_surface(
     history: list[Any] | None = None,
 ) -> bool:
     """True when hiding tools could drop a send/calendar mutate."""
+    from arelis.core.email_complete import looks_like_email_send_followup
+
     kinds = {h.kind for h in detect_intents(text, history=history)}
     if sms_negative_hit(text or ""):
         kinds -= {"sms_send", "inbound_sms", "sms"}
     if kinds & FULL_SURFACE_KINDS:
+        return True
+    if looks_like_email_send_followup(text, history):
         return True
     return must_keep_full_surface_text(text)
 
@@ -179,14 +184,14 @@ def _skill_subset(
         allow |= tools_for_skill_ids(ids)
         allow |= tools_for_skill_ids(extra)
         visible = {n for n in available if n in allow}
-        return _without_unauthorized_sends(visible, text, expected)
+        return _without_unauthorized_sends(visible, text, expected, history=history)
     if not ids and not expected:
-        return _without_unauthorized_sends(set(available), text, expected)
+        return _without_unauthorized_sends(set(available), text, expected, history=history)
     # The web fallback is a floor on the prompt, not a menu. Treating it as one
     # left local asks with {calculator, scrape, web_fetch, web_search}, so a
     # repo question had no git_info to call and a file path went to web_fetch.
     if fallback_only and not expected:
-        return _without_unauthorized_sends(set(available), text, expected)
+        return _without_unauthorized_sends(set(available), text, expected, history=history)
     allow = set(ALWAYS_ON_TOOLS)
     allow |= tools_for_skill_ids(ids)
     allow |= tools_for_skill_ids(extra)
@@ -197,13 +202,20 @@ def _skill_subset(
     # for reads, never for outbound sends.
     if not visible:
         visible = set(available)
-    return _without_unauthorized_sends(visible, text, expected)
+    return _without_unauthorized_sends(visible, text, expected, history=history)
 
 
 def _without_unauthorized_sends(
-    visible: set[str], text: str, expected: set[str]
+    visible: set[str],
+    text: str,
+    expected: set[str],
+    history: list[Any] | None = None,
 ) -> set[str]:
     """Outbound send tools require this utterance (or preflight) to ask."""
+    from arelis.core.email_complete import (
+        looks_like_email_send_followup,
+        looks_like_mailbox_mutate,
+    )
     from arelis.core.sms_complete import sms_intent_this_turn
 
     out = set(visible)
@@ -212,9 +224,14 @@ def _without_unauthorized_sends(
     ):
         out.discard("send_sms")
     if "send_email" in out and "send_email" not in expected:
-        kinds = {h.kind for h in detect_intents(text)}
-        if not (kinds & {"email_send", "inbox", "email"}):
+        if looks_like_mailbox_mutate(text):
             out.discard("send_email")
+        elif looks_like_email_send_followup(text, history):
+            pass
+        else:
+            kinds = {h.kind for h in detect_intents(text, history=history)}
+            if not (kinds & {"compose_email", "inbox", "email"}):
+                out.discard("send_email")
     return out
 
 
@@ -246,7 +263,7 @@ def filter_tool_names(
             for hint in detect_intents(text, history=history)
             for t in hint.expected_tools
         }
-        return _without_unauthorized_sends(names, text, expected)
+        return _without_unauthorized_sends(names, text, expected, history=history)
     if enabled and should_apply_research_subset(role, text, history=history):
         allow = set(RESEARCH_TOOL_ALLOWLIST) | _extras_for_text(text) | extra
         return {n for n in names if n in allow}

@@ -4,6 +4,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol
 
+from arelis.paths import display_path
 from arelis.tools.safety import redact_secrets
 
 # Placeholder / empty-write args must never reach an Allow card (U7).
@@ -56,11 +57,20 @@ GOALS_WRITE_ACTIONS = {
 MEMORY_WRITE_ACTIONS = {"remember", "forget", "prefer", "decide", "episode"}
 ROOMS_WRITE_ACTIONS = {"create", "update", "forget"}
 SCHEDULE_WRITE_ACTIONS = {"create", "create_briefing", "delete", "run_now"}
+INBOX_WRITE_ACTIONS = {
+    "trash",
+    "delete",
+    "archive",
+    "mark_read",
+    "mark_unread",
+    "move",
+    "create_folder",
+}
 
 # Approved one at a time, never covered by "allow all this turn". A file write
-# can be undone by editing the file; a sent email, SMS, or calendar mutate
-# cannot be casually undone, and the card is the permission step.
-NEVER_BATCH = {"send_email", "send_sms", "agenda", "external_read"}
+# can be undone by editing the file; a sent email, SMS, calendar mutate, or
+# mailbox change cannot be casually undone, and the card is the permission step.
+NEVER_BATCH = {"send_email", "send_sms", "agenda", "external_read", "inbox"}
 
 
 def confirm_args_blocked(name: str, args: dict[str, Any] | None) -> str | None:
@@ -96,6 +106,17 @@ def confirm_args_blocked(name: str, args: dict[str, Any] | None) -> str | None:
         phone = str(args.get("phone") or args.get("number") or "").strip()
         if phone and _PLACEHOLDER_ARG.search(phone):
             return f"Contacts phone looks like a placeholder: {phone!r}"
+    if tool == "inbox" and action in INBOX_WRITE_ACTIONS:
+        if action == "create_folder":
+            if not str(args.get("folder") or "").strip():
+                return "inbox create_folder needs a folder name."
+        elif action == "move":
+            if not str(args.get("id") or "").strip():
+                return "inbox move needs an id from list or search."
+            if not str(args.get("folder") or "").strip():
+                return "inbox move needs a folder."
+        elif not str(args.get("id") or "").strip():
+            return "inbox change needs an id from list or search."
     return None
 
 
@@ -108,6 +129,8 @@ def capability_class(
     action = str(args.get("action") or "").strip().lower()
     if tool in {"send_email", "send_sms"}:
         return "WRITE_EXTERNAL"
+    if tool == "inbox":
+        return "WRITE_EXTERNAL" if action in INBOX_WRITE_ACTIONS else "READ"
     if tool == "agenda":
         if action in AGENDA_WRITE_ACTIONS:
             return "WRITE_EXTERNAL"
@@ -276,6 +299,11 @@ class ToolRegistry:
         if name == "schedule":
             action = str(args.get("action") or "").lower()
             return confirm_writes if action in SCHEDULE_WRITE_ACTIONS else False
+        if name == "inbox":
+            action = str(args.get("action") or "").lower()
+            if action == "delete":
+                action = "trash"
+            return confirm_writes if action in INBOX_WRITE_ACTIONS else False
         if tool.risk == "side_effect":
             return confirm_image
         if tool.risk == "write":
@@ -351,20 +379,55 @@ class ToolRegistry:
                 f"Path: {path}\n\n"
                 "Arelis will not write or edit this path."
             )
+        if name == "plot":
+            tool = self.get(name)
+            preview = getattr(tool, "preview_path", None)
+            dest = ""
+            if callable(preview):
+                try:
+                    dest = display_path(preview(args))
+                except Exception:
+                    dest = ""
+            action = str(args.get("action") or "line").strip() or "line"
+            lines = [
+                f"Write a {action} chart you can open.",
+                f"Lands in: {dest or 'the plots folder'}",
+            ]
+            title = str(args.get("title") or "").strip()
+            if title:
+                lines.append(f"Title: {title}")
+            return "\n".join(lines)
+        if name == "inbox":
+            action = str(args.get("action") or "").strip().lower() or "list"
+            if action == "delete":
+                action = "trash"
+            ids = str(args.get("id") or "").strip()
+            folder = str(args.get("folder") or "").strip()
+            lines = [f"Mailbox {action}"]
+            if ids:
+                lines.append(f"Id: {ids}")
+            if folder:
+                lines.append(f"Folder: {folder}")
+            sender = str(args.get("sender") or "").strip()
+            if sender:
+                lines.append(f"From: {sender}")
+            if action == "trash":
+                lines.append("Goes to Trash (Gmail Bin), not gone forever.")
+            return "\n".join(lines)
         if name == "document":
             tool = self.get(name)
             preview = getattr(tool, "preview_path", None)
             dest = ""
             if callable(preview):
                 try:
-                    dest = str(preview(args))
+                    dest = display_path(preview(args))
                 except Exception:
                     dest = ""
             title = str(args.get("title") or "").strip()
             fmt = str(args.get("format") or "").strip() or "file"
             lines = [
-                f"Write a {fmt} they can open.",
-                f"Lands at: {dest or '(documents folder)'}",
+                f"Write a {fmt} you can open.",
+                f"Lands in: {dest or 'the documents folder'}",
             ]
             if title:
                 lines.append(f"Title: {title}")

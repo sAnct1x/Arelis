@@ -8,10 +8,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from arelis.memory.store import MemoryStore
-from arelis.tools.base import ToolResult
 from arelis.core.bus import emit_nowait
 from arelis.core.events import Event, EventType
+from arelis.memory.store import MemoryStore
+from arelis.tools.base import ToolResult
 
 WRITE_ACTIONS = frozenset({"add", "done", "reopen", "remove", "attach", "detach"})
 

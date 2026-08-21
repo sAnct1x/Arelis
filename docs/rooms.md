@@ -107,8 +107,9 @@ leave her with nothing.
   it belongs to, so History shows them and the cold-launch prune cannot
   touch them.
 - Files she creates (PDF, Word, spreadsheet, markdown) land in
-  `<project>/documents/` while you are in a room with a folder. Orbit
-  one-offs still go to `outputs/documents/`.
+  `<project>/documents/` while you are in a room with a folder. Charts
+  land in `<project>/plots/`. Orbit one-offs still go to
+  `outputs/documents/` and `outputs/plots/`.
 
 ## Launch
 

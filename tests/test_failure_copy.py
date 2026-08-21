@@ -109,6 +109,31 @@ def test_an_exception_with_no_message_still_says_something() -> None:
     assert plain_reason(RuntimeError()) == "RuntimeError"
 
 
+def test_empty_after_tool_strips_agenda_instruction_footers() -> None:
+    from arelis.core.failure_copy import chat_followup_from_tool
+
+    raw = (
+        "No events in this window.\n\n"
+        "Source: cache (ics)\n"
+        "Summarize these events for the user (time, title, place, "
+        "one-line notes). Do not invent events. Do not quote event ids."
+    )
+    chat = chat_followup_from_tool("agenda", raw)
+    assert "Do not invent" not in chat
+    assert "Summarize these events" not in chat
+    assert "No events" in chat
+
+
+def test_workspace_list_fallback_is_not_a_dir_dump() -> None:
+    from arelis.core.failure_copy import chat_followup_from_tool
+
+    listing = "[dir] src\n[file] README.md\n[file] LICENSE"
+    chat = chat_followup_from_tool("workspace", listing)
+    assert "[dir]" not in chat
+    assert "[file]" not in chat
+    assert "Workspace" in chat
+
+
 def test_a_crashed_turn_puts_no_exception_in_the_transcript(arelis_window) -> None:
     """End to end, at the window: the split the publisher makes is honoured."""
     from arelis.core.events import Event, EventType

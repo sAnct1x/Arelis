@@ -358,7 +358,9 @@ class DocumentTool:
             },
             "body": {
                 "type": "string",
-                "description": "Full document text. Markdown headings, bullets, and tables are fine.",
+                "description": (
+                    "Full document text. Markdown headings, bullets, and tables are fine."
+                ),
             },
             "rows": {
                 "type": "string",
@@ -370,7 +372,9 @@ class DocumentTool:
             },
             "replace": {
                 "type": "string",
-                "description": "true to overwrite the same name; false to write a new file beside it",
+                "description": (
+                    "true to overwrite the same name; false to write a new file beside it"
+                ),
             },
             "from_path": {
                 "type": "string",
@@ -511,7 +515,10 @@ class DocumentTool:
             if not rows:
                 return ToolResult(
                     ok=False,
-                    output="A spreadsheet needs rows (JSON list of lists or CSV) or a markdown table in body.",
+                    output=(
+                        "A spreadsheet needs rows (JSON list of lists or CSV) "
+                        "or a markdown table in body."
+                    ),
                 )
         else:
             rows = []

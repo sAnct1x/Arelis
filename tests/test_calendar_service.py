@@ -126,7 +126,7 @@ async def test_sync_pulls_holiday_calendars(tmp_path: Path, monkeypatch) -> None
     from arelis.calendar.sync import sync_calendars
 
     class _FakeGoogle(GoogleCalendarClient):
-        def __init__(self, creds) -> None:  # noqa: ARG002
+        def __init__(self, creds) -> None:
             self.creds = creds
             self._access = "token"
 

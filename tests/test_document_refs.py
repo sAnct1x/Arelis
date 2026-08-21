@@ -8,10 +8,13 @@ from arelis.core.document_refs import (
     detect_document_another,
     detect_document_export,
     detect_document_revise,
+    files_in_turn,
     fill_doc_extract_args,
     fill_document_args,
     latest_document_path,
+    latest_openable_path,
     match_open_last_document,
+    match_reveal_last_document,
     mentions_recent_document,
 )
 
@@ -20,7 +23,12 @@ def test_open_that_is_narrow() -> None:
     assert match_open_last_document("open that")
     assert match_open_last_document("open it")
     assert match_open_last_document("open the file")
-    assert match_open_last_document("show that in explorer")
+    assert match_open_last_document("open that chart")
+    assert match_open_last_document("open the plot")
+    assert not match_open_last_document("show that in explorer")
+    assert match_reveal_last_document("show that in explorer")
+    assert match_reveal_last_document("show that in the folder")
+    assert match_reveal_last_document("show that chart in explorer")
     assert not match_open_last_document("open the physics room")
     assert not match_open_last_document("open youtube")
 
@@ -64,3 +72,49 @@ def test_latest_path_and_extract(tmp_path: Path) -> None:
     )
     assert Path(filled["path"]).name == "note.pdf"
     assert mentions_recent_document("what does that document say")
+
+
+def test_files_in_turn_rebuilds_from_the_note(tmp_path: Path) -> None:
+    dest = tmp_path / "note.pdf"
+    dest.write_bytes(b"%PDF-1.4")
+    note = f"[tools used this turn: document {dest}]"
+    files = files_in_turn("Wrote the file.", note)
+    assert len(files) == 1
+    assert files[0][0] == "note.pdf"
+    assert Path(files[0][1]).resolve() == dest.resolve()
+
+
+def test_files_in_turn_skips_a_missing_file(tmp_path: Path) -> None:
+    gone = tmp_path / "gone.pdf"
+    assert files_in_turn("", f"document {gone}") == []
+
+
+def test_latest_path_survives_in_the_note(tmp_path: Path) -> None:
+    dest = tmp_path / "keep.md"
+    dest.write_text("hi\n", encoding="utf-8")
+    history = [
+        {
+            "role": "assistant",
+            "content": "Wrote keep.md.",
+            "note": f"[tools used this turn: document {dest}]",
+        }
+    ]
+    assert Path(latest_document_path(history)).resolve() == dest.resolve()
+
+
+def test_files_in_turn_rebuilds_a_plot(tmp_path: Path) -> None:
+    dest = tmp_path / "plot-line.png"
+    dest.write_bytes(b"\x89PNG\r\n\x1a\n")
+    note = f"[tools used this turn: plot {dest}]"
+    files = files_in_turn("Wrote the chart.", note)
+    assert len(files) == 1
+    assert files[0][0] == "plot-line.png"
+    assert Path(files[0][1]).resolve() == dest.resolve()
+
+
+def test_open_that_after_a_plot_uses_the_png(tmp_path: Path) -> None:
+    dest = tmp_path / "plot-line.png"
+    dest.write_bytes(b"\x89PNG\r\n\x1a\n")
+    receipts = [{"tool": "plot", "abs_path": str(dest), "path": str(dest)}]
+    assert Path(latest_openable_path(receipts=receipts)).resolve() == dest.resolve()
+    assert latest_document_path(receipts=receipts) == ""

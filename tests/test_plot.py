@@ -52,6 +52,7 @@ async def test_line_from_inline_numbers(project, tool) -> None:
     assert (data / "outputs" / "plots").is_dir()
     assert "from this turn" in result.output.lower()
     assert "Wrote" in result.output
+    assert "open that file" in result.output.lower()
 
 
 @pytest.mark.asyncio
@@ -124,7 +125,10 @@ async def test_excel_without_reader_says_save_as_csv(project, tool, monkeypatch)
     def boom(*_args, **_kwargs):
         raise ImportError("Missing optional dependency 'openpyxl'")
 
-    monkeypatch.setattr("arelis.tools.plot.pd.read_excel", boom)
+    class _Pd:
+        read_excel = staticmethod(boom)
+
+    monkeypatch.setattr("arelis.tools.plot._pandas", lambda: _Pd())
     result = await tool.run(
         action="line", path="project:lab.xlsx", x="t", y="y"
     )
@@ -146,3 +150,41 @@ def test_plot_needs_confirm_writes_and_skips_jobs(project) -> None:
     assert capability_class("plot") == "WRITE_LOCAL"
     assert confirm_headline("plot", {}) == "write a plot"
     assert confirm_headline("plot", {"out": "residuals.png"}) == "write residuals.png"
+    assert registry.get("plot").rooms is config["_rooms"]
+    detail = registry.describe_call(
+        "plot", {"action": "line", "xs": "1,2", "ys": "3,4", "title": "squares"}
+    )
+    assert "you can open" in detail
+    assert "Lands in:" in detail
+
+
+@pytest.mark.asyncio
+async def test_room_with_folder_writes_to_plots(project) -> None:
+    from arelis.rooms import RoomStore
+
+    root, _data, workspace = project
+    store = RoomStore(root / "rooms.yaml")
+    store.create("Physics", root="project", kind="analysis")
+    store.set_active("physics")
+    tool = PlotTool(workspace, store)
+    result = await tool.run(action="line", xs="1, 2, 3", ys="1, 2, 3")
+    assert result.ok, result.output
+    dest = Path(result.data["abs_path"]).resolve()
+    assert dest.parent == (root / "plots").resolve()
+    assert "room" in result.output.lower()
+
+
+@pytest.mark.asyncio
+async def test_room_without_folder_uses_drop_tray(project) -> None:
+    from arelis.rooms import RoomStore
+
+    root, data, workspace = project
+    store = RoomStore(root / "rooms.yaml")
+    store.create("Scratch", kind="analysis")
+    store.set_active("scratch")
+    tool = PlotTool(workspace, store)
+    result = await tool.run(action="line", xs="1, 2, 3", ys="1, 2, 3")
+    assert result.ok, result.output
+    dest = Path(result.data["abs_path"]).resolve()
+    assert dest.parent == (data / "outputs" / "plots").resolve()
+    assert "no folder" in result.output.lower()
