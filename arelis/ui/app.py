@@ -3345,7 +3345,7 @@ class ArelisWindow(QMainWindow):
     def _show_model_loading(self, role: str) -> None:
         """Composer hint while waiting for first token (L1 cold TTFT)."""
         model = str((self.config.get("models") or {}).get(role) or self._current_model or "")
-        tip = f"model loading… ({role}" + (f":{model}" if model else "") + ")"
+        tip = f"thinking… ({role}" + (f":{model}" if model else "") + ")"
         self.thinking.append(tip, kind="status")
         if self.conversation.confirm_open():
             return

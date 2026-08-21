@@ -134,6 +134,21 @@ def test_how_are_you_today_is_not_a_news_ask() -> None:
     assert wants_fresh_page_ask("latest headlines")
 
 
+def test_shipped_chat_fast_path_is_off_so_the_prefix_cache_survives() -> None:
+    """A greeting that omits schemas overwrites the startup seed.
+
+    The dump that caught this: hold_paint=0 on 'how are you', then 41s of
+    prefill on the next question that needed tools.
+    """
+    import yaml
+
+    shipped = yaml.safe_load(
+        (Path(__file__).resolve().parents[1] / "arelis" / "config" / "default.yaml")
+        .read_text(encoding="utf-8")
+    )
+    assert shipped["agent"]["chat_fast_path"] is False
+
+
 def test_chat_fast_path_still_skips_pure_chat() -> None:
     need = detect_exactness_need("thanks, that helps")
     assert not should_offer_tools(

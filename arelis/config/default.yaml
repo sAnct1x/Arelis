@@ -115,9 +115,10 @@ agent:
   # High-value bus events → logs/events.log (confirms, SMS, tools, errors).
   # Omits ASSISTANT_DELTA / audio. See docs/telemetry.md.
   event_telemetry: true
-  # Skip tool schemas when no skill/preflight/exactness warrant (streamed chat).
-  # Any exactness kind (including vision) re-arms tools — not only calc/web.
-  chat_fast_path: true
+  # Off: every turn sends the same tool schemas the startup prefix seed used.
+  # On, a greeting skips schemas and blows that cache — the next real question
+  # then prefills ~18k tokens again (~40s). That is the 50s TTFT after "hi".
+  chat_fast_path: false
   # Tool-bearing model rounds: lower temperature to cut preamble decode bloat.
   tool_round_temperature: 0.1
   # Deterministic nudges for clear weather / SMS intents. Never skips Allow.

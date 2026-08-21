@@ -1223,6 +1223,7 @@ class AgentLoop:
             fail_counts = ctx.fail_counts
             skip_counts = ctx.skip_counts
             web_search_ok = ctx.web_search_ok
+            page_ok = ctx.page_ok
             sms_sent = ctx.sms_sent
             agenda_created = ctx.agenda_created
             weather_ok_places = ctx.weather_ok_places
@@ -3576,6 +3577,22 @@ class AgentLoop:
                         self._trace.append(f"{name} duplicate fetch blocked")
                         continue
 
+                if name in {"scrape", "web_fetch"}:
+                    page = str(args.get("url") or "").strip().casefold()
+                    if page and page in page_ok:
+                        notice = (
+                            "Already fetched that URL this turn; not fetching "
+                            "again. Use the prior result, or pick a different "
+                            "URL. Do not call scrape or web_fetch on the same "
+                            "address a second time."
+                        )
+                        await self.bus.publish(
+                            Event(EventType.THINKING, {"text": f"skip  {notice}"})
+                        )
+                        messages.append(self._tool_message(name, notice))
+                        self._trace.append(f"{name} duplicate url blocked")
+                        continue
+
                 if name == "web_search":
                     q = str(args.get("query") or "").strip().casefold()
                     if q and q in web_search_ok:
@@ -3882,6 +3899,10 @@ class AgentLoop:
                         q = str(args.get("query") or "").strip().casefold()
                         if q:
                             web_search_ok.add(q)
+                    if name in {"scrape", "web_fetch"}:
+                        page = str(args.get("url") or "").strip().casefold()
+                        if page:
+                            page_ok.add(page)
                     if name == "send_sms":
                         sent_to = str(args.get("to") or "").strip()
                         if sent_to:
@@ -5400,10 +5421,12 @@ def should_offer_tools(
 ) -> bool:
     """Whether this turn should send Ollama tool schemas.
 
-    When ``chat_fast_path`` is on, pure social chat skips schemas for TTFT.
-    Any skill, preflight, plan, research mode, expected tool, or exactness
-    warrant (including vision) must re-arm tools — otherwise the 7B invents
-    captions or denies capabilities it just used.
+    When ``chat_fast_path`` is on, pure social chat skips schemas. That used
+    to help TTFT. After the full-prefix seed it does the opposite: the
+    greeting overwrites the cache, and the next tool-bearing turn prefills
+    ~18k tokens again. Shipped default is off. Any skill, preflight, plan,
+    research mode, expected tool, or exactness warrant still re-arms tools
+    when the flag is on.
     """
     if not chat_fast_path:
         return True

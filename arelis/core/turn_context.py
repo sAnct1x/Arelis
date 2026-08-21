@@ -104,6 +104,7 @@ class TurnContext:
     fail_counts: dict[str, int] = field(default_factory=dict)
     skip_counts: dict[str, int] = field(default_factory=dict)
     web_search_ok: set[str] = field(default_factory=set)
+    page_ok: set[str] = field(default_factory=set)
 
     def is_send_path(self, expected_tools: set[str]) -> bool:
         """True when finishing on a compose/send turn must not die on web warrants."""
