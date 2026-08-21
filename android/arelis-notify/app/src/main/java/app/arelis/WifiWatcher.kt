@@ -10,6 +10,15 @@ import android.os.Looper
 import android.util.Log
 import java.util.concurrent.Executors
 
+/** True on Wi-Fi or ethernet. Cellular is still allowed; this only changes the copy. */
+fun onWifi(context: Context): Boolean {
+    val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+    val net = cm.activeNetwork ?: return false
+    val caps = cm.getNetworkCapabilities(net) ?: return false
+    return caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
+        caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)
+}
+
 /** Re-register listen URL when Wi-Fi DHCP moves. */
 class WifiWatcher(private val context: Context) {
     private val io = Executors.newSingleThreadExecutor()

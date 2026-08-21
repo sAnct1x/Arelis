@@ -1,18 +1,37 @@
 # Phone companion
 
-Arelis talks to one **Arelis** app on the phone. That companion is both
-the radio (SMS out from your SIM after you allow it on the PC) and the
-Google Messages notification bridge (SMS, MMS, RCS in). Google Messages
-stays your daily messenger. Uninstall the old Notify APK after this
-pairs. SMSGate can come off too unless you still want its inbox poll.
+The phone is her face in your pocket. Same Wi-Fi, scan the QR once, talk.
+That is the whole first-run. SMS/RCS grants are **optional** (Settings →
+Texts in the app). Google Messages stays your messenger. This is not a
+Play Store build, and it is not a second copy of Arelis.
 
-Sending still pauses for allow / deny on the PC. No silent SMS. Until
-the phone is paired, `send_sms` is not registered and chat will say she
-cannot text.
+- **At the house** — same Wi-Fi, PC reachable. Chat is the same live
+  session as the desktop. Allow/Deny for sends she already does on the
+  PC. **files** opens the current room or workspace. **chats** is the PC
+  history plus a new conversation; switching on the phone switches the
+  desktop too. Plots she just made still show as cards. Allow on the
+  phone is the same card as the PC — one press on either side settles it.
+- **On the phone** — the PC is gone. Chats and files wait. If you
+  installed the offline brain at pair (Gemma 4 E2B, ~2.6 GB), she can
+  talk and look at a photo you just took. No mail, no SMS, no PC files.
+  You stay in the conversation already on screen. When Arelis is back —
+  even during “At the house · loading” — those words copy in, no prompt
+  and no extra line. If there was no house thread yet, they become a
+  new conversation instead of landing in last week’s. Wi-Fi is the nicer
+  download; mobile data is allowed if you choose it.
+
+The companion is still the radio (SMS out after Allow) and the Google
+Messages notification bridge (SMS, MMS, RCS in) if you turn that on.
+Uninstall the old Notify APK after this pairs.
+
+Sending still pauses for allow / deny. No silent SMS. Until the phone is
+paired with a radio URL, `send_sms` is not registered and chat will say
+she cannot text.
 
 | Path | Covers | Needs |
 |------|--------|-------|
-| Arelis companion (primary) | SMS + RCS via Google Messages notifications. SMS out. | One APK, QR pair, same Wi-Fi |
+| Talk (default) | Same session as the PC. Gemma if the PC is away. | One APK, QR pair, same Wi-Fi. No SMS grant. |
+| Texts (optional) | SMS + RCS via Google Messages. SMS out. | Restricted settings, SMS, notification access, battery Unrestricted |
 | SMSGate inbox poll (fallback) | Classic SMS / MMS only | Local Server still running plus `inbox_base_url` |
 
 RCS is companion notifications only. A SEND_SMS radio never sees RCS.
@@ -34,21 +53,19 @@ are not flooded with backlog.
    (see `data/secrets.example.yaml`), or set `ARELIS_INGEST_TOKEN`.
 3. Sideload the companion from `android/arelis-notify/` (application id
    `app.arelis`). Uninstall the old Notify app first.
-4. On the phone, in order:
-   1. If Play Protect blocks the APK, install anyway from this repo, then
-      turn Protect back on.
-   2. Settings → Apps → Arelis → ⋮ → **Allow restricted settings**
-      (Android 13+).
-   3. Grant **SMS**.
-   4. Notification access → **Arelis**.
-   5. Battery → **Unrestricted**.
-   6. On the PC, Settings → **Notify**, scan the QR (or paste the pairing
-      text).
-5. Same Wi-Fi. The copyable LAN URL is still on that Settings tab if the
-   camera fails.
-6. If she could not text before this pair (no SMSGate leftover), restart
-   **Arelis (dev)** once so `send_sms` is registered. Later DHCP IP
-   changes do not need a restart.
+4. On the phone: scan the QR on Settings → Notify (or paste the pairing
+   text). Same Wi-Fi. You can talk immediately. SMS grants are not
+   required for talk.
+5. After pair, install the offline brain (~2.6 GB) so she still talks
+   if the PC is down. Wait for Wi-Fi, or use mobile data on purpose.
+6. Optional, only if you want the text hose: **Settings → Texts**, then
+   Allow restricted settings, SMS, notification access, Battery
+   Unrestricted. Pairing and texts are once; chat is the home screen.
+   System back on the phone returns one screen (not out of the app)
+   until you are on chat.
+7. If Play Protect blocks the APK, install anyway from this repo, then
+   turn Protect back on. If she could not text before a radio pair,
+   restart **Arelis (dev)** once so `send_sms` is registered.
 
 The STATUS line about the Phone Notify URL is written to the thinking
 dock, not chat.
@@ -113,6 +130,27 @@ PC is back.
 | Updates in a thread missing | Rebuild / reinstall companion. Check log for `published=false` |
 | Core running, empty window | UI not IPC-attached |
 | SMS radio never sees RCS | Expected. Keep Google Messages plus notification access |
+| Picture shows as a Photo chip | Rebuild/sideload the companion. Google Messages often posts no bytes. |
+| Picture never arrives after APK update | Pairing token still matches. Restart Arelis on the PC |
+
+## Inbound pictures
+
+The desktop tile shows a picture when the phone actually sent bytes. If it
+only sent the word Photo, you get a chip, not a blank bubble.
+
+Companion POST `/inbound/sms` may include:
+
+| Field | What it is |
+|---|---|
+| `body` / `text` | Caption. `"Photo"` with no bytes → chip |
+| `image_jpeg` | Base64 JPEG from the notification extras (max ~400 KB on the phone, 1 MB on the PC) |
+| `media_url` | `http(s)` image URL. `file://` is refused |
+
+Sideload a new companion APK or those extras never leave the phone. SMSGate
+inbox rows that carry `mediaUrl` / `parts[].url` are fetched on the PC; if the
+Local Server has no media, you still get the chip.
+
+Cached files live under the user data root (`sms_media/`), not the git repo.
 
 ## Related
 

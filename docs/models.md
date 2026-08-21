@@ -7,14 +7,11 @@ API. Only one chat model is hot at a time.
 Ollama is system-wide. An installed copy and a source checkout share the
 same tags. Do not `ollama rm` a tag another copy on this PC still names.
 
-## First open (this checkout)
+## First open
 
 A new copy looks at this PC (graphics memory, RAM, disk) and recommends
 **one** chat model, with a why you can read. Confirm it, or pick another.
 Whatever you confirm is both `fast` and `research`.
-
-The published 0.2.2 installer does not run this step. It only asks which
-folder.
 
 The auto-pick is the largest **Qwen 3.5** that fits the card. Gemma and
 DeepSeek are in the list; they are never the auto-pick. Gemma 4 12B sat
@@ -95,8 +92,8 @@ Qwen3.5 sees images itself, so a picture normally goes to the model
 already in memory. `models.vision` is a fallback for a chat model that
 reports no vision capability, and it is only pulled if that happens.
 Ollama is asked what the chat model can do (`/api/show`), so a swapped
-tag is handled without a config change. Large screenshots are downscaled
-(long edge 1024 px) either way.
+tag is handled without a config change. Large pictures are still capped:
+1024 px on the 3B fallback window, 2048 px when the chat model looks.
 
 From source, without waiting for the window:
 

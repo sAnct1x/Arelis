@@ -17,6 +17,9 @@ from PySide6.QtWidgets import (
 
 from arelis.notify.center import Notice
 
+_HINT_LIVE = "while Arelis is open — texts, calendar, mail, jobs"
+_HINT_CAUGHT_UP = "caught up"
+
 
 class NotificationsPanel(QWidget):
     """Grouped inbox rows with unread tracking for the View-menu badge."""
@@ -38,7 +41,7 @@ class NotificationsPanel(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
 
-        self.hint = QLabel("while Arelis is open — texts, calendar, mail, jobs")
+        self.hint = QLabel(_HINT_CAUGHT_UP)
         self.hint.setObjectName("InstrumentHint")
         layout.addWidget(self.hint)
 
@@ -59,22 +62,12 @@ class NotificationsPanel(QWidget):
         self.list.customContextMenuRequested.connect(self._on_menu)
         layout.addWidget(self.list, stretch=1)
 
-        self.detail = QLabel("")
-        self.detail.setObjectName("NotificationDetail")
-        self.detail.setWordWrap(True)
-        self.detail.setTextInteractionFlags(
-            Qt.TextInteractionFlag.TextSelectableByMouse
-        )
-        self.detail.hide()
-        layout.addWidget(self.detail)
-
         row = QHBoxLayout()
         row.setSpacing(6)
-        self.mark_read_btn = QPushButton("mark all read")
+        self.mark_read_btn = QPushButton("clear")
         self.mark_read_btn.setObjectName("InstrumentAction")
         self.mark_read_btn.setFixedHeight(28)
         self.mark_read_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.mark_read_btn.clicked.connect(self.mark_all_read)
         row.addWidget(self.mark_read_btn)
         row.addStretch(1)
         layout.addLayout(row)
@@ -91,6 +84,7 @@ class NotificationsPanel(QWidget):
         body: str,
         time_text: str = "",
         kind: str = "sms",
+        sticky: bool = False,
     ) -> None:
         entry = {
             "id": message_id,
@@ -99,6 +93,7 @@ class NotificationsPanel(QWidget):
             "time": time_text,
             "kind": kind,
             "unread": True,
+            "sticky": sticky,
         }
         self._items.insert(0, entry)
         self._unread += 1
@@ -114,6 +109,7 @@ class NotificationsPanel(QWidget):
                 "time": n.pill_label(),
                 "kind": n.kind,
                 "unread": n.unread,
+                "sticky": n.sticky,
             }
             for n in notices
         ]
@@ -125,37 +121,25 @@ class NotificationsPanel(QWidget):
         self._rebuild()
         self.unread_changed.emit(self._unread)
 
-    def mark_all_read(self) -> None:
-        if self._unread == 0:
-            return
-        for entry in self._items:
-            entry["unread"] = False
-        self._unread = 0
+    def clear(self) -> None:
+        """Drop every row the operator can dismiss. Sticky Allow/job stay."""
+        self._items = [e for e in self._items if e.get("sticky")]
+        self._unread = sum(1 for e in self._items if e.get("unread"))
+        self._open_id = ""
         self._rebuild()
-        self.unread_changed.emit(0)
+        self.unread_changed.emit(self._unread)
 
     def mark_opened(self) -> None:
         self.opened.emit()
 
     def show_notice(self, notice_id: str) -> None:
-        """Keep the full body on screen after a click (does not dismiss)."""
+        """Select the row. The body already lives on the row — do not clone it."""
         self._open_id = notice_id
         for i in range(self.list.count()):
             item = self.list.item(i)
             if item is not None and str(item.data(Qt.ItemDataRole.UserRole) or "") == notice_id:
                 self.list.setCurrentItem(item)
                 break
-        for entry in self._items:
-            if str(entry.get("id")) != notice_id:
-                continue
-            from_label = str(entry.get("from") or "").strip() or "unknown"
-            time_text = str(entry.get("time") or "").strip()
-            body = str(entry.get("body") or "").strip() or "(no body)"
-            head = from_label if not time_text else f"{from_label}  ·  {time_text}"
-            self.detail.setText(f"{head}\n\n{body}")
-            self.detail.show()
-            return
-        self.detail.hide()
 
     def _on_item(self, item: QListWidgetItem) -> None:
         mid = str(item.data(Qt.ItemDataRole.UserRole) or "")
@@ -172,6 +156,8 @@ class NotificationsPanel(QWidget):
             self._rebuild()
             self.unread_changed.emit(self._unread)
         self.notice_activated.emit(mid)
+        if self._kind_for(mid) == "sms":
+            self.chat_requested.emit(mid)
 
     def _kind_for(self, notice_id: str) -> str:
         for entry in self._items:
@@ -200,6 +186,7 @@ class NotificationsPanel(QWidget):
 
     def _rebuild(self) -> None:
         self.list.clear()
+        self.hint.setText(_HINT_LIVE if self._items else _HINT_CAUGHT_UP)
         for entry in self._items:
             from_label = str(entry.get("from") or "").strip() or "unknown"
             body = str(entry.get("body") or "").replace("\n", " ").strip()

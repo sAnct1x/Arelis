@@ -36,6 +36,10 @@ class Prefs(context: Context) {
         get() = sp.getString(KEY_LISTEN, "")?.trim().orEmpty()
         set(value) = sp.edit().putString(KEY_LISTEN, value.trim().trimEnd('/')).apply()
 
+    var relayUrl: String
+        get() = sp.getString(KEY_RELAY, "")?.trim().orEmpty()
+        set(value) = sp.edit().putString(KEY_RELAY, value.trim().trimEnd('/')).apply()
+
     var paired: Boolean
         get() = sp.getBoolean(KEY_PAIRED, false)
         set(value) = sp.edit().putBoolean(KEY_PAIRED, value).apply()
@@ -45,7 +49,17 @@ class Prefs(context: Context) {
         set(value) = sp.edit().putBoolean(KEY_ENABLED, value).apply()
 
     val readyToTalk: Boolean
-        get() = baseUrl.isNotBlank() && token.isNotBlank()
+        get() = readyToTalk(baseUrl, token)
+
+    /** User tapped Later on the offline-brain card. Still installable from Talk. */
+    var gemmaLater: Boolean
+        get() = sp.getBoolean(KEY_GEMMA_LATER, false)
+        set(value) = sp.edit().putBoolean(KEY_GEMMA_LATER, value).apply()
+
+    /** User chose Wait for Wi-Fi. Start the download when Wi-Fi shows up. */
+    var gemmaWaitWifi: Boolean
+        get() = sp.getBoolean(KEY_GEMMA_WAIT, false)
+        set(value) = sp.edit().putBoolean(KEY_GEMMA_WAIT, value).apply()
 
     companion object {
         private const val PREFS = "arelis"
@@ -55,7 +69,10 @@ class Prefs(context: Context) {
         private const val KEY_DEVICE = "device_key"
         private const val KEY_PORT = "listen_port"
         private const val KEY_LISTEN = "listen_url"
+        private const val KEY_RELAY = "relay_url"
         private const val KEY_PAIRED = "paired"
         private const val KEY_ENABLED = "enabled"
+        private const val KEY_GEMMA_LATER = "gemma_later"
+        private const val KEY_GEMMA_WAIT = "gemma_wait_wifi"
     }
 }

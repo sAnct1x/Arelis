@@ -10,20 +10,23 @@ Everything she *thinks* stays here. The rest of the world is a tool call
 you started, or a card you allowed.
 
 You talk through the window, voice, the terminal, or the phone app.
+The phone is a window onto this PC (same session). If the PC cannot be
+reached, a small Gemma on the phone keeps talking until the house is
+back, then those words copy in. That model is offered at pair as an
+install (~2.6 GB): wait for Wi-Fi, or use mobile data on purpose.
 Messages fly on a small event bus. The orchestrator runs one turn at a
 time. The agent loop talks to Ollama and calls tools. Mail and texts do
 not go out on a hope.
 
 ## First open
 
-Not a tour. Two questions. The folder is a **permission**. On this
-checkout, the model is a **recommendation**. The published 0.2.2
-installer still only asks the folder.
+Not a tour. Two questions. The folder is a **permission**. The model is
+a **recommendation**.
 
 1. Start Arelis.
 2. Which folder may she read, create, change, and delete?
-3. This checkout then looks at graphics memory, RAM, and disk, and
-   recommends one Qwen 3.5 tag. Confirm it, or pick Gemma / DeepSeek.
+3. She looks at graphics memory, RAM, and disk, and recommends one Qwen
+   3.5 tag. Confirm it, or pick Gemma / DeepSeek.
 4. If Ollama is missing, she downloads the official Windows engine into
    `%LOCALAPPDATA%\Arelis-runtime`, then pulls that tag plus
    `nomic-embed-text`.

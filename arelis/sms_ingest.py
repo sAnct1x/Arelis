@@ -11,6 +11,7 @@ import asyncio
 import json
 import logging
 import os
+import queue
 import socket
 import threading
 from collections import deque
@@ -19,6 +20,7 @@ from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qs, unquote, urlparse
 from uuid import uuid4
 
 import yaml
@@ -27,8 +29,9 @@ from arelis.contacts import load_contacts, match_contact_label, normalize_phone,
 from arelis.core.bus import EventBus
 from arelis.core.events import Event, EventType
 from arelis.identity import instance_id
+from arelis.mobile import TURN_WAIT_S, MobileHub, decode_data_url_or_b64, ndjson_line
 from arelis.paths import state_dir
-from arelis.sms_inbound import InboundSms, SeenMessageStore
+from arelis.sms_inbound import InboundSms, SeenMessageStore, hydrate_inbound_media
 
 log = logging.getLogger(__name__)
 
@@ -150,10 +153,16 @@ def parse_ingest_payload(
     contacts=None,
 ) -> InboundSms | None:
     """Validate companion JSON into InboundSms, or None to drop."""
+    from arelis.sms_media import looks_like_photo_body, save_image_b64
+
     contacts = contacts if contacts is not None else load_contacts()
     body = str(data.get("body") or data.get("text") or "").strip()
     from_raw = str(data.get("from") or data.get("title") or "").strip()
-    if not body and not from_raw:
+    image_b64 = str(
+        data.get("image_jpeg") or data.get("image_b64") or data.get("media_b64") or ""
+    ).strip()
+    media_url = str(data.get("media_url") or data.get("image_url") or "").strip()
+    if not body and not from_raw and not image_b64 and not media_url:
         return None
     if not from_raw:
         from_raw = "(unknown)"
@@ -164,11 +173,11 @@ def parse_ingest_payload(
     if me is not None:
         if me.digits and label_digits and me.digits == label_digits:
             return None
-        if match_contact_label(from_raw, contacts) is me and not body:
+        if match_contact_label(from_raw, contacts) is me and not body and not image_b64:
             return None
 
     resolved = resolve_inbound_sender(from_raw, contacts=contacts)
-    if resolved.contact_alias == "me" and not body:
+    if resolved.contact_alias == "me" and not body and not image_b64:
         return None
 
     message_id = str(data.get("id") or "").strip()
@@ -178,6 +187,21 @@ def parse_ingest_payload(
     if not time_text:
         time_text = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
+    media_path = ""
+    media_kind = ""
+    if image_b64:
+        saved = save_image_b64(image_b64, message_id=message_id)
+        if saved is not None:
+            media_path = str(saved)
+            media_kind = "image"
+    if not media_path and media_url.startswith("http"):
+        media_kind = media_kind or "image"
+    if not body and (media_path or image_b64 or media_url):
+        body = "Photo"
+        media_kind = media_kind or "photo_chip"
+    elif looks_like_photo_body(body) and not media_path:
+        media_kind = media_kind or "photo_chip"
+
     return InboundSms(
         id=message_id,
         sender=resolved.sender,
@@ -185,6 +209,9 @@ def parse_ingest_payload(
         time=time_text,
         contact_alias=resolved.contact_alias,
         contact_name=resolved.contact_name,
+        media_path=media_path,
+        media_url=media_url if media_url.startswith("http") else "",
+        media_kind=media_kind,
     )
 
 
@@ -196,9 +223,25 @@ async def publish_inbound(
     source: str = "notification",
 ) -> bool:
     """Deduplicate, record, publish. Returns True when a new event was published."""
+    from arelis.sms_media import (
+        already_published_recent,
+        inbound_fingerprint,
+        remember_published,
+    )
+
+    msg = hydrate_inbound_media(msg)
     if not msg.id or seen.has(msg.id):
         return False
+    fp = inbound_fingerprint(
+        sender=msg.sender,
+        body=msg.body,
+        media=msg.media_path or msg.media_url or msg.media_kind,
+    )
+    if already_published_recent(fp):
+        seen.mark([msg.id])
+        return False
     seen.mark([msg.id])
+    remember_published(fp)
     payload = msg.as_payload()
     payload["source"] = source
     RECENT_INBOUND.record(msg, source=source)
@@ -244,8 +287,10 @@ class InboundIngestServer:
         self.host = host
         self.port = int(port)
         self.seen = seen or SeenMessageStore()
+        self.mobile = MobileHub()
         self._httpd: ThreadingHTTPServer | None = None
         self._thread: threading.Thread | None = None
+        self._mobile_hooked = False
 
     @property
     def running(self) -> bool:
@@ -255,6 +300,21 @@ class InboundIngestServer:
         if self.running:
             return
         server = self
+
+        def await_session_load(payload: dict[str, Any]) -> dict[str, Any]:
+            waiter = server.mobile.begin_load_wait()
+            try:
+                fut = asyncio.run_coroutine_threadsafe(
+                    server.bus.publish(Event(EventType.SESSION_LOAD, payload)),
+                    server.loop,
+                )
+                fut.result(timeout=10)
+                result = waiter.get(timeout=15)
+            except Exception:
+                server.mobile.abandon_load_wait()
+                raise
+            server.mobile.abandon_load_wait()
+            return result if isinstance(result, dict) else {}
 
         class Handler(BaseHTTPRequestHandler):
             def log_message(self, fmt: str, *args: Any) -> None:
@@ -293,13 +353,129 @@ class InboundIngestServer:
                         return
                     self._reply(200, {"ok": True, "service": "arelis-inbound"})
                     return
+                if path in {"/mobile/status", "/mobile/persona", "/mobile/chats"}:
+                    if not self._token_ok():
+                        self._reply(401, {"ok": False, "error": "unauthorized"})
+                        return
+                    if path == "/mobile/status":
+                        self._reply(200, server.mobile.status())
+                        return
+                    if path == "/mobile/chats":
+                        if server.mobile.chats_fn is None:
+                            self._reply(
+                                503,
+                                {
+                                    "ok": False,
+                                    "error": "Chats wait until the house is back.",
+                                },
+                            )
+                            return
+                        current = server.mobile.status().get("chat") or {}
+                        self._reply(
+                            200,
+                            {
+                                "ok": True,
+                                "chats": server.mobile.list_chats(),
+                                "current": current,
+                            },
+                        )
+                        return
+                    self._reply(200, server.mobile.persona_payload())
+                    return
+                if path.startswith("/mobile/file/"):
+                    if not self._token_ok():
+                        self._reply(401, {"ok": False, "error": "unauthorized"})
+                        return
+                    glance_id = path.rsplit("/", 1)[-1].strip()
+                    got = server.mobile.file_bytes(glance_id)
+                    if got is None:
+                        self._reply(404, {"ok": False, "error": "gone"})
+                        return
+                    self._send_bytes(*got)
+                    return
+                if path in {"/mobile/files", "/mobile/open"}:
+                    if not self._token_ok():
+                        self._reply(401, {"ok": False, "error": "unauthorized"})
+                        return
+                    qs = parse_qs(urlparse(self.path).query)
+                    rel = unquote((qs.get("path") or [""])[0] or "")
+                    if path == "/mobile/files":
+                        scope = unquote((qs.get("scope") or ["workspace"])[0] or "workspace")
+                        fn = server.mobile.files_fn
+                        if fn is None:
+                            self._reply(
+                                503,
+                                {
+                                    "ok": False,
+                                    "error": "open Arelis on the PC — files live there",
+                                },
+                            )
+                            return
+                        try:
+                            body = fn(scope, rel)
+                        except PermissionError:
+                            self._reply(403, {"ok": False, "error": "outside the workspace"})
+                            return
+                        except FileNotFoundError:
+                            self._reply(404, {"ok": False, "error": "not found"})
+                            return
+                        except Exception as exc:
+                            log.exception("mobile files failed")
+                            self._reply(500, {"ok": False, "error": str(exc)})
+                            return
+                        self._reply(200, body)
+                        return
+                    opener = server.mobile.open_fn
+                    if opener is None:
+                        self._reply(
+                            503,
+                            {
+                                "ok": False,
+                                "error": "open Arelis on the PC — files live there",
+                            },
+                        )
+                        return
+                    if not rel.strip():
+                        self._reply(400, {"ok": False, "error": "missing path"})
+                        return
+                    try:
+                        got = opener(rel)
+                    except PermissionError:
+                        self._reply(403, {"ok": False, "error": "outside the workspace"})
+                        return
+                    except FileNotFoundError:
+                        self._reply(404, {"ok": False, "error": "not found"})
+                        return
+                    except ValueError as exc:
+                        self._reply(413, {"ok": False, "error": str(exc)})
+                        return
+                    except Exception as exc:
+                        log.exception("mobile open failed")
+                        self._reply(500, {"ok": False, "error": str(exc)})
+                        return
+                    if got is None:
+                        self._reply(404, {"ok": False, "error": "not found"})
+                        return
+                    self._send_bytes(*got)
+                    return
                 self._reply(404, {"ok": False, "error": "not found"})
 
             def do_POST(self) -> None:
                 path = self.path.split("?", 1)[0]
                 length = int(self.headers.get("Content-Length") or 0)
                 raw = self.rfile.read(max(0, length)) if length else b"{}"
-                if path not in {"/inbound/sms", "/inbound/message", "/inbound/pair"}:
+                if path in {
+                    "/inbound/sms",
+                    "/inbound/message",
+                    "/inbound/pair",
+                    "/mobile/turn",
+                    "/mobile/confirm",
+                    "/mobile/sync",
+                    "/mobile/ack",
+                    "/mobile/chat",
+                }:
+                    pass
+                else:
                     self._reply(404, {"ok": False, "error": "not found"})
                     return
                 if not self._token_ok():
@@ -324,6 +500,9 @@ class InboundIngestServer:
                             body.get("listen_url"),
                         )
                     self._reply(code, body)
+                    return
+                if path.startswith("/mobile/"):
+                    self._handle_mobile_post(path, data)
                     return
                 msg = parse_ingest_payload(data)
                 if msg is None:
@@ -370,6 +549,290 @@ class InboundIngestServer:
                     },
                 )
 
+            def _handle_mobile_post(self, path: str, data: dict[str, Any]) -> None:
+                if path == "/mobile/ack":
+                    server.mobile.ack_notice(str(data.get("id") or ""))
+                    self._reply(200, {"ok": True})
+                    return
+                if path == "/mobile/chat":
+                    action = str(data.get("action") or "").strip().lower()
+                    session_id = str(data.get("id") or "").strip()
+                    if action not in {"new", "open"}:
+                        self._reply(400, {"ok": False, "error": "action must be new or open"})
+                        return
+                    if action == "open" and not session_id:
+                        self._reply(400, {"ok": False, "error": "id required"})
+                        return
+                    if server.mobile.busy():
+                        self._reply(
+                            409,
+                            {
+                                "ok": False,
+                                "error": "Finish or stop the current turn first.",
+                            },
+                        )
+                        return
+                    if not server.mobile.session_ready():
+                        self._reply(
+                            503,
+                            {
+                                "ok": False,
+                                "error": "Chats wait until the house is back.",
+                            },
+                        )
+                        return
+                    payload: dict[str, Any] = (
+                        {"new": True} if action == "new" else {"session_id": session_id}
+                    )
+                    try:
+                        result = await_session_load(payload)
+                    except Exception as exc:
+                        self._reply(500, {"ok": False, "error": str(exc)})
+                        return
+                    if not isinstance(result, dict) or not result.get("ok"):
+                        err = ""
+                        if isinstance(result, dict):
+                            err = str(result.get("error") or "")
+                        self._reply(
+                            409 if "turn" in err.lower() else 404,
+                            {"ok": False, "error": err or "Could not open that chat."},
+                        )
+                        return
+                    self._reply(200, server.mobile.status())
+                    return
+                if path == "/mobile/confirm":
+                    confirm_id = str(data.get("id") or "").strip()
+                    raw_decision = str(data.get("decision") or "").strip().lower()
+                    decision = "allow" if raw_decision in {"allow", "yes"} else "skip"
+                    if not confirm_id:
+                        self._reply(400, {"ok": False, "error": "id required"})
+                        return
+                    try:
+                        fut = asyncio.run_coroutine_threadsafe(
+                            server.bus.publish(
+                                Event(
+                                    EventType.TOOL_CONFIRM_REPLY,
+                                    {
+                                        "id": confirm_id,
+                                        "decision": decision,
+                                        "allow_turn": False,
+                                        "source": "mobile",
+                                    },
+                                )
+                            ),
+                            server.loop,
+                        )
+                        fut.result(timeout=10)
+                    except Exception as exc:
+                        self._reply(500, {"ok": False, "error": str(exc)})
+                        return
+                    server.mobile.clear_confirm(confirm_id)
+                    self._reply(200, {"ok": True, "decision": decision})
+                    return
+                if path == "/mobile/sync":
+                    rows = data.get("messages") or []
+                    if not isinstance(rows, list):
+                        self._reply(400, {"ok": False, "error": "messages must be a list"})
+                        return
+                    normalized = server.mobile.normalize_sync(rows)
+                    if not normalized:
+                        self._reply(200, {"ok": True, "copied": 0})
+                        return
+                    if not server.mobile.session_ready():
+                        self._reply(
+                            503,
+                            {
+                                "ok": False,
+                                "error": "open Arelis on the PC to copy that talk in",
+                            },
+                        )
+                        return
+                    if server.mobile.busy():
+                        self._reply(
+                            409,
+                            {
+                                "ok": False,
+                                "error": "Finish or stop the current turn first.",
+                            },
+                        )
+                        return
+                    session_id = str(data.get("session_id") or "").strip()
+                    current = str(
+                        (server.mobile.current_chat() or {}).get("id") or ""
+                    )
+                    need_new = not session_id
+                    need_open = bool(session_id) and session_id != current
+                    if need_new or need_open:
+                        try:
+                            result = await_session_load(
+                                {"new": True}
+                                if need_new
+                                else {"session_id": session_id}
+                            )
+                        except Exception as exc:
+                            self._reply(500, {"ok": False, "error": str(exc)})
+                            return
+                        if not result.get("ok") and need_open:
+                            try:
+                                result = await_session_load({"new": True})
+                            except Exception as exc:
+                                self._reply(500, {"ok": False, "error": str(exc)})
+                                return
+                        if not result.get("ok"):
+                            err = str(result.get("error") or "Could not open that chat.")
+                            self._reply(
+                                409 if "turn" in err.lower() else 404,
+                                {"ok": False, "error": err},
+                            )
+                            return
+                    server.mobile.apply_sync(normalized)
+                    try:
+                        fut = asyncio.run_coroutine_threadsafe(
+                            server.bus.publish(
+                                Event(
+                                    EventType.MOBILE_SYNC,
+                                    {
+                                        "messages": normalized,
+                                        "session_id": str(
+                                            (server.mobile.current_chat() or {}).get(
+                                                "id"
+                                            )
+                                            or ""
+                                        ),
+                                    },
+                                )
+                            ),
+                            server.loop,
+                        )
+                        fut.result(timeout=10)
+                    except Exception as exc:
+                        self._reply(500, {"ok": False, "error": str(exc)})
+                        return
+                    body = server.mobile.status()
+                    body["ok"] = True
+                    body["copied"] = len(normalized)
+                    self._reply(200, body)
+                    return
+                if path == "/mobile/turn":
+                    self._handle_mobile_turn(data)
+                    return
+                self._reply(404, {"ok": False, "error": "not found"})
+
+            def _handle_mobile_turn(self, data: dict[str, Any]) -> None:
+                if not server.mobile.session_ready():
+                    self._reply(
+                        503,
+                        {
+                            "ok": False,
+                            "error": "open Arelis on the PC — the house is not thinking yet",
+                        },
+                    )
+                    return
+                if server.mobile.busy_fn is not None:
+                    try:
+                        busy = bool(server.mobile.busy_fn())
+                    except Exception:
+                        busy = False
+                    if busy:
+                        self._reply(
+                            409,
+                            {"ok": False, "error": "already in a turn — wait or stop on the PC"},
+                        )
+                        return
+                text = str(data.get("text") or "").strip()
+                attachments: list[dict[str, Any]] = []
+                image_raw = str(
+                    data.get("image_jpeg") or data.get("image_b64") or ""
+                ).strip()
+                if image_raw:
+                    from arelis.attachments import stage_image_bytes
+
+                    blob = decode_data_url_or_b64(image_raw)
+                    staged = stage_image_bytes(blob, suffix=".jpg")
+                    if staged.errors:
+                        self._reply(400, {"ok": False, "error": staged.errors[0]})
+                        return
+                    attachments = [item.as_dict() for item in staged.ok]
+                audio_raw = str(data.get("audio_wav_b64") or data.get("audio_b64") or "").strip()
+                if audio_raw:
+                    wav = decode_data_url_or_b64(audio_raw)
+                    if not wav:
+                        self._reply(400, {"ok": False, "error": "audio was empty"})
+                        return
+                    transcribe = server.mobile.transcribe_fn
+                    if transcribe is None:
+                        self._reply(
+                            501,
+                            {"ok": False, "error": "voice is off on the PC — type instead"},
+                        )
+                        return
+                    clip = state_dir() / "drops" / "mobile-voice.wav"
+                    try:
+                        clip.parent.mkdir(parents=True, exist_ok=True)
+                        clip.write_bytes(wav)
+                        spoken = transcribe(clip)
+                    except Exception as exc:
+                        log.exception("mobile transcribe failed")
+                        self._reply(500, {"ok": False, "error": str(exc)})
+                        return
+                    spoken = (spoken or "").strip()
+                    if not spoken and not text and not attachments:
+                        self._reply(400, {"ok": False, "error": "no speech detected"})
+                        return
+                    if spoken:
+                        text = spoken if not text else f"{text}\n{spoken}"
+                if not text and not attachments:
+                    self._reply(400, {"ok": False, "error": "empty turn"})
+                    return
+                waiter = server.mobile.begin_turn_wait()
+                payload: dict[str, Any] = {"text": text, "source": "mobile"}
+                if attachments:
+                    payload["attachments"] = attachments
+                try:
+                    fut = asyncio.run_coroutine_threadsafe(
+                        server.bus.publish(Event(EventType.USER_MESSAGE, payload)),
+                        server.loop,
+                    )
+                    fut.result(timeout=10)
+                except Exception as exc:
+                    server.mobile.abandon_turn_wait()
+                    self._reply(500, {"ok": False, "error": str(exc)})
+                    return
+                self.protocol_version = "HTTP/1.0"
+                self.send_response(200)
+                self.send_header("Content-Type", "application/x-ndjson")
+                self.send_header("Cache-Control", "no-cache")
+                self.end_headers()
+                try:
+                    while True:
+                        try:
+                            item = waiter.get(timeout=TURN_WAIT_S)
+                        except queue.Empty:
+                            self.wfile.write(
+                                ndjson_line(
+                                    {"type": "error", "message": "turn timed out"}
+                                )
+                            )
+                            break
+                        if item is None:
+                            break
+                        self.wfile.write(ndjson_line(item))
+                        self.wfile.flush()
+                finally:
+                    server.mobile.abandon_turn_wait()
+
+            def _send_bytes(self, data: bytes, mime: str, name: str) -> None:
+                safe = name.replace('"', "")
+                self.send_response(200)
+                self.send_header("Content-Type", mime)
+                self.send_header("Content-Length", str(len(data)))
+                self.send_header(
+                    "Content-Disposition",
+                    f'inline; filename="{safe}"',
+                )
+                self.end_headers()
+                self.wfile.write(data)
+
             def _reply(self, code: int, body: dict[str, Any]) -> None:
                 payload = json.dumps(body).encode("utf-8")
                 self.send_response(code)
@@ -385,6 +848,21 @@ class InboundIngestServer:
             daemon=True,
         )
         self._thread.start()
+        if not self._mobile_hooked:
+            for kind in (
+                EventType.USER_MESSAGE,
+                EventType.ASSISTANT_DELTA,
+                EventType.ASSISTANT_RETRACT,
+                EventType.ASSISTANT_DONE,
+                EventType.ERROR,
+                EventType.TOOL_CONFIRM,
+                EventType.TOOL_CONFIRM_REPLY,
+                EventType.IMAGE_READY,
+                EventType.FILE_READY,
+                EventType.SESSION_LOADED,
+            ):
+                self.bus.subscribe(kind, self.mobile.observe)
+            self._mobile_hooked = True
         log.info("Inbound ingest listening on http://%s:%s", self.host, self.port)
 
     def stop(self) -> None:

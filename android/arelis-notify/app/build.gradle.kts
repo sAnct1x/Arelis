@@ -11,8 +11,8 @@ android {
         applicationId = "app.arelis"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.2.3"
     }
 
     buildTypes {
@@ -36,6 +36,9 @@ android {
     }
     composeOptions {
         kotlinCompilerExtensionVersion = "1.5.14"
+    }
+    testOptions {
+        unitTests.isReturnDefaultValues = true
     }
     packaging {
         jniLibs {
@@ -63,4 +66,10 @@ dependencies {
     implementation("androidx.camera:camera-view:$camera")
     implementation("com.google.mlkit:barcode-scanning:17.3.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+    // LiteRT-LM 0.14+ ships Kotlin 2.2 metadata. This module is Kotlin 1.9,
+    // so the AAR cannot sit on the compile classpath. GemmaEngine loads it
+    // by reflection if a later build ships a compatible copy.
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20240303")
 }

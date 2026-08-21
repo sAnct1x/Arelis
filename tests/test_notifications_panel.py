@@ -22,15 +22,68 @@ def test_notification_rows_include_time_and_body(qt_app) -> None:
     assert "\n" in text
 
 
-def test_mark_read_clears_unread_mark(qt_app) -> None:
+def test_clear_removes_the_rows(qt_app) -> None:
+    """Mark-all-read used to grey the dots and leave the texts sitting there."""
     panel = NotificationsPanel()
     panel.add_message(
         message_id="m1", from_label="A", body="hi", time_text="10:00"
     )
     assert panel.unread_count == 1
-    panel.mark_all_read()
+    panel.clear()
     assert panel.unread_count == 0
-    assert "○" in panel.list.item(0).text()
+    assert panel.list.count() == 0
+    assert "caught up" in panel.hint.text()
+    panel.deleteLater()
+
+
+def test_clear_keeps_a_sticky_row(qt_app) -> None:
+    panel = NotificationsPanel()
+    panel.add_message(
+        message_id="allow",
+        from_label="Allow",
+        body="send email",
+        kind="allow",
+        sticky=True,
+    )
+    panel.add_message(message_id="sms", from_label="A", body="hi")
+    panel.clear()
+    assert panel.list.count() == 1
+    assert "Allow" in panel.list.item(0).text()
+    panel.deleteLater()
+
+
+def test_click_does_not_clone_the_body_underneath(qt_app) -> None:
+    """The inbox row already has the text. A second pane reprinted it."""
+    from PySide6.QtWidgets import QLabel
+
+    from arelis.notify.center import new_notice
+
+    panel = NotificationsPanel()
+    notice = new_notice(kind="email", title="Robin", body="On my way")
+    panel.set_notices([notice])
+    panel._on_item(panel.list.item(0))
+    qt_app.processEvents()
+    assert panel.findChild(QLabel, "NotificationDetail") is None
+    assert panel.list.item(0).text().count("On my way") == 1
+    panel.deleteLater()
+
+
+def test_sms_row_click_requests_chat(qt_app) -> None:
+    from arelis.notify.center import new_notice
+
+    panel = NotificationsPanel()
+    notice = new_notice(
+        kind="sms",
+        title="Robin",
+        body="hi",
+        data={"from": "+15550100", "alias": "wife"},
+    )
+    panel.set_notices([notice])
+    opened: list[str] = []
+    panel.chat_requested.connect(opened.append)
+    panel._on_item(panel.list.item(0))
+    assert opened == [notice.id]
+    panel.deleteLater()
 
 
 def test_notify_overlay_pill_and_extra(qt_app) -> None:

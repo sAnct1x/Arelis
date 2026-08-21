@@ -148,7 +148,7 @@ fun HomeScreen(
 }
 
 @Composable
-private fun StepRow(
+fun StepRow(
     done: Boolean,
     title: String,
     body: String,

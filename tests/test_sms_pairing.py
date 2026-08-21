@@ -119,6 +119,27 @@ def test_apply_pair_and_dhcp_reregister(tmp_path: Path, monkeypatch) -> None:
     assert account.base_url == "http://192.168.1.21:8080"
 
 
+def test_apply_pair_talk_only_skips_radio(tmp_path: Path, monkeypatch) -> None:
+    secrets = tmp_path / "secrets.yaml"
+    pair_path = tmp_path / "pair.json"
+    monkeypatch.setattr("arelis.sms_pairing.instance_id", lambda: "inst0123456789ab")
+    secret = issue_pair_secret(path=pair_path)
+    code, body = apply_pair(
+        {
+            "instance": "inst0123456789ab",
+            "pair": secret,
+            "device_key": "talk-only-phone",
+            "talk": True,
+        },
+        secrets_path=secrets,
+        pair_path=pair_path,
+    )
+    assert code == 200
+    assert body["talk"] is True
+    assert body["listen_url"] == ""
+    assert load_sms_account(secrets) is None
+
+
 def test_apply_pair_rejects_wrong_instance(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr("arelis.sms_pairing.instance_id", lambda: "inst0123456789ab")
     pair_path = tmp_path / "pair.json"
@@ -161,6 +182,10 @@ def test_make_ticket_mentions_instance(monkeypatch, tmp_path: Path) -> None:
         "arelis.sms_pairing.pairing_urls",
         lambda port: (f"http://192.168.1.10:{port}",),
     )
+    monkeypatch.setattr(
+        "arelis.relay.config.load_relay_settings",
+        lambda path=None: type("S", (), {"url": "", "token": ""})(),
+    )
     ticket = make_ticket("ingest-token", 8765)
     assert ticket.instance == "inst0123456789ab"
     assert ticket.token == "ingest-token"
@@ -174,11 +199,34 @@ def test_make_ticket_reuses_unexpired_secret(monkeypatch, tmp_path: Path) -> Non
         "arelis.sms_pairing.pairing_urls",
         lambda port: (f"http://192.168.1.10:{port}",),
     )
+    monkeypatch.setattr(
+        "arelis.relay.config.load_relay_settings",
+        lambda path=None: type("S", (), {"url": "", "token": ""})(),
+    )
     first = make_ticket("ingest-token", 8765, rotate=True)
     reused = make_ticket("ingest-token", 8765, rotate=False)
     assert reused.pair == first.pair
     rotated = make_ticket("ingest-token", 8765, rotate=True)
     assert rotated.pair != first.pair
+
+
+def test_make_ticket_appends_mailbox_url(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr("arelis.sms_pairing.instance_id", lambda: "inst0123456789ab")
+    monkeypatch.setattr("arelis.sms_pairing.PAIR_PATH", tmp_path / "pair.json")
+    monkeypatch.setattr(
+        "arelis.sms_pairing.pairing_urls",
+        lambda port: (f"http://192.168.1.10:{port}",),
+    )
+    monkeypatch.setattr(
+        "arelis.relay.config.load_relay_settings",
+        lambda path=None: type(
+            "S", (), {"url": "https://relay.example.com", "token": "x"}
+        )(),
+    )
+    ticket = make_ticket("ingest-token", 8765)
+    assert ticket.relay == "https://relay.example.com"
+    assert ticket.as_text().endswith("|https://relay.example.com")
+    assert ticket.as_dict()["relay"] == "https://relay.example.com"
 
 
 def test_companion_does_not_poll_own_radio(tmp_path: Path, monkeypatch) -> None:

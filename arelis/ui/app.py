@@ -2479,7 +2479,7 @@ class ArelisWindow(QMainWindow):
         self._sync_notify_surface()
 
     def _on_notify_mark_all_read(self) -> None:
-        self.notify_center.mark_all_read()
+        self.notify_center.clear_non_sticky()
         self._sync_notify_surface()
 
     def _on_notice_activated(self, notice_id: str) -> None:
@@ -3758,21 +3758,24 @@ class ArelisWindow(QMainWindow):
             # marked busy. Busy is set here rather than at the end of the
             # recording on purpose: if transcription fails there is no turn, so
             # there would be no terminal event to release the composer.
-            if p.get("source") == "voice":
+            # Phone talk uses the same path: the companion is not the glass.
+            if p.get("source") in {"voice", "mobile"}:
                 text = p.get("text") or ""
-                self.chat.add_user(text)
+                attachments = p.get("attachments") if p.get("source") == "mobile" else None
+                self.chat.add_user(text, attachments=list(attachments or []) or None)
                 self.thinking.append(text, kind="trace")
                 self._set_busy(True)
-                prov = getattr(self, "_provisional_intent", None)
-                if prov is not None:
-                    from arelis.voice.speculate import speculation_matches_final
+                if p.get("source") == "voice":
+                    prov = getattr(self, "_provisional_intent", None)
+                    if prov is not None:
+                        from arelis.voice.speculate import speculation_matches_final
 
-                    if not speculation_matches_final(prov, text):
-                        self.thinking.append(
-                            "Provisional hear cancelled (final transcript differed).",
-                            kind="status",
-                        )
-                    self._provisional_intent = None
+                        if not speculation_matches_final(prov, text):
+                            self.thinking.append(
+                                "Provisional hear cancelled (final transcript differed).",
+                                kind="status",
+                            )
+                        self._provisional_intent = None
         elif t == EventType.VOICE_TRANSCRIPT:
             # Dictation never becomes a turn. It lands in the composer for the
             # user to edit and send themselves.
@@ -3840,6 +3843,18 @@ class ArelisWindow(QMainWindow):
                 self._arm_speech()
             self._set_busy(False)
             self._refresh_history()
+        elif t == EventType.MOBILE_SYNC:
+            rows = p.get("messages") or []
+            if isinstance(rows, list) and rows:
+                for row in rows:
+                    if not isinstance(row, dict):
+                        continue
+                    role = str(row.get("role") or "")
+                    text = str(row.get("text") or "")
+                    if role == "user" and text:
+                        self.chat.add_user(text)
+                    elif role == "assistant" and text:
+                        self.chat.finish_assistant(text)
         elif t == EventType.SESSION_LOADED:
             if not p.get("ok"):
                 self.chat.add_system(str(p.get("error") or "Could not load that conversation."))
@@ -4224,6 +4239,9 @@ class ArelisWindow(QMainWindow):
             time=str(payload.get("time") or ""),
             contact_alias=str(payload.get("contact_alias") or ""),
             contact_name=str(payload.get("contact_name") or ""),
+            media_path=str(payload.get("media_path") or ""),
+            media_url=str(payload.get("media_url") or ""),
+            media_kind=str(payload.get("media_kind") or ""),
         )
         alias = msg.contact_alias or ""
         title = msg.display_from
@@ -4233,6 +4251,8 @@ class ArelisWindow(QMainWindow):
             phone=msg.sender,
             sender=msg.sender,
             title=title,
+            media_path=msg.media_path,
+            media_kind=msg.media_kind,
         )
         self._alert_if_background()
         _window, state = self.sms_chats.room_state(
@@ -4458,6 +4478,130 @@ class ArelisWindow(QMainWindow):
         if not ok:
             self.sms_chats.system(key, error or "Send failed.")
 
+    def _push_mobile_notice(self, kind: str, title: str, body: str) -> None:
+        ingest = self.sms_ingest
+        hub = getattr(ingest, "mobile", None) if ingest is not None else None
+        if hub is not None:
+            hub.push_notice(kind, title, body)
+
+    def _bind_mobile_hub(self) -> None:
+        """Let the phone ask whether this window can think."""
+        ingest = self.sms_ingest
+        if ingest is None:
+            return
+        from arelis.config import load_persona
+
+        def transcribe(path: Path) -> str:
+            voice = self.voice
+            if voice is None or not voice.stt_enabled:
+                raise RuntimeError("voice is off on the PC")
+            fut = asyncio.run_coroutine_threadsafe(
+                voice.stt.transcribe(path),
+                self.loop,
+            )
+            return str(fut.result(timeout=90) or "")
+
+        def place() -> dict:
+            rooms = self.config.get("_rooms")
+            room = getattr(rooms, "active", None) if rooms is not None else None
+            return {
+                "workspace": self.workspace_roots.active,
+                "roots": self.workspace_roots.names(),
+                "room": (
+                    {
+                        "id": room.id,
+                        "name": room.name,
+                        "root": room.root,
+                    }
+                    if room is not None
+                    else None
+                ),
+            }
+
+        def list_files(scope: str, rel: str) -> dict:
+            from arelis.mobile import browse_files
+
+            rooms = self.config.get("_rooms")
+            room = getattr(rooms, "active", None) if rooms is not None else None
+            return browse_files(
+                self.workspace_roots,
+                scope=scope,
+                rel=rel,
+                room_name=getattr(room, "name", "") or "",
+                room_root=getattr(room, "root", "") or "",
+            )
+
+        def open_file(path: str) -> tuple[bytes, str, str] | None:
+            import mimetypes
+
+            from arelis.mobile import GLANCE_MAX_BYTES
+
+            hit = self.workspace_roots.resolve_read(path)
+            if not hit.path.is_file():
+                return None
+            data = hit.path.read_bytes()
+            if len(data) > GLANCE_MAX_BYTES:
+                raise ValueError("file is larger than 8 MB — open it on the PC")
+            mime, _ = mimetypes.guess_type(hit.path.name)
+            return data, mime or "application/octet-stream", hit.path.name
+
+        def list_chats() -> list:
+            store = self.store
+            if store is None:
+                return []
+            return [
+                {
+                    "id": str(row.get("id") or ""),
+                    "started_at": str(row.get("started_at") or ""),
+                    "title": str(row.get("title") or ""),
+                    "room_id": str(row.get("room_id") or ""),
+                }
+                for row in store.list_sessions(limit=80)
+            ]
+
+        def current_chat() -> dict:
+            store = self.store
+            if store is None:
+                return {}
+            sid = str(store.session_id or "")
+            if not sid:
+                return {}
+            row = store.get_session(sid) or {}
+            title = str(row.get("title") or "").strip() or "(untitled)"
+            return {
+                "id": sid,
+                "title": title,
+                "started_at": str(row.get("started_at") or ""),
+            }
+
+        ingest.mobile.bind(
+            warmup=lambda: bool(
+                getattr(self.router, "warmup_pending", lambda: False)()
+            ),
+            busy=lambda: bool(self._turn_busy),
+            model=lambda: str(getattr(self, "_current_model", "") or ""),
+            session_ready=lambda: True,
+            transcribe=transcribe,
+            persona=lambda: load_persona(self.config),
+            files=list_files,
+            open_file=open_file,
+            place=place,
+            chats=list_chats,
+            current_chat=current_chat,
+        )
+        # Phone status is this hub, not the desktop widget. Seed the open
+        # thread so a reconnect during warmup still has the real conversation,
+        # then Gemma lines from the pocket can copy in on top.
+        store = self.store
+        sid = str(getattr(store, "session_id", "") or "")
+        if store is not None and sid:
+            ingest.mobile.replace_transcript(
+                [
+                    {"role": row.get("role"), "content": row.get("content")}
+                    for row in store.get_messages(sid)
+                ]
+            )
+
     def _begin_job(self, tool: str) -> None:
         self._job_name = tool
         self._job_t0 = time.monotonic()
@@ -4471,8 +4615,10 @@ class ArelisWindow(QMainWindow):
         self._job_name = ""
         if ok:
             self.notify_center.upsert_job(tool, done=True, output=output)
+            self._push_mobile_notice("job", f"{tool} finished", output or f"{tool} is ready.")
         else:
             self.notify_center.upsert_job(tool, failed=True, output=output)
+            self._push_mobile_notice("job", f"{tool} failed", output or f"{tool} failed.")
         self._sync_notify_surface()
 
     def _on_job_tick(self) -> None:
@@ -5013,6 +5159,7 @@ def run_ui(config: dict[str, Any] | None = None) -> int:
         window.sms_ingest = runtime.ingest
         window.sms_watcher = runtime.watcher
         window.sms_auto_reply = runtime.auto_reply
+        window._bind_mobile_hub()
         for message in runtime.status_messages:
             asyncio.run_coroutine_threadsafe(
                 bus.publish(Event(EventType.STATUS, {"message": message})),

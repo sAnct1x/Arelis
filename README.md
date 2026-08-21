@@ -35,7 +35,7 @@ Windows 10 or later, 64-bit.
 
 Latest setup:
 [GitHub releases](https://github.com/sAnct1x/arelis/releases/latest).
-The current file is `Arelis-0.2.2-win64-setup.exe`. About 155 MB to
+The current file is `Arelis-0.2.3-win64-setup.exe`. About 155 MB to
 download, about 640 MB installed. Per-user, into
 `%LOCALAPPDATA%\Programs\Arelis`. No administrator prompt.
 
@@ -43,20 +43,18 @@ It is **not code-signed.** SmartScreen will warn on first run. That is
 Windows doing its job. Check the SHA-256 next to the installer:
 
 ```powershell
-Get-FileHash .\Arelis-0.2.2-win64-setup.exe -Algorithm SHA256
-Get-Content .\Arelis-0.2.2-win64-setup.exe.sha256
+Get-FileHash .\Arelis-0.2.3-win64-setup.exe -Algorithm SHA256
+Get-Content .\Arelis-0.2.3-win64-setup.exe.sha256
 ```
 
 The hashes should match. That catches a bad download. It is not a
 signature. Both files come from the same release.
 
 The installer includes voice and her browser extra. It does **not**
-include the models. First open on 0.2.2 is the folder question: which
-directory may she read and change.
-
-This source checkout then asks which model to pull (that ships with
-0.2.3, not tagged yet). Confirm the recommendation, or choose Gemma /
-DeepSeek. One model at a time — both composer chips are the same tag. If
+include the models. First open asks which folder she may read and
+change, then which model to pull. Confirm the recommendation, or choose
+Gemma / DeepSeek. One model at a time — both composer chips are the same
+tag. If
 [Ollama](https://ollama.com/download) is missing, she downloads the free
 local engine first, about 1.4 GB, then the model. The recommended model
 looks at pictures itself; a separate vision model only downloads if you
@@ -191,19 +189,19 @@ picture on disk. Generate pictures if ComfyUI is set up. Listen and
 speak.
 
 Mail, calendar, and texts through your Android phone work **after** you
-connect them. This checkout can also write a PDF, Word file, spreadsheet,
-or markdown note (that ships with 0.2.3, not tagged yet).
+connect them. She can also write a PDF, Word file, spreadsheet, or
+markdown note.
 
 Tests cover this. Voice timing, a real handset, and image generation
 have only been run end to end on the author's hardware. Odd behaviour on
-yours is worth an issue. The published installer is **0.2.2**. Notes:
+yours is worth an issue. The published installer is **0.2.3**. Notes:
 [whats-new.md](docs/whats-new.md).
 
 ## More
 
 | Document | What |
 |---|---|
-| [whats-new.md](docs/whats-new.md) | This checkout on top of 0.2.2 |
+| [whats-new.md](docs/whats-new.md) | 0.2.3 |
 | [rooms.md](docs/rooms.md) | Named project spaces |
 | [models.md](docs/models.md) | Which models, and why |
 | [voice-wake.md](docs/voice-wake.md) | Hey Arelis |

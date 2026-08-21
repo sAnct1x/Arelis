@@ -13,10 +13,16 @@ class InboundWorker(
         if (!prefs.readyToTalk) return Result.success()
         val queue = InboundQueue(applicationContext)
         val remaining = mutableListOf<QueuedInbound>()
-        val client = ArelisClient(prefs.baseUrl, prefs.token)
+        val client = ArelisClient.fromPrefs(prefs)
         for (item in queue.snapshot()) {
             try {
-                client.postInbound(item.id, item.from, item.body, item.timeIso)
+                client.postInbound(
+                    item.id,
+                    item.from,
+                    item.body,
+                    item.timeIso,
+                    item.imageJpeg.ifBlank { null },
+                )
             } catch (_: Exception) {
                 remaining.add(item.copy(tries = item.tries + 1))
             }

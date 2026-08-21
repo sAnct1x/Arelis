@@ -9,6 +9,7 @@ from arelis.ui.sms_chat import (
     SmsChatMessage,
     SmsChatRegistry,
     SmsChatWindow,
+    bubble_plain_text,
     chat_target,
     room_owns_doorbell,
     seed_bodies,
@@ -204,7 +205,7 @@ def test_thread_scroll_stops_at_the_last_message(qt_app) -> None:
         qt_app.processEvents()
         newest = window._last_bubble()
         assert newest is not None
-        assert newest.text() == "newest"
+        assert bubble_plain_text(newest) == "newest"
         newest_bottom = newest.mapTo(view, newest.rect().bottomLeft()).y()
         assert 0 < newest_bottom <= view.height() + 8
         host = window._scroll.widget()
@@ -424,3 +425,58 @@ def test_job_row_does_not_open_as_chat(qt_app) -> None:
     panel._on_double(panel.list.item(0))
     assert opened == []
     panel.deleteLater()
+
+
+def test_https_url_becomes_an_anchor(qt_app) -> None:
+    """A tap on a web link must open the browser, not sit as dead text."""
+    window = SmsChatWindow(key="k", title="Alex", alias="coach", phone="+15550100")
+    try:
+        window.append_message(
+            SmsChatMessage(
+                direction="in",
+                body="see https://example.com/notes",
+            )
+        )
+        bubble = window._last_bubble()
+        html = bubble_plain_text(bubble)
+        assert '<a href="https://example.com/notes">' in html
+        assert "file://" not in html
+    finally:
+        window.hide()
+        window.deleteLater()
+
+
+def test_file_url_is_not_an_anchor(qt_app) -> None:
+    window = SmsChatWindow(key="k", title="Alex", alias="coach", phone="+15550100")
+    try:
+        window.append_message(
+            SmsChatMessage(
+                direction="in",
+                body="nope file:///C:/Users/you/secret.txt",
+            )
+        )
+        html = bubble_plain_text(window._last_bubble())
+        assert "<a href=" not in html
+        assert "file:///C:/Users/you/secret.txt" in html
+    finally:
+        window.hide()
+        window.deleteLater()
+
+
+def test_photo_without_bytes_is_a_chip(qt_app) -> None:
+    """MMS often arrives as the word Photo and nothing else."""
+    from PySide6.QtWidgets import QLabel
+
+    window = SmsChatWindow(key="k", title="Alex", alias="coach", phone="+15550100")
+    try:
+        window.append_message(
+            SmsChatMessage(direction="in", body="Photo", media_kind="photo_chip")
+        )
+        bubble = window._last_bubble()
+        assert bubble is not None
+        chips = [w for w in bubble.findChildren(QLabel) if w.objectName() == "SmsPhotoChip"]
+        assert len(chips) == 1
+        assert chips[0].text() == "Photo"
+    finally:
+        window.hide()
+        window.deleteLater()

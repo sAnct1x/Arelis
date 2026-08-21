@@ -455,6 +455,13 @@ class ModelRouter:
             prompt, images_b64, model=model, num_ctx=num_ctx
         )
 
+    async def chat_sees_images(self) -> bool:
+        """True when the hot chat tag takes the picture (no 3B detour)."""
+        chat_model = self.active_model or self.model_for(self.default_role)
+        if not chat_model:
+            return False
+        return await self._chat_model_sees(chat_model)
+
     async def _chat_model_sees(self, model: str) -> bool:
         """Whether the hot chat tag takes images. Unknown means no."""
         probe = getattr(self.provider, "sees_images", None)

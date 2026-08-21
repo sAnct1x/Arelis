@@ -36,13 +36,17 @@ class PairTicket:
     urls: tuple[str, ...]
     token: str
     pair: str
+    relay: str = ""
 
     def as_text(self) -> str:
         """Compact form the phone parser accepts (and the QR encodes)."""
-        return "A1|" + "|".join((self.instance, self.token, self.pair, *self.urls))
+        parts = [self.instance, self.token, self.pair, *self.urls]
+        if self.relay:
+            parts.append(self.relay)
+        return "A1|" + "|".join(parts)
 
     def as_dict(self) -> dict[str, Any]:
-        return {
+        data = {
             "v": 1,
             "kind": "arelis-pair",
             "instance": self.instance,
@@ -50,6 +54,9 @@ class PairTicket:
             "token": self.token,
             "pair": self.pair,
         }
+        if self.relay:
+            data["relay"] = self.relay
+        return data
 
 
 def issue_pair_secret(*, ttl_s: int = PAIR_TTL_S, path: Path | None = None) -> str:
@@ -118,11 +125,15 @@ def make_ticket(
             secret = stored
     if not secret:
         secret = issue_pair_secret()
+    from arelis.relay.config import load_relay_settings
+
+    relay = load_relay_settings().url
     return PairTicket(
         instance=instance_id(),
         urls=urls or pairing_urls(port),
         token=token.strip(),
         pair=secret,
+        relay=relay,
     )
 
 
@@ -206,16 +217,34 @@ def apply_pair(
     instance = str(payload.get("instance") or "").strip()
     if instance != instance_id():
         return 409, {"ok": False, "error": "wrong instance"}
-    listen = parse_listen_url(str(payload.get("listen_url") or ""))
+    listen_raw = str(payload.get("listen_url") or "").strip()
+    listen = parse_listen_url(listen_raw) if listen_raw else None
+    if listen_raw and listen is None:
+        return 400, {"ok": False, "error": "listen_url is not a LAN http URL with a port"}
     device_key = str(payload.get("device_key") or "").strip()
     pair = str(payload.get("pair") or "").strip()
-    if not listen or not device_key:
+    talk_only = bool(payload.get("talk")) or not listen_raw
+    if not device_key:
+        return 400, {"ok": False, "error": "device_key required"}
+    if not talk_only and not listen:
         return 400, {"ok": False, "error": "listen_url and device_key required"}
     existing = load_companion(secrets_path)
     if existing and existing["device_key"] == device_key:
-        save_companion(listen_url=listen, device_key=device_key, path=secrets_path)
-        return 200, {"ok": True, "updated": True, "listen_url": listen}
+        if listen:
+            save_companion(listen_url=listen, device_key=device_key, path=secrets_path)
+        return 200, {
+            "ok": True,
+            "updated": True,
+            "listen_url": listen or "",
+            "talk": True,
+        }
     if not pair_secret_ok(pair, path=pair_path):
         return 403, {"ok": False, "error": "pairing expired or missing"}
-    save_companion(listen_url=listen, device_key=device_key, path=secrets_path)
-    return 200, {"ok": True, "updated": False, "listen_url": listen}
+    if listen:
+        save_companion(listen_url=listen, device_key=device_key, path=secrets_path)
+    return 200, {
+        "ok": True,
+        "updated": False,
+        "listen_url": listen or "",
+        "talk": True,
+    }

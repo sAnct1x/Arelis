@@ -15,6 +15,46 @@ from arelis.notify.center import (
 from arelis.notify.sources import due_task_notices
 
 
+def test_clear_drops_sms_and_keeps_allow_and_a_running_job() -> None:
+    """Clear is delete. Allow and a live job must still be on the glass."""
+    center = NotificationCenter()
+    center.add(new_notice(kind="sms", title="Robin", body="hi", group_key="sms:robin"))
+    center.set_allow(True, "send email")
+    running = center.upsert_job("image", elapsed_s=12)
+    done = center.upsert_job("scrape", done=True)
+    assert running is not None and done is not None
+    center.clear_non_sticky()
+    kinds = {n.kind for n in center.items}
+    assert kinds == {"allow", "job"}
+    assert center.find_group("job:image") is not None
+    assert center.find_group("job:scrape") is None
+    assert center.head() is not None
+    assert center.head().kind in {"allow", "job"}
+
+
+def test_clear_leaves_the_overlay_quiet() -> None:
+    center = NotificationCenter()
+    center.add(new_notice(kind="sms", title="Robin", body="hi", group_key="sms:robin"))
+    assert center.head() is not None
+    center.clear_non_sticky()
+    assert center.head() is None
+    assert center.unread_count() == 0
+
+
+def test_same_sms_body_does_not_stack_twice() -> None:
+    """Ticker plus the same body used to bump the count as a second text."""
+    center = NotificationCenter({"ui": {"notifications": {"channels": {"sms": "visual"}}}})
+    first = center.add(
+        new_notice(kind="sms", title="Robin", body="hi", group_key="sms:robin")
+    )
+    second = center.add(
+        new_notice(kind="sms", title="Robin", body="hi", group_key="sms:robin")
+    )
+    assert first is not None and second is not None
+    assert first.id == second.id
+    assert second.count == 1
+
+
 def test_sms_groups_by_sender() -> None:
     center = NotificationCenter({"ui": {"notifications": {"channels": {"sms": "visual"}}}})
     a = center.add(

@@ -11,6 +11,7 @@ from typing import Any, Protocol
 from arelis.paths import display_path
 from arelis.tools.base import ToolResult
 from arelis.tools.image_io import (
+    CHAT_MAX_EDGE,
     DEFAULT_MAX_EDGE,
     IMAGE_SUFFIXES,
     encode_for_vision,
@@ -84,16 +85,26 @@ class VisionTool:
         num_ctx: int = 4096,
         model_available: Any | None = None,
         max_edge: int = DEFAULT_MAX_EDGE,
+        chat_max_edge: int = CHAT_MAX_EDGE,
     ) -> None:
         self.workspace = workspace
         self.runner = runner
         self.model = model
         self.num_ctx = int(num_ctx)
-        # Long edge of what actually gets sent. See arelis.tools.image_io: a
-        # full-size screenshot does not fit in the context window at all.
+        # 3B detour / 4096 window. Chat-sees uses chat_max_edge instead.
         self.max_edge = int(max_edge)
+        self.chat_max_edge = int(chat_max_edge)
         # Optional async callable () -> bool; when set, missing models fail loud.
         self._model_available = model_available
+
+    async def _chat_sees(self) -> bool:
+        probe = getattr(self.runner, "chat_sees_images", None)
+        if probe is None:
+            return False
+        try:
+            return bool(await probe())
+        except Exception:
+            return False
 
     def _resolve_image(self, path_str: str) -> Path:
         return resolve_image(self.workspace, path_str)
@@ -106,7 +117,8 @@ class VisionTool:
         except (ValueError, PermissionError, FileNotFoundError) as exc:
             return ToolResult(ok=False, output=str(exc))
 
-        if self._model_available is not None:
+        chat_sees = await self._chat_sees()
+        if self._model_available is not None and not chat_sees:
             try:
                 ok = await self._model_available()
             except Exception as exc:
@@ -128,9 +140,10 @@ class VisionTool:
                     data={"model": self.model, "code": "MODEL_MISSING"},
                 )
 
+        edge = self.chat_max_edge if chat_sees else self.max_edge
         try:
             b64, prepared = await asyncio.to_thread(
-                encode_for_vision, path, max_edge=self.max_edge
+                encode_for_vision, path, max_edge=edge
             )
         except OSError as exc:
             return ToolResult(ok=False, output=f"Could not read image: {exc}")
@@ -161,8 +174,9 @@ class VisionTool:
                     output=(
                         f"The image was still too large for the vision context at "
                         f"{prepared.get('sent_px') or 'its current size'} "
-                        f"(num_ctx={self.num_ctx}). Lower tools.vision.max_edge or "
-                        f"raise ollama.vision_num_ctx.\n({msg[:200]})"
+                        f"(num_ctx={self.num_ctx}). Lower tools.vision.max_edge "
+                        f"or tools.vision.chat_max_edge, or raise "
+                        f"ollama.vision_num_ctx.\n({msg[:200]})"
                     ),
                     data={"model": self.model, "code": "VISION_CONTEXT", **prepared},
                 )

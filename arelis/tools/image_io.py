@@ -18,13 +18,16 @@ be read from.
 Preparing is downscaling. Ollama counts an image against the same context
 window as the text, and a 1440p screenshot -- 2560x1440, 7 MB, the ordinary
 output of pressing Print Screen -- tokenises to about 4,150 tokens against a
-4,096 window and is rejected outright with a 400. So the cap on the long edge is
-what makes vision work on a real screenshot at all, not a size optimisation.
+4,096 window and is rejected outright with a 400. That window is the 3B
+fallback VL. The chat model that sees images itself (Qwen 3.5) is already
+loaded at tens of thousands of tokens, so it can take a longer edge.
 
 Measured against qwen2.5vl:3b, the cost of the picture alone: 1024px is 1,100
-tokens, 1280px is 1,221, 1600px is 1,849. All three answer correctly, so 1024 is
-chosen for the margin it leaves the question and the reply rather than because
-anything above it breaks.
+tokens, 1280px is 1,221, 1600px is 1,849. All three answer correctly, so 1024
+is the fallback cap — margin on a 4096 window, not a quality target. When the
+chat model looks, 2048 is the cap: enough that a phone photo of a monitor
+still has readable chrome, without shipping a 4K paste as-is.
+
 """
 
 from __future__ import annotations
@@ -40,8 +43,10 @@ from arelis.workspace import WorkspaceRoots
 IMAGE_SUFFIXES = frozenset({".png", ".jpg", ".jpeg", ".webp", ".gif"})
 
 # Long edge, in pixels, for an image sent to a vision model. See the module
-# docstring: this is a correctness bound, not a preference.
+# docstring: this is a correctness bound for the 3B fallback window, not a
+# preference. Chat-sees looks use CHAT_MAX_EDGE.
 DEFAULT_MAX_EDGE = 1024
+CHAT_MAX_EDGE = 2048
 
 # Re-encode anything above this even when it needs no downscaling, because the
 # base64 of a multi-megabyte file is the other half of the same context problem.

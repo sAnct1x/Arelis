@@ -58,13 +58,16 @@ class InboundSms:
     time: str
     contact_alias: str = ""
     contact_name: str = ""
+    media_path: str = ""
+    media_url: str = ""
+    media_kind: str = ""
 
     @property
     def display_from(self) -> str:
         return self.contact_name or self.sender
 
     def as_payload(self) -> dict[str, Any]:
-        return {
+        payload = {
             "id": self.id,
             "from": self.sender,
             "body": self.body,
@@ -72,6 +75,13 @@ class InboundSms:
             "contact_alias": self.contact_alias or None,
             "contact_name": self.contact_name or None,
         }
+        if self.media_path:
+            payload["media_path"] = self.media_path
+        if self.media_url:
+            payload["media_url"] = self.media_url
+        if self.media_kind:
+            payload["media_kind"] = self.media_kind
+        return payload
 
 
 def format_sms_chat_line(msg: InboundSms, *, max_body: int = CHAT_BODY_CHARS) -> str:
@@ -372,6 +382,16 @@ def parse_inbox_row(
     body = str(row.get("contentPreview") or row.get("message") or "").strip()
     created = str(row.get("createdAt") or row.get("receivedAt") or "").strip()
     contact = resolve_contact(sender, contacts)
+    from arelis.sms_media import inbox_media_url, looks_like_photo_body
+
+    media_url = inbox_media_url(row)
+    media_kind = ""
+    if media_url:
+        media_kind = "image"
+    elif kind in {"MMS", "MMS_DOWNLOADED"} and looks_like_photo_body(body):
+        media_kind = "photo_chip"
+        if not body:
+            body = "Photo"
     return InboundSms(
         id=message_id,
         sender=sender,
@@ -379,7 +399,46 @@ def parse_inbox_row(
         time=created,
         contact_alias=contact.alias if contact else "",
         contact_name=contact.display_name if contact else "",
+        media_url=media_url,
+        media_kind=media_kind,
     )
+
+
+def hydrate_inbound_media(msg: InboundSms) -> InboundSms:
+    """Fetch a media URL onto disk when the phone actually sent bytes."""
+    from dataclasses import replace
+
+    from arelis.sms_media import (
+        fetch_image_url,
+        iter_http_urls,
+        looks_like_image_url,
+        looks_like_photo_body,
+    )
+
+    path = msg.media_path
+    kind = msg.media_kind
+    if not path and msg.media_url:
+        got = fetch_image_url(
+            msg.media_url, message_id=msg.id, allow_private=True
+        )
+        if got is not None:
+            path = str(got)
+            kind = "image"
+    if not path:
+        for url in iter_http_urls(msg.body):
+            if not looks_like_image_url(url):
+                continue
+            got = fetch_image_url(url, message_id=msg.id)
+            if got is not None:
+                path = str(got)
+                kind = "image"
+                break
+    if not path and (kind == "photo_chip" or looks_like_photo_body(msg.body)):
+        if kind != "image":
+            kind = "photo_chip"
+    if path == msg.media_path and kind == msg.media_kind:
+        return msg
+    return replace(msg, media_path=path or "", media_kind=kind)
 
 
 class SmsInboxError(RuntimeError):
@@ -469,8 +528,23 @@ class InboundSmsWatcher:
             fresh.append(msg)
         # Newest last so chat order matches arrival when several arrive in one poll.
         fresh.sort(key=lambda m: m.time or "")
+        from arelis.sms_media import (
+            already_published_recent,
+            inbound_fingerprint,
+            remember_published,
+        )
         for msg in fresh:
+            msg = hydrate_inbound_media(msg)
+            fp = inbound_fingerprint(
+                sender=msg.sender,
+                body=msg.body,
+                media=msg.media_path or msg.media_url or msg.media_kind,
+            )
+            if already_published_recent(fp):
+                self.seen.mark([msg.id])
+                continue
             self.seen.mark([msg.id])
+            remember_published(fp)
             payload = msg.as_payload()
             payload["source"] = "smsgate"
             try:

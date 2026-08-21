@@ -518,13 +518,14 @@ tools:
   vision:
     enabled: true
     # model defaults to models.vision; num_ctx defaults to ollama.vision_num_ctx
-    # Long edge, in pixels, of what is actually sent. A 1440p screenshot is
-    # ~4,150 tokens against a 4,096 window and Ollama rejects it outright, so
-    # this is what makes vision work on a real screenshot rather than a size
-    # tweak. Cost of the image alone on qwen2.5vl:3b: 1024px ~1,100 tokens,
-    # 1280px ~1,221, 1600px ~1,849 — all answer, so 1024 is for the margin it
-    # leaves the question and the reply. Raise it with ollama.vision_num_ctx.
+    # Long edge of what is actually sent. Two caps, because two windows:
+    # the 3B fallback still has 4096 tokens (a 1440p screenshot is ~4,150 and
+    # Ollama rejects it), so max_edge stays 1024 there. The chat model that
+    # sees images is already at the chat window (~65k); chat_max_edge is 2048
+    # so a phone photo of a screen still has readable chrome. Measured on
+    # qwen2.5vl:3b: 1024px ~1,100 tokens, 1600px ~1,849 — both answer.
     max_edge: 1024
+    chat_max_edge: 2048
 
 voice:
   # Master switch. Each direction below has its own toggle under it, so the mic

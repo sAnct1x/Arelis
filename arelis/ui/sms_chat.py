@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 from PySide6.QtCore import QEvent, QPoint, Qt, QTimer, Signal
-from PySide6.QtGui import QKeySequence, QMouseEvent, QShortcut
+from PySide6.QtGui import QKeySequence, QMouseEvent, QPixmap, QShortcut
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -23,6 +23,12 @@ from PySide6.QtWidgets import (
 
 from arelis.contacts import load_contacts, normalize_phone, resolve_contact, to_e164
 from arelis.notify.center import Notice
+from arelis.sms_media import (
+    body_needs_rich_text,
+    iter_http_urls,
+    looks_like_photo_body,
+    sms_body_html,
+)
 from arelis.ui.foreground import process_owns_foreground
 from arelis.ui.glass import GlassFrame, advance_rim_pulse, seal_tool_window
 from arelis.ui.icons import window_close_icon, window_minimize_icon
@@ -30,6 +36,7 @@ from arelis.ui.theme import GLASS, METRICS
 from arelis.ui.window_resize import enable_win32_resize_frame, handle_native_resize
 
 MAX_TILES = 8
+MAX_IMAGE_WIDTH = 280
 Direction = Literal["in", "out", "system"]
 RoomPresence = Literal["hidden", "visible", "focused"]
 ATTENTION_BREATH_S = 6.0
@@ -45,6 +52,8 @@ class SmsChatMessage:
     direction: Direction
     body: str
     t: float = field(default_factory=time.time)
+    media_path: str = ""
+    media_kind: str = ""
 
 
 def thread_keys(*, alias: str = "", phone: str = "", sender: str = "") -> tuple[str, ...]:
@@ -74,6 +83,57 @@ def seed_bodies(notice: Notice | None, *, fallback: str = "") -> list[str]:
             return [text]
     text = (fallback or "").strip()
     return [text] if text else []
+
+
+def bubble_plain_text(widget: QWidget | None) -> str:
+    """Visible text inside a bubble, whether it is a QLabel or a photo stack."""
+    if widget is None:
+        return ""
+    if isinstance(widget, QLabel):
+        return str(widget.text() or "")
+    bits: list[str] = []
+    for label in widget.findChildren(QLabel):
+        text = str(label.text() or "").strip()
+        if text:
+            bits.append(text)
+    return "\n".join(bits)
+
+
+def _apply_bubble_chrome(widget: QWidget, direction: Direction) -> None:
+    if direction == "out":
+        widget.setObjectName("SmsBubbleOut")
+        align = Qt.AlignmentFlag.AlignRight
+    elif direction == "system":
+        widget.setObjectName("SmsBubbleSys")
+        align = Qt.AlignmentFlag.AlignCenter
+    else:
+        widget.setObjectName("SmsBubbleIn")
+        align = Qt.AlignmentFlag.AlignLeft
+    if isinstance(widget, QLabel):
+        widget.setAlignment(align)
+
+
+def _fill_body_label(label: QLabel, text: str) -> None:
+    if body_needs_rich_text(text):
+        label.setTextFormat(Qt.TextFormat.RichText)
+        label.setText(sms_body_html(text))
+        label.setOpenExternalLinks(True)
+        label.setTextInteractionFlags(Qt.TextInteractionFlag.TextBrowserInteraction)
+    else:
+        label.setTextFormat(Qt.TextFormat.PlainText)
+        label.setText(text)
+        label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+
+
+def _photo_pixmap(path: str) -> QPixmap | None:
+    pix = QPixmap(path)
+    if pix.isNull():
+        return None
+    if pix.width() > MAX_IMAGE_WIDTH:
+        pix = pix.scaledToWidth(
+            MAX_IMAGE_WIDTH, Qt.TransformationMode.SmoothTransformation
+        )
+    return pix
 
 
 def chat_target(
@@ -294,23 +354,52 @@ class SmsChatWindow(QWidget):
         self.setWindowTitle(mark)
 
     def append_message(self, message: SmsChatMessage, *, silent: bool = False) -> None:
-        label = QLabel(message.body)
-        label.setWordWrap(True)
-        label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
-        if message.direction == "out":
-            label.setObjectName("SmsBubbleOut")
-            label.setAlignment(Qt.AlignmentFlag.AlignRight)
-        elif message.direction == "system":
-            label.setObjectName("SmsBubbleSys")
-            label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        else:
-            label.setObjectName("SmsBubbleIn")
-            label.setAlignment(Qt.AlignmentFlag.AlignLeft)
-        self._thread.addWidget(label)
+        bubble = self._make_bubble(message)
+        self._thread.addWidget(bubble)
         QTimer.singleShot(0, self._scroll_to_end)
         if self._ready and not self.isVisible() and not silent:
             self.badge()
+
+    def _make_bubble(self, message: SmsChatMessage) -> QWidget:
+        has_image = bool(message.media_kind == "image" and message.media_path)
+        has_chip = message.media_kind == "photo_chip" or (
+            looks_like_photo_body(message.body) and not has_image
+        )
+        caption = (message.body or "").strip()
+        if has_chip and looks_like_photo_body(caption) and not iter_http_urls(caption):
+            caption = ""
+        if not has_image and not has_chip:
+            label = QLabel()
+            label.setWordWrap(True)
+            label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+            _fill_body_label(label, message.body)
+            _apply_bubble_chrome(label, message.direction)
+            return label
+
+        box = QWidget()
+        _apply_bubble_chrome(box, message.direction)
+        layout = QVBoxLayout(box)
+        layout.setContentsMargins(8, 8, 10, 8)
+        layout.setSpacing(6)
+        pixmap = _photo_pixmap(message.media_path) if has_image else None
+        if pixmap is not None:
+            image = QLabel()
+            image.setObjectName("SmsBubbleImage")
+            image.setPixmap(pixmap)
+            image.setScaledContents(False)
+            layout.addWidget(image)
+        elif has_chip or has_image:
+            chip = QLabel("Photo")
+            chip.setObjectName("SmsPhotoChip")
+            chip.setAlignment(Qt.AlignmentFlag.AlignLeft)
+            layout.addWidget(chip)
+        if caption:
+            label = QLabel()
+            label.setWordWrap(True)
+            _fill_body_label(label, caption)
+            layout.addWidget(label)
+        box.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+        return box
 
     def set_messages(self, messages: list[SmsChatMessage]) -> None:
         while self._thread.count():
@@ -504,14 +593,21 @@ class SmsChatRegistry:
         phone: str = "",
         sender: str = "",
         title: str = "",
+        media_path: str = "",
+        media_kind: str = "",
     ) -> None:
         text = (body or "").strip()
-        if not text:
+        if not text and not media_path and media_kind != "photo_chip":
             return
         key = self.resolve_key(alias=alias, phone=phone or sender, sender=sender)
         if not key:
             return
-        message = SmsChatMessage(direction="in", body=text)
+        message = SmsChatMessage(
+            direction="in",
+            body=text,
+            media_path=media_path,
+            media_kind=media_kind,
+        )
         self._buffers.setdefault(key, []).append(message)
         window = self._windows.get(key)
         if window is not None:

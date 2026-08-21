@@ -194,6 +194,7 @@ class Orchestrator:
         bus.subscribe(EventType.TURN_PAUSE, self.on_turn_pause)
         bus.subscribe(EventType.TURN_RESUME, self.on_turn_resume)
         bus.subscribe(EventType.SESSION_LOAD, self.on_session_load)
+        bus.subscribe(EventType.MOBILE_SYNC, self.on_mobile_sync)
 
     def classify_role(
         self, text: str, explicit: ModelRole | None = None
@@ -380,6 +381,19 @@ class Orchestrator:
     def _memory_store(self) -> MemoryStore | None:
         sink = self.memory.sink
         return sink if isinstance(sink, MemoryStore) else None
+
+    async def on_mobile_sync(self, event: Event) -> None:
+        """Fold phone talk into this session. Not a turn, and not a disclaimer."""
+        rows = event.payload.get("messages") or []
+        if not isinstance(rows, list) or not rows:
+            return
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            role = str(row.get("role") or "").strip().lower()
+            text = str(row.get("text") or "").strip()
+            if role in {"user", "assistant"} and text:
+                self.memory.add(role, text)
 
     async def on_user_message(self, event: Event) -> None:
         text = (event.payload.get("text") or "").strip()

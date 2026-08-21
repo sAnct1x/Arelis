@@ -100,6 +100,60 @@ def test_vision_missing_model_loud(tmp_path: Path) -> None:
     asyncio.run(_run())
 
 
+def test_chat_sees_sends_a_longer_edge_and_does_not_need_the_3b(tmp_path: Path) -> None:
+    """Qwen 3.5 looks at 2048. The 3B pull is only for the detour."""
+    from PIL import Image
+
+    from arelis.tools.image_io import CHAT_MAX_EDGE
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    img = root / "wide.png"
+    Image.new("RGB", (2560, 1440), (10, 20, 30)).save(img)
+
+    class _Sees(_FakeRunner):
+        async def chat_sees_images(self) -> bool:
+            return True
+
+    async def _never() -> bool:
+        return False
+
+    tool = VisionTool(
+        WorkspaceRoots.from_paths([str(root)]),
+        _Sees(),
+        model="qwen2.5vl:3b",
+        model_available=_never,
+    )
+
+    async def _run() -> None:
+        result = await tool.run(path="wide.png")
+        assert result.ok
+        assert result.data.get("sent_px") == [2048, 1152]
+        assert max(result.data["sent_px"]) == CHAT_MAX_EDGE
+
+    asyncio.run(_run())
+
+
+def test_a_detour_look_still_caps_at_1024(tmp_path: Path) -> None:
+    from PIL import Image
+
+    from arelis.tools.image_io import DEFAULT_MAX_EDGE
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    img = root / "wide.png"
+    Image.new("RGB", (2560, 1440), (10, 20, 30)).save(img)
+    tool = VisionTool(WorkspaceRoots.from_paths([str(root)]), _FakeRunner())
+
+    async def _run() -> None:
+        result = await tool.run(path="wide.png")
+        assert result.ok
+        assert result.data.get("sent_px") == [1024, 576]
+        assert max(result.data["sent_px"]) == DEFAULT_MAX_EDGE
+
+    asyncio.run(_run())
+
+
 def test_vision_needs_confirm_separate_from_image() -> None:
     reg = ToolRegistry()
     root = Path(".")

@@ -31,15 +31,17 @@ class MessagesNotifyService : NotificationListenerService() {
 
         val extras = sbn.notification.extras
         val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString()?.trim().orEmpty()
-        val text = sequenceOf(
+        var text = sequenceOf(
             extras.getCharSequence(Notification.EXTRA_BIG_TEXT),
             extras.getCharSequence(Notification.EXTRA_TEXT),
             extras.getCharSequence(Notification.EXTRA_SUB_TEXT),
         ).mapNotNull { it?.toString()?.trim() }
             .firstOrNull { it.isNotEmpty() }
             .orEmpty()
+        val imageJpeg = NotifyPicture.jpegBase64(extras)
 
-        if (title.isEmpty() && text.isEmpty()) return
+        if (title.isEmpty() && text.isEmpty() && imageJpeg == null) return
+        if (text.isEmpty() && imageJpeg != null) text = "Photo"
         if (text.isEmpty()) return
 
         val baseKey = sbn.key?.takeIf { it.isNotBlank() }
@@ -53,10 +55,12 @@ class MessagesNotifyService : NotificationListenerService() {
         val from = title.ifEmpty { "(unknown)" }
         executor.execute {
             try {
-                ArelisClient(prefs.baseUrl, prefs.token).postInbound(id, from, text, timeIso)
+                ArelisClient.fromPrefs(prefs).postInbound(
+                    id, from, text, timeIso, imageJpeg,
+                )
             } catch (exc: Exception) {
                 Log.w(TAG, "POST failed, queued: $exc")
-                InboundQueue(this).enqueue(id, from, text, timeIso)
+                InboundQueue(this).enqueue(id, from, text, timeIso, imageJpeg)
                 WorkManager.getInstance(this).enqueueUniqueWork(
                     InboundWorker.UNIQUE,
                     ExistingWorkPolicy.REPLACE,

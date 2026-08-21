@@ -42,6 +42,7 @@ _AUDITED: frozenset[EventType] = frozenset(
         EventType.SESSION_LOADED,
         EventType.VOICE_TRANSCRIPT,
         EventType.STATUS,
+        EventType.MOBILE_SYNC,
     }
 )
 

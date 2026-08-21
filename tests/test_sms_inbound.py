@@ -173,6 +173,35 @@ def test_parse_accepts_mms_and_skips_self() -> None:
     assert mms is not None
     assert mms.body == "Gotcha"
 
+    photo = parse_inbox_row(
+        {
+            "id": "mms:2",
+            "sender": "+15550100",
+            "contentPreview": "",
+            "createdAt": "2026-08-07T12:00:00Z",
+            "type": "MMS_DOWNLOADED",
+        },
+        contacts=book,
+    )
+    assert photo is not None
+    assert photo.body == "Photo"
+    assert photo.media_kind == "photo_chip"
+
+    with_url = parse_inbox_row(
+        {
+            "id": "mms:3",
+            "sender": "+15550100",
+            "contentPreview": "Photo",
+            "createdAt": "2026-08-07T12:00:00Z",
+            "type": "MMS",
+            "mediaUrl": "https://example.com/p.jpg",
+        },
+        contacts=book,
+    )
+    assert with_url is not None
+    assert with_url.media_url == "https://example.com/p.jpg"
+    assert with_url.media_kind == "image"
+
     self_msg = parse_inbox_row(
         {
             "id": "text:9",

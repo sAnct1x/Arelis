@@ -84,6 +84,65 @@ def test_parse_ingest_resolves_name() -> None:
     assert msg.body == "I love you too"
 
 
+def test_parse_ingest_photo_bytes(tmp_path: Path, monkeypatch) -> None:
+    """Companion JPEG extras become a file, not a blank bubble."""
+    import base64
+
+    from arelis import sms_media
+
+    monkeypatch.setattr(sms_media, "media_dir", lambda: tmp_path)
+    png = bytes.fromhex(
+        "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489"
+        "0000000a49444154789c6360000002000100ffff03000006000557bf0000000049454e44ae426082"
+    )
+    book = _book(wife={"name": "Robin", "phone": "555-0100"})
+    msg = parse_ingest_payload(
+        {
+            "id": "pic1",
+            "from": "Robin",
+            "body": "Photo",
+            "image_jpeg": base64.b64encode(png).decode("ascii"),
+        },
+        contacts=book,
+    )
+    assert msg is not None
+    assert msg.media_kind == "image"
+    assert msg.media_path
+    assert Path(msg.media_path).is_file()
+
+
+async def test_publish_dedupes_same_body_different_ids(tmp_path: Path) -> None:
+    """Ticker and body POSTs with the same text must not ring twice."""
+    bus = EventBus()
+    received: list[dict] = []
+
+    async def capture(event) -> None:
+        if event.type == EventType.SMS_RECEIVED:
+            received.append(dict(event.payload))
+
+    bus.subscribe(EventType.SMS_RECEIVED, capture)
+    task = asyncio.create_task(bus.run())
+    seen = SeenMessageStore(tmp_path / "seen.json")
+    book = _book(wife={"name": "Robin", "phone": "555-0100"})
+    first = parse_ingest_payload(
+        {"id": "tick1", "from": "Robin", "body": "dedupe-fixture-body"},
+        contacts=book,
+    )
+    second = parse_ingest_payload(
+        {"id": "tick2", "from": "Robin", "body": "dedupe-fixture-body"},
+        contacts=book,
+    )
+    assert first is not None and second is not None
+    assert await publish_inbound(bus, first, seen=seen) is True
+    assert await publish_inbound(bus, second, seen=seen) is False
+    await asyncio.sleep(0.05)
+    assert len(received) == 1
+    bus.stop()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+
 async def test_publish_dedupes(tmp_path: Path) -> None:
     bus = EventBus()
     received: list[dict] = []

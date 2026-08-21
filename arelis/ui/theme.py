@@ -1033,6 +1033,29 @@ def stylesheet() -> str:
         border: none;
         padding: 4px 2px;
     }}
+    #SmsBubbleIn QLabel, #SmsBubbleOut QLabel {{
+        background: transparent;
+        border: none;
+        color: inherit;
+        padding: 0;
+    }}
+    #SmsBubbleIn a, #SmsBubbleOut a {{
+        color: {c['accent']};
+        text-decoration: underline;
+    }}
+    #SmsPhotoChip {{
+        color: {c['text']};
+        font-size: 11px;
+        background: {c['card_fill']};
+        border: 1px solid {c['edge']};
+        border-radius: 10px;
+        padding: 4px 10px;
+    }}
+    #SmsBubbleImage {{
+        background: transparent;
+        border: none;
+        padding: 0;
+    }}
     #NotificationDetail {{
         color: {c['text']};
         font-size: {FONT_PX}px;

@@ -114,6 +114,18 @@ def test_a_screenshot_is_downscaled_to_fit_the_context(tmp_path):
     assert meta["sent_bytes"] < meta["source_bytes"]
 
 
+def test_a_chat_look_can_take_a_longer_edge(tmp_path):
+    """2048 is for the chat window. 1024 stays the 3B default."""
+    from arelis.tools.image_io import CHAT_MAX_EDGE
+
+    source = _png(tmp_path / "big.png", (2560, 1440))
+
+    _b64, meta = encode_for_vision(source, max_edge=CHAT_MAX_EDGE)
+
+    assert meta["downscaled"] is True
+    assert meta["sent_px"] == [2048, 1152]
+
+
 def test_the_shape_survives_the_downscale(tmp_path):
     source = _png(tmp_path / "tall.png", (600, 1800))
 

@@ -57,11 +57,19 @@ def test_the_shared_preamble_reaches_the_prompt() -> None:
 
 
 def test_nothing_turn_specific_is_in_the_prefix() -> None:
-    """The prefix must not carry a clock, a date, or a per-turn focus block."""
+    """The prefix must not carry a clock, a date, or a per-turn focus block.
+
+    Do not assert on a bare weekday name. The shipped policy uses examples
+    like "next Friday", and that is static. The live clock is
+    ``now_line()``: "Friday, 21 August 2026, 00:33".
+    """
     from datetime import datetime
 
     prefix = static_prefix_text("You are Arelis.")
     now = datetime.now().astimezone()
+    stamp = now.strftime("%A, %d %B %Y").replace(" 0", " ")
     assert now.strftime("%H:%M") not in prefix
-    assert now.strftime("%A") not in prefix
+    assert stamp not in prefix
+    assert now.strftime("%Y-%m-%d") not in prefix
     assert "### This turn" not in prefix
+    assert "Right now it is" not in prefix

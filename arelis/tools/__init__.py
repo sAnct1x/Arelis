@@ -32,7 +32,7 @@ from arelis.tools.git_info import GitInfoTool
 from arelis.tools.goals import GoalsTool
 from arelis.tools.image import ImageTool
 from arelis.tools.image_edit import ImageEditTool
-from arelis.tools.image_io import DEFAULT_MAX_EDGE
+from arelis.tools.image_io import CHAT_MAX_EDGE, DEFAULT_MAX_EDGE
 from arelis.tools.inbound_sms import InboundSmsTool
 from arelis.tools.inbox import InboxTool
 from arelis.tools.memory_tool import MemoryTool
@@ -381,6 +381,9 @@ def build_tool_registry(
                 num_ctx=num_ctx,
                 model_available=_vision_available,
                 max_edge=int(vision_cfg.get("max_edge") or DEFAULT_MAX_EDGE),
+                chat_max_edge=int(
+                    vision_cfg.get("chat_max_edge") or CHAT_MAX_EDGE
+                ),
             )
         )
         # Look-on-ask webcam stills — same Allow gate as vision; UI owns capture.

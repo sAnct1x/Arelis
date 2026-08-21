@@ -193,6 +193,23 @@ class NotificationCenter:
         for item in self.items:
             item.unread = False
 
+    def clear_non_sticky(self) -> None:
+        """Clear means gone. Keep Allow and a running or failed job."""
+        kept: list[Notice] = []
+        for item in self.items:
+            if item.sticky:
+                kept.append(item)
+                continue
+            if item.kind == "calendar":
+                event_id = str(item.data.get("event_id") or "")
+                lead = item.lead or ""
+                if event_id:
+                    self._calendar_done.add(f"{event_id}:{lead}")
+                    for leftover in ("t15", "t5", "start"):
+                        self._calendar_done.add(f"{event_id}:{leftover}")
+            self._snooze_until.pop(item.id, None)
+        self.items = kept
+
     def clear_kind(self, kind: str) -> None:
         self.items = [n for n in self.items if n.kind != kind]
 
@@ -318,6 +335,12 @@ class NotificationCenter:
             self.items.insert(0, notice)
             return notice
         bodies = list(existing.data.get("bodies") or [])
+        last = str(bodies[-1]).strip() if bodies else (existing.body or "").strip()
+        if body and body.casefold() == last.casefold():
+            existing.unread = True
+            existing.created_at = notice.created_at
+            self.items = [existing, *[n for n in self.items if n.id != existing.id]]
+            return existing
         if body:
             bodies.append(body)
         existing.data["bodies"] = bodies

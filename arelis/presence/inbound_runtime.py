@@ -34,6 +34,7 @@ class InboundRuntime:
     ingest: InboundIngestServer | None = None
     watcher: InboundSmsWatcher | None = None
     auto_reply: SmsAutoReply | None = None
+    house: Any = None
     seen: SeenMessageStore = field(default_factory=SeenMessageStore)
     status_messages: list[str] = field(default_factory=list)
     # When False, close/shutdown paths must not stop these services.
@@ -48,6 +49,13 @@ class InboundRuntime:
             except Exception:
                 log.exception("Stopping inbound ingest failed")
             self.ingest = None
+        house = self.house
+        if house is not None:
+            try:
+                house.stop()
+            except Exception:
+                log.exception("Stopping mailbox tunnel failed")
+            self.house = None
         if self.watcher is not None:
             try:
                 await self.watcher.stop()
@@ -137,22 +145,33 @@ def attach_inbound(
             else:
                 runtime.ingest = server
                 urls = format_ingest_listen_urls(server.port, host=ingest_host)
-                # Keep this short: long STATUS used to paint into chat like a
-                # Sources line (R6). Full setup lives in docs / Settings help.
                 primary = urls.split(",")[0].strip() if urls else urls
                 if server.port == ingest_port:
                     runtime.status_messages.append(
                         f"Inbound notify ready — Phone Notify URL: {primary}"
                     )
                 else:
-                    # The one case worth spending extra words on: the URL the
-                    # user already typed into their phone now points at somebody
-                    # else's Arelis, and no error will ever be shown for that.
                     runtime.status_messages.append(
                         f"Port {ingest_port} was already in use, so inbound "
                         f"notify is on {server.port} instead — update the phone "
                         f"companion to {primary}"
                     )
+                try:
+                    from arelis.relay.config import load_relay_settings
+                    from arelis.relay.house import start_house_tunnel
+
+                    mailbox = load_relay_settings()
+                    if mailbox.url and mailbox.token:
+                        runtime.house = start_house_tunnel(
+                            relay_url=mailbox.url,
+                            relay_token=mailbox.token,
+                            ingest_token=token,
+                            local_port=server.port,
+                        )
+                        if runtime.house is not None:
+                            log.info("House tunnel started")
+                except Exception:
+                    log.exception("Mailbox house tunnel failed to start")
         else:
             runtime.status_messages.append(
                 "Inbound notify companion needs sms.ingest_token "

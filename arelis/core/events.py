@@ -76,6 +76,11 @@ class EventType(str, Enum):
 
     FILE_READY is a document (or other openable file) that just landed on disk.
     The chat paints a card with Open / Show in folder. It does not auto-open.
+
+    MOBILE_SYNC copies pocket talk into the conversation the phone was already
+    in. It is not a turn: the phone already answered. Ingest opens that session
+    first (or starts a new one when the phone had no thread). The orchestrator
+    appends the lines; the glass paints them. No tools run, and no disclaimer.
     """
 
     USER_MESSAGE = "user_message"
@@ -99,6 +104,7 @@ class EventType(str, Enum):
     VOICE_SPEECH_DONE = "voice_speech_done"
     IMAGE_READY = "image_ready"
     FILE_READY = "file_ready"
+    MOBILE_SYNC = "mobile_sync"
     SESSION_LOAD = "session_load"
     SESSION_LOADED = "session_loaded"
     SMS_RECEIVED = "sms_received"
