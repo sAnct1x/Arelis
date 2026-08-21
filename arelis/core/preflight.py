@@ -44,10 +44,21 @@ from arelis.core.image_refs import (
 )
 from arelis.core.intent_catalog import (
     AUTO_HINTS,
+    BARE_SIGNIN,
+    BROWSER_CART,
+    BROWSER_CLICK_SIGNIN,
+    BROWSER_MAPS,
+    BROWSER_MAPS_SEND,
+    BROWSER_READ,
+    BROWSER_RESERVE,
+    BROWSER_SEARCH,
     DOC_ASK,
     GOALS,
+    HOWTO_SIGNIN,
     INBOX,
     IntentHint,
+    corrects_a_path,
+    mentions_tabular_data,
 )
 from arelis.core.look import classify_look, look_preflight_nudge
 from arelis.core.sms_complete import (
@@ -58,6 +69,7 @@ from arelis.core.sms_complete import (
     looks_like_contacts_utterance,
     looks_like_image_gen,
     looks_like_stale_sms_skip,
+    looks_like_workspace_write,
     sms_preflight_nudge,
 )
 from arelis.core.tile_complete import match_tile_intent
@@ -76,15 +88,6 @@ __all__ = [
     "signin_ref_from_snapshot",
     "user_asked_for_browser",
 ]
-
-# Path-like token with a table extension, or explicit csv/xlsx/tsv (etc.).
-_ANALYZE = re.compile(
-    r"(?i)("
-    r"[^\s\"']+\.(?:csv|xlsx|xls|tsv|tab|json)\b|"
-    r"\b(?:csv|xlsx|xls|tsv|spreadsheet|dataframe|excel)\b|"
-    r"\b(?:summarize|analyze|describe)\b.{0,48}\b(?:data|table|sheet)\b"
-    r")"
-)
 
 # Open/drive the user's real browser (not scrape-for-me).
 _BROWSER = re.compile(
@@ -113,7 +116,7 @@ _BROWSER = re.compile(
 )
 
 # Screenshot the open page then describe via vision (two tools).
-# Page/tab text asks go to _BROWSER_READ — pixels stay here.
+# Page/tab text asks go to BROWSER_READ — pixels stay here.
 _BROWSER_SCREENSHOT = re.compile(
     r"(?i)\b("
     r"(?:take\s+a\s+|capture\s+(?:a\s+)?)?screenshot\s+(?:of\s+)?"
@@ -124,65 +127,6 @@ _BROWSER_SCREENSHOT = re.compile(
     r")\b"
 )
 
-# Directions in her Chrome + a phone-ready Maps link (not scrape).
-_BROWSER_MAPS = re.compile(
-    r"(?i)\b("
-    r"directions\s+to|"
-    r"how\s+do\s+i\s+get\s+to|"
-    r"(?:google\s+)?maps\s+to|"
-    r"drive\s+to|"
-    r"walk\s+to|"
-    r"route\s+to|"
-    r"(?:text|sms|send)\s+(?:me\s+)?(?:the\s+)?directions"
-    r")\b"
-)
-
-_BROWSER_MAPS_SEND = re.compile(
-    r"(?i)\b(?:text|sms|send)\s+(?:me\s+)?(?:the\s+)?directions\b"
-)
-
-# Search / cart in her Chrome (not scrape-the-web).
-_BROWSER_SEARCH = re.compile(
-    r"(?i)\b("
-    r"search\s+(?:on\s+|for\s+)?(?:youtube|yt)|"
-    r"(?:youtube|yt)\s+search|"
-    r"search\s+youtube|"
-    r"look\s+(?:up|for)\s+.{0,48}\s+on\s+youtube|"
-    r"find\s+.{0,48}\s+on\s+youtube|"
-    r"search\s+google\s+for|"
-    r"google\s+this\s+in\s+(?:the\s+)?(?:browser|chrome)|"
-    r"search\s+for\s+.{0,80}\bvideos?\b|"
-    r"search\s+(?:on\s+)?amazon|"
-    r"look\s+(?:up|for)\s+.{0,48}\s+on\s+amazon"
-    r")\b"
-)
-
-_BROWSER_CART = re.compile(
-    r"(?i)\b("
-    r"add\s+(?:it\s+|that\s+|this\s+|them\s+)?to\s+(?:(?:the|my)\s+)?(?:cart|bag)|"
-    r"put\s+(?:it\s+|that\s+|this\s+)?in\s+(?:(?:the|my)\s+)?(?:cart|bag)"
-    r")\b"
-)
-
-# Click Sign in / Log in / login on the tab she is already on — not a fake
-# action, not a guessed accounts.google.com URL.
-_LOGIN_NOUN = r"(?:sign[\s-]?in|log[\s-]?in|login)"
-_BROWSER_CLICK_SIGNIN = re.compile(
-    r"(?i)\b("
-    r"(?:click|press|tap)\s+(?:on\s+)?(?:the\s+)?" + _LOGIN_NOUN + r"|"
-    r"(?:go|navigate|take\s+me|bring\s+me)\s+to\s+(?:the\s+)?" + _LOGIN_NOUN + r"|"
-    r"open\s+(?:the\s+)?" + _LOGIN_NOUN + r"|"
-    r"proceed\s+with\s+(?:sign(?:ing)?|log(?:ging)?)[\s-]?in|"
-    r"sign\s+me\s+in|"
-    r"log\s+me\s+in"
-    r")\b"
-)
-_HOWTO_SIGNIN = re.compile(
-    r"(?i)\bhow\s+(?:do\s+i|to)\s+(?:sign|log)\s*in\b"
-)
-_BARE_SIGNIN = re.compile(
-    r"(?i)^\s*(?:please\s+)?(?:sign|log)\s*in\s*[.!?]*$"
-)
 # Invented 7B actions that must become snapshot (then click Sign in by ref).
 _INVENTED_SIGNIN_ACTIONS = frozenset(
     {
@@ -219,42 +163,6 @@ _BROWSER_REAL_ACTIONS = frozenset(
         "select",
         "wait",
     }
-)
-
-# Table / venue reservation in her Chrome (not agenda calendar).
-_BROWSER_RESERVE = re.compile(
-    r"(?i)\b("
-    r"reserve\s+a\s+table|"
-    r"book\s+a\s+table|"
-    r"book\s+us\s+a\s+table|"
-    r"get\s+(?:us\s+)?a\s+table|"
-    r"make\s+(?:a\s+|us\s+a\s+)?reservation|"
-    r"reservation\s+(?:at|for)|"
-    r"table\s+for\s+\d|"
-    r"opentable|"
-    r"\bresy\b"
-    r")\b"
-)
-
-# Compact text of the tab she is already on (not scrape-the-web).
-_BROWSER_READ = re.compile(
-    r"(?i)\b("
-    r"read\s+(?:this|the|my)\s+(?:tab|page)|"
-    r"what(?:'s|\s+is|s)\s+on\s+(?:this|the|my)\s+(?:tab|page)|"
-    r"what\s+does\s+(?:this|the)\s+(?:tab|page)\s+say|"
-    r"tell\s+me\s+what(?:'s|\s+is)\s+on\s+(?:this|the)\s+(?:tab|page)|"
-    r"describe\s+(?:what(?:'s|\s+is)\s+on\s+)?(?:the\s+|this\s+)?(?:page|tab)"
-    r")\b"
-)
-
-_WORKSPACE_WRITE = re.compile(
-    r"(?i)\b("
-    r"(?:write|create|save|make)\s+(?:a\s+|an\s+|the\s+|me\s+a\s+)?"
-    r"(?:temp\s+|temporary\s+|text\s+|new\s+)?"
-    r"(?:file|folder|directory|readme|note|document)"
-    r"|"
-    r"(?:write|save)\s+(?:this\s+|it\s+)?(?:to|into)\s+\S+"
-    r")\b"
 )
 
 _EMAIL_SEND_VERB = re.compile(
@@ -372,9 +280,9 @@ def draft_rooms_create_args(text: str) -> dict[str, str]:
 def looks_like_browser_click_signin(text: str) -> bool:
     """True for 'go to sign in' / 'click Sign in' — not 'how do I sign in'."""
     raw = text or ""
-    if _HOWTO_SIGNIN.search(raw):
+    if HOWTO_SIGNIN.search(raw):
         return False
-    return bool(_BROWSER_CLICK_SIGNIN.search(raw) or _BARE_SIGNIN.match(raw))
+    return bool(BROWSER_CLICK_SIGNIN.search(raw) or BARE_SIGNIN.match(raw))
 
 
 def user_asked_for_browser(text: str) -> bool:
@@ -388,11 +296,11 @@ def user_asked_for_browser(text: str) -> bool:
         return True
     return bool(
         _BROWSER.search(raw)
-        or _BROWSER_SEARCH.search(raw)
-        or _BROWSER_MAPS.search(raw)
-        or _BROWSER_CART.search(raw)
+        or BROWSER_SEARCH.search(raw)
+        or BROWSER_MAPS.search(raw)
+        or BROWSER_CART.search(raw)
         or _BROWSER_SCREENSHOT.search(raw)
-        or _BROWSER_READ.search(raw)
+        or BROWSER_READ.search(raw)
     )
 
 
@@ -475,9 +383,9 @@ def draft_browser_args(text: str) -> dict[str, str]:
     raw = text or ""
     if looks_like_browser_click_signin(raw):
         return {"action": "snapshot"}
-    if _BROWSER_READ.search(raw):
+    if BROWSER_READ.search(raw):
         return {"action": "read"}
-    if _BROWSER_SEARCH.search(raw) and not re.search(
+    if BROWSER_SEARCH.search(raw) and not re.search(
         r"(?i)\bsearch\s+the\s+web\b", raw
     ):
         query = raw
@@ -535,21 +443,10 @@ def detect_intents(
         if item.matches(raw):
             hints.append(item.to_hint())
 
-    if _ANALYZE.search(raw):
+    if mentions_tabular_data(raw):
         from arelis.core.email_complete import looks_like_compose_email
 
-        path_correction = bool(
-            re.search(
-                r"(?i)\b("
-                r"(?:file|path|document)\s+(?:is\s+)?(?:located\s+)?at|"
-                r"here(?:'s|\s+is)\s+the\s+(?:file|path)|"
-                r"use\s+this\s+(?:file|path)|"
-                r"correct\s+path"
-                r")\b",
-                raw,
-            )
-        )
-        if not looks_like_compose_email(raw) and not path_correction:
+        if not looks_like_compose_email(raw) and not corrects_a_path(raw):
             hints.append(
                 IntentHint(
                     kind="analyze",
@@ -601,8 +498,8 @@ def detect_intents(
                 ),
             )
         )
-    elif _BROWSER_MAPS.search(raw):
-        send = bool(_BROWSER_MAPS_SEND.search(raw))
+    elif BROWSER_MAPS.search(raw):
+        send = bool(BROWSER_MAPS_SEND.search(raw))
         hints.append(
             IntentHint(
                 kind="browser_maps",
@@ -622,7 +519,7 @@ def detect_intents(
                 ),
             )
         )
-    elif _BROWSER_RESERVE.search(raw):
+    elif BROWSER_RESERVE.search(raw):
         hints.append(
             IntentHint(
                 kind="browser_reserve",
@@ -638,7 +535,7 @@ def detect_intents(
                 ),
             )
         )
-    elif _BROWSER_SEARCH.search(raw) and not re.search(
+    elif BROWSER_SEARCH.search(raw) and not re.search(
         r"(?i)\bsearch\s+the\s+web\b", raw
     ):
         hints.append(
@@ -655,7 +552,7 @@ def detect_intents(
                 ),
             )
         )
-    elif _BROWSER_CART.search(raw):
+    elif BROWSER_CART.search(raw):
         hints.append(
             IntentHint(
                 kind="browser_cart",
@@ -687,7 +584,7 @@ def detect_intents(
                 ),
             )
         )
-    elif _BROWSER_READ.search(raw):
+    elif BROWSER_READ.search(raw):
         hints.append(
             IntentHint(
                 kind="browser_read",
@@ -817,7 +714,7 @@ def detect_intents(
             )
         )
 
-    if _WORKSPACE_WRITE.search(raw) and not _EXPLICIT_SMS_VERB.match(raw):
+    if looks_like_workspace_write(raw) and not _EXPLICIT_SMS_VERB.match(raw):
         hints.append(
             IntentHint(
                 kind="workspace_write",
@@ -1009,7 +906,7 @@ def detect_intents(
         (
             looks_like_stale_sms_skip(raw, history)
             or bool(GOALS.matches(raw))
-            or bool(_WORKSPACE_WRITE.search(raw))
+            or looks_like_workspace_write(raw)
             or looks_like_image_gen(raw)
             or wants_image_edit(ask_text)
             or looks_like_calendar_create(raw)

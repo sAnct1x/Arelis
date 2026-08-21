@@ -10,7 +10,15 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-from arelis.core.intent_catalog import exactness_match
+from arelis.core.intent_catalog import (
+    ATTENTION,
+    DOCUMENT,
+    PLOT,
+    SCIENCE_CATALOG,
+    corrects_a_path,
+    exactness_match,
+    mentions_tabular_data,
+)
 
 # Clear arithmetic / percentage / "what is X of Y" — must use calculator.
 # Bare "x" as multiply needs spaces (filenames like beam-1965x1106.png are NOT math).
@@ -286,21 +294,6 @@ _GOALS_PATTERNS: tuple[re.Pattern[str], ...] = (
     ),
 )
 # Local table / CSV asks — need analyze warrant (not inventing stats).
-_ANALYZE_PATTERNS: tuple[re.Pattern[str], ...] = (
-    re.compile(
-        r"[^\s\"']+\.(?:csv|xlsx|xls|tsv|tab|json)\b",
-        re.I,
-    ),
-    re.compile(
-        r"\b(?:csv|xlsx|xls|tsv|spreadsheet|dataframe|excel)\b",
-        re.I,
-    ),
-    re.compile(
-        r"\b(?:summarize|analyze|describe)\b.{0,48}\b(?:data|table|sheet)\b",
-        re.I | re.S,
-    ),
-)
-
 # Answer-side: claimed send success (finish-path honesty, not ask detection).
 # Soft paraphrases ("I've sent it", "it's on its way") must still refuse without
 # a send_* warrant — otherwise 7B narrates success past Allow / SMTP failure.
@@ -335,16 +328,6 @@ _SEND_EMAIL_CLAIM = re.compile(
 )
 
 
-# Urgency / attention asks — need attention warrant (not inventing urgency).
-_ATTENTION_PATTERNS: tuple[re.Pattern[str], ...] = (
-    re.compile(
-        r"\b(?:what\s+needs\s+(?:my\s+)?attention|"
-        r"what(?:'s|\s+is)\s+(?:urgent|due\s+soon)|"
-        r"anything\s+(?:urgent|overdue)|"
-        r"what\s+should\s+i\s+(?:focus\s+on|prioritize))\b",
-        re.I,
-    ),
-)
 
 # Visual ask-shapes — need a vision warrant (not inventing screenshot contents).
 _VISION_PATTERNS: tuple[re.Pattern[str], ...] = (
@@ -395,72 +378,35 @@ class ExactnessNeed:
     kinds: tuple[str, ...] = ()
 
 
-_PLOT_FORCE = (
-    re.compile(r"(?i)\bplot\s+(?:this|the|my|it)\b"),
-    re.compile(r"(?i)\b(?:scatter|line)\s+plot\b"),
-    re.compile(r"(?i)\bplot\s+residuals\b"),
-    re.compile(r"(?i)\bfit\s+a\s+line\b"),
-    re.compile(r"(?i)\b(?:line|bar|scatter)\s+chart\b"),
-    re.compile(r"(?i)\bchart\s+(?:this|the|my)\b"),
-    re.compile(r"(?i)\bmake\s+a\s+(?:plot|chart|graph)\b"),
-    re.compile(r"(?i)\bshow\s+me\s+a\s+(?:plot|chart|graph)\b"),
-    re.compile(r"(?i)\bplot\s+.{0,40}\b(?:csv|tsv|xlsx|spreadsheet|columns?)\b"),
-)
-
-
 def detect_plot_ask(text: str) -> bool:
-    """True when the ask wants a chart file, not a movie plot or a garden."""
+    """True when the ask wants a chart file, not a movie plot or a garden.
+
+    The positives are the catalog's PLOT spec, so the gate refuses exactly the
+    asks preflight told the model to use the plot tool for. The exclusions stay
+    here: they are what this gate does not want, not what a plot ask is.
+    """
     raw = text or ""
     if not raw.strip():
         return False
     if re.search(r"(?i)\b(plot\s+twist|movie\s+plot|plot\s+of\s+(?:land|the\s+film))\b", raw):
         return False
-    return any(p.search(raw) for p in _PLOT_FORCE)
-
-
-_DOCUMENT_FORCE = (
-    re.compile(
-        r"(?i)\b(?:create|make|write|generate|export|draft)\s+"
-        r"(?:(?:me\s+)?(?:a\s+|an\s+|the\s+)?)?"
-        r"(?:pdf|docx|xlsx|csv|spreadsheet|workbook|"
-        r"word\s+doc(?:ument)?|markdown(?:\s+file)?|text\s+file)\b"
-    ),
-    re.compile(
-        r"(?i)\b(?:save|export|download)\s+"
-        r"(?:(?:it|this|that|them|the\s+\w+)\s+)?"
-        r"(?:as|to)\s+(?:a\s+|an\s+)?"
-        r"(?:pdf|docx|xlsx|csv|excel|word|markdown)\b"
-    ),
-)
+    return PLOT.matches(raw)
 
 
 def detect_document_ask(text: str) -> bool:
-    """True when they want a new file they can open, not a PDF read."""
+    """True when they want a new file they can open, not a PDF read.
+
+    Drift ran the other way here: the catalog also matched "write me a 3-page
+    PDF report", which this gate did not, so that ask was nudged toward the
+    document tool and then allowed to answer in chat instead.
+    """
     raw = text or ""
     if not raw.strip():
         return False
     if detect_doc_ask(raw):
         return False
-    return any(p.search(raw) for p in _DOCUMENT_FORCE)
+    return DOCUMENT.matches(raw)
 
-
-_CATALOG_FORCE = (
-    re.compile(r"(?i)\barxiv\b"),
-    re.compile(r"(?i)\bpreprints?\b"),
-    re.compile(r"(?i)\bjpl\s+horizons\b"),
-    re.compile(r"(?i)\bephemeris\b"),
-    re.compile(
-        r"(?i)\bwhere is (?:mercury|venus|mars|jupiter|saturn|uranus|"
-        r"neptune|pluto|the moon)\b.{0,24}\b(tonight|today|now)\b"
-    ),
-    re.compile(r"(?i)\b(apod|astronomy picture of the day)\b"),
-    re.compile(r"(?i)\bnasa'?s? (?:photo|picture) of the day\b"),
-    re.compile(r"(?i)\b(nasa\s+ads|adsabs|astrophysics data system)\b"),
-    re.compile(r"(?i)\bfind me a paper\b"),
-    re.compile(r"(?i)\blook up a paper\b"),
-    re.compile(r"(?i)\bpapers on\b"),
-    re.compile(r"(?i)\bsearch arxiv\b"),
-)
 
 _PAPER_QUERY = re.compile(
     r"(?i)(?:find me a paper|look up a paper|search arxiv|papers?)\s+"
@@ -470,10 +416,7 @@ _PAPER_QUERY = re.compile(
 
 def detect_catalog_ask(text: str) -> bool:
     """True when the ask named a science catalog, not a shopping catalog."""
-    raw = text or ""
-    if not raw.strip():
-        return False
-    return any(p.search(raw) for p in _CATALOG_FORCE)
+    return SCIENCE_CATALOG.matches(text)
 
 
 def draft_catalog_args(text: str) -> dict[str, str]:
@@ -634,27 +577,14 @@ def detect_analyze_ask(text: str) -> bool:
 
     if looks_like_compose_email(raw):
         return False
-    # Path correction ("the file is located at C:\\…\\file.xlsx") is not a
-    # request to summarize the table.
-    if re.search(
-        r"(?i)\b("
-        r"(?:file|path|document)\s+(?:is\s+)?(?:located\s+)?at|"
-        r"here(?:'s|\s+is)\s+the\s+(?:file|path)|"
-        r"use\s+this\s+(?:file|path)|"
-        r"correct\s+path"
-        r")\b",
-        raw,
-    ):
+    if corrects_a_path(raw):
         return False
-    return any(p.search(raw) for p in _ANALYZE_PATTERNS)
+    return mentions_tabular_data(raw)
 
 
 def detect_attention_ask(text: str) -> bool:
     """True for urgency ask-shapes that need an attention warrant."""
-    raw = text or ""
-    if not raw.strip():
-        return False
-    return any(p.search(raw) for p in _ATTENTION_PATTERNS)
+    return ATTENTION.matches(text)
 
 
 def detect_vision_ask(text: str) -> bool:

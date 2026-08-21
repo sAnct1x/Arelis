@@ -12,22 +12,22 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 
 from arelis.attachments import attachment_kinds_from_turn, wants_image_text
-
-# Align with preflight deep-dive shapes.
-_DEEP_DIVE = re.compile(
-    r"(?i)\b("
-    r"investigate|"
-    r"deep\s*-?\s*dive|"
-    r"write\s+a\s+report|"
-    r"research\s+report|"
-    r"multi\s*-?\s*source|"
-    r"thorough\s+research|"
-    r"in\s*-?\s*depth\s+(?:research|look|analysis|report)|"
-    r"cite\s+sources|"
-    r"survey\s+the\b"
-    r")\b"
+from arelis.core.intent_catalog import (
+    BARE_SIGNIN,
+    BROWSER_CART,
+    BROWSER_CLICK_SIGNIN,
+    BROWSER_MAPS,
+    BROWSER_READ,
+    BROWSER_RESERVE,
+    BROWSER_SEARCH,
+    DEADLINE,
+    HOWTO_SIGNIN,
+    RESEARCH,
+    corrects_a_path,
+    mentions_tabular_data,
 )
 
+# Align with preflight deep-dive shapes.
 _INBOX = re.compile(
     r"(?i)\b("
     r"inbox|"
@@ -45,27 +45,6 @@ _MULTI_WEB = re.compile(
     r"latest\s+on|what\s+happened|"
     r"scrape|read\s+(?:this|the)\s+(?:page|article|url)"
     r")\b"
-)
-
-_DEADLINE_PACK = re.compile(
-    r"(?i)\b("
-    r"deadlines?|"
-    r"what(?:'s|\s+is)\s+due|"
-    r"what(?:'s|\s+is)\s+coming\s+up|"
-    r"pack\s+my\s+week|"
-    r"upcoming\s+deadlines?|"
-    r"what(?:'s|\s+is)\s+on\s+(?:my\s+)?plate|"
-    r"due\s+this\s+(?:week|month)|"
-    r"what\s+do\s+i\s+owe"
-    r")\b"
-)
-
-_ANALYZE = re.compile(
-    r"(?i)("
-    r"[^\s\"']+\.(?:csv|xlsx|xls|tsv|tab|json)\b|"
-    r"\b(?:csv|xlsx|xls|tsv|spreadsheet|dataframe|excel)\b|"
-    r"\b(?:summarize|analyze|describe)\b.{0,48}\b(?:data|table|sheet)\b"
-    r")"
 )
 
 _DOC = re.compile(
@@ -131,63 +110,6 @@ _BROWSER_SEE = re.compile(
     r"what(?:'s|\s+is)\s+on\s+(?:the\s+)?screen|"
     r"look\s+at\s+(?:this|the)\s+page"
     r")\b"
-)
-
-_BROWSER_MAPS = re.compile(
-    r"(?i)\b("
-    r"directions\s+to|"
-    r"how\s+do\s+i\s+get\s+to|"
-    r"(?:google\s+)?maps\s+to|"
-    r"drive\s+to|"
-    r"(?:text|send)\s+(?:me\s+)?(?:the\s+)?directions"
-    r")\b"
-)
-
-_BROWSER_SEARCH = re.compile(
-    r"(?i)\b("
-    r"search\s+(?:on\s+|for\s+)?(?:youtube|yt)|"
-    r"search\s+youtube|"
-    r"search\s+google\s+for|"
-    r"search\s+for\s+.{0,80}\bvideos?\b|"
-    r"add\s+(?:it\s+|that\s+|this\s+)?to\s+(?:(?:the|my)\s+)?(?:cart|bag)"
-    r")\b"
-)
-
-_BROWSER_RESERVE = re.compile(
-    r"(?i)\b("
-    r"reserve\s+a\s+table|"
-    r"book\s+a\s+table|"
-    r"make\s+(?:a\s+|us\s+a\s+)?reservation|"
-    r"reservation\s+(?:at|for)|"
-    r"opentable|"
-    r"\bresy\b"
-    r")\b"
-)
-
-_BROWSER_READ = re.compile(
-    r"(?i)\b("
-    r"read\s+(?:this|the|my)\s+(?:tab|page)|"
-    r"what(?:'s|\s+is)\s+on\s+(?:this|the|my)\s+(?:tab|page)|"
-    r"what\s+does\s+(?:this|the)\s+(?:tab|page)\s+say"
-    r")\b"
-)
-
-_LOGIN_NOUN = r"(?:sign[\s-]?in|log[\s-]?in|login)"
-_BROWSER_CLICK_SIGNIN = re.compile(
-    r"(?i)\b("
-    r"(?:click|press|tap)\s+(?:on\s+)?(?:the\s+)?" + _LOGIN_NOUN + r"|"
-    r"(?:go|navigate|take\s+me|bring\s+me)\s+to\s+(?:the\s+)?" + _LOGIN_NOUN + r"|"
-    r"open\s+(?:the\s+)?" + _LOGIN_NOUN + r"|"
-    r"proceed\s+with\s+(?:sign(?:ing)?|log(?:ging)?)[\s-]?in|"
-    r"sign\s+me\s+in|"
-    r"log\s+me\s+in"
-    r")\b"
-)
-_HOWTO_SIGNIN = re.compile(
-    r"(?i)\bhow\s+(?:do\s+i|to)\s+(?:sign|log)\s*in\b"
-)
-_BARE_SIGNIN = re.compile(
-    r"(?i)^\s*(?:please\s+)?(?:sign|log)\s*in\s*[.!?]*$"
 )
 
 _CLIPBOARD = re.compile(
@@ -536,18 +458,10 @@ def select_plan(
     if "document" in kinds or "document" in skills or (raw and _DOCUMENT.search(raw)):
         return _PLAN_DOCUMENT
 
-    if (
-        "research" in kinds
-        or "research" in skills
-        or (raw and _DEEP_DIVE.search(raw))
-    ):
+    if "research" in kinds or "research" in skills or RESEARCH.matches(raw):
         return _PLAN_RESEARCH
 
-    if (
-        "deadline_pack" in kinds
-        or "deadline" in skills
-        or (raw and _DEADLINE_PACK.search(raw))
-    ):
+    if "deadline_pack" in kinds or "deadline" in skills or DEADLINE.matches(raw):
         return _PLAN_DEADLINE
 
     if "weather" in kinds or "weather" in skills:
@@ -576,20 +490,8 @@ def select_plan(
     if "clipboard" in skills or (raw and _CLIPBOARD.search(raw)):
         return _PLAN_CLIPBOARD
 
-    if "analyze" in kinds or "analyze" in skills or (raw and _ANALYZE.search(raw)):
-        path_correction = bool(
-            raw
-            and re.search(
-                r"(?i)\b("
-                r"(?:file|path|document)\s+(?:is\s+)?(?:located\s+)?at|"
-                r"here(?:'s|\s+is)\s+the\s+(?:file|path)|"
-                r"use\s+this\s+(?:file|path)|"
-                r"correct\s+path"
-                r")\b",
-                raw,
-            )
-        )
-        if not path_correction:
+    if "analyze" in kinds or "analyze" in skills or mentions_tabular_data(raw):
+        if not corrects_a_path(raw):
             return _PLAN_ANALYZE
 
     if "docs" in skills or (raw and _DOC.search(raw)):
@@ -618,21 +520,25 @@ def select_plan(
         if match_tile_intent(raw):
             return _PLAN_TILE
 
-    if raw and _BROWSER_MAPS.search(raw):
+    if raw and BROWSER_MAPS.search(raw):
         return _PLAN_BROWSER_MAPS
 
-    if raw and _BROWSER_RESERVE.search(raw):
+    if raw and BROWSER_RESERVE.search(raw):
         return _PLAN_BROWSER_RESERVE
 
-    if raw and _BROWSER_SEARCH.search(raw):
+    # Cart is a separate matcher in the catalog, but the plan for both is the
+    # same one: drive Chrome rather than scrape. Checked here so the split does
+    # not quietly drop "add it to my cart", which this module used to fold into
+    # its own copy of the search matcher.
+    if raw and (BROWSER_SEARCH.search(raw) or BROWSER_CART.search(raw)):
         return _PLAN_BROWSER_SEARCH
 
-    if raw and _BROWSER_READ.search(raw) and "screenshot" not in raw.lower():
+    if raw and BROWSER_READ.search(raw) and "screenshot" not in raw.lower():
         return _PLAN_BROWSER_READ
 
     if raw and (
-        (_BROWSER_CLICK_SIGNIN.search(raw) or _BARE_SIGNIN.match(raw))
-        and not _HOWTO_SIGNIN.search(raw)
+        (BROWSER_CLICK_SIGNIN.search(raw) or BARE_SIGNIN.match(raw))
+        and not HOWTO_SIGNIN.search(raw)
     ):
         return _PLAN_BROWSER_CLICK
 

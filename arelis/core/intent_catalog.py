@@ -256,6 +256,152 @@ _INBOX_MENTION = re.compile(
     r"(?i)\b(inbox|in\s+box|email|e-?mail|gmail|mail|emiles?|emil)\b"
 )
 
+# "There is a table in this ask." Preflight nudges toward the analyze tool on it,
+# plan_nudge builds a plan from it, and the exactness gate refuses invented row
+# counts because of it — three questions about one fact, so the fact lives here.
+#
+# All three carried their own copy. The two in preflight and plan_nudge were
+# byte-identical; claims' differed by re.S, which is the only reason a
+# "summarize\nthis table" spanning a newline was a table to one gate and not to
+# the others. DOTALL is kept: it is the reading that treats a wrapped sentence
+# the same as a flat one.
+_TABULAR = (
+    # A path-like token with a table extension.
+    re.compile(r"[^\s\"']+\.(?:csv|xlsx|xls|tsv|tab|json)\b", re.I),
+    # The format named outright.
+    re.compile(r"\b(?:csv|xlsx|xls|tsv|spreadsheet|dataframe|excel)\b", re.I),
+    # An action on tabular data without naming a format.
+    re.compile(
+        r"\b(?:summarize|analyze|describe)\b.{0,48}\b(?:data|table|sheet)\b",
+        re.I | re.S,
+    ),
+)
+
+
+def mentions_tabular_data(text: str) -> bool:
+    """True when the ask names a table, a spreadsheet, or a file that holds one."""
+    raw = text or ""
+    if not raw.strip():
+        return False
+    return any(p.search(raw) for p in _TABULAR)
+
+
+# "The file is at C:\\...\\books.xlsx" names a spreadsheet but is not a request to
+# read one — it is the user fixing a path Arelis got wrong. Answering it by
+# analysing the file is how a correction turns into an unasked-for tool call.
+#
+# This lived, verbatim, in all three modules that ask about tables. It travels
+# with the matcher because it is not a separate fact: it is the exception to that
+# one, and a copy that fell behind would let the correction be read as an ask.
+_PATH_CORRECTION = re.compile(
+    r"(?i)\b("
+    r"(?:file|path|document)\s+(?:is\s+)?(?:located\s+)?at|"
+    r"here(?:'s|\s+is)\s+the\s+(?:file|path)|"
+    r"use\s+this\s+(?:file|path)|"
+    r"correct\s+path"
+    r")\b"
+)
+
+
+def corrects_a_path(text: str) -> bool:
+    """True when the ask is fixing a file location rather than asking about it."""
+    raw = text or ""
+    return bool(raw.strip()) and bool(_PATH_CORRECTION.search(raw))
+
+
+# --- driving the user's own Chrome ---
+#
+# Preflight and plan_nudge both read these, and both used to own a copy. The
+# copies drifted, always in the same direction: preflight learned a phrase and
+# plan_nudge did not. "Walk to the museum" was directions to the nudge and
+# nothing to the plan; so were "book us a table", "table for 4", "describe the
+# page" and "tell me what's on this tab".
+#
+# The result was worse than either alone. Both are system messages on the same
+# turn, so the model was told to call browser(action=maps) and, in the next
+# breath, handed a plan for a different tool — or no plan at all where every
+# other intent has one. Two matchers that disagree do not degrade gracefully;
+# they argue in the prompt.
+BROWSER_MAPS = re.compile(
+    r"(?i)\b("
+    r"directions\s+to|"
+    r"how\s+do\s+i\s+get\s+to|"
+    r"(?:google\s+)?maps\s+to|"
+    r"drive\s+to|"
+    r"walk\s+to|"
+    r"route\s+to|"
+    r"(?:text|sms|send)\s+(?:me\s+)?(?:the\s+)?directions"
+    r")\b"
+)
+
+BROWSER_MAPS_SEND = re.compile(
+    r"(?i)\b(?:text|sms|send)\s+(?:me\s+)?(?:the\s+)?directions\b"
+)
+
+BROWSER_SEARCH = re.compile(
+    r"(?i)\b("
+    r"search\s+(?:on\s+|for\s+)?(?:youtube|yt)|"
+    r"(?:youtube|yt)\s+search|"
+    r"search\s+youtube|"
+    r"look\s+(?:up|for)\s+.{0,48}\s+on\s+youtube|"
+    r"find\s+.{0,48}\s+on\s+youtube|"
+    r"search\s+google\s+for|"
+    r"google\s+this\s+in\s+(?:the\s+)?(?:browser|chrome)|"
+    r"search\s+for\s+.{0,80}\bvideos?\b|"
+    r"search\s+(?:on\s+)?amazon|"
+    r"look\s+(?:up|for)\s+.{0,48}\s+on\s+amazon"
+    r")\b"
+)
+
+BROWSER_CART = re.compile(
+    r"(?i)\b("
+    r"add\s+(?:it\s+|that\s+|this\s+|them\s+)?to\s+(?:(?:the|my)\s+)?(?:cart|bag)|"
+    r"put\s+(?:it\s+|that\s+|this\s+)?in\s+(?:(?:the|my)\s+)?(?:cart|bag)"
+    r")\b"
+)
+
+# Table / venue reservation in her Chrome (not the agenda calendar).
+BROWSER_RESERVE = re.compile(
+    r"(?i)\b("
+    r"reserve\s+a\s+table|"
+    r"book\s+a\s+table|"
+    r"book\s+us\s+a\s+table|"
+    r"get\s+(?:us\s+)?a\s+table|"
+    r"make\s+(?:a\s+|us\s+a\s+)?reservation|"
+    r"reservation\s+(?:at|for)|"
+    r"table\s+for\s+\d|"
+    r"opentable|"
+    r"\bresy\b"
+    r")\b"
+)
+
+# Compact text of the tab she is already on (not scrape-the-web).
+BROWSER_READ = re.compile(
+    r"(?i)\b("
+    r"read\s+(?:this|the|my)\s+(?:tab|page)|"
+    r"what(?:'s|\s+is|s)\s+on\s+(?:this|the|my)\s+(?:tab|page)|"
+    r"what\s+does\s+(?:this|the)\s+(?:tab|page)\s+say|"
+    r"tell\s+me\s+what(?:'s|\s+is)\s+on\s+(?:this|the)\s+(?:tab|page)|"
+    r"describe\s+(?:what(?:'s|\s+is)\s+on\s+)?(?:the\s+|this\s+)?(?:page|tab)"
+    r")\b"
+)
+
+# Click Sign in / Log in on the tab she is already on — not a fake action, not a
+# guessed accounts.google.com URL. These three were byte-identical in both files.
+LOGIN_NOUN = r"(?:sign[\s-]?in|log[\s-]?in|login)"
+BROWSER_CLICK_SIGNIN = re.compile(
+    r"(?i)\b("
+    r"(?:click|press|tap)\s+(?:on\s+)?(?:the\s+)?" + LOGIN_NOUN + r"|"
+    r"(?:go|navigate|take\s+me|bring\s+me)\s+to\s+(?:the\s+)?" + LOGIN_NOUN + r"|"
+    r"open\s+(?:the\s+)?" + LOGIN_NOUN + r"|"
+    r"proceed\s+with\s+(?:sign(?:ing)?|log(?:ging)?)[\s-]?in|"
+    r"sign\s+me\s+in|"
+    r"log\s+me\s+in"
+    r")\b"
+)
+HOWTO_SIGNIN = re.compile(r"(?i)\bhow\s+(?:do\s+i|to)\s+(?:sign|log)\s*in\b")
+BARE_SIGNIN = re.compile(r"(?i)^\s*(?:please\s+)?(?:sign|log)\s*in\s*[.!?]*$")
+
 WEATHER = IntentSpec(
     kind="weather",
     patterns=(_WEATHER_PRE,),
@@ -511,6 +657,10 @@ _PLOT_MENTION = (
     re.compile(r"(?i)\b(?:line|bar|scatter)\s+chart\b"),
     re.compile(r"(?i)\bchart\s+(?:this|the|my)\b"),
     re.compile(r"(?i)\bmake\s+a\s+(?:plot|chart|graph)\b"),
+    # claims.py had this one and the catalog did not, so "show me a chart of
+    # this" was a chart to the gate that refuses invented numbers and not a
+    # chart to the nudge that would have sent the plot tool at it.
+    re.compile(r"(?i)\bshow\s+me\s+a\s+(?:plot|chart|graph)\b"),
     re.compile(r"(?i)\bplot\s+.{0,40}\b(?:csv|tsv|xlsx|spreadsheet|columns?)\b"),
 )
 
@@ -540,6 +690,13 @@ _CATALOG_MENTION = (
     re.compile(r"(?i)\b(apod|astronomy picture of the day)\b"),
     re.compile(r"(?i)\bnasa'?s? (?:photo|picture) of the day\b"),
     re.compile(r"(?i)\b(nasa\s+ads|adsabs|astrophysics data system)\b"),
+    # Asking for a paper without naming the catalog. These four were only in
+    # claims.py, so "find me a paper on X" was refused for having no warrant
+    # while nothing had told the model to go and get one.
+    re.compile(r"(?i)\bfind me a paper\b"),
+    re.compile(r"(?i)\blook up a paper\b"),
+    re.compile(r"(?i)\bpapers on\b"),
+    re.compile(r"(?i)\bsearch arxiv\b"),
 )
 
 SCIENCE_CATALOG = IntentSpec(
