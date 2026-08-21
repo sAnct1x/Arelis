@@ -1,13 +1,15 @@
-"""One short system line: clock, place, role, and readiness snippets.
+"""One short system line: place, role, and readiness snippets.
 
 Assembled each turn and injected by the agent loop. Each field fails soft so a
 missing store, secrets file, or location resolver never blanks the rest.
+
+The clock deliberately lives in ``now_line`` in the agent loop instead of here.
+See the note in ``world_state_prompt_line``.
 """
 
 from __future__ import annotations
 
 import logging
-from datetime import datetime
 from typing import Any
 
 log = logging.getLogger(__name__)
@@ -27,10 +29,11 @@ def world_state_prompt_line(
     config = config or {}
     parts: list[str] = []
 
-    try:
-        parts.append(_clock_part())
-    except Exception as exc:
-        log.debug("world_state clock skipped: %s", exc)
+    # No clock here. now_line() in the agent loop owns it, and is appended last
+    # of the system messages on purpose: it is the only line that changes on its
+    # own, so anything carrying a minute-resolution stamp ahead of it re-prefills
+    # every block behind it on the next rollover. This line used to lead with the
+    # same strftime and quietly undid that.
 
     try:
         place = _place_part(config)
@@ -105,13 +108,6 @@ def world_state_prompt_line(
     if not parts:
         return ""
     return "World state: " + "; ".join(parts) + "."
-
-
-def _clock_part() -> str:
-    now = datetime.now().astimezone()
-    stamp = now.strftime("%A, %d %B %Y, %H:%M").replace(" 0", " ")
-    zone = now.strftime("%Z") or "local"
-    return f"{stamp} ({zone})"
 
 
 def _place_part(config: dict[str, Any]) -> str:

@@ -107,7 +107,6 @@ from arelis.core.image_refs import (
     fill_vision_args,
     image_force_call_notice,
     latest_camera_image_file,
-    mentions_camera_look,
 )
 from arelis.core.intent_catalog import WEATHER
 from arelis.core.json_tools import (
@@ -935,40 +934,13 @@ class AgentLoop:
             visible = available
             self._expected_tools.discard("weather")
             self._expected_tools.discard("web_search")
-        # Vision schemas are heavy; only offer when the turn selected vision or
-        # the user clearly asked about an image/screen/camera.
-        if (
-            "vision" in available
-            and "vision" not in skill_ids
-            and "vision" not in self._expected_tools
-            and "vision" not in preflight_kinds
-        ):
-            lowered = text.lower()
-            camera_look = mentions_camera_look(text)
-            if not camera_look and not any(
-                w in lowered
-                for w in (
-                    "screenshot",
-                    "on my screen",
-                    "on the screen",
-                    "this image",
-                    "the image",
-                    "that image",
-                    "this picture",
-                    "the picture",
-                    "this photo",
-                    "describe the image",
-                    "describe this image",
-                    "just generated",
-                    "what do you see",
-                    "camera",
-                    "webcam",
-                )
-            ):
-                available = set(available)
-                available.discard("vision")
-                available.discard("camera")
-                visible = available
+        # The vision tool used to be hidden behind a keyword list, because
+        # looking cost an unload, a cold VL load, and a re-warm. A multimodal
+        # chat model sees at the window it is already loaded with (see
+        # ModelRouter.run_vision), so the schema is the only cost left and the
+        # window has room for it. The list was also a trap: any phrasing outside
+        # it — "what is this?" beside a fresh attachment — left the model
+        # schema-blind and it invented a caption.
         if self._expected_tools & _HIDE_WANDER_FOR:
             available = _hide_daily_wander(set(available), self._expected_tools)
             visible = available

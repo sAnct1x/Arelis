@@ -2391,7 +2391,13 @@ class ArelisWindow(QMainWindow):
 
         result = save_job_from_payload(payload)
         if not result.ok:
-            notice(self, "jobs", "Could not save that job.", detail=str(result.output), warning=True)
+            notice(
+                self,
+                "jobs",
+                "Could not save that job.",
+                detail=str(result.output),
+                warning=True,
+            )
             return
         job_id = str((result.data or {}).get("id") or "")
         self.calendar.reload_jobs(select_id=job_id)
@@ -2421,7 +2427,13 @@ class ArelisWindow(QMainWindow):
             return
         result = ScheduleTool()._delete(job_id)
         if not result.ok:
-            notice(self, "jobs", "Could not delete that job.", detail=str(result.output), warning=True)
+            notice(
+                self,
+                "jobs",
+                "Could not delete that job.",
+                detail=str(result.output),
+                warning=True,
+            )
             return
         self.calendar.reload_jobs()
 
@@ -2431,7 +2443,13 @@ class ArelisWindow(QMainWindow):
 
         result = ScheduleTool()._run_now(job_id)
         if not result.ok:
-            notice(self, "jobs", "Could not start that job.", detail=str(result.output), warning=True)
+            notice(
+                self,
+                "jobs",
+                "Could not start that job.",
+                detail=str(result.output),
+                warning=True,
+            )
             return
         self.calendar.jobs_page.set_note("Started. The result will arrive by email.")
 

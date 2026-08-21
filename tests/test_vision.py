@@ -191,7 +191,7 @@ def test_vision_receipt() -> None:
 
 
 def test_run_vision_unload_rewarm_mocked() -> None:
-    """ModelRouter.run_vision cancels rewarm, unloads chat, schedules rewarm."""
+    """A text-only chat tag still takes the VL detour: unload, shot, rewarm."""
     from unittest.mock import AsyncMock, MagicMock
 
     from arelis.llm.router import ModelRouter
@@ -200,6 +200,8 @@ def test_run_vision_unload_rewarm_mocked() -> None:
     provider.unload = AsyncMock()
     provider.chat_with_images = AsyncMock(return_value="caption")
     provider.pin = AsyncMock()
+    # qwen2.5:7b reports completion+tools and no vision.
+    provider.sees_images = AsyncMock(return_value=False)
 
     router = ModelRouter(
         provider,
@@ -220,5 +222,88 @@ def test_run_vision_unload_rewarm_mocked() -> None:
         assert provider.chat_with_images.await_count == 1
         assert scheduled == ["vision"]
         assert router.active_model is None
+
+    asyncio.run(_run())
+
+
+def _seeing_router(**kwargs: Any):
+    """A router whose hot chat model reports the vision capability."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from arelis.llm.router import ModelRouter
+
+    provider = MagicMock()
+    provider.unload = AsyncMock()
+    provider.pin = AsyncMock()
+    provider.chat_with_images = AsyncMock(return_value="a red circle")
+    provider.sees_images = AsyncMock(return_value=True)
+    router = ModelRouter(
+        provider,
+        {"fast": "qwen3.5:9b", "research": "qwen3.5:9b", "vision": "qwen2.5vl:3b"},
+        options={"num_ctx": 65536},
+        **kwargs,
+    )
+    router.active_model = "qwen3.5:9b"
+    router.active_role = "fast"
+    return router, provider
+
+
+def test_a_multimodal_chat_model_never_unloads_to_see() -> None:
+    """The swap cost tens of seconds to reach a smaller model that answers worse."""
+    router, provider = _seeing_router()
+
+    async def _run() -> None:
+        text = await router.run_vision("Describe", ["YmFzZTY0"], num_ctx=4096)
+        assert text == "a red circle"
+        assert provider.unload.await_count == 0
+        assert provider.chat_with_images.await_count == 1
+        # Still hot, still the chat model. Nothing to re-warm.
+        assert router.active_model == "qwen3.5:9b"
+
+    asyncio.run(_run())
+
+
+def test_a_multimodal_chat_model_sees_at_the_chat_window() -> None:
+    """vision_num_ctx (4096) exists to keep a 3B VL off a small card only."""
+    router, provider = _seeing_router()
+
+    async def _run() -> None:
+        await router.run_vision("Describe", ["YmFzZTY0"], num_ctx=4096)
+        options = provider.chat_with_images.await_args.kwargs["options"]
+        assert options["num_ctx"] == 65536
+
+    asyncio.run(_run())
+
+
+def test_the_image_goes_to_the_chat_tag_not_the_vl_tag() -> None:
+    router, provider = _seeing_router()
+
+    async def _run() -> None:
+        await router.run_vision("Describe", ["YmFzZTY0"], num_ctx=4096)
+        assert provider.chat_with_images.await_args.args[0] == "qwen3.5:9b"
+
+    asyncio.run(_run())
+
+
+def test_an_unknown_capability_takes_the_safe_detour() -> None:
+    """Ollama not answering must not be read as "it can see"."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from arelis.llm.router import ModelRouter
+
+    provider = MagicMock()
+    provider.unload = AsyncMock()
+    provider.pin = AsyncMock()
+    provider.chat_with_images = AsyncMock(return_value="caption")
+    provider.sees_images = AsyncMock(side_effect=RuntimeError("ollama down"))
+    router = ModelRouter(provider, {"fast": "mystery:9b", "vision": "qwen2.5vl:3b"})
+    router.active_model = "mystery:9b"
+    router.active_role = "fast"
+    router._schedule_rewarm_default = lambda *, after="": None  # type: ignore[method-assign]
+
+    async def _run() -> None:
+        await router.run_vision("Describe", ["YmFzZTY0"], num_ctx=4096)
+        # Detour taken: the VL tag got the image, not the mystery chat tag.
+        assert provider.chat_with_images.await_args.args[0] == "qwen2.5vl:3b"
 
     asyncio.run(_run())

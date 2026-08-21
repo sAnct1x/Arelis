@@ -3,25 +3,36 @@ ollama:
   timeout_s: 300
   # Context window sent with every request. Ollama's own default is small
   # (2048 tokens on most builds), and anything past it is dropped from the
-  # front of the prompt without warning. That silently defeats
-  # agent.tool_output_chars: the model answers about a file it never saw.
-  # 2026-08-10 dropped this to 8192 because 16384 looked like it cost warm
-  # prefill, and asked for bench_latency evidence before raising it again.
-  # 2026-08-14 has that evidence, and the warm cost did not reproduce: on a
-  # 12GB GPU, warm prefill was 21ms at 8192 and 22ms at 16384, TTFT 168ms
-  # against 174ms, VRAM 4.77 GiB against 5.22 GiB. Only one chat model is hot
-  # at a time, so half a gigabyte is not contended.
+  # front of the prompt without warning.
   #
-  # It has to go back up because the tool schemas do not fit. The full registry
-  # serialises to ~31,700 characters, near 7,900 tokens — 97% of an 8192 window.
-  # After the reply and tool-result reserves that left a budget of zero for the
-  # persona and history on any turn offering the full surface, which is every
-  # SMS turn, and Ollama drops the overflow from the front. 12288 is still zero;
-  # 16384 is the first value that leaves real room (~3,900 tokens).
-  num_ctx: 16384
-  # Research loop stays on 8192 so deep-dive tok/s does not regress.
-  research_num_ctx: 8192
-  # Vision (qwen2.5vl:3b) one-shot — keep tight; chat is unloaded first.
+  # This number used to be an estimate that kept getting argued with. It is now
+  # measured: scripts/measure_context_ceiling.py loads the model at a candidate
+  # window and compares /api/ps size_vram against size, because a model that
+  # does not fit wholly in VRAM has spilled layers to the CPU and costs far more
+  # than the window buys. On the reference card (RX 6700 XT, 12 GB) with
+  # qwen3.5:9b:
+  #
+  #     num_ctx    VRAM      all on GPU   cold reply
+  #      16384   5.62 GiB       yes          4.6 s
+  #      32768   6.15 GiB       yes          4.6 s
+  #      65536   7.21 GiB       yes          4.8 s
+  #     131072   9.12 GiB       yes          4.9 s
+  #
+  # Latency is flat, so the old worry about warm prefill was never the real
+  # constraint. 65536 is the default because it leaves ~4.8 GiB for the vision
+  # model, Comfy, and the desktop; 131072 fits but leaves under 3 GiB.
+  #
+  # Setup overrides this per machine from measured VRAM — see
+  # arelis/setup/context.py. Two consequences worth knowing: the full tool
+  # registry (~7,900 tokens) is now 12% of the window instead of 48%, and a
+  # long session no longer needs the history summariser to survive.
+  num_ctx: 65536
+  # Research is a deeper loop on the same weights, so it gets the same window.
+  # It used to be 8192 — smaller than chat — which meant the role that reads the
+  # most sources had the least room to keep them.
+  research_num_ctx: 65536
+  # Fallback VL one-shot for a chat model that cannot see (DeepSeek R1). A
+  # multimodal chat model handles images itself and never reads this.
   vision_num_ctx: 4096
 
 # Role → Ollama tag. First open recommends one chat model from hardware and
@@ -33,26 +44,27 @@ ollama:
 models:
   fast: "qwen3.5:9b"
   research: "qwen3.5:9b"
-  # Single-frame VL (Ollama), pulled the first time vision is used.
-  # Never resident next to 14B — vision tool unloads chat first.
+  # Fallback single-frame VL, pulled only when the chat model cannot see. Qwen
+  # 3.5 and Gemma 4 take images directly, so on those this tag is never pulled
+  # and never loaded. DeepSeek R1 is text-only and still needs it.
   vision: "qwen2.5vl:3b"
 
 router:
-  # Non-default (research/code) residency after a turn. "0" made every research
-  # follow-up cold-load 14B (~18s). "5m" keeps deep sessions warm.
+  # Residency for a non-default role after a turn. "0" made every research
+  # follow-up pay a cold load. "5m" keeps deep sessions warm.
   keep_alive: "5m"
   default_role: "fast"     # conversation role; stays pinned between turns
   # How long the default role stays in VRAM after a request / pin.
   # Longer = fewer cold TTFTs in a session. Use -1 to keep until Ollama exits.
-  # `/role research` unloads 7B, stops Arelis-owned Comfy, and waits for
-  # /api/ps eviction before the next 14B stream. A VRAM miss ends the turn
-  # (no JSON fallback — that used to start a second 14B load and lock the PC).
+  # Both chips are normally the same tag, so `/role research` changes the loop
+  # rather than the weights and costs nothing. A VRAM miss ends the turn (no
+  # JSON fallback — that used to start a second load and lock the PC).
   default_keep_alive: "30m"
   warm_on_start: true      # pin default model when UI/CLI starts (fail soft)
-  rewarm_after_switch: true  # after research/code, pin fast again (delayed)
-  # H6 sticky hold + delayed 7B re-pin (same clock by default). While the last
-  # heavy model is sticky, auto/fast turns stay on it instead of unloading.
-  # Explicit research/code chip still switches; `/role fast` clears sticky.
+  rewarm_after_switch: true  # after a different tag, pin fast again (delayed)
+  # Sticky hold + delayed re-pin of the default (same clock by default). While
+  # the last heavier model is sticky, auto/fast turns stay on it instead of
+  # unloading. An explicit chip still switches; `/role fast` clears sticky.
   # Speculative decoding is not available on Ollama+Windows+AMD.
   rewarm_delay_s: 60
   # sticky_hold_s: 60   # optional override; defaults to rewarm_delay_s

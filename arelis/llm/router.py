@@ -392,9 +392,60 @@ class ModelRouter:
         model: str | None = None,
         num_ctx: int = 4096,
     ) -> str:
+        """Answer about one image, on the chat model when it can see.
+
+        Qwen 3.5 and Gemma 4 take images themselves. For those there is nothing
+        to swap: the picture goes to the model that is already hot, at the
+        window it is already loaded with, and the turn continues. That is worth
+        being deliberate about — the detour below costs an unload, a cold VL
+        load, a second unload and a re-warm, which is tens of seconds spent to
+        reach a smaller model that answers worse.
+
+        Only a text-only chat tag (DeepSeek R1) still takes the detour.
+        """
+        chat_model = self.active_model or self.model_for(self.default_role)
+        if chat_model and await self._chat_model_sees(chat_model):
+            log.info("Vision on the chat model `%s`; no VL swap", chat_model)
+            role = self.active_role or self.default_role
+            options = self.options_for(role)
+            # The chat window, not vision_num_ctx: that 4096 exists to keep a
+            # 3B VL off a small card and has nothing to say about a model that
+            # is already loaded at its own window.
+            options.setdefault("num_ctx", num_ctx)
+            return await self.provider.chat_with_images(
+                chat_model,
+                prompt,
+                images_b64,
+                keep_alive=self.default_keep_alive,
+                options=options,
+            )
+        return await self._run_vision_detour(
+            prompt, images_b64, model=model, num_ctx=num_ctx
+        )
+
+    async def _chat_model_sees(self, model: str) -> bool:
+        """Whether the hot chat tag takes images. Unknown means no."""
+        probe = getattr(self.provider, "sees_images", None)
+        if probe is None:
+            return False
+        try:
+            return bool(await probe(model))
+        except Exception as exc:
+            log.info("Could not tell whether %s sees images: %s", model, exc)
+            return False
+
+    async def _run_vision_detour(
+        self,
+        prompt: str,
+        images_b64: list[str],
+        *,
+        model: str | None = None,
+        num_ctx: int = 4096,
+    ) -> str:
         """Unload chat, run one VL shot, unload VL, schedule fast rewarm.
 
-        Never keeps the vision model resident next to 7B/14B on a 12GB card.
+        The fallback for a chat model that cannot see. Never keeps the vision
+        model resident next to the chat model on a small card.
         """
         self._cancel_rewarm()
         if self.active_model:

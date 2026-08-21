@@ -122,6 +122,8 @@ class OllamaProvider:
     def __init__(self, base_url: str = "http://127.0.0.1:11434", timeout_s: float = 300) -> None:
         self.base_url = base_url.rstrip("/")
         self._client = httpx.AsyncClient(base_url=self.base_url, timeout=timeout_s)
+        # tag -> capabilities from /api/show. See capabilities().
+        self._capabilities: dict[str, frozenset[str]] = {}
 
     async def stream_chat(
         self,
@@ -286,6 +288,37 @@ class OllamaProvider:
                 f"Ollama embed returned {len(out)} vectors for {len(texts)} inputs"
             )
         return out
+
+    async def capabilities(self, model: str) -> frozenset[str]:
+        """What this tag can do, per Ollama: completion, tools, vision, thinking.
+
+        Cached for the process. A tag's capabilities do not change without a
+        re-pull, and this is on the path of every image, so asking once matters.
+        Returns an empty set when Ollama cannot say — callers must treat "we do
+        not know" as "do not assume it can", not as "it cannot".
+        """
+        name = (model or "").strip()
+        if not name:
+            return frozenset()
+        cached = self._capabilities.get(name)
+        if cached is not None:
+            return cached
+        try:
+            response = await self._client.post("/api/show", json={"model": name})
+            response.raise_for_status()
+            raw = response.json().get("capabilities") or []
+        except Exception as exc:
+            log.info("Could not read capabilities for %s: %s", name, exc)
+            return frozenset()
+        found = frozenset(
+            str(item).strip().lower() for item in raw if str(item).strip()
+        )
+        self._capabilities[name] = found
+        return found
+
+    async def sees_images(self, model: str) -> bool:
+        """True when this chat tag takes images itself and needs no VL detour."""
+        return "vision" in await self.capabilities(model)
 
     async def list_models(self) -> list[str]:
         response = await self._client.get("/api/tags")

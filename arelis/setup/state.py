@@ -38,20 +38,44 @@ def needs_model_setup() -> bool:
 
 
 def record_model_choice(tag: str) -> None:
-    """Pin one chat model as both composer chips. Embed tag stays nomic."""
+    """Pin one chat model as both composer chips, and a window this card holds.
+
+    The shipped ``num_ctx`` is one number measured on one 12 GB card. Pinning a
+    window derived from the card that is actually present is the difference
+    between a stranger on 8 GB spilling layers to the CPU and a stranger on
+    24 GB being capped for no reason.
+    """
     name = (tag or "").strip()
     if not name:
         raise ValueError("model tag is empty")
-    merge_local_config(
-        {
-            "models": {
-                "fast": name,
-                "research": name,
-            },
-            "memory": {"embed_model": EMBED_TAG},
-        }
-    )
+    patch: dict[str, Any] = {
+        "models": {
+            "fast": name,
+            "research": name,
+        },
+        "memory": {"embed_model": EMBED_TAG},
+    }
+    window = _window_for_tag(name)
+    if window:
+        patch["ollama"] = {"num_ctx": window, "research_num_ctx": window}
+    merge_local_config(patch)
     record_model_setup_complete(tag=name)
+
+
+def _window_for_tag(tag: str) -> int:
+    """Measured-VRAM context window, or 0 when we cannot tell."""
+    try:
+        from arelis.setup.catalog import by_tag
+        from arelis.setup.context import context_window_for
+        from arelis.setup.hardware import probe_hardware
+
+        model = by_tag(tag)
+        if model is None:
+            return 0
+        return int(context_window_for(model, probe_hardware()))
+    except Exception as exc:  # pragma: no cover - never block the pin
+        log.info("Could not size the context window for %s: %s", tag, exc)
+        return 0
 
 
 def record_model_setup_complete(*, tag: str) -> None:

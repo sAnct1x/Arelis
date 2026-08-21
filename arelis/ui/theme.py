@@ -959,7 +959,9 @@ def stylesheet() -> str:
         padding: 6px 8px;
         border-radius: 6px;
     }}
-    #CalendarAgendaList::item:selected, #CalendarTaskList::item:selected, #CalendarJobList::item:selected {{
+    #CalendarAgendaList::item:selected,
+    #CalendarTaskList::item:selected,
+    #CalendarJobList::item:selected {{
         background-color: {c['tab_selected']};
         color: {c['accent2']};
     }}
