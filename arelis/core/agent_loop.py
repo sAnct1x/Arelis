@@ -4834,13 +4834,13 @@ class AgentLoop:
         history = self.memory.as_ollama(
             include_notes=not bool(self.config.get("_speak_replies"))
         )
-        # Hard sliding-window cap (message count) before token budget. Stops the
-        # dynamic trailer growing without bound even when pinned system content
-        # leaves "room" for a long chat that still hurts prefill.
+        # A backstop on message count. The token budget below is the real limit;
+        # this only stops the trailer growing without bound in a session long
+        # enough that the budget alone would keep saying yes.
         try:
-            max_msgs = int(agent_cfg.get("history_max_messages", 24) or 0)
+            max_msgs = int(agent_cfg.get("history_max_messages", 120) or 0)
         except (TypeError, ValueError):
-            max_msgs = 24
+            max_msgs = 120
         try:
             min_recent = int(
                 agent_cfg.get("history_min_recent", _HISTORY_MIN_RECENT)
@@ -4907,9 +4907,9 @@ class AgentLoop:
             )
             return [*pinned, *kept]
 
-        # Leave room for the summary pin we are about to add, then summarize
-        # everything that still will not fit. Tail stays pinned.
-        older, tail = split_recent_history(history, min_recent)
+        # Re-allocate against a smaller budget, because a summary pin is about to
+        # take room the first pass did not reserve. Same older/tail split: the
+        # history has not changed, only what it has to fit inside.
         remaining = budget - pinned_cost - tail_cost - _SUMMARY_RESERVE_TOKENS
         if remaining <= 0 or not older:
             dropped = list(older)

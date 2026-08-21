@@ -28,7 +28,7 @@ research allowlist still exists for the deep-dive loop, but neither is on by
 default and neither is load-bearing.
 
 The one-off cost of a large constant prefix — around 40s of prefill on a cold
-start — is paid at startup instead, by seed_prefix_cache in arelis/llm/preflight.
+start — is paid at startup instead, by seed_prefix_cache in arelis/llm/startup.
 
 This module never skips Allow.
 """

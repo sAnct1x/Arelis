@@ -18,13 +18,13 @@ from typing import Any
 import pytest
 
 from arelis.core.bus import EventBus
-from arelis.llm.preflight import (
+from arelis.llm.router import ModelRouter
+from arelis.llm.startup import (
     PrefixWarmup,
     prefix_warmup_for,
     run_model_warmup,
     seed_prefix_cache,
 )
-from arelis.llm.router import ModelRouter
 
 
 class _Provider:

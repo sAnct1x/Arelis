@@ -50,7 +50,6 @@ from arelis.core.intent_catalog import (
     IntentHint,
 )
 from arelis.core.look import classify_look, look_preflight_nudge
-from arelis.core.plan_nudge import plan_system_message
 from arelis.core.sms_complete import (
     complete_sms_draft,
     looks_like_browser_or_url,
@@ -71,7 +70,6 @@ __all__ = [
     "draft_signin_click_args",
     "looks_like_browser_click_signin",
     "looks_like_room_create",
-    "plan_system_message",
     "preflight_system_message",
     "rewrite_browser_action",
     "rewrite_browser_calls",

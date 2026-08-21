@@ -13,12 +13,10 @@ cold first turn without seeding, then with.
 
 from __future__ import annotations
 
-import argparse
 import asyncio
 import time
 
-from arelis.config import load_config, load_persona, shipped_num_ctx
-from arelis.core.agent_loop import static_system_prefix
+from arelis.config import load_config
 from arelis.core.bus import EventBus
 from arelis.llm import build_router, prefix_warmup_for, seed_prefix_cache
 from arelis.tools import build_tool_registry
@@ -41,10 +39,8 @@ async def _first_turn(router, prefix, question: str) -> float:
 
 
 async def main() -> int:
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--base", default="http://127.0.0.1:11434")
-    args = ap.parse_args()
-
+    # No flags: the point is to measure the model and window the app will really
+    # use, so both come from config the same way the app reads them.
     config = load_config()
     router = build_router(config)
     tools = build_tool_registry(config)

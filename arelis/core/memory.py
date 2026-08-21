@@ -56,13 +56,23 @@ class SessionMemory:
     system messages are assembled ahead of this history. fit_messages in the
     agent loop is what pins those; this class only keeps its own list short.
 
+    ``max_messages`` must be built from ``agent.history_max_messages`` — use
+    :meth:`from_config`. Both numbers bound the same history, and the tighter
+    one wins, so a default here that disagrees with config silently overrides
+    it. That was a real bug: this defaulted to 40 while config said 120, so the
+    agent loop's cap could never fire and the oldest turns were deleted here
+    instead — quietly, with no summary and no telemetry, while the loop's
+    careful fold-instead-of-forget path sat unreachable behind it.
+
     When sink is set, each add/summary/fact is written through immediately so a
     crash loses at most the turn in progress. Persistence is not this class's
     job when sink is None — that is how scheduled runs stay isolated.
     """
 
     messages: list[ChatMessage] = field(default_factory=list)
-    max_messages: int = 40
+    # Matches agent.history_max_messages in default.yaml. See the class docstring
+    # for why a smaller number here is not a safe default but a silent override.
+    max_messages: int = 120
     max_tokens: int | None = None
     chars_per_token: float = DEFAULT_CHARS_PER_TOKEN
     # Folded-away turns, injected as a pinned system block. Kept here rather
@@ -72,6 +82,21 @@ class SessionMemory:
     # them as pending; nothing becomes active without a later review click.
     pending_facts: list[str] = field(default_factory=list)
     sink: MemorySink | None = None
+
+    @classmethod
+    def from_config(
+        cls, config: dict[str, Any], *, sink: MemorySink | None = None
+    ) -> SessionMemory:
+        """Build with the working set bounded by the configured history cap."""
+        agent = config.get("agent") or {}
+        try:
+            cap = int(agent.get("history_max_messages", 0) or 0)
+        except (TypeError, ValueError):
+            cap = 0
+        memory = cls(sink=sink)
+        if cap > 0:
+            memory.max_messages = cap
+        return memory
 
     def add(self, role: str, content: str, note: str = "") -> None:
         self.messages.append(ChatMessage(role=role, content=content, note=note))
@@ -145,6 +170,11 @@ class SessionMemory:
 
         Does not write through the sink: these rows are already on disk, and
         re-appending them would duplicate every loaded turn.
+
+        The result is trimmed like any other growth. ``get_messages`` returns a
+        whole session with no limit, so restoring a months-old room would
+        otherwise load every message ever sent into the working set and hand the
+        next prompt build a history far past the cap.
         """
         self.messages.clear()
         for item in messages:
@@ -161,6 +191,7 @@ class SessionMemory:
                 )
         self.summary = summary
         self.pending_facts.clear()
+        self._trim()
 
     def clear(self) -> None:
         self.messages.clear()

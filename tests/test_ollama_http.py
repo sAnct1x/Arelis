@@ -9,8 +9,8 @@ import httpx
 import pytest
 
 from arelis.llm.ollama import OllamaProvider, same_ollama_model
-from arelis.llm.preflight import missing_models, model_is_available
 from arelis.llm.router import ModelRouter
+from arelis.llm.startup import missing_models, model_is_available
 
 
 async def _with_transport(handler):

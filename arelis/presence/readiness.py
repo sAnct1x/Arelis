@@ -12,7 +12,7 @@ from enum import Enum
 from typing import Any
 
 from arelis.calendar.secrets import load_calendar_secrets, load_ics_url
-from arelis.llm.preflight import missing_models, model_is_available
+from arelis.llm.startup import missing_models, model_is_available
 from arelis.mail import load_account
 from arelis.memory import DEFAULT_EMBED_MODEL
 from arelis.presence.lock import find_my_ingest_port, probe_ingest_health

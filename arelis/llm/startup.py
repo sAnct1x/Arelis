@@ -1,9 +1,21 @@
-"""Startup check that configured chat models are actually pulled.
+"""Everything done once, before the first message.
 
-list_models exists on the provider but used to be called nowhere in production.
-A missing model used to surface as a mid-turn HTTP 404. This reports the exact
-`ollama pull` before the first message, without blocking the window if Ollama
-is slow or down.
+Three jobs, in the order they run:
+
+Check the configured models are pulled. A missing one used to surface as a
+mid-turn HTTP 404; this reports the exact ``ollama pull`` up front instead.
+
+Pin the default chat model so the first turn is not a cold weight load.
+
+Prefill the static prefix, so the first turn is not a cold *prompt* either. The
+persona, the whole tool policy and the tool schemas are around 17,800 tokens and
+identical every turn, which is what makes the prefix cache useful — but somebody
+has to process them once, and measured on a 12 GB card that was 44 seconds. Doing
+it here took the first reply to 0.9s.
+
+This file was ``llm/preflight.py`` and sat beside ``core/preflight.py``, which is
+intent detection and shares nothing with it but a name. Nothing here inspects a
+user's words.
 """
 
 from __future__ import annotations

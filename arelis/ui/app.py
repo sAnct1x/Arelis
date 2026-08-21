@@ -4846,7 +4846,7 @@ def run_ui(config: dict[str, Any] | None = None) -> int:
         provider=router.provider,
         router=router,
     )
-    memory = SessionMemory(sink=store)
+    memory = SessionMemory.from_config(config, sink=store)
     orchestrator = Orchestrator(bus, router, tools, config, memory, workspace=workspace)
     voice = VoiceService(bus, config)
     embed_model = str(

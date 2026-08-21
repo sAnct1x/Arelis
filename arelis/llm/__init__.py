@@ -3,7 +3,8 @@ from __future__ import annotations
 from typing import Any
 
 from arelis.llm.ollama import OllamaProvider
-from arelis.llm.preflight import (
+from arelis.llm.router import ModelRouter
+from arelis.llm.startup import (
     PrefixWarmup,
     prefix_warmup_for,
     run_auto_lessons,
@@ -11,7 +12,6 @@ from arelis.llm.preflight import (
     run_model_warmup,
     seed_prefix_cache,
 )
-from arelis.llm.router import ModelRouter
 
 __all__ = [
     "ModelRouter",

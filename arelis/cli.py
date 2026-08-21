@@ -166,7 +166,7 @@ async def run_cli_async(
         provider=router.provider,
         router=router,
     )
-    memory = SessionMemory(sink=store)
+    memory = SessionMemory.from_config(config, sink=store)
     if restore_id:
         memory.hydrate(store.get_messages(restore_id), summary=store.get_summary(restore_id))
     orchestrator = Orchestrator(bus, router, tools, config, memory, workspace=workspace)

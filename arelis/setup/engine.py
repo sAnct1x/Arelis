@@ -20,7 +20,7 @@ from pathlib import Path
 import httpx
 
 from arelis.hidden_proc import hidden_kwargs, hidden_run
-from arelis.llm.preflight import model_is_available
+from arelis.llm.startup import model_is_available
 
 log = logging.getLogger(__name__)
 

@@ -121,13 +121,18 @@ Settings → Notify has the pairing QR.
 | Config | `arelis/config/default.yaml` | Defaults. Overrides in `data/` |
 
 Only one chat model sits in graphics memory. First open recommends one
-tag from hardware and pins both chips to it. Shipped last-resort in
-`default.yaml` is `qwen3.5:9b` for fast and research. Research is a
-deeper loop on the same weights. File work stays on fast. Vision stays
-`qwen2.5vl:3b`. Tags: [models.md](models.md).
+tag from hardware and pins both chips to it, and sizes the context window
+to the card it found. Shipped last-resort in `default.yaml` is
+`qwen3.5:9b` for fast and research. Research is a deeper loop on the same
+weights. File work stays on fast. That model sees images itself, so
+`models.vision` is only a fallback for a chat model that cannot.
+Tags: [models.md](models.md).
 
-Everyday turns may shrink the tools array to matched skill cards.
-Unmatched turns still fail open. Independent reads in the same round can
+The front of every prompt is deliberately identical from turn to turn:
+persona, the whole tool policy, every tool schema. Nothing about the turn
+changes it, which lets Ollama reuse the prefill instead of repeating it.
+That prefill is paid once at startup (`arelis/llm/startup.py`) rather
+than on the user's first message. Independent reads in the same round can
 run together. Writes and pause-gated tools stay serial.
 
 ## Tools (short)

@@ -58,8 +58,9 @@ This source checkout then asks which model to pull (that ships with
 0.2.3, not tagged yet). Confirm the recommendation, or choose Gemma /
 DeepSeek. One model at a time — both composer chips are the same tag. If
 [Ollama](https://ollama.com/download) is missing, she downloads the free
-local engine first, about 1.4 GB, then the model. A vision model
-(`qwen2.5vl:3b`) downloads the first time she looks at a picture.
+local engine first, about 1.4 GB, then the model. The recommended model
+looks at pictures itself; a separate vision model only downloads if you
+pick one that cannot.
 
 Typical recommendation on an 8–16 GB card is `qwen3.5:9b`. From source
 you can still pull by hand:

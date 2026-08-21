@@ -9,8 +9,8 @@ import pytest
 
 from arelis.core.bus import EventBus
 from arelis.core.events import EventType
-from arelis.llm.preflight import run_model_warmup
 from arelis.llm.router import ModelRouter
+from arelis.llm.startup import run_model_warmup
 
 
 class FakeProvider:

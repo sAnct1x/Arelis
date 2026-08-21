@@ -44,16 +44,46 @@ asked again.
 
 | Role | Tag | What it actually is |
 |------|-----|---------------------|
-| `fast` | `qwen3.5:9b` | Day driver. Thinking on. File and git work stays here. |
-| `research` | `qwen3.5:9b` | Same weights, thinking on. Deeper loop: more rounds, dual web hits, research tools, `num_ctx` 16384. |
-| `vision` | `qwen2.5vl:3b` | Unload chat, one shot, pin fast again. |
+| `fast` | `qwen3.5:9b` | Day driver. Thinking on. Sees images itself. File and git work stays here. |
+| `research` | `qwen3.5:9b` | Same weights, thinking on. Deeper loop: more rounds, dual web hits, research tools. Same window. |
+| `vision` | `qwen2.5vl:3b` | Fallback only, for a chat model that cannot see. |
 | embed | `nomic-embed-text` | Recall / docs. |
 
 Measured on an AMD box with about 12 GB, Ollama **0.32.14**: 9B soak
-12/12 with zero parser 500s, tool-choice 30/30, foundation 13/13, about
-5.62 GiB at 16384. Qwen2.5 7B was faster to first token but lost soak
-fanout and tool-choice. Gemma 4 12B passed soak but spent about five
-minutes thinking on a two-tool turn. Rejected as a daily driver.
+12/12 with zero parser 500s, tool-choice 30/30, foundation 13/13.
+Qwen2.5 7B was faster to first token but lost soak fanout and
+tool-choice. Gemma 4 12B passed soak but spent about five minutes
+thinking on a two-tool turn. Rejected as a daily driver.
+
+### The window
+
+`ollama.num_ctx` ships at **65536**. Setup overwrites it per machine
+(below), so that number is the last resort, not the intent.
+
+Qwen3.5 accepts 262144. We do not pin that, because the window is paid
+for in graphics memory whether or not a conversation ever fills it.
+Resident size on the reference card, from
+`scripts/measure_context_ceiling.py`:
+
+| `num_ctx` | Resident |
+|-----------|----------|
+| 16384 | 5.62 GiB |
+| 32768 | 6.15 GiB |
+| 65536 | 7.21 GiB |
+| 131072 | 9.12 GiB |
+
+All four stayed wholly on the GPU on a 12 GB card; 65536 was chosen to
+leave room for the desktop and the browser. Roughly 34 KiB per token of
+window, on top of about 5.1 GiB of weights.
+
+Setup derives the window from the card it finds
+(`arelis/setup/context.py`) and writes it to `config.local.yaml`, so a
+24 GB card is not held to a 12 GB answer and an 8 GB card is not handed
+one it cannot hold. The floor is 32768, which is not caution: the
+persona, the tool policy and the schemas for every tool are about 17,800
+tokens before anyone speaks, so a smaller window would overflow on turn
+one — and Ollama discards overflow from the *front*, which is where the
+persona is. `tests/test_prompt_fits_window.py` holds that arithmetic.
 
 The 14B dense niche is gone in Qwen3.5 (9B then 27B). A 27B offload was
 not kept. 9B already beat 14B on the gates.
@@ -61,16 +91,18 @@ not kept. 9B already beat 14B on the gates.
 Selectable in setup (not auto-picked): Gemma 4 12B / 26B / 31B, DeepSeek
 R1 8B / 14B / 32B / 70B.
 
-A vision model is pulled the first time she looks at a picture if it is
-not already local. Large screenshots are downscaled (long edge 1024 px)
-first.
+Qwen3.5 sees images itself, so a picture normally goes to the model
+already in memory. `models.vision` is a fallback for a chat model that
+reports no vision capability, and it is only pulled if that happens.
+Ollama is asked what the chat model can do (`/api/show`), so a swapped
+tag is handled without a config change. Large screenshots are downscaled
+(long edge 1024 px) either way.
 
 From source, without waiting for the window:
 
 ```powershell
 ollama pull qwen3.5:9b
 ollama pull nomic-embed-text
-ollama pull qwen2.5vl:3b
 ```
 
 STT and TTS stay on CPU. Idle wake is faster-whisper until
@@ -90,7 +122,10 @@ research turn she stays on that role for `router.rewarm_delay_s`
 (default 60) so follow-ups do not pay a cold load, then pins `fast`
 again. Same tag, so that pin is free.
 
-Vision still unloads chat, runs one shot, then brings `fast` back.
+Looking at a picture no longer costs a swap. The chat model sees, so the
+image joins the turn it belongs to and nothing is unloaded. Only the
+fallback path — a chat model without vision — still unloads chat, runs
+one shot, and pins `fast` again.
 
 Speech stays on the CPU.
 

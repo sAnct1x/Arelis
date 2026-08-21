@@ -8,7 +8,6 @@ from arelis.core.plan_nudge import (
     plan_system_message,
     select_plan,
 )
-from arelis.core.preflight import plan_system_message as preflight_export
 
 
 def test_research_plan_from_text() -> None:
@@ -104,8 +103,17 @@ def test_research_beats_deadline_pack() -> None:
     assert msg and "research_report" in msg
 
 
-def test_exported_from_preflight() -> None:
-    assert preflight_export is plan_system_message
+def test_the_message_is_the_selected_plans_own_message() -> None:
+    """plan_system_message is a convenience over select_plan, not a second path.
+
+    This replaces a test that asserted core.preflight re-exported this function.
+    The re-export had no other caller, so the test was the only reason the
+    indirection existed.
+    """
+    text = "Please deep-dive and write a report on fusion"
+    plan = select_plan(text)
+    assert plan is not None
+    assert plan_system_message(text) == plan.message
 
 
 def test_analyze_git_agenda_clipboard_ocr_plans() -> None:

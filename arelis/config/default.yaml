@@ -203,12 +203,31 @@ agent:
   # Mid-turn: escalate fast → research once if expected tools never fire.
   mid_turn_escalate: true
   escalate_after_rounds: 2
-  # History compress budget (H1/L7). Slash + speak skip model summarize.
+  # Folding the oldest turns into a one-paragraph summary costs an extra model
+  # round mid-turn, so it is worth knowing when it fires. It is a last resort,
+  # not a routine step: it only runs when the token budget cannot hold the
+  # history, and at num_ctx 65536 the budget is ~47,700 tokens after the persona,
+  # the policy and the schemas — around 150 turns of conversation.
+  #
+  # It used to run every few turns, which is what made it look like a design
+  # flaw. That was the window, not this: at 16384 the budget left for history was
+  # a few thousand tokens, so almost every turn dropped something and paid for a
+  # summary. Speak, slash and research turns still skip it entirely.
   summarize_max_ms: 8000
   summarize_skip_slash: true
-  # Sliding-window hard cap (user+assistant messages) before token budget.
-  # Bounds prefill as sessions grow; older turns fold into summarize/drop.
-  history_max_messages: 24
+  # A backstop on message count, not the real limit — the token budget above is.
+  # 24 was the binding constraint and cost roughly twelve turns of memory for no
+  # reason: a session hit the cap long before it filled the window, and dropping
+  # from the front of the prompt is the one edit that invalidates the whole
+  # prefix cache. 120 is ~60 turns, which the budget can genuinely hold, and it
+  # still bounds the worst case rather than growing without limit.
+  #
+  # This is also the size of the in-process working set: SessionMemory.from_config
+  # reads it, so there is one number rather than two bounding the same history.
+  # There used to be two. SessionMemory defaulted to 40 and won, which meant the
+  # oldest turns were deleted there — with no summary, no fold and no telemetry —
+  # while the fold-instead-of-forget path below could never reach them.
+  history_max_messages: 120
   # Always keep this many recent prompt-visible messages, even when the
   # system prefix has already spent the token budget. 6 = prior 2 turns
   # plus the current user line. Conversation mode used to keep only the
