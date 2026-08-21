@@ -4,19 +4,25 @@ from typing import Any
 
 from arelis.llm.ollama import OllamaProvider
 from arelis.llm.preflight import (
+    PrefixWarmup,
+    prefix_warmup_for,
     run_auto_lessons,
     run_model_preflight,
     run_model_warmup,
+    seed_prefix_cache,
 )
 from arelis.llm.router import ModelRouter
 
 __all__ = [
     "ModelRouter",
     "OllamaProvider",
+    "PrefixWarmup",
     "build_router",
+    "prefix_warmup_for",
     "run_auto_lessons",
     "run_model_preflight",
     "run_model_warmup",
+    "seed_prefix_cache",
 ]
 
 

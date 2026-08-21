@@ -185,12 +185,18 @@ agent:
   research_max_rounds: 12
   # Research mode finish gate: need this many ok web sources (agent_loop).
   research_min_sources: 2
-  # When true, research-role / deep-dive turns see a reduced tool schema set.
-  research_tool_subset: true
-  # Everyday turns: offer tools for matched skill cards only. Unmatched turns
-  # keep the full registry (fail open). Outbound SMS/email keep the full set.
-  # Research-mode subset above still wins on deep-dive turns.
-  skill_tool_subset: true
+  # Both of these shrink the tool schema array, and both are off because
+  # shrinking it costs more than it saves. The array is rendered near the front
+  # of the prompt, so changing its shape between turns changes the prefix and
+  # forfeits the prefix cache: measured on a 12 GB card, a 6-tool subset that
+  # varied per turn prefilled ~9,700 tokens in 17s every turn, while the
+  # constant 34-tool surface prefilled 19,455 tokens once and then cost 3.2s.
+  # See scripts/measure_tool_surface_prefill.py.
+  #
+  # Turn either on only for a model that genuinely cannot choose among the full
+  # set. Neither affects Allow, and neither can hide a send the turn asked for.
+  research_tool_subset: false
+  skill_tool_subset: false
   # Same-round independent READ tools (weather+inbox, search+scrape with URLs
   # already in the call) run together. Writes and Allow-gated calls stay serial.
   read_fanout: true

@@ -1,13 +1,36 @@
-"""Per-turn tool schema filtering.
+"""Which tools the model may see this turn.
 
-Small local models choke when every tool schema rides every turn. Two layers:
+Two jobs live here, and only one of them is still worth doing.
 
-- Research mode keeps a focused allowlist (deep-dive / 14B context budget).
-- Everyday turns offer tools for the skill cards that matched, plus any
-  preflight expected tools. Unmatched turns fail open (full registry).
+**Authorization** hides ``send_sms`` and ``send_email`` unless this utterance (or
+preflight) actually asks to send. That is not an optimisation and does not care
+how large the window is: fail-open chat once let the model replay the previous
+SMS draft in answer to "how are you today?". ``_without_unauthorized_sends`` runs
+on every path, including the full-surface one.
 
-SMS/email/calendar-outbound asks keep the full registry so send tools stay
-callable. This module never skips Allow.
+**Context economy** shrank the schema array to whichever tools the matched skill
+cards implied. It was measured and it does not work. Ollama renders the tools
+array near the front of the prompt, so an array that changes shape from turn to
+turn changes the prefix, and a changed prefix cannot be reused — the persona, the
+policy and the whole conversation behind it are prefilled again. On the reference
+card (see scripts/measure_tool_surface_prefill.py):
+
+    constant full surface, 34 tools    19,455 tokens   42.7s cold, then 3.2s
+    subset changing each turn, 6 tools  ~9,700 tokens   16.9s, 17.3s, 17.3s
+
+Half the tokens, five times the steady-state cost, because every turn pays a
+fresh prefill. The saving was real when it was counted in tokens and imaginary
+once the cache was involved.
+
+So the default is now the whole registry. ``skill_tool_subset`` still exists for
+anyone running a model that genuinely cannot choose among 34 tools, and the
+research allowlist still exists for the deep-dive loop, but neither is on by
+default and neither is load-bearing.
+
+The one-off cost of a large constant prefix — around 40s of prefill on a cold
+start — is paid at startup instead, by seed_prefix_cache in arelis/llm/preflight.
+
+This module never skips Allow.
 """
 
 from __future__ import annotations
@@ -248,15 +271,23 @@ def filter_tool_names(
 ) -> set[str]:
     """Return the tool names the model may see this turn.
 
-    ``enabled`` is the research-mode allowlist. ``skill_subset`` is the
-    everyday skill-card menu. Outbound SMS/email keeps the full registry.
-    Unmatched everyday turns fail open. Research-mode shrinking, when it
-    applies, is unchanged from the original allowlist.
+    ``enabled`` is the research-mode allowlist and ``skill_subset`` the everyday
+    skill-card menu; both default to off in the shipped config, so the normal
+    answer is the whole registry minus any send the turn has not asked for.
+    Shrinking either way still never removes a send the turn *did* ask for, and
+    never skips Allow.
     """
     names = set(available)
     extra = set(tools_for_skill_ids(extra_skill_ids or ()))
     if not enabled and not skill_subset:
-        return names
+        # The full surface still owes the authorization filter. Skipping it here
+        # is what let a stale SMS draft ride an unrelated turn.
+        expected = {
+            t
+            for hint in detect_intents(text, history=history)
+            for t in hint.expected_tools
+        }
+        return _without_unauthorized_sends(names, text, expected, history=history)
     if _must_keep_full_surface(text, history):
         expected = {
             t

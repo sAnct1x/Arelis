@@ -51,6 +51,7 @@ from arelis.core.memory import SessionMemory
 from arelis.core.orchestrator import Orchestrator
 from arelis.llm import (
     build_router,
+    prefix_warmup_for,
     run_auto_lessons,
     run_model_preflight,
     run_model_warmup,
@@ -4896,7 +4897,9 @@ def run_ui(config: dict[str, Any] | None = None) -> int:
     # Non-blocking: a slow or absent Ollama must not delay the window.
     async def _startup_models() -> None:
         await run_model_preflight(bus, router.provider, config.get("models"))
-        await run_model_warmup(bus, router)
+        await run_model_warmup(
+            bus, router, prefix=prefix_warmup_for(config, tools)
+        )
         agent_cfg = config.get("agent") or {}
         await run_auto_lessons(
             bus, enabled=bool(agent_cfg.get("auto_lessons", True))

@@ -9,6 +9,8 @@ is slow or down.
 from __future__ import annotations
 
 import logging
+import time
+from dataclasses import dataclass
 from typing import Any
 
 from arelis.core.bus import EventBus
@@ -124,10 +126,22 @@ async def run_auto_lessons(bus: EventBus, *, enabled: bool = True) -> None:
     )
 
 
-async def run_model_warmup(bus: EventBus, router: ModelRouter) -> None:
+async def run_model_warmup(
+    bus: EventBus,
+    router: ModelRouter,
+    *,
+    prefix: PrefixWarmup | None = None,
+) -> None:
     """Pin the default chat model so the first turn is not a cold load.
 
-    Fail soft: a down Ollama must not block the UI. Toggle with
+    Pinning loads the weights. It does not process any prompt, and the prompt is
+    now the larger half of a first turn: the persona, the whole tool policy and
+    the tool schemas come to roughly 17,800 tokens, which on a 12 GB AMD card
+    prefills at a few hundred tokens a second. Passing ``prefix`` sends that
+    block once here, so Ollama's prefix cache already holds it when the user
+    types — turning a slow first reply into startup work nobody is waiting on.
+
+    Fail soft throughout: a down Ollama must not block the UI. Toggle with
     `router.warm_on_start`.
     """
     if not router.warm_on_start:
@@ -163,5 +177,80 @@ async def run_model_warmup(bus: EventBus, router: ModelRouter) -> None:
         Event(
             EventType.STATUS,
             {"message": f"Conversation model `{model}` ready."},
+        )
+    )
+    if prefix is not None:
+        await seed_prefix_cache(bus, router, prefix)
+
+
+@dataclass(frozen=True)
+class PrefixWarmup:
+    """The byte-stable front of every prompt, ready to prefill."""
+
+    messages: list[dict[str, Any]]
+    tools: list[dict[str, Any]]
+    num_ctx: int
+
+
+def prefix_warmup_for(
+    config: dict[str, Any],
+    tools: Any,
+) -> PrefixWarmup | None:
+    """Build the warmup payload from the same pieces a real turn would use.
+
+    Returns None when the pieces are unavailable, because a missing warmup only
+    costs a slower first reply and must never keep the app from starting.
+    """
+    try:
+        from arelis.config import load_persona, shipped_num_ctx
+        from arelis.core.agent_loop import static_system_prefix
+
+        ollama_cfg = config.get("ollama") or {}
+        num_ctx = int(ollama_cfg.get("num_ctx") or shipped_num_ctx())
+        return PrefixWarmup(
+            messages=list(static_system_prefix(load_persona(config))),
+            # The full surface, because that is what a turn sends. Warming a
+            # different tools array would seed a prefix no turn ever asks for.
+            tools=list(tools.ollama_tools()),
+            num_ctx=num_ctx,
+        )
+    except Exception as exc:
+        log.info("Prefix warmup unavailable: %s", exc)
+        return None
+
+
+async def seed_prefix_cache(
+    bus: EventBus,
+    router: ModelRouter,
+    prefix: PrefixWarmup,
+) -> None:
+    """Prefill the static prefix so the first real turn reuses it."""
+    model = router.active_model or router.model_for(router.default_role)
+    started = time.perf_counter()
+    try:
+        # num_predict=1 because the reply is discarded; the point is that the
+        # prompt in front of it has been processed. Drained rather than
+        # cancelled: abandoning the stream mid-prefill can leave the runner
+        # without the cache entry this exists to create.
+        stream = router.provider.stream_chat(
+            model,
+            prefix.messages,
+            tools=prefix.tools,
+            keep_alive=router.default_keep_alive,
+            options={"num_ctx": prefix.num_ctx, "num_predict": 1},
+        )
+        async for _kind, _payload in stream:
+            pass
+    except Exception as exc:
+        # Nothing is broken by this failing; the first turn just pays the
+        # prefill itself, exactly as it did before.
+        log.info("Prefix cache seed skipped: %s", exc)
+        return
+    elapsed = time.perf_counter() - started
+    log.info("Seeded prefix cache for %s in %.1fs", model, elapsed)
+    await bus.publish(
+        Event(
+            EventType.STATUS,
+            {"message": f"Context ready ({elapsed:.0f}s of prefill done up front)."},
         )
     )
