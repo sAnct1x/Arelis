@@ -60,6 +60,7 @@ class TurnContext:
     email_draft: Any = None
     agenda_draft: Any = None
     skip_sms_draft: bool = False
+    active_room: Any = None
     sms_preinject: dict[str, Any] | None = None
     active_plan: Any = None
 

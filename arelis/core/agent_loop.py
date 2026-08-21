@@ -693,6 +693,25 @@ class AgentLoop:
         source: str = "chat",
         route_reason: str = "default",
     ) -> None:
+        ctx = await self._prepare_turn(
+            text, role, source=source, route_reason=route_reason
+        )
+        if ctx is None:
+            return
+        for round_i in range(1, self.max_rounds + 1):
+            if await self._run_round(ctx, round_i):
+                return
+        await self._force_final_answer(ctx)
+
+    async def _prepare_turn(
+        self,
+        text: str,
+        role: ModelRole,
+        *,
+        source: str = "chat",
+        route_reason: str = "default",
+    ) -> TurnContext | None:
+        """Build the prompt and TurnContext. None if the turn already finished."""
         model = self.router.model_for(role)
         speak = bool(self.config.get("_speak_replies"))
         sink = self.memory.sink
@@ -953,7 +972,7 @@ class AgentLoop:
         )
         if disconnected:
             await self._finish(disconnected, [])
-            return
+            return None
         self._active_plan = active_plan
         plan_msg = active_plan.message if active_plan else None
         if plan_msg:
@@ -1091,6 +1110,7 @@ class AgentLoop:
             email_draft=email_draft,
             agenda_draft=agenda_draft,
             skip_sms_draft=skip_sms_draft,
+            active_room=active_room,
             numeric_gate=exact_cfg and bool(agent_cfg.get("numeric_gate", True)),
             evidence_gate=exact_cfg and bool(agent_cfg.get("evidence_gate", True)),
             research_dual=exact_cfg and bool(agent_cfg.get("research_dual_hit", True)),
@@ -1099,23 +1119,9 @@ class AgentLoop:
             ),
             exact_need=exact_need,
         )
-        # Containers stay aliased so the rest of _run can append without a
-        # ctx. prefix on every line. Scalars that get rebound must go through
-        # ctx — a local `ctx.math_nudge_used = True` would not write back.
+        # Containers stay aliased so each round can append without a ctx.
+        # prefix on every line. Scalars that get rebound must go through ctx.
         tool_names = ctx.tool_names
-        sources = ctx.sources
-        ledger = ctx.ledger
-        fail_counts = ctx.fail_counts
-        skip_counts = ctx.skip_counts
-        web_search_ok = ctx.web_search_ok
-        sms_sent = ctx.sms_sent
-        agenda_created = ctx.agenda_created
-        weather_ok_places = ctx.weather_ok_places
-        weather_days_retried = ctx.weather_days_retried
-        numeric_gate = ctx.numeric_gate
-        evidence_gate = ctx.evidence_gate
-        research_dual = ctx.research_dual
-        research_min_sources = ctx.research_min_sources
         # Research role / deep-dive always needs web warrants for contingent claims.
         if research_mode and not exact_need.needs_web_evidence:
             kinds = list(exact_need.kinds)
@@ -1177,7 +1183,6 @@ class AgentLoop:
         ctx.messages = await self._messages_for_turn(
             system_messages, budget, ratio, role, user_text=text
         )
-        messages = ctx.messages
 
         # A complete SMS draft is a deterministic first move, so the Allow card
         # is raised before the model gets a round. Tool-bearing rounds hold the
@@ -1200,9 +1205,45 @@ class AgentLoop:
                 agent_cfg.get("sms_preinject", True)
             ):
                 ctx.sms_preinject = draft_send_sms_args(sms_draft)
-        sms_preinject = ctx.sms_preinject
 
-        for round_i in range(1, self.max_rounds + 1):
+        return ctx
+
+    async def _run_round(self, ctx: TurnContext, round_i: int) -> bool:
+        """One model/tool step. True means the turn is over."""
+        try:
+            text = ctx.text
+            role = self._turn_role
+            agent_cfg = ctx.agent_cfg
+            available_all = ctx.available_all
+            available = ctx.available
+            visible = ctx.visible
+            tool_names = ctx.tool_names
+            sources = ctx.sources
+            ledger = ctx.ledger
+            fail_counts = ctx.fail_counts
+            skip_counts = ctx.skip_counts
+            web_search_ok = ctx.web_search_ok
+            sms_sent = ctx.sms_sent
+            agenda_created = ctx.agenda_created
+            weather_ok_places = ctx.weather_ok_places
+            weather_days_retried = ctx.weather_days_retried
+            numeric_gate = ctx.numeric_gate
+            evidence_gate = ctx.evidence_gate
+            research_dual = ctx.research_dual
+            research_min_sources = ctx.research_min_sources
+            exact_need = ctx.exact_need
+            offer_tools = ctx.offer_tools
+            ollama_tools = ctx.ollama_tools
+            messages = ctx.messages
+            sms_preinject = ctx.sms_preinject
+            sms_draft = ctx.sms_draft
+            email_draft = ctx.email_draft
+            agenda_draft = ctx.agenda_draft
+            research_mode = ctx.research_mode
+            preflight_kinds = ctx.preflight_kinds
+            wants_fresh_page = ctx.wants_fresh_page
+            active_room = ctx.active_room
+
             await self._hold_if_paused()
 
             escalated = await self._maybe_escalate(
@@ -1346,7 +1387,7 @@ class AgentLoop:
                                 },
                             )
                         )
-                        continue
+                        return False
                     if (
                         is_vram_failure(exc)
                         and ctx.last_ok_tool_out
@@ -1368,7 +1409,7 @@ class AgentLoop:
                             sources,
                             streamed="",
                         )
-                        return
+                        return True
                     if ctx.last_ok_tool_out and _is_ollama_object_400(exc):
                         await self.bus.publish(
                             Event(
@@ -1386,9 +1427,9 @@ class AgentLoop:
                             sources,
                             streamed="",
                         )
-                        return
+                        return True
                     await self._publish_error(failure.chat, detail=failure.detail)
-                    return
+                    return True
 
                 content = strip_thinking_text(raw_content)
                 calls = extract_native_tool_calls(tool_calls)
@@ -1434,7 +1475,7 @@ class AgentLoop:
                             {"text": "tool call written as prose; asking for a real one"},
                         )
                     )
-                    continue
+                    return False
 
                 if not content and not ctx.fallback_mode:
                     # Qwen3.5 often puts the wrap-up in thinking and leaves
@@ -1458,7 +1499,7 @@ class AgentLoop:
                             sources,
                             streamed="",
                         )
-                        return
+                        return True
                     if ollama_tools and self.json_fallback:
                         # First round still blank with no tools yet? JSON fallback.
                         await self._retract()
@@ -1469,7 +1510,7 @@ class AgentLoop:
                                 {"text": "empty tool response; JSON fallback"},
                             )
                         )
-                        continue
+                        return False
                 # Complete SMS draft but recipients remain — nudge once, then inject.
                 sms_remaining = []
                 if sms_draft is not None and sms_draft.complete:
@@ -1515,7 +1556,7 @@ class AgentLoop:
                             self._timer.mark(
                                 "exactness", gate="sms_force", action="nudge"
                             )
-                        continue
+                        return False
                     # Nudge ignored — inject drafted send_sms (Allow still required).
                     # Do not re-inject after a failed send (same bad card twice).
                     if not ctx.sms_failed:
@@ -1568,7 +1609,7 @@ class AgentLoop:
                             self._timer.mark(
                                 "exactness", gate="email_force", action="nudge"
                             )
-                        continue
+                        return False
                     inj = draft_send_email_args(email_draft)
                     calls = [("send_email", inj)]
                     tool_calls = [_native_tool_call("send_email", inj)]
@@ -1645,7 +1686,7 @@ class AgentLoop:
                             self._timer.mark(
                                 "exactness", gate="agenda_force", action="nudge"
                             )
-                        continue
+                        return False
                     inj = draft_agenda_create_args(agenda_draft)
                     calls = [("agenda", inj)]
                     tool_calls = [_native_tool_call("agenda", inj)]
@@ -1688,7 +1729,7 @@ class AgentLoop:
                                 },
                             )
                         )
-                        continue
+                        return False
                     # Inject delete by title/time; only use an id the user pasted.
                     inj = draft_agenda_delete_args(
                         text,
@@ -1731,7 +1772,7 @@ class AgentLoop:
                                 },
                             )
                         )
-                        continue
+                        return False
                     inj = {"action": "close"}
                     calls = [("agenda", inj)]
                     tool_calls = [_native_tool_call("agenda", inj)]
@@ -1769,7 +1810,7 @@ class AgentLoop:
                                 },
                             )
                         )
-                        continue
+                        return False
                     inj = {"action": "open"}
                     calls = [("agenda", inj)]
                     tool_calls = [_native_tool_call("agenda", inj)]
@@ -1841,7 +1882,7 @@ class AgentLoop:
                                 },
                             )
                         )
-                        continue
+                        return False
                     inj = {"action": agenda_read_action(text)}
                     calls = [("agenda", inj)]
                     tool_calls = [_native_tool_call("agenda", inj)]
@@ -1892,7 +1933,7 @@ class AgentLoop:
                             self._timer.mark(
                                 "exactness", gate="image_force", action="nudge"
                             )
-                        continue
+                        return False
                     inj = {"prompt": text.strip()[:300]}
                     calls = [("image", inj)]
                     tool_calls = [_native_tool_call("image", inj)]
@@ -2010,7 +2051,7 @@ class AgentLoop:
                                 {"text": "vision ask ready; asking for vision call"},
                             )
                         )
-                        continue
+                        return False
                     if path:
                         inj = {"path": path}
                         calls = [("vision", inj)]
@@ -2052,7 +2093,7 @@ class AgentLoop:
                             self._timer.mark(
                                 "exactness", gate="weather_force", action="nudge"
                             )
-                        continue
+                        return False
                     inj = draft_weather_args(text)
                     missing = weather_places_missing(text, weather_ok_places)
                     if missing:
@@ -2102,7 +2143,7 @@ class AgentLoop:
                             self._timer.mark(
                                 "exactness", gate="catalog_force", action="nudge"
                             )
-                        continue
+                        return False
                     inj = draft_catalog_args(text)
                     calls = [("catalog", inj)]
                     tool_calls = [_native_tool_call("catalog", inj)]
@@ -2220,7 +2261,7 @@ class AgentLoop:
                                 {"text": "memory ask; asking for a real memory call"},
                             )
                         )
-                        continue
+                        return False
                     inj = local_store_inject_args("memory", text)
                     calls = [("memory", inj)]
                     tool_calls = [_native_tool_call("memory", inj)]
@@ -2350,7 +2391,7 @@ class AgentLoop:
                         "The job is already scheduled. It will run at the time "
                         "you set — no need to fire it now."
                     )
-                    return
+                    return True
 
                 before_browser = list(calls)
                 calls = rewrite_browser_calls(calls, text=text)
@@ -2399,7 +2440,7 @@ class AgentLoop:
                                 gate="scrape_after_search",
                                 action="nudge",
                             )
-                        continue
+                        return False
                     if (
                         bool(agent_cfg.get("browser_after_js_shell", True))
                         and ctx.js_shell_url
@@ -2445,7 +2486,7 @@ class AgentLoop:
                                 gate="browser_after_js_shell",
                                 action="nudge",
                             )
-                        continue
+                        return False
                     # Multi-step plan: earlier tools ran but a later step was skipped.
                     if (
                         bool(agent_cfg.get("plan_progress", True))
@@ -2478,14 +2519,14 @@ class AgentLoop:
                                     "plan_progress",
                                     plan=self._active_plan.id,
                                 )
-                            continue
+                            return False
                     if await apply_force_gates(
                         self,
                         ctx,
                         content,
                         refused=answer_looks_like_refusal(content),
                     ):
-                        continue
+                        return False
                     # Exactness: contingent fact without a matching warrant.
                     if (
                         evidence_gate
@@ -2522,7 +2563,7 @@ class AgentLoop:
                                     gate="evidence",
                                     missing=",".join(missing),
                                 )
-                            continue
+                            return False
                     # File read succeeded but the model only acknowledged ("Got it,
                     # I'll keep that in mind") — force one real answer from the tool
                     # output instead of shipping the empty ack.
@@ -2548,7 +2589,7 @@ class AgentLoop:
                             self._timer.mark(
                                 "verify", gate="file_answer", action="nudge"
                             )
-                        continue
+                        return False
                     # Perception: quote-first when web evidence exists.
                     if (
                         evidence_gate
@@ -2574,7 +2615,7 @@ class AgentLoop:
                         )
                         if self._timer is not None:
                             self._timer.mark("verify", gate="quote", action="nudge")
-                        continue
+                        return False
                     # Research mode: prefer ≥research_min_sources hits. Nudge once when
                     # we already have one good page; soft-fail (answer from it) if a
                     # second source never lands — hard refuse only with zero warrants
@@ -2602,7 +2643,7 @@ class AgentLoop:
                                 self._timer.mark(
                                     "verify", gate="dual_hit", action="nudge"
                                 )
-                            continue
+                            return False
                         if web_ok_n == 0:
                             await self._retract()
                             thin = unsupported_exactness_reply(["web"])
@@ -2616,7 +2657,7 @@ class AgentLoop:
                                 )
                             # No Sources on refuse — empty list avoids cite-then-refuse.
                             await self._finish(thin, [], streamed="")
-                            return
+                            return True
                         if ctx.dual_hit_nudge_used and web_ok_n >= 1:
                             if self._timer is not None:
                                 self._timer.mark(
@@ -2654,7 +2695,7 @@ class AgentLoop:
                                 kinds=",".join(exact_need.kinds),
                             )
                         await self._finish(refuse, sources, streamed="")
-                        return
+                        return True
                     if self._timer is not None:
                         self._timer.mark(
                             "round",
@@ -2671,7 +2712,7 @@ class AgentLoop:
                                 warrants=len(ledger),
                             )
                     await self._finish(content, sources, streamed=streamed)
-                    return
+                    return True
 
             # The round was a tool call, so anything already painted was a
             # preamble rather than an answer. Take it off the screen and put it
@@ -4145,13 +4186,13 @@ class AgentLoop:
                         # Its own sentence already names the sizes and the
                         # adjustments, which is the part worth reading.
                         await self._finish(str(result.output).strip(), sources, streamed="")
-                        return
+                        return True
                     await self._finish(
                         f"Image ready — open in Workspace ({path}).",
                         sources,
                         streamed="",
                     )
-                    return
+                    return True
                 if (
                     name in {"document", "plot"}
                     and result.ok
@@ -4180,7 +4221,7 @@ class AgentLoop:
                     # Keep [job.id] in the transcript. The 7B otherwise
                     # paraphrases the tool output and the id vanishes.
                     await self._finish(str(result.output).strip(), sources, streamed="")
-                    return
+                    return True
                 messages.append(self._tool_message(name, out))
                 if (
                     name == "schedule"
@@ -4303,7 +4344,7 @@ class AgentLoop:
                             sources,
                             streamed="",
                         )
-                        return
+                        return True
                 if (
                     name == "send_email"
                     and result.ok
@@ -4316,7 +4357,7 @@ class AgentLoop:
                         sources,
                         streamed="",
                     )
-                    return
+                    return True
                 if (
                     name == "contacts"
                     and result.ok
@@ -4342,7 +4383,7 @@ class AgentLoop:
                         sources,
                         streamed="",
                     )
-                    return
+                    return True
                 # A store listing is already the answer, so handing it back beats
                 # letting the 7B paraphrase a list it will pad. Only once nothing
                 # else is outstanding, though: "what are my deadlines? pack my
@@ -4359,7 +4400,7 @@ class AgentLoop:
                         sources,
                         streamed="",
                     )
-                    return
+                    return True
                 if (
                     name == "agenda"
                     and result.ok
@@ -4371,7 +4412,7 @@ class AgentLoop:
                         sources,
                         streamed="",
                     )
-                    return
+                    return True
                 if (
                     not result.ok
                     and not self._fail_replan_used
@@ -4405,9 +4446,18 @@ class AgentLoop:
 
             if ctx.skip_finish_text:
                 await self._finish(ctx.skip_finish_text, sources, streamed="")
-                return
+                return True
 
-        await self._force_final_answer(ctx)
+            return False
+        finally:
+            ctx.role = self._turn_role
+            ctx.available = available
+            ctx.visible = visible
+            ctx.ollama_tools = ollama_tools
+            ctx.offer_tools = offer_tools
+            ctx.research_mode = research_mode
+            ctx.sms_preinject = sms_preinject
+            ctx.exact_need = exact_need
 
     async def _force_final_answer(self, ctx: TurnContext) -> None:
         """Last round with tools withheld, after the loop has spent its budget."""
