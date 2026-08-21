@@ -16,13 +16,19 @@ _DOC_SUFFIXES = frozenset({".pdf", ".docx", ".xlsx", ".csv", ".md", ".txt"})
 _OPEN_SUFFIXES = _DOC_SUFFIXES | {".png"}
 _OPENABLE_TOOLS = frozenset({"document", "plot"})
 
+_SUFFIX = r"\.(?:pdf|docx|xlsx|csv|md|txt|png)"
+# Windows CI never sees this hole: tmp_path is C:\... and the drive-letter
+# alternative matches. Ubuntu pytest writes /tmp/pytest-of-runner/... and the
+# note was dropped, so History came back as prose with no Open / Show card.
 _PATH_MENTION = re.compile(
     r"(?i)("
-    r"(?:[A-Za-z]:[\\/][^\s\"'<>|]+[/\\])?"
+    r"(?:[A-Za-z]:[\\/](?!/)[^\s\"'<>|]+[/\\])?"
     r"(?:outputs[/\\](?:documents|plots)[/\\]|(?:documents|plots)[/\\])"
-    r"[^\s\"'<>|]+\.(?:pdf|docx|xlsx|csv|md|txt|png)"
+    rf"[^\s\"'<>|]+{_SUFFIX}"
     r"|"
-    r"[A-Za-z]:[\\/][^\s\"'<>|]+\.(?:pdf|docx|xlsx|csv|md|txt|png)"
+    rf"[A-Za-z]:[\\/](?!/)[^\s\"'<>|]+{_SUFFIX}"
+    r"|"
+    rf"(?<![:/\w])/(?!/)[^\s\"'<>|]+{_SUFFIX}"
     r")"
 )
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from arelis.core.document_refs import (
+    _PATH_MENTION,
     detect_document_another,
     detect_document_export,
     detect_document_revise,
@@ -100,6 +101,17 @@ def test_latest_path_survives_in_the_note(tmp_path: Path) -> None:
         }
     ]
     assert Path(latest_document_path(history)).resolve() == dest.resolve()
+
+
+def test_a_posix_absolute_path_in_the_note_is_still_a_path() -> None:
+    """Drive-letter matching is not the product. Linux CI tmp_path is /tmp/..."""
+    note = "[tools used this turn: document /tmp/pytest-of-runner/keep.md]"
+    match = _PATH_MENTION.search(note)
+    assert match is not None
+    assert match.group(1).endswith("keep.md")
+    plot = "[tools used this turn: plot /tmp/pytest-of-runner/plot-line.png]"
+    assert _PATH_MENTION.search(plot) is not None
+    assert _PATH_MENTION.search("https://example.com/keep.md") is None
 
 
 def test_files_in_turn_rebuilds_a_plot(tmp_path: Path) -> None:
