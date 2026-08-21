@@ -896,20 +896,9 @@ def complete_sms_draft(
             return None
         # Goals / tasks / memory / contacts / file-write / image-gen /
         # calendar / open-URL / analyze turns must not steal a pending SMS.
-        from arelis.core.agenda_complete import (
-            looks_like_calendar_create,
-            looks_like_calendar_delete,
-            looks_like_calendar_read,
-        )
-        from arelis.core.claims import detect_analyze_ask
+        from arelis.core.other_work import looks_like_other_work
 
-        if (
-            looks_like_stale_sms_skip(user_text, history)
-            or looks_like_calendar_create(user_text)
-            or looks_like_calendar_delete(user_text)
-            or looks_like_calendar_read(user_text)
-            or detect_analyze_ask(user_text)
-        ):
+        if looks_like_other_work(user_text, history):
             return None
         body = _clean_body(user_text)
         if len(body) < 2:

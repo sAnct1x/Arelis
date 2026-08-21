@@ -178,26 +178,9 @@ _GRAPH_ASK = re.compile(
 
 def _skip_compose_for_other_work(raw: str) -> bool:
     """True when this turn is plot/weather/files/catalog/tasks/math, not mail."""
-    from arelis.core.claims import (
-        detect_catalog_ask,
-        detect_math_ask,
-        detect_plot_ask,
-    )
-    from arelis.core.intent_catalog import WEATHER
-    from arelis.core.sms_complete import (
-        looks_like_tasks_utterance,
-        looks_like_workspace_write,
-    )
+    from arelis.core.other_work import looks_like_other_work
 
-    return bool(
-        detect_plot_ask(raw)
-        or _GRAPH_ASK.search(raw or "")
-        or WEATHER.matches(raw)
-        or looks_like_workspace_write(raw)
-        or detect_catalog_ask(raw)
-        or looks_like_tasks_utterance(raw)
-        or detect_math_ask(raw)
-    )
+    return looks_like_other_work(raw) or bool(_GRAPH_ASK.search(raw or ""))
 
 _EXPLICIT_SMS_VERB = re.compile(
     r"(?i)^\s*(?:text|sms|txt|send\s+(?:a\s+)?(?:text|sms|message))\b"

@@ -1034,29 +1034,9 @@ def complete_email_draft(
         if _SEND_CONFIRM.match(user_text):
             # Already handled in Case C; avoid treating "yes" as a body line.
             return None
-        from arelis.core.agenda_complete import (
-            looks_like_calendar_create,
-            looks_like_calendar_delete,
-            looks_like_calendar_read,
-        )
-        from arelis.core.claims import detect_analyze_ask
-        from arelis.core.sms_complete import (
-            looks_like_browser_or_url,
-            looks_like_goals_utterance,
-            looks_like_image_gen,
-            looks_like_workspace_write,
-        )
+        from arelis.core.other_work import looks_like_other_work
 
-        if (
-            detect_analyze_ask(user_text)
-            or looks_like_image_gen(user_text)
-            or looks_like_goals_utterance(user_text)
-            or looks_like_workspace_write(user_text)
-            or looks_like_calendar_create(user_text)
-            or looks_like_calendar_delete(user_text)
-            or looks_like_calendar_read(user_text)
-            or looks_like_browser_or_url(user_text)
-        ):
+        if looks_like_other_work(user_text, history):
             return None
         follow = parse_subject_body_followup(user_text)
         if follow is not None:

@@ -13,7 +13,6 @@ from typing import Any
 from uuid import uuid4
 
 from arelis.attachments import (
-    attachment_kinds_from_turn,
     parse_attachments_from_turn,
     split_attachments_turn,
     wants_image_edit,
@@ -49,11 +48,7 @@ from arelis.core.claims import (
     cas_force_notice,
     catalog_force_notice,
     contact_who_from_text,
-    detect_analyze_ask,
-    detect_catalog_ask,
     detect_exactness_need,
-    detect_math_ask,
-    detect_plot_ask,
     document_force_notice,
     draft_catalog_args,
     evidence_force_notice,
@@ -109,7 +104,6 @@ from arelis.core.image_refs import (
     image_force_call_notice,
     latest_camera_image_file,
 )
-from arelis.core.intent_catalog import WEATHER
 from arelis.core.json_tools import (
     ThinkingStripper,
     extract_native_tool_calls,
@@ -134,6 +128,7 @@ from arelis.core.look import (
     vision_question,
 )
 from arelis.core.memory import SessionMemory, tool_trace_entry, tool_trace_note
+from arelis.core.other_work import looks_like_other_work
 from arelis.core.plan_nudge import (
     plan_progress_notice,
     select_plan,
@@ -174,7 +169,6 @@ from arelis.core.sms_complete import (
     looks_like_memory_utterance,
     looks_like_stale_sms_skip,
     looks_like_tasks_utterance,
-    looks_like_workspace_write,
     sms_force_call_notice,
     sms_intent_this_turn,
 )
@@ -838,21 +832,8 @@ class AgentLoop:
         # Image-gen / goals / file-write / calendar-create must not revive a
         # stale SMS draft for force unless this turn itself starts with an SMS
         # verb ("text Brian: …").
-        skip_sms_draft = (
-            looks_like_stale_sms_skip(text, self.memory.messages)
-            or             looks_like_calendar_create(text)
-            or looks_like_calendar_delete(text)
-            or looks_like_calendar_close(text)
-            or looks_like_calendar_open(text)
-            or looks_like_calendar_read(text)
-            or match_tile_intent(text)
-            or detect_analyze_ask(text)
-            or wants_image_edit(split_attachments_turn(text)[1] or text)
-            or looks_like_scheduled_send(text)
-            or looks_like_schedule_manage(text)
-            or looks_like_room_create(text)
-            or "image" in attachment_kinds_from_turn(text)
-        ) and not re.match(
+        other_work = looks_like_other_work(text, self.memory.messages)
+        skip_sms_draft = other_work and not re.match(
             r"(?i)^\s*(?:text|sms|txt|send\s+(?:a\s+)?(?:text|sms|message))\b",
             text or "",
         )
@@ -861,30 +842,15 @@ class AgentLoop:
             if skip_sms_draft
             else complete_sms_draft(text, history=self.memory.messages)
         )
-        skip_email_draft = (
+        # A scheduled send, a job edit, a new room or a mailbox mutate skip the
+        # email draft even when the words also look like compose — "email me the
+        # weather every morning" is a job, not a letter.
+        skip_email_draft = other_work and (
             looks_like_scheduled_send(text)
             or looks_like_schedule_manage(text)
             or looks_like_room_create(text)
             or looks_like_mailbox_mutate(text)
-            or (
-                (
-                    looks_like_stale_sms_skip(text, self.memory.messages)
-                    or             looks_like_calendar_create(text)
-            or looks_like_calendar_delete(text)
-            or looks_like_calendar_close(text)
-            or looks_like_calendar_open(text)
-            or looks_like_calendar_read(text)
-                    or match_tile_intent(text)
-                    or detect_analyze_ask(text)
-                    or detect_catalog_ask(text)
-                    or detect_plot_ask(text)
-                    or detect_math_ask(text)
-                    or looks_like_workspace_write(text)
-                    or looks_like_tasks_utterance(text)
-                    or WEATHER.matches(text)
-                )
-                and not looks_like_compose_email(text)
-            )
+            or not looks_like_compose_email(text)
         )
         email_draft = (
             None
