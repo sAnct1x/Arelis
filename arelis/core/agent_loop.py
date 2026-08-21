@@ -45,21 +45,16 @@ from arelis.core.bus import EventBus
 from arelis.core.claims import (
     answer_looks_like_ack_only,
     answer_looks_like_refusal,
-    cas_force_notice,
     catalog_force_notice,
     contact_who_from_text,
     detect_exactness_need,
-    document_force_notice,
     draft_catalog_args,
     evidence_force_notice,
     file_answer_force_notice,
     last_store_ids_from_context,
     local_store_inject_args,
     lock_memory_forget_args,
-    math_force_notice,
-    plot_force_notice,
     send_claim_missing_kinds,
-    units_force_notice,
     unsupported_exactness_reply,
     unsupported_send_claim_reply,
     weather_force_notice,
@@ -98,6 +93,7 @@ from arelis.core.evidence import (
 )
 from arelis.core.facts import facts_prompt_line
 from arelis.core.fail_tags import tool_fail_replan_notice
+from arelis.core.gates import FORCE_GATE_KINDS, apply_force_gates
 from arelis.core.image_refs import (
     CAMERA_FRESH_S,
     fill_vision_args,
@@ -176,6 +172,7 @@ from arelis.core.tile_complete import match_tile_intent, tile_tool_args
 from arelis.core.tool_args import cross_tool_arg_error, schema_keys
 from arelis.core.tool_results import PreparedToolOutput, prepare_tool_output
 from arelis.core.tool_subset import filter_tool_names, is_deep_dive_ask, is_research_mode
+from arelis.core.turn_context import TurnContext
 from arelis.core.turn_telemetry import TurnTimer, turn_telemetry_enabled
 from arelis.core.untrusted import frame_external_tool_output
 from arelis.core.world_state import world_state_prompt_line
@@ -1075,62 +1072,50 @@ class AgentLoop:
         # in this turn asked for a tool. That reserve was eating the last turn.
         if speak and not self._expected_tools and not skill_ids:
             tool_reserve_chars = 0
-        tool_names = set(visible)
-        allow_writes_this_turn = False
-        # (title, url) for every page actually fetched this turn. Citations are
-        # built from this, never from the model's recollection, so a Sources
-        # list can only contain pages that really loaded.
-        sources: list[tuple[str, str]] = []
-        fallback_mode = False
-        nudges = 0
-        scrape_nudge_used = False
-        js_shell_nudge_used = False
-        js_shell_url = ""
-        plan_progress_used = False
-        sms_nudge_used = 0
-        email_nudge_used = 0
-        image_nudge_used = 0
-        vision_nudge_used = 0
-        agenda_nudge_used = 0
-        math_nudge_used = False
-        cas_nudge_used = False
-        units_nudge_used = False
-        plot_nudge_used = False
-        catalog_nudge_used = False
-        document_nudge_used = False
-        weather_nudge_used = 0
-        weather_ok_places: set[str] = set()
-        weather_days_retried: set[str] = set()
-        schedule_managed_ok = False
-        image_attempted = False
-        memory_nudge_used = 0
-        last_ok_tool_out = ""
-        last_ok_tool_name = ""
-        inbox_mutated_ok = False
-        last_browser_snapshot = ""
-        browser_clicked = False
-        skip_finish_text = ""
-        agenda_create_ok = False
-        evidence_nudge_used = False
-        quote_nudge_used = False
-        dual_hit_nudge_used = False
-        file_answer_nudge_used = False
-        browser_relaunch_nudge_used = False
-        sms_sent: set[str] = set()
-        sms_failed = False
-        email_sent_ok = False
-        agenda_created: set[str] = set()
-        # Identical failed call fingerprints → stop re-prompting Allow (K2).
-        fail_counts: dict[str, int] = {}
-        skip_counts: dict[str, int] = {}
-        web_search_ok: set[str] = set()
-        ledger = EvidenceLedger()
         exact_cfg = bool(agent_cfg.get("exactness", True))
-        numeric_gate = exact_cfg and bool(agent_cfg.get("numeric_gate", True))
-        evidence_gate = exact_cfg and bool(agent_cfg.get("evidence_gate", True))
-        research_dual = exact_cfg and bool(agent_cfg.get("research_dual_hit", True))
-        research_min_sources = max(1, int(agent_cfg.get("research_min_sources", 2)))
         exact_need = detect_exactness_need(text)
+        ctx = TurnContext(
+            text=text,
+            role=role,
+            speak=speak,
+            research_mode=research_mode,
+            agent_cfg=agent_cfg,
+            available_all=available_all,
+            available=set(available),
+            visible=set(visible),
+            tool_names=set(visible),
+            skill_ids=tuple(skill_ids),
+            preflight_kinds=list(preflight_kinds),
+            active_plan=active_plan,
+            sms_draft=sms_draft,
+            email_draft=email_draft,
+            agenda_draft=agenda_draft,
+            skip_sms_draft=skip_sms_draft,
+            numeric_gate=exact_cfg and bool(agent_cfg.get("numeric_gate", True)),
+            evidence_gate=exact_cfg and bool(agent_cfg.get("evidence_gate", True)),
+            research_dual=exact_cfg and bool(agent_cfg.get("research_dual_hit", True)),
+            research_min_sources=max(
+                1, int(agent_cfg.get("research_min_sources", 2))
+            ),
+            exact_need=exact_need,
+        )
+        # Containers stay aliased so the rest of _run can append without a
+        # ctx. prefix on every line. Scalars that get rebound must go through
+        # ctx — a local `ctx.math_nudge_used = True` would not write back.
+        tool_names = ctx.tool_names
+        sources = ctx.sources
+        ledger = ctx.ledger
+        fail_counts = ctx.fail_counts
+        skip_counts = ctx.skip_counts
+        web_search_ok = ctx.web_search_ok
+        sms_sent = ctx.sms_sent
+        agenda_created = ctx.agenda_created
+        weather_ok_places = ctx.weather_ok_places
+        weather_days_retried = ctx.weather_days_retried
+        numeric_gate = ctx.numeric_gate
+        evidence_gate = ctx.evidence_gate
+        research_dual = ctx.research_dual
+        research_min_sources = ctx.research_min_sources
         # Research role / deep-dive always needs web warrants for contingent claims.
         if research_mode and not exact_need.needs_web_evidence:
             kinds = list(exact_need.kinds)
@@ -1139,6 +1124,7 @@ class AgentLoop:
             exact_need = replace(
                 exact_need, needs_web_evidence=True, kinds=tuple(kinds)
             )
+            ctx.exact_need = exact_need
         # News / current-events turns should not end on search snippets alone.
         wants_fresh_page = (
             exact_need.needs_web_evidence
@@ -1185,9 +1171,13 @@ class AgentLoop:
             chars_per_token=ratio,
             schema_chars=len(json.dumps(ollama_tools)) if ollama_tools else 0,
         )
-        messages = await self._messages_for_turn(
+        ctx.wants_fresh_page = wants_fresh_page
+        ctx.offer_tools = offer_tools
+        ctx.ollama_tools = ollama_tools
+        ctx.messages = await self._messages_for_turn(
             system_messages, budget, ratio, role, user_text=text
         )
+        messages = ctx.messages
 
         # A complete SMS draft is a deterministic first move, so the Allow card
         # is raised before the model gets a round. Tool-bearing rounds hold the
@@ -1196,7 +1186,6 @@ class AgentLoop:
         # that as hung, pressed Esc to clear it, and the send died with the turn.
         # Allow is still the only thing that sends, and the model still writes
         # the reply on the round after the tool result.
-        sms_preinject: dict[str, Any] | None = None
         if (
             "send_sms" in self._expected_tools
             and "send_sms" not in available_all
@@ -1210,7 +1199,8 @@ class AgentLoop:
             elif bool(agent_cfg.get("sms_force_call", True)) and bool(
                 agent_cfg.get("sms_preinject", True)
             ):
-                sms_preinject = draft_send_sms_args(sms_draft)
+                ctx.sms_preinject = draft_send_sms_args(sms_draft)
+        sms_preinject = ctx.sms_preinject
 
         for round_i in range(1, self.max_rounds + 1):
             await self._hold_if_paused()
@@ -1261,14 +1251,23 @@ class AgentLoop:
                     available.discard("send_email")
                     visible = available
                 ollama_tools = self.tools.ollama_tools(visible)
-                tool_names = set(visible)
+                ctx.tool_names.clear()
+                ctx.tool_names.update(visible)
+                ctx.ollama_tools = ollama_tools
+                ctx.available = set(available)
+                ctx.visible = set(visible)
+                ctx.research_mode = research_mode
+                tool_names = ctx.tool_names
 
             if round_i > 1 and (
-                email_sent_ok or agenda_create_ok or bool(sms_sent)
+                ctx.email_sent_ok or ctx.agenda_create_ok or bool(sms_sent)
             ):
                 offer_tools = False
                 ollama_tools = []
-                tool_names = set()
+                ctx.offer_tools = False
+                ctx.ollama_tools = []
+                ctx.tool_names.clear()
+                tool_names = ctx.tool_names
 
             await self.bus.publish(
                 Event(
@@ -1277,7 +1276,7 @@ class AgentLoop:
                 )
             )
 
-            tools_arg = None if fallback_mode else (ollama_tools or None)
+            tools_arg = None if ctx.fallback_mode else (ollama_tools or None)
             round_ms = 0
             if sms_preinject is not None:
                 injected = sms_preinject
@@ -1330,11 +1329,11 @@ class AgentLoop:
                     )
                     if (
                         self.json_fallback
-                        and not fallback_mode
+                        and not ctx.fallback_mode
                         and ollama_tools
                         and not failure.skip_tool_fallback
                     ):
-                        fallback_mode = True
+                        ctx.fallback_mode = True
                         messages[:] = _normalize_ollama_messages(messages)
                         await self.bus.publish(
                             Event(
@@ -1350,7 +1349,7 @@ class AgentLoop:
                         continue
                     if (
                         is_vram_failure(exc)
-                        and last_ok_tool_out
+                        and ctx.last_ok_tool_out
                         and "research_report" in self.tools_used
                     ):
                         await self.bus.publish(
@@ -1365,12 +1364,12 @@ class AgentLoop:
                             )
                         )
                         await self._finish(
-                            _tool_followup_fallback(last_ok_tool_out, last_ok_tool_name),
+                            _tool_followup_fallback(ctx.last_ok_tool_out, ctx.last_ok_tool_name),
                             sources,
                             streamed="",
                         )
                         return
-                    if last_ok_tool_out and _is_ollama_object_400(exc):
+                    if ctx.last_ok_tool_out and _is_ollama_object_400(exc):
                         await self.bus.publish(
                             Event(
                                 EventType.THINKING,
@@ -1383,7 +1382,7 @@ class AgentLoop:
                             )
                         )
                         await self._finish(
-                            _tool_followup_fallback(last_ok_tool_out, last_ok_tool_name),
+                            _tool_followup_fallback(ctx.last_ok_tool_out, ctx.last_ok_tool_name),
                             sources,
                             streamed="",
                         )
@@ -1399,7 +1398,7 @@ class AgentLoop:
                 # JSON object counts as an instruction. Scanning prose for
                 # embedded JSON would let an answer that merely discusses or
                 # demonstrates a tool call execute it.
-                parsed = parse_fallback_payload(content, strict=not fallback_mode)
+                parsed = parse_fallback_payload(content, strict=not ctx.fallback_mode)
                 if parsed and parsed["kind"] == "tool":
                     calls = [(parsed["name"], parsed["args"])]
                 elif parsed and parsed["kind"] == "final":
@@ -1413,11 +1412,11 @@ class AgentLoop:
                 # is acceptable, so ask again and say what went wrong.
                 stray = (
                     parse_fallback_payload(content, strict=False)
-                    if self.json_fallback and not fallback_mode
+                    if self.json_fallback and not ctx.fallback_mode
                     else None
                 )
-                if stray and stray["kind"] == "tool" and nudges < _MAX_TOOL_NUDGES:
-                    nudges += 1
+                if stray and stray["kind"] == "tool" and ctx.nudges < _MAX_TOOL_NUDGES:
+                    ctx.nudges += 1
                     await self._retract()
                     messages.append({"role": "assistant", "content": content})
                     messages.append(
@@ -1437,13 +1436,13 @@ class AgentLoop:
                     )
                     continue
 
-                if not content and not fallback_mode:
+                if not content and not ctx.fallback_mode:
                     # Qwen3.5 often puts the wrap-up in thinking and leaves
                     # chat content empty. Native calling still worked — a tool
                     # already ran — so do not enter the sticky-note protocol
                     # and do not ship the "empty reply / model unloaded" notice.
                     # Tools may already be stripped (agenda/SMS/email wrap-up).
-                    if last_ok_tool_out:
+                    if ctx.last_ok_tool_out:
                         await self.bus.publish(
                             Event(
                                 EventType.THINKING,
@@ -1455,7 +1454,7 @@ class AgentLoop:
                             )
                         )
                         await self._finish(
-                            _tool_followup_fallback(last_ok_tool_out, last_ok_tool_name),
+                            _tool_followup_fallback(ctx.last_ok_tool_out, ctx.last_ok_tool_name),
                             sources,
                             streamed="",
                         )
@@ -1463,7 +1462,7 @@ class AgentLoop:
                     if ollama_tools and self.json_fallback:
                         # First round still blank with no tools yet? JSON fallback.
                         await self._retract()
-                        fallback_mode = True
+                        ctx.fallback_mode = True
                         await self.bus.publish(
                             Event(
                                 EventType.THINKING,
@@ -1489,8 +1488,8 @@ class AgentLoop:
                     and sms_remaining
                     and "send_sms" in tool_names
                 ):
-                    if sms_nudge_used < 1:
-                        sms_nudge_used += 1
+                    if ctx.sms_nudge_used < 1:
+                        ctx.sms_nudge_used += 1
                         await self._retract()
                         messages.append({"role": "assistant", "content": content})
                         messages.append(
@@ -1519,7 +1518,7 @@ class AgentLoop:
                         continue
                     # Nudge ignored — inject drafted send_sms (Allow still required).
                     # Do not re-inject after a failed send (same bad card twice).
-                    if not sms_failed:
+                    if not ctx.sms_failed:
                         inj = draft_send_sms_args(
                             sms_draft, already_sent=sms_sent
                         )
@@ -1544,8 +1543,8 @@ class AgentLoop:
                     and "send_email" in tool_names
                     and "send_email" not in self.tools_used
                 ):
-                    if email_nudge_used < 1:
-                        email_nudge_used += 1
+                    if ctx.email_nudge_used < 1:
+                        ctx.email_nudge_used += 1
                         await self._retract()
                         messages.append({"role": "assistant", "content": content})
                         messages.append(
@@ -1587,7 +1586,7 @@ class AgentLoop:
                 elif (
                     looks_like_mailbox_mutate(text)
                     and "inbox" in tool_names
-                    and not inbox_mutated_ok
+                    and not ctx.inbox_mutated_ok
                 ):
                     inbox = self.tools.get("inbox")
                     hits = getattr(inbox, "last_hits", None) if inbox is not None else None
@@ -1619,10 +1618,10 @@ class AgentLoop:
                     and agenda_draft is not None
                     and agenda_draft.complete
                     and "agenda" in tool_names
-                    and not agenda_create_ok
+                    and not ctx.agenda_create_ok
                 ):
-                    if agenda_nudge_used < 1:
-                        agenda_nudge_used += 1
+                    if ctx.agenda_nudge_used < 1:
+                        ctx.agenda_nudge_used += 1
                         await self._retract()
                         messages.append({"role": "assistant", "content": content})
                         messages.append(
@@ -1668,8 +1667,8 @@ class AgentLoop:
                     and "agenda" not in self.tools_used
                     and "agenda" in self._expected_tools
                 ):
-                    if agenda_nudge_used < 1:
-                        agenda_nudge_used += 1
+                    if ctx.agenda_nudge_used < 1:
+                        ctx.agenda_nudge_used += 1
                         await self._retract()
                         messages.append({"role": "assistant", "content": content})
                         messages.append(
@@ -1711,8 +1710,8 @@ class AgentLoop:
                     and "agenda" in tool_names
                     and "agenda" not in self.tools_used
                 ):
-                    if agenda_nudge_used < 1:
-                        agenda_nudge_used += 1
+                    if ctx.agenda_nudge_used < 1:
+                        ctx.agenda_nudge_used += 1
                         await self._retract()
                         messages.append({"role": "assistant", "content": content})
                         messages.append(
@@ -1749,8 +1748,8 @@ class AgentLoop:
                     and "agenda" in tool_names
                     and "agenda" not in self.tools_used
                 ):
-                    if agenda_nudge_used < 1:
-                        agenda_nudge_used += 1
+                    if ctx.agenda_nudge_used < 1:
+                        ctx.agenda_nudge_used += 1
                         await self._retract()
                         messages.append({"role": "assistant", "content": content})
                         messages.append(
@@ -1819,8 +1818,8 @@ class AgentLoop:
                         or exact_need.needs_agenda
                     )
                 ):
-                    if agenda_nudge_used < 1:
-                        agenda_nudge_used += 1
+                    if ctx.agenda_nudge_used < 1:
+                        ctx.agenda_nudge_used += 1
                         await self._retract()
                         messages.append({"role": "assistant", "content": content})
                         messages.append(
@@ -1862,15 +1861,15 @@ class AgentLoop:
                     )
                     and "image" in self._expected_tools
                     and "image" not in self.tools_used
-                    and not image_attempted
+                    and not ctx.image_attempted
                     and "image" in tool_names
                     and (
                         looks_like_image_gen(text)
                         or "image_gen" in preflight_kinds
                     )
                 ):
-                    if image_nudge_used < 1:
-                        image_nudge_used += 1
+                    if ctx.image_nudge_used < 1:
+                        ctx.image_nudge_used += 1
                         await self._retract()
                         messages.append({"role": "assistant", "content": content})
                         messages.append(
@@ -1991,8 +1990,8 @@ class AgentLoop:
                             user_text=text,
                         )
                         path = str(filled.get("path") or "")
-                    if vision_nudge_used < 1:
-                        vision_nudge_used += 1
+                    if ctx.vision_nudge_used < 1:
+                        ctx.vision_nudge_used += 1
                         await self._retract()
                         messages.append({"role": "assistant", "content": content})
                         messages.append(
@@ -2028,12 +2027,12 @@ class AgentLoop:
                     and exact_need.needs_weather
                     and not looks_like_scheduled_send(text)
                     and not looks_like_schedule_manage(text)
-                    and not schedule_managed_ok
+                    and not ctx.schedule_managed_ok
                     and weather_places_missing(text, weather_ok_places)
                     and "weather" in tool_names
                 ):
-                    if weather_nudge_used < 1 and not weather_ok_places:
-                        weather_nudge_used += 1
+                    if ctx.weather_nudge_used < 1 and not weather_ok_places:
+                        ctx.weather_nudge_used += 1
                         await self._retract()
                         messages.append({"role": "assistant", "content": content})
                         messages.append(
@@ -2082,8 +2081,8 @@ class AgentLoop:
                     and "catalog" in tool_names
                     and "catalog" not in self.tools_used
                 ):
-                    if not catalog_nudge_used:
-                        catalog_nudge_used = True
+                    if not ctx.catalog_nudge_used:
+                        ctx.catalog_nudge_used = True
                         await self._retract()
                         messages.append({"role": "assistant", "content": content})
                         messages.append(
@@ -2200,8 +2199,8 @@ class AgentLoop:
                     and "memory" not in self.tools_used
                     and "memory" in tool_names
                 ):
-                    if memory_nudge_used < 1:
-                        memory_nudge_used += 1
+                    if ctx.memory_nudge_used < 1:
+                        ctx.memory_nudge_used += 1
                         await self._retract()
                         messages.append({"role": "assistant", "content": content})
                         messages.append(
@@ -2284,10 +2283,10 @@ class AgentLoop:
                 elif (
                     looks_like_browser_click_signin(text)
                     and "browser" in self.tools_used
-                    and not browser_clicked
+                    and not ctx.browser_clicked
                     and "browser" in tool_names
                 ):
-                    inj = draft_signin_click_args(last_browser_snapshot)
+                    inj = draft_signin_click_args(ctx.last_browser_snapshot)
                     if inj:
                         calls = [("browser", inj)]
                         tool_calls = [_native_tool_call("browser", inj)]
@@ -2371,14 +2370,14 @@ class AgentLoop:
                     if (
                         bool(agent_cfg.get("scrape_after_search", True))
                         and wants_fresh_page
-                        and not scrape_nudge_used
+                        and not ctx.scrape_nudge_used
                         and "web_search" in self.tools_used
                         and "browser" not in self._expected_tools
                         and "browser" not in self.tools_used
                         and not (self.tools_used & _WEB_TOOLS)
                         and ("scrape" in tool_names or "research_report" in tool_names)
                     ):
-                        scrape_nudge_used = True
+                        ctx.scrape_nudge_used = True
                         await self._retract()
                         messages.append({"role": "assistant", "content": content})
                         messages.append(
@@ -2403,19 +2402,21 @@ class AgentLoop:
                         continue
                     if (
                         bool(agent_cfg.get("browser_after_js_shell", True))
-                        and js_shell_url
-                        and not js_shell_nudge_used
+                        and ctx.js_shell_url
+                        and not ctx.js_shell_nudge_used
                         and "browser" in available_all
                         and "browser" not in self.tools_used
                         and not (self._expected_tools & {"weather", "send_sms", "send_email"})
                     ):
-                        js_shell_nudge_used = True
+                        ctx.js_shell_nudge_used = True
                         # Web-skill turns do not offer browser up front (or she
                         # skips scrape). Offer it now so the nudge can land.
                         if "browser" not in tool_names:
                             visible = set(visible) | {"browser"}
                             available = set(available) | {"browser"}
-                            tool_names = set(visible)
+                            ctx.tool_names.clear()
+                            ctx.tool_names.update(visible)
+                            tool_names = ctx.tool_names
                             if offer_tools:
                                 ollama_tools = self.tools.ollama_tools(visible)
                         await self._retract()
@@ -2424,7 +2425,7 @@ class AgentLoop:
                             {
                                 "role": "user",
                                 "content": _JS_SHELL_BROWSER_NOTICE.format(
-                                    url=js_shell_url
+                                    url=ctx.js_shell_url
                                 ),
                             }
                         )
@@ -2449,7 +2450,7 @@ class AgentLoop:
                     if (
                         bool(agent_cfg.get("plan_progress", True))
                         and self._active_plan is not None
-                        and not plan_progress_used
+                        and not ctx.plan_progress_used
                         and not answer_looks_like_refusal(content)
                     ):
                         progress = plan_progress_notice(
@@ -2458,7 +2459,7 @@ class AgentLoop:
                             available_tools=tool_names,
                         )
                         if progress:
-                            plan_progress_used = True
+                            ctx.plan_progress_used = True
                             await self._retract()
                             messages.append({"role": "assistant", "content": content})
                             messages.append({"role": "user", "content": progress})
@@ -2478,156 +2479,27 @@ class AgentLoop:
                                     plan=self._active_plan.id,
                                 )
                             continue
-                    # Exactness: numeric ask without a successful calculator call.
-                    if (
-                        numeric_gate
-                        and exact_need.needs_calculator
-                        and not math_nudge_used
-                        and not ledger.has_ok("calc")
-                        and "calculator" in tool_names
-                        and not answer_looks_like_refusal(content)
+                    if await apply_force_gates(
+                        self,
+                        ctx,
+                        content,
+                        refused=answer_looks_like_refusal(content),
                     ):
-                        math_nudge_used = True
-                        await self._retract()
-                        messages.append({"role": "assistant", "content": content})
-                        messages.append({"role": "user", "content": math_force_notice()})
-                        await self.bus.publish(
-                            Event(
-                                EventType.THINKING,
-                                {"text": "exactness  math without calculator; forcing tool"},
-                            )
-                        )
-                        if self._timer is not None:
-                            self._timer.mark("exactness", gate="math", action="force")
-                        continue
-                    if (
-                        numeric_gate
-                        and exact_need.needs_cas
-                        and not cas_nudge_used
-                        and not ledger.has_ok("cas")
-                        and "cas" in tool_names
-                        and not answer_looks_like_refusal(content)
-                    ):
-                        cas_nudge_used = True
-                        await self._retract()
-                        messages.append({"role": "assistant", "content": content})
-                        messages.append({"role": "user", "content": cas_force_notice()})
-                        await self.bus.publish(
-                            Event(
-                                EventType.THINKING,
-                                {"text": "exactness  symbolic without cas; forcing tool"},
-                            )
-                        )
-                        if self._timer is not None:
-                            self._timer.mark("exactness", gate="symbolic", action="force")
-                        continue
-                    if (
-                        numeric_gate
-                        and exact_need.needs_units
-                        and not units_nudge_used
-                        and not ledger.has_ok("units")
-                        and "units" in tool_names
-                        and not answer_looks_like_refusal(content)
-                    ):
-                        units_nudge_used = True
-                        await self._retract()
-                        messages.append({"role": "assistant", "content": content})
-                        messages.append({"role": "user", "content": units_force_notice()})
-                        await self.bus.publish(
-                            Event(
-                                EventType.THINKING,
-                                {"text": "exactness  units without tool; forcing tool"},
-                            )
-                        )
-                        if self._timer is not None:
-                            self._timer.mark("exactness", gate="units", action="force")
-                        continue
-                    if (
-                        numeric_gate
-                        and exact_need.needs_plot
-                        and not plot_nudge_used
-                        and not ledger.has_ok("plot")
-                        and "plot" in tool_names
-                        and not answer_looks_like_refusal(content)
-                    ):
-                        plot_nudge_used = True
-                        await self._retract()
-                        messages.append({"role": "assistant", "content": content})
-                        messages.append({"role": "user", "content": plot_force_notice()})
-                        await self.bus.publish(
-                            Event(
-                                EventType.THINKING,
-                                {"text": "exactness  plot without file; forcing tool"},
-                            )
-                        )
-                        if self._timer is not None:
-                            self._timer.mark("exactness", gate="plot", action="force")
-                        continue
-                    if (
-                        exact_need.needs_document
-                        and not document_nudge_used
-                        and not ledger.has_ok("document")
-                        and "document" in tool_names
-                        and not answer_looks_like_refusal(content)
-                    ):
-                        document_nudge_used = True
-                        await self._retract()
-                        messages.append({"role": "assistant", "content": content})
-                        messages.append({"role": "user", "content": document_force_notice()})
-                        await self.bus.publish(
-                            Event(
-                                EventType.THINKING,
-                                {"text": "exactness  document without file; forcing tool"},
-                            )
-                        )
-                        if self._timer is not None:
-                            self._timer.mark("exactness", gate="document", action="force")
-                        continue
-                    if (
-                        numeric_gate
-                        and exact_need.needs_catalog
-                        and not catalog_nudge_used
-                        and not ledger.has_ok("catalog")
-                        and "catalog" in tool_names
-                        and not answer_looks_like_refusal(content)
-                    ):
-                        catalog_nudge_used = True
-                        await self._retract()
-                        messages.append({"role": "assistant", "content": content})
-                        messages.append({"role": "user", "content": catalog_force_notice()})
-                        await self.bus.publish(
-                            Event(
-                                EventType.THINKING,
-                                {"text": "exactness  catalog without fetch; forcing tool"},
-                            )
-                        )
-                        if self._timer is not None:
-                            self._timer.mark("exactness", gate="catalog", action="force")
                         continue
                     # Exactness: contingent fact without a matching warrant.
                     if (
                         evidence_gate
                         and exact_need.kinds
-                        and not evidence_nudge_used
+                        and not ctx.evidence_nudge_used
                         and not answer_looks_like_refusal(content)
                     ):
                         missing = ledger.missing_kinds(exact_need.kinds)
                         # Math/weather have dedicated forces above.
                         missing = [
-                            k
-                            for k in missing
-                            if k not in {
-                                "math",
-                                "weather",
-                                "symbolic",
-                                "units",
-                                "plot",
-                                "catalog",
-                                "document",
-                            }
+                            k for k in missing if k not in FORCE_GATE_KINDS
                         ]
                         if missing:
-                            evidence_nudge_used = True
+                            ctx.evidence_nudge_used = True
                             await self._retract()
                             messages.append({"role": "assistant", "content": content})
                             messages.append(
@@ -2655,12 +2527,12 @@ class AgentLoop:
                     # I'll keep that in mind") — force one real answer from the tool
                     # output instead of shipping the empty ack.
                     if (
-                        not file_answer_nudge_used
+                        not ctx.file_answer_nudge_used
                         and (self.tools_used & _FILE_ANSWER_TOOLS)
                         and answer_looks_like_ack_only(content)
                         and not answer_looks_like_refusal(content)
                     ):
-                        file_answer_nudge_used = True
+                        ctx.file_answer_nudge_used = True
                         await self._retract()
                         messages.append({"role": "assistant", "content": content})
                         messages.append(
@@ -2681,12 +2553,12 @@ class AgentLoop:
                     if (
                         evidence_gate
                         and ledger.has_ok("web")
-                        and not quote_nudge_used
+                        and not ctx.quote_nudge_used
                         and exact_need.needs_web_evidence
                         and not _answer_has_quote_span(content)
                         and not answer_looks_like_refusal(content)
                     ):
-                        quote_nudge_used = True
+                        ctx.quote_nudge_used = True
                         await self._retract()
                         messages.append({"role": "assistant", "content": content})
                         quotes = ledger.quote_lines()
@@ -2715,8 +2587,8 @@ class AgentLoop:
                         and web_ok_n < research_min_sources
                         and not answer_looks_like_refusal(content)
                     ):
-                        if not dual_hit_nudge_used and web_ok_n >= 1:
-                            dual_hit_nudge_used = True
+                        if not ctx.dual_hit_nudge_used and web_ok_n >= 1:
+                            ctx.dual_hit_nudge_used = True
                             await self._retract()
                             messages.append({"role": "assistant", "content": content})
                             messages.append({"role": "user", "content": dual_hit_notice()})
@@ -2745,7 +2617,7 @@ class AgentLoop:
                             # No Sources on refuse — empty list avoids cite-then-refuse.
                             await self._finish(thin, [], streamed="")
                             return
-                        if dual_hit_nudge_used and web_ok_n >= 1:
+                        if ctx.dual_hit_nudge_used and web_ok_n >= 1:
                             if self._timer is not None:
                                 self._timer.mark(
                                     "exactness",
@@ -2759,16 +2631,11 @@ class AgentLoop:
                     # unsupported claims instead of shipping a soft second invent.
                     refuse = _exactness_finish_refuse(
                         content,
-                        exact_need=exact_need,
-                        ledger=ledger,
-                        numeric_gate=numeric_gate,
-                        evidence_gate=evidence_gate,
-                        send_path=(
-                            (sms_draft is not None and sms_draft.complete)
-                            or (email_draft is not None and email_draft.complete)
-                            or "send_sms" in self._expected_tools
-                            or "send_email" in self._expected_tools
-                        ),
+                        exact_need=ctx.exact_need,
+                        ledger=ctx.ledger,
+                        numeric_gate=ctx.numeric_gate,
+                        evidence_gate=ctx.evidence_gate,
+                        send_path=ctx.is_send_path(self._expected_tools),
                     )
                     if refuse is None:
                         refuse = self._look_refuse(content)
@@ -2849,7 +2716,7 @@ class AgentLoop:
                     confirm_send=self.confirm_send,
                     confirm_browser=self.confirm_browser,
                     confirm_vision=self.confirm_vision,
-                    allow_writes_this_turn=allow_writes_this_turn,
+                    allow_writes_this_turn=ctx.allow_writes_this_turn,
                     tools_used=self.tools_used,
                     web_search_ok=web_search_ok,
                 )
@@ -2889,7 +2756,9 @@ class AgentLoop:
                 hide = set(names)
                 available = set(available) - hide
                 visible = set(visible) - hide
-                tool_names = set(visible)
+                ctx.tool_names.clear()
+                ctx.tool_names.update(visible)
+                tool_names = ctx.tool_names
                 if _offer_tools:
                     ollama_tools = self.tools.ollama_tools(visible)
 
@@ -2987,7 +2856,7 @@ class AgentLoop:
                     and exact_need.needs_weather
                     and not looks_like_scheduled_send(text)
                     and not looks_like_schedule_manage(text)
-                    and not schedule_managed_ok
+                    and not ctx.schedule_managed_ok
                     and weather_places_missing(text, weather_ok_places)
                     and "weather" in tool_names
                 ):
@@ -3192,19 +3061,19 @@ class AgentLoop:
                             name,
                             self._expected_tools,
                             tools_used=self.tools_used,
-                            sms_failed=sms_failed,
+                            sms_failed=ctx.sms_failed,
                         )
                         or (
                             name == "contacts"
                             and sms_draft is not None
                             and sms_draft.complete
                             and not sms_draft.missing
-                            and not sms_failed
+                            and not ctx.sms_failed
                         )
                     )
                     and "send_sms" in self._expected_tools
                     and "send_sms" not in self.tools_used
-                    and not sms_failed
+                    and not ctx.sms_failed
                 ):
                     notice = (
                         "Blocked: this turn expects send_sms (or asking once "
@@ -3327,7 +3196,7 @@ class AgentLoop:
                         "schedule",
                     }
                     and "agenda" in self._expected_tools
-                    and not agenda_create_ok
+                    and not ctx.agenda_create_ok
                 ):
                     await self.bus.publish(
                         Event(
@@ -3726,7 +3595,9 @@ class AgentLoop:
                     # burn every round on the same dead call.
                     if name in tool_names:
                         visible = {t for t in tool_names if t != name}
-                        tool_names = set(visible)
+                        ctx.tool_names.clear()
+                        ctx.tool_names.update(visible)
+                        tool_names = ctx.tool_names
                         ollama_tools = (
                             self.tools.ollama_tools(visible)
                             if offer_tools and visible
@@ -3763,13 +3634,13 @@ class AgentLoop:
                     # calendar mutates (agenda create/update/delete) — those
                     # stay one Allow each.
                     confirm_writes=self.confirm_writes
-                    and (not allow_writes_this_turn or name == "agenda"),
-                    confirm_image=self.confirm_image and not allow_writes_this_turn,
+                    and (not ctx.allow_writes_this_turn or name == "agenda"),
+                    confirm_image=self.confirm_image and not ctx.allow_writes_this_turn,
                     confirm_send=self.confirm_send,
                     confirm_browser=self.confirm_browser
-                    and not allow_writes_this_turn,
+                    and not ctx.allow_writes_this_turn,
                     confirm_vision=self.confirm_vision
-                    and not allow_writes_this_turn,
+                    and not ctx.allow_writes_this_turn,
                 )
                 if name == "browser" and user_asked_for_browser(text):
                     needs = False
@@ -3836,7 +3707,7 @@ class AgentLoop:
                         )
                     )
                     if decision == "allow_turn":
-                        allow_writes_this_turn = True
+                        ctx.allow_writes_this_turn = True
                         decision = "allow"
                     if decision != "allow":
                         await self.bus.publish(
@@ -3885,7 +3756,7 @@ class AgentLoop:
                             name in {"send_sms", "send_email"}
                             and name in self._expected_tools
                         ):
-                            skip_finish_text = "Okay — I did not send that."
+                            ctx.skip_finish_text = "Okay — I did not send that."
                             break
                         continue
                     if self._look is not None and name in {"ocr", "vision"}:
@@ -3907,7 +3778,7 @@ class AgentLoop:
                     )
                 )
                 if name == "image":
-                    image_attempted = True
+                    ctx.image_attempted = True
                 if fanout_results is not None:
                     ms, result = fanout_results[call_i]
                 else:
@@ -3940,30 +3811,32 @@ class AgentLoop:
                         if not url.startswith("http"):
                             url = str(args.get("url") or "").strip()
                         if url.startswith("http"):
-                            js_shell_url = url
+                            ctx.js_shell_url = url
                             if "browser" in available_all:
                                 visible = set(visible) | {"browser"}
                                 available = set(available) | {"browser"}
-                                tool_names = set(visible)
+                                ctx.tool_names.clear()
+                                ctx.tool_names.update(visible)
+                                tool_names = ctx.tool_names
                                 if offer_tools:
                                     ollama_tools = self.tools.ollama_tools(visible)
                 if result.ok:
                     self.tools_used.add(name)
                     fail_counts.pop(call_fp, None)
-                    last_ok_tool_out = str(result.output or "")
-                    last_ok_tool_name = name
+                    ctx.last_ok_tool_out = str(result.output or "")
+                    ctx.last_ok_tool_name = name
                     if name == "inbox" and str(args.get("action") or "").lower() in {
                         "trash",
                         "archive",
                         "delete",
                     }:
-                        inbox_mutated_ok = True
+                        ctx.inbox_mutated_ok = True
                     if name == "browser":
                         b_act = str(args.get("action") or "").strip().lower()
                         if b_act == "snapshot":
-                            last_browser_snapshot = str(result.output or "")
+                            ctx.last_browser_snapshot = str(result.output or "")
                         if b_act == "click":
-                            browser_clicked = True
+                            ctx.browser_clicked = True
                     if name == "web_search":
                         q = str(args.get("query") or "").strip().casefold()
                         if q:
@@ -3973,20 +3846,20 @@ class AgentLoop:
                         if sent_to:
                             sms_sent.add(sent_to)
                     if name == "send_email":
-                        email_sent_ok = True
+                        ctx.email_sent_ok = True
                     if name == "agenda" and str(args.get("action") or "").lower() == "create":
                         agenda_created.add(
                             f"{str(args.get('provider') or '').strip().lower()}|"
                             f"{str(args.get('summary') or '').strip().casefold()}|"
                             f"{str(args.get('start') or '').strip()}"
                         )
-                        agenda_create_ok = True
+                        ctx.agenda_create_ok = True
                     if self._look is not None:
                         self._note_look_tool(name, args, result, data_dict)
                 else:
                     fail_counts[call_fp] = fail_counts.get(call_fp, 0) + 1
                     if name == "send_sms":
-                        sms_failed = True
+                        ctx.sms_failed = True
                     if self._look is not None and name == "camera":
                         self._look.camera_snaps += 1
                 if (not result.ok) and (
@@ -4021,10 +3894,10 @@ class AgentLoop:
                             "CDP_TIMEOUT",
                             "CDP_DEAD",
                         }
-                        and not browser_relaunch_nudge_used
+                        and not ctx.browser_relaunch_nudge_used
                         and bool(agent_cfg.get("browser_relaunch_force", True))
                     ):
-                        browser_relaunch_nudge_used = True
+                        ctx.browser_relaunch_nudge_used = True
                         pending_url = str(
                             args.get("url") or args.get("target") or ""
                         ).strip()
@@ -4314,7 +4187,7 @@ class AgentLoop:
                     and result.ok
                     and str(args.get("action") or "").lower() in {"list", "delete"}
                 ):
-                    schedule_managed_ok = True
+                    ctx.schedule_managed_ok = True
                 # Successful weather → answer from it; do not re-fetch all round.
                 # days=1 is today only; if they asked tomorrow, one retry with
                 # days=3. fill_weather_args usually bumps that before the call.
@@ -4377,7 +4250,9 @@ class AgentLoop:
                         else:
                             if "weather" in tool_names:
                                 visible = {t for t in tool_names if t != "weather"}
-                                tool_names = set(visible)
+                                ctx.tool_names.clear()
+                                ctx.tool_names.update(visible)
+                                tool_names = ctx.tool_names
                                 ollama_tools = (
                                     self.tools.ollama_tools(visible)
                                     if offer_tools and visible
@@ -4528,12 +4403,14 @@ class AgentLoop:
                             )
                         )
 
-            if skip_finish_text:
-                await self._finish(skip_finish_text, sources, streamed="")
+            if ctx.skip_finish_text:
+                await self._finish(ctx.skip_finish_text, sources, streamed="")
                 return
 
-        # Max rounds exhausted. Ask once more with tools withheld so the model
-        # has to answer from what it already gathered instead of looping.
+        await self._force_final_answer(ctx)
+
+    async def _force_final_answer(self, ctx: TurnContext) -> None:
+        """Last round with tools withheld, after the loop has spent its budget."""
         await self.bus.publish(
             Event(
                 EventType.THINKING,
@@ -4541,7 +4418,7 @@ class AgentLoop:
             )
         )
         force_msgs = [
-            *messages,
+            *ctx.messages,
             {
                 "role": "user",
                 "content": (
@@ -4581,16 +4458,11 @@ class AgentLoop:
                 streamed = ""
         refuse = _exactness_finish_refuse(
             final_content,
-            exact_need=exact_need,
-            ledger=ledger,
-            numeric_gate=numeric_gate,
-            evidence_gate=evidence_gate,
-            send_path=(
-                (sms_draft is not None and sms_draft.complete)
-                or (email_draft is not None and email_draft.complete)
-                or "send_sms" in self._expected_tools
-                or "send_email" in self._expected_tools
-            ),
+            exact_need=ctx.exact_need,
+            ledger=ctx.ledger,
+            numeric_gate=ctx.numeric_gate,
+            evidence_gate=ctx.evidence_gate,
+            send_path=ctx.is_send_path(self._expected_tools),
         )
         if refuse is None:
             refuse = self._look_refuse(final_content)
@@ -4598,12 +4470,12 @@ class AgentLoop:
             await self._retract()
             if self._timer is not None:
                 self._timer.mark("exactness", gate="refuse", reason="max_rounds")
-            await self._finish(refuse, sources, streamed="")
+            await self._finish(refuse, ctx.sources, streamed="")
             return
 
         await self._finish(
             final_content,
-            sources,
+            ctx.sources,
             streamed=streamed,
             fallback_text=_ROUND_LIMIT_NOTICE,
         )
