@@ -94,6 +94,7 @@ from arelis.sms_inbound import (
     format_held_inbound_voice_cue,
 )
 from arelis.sms_ingest import InboundIngestServer
+from arelis.spatial import PHYSICS_ROOM_ID
 from arelis.tools import build_tool_registry
 from arelis.ui.audio import SpeechPlayer
 from arelis.ui.calendar_window import CalendarWindow
@@ -130,6 +131,7 @@ from arelis.ui.settings_dialog import SettingsDialog
 from arelis.ui.setup_wizard import prompt_for_model_setup
 from arelis.ui.shortcuts import ShortcutsSheet
 from arelis.ui.sms_chat import SmsChatRegistry, room_owns_doorbell, seed_bodies
+from arelis.ui.spatial_hands import SpatialHands
 from arelis.ui.stage import StageBackground, paint_atmosphere
 from arelis.ui.status_copy import (
     THINKING_STATUS,
@@ -509,6 +511,12 @@ class ArelisWindow(QMainWindow):
         self.sms_chats.set_send_handler(self._on_sms_tile_send)
         self.sms_chats.set_shown_handler(self._on_sms_tile_shown)
         self.camera = CameraPanel()
+        self.spatial = SpatialHands(self)
+        self.spatial.hint.connect(self.camera._set_hint)
+        self.spatial.frame_ready.connect(self._on_spatial_hands)
+        self.camera.track_toggled.connect(self._on_camera_track)
+        self.camera.record_toggled.connect(self._on_camera_record)
+        self.camera.pose_frame.connect(self._on_camera_pose)
         self.calendar = CalendarPanel(memory=self.store)
         self.workspace.set_projects(
             self.workspace_roots.names(),
@@ -546,6 +554,7 @@ class ArelisWindow(QMainWindow):
         self._pending_store = PendingConfirmStore(pending_confirms_path(self.config))
         self._pending_queue: list[PendingConfirm] = []
         self._restoring_confirm_ids: set[str] = set()
+        self._ignore_cancel_echo = False
         # Survives thinking.clear() on session restore so a wiped STATUS line
         # cannot hide "ingest is down / needs token".
         self._inbound_banner: str = ""
@@ -1294,6 +1303,11 @@ class ArelisWindow(QMainWindow):
         self._stop_speech()
 
     def _on_barge_in(self) -> None:
+        """Talking over her. Cut playback now. The clip is not a turn.
+
+        Spoken stop / allow / deny on that same clip is a later transcript
+        (deliver control). This is the interrupt; that is not a second one.
+        """
         self.thinking.append("interrupted", kind="status")
         self._stop_speech()
 
@@ -2166,7 +2180,7 @@ class ArelisWindow(QMainWindow):
         toggle(show)
 
     def _run_ui_call(self, fn) -> None:
-        if getattr(self, "_disposed", False):
+        if getattr(self, "_disposed", False) or getattr(self, "_force_quit", False):
             return
         if callable(fn):
             fn()
@@ -2177,7 +2191,8 @@ class ArelisWindow(QMainWindow):
         return CalendarService(self.config)
 
     def _run_calendar(self, coro, *, ok_status: str = "google · just now") -> None:
-        if getattr(self, "_disposed", False):
+        if getattr(self, "_disposed", False) or getattr(self, "_force_quit", False):
+            coro.close()
             return
         if not self.loop.is_running():
             coro.close()
@@ -2205,6 +2220,8 @@ class ArelisWindow(QMainWindow):
         fut.add_done_callback(lambda _f: self._ui_call.emit(_done))
 
     def _kick_calendar_sync(self) -> None:
+        if self._force_quit or self._disposed:
+            return
         if self.calendar_window.isHidden():
             return
         self.calendar.reload()
@@ -2226,7 +2243,7 @@ class ArelisWindow(QMainWindow):
 
         def _done() -> None:
             try:
-                if getattr(self, "_disposed", False):
+                if getattr(self, "_disposed", False) or getattr(self, "_force_quit", False):
                     return
                 try:
                     summary = fut.result()
@@ -2271,6 +2288,9 @@ class ArelisWindow(QMainWindow):
         fut.add_done_callback(lambda _f: self._ui_call.emit(_done))
 
     def _on_calendar_sync_watchdog(self) -> None:
+        if self._force_quit or self._disposed:
+            self._calendar_sync_inflight = False
+            return
         if not getattr(self, "_calendar_sync_inflight", False):
             return
         self._calendar_sync_inflight = False
@@ -2500,6 +2520,47 @@ class ArelisWindow(QMainWindow):
 
     def _on_camera_running_changed(self, _running: bool) -> None:
         self._refresh_camera_capture_hook()
+
+    def _on_camera_track(self, on: bool) -> None:
+        if on:
+            if not getattr(self.camera, "_running", False):
+                self.camera.start()
+            ok = self.spatial.start_track(
+                {"device": self.camera.current_device_name()}
+            )
+            if not ok:
+                self.camera.track_btn.blockSignals(True)
+                self.camera.track_btn.setChecked(False)
+                self.camera.track_btn.blockSignals(False)
+            return
+        self.spatial.stop_track()
+        self.camera.set_hands(())
+
+    def _on_camera_record(self, on: bool) -> None:
+        if on:
+            path = self.spatial.start_record(
+                {"device": self.camera.current_device_name()}
+            )
+            if path is None:
+                self.camera.record_btn.blockSignals(True)
+                self.camera.record_btn.setChecked(False)
+                self.camera.record_btn.blockSignals(False)
+            return
+        self.spatial.stop_record()
+
+    def _on_camera_pose(self, payload: object) -> None:
+        if not isinstance(payload, tuple) or len(payload) != 4:
+            return
+        rgb, t_capture, width, height = payload
+        self.spatial.submit_frame(rgb, t_capture, width, height)
+
+    def _on_spatial_hands(self, frame: object) -> None:
+        if frame is None:
+            self.camera.set_hands(())
+            return
+        hands = getattr(frame, "hands", ())
+        pinched = any(h.pinch_metric() < 0.35 for h in hands)
+        self.camera.set_hands(hands, pinched=pinched)
 
     def _refresh_camera_capture_hook(self) -> None:
         """Expose live capture to the camera tool while the dock session is up."""
@@ -2968,7 +3029,12 @@ class ArelisWindow(QMainWindow):
         ``QTimer.singleShot`` cannot be cancelled, so the shot still fires — it
         just finds a disposed window and returns. That is the whole mechanism.
         """
-        QTimer.singleShot(ms, lambda: None if self._disposed else fn())
+        QTimer.singleShot(
+            ms,
+            lambda: None
+            if self._disposed or getattr(self, "_force_quit", False)
+            else fn(),
+        )
 
     def dispose(self) -> None:
         """Release everything that outlives a hidden window. Idempotent.
@@ -3002,6 +3068,7 @@ class ArelisWindow(QMainWindow):
 
         # Devices Qt will not release on its own, and Windows keeps claimed.
         for release in (
+            lambda: self.spatial.stop_track(),
             lambda: self.camera.stop(),
             lambda: (
                 self.voice_controller.stop_all()
@@ -3096,14 +3163,24 @@ class ArelisWindow(QMainWindow):
         # Tray Quit must feel instant. Stop notify first (phone listener), then
         # best-effort flush — never wait on model unload / long indexer work.
         inbound_timeout = 2.0 if self._force_quit else 5.0
-        if self.inbound_runtime is not None and self.inbound_runtime.owned:
+        loop = self.loop
+        loop_up = loop is not None and loop.is_running()
+        if (
+            self.inbound_runtime is not None
+            and self.inbound_runtime.owned
+            and loop_up
+        ):
             try:
                 fut = asyncio.run_coroutine_threadsafe(
-                    self.inbound_runtime.stop(), self.loop
+                    self.inbound_runtime.stop(), loop
                 )
                 fut.result(timeout=inbound_timeout)
             except Exception:
                 log.warning("inbound stop timed out or failed during quit", exc_info=True)
+            self.sms_ingest = None
+            self.sms_watcher = None
+            self.sms_auto_reply = None
+        elif self.inbound_runtime is not None and self.inbound_runtime.owned:
             self.sms_ingest = None
             self.sms_watcher = None
             self.sms_auto_reply = None
@@ -3112,9 +3189,10 @@ class ArelisWindow(QMainWindow):
             self.indexer is not None
             and not self._turn_busy
             and not self._force_quit
+            and loop_up
         ):
             try:
-                fut = asyncio.run_coroutine_threadsafe(self.indexer.flush(), self.loop)
+                fut = asyncio.run_coroutine_threadsafe(self.indexer.flush(), loop)
                 fut.result(timeout=1.5)
             except TimeoutError:
                 log.info("indexer flush skipped on quit (timeout)")
@@ -3247,22 +3325,50 @@ class ArelisWindow(QMainWindow):
         self._show_next_pending_confirm()
 
     def quit_from_tray(self) -> None:
+        """Full exit. Force-quit first so nothing can raise the glass again."""
+        if self._disposed:
+            app = QApplication.instance()
+            if app is not None:
+                app.quit()
+            return
+        if self._force_quit:
+            # A second click must not close() again while the first teardown
+            # is still in inbound-stop. Just ask the loop to leave.
+            app = QApplication.instance()
+            if app is not None:
+                app.quit()
+            return
+        self._force_quit = True
         # When attached to --core, ask core to stop too (full Quit Arelis).
-        if self.ipc_client is not None and self.loop is not None:
+        if self.ipc_client is not None:
             try:
-                asyncio.run_coroutine_threadsafe(
-                    self.ipc_client.send_shutdown(reason="ui_tray_quit"),
-                    self.loop,
+                self._publish_bus_coro(
+                    self.ipc_client.send_shutdown(reason="ui_tray_quit")
                 )
             except Exception:
                 pass
         # Cancel an in-flight turn so Quit is not blocked on model/tools.
-        self._on_stop()
-        self._force_quit = True
-        self.close()
+        # Do not schedule the next Allow card — that used to show the window.
+        try:
+            self._cancel_turn(schedule_next=False)
+        except Exception:
+            log.exception("quit cancel failed")
+        try:
+            self.close()
+        except Exception:
+            log.exception("quit close failed")
         app = QApplication.instance()
         if app is not None:
             app.quit()
+
+    def _publish_bus_coro(self, coro: object) -> None:
+        loop = self.loop
+        if loop is None or not loop.is_running():
+            return
+        try:
+            asyncio.run_coroutine_threadsafe(coro, loop)  # type: ignore[arg-type]
+        except Exception:
+            log.debug("async quit step skipped", exc_info=True)
 
     def _on_tray_activated(self, reason: QSystemTrayIcon.ActivationReason) -> None:
         if reason in {
@@ -3279,6 +3385,8 @@ class ArelisWindow(QMainWindow):
         self._show_next_pending_confirm()
 
     def _show_next_pending_confirm(self) -> None:
+        if self._force_quit or self._disposed:
+            return
         if not self._pending_queue:
             return
         if str(self.conversation.confirm._confirm_id or ""):
@@ -3299,11 +3407,16 @@ class ArelisWindow(QMainWindow):
             self.show_from_tray()
 
     def _on_index_tick(self) -> None:
+        if self._force_quit or self._disposed:
+            return
         if self.indexer is None or self._turn_busy:
             return
         if getattr(self.router, "reserve_vram_for_heavy", False):
             return
-        asyncio.run_coroutine_threadsafe(self.indexer.run_batch(), self.loop)
+        loop = self.loop
+        if loop is None or not loop.is_running():
+            return
+        asyncio.run_coroutine_threadsafe(self.indexer.run_batch(), loop)
 
     def _on_attach_errors(self, errors: list) -> None:
         for msg in errors or []:
@@ -3356,25 +3469,41 @@ class ArelisWindow(QMainWindow):
     def _clear_model_loading(self) -> None:
         self.conversation._sync_composer_buttons()
 
+    def _publish_bus(self, event: Event) -> None:
+        """Best-effort bus publish. Tray Quit must not die if the loop is down."""
+        loop = self.loop
+        if loop is None or not loop.is_running():
+            return
+        try:
+            asyncio.run_coroutine_threadsafe(self.bus.publish(event), loop)
+        except Exception:
+            log.debug("bus publish skipped", exc_info=True)
+
     def _on_stop(self) -> None:
-        # Dismiss the confirm card here rather than waiting for a reply. Cancel
-        # resolves any pending confirm as "skip", so leaving the card up would
-        # show the user a decision that has already been made for them.
+        self._cancel_turn(schedule_next=True)
+
+    def _cancel_turn(self, *, schedule_next: bool) -> None:
+        self._apply_stop_ui(publish_confirm_skip=True)
+        self._ignore_cancel_echo = True
+        self._publish_bus(Event(EventType.TURN_CANCEL, {}))
+        if schedule_next and not self._force_quit and not self._disposed:
+            self._later(0, self._show_next_pending_confirm)
+
+    def _apply_stop_ui(self, *, publish_confirm_skip: bool) -> None:
+        """Cut speech and hide the card. The bus cancel is published separately."""
         open_id = str(self.conversation.confirm._confirm_id or "")
         self.conversation.dismiss_confirm()
         self._set_confirm_pending(False)
         if open_id:
             self._pending_queue = [x for x in self._pending_queue if x.id != open_id]
             self._restoring_confirm_ids.discard(open_id)
-            asyncio.run_coroutine_threadsafe(
-                self.bus.publish(
+            if publish_confirm_skip:
+                self._publish_bus(
                     Event(
                         EventType.TOOL_CONFIRM_REPLY,
                         {"id": open_id, "decision": "skip", "allow_turn": False},
                     )
-                ),
-                self.loop,
-            )
+                )
         # Stop means stop. Speech outlives the turn that produced it, so
         # cancelling the turn without cutting playback leaves her talking about
         # something the user has already abandoned.
@@ -3382,12 +3511,8 @@ class ArelisWindow(QMainWindow):
         self.thinking.append("stop requested", kind="status")
         self._drive_session = False
         self.conversation.set_drive(False)
-        self._busy_watchdog.start(_BUSY_WATCHDOG_MS)
-        asyncio.run_coroutine_threadsafe(
-            self.bus.publish(Event(EventType.TURN_CANCEL, {})),
-            self.loop,
-        )
-        self._later(0, self._show_next_pending_confirm)
+        if not self._force_quit and not self._disposed:
+            self._busy_watchdog.start(_BUSY_WATCHDOG_MS)
 
     def _on_stop_declined(self) -> None:
         """Esc on a turn that has painted nothing. Explain instead of cancelling.
@@ -3422,6 +3547,8 @@ class ArelisWindow(QMainWindow):
         )
 
     def _on_busy_watchdog(self) -> None:
+        if self._force_quit or self._disposed:
+            return
         if self._turn_busy:
             self._assistant_streaming = False
             self._set_busy(False)
@@ -3904,6 +4031,8 @@ class ArelisWindow(QMainWindow):
             # The room owns a project, so the dock's switcher has to follow or
             # the two disagree about where a bare path lands.
             self.workspace.set_active_project(self.workspace_roots.active)
+            self.camera.set_spatial_available(room_id == PHYSICS_ROOM_ID)
+            self.spatial.set_room(room_id)
             self.thinking.append(
                 f"room  {room_id or 'general'}", kind="status"
             )
@@ -4201,6 +4330,15 @@ class ArelisWindow(QMainWindow):
                     )
         elif t == EventType.SMS_RECEIVED:
             self._on_sms_received(p)
+        elif t == EventType.TURN_CANCEL:
+            # Voice stop publishes cancel from the orchestrator. The stop
+            # button publishes it too — skip the echo so we do not double-cut.
+            if self._ignore_cancel_echo:
+                self._ignore_cancel_echo = False
+            else:
+                self._apply_stop_ui(publish_confirm_skip=False)
+                if not self._force_quit and not self._disposed:
+                    self._later(0, self._show_next_pending_confirm)
         elif t == EventType.TURN_PAUSE:
             if str(p.get("reason") or "") == "your_turn":
                 kind = str(p.get("kind") or "")
@@ -4232,6 +4370,8 @@ class ArelisWindow(QMainWindow):
 
     def _on_sms_received(self, payload: dict[str, Any]) -> None:
         """Bubble first. A visible room swallows the doorbell. Voice waits on the floor."""
+        if self._force_quit or self._disposed:
+            return
         msg = InboundSms(
             id=str(payload.get("id") or ""),
             sender=str(payload.get("from") or "(unknown)"),
@@ -4285,6 +4425,8 @@ class ArelisWindow(QMainWindow):
 
     def _alert_if_background(self) -> None:
         """Flash the Arelis taskbar button when another app is in front."""
+        if self._force_quit or self._disposed:
+            return
         if process_owns_foreground():
             return
         flash_taskbar(self)
@@ -4647,6 +4789,8 @@ class ArelisWindow(QMainWindow):
             self.thinking.append(f"{key} notifications are working again.", kind="status")
 
     def _on_notify_poll(self) -> None:
+        if self._force_quit or self._disposed:
+            return
         now = datetime.now().astimezone()
         try:
             events = load_today_events(self.config)

@@ -349,9 +349,11 @@ class VoiceService:
 
         deliver is "turn" for speech that should become a message, which
         publishes VOICE_TRANSCRIPT and lets the orchestrator start a normal
-        turn; "dictate" for speech that should only land in the composer; or
-        "wake" for always-listen clips that are transcribed but not published
-        (the window decides whether the wake phrase matched).
+        turn; "dictate" for speech that should only land in the composer;
+        "control" for barge-in / mid-turn clips that may only be a speech act
+        (stop, allow, deny, resume); or "wake" for always-listen clips that
+        are transcribed but not published (the window decides whether the
+        wake phrase matched).
 
         proceed aborts after the STT lock is taken when a wake clip has been
         superseded (conversation took the mic). Without that, ambient wake
@@ -416,6 +418,10 @@ class VoiceService:
         if deliver == "dictate":
             await self.bus.publish(
                 Event(EventType.VOICE_TRANSCRIPT, {"text": text, "deliver": "dictate"})
+            )
+        elif deliver == "control":
+            await self.bus.publish(
+                Event(EventType.VOICE_TRANSCRIPT, {"text": text, "deliver": "control"})
             )
         else:
             await self.bus.publish(Event(EventType.VOICE_TRANSCRIPT, {"text": text}))

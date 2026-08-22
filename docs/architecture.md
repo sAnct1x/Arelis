@@ -54,9 +54,12 @@ chat content, she answers from that result instead of entering JSON
 mode. Writes and sends still wait.
 
 The card headline is human: *text wife*, *write note.txt*. Deny is this
-step only. Conversation mode hears allow or deny without starting a new
-turn. **Settings → Allow** is the list. Mail, texts, and calendar never
-ride along with **rest of this ask**.
+step only. Stop is the turn. Conversation mode (and a wake remainder)
+hears allow, deny, stop, and spoken draft edits without starting a new
+turn. After a stop, the next line is ordinary talk — she gets one note
+that she was stopped. Idle wake stays deaf so Discord is not a decision.
+**Settings → Allow** is the list. Mail, texts, and calendar never ride
+along with **rest of this ask**.
 
 A tiny ask (the time, a greeting, thanks) does not load the full tool
 list. Unmatched real work still fail-opens.
@@ -68,7 +71,7 @@ list. Unmatched real work still fail-opens.
 | Window (`.\scripts\run_ui.ps1`) | Normal: chat, docks, Settings |
 | CLI (`arelis --cli`) | Same brain in a terminal |
 | Core (`.\scripts\run_core.ps1`) | Background: phone ingest, jobs, no window |
-| Tray | Window hidden but still alive |
+| Tray | Window hidden but still alive. The taskbar X and title close hide her; tray **Quit Arelis** is the real exit |
 
 Core and UI talk over a small loopback bridge so inbound texts and
 "open the window" still work when the window is closed.

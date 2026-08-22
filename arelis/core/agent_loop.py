@@ -665,10 +665,15 @@ class AgentLoop:
         *,
         source: str = "chat",
         route_reason: str = "default",
+        stopped_ask: str = "",
     ) -> None:
         try:
             await self._run(
-                text, role, source=source, route_reason=route_reason
+                text,
+                role,
+                source=source,
+                route_reason=route_reason,
+                stopped_ask=stopped_ask,
             )
         except _StoppedError:
             if self._timer is not None:
@@ -692,9 +697,14 @@ class AgentLoop:
         *,
         source: str = "chat",
         route_reason: str = "default",
+        stopped_ask: str = "",
     ) -> None:
         ctx = await self._prepare_turn(
-            text, role, source=source, route_reason=route_reason
+            text,
+            role,
+            source=source,
+            route_reason=route_reason,
+            stopped_ask=stopped_ask,
         )
         if ctx is None:
             return
@@ -710,6 +720,7 @@ class AgentLoop:
         *,
         source: str = "chat",
         route_reason: str = "default",
+        stopped_ask: str = "",
     ) -> TurnContext | None:
         """Build the prompt and TurnContext. None if the turn already finished."""
         model = self.router.model_for(role)
@@ -844,6 +855,12 @@ class AgentLoop:
         # the prompt is byte-stable across turns. Turn-specific lines trail it,
         # never precede it.
         system_messages = static_system_prefix(self.persona)
+        if (stopped_ask or "").strip():
+            from arelis.core.confirm_speech import stopped_ask_note
+
+            hint = stopped_ask_note(stopped_ask)
+            if hint:
+                system_messages.append({"role": "system", "content": hint})
         # SMS / email / agenda drafts from this turn + recent history.
         # Image-gen / goals / file-write / calendar-create must not revive a
         # stale SMS draft for force unless this turn itself starts with an SMS

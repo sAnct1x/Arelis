@@ -1408,7 +1408,9 @@ def test_dictation_keeps_listening_through_a_pause(qt_app) -> None:
 
 def test_a_second_utterance_is_not_stacked_on_a_running_turn(qt_app) -> None:
     """One turn at a time is an orchestrator invariant. Queueing speech the
-    user has already forgotten saying is worse than dropping it."""
+    user has already forgotten saying is worse than dropping it. Mid-turn
+    speech is control so stop can land; it is not a second ask.
+    """
     controller, recorder = _controller(qt_app)
     sent: list[str] = []
     controller.utterance.connect(lambda pcm, rate, ch, deliver: sent.append(deliver))
@@ -1417,7 +1419,7 @@ def test_a_second_utterance_is_not_stacked_on_a_running_turn(qt_app) -> None:
     recorder.push(_silence(0.5) + _tone(1.0) + _silence(1.4))
     controller.notify_turn_started()
     recorder.push(_tone(1.0) + _silence(1.4))
-    assert len(sent) == 1
+    assert sent == ["turn", "control"]
 
 
 def test_listening_resumes_only_after_she_stops_talking(qt_app) -> None:
@@ -2555,7 +2557,11 @@ def test_her_own_voice_is_not_sent_as_the_next_question(qt_app) -> None:
 
 
 def test_barge_in_discards_the_mixed_clip(qt_app) -> None:
-    """Talking over her used to ship the TTS+mic soup as the next turn."""
+    """Talking over her used to ship the TTS+mic soup as the next turn.
+
+    The clip is still transcribed, but as control — stop/allow/deny only —
+    so soup does not become a question.
+    """
     controller, recorder = _controller(qt_app)
     sent: list[str] = []
     controller.utterance.connect(lambda pcm, rate, ch, deliver: sent.append(deliver))
@@ -2575,11 +2581,11 @@ def test_barge_in_discards_the_mixed_clip(qt_app) -> None:
     controller.notify_speaking(False)  # the window cut playback
     recorder.push(_tone(0.5) + _silence(1.4))
 
-    assert sent == [], "the barge-in clip must not become a turn"
+    assert sent == ["control"], "the barge-in clip must not become a turn"
     assert controller.debug_state()["discard_barge"] is False
 
     recorder.push(_tone(1.0) + _silence(1.4))
-    assert sent == ["turn"]
+    assert sent == ["control", "turn"]
 
 
 def test_a_lost_utterance_callback_does_not_deafen_conversation(qt_app) -> None:

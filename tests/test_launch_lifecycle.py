@@ -280,6 +280,62 @@ def test_activation_is_ignored_while_quitting(arelis_window) -> None:
     assert window.isHidden()
 
 
+def test_a_pending_card_does_not_raise_the_glass_while_quitting(arelis_window) -> None:
+    """Stop-on-quit used to schedule the next Allow card, which called show."""
+    from arelis.presence.pending_confirms import PendingConfirm
+
+    window = arelis_window()
+    window.hide()
+    window._force_quit = True
+    window._pending_queue = [
+        PendingConfirm(id="c1", tool="send_sms", summary="text wife", args={})
+    ]
+    window._show_next_pending_confirm()
+    assert window.isHidden()
+    assert not window.conversation.confirm._confirm_id
+
+
+def test_quit_from_tray_forces_quit_before_it_touches_the_turn(
+    arelis_window, monkeypatch
+) -> None:
+    """A dead loop or a next-card timer used to raise the glass and block Quit."""
+    from PySide6.QtWidgets import QApplication
+
+    window = arelis_window()
+    window.hide()
+    seen: list[tuple] = []
+
+    def cancel(*, schedule_next: bool) -> None:
+        seen.append(("cancel", window._force_quit, schedule_next))
+
+    def close() -> None:
+        seen.append(("close", window._force_quit))
+
+    quits: list[int] = []
+    app = QApplication.instance()
+    assert app is not None
+    monkeypatch.setattr(window, "_cancel_turn", cancel)
+    monkeypatch.setattr(window, "close", close)
+    monkeypatch.setattr(app, "quit", lambda: quits.append(1))
+
+    window.quit_from_tray()
+    assert seen == [("cancel", True, False), ("close", True)]
+    assert quits == [1]
+
+    window.quit_from_tray()
+    assert seen == [("cancel", True, False), ("close", True)]
+    assert quits == [1, 1]
+
+
+def test_later_is_dropped_while_quitting(arelis_window, qt_app) -> None:
+    window = arelis_window()
+    window._force_quit = True
+    called: list[int] = []
+    window._later(0, lambda: called.append(1))
+    qt_app.processEvents()
+    assert called == []
+
+
 def test_draining_the_loop_cancels_what_is_still_running() -> None:
     from arelis.ui.app import _drain_event_loop
 

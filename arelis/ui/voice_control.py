@@ -24,8 +24,11 @@ the speakers as the next question. Deriving the answer from the inputs makes
 that state unrepresentable.
 
 The microphone is not closed while she talks, because barge-in needs to hear the
-user interrupt. Being deaf here means captured audio is discarded rather than
-sent, not that nothing is captured.
+user interrupt. Barge-in is the interrupt: talking over her cuts playback.
+That same clip is not a new turn (it is still her voice mixed into the mic).
+It is transcribed as deliver "control" so a spoken stop / allow / deny on
+that clip is not thrown away. Soup is dropped after STT. The next clean
+utterance is a normal turn — same as before.
 """
 from __future__ import annotations
 
@@ -72,7 +75,7 @@ _AWAITING_TURN_TIMEOUT_MS = 30000
 class VoiceController(QObject):
     """Owns the microphone and decides what each recorded utterance is for."""
 
-    # pcm, sample_rate, channels, deliver ("turn", "dictate", or "wake")
+    # pcm, sample_rate, channels, deliver ("turn", "dictate", "wake", or "control")
     utterance = Signal(bytes, int, int, str)
     # Mid-utterance snapshot for provisional STT (conversation only).
     provisional = Signal(bytes, int, int)
@@ -610,10 +613,10 @@ class VoiceController(QObject):
             **self.debug_state(),
         )
         if self._mode == CONVERSATION and self._speaking and self._barge_in_enabled:
-            # She is mid-sentence and the user has started talking. Cutting her
-            # off here is the whole difference between a conversation and a
-            # walkie-talkie. The clip itself is TTS leaking into the mic —
-            # mark it so speech_ended does not send that soup as a turn.
+            # Existing barge-in: she stops talking now. The window cuts
+            # playback. This clip is still soup (her voice in the mic), so it
+            # must not become a turn — mark it so speech_ended hears stop /
+            # allow / deny only.
             self._discard_barge_clip = True
             self.barge_in.emit()
         if (
@@ -673,7 +676,17 @@ class VoiceController(QObject):
 
         if self._discard_barge_clip:
             self._discard_barge_clip = False
-            self.trace.record("barge_discarded", **self.debug_state())
+            if self._speaking:
+                # Speech started while she was talking, but playback was never
+                # cut. That is her own voice coming back through the speakers,
+                # not someone talking over her. STT on it would hear her "yes"
+                # or "stop" as a decision.
+                self.trace.record("echo_discarded", **self.debug_state())
+                return
+            # Same barge-in utterance. She is already cut. Hear a speech act
+            # on this clip; do not start a question from the mix.
+            self.trace.record("barge_control", **self.debug_state())
+            self._emit_control(pcm)
             return
 
         if not self._listening:
@@ -682,10 +695,10 @@ class VoiceController(QObject):
                 # user did nothing and does not need telling about it.
                 self.trace.record("echo_discarded", **self.debug_state())
             else:
-                # One turn at a time is an orchestrator invariant, so this is
-                # dropped rather than queued into a backlog the user has
-                # forgotten saying.
-                self.status.emit("Still working on the last one, so I did not send that.")
+                # Mid-turn: hear stop / allow / deny. Anything else is dropped
+                # after STT so Discord bleed does not queue a second ask.
+                self.trace.record("mid_turn_control", **self.debug_state())
+                self._emit_control(pcm)
             return
 
         if self._too_short(pcm, _MIN_UTTERANCE_S):
@@ -701,6 +714,17 @@ class VoiceController(QObject):
             return
         deliver = "wake" if mode == WAKE else "dictate"
         self.utterance.emit(pcm, self.recorder.sample_rate, self.recorder.channels, deliver)
+
+    def _emit_control(self, pcm: bytes) -> None:
+        """STT for a barge-in or mid-turn clip. Not a new ask.
+
+        Barge-in already cut her. This only lets stop / allow / deny on that
+        same clip reach the orchestrator. Mid-turn (she is working, not
+        talking) uses the same deliver so spoken stop still lands.
+        """
+        if self._too_short(pcm, _MIN_UTTERANCE_S):
+            return
+        self.utterance.emit(pcm, self.recorder.sample_rate, self.recorder.channels, "control")
 
     def _too_short(self, pcm: bytes, minimum: float) -> bool:
         return self._seconds(pcm) < minimum

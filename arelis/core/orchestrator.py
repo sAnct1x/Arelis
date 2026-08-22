@@ -18,7 +18,10 @@ from arelis.browser.hold import set_paused
 from arelis.config import load_persona
 from arelis.core.agent_loop import AgentLoop
 from arelis.core.bus import EventBus
-from arelis.core.confirm_speech import classify_confirm_utterance
+from arelis.core.confirm_speech import (
+    apply_confirm_edit,
+    classify_voice_act,
+)
 from arelis.core.events import Event, EventType
 from arelis.core.failure_copy import turn_failed_notice
 from arelis.core.memory import SessionMemory, tool_trace_entry, tool_trace_note
@@ -178,6 +181,10 @@ class Orchestrator:
         self._cancel = False
         self._pause = False
         self._confirm_waiters: dict[str, asyncio.Future[str]] = {}
+        # Live args for an open card so a spoken edit mutates what Allow runs.
+        self._confirm_live: dict[str, dict[str, Any]] = {}
+        self._last_ask: dict[str, Any] | None = None
+        self._stopped_ask: dict[str, Any] | None = None
         self._turn_task: asyncio.Task[None] | None = None
         # The loop currently running, so a confirm card can see what this turn
         # has already done. None between turns.
@@ -235,34 +242,94 @@ class Orchestrator:
         before sending. Starting a turn from it would take the decision away
         from them, which is the difference between the two voice modes.
 
-        Conversation mode plus an open card: yes-list allows, no-list denies,
-        anything else is ignored (not a new turn).
+        Conversation mode (or a wake remainder, which sets the same flag):
+        stop cancels the turn, a card hears allow / deny / rest-of-ask, and
+        any other sentence on a send card rewrites the draft. After a stop,
+        the next line is a normal turn with a one-line note — the model
+        decides. Barge-in / mid-turn clips arrive as deliver ``control``
+        and only those acts land — soup does not start a turn.
         """
         if event.payload.get("deliver") == "dictate":
             return
         text = (event.payload.get("text") or "").strip()
-        conversing = bool(self.config.get("_speak_replies"))
-        if conversing and self._confirm_waiters:
-            decision = classify_confirm_utterance(text)
-            if decision:
-                confirm_id = next(iter(self._confirm_waiters), "")
-                if confirm_id:
-                    await self.bus.publish(
-                        Event(
-                            EventType.TOOL_CONFIRM_REPLY,
-                            {
-                                "id": confirm_id,
-                                "decision": decision,
-                                "allow_turn": False,
-                                "reason": "voice",
-                            },
-                        )
-                    )
+        if not text:
             return
-        if text:
+        conversing = bool(self.config.get("_speak_replies"))
+        control_only = event.payload.get("deliver") == "control"
+        if not conversing and not control_only:
             await self.bus.publish(
                 Event(EventType.USER_MESSAGE, {"text": text, "source": "voice"})
             )
+            return
+        act = classify_voice_act(text)
+        if act == "stop":
+            await self.bus.publish(Event(EventType.TURN_CANCEL, {"reason": "voice"}))
+            return
+        if self._confirm_waiters and act in {"allow", "skip", "allow_turn"}:
+            confirm_id = next(iter(self._confirm_waiters), "")
+            if confirm_id:
+                await self.bus.publish(
+                    Event(
+                        EventType.TOOL_CONFIRM_REPLY,
+                        {
+                            "id": confirm_id,
+                            "decision": "allow" if act != "skip" else "skip",
+                            "allow_turn": act == "allow_turn",
+                            "reason": "voice",
+                        },
+                    )
+                )
+            return
+        if self._confirm_waiters and not control_only:
+            if await self._apply_voice_confirm_edit(text):
+                return
+            return
+        if control_only:
+            return
+        await self.bus.publish(
+            Event(EventType.USER_MESSAGE, {"text": text, "source": "voice"})
+        )
+
+    async def _apply_voice_confirm_edit(self, text: str) -> bool:
+        """Rewrite the open send draft. True when the card was refreshed."""
+        confirm_id = next(iter(self._confirm_waiters), "")
+        live = self._confirm_live.get(confirm_id) if confirm_id else None
+        if not live:
+            return False
+        args = live.get("args")
+        tool = str(live.get("tool") or "")
+        if not isinstance(args, dict):
+            return False
+        if not apply_confirm_edit(tool, args, text):
+            return False
+        await self._republish_confirm(confirm_id, live)
+        await self.bus.publish(
+            Event(EventType.THINKING, {"text": f"voice edit  {tool}"})
+        )
+        return True
+
+    async def _republish_confirm(self, confirm_id: str, live: dict[str, Any]) -> None:
+        tool = str(live.get("tool") or "")
+        args = live.get("args") if isinstance(live.get("args"), dict) else {}
+        summary = str(live.get("summary") or "")
+        preview_args = {k: redact_secrets(str(v))[:200] for k, v in args.items()}
+        await self.bus.publish(
+            Event(
+                EventType.TOOL_CONFIRM,
+                {
+                    "id": confirm_id,
+                    "tool": tool,
+                    "args": preview_args,
+                    "full_args": {str(k): v for k, v in args.items()},
+                    "summary": summary,
+                    "headline": confirm_headline(tool, args),
+                    "detail": self.tools.describe_call(tool, args),
+                    "note": self._confirm_note(tool),
+                    "batch_ok": tool not in NEVER_BATCH,
+                    "reason": "voice_edit",
+                },
+            )
+        )
 
     async def on_confirm_reply(self, event: Event) -> None:
         confirm_id = event.payload.get("id")
@@ -281,7 +348,15 @@ class Orchestrator:
         a turn parked on the confirm card, which no cancellation can reach on its
         own. Cancelling the task interrupts work already in flight: without it a
         30 second scrape or a long model read ignores stop until it returns.
+
+        The last ask is kept so the next turn can tell the model she was
+        stopped. No snapshot when nothing was running.
         """
+        if self._last_ask and (
+            (self._turn_task is not None and not self._turn_task.done())
+            or self._confirm_waiters
+        ):
+            self._stopped_ask = dict(self._last_ask)
         self._cancel = True
         self._pause = False
         set_paused(False)
@@ -585,6 +660,9 @@ class Orchestrator:
             self._cancel = False
             self._pause = False
             set_paused(False)
+            self._last_ask = {"text": text, "role": role, "source": source}
+            stopped_ask = str((self._stopped_ask or {}).get("text") or "")
+            self._stopped_ask = None
             chosen, route_reason = self.classify_role(text, role)
             # Sticky hold is for typed research follow-ups so VRAM does not
             # thrash. Conversation must return to fast on small talk — otherwise
@@ -616,6 +694,7 @@ class Orchestrator:
                     chosen,
                     source=source,
                     route_reason=route_reason,
+                    stopped_ask=stopped_ask,
                 )
             )
             self._turn_task = task
@@ -1061,6 +1140,11 @@ class Orchestrator:
         loop = asyncio.get_running_loop()
         fut: asyncio.Future[str] = loop.create_future()
         self._confirm_waiters[confirm_id] = fut
+        self._confirm_live[confirm_id] = {
+            "tool": tool,
+            "args": args,
+            "summary": summary,
+        }
         preview_args = {k: redact_secrets(str(v))[:200] for k, v in args.items()}
         await self.bus.publish(
             Event(
@@ -1130,6 +1214,7 @@ class Orchestrator:
             return await fut
         finally:
             self._confirm_waiters.pop(confirm_id, None)
+            self._confirm_live.pop(confirm_id, None)
 
     def _confirm_note(self, tool: str) -> str:
         """A warning to put on the card, when this particular call deserves one.

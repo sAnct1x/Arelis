@@ -897,13 +897,24 @@ class ConversationStage(GlassFrame):
         self.restore_composer_caret()
 
     def _submit(self) -> None:
-        # Enter on an open card: empty or yes-list = allow; no-list = deny.
+        # Enter on an open card: empty or yes-list = allow; no-list = deny;
+        # stop cancels the turn, same as the stop control.
         if self.confirm_open():
             typed = self.input.text().strip()
             decision = classify_confirm_utterance(typed)
+            if decision == "stop":
+                self.input.clear()
+                self.stop_requested.emit()
+                return
             if decision == "skip":
                 self.input.clear()
                 self.confirm._skip()
+                return
+            if decision == "allow_turn":
+                self.input.clear()
+                if self.confirm.allow_turn.isVisible():
+                    self.confirm.allow_turn.setChecked(True)
+                self.confirm._allow()
                 return
             if typed and decision is None:
                 # They started a message — do not treat it as allow.
