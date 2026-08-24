@@ -26,8 +26,10 @@ from arelis.core.agenda_complete import (
 )
 from arelis.core.claims import (
     detect_analyze_ask,
+    detect_cas_ask,
     detect_catalog_ask,
     detect_math_ask,
+    detect_diagnostics_ask,
     detect_plot_ask,
 )
 from arelis.core.intent_catalog import WEATHER
@@ -73,6 +75,9 @@ def looks_like_other_work(
         or detect_catalog_ask(raw)
         or detect_plot_ask(raw)
         or detect_math_ask(raw)
+        or detect_cas_ask(raw)
+        or detect_diagnostics_ask(raw)
+        or "```" in raw
         or wants_image_edit(ask)
         or looks_like_image_gen(raw)
         or looks_like_scheduled_send(raw)

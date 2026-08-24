@@ -17,6 +17,7 @@ _LEAN_TOOLS = {
     "cas",
     "units",
     "calculator",
+    "python",
     "plot",
     "catalog",
     "web_search",

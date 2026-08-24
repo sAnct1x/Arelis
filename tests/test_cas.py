@@ -60,6 +60,18 @@ async def test_integrate_x_squared_sin_x() -> None:
 
 
 @pytest.mark.asyncio
+async def test_solve_accepts_an_equals_sign() -> None:
+    """The 7B writes '-4*x + 7 = 15'. AST eval rejects '=' unless we rewrite."""
+    tool = CasTool()
+    result = await tool.run(action="solve", expr="-4*x + 7 = 15", symbol="x")
+    assert result.ok, result.output
+    assert "-2" in result.output.replace(" ", "")
+    zero = await tool.run(action="solve", expr="-4*x + 7 - 15", symbol="x")
+    assert zero.ok, zero.output
+    assert "-2" in zero.output.replace(" ", "")
+
+
+@pytest.mark.asyncio
 async def test_diff_and_simplify() -> None:
     tool = CasTool()
     d = await tool.run(action="diff", expr="x**3", wrt="x")
@@ -123,3 +135,22 @@ def test_cas_is_registered_without_confirm(tmp_path) -> None:
     )
     assert jobs.get("cas") is not None
     assert jobs.get("units") is not None
+
+
+def test_parse_homework_powers() -> None:
+    unicode_pow = parse_cas_expr("(a-b)² + (b-c)²")
+    ocr_pow = parse_cas_expr("(a-b)2 + (b-c)2")
+    star_pow = parse_cas_expr("(a-b)**2 + (b-c)**2")
+    assert unicode_pow == star_pow
+    assert ocr_pow == star_pow
+
+
+@pytest.mark.asyncio
+async def test_double_integrate_n() -> None:
+    tool = CasTool()
+    twice = await tool.run(action="integrate", expr="x", wrt="x", n=2)
+    assert twice.ok, twice.output
+    compact = twice.output.replace(" ", "")
+    assert "x**3" in compact
+    assert "latex:" in twice.output
+    assert "frac" in twice.output or "x^3" in twice.output or "x^{3}" in twice.output

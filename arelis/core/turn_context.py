@@ -79,6 +79,7 @@ class TurnContext:
     plot_nudge_used: bool = False
     catalog_nudge_used: bool = False
     document_nudge_used: bool = False
+    diagnostics_nudge_used: bool = False
     weather_nudge_used: int = 0
     weather_ok_places: set[str] = field(default_factory=set)
     weather_days_retried: set[str] = field(default_factory=set)
@@ -88,6 +89,7 @@ class TurnContext:
     last_ok_tool_out: str = ""
     last_ok_tool_name: str = ""
     inbox_mutated_ok: bool = False
+    inbox_empty_ok: bool = False
     last_browser_snapshot: str = ""
     browser_clicked: bool = False
     skip_finish_text: str = ""

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import ast
 import concurrent.futures
+import re
 from typing import Any
 
 from arelis.tools.base import ToolResult
@@ -121,9 +122,12 @@ class CasTool:
     description = (
         "Deterministic computer algebra (SymPy). Actions: integrate, diff, "
         "simplify, solve, dsolve. Pass a plain expression like 'x**2 * sin(x)' "
-        "(use ** for powers). This is the CAS — do not use calculator for "
-        "integrals, derivatives, or symbolic algebra, and do not recite a "
-        "closed form from memory. If there is no closed form, say so."
+        "(use ** for powers). For solve, an equation is fine: "
+        "'-4*x + 7 = 15'. Result includes ascii, a unicode pretty form, and "
+        "a latex: line — quote that latex inside $$ $$; do not rewrite it. "
+        "This is the CAS — do not use calculator for integrals, derivatives, "
+        "or symbolic algebra, and do not recite a closed form from memory. "
+        "If there is no closed form, say so."
     )
     risk = "read"
     parameters_schema: dict[str, Any] = {
@@ -136,7 +140,10 @@ class CasTool:
             },
             "expr": {
                 "type": "string",
-                "description": "Expression, e.g. x**2 * sin(x)",
+                "description": (
+                    "Expression, e.g. x**2 * sin(x). For solve, "
+                    "'-4*x + 7 = 15' or Eq(-4*x + 7, 15) is fine."
+                ),
             },
             "wrt": {
                 "type": "string",
@@ -153,6 +160,13 @@ class CasTool:
             "hi": {
                 "type": "string",
                 "description": "Definite-integral upper limit",
+            },
+            "n": {
+                "type": "integer",
+                "description": (
+                    "How many times to integrate the same variable "
+                    "(default 1; use 2 for a double integral dx dx)"
+                ),
             },
         },
         "required": ["expr"],
@@ -180,8 +194,21 @@ class CasTool:
         symbol = str(kwargs.get("symbol") or "").strip() or None
         lo = str(kwargs.get("lo") or "").strip() or None
         hi = str(kwargs.get("hi") or "").strip() or None
+        n: int | None = None
+        n_raw = kwargs.get("n")
+        if n_raw is not None and str(n_raw).strip() != "":
+            try:
+                n = int(n_raw)
+            except (TypeError, ValueError):
+                return ToolResult(
+                    ok=False,
+                    output="n must be an integer 1–4.",
+                    data={"fail_class": "fail:args", "action": action, "expr": expr},
+                )
         try:
-            result = _run_timed(action, expr, wrt=wrt, symbol=symbol, lo=lo, hi=hi)
+            result = _run_timed(
+                action, expr, wrt=wrt, symbol=symbol, lo=lo, hi=hi, n=n
+            )
         except TimeoutError:
             return ToolResult(
                 ok=False,
@@ -217,24 +244,60 @@ class CasTool:
                     "result": result.text,
                 },
             )
-        shown = f"{action}({expr}) = {result.text}"
+        shown = f"{action}({expr}) =\n{result.text}"
         return ToolResult(
             ok=True,
             output=shown,
             data={
                 "action": action,
                 "expr": expr,
-                "result": result.text,
+                "result": result.ascii,
+                "latex": result.latex,
             },
         )
 
 
 class _CasResult:
-    __slots__ = ("text", "unevaluated")
+    __slots__ = ("text", "ascii", "latex", "unevaluated")
 
-    def __init__(self, text: str, *, unevaluated: bool = False) -> None:
+    def __init__(
+        self,
+        text: str,
+        *,
+        ascii: str = "",
+        latex: str = "",
+        unevaluated: bool = False,
+    ) -> None:
         self.text = text
+        self.ascii = ascii or text
+        self.latex = latex
         self.unevaluated = unevaluated
+
+
+def _pack_result(obj: Any, *, unevaluated: bool = False) -> _CasResult:
+    """Ascii + unicode pretty + latex so the chat bubble is not a rewrite."""
+    ascii_text = str(obj)
+    pretty = ascii_text
+    latex = ascii_text
+    try:
+        pretty = str(sp.pretty(obj, use_unicode=True))
+    except Exception:
+        pass
+    try:
+        latex = str(sp.latex(obj))
+    except Exception:
+        pass
+    lines = [ascii_text]
+    if pretty.strip() and pretty.strip() != ascii_text.strip():
+        lines.extend(["", "pretty:", pretty])
+    if latex.strip() and latex.strip() != ascii_text.strip():
+        lines.extend(["", f"latex: {latex}"])
+    return _CasResult(
+        "\n".join(lines),
+        ascii=ascii_text,
+        latex=latex,
+        unevaluated=unevaluated,
+    )
 
 
 def parse_cas_expr(expression: str) -> Any:
@@ -260,6 +323,22 @@ def parse_cas_expr(expression: str) -> Any:
     )
 
 
+_SUPER_POWER = {
+    "⁰": "**0",
+    "¹": "**1",
+    "²": "**2",
+    "³": "**3",
+    "⁴": "**4",
+    "⁵": "**5",
+    "⁶": "**6",
+    "⁷": "**7",
+    "⁸": "**8",
+    "⁹": "**9",
+}
+# OCR often drops the superscript: (a-b)2 from (a-b)².
+_PAREN_DIGIT_POWER = re.compile(r"\)([2-9])(?!\d)")
+
+
 def _preprocess(expression: str) -> str:
     text = (expression or "").strip()
     if not text:
@@ -268,7 +347,30 @@ def _preprocess(expression: str) -> str:
         raise ValueError("expression too long")
     if any(ord(ch) < 32 and ch not in "\t" for ch in text):
         raise ValueError("control characters are not allowed")
-    return text.replace("^", "**").replace("·", "*")
+    for glyph, power in _SUPER_POWER.items():
+        text = text.replace(glyph, power)
+    text = text.replace("^", "**").replace("·", "*")
+    text = _PAREN_DIGIT_POWER.sub(r")**\1", text)
+    return _as_equation_expr(text)
+
+
+def _as_equation_expr(text: str) -> str:
+    """Turn 'lhs = rhs' into Eq((lhs), (rhs)). AST eval cannot parse '='."""
+    raw = text.strip()
+    if "<=" in raw or ">=" in raw or "!=" in raw:
+        return raw
+    if "==" in raw:
+        if raw.count("==") != 1:
+            return raw
+        left, right = raw.split("==", 1)
+    elif raw.count("=") == 1:
+        left, right = raw.split("=", 1)
+    else:
+        return raw
+    left, right = left.strip(), right.strip()
+    if not left or not right:
+        return raw
+    return f"Eq(({left}), ({right}))"
 
 
 def _assert_safe_ast(expression: str) -> None:
@@ -330,10 +432,11 @@ def _run_timed(
     symbol: str | None,
     lo: str | None,
     hi: str | None,
+    n: int | None,
 ) -> _CasResult:
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
         future = pool.submit(
-            _compute, action, expr, wrt=wrt, symbol=symbol, lo=lo, hi=hi
+            _compute, action, expr, wrt=wrt, symbol=symbol, lo=lo, hi=hi, n=n
         )
         try:
             return future.result(timeout=_TIMEOUT_S)
@@ -349,34 +452,43 @@ def _compute(
     symbol: str | None,
     lo: str | None,
     hi: str | None,
+    n: int | None = None,
 ) -> _CasResult:
     parsed = parse_cas_expr(expr)
     if action == "simplify":
-        return _CasResult(str(sp.simplify(parsed)))
+        return _pack_result(sp.simplify(parsed))
     if action == "diff":
         var = parse_cas_expr(wrt or "x")
-        return _CasResult(str(sp.diff(parsed, var)))
+        return _pack_result(sp.diff(parsed, var))
     if action == "solve":
         unknown = parse_cas_expr(symbol or "x")
         solutions = sp.solve(parsed, unknown)
-        return _CasResult(str(solutions))
+        return _pack_result(solutions)
     if action == "dsolve":
         func = _ode_function(symbol)
         solved = sp.dsolve(parsed, func)
         text = str(solved)
         if "dsolve" in text.lower() and "Eq" not in text:
-            return _CasResult(text, unevaluated=True)
-        return _CasResult(text)
+            return _pack_result(solved, unevaluated=True)
+        return _pack_result(solved)
     var = parse_cas_expr(wrt or "x")
+    times = 1 if n is None else int(n)
+    if times < 1 or times > 4:
+        raise ValueError("n must be 1–4")
     if lo is not None or hi is not None:
+        if times != 1:
+            raise ValueError("definite integrals do not take n>1")
         lower = parse_cas_expr(lo or "0")
         upper = parse_cas_expr(hi or "1")
         out = sp.integrate(parsed, (var, lower, upper))
     else:
-        out = sp.integrate(parsed, var)
+        out = parsed
+        for _ in range(times):
+            out = sp.integrate(out, var)
+        out = sp.simplify(out)
     if isinstance(out, sp.Integral) or out.has(sp.Integral):
-        return _CasResult(str(out), unevaluated=True)
-    return _CasResult(str(out))
+        return _pack_result(out, unevaluated=True)
+    return _pack_result(out)
 
 
 def _ode_function(symbol: str | None) -> Any:

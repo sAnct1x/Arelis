@@ -292,7 +292,7 @@ def test_inbound_notify_status_does_not_leave_orbit(qt_app) -> None:
                 EventType.STATUS,
                 {
                     "message": (
-                        "Inbound notify ready — Phone Notify URL: "
+                        "Phone notifications: "
                         "http://127.0.0.1:8765"
                     )
                 },
@@ -303,7 +303,7 @@ def test_inbound_notify_status_does_not_leave_orbit(qt_app) -> None:
         assert window.conversation._idle_mode
         assert not window.chat.has_messages
         assert not window.chat.empty.isHidden()
-        assert window._inbound_banner.startswith("Inbound notify ready")
+        assert window._inbound_banner.startswith("Phone notifications")
     finally:
         window.hide()
         window.loop.close()

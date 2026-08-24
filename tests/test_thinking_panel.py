@@ -24,6 +24,18 @@ def test_streamed_think_tokens_join_into_prose(qt_app) -> None:
     panel.deleteLater()
 
 
+def test_repeated_status_line_is_shown_once(qt_app) -> None:
+    panel = ThinkingPanel()
+    panel.append("Loading speech recognition…", kind="status")
+    panel.append("Loading speech recognition…", kind="status")
+    panel.append("Speech recognition ready.", kind="status")
+    panel.append("Speech recognition ready.", kind="status")
+    text = panel.view.toPlainText()
+    assert text.count("Loading speech recognition…") == 1
+    assert text.count("Speech recognition ready.") == 1
+    panel.deleteLater()
+
+
 def test_window_stream_flag_uses_think_paragraph(qt_app) -> None:
     from arelis.ui.app import ArelisWindow, BusBridge
 

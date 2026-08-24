@@ -26,6 +26,7 @@ from arelis.core.claims import (
     math_force_notice,
     plot_force_notice,
     units_force_notice,
+    diagnostics_force_notice,
 )
 from arelis.core.events import Event, EventType
 from arelis.core.turn_context import TurnContext
@@ -102,6 +103,17 @@ FORCE_GATES: tuple[ForceGate, ...] = (
         require_numeric=False,
     ),
     ForceGate(
+        name="diagnostics",
+        ledger_kind="diagnostics",
+        tool="diagnostics",
+        need_attr="needs_diagnostics",
+        flag="diagnostics_nudge_used",
+        notice=diagnostics_force_notice,
+        thinking="exactness  diagnostics without pytest; forcing tool",
+        timer_gate="diagnostics",
+        require_numeric=False,
+    ),
+    ForceGate(
         name="catalog",
         ledger_kind="catalog",
         tool="catalog",
@@ -123,6 +135,7 @@ FORCE_GATE_KINDS = frozenset(
         "plot",
         "catalog",
         "document",
+        "diagnostics",
     }
 )
 

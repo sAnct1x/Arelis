@@ -64,7 +64,7 @@ def build_job_from_fields(kwargs: dict[str, Any]) -> Job:
     if repeat == "once" and len(times) > 1:
         raise JobError("A one-off runs at a single time. Give one time, or drop the date.")
 
-    role = str(kwargs.get("role") or "research").strip() or "research"
+    role = str(kwargs.get("role") or "fast").strip() or "fast"
     enabled = kwargs.get("enabled", True)
     if isinstance(enabled, str):
         enabled = enabled.strip().lower() not in {"0", "false", "no", "off"}

@@ -85,6 +85,11 @@ _HEADING_SIZES = {1: 17, 2: 15, 3: 14, 4: 13, 5: 13, 6: 13}
 
 _LATEX_BLOCK = re.compile(r"\\\[(.+?)\\\]", re.S)
 _LATEX_INLINE = re.compile(r"\\\((.+?)\\\)")
+_LATEX_DOLLARS_BLOCK = re.compile(r"\$\$(.+?)\$\$", re.S)
+# Only pair $…$ when it looks like math, so "$5 and $\log x$" keeps the price.
+_LATEX_DOLLARS_INLINE = re.compile(
+    r"(?<!\$)\$(?![\d\s$])([^$\n]+)\$(?!\$)"
+)
 _LATEX_FRAC = re.compile(r"\\frac\{([^{}]+)\}\{([^{}]+)\}")
 _LATEX_SUP = {
     "0": "⁰",
@@ -98,28 +103,76 @@ _LATEX_SUP = {
     "8": "⁸",
     "9": "⁹",
 }
+# Named TeX that must stay readable. A bare \\[A-Za-z]+ wipe used to delete
+# \\log, so 25x\\log(x-3) rendered as 25x(x-3).
+_LATEX_WORDS = (
+    (r"\iiint", "∭"),
+    (r"\iint", "∬"),
+    (r"\int", "∫"),
+    (r"\sum", "Σ"),
+    (r"\prod", "Π"),
+    (r"\partial", "∂"),
+    (r"\infty", "∞"),
+    (r"\cdot", "·"),
+    (r"\times", "×"),
+    (r"\pm", "±"),
+    (r"\leq", "≤"),
+    (r"\geq", "≥"),
+    (r"\neq", "≠"),
+    (r"\approx", "≈"),
+    (r"\pi", "π"),
+    (r"\ln", "ln"),
+    (r"\log", "log"),
+    (r"\sin", "sin"),
+    (r"\cos", "cos"),
+    (r"\tan", "tan"),
+    (r"\exp", "exp"),
+    (r"\sqrt", "√"),
+    (r"\left", ""),
+    (r"\right", ""),
+    (r"\mathrm", ""),
+    (r"\operatorname", ""),
+    (r"\,", " "),
+    (r"\;", " "),
+    (r"\!", ""),
+    (r"\ ", " "),
+)
 
 
 def flatten_latex(text: str) -> str:
-    """Turn \\(x^2\\) / \\[\\int ...\\] into readable chat text."""
+    """Turn TeX delimiters into readable chat text without dropping operators."""
 
     def _plain(src: str) -> str:
         s = (src or "").strip()
         s = _LATEX_FRAC.sub(r"(\1)/(\2)", s)
-        s = s.replace(r"\int", "∫").replace(r"\cdot", "·")
-        s = s.replace(r"\,", " ").replace(r"\ ", " ").replace(r"\left", "").replace(
-            r"\right", ""
-        )
+        for cmd, repl in _LATEX_WORDS:
+            s = s.replace(cmd, repl)
+        s = re.sub(r"\\([A-Za-z]+)", r"\1", s)
         s = re.sub(
-            r"\^\{?(\d)\}?",
-            lambda m: _LATEX_SUP.get(m.group(1), "^" + m.group(1)),
+            r"\^\{?(\d+)\}?",
+            lambda m: (
+                "".join(_LATEX_SUP.get(ch, "^" + ch) for ch in m.group(1))
+                if m.group(1).isdigit()
+                else "^" + m.group(1)
+            ),
             s,
         )
-        s = re.sub(r"\\[A-Za-z]+", "", s)
         return re.sub(r"[{}]", "", s).strip()
 
+    def _looks_like_math(src: str) -> bool:
+        return bool(re.search(r"[\\^_{]|\\[A-Za-z]", src))
+
+    text = _LATEX_DOLLARS_BLOCK.sub(lambda m: "\n" + _plain(m.group(1)) + "\n", text)
     text = _LATEX_BLOCK.sub(lambda m: "\n" + _plain(m.group(1)) + "\n", text)
-    return _LATEX_INLINE.sub(lambda m: _plain(m.group(1)), text)
+    text = _LATEX_INLINE.sub(lambda m: _plain(m.group(1)), text)
+
+    def _dollar(match: re.Match[str]) -> str:
+        inner = match.group(1)
+        if not _looks_like_math(inner):
+            return match.group(0)
+        return _plain(inner)
+
+    return _LATEX_DOLLARS_INLINE.sub(_dollar, text)
 
 
 def render_markdown(text: str) -> str:

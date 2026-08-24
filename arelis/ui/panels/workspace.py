@@ -32,7 +32,7 @@ from arelis.ui.icons import (
     folder_up_icon,
     refresh_icon,
 )
-from arelis.ui.theme import METRICS
+from arelis.ui.theme import METRICS, polish_combo_popup
 
 # Cap browse listing the same way the workspace tool caps directory list.
 _MAX_BROWSE_ENTRIES = 500
@@ -187,6 +187,7 @@ class WorkspacePanel(QWidget):
         self.project_combo = QComboBox()
         self.project_combo.setObjectName("InstrumentCombo")
         self.project_combo.setFixedHeight(METRICS["row"])
+        polish_combo_popup(self.project_combo)
         self.project_combo.setMinimumWidth(120)
         self.project_combo.setToolTip("Active project")
         self.project_combo.currentTextChanged.connect(self._on_project_changed)
@@ -228,6 +229,7 @@ class WorkspacePanel(QWidget):
         self.recent_combo.setMinimumWidth(160)
         self.recent_combo.setToolTip("Recently opened or saved files")
         self.recent_combo.setPlaceholderText("recent")
+        polish_combo_popup(self.recent_combo)
         self.recent_combo.activated.connect(self._on_recent_activated)
         roots_row.addWidget(self.recent_combo, stretch=1)
         self.dirty_label = QLabel("")

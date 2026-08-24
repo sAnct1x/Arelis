@@ -190,7 +190,7 @@ async def test_warmup_status_events() -> None:
         except asyncio.CancelledError:
             pass
 
-    assert any("Warming conversation model" in m for m in seen)
+    assert any("Chat model ready" in m for m in seen)
     assert any("ready" in m for m in seen)
     assert provider.pins == [("qwen-fast", "30m")]
 

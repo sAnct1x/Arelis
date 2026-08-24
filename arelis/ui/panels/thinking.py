@@ -21,6 +21,7 @@ class ThinkingPanel(QWidget):
         self.view.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
         layout.addWidget(self.view)
         self._stream_open = False
+        self._last_status = ""
 
     def append(self, text: str, kind: str = "trace") -> None:
         self._stream_open = False
@@ -32,6 +33,10 @@ class ThinkingPanel(QWidget):
             "think": "think",
         }.get(kind, "trace")
         line = text.rstrip()
+        if kind == "status" and line and line == self._last_status:
+            return
+        if kind == "status":
+            self._last_status = line
         if line.startswith("[") and "]" in line[:24]:
             self.view.appendPlainText(line)
         else:
@@ -63,4 +68,5 @@ class ThinkingPanel(QWidget):
 
     def clear(self) -> None:
         self._stream_open = False
+        self._last_status = ""
         self.view.clear()

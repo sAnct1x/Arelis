@@ -7,11 +7,12 @@ with bare arithmetic or unsupported news/weather/"you told me" claims.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from arelis.core.intent_catalog import (
     ATTENTION,
+    DIAGNOSTICS,
     DOCUMENT,
     PLOT,
     SCIENCE_CATALOG,
@@ -80,6 +81,7 @@ _SYMBOLIC_MATH = re.compile(
 # does not open a SymPy round.
 _CAS_FORCE = (
     re.compile(r"(?i)\bintegral\s+of\b"),
+    re.compile(r"(?i)\bdouble\s+integral\b"),
     re.compile(r"(?i)\bantiderivative\b"),
     re.compile(r"(?i)\bwhat(?:'s|\s+is)\s+the\s+integral\b"),
     re.compile(
@@ -351,6 +353,14 @@ _VISION_PATTERNS: tuple[re.Pattern[str], ...] = (
         r"(?:image|picture|photo|puppy).{0,40}"
         r"(?:you\s+)?(?:just\s+)?(?:generated|made|created|drew|saved)\b",
     ),
+    re.compile(
+        r"(?i)\b(?:answer|solve|do)\s+(?:the\s+)?(?:question|problem)\s+"
+        r"in\s+(?:this|the|that)\s+(?:photo|image|picture|screenshot)\b",
+    ),
+    re.compile(
+        r"(?i)\b(?:question|problem)\s+in\s+(?:this|the|that)\s+"
+        r"(?:photo|image|picture|screenshot)\b",
+    ),
 )
 
 
@@ -375,6 +385,7 @@ class ExactnessNeed:
     needs_plot: bool = False
     needs_catalog: bool = False
     needs_document: bool = False
+    needs_diagnostics: bool = False
     kinds: tuple[str, ...] = ()
 
 
@@ -417,6 +428,11 @@ _PAPER_QUERY = re.compile(
 def detect_catalog_ask(text: str) -> bool:
     """True when the ask named a science catalog, not a shopping catalog."""
     return SCIENCE_CATALOG.matches(text)
+
+
+def detect_diagnostics_ask(text: str) -> bool:
+    """True only for the phrase 'run diagnostics', not 'on my car' / 'don't'."""
+    return DIAGNOSTICS.matches(text)
 
 
 def draft_catalog_args(text: str) -> dict[str, str]:
@@ -644,6 +660,7 @@ def detect_exactness_need(text: str) -> ExactnessNeed:
     needs_plot = detect_plot_ask(text)
     needs_catalog = detect_catalog_ask(text)
     needs_document = detect_document_ask(text)
+    needs_diagnostics = detect_diagnostics_ask(text)
     needs_vision = detect_vision_ask(text)
     # Image-describe turns often include dimensioned filenames (1965x1106.png).
     # Prefer the vision warrant; never force calculator on those asks.
@@ -669,14 +686,21 @@ def detect_exactness_need(text: str) -> ExactnessNeed:
         kinds.append("catalog")
     if needs_document:
         kinds.append("document")
+    if needs_diagnostics:
+        kinds.append("diagnostics")
     needs_web = (
         any(p.search(text or "") for p in _NEWS_PATTERNS)
         or any(p.search(text or "") for p in _PRICE_PATTERNS)
         or exactness_match("research", text)
     )
+    needs_weather = exactness_match("weather", text)
+    # A weather ask is Open-Meteo, not a news page. Tagging both made a missed
+    # weather call refuse with "no retrieved page warrant" — the 9am job mailed
+    # that sentence instead of a forecast.
+    if needs_web and needs_weather:
+        needs_web = False
     if needs_web:
         kinds.append("web")
-    needs_weather = exactness_match("weather", text)
     if needs_weather:
         kinds.append("weather")
     needs_recall = exactness_match("recall", text)
@@ -731,14 +755,33 @@ def detect_exactness_need(text: str) -> ExactnessNeed:
         needs_plot=needs_plot,
         needs_catalog=needs_catalog,
         needs_document=needs_document,
+        needs_diagnostics=needs_diagnostics,
         kinds=tuple(kinds),
     )
 
 
+def apply_research_web_need(
+    need: ExactnessNeed, *, research_mode: bool
+) -> ExactnessNeed:
+    """Research role adds a page warrant — except weather, which is Open-Meteo.
+
+    Jobs used to default to role=research. That stamped ``web`` onto a forecast
+    prompt, so the 9am mail was a page-warrant refusal instead of a reading.
+    """
+    if not research_mode or need.needs_web_evidence:
+        return need
+    if need.needs_weather:
+        return need
+    kinds = list(need.kinds)
+    if "web" not in kinds:
+        kinds.append("web")
+    return replace(need, needs_web_evidence=True, kinds=tuple(kinds))
+
+
 _CALC_FORCE_NOTICE = (
     "Exactness: this question needs a precise numeric answer. "
-    "Call the calculator tool now with the expression. "
-    "Do not invent the number from memory."
+    "Call calculator for one expression, or python for a short script "
+    "(assignments, trig, kinematics). Do not invent the number from memory."
 )
 
 _CAS_FORCE_NOTICE = (
@@ -764,6 +807,11 @@ _DOCUMENT_FORCE_NOTICE = (
     "Call document now with format (pdf, docx, xlsx, csv, md, or txt), "
     "a title, and the full body. Do not paste the document into chat. "
     "Do not call doc_extract. Allow still applies."
+)
+
+_DIAGNOSTICS_FORCE_NOTICE = (
+    "Exactness: this question asks you to run your own tests. "
+    "Call diagnostics now. Do not invent pass/fail counts from memory."
 )
 
 _EVIDENCE_FORCE_NOTICE = (
@@ -803,6 +851,10 @@ def plot_force_notice() -> str:
 
 def document_force_notice() -> str:
     return _DOCUMENT_FORCE_NOTICE
+
+
+def diagnostics_force_notice() -> str:
+    return _DIAGNOSTICS_FORCE_NOTICE
 
 
 def catalog_force_notice() -> str:
@@ -1153,15 +1205,15 @@ def unsupported_exactness_reply(
             "I don't know — this needs an arXiv, Horizons, APOD, or ADS "
             "result this turn, and I will not invent one."
         )
-    if "web" in kinds:
-        return (
-            "I don't know — I don't have a retrieved page warrant for that "
-            "claim, so I won't invent one."
-        )
     if "weather" in kinds:
         return (
             "I don't know — I don't have a weather tool reading for that, "
             "so I won't guess."
+        )
+    if "web" in kinds:
+        return (
+            "I don't know — I don't have a retrieved page warrant for that "
+            "claim, so I won't invent one."
         )
     if "recall" in kinds:
         return (

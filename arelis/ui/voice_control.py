@@ -306,13 +306,11 @@ class VoiceController(QObject):
         if mode == DICTATE:
             self.status.emit("Dictating. Talk as long as you like, then toggle the mic off.")
         elif mode == CONVERSATION:
-            backend = getattr(self._detector, "backend", "energy")
             self.status.emit(
-                f"Conversation mode on ({backend} VAD). Start talking whenever you are ready."
+                "Conversation mode on. Start talking whenever you are ready."
             )
         else:
-            engine = self._wake_engine
-            self.status.emit(f"Listening for Hey Arelis ({engine}).")
+            self.status.emit("Listening for Hey Arelis.")
 
     def _leave(self, *, flush: bool, resume_wake: bool, announce_off: bool = False) -> None:
         mode = self._mode

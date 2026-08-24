@@ -48,6 +48,7 @@ from arelis.core.claims import (
     catalog_force_notice,
     contact_who_from_text,
     detect_exactness_need,
+    apply_research_web_need,
     draft_catalog_args,
     evidence_force_notice,
     file_answer_force_notice,
@@ -181,7 +182,12 @@ from arelis.llm.router import ModelRole, ModelRouter
 from arelis.memory.store import MemoryStore
 from arelis.profile import standing_profile_prompt_line
 from arelis.tools.base import ToolRegistry, confirm_args_blocked
-from arelis.tools.inbox import draft_inbox_mutate_args, fill_inbox_args
+from arelis.tools.inbox import (
+    INBOX_PEEK_ACTIONS,
+    draft_inbox_mutate_args,
+    fill_inbox_args,
+    inbox_peek_was_empty,
+)
 from arelis.tools.safety import redact_secrets, truncate_tool_output
 from arelis.tools.weather import (
     draft_weather_args,
@@ -1160,15 +1166,12 @@ class AgentLoop:
         # Containers stay aliased so each round can append without a ctx.
         # prefix on every line. Scalars that get rebound must go through ctx.
         tool_names = ctx.tool_names
-        # Research role / deep-dive always needs web warrants for contingent claims.
-        if research_mode and not exact_need.needs_web_evidence:
-            kinds = list(exact_need.kinds)
-            if "web" not in kinds:
-                kinds.append("web")
-            exact_need = replace(
-                exact_need, needs_web_evidence=True, kinds=tuple(kinds)
-            )
-            ctx.exact_need = exact_need
+        # Research role / deep-dive needs web warrants for contingent claims,
+        # except weather (Open-Meteo). Jobs used to default to research.
+        exact_need = apply_research_web_need(
+            exact_need, research_mode=research_mode
+        )
+        ctx.exact_need = exact_need
         # News / current-events turns should not end on search snippets alone.
         wants_fresh_page = (
             exact_need.needs_web_evidence
@@ -1178,7 +1181,7 @@ class AgentLoop:
             or wants_fresh_page_ask(text)
         )
         # "weather today" must not arm scrape-after-search.
-        if (
+        if exact_need.needs_weather or (
             "weather" in self._expected_tools
             and "web_search" not in self._expected_tools
             and "scrape" not in self._expected_tools
@@ -2058,18 +2061,16 @@ class AgentLoop:
                     and "vision" not in self.tools_used
                     and "vision" in tool_names
                 ):
-                    from arelis.core.image_refs import latest_generated_image_path
-
-                    path = (
-                        latest_generated_image_path(self.memory.messages) or ""
+                    filled = fill_vision_args(
+                        {},
+                        history=self.memory.messages,
+                        user_text=text,
                     )
-                    if not path:
-                        filled = fill_vision_args(
-                            {},
-                            history=self.memory.messages,
-                            user_text=text,
-                        )
-                        path = str(filled.get("path") or "")
+                    path = str(filled.get("path") or "")
+                    from arelis.attachments import attachment_kinds_from_turn
+
+                    attached = "image" in attachment_kinds_from_turn(text)
+                    label = "attached" if attached else "generated"
                     if ctx.vision_nudge_used < 1:
                         ctx.vision_nudge_used += 1
                         await self._retract()
@@ -2078,7 +2079,7 @@ class AgentLoop:
                             {
                                 "role": "user",
                                 "content": (
-                                    "Call vision now with the generated image path"
+                                    f"Call vision now with the {label} image path"
                                     + (f" path={path}" if path else "")
                                     + ". Do not web_search."
                                 ),
@@ -3646,6 +3647,24 @@ class AgentLoop:
                         self._trace.append(f"{name} duplicate query blocked")
                         continue
 
+                if (
+                    name == "inbox"
+                    and ctx.inbox_empty_ok
+                    and str(args.get("action") or "").strip().lower()
+                    in INBOX_PEEK_ACTIONS
+                ):
+                    notice = (
+                        "Inbox list already came back empty this turn; not "
+                        "listing again. Tell the user there is nothing there "
+                        "and stop."
+                    )
+                    await self.bus.publish(
+                        Event(EventType.THINKING, {"text": f"skip  {notice}"})
+                    )
+                    messages.append(self._tool_message(name, notice))
+                    self._trace.append(f"{name} empty peek blocked")
+                    continue
+
                 # One successful image per turn — otherwise the 7B re-opens Allow.
                 if name == "image" and "image" in self.tools_used:
                     notice = (
@@ -3927,6 +3946,12 @@ class AgentLoop:
                         "delete",
                     }:
                         ctx.inbox_mutated_ok = True
+                    if (
+                        name == "inbox"
+                        and str(args.get("action") or "").lower() in INBOX_PEEK_ACTIONS
+                        and inbox_peek_was_empty(data_dict)
+                    ):
+                        ctx.inbox_empty_ok = True
                     if name == "browser":
                         b_act = str(args.get("action") or "").strip().lower()
                         if b_act == "snapshot":

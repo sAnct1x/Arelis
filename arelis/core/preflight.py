@@ -200,6 +200,10 @@ _VISION = re.compile(
     r"(?:describe|look\s+at)\s+(?:(?:this|the|that)\s+)?"
     r"(?:image|picture|photo|puppy).{0,40}"
     r"(?:you\s+)?(?:just\s+)?(?:generated|made|created|drew|saved)|"
+    r"(?:answer|solve|do)\s+(?:the\s+)?(?:question|problem)\s+"
+    r"in\s+(?:this|the|that)\s+(?:photo|image|picture|screenshot)|"
+    r"(?:question|problem)\s+in\s+(?:this|the|that)\s+"
+    r"(?:photo|image|picture|screenshot)|"
     r"outputs[/\\]images[/\\]\S+\.(?:png|jpe?g|webp|gif)"
     r")\b"
 )

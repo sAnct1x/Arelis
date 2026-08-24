@@ -16,6 +16,8 @@ from arelis.tools.base import capability_class
 def test_capability_classes() -> None:
     assert capability_class("web_search") == "READ"
     assert capability_class("calculator") == "READ"
+    assert capability_class("python") == "READ"
+    assert capability_class("diagnostics") == "READ"
     assert capability_class("cas") == "READ"
     assert capability_class("units") == "READ"
     assert capability_class("plot") == "WRITE_LOCAL"

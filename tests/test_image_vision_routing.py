@@ -381,3 +381,25 @@ def test_spiral_galaxy_generate_still_expects_image() -> None:
     tools = {t for h in hints for t in h.expected_tools}
     assert "image" in tools
     assert "image_edit" not in tools
+
+
+def test_fill_vision_args_uses_paste_not_generated() -> None:
+    """A homework photo this turn must beat a leftover generated image in history."""
+    ask = "answer the question in this photo"
+    text = _attach_image_turn(ask)
+    history = [
+        {
+            "role": "assistant",
+            "content": "saved to outputs/images/arelis_00008_.png",
+            "note": "",
+        }
+    ]
+    filled = fill_vision_args({}, history=history, user_text=text)
+    path = str(filled.get("path") or "").replace("\\", "/")
+    assert "paste.png" in path
+    assert "arelis_00008" not in path
+    assert detect_vision_ask(ask)
+    hints = detect_intents(text)
+    tools = {t for h in hints for t in h.expected_tools}
+    assert "vision" in tools
+    assert "send_sms" not in tools

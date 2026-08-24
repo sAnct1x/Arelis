@@ -93,6 +93,19 @@ _WEATHER_EXACT = (
         r"\b(?:is\s+it|will\s+it)\s+(?:rain(?:ing)?|snow(?:ing)?|cold|hot|warm)\b",
         re.I,
     ),
+    # Scheduled jobs are imperatives: "Get the forecast for Springfield, IL".
+    # The patterns above only heard questions ("what's the weather today")
+    # and "in <place>", so a 9am weather email never forced the weather tool
+    # and then refused with a web-page warrant.
+    re.compile(
+        r"\b(?:get|fetch|look\s+up|pull|give\s+me)\b.{0,60}"
+        r"\b(?:weather|forecast|temperature)s?\b",
+        re.I | re.S,
+    ),
+    re.compile(
+        r"\b(?:weather|forecast)\b.{0,48}\bfor\s+\w+",
+        re.I | re.S,
+    ),
 )
 
 _RECALL_PRE = re.compile(
@@ -503,7 +516,16 @@ RESEARCH = IntentSpec(
         "in chat."
     ),
     schema_tools=frozenset(
-        {"research_report", "web_search", "scrape", "web_fetch", "calculator", "cas", "units"}
+        {
+            "research_report",
+            "web_search",
+            "scrape",
+            "web_fetch",
+            "calculator",
+            "python",
+            "cas",
+            "units",
+        }
     ),
     exactness=_DEEP_DIVE_EXACT,
     auto_hint=True,
@@ -713,6 +735,26 @@ SCIENCE_CATALOG = IntentSpec(
     research_extra=True,
 )
 
+# Phrase-only. "run diagnostics on my car" and "don't run diagnostics" are not
+# a request to execute this checkout's pytest tree.
+_DIAGNOSTICS_ASK = re.compile(
+    r"(?i)(?<!n't )(?<!not )(?<!never )\brun\s+diagnostics\b(?!\s+on\b)"
+)
+
+DIAGNOSTICS = IntentSpec(
+    kind="diagnostics",
+    patterns=(_DIAGNOSTICS_ASK,),
+    expected_tools=("diagnostics",),
+    nudge=(
+        "Intent preflight: they asked to run diagnostics. "
+        "Call diagnostics now. Do not invent pass/fail counts from memory. "
+        "Allow still applies — do not ask permission in chat."
+    ),
+    schema_tools=frozenset({"diagnostics"}),
+    auto_hint=True,
+    research_extra=True,
+)
+
 CATALOG: tuple[IntentSpec, ...] = (
     WEATHER,
     RECALL,
@@ -731,6 +773,7 @@ CATALOG: tuple[IntentSpec, ...] = (
     DOCS,
     PLOT,
     SCIENCE_CATALOG,
+    DIAGNOSTICS,
 )
 
 BY_KIND: dict[str, IntentSpec] = {s.kind: s for s in CATALOG}

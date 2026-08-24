@@ -367,6 +367,19 @@ def limb_catalog_turns() -> list[ConversationTurn]:
     return [
         _shot("calc", "What is 17*19?", "calculator", {"expression": "17*19"}),
         _shot(
+            "python",
+            "How far does a ball go if I throw it from 5 m at 5 m/s at 45 degrees?",
+            "python",
+            {
+                "code": (
+                    "g=9.81; h=5; v=5; th=radians(45); "
+                    "vx=v*cos(th); vy=v*sin(th); "
+                    "a=0.5*g; disc=vy*vy+2*g*h; t=(vy+sqrt(disc))/g; "
+                    "vx*t"
+                )
+            },
+        ),
+        _shot(
             "ws_write",
             "Create hello.py with a function that returns 1",
             "workspace",

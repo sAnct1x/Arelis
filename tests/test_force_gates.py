@@ -47,7 +47,11 @@ def test_document_does_not_require_the_numeric_switch() -> None:
     """The original block did not gate document on numeric_gate. Keep that."""
     doc = next(g for g in FORCE_GATES if g.name == "document")
     assert doc.require_numeric is False
-    assert all(g.require_numeric for g in FORCE_GATES if g.name != "document")
+    assert all(
+        g.require_numeric
+        for g in FORCE_GATES
+        if g.name not in {"document", "diagnostics"}
+    )
 
 
 def test_the_evidence_filter_knows_every_dedicated_kind() -> None:
@@ -95,3 +99,20 @@ async def test_a_refusal_is_not_forced() -> None:
     fired = await apply_force_gates(_Loop(), ctx, "I don't know", refused=True)
     assert fired is None
     assert not ctx.math_nudge_used
+
+
+@pytest.mark.asyncio
+async def test_diagnostics_gate_fires_when_pytest_was_skipped() -> None:
+    ctx = TurnContext(
+        text="run diagnostics",
+        role="fast",
+        exact_need=ExactnessNeed(
+            False, False, False, False, needs_diagnostics=True
+        ),
+        tool_names={"diagnostics"},
+    )
+    first = await apply_force_gates(_Loop(), ctx, "everything is fine", refused=False)
+    assert first is not None and first.name == "diagnostics"
+    assert ctx.diagnostics_nudge_used
+    second = await apply_force_gates(_Loop(), ctx, "everything is fine", refused=False)
+    assert second is None

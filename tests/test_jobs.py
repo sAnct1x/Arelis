@@ -38,6 +38,11 @@ def _job(**kwargs) -> Job:
 TODAY = date(2026, 8, 7)  # a Friday
 
 
+def test_jobs_default_to_fast_not_research() -> None:
+    """Research stamps a page warrant. A weather briefing is not a report."""
+    assert _job().role == "fast"
+
+
 # ------------------------------------------------------------------- parsing
 
 

@@ -39,6 +39,7 @@ from collections.abc import Iterable
 from typing import Any
 
 from arelis.core.intent_catalog import (
+    DIAGNOSTICS,
     FULL_SURFACE_KINDS,
     RESEARCH,
     is_tiny_prompt_ask,
@@ -59,6 +60,7 @@ RESEARCH_TOOL_ALLOWLIST = frozenset(
         "scrape",
         "web_fetch",
         "calculator",
+        "python",
         "cas",
         "units",
         "recall",
@@ -69,7 +71,7 @@ RESEARCH_TOOL_ALLOWLIST = frozenset(
 )
 
 # Tiny schemas that exactness still needs when a turn otherwise shrinks.
-ALWAYS_ON_TOOLS = frozenset({"calculator", "cas", "units"})
+ALWAYS_ON_TOOLS = frozenset({"calculator", "python", "cas", "units"})
 
 # Fail-open unmatched chat used to keep these. The 7B then replayed the last
 # SMS draft (grocery to wife) on "how are you today?".
@@ -94,8 +96,9 @@ SKILL_TOOLS: dict[str, frozenset[str]] = {
     "attachments": frozenset(
         {"vision", "ocr", "image_edit", "doc_extract", "analyze", "workspace"}
     ),
-    "calculator": frozenset({"calculator"}),
-    "science": frozenset({"cas", "units", "calculator", "plot", "analyze", "catalog"}),
+    "calculator": frozenset({"calculator", "python"}),
+    "diagnostics": frozenset({"diagnostics"}),
+    "science": frozenset({"cas", "units", "calculator", "python", "plot", "analyze", "catalog"}),
     "clipboard": frozenset({"clipboard"}),
     "ocr": frozenset({"ocr"}),
     "agenda": frozenset({"agenda"}),
@@ -112,6 +115,7 @@ SKILL_TOOLS: dict[str, frozenset[str]] = {
             "scrape",
             "web_fetch",
             "calculator",
+            "python",
             "cas",
             "units",
             "plot",
@@ -255,6 +259,8 @@ def _without_unauthorized_sends(
             kinds = {h.kind for h in detect_intents(text, history=history)}
             if not (kinds & {"compose_email", "inbox", "email"}):
                 out.discard("send_email")
+    if "diagnostics" in out and not DIAGNOSTICS.matches(text):
+        out.discard("diagnostics")
     return out
 
 
@@ -299,6 +305,8 @@ def filter_tool_names(
         allow = set(RESEARCH_TOOL_ALLOWLIST) | _extras_for_text(text) | extra
         return {n for n in names if n in allow}
     if not skill_subset:
+        if "diagnostics" in names and not DIAGNOSTICS.matches(text):
+            names.discard("diagnostics")
         return names
     return _skill_subset(
         names,

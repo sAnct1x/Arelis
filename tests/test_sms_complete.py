@@ -744,3 +744,19 @@ def test_look_and_calendar_are_stale_sms_skips() -> None:
     assert not looks_like_stale_sms_skip(
         "text my wife: Arelis allow-deny test - please ignore"
     )
+
+
+def test_markdown_text_fence_apart_is_not_sms() -> None:
+    """SymPy dumps use ```text\\napart: … — that is not send_sms(to=apart)."""
+    from arelis.core.sms_complete import sms_intent_this_turn
+
+    blob = (
+        "I'm showing you\n"
+        "```python\nimport sympy as sp\nprint(sp.apart(f))\n```\n\n"
+        "```text\n"
+        "apart: 1 + 8/(x - 2) + 16/(x - 2)**2\n"
+        "```\n"
+    )
+    assert parse_sms_utterance(blob) is None
+    assert not sms_intent_this_turn(blob)
+    assert parse_sms_utterance("Text Brian: Running 10 minutes late") is not None

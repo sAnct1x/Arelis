@@ -64,6 +64,7 @@ CHOICE_CASES: tuple[ChoiceCase, ...] = (
     ChoiceCase("who is in my contacts?", ("contacts",)),
     ChoiceCase("what's my wife's phone number?", ("contacts",)),
     ChoiceCase("what changed in the repo since yesterday?", ("git_info",)),
+    ChoiceCase("run diagnostics", ("diagnostics",)),
     ChoiceCase(
         "read arelis/core/tool_subset.py and tell me what it does", ("workspace",)
     ),

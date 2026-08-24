@@ -57,10 +57,12 @@ _STUB_SCHEMAS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
         ),
     ),
     "calculator": (("expression",), ("expression",)),
+    "python": (("code",), ("code", "source", "script")),
     "cas": (
         ("expr",),
-        ("action", "expr", "hi", "lo", "symbol", "wrt"),
+        ("action", "expr", "hi", "lo", "n", "symbol", "wrt"),
     ),
+    "diagnostics": ((), ("suite",)),
     "units": (("action",), ("action", "name", "quantity", "to")),
     "plot": (
         (),
@@ -487,6 +489,8 @@ def foundation_registry() -> ToolRegistry:
         ("web_fetch", "read"),
         ("send_sms", "side_effect"),
         ("calculator", "read"),
+        ("python", "read"),
+        ("diagnostics", "read"),
         ("cas", "read"),
         ("units", "read"),
         ("plot", "write"),

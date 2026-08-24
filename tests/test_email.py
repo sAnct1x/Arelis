@@ -25,9 +25,11 @@ from arelis.tools.inbox import (
     _imap_date,
     _list_criteria,
     _parse_mailbox_list_line,
+    _parse_uids,
     _quote,
     extract_body,
     fill_inbox_args,
+    inbox_peek_was_empty,
 )
 
 
@@ -499,6 +501,23 @@ async def test_trash_moves_to_gmail_bin(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
+async def test_trash_accepts_bracketed_ids_from_list_output(monkeypatch) -> None:
+    tool = InboxTool(MailAccount("me@example.com", "pw"))
+    fake = _FakeMutatingImap()
+
+    def _connect(*, writable: bool = False):
+        fake.select("INBOX", readonly=not writable)
+        return fake
+
+    monkeypatch.setattr(tool, "_connect", _connect)
+    result = await tool.run(action="trash", id="[11],[10]")
+    assert result.ok, result.output
+    move = [args for cmd, args in fake.commands if cmd == "MOVE"]
+    assert move
+    assert "11,10" in str(move[0])
+
+
+@pytest.mark.asyncio
 async def test_jobs_cannot_trash_even_if_asked() -> None:
     tool = InboxTool(MailAccount("me@example.com", "pw"), allow_mutate=False)
     result = await tool.run(action="trash", id="11")
@@ -517,6 +536,28 @@ def test_fill_inbox_args_takes_ids_from_the_last_search() -> None:
     )
     assert filled["action"] == "trash"
     assert filled["id"] == "10"
+
+
+def test_parse_uids_strips_display_brackets() -> None:
+    assert _parse_uids("[44],[40],[39]") == ["44", "40", "39"]
+    assert _parse_uids("44, 40") == ["44", "40"]
+    assert _parse_uids("[44, 40, 39]") == ["44", "40", "39"]
+
+
+def test_fill_inbox_args_strips_brackets_on_a_provided_id() -> None:
+    filled = fill_inbox_args(
+        {"action": "trash", "id": "[44],[40],[39]"},
+        last_hits=[{"id": "99", "from": "x", "subject": "y"}],
+    )
+    assert filled["id"] == "44,40,39"
+
+
+def test_inbox_peek_was_empty_is_just_no_rows() -> None:
+    """A second list after 'No messages' was the empty-inbox loop."""
+    assert inbox_peek_was_empty({"messages": [], "matched": 0})
+    assert not inbox_peek_was_empty({"messages": [{"id": "1"}]})
+    assert not inbox_peek_was_empty(None)
+    assert not inbox_peek_was_empty({"matched": 0})
 
 
 def test_invisible_unicode_is_stripped_from_mail_bodies() -> None:

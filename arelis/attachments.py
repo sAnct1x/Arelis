@@ -11,7 +11,7 @@ from typing import Any
 from uuid import uuid4
 
 from arelis.history_view import history_pairs
-from arelis.paths import display_path, state_dir
+from arelis.paths import display_path, state_dir, user_data_dir
 
 MAX_ATTACHMENTS = 10
 MAX_BYTES = 25 * 1024 * 1024  # 25 MiB
@@ -210,6 +210,7 @@ def parse_attachments_from_turn(text: str) -> list[dict[str, Any]]:
         rows.append(
             {
                 "path": path,
+                "name": Path(path).name,
                 "kind": detect_kind(path),
                 "source_path": source,
             }
@@ -396,6 +397,40 @@ def _unique_dest(directory: Path, name: str) -> Path:
 
 def _rel_posix(path: Path) -> str:
     return display_path(path)
+
+
+def resolve_staged_path(stored: str) -> Path | None:
+    """Absolute file for a staged attachment path, or None if it is gone.
+
+    ``Attachment.path`` is workspace-relative posix under ``user_data_dir()``.
+    Tests and clipboard pastes may also pass an absolute path. The composer
+    rail and the sent bubble share this so they cannot disagree.
+    """
+    raw = (stored or "").strip()
+    if not raw:
+        return None
+    path = Path(raw)
+    candidates: list[Path] = []
+    if path.is_absolute():
+        candidates.append(path)
+    else:
+        candidates.append(user_data_dir() / path)
+        candidates.append(Path.cwd() / path)
+    seen: set[Path] = set()
+    for candidate in candidates:
+        try:
+            resolved = candidate.resolve()
+        except OSError:
+            continue
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        try:
+            if resolved.is_file():
+                return resolved
+        except OSError:
+            continue
+    return None
 
 
 def stage_files(

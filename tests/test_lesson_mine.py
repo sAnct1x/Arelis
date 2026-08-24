@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 from pathlib import Path
+
+import pytest
 
 from arelis.core.lesson_mine import (
     append_lessons,
@@ -134,3 +138,44 @@ def test_mine_turns_log_proposes_seeded_signatures(tmp_path: Path) -> None:
     assert written.proposed_ids
     assert set(written.already_present) == set(written.proposed_ids)
     assert written.appended_ids == ()
+
+
+@pytest.mark.asyncio
+async def test_auto_lessons_stay_quiet_when_playbook_already_covers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Covered misses belong in the log, not on the boot rail."""
+    from arelis.core.bus import EventBus
+    from arelis.core.events import EventType
+    from arelis.core.lesson_mine import MineReport
+    from arelis.llm.startup import run_auto_lessons
+
+    report = MineReport(
+        tool_fail_counts={"calculator": 11, "inbox": 2},
+        tool_ok_counts={},
+        proposed_ids=("scrape-fail-stop-loop",),
+        already_present=("scrape-fail-stop-loop",),
+        appended_ids=(),
+        lines_scanned=40,
+    )
+    monkeypatch.setattr(
+        "arelis.core.lesson_mine.mine_turns_log", lambda **kwargs: report
+    )
+    bus = EventBus()
+    seen: list[str] = []
+
+    async def collect(event) -> None:
+        if event.type == EventType.STATUS:
+            seen.append(str((event.payload or {}).get("message") or ""))
+
+    bus.subscribe(None, collect)
+    task = asyncio.create_task(bus.run())
+    try:
+        await run_auto_lessons(bus)
+        await bus.drain()
+    finally:
+        bus.stop()
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+    assert seen == []

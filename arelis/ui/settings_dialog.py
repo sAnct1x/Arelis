@@ -39,7 +39,7 @@ from arelis.ui.audio import list_audio_input_names, list_audio_output_names
 from arelis.ui.glass import GlassFrame, advance_rim_pulse, seal_tool_window
 from arelis.ui.icons import window_close_icon
 from arelis.ui.panels.memory import ActiveFactsPanel
-from arelis.ui.theme import GLASS
+from arelis.ui.theme import GLASS, polish_combo_popup
 
 
 class SettingsDialog(QDialog):
@@ -159,6 +159,7 @@ class SettingsDialog(QDialog):
 
         self.mic_combo = QComboBox()
         self.mic_combo.setObjectName("SettingsField")
+        polish_combo_popup(self.mic_combo)
         self.mic_combo.addItem("System default", "")
         for name in list_audio_input_names():
             self.mic_combo.addItem(name, name)
@@ -166,6 +167,7 @@ class SettingsDialog(QDialog):
 
         self.speaker_combo = QComboBox()
         self.speaker_combo.setObjectName("SettingsField")
+        polish_combo_popup(self.speaker_combo)
         self.speaker_combo.addItem("System default", "")
         for name in list_audio_output_names():
             self.speaker_combo.addItem(name, name)
@@ -252,6 +254,7 @@ class SettingsDialog(QDialog):
         )
         self.away_rest_min = QComboBox()
         self.away_rest_min.setObjectName("SettingsField")
+        polish_combo_popup(self.away_rest_min, compact=True)
         for mins in (30, 45, 60):
             self.away_rest_min.addItem(f"{mins} minutes", mins)
         want_min = int(away_rest_min) if away_rest_min else 45
@@ -372,6 +375,7 @@ class SettingsDialog(QDialog):
             name.setObjectName("SettingsFieldLabel")
             combo = QComboBox()
             combo.setObjectName("SettingsField")
+            polish_combo_popup(combo, compact=True)
             combo.addItem("Off", "off")
             combo.addItem("Visual", "visual")
             combo.addItem("Visual + voice", "voice")

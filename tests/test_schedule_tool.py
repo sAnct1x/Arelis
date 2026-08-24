@@ -6,7 +6,7 @@ import pytest
 
 from arelis.jobs import schedule as win
 from arelis.jobs import store as store_mod
-from arelis.tools.schedule_jobs import ScheduleTool
+from arelis.tools.schedule_jobs import ScheduleTool, build_job_from_fields
 
 
 @pytest.fixture
@@ -19,6 +19,18 @@ def jobs_path(tmp_path, monkeypatch):
     monkeypatch.setattr(win, "unregister", lambda job_id: None)
     monkeypatch.setattr(win, "run_now", lambda job_id: None)
     return path
+
+
+def test_new_jobs_default_to_fast_role() -> None:
+    job = build_job_from_fields(
+        {
+            "name": "Morning weather",
+            "prompt": "Get the forecast for Springfield, IL.",
+            "time": "9am",
+            "days": "daily",
+        }
+    )
+    assert job.role == "fast"
 
 
 @pytest.mark.asyncio

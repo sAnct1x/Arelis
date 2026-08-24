@@ -131,6 +131,7 @@ def test_look_grant_blocks_sms() -> None:
     assert "can_act=false" in notice
     assert look_call_blocked("ocr") is None
     assert look_call_blocked("calculator") is None
+    assert look_call_blocked("python") is None
     assert "ocr" in LOOK_TOOL_SUBSET
     assert "send_sms" in LOOK_NO_TRANSFER
 

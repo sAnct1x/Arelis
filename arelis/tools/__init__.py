@@ -38,6 +38,8 @@ from arelis.tools.inbox import InboxTool
 from arelis.tools.memory_tool import MemoryTool
 from arelis.tools.ocr import OcrTool
 from arelis.tools.plot import PlotTool
+from arelis.tools.python_exec import PythonTool
+from arelis.tools.diagnostics import DiagnosticsTool
 from arelis.tools.recall import RecallTool
 from arelis.tools.research_report import ResearchReportTool
 from arelis.tools.rooms_tool import RoomsTool
@@ -290,6 +292,8 @@ def build_tool_registry(
             )
         )
     registry.register(CalculatorTool())
+    registry.register(PythonTool())
+    registry.register(DiagnosticsTool())
     if tools_cfg.get("cas", {}).get("enabled", True):
         registry.register(CasTool())
     if tools_cfg.get("units", {}).get("enabled", True):

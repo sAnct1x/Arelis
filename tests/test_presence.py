@@ -104,7 +104,7 @@ async def test_attach_inbound_starts_health_without_ui(
         assert runtime.owned
         assert runtime.ingest is not None
         assert runtime.ingest.running
-        assert any("Inbound notify ready" in m for m in runtime.status_messages)
+        assert any("Phone notifications" in m for m in runtime.status_messages)
         assert probe_ingest_health(port=18765, timeout_s=1.0)
         async with httpx.AsyncClient() as client:
             resp = await client.get("http://127.0.0.1:18765/inbound/health")

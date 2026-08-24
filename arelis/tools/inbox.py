@@ -34,6 +34,9 @@ _UID_SPLIT = re.compile(r"[\s,;]+")
 INBOX_READ_ACTIONS = frozenset(
     {"list", "search", "read", "summarize", "folders"}
 )
+# list / search / summarize. After an empty peek, a second call is the
+# "is it still empty?" loop. read and folders are not that loop.
+INBOX_PEEK_ACTIONS = frozenset({"list", "search", "summarize"})
 INBOX_WRITE_ACTIONS = frozenset(
     {
         "trash",
@@ -90,8 +93,9 @@ def _inbox_schema(*, mutate: bool) -> dict[str, Any]:
             "id": {
                 "type": "string",
                 "description": (
-                    "Message id from list or search. Required for read, trash, "
-                    "archive, mark_read, mark_unread, move. Comma-separated ok."
+                    "Message id from list or search — the digits only, not the "
+                    "[brackets]. Required for read, trash, archive, mark_read, "
+                    "mark_unread, move. Comma-separated ok."
                 ),
             },
             "folder": {
@@ -148,8 +152,8 @@ def _inbox_description(*, mutate: bool) -> str:
         + " Changes need Allow: `trash` (delete is the same — Gmail Bin, not "
         "permanent), `archive` (leave Inbox), `mark_read` / `mark_unread`, "
         "`move` to a folder/label, `create_folder`. Call list or search first "
-        "and pass the id in brackets. Never claim a change without a tool "
-        "result this turn."
+        "and pass the id number (digits only; comma-separated is fine). Never "
+        "claim a change without a tool result this turn."
     )
 
 
@@ -294,7 +298,10 @@ class InboxTool:
             f"Showing {len(found)} of {match_count} {scope} "
             f"(mailbox: {total} messages, {unread} unread)."
         )
-        lines.append("Open one with inbox(action='read', id='<the number in brackets>').")
+        lines.append(
+            "Open one with inbox(action='read', id='UID') — UID is the number "
+            "shown in [brackets], without the brackets."
+        )
 
         return ToolResult(
             ok=True,
@@ -341,11 +348,13 @@ class InboxTool:
         )
 
     def _read(self, conn: imaplib.IMAP4_SSL, uid: str) -> ToolResult:
-        if not uid.isdigit():
+        parsed = _parse_uids(uid)
+        if not parsed:
             return ToolResult(
                 ok=False,
                 output="Missing or malformed id. Use the number from list or search.",
             )
+        uid = parsed[0]
         status, data = conn.uid("FETCH", uid, "(BODY.PEEK[])")
         if status != "OK" or not data or not isinstance(data[0], tuple):
             return ToolResult(ok=False, output=f"No message with id {uid}.")
@@ -446,7 +455,8 @@ class InboxTool:
         )
         lines.append(
             "Peek-only (BODY.PEEK); nothing was marked read. "
-            "Open one with inbox(action='read', id='<the number in brackets>')."
+            "Open one with inbox(action='read', id='UID') — UID is the number "
+            "shown in [brackets], without the brackets."
         )
         return ToolResult(
             ok=True,
@@ -517,8 +527,8 @@ class InboxTool:
             return ToolResult(
                 ok=False,
                 output=(
-                    "Missing id. List or search first, then pass the number "
-                    "in brackets (comma-separated is fine)."
+                    "Missing id. List or search first, then pass the id "
+                    "number (comma-separated is fine)."
                 ),
             )
         uid_blob = ",".join(uids)
@@ -584,7 +594,11 @@ def fill_inbox_args(
         action = "trash"
     if action not in {"trash", "archive", "mark_read", "mark_unread", "move"}:
         return out
-    if str(out.get("id") or "").strip():
+    raw_id = str(out.get("id") or "").strip()
+    if raw_id:
+        parsed = _parse_uids(raw_id)
+        if parsed:
+            out["id"] = ",".join(parsed)
         return out
     hits = list(last_hits or [])
     sender = str(out.get("sender") or "").strip()
@@ -606,6 +620,13 @@ def fill_inbox_args(
     if ids:
         out["id"] = ",".join(ids[:20])
     return out
+
+
+def inbox_peek_was_empty(data: object | None) -> bool:
+    """True when list/search/summarize returned no rows."""
+    if not isinstance(data, dict) or "messages" not in data:
+        return False
+    return not data.get("messages")
 
 
 def draft_inbox_mutate_args(
@@ -765,8 +786,16 @@ def _status_int(text: str, key: str) -> int:
 
 
 def _parse_uids(raw: str) -> list[str]:
+    # List/search print "[44] subject". The model copies the brackets into id.
     parts = [p for p in _UID_SPLIT.split((raw or "").strip()) if p]
-    return [p for p in parts if p.isdigit()][:20]
+    out: list[str] = []
+    for part in parts:
+        digits = "".join(ch for ch in part if ch.isdigit())
+        if digits:
+            out.append(digits)
+        if len(out) >= 20:
+            break
+    return out
 
 
 def _list_mailboxes(conn: imaplib.IMAP4_SSL) -> list[tuple[str, frozenset[str]]]:

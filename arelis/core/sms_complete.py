@@ -138,8 +138,15 @@ _FS_TO_BLOCK = frozenset(
         "sms",
         "txt",
         "text",
+        # SymPy / markdown: ```text\napart: … is not "text apart: …".
+        "apart",
+        "sympy",
+        "python",
     }
 )
+
+# Fenced listings. ```text\napart: 1+2 is a code dump, not send_sms(to=apart).
+_CODE_FENCE = re.compile(r"```[\w.+-]*\r?\n[\s\S]*?(?:```|$)")
 
 _WORKSPACE_WRITE = re.compile(
     r"(?i)\b("
@@ -713,9 +720,15 @@ def _last_sms_alias_from_history(
     return ""
 
 
+def _strip_code_fences(text: str) -> str:
+    """Drop markdown fences so language tags cannot parse as an SMS verb."""
+    return _CODE_FENCE.sub(" ", text or "")
+
+
 def parse_sms_utterance(text: str) -> SmsDraft | None:
     """Parse a single user utterance into an SMS draft (maybe incomplete)."""
     raw = _soften_caps((text or "").strip())
+    raw = _strip_code_fences(raw).strip()
     if not raw:
         return None
     # File-write phrasing that happens to contain "text" must not become SMS.

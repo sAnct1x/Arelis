@@ -21,7 +21,7 @@ from arelis.paths import user_data_dir
 
 LookAct = Literal["identify", "read", "translate", "freshness"]
 
-LOOK_TOOL_SUBSET = frozenset({"camera", "vision", "ocr", "calculator"})
+LOOK_TOOL_SUBSET = frozenset({"camera", "vision", "ocr", "calculator", "python"})
 # Short enough to stay one line in a ~220px thinking dock.
 LOOKING_STATUS = "looking (3B VL; chat unloaded)"
 LOOK_NO_TRANSFER = frozenset(

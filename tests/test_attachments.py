@@ -11,6 +11,7 @@ from arelis.attachments import (
     detect_kind,
     format_attachments_block,
     is_short_affirmation,
+    resolve_staged_path,
     route_tool,
     session_title_from_turn,
     stage_files,
@@ -18,6 +19,7 @@ from arelis.attachments import (
     wants_image_edit,
     wants_image_text,
 )
+from arelis.paths import user_data_dir
 
 
 def test_detect_kind() -> None:
@@ -211,3 +213,22 @@ def test_session_title_prefers_ask_over_attachments_block() -> None:
     assert session_title_from_turn(turn) == "describe this image to me"
     assert session_title_from_turn(block) == "Attached Beam Diagram-2.png"
     assert session_title_from_turn("hello there") == "hello there"
+
+
+def test_resolve_staged_path_relative_under_data_root() -> None:
+    rel = user_data_dir() / "data" / "drops" / "shot.png"
+    rel.parent.mkdir(parents=True, exist_ok=True)
+    rel.write_bytes(b"png")
+    assert resolve_staged_path("data/drops/shot.png") == rel.resolve()
+
+
+def test_resolve_staged_path_absolute(tmp_path: Path) -> None:
+    dest = tmp_path / "a.png"
+    dest.write_bytes(b"x")
+    assert resolve_staged_path(str(dest)) == dest.resolve()
+
+
+def test_resolve_staged_path_missing_is_none() -> None:
+    assert resolve_staged_path("data/drops/nope.png") is None
+    assert resolve_staged_path("") is None
+    assert resolve_staged_path("   ") is None

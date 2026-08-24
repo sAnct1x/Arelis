@@ -33,6 +33,7 @@ OTHER = [
     "what are my goals",
     "open youtube.com",
     "email me the weather every morning",
+    "run diagnostics",
 ]
 
 
@@ -52,3 +53,11 @@ def test_a_plain_email_is_not_other_work() -> None:
 def test_empty_is_not_other_work() -> None:
     assert not looks_like_other_work("")
     assert not looks_like_other_work("   ")
+
+
+def test_cas_and_fenced_code_are_other_work() -> None:
+    assert looks_like_other_work(
+        "what's the double integral of ((x+2)**2)/((x-2)**2)"
+    )
+    assert looks_like_other_work("```text\napart: 1 + 8/(x-2)\n```")
+    assert not looks_like_other_work("text Sam that I'm running late")

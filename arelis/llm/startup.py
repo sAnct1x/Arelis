@@ -131,11 +131,22 @@ async def run_auto_lessons(bus: EventBus, *, enabled: bool = True) -> None:
         bits.append(
             "playbook already covers: " + ", ".join(report.proposed_ids)
         )
-    if not bits:
+    # Only speak when the playbook actually grew. A covered-fail recap every
+    # boot ("calculatorx11…") reads as a live error. Keep it in the log.
+    if report.appended_ids:
+        await bus.publish(
+            Event(
+                EventType.STATUS,
+                {
+                    "message": (
+                        "Noted recent tool misses and updated the playbook."
+                    )
+                },
+            )
+        )
         return
-    await bus.publish(
-        Event(EventType.STATUS, {"message": "Trust mine — " + "; ".join(bits)})
-    )
+    if bits:
+        log.info("Trust mine — %s", "; ".join(bits))
 
 
 async def run_model_warmup(
@@ -179,12 +190,6 @@ async def _run_model_warmup(
         model = router.model_for(role)
     except RuntimeError:
         return
-    await bus.publish(
-        Event(
-            EventType.STATUS,
-            {"message": f"Warming conversation model `{model}`…"},
-        )
-    )
     try:
         await router.warm_default()
     except Exception as exc:
@@ -194,17 +199,18 @@ async def _run_model_warmup(
                 EventType.STATUS,
                 {
                     "message": (
-                        f"Could not warm `{model}` ({exc}). "
-                        "First reply may be slower until Ollama loads it."
+                        f"Could not load the chat model ({exc}). "
+                        "The first reply may be slow until Ollama has it."
                     )
                 },
             )
         )
         return
+    log.info("Chat model ready (%s)", model)
     await bus.publish(
         Event(
             EventType.STATUS,
-            {"message": f"Conversation model `{model}` ready."},
+            {"message": "Chat model ready."},
         )
     )
     if prefix is not None:
@@ -279,6 +285,6 @@ async def seed_prefix_cache(
     await bus.publish(
         Event(
             EventType.STATUS,
-            {"message": f"Context ready ({elapsed:.0f}s of prefill done up front)."},
+            {"message": "Ready for the first reply."},
         )
     )

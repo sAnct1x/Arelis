@@ -716,9 +716,12 @@ class ArelisWindow(QMainWindow):
         self._job_name = ""
         self._mail_poll_inflight = False
         self._mail_poll_at = 0.0
-        # Last thing said about each background poller, so a source that has
-        # been down for an hour is reported once rather than 120 times.
+        # Last spoken state per background poller, plus fail/ok streaks so a
+        # one-shot DNS/timeout blip does not print stopped/working/stopped.
         self._poll_state: dict[str, str] = {}
+        self._poll_fail_streak: dict[str, int] = {}
+        self._poll_ok_streak: dict[str, int] = {}
+        self._poll_spoken: dict[str, str] = {}
         self._current_role = default_role
         self._current_model = config.get("models", {}).get(default_role, "")
         self._busy_watchdog = QTimer(self)
@@ -4055,7 +4058,7 @@ class ArelisWindow(QMainWindow):
         if not self.store.delete_session(sid):
             self.chat.add_system("Could not delete that conversation.")
             return
-        self.thinking.append("conversation deleted", kind="status")
+        self.thinking.append("Conversation deleted.", kind="status")
         self._refresh_history()
         if was_active:
             asyncio.run_coroutine_threadsafe(
@@ -4414,7 +4417,7 @@ class ArelisWindow(QMainWindow):
             # Inbound listen/token belongs in thinking, not chat. A system
             # line here used to mark the thread as started and hide the orbit
             # on a cold launch the operator never typed into.
-            if str(msg).startswith("Inbound notify"):
+            if str(msg).startswith(("Inbound notify", "Phone notifications")):
                 self._inbound_banner = str(msg)
             if msg.startswith("Active project set to"):
                 self.workspace.set_active_project(self.workspace_roots.active)
@@ -5214,20 +5217,35 @@ class ArelisWindow(QMainWindow):
         self._sync_notify_surface()
 
     def _report_poll_state(self, key: str, message: str) -> None:
-        """Say a poll failure once, then stay quiet until the state changes.
+        """Speak poll failure/recovery, but ignore single-shot network blips.
 
-        These run every thirty seconds. A line per attempt would bury the rail
-        it is written to, and a line per attempt is also how a broken poller
-        teaches you to stop reading it — so only transitions speak.
+        IMAP peek fails on timeout, DNS, and unreachable-network as often as
+        the Wi-Fi hiccups. Reporting every transition taught the rail to be
+        ignored. Two consecutive failures (or two consecutive recoveries)
+        still surface; a lone blip does not.
         """
-        previous = self._poll_state.get(key, "")
-        if previous == message:
-            return
-        self._poll_state[key] = message
         if message:
-            self.thinking.append(message, kind="status")
-        elif previous:
-            self.thinking.append(f"{key} notifications are working again.", kind="status")
+            self._poll_fail_streak[key] = self._poll_fail_streak.get(key, 0) + 1
+            self._poll_ok_streak[key] = 0
+            self._poll_state[key] = message
+            if (
+                self._poll_fail_streak[key] >= 2
+                and self._poll_spoken.get(key) != "down"
+            ):
+                self._poll_spoken[key] = "down"
+                self.thinking.append(message, kind="status")
+            return
+        self._poll_ok_streak[key] = self._poll_ok_streak.get(key, 0) + 1
+        self._poll_fail_streak[key] = 0
+        self._poll_state[key] = ""
+        if (
+            self._poll_ok_streak[key] >= 2
+            and self._poll_spoken.get(key) == "down"
+        ):
+            self._poll_spoken[key] = "up"
+            self.thinking.append(
+                f"{key} notifications are working again.", kind="status"
+            )
 
     def _on_notify_poll(self) -> None:
         if self._force_quit or self._disposed:

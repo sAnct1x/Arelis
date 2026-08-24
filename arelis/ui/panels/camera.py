@@ -39,7 +39,7 @@ from arelis.spatial.types import Hand
 from arelis.spatial.video import PREVIEW_MAX_WIDTH, pick_live_format
 from arelis.ui.panels.hand_preview import HandPreview
 from arelis.ui.panels.world import make_reach_control
-from arelis.ui.theme import METRICS
+from arelis.ui.theme import METRICS, polish_combo_popup
 
 log = logging.getLogger(__name__)
 
@@ -340,6 +340,7 @@ class CameraPanel(QWidget):
         self.device_combo = QComboBox()
         self.device_combo.setObjectName("InstrumentCombo")
         self.device_combo.setFixedHeight(METRICS["row"])
+        polish_combo_popup(self.device_combo)
         self.device_combo.setMinimumWidth(140)
         self.device_combo.setToolTip("Camera device")
         self.device_combo.currentIndexChanged.connect(self._on_device_changed)

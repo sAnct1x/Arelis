@@ -169,6 +169,21 @@ def test_science_card_in_catalog() -> None:
     assert "sms" not in ids
 
 
+def test_diagnostics_card_in_catalog() -> None:
+    assert "diagnostics" in SKILL_CARDS
+    assert SKILL_CARDS["diagnostics"].requires_tool == "diagnostics"
+    ids = select_skill_ids(
+        "run diagnostics",
+        available_tools={"diagnostics", "calculator", "send_sms"},
+    )
+    assert "diagnostics" in ids
+    assert "sms" not in ids
+    assert "diagnostics" not in select_skill_ids(
+        "health check",
+        available_tools={"diagnostics", "calculator", "send_sms"},
+    )
+
+
 def test_document_card_in_catalog() -> None:
     assert "document" in SKILL_CARDS
     assert SKILL_CARDS["document"].requires_tool == "document"

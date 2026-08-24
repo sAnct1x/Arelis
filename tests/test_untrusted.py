@@ -30,6 +30,8 @@ def test_scrape_and_fetch_are_framed() -> None:
 def test_calculator_is_not_framed() -> None:
     body = "42"
     assert frame_external_tool_output("calculator", body) == body
+    assert frame_external_tool_output("python", "4.53") == "4.53"
+    assert frame_external_tool_output("diagnostics", "10 passed") == "10 passed"
     assert frame_external_tool_output("cas", "x**3/3") == "x**3/3"
     assert frame_external_tool_output("units", "1.7272 meter") == "1.7272 meter"
     assert frame_external_tool_output("plot", "Wrote outputs/plots/x.png") == (

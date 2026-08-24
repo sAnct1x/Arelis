@@ -69,16 +69,31 @@ def test_broken_calendar_poll_speaks_once_then_on_recovery(
 
     monkeypatch.setattr(app_mod, "load_today_events", lambda config=None: [])
     win._on_notify_poll()
+    assert "working again" not in win.thinking.view.toPlainText()
+    win._on_notify_poll()
     assert "calendar notifications are working again" in win.thinking.view.toPlainText()
 
 
 def test_mail_peek_failure_reaches_the_rail(arelis_window) -> None:
     win = arelis_window()
-    win._on_mail_headers(RuntimeError("Mail notifications stopped: login refused"))
-    win._on_mail_headers(RuntimeError("Mail notifications stopped: login refused"))
+    err = RuntimeError("Mail notifications stopped: login refused")
+    win._on_mail_headers(err)
+    assert "login refused" not in win.thinking.view.toPlainText()
+    win._on_mail_headers(err)
     text = win.thinking.view.toPlainText()
     assert text.count("login refused") == 1
     assert not win._mail_poll_inflight
+
+
+def test_mail_peek_flap_does_not_announce_recovery(arelis_window) -> None:
+    win = arelis_window()
+    err = RuntimeError("Mail notifications stopped: timeout")
+    win._on_mail_headers(err)
+    win._on_mail_headers(err)
+    win._on_mail_headers([])
+    assert "working again" not in win.thinking.view.toPlainText()
+    win._on_mail_headers([])
+    assert "mail notifications are working again" in win.thinking.view.toPlainText()
 
 
 def test_mail_peek_raises_instead_of_returning_nothing(

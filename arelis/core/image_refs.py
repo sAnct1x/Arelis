@@ -17,6 +17,9 @@ _PATH_MENTION = re.compile(
     r"(?:[A-Za-z]:[\\/][^\s\"'<>|]+[/\\])?"
     r"outputs[/\\]images[/\\][^\s\"'<>|]+\.(?:png|jpe?g|webp|gif)"
     r"|"
+    r"(?:[A-Za-z]:[\\/][^\s\"'<>|]+[/\\])?"
+    r"data[/\\]drops[/\\][^\s\"'<>|]+\.(?:png|jpe?g|webp|gif)"
+    r"|"
     r"[A-Za-z]:[\\/][^\s\"'<>|]+[/\\]arelis_\d+[^\s\"'<>|]*\.(?:png|jpe?g|webp|gif)"
     r")"
 )
@@ -158,6 +161,19 @@ def latest_generated_image_path(
     return latest_output_image_file(images_dir=images_dir)
 
 
+def _attachment_image_path(text: str) -> str | None:
+    """First image listed in this turn's Attachments block, if any."""
+    from arelis.attachments import parse_attachments_from_turn
+
+    for row in parse_attachments_from_turn(text or ""):
+        if str(row.get("kind") or "").lower() != "image":
+            continue
+        path = str(row.get("path") or "").strip()
+        if path:
+            return path.replace("\\", "/")
+    return None
+
+
 def fill_vision_args(
     args: dict[str, Any],
     *,
@@ -165,12 +181,16 @@ def fill_vision_args(
     fallback_path: str | None = None,
     user_text: str | None = None,
 ) -> dict[str, Any]:
-    """Fill missing vision path from camera frame or last generated image."""
+    """Fill missing vision path: this-turn paste, then camera, then last generate."""
     out = dict(args)
     if str(out.get("path") or "").strip():
         return out
     if fallback_path:
         out["path"] = fallback_path
+        return out
+    attached = _attachment_image_path(user_text or "")
+    if attached:
+        out["path"] = attached
         return out
     # Prefer an explicit path in the user turn (Ask Arelis injects one).
     from_user = path_from_text(user_text or "")

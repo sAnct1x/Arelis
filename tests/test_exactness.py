@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from arelis.core.claims import (
+    apply_research_web_need,
     answer_looks_like_ack_only,
     answer_looks_like_refusal,
     detect_agenda_ask,
@@ -13,6 +14,7 @@ from arelis.core.claims import (
     detect_catalog_ask,
     detect_doc_ask,
     detect_document_ask,
+    detect_diagnostics_ask,
     detect_exactness_need,
     detect_git_ask,
     detect_goals_ask,
@@ -96,6 +98,39 @@ def test_weather_ask_not_definitional() -> None:
     assert ask.needs_weather
     meta = detect_exactness_need("What is humidity?")
     assert not meta.needs_weather
+
+
+_MORNING_WEATHER_JOB = (
+    "Get the weather forecast for Springfield, IL and Metropolis, IL. "
+    "Summarize the current conditions and forecast for both locations, "
+    "including temperature, precipitation chance, and any notable weather "
+    "patterns. Format as a brief morning briefing."
+)
+
+
+def test_weather_job_prompt_is_weather_not_web() -> None:
+    """The 9am job is an imperative. Question-only patterns missed it."""
+    need = detect_exactness_need(_MORNING_WEATHER_JOB)
+    assert need.needs_weather
+    assert not need.needs_web_evidence
+    stamped = apply_research_web_need(need, research_mode=True)
+    assert stamped.needs_weather
+    assert not stamped.needs_web_evidence
+    assert "web" not in stamped.kinds
+
+
+def test_research_role_still_stamps_web_on_plain_asks() -> None:
+    need = detect_exactness_need("hello")
+    stamped = apply_research_web_need(need, research_mode=True)
+    assert stamped.needs_web_evidence
+    assert "web" in stamped.kinds
+    assert apply_research_web_need(need, research_mode=False) is need
+
+
+def test_weather_refusal_beats_page_warrant() -> None:
+    text = unsupported_exactness_reply(["web", "weather"])
+    assert "weather tool" in text
+    assert "retrieved page warrant" not in text
 
 
 def test_weather_force_notice_mentions_tool() -> None:
@@ -215,6 +250,8 @@ def test_integral_is_not_forced_calculator_math() -> None:
     assert "symbolic" in need.kinds
     assert not detect_cas_ask("integrate this with my calendar")
     assert detect_cas_ask("integrate x**2")
+    assert detect_cas_ask("what's the double integral of ((x+2)**2)/((x-2)**2)")
+    assert detect_vision_ask("answer the question in this photo")
 
 
 def test_units_and_constants_are_forced() -> None:
@@ -245,6 +282,21 @@ def test_document_asks_are_forced() -> None:
     assert detect_document_ask("save it as a pdf")
     assert not detect_document_ask("what does this pdf say")
     assert not detect_document_ask("What's the weather today?")
+
+
+def test_diagnostics_asks_are_forced() -> None:
+    need = detect_exactness_need("run diagnostics")
+    assert need.needs_diagnostics
+    assert "diagnostics" in need.kinds
+    assert detect_diagnostics_ask("hey arelis, run diagnostics")
+    assert not detect_diagnostics_ask("run your tests")
+    assert not detect_diagnostics_ask("self-test")
+    assert not detect_diagnostics_ask("health check")
+    assert not detect_diagnostics_ask("run diagnostic imaging")
+    assert not detect_diagnostics_ask("I ran diagnostics yesterday")
+    assert not detect_diagnostics_ask("run diagnostics on my car")
+    assert not detect_diagnostics_ask("don't run diagnostics")
+    assert not detect_diagnostics_ask("do not run diagnostics")
 
 
 def test_catalog_asks_are_forced() -> None:

@@ -5,6 +5,7 @@ from __future__ import annotations
 from arelis.core.claims import detect_exactness_need, detect_inbox_ask
 from arelis.core.intent_catalog import (
     COMPOSE_EMAIL,
+    DIAGNOSTICS,
     INBOX,
     SMS_SEND,
     WEATHER,
@@ -46,6 +47,13 @@ def test_weather_catalog_matches_preflight_and_exactness() -> None:
     assert need.needs_weather
     assert not exactness_match("weather", "What is humidity?")
     assert not detect_exactness_need("What is humidity?").needs_weather
+    job = (
+        "Get the weather forecast for Springfield, IL and Metropolis, IL. "
+        "Summarize the current conditions and forecast for both locations."
+    )
+    assert WEATHER.matches(job)
+    assert exactness_match("weather", job)
+    assert detect_exactness_need(job).needs_weather
 
 
 def test_sms_and_email_keep_full_surface() -> None:
@@ -123,3 +131,17 @@ def test_research_extras_add_inbox_on_deep_dive() -> None:
     )
     assert "inbox" in extra
     assert "send_email" in extra
+
+
+def test_diagnostics_catalog_is_phrase_only() -> None:
+    assert DIAGNOSTICS.matches("run diagnostics")
+    assert DIAGNOSTICS.matches("hey arelis, run diagnostics")
+    assert not DIAGNOSTICS.matches("run diagnostics on my car")
+    assert not DIAGNOSTICS.matches("don't run diagnostics")
+    assert any(h.kind == "diagnostics" for h in detect_intents("run diagnostics"))
+    assert not any(
+        h.kind == "diagnostics" for h in detect_intents("run diagnostics on my car")
+    )
+    extra = research_extras_for_text("run diagnostics")
+    assert "diagnostics" in extra
+    assert "diagnostics" not in research_extras_for_text("what's the weather")

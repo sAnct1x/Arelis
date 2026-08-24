@@ -38,6 +38,7 @@ EVERYDAY_TOOLS: frozenset[str] = frozenset(RESEARCH_TOOL_ALLOWLIST) | {
     "goals",
     "schedule",
     "clipboard",
+    "diagnostics",
 }
 
 
@@ -155,6 +156,15 @@ RETRIEVAL_CASES: tuple[RetrievalCase, ...] = (
         must_offer_tools=("cas", "units"),
         must_hide_tools=("send_sms",),
         notes="CAS asks must keep cas visible and not pull SMS.",
+    ),
+    RetrievalCase(
+        id="diagnostics_run",
+        user="run diagnostics",
+        must_include=("diagnostics",),
+        must_exclude=("sms",),
+        must_offer_tools=("diagnostics",),
+        must_hide_tools=("send_sms",),
+        notes="run diagnostics offers the diagnostics tool, not SMS.",
     ),
     RetrievalCase(
         id="convert_selects_science",

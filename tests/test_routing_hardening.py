@@ -917,3 +917,18 @@ def test_flatten_latex_integral() -> None:
     assert r"\[" not in out
     assert "x²" in out or "x^2" in out
     assert "∫" in out
+
+
+def test_flatten_latex_keeps_log_and_dollar_math() -> None:
+    """A $$ rewrite used to drop \\log, so 25x log(x-3) became 25x(x-3)."""
+    from arelis.ui.markdown import flatten_latex
+
+    out = flatten_latex(
+        r"$$\frac{x^{3}}{6} + 25x\log(x-3) - 75\log(x-3)$$"
+    )
+    assert "log" in out
+    assert r"\log" not in out
+    assert "x³" in out or "x^3" in out
+    dollars = flatten_latex(r"cost is $5 and $\log x$ stays math")
+    assert "$5" in dollars
+    assert "log x" in dollars

@@ -273,7 +273,8 @@ SKILL_CARDS: dict[str, SkillCard] = {
   never downloaded. Delivered mail cannot be edited — send a new message.
 - Changes need Allow: trash (delete is the same — Gmail Bin, recoverable),
   archive (leave Inbox), mark_read / mark_unread, move to a folder/label,
-  create_folder. Call list or search first, then pass the id in brackets.
+  create_folder. Call list or search first, then pass the id number (the
+  digits inside [brackets], not the brackets themselves).
   Jobs cannot change the mailbox. Never claim you deleted or moved mail
   unless a tool result this turn shows it succeeded. Confirmation without a tool is a lie.
 - For a quick triage ("what's in my inbox", "summarize my mail"), call
@@ -572,10 +573,39 @@ SKILL_CARDS: dict[str, SkillCard] = {
         requires_tool="calculator",
         body="""
 ### Calculator
-- Prefer calculator for arithmetic, percentages, and unit-style numeric math;
-  do not guess numeric results.
+- Prefer calculator for a single arithmetic expression. Do not guess numbers.
+- Scripts (assignments, import, projectile motion, named variables) use python.
+  calculator will reject those — switch to python instead of retrying.
 - This is not a CAS. Integrals, derivatives, simplify, and ODEs use cas.
   Conversions and published constants use units.
+""".strip(),
+    ),
+    "diagnostics": SkillCard(
+        id="diagnostics",
+        hints=(
+            "run diagnostics",
+        ),
+        negative_hints=(
+            "run your tests",
+            "run the tests",
+            "self-test",
+            "self test",
+            "health check",
+            "pytest",
+            "test the mic",
+            "unit test this",
+            "write a test",
+            "run diagnostics on",
+        ),
+        requires_tool="diagnostics",
+        body="""
+### Diagnostics
+- Call diagnostics only when they say to run diagnostics. Other test/health
+  wording is not this tool.
+- Do not invent pass/fail counts. After it returns, report the counts, name
+  every failed test, and say what the traces suggest. A red suite is a real
+  issue — do not call it fine.
+- diagnostics runs the full tests/ tree. It can take several minutes.
 """.strip(),
     ),
     "science": SkillCard(
@@ -588,6 +618,11 @@ SKILL_CARDS: dict[str, SkillCard] = {
             "differentiate",
             "d/dx",
             "ode",
+            "projectile",
+            "kinematics",
+            "how far will it",
+            "throw a ball",
+            "m/s",
             "dimensional analysis",
             "gravitational constant",
             "speed of light",
@@ -626,8 +661,11 @@ SKILL_CARDS: dict[str, SkillCard] = {
         requires_tool="cas",
         body="""
 ### Science (CAS, units, constants, plots, catalogs)
-- Arithmetic stays on calculator. Closed forms (integrate, diff, simplify,
-  solve, dsolve) call cas. Do not recite an antiderivative from memory.
+- Arithmetic stays on calculator. Multi-step numerics (projectile range,
+  time of flight, kinematics with named variables) call python — a real
+  Python cell with math/sympy/numpy. Do not cram a script into calculator.
+- Closed forms (integrate, diff, simplify, solve, dsolve) call cas. Do not
+  recite an antiderivative from memory.
 - Conversions and published constants call units. The tool result names the
   source year (CODATA / IAU / Planck). Do not present those as measured
   this turn.
@@ -643,6 +681,10 @@ SKILL_CARDS: dict[str, SkillCard] = {
   is catalog, not a guess.
 - Papers already on disk use doc_extract. Do not invent citations.
 - Walk the derivation; let cas check the algebra. Do not stamp homework.
+- After cas returns, copy the latex: line into $$ … $$. Do not rewrite
+  the closed form. Chat flattens TeX; garbled log/frac is a rewrite, not
+  a CAS miss. For a function of x only, n=2 is ∫∫ f(x) dx dx. A region
+  in the plane needs a y integrand and limits.
 """.strip(),
     ),
     "clipboard": SkillCard(
@@ -1242,7 +1284,7 @@ def select_skill_ids_detailed(
                 elif card_id == "location" and "user_location" not in available_tools:
                     continue
                 elif card_id == "science" and not (
-                    available_tools & {"cas", "units", "plot", "catalog"}
+                    available_tools & {"cas", "units", "plot", "catalog", "python"}
                 ):
                     continue
                 elif card_id not in {

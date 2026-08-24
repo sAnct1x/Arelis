@@ -75,6 +75,14 @@ class EvidenceLedger:
                 ok=ok,
             )
             return
+        if name == "python":
+            span = str(data.get("result") or output or "")[:200]
+            self.add(source="python", kind="calc", span=span, ok=ok)
+            return
+        if name == "diagnostics":
+            span = str(data.get("summary") or output or "")[:300]
+            self.add(source="diagnostics", kind="diagnostics", span=span, ok=ok)
+            return
         if name == "cas":
             span = str(data.get("result") or output or "")[:200]
             self.add(source="cas", kind="cas", span=span, ok=ok)
@@ -329,6 +337,8 @@ class EvidenceLedger:
                 missing.append("plot")
             elif kind == "document" and not self.has_ok("document"):
                 missing.append("document")
+            elif kind == "diagnostics" and not self.has_ok("diagnostics"):
+                missing.append("diagnostics")
             elif kind == "catalog" and not self.has_ok("catalog"):
                 missing.append("catalog")
             elif kind == "web" and not self.has_ok("web"):

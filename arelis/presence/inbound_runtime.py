@@ -148,7 +148,7 @@ def attach_inbound(
                 primary = urls.split(",")[0].strip() if urls else urls
                 if server.port == ingest_port:
                     runtime.status_messages.append(
-                        f"Inbound notify ready — Phone Notify URL: {primary}"
+                        f"Phone notifications: {primary}"
                     )
                 else:
                     runtime.status_messages.append(
@@ -174,8 +174,8 @@ def attach_inbound(
                     log.exception("Mailbox house tunnel failed to start")
         else:
             runtime.status_messages.append(
-                "Inbound notify companion needs sms.ingest_token "
-                "in data/secrets.yaml (see secrets.example.yaml)."
+                "Phone notifications need a token in data/secrets.yaml "
+                "(see secrets.example.yaml)."
             )
 
         if inbound_cfg.get("fallback_smsgate", True):

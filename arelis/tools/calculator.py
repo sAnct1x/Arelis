@@ -43,6 +43,13 @@ _SAFE_FUNCS: dict[str, Any] = {
     "ceil": math.ceil,
     "pi": math.pi,
     "e": math.e,
+    "radians": math.radians,
+    "degrees": math.degrees,
+    "asin": math.asin,
+    "acos": math.acos,
+    "atan": math.atan,
+    "atan2": math.atan2,
+    "hypot": math.hypot,
 }
 
 
@@ -51,9 +58,10 @@ class CalculatorTool:
     description = (
         "Evaluate a math expression exactly. Use for arithmetic, percentages, "
         "units of count, and simple science functions (sqrt, sin, log, …). "
-        "Pass a plain expression like '2*(3+4)' or 'sqrt(2)*pi'. This is not "
-        "a CAS — it cannot integrate, differentiate, or do symbolic algebra. "
-        "Do not guess numeric answers when this tool can compute them."
+        "Pass a plain expression like '2*(3+4)' or 'sqrt(2)*pi'. No import, no "
+        "assignments. For a Python script (projectile motion, named variables) "
+        "use the python tool. This is not a CAS — it cannot integrate or solve "
+        "symbolically. Do not guess numeric answers when this tool can compute them."
     )
     risk = "read"
     parameters_schema: dict[str, Any] = {
@@ -89,7 +97,10 @@ class CalculatorTool:
         except ZeroDivisionError:
             return ToolResult(ok=False, output="Division by zero.")
         except Exception as exc:
-            return ToolResult(ok=False, output=f"Could not evaluate: {exc}")
+            hint = _script_hint(expression)
+            return ToolResult(
+                ok=False, output=f"Could not evaluate: {exc}{hint}"
+            )
         if isinstance(value, float) and value.is_integer():
             shown: Any = int(value)
         else:
@@ -142,3 +153,20 @@ def _eval_node(node: ast.AST) -> Any:
         args = [_eval_node(a) for a in node.args]
         return fn(*args)
     raise ValueError(f"unsupported syntax: {type(node).__name__}")
+
+
+def _script_hint(expression: str) -> str:
+    """Point scripts at python instead of leaving a bare syntax error."""
+    try:
+        ast.parse(expression, mode="eval")
+        return ""
+    except SyntaxError:
+        pass
+    try:
+        ast.parse(expression, mode="exec")
+    except SyntaxError:
+        return ""
+    return (
+        " This looks like a Python script, not one expression. "
+        "Call the python tool with that code."
+    )

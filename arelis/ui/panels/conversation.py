@@ -45,7 +45,7 @@ from arelis.ui.panels.confirm import ConfirmCard
 from arelis.ui.panels.drive import DriveStrip
 from arelis.ui.panels.room import RoomStrip
 from arelis.ui.stage import paint_corner_ticks
-from arelis.ui.theme import METRICS
+from arelis.ui.theme import METRICS, polish_combo_popup
 from arelis.ui.void_idle import OrbitCanvas
 
 
@@ -209,9 +209,7 @@ class ConversationStage(GlassFrame):
             "switch to research for a deep-dive; Systems → Model shows "
             "what is hot in VRAM."
         )
-        role_view = self.role.view()
-        if role_view is not None:
-            role_view.setFixedWidth(92)
+        polish_combo_popup(self.role, compact=True)
 
         self.input = _ComposerLineEdit()
         self.input.setObjectName("ComposerInput")

@@ -56,6 +56,8 @@ def test_a_mirrored_stub_no_longer_rejects_its_own_arguments() -> None:
     for name, args in (
         ("web_search", {"query": "artemis launch date"}),
         ("calculator", {"expression": "17*19"}),
+        ("python", {"code": "print(2+2)"}),
+        ("diagnostics", {}),
         ("cas", {"action": "integrate", "expr": "x**2", "wrt": "x"}),
         ("units", {"action": "convert", "quantity": "5 ft 8 in", "to": "meter"}),
         ("plot", {"action": "line", "xs": "1,2,3", "ys": "1,4,9"}),

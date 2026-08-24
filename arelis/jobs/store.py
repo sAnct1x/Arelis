@@ -65,7 +65,7 @@ class Job:
     name: str
     prompt: str
     recipient: str = ""
-    role: str = "research"
+    role: str = "fast"
     repeat: str = "weekly"
     # One or more HH:MM. Two entries is "twice a day".
     times: list[str] = field(default_factory=lambda: ["19:00"])
@@ -154,7 +154,7 @@ def _job_from_dict(entry: dict[str, Any]) -> Job:
         name=str(entry.get("name") or entry["id"]).strip(),
         prompt=str(entry.get("prompt") or "").strip(),
         recipient=str(entry.get("recipient") or "").strip(),
-        role=str(entry.get("role") or "research").strip(),
+        role=str(entry.get("role") or "fast").strip(),
         repeat=repeat,
         times=normalize_times(raw_times),
         days=normalize_days(entry.get("days")),

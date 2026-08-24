@@ -14,8 +14,14 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from arelis.attachments import (
+    parse_attachments_from_turn,
+    resolve_staged_path,
+    split_attachments_turn,
+)
 from arelis.core.document_refs import files_in_turn
 from arelis.local_open import open_local_file, reveal_local_file
+from arelis.ui.attach_bar import ATTACH_TILE
 from arelis.ui.markdown import render_markdown
 from arelis.ui.theme import COLORS
 from arelis.ui.void_idle import OrbitIdle
@@ -219,8 +225,8 @@ class ChatPanel(QWidget):
 
         Echoing back a rendered version of someone's own message hides what they
         actually sent, which matters most for slash commands where the literal
-        characters are the whole point. Optional attachments render as chips
-        under the bubble (read-only).
+        characters are the whole point. Optional attachments render as
+        thumbnails under the bubble (read-only).
         """
         self._stop_caret()
         # If a stream is open, _close_stream finalizes it and keeps
@@ -451,7 +457,12 @@ class ChatPanel(QWidget):
             if role == "user":
                 if not content:
                     continue
-                chunks.append(_user_bubble_html(content))
+                stored = parse_attachments_from_turn(content)
+                if stored:
+                    _block, ask = split_attachments_turn(content)
+                    chunks.append(_user_bubble_html(ask, attachments=stored))
+                else:
+                    chunks.append(_user_bubble_html(content))
             elif role == "assistant":
                 if content:
                     chunks.append(_assistant_bubble_html(content))
@@ -593,6 +604,31 @@ def _esc(text: str) -> str:
     )
 
 
+def _attachment_html(item: dict[str, Any]) -> str:
+    """Thumbnail when the staged image is still on disk; otherwise the filename."""
+    name = str(item.get("name") or Path(str(item.get("path") or "")).name or "file")
+    kind = str(item.get("kind") or "")
+    found = resolve_staged_path(str(item.get("path") or ""))
+    if found is None:
+        found = resolve_staged_path(str(item.get("source_path") or ""))
+    if kind == "image" and found is not None:
+        uri = (
+            found.resolve()
+            .as_uri()
+            .replace("&", "&amp;")
+            .replace('"', "&quot;")
+            .replace("<", "&lt;")
+        )
+        return (
+            f'<img src="{uri}" height="{ATTACH_TILE}" '
+            f'style="margin:2px 0 0 4px;vertical-align:middle;" />'
+        )
+    return (
+        f'<span style="margin:2px 0 0 4px;font-size:11px;color:{_TEXT_DIM};">'
+        f"{_esc(name)}</span>"
+    )
+
+
 def _notice_html(text: str) -> str:
     return (
         f'<p style="color:{_AMBER};font-size:12px;margin:10px 8%;text-align:center;">'
@@ -615,14 +651,7 @@ def _user_bubble_html(
     body = _esc(text) if text.strip() else ""
     chips = ""
     if attachments:
-        parts: list[str] = []
-        for item in attachments:
-            name = _esc(str(item.get("name") or item.get("path") or "file"))
-            parts.append(
-                f'<span style="margin:2px 0 0 4px;padding:2px 0;'
-                f'font-size:11px;color:{_TEXT_DIM};">'
-                f"{name}</span>"
-            )
+        parts = [_attachment_html(item) for item in attachments]
         gap = "6px" if body else "0"
         chips = (
             f'<div style="margin-top:{gap};" align="right">'

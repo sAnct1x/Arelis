@@ -23,6 +23,7 @@ def test_evaluate_basic_ops() -> None:
 def test_evaluate_safe_math_names() -> None:
     assert evaluate_expression("sqrt(9)") == 3.0
     assert abs(evaluate_expression("sin(pi/2)") - 1.0) < 1e-9
+    assert abs(evaluate_expression("sin(radians(90))") - 1.0) < 1e-9
     assert evaluate_expression("abs(-3)") == 3
     assert evaluate_expression("round(2.6)") == 3
 
@@ -72,6 +73,16 @@ def test_calculator_is_always_registered(tmp_path) -> None:
     registry = build_tool_registry({"tools": {}, "agent": {}}, workspace)
     assert registry.get("calculator") is not None
     assert not registry.needs_confirm("calculator", {"expression": "1+1"})
+
+
+@pytest.mark.asyncio
+async def test_script_points_at_python() -> None:
+    tool = CalculatorTool()
+    result = await tool.run(
+        expression="import math\nv0=5\nprint(v0)"
+    )
+    assert not result.ok
+    assert "python tool" in result.output.lower()
 
 
 def test_float_near_integer_is_shown_as_int() -> None:

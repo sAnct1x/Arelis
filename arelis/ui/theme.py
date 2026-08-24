@@ -322,6 +322,47 @@ def dock_tab_bar_qss() -> str:
     """
 
 
+def polish_combo_popup(combo, *, compact: bool = False) -> None:
+    """Fill the combo popup plate. Windows leaves a black gutter otherwise.
+
+    The item view is styled; the native container and the reserved scrollbar
+    lane are not. Transparent global scrollbars then show the unstyled frame —
+    a black strip down the right of *fast* / *research*. Same fill as QMenu.
+    Two-item lists do not get a scrollbar.
+    """
+    from PySide6.QtCore import Qt
+    from PySide6.QtGui import QPalette
+    from PySide6.QtWidgets import QFrame
+
+    view = combo.view()
+    if view is None:
+        return
+    view.setObjectName("ComboPopupView")
+    view.setFrameShape(QFrame.Shape.NoFrame)
+    view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+    if compact:
+        view.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+    view.setAutoFillBackground(True)
+    view.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+    view.setAlternatingRowColors(False)
+    fill = QColor(COLORS["menu_fill"])
+    pal = view.palette()
+    pal.setColor(QPalette.ColorRole.Base, fill)
+    pal.setColor(QPalette.ColorRole.Window, fill)
+    pal.setColor(QPalette.ColorRole.AlternateBase, fill)
+    pal.setColor(QPalette.ColorRole.Highlight, QColor(COLORS["hover_strong"]))
+    pal.setColor(QPalette.ColorRole.HighlightedText, QColor(COLORS["text"]))
+    view.setPalette(pal)
+    parent = view.parentWidget()
+    if parent is not None:
+        parent.setObjectName("ComboPopup")
+        parent.setAutoFillBackground(True)
+        parent.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        parent.setPalette(pal)
+        if hasattr(parent, "setFrameShape"):
+            parent.setFrameShape(QFrame.Shape.NoFrame)
+
+
 def stylesheet() -> str:
     c = COLORS
     f = FONTS
@@ -1514,16 +1555,51 @@ def stylesheet() -> str:
         height: 8px;
     }}
     QComboBox QAbstractItemView {{
-        background-color: {c['bg2']};
-        selection-background-color: {c['selection_strong']};
+        background-color: {c['menu_fill']};
+        selection-background-color: {c['hover_strong']};
+        selection-color: {c['text']};
         color: {c['text']};
         border: 1px solid {c['edge']};
+        border-radius: 8px;
         outline: none;
-        padding: 2px;
+        padding: 4px;
+    }}
+    QComboBox QAbstractItemView::item {{
+        padding: 6px 10px;
+        min-height: 22px;
+        border-radius: 6px;
+        color: {c['text']};
+        background: transparent;
+    }}
+    QComboBox QAbstractItemView::item:selected,
+    QComboBox QAbstractItemView::item:hover {{
+        background: {c['hover_strong']};
+        color: {c['text']};
+    }}
+    #ComboPopup {{
+        background-color: {c['menu_fill']};
+        border: 1px solid {c['edge']};
+        border-radius: 10px;
+    }}
+    /* Opaque track. The global vertical bar is transparent and reads as a
+       black gutter on the unstyled popup frame. */
+    QComboBox QAbstractItemView QScrollBar:vertical {{
+        background: {c['menu_fill']};
+        width: 8px;
+        margin: 4px 2px 4px 0;
+        border: none;
+    }}
+    QComboBox QAbstractItemView QScrollBar::handle:vertical {{
+        background: {c['edge_mid']};
+        border-radius: 3px;
+        min-height: 20px;
     }}
     #RoleSelect QAbstractItemView {{
         min-width: 88px;
-        max-width: 96px;
+    }}
+    #RoleSelect QAbstractItemView QScrollBar:vertical {{
+        width: 0px;
+        background: {c['menu_fill']};
     }}
     QScrollBar:vertical {{
         background: transparent;
@@ -1573,32 +1649,51 @@ def stylesheet() -> str:
         border: 1px solid {c['edge']};
         padding: 6px 8px;
     }}
-    /* Composer furniture. These three carried their colours inline, so the
-       palette could be retuned without them and nobody would notice until the
-       chips were on screen next to something that had moved. */
-    AttachmentChip {{
-        background: {c['card_fill']};
-        border: 1px solid {c['edge']};
-        border-radius: 10px;
+    /* Composer attachment rail. Tiles paint themselves; QSS must not plate
+       them with card_fill — that read as a full-width grey slab on Windows. */
+    #AttachBar, #AttachBarScroll, #AttachBarInner, AttachmentTile {{
+        background: transparent;
+        border: none;
     }}
-    #AttachmentChipName {{
+    #AttachmentTileRemove {{
         color: {c['text']};
-        font-size: 11px;
-        background: transparent;
-    }}
-    #AttachmentChipRemove {{
-        color: {c['text_dim']};
-        font-size: 14px;
+        font-size: 12px;
         border: none;
         background: transparent;
-        padding: 0 2px;
+        padding: 0;
     }}
-    #AttachmentChipRemove:hover {{
+    #AttachmentTileRemove:hover {{
         color: {c['accent']};
-    }}
-    #AttachBarScroll {{
         background: transparent;
+    }}
+    #AttachmentTileRemoveOnPhoto {{
+        color: {c['text']};
+        font-size: 12px;
         border: none;
+        background: {c['code_fill']};
+        border-radius: 8px;
+        padding: 0;
+    }}
+    #AttachmentTileRemoveOnPhoto:hover {{
+        color: {c['accent']};
+        background: {c['plate']};
+    }}
+    #AttachBarScroll QScrollBar:horizontal {{
+        background: transparent;
+        height: 4px;
+        margin: 0;
+        border: none;
+    }}
+    #AttachBarScroll QScrollBar::handle:horizontal {{
+        background: {c['rim']};
+        min-width: 24px;
+        border-radius: 2px;
+    }}
+    #AttachBarScroll QScrollBar::add-line:horizontal,
+    #AttachBarScroll QScrollBar::sub-line:horizontal {{
+        width: 0;
+        height: 0;
+        background: transparent;
     }}
     #DropOverlay {{
         background: {c['scrim']};

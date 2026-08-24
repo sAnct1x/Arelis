@@ -78,6 +78,9 @@ class VoiceService:
         self._speak_seq = 0
         self._speak_cancelled = 0
         self._speak_lock = asyncio.Lock()
+        # Wake start and conversation-mode both call preload(). Without a lock
+        # both see "not loaded" and the rail prints Loading/Ready twice.
+        self._preload_lock = asyncio.Lock()
         # The bus dispatches handlers concurrently, so delta/retract/speak must
         # not race on the stream buffer even though Piper itself is serialized
         # under _speak_lock.
@@ -382,9 +385,7 @@ class VoiceService:
             return ""
 
         if not self.stt.loaded():
-            await self._status(
-                "Loading the speech model. The first run downloads it, which takes a minute."
-            )
+            await self._status("Loading speech recognition…")
         try:
             stt_t0 = time.perf_counter()
             text = (
@@ -433,20 +434,8 @@ class VoiceService:
 
     async def preload(self) -> None:
         """Warm the speech model and TTS so the first exchange is not the slow one."""
-        was_loaded = self.stt.loaded()
-        if self.stt_enabled and self.stt.available():
-            if not was_loaded:
-                await self._status(
-                    "Loading the speech model. The first run downloads it, which takes a minute."
-                )
-            try:
-                await self.stt.preload()
-            except Exception as exc:
-                log.warning("Speech model preload failed: %s", exc)
-                await self._status(f"Speech model preload failed: {exc}")
-            else:
-                if self.stt.loaded() and not was_loaded:
-                    await self._status("Speech model ready.")
+        async with self._preload_lock:
+            await self._preload_stt()
 
         if not self.tts_enabled:
             return
@@ -460,6 +449,21 @@ class VoiceService:
             log.warning("TTS warm-up failed: %s", exc)
         finally:
             await asyncio.to_thread(_remove, warm)
+
+    async def _preload_stt(self) -> None:
+        if not (self.stt_enabled and self.stt.available()):
+            return
+        was_loaded = self.stt.loaded()
+        if not was_loaded:
+            await self._status("Loading speech recognition…")
+        try:
+            await self.stt.preload()
+        except Exception as exc:
+            log.warning("Speech model preload failed: %s", exc)
+            await self._status(f"Speech recognition failed to load: {exc}")
+            return
+        if self.stt.loaded() and not was_loaded:
+            await self._status("Speech recognition ready.")
 
     # ----------------------------------------------------------------- misc
 
