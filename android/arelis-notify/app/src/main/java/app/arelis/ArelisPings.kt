@@ -20,7 +20,7 @@ object ArelisPings {
         mgr.createNotificationChannel(
             NotificationChannel(
                 CHANNEL,
-                "Arelis",
+                "arelis",
                 NotificationManager.IMPORTANCE_DEFAULT,
             ).apply {
                 description = "Allow cards and finished jobs. Not texts or mail."
@@ -38,7 +38,7 @@ object ArelisPings {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         val note = NotificationCompat.Builder(context, CHANNEL)
-            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setSmallIcon(R.drawable.ic_radio)
             .setContentTitle(title)
             .setContentText(body)
             .setContentIntent(open)

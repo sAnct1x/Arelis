@@ -486,6 +486,16 @@ class MemoryStore:
         self._title_set = False
         return sid
 
+    def mint_session(self, *, room_id: str = "") -> str:
+        """Create a conversation without making it this process's open seat."""
+        sid = uuid4().hex
+        self._conn.execute(
+            "INSERT INTO sessions (id, started_at, title, room_id) VALUES (?, ?, '', ?)",
+            (sid, _utc_now(), room_id or ""),
+        )
+        self._conn.commit()
+        return sid
+
     def start_glass_session(self) -> str:
         """Cold glass launch: new conversation. Last real thread stays in history.
 
@@ -556,6 +566,38 @@ class MemoryStore:
                 )
                 self._title_set = True
         self._conn.commit()
+
+    def append_to_session(
+        self, session_id: str, role: str, content: str, note: str = ""
+    ) -> bool:
+        """Write into another conversation without switching this process's seat."""
+        sid = (session_id or "").strip()
+        if not sid or self.get_session(sid) is None:
+            return False
+        row = self._conn.execute(
+            "SELECT COALESCE(MAX(ordinal), 0) AS n FROM messages WHERE session_id = ?",
+            (sid,),
+        ).fetchone()
+        ordinal = int(row["n"] if row is not None else 0) + 1
+        self._conn.execute(
+            """
+            INSERT INTO messages (session_id, role, content, note, created_at, ordinal)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (sid, role, content, note, _utc_now(), ordinal),
+        )
+        session = self.get_session(sid) or {}
+        if role == "user" and not str(session.get("title") or "").strip() and content.strip():
+            from arelis.attachments import session_title_from_turn
+
+            title = session_title_from_turn(content)
+            if title:
+                self._conn.execute(
+                    "UPDATE sessions SET title = ? WHERE id = ?",
+                    (title, sid),
+                )
+        self._conn.commit()
+        return True
 
     def on_summary(self, text: str) -> None:
         if self.session_id is None or not text:

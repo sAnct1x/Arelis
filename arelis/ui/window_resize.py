@@ -13,7 +13,7 @@ from typing import Any
 
 from PySide6.QtCore import QPoint, Qt
 from PySide6.QtGui import QCursor
-from PySide6.QtWidgets import QWidget
+from PySide6.QtWidgets import QApplication, QWidget
 
 # windll and wintypes exist only on Windows. Importing them here used to make
 # `import arelis.ui.window_resize` fail on Linux before any function ran, which
@@ -23,6 +23,24 @@ from PySide6.QtWidgets import QWidget
 
 WM_NCHITTEST = 0x0084
 WM_NCCALCSIZE = 0x0083
+
+# What WM_NCCALCSIZE hands back when wParam is TRUE.
+#
+# Returning 0 accepts the default valid-rects behaviour: Windows treats the old
+# client area as still good and blits it into the new one, then invalidates only
+# what the blit could not fill. That is a copy of the previous frame, placed at
+# the new client origin, and nothing in this window can paint over it — the
+# interior is transparent from StageBackground down, and the only widget that
+# lays down pixels is ArelisWindow itself, which Qt only repaints where it
+# believes something changed. So the smear stays, offset by however far the
+# content moved. That is the ghost.
+#
+# WVR_REDRAW says "none of the old client is valid", so the whole thing is
+# invalidated and Qt is asked to repaint it instead.
+WVR_HREDRAW = 0x0100
+WVR_VREDRAW = 0x0200
+WVR_REDRAW = WVR_HREDRAW | WVR_VREDRAW
+
 HTCLIENT = 1
 HTLEFT = 10
 HTRIGHT = 11
@@ -68,6 +86,68 @@ def detach_owned_window(widget: QWidget) -> None:
     return
 
 
+def configure_native_windows() -> None:
+    """Stop Qt promoting every sibling when one widget goes native.
+
+    Must run before QApplication is constructed. A native child under this
+    window is composited twice — once in the parent backing store, once as its
+    own HWND, offset by the child's origin. That is the ghost. This attribute
+    keeps a single winId() from cascading to the toolbar, the docks, the stage
+    and the splitters.
+    """
+    QApplication.setAttribute(
+        Qt.ApplicationAttribute.AA_DontCreateNativeWidgetSiblings, True
+    )
+
+
+def _is_top_level(widget: QWidget) -> bool:
+    """True only for a widget that already is its own window.
+
+    A QDockWidget that is floating qualifies. A docked one does not — its
+    window() is the main glass, and calling winId() on it would create a child
+    HWND.
+    """
+    try:
+        return widget.window() is widget
+    except Exception:
+        return False
+
+
+def top_level_hwnd(widget: QWidget) -> int | None:
+    """HWND of a top-level window, or None.
+
+    winId() on a child creates a native window and is how the ghost starts.
+    Callers that need an HWND for DWM, FlashWindow or WS_THICKFRAME go through
+    here so a docked panel can never be the one that is asked.
+    """
+    if not _is_top_level(widget):
+        return None
+    try:
+        hwnd = int(widget.winId())
+    except Exception:
+        return None
+    return hwnd or None
+
+
+def release_child_hwnd(widget: QWidget) -> None:
+    """Drop a child HWND so the parent paints this widget once."""
+    if _is_top_level(widget):
+        return
+    widget.setAttribute(Qt.WidgetAttribute.WA_NativeWindow, False)
+    if not widget.internalWinId():
+        return
+    handle = widget.windowHandle()
+    if handle is not None:
+        handle.destroy()
+
+
+def release_native_children(root: QWidget) -> None:
+    """Destroy every native child under root; leave top-level windows alone."""
+    release_child_hwnd(root)
+    for child in root.findChildren(QWidget):
+        release_child_hwnd(child)
+
+
 def invalidate_window_surface(widget: QWidget) -> None:
     """Force Windows to hand this window a paint before it presents it again.
 
@@ -99,9 +179,8 @@ def invalidate_window_surface(widget: QWidget) -> None:
 
     if QGuiApplication.platformName() != "windows":
         return
-    try:
-        hwnd = int(widget.winId())
-    except Exception:
+    hwnd = top_level_hwnd(widget)
+    if hwnd is None:
         return
     from ctypes import windll
 
@@ -117,9 +196,8 @@ def enable_dark_title_bar(widget: QWidget) -> None:
     """Match floating dock captions to the dark glass shell (Windows DWM)."""
     if sys.platform != "win32":
         return
-    try:
-        hwnd = int(widget.winId())
-    except Exception:
+    hwnd = top_level_hwnd(widget)
+    if hwnd is None:
         return
     from ctypes import windll
 
@@ -234,9 +312,8 @@ def enable_win32_resize_frame(widget: QWidget) -> None:
     """Add WS_THICKFRAME so Windows will deliver resize hit-tests / snap."""
     if sys.platform != "win32":
         return
-    try:
-        hwnd = int(widget.winId())
-    except Exception:
+    hwnd = top_level_hwnd(widget)
+    if hwnd is None:
         return
     from ctypes import windll
 
@@ -278,9 +355,11 @@ def handle_native_resize(
         return None
 
     if msg.message == WM_NCCALCSIZE and msg.wParam:
-        # Client area fills the window — keep the glass look with no native
-        # caption/border chrome, while WS_THICKFRAME still enables resize.
-        return True, 0
+        # Leaving rgrc[0] alone is what makes the client area fill the window:
+        # the glass keeps its look with no native caption or border, while
+        # WS_THICKFRAME still enables resize and snap. WVR_REDRAW is the part
+        # that matters for ghosting — see the constant.
+        return True, WVR_REDRAW
 
     if msg.message != WM_NCHITTEST:
         return None

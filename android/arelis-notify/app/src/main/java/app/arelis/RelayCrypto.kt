@@ -1,7 +1,7 @@
 package app.arelis
 
 import android.util.Base64
-import java.nio.ByteArrayOutputStream
+import java.io.ByteArrayOutputStream
 import javax.crypto.Cipher
 import javax.crypto.Mac
 import javax.crypto.spec.GCMParameterSpec

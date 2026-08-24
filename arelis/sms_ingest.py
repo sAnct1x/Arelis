@@ -290,6 +290,7 @@ class InboundIngestServer:
         self.mobile = MobileHub()
         self._httpd: ThreadingHTTPServer | None = None
         self._thread: threading.Thread | None = None
+        self._announce = None
         self._mobile_hooked = False
 
     @property
@@ -343,6 +344,7 @@ class InboundIngestServer:
                             # reply as our own is how one user's UI ended up
                             # attached to another user's core.
                             "instance": instance_id(),
+                            "port": server.port,
                             "auth": "required for /inbound/ping",
                         },
                     )
@@ -358,7 +360,9 @@ class InboundIngestServer:
                         self._reply(401, {"ok": False, "error": "unauthorized"})
                         return
                     if path == "/mobile/status":
-                        self._reply(200, server.mobile.status())
+                        qs = parse_qs(urlparse(self.path).query)
+                        focus = unquote((qs.get("chat") or [""])[0] or "")
+                        self._reply(200, server.mobile.status(focus=focus))
                         return
                     if path == "/mobile/chats":
                         if server.mobile.chats_fn is None:
@@ -412,7 +416,14 @@ class InboundIngestServer:
                             )
                             return
                         try:
-                            body = fn(scope, rel)
+                            try:
+                                body = fn(
+                                    scope,
+                                    rel,
+                                    unquote((qs.get("room") or [""])[0] or ""),
+                                )
+                            except TypeError:
+                                body = fn(scope, rel)
                         except PermissionError:
                             self._reply(403, {"ok": False, "error": "outside the workspace"})
                             return
@@ -557,11 +568,41 @@ class InboundIngestServer:
                 if path == "/mobile/chat":
                     action = str(data.get("action") or "").strip().lower()
                     session_id = str(data.get("id") or "").strip()
+                    steal = bool(data.get("steal"))
                     if action not in {"new", "open"}:
                         self._reply(400, {"ok": False, "error": "action must be new or open"})
                         return
                     if action == "open" and not session_id:
                         self._reply(400, {"ok": False, "error": "id required"})
+                        return
+                    if not steal:
+                        if action == "new":
+                            mint = server.mobile.mint_chat_fn
+                            if mint is None:
+                                self._reply(
+                                    503,
+                                    {
+                                        "ok": False,
+                                        "error": "Chats wait until the house is back.",
+                                    },
+                                )
+                                return
+                            try:
+                                minted = mint() or {}
+                            except Exception as exc:
+                                self._reply(500, {"ok": False, "error": str(exc)})
+                                return
+                            focus = str((minted.get("chat") or {}).get("id") or "")
+                            body = server.mobile.status(focus=focus)
+                            body["ok"] = True
+                            self._reply(200, body)
+                            return
+                        body = server.mobile.status(focus=session_id)
+                        if not (body.get("chat") or {}).get("id"):
+                            self._reply(404, {"ok": False, "error": "Could not open that chat."})
+                            return
+                        body["ok"] = True
+                        self._reply(200, body)
                         return
                     if server.mobile.busy():
                         self._reply(
@@ -647,6 +688,59 @@ class InboundIngestServer:
                             },
                         )
                         return
+                    session_id = str(data.get("session_id") or "").strip()
+                    current = str(
+                        (server.mobile.current_chat() or {}).get("id") or ""
+                    )
+                    if not session_id:
+                        mint = server.mobile.mint_chat_fn
+                        if mint is not None:
+                            try:
+                                minted = mint() or {}
+                            except Exception as exc:
+                                self._reply(500, {"ok": False, "error": str(exc)})
+                                return
+                            session_id = str((minted.get("chat") or {}).get("id") or "")
+                        else:
+                            try:
+                                result = await_session_load({"new": True})
+                            except Exception as exc:
+                                self._reply(500, {"ok": False, "error": str(exc)})
+                                return
+                            if not result.get("ok"):
+                                err = str(result.get("error") or "Could not open that chat.")
+                                self._reply(
+                                    409 if "turn" in err.lower() else 404,
+                                    {"ok": False, "error": err},
+                                )
+                                return
+                            session_id = str(
+                                (server.mobile.current_chat() or {}).get("id") or ""
+                            )
+                    foreign = bool(session_id) and session_id != current
+                    if foreign:
+                        try:
+                            fut = asyncio.run_coroutine_threadsafe(
+                                server.bus.publish(
+                                    Event(
+                                        EventType.MOBILE_SYNC,
+                                        {
+                                            "messages": normalized,
+                                            "session_id": session_id,
+                                        },
+                                    )
+                                ),
+                                server.loop,
+                            )
+                            fut.result(timeout=10)
+                        except Exception as exc:
+                            self._reply(500, {"ok": False, "error": str(exc)})
+                            return
+                        body = server.mobile.status(focus=session_id)
+                        body["ok"] = True
+                        body["copied"] = len(normalized)
+                        self._reply(200, body)
+                        return
                     if server.mobile.busy():
                         self._reply(
                             409,
@@ -656,35 +750,6 @@ class InboundIngestServer:
                             },
                         )
                         return
-                    session_id = str(data.get("session_id") or "").strip()
-                    current = str(
-                        (server.mobile.current_chat() or {}).get("id") or ""
-                    )
-                    need_new = not session_id
-                    need_open = bool(session_id) and session_id != current
-                    if need_new or need_open:
-                        try:
-                            result = await_session_load(
-                                {"new": True}
-                                if need_new
-                                else {"session_id": session_id}
-                            )
-                        except Exception as exc:
-                            self._reply(500, {"ok": False, "error": str(exc)})
-                            return
-                        if not result.get("ok") and need_open:
-                            try:
-                                result = await_session_load({"new": True})
-                            except Exception as exc:
-                                self._reply(500, {"ok": False, "error": str(exc)})
-                                return
-                        if not result.get("ok"):
-                            err = str(result.get("error") or "Could not open that chat.")
-                            self._reply(
-                                409 if "turn" in err.lower() else 404,
-                                {"ok": False, "error": err},
-                            )
-                            return
                     server.mobile.apply_sync(normalized)
                     try:
                         fut = asyncio.run_coroutine_threadsafe(
@@ -693,12 +758,7 @@ class InboundIngestServer:
                                     EventType.MOBILE_SYNC,
                                     {
                                         "messages": normalized,
-                                        "session_id": str(
-                                            (server.mobile.current_chat() or {}).get(
-                                                "id"
-                                            )
-                                            or ""
-                                        ),
+                                        "session_id": session_id or current,
                                     },
                                 )
                             ),
@@ -708,7 +768,7 @@ class InboundIngestServer:
                     except Exception as exc:
                         self._reply(500, {"ok": False, "error": str(exc)})
                         return
-                    body = server.mobile.status()
+                    body = server.mobile.status(focus=session_id or current)
                     body["ok"] = True
                     body["copied"] = len(normalized)
                     self._reply(200, body)
@@ -753,6 +813,17 @@ class InboundIngestServer:
                         self._reply(400, {"ok": False, "error": staged.errors[0]})
                         return
                     attachments = [item.as_dict() for item in staged.ok]
+                file_raw = str(data.get("file_b64") or "").strip()
+                if file_raw:
+                    from arelis.attachments import stage_bytes
+
+                    blob = decode_data_url_or_b64(file_raw)
+                    name = str(data.get("file_name") or "upload.bin")
+                    staged = stage_bytes(blob, name)
+                    if staged.errors:
+                        self._reply(400, {"ok": False, "error": staged.errors[0]})
+                        return
+                    attachments.extend(item.as_dict() for item in staged.ok)
                 audio_raw = str(data.get("audio_wav_b64") or data.get("audio_b64") or "").strip()
                 if audio_raw:
                     wav = decode_data_url_or_b64(audio_raw)
@@ -784,10 +855,44 @@ class InboundIngestServer:
                 if not text and not attachments:
                     self._reply(400, {"ok": False, "error": "empty turn"})
                     return
-                waiter = server.mobile.begin_turn_wait()
                 payload: dict[str, Any] = {"text": text, "source": "mobile"}
+                from arelis.talk_language import normalize as normalize_talk_language
+
+                lang = normalize_talk_language(data.get("language"))
+                if lang:
+                    payload["language"] = lang
+                if data.get("speak") is True:
+                    payload["speak"] = True
                 if attachments:
                     payload["attachments"] = attachments
+                session_id = str(data.get("session_id") or "").strip()
+                current = str((server.mobile.current_chat() or {}).get("id") or "")
+                restore_id = ""
+                if session_id:
+                    payload["session_id"] = session_id
+                if session_id and current and session_id != current:
+                    try:
+                        result = await_session_load(
+                            {"session_id": session_id, "silent": True}
+                        )
+                    except Exception as exc:
+                        self._reply(500, {"ok": False, "error": str(exc)})
+                        return
+                    if not result.get("ok"):
+                        err = str(result.get("error") or "Could not open that chat.")
+                        gone = "no conversation" in err.lower()
+                        self._reply(
+                            409 if "turn" in err.lower() else 404,
+                            {
+                                "ok": False,
+                                "error": "That chat is gone." if gone else err,
+                                "code": "missing_chat" if gone else "",
+                            },
+                        )
+                        return
+                    restore_id = current
+                    payload["foreign"] = True
+                waiter = server.mobile.begin_turn_wait()
                 try:
                     fut = asyncio.run_coroutine_threadsafe(
                         server.bus.publish(Event(EventType.USER_MESSAGE, payload)),
@@ -796,6 +901,11 @@ class InboundIngestServer:
                     fut.result(timeout=10)
                 except Exception as exc:
                     server.mobile.abandon_turn_wait()
+                    if restore_id:
+                        try:
+                            await_session_load({"session_id": restore_id, "silent": True})
+                        except Exception:
+                            pass
                     self._reply(500, {"ok": False, "error": str(exc)})
                     return
                 self.protocol_version = "HTTP/1.0"
@@ -820,6 +930,13 @@ class InboundIngestServer:
                         self.wfile.flush()
                 finally:
                     server.mobile.abandon_turn_wait()
+                    if restore_id:
+                        try:
+                            await_session_load(
+                                {"session_id": restore_id, "silent": True}
+                            )
+                        except Exception:
+                            log.exception("restore pc seat after phone turn failed")
 
             def _send_bytes(self, data: bytes, mime: str, name: str) -> None:
                 safe = name.replace('"', "")
@@ -864,8 +981,22 @@ class InboundIngestServer:
                 self.bus.subscribe(kind, self.mobile.observe)
             self._mobile_hooked = True
         log.info("Inbound ingest listening on http://%s:%s", self.host, self.port)
+        try:
+            from arelis.lan_announce import LanAnnouncer
+
+            self._announce = LanAnnouncer(instance=instance_id(), http_port=self.port)
+            self._announce.start()
+        except Exception:
+            log.warning("LAN announce did not start; the phone can still use stored IPs", exc_info=True)
 
     def stop(self) -> None:
+        announcer = self._announce
+        self._announce = None
+        if announcer is not None:
+            try:
+                announcer.stop()
+            except Exception:
+                pass
         httpd = self._httpd
         self._httpd = None
         thread = self._thread

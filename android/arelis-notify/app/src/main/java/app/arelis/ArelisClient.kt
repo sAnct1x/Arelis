@@ -140,9 +140,14 @@ class ArelisClient(
         return text
     }
 
-    fun status(): JSONObject {
+    fun status(focusChat: String = ""): JSONObject {
+        val url = if (focusChat.isBlank()) {
+            "$baseUrl/mobile/status"
+        } else {
+            "$baseUrl/mobile/status?chat=${URLEncoder.encode(focusChat, Charsets.UTF_8.name())}"
+        }
         val req = Request.Builder()
-            .url("$baseUrl/mobile/status")
+            .url(url)
             .header("X-Arelis-Token", token)
             .get()
             .build()
@@ -208,13 +213,14 @@ class ArelisClient(
         val (code, bytes, _) = unary(req)
         val body = String(bytes, Charsets.UTF_8)
         if (code == 503) throw IllegalStateException("Chats wait until the house is back.")
-        if (code !in 200..299) throw IllegalStateException("HTTP $code: $body")
+        if (code !in 200..299) failHouse(code, body)
         return JSONObject(body.ifBlank { "{}" })
     }
 
     fun switchChat(action: String, id: String = ""): JSONObject {
         val json = JSONObject().put("action", action)
         if (id.isNotBlank()) json.put("id", id)
+        json.put("steal", false)
         val req = Request.Builder()
             .url("$baseUrl/mobile/chat")
             .header("X-Arelis-Token", token)
@@ -228,7 +234,7 @@ class ArelisClient(
             val msg = runCatching { JSONObject(body).optString("error") }.getOrNull()
             throw IllegalStateException(msg.orEmpty().ifBlank { "Finish or stop the current turn first." })
         }
-        if (code !in 200..299) throw IllegalStateException("HTTP $code: $body")
+        if (code !in 200..299) failHouse(code, body)
         return JSONObject(body.ifBlank { "{}" })
     }
 
@@ -254,11 +260,12 @@ class ArelisClient(
         return bytes to mime.ifBlank { "application/octet-stream" }
     }
 
-    fun listFiles(scope: String, path: String): JSONObject {
+    fun listFiles(scope: String, path: String, roomId: String = ""): JSONObject {
         val qScope = URLEncoder.encode(scope, Charsets.UTF_8.name())
         val qPath = URLEncoder.encode(path, Charsets.UTF_8.name())
+        val qRoom = URLEncoder.encode(roomId, Charsets.UTF_8.name())
         val req = Request.Builder()
-            .url("$baseUrl/mobile/files?scope=$qScope&path=$qPath")
+            .url("$baseUrl/mobile/files?scope=$qScope&path=$qPath&room=$qRoom")
             .header("X-Arelis-Token", token)
             .get()
             .build()
@@ -289,11 +296,24 @@ class ArelisClient(
         text: String,
         imageJpeg: String? = null,
         audioWav: String? = null,
+        sessionId: String = "",
+        fileB64: String? = null,
+        fileName: String = "",
+        language: String = "",
+        speak: Boolean = false,
         onLine: (JSONObject) -> Unit,
     ) {
         val json = JSONObject().put("text", text)
         if (!imageJpeg.isNullOrBlank()) json.put("image_jpeg", imageJpeg)
         if (!audioWav.isNullOrBlank()) json.put("audio_wav_b64", audioWav)
+        if (!fileB64.isNullOrBlank()) {
+            json.put("file_b64", fileB64)
+            json.put("file_name", fileName.ifBlank { "upload.bin" })
+        }
+        if (sessionId.isNotBlank()) json.put("session_id", sessionId)
+        val lang = TalkLanguage.normalize(language)
+        if (lang.isNotBlank()) json.put("language", lang)
+        if (speak) json.put("speak", true)
         val payload = json.toString()
         val req = Request.Builder()
             .url("$baseUrl/mobile/turn")
@@ -312,7 +332,7 @@ class ArelisClient(
                     )
                 }
                 if (!resp.isSuccessful) {
-                    throw IllegalStateException("HTTP ${resp.code}: ${resp.body?.string().orEmpty()}")
+                    failHouse(resp.code, resp.body?.string().orEmpty())
                 }
                 val stream = resp.body?.byteStream() ?: return
                 stream.bufferedReader().use { reader ->
@@ -332,6 +352,11 @@ class ArelisClient(
     private fun pathOf(req: Request): String {
         val q = req.url.encodedQuery
         return req.url.encodedPath + if (q.isNullOrBlank()) "" else "?$q"
+    }
+
+    private fun failHouse(code: Int, body: String): Nothing {
+        if (isMissingChatFailure(code, body)) throw MissingChatException()
+        throw IllegalStateException(houseErrorMessage(code, body))
     }
 
     private fun bodyOf(req: Request): ByteArray? {

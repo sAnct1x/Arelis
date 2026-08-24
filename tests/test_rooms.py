@@ -18,6 +18,9 @@ from arelis.rooms import (
     RoomStore,
     match_enter_intent,
     match_leave_intent,
+    match_list_rooms_intent,
+    match_make_room_intent,
+    normalize_room_name,
     slugify,
 )
 
@@ -221,6 +224,7 @@ def test_slugs_stay_sayable(store: RoomStore) -> None:
     [
         "let's work on physics",
         "lets work on physics",
+        "let's work on some physics",
         "Arelis, let's work on physics",
         "hey arelis lets work on the physics room",
         "open the physics room",
@@ -256,16 +260,33 @@ def test_these_are_not(said: str) -> None:
     assert found is None or found.lower() not in {"physics", "the physics"}
 
 
-def test_the_name_still_has_to_be_a_real_room(store: RoomStore) -> None:
-    """The pattern is half of it. Resolution is the half that says no.
-
-    "let's work on the budget" is an ordinary sentence in a house with no
-    budget room, and has to stay one.
-    """
+def test_some_physics_is_the_physics_room(store: RoomStore) -> None:
     store.create("Physics")
 
+    assert normalize_room_name("some physics") == "physics"
+    assert match_enter_intent("let's work on some physics") == "physics"
+    assert store.find("some physics").id == "physics"
     assert store.find(match_enter_intent("let's work on the budget") or "") is None
     assert store.find(match_enter_intent("let's work on physics") or "").id == "physics"
+
+
+@pytest.mark.parametrize(
+    "said, name",
+    [
+        ("make a physics room", "physics"),
+        ("make me a physics room", "physics"),
+        ("create a new chemistry room", "chemistry"),
+        ("set up a room called Lab Notes", "lab notes"),
+    ],
+)
+def test_these_are_asking_to_make_a_room(said: str, name: str) -> None:
+    assert (match_make_room_intent(said) or "").lower() == name
+
+
+def test_listing_rooms_is_the_same_spoken_or_typed() -> None:
+    assert match_list_rooms_intent("list rooms")
+    assert match_list_rooms_intent("what rooms do we have")
+    assert not match_list_rooms_intent("the rooms in this house")
 
 
 @pytest.mark.parametrize(

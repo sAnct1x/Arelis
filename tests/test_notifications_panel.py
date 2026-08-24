@@ -167,3 +167,55 @@ def test_notifications_inbox_is_opaque_and_rounded(qt_app) -> None:
         inbox.hide()
         inbox.deleteLater()
         panel.deleteLater()
+
+
+def test_notify_pill_sits_above_the_room_strip(qt_app) -> None:
+    """The live pill used to land on the room plate and cover world / leave."""
+    from PySide6.QtCore import QRect
+
+    from arelis.notify.center import new_notice
+    from arelis.spatial import PHYSICS_ROOM_ID
+    from arelis.ui.panels.conversation import ConversationStage
+
+    stage = ConversationStage()
+    try:
+        stage.resize(960, 640)
+        stage.show()
+        qt_app.processEvents()
+        stage.room.set_room(
+            PHYSICS_ROOM_ID,
+            name="Physics",
+            purpose="Spatial stage. Hands and voice drive a live simulation.",
+        )
+        qt_app.processEvents()
+        notice = new_notice(kind="sms", title="Norma", body="2")
+        stage.notify_overlay.show_notice(notice, extra=2)
+        qt_app.processEvents()
+
+        overlay = stage.notify_overlay
+        room = stage.room
+        assert overlay.isVisible()
+        assert room.isVisible()
+        assert overlay.y() + overlay.height() <= room.y()
+        assert not overlay.geometry().intersects(room.geometry())
+
+        world = room.world_btn
+        assert world.isVisible()
+        world_on_stage = QRect(
+            room.mapTo(stage, world.geometry().topLeft()),
+            world.size(),
+        )
+        leave = room.leave_btn
+        leave_on_stage = QRect(
+            room.mapTo(stage, leave.geometry().topLeft()),
+            leave.size(),
+        )
+        assert not overlay.geometry().intersects(world_on_stage)
+        assert not overlay.geometry().intersects(leave_on_stage)
+
+        stage.room.set_room("")
+        qt_app.processEvents()
+        assert stage.layout().contentsMargins().top() == 14
+    finally:
+        stage.hide()
+        stage.deleteLater()

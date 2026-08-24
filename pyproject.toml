@@ -92,6 +92,11 @@ openwakeword = [
 browser = [
   "playwright>=1.40",
 ]
+# Physics-room hand tracking. Optional: the rest of Arelis does not import
+# this at startup. pip install -e ".[spatial]" on the checkout that tests it.
+spatial = [
+  "mediapipe>=0.10.9",
+]
 # The feature set the Windows installer ships, named here so that it is declared in
 # one place rather than copied into a build script. packaging/lock.py resolves this
 # and nothing else, so a dependency added to `voice` reaches the installer by being

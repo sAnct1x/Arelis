@@ -40,6 +40,20 @@ class Prefs(context: Context) {
         get() = sp.getString(KEY_RELAY, "")?.trim().orEmpty()
         set(value) = sp.edit().putString(KEY_RELAY, value.trim().trimEnd('/')).apply()
 
+    var lanUrls: List<String>
+        get() = (sp.getString(KEY_URLS, "") ?: "")
+            .split('\n')
+            .map { it.trim().trimEnd('/') }
+            .filter { it.isNotEmpty() }
+        set(value) = sp.edit().putString(
+            KEY_URLS,
+            value.map { it.trim().trimEnd('/') }.filter { it.isNotEmpty() }.distinct().joinToString("\n"),
+        ).apply()
+
+    var ingestPort: Int
+        get() = sp.getInt(KEY_INGEST_PORT, 0)
+        set(value) = sp.edit().putInt(KEY_INGEST_PORT, value).apply()
+
     var paired: Boolean
         get() = sp.getBoolean(KEY_PAIRED, false)
         set(value) = sp.edit().putBoolean(KEY_PAIRED, value).apply()
@@ -61,6 +75,16 @@ class Prefs(context: Context) {
         get() = sp.getBoolean(KEY_GEMMA_WAIT, false)
         set(value) = sp.edit().putBoolean(KEY_GEMMA_WAIT, value).apply()
 
+    /** Conversation this phone is sitting in. Not the PC's open seat. */
+    var focusChat: String
+        get() = sp.getString(KEY_FOCUS, "")?.trim().orEmpty()
+        set(value) = sp.edit().putString(KEY_FOCUS, value.trim()).apply()
+
+    /** Short code: en, zh, fr, ja, ko, es. English is the default. */
+    var talkLanguage: String
+        get() = TalkLanguage.normalize(sp.getString(KEY_LANG, TalkLanguage.DEFAULT).orEmpty())
+        set(value) = sp.edit().putString(KEY_LANG, TalkLanguage.normalize(value)).apply()
+
     companion object {
         private const val PREFS = "arelis"
         private const val KEY_URL = "base_url"
@@ -70,9 +94,13 @@ class Prefs(context: Context) {
         private const val KEY_PORT = "listen_port"
         private const val KEY_LISTEN = "listen_url"
         private const val KEY_RELAY = "relay_url"
+        private const val KEY_URLS = "lan_urls"
+        private const val KEY_INGEST_PORT = "ingest_port"
         private const val KEY_PAIRED = "paired"
         private const val KEY_ENABLED = "enabled"
         private const val KEY_GEMMA_LATER = "gemma_later"
         private const val KEY_GEMMA_WAIT = "gemma_wait_wifi"
+        private const val KEY_FOCUS = "focus_chat"
+        private const val KEY_LANG = "talk_language"
     }
 }

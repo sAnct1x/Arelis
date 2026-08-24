@@ -60,6 +60,7 @@ ALLOWED: dict[str, str] = {
     # Model and voice weights, downloaded once when a feature is first used and
     # gated behind allow_download in config.
     "github.com": "release assets for Kokoro, Silero, Sherpa, and the Ollama engine if missing",
+    "storage.googleapis.com": "MediaPipe hand_landmarker.task, once, when physics-room tracking starts",
     # Whether a newer Arelis has been published. One unauthenticated GET a day, from an
     # installed copy only, carrying nothing but a User-Agent naming the version -- which is
     # unavoidable in an update check, since asking "is there something newer than this"

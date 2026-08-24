@@ -18,6 +18,8 @@ from arelis.ui.glass import GlassFrame
 from arelis.ui.theme import GLASS
 
 _NARROW_STAGE = 720
+_PILL_AIR = 6
+_PILL_GAP = 6
 
 
 class NotifyOverlay(QWidget):
@@ -158,6 +160,7 @@ class NotifyOverlay(QWidget):
             self.reposition()
         else:
             self.hide()
+            self._sync_gutter(self.parentWidget(), 0)
 
     def collapse(self) -> None:
         was = self._expanded
@@ -182,9 +185,16 @@ class NotifyOverlay(QWidget):
         self.raise_()
         self.reposition()
 
+    def hideEvent(self, event) -> None:  # type: ignore[override]
+        self._sync_gutter(self.parentWidget(), 0)
+        super().hideEvent(event)
+
     def reposition(self) -> None:
         parent = self.parentWidget()
-        if parent is None or self.isHidden():
+        if parent is None:
+            return
+        if self.isHidden():
+            self._sync_gutter(parent, 0)
             return
         hint = self.sizeHint()
         w = max(hint.width(), self.pill.sizeHint().width() + 4)
@@ -193,14 +203,33 @@ class NotifyOverlay(QWidget):
         h = hint.height()
         margin = 12
         narrow = parent.width() < _NARROW_STAGE
-        if narrow and not self._maximized:
+        room = getattr(parent, "room", None)
+        room_open = (
+            room is not None and not room.isHidden() and self.pill.isVisible()
+        )
+        if room_open and not (narrow and not self._maximized):
+            pill_h = max(self.pill.sizeHint().height(), 28)
+            self._sync_gutter(parent, _PILL_AIR + pill_h + _PILL_GAP)
+            x = max(margin, parent.width() - w - margin)
+            y = max(_PILL_AIR, room.geometry().y() - pill_h - _PILL_GAP)
+        elif narrow and not self._maximized:
+            self._sync_gutter(parent, 0)
             x = max(margin, parent.width() - w - margin)
             y = max(margin, parent.height() - h - 72)
         else:
+            self._sync_gutter(parent, 0)
             x = max(margin, parent.width() - w - margin)
             y = margin
         self.setGeometry(x, y, w, h)
         self.raise_()
+
+    @staticmethod
+    def _sync_gutter(parent, top: int) -> None:
+        if parent is None:
+            return
+        sync = getattr(parent, "sync_notify_gutter", None)
+        if callable(sync):
+            sync(top)
 
     def sizeHint(self) -> QSize:
         if self._expanded:

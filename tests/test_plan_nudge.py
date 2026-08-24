@@ -8,6 +8,25 @@ from arelis.core.plan_nudge import (
     plan_system_message,
     select_plan,
 )
+from arelis.core.skills import select_skill_ids, select_skill_ids_detailed
+from arelis.rooms import KINDS
+
+_LEAN_TOOLS = {
+    "analyze",
+    "workspace",
+    "cas",
+    "units",
+    "calculator",
+    "plot",
+    "catalog",
+    "web_search",
+    "scrape",
+    "web_fetch",
+    "document",
+    "doc_extract",
+}
+
+_PHYSICS_ASK = "how do toroids relate to physics?"
 
 
 def test_research_plan_from_text() -> None:
@@ -275,3 +294,52 @@ def test_fail_replan_image() -> None:
     assert "Do NOT" in notice
     assert "comfyui" in notice.lower()
     assert "Ask them to start ComfyUI by hand" not in notice
+
+
+def test_room_lean_is_not_this_turn_plan() -> None:
+    """Live Aug 2026: physics room kind=analysis planned analyze on toroids.
+
+    Room extras keep tools in reach. They are not this-turn intent. Feeding
+    them to select_plan cages conceptual questions into a CSV / scrape /
+    document plan.
+    """
+    matched = select_skill_ids(_PHYSICS_ASK, available_tools=_LEAN_TOOLS)
+    assert "analyze" not in matched
+    assert select_plan(_PHYSICS_ASK, skill_ids=matched) is None
+
+    for kind, trapped in (
+        ("analysis", "analyze"),
+        ("writing", "document"),
+        ("research", "multi_web"),
+    ):
+        extras = KINDS[kind].skills
+        leaned = select_skill_ids(
+            _PHYSICS_ASK, available_tools=_LEAN_TOOLS, extra_ids=extras
+        )
+        trap = select_plan(_PHYSICS_ASK, skill_ids=leaned)
+        assert trap is not None, kind
+        assert trap.id == trapped, (kind, trap.id)
+
+
+def test_table_ask_still_plans_analyze_without_room_extras() -> None:
+    text = "summarize reports/sales.csv"
+    matched = select_skill_ids(text, available_tools=_LEAN_TOOLS)
+    assert "analyze" in matched
+    plan = select_plan(text, skill_ids=matched)
+    assert plan is not None and plan.id == "analyze"
+
+
+def test_web_fallback_is_not_a_scrape_plan() -> None:
+    """Unmatched 'what is' tags skills=web so a 9B searches instead of inventing.
+
+    That floor must not become a scrape plan. Clock asks already special-case
+    this; definitional physics was the same cage once room extras stopped
+    suppressing the fallback.
+    """
+    text = "what is a toroidal shape and how does it relate to physics?"
+    ids, fallback = select_skill_ids_detailed(text, available_tools=_LEAN_TOOLS)
+    assert fallback is True
+    assert "web" in ids
+    trap = select_plan(text, skill_ids=ids)
+    assert trap is not None and trap.id == "multi_web"
+    assert select_plan(text, skill_ids=()) is None

@@ -59,6 +59,10 @@ class WifiWatcher(private val context: Context) {
     private fun reregister() {
         val prefs = Prefs(context)
         if (!prefs.paired || !prefs.readyToTalk) return
+        if (!onWifi(context)) return
+        HouseReach.findHouse(context, prefs)?.let { found ->
+            if (found != prefs.baseUrl) HouseReach.adopt(prefs, found)
+        }
         val guessed = listenUrlFor(context, prefs.listenPort) ?: return
         if (guessed == prefs.listenUrl) return
         prefs.listenUrl = ""

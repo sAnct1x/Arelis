@@ -439,7 +439,12 @@ def select_plan(
     preflight_kinds: Sequence[str] | None = None,
     skill_ids: Sequence[str] | None = None,
 ) -> PlanSpec | None:
-    """Pick the highest-priority PlanSpec for this turn, or None."""
+    """Pick the highest-priority PlanSpec for this turn, or None.
+
+    ``skill_ids`` is this-turn classification from select_skill_ids, not a
+    room lean. Analysis-room extras include ``analyze``; feeding those in
+    here cages every sentence into a CSV plan.
+    """
     kinds = _norm_set(preflight_kinds)
     skills = _norm_set(skill_ids)
     raw = (text or "").strip()

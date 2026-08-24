@@ -10,6 +10,14 @@ fun shouldPingNotice(kind: String): Boolean = kind != "sms" && kind != "email"
 fun toggleVoiceMode(current: String, tapped: String): String =
     if (current == tapped) "off" else tapped
 
+fun pocketThreadTitle(lines: List<TalkLine>): String {
+    val lastUser = lines.lastOrNull { it.role == "user" }?.text?.trim().orEmpty()
+    return lastUser.take(48).ifBlank { "on the phone" }
+}
+
+fun sameSeat(focusId: String, houseChatId: String): Boolean =
+    focusId.isNotBlank() && houseChatId == focusId
+
 data class VoiceDraft(
     val mode: String = "off",
     val anchor: String = "",

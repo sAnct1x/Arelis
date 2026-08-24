@@ -3,7 +3,9 @@
 The phone scans a QR (or pastes the same text). That ticket carries ingest
 URLs, the ingest token, this instance id, and a short-lived pair secret.
 The phone then POSTs /inbound/pair with its radio listen URL and a device
-key. DHCP moves are a second POST with the same device key — no new QR.
+key. Phone DHCP is a second POST with the same device key — no new QR.
+PC DHCP is a LAN beacon plus stored-URL failover; the phone adopts the new
+ingest address without scanning again.
 """
 
 from __future__ import annotations
@@ -168,7 +170,7 @@ def load_companion(path: Path | None = None) -> dict[str, str] | None:
         return None
     base = str(companion.get("base_url") or "").strip()
     key = str(companion.get("device_key") or "").strip()
-    if not (base and key):
+    if not key:
         return None
     return {
         "base_url": base,
@@ -235,13 +237,12 @@ def apply_pair(
         return 200, {
             "ok": True,
             "updated": True,
-            "listen_url": listen or "",
+            "listen_url": listen or existing.get("base_url") or "",
             "talk": True,
         }
     if not pair_secret_ok(pair, path=pair_path):
         return 403, {"ok": False, "error": "pairing expired or missing"}
-    if listen:
-        save_companion(listen_url=listen, device_key=device_key, path=secrets_path)
+    save_companion(listen_url=listen or "", device_key=device_key, path=secrets_path)
     return 200, {
         "ok": True,
         "updated": False,

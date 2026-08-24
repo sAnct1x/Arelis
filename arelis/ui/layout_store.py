@@ -7,6 +7,7 @@ from PySide6.QtCore import QByteArray, QSettings, QSize
 from PySide6.QtWidgets import QMainWindow
 
 from arelis.paths import state_dir
+from arelis.spatial.scene import REACH_DEFAULT, clamp_reach
 
 _DEFAULT_CHAT_FONT_SCALE = 1.0
 _RECENT_WORKSPACE_LIMIT = 12
@@ -63,6 +64,8 @@ def save_window_layout(window: QMainWindow) -> None:
     s.setValue("always_on_top", always_on_top)
     scale = float(getattr(window, "_chat_font_scale", _DEFAULT_CHAT_FONT_SCALE))
     s.setValue("chat_font_scale", scale)
+    reach = float(getattr(window, "_world_reach", REACH_DEFAULT))
+    s.setValue("world_reach", clamp_reach(reach))
     s.sync()
 
 
@@ -117,9 +120,15 @@ def load_ui_prefs() -> dict[str, Any]:
     except (TypeError, ValueError):
         scale = _DEFAULT_CHAT_FONT_SCALE
     scale = max(0.75, min(1.75, scale))
+    raw_reach = s.value("world_reach", REACH_DEFAULT)
+    try:
+        reach = float(raw_reach)
+    except (TypeError, ValueError):
+        reach = REACH_DEFAULT
     return {
         "always_on_top": _as_bool(s.value("always_on_top", False)),
         "chat_font_scale": scale,
+        "world_reach": clamp_reach(reach),
         "away_rest": _as_bool(s.value("away_rest", False)),
         "away_rest_min": clamp_away_rest_min(
             s.value("away_rest_min", _DEFAULT_AWAY_REST_MIN)
@@ -131,6 +140,7 @@ def save_ui_prefs(
     *,
     always_on_top: bool | None = None,
     chat_font_scale: float | None = None,
+    world_reach: float | None = None,
     away_rest: bool | None = None,
     away_rest_min: int | None = None,
 ) -> None:
@@ -139,6 +149,8 @@ def save_ui_prefs(
         s.setValue("always_on_top", bool(always_on_top))
     if chat_font_scale is not None:
         s.setValue("chat_font_scale", float(chat_font_scale))
+    if world_reach is not None:
+        s.setValue("world_reach", clamp_reach(world_reach))
     if away_rest is not None:
         s.setValue("away_rest", bool(away_rest))
     if away_rest_min is not None:

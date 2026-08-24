@@ -41,6 +41,7 @@ _AUDITED: frozenset[EventType] = frozenset(
         EventType.SESSION_LOAD,
         EventType.SESSION_LOADED,
         EventType.VOICE_TRANSCRIPT,
+        EventType.PHYSICS_VERB,
         EventType.STATUS,
         EventType.MOBILE_SYNC,
     }
@@ -208,6 +209,8 @@ def _format_event(event: Event) -> str:
     elif event.type == EventType.VOICE_TRANSCRIPT:
         fields["chars"] = len(str(payload.get("text") or ""))
         fields["preview"] = _clip(str(payload.get("text") or ""), 80)
+    elif event.type == EventType.PHYSICS_VERB:
+        fields["verb"] = payload.get("verb") or "?"
     elif event.type == EventType.STATUS:
         fields["message"] = _clip(str(payload.get("message") or ""), 160)
     elif event.type == EventType.TURN_CANCEL:

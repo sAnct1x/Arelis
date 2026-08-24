@@ -80,7 +80,9 @@ the SMS. Open the window to see it.
 ## Firewall
 
 Allow inbound TCP on the ingest port (default **8765**) from your LAN if
-Windows Firewall prompts. Do not expose the port to the public internet.
+Windows Firewall prompts. UDP **18765** is optional: the PC broadcasts
+so the phone can find a new DHCP lease without a new QR. Do not expose
+either port to the public internet.
 
 ## If something else already has :8765
 
@@ -89,11 +91,11 @@ including another Arelis if two Windows accounts are signed into the
 same PC. Whichever starts first keeps it. A later one falls forward to
 `:8766`, `:8767` and so on, and says so.
 
-Scan a **new QR** from Settings → Notify rather than guessing. A
-companion still pointed at `:8765` delivers to whatever is there, which
-will not have your token, so the text is dropped with nothing to show
-you why. View → **notify url…** (Settings → Notify) always shows the
-port actually serving this Arelis.
+The phone finds the port this Arelis actually bound. A companion still
+pointed at `:8765` after a fall-forward would have hit whoever is there;
+the LAN beacon plus instance check now skip a stranger on that port.
+View → **notify url…** (Settings → Notify) still shows the port serving
+this Arelis.
 
 ## If texts feel random
 
@@ -103,8 +105,9 @@ Do these before digging in PC code:
    listeners.
 2. Notification access on for Arelis.
 3. Companion paired. Token in the QR matches `sms.ingest_token`. DHCP
-   IP drift: the app re-registers on Wi-Fi change. If it still fails,
-   scan a new QR.
+   IP drift: the phone re-registers its radio and listens for a LAN
+   beacon from this PC. Do not scan a new QR for a lease change — only
+   for a different PC or a different phone.
 4. Same LAN, not Guest Wi-Fi. Firewall TCP 8765, Private.
 5. Google Messages notifications not muted for that chat. Muted chats
    never notify, so they never bridge.
@@ -124,7 +127,7 @@ PC is back.
 | No inbound texts | Arelis still running? Paired? Same Wi-Fi? |
 | STATUS missing | `tools.sms.inbound` / `ingest` enabled. Token set. Thinking dock (`Ctrl+1`), not the orbit |
 | Companion 401 | Wrong or missing `sms.ingest_token`. New QR |
-| Companion timeout | Firewall / wrong IP. Scan Settings → Notify again |
+| Companion timeout | Firewall / wrong IP. Wait for the phone to find the LAN beacon, or open Settings → Notify if this is a new PC |
 | Pairing 409 | QR was for a different Windows account's Arelis |
 | Some texts, not others | Muted chat? Battery optimization? |
 | Updates in a thread missing | Rebuild / reinstall companion. Check log for `published=false` |

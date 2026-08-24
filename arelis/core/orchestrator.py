@@ -28,7 +28,18 @@ from arelis.core.memory import SessionMemory, tool_trace_entry, tool_trace_note
 from arelis.core.untrusted import confirm_note_after_external
 from arelis.llm.router import ModelRole, ModelRouter
 from arelis.memory.store import MemoryStore
-from arelis.rooms import Room, RoomStore, match_enter_intent, match_leave_intent
+from arelis.rooms import (
+    Room,
+    RoomStore,
+    looks_like_room_name,
+    match_enter_intent,
+    match_leave_intent,
+    match_list_rooms_intent,
+    match_make_room_intent,
+    normalize_room_name,
+)
+from arelis.spatial import PHYSICS_ROOM_ID
+from arelis.spatial.verbs import classify_physics_verb
 from arelis.tools.base import NEVER_BATCH, ToolRegistry
 from arelis.tools.confirm_copy import confirm_headline
 from arelis.tools.safety import redact_secrets
@@ -254,6 +265,13 @@ class Orchestrator:
         text = (event.payload.get("text") or "").strip()
         if not text:
             return
+        if self.rooms.active_id == PHYSICS_ROOM_ID:
+            verb = classify_physics_verb(text)
+            if verb:
+                await self.bus.publish(
+                    Event(EventType.PHYSICS_VERB, {"verb": verb, "text": text})
+                )
+                return
         conversing = bool(self.config.get("_speak_replies"))
         control_only = event.payload.get("deliver") == "control"
         if not conversing and not control_only:
@@ -390,7 +408,11 @@ class Orchestrator:
             await self.bus.publish(
                 Event(
                     EventType.SESSION_LOADED,
-                    {"ok": False, "error": "Finish or stop the current turn first."},
+                    {
+                        "ok": False,
+                        "error": "Finish or stop the current turn first.",
+                        "silent": bool(event.payload.get("silent")),
+                    },
                 )
             )
             return
@@ -399,11 +421,16 @@ class Orchestrator:
             await self.bus.publish(
                 Event(
                     EventType.SESSION_LOADED,
-                    {"ok": False, "error": "Conversation archive is not available."},
+                    {
+                        "ok": False,
+                        "error": "Conversation archive is not available.",
+                        "silent": bool(event.payload.get("silent")),
+                    },
                 )
             )
             return
 
+        silent = bool(event.payload.get("silent"))
         if event.payload.get("new"):
             session_id = store.start_session()
             self.memory.hydrate([], summary="")
@@ -416,6 +443,7 @@ class Orchestrator:
                         "messages": [],
                         "summary": "",
                         "new": True,
+                        "silent": silent,
                     },
                 )
             )
@@ -426,7 +454,11 @@ class Orchestrator:
             await self.bus.publish(
                 Event(
                     EventType.SESSION_LOADED,
-                    {"ok": False, "error": f"No conversation {session_id!r}."},
+                    {
+                        "ok": False,
+                        "error": f"No conversation {session_id!r}.",
+                        "silent": silent,
+                    },
                 )
             )
             return
@@ -449,6 +481,7 @@ class Orchestrator:
                         for row in rows
                     ],
                     "summary": summary,
+                    "silent": silent,
                 },
             )
         )
@@ -458,9 +491,21 @@ class Orchestrator:
         return sink if isinstance(sink, MemoryStore) else None
 
     async def on_mobile_sync(self, event: Event) -> None:
-        """Fold phone talk into this session. Not a turn, and not a disclaimer."""
+        """Fold phone talk into a session. Not a turn, and not a disclaimer."""
         rows = event.payload.get("messages") or []
         if not isinstance(rows, list) or not rows:
+            return
+        wanted = str(event.payload.get("session_id") or "").strip()
+        store = self._memory_store()
+        current = str(getattr(store, "session_id", "") or "") if store is not None else ""
+        if store is not None and wanted and wanted != current:
+            for row in rows:
+                if not isinstance(row, dict):
+                    continue
+                role = str(row.get("role") or "").strip().lower()
+                text = str(row.get("text") or "").strip()
+                if role in {"user", "assistant"} and text:
+                    store.append_to_session(wanted, role, text)
             return
         for row in rows:
             if not isinstance(row, dict):
@@ -536,17 +581,18 @@ class Orchestrator:
                 return
 
             # Spoken navigation, after the slash commands so a typed command
-            # always wins. Both of these only fire on a name that resolves to a
-            # room that already exists, so ordinary sentences fall through.
-            if match_leave_intent(text) and self.rooms.active is not None:
+            # always wins. Typed and spoken are the same path: enter if the
+            # room exists, create if it does not.
+            if match_leave_intent(text):
                 await self._leave_room()
                 return
-            spoken = match_enter_intent(text)
+            if match_list_rooms_intent(text):
+                await self._say(self._rooms_overview())
+                return
+            spoken = match_enter_intent(text) or match_make_room_intent(text)
             if spoken:
-                target = self.rooms.find(spoken)
-                if target is not None and target.id != self.rooms.active_id:
-                    await self._enter_room(target)
-                    return
+                await self._enter_or_create_room(spoken)
+                return
 
             from arelis.core.document_refs import (
                 latest_openable_path,
@@ -614,7 +660,11 @@ class Orchestrator:
                 turn_text = continued
 
         source = str(event.payload.get("source") or "chat")
-        await self._run_turn(turn_text, role, source=source)
+        language = str(event.payload.get("language") or "")
+        phone_speak = source == "mobile" and bool(event.payload.get("speak"))
+        await self._run_turn(
+            turn_text, role, source=source, language=language, phone_speak=phone_speak
+        )
 
     async def _ensure_external_path_grants(self, text: str) -> bool:
         """Confirm + grant each absolute path outside roots. False if user skips."""
@@ -654,13 +704,22 @@ class Orchestrator:
         return True
 
     async def _run_turn(
-        self, text: str, role: ModelRole | None, *, source: str = "chat"
+        self,
+        text: str,
+        role: ModelRole | None,
+        *,
+        source: str = "chat",
+        language: str = "",
+        phone_speak: bool = False,
     ) -> None:
         async with self._turn_lock:
             self._cancel = False
             self._pause = False
             set_paused(False)
             self._last_ask = {"text": text, "role": role, "source": source}
+            self.config["_phone_turn"] = source == "mobile"
+            self.config["_phone_speak"] = bool(phone_speak)
+            self.config["_reply_language"] = language
             stopped_ask = str((self._stopped_ask or {}).get("text") or "")
             self._stopped_ask = None
             chosen, route_reason = self.classify_role(text, role)
@@ -731,6 +790,9 @@ class Orchestrator:
                 self._turn_task = None
                 self._agent_loop = None
                 self._pause = False
+                self.config["_phone_turn"] = False
+                self.config["_phone_speak"] = False
+                self.config["_reply_language"] = ""
                 set_paused(False)
 
     async def _set_role(self, text: str) -> None:
@@ -819,7 +881,7 @@ class Orchestrator:
             await self._say(self._rooms_overview())
             return
         if verb == "new":
-            await self._create_room(rest)
+            await self._enter_or_create_room(rest)
             return
         if verb == "set":
             message = self._set_room_field(rest)
@@ -840,14 +902,7 @@ class Orchestrator:
             return
 
         wanted = f"{verb} {rest}".strip()
-        room = self.rooms.find(wanted)
-        if room is None:
-            await self._say(
-                f"No room called `{wanted}`. "
-                f"Make one with `/room new {wanted}`, or `/rooms` to see what exists."
-            )
-            return
-        await self._enter_room(room)
+        await self._enter_or_create_room(wanted)
 
     def _rooms_overview(self) -> str:
         rooms = self.rooms.all()
@@ -873,24 +928,45 @@ class Orchestrator:
             body += "\n\nEnter one with `/room <name>`."
         return body
 
-    async def _create_room(self, rest: str) -> None:
-        name = rest.strip()
+    async def _enter_or_create_room(self, wanted: str) -> None:
+        """`/room physics` and \"let's work on some physics\" are the same.
+
+        Find the room. Walk in. If there isn't one and the name is a room
+        name, make it and walk in. Already inside: say so, do not start a turn.
+        """
+        name = normalize_room_name(wanted)
         if not name:
-            await self._say("Name it: `/room new physics`.")
+            await self._say(
+                "Name it: `/room new physics`, or say \"let's work on physics\"."
+            )
             return
-        try:
-            room = self.rooms.create(name)
-        except ValueError as exc:
-            await self._say(str(exc))
+        room = self.rooms.find(name)
+        created = False
+        if room is None:
+            if not looks_like_room_name(name):
+                await self._say(
+                    f"No room called `{name}`. "
+                    f"Make one with `/room new {name}`, or `/rooms` to see what exists."
+                )
+                return
+            display = name if any(ch.isupper() for ch in name) else name.title()
+            try:
+                room = self.rooms.create(display)
+            except ValueError as exc:
+                await self._say(str(exc))
+                return
+            created = True
+        if room.id == self.rooms.active_id:
+            await self._say(f"Already in the `{room.id}` room.")
             return
-        await self._enter_room(
-            room,
-            preamble=(
+        preamble = ""
+        if created:
+            preamble = (
                 f"Made the `{room.id}` room and opened it. Tell me what it is for "
                 f"with `/room set purpose …`, and point it at a folder with "
                 f"`/room set root <project>` — `/project` lists them."
-            ),
-        )
+            )
+        await self._enter_room(room, preamble=preamble)
 
     def _set_room_field(self, rest: str) -> str:
         room = self.rooms.active

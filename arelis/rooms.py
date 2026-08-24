@@ -53,11 +53,9 @@ def _clean(value: Any) -> str:
     return " ".join(str(value or "").split())
 
 
-# Spoken ways into a room. Deliberately narrow, and never the last word: the
-# name still has to resolve to a room that exists, so "let's work on the budget"
-# with no budget room is an ordinary sentence and stays one. The alternative —
-# treating any unmatched name as a request to create — would turn a figure of
-# speech into a new room and a swapped conversation thread.
+# Spoken ways into a room. Same contract as `/room <name>`: resolve, enter
+# if it exists, create if the name is short enough to be a room and not a
+# topic. Fillers ("some", "the") are not part of the name.
 _ENTER_INTENT = re.compile(
     r"""(?ix)
     ^\s*
@@ -66,11 +64,49 @@ _ENTER_INTENT = re.compile(
         (?:let'?s|lets|i\s+want\s+to|can\s+we)\s+ (?:work|start\s+work)\s+ (?:on|in)\s+
       | (?:open|enter|go\s+to|switch\s+to|jump\s+(?:in)?to|work\s+in)\s+
     )
-    (?:the\s+)?
+    (?:(?:the|some|an?)\s+)?
     (?P<name>.+?)
     (?:\s+room)?
     \s*[.!?]?\s*$
     """
+)
+
+# `/room new physics` said out loud. Long "make me a room for …" asks stay
+# with the rooms tool so purpose and folder can still be filled in.
+_MAKE_ROOM_INTENT = re.compile(
+    r"""(?ix)
+    ^\s*
+    (?:hey\s+)? (?:arelis\s*[,:]?\s*)?
+    (?:make|create|set\s+up)
+    (?:\s+me)?
+    (?:\s+(?:a|an|the))?
+    (?:\s+new)?
+    \s+
+    (?:
+        room\s+ (?:called|named)\s+ (?P<called>.+?)
+      | (?P<named>[\w][\w\s-]{0,40}?)\s+room
+    )
+    \s*[.!?]?\s*$
+    """
+)
+
+_LIST_ROOMS_INTENT = re.compile(
+    r"""(?ix)
+    ^\s*
+    (?:hey\s+)? (?:arelis\s*[,:]?\s*)?
+    (?:
+        (?:list|show)\s+(?:the\s+)?rooms
+      | what\s+rooms\s+(?:do\s+we\s+have|are\s+there|exist)
+    )
+    \s*[.!?]?\s*$
+    """
+)
+
+_NAME_FILLERS = re.compile(r"^(?:some|a|an|the)\s+", re.IGNORECASE)
+_TRAILING_ROOM = re.compile(r"\s+room$", re.IGNORECASE)
+_TOPIC_MARKERS = re.compile(
+    r"\b(?:of|for|about|that|which|with|from|when|how)\b",
+    re.IGNORECASE,
 )
 
 _LEAVE_INTENT = re.compile(
@@ -87,13 +123,59 @@ _LEAVE_INTENT = re.compile(
 )
 
 
+def normalize_room_name(name: str) -> str:
+    """'some physics', 'the physics room' → 'physics'."""
+    cleaned = _clean(name)
+    while True:
+        stripped = _clean(_NAME_FILLERS.sub("", cleaned))
+        if stripped == cleaned:
+            break
+        cleaned = stripped
+    return _clean(_TRAILING_ROOM.sub("", cleaned))
+
+
+def looks_like_room_name(name: str) -> bool:
+    """True when this is a room to open, not a topic sentence or a file."""
+    cleaned = normalize_room_name(name)
+    if not cleaned or len(cleaned) > 48:
+        return False
+    if len(cleaned.split()) > 4:
+        return False
+    if _TOPIC_MARKERS.search(cleaned):
+        return False
+    if re.match(r"(?i)file\b", cleaned):
+        return False
+    if any(mark in cleaned for mark in (".", "/", "\\")):
+        return False
+    return True
+
+
 def match_enter_intent(text: str) -> str | None:
-    """The room name someone said, or None. The caller still has to resolve it."""
+    """The room name someone said, or None. Same as `/room <name>`."""
     found = _ENTER_INTENT.match(text or "")
     if found is None:
         return None
-    name = _clean(found.group("name"))
-    return name or None
+    name = normalize_room_name(found.group("name"))
+    if not name:
+        return None
+    if re.match(r"(?i)file\b", name) or any(mark in name for mark in (".", "/", "\\")):
+        return None
+    if _TOPIC_MARKERS.search(name):
+        return None
+    return name
+
+
+def match_make_room_intent(text: str) -> str | None:
+    """`/room new <name>` said out loud, or None."""
+    found = _MAKE_ROOM_INTENT.match(text or "")
+    if found is None:
+        return None
+    name = normalize_room_name(found.group("called") or found.group("named") or "")
+    return name if name and looks_like_room_name(name) else None
+
+
+def match_list_rooms_intent(text: str) -> bool:
+    return _LIST_ROOMS_INTENT.match(text or "") is not None
 
 
 def match_leave_intent(text: str) -> bool:
@@ -102,7 +184,12 @@ def match_leave_intent(text: str) -> bool:
 
 @dataclass(frozen=True)
 class RoomKind:
-    """A lean, not a cage. Role is a starting chip; skills bias tool choice."""
+    """A lean, not a cage.
+
+    Role is a starting chip. Skills keep those tools in reach on every
+    turn; they do not force a tool plan. Asking what a toroid is in an
+    analysis room is still a conversation.
+    """
 
     id: str
     label: str
@@ -349,11 +436,26 @@ class RoomStore:
         """Resolve what someone said to a room: id, name, or unique prefix.
 
         Spoken input arrives without punctuation and often without the exact
-        name — "physics" for "Physics Lab". An ambiguous prefix returns None
-        rather than a guess, because entering the wrong room silently swaps
-        both the thread and the folder she writes to.
+        name — "physics" for "Physics Lab", "some physics" for Physics. An
+        ambiguous prefix returns None rather than a guess, because entering
+        the wrong room silently swaps both the thread and the folder.
         """
         wanted = _clean(text).lower()
+        if not wanted:
+            return None
+        for candidate in (wanted, normalize_room_name(wanted)):
+            hit = self._lookup(candidate)
+            if hit is not None:
+                return hit
+        parts = normalize_room_name(wanted).split()
+        for n in range(min(3, len(parts) - 1), 0, -1):
+            hit = self._lookup(" ".join(parts[:n]))
+            if hit is not None:
+                return hit
+        return None
+
+    def _lookup(self, wanted: str) -> Room | None:
+        wanted = _clean(wanted).lower()
         if not wanted:
             return None
         direct = self._rooms.get(slugify(wanted))

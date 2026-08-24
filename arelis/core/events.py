@@ -26,6 +26,10 @@ class EventType(str, Enum):
     the loop knows whether the round is an answer at all: a round that ends in a
     tool call was a preamble, not a reply, and has to come back off the screen.
 
+    PHYSICS_VERB is a closed lexicon hit in the physics room (heavier,
+    freeze, undo). It mutates the live scene this frame and never starts
+    a turn. The 9B is not on this path.
+
     The voice events are a chain, not a group. VOICE_TRANSCRIPT enters the
     pipeline and the orchestrator turns it into a USER_MESSAGE. While an answer
     is streaming, ASSISTANT_DELTA also feeds the voice service: completed
@@ -99,6 +103,7 @@ class EventType(str, Enum):
     TURN_RESUME = "turn_resume"
     ERROR = "error"
     VOICE_TRANSCRIPT = "voice_transcript"
+    PHYSICS_VERB = "physics_verb"
     VOICE_SPEAK = "voice_speak"
     VOICE_AUDIO_READY = "voice_audio_ready"
     VOICE_SPEECH_DONE = "voice_speech_done"

@@ -5,20 +5,30 @@ import android.content.pm.PackageManager
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material3.Text
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
@@ -37,7 +47,7 @@ class ScanActivity : ComponentActivity() {
             .build(),
     )
     private val handled = AtomicBoolean(false)
-    private val status = mutableStateOf("Point at the QR on the PC — Settings → Notify.")
+    private val status = mutableStateOf("Point at Settings → Notify on the PC.")
 
     private val askCamera = registerForActivityResult(
         ActivityResultContracts.RequestPermission(),
@@ -48,11 +58,12 @@ class ScanActivity : ComponentActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         setContent {
             val message by status
             ArelisTheme {
-                Box(Modifier.fillMaxSize()) {
+                Box(Modifier.fillMaxSize().background(Campfire.bg0)) {
                     AndroidView(
                         modifier = Modifier.fillMaxSize(),
                         factory = { ctx ->
@@ -64,11 +75,50 @@ class ScanActivity : ComponentActivity() {
                             }
                         },
                     )
+                    Canvas(Modifier.fillMaxSize()) {
+                        val side = size.minDimension * 0.62f
+                        val left = (size.width - side) / 2f
+                        val top = (size.height - side) / 2f
+                        val scrim = Color(0x99160D07)
+                        drawRect(scrim, Offset(0f, 0f), Size(size.width, top))
+                        drawRect(
+                            scrim,
+                            Offset(0f, top + side),
+                            Size(size.width, size.height - top - side),
+                        )
+                        drawRect(scrim, Offset(0f, top), Size(left, side))
+                        drawRect(
+                            scrim,
+                            Offset(left + side, top),
+                            Size(size.width - left - side, side),
+                        )
+                        val len = side * 0.16f
+                        val c = Color(0xFFFF7A22)
+                        val stroke = 7f
+                        fun corner(x: Float, y: Float, dx: Float, dy: Float) {
+                            drawLine(c, Offset(x, y), Offset(x + dx * len, y), strokeWidth = stroke, cap = StrokeCap.Round)
+                            drawLine(c, Offset(x, y), Offset(x, y + dy * len), strokeWidth = stroke, cap = StrokeCap.Round)
+                        }
+                        corner(left, top, 1f, 1f)
+                        corner(left + side, top, -1f, 1f)
+                        corner(left, top + side, 1f, -1f)
+                        corner(left + side, top + side, -1f, -1f)
+                    }
+                    GhostLink(
+                        "← back",
+                        onClick = { finish() },
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .statusBarsPadding()
+                            .padding(18.dp),
+                    )
                     Text(
                         text = message,
                         color = Campfire.accent2,
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
+                            .fillMaxWidth()
+                            .navigationBarsPadding()
                             .padding(24.dp),
                     )
                 }

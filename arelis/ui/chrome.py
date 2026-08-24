@@ -35,6 +35,7 @@ class TitleBar(QWidget):
     """Frameless window chrome that matches the glass shell."""
 
     view_menu_requested = Signal(object)  # emits the view button for QMenu.exec
+    rooms_menu_requested = Signal(object)  # emits the rooms button for QMenu.exec
     settings_requested = Signal()
 
     def __init__(self, parent=None) -> None:
@@ -58,6 +59,15 @@ class TitleBar(QWidget):
         self.view_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.view_btn.clicked.connect(lambda: self.view_menu_requested.emit(self.view_btn))
         layout.addWidget(self.view_btn)
+
+        self.rooms_btn = QToolButton()
+        self.rooms_btn.setObjectName("ChromeRoomsBtn")
+        self.rooms_btn.setText("rooms")
+        self.rooms_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.rooms_btn.clicked.connect(
+            lambda: self.rooms_menu_requested.emit(self.rooms_btn)
+        )
+        layout.addWidget(self.rooms_btn)
 
         self.settings_btn = QToolButton()
         self.settings_btn.setObjectName("ChromeSettingsBtn")

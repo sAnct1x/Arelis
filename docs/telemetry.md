@@ -16,6 +16,8 @@ Nothing here is sent anywhere.
 | App crash, IMAP, router, indexer exceptions | `logs/arelis.log` |
 | Scheduled job mail digest | `logs/jobs.log` |
 | Conversation mic stuck | `logs/voice.log` (wake decisions always. The rest needs `voice.debug: true`) |
+| Did that chat turn re-prefill the whole prompt? | `logs/turns.jsonl` → `model_prefill_ms`, `prompt_eval_count` |
+| World plate / hands hitch | Overlay FPS. Take jsonl under `outputs/physics/takes/` |
 
 ## Files
 
@@ -55,3 +57,5 @@ when ids do not join: `id=` (turn), `session=`, `span=` (STT), `eid=`
 - Full assistant token streams (thinking dock only. `events.log` keeps a
   240-char preview on ASSISTANT_DONE)
 - Entire tool result bodies (400-char preview in `events.log`)
+- Pose and World-plate motion (not a chat turn; only take jsonl + overlay FPS)
+- Phone Gemma latency while the house is away

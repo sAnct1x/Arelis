@@ -17,6 +17,7 @@ from arelis.core.agent_loop import AgentLoop
 from arelis.core.bus import EventBus
 from arelis.core.memory import SessionMemory
 from arelis.rooms import RoomStore
+from arelis.tools.analyze import AnalyzeTool
 from arelis.tools.base import ToolRegistry
 from arelis.tools.calculator import CalculatorTool
 from arelis.tools.code_workspace import CodeWorkspaceTool
@@ -200,3 +201,32 @@ def test_make_me_a_room_for_topic_expects_rooms() -> None:
     assert "rooms" in ids
     assert not looks_like_room_create("make room in the suitcase")
     assert not looks_like_room_create("the living room needs paint")
+
+
+@pytest.mark.asyncio
+async def test_analysis_room_does_not_plan_analyze_on_a_physics_question(
+    tmp_path: Path,
+) -> None:
+    """kind=analysis leans analyze. It must not cage a conceptual ask."""
+    rooms = RoomStore(tmp_path / "rooms.yaml")
+    rooms.create(
+        "Physics",
+        purpose="Working through the survey and the theory behind it.",
+        kind="analysis",
+    )
+    rooms.set_active("physics")
+    recorder = _Recorder()
+    loop = _loop(rooms, recorder)
+    loop.tools.register(AnalyzeTool([str(tmp_path)]))
+
+    await loop.run("how do toroids relate to physics?", "fast")
+
+    text = _system_text(recorder)
+    assert "Room — Physics" in text
+    assert "Call analyze" not in text
+    assert "named table/CSV" not in text
+
+    recorder.seen.clear()
+    await loop.run("summarize the columns in data/sales.csv", "fast")
+    follow = _system_text(recorder)
+    assert "Call analyze" in follow

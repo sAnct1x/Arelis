@@ -18,6 +18,12 @@ second, unrelated job: classifying what a turn is about. tool_subset, plan_nudge
 and lessons all ask it, and none of them are building a prompt. Read it as an
 intent signal, not as prompt assembly.
 
+``extra_ids`` is the one exception, and it is a trap: that list is a *room
+lean* (keep analyze/cas in reach), not this-turn intent. tool_subset already
+applies it on its own. Callers that classify the turn — plan_nudge, lessons,
+project-context, chat fast-path — must not pass extra_ids, or an analysis
+room will demand a CSV on a conceptual physics question.
+
 Selection is weighted (phrases over tokens, generic landmines demoted, negative
 hints veto a card). Unmatched turns fail open in tool_subset — see
 ``select_skill_ids_detailed``, which reports the difference between a card that
@@ -799,16 +805,19 @@ SKILL_CARDS: dict[str, SkillCard] = {
 - A room is a named place for one long-running piece of work. It keeps its own
   conversation thread, points at one workspace project, and gives you its
   purpose at the start of every turn inside it.
-- When the user asks for a room, or for a dedicated space for a project, call
-  rooms(action=create). Fill purpose and root from what they already said —
-  do not make them repeat it. Ask only for what is genuinely missing.
+- Walking in is not your job. "Let's work on physics", "open the physics room",
+  and `/room physics` are handled before the turn — they enter an existing
+  room or make one. Do not call rooms(action=create) for that, and never
+  create a room that already exists.
+- When they ask for a configured room (purpose, folder, kind in the same
+  sentence), call rooms(action=create) and fill those fields from what they
+  already said. Ask only for what is genuinely missing.
 - purpose is written for you to read later. Say what the work is and what a
   good answer in this room looks like, in a sentence or two.
 - root must be an existing workspace project name. If you are not sure one
   exists, check before guessing; a wrong root silently points the room at the
   wrong folder.
-- You cannot enter a room yourself. After creating one, tell the user to say
-  "let's work on <name>" or type /room <name>.
+- You cannot enter a room from this tool. Navigation already did, or will.
 """.strip(),
     ),
     "schedule": SkillCard(
@@ -1152,7 +1161,11 @@ def select_skill_ids(
     max_cards: int = 4,
     extra_ids: list[str] | tuple[str, ...] | None = None,
 ) -> list[str]:
-    """Pick skill cards for this user turn (order = priority)."""
+    """Pick skill cards for this user turn (order = priority).
+
+    ``extra_ids`` prepends a room lean for tool_subset. Do not pass that
+    merged list to select_plan — lean is not this-turn intent.
+    """
     return select_skill_ids_detailed(
         text,
         available_tools=available_tools,

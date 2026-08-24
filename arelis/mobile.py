@@ -33,10 +33,15 @@ NOTICE_LIMIT = 20
 GLANCE_MAX_BYTES = 8 * 1024 * 1024
 TURN_WAIT_S = 600
 PHONE_PERSONA_TAIL = (
-    "You are on the phone, not at the house. You can talk and look at a photo "
-    "the person just took. You cannot send mail, send texts, open PC files, or "
-    "use tools. If they ask for those, say you will do it when the house is back. "
-    "Do not pretend you already did."
+    "You are Arelis (ah-REL-is), the user's local assistant. You are not Gemini, "
+    "ChatGPT, Claude, Grok, or a generic Google chatbot. Do not say you were "
+    "trained by Google or that you have no model name. "
+    "Right now you are on the phone. The on-phone brain is Gemma 4 E2B, running "
+    "locally on this device. You can talk, keep this chat, and look at a photo "
+    "they attach. You cannot send mail, send texts, open PC files, or use tools "
+    "until the house (the PC) is back. If they ask what you can do, split it: on "
+    "the phone = talk and photos; at the house = files, mail, web, and tools. Do "
+    "not pretend you already did house work from here."
 )
 
 GlanceKind = str  # "image" | "file"
@@ -94,14 +99,22 @@ class MobileHub:
         self.session_fn: Callable[[], bool] | None = None
         self.transcribe_fn: Callable[[Path], str] | None = None
         self.persona_fn: Callable[[], str] | None = None
-        self.files_fn: Callable[[str, str], dict[str, Any]] | None = None
+        self.files_fn: Callable[..., dict[str, Any]] | None = None
         self.open_fn: Callable[[str], tuple[bytes, str, str] | None] | None = None
         self.place_fn: Callable[[], dict[str, Any]] | None = None
         self.chats_fn: Callable[[], list[dict[str, Any]]] | None = None
         self.current_chat_fn: Callable[[], dict[str, Any]] | None = None
+        self.view_chat_fn: Callable[[str], dict[str, Any] | None] | None = None
+        self.mint_chat_fn: Callable[[], dict[str, Any] | None] | None = None
+        self.speak_fn: Callable[[str], bytes | None] | None = None
         self._turn_q: queue.Queue[dict[str, Any] | None] | None = None
         self._turn_lock = threading.Lock()
         self._load_q: queue.Queue[dict[str, Any] | None] | None = None
+        self._turn_session_id = ""
+        self._turn_foreign = False
+        self._turn_speak = False
+        self._turn_language = ""
+        self._confirm_session_id = ""
 
     def bind(
         self,
@@ -112,11 +125,14 @@ class MobileHub:
         session_ready: Callable[[], bool] | None = None,
         transcribe: Callable[[Path], str] | None = None,
         persona: Callable[[], str] | None = None,
-        files: Callable[[str, str], dict[str, Any]] | None = None,
+        files: Callable[..., dict[str, Any]] | None = None,
         open_file: Callable[[str], tuple[bytes, str, str] | None] | None = None,
         place: Callable[[], dict[str, Any]] | None = None,
         chats: Callable[[], list[dict[str, Any]]] | None = None,
         current_chat: Callable[[], dict[str, Any]] | None = None,
+        view_chat: Callable[[str], dict[str, Any] | None] | None = None,
+        mint_chat: Callable[[], dict[str, Any] | None] | None = None,
+        speak: Callable[[str], bytes | None] | None = None,
     ) -> None:
         self.warmup_fn = warmup
         self.busy_fn = busy
@@ -129,6 +145,9 @@ class MobileHub:
         self.place_fn = place
         self.chats_fn = chats
         self.current_chat_fn = current_chat
+        self.view_chat_fn = view_chat
+        self.mint_chat_fn = mint_chat
+        self.speak_fn = speak
 
     def session_ready(self) -> bool:
         fn = self.session_fn
@@ -139,7 +158,22 @@ class MobileHub:
         except Exception:
             return False
 
-    def status(self) -> dict[str, Any]:
+    def _pc_chat(self) -> dict[str, Any]:
+        if self.current_chat_fn is None:
+            return {}
+        try:
+            return dict(self.current_chat_fn() or {})
+        except Exception:
+            return {}
+
+    def _foreign_turn(self, session_id: str) -> bool:
+        sid = (session_id or "").strip()
+        if not sid:
+            return False
+        current = str(self._pc_chat().get("id") or "")
+        return bool(current) and sid != current
+
+    def status(self, focus: str = "") -> dict[str, Any]:
         warmup = False
         busy = False
         model = ""
@@ -192,12 +226,30 @@ class MobileHub:
                 place = dict(self.place_fn() or {})
             except Exception:
                 place = {}
-        chat: dict[str, Any] = {}
-        if self.current_chat_fn is not None:
-            try:
-                chat = dict(self.current_chat_fn() or {})
-            except Exception:
+        chat = self._pc_chat()
+        pc_chat = dict(chat)
+        wanted = (focus or "").strip()
+        pc_id = str(chat.get("id") or "")
+        missing_chat = False
+        if wanted and wanted != pc_id:
+            viewed: dict[str, Any] | None = None
+            if self.view_chat_fn is not None:
+                try:
+                    viewed = self.view_chat_fn(wanted)
+                except Exception:
+                    viewed = None
+            if viewed:
+                chat = dict(viewed.get("chat") or {}) or {"id": wanted}
+                transcript = list(viewed.get("transcript") or [])
+                if isinstance(viewed.get("place"), dict):
+                    place = dict(viewed["place"])
+            else:
                 chat = {}
+                transcript = []
+                missing_chat = True
+        pending = confirm
+        if wanted and wanted != pc_id and wanted != self._confirm_session_id:
+            pending = None
         return {
             "ok": True,
             "mode": "at_the_house",
@@ -205,12 +257,14 @@ class MobileHub:
             "warmup": warmup,
             "busy": busy,
             "model": model,
-            "pending_confirm": confirm,
+            "pending_confirm": pending,
             "notices": notices,
             "glances": glances[-8:],
             "transcript": transcript,
             "place": place,
             "chat": chat,
+            "pc_chat": pc_chat,
+            "missing_chat": missing_chat,
         }
 
     def persona_payload(self) -> dict[str, Any]:
@@ -277,6 +331,7 @@ class MobileHub:
         with self._lock:
             if not confirm_id or (self.confirm and self.confirm.id == confirm_id):
                 self.confirm = None
+                self._confirm_session_id = ""
 
     def push_notice(self, kind: str, title: str, body: str) -> None:
         if kind not in {"allow", "job"}:
@@ -385,7 +440,7 @@ class MobileHub:
         """Mirror bus events for status, glances, and an in-flight turn stream."""
         payload = event.payload or {}
         if event.type == EventType.SESSION_LOADED:
-            if payload.get("ok"):
+            if payload.get("ok") and not payload.get("silent"):
                 messages = payload.get("messages") or []
                 if isinstance(messages, list):
                     self.replace_transcript(messages)
@@ -395,7 +450,13 @@ class MobileHub:
             return
         if event.type == EventType.USER_MESSAGE:
             text = str(payload.get("text") or "").strip()
-            if text:
+            sid = str(payload.get("session_id") or "")
+            foreign = bool(payload.get("foreign")) or self._foreign_turn(sid)
+            self._turn_session_id = sid
+            self._turn_foreign = foreign
+            self._turn_speak = bool(payload.get("speak"))
+            self._turn_language = str(payload.get("language") or "")
+            if text and not foreign:
                 with self._lock:
                     self.transcript.append(Bubble(role="user", text=text))
                     _trim_transcript(self.transcript)
@@ -409,10 +470,23 @@ class MobileHub:
             return
         if event.type == EventType.ASSISTANT_DONE:
             text = str(payload.get("text") or "")
-            with self._lock:
-                self.transcript.append(Bubble(role="assistant", text=text))
-                _trim_transcript(self.transcript)
+            if not self._turn_foreign:
+                with self._lock:
+                    self.transcript.append(Bubble(role="assistant", text=text))
+                    _trim_transcript(self.transcript)
             self._emit({"type": "done", "text": text})
+            want_speech = self._turn_speak
+            self._turn_session_id = ""
+            self._turn_foreign = False
+            self._turn_speak = False
+            if want_speech:
+                threading.Thread(
+                    target=self._phone_speech,
+                    args=(text, self._turn_language),
+                    daemon=True,
+                    name="arelis-phone-tts",
+                ).start()
+                return
             self._end_turn()
             return
         if event.type == EventType.ERROR:
@@ -420,6 +494,9 @@ class MobileHub:
                 return
             message = str(payload.get("message") or "turn failed")
             self._emit({"type": "error", "message": message})
+            self._turn_session_id = ""
+            self._turn_foreign = False
+            self._turn_speak = False
             self._end_turn()
             return
         if event.type == EventType.TOOL_CONFIRM:
@@ -431,6 +508,9 @@ class MobileHub:
                 detail=str(payload.get("detail") or ""),
             )
             self.set_confirm(confirm)
+            self._confirm_session_id = self._turn_session_id or str(
+                self._pc_chat().get("id") or ""
+            )
             self._emit(
                 {
                     "type": "confirm",
@@ -529,6 +609,27 @@ class MobileHub:
             q = self._turn_q
         if q is not None:
             q.put(item)
+
+    def _phone_speech(self, text: str, language: str) -> None:
+        """Kokoro for the phone speaker. Does not play on the PC."""
+        try:
+            from arelis.talk_language import is_english
+
+            if not is_english(language):
+                return
+            fn = self.speak_fn
+            blob = fn(text) if fn is not None else None
+            if blob:
+                self._emit(
+                    {
+                        "type": "speech",
+                        "audio_wav_b64": base64.standard_b64encode(blob).decode("ascii"),
+                    }
+                )
+        except Exception:
+            log.exception("phone speech failed")
+        finally:
+            self._end_turn()
 
     def _end_turn(self) -> None:
         with self._turn_lock:

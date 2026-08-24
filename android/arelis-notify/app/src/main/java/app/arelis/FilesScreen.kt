@@ -1,20 +1,20 @@
 package app.arelis
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
@@ -36,79 +36,67 @@ fun FilesScreen(
     items: List<FileRow>,
     error: String,
     roomName: String,
+    canUp: Boolean = false,
     onBack: () -> Unit,
     onScope: (String) -> Unit,
     onOpen: (FileRow) -> Unit,
     onUp: () -> Unit,
 ) {
-    val shape = RoundedCornerShape(12.dp)
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Campfire.bg0)
-            .padding(16.dp),
-    ) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(
-                "← back",
-                color = Campfire.dim,
-                modifier = Modifier.clickable(onClick = onBack).padding(4.dp),
-            )
-            Text(label.ifBlank { "files" }, color = Campfire.accent, fontWeight = FontWeight.Medium)
-            Text("", modifier = Modifier.padding(4.dp))
+    EmberScreen {
+        ScreenTop(title = label.ifBlank { "files" }, onBack = onBack)
+        Spacer(Modifier.height(16.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            LatchChip(roomName.ifBlank { "room" }, scope == "room") { onScope("room") }
+            LatchChip("workspace", scope == "workspace") { onScope("workspace") }
         }
-        Spacer(Modifier.height(12.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            ScopeChip(scope == "room", roomName.ifBlank { "room" }) { onScope("room") }
-            ScopeChip(scope == "workspace", "workspace") { onScope("workspace") }
-        }
-        Spacer(Modifier.height(8.dp))
-        if (cwd.isNotBlank()) {
-            Text(
-                "up",
-                color = Campfire.accent2,
-                fontSize = 13.sp,
-                modifier = Modifier.clickable(onClick = onUp).padding(vertical = 4.dp),
-            )
+        if (canUp) {
+            Spacer(Modifier.height(10.dp))
+            GhostLink("↑ up", onUp)
             Text(cwd, color = Campfire.hint, fontSize = 12.sp)
         }
         if (error.isNotBlank()) {
             Spacer(Modifier.height(8.dp))
             Text(error, color = Campfire.danger, fontSize = 13.sp)
         }
-        Spacer(Modifier.height(8.dp))
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            items(items, key = { it.path }) { row ->
-                val meta = if (row.dir) "folder" else sizeLabel(row.bytes)
-                Text(
-                    "${row.name}  $meta",
-                    color = if (row.dir) Campfire.accent2 else Campfire.text,
-                    fontSize = 15.sp,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(shape)
-                        .background(Campfire.bg1)
-                        .clickable { onOpen(row) }
-                        .padding(horizontal = 12.dp, vertical = 10.dp),
-                )
+        Spacer(Modifier.height(12.dp))
+        if (items.isEmpty() && error.isBlank()) {
+            Box(
+                Modifier.weight(1f).fillMaxWidth(),
+                contentAlignment = Alignment.Center,
+            ) {
+                EmptyHint("nothing here", "Room files when you're in a room. Workspace is the rest.")
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                items(items, key = { it.path }) { row ->
+                    val meta = if (row.dir) "folder" else sizeLabel(row.bytes)
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(EmberShapeTight)
+                            .background(Campfire.bg1)
+                            .border(1.dp, Campfire.rim, EmberShapeTight)
+                            .clickable { onOpen(row) }
+                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            row.name,
+                            color = if (row.dir) Campfire.accent2 else Campfire.text,
+                            fontSize = 15.sp,
+                            fontWeight = if (row.dir) FontWeight.Medium else FontWeight.Normal,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Text(meta, color = Campfire.coal, fontSize = 12.sp)
+                    }
+                }
             }
         }
     }
-}
-
-@Composable
-private fun ScopeChip(on: Boolean, label: String, click: () -> Unit) {
-    val shape = RoundedCornerShape(12.dp)
-    Text(
-        label,
-        color = if (on) Campfire.bg0 else Campfire.hint,
-        fontSize = 13.sp,
-        modifier = Modifier
-            .clip(shape)
-            .background(if (on) Campfire.accent else Campfire.bg2)
-            .clickable(onClick = click)
-            .padding(horizontal = 12.dp, vertical = 6.dp),
-    )
 }
 
 private fun sizeLabel(bytes: Long): String {

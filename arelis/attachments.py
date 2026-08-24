@@ -460,6 +460,46 @@ def stage_files(
     return StageResult(ok=ok, errors=errors)
 
 
+def stage_bytes(
+    data: bytes,
+    name: str,
+    *,
+    drops_root: Path | None = None,
+    max_bytes: int = MAX_BYTES,
+    existing_count: int = 0,
+    max_attachments: int = MAX_ATTACHMENTS,
+) -> StageResult:
+    """Write named bytes into drops. Phone uploads land here, same as a desktop drop."""
+    if existing_count >= max_attachments:
+        return StageResult(
+            ok=[],
+            errors=[f"Attachment limit is {max_attachments} per message."],
+        )
+    if not data:
+        return StageResult(ok=[], errors=["File was empty."])
+    if len(data) > max_bytes:
+        mb = max_bytes / (1024 * 1024)
+        return StageResult(ok=[], errors=[f"File is larger than {mb:.0f} MB."])
+    root = drops_root or DROPS_ROOT
+    day = datetime.now(UTC).strftime("%Y%m%d")
+    dest_dir = root / day
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest = _unique_dest(dest_dir, _safe_name(name))
+    try:
+        dest.write_bytes(data)
+    except OSError as exc:
+        return StageResult(ok=[], errors=[f"Could not save {name}: {exc}"])
+    att = Attachment(
+        id=uuid4().hex,
+        name=dest.name,
+        path=_rel_posix(dest),
+        source_path="",
+        kind=detect_kind(dest),
+        bytes=len(data),
+    )
+    return StageResult(ok=[att], errors=[])
+
+
 def stage_image_bytes(
     data: bytes,
     *,

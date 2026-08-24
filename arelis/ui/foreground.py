@@ -58,6 +58,9 @@ def flash_taskbar(widget: Any) -> None:
         import ctypes
         from ctypes import wintypes
 
+        window = getattr(widget, "window", None)
+        if callable(window) and window() is not widget:
+            return
         hwnd = int(widget.winId())
         if not hwnd:
             return

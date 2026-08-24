@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Arelis</string>
-    <string name="radio_channel_name">Arelis radio</string>
+    <string name="app_name">arelis</string>
+    <string name="radio_channel_name">arelis radio</string>
     <string name="radio_notification">Radio on — texts leave from this SIM after you allow them on the PC.</string>
 </resources>

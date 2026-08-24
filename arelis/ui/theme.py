@@ -382,7 +382,7 @@ def stylesheet() -> str:
         border: none;
         padding: 0 2px 0 0;
     }}
-    #ChromeViewBtn, #ChromeSettingsBtn {{
+    #ChromeViewBtn, #ChromeRoomsBtn, #ChromeSettingsBtn {{
         background: transparent;
         border: none;
         border-radius: 6px;
@@ -390,7 +390,7 @@ def stylesheet() -> str:
         color: {c['text_dim']};
         font-size: 12px;
     }}
-    #ChromeViewBtn:hover, #ChromeSettingsBtn:hover {{
+    #ChromeViewBtn:hover, #ChromeRoomsBtn:hover, #ChromeSettingsBtn:hover {{
         color: {c['accent']};
         background: {c['hover']};
     }}

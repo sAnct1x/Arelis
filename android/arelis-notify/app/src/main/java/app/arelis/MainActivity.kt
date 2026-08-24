@@ -2,26 +2,29 @@ package app.arelis
 
 import android.Manifest
 import android.content.Intent
-import android.graphics.Bitmap
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.util.Base64
+import android.provider.OpenableColumns
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import org.json.JSONObject
-import java.io.ByteArrayOutputStream
+import java.io.File
 import java.util.UUID
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
@@ -35,13 +38,14 @@ class MainActivity : ComponentActivity() {
     private var wifiWatcher: WifiWatcher? = null
     private val gemma = GemmaEngine()
     private lateinit var voice: VoiceListen
+    private lateinit var talkTts: TalkTts
     private var poll: Runnable? = null
     private val gemmaBusy = AtomicBoolean(false)
     private var pendingVoice = "conversation"
 
     private var screen by mutableStateOf("pair") // pair | talk | hose | files | settings | chats
     private var pairFromSettings by mutableStateOf(false)
-    private var headline by mutableStateOf("Waiting to pair.")
+    private var headline by mutableStateOf("waiting to pair.")
     private var grants by mutableStateOf(
         GrantState(restrictedHint = true, sms = false, notifications = false, battery = false, camera = false),
     )
@@ -57,11 +61,14 @@ class MainActivity : ComponentActivity() {
     private var allowBusy by mutableStateOf(false)
     private var dismissedConfirmId = ""
     private var previewJpeg by mutableStateOf<ByteArray?>(null)
+    private var pendingFileName by mutableStateOf("")
+    private var pendingFileBytes by mutableStateOf<ByteArray?>(null)
     private var gemmaProgress by mutableStateOf("")
     private var gemmaInstall by mutableStateOf(GemmaInstall())
     private var error by mutableStateOf("")
     private var voiceMode by mutableStateOf("off")
     private var listening by mutableStateOf(false)
+    private var talkLanguage by mutableStateOf(TalkLanguage.DEFAULT)
     private var dictateAnchor = ""
     private var glancePreview by mutableStateOf<ByteArray?>(null)
     private var fileScope by mutableStateOf("room")
@@ -71,6 +78,7 @@ class MainActivity : ComponentActivity() {
     private var fileItems by mutableStateOf(listOf<FileRow>())
     private var fileError by mutableStateOf("")
     private var roomName by mutableStateOf("")
+    private var roomId by mutableStateOf("")
     private var chatItems by mutableStateOf(listOf<ChatRow>())
     private var chatError by mutableStateOf("")
     private var chatBusy by mutableStateOf(false)
@@ -79,6 +87,7 @@ class MainActivity : ComponentActivity() {
     private val seenNotices = mutableSetOf<String>()
     private var personaCache = ""
     private var lastHouse = false
+    private var captureFile: File? = null
 
     private val scanLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
@@ -102,12 +111,39 @@ class MainActivity : ComponentActivity() {
     }
 
     private val takePicture = registerForActivityResult(
-        ActivityResultContracts.TakePicturePreview(),
-    ) { bitmap: Bitmap? ->
-        if (bitmap != null) previewJpeg = jpegOf(bitmap)
+        ActivityResultContracts.TakePicture(),
+    ) { saved ->
+        val file = captureFile
+        captureFile = null
+        if (!saved || file == null || !file.isFile) {
+            file?.delete()
+            return@registerForActivityResult
+        }
+        try {
+            previewJpeg = CapturePhoto.jpegFromFile(file)
+            pendingFileBytes = null
+            pendingFileName = ""
+        } catch (_: Exception) {
+            Toast.makeText(this, "Could not keep that photo.", Toast.LENGTH_LONG).show()
+        } finally {
+            file.delete()
+        }
+    }
+
+    private val pickPhoto = registerForActivityResult(
+        ActivityResultContracts.GetContent(),
+    ) { uri ->
+        if (uri != null) adoptUri(uri, preferPhoto = true)
+    }
+
+    private val pickFile = registerForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri != null) adoptUri(uri, preferPhoto = false)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         prefs = Prefs(this)
         talkQueue = TalkQueue(this)
@@ -125,6 +161,13 @@ class MainActivity : ComponentActivity() {
             onWifi = onWifi(this),
         )
         voice = VoiceListen(this).also { wireVoice(it) }
+        talkTts = TalkTts(this)
+        talkTts.onDone = {
+            if (voiceMode == "conversation" && allow == null) voice.resumeIfLatched()
+        }
+        talkLanguage = prefs.talkLanguage
+        voice.language = TalkLanguage.bcp47(talkLanguage)
+        talkTts.language = talkLanguage
         ArelisPings.ensureChannel(this)
         if (Build.VERSION.SDK_INT >= 33) {
             notifyPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
@@ -132,6 +175,7 @@ class MainActivity : ComponentActivity() {
         wifiWatcher = WifiWatcher(this).also { it.start() }
         paired = prefs.paired
         screen = if (prefs.paired) "talk" else "pair"
+        mode = if (prefs.paired) HouseMode.Connecting else HouseMode.Pairing
         if (prefs.paired) {
             WorkManager.getInstance(this).enqueueUniqueWork(
                 InboundWorker.UNIQUE,
@@ -146,6 +190,7 @@ class MainActivity : ComponentActivity() {
                 when (screen) {
                     "settings" -> SettingsScreen(
                         paired = paired,
+                        language = talkLanguage,
                         onBack = { stepBack() },
                         onPair = {
                             pairFromSettings = true
@@ -155,11 +200,13 @@ class MainActivity : ComponentActivity() {
                             RadioService.start(this)
                             screen = "hose"
                         },
+                        onLanguage = { code -> applyTalkLanguage(code) },
                     )
                     "chats" -> HistoryScreen(
                         items = chatItems,
                         error = chatError,
                         busy = chatBusy,
+                        onPhone = mode == HouseMode.OnThePhone,
                         onBack = { stepBack() },
                         onNew = { openChat("new") },
                         onOpen = { openChat("open", it.id) },
@@ -179,6 +226,7 @@ class MainActivity : ComponentActivity() {
                         items = fileItems,
                         error = fileError,
                         roomName = roomName,
+                        canUp = fileParent != null,
                         onBack = { stepBack() },
                         onScope = { loadFiles(it, "") },
                         onOpen = { openFileRow(it) },
@@ -194,6 +242,7 @@ class MainActivity : ComponentActivity() {
                             allow = allow,
                             allowBusy = allowBusy,
                             previewJpeg = glancePreview ?: previewJpeg,
+                            attachName = pendingFileName,
                             gemma = gemmaInstall.copy(
                                 ready = GemmaStore.ready(this),
                                 onWifi = onWifi(this),
@@ -201,13 +250,22 @@ class MainActivity : ComponentActivity() {
                             error = error,
                             voiceMode = voiceMode,
                             listening = listening,
+                            roomName = roomName,
+                            languageTag = TalkLanguage.bcp47(talkLanguage),
                         ),
                         onDraft = { draft = it },
                         onSend = { sendText() },
                         onSettings = { screen = "settings" },
                         onChats = { loadChats() },
                         onFiles = { loadFiles(if (roomName.isNotBlank()) "room" else "workspace", "") },
-                        onCamera = { takePicture.launch(null) },
+                        onAttach = { kind ->
+                            when (kind) {
+                                "take" -> startCapture()
+                                "library" -> pickPhoto.launch("image/*")
+                                "file" -> pickFile.launch(arrayOf("*/*"))
+                            }
+                        },
+                        onClearAttach = { clearAttach() },
                         onDictate = { askVoice("dictate") },
                         onTalk = { askVoice("conversation") },
                         onAllow = { replyAllow(true) },
@@ -235,13 +293,7 @@ class MainActivity : ComponentActivity() {
 
     private fun stepBack() {
         when (screen) {
-            "files" -> {
-                if (filePath.isNotBlank()) {
-                    loadFiles(fileScope, fileParent ?: "")
-                } else {
-                    screen = "talk"
-                }
-            }
+            "files" -> screen = "talk"
             "chats" -> screen = "talk"
             "hose", "pair" -> screen = if (paired) "settings" else "talk"
             else -> screen = "talk"
@@ -263,6 +315,7 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         wifiWatcher?.stop()
         if (::voice.isInitialized) voice.stop()
+        if (::talkTts.isInitialized) talkTts.shutdown()
         gemma.unload()
         super.onDestroy()
     }
@@ -271,9 +324,9 @@ class MainActivity : ComponentActivity() {
         grants = grantState(this)
         paired = prefs.paired
         headline = when {
-            prefs.paired -> "Paired. Talk."
-            prefs.readyToTalk -> "PC address is saved. Scan again if this Wi-Fi moved."
-            else -> "Waiting to pair. Open Settings → Notify on the PC and scan the QR."
+            prefs.paired -> "linked. talk."
+            prefs.readyToTalk -> "This phone already has the house. Scan only for a different PC."
+            else -> "Open Settings → Notify on the PC and scan the QR. Once."
         }
         if (prefs.paired && screen == "pair" && !pairFromSettings) screen = "talk"
     }
@@ -281,6 +334,50 @@ class MainActivity : ComponentActivity() {
     private fun client(): ArelisClient? {
         if (!prefs.readyToTalk) return null
         return ArelisClient.fromPrefs(prefs)
+    }
+
+    private fun loadHouseStatus(): JSONObject {
+        adoptFocus()
+        try {
+            return focusedStatus()
+        } catch (exc: Exception) {
+            val found = HouseReach.findHouse(this, prefs) ?: throw exc
+            HouseReach.adopt(prefs, found)
+            adoptFocus()
+            return focusedStatus()
+        }
+    }
+
+    private fun focusedStatus(): JSONObject {
+        val first = client()?.status(prefs.focusChat) ?: throw IllegalStateException("not paired")
+        if (!first.optBoolean("missing_chat")) return first
+        prefs.focusChat = ""
+        adoptFocus()
+        return client()?.status(prefs.focusChat) ?: first
+    }
+
+    private fun adoptFocus() {
+        val c = client() ?: return
+        val listed = runCatching { c.listChats() }.getOrNull()
+        val chats = mutableListOf<ChatHint>()
+        val arr = listed?.optJSONArray("chats")
+        if (arr != null) {
+            for (i in 0 until arr.length()) {
+                val row = arr.optJSONObject(i) ?: continue
+                val id = row.optString("id")
+                if (id.isBlank()) continue
+                chats += ChatHint(id, row.optString("room_id"))
+            }
+        }
+        val keep = pickFocusChat(prefs.focusChat, chats)
+        if (keep.isNotBlank()) {
+            prefs.focusChat = keep
+            return
+        }
+        prefs.focusChat = ""
+        val minted = runCatching { c.switchChat("new") }.getOrNull() ?: return
+        val id = minted.optJSONObject("chat")?.optString("id").orEmpty()
+        if (id.isNotBlank()) prefs.focusChat = id
     }
 
     private fun startPoll() {
@@ -304,7 +401,7 @@ class MainActivity : ComponentActivity() {
         io.execute {
             try {
                 flushSync()
-                val status = client()?.status() ?: throw IllegalStateException("not paired")
+                val status = loadHouseStatus()
                 val transcript = status.optJSONArray("transcript")
                 val confirm = status.optJSONObject("pending_confirm")
                 val notices = status.optJSONArray("notices")
@@ -317,10 +414,10 @@ class MainActivity : ComponentActivity() {
                     mode = HouseMode.AtTheHouse
                     warmup = warm
                     roomName = room
+                    roomId = place?.optJSONObject("room")?.optString("id").orEmpty()
+                    val chatId = status.optJSONObject("chat")?.optString("id").orEmpty()
+                    if (chatId.isNotBlank()) prefs.focusChat = chatId
                     maybeStartWaitedGemma()
-                    if (!busy) {
-                        // Don't stomp an in-flight send with a stale busy flag.
-                    }
                     error = if (!session) {
                         "Open Arelis on the PC."
                     } else if (error == "Open Arelis on the PC.") {
@@ -332,7 +429,7 @@ class MainActivity : ComponentActivity() {
                         val next = confirm?.let {
                             AllowCard(
                                 id = it.optString("id"),
-                                headline = it.optString("headline").ifBlank { "Allow" },
+                                headline = it.optString("headline").ifBlank { "allow" },
                                 summary = it.optString("summary"),
                             )
                         }
@@ -340,7 +437,6 @@ class MainActivity : ComponentActivity() {
                     }
                     if (transcript != null && !busy) {
                         val next = parseBubbles(transcript)
-                        val chatId = status.optJSONObject("chat")?.optString("id").orEmpty()
                         if (next.isNotEmpty() || talkQueue.isEmpty()) {
                             bubbles = next
                             pocket.replace(chatId, talkLines(next))
@@ -352,25 +448,34 @@ class MainActivity : ComponentActivity() {
                     if (wasPhone) {
                         gemma.unload()
                         gemmaProgress = ""
+                        if (isPhoneBrainError(error)) error = ""
                     }
                     lastHouse = true
                 }
             } catch (_: Exception) {
                 main.post {
-                    if (prefs.paired) {
-                        mode = HouseMode.OnThePhone
-                        allow = null
-                        if (screen == "chats" || screen == "files") screen = "talk"
-                        if (lastHouse) {
-                            ArelisPings.show(
-                                this,
-                                42,
-                                "On the phone",
-                                "The PC is gone. Gemma can talk until the house is back.",
-                            )
+                    if (!prefs.paired) return@post
+                    if (mode == HouseMode.OnThePhone && !lastHouse) return@post
+                    mode = HouseMode.OnThePhone
+                    allow = null
+                    if (bubbles.isNotEmpty()) {
+                        pocket.replace(prefs.focusChat, talkLines(bubbles))
+                    } else if (pocket.lines().isNotEmpty() && bubbles.isEmpty()) {
+                        bubbles = pocket.lines().mapIndexed { i, line ->
+                            ChatBubble(id = "p$i", role = line.role, text = line.text)
                         }
-                        lastHouse = false
                     }
+                    if (!GemmaStore.ready(this)) applyGemma(GemmaEvent.Show)
+                    primeGemma()
+                    if (lastHouse) {
+                        ArelisPings.show(
+                            this,
+                            42,
+                            "on the phone",
+                            "The PC is gone. Gemma can talk and look at a photo until the house is back.",
+                        )
+                    }
+                    lastHouse = false
                 }
             }
         }
@@ -387,7 +492,7 @@ class MainActivity : ComponentActivity() {
             ArelisPings.show(
                 this,
                 id.hashCode(),
-                n.optString("title").ifBlank { "Arelis" },
+                n.optString("title").ifBlank { "arelis" },
                 n.optString("body"),
             )
             io.execute {
@@ -399,13 +504,82 @@ class MainActivity : ComponentActivity() {
     private fun sendText() {
         val text = draft.trim()
         val photo = previewJpeg
-        if (text.isEmpty() && photo == null) return
+        val fileBytes = pendingFileBytes
+        val fileName = pendingFileName
+        if (text.isEmpty() && photo == null && fileBytes == null) return
         draft = ""
         dictateAnchor = ""
         val jpeg = photo?.let { Base64.encodeToString(it, Base64.NO_WRAP) }
+        val fileB64 = fileBytes?.let { Base64.encodeToString(it, Base64.NO_WRAP) }
         previewJpeg = null
+        pendingFileBytes = null
+        pendingFileName = ""
         if (voiceMode == "conversation") voice.pause()
-        dispatchTurn(text, jpeg, null)
+        val speak = voiceMode == "conversation"
+        val lang = talkLanguage
+        dispatchTurn(text, jpeg, null, photo, fileB64, fileName, fileBytes, lang, speak)
+    }
+
+    private fun clearAttach() {
+        previewJpeg = null
+        pendingFileBytes = null
+        pendingFileName = ""
+        if (glancePreview != null) glancePreview = null
+    }
+
+    private fun adoptUri(uri: Uri, preferPhoto: Boolean) {
+        io.execute {
+            try {
+                val name = displayName(uri) ?: if (preferPhoto) "photo.jpg" else "upload.bin"
+                val mime = contentResolver.getType(uri).orEmpty()
+                val dest = copyUri(uri, name)
+                if (dest.length() > CapturePhoto.MAX_FILE_BYTES) {
+                    dest.delete()
+                    main.post { error = "That file is larger than 8 MB." }
+                    return@execute
+                }
+                if (preferPhoto || isImageAttach(name, mime)) {
+                    val jpeg = CapturePhoto.jpegFromFile(dest)
+                    dest.delete()
+                    main.post {
+                        previewJpeg = jpeg
+                        pendingFileBytes = null
+                        pendingFileName = ""
+                        error = ""
+                    }
+                } else {
+                    val bytes = dest.readBytes()
+                    dest.delete()
+                    main.post {
+                        pendingFileBytes = bytes
+                        pendingFileName = name
+                        previewJpeg = null
+                        error = ""
+                    }
+                }
+            } catch (exc: Exception) {
+                main.post { error = exc.message ?: "Could not attach that." }
+            }
+        }
+    }
+
+    private fun copyUri(uri: Uri, name: String): File {
+        val dir = File(cacheDir, "capture").apply { mkdirs() }
+        val dest = File(dir, "pick-${System.currentTimeMillis()}-${name.replace(Regex("[^A-Za-z0-9._-]"), "_")}")
+        contentResolver.openInputStream(uri)?.use { input ->
+            dest.outputStream().use { output -> input.copyTo(output) }
+        } ?: throw IllegalStateException("Could not read that file.")
+        return dest
+    }
+
+    private fun displayName(uri: Uri): String? {
+        contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+            if (cursor.moveToFirst()) {
+                val idx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                if (idx >= 0) return cursor.getString(idx)
+            }
+        }
+        return uri.lastPathSegment
     }
 
     private fun askVoice(next: String) {
@@ -424,6 +598,7 @@ class MainActivity : ComponentActivity() {
             return
         }
         dictateAnchor = draft
+        voice.language = TalkLanguage.bcp47(talkLanguage)
         voice.start(mode)
         voiceMode = mode
     }
@@ -449,8 +624,29 @@ class MainActivity : ComponentActivity() {
         listen.onError = { msg -> main.post { error = msg } }
     }
 
-    private fun dispatchTurn(text: String, jpeg: String?, wav: String?) {
-        val user = ChatBubble(id = UUID.randomUUID().toString(), role = "user", text = text.ifBlank { "Photo" })
+    private fun startCapture() {
+        val dir = File(cacheDir, "capture").apply { mkdirs() }
+        val file = File(dir, "photo.jpg")
+        file.parentFile?.mkdirs()
+        if (file.exists()) file.delete()
+        file.createNewFile()
+        captureFile = file
+        val uri = FileProvider.getUriForFile(this, "$packageName.files", file)
+        takePicture.launch(uri)
+    }
+
+    private fun dispatchTurn(
+        text: String,
+        jpeg: String?,
+        wav: String?,
+        photoBytes: ByteArray? = null,
+        fileB64: String? = null,
+        fileName: String = "",
+        fileBytes: ByteArray? = null,
+        language: String = TalkLanguage.DEFAULT,
+        speak: Boolean = false,
+    ) {
+        val user = ChatBubble(id = UUID.randomUUID().toString(), role = "user", text = text.ifBlank { fileName.ifBlank { "Photo" } })
         val streamId = UUID.randomUUID().toString()
         bubbles = bubbles + user + ChatBubble(id = streamId, role = "assistant", text = "", streaming = true)
         busy = true
@@ -458,60 +654,158 @@ class MainActivity : ComponentActivity() {
         io.execute {
             try {
                 if (mode == HouseMode.OnThePhone) {
-                    runGemmaTurn(text, streamId)
+                    if (fileBytes != null && photoBytes == null) {
+                        main.post {
+                            pendingFileBytes = fileBytes
+                            pendingFileName = fileName
+                            patchAssistant(streamId, pocketFileReply(), streaming = false)
+                        }
+                        return@execute
+                    }
+                    runGemmaTurn(text, streamId, speak, photoBytes)
                     return@execute
                 }
                 val acc = StringBuilder()
-                client()?.turn(text, jpeg, wav) { line ->
-                    when (line.optString("type")) {
-                        "delta" -> {
-                            acc.append(line.optString("text"))
-                            patchAssistant(streamId, acc.toString(), streaming = true)
-                        }
-                        "retract" -> {
-                            acc.setLength(0)
-                            patchAssistant(streamId, "", streaming = true)
-                        }
-                        "done" -> {
-                            val final = line.optString("text").ifBlank { acc.toString() }
-                            patchAssistant(streamId, final, streaming = false)
-                        }
-                        "error" -> main.post { error = line.optString("message") }
-                        "confirm" -> main.post {
-                            allow = AllowCard(
-                                id = line.optString("id"),
-                                headline = line.optString("headline").ifBlank { "Allow" },
-                                summary = line.optString("summary"),
-                            )
-                        }
-                        "glance" -> main.post {
-                            bubbles = bubbles.map { b ->
-                                if (b.id == streamId) b.copy(
-                                    glances = b.glances + GlanceCard(
-                                        id = line.optString("id"),
-                                        title = line.optString("title"),
-                                        kind = line.optString("kind"),
-                                    ),
-                                ) else b
+                var heardSpeech = false
+                var pendingSpeak = ""
+                fun houseTurn() {
+                    client()?.turn(
+                        text,
+                        jpeg,
+                        wav,
+                        prefs.focusChat,
+                        fileB64,
+                        fileName,
+                        language = language,
+                        speak = speak,
+                    ) { line ->
+                        when (line.optString("type")) {
+                            "delta" -> {
+                                acc.append(line.optString("text"))
+                                patchAssistant(streamId, acc.toString(), streaming = true)
+                            }
+                            "retract" -> {
+                                acc.setLength(0)
+                                patchAssistant(streamId, "", streaming = true)
+                            }
+                            "done" -> {
+                                val final = line.optString("text").ifBlank { acc.toString() }
+                                patchAssistant(streamId, final, streaming = false)
+                                if (speak) pendingSpeak = final
+                            }
+                            "speech" -> {
+                                val raw = line.optString("audio_wav_b64")
+                                val bytes = runCatching {
+                                    Base64.decode(raw, Base64.DEFAULT)
+                                }.getOrNull()
+                                if (bytes != null && bytes.isNotEmpty()) {
+                                    heardSpeech = true
+                                    talkTts.playWav(bytes)
+                                }
+                            }
+                            "error" -> main.post { error = line.optString("message") }
+                            "confirm" -> main.post {
+                                allow = AllowCard(
+                                    id = line.optString("id"),
+                                    headline = line.optString("headline").ifBlank { "allow" },
+                                    summary = line.optString("summary"),
+                                )
+                            }
+                            "glance" -> main.post {
+                                bubbles = bubbles.map { b ->
+                                    if (b.id == streamId) b.copy(
+                                        glances = b.glances + GlanceCard(
+                                            id = line.optString("id"),
+                                            title = line.optString("title"),
+                                            kind = line.optString("kind"),
+                                        ),
+                                    ) else b
+                                }
                             }
                         }
                     }
                 }
-            } catch (exc: Exception) {
+                try {
+                    houseTurn()
+                } catch (_: MissingChatException) {
+                    prefs.focusChat = ""
+                    adoptFocus()
+                    heardSpeech = false
+                    pendingSpeak = ""
+                    houseTurn()
+                }
+                if (speak && !heardSpeech && pendingSpeak.isNotBlank()) {
+                    talkTts.speak(pendingSpeak)
+                }
+            } catch (exc: MissingChatException) {
+                prefs.focusChat = ""
+                adoptFocus()
                 main.post {
-                    error = exc.message ?: "Turn failed."
+                    error = ""
+                    bubbles = bubbles.map { b ->
+                        if (b.id == streamId) {
+                            b.copy(
+                                text = "That chat is gone. I opened a new one — say that again.",
+                                streaming = false,
+                            )
+                        } else {
+                            b
+                        }
+                    }
+                }
+            } catch (exc: Exception) {
+                val disconnected = exc is java.io.IOException
+                if (!disconnected) {
+                    main.post {
+                        error = exc.message ?: "Turn failed."
+                        bubbles = bubbles.map { b ->
+                            if (b.id == streamId) {
+                                b.copy(
+                                    text = b.text.ifBlank { exc.message ?: "Turn failed." },
+                                    streaming = false,
+                                )
+                            } else {
+                                b
+                            }
+                        }
+                    }
+                    return@execute
+                }
+                main.post {
+                    error = ""
                     mode = HouseMode.OnThePhone
+                    applyGemma(GemmaEvent.Show)
+                    bubbles = bubbles.map { b ->
+                        if (b.id == streamId) b.copy(streaming = false) else b
+                    }
+                }
+                if (fileBytes != null && photoBytes == null) {
+                    main.post {
+                        pendingFileBytes = fileBytes
+                        pendingFileName = fileName
+                        patchAssistant(streamId, pocketFileReply(), streaming = false)
+                    }
+                    return@execute
                 }
                 try {
-                    runGemmaTurn(text, streamId)
+                    runGemmaTurn(text, streamId, speak, photoBytes)
                     return@execute
                 } catch (inner: Exception) {
-                    main.post { error = inner.message ?: "On the phone, but Gemma is not ready." }
+                    main.post {
+                        error = ""
+                        bubbles = bubbles.map { b ->
+                            if (b.id == streamId) {
+                                b.copy(text = humanGemmaError(inner), streaming = false)
+                            } else {
+                                b
+                            }
+                        }
+                    }
                 }
             } finally {
                 main.post {
                     busy = false
-                    if (voiceMode == "conversation" && allow == null) {
+                    if (voiceMode == "conversation" && allow == null && !talkTts.busy) {
                         voice.resumeIfLatched()
                     }
                 }
@@ -519,7 +813,12 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun runGemmaTurn(text: String, streamId: String) {
+    private fun runGemmaTurn(
+        text: String,
+        streamId: String,
+        speak: Boolean = false,
+        photoBytes: ByteArray? = null,
+    ) {
         if (!GemmaStore.ready(this)) {
             main.post {
                 applyGemma(GemmaEvent.Show)
@@ -531,29 +830,92 @@ class MainActivity : ComponentActivity() {
             }
             return
         }
+        if (!GemmaEngine.present()) {
+            main.post {
+                error = "This APK is missing the on-phone brain runtime. Rebuild from Android Studio."
+                patchAssistant(
+                    streamId,
+                    "The model file is here, but the runtime is not in this build.",
+                    false,
+                )
+            }
+            return
+        }
         if (personaCache.isBlank()) {
             personaCache = runCatching { client()?.persona().orEmpty() }.getOrDefault("")
             if (personaCache.isBlank()) {
-                personaCache = "You are Arelis. You are on the phone. No tools."
+                personaCache = "You are Arelis. You are on the phone. Gemma 4 E2B. Talk and photos. No tools. Not Gemini."
             }
         }
-        gemma.ensure(this, GemmaStore.file(this), personaCache)
-        val acc = StringBuilder()
-        val reply = gemma.reply(text) { piece ->
-            acc.append(piece)
-            patchAssistant(streamId, acc.toString(), streaming = true)
+        try {
+            gemma.ensure(
+                this,
+                GemmaStore.file(this),
+                TalkLanguage.withReply(personaCache, talkLanguage) +
+                    gemmaHistoryBlock(priorTalkLines(pocket.lines().ifEmpty { talkLines(bubbles) }, text)),
+            )
+            val acc = StringBuilder()
+            val reply = gemma.reply(text, photoBytes) { piece ->
+                acc.append(piece)
+                patchAssistant(streamId, acc.toString(), streaming = true)
+            }
+            val final = reply.ifBlank { acc.toString() }
+            if (final.isBlank()) {
+                main.post { error = "" }
+                patchAssistant(
+                    streamId,
+                    "The offline brain is here, but it didn't answer. Try again in a moment.",
+                    false,
+                )
+                return
+            }
+            patchAssistant(streamId, final, streaming = false)
+            if (speak) talkTts.speak(final)
+            val said = text.trim().ifBlank { if (photoBytes != null) "Photo" else text }
+            talkQueue.add("user", said)
+            talkQueue.add("assistant", final)
+            pocket.append("user", said)
+            pocket.append("assistant", final)
+        } catch (exc: Exception) {
+            main.post { error = "" }
+            patchAssistant(streamId, humanGemmaError(exc), false)
         }
-        val final = reply.ifBlank { acc.toString() }
-        patchAssistant(streamId, final, streaming = false)
-        talkQueue.add("user", text)
-        talkQueue.add("assistant", final)
-        pocket.append("user", text)
-        pocket.append("assistant", final)
     }
 
     private fun patchAssistant(id: String, text: String, streaming: Boolean) {
         main.post {
             bubbles = bubbles.map { if (it.id == id) it.copy(text = text, streaming = streaming) else it }
+        }
+    }
+
+    private fun applyTalkLanguage(code: String) {
+        val next = TalkLanguage.normalize(code)
+        talkLanguage = next
+        prefs.talkLanguage = next
+        voice.language = TalkLanguage.bcp47(next)
+        talkTts.language = next
+        gemma.unload()
+        if (mode == HouseMode.OnThePhone) primeGemma()
+    }
+
+    private fun primeGemma() {
+        if (!GemmaStore.ready(this) || !GemmaEngine.present()) return
+        io.execute {
+            try {
+                if (personaCache.isBlank()) {
+                    personaCache = runCatching { client()?.persona().orEmpty() }.getOrDefault("")
+                    if (personaCache.isBlank()) {
+                        personaCache = "You are Arelis. You are on the phone. Gemma 4 E2B. Talk and photos. No tools. Not Gemini."
+                    }
+                }
+                val history = pocket.lines().ifEmpty { talkLines(bubbles) }
+                gemma.ensure(
+                    this,
+                    GemmaStore.file(this),
+                    TalkLanguage.withReply(personaCache, talkLanguage) + gemmaHistoryBlock(history),
+                )
+            } catch (_: Exception) {
+            }
         }
     }
 
@@ -609,7 +971,7 @@ class MainActivity : ComponentActivity() {
         screen = "files"
         io.execute {
             try {
-                val body = client()?.listFiles(scope, path) ?: throw IllegalStateException("not paired")
+                val body = client()?.listFiles(scope, path, roomId) ?: throw IllegalStateException("not paired")
                 val rows = mutableListOf<FileRow>()
                 val arr = body.optJSONArray("items")
                 if (arr != null) {
@@ -690,11 +1052,37 @@ class MainActivity : ComponentActivity() {
         return next
     }
 
+    private fun pocketChatRows(): List<ChatRow> {
+        val lines = pocket.lines().ifEmpty { talkLines(bubbles) }
+        if (lines.isEmpty()) return emptyList()
+        return listOf(
+            ChatRow(
+                id = pocket.sessionId().ifBlank { "pocket" },
+                title = pocketThreadTitle(lines),
+                startedAt = "this phone",
+                current = true,
+            ),
+        )
+    }
+
+    private fun startPocketChat() {
+        chatBusy = false
+        chatError = ""
+        pocket.replace("", emptyList())
+        prefs.focusChat = ""
+        roomName = ""
+        roomId = ""
+        bubbles = emptyList()
+        allow = null
+        draft = ""
+        screen = "talk"
+    }
+
     private fun talkLines(items: List<ChatBubble>): List<TalkLine> =
         items.mapNotNull { row ->
             val role = row.role
             val text = row.text.trim()
-            if (role in setOf("user", "assistant") && text.isNotEmpty()) {
+            if (role in setOf("user", "assistant") && text.isNotEmpty() && !row.streaming) {
                 TalkLine(role, text)
             } else {
                 null
@@ -704,10 +1092,17 @@ class MainActivity : ComponentActivity() {
     private fun loadChats() {
         screen = "chats"
         chatError = ""
+        if (mode != HouseMode.AtTheHouse) {
+            chatBusy = false
+            chatItems = pocketChatRows()
+            return
+        }
         io.execute {
             try {
                 val body = client()?.listChats() ?: throw IllegalStateException("not paired")
-                val current = body.optJSONObject("current")?.optString("id").orEmpty()
+                val current = prefs.focusChat.ifBlank {
+                    body.optJSONObject("current")?.optString("id").orEmpty()
+                }
                 val arr = body.optJSONArray("chats")
                 val next = mutableListOf<ChatRow>()
                 if (arr != null) {
@@ -720,6 +1115,7 @@ class MainActivity : ComponentActivity() {
                             title = row.optString("title").ifBlank { "(untitled)" },
                             startedAt = row.optString("started_at"),
                             current = id == current,
+                            room = row.optString("room_id"),
                         )
                     }
                 }
@@ -734,6 +1130,13 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun openChat(action: String, id: String = "") {
+        if (mode != HouseMode.AtTheHouse) {
+            if (action == "new") startPocketChat() else {
+                chatBusy = false
+                screen = "talk"
+            }
+            return
+        }
         if (chatBusy) return
         chatBusy = true
         chatError = ""
@@ -748,7 +1151,11 @@ class MainActivity : ComponentActivity() {
                         val next = parseBubbles(transcript)
                         bubbles = next
                         val chatId = body.optJSONObject("chat")?.optString("id").orEmpty()
+                        if (chatId.isNotBlank()) prefs.focusChat = chatId
                         pocket.replace(chatId, talkLines(next))
+                        val place = body.optJSONObject("place")?.optJSONObject("room")
+                        roomName = place?.optString("name").orEmpty()
+                        roomId = place?.optString("id").orEmpty()
                     }
                     allow = null
                     screen = "talk"
@@ -820,10 +1227,12 @@ class MainActivity : ComponentActivity() {
             return
         }
         pairing = true
-        headline = "Pairing…"
+        headline = "pairing…"
         prefs.token = ticket.token
         prefs.instanceId = ticket.instance
         prefs.baseUrl = ticket.lanUrls.first()
+        prefs.lanUrls = ticket.lanUrls
+        prefs.ingestPort = ticket.lanUrls.firstNotNullOfOrNull(::portOf) ?: 8765
         prefs.relayUrl = ticket.relayUrl
         prefs.deviceKey
         prefs.listenUrl = ""
@@ -840,7 +1249,7 @@ class MainActivity : ComponentActivity() {
                     screen = "talk"
                     mode = HouseMode.Connecting
                     refresh()
-                    Toast.makeText(this, "Paired. Talk.", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, "paired. the offline brain is next.", Toast.LENGTH_LONG).show()
                     applyGemma(GemmaEvent.Show)
                 }
             }
@@ -851,17 +1260,12 @@ class MainActivity : ComponentActivity() {
         val listen = waitForListenUrl(800) ?: listenUrlFor(this, prefs.listenPort) ?: ""
         if (listen.isNotBlank()) prefs.listenUrl = listen
         var last: Exception? = null
-        for (url in ticket.urls) {
+        for (url in ticket.lanUrls.ifEmpty { ticket.urls }) {
             prefs.baseUrl = url
             try {
-                ArelisClient(url, ticket.token).pair(
-                    instance = ticket.instance,
-                    pair = ticket.pair,
-                    listenUrl = listen,
-                    deviceKey = prefs.deviceKey,
-                    talk = true,
-                )
+                tryPair(url, ticket, listen)
                 last = null
+                HouseReach.adopt(prefs, url)
                 break
             } catch (exc: Exception) {
                 last = exc
@@ -879,6 +1283,29 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun tryPair(url: String, ticket: PairTicket, listen: String) {
+        val client = ArelisClient(url, ticket.token)
+        try {
+            client.pair(
+                instance = ticket.instance,
+                pair = ticket.pair,
+                listenUrl = listen,
+                deviceKey = prefs.deviceKey,
+                talk = true,
+            )
+        } catch (exc: IllegalStateException) {
+            val expired = exc.message?.contains("expired", ignoreCase = true) == true
+            if (!expired) throw exc
+            client.pair(
+                instance = ticket.instance,
+                pair = "",
+                listenUrl = listen,
+                deviceKey = prefs.deviceKey,
+                talk = true,
+            )
+        }
+    }
+
     private fun waitForListenUrl(timeoutMs: Long): String? {
         val deadline = System.currentTimeMillis() + timeoutMs
         while (System.currentTimeMillis() < deadline) {
@@ -887,11 +1314,5 @@ class MainActivity : ComponentActivity() {
             Thread.sleep(50)
         }
         return listenUrlFor(this, prefs.listenPort)
-    }
-
-    private fun jpegOf(bitmap: Bitmap): ByteArray {
-        val out = ByteArrayOutputStream()
-        bitmap.compress(Bitmap.CompressFormat.JPEG, 82, out)
-        return out.toByteArray()
     }
 }

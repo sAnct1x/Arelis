@@ -74,9 +74,13 @@ class GlassFrame(QFrame):
         radius: float | None = None,
         pulse_rim: bool = False,
         round_cutout: bool = False,
+        surface_owned: bool = False,
     ) -> None:
         super().__init__(parent)
         self.setObjectName(object_name)
+        # True when something else decides this widget's HWND surface — see
+        # _apply_seal.
+        self._surface_owned = bool(surface_owned)
         self._fill_alpha = int(
             GLASS.get("fill_docked", 72) if fill_alpha is None else fill_alpha
         )
@@ -98,7 +102,15 @@ class GlassFrame(QFrame):
         self.update()
 
     def _apply_seal(self) -> None:
-        """Opaque floats must not stay a translucent HWND — chat ghosts through."""
+        """Opaque floats must not stay a translucent HWND — chat ghosts through.
+
+        Skipped when the surface is owned elsewhere. Deriving translucency from
+        fill alpha is a reasonable default for a lone plate, but on a dock it is
+        a second writer racing arelis.ui.dock_surface, and losing that race by
+        one frame is how a float ends up layered.
+        """
+        if self._surface_owned:
+            return
         sealed = self._fill_alpha >= 240
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, not sealed)
         self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent, sealed)
@@ -271,11 +283,12 @@ def seal_tool_window(
     round_corners: bool = False,
     radius: float | None = None,
 ) -> None:
-    """Frameless settings/inbox plates sit above chat; they must be their own HWND.
+    """Top-level glass must be an opaque HWND.
 
-    Always opaque. A translucent tool HWND on Windows is a layered window, and
-    the plate fill disappears (contacts went see-through). Rounded tiles use a
-    mask so the four corner wedges are not a black rectangle.
+    Settings, inboxes, calendar, and the main window. A translucent HWND on
+    Windows is a layered window: the OS keeps the last bitmap across hide and
+    resize (offset orbit, see-through contacts). Rounded tiles use a mask so
+    the four corner wedges are not a black rectangle.
     """
     widget.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
     widget.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground, False)

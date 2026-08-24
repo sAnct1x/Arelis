@@ -90,6 +90,15 @@ def test_stage_image_bytes(tmp_path: Path) -> None:
     assert result.ok[0].name.startswith("paste-")
 
 
+def test_stage_bytes_keeps_the_given_name(tmp_path: Path) -> None:
+    from arelis.attachments import stage_bytes
+
+    result = stage_bytes(b"%PDF-1.4 notes", "notes.pdf", drops_root=tmp_path / "drops")
+    assert result.ok
+    assert result.ok[0].name == "notes.pdf"
+    assert result.ok[0].kind == "pdf"
+
+
 def test_format_attachments_block() -> None:
     block = format_attachments_block(
         [

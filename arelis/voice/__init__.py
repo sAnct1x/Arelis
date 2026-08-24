@@ -123,6 +123,8 @@ class VoiceService:
         """
         if not self.tts_enabled or not self.speak_enabled:
             return
+        if self.config.get("_phone_turn"):
+            return
         chunk = event.payload.get("text") or ""
         if not chunk:
             return
@@ -175,6 +177,8 @@ class VoiceService:
         is the whole speak path — same contract as before.
         """
         if not self.tts_enabled or not self.speak_enabled:
+            return
+        if self.config.get("_phone_turn"):
             return
         clips = 0
         utterance = 0

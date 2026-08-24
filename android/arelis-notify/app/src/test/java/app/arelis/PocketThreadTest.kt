@@ -32,4 +32,15 @@ class PocketThreadTest {
         assertEquals(listOf("hi"), thread.lines().map { it.text })
         file.delete()
     }
+
+    @Test
+    fun replaceEmptyStartsAFreshThread() {
+        val file = File.createTempFile("pocket", ".json")
+        val thread = PocketThread(file)
+        thread.replace("s1", listOf(TalkLine("user", "old")))
+        thread.replace("", emptyList())
+        assertEquals("", thread.sessionId())
+        assertEquals(emptyList<String>(), thread.lines().map { it.text })
+        file.delete()
+    }
 }

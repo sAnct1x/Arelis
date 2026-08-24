@@ -28,7 +28,6 @@ from PySide6.QtWidgets import (
     QDockWidget,
     QMainWindow,
     QMenu,
-    QStyleFactory,
     QSystemTrayIcon,
     QTabBar,
     QToolBar,
@@ -95,14 +94,25 @@ from arelis.sms_inbound import (
 )
 from arelis.sms_ingest import InboundIngestServer
 from arelis.spatial import PHYSICS_ROOM_ID
+from arelis.spatial.depth import ESTIMATOR, DepthBank
+from arelis.spatial.verbs import classify_physics_verb
+from arelis.spatial.scene import (
+    GRAVITY,
+    REACH_DEFAULT,
+    WorldScene,
+    clamp_reach,
+    image_to_world,
+)
+from arelis.spatial.types import grab_drive
 from arelis.tools import build_tool_registry
 from arelis.ui.audio import SpeechPlayer
 from arelis.ui.calendar_window import CalendarWindow
 from arelis.ui.chrome import TitleBar
 from arelis.ui.contacts_inbox import ContactsInboxWindow
+from arelis.ui.dock_surface import apply_dock_chrome, apply_dock_surface, chrome_applying
 from arelis.ui.first_run import prompt_for_workspace_root
 from arelis.ui.foreground import flash_taskbar, process_owns_foreground
-from arelis.ui.glass import GlassFrame, advance_rim_pulse
+from arelis.ui.glass import GlassFrame, advance_rim_pulse, seal_tool_window
 from arelis.ui.glass_dock import GlassDockWidget
 from arelis.ui.layout_store import (
     clamp_away_rest_min,
@@ -138,24 +148,26 @@ from arelis.ui.status_copy import (
     WAITING_STATUS,
     tool_status_line,
 )
+from arelis.ui.surface_report import log_report
 from arelis.ui.theme import (
-    COLORS,
     GLASS,
     app_font,
-    dock_tab_bar_qss,
     load_fonts,
     qt_font_directory,
     stylesheet,
 )
 from arelis.ui.voice_control import VoiceController
 from arelis.ui.window_resize import (
+    configure_native_windows,
     cursor_for_hit,
     enable_win32_resize_frame,
     handle_native_resize,
     hit_test_resize,
     invalidate_window_surface,
+    release_native_children,
     try_system_resize,
 )
+from arelis.ui.world_window import WorldWindow
 from arelis.voice import VoiceService
 from arelis.voice.pcm import write_wav
 from arelis.voice.wake import WakeResult, classify_wake, looks_like_wake_attempt
@@ -228,120 +240,25 @@ def _hide_dock_title(dock: QDockWidget) -> None:
         | QDockWidget.DockWidgetFeature.DockWidgetFloatable
         | QDockWidget.DockWidgetFeature.DockWidgetClosable
     )
-    stub = QWidget(dock)
-    stub.setFixedHeight(0)
-    dock.setTitleBarWidget(stub)
-    _apply_floating_dock_chrome(dock, dock.isFloating())
+    apply_dock_chrome(dock, dock.isFloating())
     dock.topLevelChanged.connect(
-        lambda floating, d=dock: _apply_floating_dock_chrome(d, bool(floating))
+        lambda floating, d=dock: apply_dock_chrome(d, bool(floating))
     )
 
 
-# Frameless float: opaque void plate. Translucent HWND composites chat through
-# the tile (ghost bubbles). Never re-enable translucency on floating docks.
-_FLOATING_DOCK_QSS = f"""
-QDockWidget {{
-    color: {COLORS["text"]};
-    background-color: {COLORS["plate"]};
-    border: none;
-}}
-"""
-
-
+# Both names predate arelis.ui.dock_surface and are kept for the tray-restore
+# verify helper. Surface and chrome live in one module now; see the note there
+# on why a floating dock must never be a translucent HWND.
 def _glassify_floating_dock(dock: QDockWidget) -> None:
-    """Opaque void float — rim stays; chat cannot bleed through the HWND."""
-    if dock.graphicsEffect() is not None:
-        dock.setGraphicsEffect(None)
-    dock.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
-    dock.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent, True)
-    dock.setAutoFillBackground(True)
-    dock.setStyleSheet(_FLOATING_DOCK_QSS)
-    shell = dock.widget()
-    if shell is not None:
-        shell.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
-        shell.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent, True)
-        shell.setAutoFillBackground(True)
-        shell.setStyleSheet(f"background-color: {COLORS['plate']};")
-        layout = shell.layout()
-        if layout is not None:
-            layout.setContentsMargins(0, 0, 0, 0)
-        for child in shell.findChildren(QWidget):
-            if child.objectName() == "GlassDockContent":
-                child.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
-                child.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent, True)
-                child.setAutoFillBackground(True)
-                apply_look = getattr(child, "apply_floating_look", None)
-                if callable(apply_look):
-                    apply_look(True)
-                child.update()
-    dock.update()
+    apply_dock_surface(dock, True)
 
 
-# Back-compat alias for verify helpers still importing the old name.
 def _solidify_floating_dock(dock: QDockWidget) -> None:
-    _glassify_floating_dock(dock)
+    apply_dock_surface(dock, True)
 
 
 def _apply_floating_dock_chrome(dock: QDockWidget, floating: bool) -> None:
-    """Frameless void shell while floating; zero stub while docked."""
-    was_visible = dock.isVisible()
-    dock._arelis_chrome_applying = True
-    try:
-        # Always keep Qt's title bar zeroed — chrome is in-panel.
-        stub = dock.titleBarWidget()
-        if stub is None or stub.maximumHeight() != 0:
-            stub = QWidget(dock)
-            stub.setFixedHeight(0)
-            dock.setTitleBarWidget(stub)
-
-        if floating:
-            desired = (
-                Qt.WindowType.Window
-                | Qt.WindowType.FramelessWindowHint
-                | Qt.WindowType.WindowSystemMenuHint
-                | Qt.WindowType.WindowMinimizeButtonHint
-                | Qt.WindowType.WindowMaximizeButtonHint
-            )
-            if int(dock.windowFlags()) != int(desired):
-                dock.setWindowFlags(desired)
-            dock.setMinimumSize(360, 280)
-            _glassify_floating_dock(dock)
-            if was_visible:
-                dock.show()
-                dock.raise_()
-            enable_win32_resize_frame(dock)
-        else:
-            dock.setStyleSheet("")
-            shell = dock.widget()
-            if shell is not None:
-                shell.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
-                shell.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent, False)
-                shell.setAutoFillBackground(False)
-                shell.setStyleSheet("")
-                for child in shell.findChildren(QWidget):
-                    if child.objectName() == "GlassDockContent":
-                        apply_look = getattr(child, "apply_floating_look", None)
-                        if callable(apply_look):
-                            apply_look(False)
-            name = (dock.objectName() or "").lower()
-            dock.setMinimumWidth(220)
-            if "workspace" in name:
-                dock.setMinimumHeight(160)
-            else:
-                dock.setMinimumHeight(0)
-            if was_visible and not dock.isVisible():
-                dock.show()
-    finally:
-        def _end_chrome_guard(d: QDockWidget = dock, want: bool = was_visible) -> None:
-            d._arelis_chrome_applying = False
-            if want and not d.isVisible():
-                d.show()
-                d.raise_()
-            if d.isFloating():
-                _glassify_floating_dock(d)
-                enable_win32_resize_frame(d)
-
-        QTimer.singleShot(0, _end_chrome_guard)
+    apply_dock_chrome(dock, floating)
 
 
 # Glass panel spacing: outer window edge and inter-panel gutters stay equal.
@@ -353,10 +270,12 @@ _PANEL_BOTTOM = 14
 
 
 def _dock_shell(body: QWidget, margins: tuple[int, int, int, int]) -> QWidget:
-    """Inset dock glass to match the central conversation stage."""
+    """Inset dock glass to match the central conversation stage.
+
+    Surface attributes are deliberately absent — ``apply_dock_surface`` sets them
+    for the whole subtree once ``setWidget`` has attached this shell.
+    """
     shell = QWidget()
-    shell.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
-    shell.setAutoFillBackground(False)
     layout = QVBoxLayout(shell)
     layout.setContentsMargins(*margins)
     layout.setSpacing(0)
@@ -451,6 +370,10 @@ class ArelisWindow(QMainWindow):
         if icon_path.is_file():
             self.setWindowIcon(QIcon(str(icon_path)))
         self.setDockNestingEnabled(True)
+        self.setDockOptions(
+            QMainWindow.DockOption.AnimatedDocks
+            | QMainWindow.DockOption.AllowNestedDocks
+        )
         self.setStyleSheet(stylesheet())
         # Native Windows chrome removed — custom glass title bar
         self.setWindowFlags(
@@ -460,7 +383,10 @@ class ArelisWindow(QMainWindow):
             | Qt.WindowType.WindowMinimizeButtonHint
             | Qt.WindowType.WindowMaximizeButtonHint
         )
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        # Opaque HWND. Translucency here made Windows a layered window; the OS
+        # kept the last bitmap across a dock resize, which is the offset orbit
+        # after tray-quit + a restored float. Corners are a mask, not alpha.
+        seal_tool_window(self)
         self.menuBar().hide()
 
         self.title_bar = TitleBar()
@@ -480,6 +406,7 @@ class ArelisWindow(QMainWindow):
         self.chrome_bar.addWidget(chrome_stack)
         self.addToolBar(Qt.ToolBarArea.TopToolBarArea, self.chrome_bar)
         self.title_bar.view_menu_requested.connect(self._show_view_menu)
+        self.title_bar.rooms_menu_requested.connect(self._show_rooms_menu)
         self.title_bar.settings_requested.connect(self._open_settings)
         self.readiness_strip.settings_requested.connect(self._open_settings)
         self.readiness_updated.connect(self.readiness_strip.apply)
@@ -514,9 +441,12 @@ class ArelisWindow(QMainWindow):
         self.spatial = SpatialHands(self)
         self.spatial.hint.connect(self.camera._set_hint)
         self.spatial.frame_ready.connect(self._on_spatial_hands)
+        self.spatial.preview_ready.connect(self.camera.set_preview)
+        self.spatial.recording_changed.connect(self._on_spatial_recording)
         self.camera.track_toggled.connect(self._on_camera_track)
         self.camera.record_toggled.connect(self._on_camera_record)
         self.camera.pose_frame.connect(self._on_camera_pose)
+        self.camera.pose_video.connect(self._on_camera_pose_video)
         self.calendar = CalendarPanel(memory=self.store)
         self.workspace.set_projects(
             self.workspace_roots.names(),
@@ -541,6 +471,7 @@ class ArelisWindow(QMainWindow):
         ui_prefs = load_ui_prefs()
         self._always_on_top = bool(ui_prefs.get("always_on_top", False))
         self._chat_font_scale = float(ui_prefs.get("chat_font_scale", 1.0))
+        self._world_reach = clamp_reach(ui_prefs.get("world_reach", REACH_DEFAULT))
         self._away_rest = bool(ui_prefs.get("away_rest", False))
         self._away_rest_min = clamp_away_rest_min(ui_prefs.get("away_rest_min", 45))
         self._away_resting = False
@@ -566,12 +497,13 @@ class ArelisWindow(QMainWindow):
         # it was left, days later, with nothing to connect it to.
         self.think_dock = GlassDockWidget("thinking", self)
         self.think_dock.setObjectName("ThinkingDock")
-        _hide_dock_title(self.think_dock)
         self._think_shell = _dock_shell(
             self.think_host,
             (_PANEL_HALF, _PANEL_TOP, _PANEL_OUTER, _PANEL_BOTTOM),
         )
         self.think_dock.setWidget(self._think_shell)
+        # After setWidget, so the first surface pass reaches the shell and panel.
+        _hide_dock_title(self.think_dock)
         self.think_dock.setAllowedAreas(
             Qt.DockWidgetArea.LeftDockWidgetArea
             | Qt.DockWidgetArea.RightDockWidgetArea
@@ -581,12 +513,12 @@ class ArelisWindow(QMainWindow):
 
         self.work_dock = GlassDockWidget("workspace", self)
         self.work_dock.setObjectName("WorkspaceDock")
-        _hide_dock_title(self.work_dock)
         self._work_shell = _dock_shell(
             self.work_host,
             (_PANEL_OUTER, _PANEL_HALF, _PANEL_OUTER, _PANEL_BOTTOM),
         )
         self.work_dock.setWidget(self._work_shell)
+        _hide_dock_title(self.work_dock)
         self.work_dock.setAllowedAreas(
             Qt.DockWidgetArea.LeftDockWidgetArea
             | Qt.DockWidgetArea.RightDockWidgetArea
@@ -596,12 +528,12 @@ class ArelisWindow(QMainWindow):
 
         self.history_dock = GlassDockWidget("history", self)
         self.history_dock.setObjectName("HistoryDock")
-        _hide_dock_title(self.history_dock)
         self._history_shell = _dock_shell(
             self.history_host,
             (_PANEL_OUTER, _PANEL_TOP, _PANEL_HALF, _PANEL_BOTTOM),
         )
         self.history_dock.setWidget(self._history_shell)
+        _hide_dock_title(self.history_dock)
         self.history_dock.setAllowedAreas(
             Qt.DockWidgetArea.LeftDockWidgetArea
             | Qt.DockWidgetArea.RightDockWidgetArea
@@ -611,27 +543,19 @@ class ArelisWindow(QMainWindow):
 
         self.camera_dock = GlassDockWidget("camera", self)
         self.camera_dock.setObjectName("CameraDock")
-        _hide_dock_title(self.camera_dock)
         self._camera_shell = _dock_shell(
             self.camera_host,
             (_PANEL_OUTER, _PANEL_TOP, _PANEL_HALF, _PANEL_BOTTOM),
         )
         self.camera_dock.setWidget(self._camera_shell)
+        _hide_dock_title(self.camera_dock)
         self.camera_dock.setAllowedAreas(
             Qt.DockWidgetArea.LeftDockWidgetArea
             | Qt.DockWidgetArea.RightDockWidgetArea
             | Qt.DockWidgetArea.BottomDockWidgetArea
         )
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.camera_dock)
-        self.tabifyDockWidget(self.history_dock, self.camera_dock)
-
-        # QWidget.setStyle does not take ownership. A local QStyle is collected
-        # when _style_dock_tabs returns; the next paint then walks a freed
-        # pointer and pythonw dies with no traceback.
-        self._dock_tab_style = QStyleFactory.create("Fusion")
-        if self._dock_tab_style is not None:
-            self._dock_tab_style.setParent(self)
-        self._style_dock_tabs()
+        self._stacking_left = False
 
         # Keep instruments readable while the OS live-resizes the frameless shell.
         # Without mins, QMainWindow will crush side docks to a few pixels.
@@ -671,14 +595,14 @@ class ArelisWindow(QMainWindow):
         )
         if not restored:
             self._apply_calm_instrument_defaults()
-        # Saved layouts can leave floating docks translucent over chat.
-        # Redock + opaque seal after restore (and once more after the first tick).
-        self._later(0, self._sanitize_floating_docks)
-        self._later(250, self._sanitize_floating_docks)
+        # Seal restored floats now, before the first show. Do not redock them
+        # after paint — that shrink used to leave a second orbit on the right.
+        self._sanitize_floating_docks()
+        self._stack_left_instruments()
         self._later(0, self._clamp_dock_widths)
         self._later(0, self._sync_panel_margins)
-        self._later(0, self._style_dock_tabs)
-        self._later(250, self._style_dock_tabs)
+        self._later(0, self._stack_left_instruments)
+        self._later(250, self._stack_left_instruments)
 
         self.notify_inbox = NotificationsInboxWindow(self.notifications, self)
         self.notify_inbox.hide()
@@ -687,6 +611,15 @@ class ArelisWindow(QMainWindow):
         self.calendar_window = CalendarWindow(self.calendar, self)
         self.calendar_window.hide()
         self._calendar_placed = False
+        self.world_scene = WorldScene()
+        self.world_depth = DepthBank()
+        self.spatial.scene_log = self.world_scene.to_log
+        self._closed_off: dict[str, tuple[float, float]] = {}
+        self.world_window = WorldWindow(self.world_scene, self)
+        self.world_window.hide()
+        self._world_placed = False
+        self.camera.set_reach(self._world_reach)
+        self.camera.reach_changed.connect(self._on_reach_changed)
 
         self._build_view_actions()
         self._voice_hotkey_at = 0.0
@@ -705,6 +638,7 @@ class ArelisWindow(QMainWindow):
         self.conversation.resume_requested.connect(self._on_drive_resume)
         self.conversation.confirm_decided.connect(self._on_confirm_decided)
         self.conversation.leave_room_requested.connect(self._leave_room)
+        self.conversation.world_requested.connect(self._open_world)
         # Armed paths for the two press-again gates that guard unsaved work in
         # the editor: discarding it by opening over it, and overwriting a file
         # that changed on disk while it sat open.
@@ -739,10 +673,15 @@ class ArelisWindow(QMainWindow):
             dock.dockLocationChanged.connect(lambda _area: self._sync_panel_margins())
             dock.topLevelChanged.connect(lambda _floating: self._sync_panel_margins())
             dock.topLevelChanged.connect(lambda _floating: self._flush_glass_surface())
+        self.history_dock.topLevelChanged.connect(lambda _f: self._stack_left_instruments())
+        self.camera_dock.topLevelChanged.connect(lambda _f: self._stack_left_instruments())
+        self.history_dock.dockLocationChanged.connect(lambda _a: self._stack_left_instruments())
+        self.camera_dock.dockLocationChanged.connect(lambda _a: self._stack_left_instruments())
 
         self.notify_inbox.closed.connect(self._on_notify_inbox_closed)
         self.contacts_inbox.closed.connect(self._on_contacts_inbox_closed)
         self.calendar_window.closed.connect(self._on_calendar_window_closed)
+        self.world_window.closed.connect(self._on_world_window_closed)
         overlay = self.conversation.notify_overlay
         overlay.dismiss_requested.connect(self._on_notice_dismiss)
         overlay.snooze_requested.connect(self._on_notice_snooze)
@@ -764,6 +703,7 @@ class ArelisWindow(QMainWindow):
 
         self._assistant_streaming = False
         self._turn_busy = False
+        self._mobile_foreign = False
         self._drive_session = False
         self._readiness_snap = None
         self._idle_ghosts: list[tuple[str, str]] = []
@@ -848,6 +788,10 @@ class ArelisWindow(QMainWindow):
 
         self._later(0, self._schedule_readiness_probe)
         self._later(80, self.conversation.focus_input)
+        # The duplicate-paint bug is on screen from the first frame, so a dump
+        # once the window has settled catches it. See surface_report for why
+        # these three lists are the ones worth printing.
+        self._later(4000, lambda: log_report(self, tag="settled"))
         if self._restore_session_id:
             # Bus is already running on the background thread by the time the
             # window is shown; a zero-delay shot waits one event-loop pass so
@@ -934,6 +878,29 @@ class ArelisWindow(QMainWindow):
     def _on_think_pulse_done(self) -> None:
         self.think_host.set_attention(False)
 
+    def _atmosphere_glass_frames(self) -> list[GlassFrame]:
+        """Plates the 10 Hz tick may invalidate.
+
+        Conversation is type in the void. A 10 Hz repaint on that
+        translucent surface — or on RoomStrip / DriveStrip sitting on it —
+        is the duplicate-orbit / ghost-tick path. Companion HWNDs
+        (world, calendar) have their own timers.
+        """
+        conversation = self.conversation
+        frames = []
+        for frame in self.findChildren(GlassFrame):
+            if frame is conversation or conversation.isAncestorOf(frame):
+                continue
+            if frame.window() is not self:
+                continue
+            if frame.isHidden():
+                continue
+            if frame.has_attention or getattr(frame, "_pulse_rim", False):
+                frames.append(frame)
+            elif getattr(frame, "_fill_alpha", 0) > 4:
+                frames.append(frame)
+        return frames
+
     def _tick_atmosphere(self) -> None:
         if self.isMinimized():
             return
@@ -941,16 +908,8 @@ class ArelisWindow(QMainWindow):
         # Slow grain drift. Rim on plates is a static hairline, not a pulse circus.
         advance_rim_pulse(0.1)
         self.update()
-        # Do not update the conversation plate. It is type in the void (fill 0)
-        # and only paints corner ticks — a 10 Hz repaint on that translucent
-        # surface is the duplicate-orbit / ghost-tick path.
-        for frame in self.findChildren(GlassFrame):
-            if frame is self.conversation:
-                continue
-            if frame.has_attention or getattr(frame, "_pulse_rim", False):
-                frame.update()
-            elif getattr(frame, "_fill_alpha", 0) > 4:
-                frame.update()
+        for frame in self._atmosphere_glass_frames():
+            frame.update()
 
     def _build_voice(self) -> None:
         """Attach the microphone and the speaker, if voice is switched on.
@@ -1442,6 +1401,13 @@ class ArelisWindow(QMainWindow):
         self.act_calendar.triggered.connect(self._toggle_calendar)
         self.addAction(self.act_calendar)
 
+        self.act_world = QAction("world", self)
+        self.act_world.setCheckable(True)
+        self.act_world.setChecked(False)
+        self.act_world.setShortcut(QKeySequence("Ctrl+8"))
+        self.act_world.triggered.connect(self._toggle_world)
+        self.addAction(self.act_world)
+
         self.act_reset = QAction("reset layout", self)
         self.act_reset.triggered.connect(self._reset_layout)
         self.addAction(self.act_reset)
@@ -1568,6 +1534,23 @@ class ArelisWindow(QMainWindow):
         paint_atmosphere(painter, self.rect(), drift=self._atmosphere_phase)
         # Corner ticks live on ConversationStage so they don't cut the title bar.
 
+    def event(self, event) -> bool:
+        # Nothing between this window and the text paints a background: the
+        # stage, the dock shells, the instrument plates at fill 0 and the panel
+        # bodies are all transparent, and this paintEvent is the only thing that
+        # lays down pixels. Qt repaints the smallest region it thinks changed,
+        # so a widget that moves gets its new position painted while its old
+        # position keeps the previous frame — a second history header 40px up, a
+        # second orbit one dock-column to the right.
+        #
+        # A whole-window repaint on layout change is the answer rather than a
+        # _flush_glass_surface call at each of the dozen places that can move a
+        # widget, because the next one added would not know it had to call it.
+        # update() coalesces into a single paint per frame.
+        if event.type() == QEvent.Type.LayoutRequest:
+            self.update()
+        return super().event(event)
+
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         # Drop the mask while the user is dragging an edge — setMask every
@@ -1581,6 +1564,9 @@ class ArelisWindow(QMainWindow):
         super().showEvent(event)
         # Frameless alone drops OS resize; re-add thick frame after the HWND exists.
         enable_win32_resize_frame(self)
+        # QMainWindow will have promoted docks/toolbars to child HWNDs by now.
+        # Those are the second paint of each panel, offset by the child's origin.
+        release_native_children(self)
         self._apply_round_mask()
         self._clamp_dock_widths()
         self._sync_panel_margins()
@@ -1714,6 +1700,7 @@ class ArelisWindow(QMainWindow):
         menu.addAction(self.act_camera)
         menu.addAction(self.act_contacts)
         menu.addAction(self.act_calendar)
+        menu.addAction(self.act_world)
         menu.addSeparator()
         menu.addAction(self.act_always_on_top)
         menu.addAction(self.act_fullscreen)
@@ -1723,6 +1710,52 @@ class ArelisWindow(QMainWindow):
         menu.addAction(self.act_reset)
         # Settings lives on the title-bar button (and Ctrl+,), not in View.
         menu.exec(anchor.mapToGlobal(QPoint(0, anchor.height())))
+
+    def _show_rooms_menu(self, anchor) -> None:
+        menu = self._build_rooms_menu()
+        menu.exec(anchor.mapToGlobal(QPoint(0, anchor.height())))
+
+    def _build_rooms_menu(self) -> QMenu:
+        """Places, not panels. Same enter/leave path as typing or saying it."""
+        menu = QMenu(self)
+        menu.setObjectName("RoomsMenu")
+        store = self.config.get("_rooms")
+        rooms = list(store.all()) if store is not None else []
+        active = ""
+        if store is not None:
+            active = str(getattr(store, "active_id", "") or "")
+        if not active:
+            active = str(getattr(self.conversation.room, "room_id", "") or "")
+
+        if not rooms:
+            empty = QAction("no rooms yet", self)
+            empty.setEnabled(False)
+            menu.addAction(empty)
+        else:
+            for room in rooms:
+                act = QAction(room.name or room.id, self)
+                act.setCheckable(True)
+                act.setChecked(room.id == active)
+                if room.purpose:
+                    act.setToolTip(room.purpose)
+                act.triggered.connect(
+                    lambda _checked=False, rid=room.id: self._enter_room_from_menu(rid)
+                )
+                menu.addAction(act)
+        menu.addSeparator()
+        leave = QAction("leave", self)
+        leave.setEnabled(bool(active))
+        leave.triggered.connect(self._leave_room)
+        menu.addAction(leave)
+        return menu
+
+    def _enter_room_from_menu(self, room_id: str) -> None:
+        if not room_id:
+            return
+        asyncio.run_coroutine_threadsafe(
+            self.bus.publish(Event(EventType.USER_MESSAGE, {"text": f"/room {room_id}"})),
+            self.loop,
+        )
 
     def _toggle_fullscreen(self) -> None:
         if self.isFullScreen():
@@ -1765,6 +1798,16 @@ class ArelisWindow(QMainWindow):
         self.conversation.input.setStyleSheet(f"font-size: {body}px;")
         if persist:
             save_ui_prefs(chat_font_scale=self._chat_font_scale)
+
+    def _on_reach_changed(self, reach: float) -> None:
+        self._apply_world_reach(reach)
+
+    def _apply_world_reach(self, reach: float, *, persist: bool = True) -> None:
+        self._world_reach = clamp_reach(reach)
+        if hasattr(self, "camera"):
+            self.camera.set_reach(self._world_reach)
+        if persist:
+            save_ui_prefs(world_reach=self._world_reach)
 
     def _open_settings(self, tab: str = "") -> None:
         active_facts: list[dict[str, object]] = []
@@ -2107,7 +2150,7 @@ class ArelisWindow(QMainWindow):
         if checked:
             self._refresh_history()
             self._animate_dock(self.history_dock)
-        self._style_dock_tabs()
+        self._stack_left_instruments()
 
     def _toggle_notifications(self, checked: bool) -> None:
         self._note_engagement()
@@ -2130,7 +2173,7 @@ class ArelisWindow(QMainWindow):
             self._animate_dock(self.camera_dock)
         else:
             self.camera.stop()
-        self._style_dock_tabs()
+        self._stack_left_instruments()
 
     def _toggle_contacts(self, checked: bool) -> None:
         self._note_engagement()
@@ -2160,6 +2203,63 @@ class ArelisWindow(QMainWindow):
             self._calendar_sync_watchdog.stop()
         self._sync_idle_mode()
 
+    def _open_world(self) -> None:
+        self.act_world.setChecked(True)
+        self._toggle_world(True)
+
+    def _toggle_world(self, checked: bool) -> None:
+        self._note_engagement()
+        if checked:
+            if self.conversation.room.room_id != PHYSICS_ROOM_ID:
+                self.act_world.setChecked(False)
+                return
+            if not getattr(self, "_world_placed", False):
+                geo = self.frameGeometry()
+                self.world_window.move(geo.x() + 48, geo.y() + 48)
+                self._world_placed = True
+            self.world_window.show()
+            self.world_window.raise_()
+            self.world_window.panel.refresh()
+        else:
+            self.world_window.hide()
+        self._sync_idle_mode()
+
+    def _hide_world(self) -> None:
+        self.world_scene.reset()
+        if hasattr(self, "world_depth"):
+            self.world_depth.reset()
+        if hasattr(self, "world_window"):
+            self.world_window.hide()
+            self.world_window.panel.refresh()
+        if hasattr(self, "act_world"):
+            self.act_world.setChecked(False)
+
+    def _try_physics_verb(self, text: str) -> bool:
+        """Closed lexicon in this room. True when it must not start a turn."""
+        if self.conversation.room.room_id != PHYSICS_ROOM_ID:
+            return False
+        verb = classify_physics_verb(text)
+        if not verb:
+            return False
+        self._apply_physics_verb(verb)
+        return True
+
+    def _apply_physics_verb(self, verb: str) -> None:
+        result = self.world_scene.apply_verb(verb)
+        if hasattr(self, "world_window"):
+            self.world_window.panel.refresh()
+        if result:
+            mass = result.get("mass")
+            frozen = result.get("frozen")
+            bits = [str(result.get("verb") or verb)]
+            if isinstance(mass, (int, float)):
+                bits.append(f"{mass:.2f}×")
+            if frozen:
+                bits.append("frozen")
+            self.thinking.append(" ".join(bits), kind="status")
+        else:
+            self.thinking.append("Nothing is held", kind="status")
+
     def _apply_tile(self, name: str, *, show: bool) -> None:
         """Show or hide a View-menu tile from the tile tool."""
         key = (name or "").strip().lower()
@@ -2171,6 +2271,7 @@ class ArelisWindow(QMainWindow):
             "camera": (self.act_camera, self._toggle_camera),
             "contacts": (self.act_contacts, self._toggle_contacts),
             "calendar": (self.act_calendar, self._toggle_calendar),
+            "world": (self.act_world, self._toggle_world),
         }
         pair = mapping.get(key)
         if pair is None:
@@ -2480,6 +2581,9 @@ class ArelisWindow(QMainWindow):
 
     def _on_calendar_window_closed(self) -> None:
         self.act_calendar.setChecked(False)
+
+    def _on_world_window_closed(self) -> None:
+        self.act_world.setChecked(False)
         self._calendar_sync_timer.stop()
         self._calendar_sync_watchdog.stop()
         self._sync_idle_mode()
@@ -2510,7 +2614,7 @@ class ArelisWindow(QMainWindow):
         self.notifications.show_notice(notice_id)
 
     def _on_camera_dock_visibility(self, visible: bool) -> None:
-        if getattr(self.camera_dock, "_arelis_chrome_applying", False):
+        if chrome_applying(self.camera_dock):
             return
         if visible:
             self.camera.start()
@@ -2539,7 +2643,12 @@ class ArelisWindow(QMainWindow):
     def _on_camera_record(self, on: bool) -> None:
         if on:
             path = self.spatial.start_record(
-                {"device": self.camera.current_device_name()}
+                {
+                    "device": self.camera.current_device_name(),
+                    "gravity": GRAVITY,
+                    "rung": 3,
+                    "estimator": ESTIMATOR,
+                }
             )
             if path is None:
                 self.camera.record_btn.blockSignals(True)
@@ -2554,13 +2663,200 @@ class ArelisWindow(QMainWindow):
         rgb, t_capture, width, height = payload
         self.spatial.submit_frame(rgb, t_capture, width, height)
 
+    def _on_camera_pose_video(self, frame: object, t_capture: float) -> None:
+        self.spatial.submit_video(frame, t_capture)
+
+    def _on_spatial_recording(self, on: bool) -> None:
+        if self.camera.record_btn.isChecked() == on:
+            return
+        self.camera.record_btn.blockSignals(True)
+        self.camera.record_btn.setChecked(on)
+        self.camera.record_btn.blockSignals(False)
+
+    def _hand_depth(self, who: str, hand: object, stamp: float, frame: object) -> float | None:
+        """Palm-pinhole z, or none if the frame has no size."""
+        if hand is None or not hasattr(self, "world_depth"):
+            return None
+        width = int(getattr(frame, "width", 0) or 0)
+        height = int(getattr(frame, "height", 0) or 0)
+        if width < 1 or height < 1:
+            return None
+        return self.world_depth.observe(
+            who, hand, t=stamp, width=width, height=height
+        )
+
     def _on_spatial_hands(self, frame: object) -> None:
         if frame is None:
+            self._closed_off.clear()
             self.camera.set_hands(())
+            if hasattr(self, "world_depth"):
+                self.world_depth.reset()
+            self.world_scene.drop(t=time.perf_counter())
+            if hasattr(self, "world_window") and not self.world_window.isHidden():
+                self.world_window.panel.clear_hand()
             return
         hands = getattr(frame, "hands", ())
-        pinched = any(h.pinch_metric() < 0.35 for h in hands)
-        self.camera.set_hands(hands, pinched=pinched)
+        state = str(getattr(self.spatial, "last_state", "") or "idle")
+        fps = float(getattr(self.spatial, "last_fps", 0.0) or 0.0)
+        tracks = tuple(getattr(self.spatial, "last_tracks", ()) or ())
+        closed_kinds: dict[str, str] = {}
+        overlay_hands = list(hands)
+        for track in tracks:
+            st = str(getattr(track, "state", "") or "")
+            who = str(getattr(track, "who", "") or "")
+            if who and st in ("fist", "pinch"):
+                closed_kinds[who] = st
+            held = getattr(track, "hand", None)
+            if (
+                getattr(track, "coasting", False)
+                and held is not None
+                and not any(h is held for h in overlay_hands)
+            ):
+                overlay_hands.append(held)
+        self.camera.set_hands(
+            tuple(overlay_hands),
+            closed=bool(closed_kinds),
+            state=state,
+            fps=fps,
+            closed_kinds=closed_kinds,
+        )
+        world_up = hasattr(self, "world_window") and not self.world_window.isHidden()
+        reach = getattr(self, "_world_reach", REACH_DEFAULT)
+        stamp = float(getattr(frame, "t_capture", time.perf_counter()))
+        apertures: list[tuple[tuple[float, float], tuple[float, float], bool]] = []
+        alive: set[str] = set()
+        ordered = sorted(
+            tracks,
+            key=lambda track: (
+                0
+                if str(getattr(track, "state", "") or "") in ("fist", "pinch")
+                else 1,
+                0
+                if getattr(track, "who", "") == "Left"
+                else 1
+                if getattr(track, "who", "") == "Right"
+                else 2,
+                str(getattr(track, "who", "")),
+            ),
+        )
+        for track in ordered:
+            who = str(getattr(track, "who", "") or "")
+            hand = getattr(track, "hand", None)
+            st = str(getattr(track, "state", "") or "idle")
+            held = self.world_scene.held_names()
+            if who in held and st in ("fist", "pinch"):
+                alive.add(who)
+            if getattr(track, "coasting", False):
+                if who in held and st in ("fist", "pinch"):
+                    alive.add(who)
+                    if self.world_scene.is_flicking(who):
+                        self.world_scene.drop(t=stamp, who=who)
+                        alive.discard(who)
+                        continue
+                    # Last closed pose still drives the ball. Skipping
+                    # apply_pointer here was the freeze-then-jump.
+                else:
+                    continue
+            if hand is None:
+                if who:
+                    self._closed_off.pop(who, None)
+                if who in held:
+                    self.world_scene.drop(t=stamp, who=who)
+                elif who:
+                    self.world_scene.forget_pending(who)
+                continue
+            thumb, index = hand.pinch_tips()
+            holding = st in ("fist", "pinch")
+            centroid, off = grab_drive(
+                hand, closed=holding, offset=self._closed_off.get(who)
+            )
+            if who and off is not None:
+                self._closed_off[who] = off
+            elif who:
+                self._closed_off.pop(who, None)
+            tw, ti = image_to_world(*thumb, reach=reach), image_to_world(*index, reach=reach)
+            cw = image_to_world(*centroid, reach=reach)
+            self.world_scene.apply_pointer(
+                cw[0],
+                cw[1],
+                holding,
+                t=stamp,
+                who=who,
+                kind=st if holding else "open",
+                z=self._hand_depth(who, hand, stamp, frame),
+            )
+            if st == "fist":
+                apertures.append((cw, cw, True))
+            elif st == "pinch":
+                apertures.append((tw, ti, True))
+            else:
+                apertures.append((tw, ti, False))
+        live = {
+            str(getattr(track, "who", "") or "")
+            for track in ordered
+            if getattr(track, "hand", None) is not None
+        }
+        if tracks:
+            self.world_scene.forget_absent(live, t=stamp)
+        if not tracks and hands:
+            hand = hands[0]
+            holding = state in ("fist", "pinch", "both")
+            kind = "fist" if state in ("fist", "both") else "pinch" if state == "pinch" else "open"
+            centroid, off = grab_drive(
+                hand, closed=holding, offset=self._closed_off.get("")
+            )
+            if off is not None:
+                self._closed_off[""] = off
+            else:
+                self._closed_off.pop("", None)
+            cw = image_to_world(*centroid, reach=reach)
+            self.world_scene.apply_pointer(
+                cw[0],
+                cw[1],
+                holding,
+                t=stamp,
+                kind=kind,
+                z=self._hand_depth("", hand, stamp, frame),
+            )
+            if holding and kind == "fist":
+                apertures.append((cw, cw, True))
+            elif holding:
+                thumb, index = hand.pinch_tips()
+                apertures.append(
+                    (
+                        image_to_world(*thumb, reach=reach),
+                        image_to_world(*index, reach=reach),
+                        True,
+                    )
+                )
+            else:
+                thumb, index = hand.pinch_tips()
+                apertures.append(
+                    (
+                        image_to_world(*thumb, reach=reach),
+                        image_to_world(*index, reach=reach),
+                        False,
+                    )
+                )
+        if self.world_scene.bodies:
+            for body in self.world_scene.bodies:
+                if (
+                    body.attached
+                    and body.holder
+                    and body.holder not in alive
+                    and not any(
+                        str(getattr(track, "who", "") or "") == body.holder
+                        for track in tracks
+                    )
+                ):
+                    self.world_scene.drop(t=stamp, who=body.holder)
+        if not hands and not tracks:
+            self.world_scene.drop(t=stamp)
+            if world_up:
+                self.world_window.panel.clear_hand()
+            return
+        if world_up:
+            self.world_window.panel.set_apertures(apertures)
 
     def _refresh_camera_capture_hook(self) -> None:
         """Expose live capture to the camera tool while the dock session is up."""
@@ -2595,6 +2891,8 @@ class ArelisWindow(QMainWindow):
             self.act_contacts.setChecked(self.contacts_inbox.isVisible())
         if hasattr(self, "act_calendar"):
             self.act_calendar.setChecked(not self.calendar_window.isHidden())
+        if hasattr(self, "act_world"):
+            self.act_world.setChecked(not self.world_window.isHidden())
 
     def _on_dock_visibility(self, visible: bool) -> None:
         # Ignore the transient hide that setWindowFlags causes while swapping
@@ -2604,8 +2902,7 @@ class ArelisWindow(QMainWindow):
         # the user turning an instrument off.
         sender = self.sender()
         if isinstance(sender, QDockWidget) and (
-            getattr(sender, "_arelis_chrome_applying", False)
-            or getattr(sender, "_arelis_parked", False)
+            chrome_applying(sender) or getattr(sender, "_arelis_parked", False)
         ):
             return
         self._sync_view_checks()
@@ -2615,6 +2912,8 @@ class ArelisWindow(QMainWindow):
             dock = sender
             if isinstance(dock, QDockWidget) and dock.isFloating():
                 self._animate_dock(dock)
+        if sender in (self.history_dock, self.camera_dock):
+            self._stack_left_instruments()
         self._sync_idle_mode()
 
     def _docked_in(self, dock: QDockWidget, area: Qt.DockWidgetArea) -> bool:
@@ -2623,6 +2922,50 @@ class ArelisWindow(QMainWindow):
             and not dock.isFloating()
             and self.dockWidgetArea(dock) == area
         )
+
+    def _left_column_member(self, dock: QDockWidget) -> bool:
+        """Same as docked-on-the-left, but isHidden() so tests and tray agree."""
+        return (
+            not dock.isHidden()
+            and not dock.isFloating()
+            and self.dockWidgetArea(dock) == Qt.DockWidgetArea.LeftDockWidgetArea
+        )
+
+    def _history_camera_tabbed(self) -> bool:
+        for bar in self.findChildren(QTabBar):
+            labels = {bar.tabText(i).strip().lower() for i in range(bar.count())}
+            if "history" in labels and "camera" in labels:
+                return True
+        return False
+
+    def _stack_left_instruments(self) -> None:
+        """History above camera on the left. No tabs. Float restores history."""
+        if getattr(self, "_disposed", False) or getattr(self, "_stacking_left", False):
+            return
+        if chrome_applying(self.history_dock) or chrome_applying(self.camera_dock):
+            return
+        self._stacking_left = True
+        try:
+            hist = self.history_dock
+            cam = self.camera_dock
+            if self._history_camera_tabbed():
+                if not hist.isFloating():
+                    self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, hist)
+                if not cam.isFloating():
+                    self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, cam)
+            hist_left = self._left_column_member(hist)
+            cam_left = self._left_column_member(cam)
+            if hist_left and cam_left:
+                already = cam.y() >= hist.y() + 40 and not self._history_camera_tabbed()
+                self.splitDockWidget(hist, cam, Qt.Orientation.Vertical)
+                if not already:
+                    column = max(hist.height() + cam.height(), 400)
+                    cam_h = max(240, column // 2)
+                    hist_h = max(160, column - cam_h)
+                    self.resizeDocks([hist, cam], [hist_h, cam_h], Qt.Orientation.Vertical)
+            self._sync_panel_margins()
+        finally:
+            self._stacking_left = False
 
     def _sync_panel_margins(self) -> None:
         """Keep outer and inter-panel gutters equal (history | chat | thinking)."""
@@ -2647,8 +2990,17 @@ class ArelisWindow(QMainWindow):
         self._stage_layout.setContentsMargins(chat_l, _PANEL_TOP, chat_r, chat_b)
 
         # Floating shells must stay margin-0 / opaque — docked gutters punch holes.
+        hist_left = self._left_column_member(self.history_dock)
+        cam_left = self._left_column_member(self.camera_dock)
+        stacked = hist_left and cam_left
+
         if self.history_dock.isFloating():
             _set_shell_margins(self._history_shell, (0, 0, 0, 0))
+        elif stacked:
+            _set_shell_margins(
+                self._history_shell,
+                (_PANEL_OUTER, _PANEL_TOP, _PANEL_HALF, _PANEL_HALF),
+            )
         else:
             _set_shell_margins(
                 self._history_shell,
@@ -2670,6 +3022,11 @@ class ArelisWindow(QMainWindow):
             )
         if self.camera_dock.isFloating():
             _set_shell_margins(self._camera_shell, (0, 0, 0, 0))
+        elif stacked:
+            _set_shell_margins(
+                self._camera_shell,
+                (_PANEL_OUTER, _PANEL_HALF, _PANEL_HALF, _PANEL_BOTTOM),
+            )
         else:
             _set_shell_margins(
                 self._camera_shell,
@@ -2677,34 +3034,26 @@ class ArelisWindow(QMainWindow):
             )
 
     def _sanitize_floating_docks(self) -> None:
-        """Launch cleanup: redock stray floats, then seal chrome if any remain.
+        """Seal restored floats. Never slam them back into the column.
 
-        Saved layouts often restore thinking/history as translucent top-level
-        HWNDs over chat (ghost bubbles). Force those docked on startup so one
-        glass shell owns the instruments; user can undock again mid-session
-        (opaque). Calendar is not a dock.
+        A floating camera on the other monitor is a saved layout, not a ghost.
+        Ghosts came from a translucent main HWND plus redocking after first
+        paint (wide stage, then shrink, leftover orbit on the right). Floats
+        stay their own opaque HWNDs; calendar and world are not docks.
         """
-        redocked = False
         for dock in (
             self.think_dock,
             self.work_dock,
             self.history_dock,
             self.camera_dock,
         ):
-            if dock.graphicsEffect() is not None:
-                dock.setGraphicsEffect(None)
-            if dock.isFloating():
-                dock.setFloating(False)
-                redocked = True
-            _apply_floating_dock_chrome(dock, dock.isFloating())
+            apply_dock_chrome(dock, dock.isFloating())
+        self._stack_left_instruments()
         self._sync_panel_margins()
         self._flush_glass_surface()
-        if redocked:
-            # Persist docked state so the next launch does not rehydrate ghosts.
-            self._persist_window_layout()
 
     def _flush_glass_surface(self) -> None:
-        """Ask Windows to re-upload the layered bitmap after a layout change."""
+        """Drop leftover opacity pixmaps and ask for a full repaint."""
         if self.conversation.graphicsEffect() is not None:
             self.conversation.setGraphicsEffect(None)
         empty = getattr(self.chat, "empty", None)
@@ -2724,35 +3073,6 @@ class ArelisWindow(QMainWindow):
         if target is not None and target.graphicsEffect() is not None:
             target.setGraphicsEffect(None)
 
-    def _style_dock_tabs(self) -> None:
-        """History/camera tabs live on QMainWindow, not inside QDockWidget.
-
-        Qt's tabify bar is a sibling of the docks, so `QDockWidget QTabBar`
-        never matches. Windows also ignores translucent QSS on QTabBar and
-        paints a grey selected chip — so this bar gets Fusion + an opaque
-        widget stylesheet, after layout restore recreates it.
-        """
-        qss = dock_tab_bar_qss()
-        fusion = getattr(self, "_dock_tab_style", None)
-        for bar in self.findChildren(QTabBar):
-            labels = {bar.tabText(i).strip().lower() for i in range(bar.count())}
-            if not labels.intersection({"history", "camera"}):
-                parent = bar.parent()
-                if parent is not self and not isinstance(parent, QMainWindow):
-                    continue
-            bar.setObjectName("DockTabBar")
-            bar.setDocumentMode(True)
-            bar.setDrawBase(False)
-            bar.setExpanding(False)
-            # Without this Qt shrinks a tabified dock's bar to fit the dock and
-            # elides the labels to "hist…"/"cam…". The names are short; show them.
-            bar.setElideMode(Qt.TextElideMode.ElideNone)
-            bar.setUsesScrollButtons(False)
-            bar.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-            if fusion is not None:
-                bar.setStyle(fusion)
-            bar.setStyleSheet(qss)
-
     def _reset_layout(self) -> None:
         self.camera.stop()
         self.think_dock.setFloating(False)
@@ -2763,11 +3083,11 @@ class ArelisWindow(QMainWindow):
         self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.work_dock)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.history_dock)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.camera_dock)
-        self.tabifyDockWidget(self.history_dock, self.camera_dock)
-        self._style_dock_tabs()
+        self._stack_left_instruments()
         self.notify_inbox.hide()
         self.contacts_inbox.hide()
         self.calendar_window.hide()
+        self._hide_world()
         self._calendar_sync_timer.stop()
         self._calendar_sync_watchdog.stop()
         self.sms_chats.hide_all()
@@ -2818,7 +3138,7 @@ class ArelisWindow(QMainWindow):
             )
         ) or (not self.notify_inbox.isHidden()) or (not self.contacts_inbox.isHidden()) or (
             not self.calendar_window.isHidden()
-        )
+        ) or (not self.world_window.isHidden())
         self.readiness_strip.setVisible(not idle or instruments)
         empty = getattr(self.chat, "empty", None)
         if empty is not None and hasattr(empty, "set_side_chrome"):
@@ -2839,6 +3159,7 @@ class ArelisWindow(QMainWindow):
         self.history_dock.hide()
         self.camera_dock.hide()
         self.calendar_window.hide()
+        self._hide_world()
         self._calendar_sync_timer.stop()
         self._calendar_sync_watchdog.stop()
         self.notify_inbox.hide()
@@ -2904,6 +3225,7 @@ class ArelisWindow(QMainWindow):
         self.history_dock.hide()
         self.camera_dock.hide()
         self.calendar_window.hide()
+        self._hide_world()
         self._calendar_sync_timer.stop()
         self._calendar_sync_watchdog.stop()
         self.notify_inbox.hide()
@@ -2948,7 +3270,7 @@ class ArelisWindow(QMainWindow):
         if hidden.get("contacts"):
             self.contacts_inbox.show()
             self.contacts_inbox.raise_()
-        self._style_dock_tabs()
+        self._stack_left_instruments()
         self._sync_idle_mode()
         self._arm_away_rest_timer()
 
@@ -3240,7 +3562,7 @@ class ArelisWindow(QMainWindow):
         """Take floating instruments with the glass when it leaves the screen.
 
         A docked instrument is a child widget and disappears with its parent. A
-        floating one is a top-level window of its own — ``_apply_floating_dock_chrome``
+        floating one is a top-level window of its own — ``apply_dock_chrome``
         gives it ``Qt.Window``, where every other companion surface here is a
         ``Qt.Tool`` and so is hidden by Qt along with its parent. The panel
         therefore stayed on screen with the glass in the tray, and the next launch
@@ -3263,6 +3585,10 @@ class ArelisWindow(QMainWindow):
         if cal is not None and not cal.isHidden():
             cal._arelis_parked = True
             cal.hide()
+        world = getattr(self, "world_window", None)
+        if world is not None and not world.isHidden():
+            world._arelis_parked = True
+            world.hide()
 
     def _unpark_floating_docks(self) -> None:
         """Bring parked floating instruments back with the glass."""
@@ -3283,6 +3609,11 @@ class ArelisWindow(QMainWindow):
             cal._arelis_parked = False
             cal.show()
             cal.raise_()
+        world = getattr(self, "world_window", None)
+        if world is not None and getattr(world, "_arelis_parked", False):
+            world._arelis_parked = False
+            world.show()
+            world.raise_()
 
     def _remember_window_state(self) -> None:
         """Record maximized/full-screen before hiding, ignoring Minimized.
@@ -3316,10 +3647,8 @@ class ArelisWindow(QMainWindow):
         self.show()
         self.raise_()
         self.activateWindow()
-        # The layered surface Windows kept while we were away is stale by
-        # definition: inbound texts, status lines and readiness all keep moving
-        # with the glass hidden. Repaint the real windows, not just this one —
-        # a floating dock is its own top-level HWND with its own stale bitmap.
+        # Inbound texts and readiness keep moving while the glass is hidden.
+        # Repaint this window and every float — each is its own HWND.
         invalidate_window_surface(self)
         self._unpark_floating_docks()
         self._show_next_pending_confirm()
@@ -3426,6 +3755,8 @@ class ArelisWindow(QMainWindow):
 
     def _on_submit(self, text: str, role: str, attachments: list | None = None) -> None:
         self._note_engagement()
+        if not attachments and self._try_physics_verb(text):
+            return
         attachments = list(attachments or [])
         self._current_role = role
         # Grant session read on each original absolute path (attach = consent).
@@ -3889,8 +4220,12 @@ class ArelisWindow(QMainWindow):
             if p.get("source") in {"voice", "mobile"}:
                 text = p.get("text") or ""
                 attachments = p.get("attachments") if p.get("source") == "mobile" else None
-                self.chat.add_user(text, attachments=list(attachments or []) or None)
-                self.thinking.append(text, kind="trace")
+                self._mobile_foreign = p.get("source") == "mobile" and bool(
+                    p.get("foreign")
+                )
+                if not self._mobile_foreign:
+                    self.chat.add_user(text, attachments=list(attachments or []) or None)
+                    self.thinking.append(text, kind="trace")
                 self._set_busy(True)
                 if p.get("source") == "voice":
                     prov = getattr(self, "_provisional_intent", None)
@@ -3908,6 +4243,8 @@ class ArelisWindow(QMainWindow):
             # user to edit and send themselves.
             if p.get("deliver") == "dictate":
                 self.conversation.insert_dictation(p.get("text") or "")
+        elif t == EventType.PHYSICS_VERB:
+            self._apply_physics_verb(str(p.get("verb") or ""))
         elif t == EventType.VOICE_AUDIO_READY:
             # Streaming TTS can deliver the first clip before ASSISTANT_DONE.
             # Arm here so the mic stays deaf across that early Piper work too.
@@ -3924,6 +4261,8 @@ class ArelisWindow(QMainWindow):
         elif t == EventType.VOICE_SPEECH_DONE:
             self._on_speech_synthesized(int(p.get("clips") or 0))
         elif t == EventType.ASSISTANT_DELTA:
+            if self._mobile_foreign:
+                return
             self._clear_model_loading()
             # Keep the status line until the answer is finished. Clearing it on
             # the first token made tool turns flash: a preamble hid "thinking…",
@@ -3934,6 +4273,8 @@ class ArelisWindow(QMainWindow):
                 self._assistant_streaming = True
             self.chat.append_delta(p.get("text", ""))
         elif t == EventType.ASSISTANT_RETRACT:
+            if self._mobile_foreign:
+                return
             # The round turned out to be a tool call, so what was on screen was
             # a preamble. The agent loop mirrors it into the thinking dock.
             # Drop any speech that streamed from that preamble.
@@ -3945,6 +4286,12 @@ class ArelisWindow(QMainWindow):
             self._assistant_streaming = False
             self._stop_speech()
         elif t == EventType.ASSISTANT_DONE:
+            if self._mobile_foreign:
+                self._assistant_streaming = False
+                self._mobile_foreign = False
+                self._set_busy(False)
+                self._refresh_history()
+                return
             # Repaint from the payload rather than the accumulated deltas: it is
             # the authoritative answer, and it is the version that has the
             # Sources list appended. finish_assistant is idempotent when the
@@ -3971,6 +4318,10 @@ class ArelisWindow(QMainWindow):
             self._set_busy(False)
             self._refresh_history()
         elif t == EventType.MOBILE_SYNC:
+            sid = str(p.get("session_id") or "")
+            current = str(getattr(self.store, "session_id", "") or "")
+            if sid and current and sid != current:
+                return
             rows = p.get("messages") or []
             if isinstance(rows, list) and rows:
                 for row in rows:
@@ -3983,6 +4334,8 @@ class ArelisWindow(QMainWindow):
                     elif role == "assistant" and text:
                         self.chat.finish_assistant(text)
         elif t == EventType.SESSION_LOADED:
+            if p.get("silent"):
+                return
             if not p.get("ok"):
                 self.chat.add_system(str(p.get("error") or "Could not load that conversation."))
                 return
@@ -4033,6 +4386,8 @@ class ArelisWindow(QMainWindow):
             self.workspace.set_active_project(self.workspace_roots.active)
             self.camera.set_spatial_available(room_id == PHYSICS_ROOM_ID)
             self.spatial.set_room(room_id)
+            if room_id != PHYSICS_ROOM_ID:
+                self._hide_world()
             self.thinking.append(
                 f"room  {room_id or 'general'}", kind="status"
             )
@@ -4080,6 +4435,8 @@ class ArelisWindow(QMainWindow):
             )
             self._schedule_readiness_probe()
         elif t == EventType.TOOL_CONFIRM:
+            if self._mobile_foreign:
+                return
             self.conversation.ask_confirm(
                 str(p.get("id") or ""),
                 str(p.get("tool") or ""),
@@ -4349,6 +4706,12 @@ class ArelisWindow(QMainWindow):
                 self.conversation.set_drive_status("continuing…")
                 self.thinking.append("wall gone — continuing", kind="status")
         elif t == EventType.ERROR:
+            if self._mobile_foreign:
+                self._mobile_foreign = False
+                if p.get("scope") != "voice":
+                    self._assistant_streaming = False
+                    self._set_busy(False)
+                return
             message = p.get("message", "Error")
             # The publisher's own split: `message` is for the person, `detail` is
             # the exception. Thinking used to get the chat line twice over and the
@@ -4643,6 +5006,30 @@ class ArelisWindow(QMainWindow):
             )
             return str(fut.result(timeout=90) or "")
 
+        def speak_for_phone(text: str) -> bytes | None:
+            voice = self.voice
+            if voice is None or not voice.tts_enabled:
+                return None
+            from arelis.paths import outputs_dir
+            from arelis.voice.speech_text import prepare_spoken_text
+
+            spoken = prepare_spoken_text(text or "", max_chars=voice.max_spoken_chars)
+            if not spoken:
+                return None
+            dest = outputs_dir() / "voice" / "mobile-speak.wav"
+            try:
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                fut = asyncio.run_coroutine_threadsafe(
+                    voice.tts.synthesize(spoken, dest),
+                    self.loop,
+                )
+                path = fut.result(timeout=90)
+                data = Path(path).read_bytes()
+                return data or None
+            except Exception:
+                log.exception("phone speech failed")
+                return None
+
         def place() -> dict:
             rooms = self.config.get("_rooms")
             room = getattr(rooms, "active", None) if rooms is not None else None
@@ -4660,11 +5047,13 @@ class ArelisWindow(QMainWindow):
                 ),
             }
 
-        def list_files(scope: str, rel: str) -> dict:
+        def list_files(scope: str, rel: str, room_id: str = "") -> dict:
             from arelis.mobile import browse_files
 
             rooms = self.config.get("_rooms")
-            room = getattr(rooms, "active", None) if rooms is not None else None
+            room = None
+            if rooms is not None and room_id:
+                room = rooms.get(room_id)
             return browse_files(
                 self.workspace_roots,
                 scope=scope,
@@ -4714,7 +5103,56 @@ class ArelisWindow(QMainWindow):
                 "id": sid,
                 "title": title,
                 "started_at": str(row.get("started_at") or ""),
+                "room_id": str(row.get("room_id") or ""),
             }
+
+        def view_chat(sid: str) -> dict | None:
+            store = self.store
+            if store is None:
+                return None
+            wanted = str(sid or "").strip()
+            row = store.get_session(wanted) if wanted else None
+            if row is None:
+                return None
+            rooms = self.config.get("_rooms")
+            room_id = str(row.get("room_id") or "")
+            room = rooms.get(room_id) if rooms is not None and room_id else None
+            title = str(row.get("title") or "").strip() or "(untitled)"
+            transcript = []
+            for msg in store.get_messages(wanted):
+                role = str(msg.get("role") or "")
+                text = str(msg.get("content") or "")
+                if role in {"user", "assistant"} and text:
+                    transcript.append({"role": role, "text": text, "glances": []})
+            return {
+                "chat": {
+                    "id": wanted,
+                    "title": title,
+                    "started_at": str(row.get("started_at") or ""),
+                    "room_id": room_id,
+                },
+                "transcript": transcript,
+                "place": {
+                    "workspace": self.workspace_roots.active,
+                    "roots": self.workspace_roots.names(),
+                    "room": (
+                        {
+                            "id": room.id,
+                            "name": room.name,
+                            "root": room.root,
+                        }
+                        if room is not None
+                        else None
+                    ),
+                },
+            }
+
+        def mint_chat() -> dict | None:
+            store = self.store
+            if store is None:
+                return None
+            sid = store.mint_session()
+            return view_chat(sid)
 
         ingest.mobile.bind(
             warmup=lambda: bool(
@@ -4730,6 +5168,9 @@ class ArelisWindow(QMainWindow):
             place=place,
             chats=list_chats,
             current_chat=current_chat,
+            view_chat=view_chat,
+            mint_chat=mint_chat,
+            speak=speak_for_phone,
         )
         # Phone status is this hub, not the desktop widget. Seed the open
         # thread so a reconnect during warmup still has the real conversation,
@@ -4968,6 +5409,7 @@ def _raise_running_instance(config: dict[str, Any]) -> int:
     # second window nor silence.
     log.warning("second launch: UI lock held but no Arelis answered on IPC")
     try:
+        configure_native_windows()
         app = QApplication.instance() or QApplication([])
         app.setApplicationName("Arelis")
         icon_path = app_icon_path()
@@ -5029,6 +5471,9 @@ def _second_launch(config: dict[str, Any], ui_lock: Any) -> int | None:
 
 
 def run_ui(config: dict[str, Any] | None = None) -> int:
+    # Before any QApplication — a native child HWND is the offset ghost, and
+    # this attribute is what stops one winId() from promoting every sibling.
+    configure_native_windows()
     # Remembered because first run may need to reload from disk, and a config
     # handed in by a caller (tests, harnesses) must not be silently replaced.
     config_was_given = config is not None
@@ -5084,6 +5529,7 @@ def run_ui(config: dict[str, Any] | None = None) -> int:
         except Exception:
             pass
 
+    configure_native_windows()
     app = QApplication.instance() or QApplication([])
     app.setApplicationName("Arelis")
     icon_path = app_icon_path()

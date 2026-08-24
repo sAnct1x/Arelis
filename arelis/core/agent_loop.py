@@ -148,7 +148,7 @@ from arelis.core.receipts import (
 )
 from arelis.core.skills import (
     full_tool_policy,
-    select_skill_ids,
+    select_skill_ids_detailed,
 )
 from arelis.core.sms_complete import (
     complete_sms_draft,
@@ -657,6 +657,7 @@ class AgentLoop:
         self._token_ratios = TokenRatios()
         self._timer: TurnTimer | None = None
         self._look: LookTurn | None = None
+        self._turn_source = "chat"
 
     async def run(
         self,
@@ -724,7 +725,13 @@ class AgentLoop:
     ) -> TurnContext | None:
         """Build the prompt and TurnContext. None if the turn already finished."""
         model = self.router.model_for(role)
-        speak = bool(self.config.get("_speak_replies"))
+        # Phone conversation is this seat only. PC conversation being on
+        # must not shorten phone replies, and the reverse is also true.
+        if source == "mobile":
+            speak = bool(self.config.get("_phone_speak"))
+        else:
+            speak = bool(self.config.get("_speak_replies"))
+        self._turn_source = source
         sink = self.memory.sink
         session_id = str(getattr(sink, "session_id", None) or "")
         self._timer = TurnTimer(
@@ -834,8 +841,8 @@ class AgentLoop:
             available_all,
             role=role,
             text=text,
-            enabled=bool(agent_cfg.get("research_tool_subset", True)),
-            skill_subset=bool(agent_cfg.get("skill_tool_subset", True)),
+            enabled=bool(agent_cfg.get("research_tool_subset", False)),
+            skill_subset=bool(agent_cfg.get("skill_tool_subset", False)),
             history=self.memory.messages,
             extra_skill_ids=room_skills,
         )
@@ -929,9 +936,18 @@ class AgentLoop:
                         kinds=",".join(preflight_kinds),
                         expected=",".join(sorted(self._expected_tools)) or "-",
                     )
-        skill_ids = select_skill_ids(
-            text, available_tools=available, extra_ids=room_skills
+        # Room extras stay on filter_tool_names (keep analyze/cas in reach).
+        # Mixing them into skill_ids made select_plan treat the lean as
+        # this-turn intent, so an analysis room demanded a CSV on
+        # "how do toroids relate to physics?".
+        skill_ids, fallback_only = select_skill_ids_detailed(
+            text, available_tools=available
         )
+        # The unmatched "what is" web floor is a tool-menu hint, not a scrape
+        # plan. Clock asks already special-case this; definitional physics
+        # questions used to get the same cage once room extras stopped
+        # suppressing the fallback.
+        plan_ids = () if fallback_only else skill_ids
         # Short thanks/bye must not revive weather (or a stale web_search habit).
         if looks_like_closing_chitchat(text):
             available = set(available)
@@ -961,7 +977,7 @@ class AgentLoop:
             available.discard("send_email")
             visible = available
         active_plan = select_plan(
-            text, preflight_kinds=preflight_kinds, skill_ids=skill_ids
+            text, preflight_kinds=preflight_kinds, skill_ids=plan_ids
         )
         if (
             active_plan is not None
@@ -1089,6 +1105,11 @@ class AgentLoop:
         # nudge, the facts and the world state behind it. Nothing about the
         # persona or the policy depends on the time, and putting the freshest
         # fact nearest the question does the model no harm.
+        from arelis.talk_language import reply_instruction
+
+        lang_note = reply_instruction(self.config.get("_reply_language"))
+        if lang_note:
+            system_messages.append({"role": "system", "content": lang_note})
         system_messages.append({"role": "system", "content": now_line()})
         # Pin system messages. Ollama drops overflow from the front, so without
         # this the persona and tool policy are the first things a long session
@@ -1152,7 +1173,7 @@ class AgentLoop:
         wants_fresh_page = (
             exact_need.needs_web_evidence
             or research_mode
-            or ("web" in skill_ids)
+            or (not fallback_only and "web" in skill_ids)
             or ("research" in skill_ids)
             or wants_fresh_page_ask(text)
         )
@@ -1282,8 +1303,8 @@ class AgentLoop:
                     available_all,
                     role=role,
                     text=text,
-                    enabled=bool(agent_cfg.get("research_tool_subset", True)),
-                    skill_subset=bool(agent_cfg.get("skill_tool_subset", True)),
+                    enabled=bool(agent_cfg.get("research_tool_subset", False)),
+                    skill_subset=bool(agent_cfg.get("skill_tool_subset", False)),
                     history=self.memory.messages,
                 )
                 available = visible
@@ -5253,7 +5274,11 @@ class AgentLoop:
             blurb = self._timer.finish("ok")
             await self.bus.publish(Event(EventType.THINKING, {"text": blurb}))
         voice = self.config.get("voice", {})
-        will_speak = bool(voice.get("enabled")) and bool(voice.get("tts", {}).get("enabled", True))
+        will_speak = (
+            bool(voice.get("enabled"))
+            and bool(voice.get("tts", {}).get("enabled", True))
+            and getattr(self, "_turn_source", "chat") != "mobile"
+        )
         # speak tells the UI that a spoken reply follows. Streaming TTS may
         # already have armed on the first clip; this covers the gap when the
         # first sentence was held until VOICE_SPEAK. Other producers of

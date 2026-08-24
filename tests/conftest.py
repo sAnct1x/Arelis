@@ -54,6 +54,9 @@ def qt_app():
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     from PySide6.QtWidgets import QApplication
 
+    from arelis.ui.window_resize import configure_native_windows
+
+    configure_native_windows()
     return QApplication.instance() or QApplication([])
 
 

@@ -91,12 +91,13 @@ docks.
 | Drive strip | Stop / Pause / your-turn while her browser is in flight |
 | Thinking dock | Status, tools, rounds, and a wrapping think paragraph |
 | Workspace dock | Roots, files, tool output |
-| Camera dock | Webcam still. View → camera / Ctrl+5 |
+| Camera dock | Webcam still. View → camera / Ctrl+5. In the `physics` room: Track / Record |
 | History dock | Sessions, pending fact approve / reject |
 | Notifications | Inbound SMS while the UI is open |
 | Contacts | Named people for texts. View → contacts / Ctrl+6 |
 | Calendar | Local tile, Ctrl+7. Empty of Google events until you authorize |
 | Settings | Audio / Window / Allow / Notify / Roots / Memory |
+| World plate | Floating stage. Only while the `physics` room is active. Source checkout; needs `pip install -e ".[spatial]"`. Not in the 0.2.3 installer |
 
 Settings → Window can fold unused panels after 30, 45, or 60 minutes
 with no click, type, send, or wake word. Off by default. A turn, a card,
@@ -124,6 +125,7 @@ Settings → Notify has the pairing QR.
 | UI | `arelis/ui/` | Window, orbit, docks |
 | Presence | `arelis/presence/` | Core, tray, IPC |
 | Voice | `arelis/voice/` | Listen and speak. [voice-wake.md](voice-wake.md) |
+| Spatial | `arelis/spatial/` | World engine, grant, takes. Pose is not a chat turn |
 | Config | `arelis/config/default.yaml` | Defaults. Overrides in `data/` |
 
 Only one chat model sits in graphics memory. First open recommends one
@@ -134,12 +136,20 @@ weights. File work stays on fast. That model sees images itself, so
 `models.vision` is only a fallback for a chat model that cannot.
 Tags: [models.md](models.md).
 
-The front of every prompt is deliberately identical from turn to turn:
-persona, the whole tool policy, every tool schema. Nothing about the turn
-changes it, which lets Ollama reuse the prefill instead of repeating it.
-That prefill is paid once at startup (`arelis/llm/startup.py`) rather
-than on the user's first message. Independent reads in the same round can
-run together. Writes and pause-gated tools stay serial.
+Persona text and the tool-policy block are byte-stable across turns.
+Shipped config keeps the full tool schema array (`skill_tool_subset` and
+`research_tool_subset` are false). Startup (`arelis/llm/startup.py`) pays
+the cold prefill once so the first chat turn does not. Independent reads
+in the same round can run together. Writes and pause-gated tools stay
+serial.
+
+Two things still change the tools JSON, which sits at the front of the
+Ollama prompt and can forfeit the prefix cache: `send_sms` / `send_email`
+are hidden unless this utterance asked to send (safety, not speed), and a
+room that lists `tools:` cages the set. Leave that list off unless you
+mean it. If `skill_tool_subset` is missing from a partial config, the
+loop currently defaults it to true — that is the old expensive path.
+Shipped `default.yaml` is false.
 
 ## Tools (short)
 
@@ -185,7 +195,9 @@ Scrape reads a URL for her, no window. `browser` moves her Chrome under
 
 A room is a named place to work on one thing: its own thread, a folder,
 a purpose she reads every turn. `/room physics` goes in. `/leave` comes
-out. Launch resumes the last room you entered. [rooms.md](rooms.md).
+out. Launch resumes the last room you entered. The room id `physics` is
+reserved: it is the only place the World plate and C920 tracking run.
+[rooms.md](rooms.md).
 
 ## Memory and safety
 
@@ -222,6 +234,8 @@ it.
 | `data/secrets.yaml` | Tokens (gitignored) |
 | `data/profile.yaml` | Who and where you are |
 | `data/rooms.yaml` | Your rooms |
+| `arelis/spatial/` | World engine (source checkout) |
+| `outputs/physics/takes/` | Hand-tracking takes. If it is not in a take, it did not happen |
 | `data/memory.db` | Facts, goals, tasks |
 | `data/backups/` | Dated memory copies |
 | `data/browser-profile/` | Her Chrome backpack |

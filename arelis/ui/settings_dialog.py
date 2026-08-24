@@ -662,14 +662,15 @@ class SettingsDialog(QDialog):
             return
         self._pairing_text = ticket.as_text()
         companion = load_companion()
-        if companion and companion.get("base_url"):
+        if companion and companion.get("device_key"):
+            radio = companion.get("base_url") or "talk only"
             self.pair_status.setText(
-                f"Paired. Radio at {companion['base_url']}. Scan again after DHCP moves, "
-                "or tap New QR to rotate."
+                f"Paired. Radio at {radio}. The phone finds this PC after Wi-Fi "
+                "or DHCP moves — no new QR. New QR only for a different phone."
             )
         else:
             self.pair_status.setText(
-                "Not paired yet. Scan with the new Arelis app — that writes sms.companion."
+                "Not paired yet. Scan with the Arelis app — that writes sms.companion."
             )
         try:
             from arelis.ui.qr_image import pairing_pixmap

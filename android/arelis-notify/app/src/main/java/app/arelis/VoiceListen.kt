@@ -24,6 +24,7 @@ class VoiceListen(private val context: Context) {
     var onFinal: (String) -> Unit = {}
     var onState: (Boolean) -> Unit = {}
     var onError: (String) -> Unit = {}
+    var language: String = "en-US"
 
     private val main = Handler(Looper.getMainLooper())
     private var recognizer: SpeechRecognizer? = null
@@ -128,6 +129,9 @@ class VoiceListen(private val context: Context) {
             )
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+            val tag = language.trim().ifBlank { "en-US" }
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, tag)
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, tag)
         }
         recognizer = rec
         rec.startListening(intent)

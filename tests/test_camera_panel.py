@@ -19,6 +19,13 @@ def test_camera_panel_constructs_without_hardware(qt_app) -> None:
     panel = CameraPanel()
     assert panel.device_combo.count() >= 1
     assert panel.ask_btn.text().lower().startswith("ask")
+    assert panel.track_btn.isHidden()
+    panel.set_spatial_available(True)
+    assert not panel.track_btn.isHidden()
+    assert not panel.reach_slider.isHidden()
+    panel.set_spatial_available(False)
+    assert panel.track_btn.isHidden()
+    assert panel.reach_slider.isHidden()
     # Safe to call stop when never started.
     panel.stop()
     # Snapshot without a live camera must not crash.

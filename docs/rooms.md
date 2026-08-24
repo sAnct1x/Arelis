@@ -34,19 +34,25 @@ room". Spoken navigation only fires on a name that already exists.
 "Let's work on the budget" in a house with no budget room is an ordinary
 sentence.
 
+The room id `physics` is reserved. It is the spatial stage: World plate
+and C920 tracking run only there. Pose updates the scene without a chat
+turn. Spoken world verbs are parked. The phone is not a sensor. Do not
+turn this room into a spreadsheet workspace; make a different room for
+that.
+
 ## Making one
 
 Ask:
 
-> make me a physics room for analysing the survey data, working in my Lab Notes
+> make me a survey room for analysing the field data, working in my Lab Notes
 > folder
 
 She fills in the purpose and the folder from what you said, then shows an
 allow / deny card before anything is written. Or do it by hand:
 
 ```
-/room new physics
-/room set purpose analysing the survey data
+/room new survey
+/room set purpose analysing the field data
 /room set root Lab Notes
 /room set kind analysis
 ```
@@ -54,9 +60,10 @@ allow / deny card before anything is written. Or do it by hand:
 `/room new` also enters the room. Creating one in `rooms.yaml` by hand,
 without going in, does not.
 
-`/room forget physics` removes the definition. Its conversations stay in
+`/room forget survey` removes the definition. Its conversations stay in
 History. Only the room is gone. A forgotten room is not recreated on
-launch.
+launch. Do not forget `physics` unless you mean to drop the spatial
+stage.
 
 ## Kinds
 
@@ -70,7 +77,10 @@ launch.
 
 A kind is a starting chip, not a lock. `/role` still overrides it. Every
 tool still works in every room. The kind's skills are offered first on
-every turn in that room — that is the lean.
+every turn in that room — that is the lean. It is a menu bias, not a
+plan: `kind: analysis` does not mean every sentence is a spreadsheet.
+Asking what a toroid is still gets an answer; `analyze` runs when the
+ask actually names a table.
 
 ## Rooms lean, they do not cage
 
@@ -82,9 +92,9 @@ If you genuinely want a locked room, name the tools in `data/rooms.yaml`:
 
 ```yaml
 rooms:
-  physics:
-    name: Physics
-    purpose: Analysing the survey data.
+  survey:
+    name: Survey
+    purpose: Analysing the field data.
     root: Lab Notes
     kind: analysis
     tools:
@@ -119,4 +129,5 @@ never resume a room.
 
 This is not a second window. A strip above the transcript names the
 room, its purpose, and its folder, and a way out. The conversation
-itself is the same surface it always was.
+itself is the same surface it always was. In `physics`, the World plate
+is a separate floating window, not a second chat.

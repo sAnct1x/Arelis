@@ -57,6 +57,7 @@ instead. A clear bug report is genuinely useful.
 ```
 python -m venv .venv
 .venv\Scripts\pip install -e ".[dev,voice,browser]"
+# optional: pip install -e ".[spatial]"  — physics-room hands. Not in the installer.
 git config core.hooksPath .githooks
 ```
 

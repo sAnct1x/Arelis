@@ -41,6 +41,9 @@ def test_persona_forbids_tools_on_the_phone() -> None:
     assert "You are Arelis." in body
     assert PHONE_PERSONA_TAIL[:40] in body
     assert "cannot send mail" in body
+    assert "Gemma 4 E2B" in body
+    assert "not Gemini" in body.lower() or "You are not Gemini" in body
+    assert "look at a photo" in body
 
 
 def test_sync_normalizes_and_caps(tmp_path: Path) -> None:
@@ -301,6 +304,51 @@ async def test_orchestrator_sync_appends_without_a_turn() -> None:
     assert orch._turn_task is None
 
 
+async def test_orchestrator_sync_into_another_session_keeps_the_pc_seat(
+    tmp_path: Path,
+) -> None:
+    from arelis.core.orchestrator import Orchestrator
+    from arelis.memory import MemoryStore
+    from arelis.tools.base import ToolRegistry
+
+    class _StubRouter:
+        default_role = "fast"
+        active_model = "stub"
+
+    store = MemoryStore(tmp_path / "memory.db")
+    pc = store.start_session()
+    memory = SessionMemory(sink=store)
+    memory.add("user", "desk")
+    phone = store.mint_session()
+    bus = EventBus()
+    orch = Orchestrator(
+        bus,
+        _StubRouter(),  # type: ignore[arg-type]
+        ToolRegistry(),
+        {"_persona_path": "persona.md", "workspace": {"roots": ["."]}},
+        memory,
+    )
+    await orch.on_mobile_sync(
+        Event(
+            EventType.MOBILE_SYNC,
+            {
+                "session_id": phone,
+                "messages": [
+                    {"role": "user", "text": "from the plane"},
+                    {"role": "assistant", "text": "here"},
+                ],
+            },
+        )
+    )
+    assert store.session_id == pc
+    assert [m.content for m in memory.messages] == ["desk"]
+    assert [row["content"] for row in store.get_messages(phone)] == [
+        "from the plane",
+        "here",
+    ]
+    store.close()
+
+
 def test_list_tree_skips_junk_and_blocks_escape(tmp_path: Path) -> None:
     from arelis.mobile import browse_files, list_tree
     from arelis.workspace import WorkspaceRoots
@@ -434,6 +482,65 @@ def test_session_loaded_replaces_phone_transcript() -> None:
     assert [row["text"] for row in rows] == ["loaded"]
 
 
+def test_silent_session_loaded_does_not_replace_phone_transcript() -> None:
+    hub = MobileHub()
+    hub.replace_transcript([{"role": "user", "content": "pc seat"}])
+    hub.observe(
+        Event(
+            EventType.SESSION_LOADED,
+            {
+                "ok": True,
+                "silent": True,
+                "session_id": "phone-seat",
+                "messages": [{"role": "user", "content": "phone talk"}],
+            },
+        )
+    )
+    rows = hub.status()["transcript"]
+    assert [row["text"] for row in rows] == ["pc seat"]
+
+
+def test_status_focus_uses_viewed_chat_not_pc() -> None:
+    hub = MobileHub()
+    hub.bind(
+        session_ready=lambda: True,
+        current_chat=lambda: {"id": "pc", "title": "room"},
+        view_chat=lambda sid: {
+            "chat": {"id": sid, "title": "phone"},
+            "transcript": [{"role": "user", "text": "hi", "glances": []}],
+            "place": {"room": None},
+        },
+    )
+    hub.replace_transcript([{"role": "user", "content": "pc room talk"}])
+    hub.set_confirm(PendingConfirm(id="c1", tool="send_sms", headline="text", summary="hi"))
+    live = hub.status()
+    assert live["chat"]["id"] == "pc"
+    assert live["transcript"][0]["text"] == "pc room talk"
+    assert live["pending_confirm"]["id"] == "c1"
+    focused = hub.status(focus="phone-seat")
+    assert focused["chat"]["id"] == "phone-seat"
+    assert focused["transcript"][0]["text"] == "hi"
+    assert focused["pc_chat"]["id"] == "pc"
+    assert focused["pending_confirm"] is None
+
+
+def test_status_unknown_focus_marks_the_chat_missing() -> None:
+    hub = MobileHub()
+    hub.bind(
+        session_ready=lambda: True,
+        current_chat=lambda: {"id": "pc", "title": "room"},
+        view_chat=lambda sid: None,
+    )
+    hub.replace_transcript([{"role": "user", "content": "pc room talk"}])
+    ghost = hub.status(focus="07275e64c0a54e42bea8431bbebf0344")
+    assert ghost["missing_chat"] is True
+    assert ghost.get("chat") in ({}, {"id": ""}, None) or not ghost["chat"].get("id")
+    assert ghost["pc_chat"]["id"] == "pc"
+    live = hub.status()
+    assert live["missing_chat"] is False
+    assert live["chat"]["id"] == "pc"
+
+
 def test_chats_bind_into_status() -> None:
     hub = MobileHub()
     hub.bind(
@@ -452,21 +559,10 @@ def test_chats_bind_into_status() -> None:
 async def test_mobile_chats_http_and_new_chat(tmp_path: Path) -> None:
     bus = EventBus()
     loop = asyncio.get_running_loop()
+    loads: list[Event] = []
 
     async def on_load(event: Event) -> None:
-        if event.type != EventType.SESSION_LOAD:
-            return
-        await bus.publish(
-            Event(
-                EventType.SESSION_LOADED,
-                {
-                    "ok": True,
-                    "session_id": "new-1",
-                    "messages": [],
-                    "new": True,
-                },
-            )
-        )
+        loads.append(event)
 
     bus.subscribe(EventType.SESSION_LOAD, on_load)
     task = asyncio.create_task(bus.run())
@@ -479,11 +575,22 @@ async def test_mobile_chats_http_and_new_chat(tmp_path: Path) -> None:
         port=port,
         seen=SeenMessageStore(tmp_path / "seen.json"),
     )
+    minted = {
+        "chat": {"id": "phone-new", "title": "(untitled)"},
+        "transcript": [],
+        "place": {"room": None},
+    }
     server.mobile.bind(
         session_ready=lambda: True,
         busy=lambda: False,
         chats=lambda: [{"id": "s1", "title": "hello", "started_at": "t"}],
         current_chat=lambda: {"id": "s1", "title": "hello"},
+        mint_chat=lambda: minted,
+        view_chat=lambda sid: minted if sid == "phone-new" else {
+            "chat": {"id": sid, "title": "other"},
+            "transcript": [{"role": "user", "text": "hi", "glances": []}],
+            "place": {"room": None},
+        },
     )
     server.start()
     base = f"http://127.0.0.1:{port}"
@@ -502,7 +609,21 @@ async def test_mobile_chats_http_and_new_chat(tmp_path: Path) -> None:
                 json={"action": "new"},
             )
             assert created.status_code == 200
-            assert created.json()["ok"] is True
+            created_body = created.json()
+            assert created_body["ok"] is True
+            assert created_body["chat"]["id"] == "phone-new"
+            assert created_body["pc_chat"]["id"] == "s1"
+            opened = await client.post(
+                f"{base}/mobile/chat",
+                headers={"X-Arelis-Token": "test-token"},
+                json={"action": "open", "id": "other"},
+            )
+            assert opened.status_code == 200
+            opened_body = opened.json()
+            assert opened_body["chat"]["id"] == "other"
+            assert opened_body["pc_chat"]["id"] == "s1"
+            assert opened_body["transcript"][0]["text"] == "hi"
+        assert loads == []
     finally:
         server.stop()
         bus.stop()
@@ -514,24 +635,16 @@ async def test_mobile_chats_http_and_new_chat(tmp_path: Path) -> None:
 async def test_sync_without_a_thread_starts_a_new_chat(tmp_path: Path) -> None:
     bus = EventBus()
     loads: list[Event] = []
+    syncs: list[Event] = []
 
     async def on_load(event: Event) -> None:
         loads.append(event)
-        if event.type != EventType.SESSION_LOAD:
-            return
-        await bus.publish(
-            Event(
-                EventType.SESSION_LOADED,
-                {
-                    "ok": True,
-                    "session_id": "pocket-1",
-                    "messages": [],
-                    "new": True,
-                },
-            )
-        )
+
+    async def on_sync(event: Event) -> None:
+        syncs.append(event)
 
     bus.subscribe(EventType.SESSION_LOAD, on_load)
+    bus.subscribe(EventType.MOBILE_SYNC, on_sync)
     loop = asyncio.get_running_loop()
     task = asyncio.create_task(bus.run())
     port = _free_port()
@@ -546,6 +659,17 @@ async def test_sync_without_a_thread_starts_a_new_chat(tmp_path: Path) -> None:
     server.mobile.bind(
         session_ready=lambda: True,
         current_chat=lambda: {"id": "old-tuesday", "title": "old"},
+        mint_chat=lambda: {"chat": {"id": "pocket-1", "title": "(untitled)"}},
+        view_chat=lambda sid: {
+            "chat": {"id": sid, "title": "pocket"},
+            "transcript": [
+                {"role": "user", "text": "from the plane", "glances": []},
+                {"role": "assistant", "text": "here", "glances": []},
+            ],
+            "place": {"room": None},
+        }
+        if sid == "pocket-1"
+        else None,
     )
     server.start()
     base = f"http://127.0.0.1:{port}"
@@ -562,10 +686,16 @@ async def test_sync_without_a_thread_starts_a_new_chat(tmp_path: Path) -> None:
                 },
             )
             assert copied.status_code == 200
-            assert copied.json()["copied"] == 2
-        assert any(e.payload.get("new") for e in loads)
-        texts = [row["text"] for row in server.mobile.status()["transcript"]]
-        assert texts == ["from the plane", "here"]
+            body = copied.json()
+            assert body["copied"] == 2
+            assert body["chat"]["id"] == "pocket-1"
+            assert body["pc_chat"]["id"] == "old-tuesday"
+        await asyncio.sleep(0.05)
+        assert loads == []
+        assert syncs and syncs[0].payload.get("session_id") == "pocket-1"
+        pc_texts = [row["text"] for row in server.mobile.status()["transcript"]]
+        assert pc_texts == []
+        assert server.mobile.status()["chat"]["id"] == "old-tuesday"
     finally:
         server.stop()
         bus.stop()
@@ -573,3 +703,41 @@ async def test_sync_without_a_thread_starts_a_new_chat(tmp_path: Path) -> None:
         with pytest.raises(asyncio.CancelledError):
             await task
 
+
+def test_phone_conversation_speech_stays_on_the_phone() -> None:
+    hub = MobileHub()
+    hub.bind(speak=lambda text: b"RIFF-fake-wav" if text else None)
+    q = hub.begin_turn_wait()
+    hub.observe(
+        Event(
+            EventType.USER_MESSAGE,
+            {"text": "hi", "source": "mobile", "speak": True, "language": "en"},
+        )
+    )
+    hub.observe(Event(EventType.ASSISTANT_DONE, {"text": "hello there"}))
+    rows: list[dict] = []
+    while True:
+        item = q.get(timeout=2)
+        if item is None:
+            break
+        rows.append(item)
+    types = [row["type"] for row in rows]
+    assert "done" in types
+    assert "speech" in types
+    speech = next(row for row in rows if row["type"] == "speech")
+    assert speech["audio_wav_b64"]
+
+
+def test_typed_phone_turn_does_not_stream_speech() -> None:
+    hub = MobileHub()
+    hub.bind(speak=lambda text: b"nope")
+    q = hub.begin_turn_wait()
+    hub.observe(Event(EventType.USER_MESSAGE, {"text": "hi", "source": "mobile"}))
+    hub.observe(Event(EventType.ASSISTANT_DONE, {"text": "hello"}))
+    rows = []
+    while True:
+        item = q.get(timeout=2)
+        if item is None:
+            break
+        rows.append(item)
+    assert [row["type"] for row in rows] == ["user", "done"]

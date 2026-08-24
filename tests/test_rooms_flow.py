@@ -7,8 +7,7 @@ extra steps; you would come back to it tomorrow and find last night's weather
 question in the middle of three weeks of analysis.
 
 The other half is the refusals. A thread swap while a turn is running would
-answer one conversation into another, and a spoken sentence that merely sounds
-like navigation must not move anything at all.
+answer one conversation into another. Typed and spoken are the same path.
 """
 
 from __future__ import annotations
@@ -230,16 +229,34 @@ async def test_saying_it_works_when_the_room_exists(harness) -> None:
 
 
 @pytest.mark.asyncio
-async def test_saying_it_about_nothing_is_just_a_sentence(harness) -> None:
-    """No budget room, so this is a normal turn and the thread must not move."""
+async def test_some_physics_enters_the_physics_room(harness) -> None:
     harness.rooms.create("Physics")
-    before = harness.store.session_id
 
+    await harness.say("let's work on some physics")
+
+    assert harness.rooms.active_id == "physics"
+
+
+@pytest.mark.asyncio
+async def test_saying_it_makes_the_room_when_it_is_missing(harness) -> None:
+    """Typed `/room budget` and spoken \"let's work on the budget\" are the same."""
     await harness.say("let's work on the budget")
 
-    assert harness.rooms.active_id == ""
-    assert harness.store.session_id == before
-    assert harness.rooms_seen == []
+    assert harness.rooms.active_id == "budget"
+    assert harness.rooms.get("budget") is not None
+
+
+@pytest.mark.asyncio
+async def test_already_in_the_room_does_not_start_a_turn(harness) -> None:
+    harness.rooms.create("Physics")
+    await harness.say("/room physics")
+    seen = len(harness.said)
+
+    await harness.say("let's work on some physics")
+
+    assert harness.rooms.active_id == "physics"
+    assert len(harness.said) == seen + 1
+    assert "Already in" in harness.said[-1]
 
 
 @pytest.mark.asyncio
@@ -281,13 +298,12 @@ async def test_leaving_when_you_are_nowhere_says_so(harness) -> None:
 
 
 @pytest.mark.asyncio
-async def test_asking_for_a_room_that_does_not_exist_offers_to_make_it(
-    harness,
-) -> None:
+async def test_asking_for_a_room_that_does_not_exist_makes_it(harness) -> None:
     await harness.say("/room chemistry")
 
-    assert "/room new chemistry" in harness.said[-1]
-    assert harness.rooms.active_id == ""
+    assert harness.rooms.active_id == "chemistry"
+    assert harness.rooms.get("chemistry") is not None
+    assert "Made the `chemistry` room" in harness.said[-1]
 
 
 @pytest.mark.asyncio

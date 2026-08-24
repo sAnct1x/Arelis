@@ -115,6 +115,9 @@ class _ComposerLineEdit(QPlainTextEdit):
         self.ensureCursorVisible()
 
 
+_STAGE_MARGIN_TOP = 14
+
+
 class ConversationStage(GlassFrame):
     """Single glass panel: chat + composer (screenshot-4 composition)."""
 
@@ -132,6 +135,7 @@ class ConversationStage(GlassFrame):
     idle_conditions_changed = Signal()
     session_clicked = Signal(str)
     leave_room_requested = Signal()
+    world_requested = Signal()
 
     def __init__(self, default_role: str = "fast", parent=None) -> None:
         super().__init__(
@@ -144,13 +148,14 @@ class ConversationStage(GlassFrame):
         self.setAcceptDrops(True)
         layout = QVBoxLayout(self)
         # Gutter so corner ticks sit outside fast / send / chat labels.
-        layout.setContentsMargins(22, 14, 22, 16)
+        layout.setContentsMargins(22, _STAGE_MARGIN_TOP, 22, 16)
         layout.setSpacing(8)
 
         # Above the transcript: whose conversation this is. Hidden in general.
         self.room = RoomStrip()
         layout.addWidget(self.room)
         self.room.leave_requested.connect(self.leave_room_requested.emit)
+        self.room.world_requested.connect(self.world_requested.emit)
 
         self.chat = ChatPanel(embedded=True)
         layout.addWidget(self.chat, stretch=1)
@@ -291,6 +296,7 @@ class ConversationStage(GlassFrame):
 
         self.notify_overlay = NotifyOverlay(self)
         self.notify_overlay.hide()
+        self.room.changed.connect(self.notify_overlay.reposition)
 
         self.send_btn.clicked.connect(self._submit)
         self.input.returnPressed.connect(self._submit)
@@ -333,6 +339,20 @@ class ConversationStage(GlassFrame):
             self._drop_overlay.setGeometry(self.rect())
         if hasattr(self, "notify_overlay"):
             self.notify_overlay.reposition()
+
+    def sync_notify_gutter(self, top: int = 0) -> None:
+        """Open air above the room plate so the live pill does not sit on it."""
+        layout = self.layout()
+        if layout is None:
+            return
+        want = int(top) if int(top) > _STAGE_MARGIN_TOP else _STAGE_MARGIN_TOP
+        margins = layout.contentsMargins()
+        if margins.top() == want:
+            return
+        layout.setContentsMargins(
+            margins.left(), want, margins.right(), margins.bottom()
+        )
+        layout.activate()
 
     def dragEnterEvent(self, event: QDragEnterEvent) -> None:  # type: ignore[override]
         mime = event.mimeData()

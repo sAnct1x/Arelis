@@ -1,8 +1,9 @@
 # Arelis (Android)
 
-One sideloaded app. Scan the QR on the PC, then talk. Same conversation
-as the desktop. After pair, install the offline brain (Gemma 4 E2B,
-~2.6 GB) so she still talks if the PC is down. Wi-Fi is nicer; mobile
+One sideloaded app. Scan the QR on the PC, then talk. The phone keeps
+its own seat — it does not steal the PC's open thread. After pair,
+install the offline brain (Gemma 4 E2B, ~2.6 GB) so she still talks
+and can look at a photo if the PC is down. Wi-Fi is nicer; mobile
 data is allowed if you say so, same as any big update.
 
 Google Messages stays your messenger. SMS/RCS grants are **optional**
@@ -37,16 +38,17 @@ from this repo, turn Protect back on.
    System back goes up one screen. From chat, back leaves the app.
 4. Optional **Settings → Texts**: restricted settings, SMS, notification
    access, Battery Unrestricted. Then inbound RCS and SMS-out after
-   Allow. Re-pair only from Settings if the PC or Wi-Fi changed.
+   Allow. Re-pair only from Settings if this is a different PC.
 
 ## Notes
 
-- Status is **At the house** or **On the phone**. Honest: Gemma cannot
-  mail, text, or open PC files.
+- Status is **at the house** or **on the phone**. Honest: Gemma can
+  talk and look at a photo. She cannot mail, text, or open PC files.
 - Arelis pings only for Allow waiting and finished jobs — never for a
   text or an email. Google already did that.
 - Do not expose ingest to the public internet. Allow TCP 8765 on the PC
-  firewall from your LAN.
+  firewall from your LAN. UDP 18765 (outbound broadcast) lets the phone
+  find this PC after DHCP without a new QR.
 - Gemma is an install option after pair (~2.6 GB). Wait for Wi-Fi, or
   use mobile data on purpose. Not stuffed in the APK, and not a surprise
   the first time the PC is down.

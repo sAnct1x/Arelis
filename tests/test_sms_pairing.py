@@ -14,6 +14,7 @@ from arelis.sms_pairing import (
     COMPANION_USER,
     apply_pair,
     issue_pair_secret,
+    load_companion,
     make_ticket,
     parse_listen_url,
 )
@@ -138,6 +139,23 @@ def test_apply_pair_talk_only_skips_radio(tmp_path: Path, monkeypatch) -> None:
     assert body["talk"] is True
     assert body["listen_url"] == ""
     assert load_sms_account(secrets) is None
+    saved = load_companion(secrets)
+    assert saved is not None
+    assert saved["device_key"] == "talk-only-phone"
+
+    code2, body2 = apply_pair(
+        {
+            "instance": "inst0123456789ab",
+            "pair": "",
+            "listen_url": "http://192.168.1.21:8080",
+            "device_key": "talk-only-phone",
+        },
+        secrets_path=secrets,
+        pair_path=pair_path,
+    )
+    assert code2 == 200
+    assert body2["updated"] is True
+    assert load_sms_account(secrets) is not None
 
 
 def test_apply_pair_rejects_wrong_instance(tmp_path: Path, monkeypatch) -> None:

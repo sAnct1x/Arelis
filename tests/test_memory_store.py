@@ -228,6 +228,21 @@ def test_glass_launch_refuses_to_prune_a_shell_that_has_messages(
     store.close()
 
 
+def test_mint_session_does_not_change_the_open_seat(tmp_path: Path) -> None:
+    store = MemoryStore(tmp_path / "memory.db")
+    pc = store.start_session()
+    memory = SessionMemory(sink=store)
+    memory.add("user", "desk talk")
+    phone = store.mint_session()
+    assert store.session_id == pc
+    assert phone != pc
+    assert store.append_to_session(phone, "user", "from the plane")
+    assert store.session_id == pc
+    assert [row["content"] for row in store.get_messages(pc)] == ["desk talk"]
+    assert [row["content"] for row in store.get_messages(phone)] == ["from the plane"]
+    store.close()
+
+
 def test_a_conversation_remembers_which_room_it_belongs_to(tmp_path: Path) -> None:
     store = MemoryStore(tmp_path / "memory.db")
     general = store.start_session()

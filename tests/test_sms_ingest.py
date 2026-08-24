@@ -205,6 +205,8 @@ async def test_ingest_http_server(tmp_path: Path) -> None:
             health = await client.get(f"{base}/inbound/health")
             assert health.status_code == 200
             assert health.json()["ok"] is True
+            assert health.json()["port"] == port
+            assert health.json()["instance"]
             bad = await client.get(f"{base}/inbound/ping")
             assert bad.status_code == 401
             ping = await client.get(

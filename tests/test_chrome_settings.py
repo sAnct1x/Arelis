@@ -82,10 +82,11 @@ def test_away_rest_prefs_roundtrip(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr("arelis.ui.layout_store._settings_path", lambda: ini)
     assert clamp_away_rest_min(40) == 45
     assert clamp_away_rest_min("60") == 60
-    save_ui_prefs(away_rest=True, away_rest_min=30)
+    save_ui_prefs(away_rest=True, away_rest_min=30, world_reach=1.8)
     prefs = load_ui_prefs()
     assert prefs["away_rest"] is True
     assert prefs["away_rest_min"] == 30
+    assert abs(prefs["world_reach"] - 1.8) < 1e-9
 
 
 def test_settings_roots_values(qt_app) -> None:
@@ -206,13 +207,24 @@ def test_hit_test_resize_corners(qt_app) -> None:
         w.close()
 
 
-def test_title_bar_has_settings(qt_app) -> None:
+def test_title_bar_is_view_rooms_settings(qt_app) -> None:
     from arelis.ui.chrome import TitleBar
 
     bar = TitleBar()
-    assert bar.settings_btn.text() == "settings"
-    assert hasattr(bar, "max_btn")
-    bar.close()
+    try:
+        assert bar.view_btn.text() == "view"
+        assert bar.rooms_btn.text() == "rooms"
+        assert bar.settings_btn.text() == "settings"
+        widgets = [
+            bar.layout().itemAt(i).widget()
+            for i in range(bar.layout().count())
+            if bar.layout().itemAt(i).widget() is not None
+        ]
+        assert widgets.index(bar.view_btn) < widgets.index(bar.rooms_btn)
+        assert widgets.index(bar.rooms_btn) < widgets.index(bar.settings_btn)
+        assert hasattr(bar, "max_btn")
+    finally:
+        bar.close()
 
 
 def test_every_dock_keeps_an_object_name() -> None:
