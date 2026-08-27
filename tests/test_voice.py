@@ -1159,12 +1159,27 @@ def test_ack_wake_says_listening_on_the_composer(qt_app) -> None:
         assert stage.input.placeholderText() == "listening"
         assert stage._wake_acking
         stage._end_wake_ack()
-        # Back to the composer's resting copy. The idle prompt reads "what are
-        # we working on", but that is the centered VoidIdlePlaceholder label and
-        # the Qt placeholder is deliberately blank in idle mode — so this stage,
-        # which is not idle, has only ever said "message Arelis…" here.
-        assert stage.input.placeholderText() == "message Arelis…"
+        # Still in the call: the box says listening, not the typed-chat prompt.
+        assert stage.input.placeholderText() == "listening"
         assert not stage._wake_acking
+    finally:
+        stage.deleteLater()
+
+
+def test_composer_says_listening_while_conversing(qt_app) -> None:
+    from arelis.ui.panels.conversation import ConversationStage
+
+    stage = ConversationStage()
+    try:
+        stage.set_voice_available(True)
+        stage.set_idle_mode(False)
+        stage.set_conversing(True)
+        assert stage.input.placeholderText() == "listening"
+        stage.set_speaking(True)
+        assert "talking" in stage.input.placeholderText()
+        stage.set_speaking(False)
+        stage.set_conversing(False)
+        assert stage.input.placeholderText() == "message Arelis…"
     finally:
         stage.deleteLater()
 
@@ -1566,6 +1581,70 @@ def test_conversation_keeps_listening_when_nothing_was_heard(qt_app) -> None:
 
     recorder.push(_tone(1.0) + _silence(1.4))
     assert len(sent) == 2, "the next thing said must still be heard"
+
+
+def test_a_spoken_physics_verb_does_not_deafen_conversation(qt_app) -> None:
+    """Closed verbs skip USER_MESSAGE. Conversation must listen again, not wait."""
+    from arelis.ui.app import ArelisWindow, BusBridge
+
+    controller, recorder = _controller(qt_app)
+    listening: list[bool] = []
+    controller.listening_changed.connect(listening.append)
+
+    config = {
+        "ui": {"window_title": "Arelis", "default_width": 800, "default_height": 600},
+        "router": {"default_role": "fast"},
+        "models": {"fast": "mock"},
+        "voice": {"enabled": False},
+    }
+    window = ArelisWindow(config, BusBridge(), asyncio.new_event_loop(), EventBus())
+    try:
+        window.voice_controller = controller
+        window.conversation.room.set_room("physics", name="Physics")
+        controller.set_conversation(True)
+        recorder.push(_silence(0.5) + _tone(1.0) + _silence(1.4))
+        assert listening[-1] is False
+        assert controller.debug_state()["awaiting"] is True
+
+        window._on_event(Event(EventType.PHYSICS_VERB, {"verb": "pause"}))
+        assert listening[-1] is True
+        assert controller.debug_state()["awaiting"] is False
+    finally:
+        window.dispose()
+        window.hide()
+        window.loop.close()
+
+
+def test_spoken_goodbye_unlatches_conversation(qt_app) -> None:
+    """Hangup is a closed act: the two-arcs toggle drops, wake can listen."""
+    from arelis.ui.app import ArelisWindow, BusBridge
+
+    controller, recorder = _controller(qt_app)
+    listening: list[bool] = []
+    controller.listening_changed.connect(listening.append)
+
+    config = {
+        "ui": {"window_title": "Arelis", "default_width": 800, "default_height": 600},
+        "router": {"default_role": "fast"},
+        "models": {"fast": "mock"},
+        "voice": {"enabled": False},
+    }
+    window = ArelisWindow(config, BusBridge(), asyncio.new_event_loop(), EventBus())
+    try:
+        window.voice_controller = controller
+        controller.set_conversation(True)
+        window.conversation.set_conversing(True)
+        recorder.push(_silence(0.5) + _tone(1.0) + _silence(1.4))
+        assert controller.debug_state()["awaiting"] is True
+
+        window._on_event(Event(EventType.CONVERSATION_END, {"reason": "voice"}))
+        assert not window.conversation.conversation_btn.isChecked()
+        assert controller.debug_state()["awaiting"] is False
+        assert controller.mode != "conversation"
+    finally:
+        window.dispose()
+        window.hide()
+        window.loop.close()
 
 
 def test_confirm_card_keeps_conversation_listening(qt_app) -> None:

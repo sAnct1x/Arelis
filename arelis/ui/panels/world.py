@@ -73,6 +73,7 @@ class WorldPanel(QWidget):
         self._clock.setInterval(16)
         self._clock.timeout.connect(self._tick_physics)
         self._phys_t = time.perf_counter()
+        self.menu_up = False
 
     def set_aperture(
         self,
@@ -145,6 +146,8 @@ class WorldPanel(QWidget):
         now = time.perf_counter()
         dt = now - self._phys_t
         self._phys_t = now
+        if self.menu_up:
+            return
         self.scene.step(dt)
         self.update()
 

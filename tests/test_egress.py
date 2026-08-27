@@ -89,6 +89,9 @@ ALLOWED: dict[str, str] = {
     # no key. NASA APOD and ADS fire only after the user pastes a free key.
     "export.arxiv.org": "catalog arXiv search, on a turn the user started",
     "ssd.jpl.nasa.gov": "catalog JPL Horizons ephemerides, on a turn the user started",
+    "eoimages.gsfc.nasa.gov": "NASA Visible Earth Blue Marble, solar maps fetch the user started",
+    "svs.gsfc.nasa.gov": "NASA SVS planet mosaics, solar maps fetch the user started",
+    "raw.githubusercontent.com": "NASA 3D Resources albedo JPEGs, solar maps fetch the user started",
     "api.nasa.gov": "catalog NASA APOD, only with a key the user pasted",
     "api.adsabs.harvard.edu": "catalog NASA ADS search, only with a token the user pasted",
     # Atom XML namespace in the arXiv parser. Never fetched.

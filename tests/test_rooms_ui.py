@@ -56,6 +56,16 @@ def test_a_long_purpose_stays_one_line_and_keeps_the_rest_on_hover(qt_app) -> No
     assert strip.leave_btn.geometry().left() >= strip.world_btn.geometry().right()
 
 
+def test_world_button_hides_when_the_stage_is_off(qt_app, monkeypatch) -> None:
+    from arelis.ui.panels import room as room_mod
+    from arelis.ui.panels.room import RoomStrip
+
+    monkeypatch.setattr(room_mod, "world_stage_allowed", lambda: False)
+    strip = RoomStrip()
+    strip.set_room("physics", name="Physics")
+    assert strip.world_btn.isHidden()
+
+
 def test_leaving_puts_the_strip_away(qt_app) -> None:
     from arelis.ui.panels.room import RoomStrip
 

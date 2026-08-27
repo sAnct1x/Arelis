@@ -14,6 +14,7 @@ TILE_NAMES: tuple[str, ...] = (
     "camera",
     "contacts",
     "calendar",
+    "world",
 )
 
 # Longer aliases first so "past conversations" wins over a stray "history" later.
@@ -28,6 +29,7 @@ _ALIASES: tuple[tuple[str, str], ...] = (
     ("camera", r"camera|webcam|web\s*cam"),
     ("contacts", r"contacts?|address\s+book"),
     ("calendar", r"calendar|agenda"),
+    ("world", r"world|solar\s+lab"),
 )
 
 

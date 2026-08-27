@@ -99,6 +99,7 @@ pip install -e ".[voice]"      # talking and listening
 pip install -e ".[browser]"    # her own browser window
 playwright install chromium
 pip install -e ".[spatial]"    # physics-room hands (C920). Source only; not in the installer
+pip install -e ".[astro]"      # solar-system N-body (REBOUND). Source only; not in the installer
 ```
 
 ```powershell

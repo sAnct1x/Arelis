@@ -57,6 +57,15 @@ GOALS_WRITE_ACTIONS = {
 MEMORY_WRITE_ACTIONS = {"remember", "forget", "prefer", "decide", "episode"}
 ROOMS_WRITE_ACTIONS = {"create", "update", "forget"}
 SCHEDULE_WRITE_ACTIONS = {"create", "create_briefing", "delete", "run_now"}
+SOLAR_WRITE_ACTIONS = {
+    "impulse",
+    "add_probe",
+    "add_planet",
+    "fetch_maps",
+    "tracer",
+    "l4",
+    "epoch",
+}
 INBOX_WRITE_ACTIONS = {
     "trash",
     "delete",
@@ -162,6 +171,8 @@ def capability_class(
         return "WRITE_LOCAL" if action in MEMORY_WRITE_ACTIONS else "READ"
     if tool == "rooms":
         return "WRITE_LOCAL" if action in ROOMS_WRITE_ACTIONS else "READ"
+    if tool == "solar":
+        return "WRITE_LOCAL" if action in SOLAR_WRITE_ACTIONS else "READ"
     if tool == "schedule":
         return "WRITE_LOCAL" if action in SCHEDULE_WRITE_ACTIONS else "READ"
     if tool == "plot":
@@ -296,6 +307,9 @@ class ToolRegistry:
         if name == "rooms":
             action = str(args.get("action") or "").lower()
             return confirm_writes if action in ROOMS_WRITE_ACTIONS else False
+        if name == "solar":
+            action = str(args.get("action") or "").lower()
+            return confirm_writes if action in SOLAR_WRITE_ACTIONS else False
         if name == "schedule":
             action = str(args.get("action") or "").lower()
             return confirm_writes if action in SCHEDULE_WRITE_ACTIONS else False

@@ -8,7 +8,9 @@ Jobs may call it (read). Abstracts are untrusted external text.
 
 from __future__ import annotations
 
+import asyncio
 import re
+import threading
 import xml.etree.ElementTree as ET
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
@@ -23,6 +25,11 @@ _ACTIONS = frozenset({"arxiv", "horizons", "apod", "ads"})
 _MAX_QUERY = 200
 _MAX_HITS = 8
 _TIMEOUT_S = 20.0
+_HORIZONS_TIMEOUT_S = 45.0
+# JPL: one request at a time. Extra waits only on retryable HTTP.
+HORIZONS_RETRY_S: tuple[float, ...] = (0.8, 2.0, 4.0)
+HORIZONS_RETRY_HTTP = frozenset({429, 502, 503, 504})
+_HORIZONS_GATE = threading.Lock()
 _ATOM_NS = "http://www.w3.org/2005/Atom"
 _SAFE_QUERY = re.compile(r"^[A-Za-z0-9_:+.\-\"' ]{1,200}$")
 _SAFE_TARGET = re.compile(r"^[A-Za-z0-9_@+.\-\s]{1,80}$")
@@ -42,7 +49,8 @@ class CatalogTool:
     description = (
         "Look up papers and solar-system data from named catalogs. "
         "Actions: arxiv (no key; acknowledge arXiv in the answer), "
-        "horizons (JPL ephemerides, no key, do not invent EMAIL), "
+        "horizons (JPL ephemerides, no key, do not invent EMAIL; "
+        "table=observer for sky, table=vectors for SSB ECLIPJ2000 state), "
         "apod (NASA Astronomy Picture of the Day — needs nasa.api_key), "
         "ads (NASA ADS paper search — needs ads.token). "
         "Do not scrape NASA or arXiv JavaScript. Do not use web_search "
@@ -69,6 +77,14 @@ class CatalogTool:
             "date": {
                 "type": "string",
                 "description": "APOD or Horizons day as YYYY-MM-DD (default today UTC)",
+            },
+            "table": {
+                "type": "string",
+                "enum": ["observer", "vectors"],
+                "description": (
+                    "horizons only. observer: geocentric sky (default). "
+                    "vectors: SSB ECLIPJ2000 state in SI for the simulator."
+                ),
             },
         },
         "required": ["action"],
@@ -98,6 +114,7 @@ class CatalogTool:
                 return await self._horizons(
                     str(kwargs.get("target") or ""),
                     str(kwargs.get("date") or ""),
+                    str(kwargs.get("table") or "observer"),
                 )
             if action == "apod":
                 return await self._apod(str(kwargs.get("date") or ""))
@@ -124,14 +141,46 @@ class CatalogTool:
         *,
         params: dict[str, Any] | None = None,
         headers: dict[str, str] | None = None,
+        wait_s: float | None = None,
     ) -> httpx.Response:
         hdrs = {"User-Agent": _USER_AGENT, "Accept": "*/*"}
         if headers:
             hdrs.update(headers)
         if self._client is not None:
-            return await self._client.get(url, params=params, headers=hdrs)
+            return await self._client.get(
+                url, params=params, headers=hdrs, timeout=wait_s
+            )
         async with httpx.AsyncClient(timeout=_TIMEOUT_S) as client:
-            return await client.get(url, params=params, headers=hdrs)
+            return await client.get(
+                url, params=params, headers=hdrs, timeout=wait_s
+            )
+
+    async def _horizons_get(self, params: dict[str, Any]) -> httpx.Response:
+        """One Horizons POST-equivalent GET at a time, with retry on 503/429."""
+        delays = HORIZONS_RETRY_S
+        tries = 1 + len(delays)
+        await asyncio.to_thread(_HORIZONS_GATE.acquire)
+        try:
+            last: httpx.Response | None = None
+            for attempt in range(tries):
+                try:
+                    last = await self._get(
+                        HORIZONS_URL,
+                        params=params,
+                        wait_s=_HORIZONS_TIMEOUT_S,
+                    )
+                except httpx.HTTPError:
+                    if attempt + 1 >= tries:
+                        raise
+                    await asyncio.sleep(delays[attempt])
+                    continue
+                if not _horizons_retryable(last) or attempt + 1 >= tries:
+                    return last
+                await asyncio.sleep(delays[attempt])
+            assert last is not None
+            return last
+        finally:
+            _HORIZONS_GATE.release()
 
     async def _arxiv(self, query: str) -> ToolResult:
         q = _clean_query(query, name="query")
@@ -176,7 +225,7 @@ class CatalogTool:
             data={"action": "arxiv", "n": len(entries), "query": q, "hits": entries},
         )
 
-    async def _horizons(self, target: str, day: str) -> ToolResult:
+    async def _horizons(self, target: str, day: str, table: str = "observer") -> ToolResult:
         body = (target or "").strip()
         if not body or not _SAFE_TARGET.match(body):
             raise ValueError(
@@ -185,32 +234,81 @@ class CatalogTool:
             )
         start = _day_or_today(day)
         stop = start + timedelta(days=1)
-        params = {
-            "format": "json",
-            "COMMAND": body,
-            "OBJ_DATA": "NO",
-            "MAKE_EPHEM": "YES",
-            "EPHEM_TYPE": "OBSERVER",
-            "CENTER": "500@399",
-            "START_TIME": start.isoformat(),
-            "STOP_TIME": stop.isoformat(),
-            "STEP_SIZE": "1d",
-            "QUANTITIES": "20,23,24",
-        }
+        kind = (table or "observer").strip().lower()
+        if kind not in {"observer", "vectors"}:
+            raise ValueError("horizons table must be observer or vectors.")
+        command = _quoted_command(body)
+        if kind == "vectors":
+            params = {
+                "format": "json",
+                "COMMAND": command,
+                "OBJ_DATA": "NO",
+                "MAKE_EPHEM": "YES",
+                "EPHEM_TYPE": "VECTORS",
+                "CENTER": "@0",
+                "REF_PLANE": "ECLIPJ2000",
+                "OUT_UNITS": "KM-S",
+                "VEC_TABLE": "2",
+                "START_TIME": start.isoformat(),
+                "STOP_TIME": stop.isoformat(),
+                "STEP_SIZE": "1d",
+            }
+        else:
+            params = {
+                "format": "json",
+                "COMMAND": command,
+                "OBJ_DATA": "NO",
+                "MAKE_EPHEM": "YES",
+                "EPHEM_TYPE": "OBSERVER",
+                "CENTER": "500@399",
+                "START_TIME": start.isoformat(),
+                "STOP_TIME": stop.isoformat(),
+                "STEP_SIZE": "1d",
+                "QUANTITIES": "20,23,24",
+            }
         # Never attach EMAIL. JPL treats that as a mailbox to ping.
         if "EMAIL" in params:
             raise RuntimeError("Horizons must not send EMAIL")
-        response = await self._get(HORIZONS_URL, params=params)
+        response = await self._horizons_get(params)
         if response.status_code >= 400:
             return ToolResult(
                 ok=False,
                 output=f"Horizons returned HTTP {response.status_code}.",
-                data={"fail_class": "fail:http"},
+                data={"fail_class": "fail:http", "http": response.status_code},
             )
         payload = response.json()
         blob = str(payload.get("result") or payload.get("error") or "").strip()
         if not blob:
             raise ValueError("Horizons returned an empty result.")
+        if kind == "vectors":
+            from arelis.physics.horizons import parse_vector_table
+
+            state = parse_vector_table(blob, units="KM-S")
+            return ToolResult(
+                ok=True,
+                output=(
+                    f"JPL Horizons VECTORS for {body} on {start.isoformat()} "
+                    "TDB, center SSB (@0), ECLIPJ2000, SI metres. "
+                    "Source: ssd.jpl.nasa.gov. Not a measurement this turn. "
+                    f"r=({state.x:.6e}, {state.y:.6e}, {state.z:.6e}) m  "
+                    f"v=({state.vx:.6e}, {state.vy:.6e}, {state.vz:.6e}) m/s."
+                ),
+                data={
+                    "action": "horizons",
+                    "table": "vectors",
+                    "target": body,
+                    "date": start.isoformat(),
+                    "x": state.x,
+                    "y": state.y,
+                    "z": state.z,
+                    "vx": state.vx,
+                    "vy": state.vy,
+                    "vz": state.vz,
+                    "frame": "ECLIPJ2000",
+                    "center": "SSB",
+                    "jd": state.epoch_jd,
+                },
+            )
         clipped = blob if len(blob) <= 3500 else blob[:3500] + "\n[truncated]"
         return ToolResult(
             ok=True,
@@ -220,7 +318,12 @@ class CatalogTool:
                 "Not a measurement this turn.\n\n"
                 f"{clipped}"
             ),
-            data={"action": "horizons", "target": body, "date": start.isoformat()},
+            data={
+                "action": "horizons",
+                "table": "observer",
+                "target": body,
+                "date": start.isoformat(),
+            },
         )
 
     async def _apod(self, day: str) -> ToolResult:
@@ -353,6 +456,28 @@ class CatalogTool:
         )
 
 
+def _quoted_command(body: str) -> str:
+    """Horizons COMMAND= wants a quoted id: '399', not 399."""
+    return "'" + body.strip().strip("'\"") + "'"
+
+
+def _horizons_retryable(response: httpx.Response) -> bool:
+    if response.status_code in HORIZONS_RETRY_HTTP:
+        return True
+    if response.status_code != 400:
+        return False
+    text = (response.text or "").lower()
+    ctype = (response.headers.get("content-type") or "").lower()
+    return (
+        "html" in ctype
+        or "unavailable" in text
+        or "too many" in text
+        or "busy" in text
+        or "overloaded" in text
+        or len(text) < 120
+    )
+
+
 def _clean_query(raw: str, *, name: str) -> str:
     text = " ".join((raw or "").split())
     if not text:
@@ -378,6 +503,11 @@ def _day_or_today(raw: str) -> date:
     if not _DATE.match(text):
         raise ValueError("date must be YYYY-MM-DD.")
     return date.fromisoformat(text)
+
+
+def ephemeris_day(raw: str) -> date:
+    """YYYY-MM-DD, or today UTC if blank."""
+    return _day_or_today(raw)
 
 
 def _parse_atom(xml_text: str) -> list[dict[str, str]]:

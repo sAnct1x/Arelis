@@ -20,6 +20,7 @@ from arelis.core.agent_loop import AgentLoop
 from arelis.core.bus import EventBus
 from arelis.core.confirm_speech import (
     apply_confirm_edit,
+    classify_hangup,
     classify_voice_act,
 )
 from arelis.core.events import Event, EventType
@@ -254,16 +255,28 @@ class Orchestrator:
         from them, which is the difference between the two voice modes.
 
         Conversation mode (or a wake remainder, which sets the same flag):
-        stop cancels the turn, a card hears allow / deny / rest-of-ask, and
-        any other sentence on a send card rewrites the draft. After a stop,
-        the next line is a normal turn with a one-line note — the model
-        decides. Barge-in / mid-turn clips arrive as deliver ``control``
-        and only those acts land — soup does not start a turn.
+        goodbye hangs up the call, stop cancels the turn, a card hears
+        allow / deny / rest-of-ask, and any other sentence on a send card
+        rewrites the draft. After a stop, the next line is a normal turn
+        with a one-line note — the model decides. Barge-in / mid-turn clips
+        arrive as deliver ``control`` and only those acts land — soup does
+        not start a turn.
         """
         if event.payload.get("deliver") == "dictate":
             return
         text = (event.payload.get("text") or "").strip()
         if not text:
+            return
+        conversing = bool(self.config.get("_speak_replies"))
+        if conversing and not self._confirm_waiters and classify_hangup(text):
+            task = self._turn_task
+            if task is not None and not task.done():
+                await self.bus.publish(
+                    Event(EventType.TURN_CANCEL, {"reason": "voice"})
+                )
+            await self.bus.publish(
+                Event(EventType.CONVERSATION_END, {"reason": "voice"})
+            )
             return
         if self.rooms.active_id == PHYSICS_ROOM_ID:
             verb = classify_physics_verb(text)
@@ -272,7 +285,6 @@ class Orchestrator:
                     Event(EventType.PHYSICS_VERB, {"verb": verb, "text": text})
                 )
                 return
-        conversing = bool(self.config.get("_speak_replies"))
         control_only = event.payload.get("deliver") == "control"
         if not conversing and not control_only:
             await self.bus.publish(
@@ -1200,9 +1212,20 @@ class Orchestrator:
 
         STATUS paints the line and ASSISTANT_DONE releases the composer; a
         branch that publishes only the first leaves the box disabled.
+
+        Conversation mode speaks the same line. Slash-command dumps
+        (``_emit_help``, fenced tool output) stay on their own publishers
+        so a wall of ``/help`` is not read aloud.
         """
         await self.bus.publish(Event(EventType.STATUS, {"message": message}))
-        await self.bus.publish(Event(EventType.ASSISTANT_DONE, {"text": message}))
+        will_speak = bool(self.config.get("_speak_replies")) and bool(
+            (message or "").strip()
+        )
+        await self.bus.publish(
+            Event(EventType.ASSISTANT_DONE, {"text": message, "speak": will_speak})
+        )
+        if will_speak:
+            await self.bus.publish(Event(EventType.VOICE_SPEAK, {"text": message}))
 
     async def _request_confirm(
         self, confirm_id: str, tool: str, args: dict[str, Any], summary: str

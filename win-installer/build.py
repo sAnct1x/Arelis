@@ -506,10 +506,11 @@ def remove_build_only_packages() -> None:
 # takes audio capture, playback and the camera panel with them, and does it without
 # breaking any import, so nothing here would have noticed.
 #
-# opengl32sw.dll is a 20MB software OpenGL implementation, kept deliberately. Arelis
-# draws with QPainter and does not ask for OpenGL, but Qt reaches for this when there is
-# no usable GPU driver -- a virtual machine, a remote desktop session, a fresh install
-# with no drivers yet. It is 3% of the finished tree to not have that class of bug.
+# opengl32sw.dll is a 20MB software OpenGL implementation, kept deliberately. The
+# source-checkout solar lab can use an offscreen OpenGL context. The installer does not ship that plate,
+# but Qt still reaches for this DLL when there is no usable GPU driver -- a virtual
+# machine, a remote desktop session, a fresh install with no drivers yet. It is 3% of
+# the finished tree to not have that class of bug.
 
 # Whole directories. Everything here is either a feature family with no import anywhere
 # in the codebase, or build-time material with no runtime role at all.
@@ -551,8 +552,9 @@ QT_DROP_PREFIXES = (
     # SQL, state machines, remote objects, Qt's own test framework.
     "Qt6Sql", "QtSql", "Qt6Scxml", "QtScxml", "Qt6StateMachine", "QtStateMachine",
     "Qt6RemoteObjects", "QtRemoteObjects", "Qt6Test", "QtTest",
-    # The Python binding for OpenGL, which nothing imports. Qt6OpenGL.dll itself stays:
-    # it is 1.9MB and Qt6Gui can reach for it.
+    # The Python QtOpenGL* bindings. The installer does not enter the solar plate, so
+    # it does not import them. Qt6OpenGL.dll itself stays: it is 1.9MB and Qt6Gui can
+    # reach for it.
     "QtOpenGL",
 )
 

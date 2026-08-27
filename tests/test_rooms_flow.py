@@ -260,6 +260,43 @@ async def test_already_in_the_room_does_not_start_a_turn(harness) -> None:
 
 
 @pytest.mark.asyncio
+async def test_entering_a_room_in_conversation_speaks_the_ack(harness) -> None:
+    spoken: list[str] = []
+
+    async def capture(event: Event) -> None:
+        if event.type == EventType.VOICE_SPEAK:
+            spoken.append(str(event.payload.get("text") or ""))
+
+    harness.bus.subscribe(EventType.VOICE_SPEAK, capture)
+    harness.orchestrator.config["_speak_replies"] = True
+    harness.rooms.create("Physics")
+
+    await harness.say("let's work on physics")
+
+    assert harness.rooms.active_id == "physics"
+    assert spoken
+    assert "physics" in spoken[0].lower()
+
+
+@pytest.mark.asyncio
+async def test_entering_a_room_outside_conversation_stays_silent(harness) -> None:
+    spoken: list[str] = []
+
+    async def capture(event: Event) -> None:
+        if event.type == EventType.VOICE_SPEAK:
+            spoken.append(str(event.payload.get("text") or ""))
+
+    harness.bus.subscribe(EventType.VOICE_SPEAK, capture)
+    harness.rooms.create("Physics")
+
+    await harness.say("let's work on physics")
+
+    assert harness.rooms.active_id == "physics"
+    assert spoken == []
+    assert harness.said
+
+
+@pytest.mark.asyncio
 async def test_a_room_swap_is_refused_while_a_turn_is_running(harness) -> None:
     """Both own SessionMemory. Interleaving them answers into the wrong room."""
     harness.rooms.create("Physics")

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -79,6 +80,14 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--config", type=str, default=None, help="Optional YAML config path")
     parser.add_argument(
+        "--solar-gl",
+        action="store_true",
+        help=(
+            "GPU solar viewport (offscreen OpenGL, then the plate paints the frame). "
+            "The Arelis (dev) shortcut passes this; the installed shortcut does not."
+        ),
+    )
+    parser.add_argument(
         "--auth-calendar",
         type=str,
         default=None,
@@ -88,6 +97,12 @@ def main(argv: list[str] | None = None) -> int:
             "Writes refresh_token into data/secrets.yaml. See docs/calendar-oauth.md."
         ),
     )
+    # Before parse_args: --version exits inside argparse, and the GPU flag has to
+    # be visible to prepare_desktop_gl before QApplication is constructed.
+    if argv is None:
+        argv = sys.argv[1:]
+    if "--solar-gl" in argv:
+        os.environ["ARELIS_SOLAR_GL"] = "1"
     args = parser.parse_args(argv)
 
     # Before load_config, and deliberately. This runs from an uninstaller, by which time

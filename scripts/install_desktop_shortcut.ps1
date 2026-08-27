@@ -41,7 +41,26 @@ if (Test-Path $VenvPythonW) {
         $Target = $Found
     }
 }
-$Arguments = "-m arelis"
+
+$Desktop = [Environment]::GetFolderPath("Desktop")
+$StartMenu = Join-Path ([Environment]::GetFolderPath("StartMenu")) "Programs\Arelis"
+
+# The same two markers as is_source_checkout(), for the same reason: a wheel cannot
+# carry tests/. A checkout must not write Arelis.lnk, because that name belongs to the
+# installed copy. Overwriting it silently repoints the shortcut somebody uses every day
+# at a working tree, against a different data root, and the only symptom is that their
+# Arelis one morning has none of their history in it.
+$IsCheckout = (Test-Path (Join-Path $Root "pyproject.toml")) -and (Test-Path (Join-Path $Root "tests"))
+if ($IsCheckout) {
+    $Name = "Arelis (dev).lnk"
+    $Description = "Arelis (dev checkout)"
+    # GPU solar viewport is opt-in: the installed shortcut must not inherit this.
+    $Arguments = "-m arelis --solar-gl"
+} else {
+    $Name = "Arelis.lnk"
+    $Description = "Arelis - local research assistant"
+    $Arguments = "-m arelis"
+}
 
 function Install-ArelisShortcut {
     param(
@@ -63,23 +82,6 @@ function Install-ArelisShortcut {
     $shortcut.WindowStyle = 1
     $shortcut.Save()
     Write-Host "Installed $Path"
-}
-
-$Desktop = [Environment]::GetFolderPath("Desktop")
-$StartMenu = Join-Path ([Environment]::GetFolderPath("StartMenu")) "Programs\Arelis"
-
-# The same two markers as is_source_checkout(), for the same reason: a wheel cannot
-# carry tests/. A checkout must not write Arelis.lnk, because that name belongs to the
-# installed copy. Overwriting it silently repoints the shortcut somebody uses every day
-# at a working tree, against a different data root, and the only symptom is that their
-# Arelis one morning has none of their history in it.
-$IsCheckout = (Test-Path (Join-Path $Root "pyproject.toml")) -and (Test-Path (Join-Path $Root "tests"))
-if ($IsCheckout) {
-    $Name = "Arelis (dev).lnk"
-    $Description = "Arelis (dev checkout)"
-} else {
-    $Name = "Arelis.lnk"
-    $Description = "Arelis - local research assistant"
 }
 
 Install-ArelisShortcut -Path (Join-Path $Desktop $Name)

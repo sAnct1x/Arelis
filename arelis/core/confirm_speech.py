@@ -1,8 +1,9 @@
-"""Speech acts for conversation mode: allow, deny, stop, draft edits.
+"""Speech acts for conversation mode: allow, deny, stop, hangup, draft edits.
 
-Whole utterance only for decisions. Room chat and "I don't know" must not
-allow a send. Stop is the turn, not deny-this-step. After a stop, ordinary
-talk goes to the model with a one-line note — no resume phrase list.
+Whole utterance only for decisions and hangup. Room chat and "I don't know"
+must not allow a send. Stop is the turn, not deny-this-step. Hangup ends
+the hands-free call. After a stop, ordinary talk goes to the model with a
+one-line note — no resume phrase list.
 """
 
 from __future__ import annotations
@@ -32,7 +33,23 @@ _STOP = re.compile(
     r"(?i)^\s*(?:"
     r"stop|cancel|"
     r"cut it out|that's enough|thats enough|"
-    r"stop (?:it|that|please)"
+    r"stop (?:it|that|please|talking)|"
+    r"be quiet|shut up|hush"
+    r")\s*[.!]?\s*$"
+)
+# Hang up conversation. Whole utterance only. Not "stop" (that cancels a
+# turn) and not "stop talking" (that hushes her and stays in the call).
+_HANGUP = re.compile(
+    r"(?i)^\s*(?:"
+    r"good\s*bye|bye|"
+    r"good\s*night|"
+    r"that'?s\s+(?:all|it)|that\s+is\s+(?:all|it)|"
+    r"we(?:'re|\s+are)\s+done|"
+    r"stop\s+listening|"
+    r"go(?:\s+back)?\s+to\s+sleep|"
+    r"(?:i(?:'?m|\s+am)\s+)?done\s+talking|"
+    r"talk\s+later|"
+    r"see\s+y(?:a|ou)(?:\s+later)?"
     r")\s*[.!]?\s*$"
 )
 _DENY = re.compile(
@@ -100,6 +117,14 @@ def classify_confirm_utterance(text: str) -> str | None:
     if act in {"allow", "allow_turn", "skip", "stop"}:
         return act
     return None
+
+
+def classify_hangup(text: str) -> bool:
+    """True when the whole utterance ends the hands-free call.
+
+    Confirm cards keep the floor: "goodbye" on a send card is not a hangup.
+    """
+    return bool(_HANGUP.match((text or "").strip()))
 
 
 def stopped_ask_note(last: str) -> str:

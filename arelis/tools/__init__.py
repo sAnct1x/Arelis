@@ -47,6 +47,7 @@ from arelis.tools.schedule_jobs import ScheduleTool
 from arelis.tools.scrape import ScrapeTool
 from arelis.tools.search import build_search_tool
 from arelis.tools.sms_send import SendSmsTool
+from arelis.tools.solar_tool import SolarTool
 from arelis.tools.tasks import TasksTool
 from arelis.tools.tile import TileTool
 from arelis.tools.units import UnitsTool
@@ -303,6 +304,8 @@ def build_tool_registry(
     # honestly until a free key is pasted.
     if tools_cfg.get("catalog", {}).get("enabled", True):
         registry.register(CatalogTool())
+    if allow_send and tools_cfg.get("solar", {}).get("enabled", True):
+        registry.register(SolarTool())
     # Charts write a PNG (Allow). Jobs skip — nobody is there to approve the file.
     if allow_send and (tools_cfg.get("plot") or {}).get("enabled", True):
         registry.register(PlotTool(workspace, config["_rooms"]))

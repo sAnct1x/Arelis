@@ -37,14 +37,14 @@ def _lit(base: QColor, alpha: float) -> QColor:
 
 # The line under the orbit is the only place the idle face can say which voice
 # mode is latched. The two-arc button is 34px of parked chrome and reads as
-# decoration, so a chord that worked looked like a chord that did nothing.
+# decoration, so a wake that worked looked like nothing happened.
 #
 # Keep these no wider than the prompt host. This label sits in the centre
 # column, so its width becomes the column's width, and a longer line pushed the
 # column out far enough that _layout_idle had no room left for the session
 # ghosts and hid them.
-_LISTEN_IDLE = "ctrl+shift+m to talk"
-_LISTEN_TALKING = "talking · ctrl+shift+m to stop"
+_LISTEN_IDLE = "say hey arelis"
+_LISTEN_TALKING = "talking · say goodbye"
 _LISTEN_DICTATING = "dictating · ctrl+m to stop"
 _LISTEN_ACK = "listening"
 
@@ -348,7 +348,7 @@ class OrbitIdle(QWidget):
         read_l.addWidget(self._ollama_row, alignment=Qt.AlignmentFlag.AlignRight)
         read_l.addWidget(self._listen_row, alignment=Qt.AlignmentFlag.AlignRight)
 
-        self.hint = QLabel("enter to speak  ·  esc to clear", self)
+        self.hint = QLabel("talk or type  ·  esc to clear", self)
         self.hint.setObjectName("VoidListenWord")
         self.hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
 

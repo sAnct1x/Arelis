@@ -440,6 +440,7 @@ def test_the_desktop_shortcut_does_not_go_through_a_console_program() -> None:
     assert "powershell.exe" not in body.lower()
     assert "-WindowStyle Hidden" not in body
     assert "pythonw.exe" in body
+    assert "-m arelis --solar-gl" in body
     assert '$Arguments = "-m arelis"' in body
 
 

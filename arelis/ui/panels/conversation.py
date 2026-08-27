@@ -252,7 +252,9 @@ class ConversationStage(GlassFrame):
         self.conversation_btn.setIcon(conversation_icon(_icon))
         self.conversation_btn.setIconSize(QSize(_icon, _icon))
         self.conversation_btn.setFixedSize(_btn, _btn)
-        self.conversation_btn.setToolTip("hands-free conversation (Ctrl+Shift+M)")
+        self.conversation_btn.setToolTip(
+            "talk with Arelis (Ctrl+Shift+M) · say goodbye to stop"
+        )
         self.conversation_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.conversation_btn.setAutoRaise(True)
 
@@ -315,7 +317,6 @@ class ConversationStage(GlassFrame):
         self._idle_mode = False
         self._pulse_phase = 0.0
         self._wake_acking = False
-        self._ack_saved_placeholder: str | None = None
         self._listen_pulse = QTimer(self)
         self._listen_pulse.setInterval(50)
         self._listen_pulse.timeout.connect(self._tick_listen_pulse)
@@ -718,7 +719,9 @@ class ConversationStage(GlassFrame):
                 self.conversation_btn.setToolTip(reason)
         else:
             self.mic_btn.setToolTip("dictate into the message box (Ctrl+M)")
-            self.conversation_btn.setToolTip("hands-free conversation (Ctrl+Shift+M)")
+            self.conversation_btn.setToolTip(
+                "talk with Arelis (Ctrl+Shift+M) · say goodbye to stop"
+            )
 
     def set_speaking(self, speaking: bool) -> None:
         """Track playback so Esc can cut her off even between turns."""
@@ -739,6 +742,12 @@ class ConversationStage(GlassFrame):
             # Idle prompt is the centered VoidIdlePlaceholder label; Qt's own
             # placeholder paints left-aligned and shoves the line off-axis.
             self.input.setPlaceholderText("")
+        elif self._wake_acking:
+            self.input.setPlaceholderText("listening")
+        elif self._speaking:
+            self.input.setPlaceholderText("talking — esc to cut")
+        elif self.conversation_btn.isChecked():
+            self.input.setPlaceholderText("listening")
         else:
             self.input.setPlaceholderText("message Arelis…")
 
@@ -755,6 +764,7 @@ class ConversationStage(GlassFrame):
     def set_conversing(self, active: bool) -> None:
         self._set_toggle(self.conversation_btn, active, conversation_icon(24, live=active))
         self._sync_listen_pulse()
+        self._sync_composer_buttons()
 
     def ack_wake(self) -> None:
         """Receipt that the doorbell rang: icon flares, copy says listening."""
@@ -772,7 +782,9 @@ class ConversationStage(GlassFrame):
         self._wake_acking = False
         self._apply_listening_copy(False)
         if self.conversation_btn.isChecked():
-            self.conversation_btn.setToolTip("hands-free conversation (Ctrl+Shift+M)")
+            self.conversation_btn.setToolTip(
+                "talk with Arelis (Ctrl+Shift+M) · say goodbye to stop"
+            )
         self._sync_listen_pulse()
 
     def _apply_listening_copy(self, listening: bool) -> None:
@@ -780,10 +792,7 @@ class ConversationStage(GlassFrame):
         if listening:
             if empty is not None and hasattr(empty, "set_voice_mode"):
                 empty.set_voice_mode("ack")
-            if not self._idle_mode:
-                if self._ack_saved_placeholder is None:
-                    self._ack_saved_placeholder = self.input.placeholderText()
-                self.input.setPlaceholderText("listening")
+            self._sync_composer_buttons()
             return
         if empty is not None and hasattr(empty, "set_voice_mode"):
             if self.conversation_btn.isChecked():
@@ -792,9 +801,7 @@ class ConversationStage(GlassFrame):
                 empty.set_voice_mode("dictate")
             else:
                 empty.set_voice_mode("off")
-        if self._ack_saved_placeholder is not None:
-            self.input.setPlaceholderText(self._ack_saved_placeholder)
-            self._ack_saved_placeholder = None
+        self._sync_composer_buttons()
 
     def _set_toggle(self, button: QToolButton, active: bool, icon) -> None:
         button.blockSignals(True)
@@ -816,6 +823,7 @@ class ConversationStage(GlassFrame):
         self.conversation_btn.setIcon(conversation_icon(24, live=checked))
         self._sync_listen_pulse()
         self.conversation_toggled.emit(checked)
+        self._sync_composer_buttons()
         self.idle_conditions_changed.emit()
 
     def _sync_listen_pulse(self) -> None:

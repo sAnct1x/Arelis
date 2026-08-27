@@ -97,6 +97,11 @@ browser = [
 spatial = [
   "mediapipe>=0.10.9",
 ]
+# Solar-system N-body (REBOUND, GPL-3). Source checkout only. Never add this
+# extra to `installer` — the World stage is gated off packaged copies.
+astro = [
+  "rebound>=4.0",
+]
 # The feature set the Windows installer ships, named here so that it is declared in
 # one place rather than copied into a build script. packaging/lock.py resolves this
 # and nothing else, so a dependency added to `voice` reaches the installer by being

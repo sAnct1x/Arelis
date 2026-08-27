@@ -39,6 +39,7 @@ EVERYDAY_TOOLS: frozenset[str] = frozenset(RESEARCH_TOOL_ALLOWLIST) | {
     "schedule",
     "clipboard",
     "diagnostics",
+    "solar",
 }
 
 

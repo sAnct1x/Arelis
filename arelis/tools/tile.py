@@ -12,8 +12,9 @@ class TileTool:
     name = "tile"
     description = (
         "Open or close an Arelis tile (the View menu): thinking, workspace, "
-        "history, notifications, camera, contacts, calendar. "
+        "history, notifications, camera, contacts, calendar, world. "
         "action=open shows it; action=close hides it. "
+        "World is the physics-room plate (hands sandbox / solar lab). "
         "For calendar events use agenda, not this tool. "
         "Do not use the browser to open these."
     )
@@ -51,7 +52,7 @@ class TileTool:
                 ok=False,
                 output=(
                     "Name a tile: thinking, workspace, history, "
-                    "notifications, camera, contacts, or calendar."
+                    "notifications, camera, contacts, calendar, or world."
                 ),
             )
         type(self).last_name = name

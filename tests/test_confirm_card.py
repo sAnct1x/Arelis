@@ -11,6 +11,7 @@ from arelis.core.bus import EventBus
 from arelis.core.confirm_speech import (
     apply_confirm_edit,
     classify_confirm_utterance,
+    classify_hangup,
     classify_voice_act,
     stopped_ask_note,
 )
@@ -53,6 +54,20 @@ def test_yes_no_lists() -> None:
     assert classify_voice_act("not you Arelis") is None
     assert classify_voice_act("quit") is None
     assert classify_voice_act("I don't know") is None
+    assert classify_voice_act("be quiet") == "stop"
+    assert classify_voice_act("shut up") == "stop"
+    assert classify_voice_act("stop talking") == "stop"
+    assert classify_voice_act("goodbye") is None
+    assert classify_hangup("goodbye")
+    assert classify_hangup("bye")
+    assert classify_hangup("that's all")
+    assert classify_hangup("stop listening")
+    assert classify_hangup("go to sleep")
+    assert classify_hangup("we're done")
+    assert not classify_hangup("stop")
+    assert not classify_hangup("stop talking")
+    assert not classify_hangup("tell her goodbye")
+    assert not classify_hangup("that's all I needed")
 
 
 def test_stopped_ask_note_is_one_fact() -> None:
@@ -430,6 +445,52 @@ async def test_control_stop_cancels() -> None:
         bus.stop()
         bus_task.cancel()
     assert any(e.type == EventType.TURN_CANCEL for e in seen)
+
+
+@pytest.mark.asyncio
+async def test_spoken_goodbye_hangs_up_and_is_not_a_turn() -> None:
+    bus = EventBus()
+    seen: list[Event] = []
+
+    async def capture(event: Event) -> None:
+        seen.append(event)
+
+    bus.subscribe(None, capture)
+    _voice_orch(bus)
+    bus_task = asyncio.create_task(bus.run())
+    try:
+        await bus.publish(Event(EventType.VOICE_TRANSCRIPT, {"text": "goodbye"}))
+        await bus.drain()
+    finally:
+        bus.stop()
+        bus_task.cancel()
+    assert any(e.type == EventType.CONVERSATION_END for e in seen)
+    assert not any(e.type == EventType.USER_MESSAGE for e in seen)
+    assert not any(e.type == EventType.TURN_CANCEL for e in seen)
+
+
+@pytest.mark.asyncio
+async def test_goodbye_on_a_confirm_card_is_not_hangup() -> None:
+    bus = EventBus()
+    seen: list[Event] = []
+
+    async def capture(event: Event) -> None:
+        seen.append(event)
+
+    bus.subscribe(None, capture)
+    orch = _voice_orch(bus)
+    fut: asyncio.Future[str] = asyncio.get_running_loop().create_future()
+    orch._confirm_waiters["c-bye"] = fut
+    bus_task = asyncio.create_task(bus.run())
+    try:
+        await bus.publish(Event(EventType.VOICE_TRANSCRIPT, {"text": "goodbye"}))
+        await bus.drain()
+    finally:
+        bus.stop()
+        bus_task.cancel()
+    assert not any(e.type == EventType.CONVERSATION_END for e in seen)
+    assert not any(e.type == EventType.USER_MESSAGE for e in seen)
+    assert not fut.done()
 
 
 def test_typed_stop_on_a_card_requests_stop(qt_app) -> None:

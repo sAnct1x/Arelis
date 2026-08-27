@@ -429,9 +429,10 @@ class VoiceController(QObject):
         """An utterance was handed off but never became a turn.
 
         Transcription can come back empty, the dependency can be missing, or
-        the clip can fail to reach disk. In every one of those cases no
-        USER_MESSAGE is published, so notify_turn_started and
-        notify_turn_finished never fire, and conversation mode would sit
+        the clip can fail to reach disk. Closed physics-room verbs
+        (PHYSICS_VERB) are the same: they never start a turn. In every one
+        of those cases no USER_MESSAGE is published, so notify_turn_started
+        and notify_turn_finished never fire, and conversation mode would sit
         waiting for a turn that does not exist: deaf, dropping every later
         pause as "still working on the last one", until the user toggled it off
         and on again.

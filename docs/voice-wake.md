@@ -11,13 +11,16 @@ source checkout they need `pip install -e ".[voice]"`.
 | You say | What happens |
 |--------|----------------|
 | **Hey Arelis** or **Hey Arelis, what's the weather** | She enters conversation, the same as pressing the two-arcs talk button. Anything after the name in the same clip is the first turn. |
+| **goodbye**, **that's all**, **stop listening**, **go to sleep** | She hangs up. Wake stays on. Say Hey Arelis when you want her again. The room you were in stays put. |
+| **stop**, **be quiet**, **shut up** | She cuts the turn and stays in the call. |
 | A bare **Arelis**, "Hi Arelis", "Okay Arelis", or her name in passing | Nothing. Those fire too easily on a call or in a room. |
 
 A match is meant to be obvious: the talk button latches on, flares for a
 beat, and the composer or orbit says **listening**. After that it is
-ordinary conversation until you turn it off. If an allow / deny card is
-up, the mic stays on: say **allow** or **deny**. Anything else is
-ignored.
+ordinary conversation until you say **goodbye** (or toggle the button /
+Ctrl+Shift+M). If an allow / deny card is up, the mic stays on: say
+**allow** or **deny**. Anything else is ignored, including hangup, until
+the card is decided.
 
 Conversation STT is Sherpa-ONNX Zipformer, not Whisper. Sherpa often
 hears mail words as a French name or a split (`emile` for email, `in

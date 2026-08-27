@@ -18,6 +18,7 @@ from PySide6.QtGui import QResizeEvent
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QSizePolicy, QToolButton
 
 from arelis.spatial import PHYSICS_ROOM_ID
+from arelis.spatial.grant import world_stage_allowed
 from arelis.ui.glass import GlassFrame
 from arelis.ui.theme import GLASS
 
@@ -81,7 +82,7 @@ class RoomStrip(GlassFrame):
         self.detail.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
         row.addWidget(self.detail, stretch=1)
 
-        self.world_btn = _chip("RoomWorldButton", "world", "open the physics world")
+        self.world_btn = _chip("RoomWorldButton", "world", "hands sandbox or solar lab")
         self.world_btn.clicked.connect(self.world_requested.emit)
         self.world_btn.hide()
         row.addWidget(self.world_btn, 0, Qt.AlignmentFlag.AlignRight)
@@ -109,7 +110,9 @@ class RoomStrip(GlassFrame):
             self.hide()
             self.changed.emit()
             return
-        self.world_btn.setVisible(self._room_id == PHYSICS_ROOM_ID)
+        self.world_btn.setVisible(
+            self._room_id == PHYSICS_ROOM_ID and world_stage_allowed()
+        )
         self.name.setText(name or self._room_id)
         bits = []
         if purpose:

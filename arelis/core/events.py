@@ -30,6 +30,10 @@ class EventType(str, Enum):
     freeze, undo). It mutates the live scene this frame and never starts
     a turn. The 9B is not on this path.
 
+    CONVERSATION_END hangs up hands-free talk (goodbye / that's all / stop
+    listening). The glass unlatches the two-arcs toggle the same way the
+    chord does. It never starts a turn. The room you were in stays put.
+
     The voice events are a chain, not a group. VOICE_TRANSCRIPT enters the
     pipeline and the orchestrator turns it into a USER_MESSAGE. While an answer
     is streaming, ASSISTANT_DELTA also feeds the voice service: completed
@@ -104,6 +108,7 @@ class EventType(str, Enum):
     ERROR = "error"
     VOICE_TRANSCRIPT = "voice_transcript"
     PHYSICS_VERB = "physics_verb"
+    CONVERSATION_END = "conversation_end"
     VOICE_SPEAK = "voice_speak"
     VOICE_AUDIO_READY = "voice_audio_ready"
     VOICE_SPEECH_DONE = "voice_speech_done"

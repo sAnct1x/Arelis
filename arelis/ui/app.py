@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import os
 import sys
 import threading
@@ -95,7 +96,8 @@ from arelis.sms_inbound import (
 from arelis.sms_ingest import InboundIngestServer
 from arelis.spatial import PHYSICS_ROOM_ID
 from arelis.spatial.depth import ESTIMATOR, DepthBank
-from arelis.spatial.verbs import classify_physics_verb
+from arelis.spatial.grant import world_stage_allowed
+from arelis.spatial.verbs import classify_physics_verb, is_time_verb, is_toy_verb
 from arelis.spatial.scene import (
     GRAVITY,
     REACH_DEFAULT,
@@ -1703,7 +1705,8 @@ class ArelisWindow(QMainWindow):
         menu.addAction(self.act_camera)
         menu.addAction(self.act_contacts)
         menu.addAction(self.act_calendar)
-        menu.addAction(self.act_world)
+        if world_stage_allowed():
+            menu.addAction(self.act_world)
         menu.addSeparator()
         menu.addAction(self.act_always_on_top)
         menu.addAction(self.act_fullscreen)
@@ -1735,11 +1738,15 @@ class ArelisWindow(QMainWindow):
             empty.setEnabled(False)
             menu.addAction(empty)
         else:
+            busy = self._turn_busy
             for room in rooms:
                 act = QAction(room.name or room.id, self)
                 act.setCheckable(True)
                 act.setChecked(room.id == active)
-                if room.purpose:
+                act.setEnabled(not busy)
+                if busy:
+                    act.setToolTip("Finish or stop the current turn first.")
+                elif room.purpose:
                     act.setToolTip(room.purpose)
                 act.triggered.connect(
                     lambda _checked=False, rid=room.id: self._enter_room_from_menu(rid)
@@ -1747,13 +1754,27 @@ class ArelisWindow(QMainWindow):
                 menu.addAction(act)
         menu.addSeparator()
         leave = QAction("leave", self)
-        leave.setEnabled(bool(active))
+        leave.setEnabled(bool(active) and not self._turn_busy)
         leave.triggered.connect(self._leave_room)
         menu.addAction(leave)
         return menu
 
+    def _hang_up_conversation(self) -> None:
+        """Leave hands-free talk. Wake stays on. The room does not change."""
+        btn = self.conversation.conversation_btn
+        if btn.isChecked():
+            btn.setChecked(False)
+        if self.voice_controller is not None:
+            self.voice_controller.set_conversation(False)
+        self.thinking.append("Listening for Hey Arelis.", kind="status")
+
     def _enter_room_from_menu(self, room_id: str) -> None:
         if not room_id:
+            return
+        if self._turn_busy:
+            self._toast_finish_or_stop(
+                "Finish or stop the current turn before switching rooms."
+            )
             return
         asyncio.run_coroutine_threadsafe(
             self.bus.publish(Event(EventType.USER_MESSAGE, {"text": f"/room {room_id}"})),
@@ -2212,9 +2233,21 @@ class ArelisWindow(QMainWindow):
 
     def _toggle_world(self, checked: bool) -> None:
         self._note_engagement()
+        if not world_stage_allowed():
+            self.act_world.setChecked(False)
+            if checked:
+                self.thinking.append(
+                    "World is a source-checkout stage — not in the installer.",
+                    kind="status",
+                )
+            return
         if checked:
             if self.conversation.room.room_id != PHYSICS_ROOM_ID:
                 self.act_world.setChecked(False)
+                self.thinking.append(
+                    "World is the physics room. Say let's work on physics first.",
+                    kind="status",
+                )
                 return
             if not getattr(self, "_world_placed", False):
                 geo = self.frameGeometry()
@@ -2222,6 +2255,7 @@ class ArelisWindow(QMainWindow):
                 self._world_placed = True
             self.world_window.show()
             self.world_window.raise_()
+            self.world_window.show_chooser()
             self.world_window.panel.refresh()
         else:
             self.world_window.hide()
@@ -2248,6 +2282,57 @@ class ArelisWindow(QMainWindow):
         return True
 
     def _apply_physics_verb(self, verb: str) -> None:
+        from arelis.physics.runtime import get_system
+
+        if is_time_verb(verb):
+            system = get_system()
+            if system is None:
+                self.thinking.append("No solar system loaded", kind="status")
+                return
+            if verb == "pause":
+                system.paused = True
+            elif verb == "resume":
+                system.paused = False
+            elif verb == "step":
+                system.step_once()
+            elif verb == "faster":
+                system.set_rate(min(1.0e7, system.rate * 10.0))
+            elif verb == "slower":
+                system.set_rate(system.rate / 10.0)
+            elif verb == "realtime":
+                system.set_rate(1.0)
+            elif verb == "hour":
+                system.set_rate(3_600.0)
+            elif verb == "day":
+                system.set_rate(86_400.0)
+            elif verb == "year":
+                system.set_rate(365.25 * 86_400.0)
+            elif verb == "fly":
+                system.enter_inspect()
+            elif verb == "inspect":
+                system.enter_inspect()
+            self.thinking.append(
+                f"{verb}  rate={system.rate:g}  t={system.t:.3e}s",
+                kind="status",
+            )
+            return
+        system = get_system()
+        if system is not None and is_toy_verb(verb):
+            if verb == "freeze":
+                system.paused = True
+                self.thinking.append("pause  (freeze is the sandbox word)", kind="status")
+                return
+            if verb == "unfreeze":
+                system.paused = False
+                self.thinking.append("resume  (unfreeze is the sandbox word)", kind="status")
+                return
+            self.thinking.append(
+                "No discs in the solar lab. Spawn a particle, belt tracer, or L4 from "
+                "the ⋯ menu. WASD flies the inspect camera. heavier/lighter would "
+                "change a mass — that is solar impulse/add_planet with Allow.",
+                kind="status",
+            )
+            return
         result = self.world_scene.apply_verb(verb)
         if hasattr(self, "world_window"):
             self.world_window.panel.refresh()
@@ -2724,6 +2809,7 @@ class ArelisWindow(QMainWindow):
             closed_kinds=closed_kinds,
         )
         world_up = hasattr(self, "world_window") and not self.world_window.isHidden()
+        solar = world_up and self.world_window.solar_active()
         reach = getattr(self, "_world_reach", REACH_DEFAULT)
         stamp = float(getattr(frame, "t_capture", time.perf_counter()))
         apertures: list[tuple[tuple[float, float], tuple[float, float], bool]] = []
@@ -2779,15 +2865,16 @@ class ArelisWindow(QMainWindow):
                 self._closed_off.pop(who, None)
             tw, ti = image_to_world(*thumb, reach=reach), image_to_world(*index, reach=reach)
             cw = image_to_world(*centroid, reach=reach)
-            self.world_scene.apply_pointer(
-                cw[0],
-                cw[1],
-                holding,
-                t=stamp,
-                who=who,
-                kind=st if holding else "open",
-                z=self._hand_depth(who, hand, stamp, frame),
-            )
+            if not solar:
+                self.world_scene.apply_pointer(
+                    cw[0],
+                    cw[1],
+                    holding,
+                    t=stamp,
+                    who=who,
+                    kind=st if holding else "open",
+                    z=self._hand_depth(who, hand, stamp, frame),
+                )
             if st == "fist":
                 apertures.append((cw, cw, True))
             elif st == "pinch":
@@ -2813,14 +2900,15 @@ class ArelisWindow(QMainWindow):
             else:
                 self._closed_off.pop("", None)
             cw = image_to_world(*centroid, reach=reach)
-            self.world_scene.apply_pointer(
-                cw[0],
-                cw[1],
-                holding,
-                t=stamp,
-                kind=kind,
-                z=self._hand_depth("", hand, stamp, frame),
-            )
+            if not solar:
+                self.world_scene.apply_pointer(
+                    cw[0],
+                    cw[1],
+                    holding,
+                    t=stamp,
+                    kind=kind,
+                    z=self._hand_depth("", hand, stamp, frame),
+                )
             if holding and kind == "fist":
                 apertures.append((cw, cw, True))
             elif holding:
@@ -2859,7 +2947,27 @@ class ArelisWindow(QMainWindow):
                 self.world_window.panel.clear_hand()
             return
         if world_up:
-            self.world_window.panel.set_apertures(apertures)
+            if solar:
+                if apertures:
+                    (t0, i0, pinched) = apertures[0]
+                    mx = (t0[0] + i0[0]) * 0.5
+                    my = (t0[1] + i0[1]) * 0.5
+                    span = math.hypot(t0[0] - i0[0], t0[1] - i0[1])
+                    z = None
+                    if tracks:
+                        hand0 = getattr(ordered[0], "hand", None) if ordered else None
+                        who0 = str(getattr(ordered[0], "who", "") or "") if ordered else ""
+                        if hand0 is not None:
+                            z = self._hand_depth(who0, hand0, stamp, frame)
+                    self.world_window.solar.apply_hand(
+                        mx, my, pinched=pinched, span=span, palm_z=z
+                    )
+                else:
+                    self.world_window.solar.apply_hand(
+                        0.5, 0.5, pinched=False, span=0.0, palm_z=None
+                    )
+            else:
+                self.world_window.panel.set_apertures(apertures)
 
     def _refresh_camera_capture_hook(self) -> None:
         """Expose live capture to the camera tool while the dock session is up."""
@@ -4101,6 +4209,11 @@ class ArelisWindow(QMainWindow):
         the window free of a reference to it, the way session loads already do,
         and means both routes out of a room share one implementation.
         """
+        if self._turn_busy:
+            self._toast_finish_or_stop(
+                "Finish or stop the current turn before leaving the room."
+            )
+            return
         asyncio.run_coroutine_threadsafe(
             self.bus.publish(Event(EventType.USER_MESSAGE, {"text": "/leave"})),
             self.loop,
@@ -4247,7 +4360,18 @@ class ArelisWindow(QMainWindow):
             if p.get("deliver") == "dictate":
                 self.conversation.insert_dictation(p.get("text") or "")
         elif t == EventType.PHYSICS_VERB:
+            # Closed verbs never publish USER_MESSAGE, so conversation would
+            # wait for a turn that does not exist. Drop the awaiting latch
+            # the same way an empty transcript does, then mutate the scene.
+            if self.voice_controller is not None:
+                self.voice_controller.notify_utterance_dropped()
             self._apply_physics_verb(str(p.get("verb") or ""))
+        elif t == EventType.CONVERSATION_END:
+            # Spoken hangup. Same latch as Ctrl+Shift+M off: the two-arcs
+            # button, speak_replies, and wake listen. No turn starts.
+            if self.voice_controller is not None:
+                self.voice_controller.notify_utterance_dropped()
+            self._hang_up_conversation()
         elif t == EventType.VOICE_AUDIO_READY:
             # Streaming TTS can deliver the first clip before ASSISTANT_DONE.
             # Arm here so the mic stays deaf across that early Piper work too.
@@ -4387,7 +4511,9 @@ class ArelisWindow(QMainWindow):
             # The room owns a project, so the dock's switcher has to follow or
             # the two disagree about where a bare path lands.
             self.workspace.set_active_project(self.workspace_roots.active)
-            self.camera.set_spatial_available(room_id == PHYSICS_ROOM_ID)
+            self.camera.set_spatial_available(
+                room_id == PHYSICS_ROOM_ID and world_stage_allowed()
+            )
             self.spatial.set_room(room_id)
             if room_id != PHYSICS_ROOM_ID:
                 self._hide_world()
@@ -5527,6 +5653,9 @@ def run_ui(config: dict[str, Any] | None = None) -> int:
 
     workspace = _bind_workspace(config)
     force_windows_qt_platform(os.environ)
+    from arelis.ui.solar_gl import prepare_desktop_gl
+
+    prepare_desktop_gl(os.environ)
     os.environ.setdefault("QT_QPA_FONTDIR", str(qt_font_directory()))
 
     # A scheduled task holds the absolute path it was created with, so installing a
@@ -5548,6 +5677,12 @@ def run_ui(config: dict[str, Any] | None = None) -> int:
             pass
 
     configure_native_windows()
+    from arelis.ui.solar_gl import gl_wanted
+
+    if gl_wanted():
+        QApplication.setAttribute(
+            Qt.ApplicationAttribute.AA_UseDesktopOpenGL, True
+        )
     app = QApplication.instance() or QApplication([])
     app.setApplicationName("Arelis")
     icon_path = app_icon_path()

@@ -27,6 +27,10 @@ from arelis.tools.tile import TileTool
         ("close the camera", ("close", "camera")),
         ("open contacts", ("open", "contacts")),
         ("close contacts", ("close", "contacts")),
+        ("open world", ("open", "world")),
+        ("open the world", ("open", "world")),
+        ("close world", ("close", "world")),
+        ("open the solar lab", ("open", "world")),
         ("pull up notifications", ("open", "notifications")),
         ("hide the alerts", ("close", "notifications")),
         ("close them", ("close", "")),
@@ -114,6 +118,15 @@ def test_notifications_subset_offers_tile() -> None:
     assert "tile" in visible
 
 
+def test_open_world_is_a_tile_intent() -> None:
+    hints = detect_intents("open world")
+    assert any(h.kind == "tile_open" for h in hints)
+    assert "tile" in select_skill_ids(
+        "open world", available_tools={"tile", "browser", "rooms"}
+    )
+    assert tile_tool_args("open world") == {"action": "open", "name": "world"}
+
+
 def test_calendar_open_is_still_agenda_not_tile_preflight() -> None:
     hints = detect_intents("open my calendar")
     assert any(h.kind == "agenda_open" for h in hints)
@@ -187,3 +200,60 @@ def test_tile_tool_result_opens_and_closes_notifications(
     )
     qt_app.processEvents()
     assert window.notify_inbox.isHidden()
+
+
+def test_tile_tool_result_opens_world_in_physics(arelis_window, qt_app) -> None:
+    window = arelis_window()
+    window._on_event(
+        Event(
+            EventType.ROOM_CHANGED,
+            {"room_id": "physics", "name": "Physics"},
+        )
+    )
+    qt_app.processEvents()
+    window._on_event(
+        Event(
+            EventType.TOOL_RESULT,
+            {
+                "tool": "tile",
+                "ok": True,
+                "output": "Opened world.",
+                "data": {"open": True, "close": False, "name": "world"},
+            },
+        )
+    )
+    qt_app.processEvents()
+    assert not window.world_window.isHidden()
+    assert window.act_world.isChecked()
+    window._on_event(
+        Event(
+            EventType.TOOL_RESULT,
+            {
+                "tool": "tile",
+                "ok": True,
+                "output": "Closed world.",
+                "data": {"open": False, "close": True, "name": "world"},
+            },
+        )
+    )
+    qt_app.processEvents()
+    assert window.world_window.isHidden()
+    assert not window.act_world.isChecked()
+
+
+def test_tile_tool_result_does_not_open_world_in_orbit(arelis_window, qt_app) -> None:
+    window = arelis_window()
+    window._on_event(
+        Event(
+            EventType.TOOL_RESULT,
+            {
+                "tool": "tile",
+                "ok": True,
+                "output": "Opened world.",
+                "data": {"open": True, "close": False, "name": "world"},
+            },
+        )
+    )
+    qt_app.processEvents()
+    assert window.world_window.isHidden()
+    assert not window.act_world.isChecked()

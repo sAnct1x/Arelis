@@ -74,7 +74,14 @@ _STUB_SCHEMAS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     ),
     "catalog": (
         ("action",),
-        ("action", "date", "query", "target"),
+        ("action", "date", "query", "table", "target"),
+    ),
+    "solar": (
+        ("action",),
+        (
+            "action", "date", "dvx", "dvy", "dvz", "epoch_gyr", "flag", "name",
+            "r1_au", "r2_au", "rate", "tracers",
+        ),
     ),
     "camera": (("action",), ("action",)),
     "doc_extract": (("path",), ("max_chars", "page_end", "page_start", "path")),

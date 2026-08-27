@@ -98,7 +98,9 @@ SKILL_TOOLS: dict[str, frozenset[str]] = {
     ),
     "calculator": frozenset({"calculator", "python"}),
     "diagnostics": frozenset({"diagnostics"}),
-    "science": frozenset({"cas", "units", "calculator", "python", "plot", "analyze", "catalog"}),
+    "science": frozenset(
+        {"cas", "units", "calculator", "python", "plot", "analyze", "catalog", "solar"}
+    ),
     "clipboard": frozenset({"clipboard"}),
     "ocr": frozenset({"ocr"}),
     "agenda": frozenset({"agenda"}),
@@ -120,6 +122,7 @@ SKILL_TOOLS: dict[str, frozenset[str]] = {
             "units",
             "plot",
             "catalog",
+            "solar",
         }
     ),
     "deadline": frozenset({"tasks", "agenda"}),

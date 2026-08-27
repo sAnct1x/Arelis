@@ -35,10 +35,21 @@ room". Spoken navigation only fires on a name that already exists.
 sentence.
 
 The room id `physics` is reserved. It is the spatial stage: World plate
-and C920 tracking run only there. Pose updates the scene without a chat
-turn. Spoken world verbs are parked. The phone is not a sensor. Do not
-turn this room into a spreadsheet workspace; make a different room for
-that.
+and C920 tracking run only on a **source checkout**. Installed copies
+still get the physics *room* (chat, CAS, Horizons observer). The plate,
+REBOUND solar system, and hands do not ship in the installer until you
+opt them in. The solar view is approach and orbit — true scale, NASA
+albedo if a map is on disk, IAU W on mapped planets so the terminator
+and the mosaic agree, no landing, no DEM. The camera is inspect-only
+WASD fly; F does not ride a probe. GPU globes are opt-in
+(`--solar-gl` / `ARELIS_SOLAR_GL=1`). H recites every live hotkey;
+spoken `solar` toggle flags match H and the ⋯ tray. World window
+defaults to 1280×800. Pose updates the scene without
+a chat turn. Spoken world and time verbs (pause, faster, fly, heavier)
+hit the scene without a model turn; conversation mode keeps listening
+after them. Say "open world" for the plate. The phone is not a
+sensor. Do not turn this room into a spreadsheet workspace; make a
+different room for that.
 
 ## Making one
 

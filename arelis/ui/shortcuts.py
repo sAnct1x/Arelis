@@ -1,7 +1,7 @@
 """Every chord in one place, and a sheet that shows them.
 
 The chords were only ever discoverable as two lines of small mono text on the
-idle orbit — "ctrl+shift+m to talk", "enter to speak · esc to clear" — and a
+idle orbit — "say hey arelis", "talk or type · esc to clear" — and a
 scatter of QAction shortcuts that appear in the View menu if you happen to open
 it. Eleven of the fifteen were written down nowhere the user would look.
 

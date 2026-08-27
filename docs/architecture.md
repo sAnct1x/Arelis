@@ -97,7 +97,7 @@ docks.
 | Contacts | Named people for texts. View → contacts / Ctrl+6 |
 | Calendar | Local tile, Ctrl+7. Empty of Google events until you authorize |
 | Settings | Audio / Window / Allow / Notify / Roots / Memory |
-| World plate | Floating stage. Only while the `physics` room is active. Source checkout; needs `pip install -e ".[spatial]"`. Not in the 0.2.3 installer |
+| World plate | Floating stage. Only while the `physics` room is active **and** this copy is a source checkout (`world_stage_allowed`). Needs `pip install -e ".[spatial]"` for hands and `.[astro]` for REBOUND. Not in the installer. Default size 1280×800. Solar GPU path is `--solar-gl` / `ARELIS_SOLAR_GL=1` (offscreen FBO). Inspect-only WASD fly camera; H recites live keys; no craft chase-cam |
 
 Settings → Window can fold unused panels after 30, 45, or 60 minutes
 with no click, type, send, or wake word. Off by default. A turn, a card,
@@ -174,6 +174,7 @@ connected. Otherwise chat says she cannot.
 | `plot` | PNG. Room → `plots/` in the project; orbit → `outputs/plots/` | Yes |
 | `document` | PDF, Word, Excel, CSV, markdown. Room → `documents/` in the project; orbit → `outputs/documents/` | Yes |
 | `catalog` | arXiv, Horizons; APOD / ADS after a free key | No |
+| `solar` | Physics-room N-body (Horizons VECTORS + REBOUND IAS15). Source checkout. Approach/orbit, inspect-only fly camera, IAU spheres. Not landing | Yes |
 | `clipboard` / `ocr` / `vision` / `camera` | Paste, screen text, see an image, webcam | Yes (the still is free; seeing it pauses) |
 | `memory` / `recall` / `tasks` / `goals` | Remember, chores, "what needs my attention" | Mutates: yes |
 | `inbox` / `send_email` / `schedule` | Mail and timed jobs | Send: yes. Inbox list is free; trash / archive / move / flags: yes |
@@ -234,6 +235,8 @@ it.
 | `data/secrets.yaml` | Tokens (gitignored) |
 | `data/profile.yaml` | Who and where you are |
 | `data/rooms.yaml` | Your rooms |
+| `arelis/physics/` | Solar lab: Horizons ICs, REBOUND, IAU WGCCRE attitude, equirectangular maps |
+| `arelis/ui/solar_gl.py` | Offscreen GL globes. Native GL widget aborted this AMD driver |
 | `arelis/spatial/` | World engine (source checkout) |
 | `outputs/physics/takes/` | Hand-tracking takes. If it is not in a take, it did not happen |
 | `data/memory.db` | Facts, goals, tasks |

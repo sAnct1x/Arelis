@@ -643,6 +643,8 @@ SKILL_CARDS: dict[str, SkillCard] = {
             "preprint",
             "jpl horizons",
             "ephemeris",
+            "solar system",
+            "hohmann",
             "apod",
             "nasa ads",
         ),
@@ -677,8 +679,12 @@ SKILL_CARDS: dict[str, SkillCard] = {
 - Papers on arXiv, JPL Horizons, NASA APOD, and NASA ADS call catalog.
   Acknowledge arXiv. Do not scrape NASA JavaScript. APOD and ADS need a
   free key in data/secrets.yaml; say so if the tool reports it is missing.
-  Do not invent a bibcode, an abstract, or an ephemeris. "Find me a paper"
-  is catalog, not a guess.
+  Horizons `table=vectors` is SSB ECLIPJ2000 state for the solar lab;
+  observer tables are for the sky. Do not invent a bibcode, an abstract,
+  or an ephemeris. "Find me a paper" is catalog, not a guess.
+- The physics-room solar lab is the `solar` tool (REBOUND, true scale).
+  load uses Horizons VECTORS. impulse/add_probe need Allow. fetch_maps
+  pulls NASA public albedo for approach/orbit only — not landing.
 - Papers already on disk use doc_extract. Do not invent citations.
 - Walk the derivation; let cas check the algebra. Do not stamp homework.
 - After cas returns, copy the latex: line into $$ … $$. Do not rewrite
@@ -796,6 +802,8 @@ SKILL_CARDS: dict[str, SkillCard] = {
             "close the camera",
             "open contacts",
             "close contacts",
+            "open world",
+            "close world",
             "hide the tile",
             "pull up notifications",
         ),
@@ -810,13 +818,14 @@ SKILL_CARDS: dict[str, SkillCard] = {
         body="""
 ### Tiles (View menu)
 - To show or hide an Arelis panel ("open my notifications", "close history",
-  "open the workspace", "close thinking", "open the camera", "open contacts"),
+  "open the workspace", "close thinking", "open the camera", "open contacts",
+  "open world"),
   call tile(action=open|close, name=thinking|workspace|history|notifications|
-  camera|contacts|calendar). Do not use the browser.
+  camera|contacts|calendar|world). Do not use the browser.
 - "Close them" / "hide it" after opening a tile: tile(action=close) with no
   name reuses the last one.
 - Calendar events still use agenda. tile(name=calendar) only shows or hides
-  the local calendar window.
+  the local calendar window. World is the physics-room plate.
 """.strip(),
     ),
     "rooms": SkillCard(

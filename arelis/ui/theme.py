@@ -1390,7 +1390,7 @@ def stylesheet() -> str:
         font-size: 11px;
         background: transparent;
     }}
-    #RoomLeaveButton {{
+    #RoomLeaveButton, #RoomWorldButton {{
         background: transparent;
         border: 1px solid {c['edge_mid']};
         border-radius: 8px;
@@ -1399,9 +1399,29 @@ def stylesheet() -> str:
         font-family: {f['mono']};
         font-size: 11px;
     }}
-    #RoomLeaveButton:hover {{
+    #RoomLeaveButton:hover, #RoomWorldButton:hover {{
         background: {c['button_hover_soft']};
         color: {c['accent']};
+    }}
+    #WorldChooserHands, #WorldChooserSolar,
+    #WorldPauseResume, #WorldPauseSettings, #WorldPauseExit {{
+        background: {c['bg2']};
+        border: 1px solid {c['edge_mid']};
+        border-radius: 10px;
+        padding: 10px 18px;
+        color: {c['text']};
+        font-family: {f['mono']};
+        font-size: 14px;
+        min-height: 44px;
+    }}
+    #WorldChooserHands:hover, #WorldChooserSolar:hover,
+    #WorldPauseResume:hover, #WorldPauseExit:hover {{
+        background: {c['button_hover_soft']};
+        color: {c['accent']};
+        border-color: {c['accent']};
+    }}
+    #WorldPauseSettings:disabled {{
+        color: {c['text_dim']};
     }}
     #DriveBrand {{
         color: {c['accent']};
