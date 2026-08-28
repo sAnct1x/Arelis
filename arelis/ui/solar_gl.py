@@ -250,6 +250,7 @@ uniform float uWrap;
 uniform float uLimb;
 uniform float uAlpha;
 uniform float uGran;
+uniform float uClose;
 uniform float uTime;
 out vec4 frag;
 void main() {
@@ -281,16 +282,17 @@ void main() {
     if (uEmissive == 1) {
         float mu = max(dot(n, v), 0.0);
         float ld = 1.0 - 0.56 * (1.0 - mu);
-        vec3 core = alb * vec3(1.05, 0.94, 0.62);
-        vec3 limbc = alb * vec3(1.0, 0.38, 0.08);
-        vec3 phot = mix(limbc, core, pow(mu, 0.52)) * ld;
+        vec3 core = mix(alb * vec3(1.36, 1.12, 0.62), vec3(1.42, 1.24, 0.90), 0.34);
+        vec3 limbc = alb * vec3(1.20, 0.46, 0.08);
+        vec3 phot = mix(limbc, core, pow(mu, 0.32)) * ld;
         if (uGran > 0.01) {
             vec3 p = normalize(n);
             float g = sin(dot(p, vec3(17.2, 8.1, 3.4)) * 18.0 + uTime * 0.16);
             g += 0.55 * sin(dot(p, vec3(4.2, 19.0, 11.7)) * 34.0 - uTime * 0.11);
             g += 0.30 * sin(dot(p, vec3(11.4, 2.6, 23.1)) * 52.0 + uTime * 0.07);
-            phot *= 1.0 + uGran * 0.16 * g;
+            phot *= 1.0 + uGran * 0.10 * g;
         }
+        phot *= mix(0.96, 1.06, uClose);
         frag = vec4(phot, uAlpha);
         return;
     }
@@ -382,26 +384,19 @@ void main() {
 }
 """
 
-_VS_GLOW = (
-    "#version 330\n"
-    + _LOG_DEPTH
-    + """
+_VS_GLOW = """
+#version 330
 layout(location = 0) in vec2 aCorner;
-uniform mat4 uView;
-uniform mat4 uProj;
-uniform vec3 uCenter;
-uniform vec3 uRight;
-uniform vec3 uUp;
-uniform float uSize;
+uniform vec2 uSunNdc;
+uniform float uExtent;
+uniform float uAspect;
 out vec2 vUV;
 void main() {
     vUV = aCorner;
-    vec3 p = uCenter + uRight * aCorner.x * uSize + uUp * aCorner.y * uSize;
-    gl_Position = uProj * uView * vec4(p, 1.0);
-    arelisLogDepth();
+    vec2 pos = uSunNdc + vec2(aCorner.x * uExtent * uAspect, aCorner.y * uExtent);
+    gl_Position = vec4(pos, 0.0, 1.0);
 }
 """
-)
 
 _FS_GLOW = """
 #version 330
@@ -409,28 +404,56 @@ in vec2 vUV;
 uniform vec3 uColor;
 uniform vec2 uPole;
 uniform float uDisc;
+uniform float uClose;
+uniform float uNeedle;
+uniform float uBloom;
+uniform float uCore;
+uniform float uLen;
+uniform float uGain;
 out vec4 frag;
+
+float needle(vec2 p, vec2 axis, float halfw, float len, float gain) {
+    vec2 nrm = vec2(-axis.y, axis.x);
+    float d = dot(p, nrm);
+    float along = abs(dot(p, axis));
+    float shaft = exp(-(d * d) / max(halfw * halfw, 1e-8));
+    float fade = exp(-along / max(len, 1e-4));
+    float start = max(uDisc * 0.98, 0.16 * (1.0 - uClose));
+    float past = smoothstep(start, start + halfw * 8.0, along);
+    return gain * shaft * fade * past;
+}
+
 void main() {
     float r = length(vUV);
-    float disc = max(uDisc, 0.04);
-    if (r > 1.0) discard;
-    if (r < disc * 0.92) discard;
-    vec2 dir = vUV / max(r, 1e-4);
-    vec2 pole = uPole;
-    float pl = length(pole);
-    if (pl > 1e-4) pole /= pl;
-    float eq = 1.0 - abs(dot(dir, pole));
-    float streamer = 0.38 + 0.62 * pow(eq, 1.45);
-    float s = max(r - disc, 0.0) / max(1.0 - disc, 1e-3);
-    float radial = exp(-s * 4.4) / (0.12 + s * s);
-    float halo = exp(-pow(max(r - disc, 0.0) * 16.0, 2.0)) * 1.35;
-    float rim = 1.0 - smoothstep(0.82, 0.98, r);
-    float a = max(radial * streamer, halo) * rim;
-    if (a < 0.012) discard;
-    vec3 gold = vec3(1.0, 0.55, 0.12);
-    vec3 core = mix(uColor, vec3(1.0, 0.88, 0.42), 0.55);
-    vec3 col = mix(core, gold, smoothstep(0.0, 0.62, s));
-    frag = vec4(col * min(a * 1.25, 2.2), min(a, 1.0));
+    float disc = max(uDisc, 1e-4);
+    // Fade to zero inside the quad so the billboard never reads as a card.
+    if (r > 0.98) {
+        frag = vec4(0.0);
+        discard;
+    }
+    if (uClose > 0.55 && r < disc) {
+        frag = vec4(0.0);
+        discard;
+    }
+    float s = max(r - disc, 0.0);
+    float core = (1.0 - uClose) * exp(-(r * r) / max(uCore * uCore, 1e-6));
+    float bloom = exp(-s / max(uBloom, 0.002)) * mix(0.82, 0.48, uClose);
+    bloom *= 1.0 - smoothstep(0.05, 0.28, s);
+    float halfw = uNeedle;
+    float len = max(uLen, 0.10);
+    float rays = needle(vUV, vec2(1.0, 0.0), halfw, len, (0.50 + 0.85 * uClose) * uGain)
+        + needle(vUV, vec2(0.0, 1.0), halfw * 0.90, len * 0.86, (0.42 + 0.70 * uClose) * uGain)
+        + needle(vUV, normalize(vec2(1.0, 1.0)), halfw * 0.68, len * 0.48, 0.20 * uGain * uClose)
+        + needle(vUV, normalize(vec2(1.0, -1.0)), halfw * 0.68, len * 0.48, 0.20 * uGain * uClose);
+    float edge = 1.0 - smoothstep(0.62, 0.88, r);
+    float a = (core * 1.25 + bloom + rays) * edge;
+    if (a < 0.02) {
+        frag = vec4(0.0);
+        discard;
+    }
+    vec3 hot = mix(uColor, vec3(1.50, 1.35, 1.05), 0.72);
+    vec3 col = mix(hot, vec3(1.10, 0.68, 0.28), smoothstep(0.0, 0.18, s) * 0.28);
+    frag = vec4(col * min(a, 1.55), 0.0);
 }
 """
 
@@ -527,6 +550,13 @@ def projection(fb_w: int, fb_h: int, *, fov_y: float | None = None) -> QMatrix4x
 # view_from_basis has determinant -1 and projection() adds another reflection,
 # so front faces come back round to counter-clockwise.
 FRONT_FACE = _GL_CCW
+
+
+def glow_extent_px(sun_px: float, fb_h: int) -> float:
+    """Pixel radius of the flare quad. See arelis.physics.star_look."""
+    from arelis.physics.star_look import star_flare
+
+    return star_flare(sun_px, fb_h).extent_px
 
 
 def view_from_basis(
@@ -1085,7 +1115,6 @@ class SolarSpaceView(QOpenGLFunctions):
                     else QVector3D(0, 0, 0)
                 )
                 self.glEnable(_GL_DEPTH_TEST)
-                self._draw_glow(system, eye, sun_p, view, proj, fy, fx)
                 bodies = [
                     b
                     for b in views
@@ -1094,6 +1123,7 @@ class SolarSpaceView(QOpenGLFunctions):
                 bodies.sort(key=lambda b: -self._cam_z(b, eye, fz))
                 for body in bodies:
                     self._draw_body(panel, body, system, eye, sun_p, view, proj, fz)
+                self._draw_glow(system, eye, sun_p, view, proj, fy, fx)
                 self._draw_loops(system, eye, sun_p, view, proj)
                 if system.show_osculating:
                     self._draw_orbits(system, views, eye, fz, view, proj)
@@ -1276,9 +1306,15 @@ class SolarSpaceView(QOpenGLFunctions):
         gran = 0.0
         tick = 0.0
         if body.name == "Sun":
-            gran = min(1.0, max(0.0, (true_px - 80.0) / 80.0))
+            gran = min(1.0, max(0.0, (true_px - 200.0) / 140.0))
             tick = time.perf_counter() * 0.08
         self._uni(self._prog_body, "uGran", float(gran))
+        close = 0.0
+        if body.name == "Sun":
+            from arelis.physics.star_look import star_flare
+
+            close = 1.0 - star_flare(true_px, self._fb_h).unresolved
+        self._uni(self._prog_body, "uClose", float(close))
         self._uni(self._prog_body, "uTime", float(tick))
         self.glActiveTexture(_GL_TEXTURE0)
         tex.bind()
@@ -1453,6 +1489,7 @@ class SolarSpaceView(QOpenGLFunctions):
         self._uni(self._prog_body, "uLimb", 1.0)
         self._uni(self._prog_body, "uAlpha", 0.62)
         self._uni(self._prog_body, "uGran", 0.0)
+        self._uni(self._prog_body, "uClose", 0.0)
         self._uni(self._prog_body, "uTime", 0.0)
         self._white.bind()
         self._ring_vao.bind()
@@ -1474,28 +1511,40 @@ class SolarSpaceView(QOpenGLFunctions):
         fy,
         fx,
     ) -> None:
+        """Lens diffraction + K-corona. Sized in pixels, not a viewport fill."""
         if self._prog_glow is None or self._glow_vao is None:
             return
         sun = system.nbody.find("Sun")
         if sun is None:
             return
-        rgb = (255, 250, 230)
+        depth = float(sun_p.length())
+        if depth < 1.0:
+            return
+        rgb = (255, 236, 210)
         if abs(system.future_gyr) > 1e-6:
             rgb = sun_rgb(sample(system.future_gyr))
-        depth = max(float(sun_p.length()), 1.0)
-        size = min(sun.radius * 18.0, depth * 0.82)
-        size = max(size, sun.radius * 1.2, 10.0 * depth * 1.4 / max(self._fb_h, 1))
-        self.glEnable(_GL_BLEND)
-        self.glBlendFunc(_GL_SRC_ALPHA, _GL_ONE)
+        from arelis.physics.star_look import angular_px, star_flare
+
+        sun_px = angular_px(sun.radius, depth, self._fb_h, self._panel._fov_y())
+        look = star_flare(sun_px, self._fb_h)
+        extent_px = look.extent_px
+        extent = 2.0 * extent_px / max(float(self._fb_h), 1.0)
+        if look.unresolved > 0.45:
+            extent = min(extent, 0.055)
+        else:
+            extent = min(extent, 0.96)
+        aspect = float(self._fb_h) / max(float(self._fb_w), 1.0)
+        clip = proj * view
+        ndc = clip.map(sun_p)
+        self.glDisable(_GL_CULL_FACE)
+        self.glDisable(_GL_DEPTH_TEST)
         self.glDepthMask(_GL_FALSE)
+        self.glEnable(_GL_BLEND)
+        self.glBlendFunc(_GL_ONE, _GL_ONE)
         self._prog_glow.bind()
-        self._set_far(self._prog_glow)
-        self._uni(self._prog_glow, "uView", view)
-        self._uni(self._prog_glow, "uProj", proj)
-        self._uni(self._prog_glow, "uCenter", sun_p)
-        self._uni(self._prog_glow, "uRight", QVector3D(fx[0], fx[1], fx[2]))
-        self._uni(self._prog_glow, "uUp", QVector3D(fy[0], fy[1], fy[2]))
-        self._uni(self._prog_glow, "uSize", float(size))
+        self._uni(self._prog_glow, "uSunNdc", float(ndc.x()), float(ndc.y()))
+        self._uni(self._prog_glow, "uExtent", float(extent))
+        self._uni(self._prog_glow, "uAspect", float(aspect))
         self._uni(
             self._prog_glow,
             "uColor",
@@ -1508,7 +1557,14 @@ class SolarSpaceView(QOpenGLFunctions):
             pole[0] * fx[0] + pole[1] * fx[1] + pole[2] * fx[2],
             pole[0] * fy[0] + pole[1] * fy[1] + pole[2] * fy[2],
         )
-        self._uni(self._prog_glow, "uDisc", float(sun.radius / max(size, 1.0)))
+        self._uni(self._prog_glow, "uDisc", float(look.disc_px / max(extent_px, 1e-3)))
+        self._uni(self._prog_glow, "uClose", float(1.0 - look.unresolved))
+        self._uni(self._prog_glow, "uNeedle", float(0.48 / max(extent_px, 1.0)))
+        sigma_px = max(look.bloom_px - look.disc_px, 2.8)
+        self._uni(self._prog_glow, "uBloom", float(sigma_px / max(extent_px, 1.0)))
+        self._uni(self._prog_glow, "uCore", float(1.55 / max(extent_px, 1.0)))
+        self._uni(self._prog_glow, "uLen", float(look.spike_px / max(extent_px, 1.0)))
+        self._uni(self._prog_glow, "uGain", float(look.spike_gain))
         self._glow_vao.bind()
         self.glDrawArrays(_GL_TRIANGLE_STRIP, 0, 4)
         self._glow_vao.release()
@@ -1516,6 +1572,9 @@ class SolarSpaceView(QOpenGLFunctions):
         self.glDepthMask(_GL_TRUE)
         self.glBlendFunc(_GL_SRC_ALPHA, _GL_ONE_MINUS_SRC_ALPHA)
         self.glDisable(_GL_BLEND)
+        self.glEnable(_GL_DEPTH_TEST)
+        self.glEnable(_GL_CULL_FACE)
+        self.glCullFace(_GL_BACK)
 
     def _draw_loops(
         self,
@@ -1525,10 +1584,11 @@ class SolarSpaceView(QOpenGLFunctions):
         view: QMatrix4x4,
         proj: QMatrix4x4,
     ) -> None:
-        """Dipole ribbons. Depth-tested so they tuck behind the disc."""
-        from arelis.physics.corona import LOOP_MIN_PX, line_segments, loops
+        """Off-limb prominences. Magnetic overlay brightens the dipole sketch."""
+        from arelis.physics.corona import LOOP_MIN_PX, loops, off_limb_segments
 
-        if self._prog_line is None:
+        mag = bool(system.overlay.show_magnetic)
+        if self._prog_line is None or not mag:
             return
         sun = system.nbody.find("Sun")
         if sun is None:
@@ -1542,8 +1602,9 @@ class SolarSpaceView(QOpenGLFunctions):
         oz = sun.z - eye[2]
         quiet: list[np.ndarray] = []
         hot: list[np.ndarray] = []
+        sun_eye = np.array((ox, oy, oz), dtype=np.float64)
         for loop in loops(sun.radius, jd, time.perf_counter()):
-            segs = line_segments(loop)
+            segs = off_limb_segments(loop, sun.radius, sun_eye=sun_eye)
             if segs.shape[0] < 2:
                 continue
             segs = segs + np.array((ox, oy, oz), dtype=np.float64)
@@ -1556,9 +1617,11 @@ class SolarSpaceView(QOpenGLFunctions):
         self.glEnable(_GL_BLEND)
         self.glBlendFunc(_GL_SRC_ALPHA, _GL_ONE)
         if quiet:
-            self._stroke_loops(np.vstack(quiet), view, proj, (1.0, 0.52, 0.12, 0.48))
+            a = 0.55 if mag else 0.28
+            self._stroke_loops(np.vstack(quiet), view, proj, (1.0, 0.42, 0.08, a))
         if hot:
-            self._stroke_loops(np.vstack(hot), view, proj, (1.0, 0.88, 0.42, 0.95))
+            a = 0.95 if mag else 0.55
+            self._stroke_loops(np.vstack(hot), view, proj, (1.0, 0.78, 0.22, a))
         self.glDepthMask(_GL_TRUE)
         self.glBlendFunc(_GL_SRC_ALPHA, _GL_ONE_MINUS_SRC_ALPHA)
         self.glDisable(_GL_BLEND)

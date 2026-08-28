@@ -13,11 +13,13 @@ from arelis.physics.corona import (
     CITE,
     L_MAX,
     LOOP_MIN_PX,
+    Loop,
     dipole_line,
     dipole_radius,
     flare_gain,
     line_segments,
     loops,
+    off_limb_segments,
 )
 
 
@@ -93,17 +95,78 @@ def test_cite_does_not_claim_sdo() -> None:
     assert spin_caption("Sun").lower().startswith("photosphere has no map")
 
 
-def test_glow_shader_has_no_sixfold_spikes() -> None:
+def test_off_limb_hides_the_front_of_the_disc() -> None:
+    loop = Loop(
+        np.array(
+            ((0.15, 0.0, -0.96), (-0.15, 0.0, -0.96), (0.0, 0.2, -0.94)),
+            dtype=np.float64,
+        ),
+        0.0,
+        "ar",
+    )
+    segs = off_limb_segments(loop, 1.0, sun_eye=np.array((0.0, 0.0, 24.0)))
+    assert segs.shape[0] == 0
+
+
+def test_off_limb_keeps_a_prominence() -> None:
+    loop = Loop(
+        np.array(
+            ((1.45, 0.0, 0.0), (1.62, 0.12, 0.0), (1.45, 0.24, 0.0)),
+            dtype=np.float64,
+        ),
+        0.0,
+        "ar",
+    )
+    segs = off_limb_segments(loop, 1.0, sun_eye=np.array((0.0, 0.0, 24.0)))
+    assert segs.shape[0] >= 2
+    assert segs.shape[0] % 2 == 0
+
+
+def test_glow_shader_keeps_glare_and_off_limb_loops() -> None:
     import inspect as pyinspect
 
     from arelis.ui import solar_gl as gl
 
     src = gl._FS_GLOW
     assert "sin(ang" not in src
+    assert "phi * 3.0" not in src
     assert "uDisc" in src
     assert "uPole" in src
-    assert "r > 1.0" in src
-    assert "uGran" in gl._FS_BODY
+    assert "r > 0.98" in src
+    assert "1.42" not in src
+    assert "Baumbach" not in src
+    assert "uGain" in src
+    glow_src = pyinspect.getsource(gl.SolarSpaceView._draw_glow)
     loops_src = pyinspect.getsource(gl.SolarSpaceView._draw_loops)
     assert "LOOP_MIN_PX" in loops_src
+    assert "off_limb_segments" in loops_src
+    assert "show_magnetic" in loops_src
+    assert "or not mag" in loops_src
+    assert "glDisable(_GL_DEPTH_TEST)" in glow_src
+    assert "glDisable(_GL_CULL_FACE)" in glow_src
+    assert "uSunNdc" in gl._VS_GLOW
+    assert "uClose" in gl._FS_GLOW
+    assert "uClose" in gl._FS_BODY
+    assert "float needle(" in src
+    assert "pow(abs(dir.x)" not in src
+    assert "* far" not in src
     assert LOOP_MIN_PX == 40.0
+
+
+def test_glow_extent_is_pixel_capped_not_a_viewport_fill() -> None:
+    from arelis.physics.star_look import star_flare
+    from arelis.ui.solar_gl import glow_extent_px
+
+    far = glow_extent_px(0.12, 1334)
+    assert 12.0 <= far <= 48.0
+    near = glow_extent_px(150.0, 1334)
+    assert near > 150.0
+    assert near < 0.22 * 1334
+    point = star_flare(0.1, 1334)
+    close = star_flare(160.0, 1334)
+    assert point.spike_gain > 0.85
+    assert close.spike_gain > 0.25
+    assert close.spike_px > close.disc_px
+    assert point.extent_px < 0.06 * 1334
+    assert close.bloom_px < close.disc_px * 1.12
+    assert close.bloom_px > close.disc_px

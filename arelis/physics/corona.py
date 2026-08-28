@@ -26,8 +26,8 @@ L_MAX = 3.4
 # Loops are a close-approach sketch. From 1 AU they are spaghetti on a 6 px disc.
 LOOP_MIN_PX = 40.0
 CITE = (
-    "Photosphere: limb-darkened, no map. Corona: centred dipole + Carrington "
-    "compact loops. Flares: waiting-time sketch on wall clock. Not SDO, not MHD."
+    "Photosphere: limb-darkened convection, not SDO. "
+    "Corona: white-light bloom. Dipole is the magnetic overlay. Not MHD."
 )
 
 
@@ -114,6 +114,36 @@ def line_segments(loop: Loop) -> np.ndarray:
     segs[0::2] = pts[:-1]
     segs[1::2] = pts[1:]
     return segs
+
+
+def off_limb_segments(
+    loop: Loop,
+    r_phot: float,
+    sun_eye: np.ndarray | None = None,
+) -> np.ndarray:
+    """Keep prominences. Drop footpoints and anything that paints on the disc."""
+    segs = line_segments(loop)
+    if segs.shape[0] < 2:
+        return segs
+    pairs = segs.reshape(-1, 2, 3)
+    rad = np.sqrt((pairs * pairs).sum(axis=2))
+    keep = (rad >= float(r_phot) * 1.04).all(axis=1)
+    if sun_eye is not None:
+        eye = np.asarray(sun_eye, dtype=np.float64).reshape(3)
+        ss = float(np.linalg.norm(eye))
+        if ss > 1.0:
+            world = pairs + eye.reshape(1, 1, 3)
+            dist = np.sqrt((world * world).sum(axis=2))
+            cos_ang = (world * eye.reshape(1, 1, 3)).sum(axis=2) / np.maximum(
+                dist * ss, 1.0
+            )
+            ang = np.arccos(np.clip(cos_ang, -1.0, 1.0))
+            beta = math.asin(min(1.0, float(r_phot) / ss))
+            on_face = (ang < beta * 0.99) & (dist < ss)
+            keep = keep & (~on_face.all(axis=1))
+    if not np.any(keep):
+        return np.empty((0, 3), dtype=np.float64)
+    return pairs[keep].reshape(-1, 3)
 
 
 def _to_world(
