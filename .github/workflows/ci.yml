@@ -4,12 +4,40 @@ on:
   push:
   pull_request:
 
+# One push, one run. A second commit used to leave the previous 17-job matrix
+# running (once to the six-hour wall) while eight identical ruff failures
+# emailed again. Cancel the leftover.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  # Ruff used to sit inside the 8-way test matrix. One unsorted import then
+  # failed eight jobs, pytest never ran, and the inbox saw eight mails. This
+  # job is the only place ruff runs. The matrices wait on it.
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      # Ruff only. The pin lives in pyproject.toml; tests/test_ci_gate.py
+      # fails if this line and that pin disagree.
+      - name: Install ruff
+        run: python -m pip install "ruff==0.16.1"
+      - name: Ruff
+        run: python -m ruff check .
+
   # 3.11 is the floor requires-python claims, so it is tested to keep the claim
   # honest. 3.14 is the interpreter the Windows installer ships, so a failure there
   # is a failure in the artefact people are handed rather than in a version somebody
   # might happen to have; it is not optional and must not be dropped to save minutes.
   test:
+    needs: lint
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
@@ -36,11 +64,8 @@ jobs:
       - name: Install package
         run: python -m pip install -e ".[dev]"
 
-      - name: Ruff
-        run: python -m ruff check .
-
       - name: Pytest
-        run: python -m pytest -q
+        run: python -m pytest -q --tb=short
 
       # Unit tests can prove the XML says the right thing; only Windows can prove
       # Task Scheduler accepts it. Registers a harmless smoke task and deletes it.
@@ -55,6 +80,7 @@ jobs:
   # fresh resolve would go red whenever any of 76 upstream projects published anything.
   lock:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -73,6 +99,8 @@ jobs:
   # that is not the repository, which is the only arrangement in which those two
   # defects are visible.
   installed:
+    needs: lint
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:

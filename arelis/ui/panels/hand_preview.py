@@ -80,7 +80,7 @@ class HandPreview(QWidget):
         self._live = False
         self.update()
 
-    def paintEvent(self, _event) -> None:  # noqa: N802 — Qt
+    def paintEvent(self, _event) -> None:
         painter = QPainter(self)
         painter.fillRect(self.rect(), color("bg0"))
         if self._image.isNull():

@@ -409,7 +409,7 @@ async def test_control_soup_is_not_a_turn() -> None:
         seen.append(event)
 
     bus.subscribe(None, capture)
-    orch = _voice_orch(bus)
+    _voice_orch(bus)
     bus_task = asyncio.create_task(bus.run())
     try:
         await bus.publish(
@@ -435,7 +435,7 @@ async def test_control_stop_cancels() -> None:
         seen.append(event)
 
     bus.subscribe(None, capture)
-    orch = _voice_orch(bus)
+    _voice_orch(bus)
     bus_task = asyncio.create_task(bus.run())
     try:
         await bus.publish(

@@ -140,7 +140,9 @@ def _gm_for(name: str, mass: float) -> float:
     return float(mass) * G_SI
 
 
-def _include_particle(system: SolarSystem, *, tracer: bool, name: str, include_tracers: bool) -> bool:
+def _include_particle(
+    system: SolarSystem, *, tracer: bool, name: str, include_tracers: bool
+) -> bool:
     if include_tracers:
         return True
     if not tracer:

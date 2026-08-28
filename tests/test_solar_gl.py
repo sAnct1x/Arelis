@@ -247,7 +247,7 @@ def test_front_face_matches_the_winding_the_matrices_actually_produce() -> None:
 def test_earth_atmosphere_is_a_thin_shell() -> None:
     from arelis.ui.solar_gl import _ATMO, _FS_BODY
 
-    rgb, scale, gain = _ATMO["Earth"]
+    _rgb, scale, gain = _ATMO["Earth"]
     assert scale < 1.03
     assert gain < 0.55
     assert _ATMO["Venus"][1] < 1.03

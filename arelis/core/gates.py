@@ -22,11 +22,11 @@ from arelis.core.claims import (
     ExactnessNeed,
     cas_force_notice,
     catalog_force_notice,
+    diagnostics_force_notice,
     document_force_notice,
     math_force_notice,
     plot_force_notice,
     units_force_notice,
-    diagnostics_force_notice,
 )
 from arelis.core.events import Event, EventType
 from arelis.core.turn_context import TurnContext

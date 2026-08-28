@@ -5,16 +5,16 @@ from __future__ import annotations
 import pytest
 
 from arelis.core.claims import (
-    apply_research_web_need,
     answer_looks_like_ack_only,
     answer_looks_like_refusal,
+    apply_research_web_need,
     detect_agenda_ask,
     detect_analyze_ask,
     detect_cas_ask,
     detect_catalog_ask,
+    detect_diagnostics_ask,
     detect_doc_ask,
     detect_document_ask,
-    detect_diagnostics_ask,
     detect_exactness_need,
     detect_git_ask,
     detect_goals_ask,

@@ -25,6 +25,7 @@ from arelis.tools.catalog import CatalogTool
 from arelis.tools.clipboard import ClipboardTool
 from arelis.tools.code_workspace import CodeWorkspaceTool
 from arelis.tools.contacts_tool import ContactsTool
+from arelis.tools.diagnostics import DiagnosticsTool
 from arelis.tools.doc_extract import DocExtractTool
 from arelis.tools.document import DocumentTool
 from arelis.tools.email_send import SendEmailTool
@@ -39,7 +40,6 @@ from arelis.tools.memory_tool import MemoryTool
 from arelis.tools.ocr import OcrTool
 from arelis.tools.plot import PlotTool
 from arelis.tools.python_exec import PythonTool
-from arelis.tools.diagnostics import DiagnosticsTool
 from arelis.tools.recall import RecallTool
 from arelis.tools.research_report import ResearchReportTool
 from arelis.tools.rooms_tool import RoomsTool

@@ -987,7 +987,10 @@ class InboundIngestServer:
             self._announce = LanAnnouncer(instance=instance_id(), http_port=self.port)
             self._announce.start()
         except Exception:
-            log.warning("LAN announce did not start; the phone can still use stored IPs", exc_info=True)
+            log.warning(
+                "LAN announce did not start; the phone can still use stored IPs",
+                exc_info=True,
+            )
 
     def stop(self) -> None:
         announcer = self._announce

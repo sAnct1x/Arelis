@@ -58,11 +58,14 @@ instead. A clear bug report is genuinely useful.
 python -m venv .venv
 .venv\Scripts\pip install -e ".[dev,voice,browser]"
 # optional: pip install -e ".[spatial]"  — physics-room hands. Not in the installer.
+# optional: pip install -e ".[astro]"    — solar-system N-body. Not in the installer.
 git config core.hooksPath .githooks
 ```
 
 That last line matters. The hooks live in `.githooks` so they survive a
-clone. Git will not use them until you point it there.
+clone. Git will not use them until you point it there. The pre-commit hook
+runs `ruff check .` and the personal-data guards. A lint failure never
+reaches GitHub.
 
 Before you open a pull request:
 

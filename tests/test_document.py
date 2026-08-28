@@ -60,7 +60,7 @@ async def test_writes_pdf_with_pages(project, tool) -> None:
     result = await tool.run(
         format="pdf",
         title="Dirac equation",
-        body="# Dirac\n\nThe free Dirac equation is\n\n(i γ^μ ∂_μ − m) ψ = 0\n\n- spin 1/2\n- antimatter",  # noqa: RUF001
+        body="# Dirac\n\nThe free Dirac equation is\n\n(i γ^μ ∂_μ − m) ψ = 0\n\n- spin 1/2\n- antimatter",
     )
     assert result.ok, result.output
     dest = Path(result.data["abs_path"])

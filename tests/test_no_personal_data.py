@@ -295,6 +295,10 @@ COORDINATE = re.compile(r"\b(?!0\.)\d{1,3}\.\d{2,}\b")
 COORD_PAIR = re.compile(
     r"\b(?!0\.)\d{1,3}\.\d{2,}\s*,\s*-?(?!0\.)\d{1,3}\.\d{2,}\b"
 )
+# GLSL RGB / sample positions look like lat,lon pairs: vec3(1.42, 1.24, 0.90).
+# Strip those literals before the pair rule runs, or every shader commit fails
+# the place guard and CI goes red for a colour, not a house.
+GLSL_VEC = re.compile(r"\bvec[234]\s*\([^)]*\)")
 
 US_STATES = frozenset(
     {
@@ -336,13 +340,26 @@ POSTAL = re.compile(r"\b\d{5}(?:-\d{4})?\b")
 
 def _coordinates_on(line: str) -> list[str]:
     """Decimals on this line being used as a position rather than as a number."""
-    if COORD_PAIR.search(line) or COORD_CONTEXT.search(line):
-        return COORDINATE.findall(line)
+    stripped = GLSL_VEC.sub(" ", line)
+    if COORD_PAIR.search(stripped) or COORD_CONTEXT.search(stripped):
+        return COORDINATE.findall(stripped)
     return []
 
 
 def _is_allowed_coordinate(value: str) -> bool:
     return any(allowed.startswith(value) for allowed in ALLOWED_COORDS)
+
+
+def test_glsl_rgb_triplets_are_not_coordinates() -> None:
+    """Shader colours look like lat,lon. They are not a house."""
+    line = (
+        "vec3 core = mix(alb * vec3(1.36, 1.12, 0.62), "
+        "vec3(1.42, 1.24, 0.90), 0.34);"
+    )
+    assert _coordinates_on(line) == []
+    assert _coordinates_on("vec3 hot = mix(uColor, vec3(1.50, 1.35, 1.05), 0.72);") == []
+    # A real pair on the same line as a vec3 still counts once the vec is gone.
+    assert _coordinates_on("home = 39.7817, -89.6501") != []
 
 
 def test_no_tracked_file_carries_a_coordinate_other_than_the_fixture() -> None:

@@ -280,7 +280,7 @@ async def test_spoken_take_me_to_earth_is_a_verb_not_a_turn(tmp_path: Path) -> N
     rooms = RoomStore(tmp_path / "rooms.yaml")
     rooms.create("Physics")
     rooms.set_active("physics")
-    orch = Orchestrator(
+    Orchestrator(
         bus,
         _StubRouter(),  # type: ignore[arg-type]
         ToolRegistry(),

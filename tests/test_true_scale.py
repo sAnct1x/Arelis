@@ -6,7 +6,6 @@ import pytest
 
 from arelis.physics.constants import AU_M, BODY_BY_NAME, GM_EARTH, GM_SUN
 
-
 # IAU 2015 / WGCCRE typical mean radii, metres. The catalog must match these
 # exactly — a silent scale factor here is a product lie.
 _IAU_MEAN_RADIUS_M = {

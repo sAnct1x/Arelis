@@ -22,7 +22,6 @@ from arelis.tools.diagnostics import (
 )
 from arelis.workspace import WorkspaceRoots
 
-
 _RED = """\
 FAILED tests/test_sms.py::test_send - AssertionError
 E   assert sent is False

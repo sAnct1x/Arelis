@@ -507,7 +507,8 @@ def remove_build_only_packages() -> None:
 # breaking any import, so nothing here would have noticed.
 #
 # opengl32sw.dll is a 20MB software OpenGL implementation, kept deliberately. The
-# source-checkout solar lab can use an offscreen OpenGL context. The installer does not ship that plate,
+# source-checkout solar lab can use an offscreen OpenGL context. The installer
+# does not ship that plate,
 # but Qt still reaches for this DLL when there is no usable GPU driver -- a virtual
 # machine, a remote desktop session, a fresh install with no drivers yet. It is 3% of
 # the finished tree to not have that class of bug.

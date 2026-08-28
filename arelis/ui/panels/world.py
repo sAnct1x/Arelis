@@ -35,11 +35,11 @@ def make_reach_control(parent: QWidget | None, reach: float) -> tuple[QSlider, Q
     value = clamp_reach(reach)
     slider = QSlider(Qt.Orientation.Horizontal, parent)
     slider.setObjectName("SettingsSlider")
-    slider.setRange(int(round(REACH_MIN * 100)), int(round(REACH_MAX * 100)))
+    slider.setRange(round(REACH_MIN * 100), round(REACH_MAX * 100))
     slider.setSingleStep(5)
     slider.setPageStep(10)
     slider.setFixedWidth(128)
-    slider.setValue(int(round(value * 100)))
+    slider.setValue(round(value * 100))
     slider.setToolTip("Reach — how far a small hand move goes. Like mouse DPI.")
     label = QLabel(f"{value:.2f}x", parent)
     label.setObjectName("InstrumentHint")
@@ -133,12 +133,12 @@ class WorldPanel(QWidget):
     def refresh(self) -> None:
         self.update()
 
-    def showEvent(self, event) -> None:  # noqa: N802
+    def showEvent(self, event) -> None:
         super().showEvent(event)
         self._phys_t = time.perf_counter()
         self._clock.start()
 
-    def hideEvent(self, event) -> None:  # noqa: N802
+    def hideEvent(self, event) -> None:
         self._clock.stop()
         super().hideEvent(event)
 
@@ -151,7 +151,7 @@ class WorldPanel(QWidget):
         self.scene.step(dt)
         self.update()
 
-    def paintEvent(self, _event) -> None:  # noqa: N802
+    def paintEvent(self, _event) -> None:
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         painter.fillRect(self.rect(), color("bg0"))
@@ -232,11 +232,11 @@ class WorldPanel(QWidget):
         reach = max(6, int(radius * max(0.38, abs(math.cos(float(disc.tilt))))))
         a = float(disc.angle) - math.pi / 2.0
         ca, sa = math.cos(a), math.sin(a)
-        mx = int(round(cx + reach * ca))
-        my = int(round(cy + reach * sa))
+        mx = round(cx + reach * ca)
+        my = round(cy + reach * sa)
         inner = max(4, int(radius * 0.45))
-        ix = int(round(cx + inner * ca))
-        iy = int(round(cy + inner * sa))
+        ix = round(cx + inner * ca)
+        iy = round(cy + inner * sa)
         tick = QPen(ring)
         tick.setWidth(2)
         painter.setPen(tick)
@@ -246,16 +246,16 @@ class WorldPanel(QWidget):
         painter.drawEllipse(QPoint(mx, my), 4, 4)
         if not disc.axes_on:
             return
-        ox = int(round(cx - reach * ca))
-        oy = int(round(cy - reach * sa))
+        ox = round(cx - reach * ca)
+        oy = round(cy - reach * sa)
         painter.drawEllipse(QPoint(ox, oy), 3, 3)
         painter.setPen(tick)
         painter.drawLine(QPoint(cx, cy), QPoint(ox, oy))
         tilt_reach = max(5, int(radius * 0.82 * abs(math.cos(float(disc.tilt)))))
-        px = int(round(cx - tilt_reach * sa))
-        py = int(round(cy + tilt_reach * ca))
-        qx = int(round(cx + tilt_reach * sa))
-        qy = int(round(cy - tilt_reach * ca))
+        px = round(cx - tilt_reach * sa)
+        py = round(cy + tilt_reach * ca)
+        qx = round(cx + tilt_reach * sa)
+        qy = round(cy - tilt_reach * ca)
         meridian = QPen(color("text_dim"))
         meridian.setWidth(1)
         painter.setPen(meridian)

@@ -116,7 +116,7 @@ def well_mesh_indices(n: int) -> list[int]:
 def well_inner_ring(n: int) -> int:
     """Skip rings that sit on the photosphere. Default span is 4 R."""
     n_r = max(int(n), 4)
-    return max(2, int(round(n_r * 0.28)))
+    return max(2, round(n_r * 0.28))
 
 
 def well_line_indices(n: int) -> list[int]:

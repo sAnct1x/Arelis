@@ -97,13 +97,6 @@ from arelis.sms_ingest import InboundIngestServer
 from arelis.spatial import PHYSICS_ROOM_ID
 from arelis.spatial.depth import ESTIMATOR, DepthBank
 from arelis.spatial.grant import world_stage_allowed
-from arelis.spatial.verbs import (
-    PhysicsAct,
-    classify_physics_act,
-    is_time_verb,
-    is_toy_verb,
-    speech_body_names,
-)
 from arelis.spatial.scene import (
     GRAVITY,
     REACH_DEFAULT,
@@ -112,6 +105,13 @@ from arelis.spatial.scene import (
     image_to_world,
 )
 from arelis.spatial.types import grab_drive
+from arelis.spatial.verbs import (
+    PhysicsAct,
+    classify_physics_act,
+    is_time_verb,
+    is_toy_verb,
+    speech_body_names,
+)
 from arelis.tools import build_tool_registry
 from arelis.ui.audio import SpeechPlayer
 from arelis.ui.calendar_window import CalendarWindow

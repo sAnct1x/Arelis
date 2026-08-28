@@ -101,6 +101,7 @@ spatial = [
 # extra to `installer` — the World stage is gated off packaged copies.
 astro = [
   "rebound>=4.0",
+  "sgp4>=2.23",
 ]
 # The feature set the Windows installer ships, named here so that it is declared in
 # one place rather than copied into a build script. packaging/lock.py resolves this
@@ -119,6 +120,10 @@ dev = [
   "ruff==0.16.1",
   "pytest>=8.0",
   "pytest-asyncio>=0.23",
+  # Hung Qt tests used to sit until GitHub's six-hour job wall. A per-test
+  # ceiling fails the test instead. Pin a floor, not a star: a new timeout
+  # plugin is not a new lint rule.
+  "pytest-timeout>=2.3",
 ]
 
 [project.scripts]
@@ -157,6 +162,11 @@ arelis = ["persona/*.md", "config/*.yaml", "ui/fonts/*", "assets/*"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+# Seconds. A solar-panel test that deadlocks the offscreen Qt event loop used
+# to hold a CI runner until the job timed out at six hours. 90s is far above
+# any honest test in this tree (the whole suite is ~2 minutes locally).
+timeout = 90
+timeout_method = "thread"
 
 # Pinned so `ruff check .` gives the same answer on every machine. Without a
 # section here ruff falls back to whatever its current defaults are, which
@@ -184,6 +194,13 @@ ignore = [
   "UP042",
   # No trio/anyio Path in this tree; Path.exists/mkdir here are sync metadata.
   "ASYNC240",
+  # Physics, HUD copy, and this project's prose use ×, Unicode minus, and
+  # en-dashes on purpose. These three rules treat them as typos for x / hyphen,
+  # which is how every solar-lab commit turned eight CI jobs red. Homoglyphs
+  # in identifiers are a different problem; these rules do not catch that.
+  "RUF001",
+  "RUF002",
+  "RUF003",
 ]
 
 [tool.ruff.lint.per-file-ignores]
@@ -193,5 +210,6 @@ ignore = [
 # arelis, so their imports cannot all sit at the top of the file. Case lambdas
 # also run long on purpose (tool name + assistant snippet checks).
 "scripts/*" = ["E402", "E501"]
-# IPA phoneme keys in the Kokoro token map are supposed to look like Latin.
-"arelis/voice/kokoro_tts.py" = ["RUF001"]
+# IAU / dipole / body-frame sketches use L, R, Rp as the paper does. Renaming
+# them to satisfy N806 would make the code disagree with every citation.
+"arelis/physics/**" = ["N806"]

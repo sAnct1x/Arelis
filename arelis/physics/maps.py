@@ -329,8 +329,8 @@ def fit_equirect(rgb: Image.Image) -> Image.Image:
     dest_h = max(1, dest_w // 2)
     canvas = Image.new("RGB", (dest_w, dest_h), (6, 6, 7))
     scale = min(dest_w / width, dest_h / height)
-    nw = max(1, int(round(width * scale)))
-    nh = max(1, int(round(height * scale)))
+    nw = max(1, round(width * scale))
+    nh = max(1, round(height * scale))
     fitted = rgb.resize((nw, nh), Image.Resampling.LANCZOS)
     canvas.paste(fitted, ((dest_w - nw) // 2, (dest_h - nh) // 2))
     return canvas
@@ -402,7 +402,7 @@ def _store_image(dest: Path, content: bytes) -> str | None:
     if width < _MIN_W or height < _MIN_H:
         return f"{width}x{height} too small for a wrap map"
     if width > _MAX_EDGE:
-        height = max(1, int(round(height * _MAX_EDGE / width)))
+        height = max(1, round(height * _MAX_EDGE / width))
         rgb = rgb.resize((_MAX_EDGE, height), Image.Resampling.LANCZOS)
     dest.parent.mkdir(parents=True, exist_ok=True)
     rgb.save(dest, "JPEG", quality=88)

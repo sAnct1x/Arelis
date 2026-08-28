@@ -1,5 +1,6 @@
 #!/bin/sh
-# Refuse a commit that would publish somebody's personal data.
+# Refuse a commit that would publish somebody's personal data, or that
+# would fail ruff on GitHub (eight emails, pytest never runs).
 #
 # The guards are pytest tests so they also run in CI and can be read like any
 # other test. This hook is the earlier of the two lines of defence: CI tells you
@@ -29,6 +30,12 @@ else
     echo "pre-commit: this commit has NOT been checked." >&2
     exit 0
 fi
+
+echo "pre-commit: ruff…"
+# Ruff used to be CI-only. A solar-lab commit then failed eight GitHub jobs
+# on unsorted imports and the inbox saw eight mails. Catch it here, before
+# the commit exists. The pin is pyproject.toml / ruff==0.16.1.
+"$PY" -m ruff check .
 
 echo "pre-commit: checking for personal data…"
 # The builder tests are here because the name rules are only as good as the list

@@ -33,7 +33,7 @@ def test_moon_is_mean_radius() -> None:
 
 def test_clip_holds_outside_and_kills_inward() -> None:
     # Host at origin, test particle inside the sphere on +x, diving in.
-    nx, ny, nz, nvx, nvy, nvz, hit = clip_relative(
+    nx, ny, _nz, nvx, nvy, _nvz, hit = clip_relative(
         50.0,
         0.0,
         0.0,
@@ -57,7 +57,7 @@ def test_clip_holds_outside_and_kills_inward() -> None:
 
 
 def test_clip_leaves_outward_speed() -> None:
-    nx, ny, nz, nvx, nvy, nvz, hit = clip_relative(
+    _nx, _ny, _nz, nvx, _nvy, _nvz, hit = clip_relative(
         50.0,
         0.0,
         0.0,

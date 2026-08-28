@@ -312,7 +312,7 @@ def _utc_now() -> str:
 _FACT_OWNER = re.compile(
     # The curly apostrophe is listed on purpose: it is what autocorrect
     # produces, and it has to strip the same as the straight form.
-    r"(?i)^(my|the\s+user(?:['’]s)?|your)\s+"  # noqa: RUF001
+    r"(?i)^(my|the\s+user(?:['’]s)?|your)\s+"
 )
 
 

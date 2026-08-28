@@ -27,7 +27,6 @@ def test_look_basis_is_orthonormal() -> None:
 
 def test_no_craft_chase_cam() -> None:
     import arelis.physics.camera as camera
-
     from arelis.physics.camera import FlyCamera
     from arelis.physics.scene import SolarSystem
 
@@ -248,9 +247,9 @@ def test_camera_can_look_straight_up_and_over_the_pole() -> None:
     cam.yaw = 0.0
     cam.pitch = 0.0
     cam.look(0.0, math.pi / 2.0)
-    fx, fy, fz = cam.forward()
+    _fx, fy, _fz = cam.forward()
     assert fy == pytest.approx(1.0, abs=1e-6)
-    right, up, fwd = cam.basis()
+    _right, up, fwd = cam.basis()
     assert abs(sum(a * b for a, b in zip(fwd, up, strict=True))) < 1e-8
     assert abs(sum(a * a for a in fwd) - 1.0) < 1e-9
     cam.look(0.0, 0.5)

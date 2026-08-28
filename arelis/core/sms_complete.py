@@ -268,11 +268,11 @@ _MATH_ASK = re.compile(
     # The multiplication and division signs are in this class because people
     # type them. Ruff calls the multiplication sign ambiguous with a letter x,
     # which is exactly true and exactly why both spellings are listed.
-    r"(?:[-+*/^x×÷]|times|plus|minus|divided\s+by|over|mod|"  # noqa: RUF001
+    r"(?:[-+*/^x×÷]|times|plus|minus|divided\s+by|over|mod|"
     r"to\s+the\s+power(?:\s+of)?)\s*-?\d"
     r"|(?:what(?:'s|\s+is)|calculate|compute|work\s+out|solve|how\s+much\s+is)\b"
     r"[^?]{0,60}?\b(?:\d+\s*"
-    r"(?:[-+*/^x×÷]|times|plus|minus|divided\s+by|percent\s+of)\s*\d"  # noqa: RUF001
+    r"(?:[-+*/^x×÷]|times|plus|minus|divided\s+by|percent\s+of)\s*\d"
     r"|square\s+root\b|factorial\b)"
     r")"
 )

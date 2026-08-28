@@ -38,7 +38,10 @@ class TileTool:
             "page": {
                 "type": "string",
                 "enum": ["solar", "hands"],
-                "description": "World page. solar is the lab; hands is the toy. Omit for the chooser.",
+                "description": (
+                    "World page. solar is the lab; hands is the toy. "
+                    "Omit for the chooser."
+                ),
             },
         },
         "required": ["action"],

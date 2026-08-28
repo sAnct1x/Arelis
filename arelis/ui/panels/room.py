@@ -36,7 +36,7 @@ class _ElideLabel(QLabel):
         self._full = text or ""
         self._elide()
 
-    def resizeEvent(self, event: QResizeEvent) -> None:  # noqa: N802
+    def resizeEvent(self, event: QResizeEvent) -> None:
         super().resizeEvent(event)
         self._elide()
 

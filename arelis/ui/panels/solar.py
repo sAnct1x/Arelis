@@ -53,7 +53,6 @@ from arelis.physics.clocks import (
     RATE_HOUR,
     RATE_REALTIME,
     RATE_YEAR,
-    jd_iso,
     rate_label,
 )
 from arelis.physics.collision import stop_radius_m
@@ -1801,7 +1800,7 @@ class SolarPanel(QWidget):
                     continue
                 pts.append(QPoint(int(proj[0]), int(proj[1])))
             if len(pts) > 2:
-                for a, b in zip(pts, pts[1:], strict=False):
+                for a, b in pairwise(pts):
                     painter.drawLine(a, b)
 
     def _paint_heliocentric_orbits(self, painter: QPainter, system: SolarSystem) -> None:
@@ -2369,7 +2368,7 @@ class SolarPanel(QWidget):
         lines = self._hud_status_lines(system)
         y = 12
         status_rows: list[tuple[int, int, str]] = []
-        for i, line in enumerate(lines):
+        for line in lines:
             h = self._wrapped_h(fm, line, inner)
             status_rows.append((y, h, line))
             y += h + 4

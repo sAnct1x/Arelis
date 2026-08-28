@@ -39,5 +39,5 @@ def fit_size(width: int, height: int, max_width: int) -> tuple[int, int]:
     if w <= max_width:
         return (w, h)
     new_w = int(max_width)
-    new_h = max(1, int(round(h * (max_width / w))))
+    new_h = max(1, round(h * (max_width / w)))
     return (new_w, new_h)

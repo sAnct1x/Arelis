@@ -43,7 +43,7 @@ def tile_pixel_size(src_w: int, src_h: int, *, height: int = ATTACH_TILE) -> tup
     if src_w <= 0 or src_h <= 0:
         return height, height
     aspect = src_w / src_h
-    width = int(round(height * min(max(aspect, 1.0), _MAX_ASPECT)))
+    width = round(height * min(max(aspect, 1.0), _MAX_ASPECT))
     return width, height
 
 
@@ -81,7 +81,7 @@ def _file_for_tile(item: dict[str, Any]) -> Path | None:
 class _HScroll(QScrollArea):
     """Trackpad/wheel moves the rail sideways. Vertical scroll would be empty."""
 
-    def wheelEvent(self, event: QWheelEvent) -> None:  # noqa: N802
+    def wheelEvent(self, event: QWheelEvent) -> None:
         delta = event.angleDelta()
         step = delta.x() if delta.x() else delta.y()
         bar = self.horizontalScrollBar()
@@ -103,7 +103,9 @@ class AttachmentTile(QWidget):
         self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.attachment_id = str(attachment.get("id") or "")
-        self._name = str(attachment.get("name") or Path(str(attachment.get("path") or "")).name or "file")
+        self._name = str(
+            attachment.get("name") or Path(str(attachment.get("path") or "")).name or "file"
+        )
         self._kind = str(attachment.get("kind") or "other")
         path = str(attachment.get("path") or "")
         source = str(attachment.get("source_path") or "")
@@ -144,19 +146,19 @@ class AttachmentTile(QWidget):
         btn.clicked.connect(lambda: self.remove_requested.emit(self.attachment_id))
         self._remove = btn
 
-    def resizeEvent(self, event) -> None:  # noqa: N802
+    def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         self._remove.move(self.width() - self._remove.width() - 3, 3)
 
-    def enterEvent(self, event) -> None:  # noqa: N802
+    def enterEvent(self, event) -> None:
         super().enterEvent(event)
         self.update()
 
-    def leaveEvent(self, event) -> None:  # noqa: N802
+    def leaveEvent(self, event) -> None:
         super().leaveEvent(event)
         self.update()
 
-    def paintEvent(self, event) -> None:  # noqa: N802
+    def paintEvent(self, event) -> None:
         del event
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)

@@ -28,8 +28,8 @@ from arelis.core.claims import (
     detect_analyze_ask,
     detect_cas_ask,
     detect_catalog_ask,
-    detect_math_ask,
     detect_diagnostics_ask,
+    detect_math_ask,
     detect_plot_ask,
 )
 from arelis.core.intent_catalog import WEATHER

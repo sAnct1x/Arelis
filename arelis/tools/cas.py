@@ -258,7 +258,7 @@ class CasTool:
 
 
 class _CasResult:
-    __slots__ = ("text", "ascii", "latex", "unevaluated")
+    __slots__ = ("ascii", "latex", "text", "unevaluated")
 
     def __init__(
         self,

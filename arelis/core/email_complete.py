@@ -61,8 +61,8 @@ _WITH_SUBJECT = re.compile(
 # subject parsed. RUF001 flags them as ambiguous, which is exactly why they are
 # listed explicitly alongside the straight forms.
 _QUOTED_SUBJECT_BODY = re.compile(
-    r"(?i)\b(?:with\s+)?subject\s*[:=]?\s*[\"'“”‘’](?P<subject>[^\"'“”‘’]+)[\"'“”‘’]"  # noqa: RUF001
-    r"(?:\s*,)?(?:\s+and)?\s+body\s*[:=]?\s*[\"'“”‘’](?P<body>[^\"'“”‘’]+)[\"'“”‘’]"  # noqa: RUF001
+    r"(?i)\b(?:with\s+)?subject\s*[:=]?\s*[\"'“”‘’](?P<subject>[^\"'“”‘’]+)[\"'“”‘’]"
+    r"(?:\s*,)?(?:\s+and)?\s+body\s*[:=]?\s*[\"'“”‘’](?P<body>[^\"'“”‘’]+)[\"'“”‘’]"
 )
 
 _FILE_PATH = re.compile(

@@ -7,7 +7,6 @@ import logging
 import re
 import time
 from collections.abc import Awaitable, Callable
-from dataclasses import replace
 from datetime import datetime
 from typing import Any
 from uuid import uuid4
@@ -45,10 +44,10 @@ from arelis.core.bus import EventBus
 from arelis.core.claims import (
     answer_looks_like_ack_only,
     answer_looks_like_refusal,
+    apply_research_web_need,
     catalog_force_notice,
     contact_who_from_text,
     detect_exactness_need,
-    apply_research_web_need,
     draft_catalog_args,
     evidence_force_notice,
     file_answer_force_notice,
