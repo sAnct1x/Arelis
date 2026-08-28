@@ -167,6 +167,8 @@ def test_science_card_in_catalog() -> None:
     )
     assert "science" in ids
     assert "sms" not in ids
+    assert "action=dump" in SKILL_CARDS["science"].body
+    assert "dump this state" in SKILL_CARDS["science"].hints
 
 
 def test_diagnostics_card_in_catalog() -> None:

@@ -29,7 +29,11 @@ _ALIASES: tuple[tuple[str, str], ...] = (
     ("camera", r"camera|webcam|web\s*cam"),
     ("contacts", r"contacts?|address\s+book"),
     ("calendar", r"calendar|agenda"),
-    ("world", r"world|solar\s+lab"),
+    (
+        "world",
+        r"world|solar\s+lab|solar\s+system|toy\s+area|"
+        r"hands(?:\s+sandbox)?|sandbox",
+    ),
 )
 
 
@@ -83,6 +87,20 @@ _NOT_TILE = re.compile(
     r"https?://"
     r")"
 )
+
+
+_SOLAR_PAGE = re.compile(r"(?i)\bsolar\s+(?:lab|system)\b")
+_HANDS_PAGE = re.compile(r"(?i)\b(?:toy\s+area|hands(?:\s+sandbox)?|sandbox)\b")
+
+
+def world_page_for(text: str) -> str:
+    """solar / hands when the words name a page; empty means the World chooser."""
+    raw = text or ""
+    if _SOLAR_PAGE.search(raw):
+        return "solar"
+    if _HANDS_PAGE.search(raw):
+        return "hands"
+    return ""
 
 
 def _canonical(raw: str) -> str:
@@ -149,4 +167,9 @@ def tile_tool_args(text: str, *, last_name: str = "") -> dict[str, Any] | None:
         name = (last_name or "").strip()
     if not name:
         return None
-    return {"action": action, "name": name}
+    args: dict[str, Any] = {"action": action, "name": name}
+    if name == "world":
+        page = world_page_for(text)
+        if page:
+            args["page"] = page
+    return args

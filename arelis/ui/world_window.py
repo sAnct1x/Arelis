@@ -245,7 +245,19 @@ class WorldWindow(QWidget):
     def solar_active(self) -> bool:
         return self.stack.currentWidget() is self.solar
 
+    def hands_active(self) -> bool:
+        return self.stack.currentWidget() is self.panel
+
+    def _end_solar_visit(self) -> None:
+        """Write the IAS15 receipt on the way out. No-op if we were not in the lab."""
+        if not self.solar_active():
+            return
+        from arelis.physics.export import dump_on_leave
+
+        dump_on_leave(camera=self.solar.camera_state())
+
     def show_chooser(self) -> None:
+        self._end_solar_visit()
         self.pause.hide()
         self.solar.menu_up = False
         self.panel.menu_up = False
@@ -253,6 +265,7 @@ class WorldWindow(QWidget):
         self._sync_heading()
 
     def enter_hands(self) -> None:
+        self._end_solar_visit()
         self.stack.setCurrentWidget(self.panel)
         self.panel.refresh()
         self._sync_heading()
@@ -329,6 +342,8 @@ class WorldWindow(QWidget):
                 enable_win32_resize_frame(self)
 
     def hideEvent(self, event) -> None:  # type: ignore[override]
+        if self.solar_active():
+            self.show_chooser()
         self._rim_pulse.stop()
         self._sync.stop()
         super().hideEvent(event)

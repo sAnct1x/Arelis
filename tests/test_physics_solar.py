@@ -77,6 +77,76 @@ def test_osculating_position_reconstructs_state() -> None:
     assert pz == pytest.approx(0.0, abs=1e3)
 
 
+def test_orbit_beads_advance_with_true_anomaly() -> None:
+    from arelis.physics.elements import bead_true_anomalies, position_at_true_anomaly
+
+    a = AU_M
+    speed = math.sqrt(GM_SUN / a)
+    el = osculating((a, 0.0, 0.0), (0.0, speed, 0.0), GM_SUN)
+    assert el is not None
+    body = position_at_true_anomaly(el, el.true_anomaly)
+    nus = bead_true_anomalies(el.true_anomaly)
+    assert len(nus) == 5
+    bead0 = position_at_true_anomaly(el, nus[0])
+    dist = math.hypot(bead0[0] - body[0], bead0[1] - body[1], bead0[2] - body[2])
+    assert dist > 0.05 * a
+    ahead = bead_true_anomalies(el.true_anomaly + 0.25)
+    moved = position_at_true_anomaly(el, ahead[0])
+    # Circular +x, v = +y: increasing ν moves the bead toward +y.
+    assert moved[1] > bead0[1]
+
+
+def test_orbit_bead_chase_runs_prograde() -> None:
+    from arelis.physics.elements import bead_true_anomalies, position_at_true_anomaly
+
+    a = AU_M
+    speed = math.sqrt(GM_SUN / a)
+    el = osculating((a, 0.0, 0.0), (0.0, speed, 0.0), GM_SUN)
+    assert el is not None
+    here = bead_true_anomalies(el.true_anomaly, phase=0.0)
+    ahead = bead_true_anomalies(el.true_anomaly, phase=0.25)
+    p0 = position_at_true_anomaly(el, here[0])
+    p1 = position_at_true_anomaly(el, ahead[0])
+    assert p1[1] > p0[1]
+
+
+def test_newtonian_phi_and_well_are_not_gr() -> None:
+    from arelis.physics.elements import (
+        newtonian_phi,
+        well_grid,
+        well_inner_ring,
+        well_line_indices,
+        well_theta_count,
+    )
+
+    assert newtonian_phi(GM_SUN, AU_M) == pytest.approx(-GM_SUN / AU_M)
+    r_e = 6_371_000.0
+    span = 8.0 * r_e
+    n = 16
+    pts = well_grid(GM_SUN, r_e, extent=span, n=n)
+    zs = [p[2] for p in pts]
+    assert min(zs) == pytest.approx(-0.5 * r_e, rel=1e-4)
+    assert max(math.hypot(p[0], p[1]) for p in pts) == pytest.approx(span, rel=0.02)
+    assert not any(abs(p[0]) > 0.85 * span and abs(p[1]) > 0.85 * span for p in pts)
+    n_th = well_theta_count(n)
+    assert len(pts) == (n + 1) * n_th
+    inner = well_inner_ring(n)
+    lines = well_line_indices(n)
+    assert inner >= 2
+    assert len(lines) % 2 == 0
+    assert max(lines) < len(pts)
+    assert min(lines) >= inner * n_th
+
+
+def test_hill_radius_still_scales_with_mass() -> None:
+    from arelis.physics.constants import M_SUN
+    from arelis.physics.elements import hill_radius
+
+    earth_m = 5.972e24
+    hill = hill_radius(AU_M, earth_m, M_SUN)
+    assert 1.0e9 < hill < 2.0e9
+
+
 def test_moon_osculating_is_about_earth() -> None:
     from arelis.physics.elements import position_at_true_anomaly
 
@@ -283,6 +353,46 @@ def test_travel_to_arrives_sunlit_and_stays_put() -> None:
     assert cam.z == pytest.approx(first[2], abs=1.0)
     assert cam.yaw == pytest.approx(first[3], abs=1e-9)
     assert cam.pitch == pytest.approx(first[4], abs=1e-9)
+
+
+def test_warp_curve_accelerates_cruises_and_slows() -> None:
+    from arelis.physics.camera import warp_curve
+
+    s0, v0 = warp_curve(0.0)
+    s1, v1 = warp_curve(1.0)
+    assert s0 == pytest.approx(0.0, abs=1e-9)
+    assert v0 == pytest.approx(0.0, abs=1e-9)
+    assert s1 == pytest.approx(1.0, abs=1e-6)
+    assert v1 == pytest.approx(0.0, abs=1e-9)
+    _smid, vmid = warp_curve(0.5)
+    assert vmid == pytest.approx(1.0, abs=1e-9)
+    s_a, v_a = warp_curve(0.11)
+    s_b, v_b = warp_curve(0.89)
+    assert 0.0 < v_a < 1.0
+    assert 0.0 < v_b < 1.0
+    assert s_a < _smid < s_b
+
+
+def test_camera_warp_flies_then_arrives() -> None:
+    from arelis.physics.camera import CameraWarp, FlyCamera
+    from arelis.physics.constants import AU_M, BODY_BY_NAME
+
+    earth = BODY_BY_NAME["Earth"]
+    cam = FlyCamera()
+    start = (cam.x, cam.y, cam.z)
+    target = (AU_M, 0.0, 0.0)
+    sun = (0.0, 0.0, 0.0)
+    flight = CameraWarp.start(cam, "Earth", *target, earth.radius, sun)
+    assert (cam.x, cam.y, cam.z) == start
+    still = flight.step(cam, *target, earth.radius, sun, flight.duration * 0.12)
+    assert still is True
+    mid = (cam.x, cam.y, cam.z)
+    assert mid != start
+    still = flight.step(cam, *target, earth.radius, sun, flight.duration)
+    assert still is False
+    dist = math.hypot(cam.x - AU_M, cam.y, cam.z)
+    assert dist >= earth.radius * 2.5
+    assert dist == pytest.approx(earth.radius * 8.0, rel=0.2)
 
 
 def test_camera_speed_is_log_clamped() -> None:

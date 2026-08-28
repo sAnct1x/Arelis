@@ -75,6 +75,7 @@ class SolarSystem:
     epoch_tdb: str = ""
     epoch_jd: float = 0.0
     ic_date: str = ""
+    ic_hash: str = ""
     energy0: float = 0.0
     l0: tuple[float, float, float] = (0.0, 0.0, 0.0)
     energy_hist: deque[tuple[float, float]] = field(default_factory=deque)
@@ -86,6 +87,7 @@ class SolarSystem:
     # Spoken solar lock/travel: the Qt panel consumes these on the next frame.
     pending_inspect: str | None = None
     pending_travel: str | None = None
+    pending_reset: bool = False
     _present: list[
         tuple[str, float, float, float, float, float, float, float, float]
     ] | None = field(default=None, repr=False)
@@ -151,11 +153,14 @@ class SolarSystem:
                 if st.epoch_jd:
                     jd = float(st.epoch_jd)
                     break
+        from arelis.physics.ic_store import vectors_hash
+
         scene = cls(
             nbody=nbody,
             epoch_tdb=epoch_tdb,
             epoch_jd=jd,
             ic_date=ic_date,
+            ic_hash=vectors_hash(states, ic_date),
             integrator_note=nbody.integrator,
         )
         scene.energy0 = nbody.energy()
@@ -667,6 +672,44 @@ class SolarSystem:
             self.last_warp = self.rate
             self.rate = 1.0
         return self.rate
+
+    def apply_overlay(self, flag: str, *, on: bool | None = None) -> bool | float | None:
+        """Set or toggle a sketch flag. Same fields as H and the ⋯ tray. None if unknown."""
+        key = (flag or "").strip().lower()
+        if key in {"wind", "parker", "solarwind"}:
+            key = "wind"
+        if key == "warp":
+            if on is None:
+                return self.toggle_warp()
+            realtime = abs(self.rate - 1.0) < 1e-9
+            if on and realtime:
+                return self.toggle_warp()
+            if (not on) and (not realtime):
+                return self.toggle_warp()
+            return self.rate
+        bool_self = {
+            "osculating": "show_osculating",
+            "trails": "show_trails",
+            "graphs": "show_graphs",
+            "lagrange": "show_lagrange",
+        }
+        bool_overlay = {
+            "gravity": "show_gravity",
+            "magnetic": "show_magnetic",
+            "wind": "show_wind",
+            "grid": "show_grid",
+        }
+        if key in bool_self:
+            attr = bool_self[key]
+            val = bool(on) if on is not None else (not bool(getattr(self, attr)))
+            setattr(self, attr, val)
+            return val
+        if key in bool_overlay:
+            attr = bool_overlay[key]
+            val = bool(on) if on is not None else (not bool(getattr(self.overlay, attr)))
+            setattr(self.overlay, attr, val)
+            return val
+        return None
 
     def _capture_present(self) -> None:
         rows = []

@@ -1615,6 +1615,43 @@ def test_a_spoken_physics_verb_does_not_deafen_conversation(qt_app) -> None:
         window.loop.close()
 
 
+def test_conversation_listen_gate_does_not_depend_on_world_focus(qt_app) -> None:
+    """The mic gate is turn/speech/awaiting — not which plate is active."""
+    controller, _recorder = _controller(qt_app)
+    controller.set_conversation(True)
+    assert controller._wants_listening() is True
+    assert "focus" not in controller.debug_state()
+    controller.notify_turn_started()
+    assert controller._wants_listening() is False
+    controller.notify_turn_finished()
+    assert controller._wants_listening() is True
+
+
+def test_voice_hotkeys_allowed_when_world_is_the_active_window(qt_app, monkeypatch) -> None:
+    """World is a native Tool window; conversation chords still belong to Arelis."""
+    from PySide6.QtWidgets import QApplication
+
+    from arelis.ui.app import ArelisWindow, BusBridge
+
+    config = {
+        "ui": {"window_title": "Arelis", "default_width": 800, "default_height": 600},
+        "router": {"default_role": "fast"},
+        "voice": {"enabled": False},
+    }
+    window = ArelisWindow(config, BusBridge(), asyncio.new_event_loop(), EventBus())
+    try:
+        monkeypatch.setattr(
+            QApplication, "activeWindow", lambda *a, **k: window.world_window
+        )
+        assert window._voice_hotkeys_allowed() is True
+        monkeypatch.setattr(QApplication, "activeWindow", lambda *a, **k: None)
+        assert window._voice_hotkeys_allowed() is False
+    finally:
+        window.dispose()
+        window.hide()
+        window.loop.close()
+
+
 def test_spoken_goodbye_unlatches_conversation(qt_app) -> None:
     """Hangup is a closed act: the two-arcs toggle drops, wake can listen."""
     from arelis.ui.app import ArelisWindow, BusBridge

@@ -40,7 +40,7 @@ from arelis.rooms import (
     normalize_room_name,
 )
 from arelis.spatial import PHYSICS_ROOM_ID
-from arelis.spatial.verbs import classify_physics_verb
+from arelis.spatial.verbs import classify_physics_act, speech_body_names
 from arelis.tools.base import NEVER_BATCH, ToolRegistry
 from arelis.tools.confirm_copy import confirm_headline
 from arelis.tools.safety import redact_secrets
@@ -279,11 +279,11 @@ class Orchestrator:
             )
             return
         if self.rooms.active_id == PHYSICS_ROOM_ID:
-            verb = classify_physics_verb(text)
-            if verb:
-                await self.bus.publish(
-                    Event(EventType.PHYSICS_VERB, {"verb": verb, "text": text})
-                )
+            act = classify_physics_act(text, names=speech_body_names())
+            if act:
+                payload = dict(act.payload())
+                payload["text"] = text
+                await self.bus.publish(Event(EventType.PHYSICS_VERB, payload))
                 return
         control_only = event.payload.get("deliver") == "control"
         if not conversing and not control_only:

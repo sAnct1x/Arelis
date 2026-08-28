@@ -644,6 +644,7 @@ SKILL_CARDS: dict[str, SkillCard] = {
             "jpl horizons",
             "ephemeris",
             "solar system",
+            "dump this state",
             "hohmann",
             "apod",
             "nasa ads",
@@ -685,6 +686,12 @@ SKILL_CARDS: dict[str, SkillCard] = {
 - The physics-room solar lab is the `solar` tool (REBOUND, true scale).
   load uses Horizons VECTORS. impulse/add_probe need Allow. fetch_maps
   pulls NASA public albedo for approach/orbit only — not landing.
+  Leaving the solar lab writes a cited JSONL under outputs/physics/solar.
+  dump this state is solar action=dump without leaving. Not a screenshot. No GL still.
+  In the physics room, "take me to Earth", "show the magnetosphere",
+  pause/faster, and open/close the solar lab or toy are closed verbs —
+  do not call solar or tile for those. For an unnamed body, solar
+  action=travel or lock. Travel flies the camera; inspect/lock does not.
 - Papers already on disk use doc_extract. Do not invent citations.
 - Walk the derivation; let cas check the algebra. Do not stamp homework.
 - After cas returns, copy the latex: line into $$ … $$. Do not rewrite
@@ -825,7 +832,9 @@ SKILL_CARDS: dict[str, SkillCard] = {
 - "Close them" / "hide it" after opening a tile: tile(action=close) with no
   name reuses the last one.
 - Calendar events still use agenda. tile(name=calendar) only shows or hides
-  the local calendar window. World is the physics-room plate.
+  the local calendar window. World is the physics-room plate. "Open the
+  solar lab" is tile(action=open, name=world, page=solar); "open the toy
+  area" / "open hands" uses page=hands. "Open world" is the chooser.
 """.strip(),
     ),
     "rooms": SkillCard(

@@ -6,7 +6,7 @@ import time
 
 import pytest
 from PySide6.QtCore import QEvent, QPointF, Qt
-from PySide6.QtGui import QMouseEvent
+from PySide6.QtGui import QKeyEvent, QMouseEvent
 
 from arelis.physics.runtime import get_system, set_system
 from arelis.ui.panels.solar import SOLAR_SPAWN, SolarPanel
@@ -302,6 +302,7 @@ def test_click_inspects_without_traveling(qt_app) -> None:
     assert panel._inspect == "Earth"
     assert (panel.cam.x, panel.cam.y, panel.cam.z) == eye0
     panel._travel_to("Earth")
+    panel._finish_travel()
     dist = ((panel.cam.x - earth.x) ** 2 + (panel.cam.y - earth.y) ** 2 + (panel.cam.z - earth.z) ** 2) ** 0.5
     assert dist >= earth.radius * 2.5
     panel.hide()
@@ -328,6 +329,7 @@ def test_inspect_tile_travel_warps_the_camera(qt_app) -> None:
     panel.mousePressEvent(
         _mouse(QEvent.Type.MouseButtonPress, hit.x(), hit.y(), grab=True)
     )
+    panel._finish_travel()
     system = get_system()
     assert system is not None
     earth = system.nbody.find("Earth")
@@ -583,6 +585,7 @@ def test_home_returns_to_system_overview(qt_app) -> None:
     earth = system.nbody.find("Earth")
     assert earth is not None
     panel._travel_to("Earth")
+    panel._finish_travel()
     near = (
         (panel.cam.x - earth.x) ** 2
         + (panel.cam.y - earth.y) ** 2
@@ -626,6 +629,7 @@ def test_right_click_travels_without_a_menu(qt_app) -> None:
     panel.contextMenuEvent(
         QContextMenuEvent(QContextMenuEvent.Reason.Mouse, pos, panel.mapToGlobal(pos))
     )
+    panel._finish_travel()
     assert panel._inspect == "Earth"
     assert (panel.cam.x, panel.cam.y, panel.cam.z) != eye0
     panel.hide()
@@ -647,6 +651,7 @@ def test_fly_speed_cruises_away_from_bodies(qt_app) -> None:
     panel.cam.speed = 10.0
     assert panel._fly_speed() > 1.0e9
     panel._travel_to("Earth")
+    panel._finish_travel()
     panel.cam.speed = 50.0
     assert panel._fly_speed() == pytest.approx(50.0)
     panel.hide()
@@ -844,6 +849,7 @@ def test_close_inspect_field_is_not_zero_au(qt_app) -> None:
     system = get_system()
     assert system is not None
     panel._travel_to("Earth")
+    panel._finish_travel()
     field = panel._look_field_m(system)
     assert field < 0.05 * AU_M
     assert "AU" not in _fmt_m(field)
@@ -902,7 +908,7 @@ def test_inspect_card_is_always_expanded(qt_app) -> None:
     blob = " ".join(lines)
     assert "GM" in blob
     assert "Hill" in blob
-    assert "camera warp" in blob
+    assert "camera warp" in blob.lower()
     assert panel._inspect_rect().width() >= 440
     assert panel._inspect_travel_rect().width() > 200
     panel._set_inspect("Ceres")
@@ -936,6 +942,14 @@ def test_overlay_tray_toggles_without_closing(qt_app) -> None:
     assert panel._toggle_overlay("probe") is False
     kinds = [kind for kind, _rect in panel._chip_rects()]
     assert kinds[:4] == ["gravity", "magnetic", "wind", "grid"]
+    mag0 = system.overlay.show_magnetic
+    chord = QKeyEvent(
+        QEvent.Type.KeyPress,
+        Qt.Key.Key_M,
+        Qt.KeyboardModifier.ControlModifier,
+    )
+    panel.keyPressEvent(chord)
+    assert system.overlay.show_magnetic is mag0
     panel.hide()
     set_system(None)
 
@@ -1025,5 +1039,87 @@ def test_inspect_names_iau_w_and_keeps_asteroid_potato(qt_app) -> None:
     assert "dipole" in star
     assert "not sdo" in star
     assert "not mhd" in star
+    panel.hide()
+    set_system(None)
+
+
+def test_help_plate_is_keys_not_a_lecture(qt_app) -> None:
+    from arelis.physics.demo import circular_system
+    from arelis.physics.engine import rebound_available
+    from arelis.physics.scene import SolarSystem
+
+    if not rebound_available():
+        pytest.skip("REBOUND is not installed")
+    set_system(SolarSystem.from_states(circular_system(), tracers=0))
+    panel = SolarPanel()
+    panel.resize(960, 720)
+    panel.show()
+    qt_app.processEvents()
+    assert not hasattr(panel, "_hud_lecture")
+    panel._help = True
+    panel.update()
+    qt_app.processEvents()
+    assert panel._hud_bottom < 360
+    panel.hide()
+    set_system(None)
+
+
+def test_hud_and_inspect_do_not_overlap(qt_app) -> None:
+    from arelis.physics.demo import circular_system
+    from arelis.physics.engine import rebound_available
+    from arelis.physics.scene import SolarSystem
+
+    if not rebound_available():
+        pytest.skip("REBOUND is not installed")
+    set_system(SolarSystem.from_states(circular_system(), tracers=0))
+    panel = SolarPanel()
+    panel.resize(960, 720)
+    panel.show()
+    qt_app.processEvents()
+    panel._set_inspect("Earth")
+    for help_on in (False, True):
+        panel._help = help_on
+        panel.update()
+        qt_app.processEvents()
+        hud = panel._hud_plate_rect()
+        inspect = panel._inspect_rect()
+        roster = panel._roster_rect()
+        assert not hud.intersects(inspect), help_on
+        assert hud.right() <= inspect.left() - 8, help_on
+        if not roster.isEmpty():
+            assert roster.top() >= hud.bottom() + 8, (
+                help_on,
+                roster.top(),
+                hud.bottom(),
+            )
+            assert not roster.intersects(hud), help_on
+            assert not roster.intersects(inspect), help_on
+            assert roster.bottom() <= panel._speed_rect().y() - 16, help_on
+    panel.hide()
+    set_system(None)
+
+
+def test_roster_hides_moons_until_parent_is_inspect(qt_app) -> None:
+    from arelis.physics.demo import circular_system
+    from arelis.physics.engine import rebound_available
+    from arelis.physics.scene import SolarSystem
+
+    if not rebound_available():
+        pytest.skip("REBOUND is not installed")
+    set_system(SolarSystem.from_states(circular_system(), tracers=0))
+    panel = SolarPanel()
+    panel.resize(960, 720)
+    panel.show()
+    qt_app.processEvents()
+    system = get_system()
+    assert system is not None
+    panel._set_inspect("Sun")
+    vis = panel._roster_visible(system)
+    assert "Earth" in vis
+    assert "Moon" not in vis
+    panel._set_inspect("Earth")
+    vis = panel._roster_visible(system)
+    assert "Moon" in vis
+    assert vis.index("Moon") == vis.index("Earth") + 1
     panel.hide()
     set_system(None)

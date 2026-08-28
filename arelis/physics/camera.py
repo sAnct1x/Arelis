@@ -39,6 +39,21 @@ def speed_label(mps: float) -> str:
     return f"{v:.3g} m/s"
 
 
+@dataclass(frozen=True)
+class CameraPose:
+    """Inspect-camera pose in ECLIPJ2000 metres. Not a spacecraft state."""
+
+    x: float
+    y: float
+    z: float
+    yaw: float
+    pitch: float
+    up: tuple[float, float, float]
+    distance: float
+    min_distance: float
+    speed: float
+
+
 @dataclass
 class FlyCamera:
     """Eye in ECLIPJ2000 metres. Wheel is travel speed, not zoom-to-lock."""
@@ -135,50 +150,19 @@ class FlyCamera:
         radius: float,
         sun: tuple[float, float, float] | None = None,
     ) -> None:
-        """Camera warp to a sunlit approach standoff. Not an N-body burn.
-
-        ``radius`` is the IAU mean (or 1-bar) radius from the catalog, not
-        the atmosphere envelope. 8× that radius is still outside Karman.
-        """
-        r = max(float(radius), 1.0)
-        standoff = max(r * 8.0, r * 2.5)
-        if r >= 1.0e8:
-            standoff = max(standoff, 0.12 * AU_M)
-        self.min_distance = max(r * 2.5, 1.0e3)
-        self.distance = standoff
-        if sun is not None:
-            sx, sy, sz = sun
-            dx, dy, dz = sx - tx, sy - ty, sz - tz
-            n = math.sqrt(dx * dx + dy * dy + dz * dz)
-            if n > r:
-                dx, dy, dz = dx / n, dy / n, dz / n
-                nx, ny, nz = 0.0, 0.0, 1.0
-                if abs(dz) > 0.92:
-                    nx, ny, nz = 0.0, 1.0, 0.0
-                px = ny * dz - nz * dy
-                py = nz * dx - nx * dz
-                pz = nx * dy - ny * dx
-                pl = math.sqrt(px * px + py * py + pz * pz)
-                if pl > 1e-9:
-                    px, py, pz = px / pl, py / pl, pz / pl
-                    nx = py * dz - pz * dy
-                    ny = pz * dx - px * dz
-                    nz = px * dy - py * dx
-                    nl = math.sqrt(nx * nx + ny * ny + nz * nz) or 1.0
-                    nx, ny, nz = nx / nl, ny / nl, nz / nl
-                self.x = tx + dx * standoff + nx * standoff * 0.28
-                self.y = ty + dy * standoff + ny * standoff * 0.28
-                self.z = tz + dz * standoff + nz * standoff * 0.28
-                self.look_at(tx, ty, tz)
-            else:
-                self.place_looking_at(tx, ty, tz, standoff)
-                self.look_at(tx, ty, tz)
-        else:
-            self.place_looking_at(tx, ty, tz, standoff)
-            self.look_at(tx, ty, tz)
-        cap = max(SPEED_MIN, standoff * 0.35)
-        if self.speed > cap:
-            self.speed = cap
+        """Snap the eye to a sunlit approach standoff. Prefer CameraWarp for flight."""
+        apply_pose(
+            self,
+            sunlit_standoff(
+                tx,
+                ty,
+                tz,
+                radius,
+                sun=sun,
+                speed=self.speed,
+                forward=self.forward(),
+            ),
+        )
 
     def approach(self, factor: float) -> None:
         old = self.distance
@@ -342,3 +326,254 @@ def _rodrigues(
         vy * cx + cr[1] * sx + ky * dot * om,
         vz * cx + cr[2] * sx + kz * dot * om,
     )
+
+
+_WARP_ACCEL = 0.22
+_WARP_CRUISE = 0.56
+_WARP_DECEL = 0.22
+_WARP_VMAX = 1.0 / (0.5 * _WARP_ACCEL + _WARP_CRUISE + 0.5 * _WARP_DECEL)
+
+
+def sunlit_standoff(
+    tx: float,
+    ty: float,
+    tz: float,
+    radius: float,
+    *,
+    sun: tuple[float, float, float] | None = None,
+    speed: float = SPEED_MIN,
+    forward: tuple[float, float, float] | None = None,
+) -> CameraPose:
+    """Sunlit approach standoff. Same geometry travel_to used to snap."""
+    r = max(float(radius), 1.0)
+    standoff = max(r * 8.0, r * 2.5)
+    if r >= 1.0e8:
+        standoff = max(standoff, 0.12 * AU_M)
+    min_distance = max(r * 2.5, 1.0e3)
+    cap = max(SPEED_MIN, standoff * 0.35)
+    cruise = float(speed)
+    if cruise > cap:
+        cruise = cap
+    x = y = z = 0.0
+    placed = False
+    if sun is not None:
+        sx, sy, sz = sun
+        dx, dy, dz = sx - tx, sy - ty, sz - tz
+        n = math.sqrt(dx * dx + dy * dy + dz * dz)
+        if n > r:
+            dx, dy, dz = dx / n, dy / n, dz / n
+            nx, ny, nz = 0.0, 0.0, 1.0
+            if abs(dz) > 0.92:
+                nx, ny, nz = 0.0, 1.0, 0.0
+            px = ny * dz - nz * dy
+            py = nz * dx - nx * dz
+            pz = nx * dy - ny * dx
+            pl = math.sqrt(px * px + py * py + pz * pz)
+            if pl > 1e-9:
+                px, py, pz = px / pl, py / pl, pz / pl
+                nx = py * dz - pz * dy
+                ny = pz * dx - px * dz
+                nz = px * dy - py * dx
+                nl = math.sqrt(nx * nx + ny * ny + nz * nz) or 1.0
+                nx, ny, nz = nx / nl, ny / nl, nz / nl
+            x = tx + dx * standoff + nx * standoff * 0.28
+            y = ty + dy * standoff + ny * standoff * 0.28
+            z = tz + dz * standoff + nz * standoff * 0.28
+            placed = True
+    if not placed:
+        fx, fy, fz = forward if forward is not None else (
+            math.cos(0.38) * math.cos(1.45),
+            math.sin(0.38),
+            math.cos(0.38) * math.sin(1.45),
+        )
+        fx, fy, fz = _unit3((fx, fy, fz))
+        x = tx - fx * standoff
+        y = ty - fy * standoff
+        z = tz - fz * standoff
+    yaw, pitch = _look_yaw_pitch((x, y, z), (tx, ty, tz))
+    return CameraPose(
+        x=x,
+        y=y,
+        z=z,
+        yaw=yaw,
+        pitch=pitch,
+        up=WORLD_UP,
+        distance=standoff,
+        min_distance=min_distance,
+        speed=cruise,
+    )
+
+
+def apply_pose(cam: FlyCamera, pose: CameraPose) -> None:
+    cam.x = pose.x
+    cam.y = pose.y
+    cam.z = pose.z
+    cam.yaw = pose.yaw
+    cam.pitch = pose.pitch
+    cam.up = pose.up
+    cam.distance = pose.distance
+    cam.min_distance = pose.min_distance
+    cam.speed = pose.speed
+
+
+def _look_yaw_pitch(
+    eye: tuple[float, float, float],
+    target: tuple[float, float, float],
+) -> tuple[float, float]:
+    dx = target[0] - eye[0]
+    dy = target[1] - eye[1]
+    dz = target[2] - eye[2]
+    n = math.sqrt(dx * dx + dy * dy + dz * dz) or 1.0
+    return math.atan2(dz, dx), math.asin(max(-1.0, min(1.0, dy / n)))
+
+
+def warp_duration(dist_m: float) -> float:
+    """Wall seconds. Log in metres so a moon hop is short and Neptune is not a wait."""
+    span = math.log10(max(float(dist_m), 1.0e8) / 1.0e8)
+    return min(5.5, max(2.0, 2.0 + 0.55 * span))
+
+
+def warp_curve(u: float) -> tuple[float, float]:
+    """Trapezoid on [0,1]: accel, cruise, decel. Returns (arc s, speed 0..1)."""
+    t = min(1.0, max(0.0, float(u)))
+    a = _WARP_ACCEL
+    c = _WARP_CRUISE
+    d = _WARP_DECEL
+    vmax = _WARP_VMAX
+
+    def _i(w: float) -> float:
+        w = min(1.0, max(0.0, w))
+        return w * w * w - 0.5 * w * w * w * w
+
+    def _s(w: float) -> float:
+        w = min(1.0, max(0.0, w))
+        return 3.0 * w * w - 2.0 * w * w * w
+
+    if t <= a:
+        w = t / a if a > 0.0 else 1.0
+        return vmax * a * _i(w), _s(w)
+    if t <= a + c:
+        return vmax * (0.5 * a + (t - a)), 1.0
+    w = (t - a - c) / d if d > 0.0 else 1.0
+    s = vmax * (0.5 * a + c + d * (0.5 - _i(1.0 - w)))
+    return min(1.0, s), _s(1.0 - w)
+
+
+def _bezier3(
+    p0: tuple[float, float, float],
+    p1: tuple[float, float, float],
+    p2: tuple[float, float, float],
+    u: float,
+) -> tuple[float, float, float]:
+    a = 1.0 - u
+    return (
+        a * a * p0[0] + 2.0 * a * u * p1[0] + u * u * p2[0],
+        a * a * p0[1] + 2.0 * a * u * p1[1] + u * u * p2[1],
+        a * a * p0[2] + 2.0 * a * u * p1[2] + u * u * p2[2],
+    )
+
+
+def _loft_control(
+    p0: tuple[float, float, float],
+    p2: tuple[float, float, float],
+) -> tuple[float, float, float]:
+    """Out-of-plane handle so the eye does not scrape the ecliptic as a line."""
+    dx, dy, dz = p2[0] - p0[0], p2[1] - p0[1], p2[2] - p0[2]
+    dist = math.sqrt(dx * dx + dy * dy + dz * dz)
+    mid = (
+        0.5 * (p0[0] + p2[0]),
+        0.5 * (p0[1] + p2[1]),
+        0.5 * (p0[2] + p2[2]),
+    )
+    if dist < 1.0e6:
+        return mid
+    ux, uy, uz = WORLD_UP
+    cx = dy * uz - dz * uy
+    cy = dz * ux - dx * uz
+    cz = dx * uy - dy * ux
+    cl = math.sqrt(cx * cx + cy * cy + cz * cz)
+    if cl < dist * 1e-6:
+        cx, cy, cz, cl = -uz * dx, 0.0, ux * dx, abs(dx) + abs(dz)
+        cl = math.sqrt(cx * cx + cy * cy + cz * cz) or 1.0
+    cx, cy, cz = cx / cl, cy / cl, cz / cl
+    loft = min(0.18 * dist, 0.35 * AU_M)
+    return (mid[0] + cx * loft, mid[1] + cy * loft, mid[2] + cz * loft)
+
+
+@dataclass
+class CameraWarp:
+    """Wall-clock flight of the inspect eye. Not a burn, not a chase-cam."""
+
+    name: str
+    origin: tuple[float, float, float]
+    elapsed: float = 0.0
+    duration: float = 2.4
+    speed01: float = 0.0
+
+    @classmethod
+    def start(
+        cls,
+        cam: FlyCamera,
+        name: str,
+        tx: float,
+        ty: float,
+        tz: float,
+        radius: float,
+        sun: tuple[float, float, float] | None,
+    ) -> CameraWarp:
+        end = sunlit_standoff(tx, ty, tz, radius, sun=sun, speed=cam.speed)
+        dist = math.sqrt(
+            (end.x - cam.x) ** 2 + (end.y - cam.y) ** 2 + (end.z - cam.z) ** 2
+        )
+        return cls(
+            name=name,
+            origin=(cam.x, cam.y, cam.z),
+            elapsed=0.0,
+            duration=warp_duration(dist),
+            speed01=0.0,
+        )
+
+    def step(
+        self,
+        cam: FlyCamera,
+        tx: float,
+        ty: float,
+        tz: float,
+        radius: float,
+        sun: tuple[float, float, float] | None,
+        dt: float,
+    ) -> bool:
+        """Advance. True while still in flight."""
+        self.elapsed += max(0.0, float(dt))
+        end = sunlit_standoff(tx, ty, tz, radius, sun=sun, speed=cam.speed)
+        dest = (end.x, end.y, end.z)
+        u = 1.0 if self.duration <= 0.0 else min(1.0, self.elapsed / self.duration)
+        s, speed = warp_curve(u)
+        self.speed01 = speed
+        if u >= 1.0:
+            apply_pose(cam, end)
+            cam.look_at(tx, ty, tz)
+            self.speed01 = 0.0
+            return False
+        handle = _loft_control(self.origin, dest)
+        x, y, z = _bezier3(self.origin, handle, dest, s)
+        cam.x, cam.y, cam.z = x, y, z
+        cam.look_at(tx, ty, tz)
+        cam.distance = end.distance
+        cam.min_distance = end.min_distance
+        return True
+
+    def snap(
+        self,
+        cam: FlyCamera,
+        tx: float,
+        ty: float,
+        tz: float,
+        radius: float,
+        sun: tuple[float, float, float] | None,
+    ) -> None:
+        end = sunlit_standoff(tx, ty, tz, radius, sun=sun, speed=cam.speed)
+        apply_pose(cam, end)
+        cam.look_at(tx, ty, tz)
+        self.elapsed = self.duration
+        self.speed01 = 0.0

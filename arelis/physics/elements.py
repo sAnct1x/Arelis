@@ -34,6 +34,107 @@ def hill_radius(a: float, m: float, m_star: float) -> float:
     return a * (m / (3.0 * m_star)) ** (1.0 / 3.0)
 
 
+ISO_G_FACTORS: tuple[float, ...] = (2.0, 4.0, 8.0)
+BEAD_COUNT = 5
+
+
+def newtonian_phi(mu: float, r: float) -> float:
+    """Point-mass Φ = −μ/r. Newtonian. Not a GR potential."""
+    return -float(mu) / max(float(r), 1.0)
+
+
+BEAD_LAP_S = 8.0
+
+
+def bead_true_anomalies(
+    nu: float, n: int = BEAD_COUNT, *, phase: float = 0.0
+) -> tuple[float, ...]:
+    """Direction beads on an osculating ellipse. Half-step so none sits on the body.
+
+    ``phase`` is a wall-clock chase along increasing true anomaly — a direction
+    cue, not orbital motion. The planet still sits at ``nu``.
+    """
+    count = max(int(n), 1)
+    step = 2.0 * math.pi / count
+    base = float(nu) + 0.5 * step + float(phase)
+    tau = 2.0 * math.pi
+    return tuple((base + i * step) % tau for i in range(count))
+
+
+def well_theta_count(n: int) -> int:
+    return max(int(n), 4) * 2
+
+
+def well_grid(
+    mu: float,
+    radius: float,
+    *,
+    extent: float | None = None,
+    n: int = 28,
+) -> list[tuple[float, float, float]]:
+    """Polar ecliptic slice of Φ = −μ/r. Outline is a circle, not a square.
+
+    Depth at the limb is 0.5 R so the dish is readable at inspect standoff.
+    The shape follows 1/r. The vertical scale is for viewing, not GR.
+    """
+    r_body = max(float(radius), 1.0)
+    span = float(extent) if extent is not None else 4.0 * r_body
+    span = max(span, r_body * 1.05)
+    mu = max(float(mu), 1.0)
+    phi_limb = newtonian_phi(mu, r_body)
+    phi_edge = newtonian_phi(mu, span)
+    drop = phi_edge - phi_limb
+    depth = 0.5 * r_body / max(drop, 1e-30)
+    n_r = max(int(n), 4)
+    n_th = well_theta_count(n_r)
+    pts: list[tuple[float, float, float]] = []
+    for ir in range(n_r + 1):
+        rho = span * ir / n_r
+        r = max(rho, r_body)
+        z = (newtonian_phi(mu, r) - phi_edge) * depth
+        for it in range(n_th):
+            th = 2.0 * math.pi * it / n_th
+            pts.append((rho * math.cos(th), rho * math.sin(th), z))
+    return pts
+
+
+def well_mesh_indices(n: int) -> list[int]:
+    """Triangle list for polar well_grid (rings × spokes)."""
+    n_r = max(int(n), 4)
+    n_th = well_theta_count(n_r)
+    idx: list[int] = []
+    for ir in range(n_r):
+        for it in range(n_th):
+            a = ir * n_th + it
+            b = a + n_th
+            a2 = ir * n_th + (it + 1) % n_th
+            b2 = a2 + n_th
+            idx.extend((a, b, a2, a2, b, b2))
+    return idx
+
+
+def well_inner_ring(n: int) -> int:
+    """Skip rings that sit on the photosphere. Default span is 4 R."""
+    n_r = max(int(n), 4)
+    return max(2, int(round(n_r * 0.28)))
+
+
+def well_line_indices(n: int) -> list[int]:
+    """GL_LINES pairs: circular rings plus a few radial spokes outside the limb."""
+    n_r = max(int(n), 4)
+    n_th = well_theta_count(n_r)
+    inner = well_inner_ring(n_r)
+    idx: list[int] = []
+    for ir in range(inner, n_r + 1):
+        base = ir * n_th
+        for it in range(n_th):
+            idx.extend((base + it, base + (it + 1) % n_th))
+    for it in range(0, n_th, 2):
+        for ir in range(inner, n_r):
+            idx.extend((ir * n_th + it, (ir + 1) * n_th + it))
+    return idx
+
+
 def sphere_of_influence(a: float, m: float, m_star: float) -> float:
     """Laplace SOI a (m / M_star)^(2/5)."""
     if m_star <= 0.0 or m <= 0.0 or a <= 0.0:

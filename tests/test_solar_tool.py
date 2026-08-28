@@ -328,4 +328,10 @@ async def test_toggle_gravity_and_rejects_unknown_flag() -> None:
     assert "magnetic" in bad.output
     assert "wind" in bad.output
     assert "grid" in bad.output
+    system.apply_overlay("gravity", on=True)
+    assert system.overlay.show_gravity is True
+    system.apply_overlay("gravity", on=True)
+    assert system.overlay.show_gravity is True
+    system.apply_overlay("gravity", on=False)
+    assert system.overlay.show_gravity is False
     set_system(None)

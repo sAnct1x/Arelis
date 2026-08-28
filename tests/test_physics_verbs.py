@@ -14,7 +14,12 @@ from arelis.core.memory import SessionMemory
 from arelis.core.orchestrator import Orchestrator
 from arelis.rooms import RoomStore
 from arelis.spatial.scene import LAST_BIND, MASS, Disc, WorldScene
-from arelis.spatial.verbs import classify_physics_verb
+from arelis.spatial.verbs import (
+    classify_physics_act,
+    classify_physics_verb,
+    match_overlay,
+    match_travel,
+)
 from arelis.tools.base import ToolRegistry
 
 
@@ -43,9 +48,57 @@ def test_classify_is_whole_utterance() -> None:
     assert classify_physics_verb("fly") == "fly"
     assert classify_physics_verb("craft") == "fly"
     assert classify_physics_verb("inspect") == "inspect"
+    assert classify_physics_verb("pause the sim") == "pause"
+    assert classify_physics_verb("play the sim") == "resume"
+    assert classify_physics_verb("increase speed") == "faster"
+    assert classify_physics_verb("decrease speed") == "slower"
+    assert classify_physics_verb("speed up time") == "faster"
+    assert classify_physics_verb("slow time down") == "slower"
+    assert classify_physics_verb("one hour a second") == "hour"
+    assert classify_physics_verb("one day a second") == "day"
     assert classify_physics_verb("stop") is None
     assert classify_physics_verb("yes") is None
     assert classify_physics_verb("that's heavier than I thought") is None
+    assert classify_physics_verb("reset") is None
+    assert classify_physics_verb("take me to Earth") is None
+
+
+def test_travel_and_overlay_phrases() -> None:
+    names = ("Sun", "Earth", "Moon", "Saturn", "Ceres")
+    assert match_travel("take me to Earth", names=names) == "Earth"
+    assert match_travel("go to the Sun", names=names) == "Sun"
+    assert match_travel("fly to Saturn", names=names) == "Saturn"
+    assert match_travel("take me to the Moon", names=names) == "Moon"
+    assert match_travel("take me there", names=names) == ""
+    assert match_travel("take me to x.com", names=names) is None
+    assert match_travel("take me to the login", names=names) is None
+    assert match_travel("go to bed", names=names) is None
+    assert classify_physics_act("inspect Earth", names=names).verb == "inspect_body"
+    assert classify_physics_act("inspect Earth", names=names).name == "Earth"
+    assert classify_physics_act("look at Earth", names=names).verb == "inspect_body"
+    assert classify_physics_act("look at the camera", names=names) is None
+    assert classify_physics_act("take me to Earth", names=names).verb == "travel"
+    assert classify_physics_act("reset the view").verb == "reset_view"
+    assert classify_physics_act("back up").verb == "reset_view"
+    assert match_overlay("show the magnetosphere") == ("magnetic", True)
+    assert match_overlay("turn gravity off") == ("gravity", False)
+    assert match_overlay("hide the orbits") == ("osculating", False)
+    assert match_overlay("show the wind") == ("wind", True)
+    assert match_overlay("put the grid on") == ("grid", True)
+    assert match_overlay("show trails") == ("trails", True)
+    assert match_overlay("hide Lagrange") == ("lagrange", False)
+    assert match_overlay("turn on graphs") == ("graphs", True)
+    lab = classify_physics_act("open the solar lab")
+    assert lab is not None
+    assert lab.verb == "lab"
+    assert lab.page == "solar"
+    assert lab.on is True
+    toy = classify_physics_act("open the toy area")
+    assert toy is not None
+    assert toy.page == "hands"
+    assert classify_physics_act("close the solar lab").on is False
+    assert classify_physics_act("open world").page == ""
+    assert classify_physics_act("open thinking") is None
 
 
 def test_heavier_hits_the_held_disc() -> None:
@@ -213,3 +266,42 @@ async def test_spoken_pause_outside_physics_is_ordinary_talk(tmp_path: Path) -> 
     messages = [e for e in seen if e.type == EventType.USER_MESSAGE]
     assert messages
     assert messages[0].payload.get("text") == "pause"
+
+
+@pytest.mark.asyncio
+async def test_spoken_take_me_to_earth_is_a_verb_not_a_turn(tmp_path: Path) -> None:
+    bus = EventBus()
+    seen: list[Event] = []
+
+    async def capture(event: Event) -> None:
+        seen.append(event)
+
+    bus.subscribe(None, capture)
+    rooms = RoomStore(tmp_path / "rooms.yaml")
+    rooms.create("Physics")
+    rooms.set_active("physics")
+    orch = Orchestrator(
+        bus,
+        _StubRouter(),  # type: ignore[arg-type]
+        ToolRegistry(),
+        {
+            "agent": {},
+            "workspace": {"roots": ["."]},
+            "_persona_path": str(PROJECT_ROOT / "arelis" / "persona" / "arelis.md"),
+            "_speak_replies": True,
+            "_rooms": rooms,
+        },
+        SessionMemory(),
+    )
+    bus_task = asyncio.create_task(bus.run())
+    try:
+        await bus.publish(Event(EventType.VOICE_TRANSCRIPT, {"text": "take me to Earth"}))
+        await bus.drain()
+    finally:
+        bus.stop()
+        bus_task.cancel()
+    hits = [e for e in seen if e.type == EventType.PHYSICS_VERB]
+    assert hits
+    assert hits[0].payload.get("verb") == "travel"
+    assert hits[0].payload.get("name") == "Earth"
+    assert not any(e.type == EventType.USER_MESSAGE for e in seen)

@@ -66,6 +66,12 @@ def test_flare_gain_is_deterministic_and_bounded() -> None:
     assert 0.0 <= flare_gain(1e6, 99) <= 1.0
 
 
+def test_flare_gain_is_mostly_quiet() -> None:
+    hits = sum(1 for t in range(400) if flare_gain(float(t), 7) > 0.08)
+    assert hits < 80
+    assert any(flare_gain(float(t), 7) > 0.5 for t in range(400))
+
+
 def test_loops_stay_outside_the_photosphere() -> None:
     r_sun = BODY_BY_NAME["Sun"].radius
     rows = loops(r_sun, 2_451_545.0, 12.0)
@@ -96,6 +102,7 @@ def test_glow_shader_has_no_sixfold_spikes() -> None:
     assert "sin(ang" not in src
     assert "uDisc" in src
     assert "uPole" in src
+    assert "r > 1.0" in src
     assert "uGran" in gl._FS_BODY
     loops_src = pyinspect.getsource(gl.SolarSpaceView._draw_loops)
     assert "LOOP_MIN_PX" in loops_src

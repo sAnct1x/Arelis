@@ -132,7 +132,7 @@ def test_world_window_opens_on_the_chooser(qt_app) -> None:
     window.hide()
 
 
-def test_chooser_solar_populates_and_fetches_horizons(qt_app, monkeypatch) -> None:
+def test_chooser_solar_populates_and_fetches_horizons(qt_app, monkeypatch, tmp_path) -> None:
     from arelis.physics.engine import rebound_available
     from arelis.physics.runtime import get_system, set_system
     from arelis.ui.panels.solar import SolarPanel
@@ -140,6 +140,7 @@ def test_chooser_solar_populates_and_fetches_horizons(qt_app, monkeypatch) -> No
 
     monkeypatch.setattr(SolarPanel, "_horizons_work", lambda self: None)
     monkeypatch.setattr(SolarPanel, "_try_nearest_cache", lambda self: False)
+    monkeypatch.setenv("ARELIS_DATA_DIR", str(tmp_path))
     set_system(None)
     window = WorldWindow(WorldScene())
     window.show()
@@ -203,6 +204,7 @@ def test_roster_click_inspects_and_enter_warps(qt_app) -> None:
     panel.keyPressEvent(
         QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Return, Qt.KeyboardModifier.NoModifier)
     )
+    panel._finish_travel()
     assert (panel.cam.x, panel.cam.y, panel.cam.z) != eye1
     panel.hide()
     set_system(None)
@@ -220,7 +222,7 @@ def test_world_window_has_no_choose_button(qt_app) -> None:
     window.hide()
 
 
-def test_esc_opens_pause_menu(qt_app) -> None:
+def test_esc_opens_pause_menu(qt_app, monkeypatch, tmp_path) -> None:
     from arelis.physics.demo import sun_and_planet
     from arelis.physics.engine import rebound_available
     from arelis.physics.runtime import get_system, set_system
@@ -229,6 +231,7 @@ def test_esc_opens_pause_menu(qt_app) -> None:
 
     if not rebound_available():
         pytest.skip("REBOUND is not installed")
+    monkeypatch.setenv("ARELIS_DATA_DIR", str(tmp_path))
     set_system(SolarSystem.from_states(sun_and_planet(), tracers=0))
     window = WorldWindow(WorldScene())
     window.show()
@@ -256,3 +259,77 @@ def test_esc_opens_pause_menu(qt_app) -> None:
     assert not window.pause.isVisible()
     window.hide()
     set_system(None)
+
+
+def test_leaving_the_solar_lab_writes_a_receipt(qt_app, monkeypatch, tmp_path) -> None:
+    import json
+
+    from arelis.physics.demo import sun_and_planet
+    from arelis.physics.engine import rebound_available
+    from arelis.physics.runtime import set_system
+    from arelis.physics.scene import SolarSystem
+    from arelis.ui.world_window import WorldWindow
+
+    if not rebound_available():
+        pytest.skip("REBOUND is not installed")
+    monkeypatch.setenv("ARELIS_DATA_DIR", str(tmp_path))
+    set_system(SolarSystem.from_states(sun_and_planet(), tracers=0, ic_date="2000-01-01"))
+    window = WorldWindow(WorldScene())
+    window.show()
+    qt_app.processEvents()
+    window.enter_solar()
+    root = tmp_path / "outputs" / "physics" / "solar"
+    assert not root.exists() or not any(root.iterdir())
+    window.show_chooser()
+    written = list(root.iterdir())
+    assert len(written) == 1
+    manifest = json.loads((written[0] / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["trigger"] == "leave"
+    assert manifest["camera"] is not None
+    window.show_chooser()
+    assert len(list(root.iterdir())) == 1
+    window.enter_solar()
+    window.enter_hands()
+    assert len(list(root.iterdir())) == 2
+    window.hide()
+    assert len(list(root.iterdir())) == 2
+    set_system(None)
+
+
+def test_spoken_lab_verbs_skip_the_chooser(arelis_window, qt_app, monkeypatch, tmp_path) -> None:
+    from arelis.physics.demo import sun_and_planet
+    from arelis.physics.engine import rebound_available
+    from arelis.physics.runtime import get_system, set_system
+    from arelis.physics.scene import SolarSystem
+    from arelis.ui.panels.solar import SolarPanel
+
+    if not rebound_available():
+        pytest.skip("REBOUND is not installed")
+    monkeypatch.setattr(SolarPanel, "_horizons_work", lambda self: None)
+    monkeypatch.setenv("ARELIS_DATA_DIR", str(tmp_path))
+    set_system(SolarSystem.from_states(sun_and_planet(), tracers=0))
+    window = arelis_window()
+    window.conversation.room.set_room("physics", name="Physics")
+    try:
+        assert window._try_physics_verb("open the solar lab") is True
+        assert window.world_window.solar_active()
+        assert window._try_physics_verb("take me to Earth") is True
+        system = get_system()
+        assert system is not None
+        assert system.pending_travel == "Earth"
+        assert window._try_physics_verb("show the magnetosphere") is True
+        assert system.overlay.show_magnetic is True
+        assert window._try_physics_verb("hide the orbits") is True
+        assert system.show_osculating is False
+        system.pending_travel = None
+        assert window._try_physics_verb("look at Earth") is True
+        assert system.pending_inspect == "Earth"
+        assert system.pending_travel is None
+        assert window._try_physics_verb("open the toy area") is True
+        assert window.world_window.hands_active()
+        assert window._try_physics_verb("increase speed") is True
+        assert window._try_physics_verb("close the solar lab") is True
+        assert window.world_window.isHidden()
+    finally:
+        window.world_window.hide()
+        set_system(None)

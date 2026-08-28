@@ -46,7 +46,9 @@ from arelis.physics.attitude import (
     sun_pole_ecliptic,
 )
 from arelis.physics.constants import (
+    AU_M,
     BODY_BY_NAME,
+    G_SI,
     SATURN_CASSINI_INNER_M,
     SATURN_CASSINI_OUTER_M,
     SATURN_RING_INNER_M,
@@ -168,6 +170,7 @@ _GL_TEXTURE0 = 0x84C0
 _GL_CCW = 0x0901
 _GL_CW = 0x0900
 _GL_TRIANGLE_STRIP = 0x0005
+_GL_TRIANGLE_FAN = 0x0006
 _GL_POINT_SPRITE = 0x8861
 
 _FOV_Y = 0.70
@@ -283,9 +286,9 @@ void main() {
         vec3 phot = mix(limbc, core, pow(mu, 0.52)) * ld;
         if (uGran > 0.01) {
             vec3 p = normalize(n);
-            float g = sin(dot(p, vec3(17.2, 8.1, 3.4)) * 48.0 + uTime * 0.85);
-            g += 0.55 * sin(dot(p, vec3(4.2, 19.0, 11.7)) * 86.0 - uTime * 0.52);
-            g += 0.30 * sin(dot(p, vec3(11.4, 2.6, 23.1)) * 130.0 + uTime * 0.31);
+            float g = sin(dot(p, vec3(17.2, 8.1, 3.4)) * 18.0 + uTime * 0.16);
+            g += 0.55 * sin(dot(p, vec3(4.2, 19.0, 11.7)) * 34.0 - uTime * 0.11);
+            g += 0.30 * sin(dot(p, vec3(11.4, 2.6, 23.1)) * 52.0 + uTime * 0.07);
             phot *= 1.0 + uGran * 0.16 * g;
         }
         frag = vec4(phot, uAlpha);
@@ -410,6 +413,7 @@ out vec4 frag;
 void main() {
     float r = length(vUV);
     float disc = max(uDisc, 0.04);
+    if (r > 1.0) discard;
     if (r < disc * 0.92) discard;
     vec2 dir = vUV / max(r, 1e-4);
     vec2 pole = uPole;
@@ -418,9 +422,10 @@ void main() {
     float eq = 1.0 - abs(dot(dir, pole));
     float streamer = 0.38 + 0.62 * pow(eq, 1.45);
     float s = max(r - disc, 0.0) / max(1.0 - disc, 1e-3);
-    float radial = exp(-s * 3.15) / (0.10 + s * s);
+    float radial = exp(-s * 4.4) / (0.12 + s * s);
     float halo = exp(-pow(max(r - disc, 0.0) * 16.0, 2.0)) * 1.35;
-    float a = max(radial * streamer, halo);
+    float rim = 1.0 - smoothstep(0.82, 0.98, r);
+    float a = max(radial * streamer, halo) * rim;
     if (a < 0.012) discard;
     vec3 gold = vec3(1.0, 0.55, 0.12);
     vec3 core = mix(uColor, vec3(1.0, 0.88, 0.42), 0.55);
@@ -454,6 +459,41 @@ void main() {
 }
 """
 
+_VS_BEAD = (
+    "#version 330\n"
+    + _LOG_DEPTH
+    + """
+layout(location = 0) in vec3 aPos;
+layout(location = 1) in float aPulse;
+uniform mat4 uView;
+uniform mat4 uProj;
+uniform vec3 uEye;
+out float vPulse;
+void main() {
+    vPulse = aPulse;
+    vec3 p = aPos - uEye;
+    gl_Position = uProj * uView * vec4(p, 1.0);
+    gl_PointSize = mix(6.0, 14.0, clamp(aPulse, 0.0, 1.0));
+    arelisLogDepth();
+}
+"""
+)
+
+_FS_BEAD = """
+#version 330
+in float vPulse;
+uniform vec4 uColor;
+out vec4 frag;
+void main() {
+    vec2 p = gl_PointCoord * 2.0 - 1.0;
+    float r = dot(p, p);
+    if (r > 1.0) discard;
+    float core = exp(-r * 2.8);
+    float a = core * mix(0.40, 1.0, vPulse);
+    frag = vec4(uColor.rgb * (0.70 + 0.50 * vPulse), a * uColor.a);
+}
+"""
+
 
 def framebuffer_size(
     width: int, height: int, *, cap: int = _FB_CAP
@@ -467,7 +507,7 @@ def framebuffer_size(
     return max(1, int(w * scale)), max(1, int(h * scale))
 
 
-def projection(fb_w: int, fb_h: int) -> QMatrix4x4:
+def projection(fb_w: int, fb_h: int, *, fov_y: float | None = None) -> QMatrix4x4:
     """Perspective with clip Y negated.
 
     glReadPixels hands back rows bottom-up, so rendering upside down is what
@@ -475,9 +515,10 @@ def projection(fb_w: int, fb_h: int) -> QMatrix4x4:
     frame through QImage.mirrored() every paint. The reflection also reverses
     triangle winding, which is why realize() sets FRONT_FACE.
     """
+    fov = float(fov_y) if fov_y is not None else _FOV_Y
     proj = QMatrix4x4()
     proj.perspective(
-        math.degrees(_FOV_Y), fb_w / max(fb_h, 1), 1.0e3, _FAR_M
+        math.degrees(fov), fb_w / max(fb_h, 1), 1.0e3, _FAR_M
     )
     proj.scale(1.0, -1.0, 1.0)
     return proj
@@ -627,6 +668,7 @@ class SolarSpaceView(QOpenGLFunctions):
         self._prog_atmo: QOpenGLShaderProgram | None = None
         self._prog_glow: QOpenGLShaderProgram | None = None
         self._prog_line: QOpenGLShaderProgram | None = None
+        self._prog_bead: QOpenGLShaderProgram | None = None
         self._sphere_vao: QOpenGLVertexArrayObject | None = None
         self._sphere_n = 0
         self._lod_vao: QOpenGLVertexArrayObject | None = None
@@ -643,11 +685,38 @@ class SolarSpaceView(QOpenGLFunctions):
         self._orbit_n = 0
         self._orbit_key: object = None
         self._orbit_local: np.ndarray | None = None
-        self._orbit_groups: list[tuple[str | None, int, int]] = []
+        self._orbit_groups: list[tuple[str, str | None, int, int]] = []
         self._orbit_scratch: np.ndarray | None = None
         self._orbit_built = -1.0e9
         self._orbit_t = -1.0e9
         self._orbit_cap = 0
+        self._bead_buf: QOpenGLBuffer | None = None
+        self._bead_vao: QOpenGLVertexArrayObject | None = None
+        self._bead_cap = 0
+        self._fill_buf: QOpenGLBuffer | None = None
+        self._fill_vao: QOpenGLVertexArrayObject | None = None
+        self._fill_cap = 0
+        self._mag_buf: QOpenGLBuffer | None = None
+        self._mag_vao: QOpenGLVertexArrayObject | None = None
+        self._mag_ibo: QOpenGLBuffer | None = None
+        self._mag_local: np.ndarray | None = None
+        self._mag_idx: np.ndarray | None = None
+        self._mag_n = 0
+        self._mag_cap = 0
+        self._mag_key: object = None
+        self._dip_buf: QOpenGLBuffer | None = None
+        self._dip_vao: QOpenGLVertexArrayObject | None = None
+        self._dip_local: np.ndarray | None = None
+        self._dip_cap = 0
+        self._shue_n = 0
+        self._well_buf: QOpenGLBuffer | None = None
+        self._well_vao: QOpenGLVertexArrayObject | None = None
+        self._well_ibo: QOpenGLBuffer | None = None
+        self._well_local: np.ndarray | None = None
+        self._well_idx: np.ndarray | None = None
+        self._well_n = 0
+        self._well_cap = 0
+        self._well_key: object = None
         self._tracer_buf: QOpenGLBuffer | None = None
         self._tracer_vao: QOpenGLVertexArrayObject | None = None
         self._tracer_cap = 0
@@ -704,6 +773,7 @@ class SolarSpaceView(QOpenGLFunctions):
             self._prog_atmo = self._compile(_VS_ATMO, _FS_ATMO, "atmo")
             self._prog_glow = self._compile(_VS_GLOW, _FS_GLOW, "glow")
             self._prog_line = self._compile(_VS_LINE, _FS_LINE, "line")
+            self._prog_bead = self._compile(_VS_BEAD, _FS_BEAD, "bead")
             trace("make_sphere")
             v, i = make_sphere()
             trace("upload sphere mesh")
@@ -926,9 +996,18 @@ class SolarSpaceView(QOpenGLFunctions):
         system = get_system()
         cam = panel.cam
         t = 0.0 if system is None or system.paused else round(float(system.t), 2)
-        live = 0 if system is None or not system.paused else int(time.perf_counter() * 8)
-        gyr = 0.0 if system is None else round(float(system.future_gyr), 3)
         osc = bool(system is not None and system.show_osculating)
+        if system is None:
+            live = 0
+        elif osc:
+            live = int(time.perf_counter() * 6)
+        elif system.paused:
+            live = int(time.perf_counter() * 3)
+        else:
+            live = 0
+        gyr = 0.0 if system is None else round(float(system.future_gyr), 3)
+        grav = bool(system is not None and system.overlay.show_gravity)
+        mag = bool(system is not None and system.overlay.show_magnetic)
         return (
             int(width),
             int(height),
@@ -944,7 +1023,10 @@ class SolarSpaceView(QOpenGLFunctions):
             live,
             gyr,
             osc,
+            grav,
+            mag,
             panel._inspect or "",
+            round(panel._fov_y(), 4),
         )
 
     def _read_fbo(self, fbo: QOpenGLFramebufferObject) -> QImage:
@@ -991,7 +1073,7 @@ class SolarSpaceView(QOpenGLFunctions):
             eye = (panel.cam.x, panel.cam.y, panel.cam.z)
             fx, fy, fz = panel.cam.basis()
             view = view_from_basis(fx, fy, fz)
-            proj = projection(self._fb_w, self._fb_h)
+            proj = projection(self._fb_w, self._fb_h, fov_y=panel._fov_y())
             self._draw_stars(view, proj)
             system = get_system()
             if system is not None:
@@ -1015,6 +1097,10 @@ class SolarSpaceView(QOpenGLFunctions):
                 self._draw_loops(system, eye, sun_p, view, proj)
                 if system.show_osculating:
                     self._draw_orbits(system, views, eye, fz, view, proj)
+                if system.overlay.show_gravity:
+                    self._draw_wells(system, views, eye, fz, sun_p, view, proj)
+                if system.overlay.show_magnetic:
+                    self._draw_magnetosphere(system, eye, fz, sun_p, view, proj)
                 tracers = [b for b in views if b.tracer]
                 if tracers:
                     self._draw_tracers(tracers, eye, view, proj)
@@ -1064,6 +1150,10 @@ class SolarSpaceView(QOpenGLFunctions):
             self._star_vao,
             self._glow_vao,
             self._ring_vao,
+            self._orbit_vao,
+            self._bead_vao,
+            self._mag_vao,
+            self._well_vao,
         ):
             if vao is not None:
                 vao.release()
@@ -1187,7 +1277,7 @@ class SolarSpaceView(QOpenGLFunctions):
         tick = 0.0
         if body.name == "Sun":
             gran = min(1.0, max(0.0, (true_px - 80.0) / 80.0))
-            tick = time.perf_counter() * 0.35
+            tick = time.perf_counter() * 0.08
         self._uni(self._prog_body, "uGran", float(gran))
         self._uni(self._prog_body, "uTime", float(tick))
         self.glActiveTexture(_GL_TEXTURE0)
@@ -1498,28 +1588,40 @@ class SolarSpaceView(QOpenGLFunctions):
         self._loop_vao.release()
         self._prog_line.release()
 
+    def _orbit_drawn(self, views, eye, fz):
+        inspect = self._panel._inspect
+        close = False
+        if inspect:
+            host = next((b for b in views if b.name == inspect), None)
+            if host is not None:
+                depth = max(self._cam_z(host, eye, fz), 1.0)
+                close = self._panel._true_px(host.radius, depth) >= 48.0
+        return [
+            b
+            for b in views
+            if not b.tracer
+            and b.name != "Sun"
+            and b.kind in {"planet", "asteroid", "moon"}
+            and (b.kind != "moon" or b.name == inspect or (close and b.parent == inspect))
+            and not (close and b.parent != inspect)
+        ]
+
     def _rebuild_orbits(self, system, drawn) -> None:
         """Rings in parent-relative metres, so a stale rebuild still tracks its host."""
         from arelis.physics.elements import osculating, position_at_true_anomaly
 
         pts: list[float] = []
-        groups: list[tuple[str, int, int]] = []
-        steps = 72
+        groups: list[tuple[str, str | None, int, int]] = []
         for body in drawn:
             r, v, mu, about, _origin = system.about(body)
             el = osculating(r, v, mu)
             if el is None or el.e >= 0.95:
                 continue
+            steps = 96 if body.kind == "asteroid" else 160
             start = len(pts) // 3
-            ring = [
-                position_at_true_anomaly(el, 2.0 * math.pi * i / steps)
-                for i in range(steps)
-            ]
             for i in range(steps):
-                a = ring[i]
-                b = ring[(i + 1) % steps]
-                pts.extend((*a, *b))
-            groups.append((about, start, len(pts) // 3))
+                pts.extend(position_at_true_anomaly(el, 2.0 * math.pi * i / steps))
+            groups.append((body.name, about, start, steps))
         self._orbit_local = (
             np.asarray(pts, dtype=np.float64).reshape(-1, 3) if pts else None
         )
@@ -1537,21 +1639,7 @@ class SolarSpaceView(QOpenGLFunctions):
         if self._prog_line is None:
             return
         inspect = self._panel._inspect
-        close = False
-        if inspect:
-            host = next((b for b in views if b.name == inspect), None)
-            if host is not None:
-                depth = max(self._cam_z(host, eye, fz), 1.0)
-                close = self._panel._true_px(host.radius, depth) >= 48.0
-        drawn = [
-            b
-            for b in views
-            if not b.tracer
-            and b.name != "Sun"
-            and b.kind in {"planet", "asteroid", "moon"}
-            and (b.kind != "moon" or b.name == inspect or (close and b.parent == inspect))
-            and not (close and b.parent != inspect)
-        ]
+        drawn = self._orbit_drawn(views, eye, fz)
         key = (inspect or "", tuple(b.name for b in drawn))
         now = time.perf_counter()
         moved = float(system.t) != self._orbit_t
@@ -1568,17 +1656,19 @@ class SolarSpaceView(QOpenGLFunctions):
             return
         # World float32 at Neptune loses moon rings, so the eye comes off in
         # float64 here. Each host's offset is constant across its own ring.
-        for name, start, stop in self._orbit_groups:
-            host = system.nbody.find(name)
-            offset = (
-                np.array(
-                    (host.x - eye[0], host.y - eye[1], host.z - eye[2]),
-                    dtype=np.float64,
+        offsets: dict[str | None, np.ndarray] = {}
+        for _name, about, start, count in self._orbit_groups:
+            if about not in offsets:
+                host = system.nbody.find(about) if about else None
+                offsets[about] = (
+                    np.array(
+                        (host.x - eye[0], host.y - eye[1], host.z - eye[2]),
+                        dtype=np.float64,
+                    )
+                    if host is not None
+                    else -np.asarray(eye, dtype=np.float64)
                 )
-                if host is not None
-                else -np.asarray(eye, dtype=np.float64)
-            )
-            scratch[start:stop] = local[start:stop] + offset
+            scratch[start : start + count] = local[start : start + count] + offsets[about]
         if self._orbit_vao is None or self._orbit_buf is None:
             self._orbit_vao, self._orbit_buf = self._lines(scratch.nbytes)
             self._orbit_cap = max(int(scratch.nbytes), 12)
@@ -1586,18 +1676,374 @@ class SolarSpaceView(QOpenGLFunctions):
         self.glEnable(_GL_DEPTH_TEST)
         self.glDepthMask(_GL_FALSE)
         self.glEnable(_GL_BLEND)
-        self.glBlendFunc(_GL_SRC_ALPHA, _GL_ONE_MINUS_SRC_ALPHA)
+        self.glBlendFunc(_GL_SRC_ALPHA, _GL_ONE)
+        self.glDisable(_GL_CULL_FACE)
+        try:
+            self.glLineWidth(2.0)
+        except Exception:
+            pass
         self._prog_line.bind()
         self._set_far(self._prog_line)
         self._uni(self._prog_line, "uView", view)
         self._uni(self._prog_line, "uProj", proj)
         self._uni(self._prog_line, "uEye", QVector3D(0.0, 0.0, 0.0))
-        self._uni(self._prog_line, "uColor", 1.0, 1.0, 1.0, 0.28)
         self._orbit_vao.bind()
-        self.glDrawArrays(_GL_LINES, 0, self._orbit_n)
+        self._uni(self._prog_line, "uColor", 0.78, 0.86, 1.0, 0.42)
+        for _name, _about, start, count in self._orbit_groups:
+            self.glDrawArrays(_GL_LINE_LOOP, start, count)
         self._orbit_vao.release()
+        if inspect:
+            self._draw_orbit_fill(inspect, offsets, view, proj)
         self._prog_line.release()
+        try:
+            self.glLineWidth(1.0)
+        except Exception:
+            pass
+        self._draw_orbit_beads(system, drawn, eye, view, proj)
+        self.glEnable(_GL_CULL_FACE)
+        self.glCullFace(_GL_BACK)
         self.glDepthMask(_GL_TRUE)
+        self.glBlendFunc(_GL_SRC_ALPHA, _GL_ONE_MINUS_SRC_ALPHA)
+        self.glDisable(_GL_BLEND)
+
+    def _draw_orbit_fill(
+        self,
+        inspect: str,
+        offsets: dict[str | None, np.ndarray],
+        view: QMatrix4x4,
+        proj: QMatrix4x4,
+    ) -> None:
+        """Faint Kepler pie in the orbital plane. Skip when the ellipse fills the view."""
+        local = self._orbit_local
+        if local is None or self._prog_line is None:
+            return
+        hit = next((g for g in self._orbit_groups if g[0] == inspect), None)
+        if hit is None:
+            return
+        _name, about, start, count = hit
+        ring = local[start : start + count]
+        origin = offsets.get(about)
+        if origin is None or ring.shape[0] < 3:
+            return
+        span = float(np.linalg.norm(ring[0]))
+        depth = max(float(np.linalg.norm(origin)), 1.0)
+        if self._panel._true_px(span, depth) > 0.72 * max(self._fb_h, 1):
+            return
+        fan = np.empty((count + 2, 3), dtype=np.float32)
+        fan[0] = origin
+        fan[1 : count + 1] = ring + origin
+        fan[-1] = fan[1]
+        if self._fill_vao is None or self._fill_buf is None:
+            self._fill_vao, self._fill_buf = self._lines(fan.nbytes)
+            self._fill_cap = max(int(fan.nbytes), 12)
+        self._fill_cap = self._upload(self._fill_buf, fan, self._fill_cap)
+        self._uni(self._prog_line, "uColor", 0.45, 0.70, 1.0, 0.045)
+        self._fill_vao.bind()
+        self.glDrawArrays(_GL_TRIANGLE_FAN, 0, int(fan.shape[0]))
+        self._fill_vao.release()
+
+    def _draw_orbit_beads(self, system, drawn, eye, view: QMatrix4x4, proj: QMatrix4x4) -> None:
+        if self._prog_bead is None:
+            return
+        from arelis.physics.elements import (
+            BEAD_LAP_S,
+            bead_true_anomalies,
+            osculating,
+            position_at_true_anomaly,
+        )
+
+        packed: list[float] = []
+        phase = (time.perf_counter() / BEAD_LAP_S) * 2.0 * math.pi
+        for body in drawn:
+            r, v, mu, _about, origin = system.about(body)
+            el = osculating(r, v, mu)
+            if el is None or el.e >= 0.95:
+                continue
+            for k, nu in enumerate(
+                bead_true_anomalies(el.true_anomaly, phase=phase)
+            ):
+                px, py, pz = position_at_true_anomaly(el, nu)
+                packed.extend(
+                    (
+                        origin[0] + px - eye[0],
+                        origin[1] + py - eye[1],
+                        origin[2] + pz - eye[2],
+                        1.0 if k == 0 else 0.42,
+                    )
+                )
+        if not packed:
+            return
+        arr = np.asarray(packed, dtype=np.float32)
+        if self._bead_vao is None or self._bead_buf is None:
+            self._bead_vao, self._bead_buf = self._points4(arr.nbytes)
+            self._bead_cap = max(int(arr.nbytes), 16)
+        self._bead_cap = self._upload(self._bead_buf, arr, self._bead_cap)
+        self._prog_bead.bind()
+        self._set_far(self._prog_bead)
+        self._uni(self._prog_bead, "uView", view)
+        self._uni(self._prog_bead, "uProj", proj)
+        self._uni(self._prog_bead, "uEye", QVector3D(0.0, 0.0, 0.0))
+        self._uni(self._prog_bead, "uColor", 0.85, 0.95, 1.0, 0.95)
+        self._bead_vao.bind()
+        self.glDrawArrays(_GL_POINTS, 0, len(packed) // 4)
+        self._bead_vao.release()
+        self._prog_bead.release()
+
+    def _draw_bubble(
+        self,
+        rel: QVector3D,
+        radius: float,
+        view: QMatrix4x4,
+        proj: QMatrix4x4,
+        sun_p: QVector3D,
+        rgb: tuple[float, float, float],
+        gain: float,
+        *,
+        hi: bool,
+    ) -> None:
+        if self._prog_atmo is None:
+            return
+        model = QMatrix4x4()
+        model.translate(rel)
+        model.scale(float(radius))
+        mvp = proj * view * model
+        self._prog_atmo.bind()
+        self._set_far(self._prog_atmo)
+        self._uni(self._prog_atmo, "uMVP", mvp)
+        self._uni(self._prog_atmo, "uModel", model)
+        self._uni(self._prog_atmo, "uSunP", sun_p)
+        self._uni(self._prog_atmo, "uAtmo", QVector3D(*rgb))
+        self._uni(self._prog_atmo, "uGain", float(gain))
+        self._draw_sphere(hi=hi)
+        self._prog_atmo.release()
+
+    def _draw_wells(
+        self, system, views, eye, fz, sun_p: QVector3D, view: QMatrix4x4, proj: QMatrix4x4
+    ) -> None:
+        from arelis.physics.elements import ISO_G_FACTORS, hill_radius, osculating
+
+        inspect = self._panel._inspect
+        inspect_body = system.nbody.find(inspect) if inspect else None
+        self.glEnable(_GL_DEPTH_TEST)
+        self.glDepthMask(_GL_FALSE)
+        self.glEnable(_GL_BLEND)
+        self.glBlendFunc(_GL_SRC_ALPHA, _GL_ONE)
+        self.glDisable(_GL_CULL_FACE)
+        gains = (0.28, 0.16, 0.09)
+        for body in views:
+            if body.tracer or body.kind in {"probe", "lagrange"}:
+                continue
+            wanted = body.kind in {"star", "planet"} or (
+                inspect_body is not None and body.name == inspect_body.name
+            )
+            if not wanted:
+                continue
+            depth = max(self._cam_z(body, eye, fz), 1.0)
+            rel = QVector3D(body.x - eye[0], body.y - eye[1], body.z - eye[2])
+            for k, gain in zip(ISO_G_FACTORS, gains, strict=True):
+                rad = k * body.radius
+                px = self._panel._true_px(rad, depth)
+                if px < 3.0 or px > 80.0:
+                    continue
+                self._draw_bubble(
+                    rel, rad, view, proj, sun_p, (1.0, 0.72, 0.28), gain, hi=px >= 28.0
+                )
+            r, v, mu, _about, _origin = system.about(body)
+            el = osculating(r, v, mu)
+            if el is None or body.mass <= 0.0 or mu <= 0.0:
+                continue
+            hill = hill_radius(float(el.a), body.mass, mu / G_SI)
+            if hill <= 8.0 * body.radius:
+                continue
+            px = self._panel._true_px(hill, depth)
+            if px < 4.0 or px > 72.0:
+                continue
+            self._draw_bubble(
+                rel, hill, view, proj, sun_p, (1.0, 0.52, 0.16), 0.20, hi=px >= 22.0
+            )
+        if inspect_body is not None:
+            self._draw_well_mesh(system, inspect_body, eye, view, proj)
+        self.glEnable(_GL_CULL_FACE)
+        self.glCullFace(_GL_BACK)
+        self.glDepthMask(_GL_TRUE)
+        self.glBlendFunc(_GL_SRC_ALPHA, _GL_ONE_MINUS_SRC_ALPHA)
+        self.glDisable(_GL_BLEND)
+
+    def _draw_well_mesh(self, system, body, eye, view: QMatrix4x4, proj: QMatrix4x4) -> None:
+        from arelis.physics.elements import well_grid, well_line_indices
+
+        _r, _v, mu, _about, _origin = system.about(body)
+        key = (body.name, round(float(mu), 3), round(body.radius, 1))
+        if key != self._well_key:
+            pts = well_grid(mu, body.radius, n=20)
+            self._well_local = np.asarray(pts, dtype=np.float64)
+            self._well_idx = np.asarray(well_line_indices(20), dtype=np.uint32)
+            self._well_n = int(self._well_idx.size)
+            self._well_key = key
+        local = self._well_local
+        idx = self._well_idx
+        if local is None or idx is None or self._well_n < 2 or self._prog_line is None:
+            return
+        offset = np.array(
+            (body.x - eye[0], body.y - eye[1], body.z - eye[2]), dtype=np.float64
+        )
+        world = (local + offset).astype(np.float32)
+        self._well_vao, self._well_buf, self._well_ibo, self._well_cap = self._indexed(
+            world,
+            idx,
+            self._well_vao,
+            self._well_buf,
+            self._well_ibo,
+            self._well_cap,
+        )
+        self._prog_line.bind()
+        self._set_far(self._prog_line)
+        self._uni(self._prog_line, "uView", view)
+        self._uni(self._prog_line, "uProj", proj)
+        self._uni(self._prog_line, "uEye", QVector3D(0.0, 0.0, 0.0))
+        self._uni(self._prog_line, "uColor", 1.0, 0.70, 0.22, 0.22)
+        self._well_vao.bind()
+        self.glDrawElements(
+            int(_GL_LINES), self._well_n, int(_GL_UNSIGNED_INT), gl_offset(0)
+        )
+        self._well_vao.release()
+        self._prog_line.release()
+
+    def _draw_magnetosphere(
+        self, system, eye, fz, _sun_p: QVector3D, view: QMatrix4x4, proj: QMatrix4x4
+    ) -> None:
+        inspect = self._panel._inspect
+        if inspect and inspect != "Earth":
+            return
+        earth = system.nbody.find("Earth")
+        sun = system.nbody.find("Sun")
+        if earth is None or self._prog_line is None:
+            return
+        depth = max(self._cam_z(earth, eye, fz), 1.0)
+        if self._panel._true_px(earth.radius * 15.0, depth) < 6.0:
+            return
+        from arelis.physics.magnetosphere import (
+            dipole_L_polylines,
+            dipole_segments,
+            earth_standoff_m,
+            shue_meridians,
+            shue_surface,
+            sunward_basis,
+        )
+        from arelis.physics.parker import dynamic_pressure_npa
+
+        if sun is not None:
+            sl = math.hypot(sun.x - earth.x, sun.y - earth.y, sun.z - earth.z) or AU_M
+            p_npa = dynamic_pressure_npa(sl)
+            ux, uy, uz = sunward_basis(
+                (earth.x, earth.y, earth.z), (sun.x, sun.y, sun.z)
+            )
+        else:
+            p_npa = dynamic_pressure_npa(AU_M)
+            ux, uy, uz = (1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0)
+        r0_m, _r0_re, alpha = earth_standoff_m(p_npa, earth.radius)
+        key = (
+            round(r0_m, -4),
+            round(alpha, 3),
+            round(ux[0], 3),
+            round(ux[1], 3),
+            round(ux[2], 3),
+        )
+        if key != self._mag_key:
+            verts, idx = shue_surface(r0_m, alpha, ux, uy, uz)
+            self._mag_local = verts
+            self._mag_idx = idx
+            self._mag_n = int(idx.size)
+            mer = dipole_segments(
+                [
+                    np.asarray(line, dtype=np.float64)
+                    for line in shue_meridians(r0_m, alpha, ux, uy, uz, n_theta=48, n_phi=12)
+                ]
+            )
+            dip = dipole_segments(dipole_L_polylines(earth.radius, ux, uy, uz))
+            if mer is not None and dip is not None:
+                self._shue_n = int(mer.shape[0])
+                self._dip_local = np.vstack((mer, dip))
+            elif mer is not None:
+                self._shue_n = int(mer.shape[0])
+                self._dip_local = mer
+            else:
+                self._shue_n = 0
+                self._dip_local = dip
+            self._mag_key = key
+        local = self._mag_local
+        idx = self._mag_idx
+        offset = np.array(
+            (earth.x - eye[0], earth.y - eye[1], earth.z - eye[2]), dtype=np.float64
+        )
+        pulse = 0.72 + 0.28 * (0.5 + 0.5 * math.sin(time.perf_counter() * 0.11))
+        r0_px = self._panel._true_px(r0_m, depth)
+        fill = (
+            local is not None
+            and idx is not None
+            and self._mag_n >= 3
+            and 12.0 <= r0_px <= 96.0
+        )
+        dip = self._dip_local
+        if self._prog_line is None:
+            return
+        if not fill and (dip is None or dip.shape[0] < 2):
+            return
+        self.glEnable(_GL_DEPTH_TEST)
+        self.glDepthMask(_GL_FALSE)
+        self.glEnable(_GL_BLEND)
+        self.glBlendFunc(_GL_SRC_ALPHA, _GL_ONE)
+        self.glDisable(_GL_CULL_FACE)
+        self._prog_line.bind()
+        self._set_far(self._prog_line)
+        self._uni(self._prog_line, "uView", view)
+        self._uni(self._prog_line, "uProj", proj)
+        self._uni(self._prog_line, "uEye", QVector3D(0.0, 0.0, 0.0))
+        if fill:
+            world = (local + offset).astype(np.float32)
+            self._mag_vao, self._mag_buf, self._mag_ibo, self._mag_cap = self._indexed(
+                world,
+                idx,
+                self._mag_vao,
+                self._mag_buf,
+                self._mag_ibo,
+                self._mag_cap,
+            )
+            self._uni(self._prog_line, "uColor", 0.35, 0.78, 1.0, 0.08 * pulse)
+            self._mag_vao.bind()
+            self.glDrawElements(
+                int(_GL_TRIANGLES), self._mag_n, int(_GL_UNSIGNED_INT), gl_offset(0)
+            )
+            self._mag_vao.release()
+        if dip is not None and dip.shape[0] >= 2:
+            dworld = (dip + offset).astype(np.float32)
+            if self._dip_vao is None or self._dip_buf is None:
+                self._dip_vao, self._dip_buf = self._lines(dworld.nbytes)
+                self._dip_cap = max(int(dworld.nbytes), 12)
+            self._dip_cap = self._upload(self._dip_buf, dworld, self._dip_cap)
+            try:
+                self.glLineWidth(1.5)
+            except Exception:
+                pass
+            self._dip_vao.bind()
+            shue_n = min(int(self._shue_n), int(dworld.shape[0]))
+            if shue_n >= 2:
+                self._uni(self._prog_line, "uColor", 0.35, 0.78, 1.0, 0.55 * pulse)
+                self.glDrawArrays(_GL_LINES, 0, shue_n)
+            rest = int(dworld.shape[0]) - shue_n
+            if rest >= 2:
+                self._uni(self._prog_line, "uColor", 0.45, 0.88, 1.0, 0.42 * pulse)
+                self.glDrawArrays(_GL_LINES, shue_n, rest)
+            self._dip_vao.release()
+            try:
+                self.glLineWidth(1.0)
+            except Exception:
+                pass
+        self._prog_line.release()
+        self.glEnable(_GL_CULL_FACE)
+        self.glCullFace(_GL_BACK)
+        self.glDepthMask(_GL_TRUE)
+        self.glBlendFunc(_GL_SRC_ALPHA, _GL_ONE_MINUS_SRC_ALPHA)
         self.glDisable(_GL_BLEND)
 
     def _lines(self, capacity: int) -> tuple[QOpenGLVertexArrayObject, QOpenGLBuffer]:
@@ -1615,6 +2061,53 @@ class SolarSpaceView(QOpenGLFunctions):
         self._keep.append(vao)
         self._keep.append(buf)
         return vao, buf
+
+    def _points4(self, capacity: int) -> tuple[QOpenGLVertexArrayObject, QOpenGLBuffer]:
+        vao = QOpenGLVertexArrayObject()
+        vao.create()
+        vao.bind()
+        buf = QOpenGLBuffer(QOpenGLBuffer.Type.VertexBuffer)
+        buf.create()
+        buf.bind()
+        room = max(int(capacity), 16)
+        buf.allocate(bytes(room), room)
+        self._attrib(0, 3, 16, 0)
+        self._attrib(1, 1, 16, 12)
+        vao.release()
+        buf.release()
+        self._keep.append(vao)
+        self._keep.append(buf)
+        return vao, buf
+
+    def _indexed(
+        self,
+        verts: np.ndarray,
+        idx: np.ndarray,
+        vao: QOpenGLVertexArrayObject | None,
+        vbo: QOpenGLBuffer | None,
+        ibo: QOpenGLBuffer | None,
+        cap: int,
+    ) -> tuple[QOpenGLVertexArrayObject, QOpenGLBuffer, QOpenGLBuffer, int]:
+        if vao is None or vbo is None or ibo is None:
+            vao = QOpenGLVertexArrayObject()
+            vao.create()
+            vao.bind()
+            vbo = QOpenGLBuffer(QOpenGLBuffer.Type.VertexBuffer)
+            vbo.create()
+            vbo.bind()
+            room = max(int(verts.nbytes), 12)
+            vbo.allocate(verts.tobytes(), room)
+            ibo = QOpenGLBuffer(QOpenGLBuffer.Type.IndexBuffer)
+            ibo.create()
+            ibo.bind()
+            ibo.allocate(idx.tobytes(), int(idx.nbytes))
+            self._attrib(0, 3, 12, 0)
+            vao.release()
+            vbo.release()
+            self._keep.extend((vao, vbo, ibo))
+            return vao, vbo, ibo, room
+        cap = self._upload(vbo, verts, cap)
+        return vao, vbo, ibo, cap
 
     def _upload(self, buf: QOpenGLBuffer, arr: np.ndarray, cap: int) -> int:
         """Stream into a live VBO. allocate() every frame is a driver realloc."""

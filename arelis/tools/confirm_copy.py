@@ -179,6 +179,8 @@ def confirm_headline(tool: str, args: dict[str, Any] | None = None) -> str:
         if action in {"done", "pause", "resume", "drop", "remove"}:
             return f"{action} a goal"
         return "change a goal"
+    if name == "solar" and action == "dump":
+        return "dump solar state"
     if name == "external_read":
         leaf = _path_leaf(args)
         return f"read {leaf}" if leaf else "read this file"

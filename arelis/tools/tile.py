@@ -15,6 +15,8 @@ class TileTool:
         "history, notifications, camera, contacts, calendar, world. "
         "action=open shows it; action=close hides it. "
         "World is the physics-room plate (hands sandbox / solar lab). "
+        "page=solar enters the lab; page=hands enters the toy. "
+        "Omit page for the chooser. "
         "For calendar events use agenda, not this tool. "
         "Do not use the browser to open these."
     )
@@ -32,6 +34,11 @@ class TileTool:
                 "type": "string",
                 "enum": list(TILE_NAMES),
                 "description": "Which tile. Omit on close to reuse the last one.",
+            },
+            "page": {
+                "type": "string",
+                "enum": ["solar", "hands"],
+                "description": "World page. solar is the lab; hands is the toy. Omit for the chooser.",
             },
         },
         "required": ["action"],
@@ -56,9 +63,22 @@ class TileTool:
                 ),
             )
         type(self).last_name = name
+        page = str(kwargs.get("page") or "").strip().lower()
+        if page not in {"", "solar", "hands"}:
+            page = ""
+        if name != "world":
+            page = ""
         verb = "Opened" if action == "open" else "Closed"
+        data: dict[str, Any] = {
+            "open": action == "open",
+            "close": action == "close",
+            "name": name,
+        }
+        if page:
+            data["page"] = page
+        note = f" {page}" if page else ""
         return ToolResult(
             ok=True,
-            output=f"{verb} {name}.",
-            data={"open": action == "open", "close": action == "close", "name": name},
+            output=f"{verb} {name}{note}.",
+            data=data,
         )

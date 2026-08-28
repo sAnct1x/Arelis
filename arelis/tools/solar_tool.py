@@ -17,7 +17,15 @@ from arelis.tools.base import ToolResult
 from arelis.tools.catalog import CatalogTool, ephemeris_day
 
 WRITE_ACTIONS = frozenset(
-    {"impulse", "add_probe", "add_planet", "fetch_maps", "tracer", "l4", "epoch"}
+    {
+        "impulse",
+        "add_probe",
+        "add_planet",
+        "fetch_maps",
+        "tracer",
+        "l4",
+        "epoch",
+    }
 )
 
 
@@ -27,10 +35,14 @@ class SolarTool:
         "True-scale solar-system laboratory in the physics room. "
         "load fetches JPL Horizons VECTORS (SSB, ECLIPJ2000) and runs "
         "REBOUND IAS15. That is the only IC. status reads the HUD. "
-        "lock opens the inspect tile; travel warps the camera (not a burn). "
+        "lock opens the inspect tile; travel flies the camera "
+        "(accel, cruise, slow) to an approach standoff — not a burn. "
         "There is no rideable craft; action=craft is inspect. "
         "impulse, add_probe, add_planet, tracer, l4, and epoch change the "
         "universe and need Allow. "
+        "dump writes a cited JSONL receipt under outputs/physics/solar. "
+        "Leaving the solar lab does the same automatically. Not a screenshot. "
+        "Belt tracers omitted. No GL still. "
         "Do not invent an ephemeris or Euler-step in prose. "
         "Belt tracers are unlabeled particles, not named asteroids. "
         "epoch scrubs a cited solar track; it is not a Gyr of IAS15."
@@ -63,6 +75,7 @@ class SolarTool:
                     "l4",
                     "epoch",
                     "travel",
+                    "dump",
                 ],
                 "description": "What to do",
             },
@@ -267,7 +280,8 @@ class SolarTool:
             return ToolResult(
                 ok=True,
                 output=(
-                    f"Camera warp to {name} queued. Approach standoff, not an N-body burn."
+                    f"Flying the camera to {name}. Accel, cruise, slow. "
+                    "Approach standoff, not an N-body burn."
                 ),
                 data={"travel": name},
             )
@@ -281,6 +295,8 @@ class SolarTool:
             return self._lagrange(system)
         if action == "toggle":
             return self._toggle(system, str(kwargs.get("flag") or ""))
+        if action == "dump":
+            return self._dump(system)
         return ToolResult(
             ok=False,
             output="Unknown solar action.",
@@ -497,6 +513,42 @@ class SolarTool:
             },
         )
 
+    def _dump(self, system: SolarSystem) -> ToolResult:
+        from arelis.physics.export import dump_state
+
+        try:
+            folder = dump_state(system, trigger="dump")
+        except OSError as exc:
+            return ToolResult(
+                ok=False,
+                output=str(exc),
+                data={"fail_class": "fail:io"},
+            )
+        n = sum(
+            1
+            for p in system.nbody.particles
+            if (not p.tracer) or p.name == system.lock
+        )
+        omitted = any(p.tracer for p in system.nbody.particles)
+        digest = (system.ic_hash[:12] + "...") if system.ic_hash else "(none)"
+        tracers = "Belt tracers omitted. " if omitted else ""
+        return ToolResult(
+            ok=True,
+            output=(
+                f"Dumped {n} bodies to {folder}. "
+                f"ECLIPJ2000, t={system.t:.3e} s, ic_hash={digest}. "
+                f"{tracers}No GL still in this bundle."
+            ),
+            data={
+                "path": str(folder),
+                "n": n,
+                "ic_hash": system.ic_hash,
+                "t": system.t,
+                "tracers_omitted": omitted,
+                "still": False,
+            },
+        )
+
     def _status(self, system: SolarSystem | None) -> ToolResult:
         if system is None:
             return ToolResult(
@@ -589,35 +641,10 @@ class SolarTool:
 
     def _toggle(self, system: SolarSystem, flag: str) -> ToolResult:
         key = flag.strip().lower()
-        if key == "osculating":
-            system.show_osculating = not system.show_osculating
-            val = system.show_osculating
-        elif key == "trails":
-            system.show_trails = not system.show_trails
-            val = system.show_trails
-        elif key == "graphs":
-            system.show_graphs = not system.show_graphs
-            val = system.show_graphs
-        elif key == "lagrange":
-            system.show_lagrange = not system.show_lagrange
-            val = system.show_lagrange
-        elif key == "gravity":
-            system.overlay.show_gravity = not system.overlay.show_gravity
-            val = system.overlay.show_gravity
-        elif key == "magnetic":
-            system.overlay.show_magnetic = not system.overlay.show_magnetic
-            val = system.overlay.show_magnetic
-        elif key in {"wind", "parker", "solarwind"}:
-            system.overlay.show_wind = not system.overlay.show_wind
-            val = system.overlay.show_wind
+        if key in {"wind", "parker", "solarwind"}:
             key = "wind"
-        elif key == "grid":
-            system.overlay.show_grid = not system.overlay.show_grid
-            val = system.overlay.show_grid
-        elif key == "warp":
-            system.toggle_warp()
-            val = system.rate
-        else:
+        val = system.apply_overlay(key)
+        if val is None:
             return ToolResult(
                 ok=False,
                 output=(

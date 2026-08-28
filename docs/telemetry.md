@@ -18,6 +18,7 @@ Nothing here is sent anywhere.
 | Conversation mic stuck | `logs/voice.log` (wake decisions always. The rest needs `voice.debug: true`) |
 | Did that chat turn re-prefill the whole prompt? | `logs/turns.jsonl` → `model_prefill_ms`, `prompt_eval_count` |
 | World plate / hands hitch | Overlay FPS. Take jsonl under `outputs/physics/takes/` |
+| Solar lab receipt (IAS15 state, not a screenshot) | `outputs/physics/solar/<utc>/` (`manifest.json` + `state.jsonl`) |
 
 ## Files
 
@@ -59,3 +60,9 @@ when ids do not join: `id=` (turn), `session=`, `span=` (STT), `eid=`
 - Entire tool result bodies (400-char preview in `events.log`)
 - Pose and World-plate motion (not a chat turn; only take jsonl + overlay FPS)
 - Phone Gemma latency while the house is away
+
+**`outputs/physics/solar/`** is not a log. Leaving the solar lab writes a
+cited snapshot of the live IAS15 state (ECLIPJ2000 metres) so a figure can
+be the same integrator, not a PNG. `solar action=dump` does the same
+without leaving. Hands takes stay under `outputs/physics/takes/`.
+No GL still in that bundle yet.

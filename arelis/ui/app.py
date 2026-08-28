@@ -97,7 +97,13 @@ from arelis.sms_ingest import InboundIngestServer
 from arelis.spatial import PHYSICS_ROOM_ID
 from arelis.spatial.depth import ESTIMATOR, DepthBank
 from arelis.spatial.grant import world_stage_allowed
-from arelis.spatial.verbs import classify_physics_verb, is_time_verb, is_toy_verb
+from arelis.spatial.verbs import (
+    PhysicsAct,
+    classify_physics_act,
+    is_time_verb,
+    is_toy_verb,
+    speech_body_names,
+)
 from arelis.spatial.scene import (
     GRAVITY,
     REACH_DEFAULT,
@@ -1518,7 +1524,12 @@ class ArelisWindow(QMainWindow):
             return False
         if isinstance(aw, SettingsDialog):
             return False
-        return aw is self or self.isAncestorOf(aw)
+        if aw is self or self.isAncestorOf(aw):
+            return True
+        # World / calendar / inboxes are native windows. isAncestorOf is false
+        # across windows even when we own them — conversation still lives here.
+        parent = aw.parent() if aw is not None else None
+        return parent is self
 
     def _is_voice_hotkey(self, event: QKeyEvent) -> bool:
         if event.key() != Qt.Key.Key_M:
@@ -2231,7 +2242,7 @@ class ArelisWindow(QMainWindow):
         self.act_world.setChecked(True)
         self._toggle_world(True)
 
-    def _toggle_world(self, checked: bool) -> None:
+    def _toggle_world(self, checked: bool, page: str = "") -> None:
         self._note_engagement()
         if not world_stage_allowed():
             self.act_world.setChecked(False)
@@ -2255,8 +2266,13 @@ class ArelisWindow(QMainWindow):
                 self._world_placed = True
             self.world_window.show()
             self.world_window.raise_()
-            self.world_window.show_chooser()
-            self.world_window.panel.refresh()
+            if page == "solar":
+                self.world_window.enter_solar()
+            elif page == "hands":
+                self.world_window.enter_hands()
+            else:
+                self.world_window.show_chooser()
+                self.world_window.panel.refresh()
         else:
             self.world_window.hide()
         self._sync_idle_mode()
@@ -2275,15 +2291,97 @@ class ArelisWindow(QMainWindow):
         """Closed lexicon in this room. True when it must not start a turn."""
         if self.conversation.room.room_id != PHYSICS_ROOM_ID:
             return False
-        verb = classify_physics_verb(text)
-        if not verb:
+        act = classify_physics_act(text, names=speech_body_names())
+        if not act:
             return False
-        self._apply_physics_verb(verb)
+        self._apply_physics_act(act)
         return True
 
-    def _apply_physics_verb(self, verb: str) -> None:
+    def _apply_physics_verb(
+        self,
+        verb: str,
+        *,
+        name: str = "",
+        flag: str = "",
+        on: bool | None = None,
+        page: str = "",
+    ) -> None:
+        self._apply_physics_act(
+            PhysicsAct(verb=verb, name=name, flag=flag, on=on, page=page)
+        )
+
+    def _apply_physics_act(self, act: PhysicsAct) -> None:
         from arelis.physics.runtime import get_system
 
+        verb = act.verb
+        if verb == "lab":
+            self._apply_tile("world", show=bool(act.on), page=act.page)
+            return
+        if verb == "overlay":
+            self._apply_tile("world", show=True, page="solar")
+            system = get_system()
+            if system is None:
+                self.thinking.append("No solar system loaded", kind="status")
+                return
+            val = system.apply_overlay(act.flag, on=act.on)
+            if val is None:
+                self.thinking.append(f"unknown overlay {act.flag}", kind="status")
+                return
+            self.thinking.append(f"{act.flag}={val}", kind="status")
+            self._touch_solar()
+            return
+        if verb == "travel":
+            self._apply_tile("world", show=True, page="solar")
+            system = get_system()
+            if system is None:
+                self.thinking.append("No solar system loaded", kind="status")
+                return
+            name = (act.name or "").strip()
+            if not name:
+                name = ""
+                if hasattr(self, "world_window"):
+                    name = str(self.world_window.solar._inspect or "")
+                if not name:
+                    name = str(system.lock or "")
+            if not name:
+                self.thinking.append(
+                    "Name a body, or inspect one first.", kind="status"
+                )
+                return
+            if system.nbody.find(name) is None:
+                self.thinking.append(f"No body named {name!r}", kind="status")
+                return
+            system.lock = name
+            system.pending_inspect = name
+            system.pending_travel = name
+            self.thinking.append(f"flying to {name}", kind="status")
+            self._touch_solar()
+            return
+        if verb == "inspect_body":
+            self._apply_tile("world", show=True, page="solar")
+            system = get_system()
+            if system is None:
+                self.thinking.append("No solar system loaded", kind="status")
+                return
+            name = (act.name or "").strip()
+            if not name or system.nbody.find(name) is None:
+                self.thinking.append(f"No body named {name!r}", kind="status")
+                return
+            system.lock = name
+            system.pending_inspect = name
+            self.thinking.append(f"inspecting {name}", kind="status")
+            self._touch_solar()
+            return
+        if verb == "reset_view":
+            self._apply_tile("world", show=True, page="solar")
+            system = get_system()
+            if system is None:
+                self.thinking.append("No solar system loaded", kind="status")
+                return
+            system.pending_reset = True
+            self.thinking.append("reset view", kind="status")
+            self._touch_solar()
+            return
         if is_time_verb(verb):
             system = get_system()
             if system is None:
@@ -2315,6 +2413,7 @@ class ArelisWindow(QMainWindow):
                 f"{verb}  rate={system.rate:g}  t={system.t:.3e}s",
                 kind="status",
             )
+            self._touch_solar()
             return
         system = get_system()
         if system is not None and is_toy_verb(verb):
@@ -2348,7 +2447,11 @@ class ArelisWindow(QMainWindow):
         else:
             self.thinking.append("Nothing is held", kind="status")
 
-    def _apply_tile(self, name: str, *, show: bool) -> None:
+    def _touch_solar(self) -> None:
+        if hasattr(self, "world_window") and self.world_window.solar_active():
+            self.world_window.solar.update()
+
+    def _apply_tile(self, name: str, *, show: bool, page: str = "") -> None:
         """Show or hide a View-menu tile from the tile tool."""
         key = (name or "").strip().lower()
         mapping = {
@@ -2366,6 +2469,9 @@ class ArelisWindow(QMainWindow):
             return
         action, toggle = pair
         action.setChecked(show)
+        if key == "world":
+            self._toggle_world(show, page=page)
+            return
         toggle(show)
 
     def _run_ui_call(self, fn) -> None:
@@ -4365,7 +4471,14 @@ class ArelisWindow(QMainWindow):
             # the same way an empty transcript does, then mutate the scene.
             if self.voice_controller is not None:
                 self.voice_controller.notify_utterance_dropped()
-            self._apply_physics_verb(str(p.get("verb") or ""))
+            on_val = p.get("on")
+            self._apply_physics_verb(
+                str(p.get("verb") or ""),
+                name=str(p.get("name") or ""),
+                flag=str(p.get("flag") or ""),
+                on=on_val if isinstance(on_val, bool) else None,
+                page=str(p.get("page") or ""),
+            )
         elif t == EventType.CONVERSATION_END:
             # Spoken hangup. Same latch as Ctrl+Shift+M off: the two-arcs
             # button, speak_replies, and wake listen. No turn starts.
@@ -4653,6 +4766,7 @@ class ArelisWindow(QMainWindow):
                 self._apply_tile(
                     str(data.get("name") or ""),
                     show=bool(data.get("open")) and not data.get("close"),
+                    page=str(data.get("page") or ""),
                 )
             if p.get("tool") == "browser":
                 if intro:

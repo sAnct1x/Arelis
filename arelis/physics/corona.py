@@ -5,7 +5,7 @@ The pole is IAU WGCCRE 2015 solar north. Compact loops use the same law at
 low L and ride the Carrington rate (IAU W).
 
 Flares are a waiting-time sketch on wall seconds so the star still moves
-while IAS15 is paused. That is not a GOES catalog and not live SDO.
+while IAS15 is paused. Quiet most of the time; not a GOES catalog, not SDO.
 """
 
 from __future__ import annotations
@@ -50,7 +50,7 @@ def dipole_line(
     L: float,
     phi: float,
     *,
-    n: int = 37,
+    n: int = 65,
 ) -> np.ndarray:
     """Unit-sphere magnetic-frame points, r ≥ 1. Footpoints sit on the photosphere."""
     L = min(max(float(L), 1.02), L_MAX)
@@ -69,14 +69,15 @@ def dipole_line(
 
 
 def flare_gain(wall_s: float, seed: int) -> float:
-    """One pulse per waiting-time draw. Mean wait ~16 s of wall clock."""
+    """One slow gaussian pulse per waiting-time draw. Mean wait ~50 s of wall."""
     u = _hash01(seed)
-    period = 9.0 + 22.0 * u
-    width = 1.15 + 0.55 * u
+    period = 36.0 + 48.0 * u
+    width = 2.6 + 1.1 * u
     phase = (float(wall_s) + 47.0 * u) % period
-    if phase > width * 5.0:
+    x = (phase - 0.18 * period) / width
+    if abs(x) > 3.2:
         return 0.0
-    return math.exp(-phase / width)
+    return math.exp(-x * x)
 
 
 def loops(
@@ -90,15 +91,15 @@ def loops(
     out: list[Loop] = []
     seed = 0
     for L100 in (165, 205, 255, 315):
-        for k in range(6):
-            phi = (k + 0.12) * math.pi / 3.0
+        for k in range(4):
+            phi = (k + 0.12) * math.pi / 2.0
             pts = _to_world(dipole_line(L100 / 100.0, phi), xx, yx, zx, r_sun)
             out.append(Loop(pts, flare_gain(wall_s, seed), "dipole"))
             seed += 1
     for L100 in (109, 116, 126, 138):
-        for k in range(5):
+        for k in range(4):
             phi = (k * 1.256637 + 0.31) % (2.0 * math.pi)
-            pts = _to_world(dipole_line(L100 / 100.0, phi, n=29), xx, yx, zx, r_sun)
+            pts = _to_world(dipole_line(L100 / 100.0, phi, n=49), xx, yx, zx, r_sun)
             out.append(Loop(pts, flare_gain(wall_s, seed + 40), "ar"))
             seed += 1
     return out

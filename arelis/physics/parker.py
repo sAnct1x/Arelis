@@ -69,13 +69,15 @@ def spiral_points(
     r1_m: float,
     jd: float,
     *,
-    n: int = 64,
+    n: int = 192,
     v_m_s: float = V_SLOW_M_S,
 ) -> np.ndarray:
     """Sun-relative metres in ECLIPJ2000, solar equator."""
     xx, yx, zx = sun_frame_ecliptic(jd)
     del zx
-    rs = np.linspace(max(float(r0_m), 1.0), max(float(r1_m), float(r0_m) + 1.0), max(int(n), 8))
+    r0 = max(float(r0_m), 1.0)
+    r1 = max(float(r1_m), r0 + 1.0)
+    rs = np.geomspace(r0, r1, max(int(n), 8))
     out = np.empty((rs.size, 3), dtype=np.float64)
     for i, r in enumerate(rs):
         phi = spiral_phi(phi0, r, r0_m, v_m_s=v_m_s)

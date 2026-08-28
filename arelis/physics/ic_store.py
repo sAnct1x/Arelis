@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from datetime import date
 from pathlib import Path
@@ -57,6 +58,34 @@ def load_cached(day_iso: str) -> dict[str, VectorState] | None:
     if "Sun" not in states:
         return None
     return states
+
+
+def vectors_hash(states: dict[str, VectorState], day_iso: str) -> str:
+    """SHA-256 of the canonical Horizons VECTORS payload. Not a cache-schema bump.
+
+    Center SSB, ECLIPJ2000, SI, date, and each body's x/y/z/vx/vy/vz/jd.
+    Stable across load from disk vs the live fetch that wrote that disk.
+    """
+    payload = {
+        "center": "SSB",
+        "frame": "ECLIPJ2000",
+        "units": "SI",
+        "date": day_iso,
+        "bodies": {
+            name: {
+                "x": st.x,
+                "y": st.y,
+                "z": st.z,
+                "vx": st.vx,
+                "vy": st.vy,
+                "vz": st.vz,
+                "jd": st.epoch_jd,
+            }
+            for name, st in sorted(states.items())
+        },
+    }
+    blob = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    return hashlib.sha256(blob.encode("ascii")).hexdigest()
 
 
 def save_cached(day_iso: str, states: dict[str, VectorState]) -> None:

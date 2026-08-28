@@ -42,6 +42,7 @@ from arelis.physics.attitude import (
 from arelis.physics.camera import (
     SOLAR_SPAN_M,
     SPEED_MAX,
+    CameraWarp,
     FlyCamera,
     overview_distance,
     project_with_basis,
@@ -67,7 +68,17 @@ from arelis.physics.constants import (
     SATURN_RING_INNER_M,
     SATURN_RING_OUTER_M,
 )
-from arelis.physics.elements import hill_radius, osculating, position_at_true_anomaly
+from arelis.physics.elements import (
+    BEAD_LAP_S,
+    ISO_G_FACTORS,
+    bead_true_anomalies,
+    hill_radius,
+    osculating,
+    position_at_true_anomaly,
+    well_grid,
+    well_inner_ring,
+    well_theta_count,
+)
 from arelis.physics.evolution import GYR_MAX, GYR_MIN, sample, sun_rgb
 from arelis.physics.maps import describe, forget_ready, load_rgb
 from arelis.physics.runtime import get_system
@@ -158,6 +169,16 @@ KEY_LEGEND: tuple[tuple[str, tuple[tuple[str, str], ...]], ...] = (
         ),
     ),
 )
+_HUD_MAX_W = 720
+_HUD_MIN_W = 280
+_HUD_GAP = 12
+_HUD_LANE = 304
+_ROSTER_MAX_ROWS = 12
+_ROSTER_ROW = 20
+_ROSTER_GAP = 14
+_KEYS_ROW = 22
+_LEGEND_ROW = 17
+_LEGEND_BLOCK = 32 + 7 * _LEGEND_ROW + 12
 
 
 def _wash(name: str, alpha: int) -> QColor:
@@ -292,8 +313,8 @@ def _globe(
         w = np.power(mu, 0.52)
         samp = limbc + (core - limbc) * w[..., None]
         if size >= 96 and granulate:
-            g = np.sin(nx * 48.0 + ny * 31.0 + time.perf_counter() * 0.85)
-            g += 0.5 * np.sin(nx * 86.0 - ny * 54.0 - time.perf_counter() * 0.4)
+            g = np.sin(nx * 18.0 + ny * 12.0 + time.perf_counter() * 0.16)
+            g += 0.5 * np.sin(nx * 34.0 - ny * 22.0 - time.perf_counter() * 0.09)
             samp = samp * (1.0 + 0.12 * g[..., None])
         lit = np.clip(samp * ld[..., None], 0, 255).astype(np.uint8)
         rgb[..., :3] = lit
@@ -371,6 +392,7 @@ class SolarPanel(QWidget):
         self._inspect_more = False
         self._roster_scroll = 0
         self._hud_bottom = 120
+        self._hud_box = QRect()
         self._keys_hit = QRect()
         self._drawn_labels: list[tuple[str, int, int, int]] = []
         self._cover: tuple[float, float, float] | None = None
@@ -395,6 +417,7 @@ class SolarPanel(QWidget):
         self._reset_pending = False
         self._tick_t = time.perf_counter()
         self._fly_v = [0.0, 0.0, 0.0]
+        self._warp: CameraWarp | None = None
         self._roster_key: object = None
         self._roster_cache: list[str] | None = None
         self._chrome_key: object = None
@@ -414,6 +437,18 @@ class SolarPanel(QWidget):
         self.setFocus(Qt.FocusReason.OtherFocusReason)
         self._ensure_ic()
         self._ensure_space()
+
+    def camera_state(self) -> dict[str, float | list[float]]:
+        """Eye in ECLIPJ2000 metres. For the leave receipt. Not a particle."""
+        cam = self.cam
+        return {
+            "x": cam.x,
+            "y": cam.y,
+            "z": cam.z,
+            "yaw": cam.yaw,
+            "pitch": cam.pitch,
+            "up": [cam.up[0], cam.up[1], cam.up[2]],
+        }
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
@@ -593,11 +628,17 @@ class SolarPanel(QWidget):
             if system.pending_inspect:
                 self._set_inspect(system.pending_inspect)
                 system.pending_inspect = None
+            if system.pending_reset:
+                system.pending_reset = False
+                self.reset_view(keep_inspect=True)
             if system.pending_travel:
                 name = system.pending_travel
                 system.pending_travel = None
                 self._travel_to(name)
-            self._fly_camera(dt)
+            if self._warp is not None:
+                self._step_warp(system, dt)
+            else:
+                self._fly_camera(dt)
             if not system.paused:
                 system.tick(dt)
         if ingested or self._view_dirty(system):
@@ -612,16 +653,21 @@ class SolarPanel(QWidget):
             speed2 = 0.0
         if held or speed2 > 0.0:
             return True
+        if self._warp is not None:
+            return True
         if self._maps_note != self._painted_note:
             return True
         if system is None:
             return False
         # Dipole flares and granulation run on wall time, even while IAS15 is paused.
         if system.paused:
-            return time.perf_counter() - self._painted_wall >= 0.125
+            wait = 0.16 if system.show_osculating else 0.32
+            return time.perf_counter() - self._painted_wall >= wait
         if self._motion_px(system) >= _IDLE_PX:
             return True
-        # The lecture and the sparklines carry numbers a still frame would freeze.
+        if system.show_osculating:
+            return time.perf_counter() - self._painted_wall >= 0.16
+        # The key legend is static; sparklines still move on a paused clock.
         if self._help or system.show_graphs:
             return time.perf_counter() - self._painted_wall >= 0.25
         return False
@@ -697,6 +743,8 @@ class SolarPanel(QWidget):
         palm_z: float | None,
     ) -> None:
         """Palm z is camera dolly, not a physics coordinate."""
+        if self._warp is not None:
+            return
         if not pinched:
             self._hand_span = None
             self._hand_z = None
@@ -856,6 +904,14 @@ class SolarPanel(QWidget):
                 escape()
             event.accept()
             return
+        mods = event.modifiers()
+        if mods & (
+            Qt.KeyboardModifier.ControlModifier
+            | Qt.KeyboardModifier.AltModifier
+            | Qt.KeyboardModifier.MetaModifier
+        ):
+            super().keyPressEvent(event)
+            return
         if event.isAutoRepeat() or self.menu_up:
             return
         self._keys.add(int(event.key()))
@@ -936,6 +992,7 @@ class SolarPanel(QWidget):
             self._basis,
             self.width(),
             self.height(),
+            fov_y=self._fov_y(),
         )
 
     def wheelEvent(self, event: QWheelEvent) -> None:
@@ -953,7 +1010,8 @@ class SolarPanel(QWidget):
         if over_speed or event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
             self.cam.nudge_speed(0.85 if delta < 0 else 1.18)
         elif delta != 0:
-            self._camera_fly(1.0 if delta > 0 else -1.0, 0.0, 0.0, 0.20)
+            if self._warp is None:
+                self._camera_fly(1.0 if delta > 0 else -1.0, 0.0, 0.0, 0.20)
         event.accept()
         self.update()
 
@@ -965,8 +1023,12 @@ class SolarPanel(QWidget):
             self._set_inspect(None)
         self.update()
 
+    def _fov_y(self) -> float:
+        punch = 0.0 if self._warp is None else 0.18 * self._warp.speed01
+        return 0.70 + punch
+
     def _travel_to(self, name: str) -> None:
-        """Camera warp to ~8× IAU radius. Not an N-body burn. WASD is unclipped."""
+        """Fly the inspect eye to ~8× IAU radius. Accel, cruise, slow. Not a burn."""
         system = get_system()
         if system is None:
             return
@@ -974,15 +1036,50 @@ class SolarPanel(QWidget):
         if body is None:
             return
         sun = system.nbody.find("Sun")
-        self.cam.travel_to(
+        sun_p = (sun.x, sun.y, sun.z) if sun is not None else None
+        self._warp = CameraWarp.start(
+            self.cam,
+            name,
             body.x,
             body.y,
             body.z,
             body.radius,
-            sun=(sun.x, sun.y, sun.z) if sun is not None else None,
+            sun_p,
         )
+        self._fly_v = [0.0, 0.0, 0.0]
         self._set_inspect(name)
         self.update()
+
+    def _step_warp(self, system: SolarSystem, dt: float) -> None:
+        flight = self._warp
+        if flight is None:
+            return
+        body = system.nbody.find(flight.name)
+        if body is None:
+            self._warp = None
+            return
+        sun = system.nbody.find("Sun")
+        sun_p = (sun.x, sun.y, sun.z) if sun is not None else None
+        flying = flight.step(
+            self.cam, body.x, body.y, body.z, body.radius, sun_p, dt
+        )
+        if not flying:
+            self._warp = None
+
+    def _finish_travel(self) -> None:
+        """Snap to the standoff. Tests, not a shortcut in the plate."""
+        flight = self._warp
+        system = get_system()
+        if flight is None or system is None:
+            return
+        body = system.nbody.find(flight.name)
+        if body is None:
+            self._warp = None
+            return
+        sun = system.nbody.find("Sun")
+        sun_p = (sun.x, sun.y, sun.z) if sun is not None else None
+        flight.snap(self.cam, body.x, body.y, body.z, body.radius, sun_p)
+        self._warp = None
 
     def _body_at(self, px: float, py: float) -> str | None:
         system = get_system()
@@ -1058,28 +1155,59 @@ class SolarPanel(QWidget):
 
         return [body.name for body in sorted(bodies, key=sort_key)]
 
+    def _roster_row_open(self, system: SolarSystem, name: str) -> bool:
+        """Moons stay folded until that moon or its parent is inspect."""
+        spec = BODY_BY_NAME.get(name)
+        kind = spec.kind if spec is not None else ""
+        parent = spec.parent if spec is not None else None
+        if spec is None:
+            body = system.nbody.find(name)
+            if body is None:
+                return True
+            kind = body.kind
+            parent = body.parent
+        if kind != "moon":
+            return True
+        inspect = self._inspect
+        return inspect == name or inspect == parent
+
+    def _roster_shown(self, system: SolarSystem) -> list[str]:
+        return [
+            name
+            for name in self._roster_names(system)
+            if self._roster_row_open(system, name)
+        ]
+
     def _roster_rect(self) -> QRect:
-        top = self._hud_bottom + 10
-        room = self._speed_rect().y() - 10 - top
+        top = self._hud_plate_rect().bottom() + _ROSTER_GAP
+        floor = self._speed_rect().y() - 22
+        room = floor - top
+        if room < 40:
+            return QRect()
         system = get_system()
-        n = len(self._roster_names(system)) if system is not None else 1
-        rows = min(n, max(1, (room - 22) // 18))
-        height = min(room, 22 + rows * 18 + 6)
-        return QRect(10, top, 188, max(48, height))
+        n = len(self._roster_shown(system)) if system is not None else 1
+        rows = min(n, max(1, (room - 24) // _ROSTER_ROW), _ROSTER_MAX_ROWS)
+        height = min(room, 22 + rows * _ROSTER_ROW + 6)
+        return QRect(10, top, 168, max(44, height))
 
     def _roster_rows(self) -> int:
-        return max(1, (self._roster_rect().height() - 16) // 18)
+        box = self._roster_rect()
+        if box.isEmpty():
+            return 0
+        return max(1, (box.height() - 18) // _ROSTER_ROW)
 
     def _roster_visible(self, system: SolarSystem) -> list[str]:
-        names = self._roster_names(system)
+        names = self._roster_shown(system)
         rows = self._roster_rows()
+        if rows <= 0:
+            return []
         max_scroll = max(0, len(names) - rows)
         self._roster_scroll = min(max(0, self._roster_scroll), max_scroll)
         return names[self._roster_scroll : self._roster_scroll + rows]
 
     def _roster_row_rect(self, i: int) -> QRect:
         box = self._roster_rect()
-        return QRect(box.left(), box.top() + 16 + i * 18, box.width(), 18)
+        return QRect(box.left(), box.top() + 18 + i * _ROSTER_ROW, box.width(), _ROSTER_ROW)
 
     def _roster_hit(self, px: float, py: float) -> str | None:
         system = get_system()
@@ -1095,7 +1223,7 @@ class SolarPanel(QWidget):
         system = get_system()
         if system is None:
             return
-        names = self._roster_names(system)
+        names = self._roster_shown(system)
         if not names:
             return
         current = self._inspect or names[0]
@@ -1114,7 +1242,7 @@ class SolarPanel(QWidget):
             self._reveal_roster(system, name)
 
     def _reveal_roster(self, system: SolarSystem, name: str) -> None:
-        names = self._roster_names(system)
+        names = self._roster_shown(system)
         if name not in names:
             return
         i = names.index(name)
@@ -1125,10 +1253,12 @@ class SolarPanel(QWidget):
             self._roster_scroll = i - rows + 1
 
     def _paint_roster(self, painter: QPainter, system: SolarSystem) -> None:
-        names = self._roster_visible(system)
         box = self._roster_rect()
+        if box.isEmpty():
+            return
+        names = self._roster_visible(system)
         painter.setPen(QPen(color("edge"), 1))
-        painter.setBrush(_wash("glass_fill", 220))
+        painter.setBrush(_wash("glass_fill", 255))
         painter.drawRoundedRect(box, 6, 6)
         painter.setPen(color("text_dim"))
         painter.drawText(box.adjusted(8, 2, -8, 0), "Bodies")
@@ -1229,6 +1359,7 @@ class SolarPanel(QWidget):
 
     def reset_view(self, *, keep_inspect: bool = False) -> None:
         system = get_system()
+        self._warp = None
         self.cam.frame_system(self._system_span(system))
         tx, ty, tz = self._anchor()
         self.cam.place_looking_at(tx, ty, tz, self.cam.distance)
@@ -1273,7 +1404,12 @@ class SolarPanel(QWidget):
                 Qt.AlignmentFlag.AlignCenter,
                 self._empty_caption(),
             )
-            self._paint_keys_chrome(painter, QRect(10, 8, min(self.width() - 20, 720), 280))
+            plate_w = self._hud_plate_width()
+            used = self._paint_keys_chrome(
+                painter, QRect(10, 8, plate_w, 280)
+            )
+            self._hud_box = QRect(10, 8, plate_w, used)
+            self._hud_bottom = self._hud_box.bottom()
             self._paint_tools(painter)
             self._paint_confirm(painter)
             return
@@ -1334,10 +1470,10 @@ class SolarPanel(QWidget):
                 px_r = self._screen_radius(body, depth)
                 self._label_body(painter, body, sx, sy, px_r)
         if system.overlay.show_gravity:
-            self._paint_wells(painter, system)
+            self._paint_wells(painter, system, strokes=software)
             self._paint_g(painter, system)
         if system.overlay.show_magnetic:
-            self._paint_magnetopause(painter, system)
+            self._paint_magnetopause(painter, system, strokes=software)
         if system.overlay.show_wind:
             self._paint_wind(painter, system)
         if system.overlay.show_grid:
@@ -1479,12 +1615,7 @@ class SolarPanel(QWidget):
         if key == self._chrome_key and self._chrome_cache is not None:
             return self._chrome_cache
         boxes = [
-            QRect(
-                10,
-                8,
-                min(self.width() - 20, 720),
-                max(8, self._hud_bottom - 8),
-            ),
+            self._hud_plate_rect(),
             self._roster_rect(),
             self._speed_rect(),
             self._epoch_rect(),
@@ -1709,6 +1840,20 @@ class SolarPanel(QWidget):
                     if a is None or b is None:
                         continue
                     painter.drawLine(a, b)
+            phase = (time.perf_counter() / BEAD_LAP_S) * 2.0 * math.pi
+            for k, nu_b in enumerate(
+                bead_true_anomalies(el.true_anomaly, phase=phase)
+            ):
+                bx, by, bz = position_at_true_anomaly(el, nu_b)
+                hit = self._proj((origin[0] + bx, origin[1] + by, origin[2] + bz))
+                if hit is None:
+                    continue
+                lead = 1.0 if k == 0 else 0.42
+                glow = 3 + int(3 * lead)
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(QColor(200, 230, 255, int(120 + 110 * lead)))
+                painter.drawEllipse(QPoint(int(hit[0]), int(hit[1])), glow, glow)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
 
     def _paint_trails(self, painter: QPainter, system: SolarSystem) -> None:
         painter.setPen(QPen(QColor(255, 255, 255, 40), 1))
@@ -1795,8 +1940,40 @@ class SolarPanel(QWidget):
         ]
         self._stroke_world(painter, pts, closed=True)
 
-    def _paint_magnetopause(self, painter: QPainter, system: SolarSystem) -> None:
-        from arelis.physics.parker import dynamic_pressure_npa, shue_standoff
+    def _paint_sphere_cage(
+        self,
+        painter: QPainter,
+        body: BodyView,
+        radius: float,
+        *,
+        meridians: int = 4,
+    ) -> None:
+        """Projected meridians + equator of a sphere. Software stand-in for a shell."""
+        self._ring_xy(painter, body, radius)
+        n = 36
+        for k in range(max(int(meridians), 2)):
+            lon = k * math.pi / max(int(meridians), 2)
+            cl, sl = math.cos(lon), math.sin(lon)
+            pts = [
+                (
+                    body.x + radius * math.sin(math.pi * i / n) * cl,
+                    body.y + radius * math.sin(math.pi * i / n) * sl,
+                    body.z + radius * math.cos(math.pi * i / n),
+                )
+                for i in range(n + 1)
+            ]
+            self._stroke_world(painter, pts)
+
+    def _paint_magnetopause(
+        self, painter: QPainter, system: SolarSystem, *, strokes: bool = True
+    ) -> None:
+        from arelis.physics.magnetosphere import (
+            dipole_L_polylines,
+            earth_standoff_m,
+            shue_meridians,
+            sunward_basis,
+        )
+        from arelis.physics.parker import dynamic_pressure_npa
 
         earth = system.nbody.find("Earth")
         sun = system.nbody.find("Sun")
@@ -1804,68 +1981,37 @@ class SolarPanel(QWidget):
             return
         if self._inspect and self._inspect != "Earth":
             return
-        re = 6_371_000.0
         if sun is not None:
-            sx, sy, sz = sun.x - earth.x, sun.y - earth.y, sun.z - earth.z
-            sl = math.hypot(sx, sy, sz) or 1.0
-            ux, uy, uz = sx / sl, sy / sl, sz / sl
+            sl = math.hypot(sun.x - earth.x, sun.y - earth.y, sun.z - earth.z) or AU_M
             p_npa = dynamic_pressure_npa(sl)
-        else:
-            ux, uy, uz = 1.0, 0.0, 0.0
-            p_npa = dynamic_pressure_npa(AU_M)
-        r0_re, alpha = shue_standoff(p_npa)
-        r0 = r0_re * re
-        px = uy
-        py = -ux
-        pz = 0.0
-        pl = math.hypot(px, py, pz)
-        if pl < 1e-9:
-            px, py, pz = 0.0, 1.0, 0.0
-            pl = 1.0
-        px, py, pz = px / pl, py / pl, pz / pl
-        painter.setPen(QPen(QColor(120, 180, 255, 120), 1, Qt.PenStyle.DashLine))
-        pause: list[tuple[float, float, float]] = []
-        n = 48
-        for i in range(n + 1):
-            theta = math.radians(-120.0 + 240.0 * i / n)
-            cth = math.cos(theta)
-            den = 1.0 + cth
-            if den < 0.14:
-                continue
-            r = r0 * (2.0 / den) ** alpha
-            sth = math.sin(theta)
-            pause.append(
-                (
-                    earth.x + r * (cth * ux + sth * px),
-                    earth.y + r * (cth * uy + sth * py),
-                    earth.z + r * (cth * uz + sth * pz),
-                )
+            ux, uy, uz = sunward_basis(
+                (earth.x, earth.y, earth.z), (sun.x, sun.y, sun.z)
             )
-        self._stroke_world(painter, pause)
-        painter.setPen(QPen(QColor(150, 200, 255, 70), 1))
-        for L in (4.0, 6.0, 8.0, 10.0):
-            for sign in (1.0, -1.0):
-                loop: list[tuple[float, float, float]] = []
-                for i in range(41):
-                    lat = math.radians(-70.0 + 140.0 * i / 40.0)
-                    rr = L * re * (math.cos(lat) ** 2)
-                    loop.append(
-                        (
-                            earth.x + sign * rr * math.cos(lat) * ux,
-                            earth.y + sign * rr * math.cos(lat) * uy,
-                            earth.z + rr * math.sin(lat),
-                        )
-                    )
-                self._stroke_world(painter, loop)
-        if pause:
-            proj = self._proj(pause[len(pause) // 2])
-            if proj is not None:
-                painter.setPen(QColor(160, 200, 255, 190))
-                painter.drawText(
-                    int(proj[0]) + 8,
-                    int(proj[1]) - 4,
-                    f"Shue r0={r0_re:.1f} Re  P={p_npa:.2f} nPa + dipole — not IGRF",
-                )
+        else:
+            p_npa = dynamic_pressure_npa(AU_M)
+            ux, uy, uz = (1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0)
+        r0_m, r0_re, alpha = earth_standoff_m(p_npa, earth.radius)
+        host = (earth.x, earth.y, earth.z)
+        if strokes:
+            painter.setPen(QPen(QColor(120, 180, 255, 130), 1))
+            for line in shue_meridians(r0_m, alpha, ux, uy, uz):
+                world = [(host[0] + p[0], host[1] + p[1], host[2] + p[2]) for p in line]
+                self._stroke_world(painter, world)
+            painter.setPen(QPen(QColor(150, 200, 255, 80), 1))
+            for loop in dipole_L_polylines(earth.radius, ux, uy, uz, n_lon=8):
+                world = [
+                    (host[0] + p[0], host[1] + p[1], host[2] + p[2]) for p in loop
+                ]
+                self._stroke_world(painter, world)
+        nose = (host[0] + r0_m * ux[0], host[1] + r0_m * ux[1], host[2] + r0_m * ux[2])
+        proj = self._proj(nose)
+        if proj is not None and self._inspect != "Earth":
+            painter.setPen(QColor(160, 200, 255, 190))
+            painter.drawText(
+                int(proj[0]) + 8,
+                int(proj[1]) - 4,
+                f"Shue r0={r0_re:.1f} Re  P={p_npa:.2f} nPa + dipole — not IGRF",
+            )
 
     def _paint_wind(self, painter: QPainter, system: SolarSystem) -> None:
         from arelis.physics.attitude import spin_jd
@@ -1899,7 +2045,7 @@ class SolarPanel(QWidget):
             painter.setPen(QColor(200, 160, 90, 160))
             painter.drawText(int(hit[0]) + 6, int(hit[1]) - 2, "heliopause ~120 AU (Voyager)")
         disc = self._proj((sun.x, sun.y, sun.z))
-        if disc is not None and self._true_px(r_sun, disc[2]) >= 8.0:
+        if disc is not None and self._inspect != "Sun" and self._true_px(r_sun, disc[2]) >= 8.0:
             painter.setPen(QColor(255, 180, 80, 170))
             painter.drawText(int(disc[0]) + 10, int(disc[1]) + 14, CITE.split(". ")[0] + ".")
 
@@ -1926,41 +2072,68 @@ class SolarPanel(QWidget):
         painter.setPen(color("text"))
         painter.drawText(int(b[0]) + 6, int(b[1]), f"|g|={g:.3e} m/s² at centre")
 
-    def _paint_wells(self, painter: QPainter, system: SolarSystem) -> None:
+    def _paint_wells(
+        self, painter: QPainter, system: SolarSystem, *, strokes: bool = True
+    ) -> None:
         inspect = system.nbody.find(self._inspect) if self._inspect else None
         painter.setBrush(Qt.BrushStyle.NoBrush)
-        for body in system.views():
-            if _is_sketch(body):
-                continue
-            wanted = body.kind in {"star", "planet"} or (
-                inspect is not None and body.name == inspect.name
-            )
-            if not wanted:
-                continue
-            for k, alpha in ((2.0, 90), (4.0, 55), (8.0, 32)):
-                painter.setPen(QPen(QColor(255, 196, 90, alpha), 1, Qt.PenStyle.DashLine))
-                self._ring_xy(painter, body, k * body.radius)
-            r, v, mu, _about, _origin = system.about(body)
-            el = osculating(r, v, mu)
-            if el is not None and body.mass > 0.0 and mu > 0.0:
-                hill = hill_radius(float(el.a), body.mass, mu / G_SI)
-                if hill > 8.0 * body.radius:
-                    painter.setPen(QPen(QColor(255, 160, 70, 70), 1, Qt.PenStyle.DotLine))
-                    self._ring_xy(painter, body, hill)
-                    if inspect is not None and body.name == inspect.name:
-                        tip = self._proj((body.x + hill, body.y, body.z))
-                        if tip is not None:
-                            painter.setPen(QColor(255, 180, 90, 180))
-                            painter.drawText(int(tip[0]) + 6, int(tip[1]), "Hill sketch")
-        if inspect is not None:
-            disc = self._proj((inspect.x, inspect.y, inspect.z))
-            if disc is not None:
-                painter.setPen(QColor(255, 200, 110, 170))
-                painter.drawText(
-                    int(disc[0]) + 10,
-                    int(disc[1]) - 12,
-                    "wells 2/4/8 R — Newtonian sketch, not GR",
+        if strokes:
+            for body in system.views():
+                if _is_sketch(body):
+                    continue
+                wanted = body.kind in {"star", "planet"} or (
+                    inspect is not None and body.name == inspect.name
                 )
+                if not wanted:
+                    continue
+                disc = self._proj((body.x, body.y, body.z))
+                depth = disc[2] if disc is not None else 1.0e30
+                for k, alpha in zip(ISO_G_FACTORS, (90, 55, 32), strict=True):
+                    if self._true_px(k * body.radius, depth) > 80.0:
+                        continue
+                    painter.setPen(QPen(QColor(255, 196, 90, alpha), 1))
+                    self._paint_sphere_cage(painter, body, k * body.radius)
+                r, v, mu, _about, _origin = system.about(body)
+                el = osculating(r, v, mu)
+                if el is not None and body.mass > 0.0 and mu > 0.0:
+                    hill = hill_radius(float(el.a), body.mass, mu / G_SI)
+                    if hill > 8.0 * body.radius and self._true_px(hill, depth) <= 72.0:
+                        painter.setPen(QPen(QColor(255, 160, 70, 70), 1, Qt.PenStyle.DotLine))
+                        self._paint_sphere_cage(painter, body, hill, meridians=6)
+                        if inspect is not None and body.name == inspect.name:
+                            tip = self._proj((body.x + hill, body.y, body.z))
+                            if tip is not None:
+                                painter.setPen(QColor(255, 180, 90, 180))
+                                painter.drawText(int(tip[0]) + 6, int(tip[1]), "Hill")
+                if inspect is not None and body.name == inspect.name:
+                    self._paint_well_slice(painter, body, mu)
+
+    def _paint_well_slice(self, painter: QPainter, body: BodyView, mu: float) -> None:
+        n = 16
+        n_th = well_theta_count(n)
+        inner = well_inner_ring(n)
+        pts = well_grid(mu, body.radius, n=n)
+        painter.setPen(QPen(QColor(255, 180, 80, 70), 1))
+        for ir in range(inner, n + 1):
+            ring = [
+                (
+                    body.x + pts[ir * n_th + it][0],
+                    body.y + pts[ir * n_th + it][1],
+                    body.z + pts[ir * n_th + it][2],
+                )
+                for it in range(n_th)
+            ]
+            self._stroke_world(painter, ring, closed=True)
+        for it in range(0, n_th, 2):
+            spoke = [
+                (
+                    body.x + pts[ir * n_th + it][0],
+                    body.y + pts[ir * n_th + it][1],
+                    body.z + pts[ir * n_th + it][2],
+                )
+                for ir in range(inner, n + 1)
+            ]
+            self._stroke_world(painter, spoke)
 
     def _paint_grid(self, painter: QPainter, system: SolarSystem) -> None:
         if not self._inspect:
@@ -1985,10 +2158,8 @@ class SolarPanel(QWidget):
         )
         if frame is None:
             xx, yx, zx = (1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0)
-            label = "ecliptic lat/lon sketch"
         else:
             xx, yx, zx = frame
-            label = "IAU W lat/lon"
         painter.setPen(QPen(QColor(210, 220, 230, 90), 1))
         for k in range(6):
             lon = k * math.pi / 3.0
@@ -2014,12 +2185,6 @@ class SolarPanel(QWidget):
                 for lon in (2.0 * math.pi * i / 36.0 for i in range(36))
             ]
             self._stroke_world(painter, parallel, closed=True, host=host)
-        painter.setPen(QColor(220, 228, 236, 190))
-        painter.drawText(
-            int(disc[0]) + 8,
-            int(disc[1]) - int(self._true_px(body.radius, disc[2])) - 6,
-            label,
-        )
 
     def _maps_alert(self) -> str:
         note = (self._maps_note or "").strip()
@@ -2038,9 +2203,111 @@ class SolarPanel(QWidget):
             return note
         return ""
 
+    def _inspect_column_width(self) -> int:
+        if not self._inspect:
+            return 0
+        want = min(520, max(460, self.width() // 3))
+        room = self.width() - 28 - _HUD_LANE
+        if room < 240:
+            return max(200, self.width() - _HUD_LANE - 28)
+        return min(want, max(240, room))
+
+    def _hud_plate_width(self) -> int:
+        right = self.width() - 10
+        if self._inspect:
+            col = self._inspect_column_width()
+            right = min(right, self.width() - col - 16 - _HUD_GAP)
+        return max(_HUD_MIN_W, min(_HUD_MAX_W, right - 10))
+
+    def _hud_plate_rect(self) -> QRect:
+        if not self._hud_box.isEmpty():
+            return QRect(self._hud_box)
+        return QRect(10, 8, self._hud_plate_width(), max(8, self._hud_bottom - 8))
+
+    def _legend_columns(self, inner_w: int) -> int:
+        return 4 if inner_w >= 560 else 2
+
+    def _hud_status_lines(self, system: SolarSystem) -> list[str]:
+        hud = system.hud_for_lock()
+        look = self._look_field_m(system)
+        clock = "paused" if system.paused else "run"
+        bits = [
+            clock,
+            rate_label(float(hud.get("rate") or system.rate)),
+            f"field {_fmt_m(look)}",
+        ]
+        flags = []
+        if system.overlay.show_gravity:
+            flags.append("g")
+        if system.overlay.show_magnetic:
+            flags.append("B")
+        if system.overlay.show_wind:
+            flags.append("wind")
+        if system.overlay.show_grid:
+            flags.append("grid")
+        if flags:
+            bits.append(" ".join(flags))
+        lines = ["   ".join(bits)]
+        ic = system.ic_caption()
+        if ic:
+            lines.append(ic)
+        alert = self._maps_alert()
+        if alert:
+            lines.append(alert)
+        if not self._space_live() and self._gl is not None:
+            lines.append("OpenGL failed — software globes")
+        return lines
+
+    def _wrapped_h(self, fm: QFontMetrics, text: str, width: int) -> int:
+        wrap = int(Qt.AlignmentFlag.AlignLeft | Qt.TextFlag.TextWordWrap)
+        return fm.boundingRect(QRect(0, 0, max(width, 40), 8000), wrap, text).height()
+
+    def _key_strip_chips(
+        self, fm: QFontMetrics, left: int, top: int, width: int
+    ) -> tuple[list[tuple[QRect, str, bool]], int]:
+        chips: list[tuple[QRect, str, bool]] = []
+        x = left + 10
+        y = top + 4
+        right = left + width - 10
+        for key, hint in KEY_STRIP:
+            label = f"{key}  {hint}"
+            w = fm.horizontalAdvance(label) + 16
+            if x + w > right and x > left + 10:
+                x = left + 10
+                y += _KEYS_ROW + 4
+            chips.append((QRect(x, y, w, _KEYS_ROW), label, key == "H" and self._help))
+            x += w + 6
+        return chips, y + _KEYS_ROW + 4
+
+    def _legend_items(
+        self, box_left: int, legend_top: int, inner_w: int
+    ) -> tuple[list[tuple[int, int, str, tuple[tuple[str, str], ...], int]], int]:
+        cols = self._legend_columns(inner_w)
+        col_w = max(130, inner_w // max(cols, 1))
+        items: list[tuple[int, int, str, tuple[tuple[str, str], ...], int]] = []
+        bottom = legend_top
+        for gi, (title, rows) in enumerate(KEY_LEGEND):
+            cx = box_left + 10 + (gi % cols) * col_w
+            cy = legend_top + (gi // cols) * _LEGEND_BLOCK
+            items.append((cx, cy, title, rows, col_w))
+            bottom = max(bottom, cy + 32 + len(rows) * _LEGEND_ROW)
+        return items, bottom
+
+    def _keys_chrome_height(self, fm: QFontMetrics, width: int) -> int:
+        _chips, y = self._key_strip_chips(fm, 0, 0, width)
+        if not self._help:
+            return y
+        inner_w = width - 20
+        _items, bottom = self._legend_items(0, y, inner_w)
+        y = bottom + 8
+        return y + self._wrapped_h(fm, self._keys_footer(), inner_w) + 8
+
+    def _keys_footer(self) -> str:
+        return "Spoken flags match H and ⋯. No F. Travel flies the eye, not a burn."
+
     def _paint_plate(self, painter: QPainter, box: QRect, *, radius: int = 8) -> None:
         painter.setPen(QPen(color("edge"), 1))
-        painter.setBrush(_wash("glass_fill", 230))
+        painter.setBrush(_wash("glass_fill", 255))
         painter.drawRoundedRect(box, radius, radius)
 
     def _paint_chip(
@@ -2059,217 +2326,68 @@ class SolarPanel(QWidget):
 
     def _paint_keys_chrome(self, painter: QPainter, box: QRect) -> int:
         """Always-on key strip. Click toggles the grouped legend. Returns used height."""
-        x = box.left() + 10
-        y = box.top() + 4
-        inner_w = box.width() - 20
         fm = painter.fontMetrics()
-        row_h = 20
-        for key, hint in KEY_STRIP:
-            label = f"{key}  {hint}"
-            w = fm.horizontalAdvance(label) + 16
-            if x + w > box.right() - 10:
-                x = box.left() + 10
-                y += row_h + 4
-            chip = QRect(x, y, w, row_h)
-            self._paint_chip(painter, chip, label, on=key == "H" and self._help)
-            x += w + 6
-        y += row_h + 4
+        chips, y = self._key_strip_chips(fm, box.left(), box.top(), box.width())
+        for rect, label, on in chips:
+            self._paint_chip(painter, rect, label, on=on)
         self._keys_hit = QRect(box.left(), box.top(), box.width(), y - box.top())
         if not self._help:
             return y - box.top()
-        col_w = max(140, inner_w // max(len(KEY_LEGEND), 1))
-        legend_top = y
-        bottom = y
-        for gi, (title, rows) in enumerate(KEY_LEGEND):
-            cx = box.left() + 10 + (gi % 4) * col_w
-            cy = legend_top + (gi // 4) * 118
+        inner_w = box.width() - 20
+        items, bottom = self._legend_items(box.left(), y, inner_w)
+        for cx, cy, title, rows, col_w in items:
             painter.setPen(color("accent"))
-            painter.drawText(cx, cy + 12, title)
-            yy = cy + 28
+            painter.drawText(cx, cy + 14, title)
+            yy = cy + 32
+            tight = col_w < 170
             for key, hint in rows:
-                painter.setPen(color("text"))
-                painter.drawText(cx, yy, key)
-                painter.setPen(color("text_dim"))
-                painter.drawText(cx + 78, yy, hint)
-                yy += 15
-            bottom = max(bottom, yy)
+                if tight:
+                    painter.setPen(color("text"))
+                    painter.drawText(cx, yy, f"{key}  {hint}")
+                else:
+                    painter.setPen(color("text"))
+                    painter.drawText(cx, yy, key)
+                    painter.setPen(color("text_dim"))
+                    painter.drawText(cx + 78, yy, hint)
+                yy += _LEGEND_ROW
         y = bottom + 8
+        wrap = int(Qt.AlignmentFlag.AlignLeft | Qt.TextFlag.TextWordWrap)
+        footer = self._keys_footer()
+        foot_h = max(24, self._wrapped_h(fm, footer, inner_w) + 4)
+        foot = QRect(box.left() + 10, y, inner_w, foot_h)
         painter.setPen(color("text_dim"))
-        painter.drawText(
-            box.left() + 10,
-            y + 12,
-            "Spoken flags match H and ⋯. No F. Travel is a camera warp, not a burn.",
-        )
-        y += 20
-        self._keys_hit = QRect(box.left(), box.top(), box.width(), y - box.top() + 8)
-        return y - box.top() + 8
+        painter.drawText(foot, wrap, footer)
+        y = y + foot_h + 8
+        self._keys_hit = QRect(box.left(), box.top(), box.width(), y - box.top())
+        return y - box.top()
 
     def _paint_hud(self, painter: QPainter, system: SolarSystem) -> None:
-        hud = system.hud_for_lock()
-        sun_hud = system._sun_hud()
-        gyr = float(hud.get("future_gyr") or sun_hud.get("future_gyr") or 0)
-        look = self._look_field_m(system)
-        clock = "paused" if system.paused else "run"
-        status = (
-            f"{clock}   {rate_label(float(hud.get('rate') or system.rate))}   "
-            f"field {_fmt_m(look)}"
-        )
-        ic = system.ic_caption()
-        if ic:
-            status = f"{status}   {ic}"
-        flags = []
-        if system.overlay.show_gravity:
-            flags.append("g")
-        if system.overlay.show_magnetic:
-            flags.append("B")
-        if system.overlay.show_wind:
-            flags.append("wind")
-        if system.overlay.show_grid:
-            flags.append("grid")
-        if flags:
-            status = f"{status}   {' '.join(flags)}"
-        lines = [status]
-        alert = self._maps_alert()
-        if alert:
-            lines.append(alert)
-        if not self._space_live() and self._gl is not None:
-            lines.append("OpenGL failed — software globes")
-        plate_w = min(self.width() - 20, 720)
-        y = 22
-        text_h = 8 + 16 * len(lines) + 6
-        keys_guess = 560 if self._help else 44
-        plate = QRect(10, 8, plate_w, text_h + keys_guess)
-        self._paint_plate(painter, plate, radius=6)
+        wrap = int(Qt.AlignmentFlag.AlignLeft | Qt.TextFlag.TextWordWrap)
+        plate_w = self._hud_plate_width()
+        inner = plate_w - 24
+        fm = painter.fontMetrics()
+        lines = self._hud_status_lines(system)
+        y = 12
+        status_rows: list[tuple[int, int, str]] = []
         for i, line in enumerate(lines):
+            h = self._wrapped_h(fm, line, inner)
+            status_rows.append((y, h, line))
+            y += h + 4
+        keys_top = y
+        keys_h = self._keys_chrome_height(fm, plate_w)
+        plate = QRect(10, 8, plate_w, keys_top + keys_h)
+        self._paint_plate(painter, plate, radius=6)
+        for i, (y0, h, line) in enumerate(status_rows):
             painter.setPen(color("text") if i == 0 else color("text_dim"))
-            painter.drawText(20, y, line)
-            y += 16
-        keys_box = QRect(10, y + 2, plate_w, 420 if self._help else 40)
-        used = self._paint_keys_chrome(painter, keys_box)
-        cite_y = keys_box.top() + used
-        if self._help:
-            painter.setPen(color("text_dim"))
-            for line in self._hud_lecture(system, hud, sun_hud, gyr):
-                painter.drawText(20, cite_y + 12, line)
-                cite_y += 15
-            cite_y += 6
-        self._hud_bottom = cite_y + 4
-        if self._help:
-            self._keys_hit = QRect(
-                keys_box.left(),
-                keys_box.top(),
-                keys_box.width(),
-                max(8, self._hud_bottom - keys_box.top()),
-            )
+            painter.drawText(QRect(20, y0, inner, h + 4), wrap, line)
+        used = self._paint_keys_chrome(
+            painter, QRect(10, keys_top, plate_w, keys_h + 8)
+        )
+        bottom = max(plate.bottom(), keys_top + used + 8)
+        self._hud_box = QRect(plate.left(), plate.top(), plate.width(), bottom - plate.top())
+        self._hud_bottom = self._hud_box.bottom()
         if system.show_graphs and system.energy_hist:
             self._spark(painter, system)
-
-    def _hud_lecture(
-        self,
-        system: SolarSystem,
-        hud: dict,
-        sun_hud: dict,
-        gyr: float,
-    ) -> list[str]:
-        residual = hud.get("energy_residual")
-        if residual is None:
-            residual = system.energy_residual()
-        massive = sum(1 for p in system.nbody.particles if p.massive)
-        plate = (
-            self._gl.version_label
-            if self._space_live() and self._gl is not None
-            else "software"
-        )
-        lines = [
-            f"{plate}  {system.integrator_note}  "
-            f"E residual {float(residual or 0):.3e}  {massive} massive",
-        ]
-        if abs(gyr) > 1e-6:
-            phase = str(hud.get("sun_phase") or sun_hud.get("sun_phase") or "main sequence")
-            sign = "+" if gyr > 0 else ""
-            lines.append(
-                f"stellar clock {sign}{gyr:.2f} Gyr  {phase}  "
-                f"R={float(hud.get('sun_r') or sun_hud.get('sun_r') or 1):.2f} R_sun"
-            )
-            cite = str(hud.get("sun_cite") or sun_hud.get("sun_cite") or "")
-            if cite:
-                lines.append(cite)
-        else:
-            lines.append(
-                f"stellar clock today. Slider {GYR_MIN:.2f}…+{GYR_MAX:.2f} Gyr "
-                "(formation → white dwarf). Not live N-body."
-            )
-        if system.epoch_jd > 0.0 and "not Horizons" not in (system.epoch_tdb or ""):
-            clock = jd_iso(system.epoch_jd + system.t / 86400.0)
-            if clock:
-                lines.append(clock)
-        if self._inspect and self._inspect != "Sun":
-            hud = system.hud_for_name(self._inspect)
-        if hud.get("v_circ_m_s") is not None and hud.get("name") != "Sun":
-            bound = "bound" if hud.get("bound") else "unbound"
-            lines.append(
-                f"{bound}  ε={float(hud.get('specific_energy') or 0):.3e} J/kg  "
-                f"v_circ {float(hud['v_circ_m_s']):.0f} m/s  "
-                f"v_esc {float(hud.get('v_esc_m_s') or 0):.0f} m/s  "
-                f"Hill {float(hud.get('hill_m') or 0)/1000:.0f} km  "
-                f"SOI {float(hud.get('soi_m') or 0)/1000:.0f} km  "
-                "(numbers, not capture walls)"
-            )
-        if system.overlay.show_gravity:
-            lines.append("gravity: 2/4/8 R wells + Hill. Newtonian sketch, not GR.")
-        if system.overlay.show_magnetic:
-            if self._inspect and self._inspect != "Earth":
-                lines.append(
-                    "magnetopause: Earth Shue 1998 only. Inspect Earth to see it. Not IGRF."
-                )
-            else:
-                lines.append(
-                    "magnetopause: Shue 1998, ram from Parker quiet wind. Sketch, not IGRF."
-                )
-        if system.overlay.show_wind:
-            from arelis.physics.parker import CITE as WIND_CITE
-
-            lines.append(WIND_CITE)
-        if system.overlay.show_grid:
-            who = self._inspect or ""
-            earth = system.nbody.find("Earth")
-            moon = system.nbody.find("Moon")
-            frame = body_frame_ecliptic(
-                who,
-                spin_jd(system.epoch_jd, system.t),
-                moon=(moon.x, moon.y, moon.z) if moon is not None else None,
-                earth=(earth.x, earth.y, earth.z) if earth is not None else None,
-            )
-            if frame is not None:
-                lines.append(
-                    "lat/lon grid on inspect. Body-fixed (IAU W / Earth / Moon). "
-                    "Not a landing grid."
-                )
-            else:
-                lines.append(
-                    "lat/lon grid on inspect. Ecliptic-aligned sketch, not IAU poles."
-                )
-        map_name = str(hud.get("name") or "")
-        info = describe(map_name)
-        if map_name == "Sun":
-            from arelis.physics.corona import CITE
-
-            lines.append(CITE)
-        elif info.path is None:
-            lines.append(
-                f"albedo: none — {info.source}. Limb-lit sphere, no fake detail."
-            )
-        else:
-            gsd = f"{info.km_per_px:g} km/px" if info.km_per_px else "?"
-            extra = " " + spin_caption(map_name)
-            lines.append(f"albedo: {info.source}  (~{gsd}).{extra}")
-        lines.append("Starfield is illustrative, not Hipparcos. No landing.")
-        if system.nbody.find("Saturn") is not None:
-            lines.append(
-                "Saturn rings: IAU WGCCRE 2015 pole, C–A radii, Cassini Division. "
-                "Sketch, not particles."
-            )
-        return lines
 
     def _spark(self, painter: QPainter, system: SolarSystem) -> None:
         box = QRect(self.width() - 220, 18, 200, 56)
@@ -2359,18 +2477,18 @@ class SolarPanel(QWidget):
             return QRect()
         system = get_system()
         lines = self._inspect_lines(system) if system is not None else []
-        w = min(520, max(460, self.width() // 3))
+        w = self._inspect_column_width()
         inner = w - 28
         body_h = self._inspect_body_height(lines, inner)
         top = 18
         if system is not None and system.show_graphs:
             top = 154
-        h = min(max(body_h + 58, 240), max(240, self.height() - top - 72))
+        h = min(max(body_h + 64, 220), max(220, self.height() - top - 72))
         return QRect(self.width() - w - 16, top, w, h)
 
     def _inspect_font(self, *, title: bool = False) -> QFont:
         font = QFont(self.font())
-        font.setPixelSize(FONT_PX + 5 if title else FONT_PX)
+        font.setPixelSize(FONT_PX + 6 if title else FONT_PX + 1)
         font.setBold(title)
         return font
 
@@ -2383,7 +2501,7 @@ class SolarPanel(QWidget):
         for i, line in enumerate(lines):
             if i == 0:
                 continue
-            h += body_fm.boundingRect(box, wrap, line).height() + 5
+            h += body_fm.boundingRect(box, wrap, line).height() + 8
         return h
 
     def _inspect_close_rect(self) -> QRect:
@@ -2452,8 +2570,6 @@ class SolarPanel(QWidget):
                 "numbers, not capture walls"
             )
         ic = system.ic_caption()
-        if ic:
-            lines.append(ic)
         if (
             hud.get("e") is not None
             and float(hud.get("e") or 0) < 1e-4
@@ -2510,7 +2626,9 @@ class SolarPanel(QWidget):
         integ = str(hud.get("integrator") or "")
         if integ:
             lines.append(integ)
-        lines.append("Travel to is a camera warp, not an N-body burn. No landing.")
+        lines.append(
+            "Travel to flies the eye: accel, cruise, slow. Camera warp, not a burn. No landing."
+        )
         return [line for line in lines if line]
 
     def _paint_inspect(self, painter: QPainter, system: SolarSystem) -> None:
@@ -2523,7 +2641,7 @@ class SolarPanel(QWidget):
         close = self._inspect_close_rect()
         painter.setPen(color("text_dim"))
         painter.drawText(close, Qt.AlignmentFlag.AlignCenter, "x")
-        y = box.top() + 14
+        y = box.top() + 16
         wrap = int(
             Qt.AlignmentFlag.AlignLeft
             | Qt.AlignmentFlag.AlignTop
@@ -2532,30 +2650,30 @@ class SolarPanel(QWidget):
         if lines:
             painter.setFont(self._inspect_font(title=True))
             painter.setPen(color("text"))
-            title_box = QRect(box.left() + 14, y, box.width() - 42, 48)
+            title_box = QRect(box.left() + 16, y, box.width() - 44, 48)
             painter.drawText(title_box, wrap, lines[0])
             y = (
                 painter.fontMetrics()
                 .boundingRect(title_box, wrap, lines[0])
                 .bottom()
-                + 8
+                + 10
             )
         painter.setFont(self._inspect_font())
-        limit = box.bottom() - 46
-        inner_w = box.width() - 28
+        limit = box.bottom() - 52
+        inner_w = box.width() - 32
         for i, line in enumerate(lines):
             if i == 0:
                 continue
             if y > limit:
                 break
             painter.setPen(color("text") if i == 1 else color("text_dim"))
-            text_box = QRect(box.left() + 14, y, inner_w, max(16, limit - y))
+            text_box = QRect(box.left() + 16, y, inner_w, max(16, limit - y))
             painter.drawText(text_box, wrap, line)
             y = (
                 painter.fontMetrics()
                 .boundingRect(text_box, wrap, line)
                 .bottom()
-                + 5
+                + 8
             )
         travel = self._inspect_travel_rect()
         self._paint_chip(painter, travel, "Travel to  ·  Enter", on=True)

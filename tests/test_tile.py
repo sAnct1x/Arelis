@@ -31,6 +31,10 @@ from arelis.tools.tile import TileTool
         ("open the world", ("open", "world")),
         ("close world", ("close", "world")),
         ("open the solar lab", ("open", "world")),
+        ("close the solar lab", ("close", "world")),
+        ("open the toy area", ("open", "world")),
+        ("open hands", ("open", "world")),
+        ("close the toy area", ("close", "world")),
         ("pull up notifications", ("open", "notifications")),
         ("hide the alerts", ("close", "notifications")),
         ("close them", ("close", "")),
@@ -92,6 +96,20 @@ async def test_tile_tool_open_and_close() -> None:
     assert closed.data["name"] == "history"
 
 
+@pytest.mark.asyncio
+async def test_tile_tool_world_page_is_solar_or_hands() -> None:
+    tool = TileTool()
+    opened = await tool.run(action="open", name="world", page="solar")
+    assert opened.ok
+    assert opened.data["page"] == "solar"
+    toy = await tool.run(action="open", name="world", page="hands")
+    assert toy.ok
+    assert toy.data["page"] == "hands"
+    plate = await tool.run(action="open", name="world")
+    assert plate.ok
+    assert "page" not in plate.data
+
+
 def test_notifications_preflight_and_plan() -> None:
     hints = detect_intents("open my notifications")
     assert any(h.kind == "tile_open" for h in hints)
@@ -125,6 +143,21 @@ def test_open_world_is_a_tile_intent() -> None:
         "open world", available_tools={"tile", "browser", "rooms"}
     )
     assert tile_tool_args("open world") == {"action": "open", "name": "world"}
+    assert tile_tool_args("open the solar lab") == {
+        "action": "open",
+        "name": "world",
+        "page": "solar",
+    }
+    assert tile_tool_args("open the toy area") == {
+        "action": "open",
+        "name": "world",
+        "page": "hands",
+    }
+    assert tile_tool_args("open hands") == {
+        "action": "open",
+        "name": "world",
+        "page": "hands",
+    }
 
 
 def test_calendar_open_is_still_agenda_not_tile_preflight() -> None:
@@ -239,6 +272,61 @@ def test_tile_tool_result_opens_world_in_physics(arelis_window, qt_app) -> None:
     qt_app.processEvents()
     assert window.world_window.isHidden()
     assert not window.act_world.isChecked()
+
+
+def test_tile_tool_result_opens_solar_lab_not_chooser(
+    arelis_window, qt_app, monkeypatch
+) -> None:
+    from arelis.ui.panels.solar import SolarPanel
+
+    monkeypatch.setattr(SolarPanel, "_horizons_work", lambda self: None)
+    monkeypatch.setattr(SolarPanel, "_try_nearest_cache", lambda self: False)
+    window = arelis_window()
+    window._on_event(
+        Event(
+            EventType.ROOM_CHANGED,
+            {"room_id": "physics", "name": "Physics"},
+        )
+    )
+    qt_app.processEvents()
+    window._on_event(
+        Event(
+            EventType.TOOL_RESULT,
+            {
+                "tool": "tile",
+                "ok": True,
+                "output": "Opened world solar.",
+                "data": {
+                    "open": True,
+                    "close": False,
+                    "name": "world",
+                    "page": "solar",
+                },
+            },
+        )
+    )
+    qt_app.processEvents()
+    assert not window.world_window.isHidden()
+    assert window.world_window.solar_active()
+    window._on_event(
+        Event(
+            EventType.TOOL_RESULT,
+            {
+                "tool": "tile",
+                "ok": True,
+                "output": "Opened world hands.",
+                "data": {
+                    "open": True,
+                    "close": False,
+                    "name": "world",
+                    "page": "hands",
+                },
+            },
+        )
+    )
+    qt_app.processEvents()
+    assert window.world_window.hands_active()
+    window.world_window.hide()
 
 
 def test_tile_tool_result_does_not_open_world_in_orbit(arelis_window, qt_app) -> None:
