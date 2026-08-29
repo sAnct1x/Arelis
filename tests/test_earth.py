@@ -933,19 +933,9 @@ def test_earth_docs_inventory_matches_feeds() -> None:
     from arelis.earth.feeds import FEEDS
 
     counts = Counter(spec.status for spec in FEEDS)
-    pages = (
-        Path("docs/earth.md"),
-        Path("docs/whats-new.md"),
-        Path("docs/architecture.md"),
-        Path("docs/rooms.md"),
-    )
-    for page in pages:
-        body = page.read_text(encoding="utf-8")
-        assert f"{counts['shipped']} shipped" in body, page
-        assert f"{counts['keyed']} keyed" in body, page
-        assert f"{counts['later']} later" in body, page
-        assert f"{counts['out']} out" in body, page
     earth = Path("docs/earth.md").read_text(encoding="utf-8")
+    assert f"{counts['shipped']} shipped" in earth
+    assert f"{counts['keyed']} keyed" in earth
     assert f"**{counts['later']} later**" in earth
     assert f"**{counts['out']} out**" in earth
 

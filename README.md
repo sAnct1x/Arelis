@@ -1,15 +1,20 @@
 # Arelis
 
-Windows desktop assistant. The model runs on this PC through
-[Ollama](https://ollama.com/download). Nothing is sent to a paid chat
-API. No account.
+Arelis is a personal research assistant that lives on your Windows PC.
+She thinks with a local model through [Ollama](https://ollama.com/download).
+There is no account, and nothing is sent to a paid chat API.
 
-She can work in a folder you allow, search the web, drive her own
-browser, and keep work in named **rooms**. Mail, texts, and calendar
-stay off until you connect them. Writes and sends pause on an **allow /
-deny** card.
+You talk to her in a desktop window (or the terminal, or a phone app on
+the same Wi-Fi). She can work in a folder you give her, search the web,
+drive her own browser, and keep longer work in named **rooms**. Mail,
+texts, and calendar stay off until you connect them. Anything that
+writes a file or sends a message waits for you to allow it.
 
-AGPL. How the pieces fit: [architecture.md](docs/architecture.md).
+The published installer is **0.2.3**. A source checkout has more: the
+physics room's World plate, the solar lab, and the Earth zone. Those
+are not in the installer.
+
+AGPL. How the code is put together: [architecture.md](docs/architecture.md).
 
 ## Privacy
 
@@ -24,8 +29,7 @@ you connected, your own phone. An installed copy also asks GitHub once a
 day whether a newer version exists. A source checkout never asks. Hosts
 are pinned by a test, so a new destination fails the build.
 
-Risky work pauses. Two lowercase buttons (**allow** / **deny**). A
-headline like *text wife* or *write note.txt*. Mail and texts always
+Risky work pauses on an **allow / deny** card. Mail and texts always
 show the exact message. She will not send those while you are away.
 Settings → Allow is the list.
 
@@ -54,11 +58,10 @@ The installer includes voice and her browser extra. It does **not**
 include the models. First open asks which folder she may read and
 change, then which model to pull. Confirm the recommendation, or choose
 Gemma / DeepSeek. One model at a time — both composer chips are the same
-tag. If
-[Ollama](https://ollama.com/download) is missing, she downloads the free
-local engine first, about 1.4 GB, then the model. The recommended model
-looks at pictures itself; a separate vision model only downloads if you
-pick one that cannot.
+tag. If [Ollama](https://ollama.com/download) is missing, she downloads
+the free local engine first, about 1.4 GB, then the model. The
+recommended model looks at pictures itself; a separate vision model only
+downloads if you pick one that cannot.
 
 Typical recommendation on an 8–16 GB card is `qwen3.5:9b`. From source
 you can still pull by hand:
@@ -133,8 +136,10 @@ Contacts and passwords do not sit in a folder a language model can
 delete. Updating the program does not wipe your records. Two people on
 one PC get two unrelated sets.
 
-From source, records and workspace are the repository itself (`data/`).
-An installed copy and a checkout on the same PC do not share a profile.
+From source, records and workspace default to the repository itself
+(`data/`). An installed copy and a checkout on the same PC do not share
+a profile. `ARELIS_DATA_DIR` can point a checkout at a sandbox
+(`scripts\run_dev_ui.ps1` uses `%LOCALAPPDATA%\Arelis-dev`).
 
 ## Optional: mail, phone, calendar
 
@@ -157,10 +162,9 @@ Settings → Notify, scan the QR.
 
 ## Using her
 
-**The window.** Empty orbit, a ring, a box under it. Type there. After
-you send, you get the workbench: chat, composer, docks for thinking,
-files, history, contacts, notifications. Press **F1** for shortcuts and
-the version.
+**The window.** Type in the box. After you send, you get the workbench:
+chat, composer, and docks for thinking, files, history, contacts,
+notifications. Press **F1** for shortcuts and the version.
 
 **Rooms.** The general chat is forgettable. Work you come back to belongs
 in a **room**: a name, a folder, its own thread. `/room physics` goes in.
@@ -174,7 +178,9 @@ means a longer loop, not a bigger file. [models.md](docs/models.md).
 
 **Phone.** One sideloaded **Arelis** app. Scan the QR in Settings →
 Notify. Google Messages stays your messenger. She sends from your SIM
-after you allow the card.
+after you allow the card. When the PC is gone, the phone keeps its own
+conversation. If you installed Gemma at pair (~2.6 GB), she can still
+talk; those words copy back when the house is up.
 
 **Her browser.** Not your daily Chrome. Her own window. You watch. She
 never types a password or clicks Book / Pay / Checkout.
@@ -197,12 +203,15 @@ own browser. Facts, goals, tasks. OCR. Look at pictures. Resize a
 picture on disk. Generate pictures if ComfyUI is set up (it is not
 started at launch). Listen and speak. Scheduled jobs that email a
 digest. Closed forms (CAS), units, a short Python cell, charts, and
-documents. From a source checkout: the physics-room World plate, solar
-lab, and Earth zone ([earth.md](docs/earth.md)).
+documents.
 
 Mail, calendar, and texts through your Android phone work **after** you
 connect them. She can also write a PDF, Word file, spreadsheet, or
 markdown note.
+
+From a source checkout only: the physics-room World plate, solar lab,
+and Earth zone ([earth.md](docs/earth.md)). Installed copies still get
+the physics *room* (chat, CAS, Horizons). The 3D plate does not ship.
 
 Tests cover this. Voice timing, a real handset, and image generation
 have only been run end to end on the author's hardware. Odd behaviour on
@@ -221,8 +230,8 @@ yours is worth an issue. The published installer is **0.2.3**. Notes:
 | [browser-control.md](docs/browser-control.md) | Her browser |
 | [notify-inbound.md](docs/notify-inbound.md) | Phone app |
 | [calendar-oauth.md](docs/calendar-oauth.md) | Connecting a calendar |
-| [architecture.md](docs/architecture.md) | How the pieces fit |
-| [earth.md](docs/earth.md) | Earth zone: where we are vs what's next |
+| [architecture.md](docs/architecture.md) | How the code is put together |
+| [earth.md](docs/earth.md) | Earth zone (source checkout) |
 | [telemetry.md](docs/telemetry.md) | Logs, on your disk |
 | [win-installer/README.md](win-installer/README.md) | Building the installer |
 

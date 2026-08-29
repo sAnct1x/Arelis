@@ -1,4 +1,4 @@
-# Browser control
+# Browser
 
 Arelis drives **her own Chrome window** (profile under
 `data/browser-profile/`), not your daily Chrome. You watch it. You sign

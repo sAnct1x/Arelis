@@ -7,9 +7,8 @@ Older: [v0.2.2](releases/v0.2.2.md). [v0.2.1](releases/v0.2.1.md).
 
 ## This checkout
 
-Living notes for the tree you have now. The 0.2.3 notes below are what
-that installer shipped. A few of them are no longer how this tree
-behaves.
+Notes for the tree you have now. The 0.2.3 notes below are what that
+installer shipped. A few of them are no longer how this tree behaves.
 
 **Turns.** The full tool schema array rides every turn so Ollama can
 reuse the prefix. A greeting that skipped schemas (the 0.2.3 clock-ask

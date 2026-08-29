@@ -36,29 +36,16 @@ sentence.
 
 The room id `physics` is permanent. It is always there, and `/room forget
 physics` is refused. Delete the key from `rooms.yaml` and the next launch
-puts it back. It is the spatial stage: World plate
-and C920 tracking run only on a **source checkout**. Installed copies
-still get the physics *room* (chat, CAS, Horizons observer). The plate,
-REBOUND solar system, and hands do not ship in the installer until you
-opt them in. The solar view is approach and orbit — true scale, NASA
-albedo if a map is on disk, IAU W on mapped planets so the terminator
-and the mosaic agree, no landing, no DEM. The camera is inspect-only
-WASD fly; F does not ride a probe. GPU globes are opt-in
-(`--solar-gl` / `ARELIS_SOLAR_GL=1`). H recites every live hotkey;
-spoken `solar` toggle flags match H and the ⋯ tray. Travel to Earth
-(or say **enter Earth**) opens the Earth zone on that globe: an observer
-of whatever is broadcasting or published. Simulated until you ask for
-live (`earth action=live` / the Live chip). Inventory is
-`arelis/earth/feeds.py` — 63 shipped, 9 keyed waiting on a paste,
-3 later, 4 out (sat-AIS, unowned cameras, face index, VIN). Individual
-cars are a labeled hole. [earth.md](earth.md).
-**leave Earth** returns to
-heliocentric. World window defaults to 1280×800. Pose updates the scene
-without a chat turn. Spoken world and time verbs (pause, faster, fly, heavier)
-hit the scene without a model turn; conversation mode keeps listening
-after them. Say "open world" for the plate (or View → world / Ctrl+8). The phone is not a
-sensor. Do not turn this room into a spreadsheet workspace; make a
-different room for that.
+puts it back.
+
+Installed copies still get the physics *room* (chat, CAS, Horizons).
+The World plate, REBOUND solar system, C920 hands, and Earth zone run
+only on a **source checkout** with `.[astro]` / `.[spatial]`. Not in
+the installer. Say "open world" or View → world / Ctrl+8. Travel to
+Earth (or say **enter Earth**) opens the Earth zone on that globe.
+[earth.md](earth.md). Pose and spoken world verbs hit the scene without
+a chat turn. The phone is not a sensor. Do not turn this room into a
+spreadsheet workspace; make a different room for that.
 
 ## Making one
 

@@ -1,6 +1,6 @@
 # Contributing
 
-Thank you for looking.
+Thanks for looking.
 
 ## The rule that does not bend
 

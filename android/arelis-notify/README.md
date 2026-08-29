@@ -1,13 +1,16 @@
 # Arelis (Android)
 
-One sideloaded app. Scan the QR on the PC, then talk. The phone keeps
-its own seat — it does not steal the PC's open thread. After pair,
-install the offline brain (Gemma 4 E2B, ~2.6 GB) so she still talks
-and can look at a photo if the PC is down. Wi-Fi is nicer; mobile
-data is allowed if you say so, same as any big update.
+One sideloaded app. Scan the QR on the PC, then talk. This is not a
+Play Store build, and it is not a second copy of Arelis.
+
+When the PC is reachable, chat is the same live session as the desktop.
+When it is not, the phone keeps its own seat. After pair, install the
+offline brain (Gemma 4 E2B, ~2.6 GB) so she still talks and can look at
+a photo if the PC is down. Wi-Fi is nicer; mobile data is allowed if
+you say so. Those words copy back when the house is up.
 
 Google Messages stays your messenger. SMS/RCS grants are **optional**
-(Settings → Texts). This is not a Play Store build.
+(Settings → Texts).
 
 ## Build / install
 

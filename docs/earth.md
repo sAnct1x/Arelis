@@ -3,9 +3,10 @@
 Not a product title. Physics room, solar lab, travel to Earth.
 You are an observer of what is broadcasting or published.
 
-Living notes for the next session. Canvases live beside chat
-(earth-hub, earth-layers, earth-runtime, earth-build). They are not
-in this repo.
+This page is the inventory and the legal line. The globe lives on a
+source checkout only (`world_stage_allowed`), in the physics room, with
+`pip install -e ".[astro]"`. Travel to Earth or say **enter Earth**.
+Leave: **leave Earth**, travel to another body, or `earth action=leave`.
 
 Inventory is `arelis/earth/feeds.py`: **63 shipped**, **9 keyed**,
 **3 later**, **4 out**. Adapters replace a layer; they do not invent

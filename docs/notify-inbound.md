@@ -1,24 +1,25 @@
 # Phone companion
 
-The phone is her face in your pocket. Same Wi-Fi, scan the QR once, talk.
-That is the whole first-run. SMS/RCS grants are **optional** (Settings →
+The phone is a window onto this PC, not a second Arelis. Same Wi-Fi,
+scan the QR once, talk. SMS and RCS grants are optional (Settings →
 Texts in the app). Google Messages stays your messenger. This is not a
-Play Store build, and it is not a second copy of Arelis.
+Play Store build.
 
-- **At the house** — same Wi-Fi, PC reachable. Chat is the same live
-  session as the desktop. Allow/Deny for sends she already does on the
-  PC. **files** opens the current room or workspace. **chats** is the PC
-  history plus a new conversation; switching on the phone switches the
-  desktop too. Plots she just made still show as cards. Allow on the
-  phone is the same card as the PC — one press on either side settles it.
-- **On the phone** — the PC is gone. Chats and files wait. If you
-  installed the offline brain at pair (Gemma 4 E2B, ~2.6 GB), she can
-  talk and look at a photo you just took. No mail, no SMS, no PC files.
-  You stay in the conversation already on screen. When Arelis is back —
-  even during “At the house · loading” — those words copy in, no prompt
-  and no extra line. If there was no house thread yet, they become a
-  new conversation instead of landing in last week’s. Wi-Fi is the nicer
-  download; mobile data is allowed if you choose it.
+When the PC is reachable, chat is the same live session as the desktop.
+Allow / Deny for sends she already does on the PC. **files** opens the
+current room or workspace. **chats** is the PC history plus a new
+conversation; switching on the phone switches the desktop too. Allow on
+the phone is the same card as the PC — one press on either side settles
+it.
+
+When the PC is gone, chats and files wait. If you installed the offline
+brain at pair (Gemma 4 E2B, ~2.6 GB), she can talk and look at a photo
+you just took. No mail, no SMS, no PC files. You stay in the
+conversation already on screen. When Arelis is back — even during “At
+the house · loading” — those words copy in, no prompt and no extra
+line. If there was no house thread yet, they become a new conversation
+instead of landing in last week’s. Wi-Fi is the nicer download; mobile
+data is allowed if you choose it.
 
 The companion is still the radio (SMS out after Allow) and the Google
 Messages notification bridge (SMS, MMS, RCS in) if you turn that on.

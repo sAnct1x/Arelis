@@ -1,10 +1,7 @@
-# Voice wake and conversation listen
+# Voice
 
-How to start talking without touching the keyboard, and what she will
-not treat as a wake.
-
-Talking and listening are included in the Windows installer. From a
-source checkout they need `pip install -e ".[voice]"`.
+Talking and listening are in the Windows installer. From a source
+checkout they need `pip install -e ".[voice]"`.
 
 Three listen modes. There is not a fourth.
 
