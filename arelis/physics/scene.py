@@ -16,12 +16,20 @@ from collections import deque
 from dataclasses import dataclass, field
 
 from arelis.physics.belt import generate_tracers
-from arelis.physics.clocks import RATE_DAY, RATE_HOUR, clamp_rate
+from arelis.physics.clocks import (
+    RATE_DAY,
+    RATE_HOUR,
+    SYNC_LOAD_S,
+    SYNC_REALTIME_S,
+    clamp_rate,
+    tdb_jd_now,
+)
 from arelis.physics.collision import stop_radius_m
 from arelis.physics.constants import (
     AU_M,
     BODIES,
     BODY_BY_NAME,
+    DAY_S,
     G_SI,
     GM_SUN,
     M_SUN,
@@ -66,6 +74,7 @@ class SolarSystem:
     nbody: NBody
     paused: bool = True
     rate: float = RATE_HOUR  # 1 hour per wall-second until they pick a warp.
+    wall_lock: bool = False  # rate=1 and IAS15 t tracks UTC now, not a warp.
     counterfactual: bool = False
     lock: str = "Sun"  # spawn host / spoken HUD. Click inspect is SolarPanel._inspect.
     show_osculating: bool = True
@@ -84,6 +93,9 @@ class SolarSystem:
     overlay: OverlayFlags = field(default_factory=OverlayFlags)
     last_warp: float = RATE_HOUR  # remembered by \\ so realtime can restore it
     future_gyr: float = 0.0
+    # Horizons (or load) state at t=0, after move_to_com. Realtime restores this
+    # so a year-scale warp does not have to integrate backwards to UTC now.
+    _epoch_particles: list[Particle] = field(default_factory=list, repr=False)
     # Spoken solar lock/travel: the Qt panel consumes these on the next frame.
     pending_inspect: str | None = None
     pending_travel: str | None = None
@@ -165,6 +177,7 @@ class SolarSystem:
         )
         scene.energy0 = nbody.energy()
         scene.l0 = nbody.angular_momentum()
+        scene._snapshot_epoch()
         return scene
 
     @property
@@ -174,6 +187,11 @@ class SolarSystem:
     def tick(self, wall_dt: float) -> None:
         """Advance IAS15. The camera is not a particle; there is no craft substep."""
         if self.paused or wall_dt <= 0.0:
+            return
+        if self.wall_lock:
+            self.sync_to_now(limit_s=SYNC_REALTIME_S)
+            if self.show_graphs or self.show_trails:
+                self._sample()
             return
         sim_dt = wall_dt * self.rate
         self._advance(sim_dt)
@@ -381,6 +399,7 @@ class SolarSystem:
             "integrator": self.integrator_note,
             "paused": self.paused,
             "rate": self.rate,
+            "wall_lock": self.wall_lock,
             "t_s": self.t,
             "epoch_tdb": self.epoch_tdb,
             "epoch_jd": self.epoch_jd,
@@ -659,18 +678,109 @@ class SolarSystem:
         self.l0 = self.nbody.angular_momentum()
         return label
 
+    def _snapshot_epoch(self) -> None:
+        """Copy barycentric state at t=0. Live particles are mutated by IAS15."""
+        self._epoch_particles = [
+            Particle(
+                name=p.name,
+                mass=p.mass,
+                radius=p.radius,
+                x=p.x,
+                y=p.y,
+                z=p.z,
+                vx=p.vx,
+                vy=p.vy,
+                vz=p.vz,
+                massive=p.massive,
+                tracer=p.tracer,
+                kind=p.kind,
+                parent=p.parent,
+            )
+            for p in self.nbody.particles
+        ]
+
+    def restore_epoch(self) -> bool:
+        """Put every body back at the Horizons IC. New IAS15 so warp dt is gone."""
+        if not self._epoch_particles:
+            return False
+        copies = [
+            Particle(
+                name=p.name,
+                mass=p.mass,
+                radius=p.radius,
+                x=p.x,
+                y=p.y,
+                z=p.z,
+                vx=p.vx,
+                vy=p.vy,
+                vz=p.vz,
+                massive=p.massive,
+                tracer=p.tracer,
+                kind=p.kind,
+                parent=p.parent,
+            )
+            for p in self._epoch_particles
+        ]
+        self.nbody = NBody.from_particles(copies, integrator=self.nbody.integrator)
+        self.trails.clear()
+        self._present = None
+        return True
+
     def set_rate(self, rate: float) -> float:
+        r = clamp_rate(rate)
+        if abs(r - 1.0) < 1e-9:
+            return self.go_realtime()
         if self.rate > 1.0 + 1e-9:
             self.last_warp = self.rate
-        self.rate = clamp_rate(rate)
+        self.wall_lock = False
+        self.rate = r
         return self.rate
+
+    def go_realtime(self, *, now_jd: float | None = None) -> float:
+        """1× locked to UTC now. Warp is discarded: restore the IC, then IAS15
+        from that instant to this second. Placeholder Kepler and counterfactual
+        labs cannot lock — they are not the real solar system."""
+        if self.rate > 1.0 + 1e-9:
+            self.last_warp = self.rate
+        self.rate = 1.0
+        self.paused = False
+        if self.counterfactual or self.epoch_jd <= 1.0e6:
+            self.wall_lock = False
+            return self.rate
+        now = float(now_jd if now_jd is not None else tdb_jd_now())
+        target = (now - self.epoch_jd) * DAY_S
+        if abs(target) > SYNC_REALTIME_S:
+            self.wall_lock = False
+            return self.rate
+        self.restore_epoch()
+        self.sync_to_now(now_jd=now, limit_s=SYNC_REALTIME_S)
+        self.wall_lock = abs(self.t - target) <= 1.0
+        return self.rate
+
+    def sync_to_now(
+        self,
+        *,
+        now_jd: float | None = None,
+        limit_s: float | None = None,
+    ) -> float:
+        """Integrate so epoch_jd + t matches TDB now. No-op if the IC is stale."""
+        if self.counterfactual or self.epoch_jd <= 1.0e6:
+            return self.t
+        target = (float(now_jd if now_jd is not None else tdb_jd_now()) - self.epoch_jd) * DAY_S
+        cap = SYNC_LOAD_S if limit_s is None else float(limit_s)
+        if abs(target - self.t) < 0.05:
+            return self.t
+        if math.isfinite(cap) and abs(target - self.t) > cap:
+            return self.t
+        self.nbody.integrate_to(target)
+        return self.t
 
     def toggle_warp(self) -> float:
         if abs(self.rate - 1.0) < 1e-9:
+            self.wall_lock = False
             self.rate = clamp_rate(self.last_warp or RATE_DAY)
         else:
-            self.last_warp = self.rate
-            self.rate = 1.0
+            self.go_realtime()
         return self.rate
 
     def apply_overlay(self, flag: str, *, on: bool | None = None) -> bool | float | None:

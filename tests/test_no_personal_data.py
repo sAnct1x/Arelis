@@ -325,7 +325,7 @@ def _state_pattern(states: frozenset[str]) -> re.Pattern[str]:
     """
     names = sorted(states, key=len, reverse=True)
     alternation = "|".join(name.replace(" ", r"\s+") for name in names)
-    return re.compile(rf"(?i)(?<![a-z])(?:{alternation})(?![a-z])")
+    return re.compile(rf"(?i)(?<![a-z.])(?:{alternation})(?![a-z.])")
 
 
 ANY_STATE = _state_pattern(US_STATES)
@@ -344,6 +344,18 @@ def _coordinates_on(line: str) -> list[str]:
     if COORD_PAIR.search(stripped) or COORD_CONTEXT.search(stripped):
         return COORDINATE.findall(stripped)
     return []
+
+
+def _public_globe(path: Path) -> bool:
+    """Earth-zone catalog: published city/port pins, not a house.
+
+    The rest of the tree still has one fixture place. The globe cannot.
+    """
+    rel = path.relative_to(PROJECT_ROOT).as_posix()
+    return rel.startswith("arelis/earth/") or rel in {
+        "tests/test_earth.py",
+        "docs/earth.md",
+    }
 
 
 def _is_allowed_coordinate(value: str) -> bool:
@@ -377,6 +389,8 @@ def test_no_tracked_file_carries_a_coordinate_other_than_the_fixture() -> None:
     """
     hits = []
     for path, text in _readable_tracked():
+        if _public_globe(path):
+            continue
         for line_no, line in enumerate(text.splitlines(), 1):
             if any(not _is_allowed_coordinate(v) for v in _coordinates_on(line)):
                 hits.append(f"{path.relative_to(PROJECT_ROOT)}:{line_no}")
@@ -398,6 +412,8 @@ def test_no_tracked_file_names_a_us_state_other_than_the_fixture() -> None:
     """
     hits = []
     for path, text in _readable_tracked():
+        if _public_globe(path):
+            continue
         for line_no, line in enumerate(text.splitlines(), 1):
             if FOREIGN_STATE.search(line):
                 hits.append(f"{path.relative_to(PROJECT_ROOT)}:{line_no}")

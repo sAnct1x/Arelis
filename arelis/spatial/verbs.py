@@ -79,6 +79,16 @@ _INSPECT = re.compile(
 _RESET_VIEW = re.compile(
     r"(?i)^\s*(?:reset(?:\s+the)?\s+view|back\s+up)\s*[.!]?\s*$"
 )
+_ENTER_EARTH = re.compile(
+    r"(?i)^\s*(?:enter\s+earth|earth\s+zone|go\s+into\s+earth)\s*[.!]?\s*$"
+)
+_LEAVE_EARTH = re.compile(
+    r"(?i)^\s*(?:leave\s+earth|exit\s+earth|leave\s+the\s+earth\s+zone)"
+    r"\s*[.!]?\s*$"
+)
+_RIDE_ISS = re.compile(
+    r"(?i)^\s*ride(?:\s+(?:the\s+)?iss)?\s*[.!]?\s*$"
+)
 _TRAVEL_THERE = re.compile(
     r"(?i)^\s*(?:take\s+me\s+there|go\s+there|fly\s+there|take\s+me\s+to\s+it)"
     r"\s*[.!]?\s*$"
@@ -329,6 +339,12 @@ def classify_physics_act(
     raw = (text or "").strip()
     if _RESET_VIEW.match(raw):
         return PhysicsAct(verb="reset_view")
+    if _ENTER_EARTH.match(raw):
+        return PhysicsAct(verb="enter_earth")
+    if _LEAVE_EARTH.match(raw):
+        return PhysicsAct(verb="leave_earth")
+    if _RIDE_ISS.match(raw):
+        return PhysicsAct(verb="ride_iss")
     body = match_travel(text, names=names)
     if body is not None:
         return PhysicsAct(verb="travel", name=body)

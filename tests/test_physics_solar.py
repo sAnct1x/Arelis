@@ -247,14 +247,14 @@ def test_camera_can_look_straight_up_and_over_the_pole() -> None:
     cam.yaw = 0.0
     cam.pitch = 0.0
     cam.look(0.0, math.pi / 2.0)
-    _fx, fy, _fz = cam.forward()
-    assert fy == pytest.approx(1.0, abs=1e-6)
+    _fx, _fy, fz = cam.forward()
+    assert fz == pytest.approx(1.0, abs=1e-6)
     _right, up, fwd = cam.basis()
     assert abs(sum(a * b for a, b in zip(fwd, up, strict=True))) < 1e-8
     assert abs(sum(a * a for a in fwd) - 1.0) < 1e-9
     cam.look(0.0, 0.5)
-    _fx, fy2, _fz = cam.forward()
-    assert fy2 < 0.95
+    _fx, _fy, fz2 = cam.forward()
+    assert fz2 < 0.95
 
 
 def test_camera_tumble_stays_orthonormal() -> None:
@@ -294,6 +294,134 @@ def test_sun_overview_cannot_fill_the_window() -> None:
     cam.fit_overview(BODY_BY_NAME["Sun"].radius)
     cam.approach(0.01)
     assert cam.distance >= 0.12 * AU_M
+
+
+def test_overview_looks_from_ecliptic_north() -> None:
+    from arelis.physics.camera import SOLAR_SPAN_M, FlyCamera
+
+    cam = FlyCamera()
+    cam.frame_system(SOLAR_SPAN_M)
+    cam.place_looking_at(0.0, 0.0, 0.0, cam.distance)
+    assert cam.z > 0.0
+    _right, up, fwd = cam.basis()
+    assert up[2] > 0.35
+    assert fwd[2] < 0.0
+
+
+def test_earth_approach_has_ecliptic_north_up() -> None:
+    from arelis.physics.camera import FlyCamera
+    from arelis.physics.constants import AU_M, BODY_BY_NAME
+
+    cam = FlyCamera()
+    cam.travel_to(AU_M, 0.0, 0.0, BODY_BY_NAME["Earth"].radius, sun=(0.0, 0.0, 0.0))
+    _right, up, _fwd = cam.basis()
+    assert up[2] > 0.35
+
+
+def test_sync_to_now_catches_up_from_the_ic() -> None:
+    if not rebound_available():
+        pytest.skip("REBOUND is not installed")
+    from arelis.physics.demo import sun_and_planet
+    from arelis.physics.scene import SolarSystem
+
+    system = SolarSystem.from_states(
+        sun_and_planet(), tracers=0, epoch_jd=2_451_545.0
+    )
+    system.sync_to_now(now_jd=2_451_545.0 + 1.0)
+    assert system.t == pytest.approx(86_400.0, rel=1e-6)
+    system.sync_to_now(now_jd=2_451_545.0 + 400.0, limit_s=86_400.0)
+    assert system.t == pytest.approx(86_400.0, rel=1e-6)
+
+
+def test_go_realtime_locks_to_the_clock() -> None:
+    if not rebound_available():
+        pytest.skip("REBOUND is not installed")
+    from arelis.physics.demo import sun_and_planet
+    from arelis.physics.scene import SolarSystem
+
+    system = SolarSystem.from_states(
+        sun_and_planet(), tracers=0, epoch_jd=2_451_545.0
+    )
+    assert system.paused is True
+    system.go_realtime(now_jd=2_451_545.0 + 1.0)
+    assert system.paused is False
+    assert system.wall_lock is True
+    assert system.rate == pytest.approx(1.0)
+    assert system.t == pytest.approx(86_400.0, rel=1e-6)
+    system.set_rate(3_600.0)
+    assert system.wall_lock is False
+
+
+def test_go_realtime_after_a_year_warp_returns_to_now() -> None:
+    """Warp distance must not stick. Realtime is the IC plus IAS15 to this second."""
+    if not rebound_available():
+        pytest.skip("REBOUND is not installed")
+    from arelis.physics.constants import YEAR_S
+    from arelis.physics.demo import sun_and_planet
+    from arelis.physics.scene import SolarSystem
+
+    system = SolarSystem.from_states(
+        sun_and_planet(), tracers=0, epoch_jd=2_451_545.0
+    )
+    now_jd = 2_451_545.0 + 1.0
+    system.sync_to_now(now_jd=now_jd, limit_s=YEAR_S)
+    earth = system.nbody.find("Earth")
+    assert earth is not None
+    x0, y0, z0 = earth.x, earth.y, earth.z
+    system.nbody.integrate_to(0.25 * YEAR_S)
+    earth = system.nbody.find("Earth")
+    assert earth is not None
+    assert abs(earth.x - x0) + abs(earth.y - y0) + abs(earth.z - z0) > 1.0e11
+    system.set_rate(YEAR_S)
+    system.go_realtime(now_jd=now_jd)
+    assert system.wall_lock is True
+    assert system.rate == pytest.approx(1.0)
+    assert system.t == pytest.approx(86_400.0, rel=1e-6)
+    earth = system.nbody.find("Earth")
+    assert earth is not None
+    assert earth.x == pytest.approx(x0, rel=1e-8)
+    assert earth.y == pytest.approx(y0, rel=1e-8)
+    assert earth.z == pytest.approx(z0, rel=1e-8)
+
+
+def test_set_rate_one_is_realtime_not_one_x_at_the_warped_epoch() -> None:
+    if not rebound_available():
+        pytest.skip("REBOUND is not installed")
+    from arelis.physics.clocks import tdb_jd_now
+    from arelis.physics.constants import YEAR_S
+    from arelis.physics.demo import sun_and_planet
+    from arelis.physics.scene import SolarSystem
+
+    epoch = tdb_jd_now() - 0.01
+    system = SolarSystem.from_states(sun_and_planet(), tracers=0, epoch_jd=epoch)
+    system.nbody.integrate_to(0.25 * YEAR_S)
+    earth_far = system.nbody.find("Earth")
+    assert earth_far is not None
+    x_far = earth_far.x
+    system.set_rate(1.0)
+    assert system.wall_lock is True
+    assert system.t == pytest.approx(0.01 * 86_400.0, abs=5.0)
+    earth = system.nbody.find("Earth")
+    assert earth is not None
+    assert abs(earth.x - x_far) > 1.0e11
+
+
+def test_go_realtime_does_not_lock_a_counterfactual() -> None:
+    if not rebound_available():
+        pytest.skip("REBOUND is not installed")
+    from arelis.physics.constants import YEAR_S
+    from arelis.physics.demo import sun_and_planet
+    from arelis.physics.scene import SolarSystem
+
+    system = SolarSystem.from_states(
+        sun_and_planet(), tracers=0, epoch_jd=2_451_545.0
+    )
+    system.nbody.integrate_to(YEAR_S)
+    system.counterfactual = True
+    t_warp = system.t
+    system.go_realtime(now_jd=2_451_545.0 + 1.0)
+    assert system.wall_lock is False
+    assert system.t == pytest.approx(t_warp)
 
 
 def test_overview_distance_frames_neptune() -> None:

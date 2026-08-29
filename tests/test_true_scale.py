@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+
 import pytest
 
 from arelis.physics.constants import AU_M, BODY_BY_NAME, GM_EARTH, GM_SUN
@@ -47,7 +49,8 @@ def test_true_px_is_angular_size_with_no_radius_scale(qt_app) -> None:
     earth = BODY_BY_NAME["Earth"]
     depth = 10.0 * earth.radius
     true = panel._true_px(earth.radius, depth)
-    assert true == pytest.approx(earth.radius / depth * (720 / 1.4))
+    half = math.tan(panel._fov_y() * 0.5)
+    assert true == pytest.approx(earth.radius / depth / half * (720 * 0.5))
     far = 1.0e12
     assert panel._true_px(earth.radius, far) < 1.0
     view = BodyView(

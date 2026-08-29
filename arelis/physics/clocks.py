@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 from arelis.physics.constants import DAY_S, YEAR_S
 
 RATE_REALTIME = 1.0
@@ -11,12 +13,38 @@ RATE_YEAR = YEAR_S
 RATE_MIN = 1.0e-3
 RATE_MAX = 1.0e7
 
+# Unix epoch in Julian days. timestamp() is UTC seconds.
+_JD_UNIX = 2_440_587.5
+# TT − UTC ≈ TAI + 32.184 s. 2026 leap-second count. TDB − TT is milliseconds
+# and is ignored: Earth spin is an approach globe, not a landing model.
+TT_MINUS_UTC_S = 69.184
+# IAS15 catch-up from a Horizons midnight IC to "now". Older ICs stay put.
+SYNC_LOAD_S = 3.0 * DAY_S
+# Max IC age for a realtime snap. Warp distance does not matter: we restore
+# the Horizons epoch, then integrate only from that instant to UTC now.
+SYNC_REALTIME_S = 400.0 * DAY_S
+
 PRESETS: dict[str, float] = {
     "realtime": RATE_REALTIME,
     "hour": RATE_HOUR,
     "day": RATE_DAY,
     "year": RATE_YEAR,
 }
+
+
+def utc_jd(when: datetime | None = None) -> float:
+    """Julian day from a UTC datetime. None is wall UTC now."""
+    stamp = when or datetime.now(UTC)
+    if stamp.tzinfo is None:
+        stamp = stamp.replace(tzinfo=UTC)
+    else:
+        stamp = stamp.astimezone(UTC)
+    return _JD_UNIX + stamp.timestamp() / DAY_S
+
+
+def tdb_jd_now(when: datetime | None = None) -> float:
+    """TDB Julian day for IAS15 catch-up. Horizons vector JD is TDB."""
+    return utc_jd(when) + TT_MINUS_UTC_S / DAY_S
 
 
 def clamp_rate(rate: float) -> float:

@@ -12,6 +12,14 @@ from arelis.physics.runtime import get_system, set_system
 from arelis.ui.panels.solar import SOLAR_SPAWN, SolarPanel
 
 
+@pytest.fixture(autouse=True)
+def _reset_solar_system():
+    """The live system is process-global. A missed teardown flakes later tests."""
+    set_system(None)
+    yield
+    set_system(None)
+
+
 def _mouse(kind: QEvent.Type, x: float, y: float, *, grab: bool) -> QMouseEvent:
     buttons = Qt.MouseButton.LeftButton if grab else Qt.MouseButton.NoButton
     pos = QPointF(x, y)
@@ -91,9 +99,12 @@ def test_empty_solar_panel_opens_tools(qt_app) -> None:
     panel.hide()
 
 
-def test_open_solar_populates_then_fetches_horizons_once(qt_app, monkeypatch) -> None:
+def test_open_solar_populates_then_fetches_horizons_once(
+    qt_app, monkeypatch, tmp_path
+) -> None:
     from arelis.physics.engine import rebound_available
 
+    monkeypatch.setenv("ARELIS_DATA_DIR", str(tmp_path))
     monkeypatch.setattr(SolarPanel, "_horizons_work", lambda self: None)
     set_system(None)
     panel = SolarPanel()
@@ -124,12 +135,15 @@ def test_empty_caption_hides_http_dump(qt_app) -> None:
     panel.hide()
 
 
-def test_horizons_fail_populates_kepler_bootstrap(qt_app, monkeypatch) -> None:
+def test_horizons_fail_populates_kepler_bootstrap(
+    qt_app, monkeypatch, tmp_path
+) -> None:
     from arelis.physics.engine import rebound_available
     from arelis.tools.base import ToolResult
 
     if not rebound_available():
         pytest.skip("REBOUND is not installed")
+    monkeypatch.setenv("ARELIS_DATA_DIR", str(tmp_path))
     monkeypatch.setattr(SolarPanel, "_horizons_work", lambda self: None)
     set_system(None)
     panel = SolarPanel()
@@ -226,10 +240,14 @@ def test_mouse_drag_left_looks_left(qt_app) -> None:
     panel.resize(640, 480)
     panel.show()
     qt_app.processEvents()
-    yaw0 = panel.cam.yaw
+    fx0, fy0, fz0 = panel.cam.forward()
+    right0, _up0, _fwd0 = panel.cam.basis()
     panel.mousePressEvent(_mouse(QEvent.Type.MouseButtonPress, 400, 200, grab=True))
     panel.mouseMoveEvent(_mouse(QEvent.Type.MouseButtonPress, 300, 200, grab=True))
-    assert panel.cam.yaw > yaw0
+    fx1, fy1, fz1 = panel.cam.forward()
+    assert (
+        (fx1 - fx0) * right0[0] + (fy1 - fy0) * right0[1] + (fz1 - fz0) * right0[2] < 0.0
+    )
     panel.hide()
     set_system(None)
 
@@ -271,7 +289,10 @@ def test_overview_shows_and_picks_neptune(qt_app) -> None:
         assert 0.0 <= hit[0] < panel.width(), name
         assert 0.0 <= hit[1] < panel.height(), name
     assert not panel._help
-    assert panel._hud_bottom < 100
+    # Overview HUD is a plate, not the globe. Keys chrome grew with Earth;
+    # 100px was a screenshot of an older strip and failed at 112 on the same
+    # 720px panel. Keep it in the top quarter.
+    assert panel._hud_bottom < panel.height() // 4
     panel.hide()
     set_system(None)
 
@@ -955,7 +976,7 @@ def test_overlay_tray_toggles_without_closing(qt_app) -> None:
 
 
 def test_help_hotkeys_name_every_live_key() -> None:
-    from arelis.ui.panels.solar import HELP_HOTKEYS, KEY_LEGEND, KEY_STRIP
+    from arelis.ui.panels.solar import HELP_HOTKEYS, KEY_HINT, KEY_LEGEND, KEY_STRIP
 
     blob = " ".join(HELP_HOTKEYS)
     for token in (
@@ -975,6 +996,8 @@ def test_help_hotkeys_name_every_live_key() -> None:
     assert "chase" not in blob.lower()
     strip = " ".join(f"{k} {h}" for k, h in KEY_STRIP)
     assert "WASD" in strip and "H" in strip
+    assert "WASD fly" in KEY_HINT
+    assert "Space pause" in KEY_HINT
     legend = " ".join(f"{k} {h}" for _title, rows in KEY_LEGEND for k, h in rows)
     assert "Lagrange" in legend
     assert "magnetic" in legend
@@ -985,6 +1008,7 @@ def test_key_strip_click_toggles_help(qt_app) -> None:
     from arelis.physics.demo import sun_and_planet
     from arelis.physics.engine import rebound_available
     from arelis.physics.scene import SolarSystem
+    from arelis.ui.panels.solar import KEY_HINT
 
     if not rebound_available():
         pytest.skip("REBOUND is not installed")
@@ -994,12 +1018,17 @@ def test_key_strip_click_toggles_help(qt_app) -> None:
     panel.show()
     qt_app.processEvents()
     assert not panel._help
-    hit = panel._keys_hit
+    hit = panel._keys_toggle
     assert not hit.isEmpty()
+    assert hit.width() < 80
     panel.mousePressEvent(
         _mouse(QEvent.Type.MouseButtonPress, hit.center().x(), hit.center().y(), grab=True)
     )
     assert panel._help
+    lines = panel._hud_status_lines(get_system())
+    assert any("clock paused" in line for line in lines)
+    assert not any(line.startswith("paused") for line in lines)
+    assert KEY_HINT
     panel.hide()
     set_system(None)
 

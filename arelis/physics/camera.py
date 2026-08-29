@@ -18,7 +18,11 @@ SPEED_MAX = 5.0e11  # ~3 AU/s. Slider and wheel share this range.
 # look() is camera-relative and does not clamp. Pitch ±90° is straight
 # up/down; going further tumbles over the pole. look_basis picks a
 # fallback axis if the up hint is parallel to forward.
-WORLD_UP: tuple[float, float, float] = (0.0, 1.0, 0.0)
+# ECLIPJ2000: XY is the ecliptic, +Z is north. Screen-up follows that so
+# Earth is not Antarctica-first and the overview is not from the south.
+WORLD_UP: tuple[float, float, float] = (0.0, 0.0, 1.0)
+OVERVIEW_YAW = 1.45
+OVERVIEW_PITCH = -0.55
 
 # Mean Neptune a. Overview never frames tighter than the giant-planet system.
 SOLAR_SPAN_M = 30.07 * AU_M
@@ -58,8 +62,8 @@ class CameraPose:
 class FlyCamera:
     """Eye in ECLIPJ2000 metres. Wheel is travel speed, not zoom-to-lock."""
 
-    yaw: float = 1.45
-    pitch: float = 0.38
+    yaw: float = OVERVIEW_YAW
+    pitch: float = OVERVIEW_PITCH
     x: float = 2.2e11
     y: float = 7.4e10
     z: float = 1.0e11
@@ -70,9 +74,10 @@ class FlyCamera:
     up: tuple[float, float, float] = WORLD_UP
 
     def forward(self) -> tuple[float, float, float]:
+        """Yaw in the ecliptic XY plane. Pitch toward ecliptic north (+Z)."""
         cp, sp = math.cos(self.pitch), math.sin(self.pitch)
         cy, sy = math.cos(self.yaw), math.sin(self.yaw)
-        return (cp * cy, sp, cp * sy)
+        return (cp * cy, cp * sy, sp)
 
     def basis(
         self,
@@ -105,8 +110,7 @@ class FlyCamera:
         d = fwd[0] * up[0] + fwd[1] * up[1] + fwd[2] * up[2]
         up = _unit3((up[0] - fwd[0] * d, up[1] - fwd[1] * d, up[2] - fwd[2] * d))
         self.up = up
-        self.pitch = math.asin(max(-1.0, min(1.0, fwd[1])))
-        self.yaw = math.atan2(fwd[2], fwd[0])
+        self.pitch, self.yaw = _forward_pitch_yaw(fwd)
 
     def nudge_speed(self, factor: float) -> None:
         self.speed = min(SPEED_MAX, max(SPEED_MIN, self.speed * float(factor)))
@@ -132,8 +136,7 @@ class FlyCamera:
         self.up = WORLD_UP
         dx, dy, dz = tx - self.x, ty - self.y, tz - self.z
         n = math.sqrt(dx * dx + dy * dy + dz * dz) or 1.0
-        self.pitch = math.asin(max(-1.0, min(1.0, dy / n)))
-        self.yaw = math.atan2(dz, dx)
+        self.pitch, self.yaw = _forward_pitch_yaw((dx / n, dy / n, dz / n))
 
     def place_looking_at(self, tx: float, ty: float, tz: float, dist: float) -> None:
         self.distance = float(dist)
@@ -180,8 +183,8 @@ class FlyCamera:
         r = max(float(radius), 1.0e6)
         self.min_distance = max(0.12 * AU_M, r * 2.5)
         self.distance = max(3.0e11, self.min_distance * 2.0)
-        self.yaw = 1.45
-        self.pitch = 0.38
+        self.yaw = OVERVIEW_YAW
+        self.pitch = OVERVIEW_PITCH
         self.up = WORLD_UP
         self.place_looking_at(0.0, 0.0, 0.0, self.distance)
 
@@ -191,8 +194,8 @@ class FlyCamera:
         self.max_distance = max(self.max_distance, dist * 1.35)
         self.min_distance = 0.12 * AU_M
         self.distance = dist
-        self.yaw = 1.45
-        self.pitch = 0.38
+        self.yaw = OVERVIEW_YAW
+        self.pitch = OVERVIEW_PITCH
         self.up = WORLD_UP
         self.speed = min(SPEED_MAX, max(8.0e7, dist * 0.12))
 
@@ -287,7 +290,7 @@ def look_basis(
     )
     xl = math.sqrt(fx[0] * fx[0] + fx[1] * fx[1] + fx[2] * fx[2])
     if xl < 1e-8:
-        alt = (0.0, 0.0, 1.0) if abs(hint[1]) > 0.7 else WORLD_UP
+        alt = (0.0, 1.0, 0.0) if abs(hint[2]) > 0.7 else WORLD_UP
         fx = (
             alt[1] * fz[2] - alt[2] * fz[1],
             alt[2] * fz[0] - alt[0] * fz[2],
@@ -381,11 +384,7 @@ def sunlit_standoff(
             z = tz + dz * standoff + nz * standoff * 0.28
             placed = True
     if not placed:
-        fx, fy, fz = forward if forward is not None else (
-            math.cos(0.38) * math.cos(1.45),
-            math.sin(0.38),
-            math.cos(0.38) * math.sin(1.45),
-        )
+        fx, fy, fz = forward if forward is not None else _overview_forward()
         fx, fy, fz = _unit3((fx, fy, fz))
         x = tx - fx * standoff
         y = ty - fy * standoff
@@ -416,6 +415,23 @@ def apply_pose(cam: FlyCamera, pose: CameraPose) -> None:
     cam.speed = pose.speed
 
 
+def _overview_forward() -> tuple[float, float, float]:
+    cp, sp = math.cos(OVERVIEW_PITCH), math.sin(OVERVIEW_PITCH)
+    cy, sy = math.cos(OVERVIEW_YAW), math.sin(OVERVIEW_YAW)
+    return (cp * cy, cp * sy, sp)
+
+
+def _forward_pitch_yaw(
+    fwd: tuple[float, float, float],
+) -> tuple[float, float]:
+    """Pitch toward +Z, yaw in XY. Inverse of FlyCamera.forward."""
+    n = math.sqrt(fwd[0] * fwd[0] + fwd[1] * fwd[1] + fwd[2] * fwd[2]) or 1.0
+    return (
+        math.asin(max(-1.0, min(1.0, fwd[2] / n))),
+        math.atan2(fwd[1] / n, fwd[0] / n),
+    )
+
+
 def _look_yaw_pitch(
     eye: tuple[float, float, float],
     target: tuple[float, float, float],
@@ -423,8 +439,8 @@ def _look_yaw_pitch(
     dx = target[0] - eye[0]
     dy = target[1] - eye[1]
     dz = target[2] - eye[2]
-    n = math.sqrt(dx * dx + dy * dy + dz * dz) or 1.0
-    return math.atan2(dz, dx), math.asin(max(-1.0, min(1.0, dy / n)))
+    pitch, yaw = _forward_pitch_yaw((dx, dy, dz))
+    return yaw, pitch
 
 
 def warp_duration(dist_m: float) -> float:

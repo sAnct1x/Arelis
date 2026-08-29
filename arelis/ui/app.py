@@ -2382,6 +2382,53 @@ class ArelisWindow(QMainWindow):
             self.thinking.append("reset view", kind="status")
             self._touch_solar()
             return
+        if verb == "enter_earth":
+            self._apply_tile("world", show=True, page="solar")
+            from arelis.earth.runtime import require_earth
+
+            note = require_earth().enter()
+            system = get_system()
+            if system is not None and system.nbody.find("Earth") is not None:
+                system.lock = "Earth"
+                system.pending_inspect = "Earth"
+                system.pending_travel = "Earth"
+            self.thinking.append(note, kind="status")
+            self._touch_solar()
+            return
+        if verb == "leave_earth":
+            from arelis.earth.dump import dump_state
+            from arelis.earth.runtime import get_earth
+
+            zone = get_earth()
+            if zone is None or not zone.active:
+                self.thinking.append("already solar", kind="status")
+                return
+            try:
+                dump_state(zone, trigger="leave")
+            except OSError:
+                pass
+            self.thinking.append(zone.leave(), kind="status")
+            self._touch_solar()
+            return
+        if verb == "ride_iss":
+            self._apply_tile("world", show=True, page="solar")
+            from arelis.earth.runtime import require_earth
+
+            zone = require_earth()
+            if not zone.active:
+                zone.enter()
+            hit = zone.ride("norad:25544")
+            system = get_system()
+            if system is not None:
+                system.lock = "Earth"
+                system.pending_inspect = "Earth"
+                system.pending_travel = "Earth"
+            self.thinking.append(
+                f"riding {hit.label}" if hit else "ISS not in the store",
+                kind="status",
+            )
+            self._touch_solar()
+            return
         if is_time_verb(verb):
             system = get_system()
             if system is None:

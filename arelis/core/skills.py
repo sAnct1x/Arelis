@@ -646,6 +646,8 @@ SKILL_CARDS: dict[str, SkillCard] = {
             "solar system",
             "dump this state",
             "hohmann",
+            "international space station",
+            "enter earth",
             "apod",
             "nasa ads",
         ),
@@ -684,7 +686,13 @@ SKILL_CARDS: dict[str, SkillCard] = {
   observer tables are for the sky. Do not invent a bibcode, an abstract,
   or an ephemeris. "Find me a paper" is catalog, not a guess.
 - The physics-room solar lab is the `solar` tool (REBOUND, true scale).
-  load uses Horizons VECTORS. impulse/add_probe need Allow. fetch_maps
+  load uses Horizons VECTORS. realtime (key 1, or 1×) discards any warp
+  and locks IAS15 to UTC now from the Horizons epoch — Moon and Earth are
+  where they are this minute, not a warped future and not midnight of the
+  IC date. A placeholder Kepler catalog or a counterfactual lab cannot lock.
+  The Sun is a finite disk: bodies cast umbra and penumbra (lunar eclipse
+  bite, Saturn's shadow on the rings). Night is dark; earthshine on the Moon.
+  impulse/add_probe need Allow. fetch_maps
   pulls NASA public albedo for approach/orbit only — not landing.
   Leaving the solar lab writes a cited JSONL under outputs/physics/solar.
   dump this state is solar action=dump without leaving. Not a screenshot. No GL still.
@@ -692,6 +700,23 @@ SKILL_CARDS: dict[str, SkillCard] = {
   pause/faster, and open/close the solar lab or toy are closed verbs —
   do not call solar or tile for those. For an unnamed body, solar
   action=travel or lock. Travel flies the camera; inspect/lock does not.
+- Earth is a zone inside that lab, not a new room and not a titled product.
+  Travel to Earth, or say enter Earth, or call earth action=enter. leave Earth
+  returns to heliocentric. The `earth` tool reads the zone: status, layer,
+  track, ride, search, dump, coverage, live. Simulated flights/ships/sats/ISS
+  are labeled simulated. live=on may pull USGS, OpenSky (every squawk + UAV),
+  adsb.lol military, AISStream (free key in data/secrets.yaml), Fintraffic
+  Digitraffic AIS (no key), CelesTrak TLE + Starlink sample, Radio Browser,
+  TfL JamCam, Caltrans D1-D12 CCTV + lane closures, Open-Meteo,
+  FIRMS (free key), Launch Library pads, APRS (free key), Shodan banners
+  (optional free key, not a login); failures keep sim.
+  Mid-ocean AIS is a hole (VHF dies offshore; we do not buy satellite AIS).
+  Sentinel-1 ocean frames (NASA ASF, no key) are pass footprints, not hull names.
+  NASA EONET named events upsert onto sites. OSM webcam tags are positions only.
+  Do not invent an ADS-B or AIS
+  fix. Do not log into cameras you do not own. Do not decode private radio. dump
+  writes outputs/physics/earth. Closed verbs: enter Earth, leave Earth, ride
+  ISS — do not call earth for those.
 - Papers already on disk use doc_extract. Do not invent citations.
 - Walk the derivation; let cas check the algebra. Do not stamp homework.
 - After cas returns, copy the latex: line into $$ … $$. Do not rewrite

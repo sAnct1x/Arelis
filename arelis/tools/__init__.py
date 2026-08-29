@@ -28,6 +28,7 @@ from arelis.tools.contacts_tool import ContactsTool
 from arelis.tools.diagnostics import DiagnosticsTool
 from arelis.tools.doc_extract import DocExtractTool
 from arelis.tools.document import DocumentTool
+from arelis.tools.earth_tool import EarthTool
 from arelis.tools.email_send import SendEmailTool
 from arelis.tools.git_info import GitInfoTool
 from arelis.tools.goals import GoalsTool
@@ -306,6 +307,8 @@ def build_tool_registry(
         registry.register(CatalogTool())
     if allow_send and tools_cfg.get("solar", {}).get("enabled", True):
         registry.register(SolarTool())
+    if allow_send and tools_cfg.get("earth", {}).get("enabled", True):
+        registry.register(EarthTool())
     # Charts write a PNG (Allow). Jobs skip — nobody is there to approve the file.
     if allow_send and (tools_cfg.get("plot") or {}).get("enabled", True):
         registry.register(PlotTool(workspace, config["_rooms"]))

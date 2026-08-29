@@ -5,6 +5,21 @@ The installer on GitHub is **0.2.3**.
 Published: [v0.2.3](releases/v0.2.3.md).
 Older: [v0.2.2](releases/v0.2.2.md). [v0.2.1](releases/v0.2.1.md).
 
+## This checkout
+
+**World.** Source checkout only. Physics room, Ctrl+8, solar lab
+(`.[astro]`) and hands (`.[spatial]`). Not in the installer. Travel to
+Earth (or say enter Earth) lights the Earth zone on the globe — an
+observer plate of whatever is broadcasting or published (planes, ships,
+sats, UAV ADS-B, cameras as positions). Individual cars are not a public
+feed. live=on pulls OpenSky, AISStream (free key), Fintraffic Digitraffic
+(no key), CelesTrak, TfL, Caltrans, Sentinel-1 gyre footprints (NASA ASF),
+and the rest of `arelis/earth/feeds.py`.
+Mid-ocean AIS stays empty — VHF dies offshore; we do not buy satellite AIS.
+Radar over those gyres is a pass, not a named hull.
+The lab camera uses ecliptic north as up so the globe is not Antarctica-first.
+Not a product title. [earth.md](earth.md).
+
 ## 0.2.3
 
 - **First open names a model.** After the folder question she looks at
