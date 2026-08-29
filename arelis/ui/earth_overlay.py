@@ -96,11 +96,25 @@ _INK_A: dict[str, int] = {
     "sites": 170,
     "people": 240,
 }
+_FRESH_SCALE: dict[str, float] = {
+    "live": 1.0,
+    "delayed": 0.88,
+    "interpolated": 0.82,
+    "dead-reckoned": 0.55,
+    "simulated": 0.72,
+    "reconstructed": 0.78,
+    "stale": 0.32,
+    "unavailable": 0.22,
+}
+_HEADING_LAYERS = frozenset({"flights", "drones", "military", "vessels"})
 
 
-def _ink(layer: str, *, hot: bool = False) -> QColor:
+def _ink(layer: str, *, hot: bool = False, freshness: str = "") -> QColor:
     c = QColor(color(_INK_ROLE.get(layer, "dim")))
-    c.setAlpha(255 if hot else _INK_A.get(layer, 170))
+    base = 255 if hot else _INK_A.get(layer, 170)
+    if not hot:
+        base = max(40, int(base * _FRESH_SCALE.get(freshness, 1.0)))
+    c.setAlpha(base)
     return c
 
 
@@ -166,7 +180,7 @@ def paint_earth(painter: QPainter, panel: Any, system: SolarSystem) -> None:
         if disc is not None and _occulted(sx, sy, depth, disc, globe.radius, panel):
             continue
         hot = ent.id in {track, ride}
-        ink = _ink(ent.layer, hot=hot)
+        ink = _ink(ent.layer, hot=hot, freshness=ent.freshness)
         if ent.layer == "cameras" and px_r > 160:
             _paint_viewshed(painter, panel, system, ent, disc, globe.radius)
         if ent.layer == "radar" and px_r > 160:
@@ -219,6 +233,21 @@ def paint_earth(painter: QPainter, panel: Any, system: SolarSystem) -> None:
             painter.setPen(QPen(ink, 1))
             painter.setBrush(ink)
             painter.drawEllipse(QPoint(ix, iy), 2, 2)
+        elif ent.layer == "traffic":
+            painter.setPen(QPen(ink, 1))
+            painter.drawLine(ix - 3, iy, ix + 3, iy)
+            painter.drawLine(ix, iy - 2, ix, iy + 2)
+        elif ent.layer == "weather":
+            tri = QPolygonF(
+                [QPointF(ix, iy - 3), QPointF(ix + 3, iy + 2), QPointF(ix - 3, iy + 2)]
+            )
+            painter.setPen(QPen(ink, 1))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawPolygon(tri)
+        elif ent.layer == "sites":
+            painter.setPen(QPen(ink, 1))
+            painter.drawLine(ix - 3, iy, ix + 3, iy)
+            painter.drawLine(ix, iy - 3, ix, iy + 3)
         else:
             r = 3 if hot else 2
             painter.setPen(QPen(ink, 1))
@@ -230,6 +259,23 @@ def paint_earth(painter: QPainter, panel: Any, system: SolarSystem) -> None:
             painter.setPen(QPen(halo, 1))
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawEllipse(QPoint(ix, iy), 9, 9)
+        if (
+            ent.layer in _HEADING_LAYERS
+            and ent.speed() >= 0.5
+            and px_r > 72.0
+        ):
+            _paint_heading(painter, panel, system, ent, ix, iy, ink)
+        if ent.freshness == "stale" and not hot:
+            ghost = QColor(ink)
+            ghost.setAlpha(max(40, ink.alpha()))
+            painter.setPen(QPen(ghost, 1))
+            painter.drawLine(ix - 3, iy - 3, ix + 3, iy + 3)
+        if ent.freshness == "dead-reckoned" and not hot:
+            ghost = QColor(ink)
+            ghost.setAlpha(max(40, ink.alpha() // 2))
+            painter.setPen(QPen(ghost, 1, Qt.PenStyle.DashLine))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawEllipse(QPoint(ix, iy), 5, 5)
         show_cam = ent.layer == "cameras" and (hot or label_cams)
         show_people = ent.layer == "people"
         if hot or ent.layer == "iss" or show_people or (
@@ -295,15 +341,58 @@ def _occulted(
 
 def inspect_caption(entity: Entity) -> str:
     lat, lon, alt = ecef_to_lla(entity.x, entity.y, entity.z)
-    extra = ""
+    bits = [f"{lat:.2f}°, {lon:.2f}°", f"{alt/1000.0:.0f} km"]
+    spd = entity.speed()
+    if spd >= 0.5:
+        bits.append(f"{spd:.0f} m/s")
+    mag = entity.meta.get("mag")
+    if isinstance(mag, (int, float)):
+        bits.append(f"M{float(mag):.1f}")
+    lines = [
+        entity.label,
+        f"{entity.id}  {entity.layer}  {entity.freshness}",
+    ]
+    if entity.source:
+        lines.append(entity.source)
+    lines.append("  ".join(bits))
+    if entity.cite:
+        lines.append(entity.cite)
     if entity.coverage is not None:
-        extra = f"\n{entity.coverage.kind}: {entity.coverage.note}"
-    return (
-        f"{entity.label}\n"
-        f"{entity.id}  {entity.layer}  {entity.freshness}\n"
-        f"{lat:.2f}°, {lon:.2f}°  {alt/1000.0:.0f} km\n"
-        f"{entity.cite}{extra}"
+        lines.append(f"{entity.coverage.kind}: {entity.coverage.note}")
+    return "\n".join(lines)
+
+
+def _paint_heading(
+    painter: QPainter,
+    panel: Any,
+    system: SolarSystem,
+    entity: Entity,
+    ix: int,
+    iy: int,
+    ink: QColor,
+) -> None:
+    """Short sodium tick along last reported ECEF velocity."""
+    speed = entity.speed()
+    if speed < 0.5:
+        return
+    scale = 40_000.0 / speed
+    tip = Entity(
+        id=entity.id,
+        cls=entity.cls,
+        layer=entity.layer,
+        label=entity.label,
+        x=entity.x + entity.vx * scale,
+        y=entity.y + entity.vy * scale,
+        z=entity.z + entity.vz * scale,
     )
+    world = entity_world(system, tip)
+    if world is None:
+        return
+    proj = panel._proj(world)
+    if proj is None or proj[2] <= 0:
+        return
+    painter.setPen(QPen(ink, 1))
+    painter.drawLine(ix, iy, int(proj[0]), int(proj[1]))
 
 
 def _paint_osm_tiles(

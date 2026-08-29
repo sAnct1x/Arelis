@@ -23,7 +23,7 @@ import yaml
 
 from arelis import __source_url__, __version__
 from arelis.earth.entity import Coverage, Entity
-from arelis.earth.frames import lla_to_ecef
+from arelis.earth.frames import ecef_vel_from_track, lla_to_ecef
 from arelis.paths import state_dir
 
 TOKEN_URL = "https://id.barentswatch.no/connect/token"
@@ -118,6 +118,12 @@ def _entity_from_row(row: dict[str, Any], now: float) -> Entity | None:
     cog = _num(row.get("courseOverGround"))
     when = _unix_iso(row.get("msgtime"), now)
     pos = lla_to_ecef(lat, lon, 0.0)
+    speed = (sog or 0.0) * 0.514444
+    vx, vy, vz = (
+        ecef_vel_from_track(lat, lon, speed, cog or 0.0)
+        if speed > 0.5
+        else (0.0, 0.0, 0.0)
+    )
     return Entity(
         id=f"mmsi:{mmsi}",
         cls="vessel",
@@ -126,6 +132,9 @@ def _entity_from_row(row: dict[str, Any], now: float) -> Entity | None:
         x=pos[0],
         y=pos[1],
         z=pos[2],
+        vx=vx,
+        vy=vy,
+        vz=vz,
         when_unix=when,
         source="BarentsWatch AIS",
         freshness="live",

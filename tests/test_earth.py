@@ -45,6 +45,21 @@ _LIVE_FETCHERS = (
     "fetch_radar",
     "fetch_gfw",
     "fetch_eonet",
+    "fetch_nws",
+    "fetch_airports",
+    "fetch_spacetrack",
+    "fetch_tip",
+    "fetch_emsc",
+    "fetch_swpc",
+    "fetch_satnogs",
+    "fetch_metar",
+    "fetch_waqi",
+    "fetch_geonet",
+    "fetch_ndbc",
+    "fetch_volcanoes",
+    "fetch_gdacs",
+    "fetch_tides",
+    "fetch_argo",
 )
 
 
@@ -643,6 +658,17 @@ def test_radio_fetch_failure_does_not_open_if_unpinned(
     assert radio_mod.fetch_radio() is None
 
 
+def test_ecef_vel_from_track_east_is_along_east() -> None:
+    from arelis.earth.frames import ecef_vel_from_track, enu_axes
+
+    lat, lon = 51.5, -0.12
+    east, _north, _up = enu_axes(lat, lon)
+    vx, vy, vz = ecef_vel_from_track(lat, lon, 100.0, 90.0)
+    assert vx == pytest.approx(100.0 * east[0], rel=1e-9)
+    assert vy == pytest.approx(100.0 * east[1], rel=1e-9)
+    assert vz == pytest.approx(100.0 * east[2], rel=1e-9)
+
+
 def test_enu_east_matches_east_axis() -> None:
     from arelis.earth.frames import enu_axes, enu_to_ecef
 
@@ -767,14 +793,15 @@ def test_opensky_uav_category_is_the_drones_layer() -> None:
     payload = {
         "time": 1.0,
         "states": [
-            ["abc123", "UAL1  ", None, None, None, -0.12, 51.5, 10000, 200, None, None, None, None, None, None, None, 0, 0],
-            ["def456", "UAV1  ", None, None, None, -0.12, 51.5, 120, 20, None, None, None, None, None, None, None, 0, 14],
+            ["abc123", "UAL1  ", None, None, None, -0.12, 51.5, 10000, False, 200, 90, 0, None, None, None, None, 0, 0],
+            ["def456", "UAV1  ", None, None, None, -0.12, 51.5, 120, False, 20, 0, 0, None, None, None, None, 0, 14],
         ],
     }
     rows = entities_from_opensky(payload)
     by_id = {e.id: e for e in rows}
     assert by_id["icao:abc123"].layer == "flights"
     assert by_id["icao:def456"].layer == "drones"
+    assert by_id["icao:abc123"].vx != 0.0 or by_id["icao:abc123"].vy != 0.0
     assert "not every car" in by_id["icao:abc123"].cite.lower() or "cars" in by_id["icao:abc123"].cite.lower()
 
 
@@ -851,7 +878,7 @@ def test_adsb_mil_keeps_squawks() -> None:
 
 
 def test_overlay_ink_is_sodium_not_gold() -> None:
-    from arelis.ui.earth_overlay import _INK_ROLE
+    from arelis.ui.earth_overlay import _FRESH_SCALE, _INK_ROLE, _ink
     from arelis.ui.theme import COLORS
 
     amber = COLORS["amber"].lower()
@@ -860,6 +887,10 @@ def test_overlay_ink_is_sodium_not_gold() -> None:
     assert _INK_ROLE["iss"] == "text"
     assert _INK_ROLE["drones"] == "warn"
     assert _INK_ROLE["people"] == "text"
+    live = _ink("flights", freshness="live")
+    stale = _ink("flights", freshness="stale")
+    assert stale.alpha() < live.alpha()
+    assert _FRESH_SCALE["dead-reckoned"] < _FRESH_SCALE["delayed"]
 
 
 def test_enter_note_names_simulated_or_live(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -895,6 +926,30 @@ def test_shipped_feed_hosts_are_pinned() -> None:
         ), host
 
 
+def test_earth_docs_inventory_matches_feeds() -> None:
+    from collections import Counter
+    from pathlib import Path
+
+    from arelis.earth.feeds import FEEDS
+
+    counts = Counter(spec.status for spec in FEEDS)
+    pages = (
+        Path("docs/earth.md"),
+        Path("docs/whats-new.md"),
+        Path("docs/architecture.md"),
+        Path("docs/rooms.md"),
+    )
+    for page in pages:
+        body = page.read_text(encoding="utf-8")
+        assert f"{counts['shipped']} shipped" in body, page
+        assert f"{counts['keyed']} keyed" in body, page
+        assert f"{counts['later']} later" in body, page
+        assert f"{counts['out']} out" in body, page
+    earth = Path("docs/earth.md").read_text(encoding="utf-8")
+    assert f"**{counts['later']} later**" in earth
+    assert f"**{counts['out']} out**" in earth
+
+
 def test_merge_live_stubs_every_fetcher() -> None:
     import arelis.earth.live as live_mod
 
@@ -910,6 +965,17 @@ def test_merge_live_stubs_every_fetcher() -> None:
     assert "fetch_radar" in fetches
     assert "fetch_gfw" in fetches
     assert "fetch_eonet" in fetches
+    assert "fetch_nws" in fetches
+    assert "fetch_airports" in fetches
+    assert "fetch_spacetrack" in fetches
+    assert "fetch_emsc" in fetches
+    assert "fetch_waqi" in fetches
+    assert "fetch_geonet" in fetches
+    assert "fetch_ndbc" in fetches
+    assert "fetch_volcanoes" in fetches
+    assert "fetch_gdacs" in fetches
+    assert "fetch_tides" in fetches
+    assert "fetch_argo" in fetches
 
 
 def test_caltrans_cctv_covers_twelve_districts() -> None:
@@ -1330,6 +1396,637 @@ def test_gfw_report_cells_are_unnamed() -> None:
     assert hits[0].layer == "radar"
     assert "mmsi" not in hits[0].meta
     assert hits[0].freshness == "delayed"
+
+
+def test_open511_is_not_a_car() -> None:
+    from arelis.earth.traffic import entities_from_open511
+
+    pins = entities_from_open511(
+        {
+            "events": [
+                {
+                    "id": "drivebc.ca/DBC-1",
+                    "headline": "CONSTRUCTION",
+                    "geography": {"type": "Point", "coordinates": [-123.1, 49.3]},
+                },
+                {"id": "nogeo", "headline": "Nowhere"},
+            ]
+        },
+        prefix="bc511",
+        source="DriveBC Open511",
+        cite="DriveBC Open511. Not a VIN index.",
+    )
+    assert len(pins) == 1
+    assert pins[0].id == "bc511:drivebc.ca/DBC-1"
+    assert pins[0].layer == "traffic"
+    assert "vin" in pins[0].cite.lower()
+
+
+def test_nsw_hazard_is_not_a_car() -> None:
+    from arelis.earth.traffic import entities_from_geojson_incidents
+
+    pins = entities_from_geojson_incidents(
+        {
+            "features": [
+                {
+                    "id": "H1",
+                    "geometry": {"type": "Point", "coordinates": [151.2, -33.9]},
+                    "properties": {
+                        "headline": "Crash",
+                        "roads": [{"mainStreet": "M1"}],
+                    },
+                }
+            ]
+        },
+        prefix="nsw",
+        source="NSW Live Traffic",
+        cite="NSW Live Traffic. Not a VIN index.",
+    )
+    assert len(pins) == 1
+    assert pins[0].id == "nsw:H1"
+    assert pins[0].layer == "traffic"
+
+
+def test_cars_511_is_not_a_car() -> None:
+    from arelis.earth.traffic import entities_from_cars
+
+    pins = entities_from_cars(
+        [
+            {
+                "ID": 61,
+                "Latitude": 43.65,
+                "Longitude": -79.38,
+                "RoadwayName": "HWY-401",
+                "Description": "Lane blocked",
+            },
+            {"ID": 0, "Latitude": 0.0, "Longitude": 0.0, "Description": "Null"},
+        ],
+        prefix="511on",
+        source="Ontario 511",
+    )
+    assert len(pins) == 1
+    assert pins[0].id == "511on:61"
+    assert pins[0].layer == "traffic"
+    assert "vin" in pins[0].cite.lower()
+
+
+def test_nws_alert_uses_polygon_centroid() -> None:
+    from arelis.earth.nws import entities_from_alerts
+
+    pins = entities_from_alerts(
+        {
+            "features": [
+                {
+                    "id": "https://api.weather.gov/alerts/urn:oid:1",
+                    "geometry": {
+                        "type": "Polygon",
+                        "coordinates": [
+                            [
+                                [-90.0, 38.0],
+                                [-89.0, 38.0],
+                                [-89.0, 39.0],
+                                [-90.0, 39.0],
+                                [-90.0, 38.0],
+                            ]
+                        ],
+                    },
+                    "properties": {
+                        "id": "urn:oid:1",
+                        "event": "Tornado Warning",
+                        "areaDesc": "Test County",
+                    },
+                },
+                {
+                    "id": "nogeo",
+                    "geometry": None,
+                    "properties": {"id": "nogeo", "event": "Nowhere"},
+                },
+            ]
+        }
+    )
+    assert len(pins) == 1
+    assert pins[0].id == "nws:urn:oid:1"
+    assert pins[0].layer == "weather"
+    assert pins[0].meta["lat"] == pytest.approx(38.5)
+    assert pins[0].meta["lon"] == pytest.approx(-89.5)
+
+
+def test_ourairports_keeps_scheduled_large_fields() -> None:
+    from arelis.earth.airports import entities_from_csv
+
+    csv = (
+        "id,ident,type,name,latitude_deg,longitude_deg,elevation_ft,continent,"
+        "iso_country,iso_region,municipality,scheduled_service,icao_code,iata_code\n"
+        "1,EGLL,large_airport,Heathrow,51.47,-0.45,83,EU,GB,GB-ENG,London,yes,EGLL,LHR\n"
+        "2,XX00,small_airport,Strip,51.5,-0.12,10,EU,GB,GB-ENG,Nowhere,yes,XX00,\n"
+        "3,EGKK,large_airport,Gatwick,51.15,-0.19,202,EU,GB,GB-ENG,London,no,EGKK,LGW\n"
+    )
+    pins = entities_from_csv(csv)
+    assert len(pins) == 1
+    assert pins[0].id == "apt:EGLL"
+    assert pins[0].layer == "sites"
+    assert pins[0].freshness == "reconstructed"
+    assert "radar" in pins[0].cite.lower()
+
+
+def test_dead_reckon_coasts_then_goes_stale() -> None:
+    from arelis.earth.entity import Entity
+    from arelis.earth.simulate import advance_live
+
+    store = EntityStore()
+    pos = lla_to_ecef(51.5, -0.12, 10_000.0)
+    store.upsert(
+        Entity(
+            id="icao:abc123",
+            cls="aircraft",
+            layer="flights",
+            label="UAL1",
+            x=pos[0],
+            y=pos[1],
+            z=pos[2],
+            vx=100.0,
+            vy=0.0,
+            vz=0.0,
+            when_unix=1_000.0,
+            freshness="delayed",
+            source="OpenSky Network",
+        )
+    )
+    advance_live(store, 1_010.0, 10.0)
+    mid = store.get("icao:abc123")
+    assert mid is not None
+    assert mid.freshness == "delayed"
+    assert mid.x == pytest.approx(pos[0] + 1000.0)
+    advance_live(store, 1_100.0, 10.0)
+    aged = store.get("icao:abc123")
+    assert aged is not None
+    assert aged.freshness == "dead-reckoned"
+    advance_live(store, 1_000.0 + 16.0 * 60.0, 10.0)
+    dead = store.get("icao:abc123")
+    assert dead is not None
+    assert dead.freshness == "stale"
+
+
+def test_refresh_without_dt_does_not_stale_untimestamped_live() -> None:
+    from arelis.earth.entity import Entity
+    from arelis.earth.simulate import populate, refresh_moving
+
+    store = EntityStore()
+    populate(store, 1.0)
+    pos = lla_to_ecef(51.5, -0.12, 10_000.0)
+    store.upsert(
+        Entity(
+            id="icao:live1",
+            cls="aircraft",
+            layer="flights",
+            label="LIVE",
+            x=pos[0],
+            y=pos[1],
+            z=pos[2],
+            freshness="delayed",
+            source="OpenSky Network",
+        )
+    )
+    refresh_moving(store, 10_000.0)
+    hit = store.get("icao:live1")
+    assert hit is not None
+    assert hit.freshness == "delayed"
+
+
+def test_owned_local_camera_pin_needs_only_wgs84(tmp_path: Path) -> None:
+    from arelis.earth.cameras import load_owned
+
+    book = tmp_path / "secrets.yaml"
+    book.write_text(
+        "earth:\n"
+        "  local_camera:\n"
+        "    latitude: 51.5\n"
+        "    longitude: -0.12\n"
+        "    heading_deg: 90\n",
+        encoding="utf-8",
+    )
+    pins = load_owned(book)
+    assert len(pins) == 1
+    assert pins[0].id == "owned:local"
+    assert pins[0].layer == "cameras"
+    assert pins[0].meta.get("heading_deg") == 90.0
+    assert "rtsp" not in str(pins[0].meta)
+
+
+def test_osm_boxes_are_denser_than_continents() -> None:
+    from arelis.earth.osm import _BOXES
+
+    assert len(_BOXES) >= 40
+
+
+def test_celestrak_samples_mega_constellations() -> None:
+    from arelis.earth.tle import _GROUPS, _SAMPLE_GROUPS
+
+    names = {group for group, _budget in _GROUPS}
+    assert "galileo" in names
+    assert "education" in names
+    assert "intelsat" in names
+    assert "starlink" in _SAMPLE_GROUPS
+    assert "planet" in _SAMPLE_GROUPS
+    assert "oneweb" in _SAMPLE_GROUPS
+    assert "military" in _SAMPLE_GROUPS
+
+
+def test_spacetrack_without_account_does_not_login(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from arelis.earth import spacetrack as st
+
+    monkeypatch.setattr(st, "spacetrack_user", lambda path=None: "")
+    monkeypatch.setattr(st, "spacetrack_password", lambda path=None: "")
+
+    def _boom(*_a, **_k):
+        raise AssertionError("Space-Track must not login without an account")
+
+    monkeypatch.setattr(st, "_client", _boom)
+    assert st.fetch_spacetrack(unix=1.0) is None
+    assert st.fetch_tip() is None
+
+
+def test_spacetrack_tip_is_not_a_hull() -> None:
+    from arelis.earth.spacetrack import entities_from_tip
+
+    pins = entities_from_tip(
+        [
+            {
+                "NORAD_CAT_ID": "12345",
+                "OBJECT_NAME": "TEST DEB",
+                "LAT": 10.0,
+                "LON": 20.0,
+            },
+            {"NORAD_CAT_ID": "0", "OBJECT_NAME": "NOGEO"},
+        ]
+    )
+    assert len(pins) == 1
+    assert pins[0].id == "tip:12345"
+    assert pins[0].layer == "sites"
+    assert "hull" in pins[0].cite.lower() or "guarantee" in pins[0].cite.lower()
+
+
+def test_swpc_ovation_keeps_bright_cells() -> None:
+    from arelis.earth.swpc import entities_from_ovation
+
+    pins = entities_from_ovation(
+        {"coordinates": [[-150.0, 65.0, 40.0], [-150.0, 20.0, 2.0]]}
+    )
+    assert len(pins) == 1
+    assert pins[0].layer == "weather"
+    assert pins[0].meta["aurora"] == 40.0
+
+
+def test_emsc_keeps_reported_events() -> None:
+    from arelis.earth.emsc import entities_from_fdsn
+
+    pins = entities_from_fdsn(
+        {
+            "features": [
+                {
+                    "id": "20260101.1",
+                    "geometry": {"type": "Point", "coordinates": [28.0, -26.2]},
+                    "properties": {"mag": 4.2, "flynn_region": "SOUTH AFRICA", "time": 1_700_000_000_000},
+                },
+                {"id": "nogeo", "geometry": {}, "properties": {"mag": 3.0}},
+            ]
+        }
+    )
+    assert len(pins) == 1
+    assert pins[0].id == "emsc:20260101.1"
+    assert pins[0].layer == "quakes"
+
+
+def test_satnogs_station_has_no_audio_url() -> None:
+    from arelis.earth.satnogs import entities_from_stations
+
+    pins = entities_from_stations(
+        [
+            {
+                "id": 1,
+                "name": "Test",
+                "lat": 51.5,
+                "lng": -0.12,
+                "url": "https://should-not-be-stored.example/stream",
+            }
+        ]
+    )
+    assert len(pins) == 1
+    assert pins[0].id == "satnogs:1"
+    assert pins[0].layer == "radio"
+    assert "should-not-be-stored" not in str(pins[0].meta)
+    assert "audio" in pins[0].cite.lower()
+
+
+def test_metar_keeps_station_temp() -> None:
+    from arelis.earth.metar import entities_from_geojson
+
+    pins = entities_from_geojson(
+        {
+            "features": [
+                {
+                    "geometry": {"type": "Point", "coordinates": [-0.45, 51.47]},
+                    "properties": {"id": "EGLL", "temp": 12.0},
+                }
+            ]
+        }
+    )
+    assert len(pins) == 1
+    assert pins[0].id == "metar:EGLL"
+    assert pins[0].layer == "weather"
+
+
+def test_waqi_without_token_stays_quiet(monkeypatch: pytest.MonkeyPatch) -> None:
+    from arelis.earth import waqi as waqi_mod
+
+    monkeypatch.setattr(waqi_mod, "waqi_token", lambda path=None: "")
+    assert waqi_mod.fetch_waqi() is None
+
+
+def test_waqi_station_is_not_a_car() -> None:
+    from arelis.earth.waqi import entities_from_map
+
+    pins = entities_from_map(
+        {
+            "data": [
+                {"uid": 9, "aqi": 42, "lat": 51.5, "lon": -0.12, "station": {"name": "London"}},
+                {"uid": 0, "aqi": "-", "lat": 0.0, "lon": 0.0},
+            ]
+        }
+    )
+    assert len(pins) == 1
+    assert pins[0].id == "waqi:9"
+    assert pins[0].layer == "weather"
+    assert "car" in pins[0].cite.lower()
+
+
+def test_viirs_boats_stays_later() -> None:
+    from arelis.earth.feeds import FEED_BY_ID
+
+    spec = FEED_BY_ID["viirs-boats"]
+    assert spec.status == "later"
+    assert spec.host == ""
+
+
+def test_wzdx_is_not_a_car() -> None:
+    from arelis.earth.traffic import entities_from_wzdx
+
+    pins = entities_from_wzdx(
+        {
+            "features": [
+                {
+                    "id": "wz-1",
+                    "properties": {
+                        "road_event_id": "ut-42",
+                        "core_details": {
+                            "event_type": "work-zone",
+                            "road_names": ["I-15"],
+                            "description": "Lane closure",
+                        },
+                    },
+                    "geometry": {"type": "Point", "coordinates": [-111.9, 40.8]},
+                }
+            ]
+        },
+        prefix="ut-wzdx",
+        source="Utah WZDx",
+    )
+    assert len(pins) == 1
+    assert pins[0].id == "ut-wzdx:ut-42"
+    assert pins[0].layer == "traffic"
+    assert "not a vin" in pins[0].cite.lower()
+
+
+def test_ndbc_buoy_is_not_a_hull() -> None:
+    from arelis.earth.ndbc import entities_from_stations
+
+    pins = entities_from_stations(
+        {
+            "station": [
+                {"id": "41001", "lat": "34.7", "lon": "-72.7", "name": "East Hatteras"},
+                {"id": "nogeo", "name": "Missing"},
+            ]
+        }
+    )
+    assert len(pins) == 1
+    assert pins[0].id == "ndbc:41001"
+    assert pins[0].layer == "weather"
+    assert "hull" in pins[0].cite.lower()
+
+
+def test_usgs_volcano_is_not_every_vent() -> None:
+    from arelis.earth.volcanoes import entities_from_geojson
+
+    pins = entities_from_geojson(
+        {
+            "features": [
+                {
+                    "id": "kilauea",
+                    "properties": {"volcanoName": "Kilauea", "alertLevel": "WATCH"},
+                    "geometry": {"type": "Point", "coordinates": [-155.3, 19.4]},
+                }
+            ]
+        }
+    )
+    assert len(pins) == 1
+    assert pins[0].id == "volc:kilauea"
+    assert pins[0].layer == "sites"
+    assert "unmonitored" in pins[0].cite.lower()
+
+
+def test_gdacs_is_not_a_face() -> None:
+    from arelis.earth.gdacs import entities_from_geojson
+
+    pins = entities_from_geojson(
+        {
+            "features": [
+                {
+                    "properties": {
+                        "eventid": 1001,
+                        "name": "Test Storm",
+                        "eventtype": "TC",
+                        "alertlevel": "Orange",
+                    },
+                    "geometry": {"type": "Point", "coordinates": [120.0, 15.0]},
+                }
+            ]
+        }
+    )
+    assert len(pins) == 1
+    assert pins[0].id == "gdacs:1001"
+    assert pins[0].layer == "sites"
+    assert "face" in pins[0].cite.lower()
+
+
+def test_geonet_keeps_reported_events() -> None:
+    from arelis.earth.geonet import entities_from_geojson
+
+    pins = entities_from_geojson(
+        {
+            "features": [
+                {
+                    "properties": {
+                        "publicID": "2026p001",
+                        "magnitude": 3.4,
+                        "locality": "Wellington",
+                        "time": "2026-08-29T00:00:00Z",
+                    },
+                    "geometry": {"type": "Point", "coordinates": [174.8, -41.3, 12.0]},
+                },
+                {"properties": {"publicID": "nogeo"}, "geometry": {}},
+            ]
+        }
+    )
+    assert len(pins) == 1
+    assert pins[0].id == "geonet:2026p001"
+    assert pins[0].layer == "quakes"
+    assert pins[0].meta["depth_km"] == 12.0
+
+
+def test_sigmet_uses_polygon_centroid() -> None:
+    from arelis.earth.metar import entities_from_sigmet
+
+    pins = entities_from_sigmet(
+        {
+            "features": [
+                {
+                    "properties": {"id": "SIG1", "hazard": "TURB", "firId": "KZNY"},
+                    "geometry": {
+                        "type": "Polygon",
+                        "coordinates": [
+                            [[-74.0, 40.0], [-72.0, 40.0], [-72.0, 42.0], [-74.0, 42.0], [-74.0, 40.0]]
+                        ],
+                    },
+                }
+            ]
+        },
+        prefix="sigmet",
+    )
+    assert len(pins) == 1
+    assert pins[0].id == "sigmet:SIG1"
+    assert pins[0].layer == "weather"
+    assert pins[0].meta["lat"] == pytest.approx(40.8, abs=0.3)
+
+
+def test_coops_gauge_is_not_a_hull() -> None:
+    from arelis.earth.tides import entities_from_coops
+
+    pins = entities_from_coops(
+        {
+            "stations": [
+                {"id": "9414290", "name": "San Francisco", "lat": 37.8, "lng": -122.4},
+                {"id": "nogeo", "name": "Missing"},
+            ]
+        }
+    )
+    assert len(pins) == 1
+    assert pins[0].id == "coops:9414290"
+    assert pins[0].layer == "weather"
+    assert "hull" in pins[0].cite.lower()
+
+
+def test_ioc_gauge_is_not_altimetry() -> None:
+    from arelis.earth.tides import entities_from_ioc
+
+    pins = entities_from_ioc(
+        [{"Code": "NEWL", "Lat": 50.1, "Lon": -5.5, "Location": "Newlyn"}]
+    )
+    assert len(pins) == 1
+    assert pins[0].id == "ioc:newl"
+    assert "altimetry" in pins[0].cite.lower()
+
+
+def test_argo_sample_is_not_a_shell() -> None:
+    from arelis.earth.argo import entities_from_table
+
+    pins = entities_from_table(
+        {
+            "table": {
+                "columnNames": ["latitude", "longitude", "platform_number"],
+                "rows": [[20.0, -60.0, "6902746"], [None, None, "bad"]],
+            }
+        }
+    )
+    assert len(pins) == 1
+    assert pins[0].id == "argo:6902746"
+    assert pins[0].layer == "sites"
+    assert pins[0].meta.get("sample") is True
+    assert "shell" in pins[0].cite.lower()
+
+
+def test_ontario_cameras_drop_stills() -> None:
+    from arelis.earth.cameras import entities_from_cars_cameras
+
+    pins = entities_from_cars_cameras(
+        [
+            {
+                "ID": "cam1",
+                "Latitude": 43.7,
+                "Longitude": -79.4,
+                "Description": "Gardiner",
+                "Url": "https://should-not-store.example/still.jpg",
+            }
+        ],
+        prefix="on-cam",
+        source="Ontario 511 cameras",
+        cite="Position only. No still ingest.",
+    )
+    assert len(pins) == 1
+    assert pins[0].id == "on-cam:cam1"
+    blob = str(pins[0].meta) + pins[0].cite
+    assert "still.jpg" not in blob
+
+
+def test_tripcheck_uses_attributes() -> None:
+    from arelis.earth.cameras import entities_from_tripcheck
+
+    pins = entities_from_tripcheck(
+        {
+            "features": [
+                {
+                    "attributes": {
+                        "CAMERAID": "I5-1",
+                        "NAME": "I-5",
+                        "LATITUDE": 45.5,
+                        "LONGITUDE": -122.7,
+                    }
+                }
+            ]
+        }
+    )
+    assert len(pins) == 1
+    assert pins[0].id == "odot:I5-1"
+    assert pins[0].layer == "cameras"
+
+
+def test_inspect_caption_names_source_and_freshness() -> None:
+    from arelis.earth.entity import Entity
+    from arelis.ui.earth_overlay import inspect_caption
+
+    pos = lla_to_ecef(51.5, -0.12, 10_000.0)
+    text = inspect_caption(
+        Entity(
+            id="icao:abc",
+            cls="aircraft",
+            layer="flights",
+            label="BAW1",
+            x=pos[0],
+            y=pos[1],
+            z=pos[2],
+            vx=100.0,
+            vy=0.0,
+            vz=0.0,
+            source="OpenSky Network",
+            freshness="dead-reckoned",
+            cite="OpenSky /api/states/all.",
+        )
+    )
+    assert "BAW1" in text
+    assert "dead-reckoned" in text
+    assert "OpenSky Network" in text
+    assert "m/s" in text
 
 
 def test_osm_tile_math_is_stable() -> None:

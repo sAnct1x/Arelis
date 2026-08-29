@@ -39,6 +39,18 @@ HK_CAMERAS = (
     "code/Traffic_Camera_Locations_En.xml"
 )
 HK_HOST = "static.data.gov.hk"
+ON_CAMERAS = "https://511on.ca/api/v2/get/cameras?format=json"
+ON_HOST = "511on.ca"
+TRIPCHECK = "https://tripcheck.com/Scripts/map/data/cctvinventory.js"
+TRIPCHECK_HOST = "tripcheck.com"
+MD_CAMERAS = (
+    "https://mdgeodata.md.gov/imap/rest/services/Transportation/"
+    "MD_TrafficCameras/FeatureServer/0/query"
+    "?where=1%3D1&outFields=*&f=geojson&returnGeometry=true"
+)
+MD_CAM_HOST = "mdgeodata.md.gov"
+ND_CAMERAS = "https://travelfiles.dot.nd.gov/geojson_nc/cameras.json"
+ND_CAM_HOST = "travelfiles.dot.nd.gov"
 CALTRANS_HOST = "cwwp2.dot.ca.gov"
 CALTRANS_CCTV = tuple(
     f"https://cwwp2.dot.ca.gov/data/d{d}/cctv/cctvStatusD{d:02d}.json"
@@ -74,6 +86,22 @@ _HK_CITE = (
     "Hong Kong Transport Department camera locations. Operator XML. "
     "Position only. No still ingest."
 )
+_ON_CITE = (
+    "Ontario 511 published camera positions. Operator catalog. "
+    "Position only. No still ingest."
+)
+_TRIP_CITE = (
+    "ODOT TripCheck CCTV inventory. Operator catalog. "
+    "Position only. No still ingest."
+)
+_MD_CAM_CITE = (
+    "SHA traffic-camera GeoJSON. Operator catalog. "
+    "Position only. No still ingest."
+)
+_ND_CAM_CITE = (
+    "NDDOT camera GeoJSON. Operator catalog. "
+    "Position only. No still ingest."
+)
 _OWNED_CITE = (
     "Owned camera pin from secrets. Position only. No video ingest."
 )
@@ -107,7 +135,7 @@ _DIR_HEADING: dict[str, float] = {
 
 def fetch_cameras() -> list[Entity] | None:
     chunks: list[list[Entity] | None] = []
-    with ThreadPoolExecutor(max_workers=7) as pool:
+    with ThreadPoolExecutor(max_workers=11) as pool:
         futs = [
             pool.submit(_fetch_tfl),
             pool.submit(_fetch_caltrans),
@@ -115,6 +143,10 @@ def fetch_cameras() -> list[Entity] | None:
             pool.submit(_fetch_singapore),
             pool.submit(_fetch_finland),
             pool.submit(_fetch_hongkong),
+            pool.submit(_fetch_ontario),
+            pool.submit(_fetch_tripcheck),
+            pool.submit(_fetch_md_cameras),
+            pool.submit(_fetch_nd_cameras),
             pool.submit(fetch_osm_webcams),
         ]
         for fut in as_completed(futs):
@@ -154,9 +186,13 @@ def load_owned(path: Path | None = None) -> list[Entity]:
     block = raw.get("earth")
     if not isinstance(block, dict):
         return []
-    rows = block.get("cameras")
-    if not isinstance(rows, list):
-        return []
+    rows: list[Any] = []
+    local = block.get("local_camera")
+    if isinstance(local, dict):
+        rows.append(local if local.get("id") else {**local, "id": "local"})
+    cams = block.get("cameras")
+    if isinstance(cams, list):
+        rows.extend(row for row in cams if isinstance(row, dict))
     out: list[Entity] = []
     for row in rows:
         if not isinstance(row, dict):
@@ -440,11 +476,11 @@ def _entity_from_caltrans(row: dict[str, Any]) -> Entity | None:
 
 
 def _owned_from_row(row: dict[str, Any]) -> Entity | None:
-    lat = _num(row.get("lat"))
-    lon = _num(row.get("lon"))
+    lat = _num(row.get("lat"), row.get("latitude"))
+    lon = _num(row.get("lon"), row.get("longitude"))
     if not _ok_ll(lat, lon):
         return None
-    cid = str(row.get("id") or row.get("name") or "").strip()
+    cid = str(row.get("id") or row.get("name") or "local").strip()
     if not cid:
         return None
     heading = _num(row.get("heading_deg"))
@@ -524,6 +560,271 @@ def _host_pinned(host: str | None, pin: str) -> bool:
         return False
     name = host.lower()
     return name == pin or name.endswith("." + pin)
+
+
+def entities_from_cars_cameras(
+    rows: list[dict[str, Any]], *, prefix: str, source: str, cite: str
+) -> list[Entity]:
+    out: list[Entity] = []
+    seen: set[str] = set()
+    for row in rows:
+        loc = row.get("Location") if isinstance(row.get("Location"), dict) else {}
+        lat = _num(
+            row.get("Latitude"),
+            row.get("latitude"),
+            row.get("lat"),
+            loc.get("Latitude"),
+        )
+        lon = _num(
+            row.get("Longitude"),
+            row.get("longitude"),
+            row.get("lon"),
+            loc.get("Longitude"),
+        )
+        if not _ok_ll(lat, lon):
+            continue
+        cid = str(
+            row.get("ID") or row.get("Id") or row.get("id") or row.get("SourceId") or ""
+        ).strip()
+        name = str(
+            row.get("Description")
+            or row.get("Name")
+            or row.get("name")
+            or row.get("RoadwayName")
+            or cid
+        ).strip()
+        if not cid and not name:
+            continue
+        eid = f"{prefix}:{cid or name.casefold()[:40]}"
+        if eid in seen:
+            continue
+        seen.add(eid)
+        pos = lla_to_ecef(lat, lon, 12.0)
+        out.append(
+            attach_viewshed(
+                Entity(
+                    id=eid,
+                    cls="camera",
+                    layer="cameras",
+                    label=(name or cid)[:80],
+                    x=pos[0],
+                    y=pos[1],
+                    z=pos[2],
+                    source=source,
+                    freshness="reconstructed",
+                    confidence=0.75,
+                    cite=cite,
+                    meta={"lat": lat, "lon": lon},
+                    coverage=Coverage(
+                        "pin",
+                        "Operator catalog. No video. Pose unknown.",
+                    ),
+                    pii="none",
+                )
+            )
+        )
+        if len(out) >= _CAP:
+            break
+    return out
+
+
+def entities_from_tripcheck(payload: dict[str, Any]) -> list[Entity]:
+    rows = payload.get("features")
+    if not isinstance(rows, list):
+        return []
+    out: list[Entity] = []
+    seen: set[str] = set()
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        attrs = row.get("attributes") if isinstance(row.get("attributes"), dict) else {}
+        geom = row.get("geometry") if isinstance(row.get("geometry"), dict) else {}
+        lat = _num(
+            attrs.get("LATITUDE"),
+            attrs.get("Latitude"),
+            attrs.get("lat"),
+            geom.get("y"),
+        )
+        lon = _num(
+            attrs.get("LONGITUDE"),
+            attrs.get("Longitude"),
+            attrs.get("lon"),
+            geom.get("x"),
+        )
+        if not _ok_ll(lat, lon):
+            continue
+        cid = str(
+            attrs.get("CAMERAID")
+            or attrs.get("CAMERA_ID")
+            or attrs.get("OBJECTID")
+            or row.get("id")
+            or ""
+        ).strip()
+        name = str(attrs.get("NAME") or attrs.get("TITLE") or attrs.get("LOCATION") or cid).strip()
+        if not cid and not name:
+            continue
+        eid = f"odot:{cid or name.casefold()[:40]}"
+        if eid in seen:
+            continue
+        seen.add(eid)
+        pos = lla_to_ecef(lat, lon, 12.0)
+        out.append(
+            attach_viewshed(
+                Entity(
+                    id=eid,
+                    cls="camera",
+                    layer="cameras",
+                    label=(name or cid)[:80],
+                    x=pos[0],
+                    y=pos[1],
+                    z=pos[2],
+                    source="ODOT TripCheck",
+                    freshness="reconstructed",
+                    confidence=0.75,
+                    cite=_TRIP_CITE,
+                    meta={"lat": lat, "lon": lon},
+                    coverage=Coverage(
+                        "pin",
+                        "Operator catalog. No video. Pose unknown.",
+                    ),
+                    pii="none",
+                )
+            )
+        )
+        if len(out) >= _CAP:
+            break
+    return out
+
+
+def entities_from_geojson_cameras(
+    payload: dict[str, Any], *, prefix: str, source: str, cite: str
+) -> list[Entity]:
+    rows = payload.get("features")
+    if not isinstance(rows, list):
+        return []
+    out: list[Entity] = []
+    seen: set[str] = set()
+    for feat in rows:
+        if not isinstance(feat, dict):
+            continue
+        props = feat.get("properties") if isinstance(feat.get("properties"), dict) else {}
+        geom = feat.get("geometry") if isinstance(feat.get("geometry"), dict) else {}
+        coords = geom.get("coordinates") if isinstance(geom.get("coordinates"), list) else []
+        lon = _num(coords[0] if len(coords) > 0 else None)
+        lat = _num(coords[1] if len(coords) > 1 else None)
+        if not _ok_ll(lat, lon):
+            lat = _num(props.get("lat") or props.get("latitude") or props.get("LATITUDE"))
+            lon = _num(props.get("lon") or props.get("longitude") or props.get("LONGITUDE"))
+        if not _ok_ll(lat, lon):
+            continue
+        cid = str(
+            props.get("id")
+            or props.get("CAMERAID")
+            or props.get("OBJECTID")
+            or feat.get("id")
+            or ""
+        ).strip()
+        name = str(
+            props.get("name")
+            or props.get("NAME")
+            or props.get("LOCATION")
+            or props.get("description")
+            or cid
+        ).strip()
+        if not cid and not name:
+            continue
+        eid = f"{prefix}:{cid or name.casefold()[:40]}"
+        if eid in seen:
+            continue
+        seen.add(eid)
+        pos = lla_to_ecef(lat, lon, 12.0)
+        out.append(
+            attach_viewshed(
+                Entity(
+                    id=eid,
+                    cls="camera",
+                    layer="cameras",
+                    label=(name or cid)[:80],
+                    x=pos[0],
+                    y=pos[1],
+                    z=pos[2],
+                    source=source,
+                    freshness="reconstructed",
+                    confidence=0.75,
+                    cite=cite,
+                    meta={"lat": lat, "lon": lon},
+                    coverage=Coverage(
+                        "pin",
+                        "Operator catalog. No video. Pose unknown.",
+                    ),
+                    pii="none",
+                )
+            )
+        )
+        if len(out) >= _CAP:
+            break
+    return out
+
+
+def _fetch_ontario() -> list[Entity] | None:
+    payload = _get_json(ON_CAMERAS, ON_HOST)
+    if isinstance(payload, list):
+        rows = [row for row in payload if isinstance(row, dict)]
+    elif isinstance(payload, dict):
+        raw = payload.get("cameras") or payload.get("data") or []
+        rows = [row for row in raw if isinstance(row, dict)] if isinstance(raw, list) else []
+    else:
+        return None
+    pins = entities_from_cars_cameras(
+        rows, prefix="on-cam", source="Ontario 511 cameras", cite=_ON_CITE
+    )
+    return pins or None
+
+
+def _fetch_tripcheck() -> list[Entity] | None:
+    text = _get_text(TRIPCHECK, TRIPCHECK_HOST)
+    if text is None:
+        return None
+    payload = _js_object(text)
+    if not isinstance(payload, dict):
+        return None
+    pins = entities_from_tripcheck(payload)
+    return pins or None
+
+
+def _js_object(text: str) -> Any:
+    raw = (text or "").strip()
+    if raw.startswith("var ") or raw.startswith("const ") or raw.startswith("let "):
+        eq = raw.find("=")
+        if eq >= 0:
+            raw = raw[eq + 1 :].strip()
+        raw = raw.rstrip(";").strip()
+    try:
+        import json
+
+        return json.loads(raw)
+    except Exception:
+        return None
+
+
+def _fetch_md_cameras() -> list[Entity] | None:
+    payload = _get_json(MD_CAMERAS, MD_CAM_HOST)
+    if not isinstance(payload, dict):
+        return None
+    pins = entities_from_geojson_cameras(
+        payload, prefix="md-cam", source="SHA cameras", cite=_MD_CAM_CITE
+    )
+    return pins or None
+
+
+def _fetch_nd_cameras() -> list[Entity] | None:
+    payload = _get_json(ND_CAMERAS, ND_CAM_HOST)
+    if not isinstance(payload, dict):
+        return None
+    pins = entities_from_geojson_cameras(
+        payload, prefix="nd-cam", source="NDDOT cameras", cite=_ND_CAM_CITE
+    )
+    return pins or None
 
 
 def _fetch_tfl() -> list[Entity] | None:

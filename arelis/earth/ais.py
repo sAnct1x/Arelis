@@ -33,7 +33,7 @@ import yaml
 from arelis import __source_url__, __version__
 from arelis.earth.barentswatch import fetch_barentswatch
 from arelis.earth.entity import Coverage, Entity
-from arelis.earth.frames import lla_to_ecef
+from arelis.earth.frames import ecef_vel_from_track, lla_to_ecef
 from arelis.paths import state_dir
 
 # HTTPS forms so egress tests see the hosts. The wire is wss on the same URL.
@@ -220,6 +220,12 @@ def _entity_from_envelope(payload: dict[str, Any], now: float) -> Entity | None:
     cog = _num(report.get("Cog"))
     when = _unix_from_meta(meta.get("time_utc"), now)
     pos = lla_to_ecef(lat, lon, 0.0)
+    speed = (sog or 0.0) * 0.514444
+    vx, vy, vz = (
+        ecef_vel_from_track(lat, lon, speed, cog or 0.0)
+        if speed > 0.5
+        else (0.0, 0.0, 0.0)
+    )
     return Entity(
         id=f"mmsi:{mmsi}",
         cls="vessel",
@@ -228,6 +234,9 @@ def _entity_from_envelope(payload: dict[str, Any], now: float) -> Entity | None:
         x=pos[0],
         y=pos[1],
         z=pos[2],
+        vx=vx,
+        vy=vy,
+        vz=vz,
         when_unix=when,
         source="AISStream",
         freshness="live",
@@ -336,6 +345,12 @@ def _entity_from_digitraffic(
     cog = _num(props.get("cog"))
     when = _unix_from_digitraffic(props.get("timestampExternal"), now)
     pos = lla_to_ecef(lat, lon, 0.0)
+    speed = (sog or 0.0) * 0.514444
+    vx, vy, vz = (
+        ecef_vel_from_track(lat, lon, speed, cog or 0.0)
+        if speed > 0.5
+        else (0.0, 0.0, 0.0)
+    )
     return Entity(
         id=f"mmsi:{mmsi}",
         cls="vessel",
@@ -344,6 +359,9 @@ def _entity_from_digitraffic(
         x=pos[0],
         y=pos[1],
         z=pos[2],
+        vx=vx,
+        vy=vy,
+        vz=vz,
         when_unix=when,
         source="Fintraffic Digitraffic",
         freshness="live",

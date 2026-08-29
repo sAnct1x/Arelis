@@ -47,11 +47,11 @@ WASD fly; F does not ride a probe. GPU globes are opt-in
 (`--solar-gl` / `ARELIS_SOLAR_GL=1`). H recites every live hotkey;
 spoken `solar` toggle flags match H and the ⋯ tray. Travel to Earth
 (or say **enter Earth**) opens the Earth zone on that globe: an observer
-plate of whatever is broadcasting or published (planes, UAV ADS-B, ships,
-sats, cameras as positions). Individual cars are not a public feed.
-Simulated until you ask for live feeds (OpenSky, AISStream with a free key,
-Fintraffic Digitraffic with none, Sentinel-1 gyre footprints, CelesTrak, TfL,
-Caltrans, and the rest of `arelis/earth/feeds.py`).
+of whatever is broadcasting or published. Simulated until you ask for
+live (`earth action=live` / the Live chip). Inventory is
+`arelis/earth/feeds.py` — 63 shipped, 9 keyed waiting on a paste,
+3 later, 4 out (sat-AIS, unowned cameras, face index, VIN). Individual
+cars are a labeled hole. [earth.md](earth.md).
 **leave Earth** returns to
 heliocentric. World window defaults to 1280×800. Pose updates the scene
 without a chat turn. Spoken world and time verbs (pause, faster, fly, heavier)

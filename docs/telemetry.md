@@ -71,5 +71,6 @@ when ids do not join: `id=` (turn), `session=`, `span=` (STT), `eid=`
 **`outputs/physics/solar/`** is not a log. Leaving the solar lab writes a
 cited snapshot of the live IAS15 state (ECLIPJ2000 metres) so a figure can
 be the same integrator, not a PNG. `solar action=dump` does the same
-without leaving. Hands takes stay under `outputs/physics/takes/`.
+without leaving. Leaving Earth writes `outputs/physics/earth/<utc>/`
+the same way. Hands takes stay under `outputs/physics/takes/`.
 No GL still in that bundle yet.

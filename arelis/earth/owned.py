@@ -127,14 +127,16 @@ def _owned_rows(path: Path | None) -> list[dict[str, Any]]:
         rows.extend(row for row in cams if isinstance(row, dict))
     out: list[dict[str, Any]] = []
     for row in rows:
-        lat = _num(row.get("lat"))
-        lon = _num(row.get("lon"))
+        lat = _num(row.get("lat"), row.get("latitude"))
+        lon = _num(row.get("lon"), row.get("longitude"))
         if lat is None or lon is None:
             continue
         if abs(lat) > 90.0 or abs(lon) > 180.0:
             continue
         rtsp = str(row.get("rtsp") or "").strip()
         device = row.get("device")
+        if device is None:
+            device = row.get("index") or row.get("device_index")
         if rtsp.lower().startswith("http"):
             continue
         if not rtsp and device is None:
@@ -237,10 +239,12 @@ def _face_model_path() -> Path | None:
     return None
 
 
-def _num(value: Any) -> float | None:
-    if value is None or value == "":
-        return None
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
+def _num(*values: Any) -> float | None:
+    for value in values:
+        if value is None or value == "":
+            continue
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            continue
+    return None

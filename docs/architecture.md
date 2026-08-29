@@ -147,7 +147,7 @@ Settings → Notify has the pairing QR.
 | Presence | `arelis/presence/` | Core, tray, IPC |
 | Voice | `arelis/voice/` | Listen and speak. [voice-wake.md](voice-wake.md) |
 | Spatial | `arelis/spatial/` | World engine, grant, takes. Pose is not a chat turn |
-| Earth | `arelis/earth/` | Earth zone on the solar globe. ECEF store, simulated observatory, optional USGS/OpenSky |
+| Earth | `arelis/earth/` | Earth zone on the solar globe. ECEF store, simulated observatory, live public/keyed feeds (`feeds.py`). [earth.md](earth.md) |
 | Config | `arelis/config/default.yaml` | Defaults. Overrides in `data/` |
 
 Only one chat model sits in graphics memory. First open recommends one
@@ -203,7 +203,7 @@ connected. Otherwise chat says she cannot.
 | `document` | PDF, Word, Excel, CSV, markdown. Room → `documents/` in the project; orbit → `outputs/documents/` | Yes |
 | `catalog` | arXiv, Horizons; APOD / ADS after a free key | No |
 | `solar` | Physics-room N-body (Horizons VECTORS + REBOUND IAS15). Source checkout. Approach/orbit, inspect-only fly camera, IAU spheres. Not landing | Yes |
-| `earth` | Earth zone inside that lab: observer plate for published/squawking contacts. Simulated unless `live` (OpenSky / AIS / CelesTrak / TfL / Caltrans / …). Source checkout | No |
+| `earth` | Earth zone inside that lab: observer of published/broadcast contacts. Simulated unless `live`. Inventory in `feeds.py` (63 shipped / 9 keyed / 3 later / 4 out). Source checkout. [earth.md](earth.md) | No |
 | `clipboard` / `ocr` / `vision` / `camera` | Paste, screen text, see an image, webcam | Yes (the still is free; seeing it pauses) |
 | `memory` / `recall` / `tasks` / `goals` | Remember, chores, "what needs my attention" | Mutates: yes |
 | `inbox` / `send_email` / `schedule` | Mail and timed jobs | Send: yes. Creating a job: yes. Inbox list is free; trash / archive / move / flags: yes |
@@ -284,7 +284,7 @@ it.
 | `data/jobs.yaml` | Scheduled jobs. Hand-editable. Paired with Task Scheduler `\Arelis\<id>` |
 | `arelis/jobs/` | Store, Windows task XML, unattended runner |
 | `arelis/physics/` | Solar lab: Horizons ICs, REBOUND, IAU WGCCRE attitude, equirectangular maps |
-| `arelis/earth/` | Earth zone: ECEF observer plate, simulated layers, live public/keyed feeds |
+| `arelis/earth/` | Earth zone: ECEF observer plate, simulated layers, live public/keyed feeds. [earth.md](earth.md) |
 | `arelis/ui/solar_gl.py` | Offscreen GL globes. Native GL widget aborted this AMD driver |
 | `arelis/spatial/` | World engine (source checkout) |
 | `outputs/physics/takes/` | Hand-tracking takes. If it is not in a take, it did not happen |

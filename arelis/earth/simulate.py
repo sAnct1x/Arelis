@@ -12,7 +12,7 @@ import random
 from collections.abc import Iterable
 
 from arelis.earth.entity import Coverage, Entity
-from arelis.earth.frames import MEAN_R, WGS84_A, lla_to_ecef
+from arelis.earth.frames import MEAN_R, WGS84_A, ecef_to_lla, lla_to_ecef
 from arelis.earth.store import EntityStore
 from arelis.earth.viewshed import attach_viewshed
 
@@ -627,11 +627,19 @@ def _feed_owns(store: EntityStore, *layers: str) -> bool:
     return False
 
 
-def refresh_moving(store: EntityStore, unix: float, *, seed: int = SEED) -> None:
+_DR_AFTER_S = 90.0
+_STALE_AFTER_S = 15.0 * 60.0
+_DR_LAYERS = frozenset({"flights", "drones", "military", "vessels"})
+
+
+def refresh_moving(
+    store: EntityStore, unix: float, *, seed: int = SEED, dt: float = 0.0
+) -> None:
     """Update ISS, flights, vessels, satellites in place. Pins stay.
 
     Live-owned layers are skipped so OpenSky / AISStream are not clobbered
-    by the simulated world on the next tick.
+    by the simulated world on the next tick. Those tracks coast with
+    reported velocity and are tagged dead-reckoned, then stale.
     """
     rng = random.Random(seed)
     if not _feed_owns(store, "iss"):
@@ -650,6 +658,30 @@ def refresh_moving(store: EntityStore, unix: float, *, seed: int = SEED) -> None
     if not _feed_owns(store, "satellites"):
         for e in _satellites(unix):
             store.upsert(e)
+    advance_live(store, unix, dt)
+
+
+def advance_live(store: EntityStore, unix: float, dt: float) -> None:
+    """Coast feed-owned air/sea tracks. Sats stay at last SGP4 until the next poll."""
+    move = 0.0 if dt <= 0.0 or dt > 120.0 else dt
+    for e in store.all():
+        if e.layer not in _DR_LAYERS:
+            continue
+        if e.freshness not in _FEED_TAGS:
+            continue
+        age = (unix - e.when_unix) if e.when_unix > 0.0 else 0.0
+        if age >= _STALE_AFTER_S:
+            e.freshness = "stale"
+            continue
+        if age >= _DR_AFTER_S and e.freshness in {"live", "delayed", "interpolated"}:
+            e.freshness = "dead-reckoned"
+        if move <= 0.0 or e.speed() < 0.5:
+            continue
+        e.x += e.vx * move
+        e.y += e.vy * move
+        e.z += e.vz * move
+        lat, lon, _alt = ecef_to_lla(e.x, e.y, e.z)
+        e.meta = {**e.meta, "lat": lat, "lon": lon}
 
 
 def entities(

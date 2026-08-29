@@ -3,33 +3,30 @@
 Not a product title. Travel to Earth, or say enter Earth. Leave Earth
 returns to heliocentric. Breadcrumb for the next agent:
 
+- Now: feeds.FEEDS is 63 shipped / 9 keyed / 3 later / 4 out.
+  Parallel merge_live. Overlay paints freshness, heading, inspect card.
+  Docs: docs/earth.md (now vs next).
 - Frames: store is ECEF metres; plate paints ECLIPJ2000 via frames.ecef_to_ecliptic.
-- Honesty: simulated layers stay labeled simulated. live=on may pull
-  USGS, OpenSky (every squawk + UAV category), adsb.lol military,
-  AISStream (free key), Fintraffic Digitraffic AIS (no key), BarentsWatch
-  (keyed), CelesTrak TLE + Starlink/OneWeb samples, Radio Browser, TfL /
-  Caltrans / NYC / Singapore / Finland / Hong Kong camera catalogs,
-  OSM webcams worldwide, OSM tiles (optional chip), Open-Meteo, FIRMS
-  (free key), Launch Library, APRS (free key), Shodan banners (optional
-  free key, not a login). Failures keep sim. Mid-ocean VHF is deaf; a
-  packet a keyed feed sent is painted. We do not buy sat-AIS.
-  Sentinel-1 ocean frames and GFW unmatched SAR are not hull names.
-  NASA EONET named events. Individual cars are not a public feed.
-- Out: logging into a camera you do not own; intercepting encrypted radio;
-  a global face index; a VIN/plate dragnet. Observer of broadcasts.
-  Keyed public APIs (including a Shodan banner catalog) are in.
-  Insecam video of someone else's cam is still out.
+- Honesty: simulated layers stay labeled simulated. live=on pulls
+  shipped adapters. Failures keep sim. Mid-ocean VHF is deaf; a packet
+  a keyed feed sent is painted. We do not buy sat-AIS. Sentinel-1
+  ocean frames and GFW unmatched SAR are not hull names. Individual
+  cars are a labeled hole. Completeness is the anti-beacon.
+- Keyed waiting: AISStream, BarentsWatch, GFW, FIRMS, APRS, Space-Track,
+  WAQI, OpenAQ (adapter waits), Shodan banners (never login).
+- Later: viirs-boats (Mines FINAL still 401), Earthdata GRD, Copernicus.
+- Out: sat-ais, unsecured-cams, face-index, car-vin.
+- Next: more no-key 511 / WZDx / cameras; OpenAQ after a paste; VIIRS
+  only if FINAL opens. Do not thin a region.
 - Owned: RTSP or local webcam you own; face boxes in ENU, local only.
-  Not a named webcam model.
-- Inventory: arelis.earth.feeds.FEEDS (shipped / keyed / later / out).
-- People: contacts with lat/lon; local webcam boxes later; events/assets.
+- Inventory: arelis.earth.feeds.FEEDS.
+- People: contacts with lat/lon; local webcam boxes; events/assets.
 - Tool: arelis.tools.earth_tool.EarthTool  (always schemaed; stage-gated).
 - Verbs: enter Earth / leave Earth skip the 9B.
 - Dump: outputs/physics/earth/<utc>/manifest.json + state.jsonl
 - Visual: arelis/ui/earth_overlay.py from SolarPanel._paint_overlay.
 - Canvases: earth-hub, earth-layers, earth-runtime, earth-build.
 
-Stretch 1 ships a full simulated observatory so the globe is never empty.
 Live adapters replace a layer; they do not invent coverage.
 """
 

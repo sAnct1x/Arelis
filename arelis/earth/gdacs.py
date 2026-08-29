@@ -1,0 +1,135 @@
+"""GDACS humanitarian disaster events. Public GeoJSON. No key.
+
+Orange/Red named events. Not every local incident. Not a face index.
+Failures return None so EONET / bundled sites stay.
+Host pinned in tests/test_egress.py.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+from urllib.parse import urlparse
+
+import httpx
+
+from arelis import __source_url__, __version__
+from arelis.earth.entity import Coverage, Entity
+from arelis.earth.frames import lla_to_ecef
+
+GDACS_EVENTS = "https://www.gdacs.org/gdacsapi/api/events/geteventlist/SEARCH"
+GDACS_HOST = "www.gdacs.org"
+_UA = f"Arelis/{__version__} (+{__source_url__})"
+_TIMEOUT = 12.0
+_CAP = 80
+_CITE = (
+    "GDACS disaster events. Humanitarian catalog (storms, quakes, floods). "
+    "Not every local incident. Not a face index."
+)
+
+
+def fetch_gdacs() -> list[Entity] | None:
+    payload = _get_json()
+    if payload is None:
+        return None
+    return entities_from_geojson(payload) or None
+
+
+def entities_from_geojson(payload: dict[str, Any]) -> list[Entity]:
+    rows = payload.get("features")
+    if not isinstance(rows, list):
+        return []
+    out: list[Entity] = []
+    seen: set[str] = set()
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        entity = _entity_from_feat(row)
+        if entity is None or entity.id in seen:
+            continue
+        seen.add(entity.id)
+        out.append(entity)
+        if len(out) >= _CAP:
+            break
+    return out
+
+
+def _entity_from_feat(feat: dict[str, Any]) -> Entity | None:
+    props = feat.get("properties") if isinstance(feat.get("properties"), dict) else {}
+    geom = feat.get("geometry") if isinstance(feat.get("geometry"), dict) else {}
+    coords = geom.get("coordinates") if isinstance(geom.get("coordinates"), list) else []
+    lon = _num(coords[0] if len(coords) > 0 else None)
+    lat = _num(coords[1] if len(coords) > 1 else None)
+    if lat is None or lon is None:
+        lat = _num(props.get("lat") or props.get("latitude"))
+        lon = _num(props.get("lon") or props.get("longitude") or props.get("lng"))
+    if lat is None or lon is None:
+        return None
+    if abs(lat) > 90.0 or abs(lon) > 180.0:
+        return None
+    eid = str(
+        props.get("eventid")
+        or props.get("eventId")
+        or props.get("episodeid")
+        or feat.get("id")
+        or ""
+    ).strip()
+    name = str(props.get("name") or props.get("eventname") or eid).strip()
+    kind = str(props.get("eventtype") or props.get("eventType") or "").strip()
+    alert = str(props.get("alertlevel") or props.get("alertLevel") or "").strip()
+    if not eid and not name:
+        return None
+    label = name or eid
+    if kind and kind.casefold() not in label.casefold():
+        label = f"{kind} {label}"
+    if alert and alert.casefold() not in label.casefold():
+        label = f"{label} {alert}"
+    pos = lla_to_ecef(lat, lon, 0.0)
+    return Entity(
+        id=f"gdacs:{eid or name.casefold()[:40]}",
+        cls="site",
+        layer="sites",
+        label=label[:80],
+        x=pos[0],
+        y=pos[1],
+        z=pos[2],
+        source="GDACS",
+        freshness="delayed",
+        confidence=0.65,
+        cite=_CITE,
+        meta={"lat": lat, "lon": lon, "kind": kind, "alert": alert},
+        coverage=Coverage(
+            "event",
+            "Named humanitarian event. Most of Earth is unnamed. Not a face.",
+        ),
+    )
+
+
+def _num(value: Any) -> float | None:
+    if value is None or value == "":
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _host_pinned(host: str | None) -> bool:
+    if not host:
+        return False
+    name = host.lower()
+    return name == GDACS_HOST or name.endswith("." + GDACS_HOST)
+
+
+def _get_json() -> dict[str, Any] | None:
+    if not _host_pinned(urlparse(GDACS_EVENTS).hostname):
+        return None
+    try:
+        with httpx.Client(timeout=_TIMEOUT, follow_redirects=True) as client:
+            resp = client.get(GDACS_EVENTS, headers={"User-Agent": _UA})
+            resp.raise_for_status()
+            if not _host_pinned(urlparse(str(resp.url)).hostname):
+                return None
+            data = resp.json()
+    except Exception:
+        return None
+    return data if isinstance(data, dict) else None

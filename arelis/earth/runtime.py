@@ -29,6 +29,7 @@ class EarthRuntime:
     ride_id: str = ""
     entered_unix: float = 0.0
     last_tick_unix: float = 0.0
+    last_local_unix: float = 0.0
     note: str = ""
 
     def enter(self, *, unix: float | None = None) -> str:
@@ -44,6 +45,7 @@ class EarthRuntime:
         self.ride_id = ""
         populate(self.store, now)
         self._merge_local()
+        self.last_local_unix = now
         if self.live:
             self._merge_live()
         self.last_tick_unix = now
@@ -69,7 +71,11 @@ class EarthRuntime:
         now = float(unix if unix is not None else time.time())
         if now - self.last_tick_unix < 0.2:
             return
-        refresh_moving(self.store, now)
+        dt = now - self.last_tick_unix if self.last_tick_unix else 0.0
+        refresh_moving(self.store, now, dt=dt)
+        if now - self.last_local_unix >= 8.0:
+            self._merge_local()
+            self.last_local_unix = now
         self.last_tick_unix = now
 
     def set_layer(self, layer: str, on: bool | None = None) -> bool | None:

@@ -222,7 +222,7 @@ yours is worth an issue. The published installer is **0.2.3**. Notes:
 | [notify-inbound.md](docs/notify-inbound.md) | Phone app |
 | [calendar-oauth.md](docs/calendar-oauth.md) | Connecting a calendar |
 | [architecture.md](docs/architecture.md) | How the pieces fit |
-| [earth.md](docs/earth.md) | Earth zone inside the solar lab |
+| [earth.md](docs/earth.md) | Earth zone: where we are vs what's next |
 | [telemetry.md](docs/telemetry.md) | Logs, on your disk |
 | [win-installer/README.md](win-installer/README.md) | Building the installer |
 

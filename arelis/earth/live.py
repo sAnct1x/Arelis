@@ -7,27 +7,44 @@ camera you do not own is not an adapter.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 from urllib.parse import urlparse
 
 import httpx
 
 from arelis.earth.adsb import fetch_adsb_mil
+from arelis.earth.airports import fetch_airports
 from arelis.earth.ais import fetch_ais
 from arelis.earth.aprs import fetch_aprs
+from arelis.earth.argo import fetch_argo
 from arelis.earth.cameras import fetch_cameras
+from arelis.earth.emsc import fetch_emsc
 from arelis.earth.entity import Entity
 from arelis.earth.eonet import fetch_eonet
 from arelis.earth.firms import fetch_firms
-from arelis.earth.frames import lla_to_ecef
+from arelis.earth.frames import ecef_vel_from_track, lla_to_ecef
+from arelis.earth.gdacs import fetch_gdacs
+from arelis.earth.geonet import fetch_geonet
 from arelis.earth.gfw import fetch_gfw
 from arelis.earth.launches import fetch_launches
+from arelis.earth.metar import fetch_metar
+from arelis.earth.ndbc import fetch_ndbc
+from arelis.earth.nws import fetch_nws
 from arelis.earth.radar import fetch_radar
 from arelis.earth.radio import fetch_radio
+from arelis.earth.satnogs import fetch_satnogs
+from arelis.earth.secrets import earth_secret
 from arelis.earth.shodan import fetch_shodan
+from arelis.earth.spacetrack import fetch_spacetrack, fetch_tip
 from arelis.earth.store import EntityStore
+from arelis.earth.swpc import fetch_swpc
+from arelis.earth.tides import fetch_tides
 from arelis.earth.tle import fetch_celestrak
 from arelis.earth.traffic import fetch_traffic
+from arelis.earth.volcanoes import fetch_volcanoes
+from arelis.earth.waqi import fetch_waqi
 from arelis.earth.wx import fetch_weather
 
 # User-started live Earth zone only. Never from jobs.
@@ -41,27 +58,63 @@ _PINNED_HOSTS = frozenset({"earthquake.usgs.gov", "opensky-network.org"})
 
 
 def merge_live(store: EntityStore) -> None:
-    quakes = fetch_usgs()
+    """Pull shipped adapters in parallel. Apply in a stable order."""
+    got = _gather(
+        {
+            "usgs": fetch_usgs,
+            "emsc": fetch_emsc,
+            "geonet": fetch_geonet,
+            "opensky": fetch_opensky,
+            "adsb": fetch_adsb_mil,
+            "ais": fetch_ais,
+            "radar": fetch_radar,
+            "gfw": fetch_gfw,
+            "celestrak": fetch_celestrak,
+            "spacetrack": fetch_spacetrack,
+            "radio": fetch_radio,
+            "aprs": fetch_aprs,
+            "satnogs": fetch_satnogs,
+            "cameras": fetch_cameras,
+            "shodan": fetch_shodan,
+            "weather": fetch_weather,
+            "nws": fetch_nws,
+            "swpc": fetch_swpc,
+            "metar": fetch_metar,
+            "waqi": fetch_waqi,
+            "ndbc": fetch_ndbc,
+            "tides": fetch_tides,
+            "firms": fetch_firms,
+            "launches": fetch_launches,
+            "eonet": fetch_eonet,
+            "airports": fetch_airports,
+            "tip": fetch_tip,
+            "volcanoes": fetch_volcanoes,
+            "gdacs": fetch_gdacs,
+            "argo": fetch_argo,
+            "traffic": fetch_traffic,
+        }
+    )
+    quakes = (got["usgs"] or []) + (got["emsc"] or []) + (got["geonet"] or [])
     if quakes:
         _replace_layer(store, "quakes", quakes)
-    flights = fetch_opensky()
+    flights = got["opensky"]
     if flights:
         civil = [e for e in flights if e.layer == "flights"]
         drones = [e for e in flights if e.layer == "drones"]
         _replace_layer(store, "flights", civil)
         _replace_layer(store, "drones", drones)
         _replace_layer(store, "military", [])
-    military = fetch_adsb_mil()
+    military = got["adsb"]
     if military:
         _replace_layer(store, "military", military)
-    vessels = fetch_ais()
+    vessels = got["ais"]
     if vessels:
         _replace_layer(store, "vessels", vessels)
-    frames = fetch_radar()
-    sar = fetch_gfw()
+    frames = got["radar"]
+    sar = got["gfw"]
     if frames is not None or sar is not None:
         _replace_layer(store, "radar", (frames or []) + (sar or []))
-    sats = fetch_celestrak()
+    sats = _merge_sats(got["celestrak"], got["spacetrack"])
     if sats:
         iss = [e for e in sats if e.layer == "iss"]
         rest = [e for e in sats if e.layer != "iss"]
@@ -69,29 +122,68 @@ def merge_live(store: EntityStore) -> None:
             _replace_layer(store, "iss", iss)
         if rest:
             _replace_layer(store, "satellites", rest)
-    stations = fetch_radio()
-    hams = fetch_aprs()
-    radio = (stations or []) + (hams or [])
+    radio = (got["radio"] or []) + (got["aprs"] or []) + (got["satnogs"] or [])
     if radio:
         _replace_layer(store, "radio", radio)
-    cameras = fetch_cameras()
-    banners = fetch_shodan()
-    pins = (cameras or []) + (banners or [])
+    pins = (got["cameras"] or []) + (got["shodan"] or [])
     if pins:
         _replace_layer(store, "cameras", pins)
-    wx = fetch_weather()
-    if wx:
-        _replace_layer(store, "weather", wx)
-    fires = fetch_firms()
+    weather = (
+        (got["weather"] or [])
+        + (got["nws"] or [])
+        + (got["swpc"] or [])
+        + (got["metar"] or [])
+        + (got["waqi"] or [])
+        + (got["ndbc"] or [])
+        + (got["tides"] or [])
+    )
+    if weather:
+        _replace_layer(store, "weather", weather)
+    fires = got["firms"]
     if fires:
         _replace_layer(store, "fires", fires)
-    pads = fetch_launches()
-    events = fetch_eonet()
-    for e in (pads or []) + (events or []):
+    for e in (
+        (got["launches"] or [])
+        + (got["eonet"] or [])
+        + (got["airports"] or [])
+        + (got["tip"] or [])
+        + (got["volcanoes"] or [])
+        + (got["gdacs"] or [])
+        + (got["argo"] or [])
+    ):
         store.upsert(e)
-    incidents = fetch_traffic()
+    incidents = got["traffic"]
     if incidents:
         _replace_layer(store, "traffic", incidents)
+
+
+def _gather(jobs: dict[str, Callable[[], Any]]) -> dict[str, Any]:
+    out: dict[str, Any] = {key: None for key in jobs}
+    with ThreadPoolExecutor(max_workers=16) as pool:
+        futs = {key: pool.submit(_safe, fn) for key, fn in jobs.items()}
+        for key, fut in futs.items():
+            out[key] = fut.result()
+    return out
+
+
+def _safe(fn: Callable[[], Any]) -> Any:
+    try:
+        return fn()
+    except Exception:
+        return None
+
+
+def _merge_sats(
+    celestrak: list[Entity] | None, official: list[Entity] | None
+) -> list[Entity] | None:
+    if not celestrak and not official:
+        return None
+    by_id: dict[str, Entity] = {}
+    for entity in celestrak or []:
+        by_id[entity.id] = entity
+    for entity in official or []:
+        by_id[entity.id] = entity
+    return list(by_id.values())
 
 
 def _replace_layer(store: EntityStore, layer: str, entities: list[Entity]) -> None:
@@ -155,10 +247,18 @@ _CITE_ADSB = (
 
 
 def fetch_opensky() -> list[Entity]:
-    payload = _get_json(OPENSKY_STATES)
+    payload = _get_json(OPENSKY_STATES, auth=_opensky_auth())
     if not payload:
         return []
     return entities_from_opensky(payload)
+
+
+def _opensky_auth() -> tuple[str, str] | None:
+    user = earth_secret("opensky_user", "ARELIS_OPENSKY_USER")
+    password = earth_secret("opensky_password", "ARELIS_OPENSKY_PASSWORD")
+    if user and password:
+        return (user, password)
+    return None
 
 
 def entities_from_opensky(payload: dict[str, Any]) -> list[Entity]:
@@ -190,7 +290,14 @@ def _opensky_row(row: list[Any] | tuple[Any, ...], unix: float) -> Entity | None
     except (TypeError, ValueError):
         return None
     pos = lla_to_ecef(lat_f, lon_f, alt_f)
-    vx = float(row[8] or 0.0) if row[8] is not None else 0.0
+    vel = _row_float(row, 9)
+    track = _row_float(row, 10)
+    climb = _row_float(row, 11)
+    vx, vy, vz = (
+        ecef_vel_from_track(lat_f, lon_f, vel, track, climb)
+        if vel > 0.5
+        else (0.0, 0.0, 0.0)
+    )
     try:
         cat = int(row[17]) if len(row) > 17 and row[17] is not None else 0
     except (TypeError, ValueError):
@@ -205,6 +312,8 @@ def _opensky_row(row: list[Any] | tuple[Any, ...], unix: float) -> Entity | None
         y=pos[1],
         z=pos[2],
         vx=vx,
+        vy=vy,
+        vz=vz,
         when_unix=unix,
         source="OpenSky Network",
         freshness="delayed",
@@ -215,10 +324,21 @@ def _opensky_row(row: list[Any] | tuple[Any, ...], unix: float) -> Entity | None
             "lat": lat_f,
             "lon": lon_f,
             "alt_m": alt_f,
+            "gs_mps": vel,
+            "track_deg": track,
             "category": cat,
             "uav": uav,
         },
     )
+
+
+def _row_float(row: list[Any] | tuple[Any, ...], idx: int) -> float:
+    if len(row) <= idx or row[idx] is None:
+        return 0.0
+    try:
+        return float(row[idx])
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def _host_pinned(host: str | None) -> bool:
@@ -231,12 +351,18 @@ def _host_pinned(host: str | None) -> bool:
     return False
 
 
-def _get_json(url: str) -> dict[str, Any] | None:
+def _get_json(
+    url: str, auth: tuple[str, str] | None = None
+) -> dict[str, Any] | None:
     if not _host_pinned(urlparse(url).hostname):
         return None
     try:
         with httpx.Client(timeout=_TIMEOUT, follow_redirects=True) as client:
-            resp = client.get(url, headers={"User-Agent": "ArelisEarth/0.2"})
+            resp = client.get(
+                url,
+                headers={"User-Agent": "ArelisEarth/0.2"},
+                auth=auth,
+            )
             resp.raise_for_status()
             if not _host_pinned(urlparse(str(resp.url)).hostname):
                 return None

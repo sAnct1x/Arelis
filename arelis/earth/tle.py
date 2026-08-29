@@ -19,19 +19,54 @@ from arelis.earth.simulate import ISS_NORAD
 CELESTRAK_GP = "https://celestrak.org/NORAD/elements/gp.php"
 CELESTRAK_HOST = "celestrak.org"
 
-# Named public slices. Starlink is sampled, not a painted shell.
+# Named public slices. Mega-constellations are sampled, not a painted shell.
 _GROUPS: tuple[tuple[str, int], ...] = (
     ("stations", 80),
     ("gps-ops", 40),
-    ("weather", 80),
-    ("visual", 200),
-    ("geo", 60),
-    ("science", 80),
-    ("oneweb", 80),
+    ("galileo", 40),
+    ("glonass", 30),
+    ("beidou", 40),
+    ("weather", 60),
+    ("noaa", 20),
+    ("goes", 15),
+    ("visual", 160),
+    ("geo", 50),
+    ("science", 60),
+    ("resource", 40),
+    ("sarsat", 20),
+    ("dmc", 15),
+    ("tdrss", 15),
+    ("amateur", 40),
+    ("cubesat", 40),
+    ("oneweb", 60),
     ("iridium-NEXT", 40),
-    ("starlink", 250),
+    ("planet", 60),
+    ("spire", 40),
+    ("last-30-days", 50),
+    ("starlink", 180),
+    ("education", 20),
+    ("engineering", 20),
+    ("military", 40),
+    ("intelsat", 30),
+    ("ses", 20),
+    ("orbcomm", 20),
+    ("globalstar", 20),
+    ("iridium", 20),
+    ("other-comm", 20),
 )
-_CAP = 1000
+_SAMPLE_GROUPS = frozenset(
+    {
+        "starlink",
+        "oneweb",
+        "planet",
+        "spire",
+        "last-30-days",
+        "military",
+        "intelsat",
+        "other-comm",
+    }
+)
+_CAP = 1800
 _TIMEOUT = 8.0
 _STARLINK_TIMEOUT = 12.0
 _MIN_R_M = 6_500_000.0
@@ -39,8 +74,9 @@ _MAX_R_M = 2.0e8
 
 _CITE = (
     "CelesTrak GP TLE + SGP4. TEME→ECEF via GMST, no polar motion. "
-    "stations / gps-ops / weather / visual / geo / science / oneweb / "
-    "iridium-NEXT plus a Starlink *sample*. Epoch hours stale. Not navigation. "
+    "GNSS / weather / visual / science / amateur / cubesat / comm groups plus "
+    "Starlink / OneWeb / Planet / public-military *samples*. Epoch hours stale. "
+    "Not navigation. "
     "The sample is not the shell. Classified objects are absent."
 )
 
@@ -59,7 +95,7 @@ def fetch_celestrak(*, unix: float | None = None) -> list[Entity] | None:
             continue
         any_ok = True
         stride = 1
-        if group in {"starlink", "oneweb"}:
+        if group in _SAMPLE_GROUPS:
             n = len(parse_tle_blocks(text))
             stride = max(1, n // max(budget, 1))
         for entity in entities_from_tle_text(
@@ -70,7 +106,7 @@ def fetch_celestrak(*, unix: float | None = None) -> list[Entity] | None:
                 continue
             seen.add(norad)
             entity.meta = {**entity.meta, "group": group}
-            if group in {"starlink", "oneweb"}:
+            if group in _SAMPLE_GROUPS:
                 entity.cite = _CITE
                 entity.meta["sample"] = True
             out.append(entity)

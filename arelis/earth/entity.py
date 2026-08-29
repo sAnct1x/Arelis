@@ -86,7 +86,11 @@ class Entity:
         return (self.vx * self.vx + self.vy * self.vy + self.vz * self.vz) ** 0.5
 
     def to_row(self) -> dict[str, Any]:
-        meta = {k: v for k, v in self.meta.items() if k != "viewshed_ecef"}
+        meta = {
+            k: v
+            for k, v in self.meta.items()
+            if k != "viewshed_ecef" and not str(k).startswith("_")
+        }
         row: dict[str, Any] = {
             "id": self.id,
             "class": self.cls,

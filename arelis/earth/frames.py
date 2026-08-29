@@ -133,3 +133,23 @@ def enu_to_ecef(
         oy + east_m * east[1] + north_m * north[1] + up_m * up[1],
         oz + east_m * east[2] + north_m * north[2] + up_m * up[2],
     )
+
+
+def ecef_vel_from_track(
+    lat_deg: float,
+    lon_deg: float,
+    speed_mps: float,
+    track_deg: float,
+    climb_mps: float = 0.0,
+) -> tuple[float, float, float]:
+    """Ground-track + climb → ECEF velocity. Track is clockwise from north."""
+    east, north, up = enu_axes(lat_deg, lon_deg)
+    rad = math.radians(track_deg)
+    ve = float(speed_mps) * math.sin(rad)
+    vn = float(speed_mps) * math.cos(rad)
+    vu = float(climb_mps)
+    return (
+        ve * east[0] + vn * north[0] + vu * up[0],
+        ve * east[1] + vn * north[1] + vu * up[1],
+        ve * east[2] + vn * north[2] + vu * up[2],
+    )

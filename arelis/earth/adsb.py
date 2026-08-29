@@ -12,7 +12,7 @@ from urllib.parse import urlparse
 import httpx
 
 from arelis.earth.entity import Coverage, Entity
-from arelis.earth.frames import lla_to_ecef
+from arelis.earth.frames import ecef_vel_from_track, lla_to_ecef
 
 ADSB_MIL = "https://api.adsb.lol/v2/mil"
 ADSB_HOST = "adsb.lol"
@@ -65,7 +65,14 @@ def _entity_from_ac(row: dict[str, Any]) -> Entity | None:
     alt_ft = _num(row.get("alt_baro") or row.get("alt_geom")) or 0.0
     alt_m = max(0.0, alt_ft * 0.3048)
     gs = _num(row.get("gs")) or 0.0
+    track = _num(row.get("track") or row.get("true_heading")) or 0.0
     pos = lla_to_ecef(lat, lon, alt_m)
+    speed = gs * 0.51444 if gs else 0.0
+    vx, vy, vz = (
+        ecef_vel_from_track(lat, lon, speed, track)
+        if speed > 0.5
+        else (0.0, 0.0, 0.0)
+    )
     return Entity(
         id=f"icao:{hex_id or call.casefold()}",
         cls="aircraft",
@@ -74,7 +81,9 @@ def _entity_from_ac(row: dict[str, Any]) -> Entity | None:
         x=pos[0],
         y=pos[1],
         z=pos[2],
-        vx=gs * 0.51444 if gs else 0.0,
+        vx=vx,
+        vy=vy,
+        vz=vz,
         source="adsb.lol",
         freshness="delayed",
         confidence=0.65,
