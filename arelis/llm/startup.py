@@ -32,6 +32,11 @@ from arelis.llm.router import ModelRouter
 
 log = logging.getLogger(__name__)
 
+# STATUS copy the UI matches so the first-turn shimmer is not "thinking…"
+# while the prefix seed is still running.
+WARMUP_PINNED = "Chat model loaded — preparing the first reply."
+WARMUP_READY = "Ready for the first reply."
+
 
 def model_is_available(available: list[str], wanted: str) -> bool:
     """True if Ollama already has this model name or a tagged variant of it."""
@@ -206,11 +211,11 @@ async def _run_model_warmup(
             )
         )
         return
-    log.info("Chat model ready (%s)", model)
+    log.info("Chat model pinned (%s)", model)
     await bus.publish(
         Event(
             EventType.STATUS,
-            {"message": "Chat model ready."},
+            {"message": WARMUP_PINNED},
         )
     )
     if prefix is not None:
@@ -285,6 +290,6 @@ async def seed_prefix_cache(
     await bus.publish(
         Event(
             EventType.STATUS,
-            {"message": "Ready for the first reply."},
+            {"message": WARMUP_READY},
         )
     )

@@ -1204,6 +1204,17 @@ class AgentLoop:
             wants_fresh_page=wants_fresh_page,
             active_plan=active_plan,
         )
+        # Schemas can stay on (prefix cache) without treating chitchat as a
+        # tool round. The unmatched web floor is a menu hint, not a scrape.
+        expect_tool_round = turn_expects_tool_round(
+            skill_ids=plan_ids,
+            preflight_kinds=preflight_kinds,
+            research_mode=research_mode,
+            expected_tools=self._expected_tools,
+            exact_need=exact_need,
+            wants_fresh_page=wants_fresh_page,
+            active_plan=active_plan,
+        )
         ollama_tools = self.tools.ollama_tools(visible) if offer_tools else []
         if self._timer is not None and not offer_tools:
             self._timer.mark("chat_fast_path", tools=0)
@@ -1219,6 +1230,7 @@ class AgentLoop:
         )
         ctx.wants_fresh_page = wants_fresh_page
         ctx.offer_tools = offer_tools
+        ctx.expect_tool_round = expect_tool_round
         ctx.ollama_tools = ollama_tools
         ctx.messages = await self._messages_for_turn(
             system_messages, budget, ratio, role, user_text=text
@@ -1384,7 +1396,11 @@ class AgentLoop:
                 try:
                     round_t0 = time.perf_counter()
                     raw_content, tool_calls, streamed = await self._stream_round(
-                        role, messages, tools_arg, round_n=round_i
+                        role,
+                        messages,
+                        tools_arg,
+                        round_n=round_i,
+                        expect_tools=bool(tools_arg) and ctx.expect_tool_round,
                     )
                     round_ms = int((time.perf_counter() - round_t0) * 1000)
                     if self._timer is not None:
@@ -4567,6 +4583,7 @@ class AgentLoop:
                 force_msgs,
                 None,
                 round_n=self.max_rounds + 1,
+                expect_tools=False,
             )
         except (_StoppedError, asyncio.CancelledError):
             raise
@@ -5051,6 +5068,7 @@ class AgentLoop:
         tools: list[dict[str, Any]] | None,
         *,
         round_n: int = 0,
+        expect_tools: bool | None = None,
     ) -> tuple[str, list[dict[str, Any]], str]:
         """Run one model step, painting candidate answer text as it arrives.
 
@@ -5062,14 +5080,18 @@ class AgentLoop:
         content_parts: list[str] = []
         tool_calls: list[dict[str, Any]] = []
         model = self.router.model_for(role)
-        # Hold paint while tools are offered so exactness nudges do not retract
-        # a half-streamed answer every round (H5 / R13).
+        # Hold paint on a real tool round so exactness nudges do not retract
+        # a half-streamed answer (H5 / R13). Schemas can still ride a chitchat
+        # turn for the prefix cache — that is not a tool round.
         agent_cfg = self.config.get("agent") or {}
-        hold_paint = bool(tools) and bool(
+        tool_round = bool(tools) and (
+            bool(expect_tools) if expect_tools is not None else True
+        )
+        hold_paint = tool_round and bool(
             agent_cfg.get("stream_answer_after_tools", True)
         )
         stream_messages = _normalize_ollama_messages(list(messages))
-        if tools:
+        if tool_round:
             # Trailing hint only — must not sit in the static cached prefix.
             stream_messages.append({"role": "system", "content": _TOOL_ROUND_HINT})
         prompt_chars = prompt_char_count(stream_messages, tools=tools)
@@ -5474,6 +5496,34 @@ def disconnected_integration_reply(
     return None
 
 
+def turn_expects_tool_round(
+    *,
+    skill_ids: list[str] | tuple[str, ...] | set[str],
+    preflight_kinds: list[str] | tuple[str, ...] | set[str],
+    research_mode: bool,
+    expected_tools: set[str],
+    exact_need: Any,
+    wants_fresh_page: bool,
+    active_plan: Any | None,
+) -> bool:
+    """Whether this turn should hold paint and hint 'call a tool first'.
+
+    Separate from sending schemas. The unmatched web floor must be passed as
+    empty ``skill_ids`` (see ``plan_ids`` in the loop) so "who is this" is
+    not treated as a scrape.
+    """
+    kinds = getattr(exact_need, "kinds", ()) or ()
+    return bool(
+        skill_ids
+        or preflight_kinds
+        or research_mode
+        or expected_tools
+        or kinds
+        or wants_fresh_page
+        or active_plan is not None
+    )
+
+
 def should_offer_tools(
     *,
     chat_fast_path: bool,
@@ -5496,15 +5546,14 @@ def should_offer_tools(
     """
     if not chat_fast_path:
         return True
-    kinds = getattr(exact_need, "kinds", ()) or ()
-    return bool(
-        skill_ids
-        or preflight_kinds
-        or research_mode
-        or expected_tools
-        or kinds
-        or wants_fresh_page
-        or active_plan is not None
+    return turn_expects_tool_round(
+        skill_ids=skill_ids,
+        preflight_kinds=preflight_kinds,
+        research_mode=research_mode,
+        expected_tools=expected_tools,
+        exact_need=exact_need,
+        wants_fresh_page=wants_fresh_page,
+        active_plan=active_plan,
     )
 
 

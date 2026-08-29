@@ -92,8 +92,8 @@ async def test_the_rooms_purpose_is_in_front_of_her_every_turn(
     tmp_path: Path,
 ) -> None:
     rooms = RoomStore(tmp_path / "rooms.yaml")
-    rooms.create(
-        "Physics",
+    rooms.update(
+        "physics",
         purpose="Analysing the survey data. Show the numbers you used.",
         root="notes",
     )
@@ -112,7 +112,6 @@ async def test_a_turn_outside_any_room_says_nothing_about_rooms(
     tmp_path: Path,
 ) -> None:
     rooms = RoomStore(tmp_path / "rooms.yaml")
-    rooms.create("Physics", purpose="Analysing the survey data.")
     recorder = _Recorder()
 
     await _loop(rooms, recorder).run("what does the fit say?", "fast")
@@ -129,7 +128,6 @@ async def test_a_room_leans_without_taking_tools_away(tmp_path: Path) -> None:
     to stop asking it things.
     """
     rooms = RoomStore(tmp_path / "rooms.yaml")
-    rooms.create("Physics", purpose="Analysing the survey data.")
     rooms.set_active("physics")
     recorder = _Recorder()
 
@@ -209,8 +207,8 @@ async def test_analysis_room_does_not_plan_analyze_on_a_physics_question(
 ) -> None:
     """kind=analysis leans analyze. It must not cage a conceptual ask."""
     rooms = RoomStore(tmp_path / "rooms.yaml")
-    rooms.create(
-        "Physics",
+    rooms.update(
+        "physics",
         purpose="Working through the survey and the theory behind it.",
         kind="analysis",
     )

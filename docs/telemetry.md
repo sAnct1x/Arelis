@@ -10,12 +10,13 @@ Nothing here is sent anywhere.
 | Question | File |
 |----------|------|
 | Why was that turn slow / which tools ran? | `logs/turns.log` plus `logs/turns.jsonl` |
+| Did the first chat token wait on the prefix seed? | Thinking dock: **loading the model…**. Also `logs/turns.jsonl` → `model_prefill_ms` after a turn |
 | Did she enter JSON fallback or answer from a tool result? | Thinking dock. Also `logs/turns.jsonl` |
 | Did a confirm / SMS / error fire on the bus? | `logs/events.log` |
 | Are Ollama / calendar / SMS / mail up? | UI **Systems** menu (mail / SMS / calendar only show once connected). CLI `ready …` STATUS |
 | App crash, IMAP, router, indexer exceptions | `logs/arelis.log` |
 | Scheduled job mail digest | `logs/jobs.log` |
-| Conversation mic stuck | `logs/voice.log` (wake decisions always. The rest needs `voice.debug: true`) |
+| Conversation mic stuck | `logs/voice.log` (wake, barge-in, Smart Turn, dropped utterances always. `voice.debug: true` for the VAD firehose) |
 | Did that chat turn re-prefill the whole prompt? | `logs/turns.jsonl` → `model_prefill_ms`, `prompt_eval_count` |
 | World plate / hands hitch | Overlay FPS. Take jsonl under `outputs/physics/takes/` |
 | Solar lab receipt (IAS15 state, not a screenshot) | `outputs/physics/solar/<utc>/` (`manifest.json` + `state.jsonl`) |
@@ -28,17 +29,23 @@ rewarm, parked confirms, restored sends.
 
 **`logs/turns.log`** (default on: `agent.turn_telemetry`). Stages per
 turn: `start`, `preflight`, `ttft`, `ollama_metrics`, `round`, `tool`,
-`confirm`, `exactness`, `done`. Each finished turn also appends one JSON
+`confirm`, `exactness`, `done`. Logged `ttft` is first painted chat
+token, not Ollama engine TTFT. Tool-bearing turns hold paint, so that
+number includes the tool rounds. Each finished turn also appends one JSON
 object to **`logs/turns.jsonl`**. That is the file to read when grading
 a live session.
 
 **`logs/events.log`** (default on: `agent.event_telemetry`). High-value
 bus events only. Not token deltas or TTS clips.
 
-**`logs/jobs.log`**: `--run-job` only.
+**`logs/jobs.log`**: `--run-job` only. Job definitions live in
+`data/jobs.yaml` (not a log). [jobs.md](jobs.md).
 
-**`logs/voice.log`**: wake decisions always (`wake_heard`, `wake_ack`,
-`wake_drop`). Full state-machine vector when `voice.debug: true`.
+**`logs/voice.log`**: conversation decisions always (`wake_heard`,
+`wake_ack`, `wake_drop`, `barge_in`, `barge_turn`, `barge_control`,
+`smart_turn`, `utterance_dropped`, `listen_resume`, `wake_remainder`).
+Full state-machine vector when `voice.debug: true`. `tts_first` and live
+`stt` spans land in `turns.log` when turn telemetry is on.
 
 Timestamps are local wall-clock. Match nearby lines across files by time
 when ids do not join: `id=` (turn), `session=`, `span=` (STT), `eid=`
@@ -50,7 +57,7 @@ when ids do not join: `id=` (turn), `session=`, `span=` (STT), `eid=`
 |-----|---------|--------|
 | `agent.turn_telemetry` | `true` | `turns.log` |
 | `agent.event_telemetry` | `true` | `events.log` |
-| `voice.debug` | `false` | Extra voice.log |
+| `voice.debug` | `false` | Extra VAD ticks in voice.log. Decisions still write. |
 | `agent.auto_lessons` | `true` | Mines `turns.log` signatures into lessons |
 
 ## What is still not logged

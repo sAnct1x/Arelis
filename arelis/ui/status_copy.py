@@ -27,6 +27,10 @@ from typing import Any
 # The bare waiting state: a turn is running and no tool has been named yet.
 THINKING_STATUS = "✦ thinking…"
 
+# Startup pin + prefix seed. The first message waits on this; calling it
+# "thinking" made a 40s load look like a hung reply.
+WARMING_STATUS = "✦ loading the model…"
+
 # Between an Allow card appearing and the user answering it. The card is on screen
 # and says what it wants, so this only has to stop the shimmer from claiming work
 # is happening while nothing is.
@@ -66,6 +70,8 @@ _ERRANDS: dict[str, str] = {
     "weather": "checking the weather",
     "web_search": "searching the web",
     "workspace": "reading the file",
+    "earth": "looking at Earth",
+    "solar": "looking at the solar lab",
 }
 
 # A few tools do more than one thing, and the difference is worth a word. Keyed by
@@ -103,6 +109,18 @@ _BY_ACTION: dict[str, dict[str, str]] = {
         "list": "checking your schedules",
         "run_now": "running that job now",
     },
+    "earth": {
+        "enter": "looking at Earth",
+        "leave": "leaving Earth",
+        "live": "pulling live Earth feeds",
+        "dump": "writing an Earth dump",
+        "track": "tracking a contact",
+        "ride": "riding a contact",
+        "search": "searching Earth contacts",
+        "coverage": "checking Earth coverage",
+        "layer": "toggling an Earth layer",
+        "status": "looking at Earth",
+    },
 }
 
 
@@ -123,4 +141,4 @@ def tool_status_line(tool: str, args: dict[str, Any] | None = None) -> str:
     return f"✦ {errand}…"
 
 
-__all__ = ["THINKING_STATUS", "WAITING_STATUS", "tool_status_line"]
+__all__ = ["THINKING_STATUS", "WAITING_STATUS", "WARMING_STATUS", "tool_status_line"]

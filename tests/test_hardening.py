@@ -948,6 +948,73 @@ async def test_answer_tokens_stream_as_they_arrive() -> None:
 
 
 @pytest.mark.asyncio
+async def test_chitchat_streams_while_schemas_stay_on() -> None:
+    """chat_fast_path off keeps the prefix cache. Holding every bubble used
+    to make hello wait for the whole round (live dump: hold_paint=1 on hi)."""
+    bus = EventBus()
+    chunks = ["Hello there, ", "I am doing well. ", "Happy to help."]
+    router = _ScriptedRouter([[("token", c) for c in chunks]])
+    tools = ToolRegistry()
+    tools.register(CodeWorkspaceTool(["."]))
+    cfg = _config()
+    cfg["agent"]["chat_fast_path"] = False
+    cfg["agent"]["stream_answer_after_tools"] = True
+    loop = AgentLoop(
+        bus,
+        router,  # type: ignore[arg-type]
+        tools,
+        SessionMemory(),
+        "persona",
+        cfg,
+        request_confirm=_deny,
+        is_cancelled=lambda: False,
+    )
+    events = await _collect(bus, loop.run("how are you today?", "fast"))
+    thinking = " ".join(
+        str(e.payload.get("text") or "")
+        for e in events
+        if e.type == EventType.THINKING
+    )
+    assert "hold_paint=0" in thinking
+    deltas = [e for e in events if e.type == EventType.ASSISTANT_DELTA]
+    assert len(deltas) >= 2
+    assert "".join(d.payload["text"] for d in deltas) == "".join(chunks)
+
+
+@pytest.mark.asyncio
+async def test_tool_ask_still_holds_paint_when_schemas_are_always_on() -> None:
+    """A folder ask must not flash tokens, even with chat_fast_path off."""
+    bus = EventBus()
+    chunks = ["Let me open that. ", "There are eleven files."]
+    router = _ScriptedRouter([[("token", c) for c in chunks]])
+    tools = ToolRegistry()
+    tools.register(CodeWorkspaceTool(["."]))
+    cfg = _config()
+    cfg["agent"]["chat_fast_path"] = False
+    cfg["agent"]["stream_answer_after_tools"] = True
+    loop = AgentLoop(
+        bus,
+        router,  # type: ignore[arg-type]
+        tools,
+        SessionMemory(),
+        "persona",
+        cfg,
+        request_confirm=_deny,
+        is_cancelled=lambda: False,
+    )
+    events = await _collect(bus, loop.run("what is in this folder?", "fast"))
+    thinking = " ".join(
+        str(e.payload.get("text") or "")
+        for e in events
+        if e.type == EventType.THINKING
+    )
+    assert "hold_paint=1" in thinking
+    deltas = [e for e in events if e.type == EventType.ASSISTANT_DELTA]
+    # Held for the round, then dumped once in _finish — not token-by-token.
+    assert len(deltas) == 1
+
+
+@pytest.mark.asyncio
 async def test_preamble_to_a_tool_call_is_retracted_before_the_tool_runs() -> None:
     """Tool-round preambles must not stick as the reply.
 

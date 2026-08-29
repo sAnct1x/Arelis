@@ -34,7 +34,9 @@ room". Spoken navigation only fires on a name that already exists.
 "Let's work on the budget" in a house with no budget room is an ordinary
 sentence.
 
-The room id `physics` is reserved. It is the spatial stage: World plate
+The room id `physics` is permanent. It is always there, and `/room forget
+physics` is refused. Delete the key from `rooms.yaml` and the next launch
+puts it back. It is the spatial stage: World plate
 and C920 tracking run only on a **source checkout**. Installed copies
 still get the physics *room* (chat, CAS, Horizons observer). The plate,
 REBOUND solar system, and hands do not ship in the installer until you
@@ -43,11 +45,18 @@ albedo if a map is on disk, IAU W on mapped planets so the terminator
 and the mosaic agree, no landing, no DEM. The camera is inspect-only
 WASD fly; F does not ride a probe. GPU globes are opt-in
 (`--solar-gl` / `ARELIS_SOLAR_GL=1`). H recites every live hotkey;
-spoken `solar` toggle flags match H and the ⋯ tray. World window
-defaults to 1280×800. Pose updates the scene without
-a chat turn. Spoken world and time verbs (pause, faster, fly, heavier)
+spoken `solar` toggle flags match H and the ⋯ tray. Travel to Earth
+(or say **enter Earth**) opens the Earth zone on that globe: an observer
+plate of whatever is broadcasting or published (planes, UAV ADS-B, ships,
+sats, cameras as positions). Individual cars are not a public feed.
+Simulated until you ask for live feeds (OpenSky, AISStream with a free key,
+Fintraffic Digitraffic with none, Sentinel-1 gyre footprints, CelesTrak, TfL,
+Caltrans, and the rest of `arelis/earth/feeds.py`).
+**leave Earth** returns to
+heliocentric. World window defaults to 1280×800. Pose updates the scene
+without a chat turn. Spoken world and time verbs (pause, faster, fly, heavier)
 hit the scene without a model turn; conversation mode keeps listening
-after them. Say "open world" for the plate. The phone is not a
+after them. Say "open world" for the plate (or View → world / Ctrl+8). The phone is not a
 sensor. Do not turn this room into a spreadsheet workspace; make a
 different room for that.
 
@@ -73,8 +82,7 @@ without going in, does not.
 
 `/room forget survey` removes the definition. Its conversations stay in
 History. Only the room is gone. A forgotten room is not recreated on
-launch. Do not forget `physics` unless you mean to drop the spatial
-stage.
+launch, except `physics`: that one cannot be forgotten.
 
 ## Kinds
 
@@ -87,11 +95,12 @@ stage.
 | `writing` | research | drafting and revising documents in the project's `documents` folder |
 
 A kind is a starting chip, not a lock. `/role` still overrides it. Every
-tool still works in every room. The kind's skills are offered first on
-every turn in that room — that is the lean. It is a menu bias, not a
-plan: `kind: analysis` does not mean every sentence is a spreadsheet.
-Asking what a toroid is still gets an answer; `analyze` runs when the
-ask actually names a table.
+tool still works in every room. The kind's skills are a lean (which
+cards she reaches for first), not a smaller tool list — shipped config
+sends the full schema array every turn so the prefix cache holds. It is
+a menu bias, not a plan: `kind: analysis` does not mean every sentence
+is a spreadsheet. Asking what a toroid is still gets an answer;
+`analyze` runs when the ask actually names a table.
 
 ## Rooms lean, they do not cage
 

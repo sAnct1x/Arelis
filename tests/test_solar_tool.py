@@ -87,6 +87,30 @@ async def test_craft_action_does_not_spawn_a_probe() -> None:
 
 
 @pytest.mark.asyncio
+async def test_realtime_locks_ias15_to_utc_now() -> None:
+    from arelis.physics.clocks import tdb_jd_now
+    from arelis.physics.demo import sun_and_planet
+    from arelis.physics.engine import rebound_available
+    from arelis.physics.runtime import get_system, set_system
+    from arelis.physics.scene import SolarSystem
+
+    if not rebound_available():
+        pytest.skip("REBOUND is not installed")
+    epoch = tdb_jd_now() - 0.01
+    set_system(SolarSystem.from_states(sun_and_planet(), tracers=0, epoch_jd=epoch))
+    tool = SolarTool()
+    result = await tool.run(action="realtime")
+    assert result.ok, result.output
+    assert "UTC now" in result.output
+    system = get_system()
+    assert system is not None
+    assert system.wall_lock is True
+    assert system.paused is False
+    assert system.t == pytest.approx(0.01 * 86_400.0, abs=5.0)
+    set_system(None)
+
+
+@pytest.mark.asyncio
 async def test_lock_does_not_travel_and_travel_queues_warp() -> None:
     from arelis.physics.demo import sun_and_planet
     from arelis.physics.engine import rebound_available

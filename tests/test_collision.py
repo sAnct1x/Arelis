@@ -121,6 +121,16 @@ def test_j2000_iso() -> None:
     assert jd_iso(2_451_545.0) == "2000-01-01 12:00:00 UTC"
 
 
+def test_utc_jd_round_trips_j2000_noon() -> None:
+    from datetime import UTC, datetime
+
+    from arelis.physics.clocks import utc_jd
+
+    noon = datetime(2000, 1, 1, 12, 0, 0, tzinfo=UTC)
+    assert abs(utc_jd(noon) - 2_451_545.0) < 1e-6
+    assert jd_iso(utc_jd(noon)) == "2000-01-01 12:00:00 UTC"
+
+
 def test_clamp_rate_floors_and_caps() -> None:
     assert clamp_rate(0.0) == RATE_MIN
     assert clamp_rate(1.0e20) == RATE_MAX

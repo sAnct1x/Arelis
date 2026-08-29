@@ -126,7 +126,6 @@ def test_the_rooms_menu_lists_them_and_marks_the_open_one(tmp_path, qt_app) -> N
     from arelis.ui.app import ArelisWindow, BusBridge
 
     store = RoomStore(tmp_path / "rooms.yaml")
-    store.create("Physics")
     store.create("Writing")
     store.set_active("physics")
     window = ArelisWindow(
@@ -161,7 +160,6 @@ def test_the_rooms_menu_enter_is_the_same_as_typing(tmp_path, qt_app) -> None:
     from arelis.ui.app import ArelisWindow, BusBridge
 
     store = RoomStore(tmp_path / "rooms.yaml")
-    store.create("Physics")
     bus = EventBus()
     loop = asyncio.new_event_loop()
     sent: list[str] = []

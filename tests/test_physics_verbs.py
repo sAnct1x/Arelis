@@ -201,7 +201,6 @@ async def test_spoken_pause_in_physics_is_a_verb_not_a_turn(tmp_path: Path) -> N
 
     bus.subscribe(None, capture)
     rooms = RoomStore(tmp_path / "rooms.yaml")
-    rooms.create("Physics")
     rooms.set_active("physics")
     orch = Orchestrator(
         bus,
@@ -278,9 +277,8 @@ async def test_spoken_take_me_to_earth_is_a_verb_not_a_turn(tmp_path: Path) -> N
 
     bus.subscribe(None, capture)
     rooms = RoomStore(tmp_path / "rooms.yaml")
-    rooms.create("Physics")
     rooms.set_active("physics")
-    Orchestrator(
+    _orch = Orchestrator(
         bus,
         _StubRouter(),  # type: ignore[arg-type]
         ToolRegistry(),

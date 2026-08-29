@@ -24,7 +24,8 @@ Definitions live in data/rooms.yaml so they are readable and editable by hand,
 matching contacts.yaml. The last room you *entered* is stored as last_active
 and resumed on launch (the strip names it). Leaving writes an empty last_active,
 so orbit stays orbit. Creating a room does not enter it. A forgotten room is
-not recreated.
+not recreated, except the permanent ones: they are seeded if missing and
+cannot be forgotten.
 """
 
 from __future__ import annotations
@@ -47,6 +48,18 @@ ROOMS_PATH = state_dir() / "rooms.yaml"
 
 # Reserved because they name the absence of a room in commands and events.
 _RESERVED_IDS = frozenset({"", "general", "none", "new", "list", "leave", "help"})
+
+# Same id as arelis.spatial.PHYSICS_ROOM_ID. Literal so this module does
+# not depend on the spatial package — installed copies still get the room.
+PHYSICS_ROOM_ID = "physics"
+
+PHYSICS_PURPOSE = (
+    "Physics lab. The solar-system stage is approach and orbit — true scale, "
+    "JPL Horizons ICs, REBOUND. No landing. Hands drive the camera, not "
+    "metres in the ODE. Forces and periods come from the engine; you do not "
+    "invent them. Leave ends the motion grant. Record takes in this project's "
+    "folder, not in orbit."
+)
 
 
 def _clean(value: Any) -> str:
@@ -320,6 +333,23 @@ class Room:
         return out
 
 
+def _perma_physics() -> Room:
+    return Room(
+        id=PHYSICS_ROOM_ID,
+        name="Physics",
+        purpose=PHYSICS_PURPOSE,
+        kind="analysis",
+    )
+
+
+# Code-owned. A YAML flag can be deleted; these cannot.
+PERMA_ROOMS: dict[str, Room] = {PHYSICS_ROOM_ID: _perma_physics()}
+
+
+def is_perma(room_id: str) -> bool:
+    return slugify(room_id) in PERMA_ROOMS
+
+
 class RoomStore:
     """Room definitions on disk, plus which one is open right now.
 
@@ -345,7 +375,11 @@ class RoomStore:
                 rooms[room.id] = room
         self._rooms = rooms
         saved = slugify(str(raw.get("last_active") or ""))
-        self._resume_id = saved if saved in rooms else ""
+        # Set before seed-write so a missing perma room does not drop last_active.
+        self._resume_id = saved
+        self._ensure_perma()
+        if self._resume_id not in self._rooms:
+            self._resume_id = ""
         if self._active not in self._rooms:
             self._active = ""
 
@@ -393,6 +427,19 @@ class RoomStore:
             created_at=_clean(body.get("created_at")),
         )
 
+    def _ensure_perma(self) -> None:
+        """Put permanent rooms back if the file never had them, or forgot them."""
+        dirty = False
+        for room_id, spec in PERMA_ROOMS.items():
+            if room_id not in self._rooms:
+                self._rooms[room_id] = replace(
+                    spec,
+                    created_at=datetime.now(UTC).isoformat(timespec="seconds"),
+                )
+                dirty = True
+        if dirty:
+            self.save()
+
     def save(self) -> None:
         body = {
             room_id: self._rooms[room_id].to_yaml() for room_id in sorted(self._rooms)
@@ -407,7 +454,8 @@ class RoomStore:
             "# kind: " + " | ".join(sorted(KINDS)) + "\n"
             "# tools: optional. Leave it out and the room leans without\n"
             "#        restricting; list tool names to lock the room to them.\n"
-            "# last_active: written on enter/leave. Launch resumes that room.\n\n"
+            "# last_active: written on enter/leave. Launch resumes that room.\n"
+            "# physics is permanent: always present, cannot be forgotten.\n\n"
         )
         payload: dict[str, Any] = {"rooms": body}
         if self._resume_id and self._resume_id in self._rooms:
@@ -569,6 +617,11 @@ class RoomStore:
         room = self.get(room_id)
         if room is None:
             return False
+        if is_perma(room.id):
+            raise ValueError(
+                f"`{room.id}` is a permanent room — it comes back on launch. "
+                "You can leave it, but you cannot forget it."
+            )
         del self._rooms[room.id]
         if self._active == room.id:
             self._active = ""

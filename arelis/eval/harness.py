@@ -80,8 +80,12 @@ _STUB_SCHEMAS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
         ("action",),
         (
             "action", "date", "dvx", "dvy", "dvz", "epoch_gyr", "flag", "name",
-            "r1_au", "r2_au", "rate", "tracers",
+            "r1_au", "r2_au", "rate", "refresh", "tracers",
         ),
+    ),
+    "earth": (
+        ("action",),
+        ("action", "id", "layer", "on", "query"),
     ),
     "camera": (("action",), ("action",)),
     "doc_extract": (("path",), ("max_chars", "page_end", "page_start", "path")),

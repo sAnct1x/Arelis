@@ -237,7 +237,10 @@ class RoomsTool:
         room = self.store.find(name) if name else self.store.active
         if room is None:
             return ToolResult(ok=False, output=f"No room matching {name!r}.")
-        self.store.remove(room.id)
+        try:
+            self.store.remove(room.id)
+        except ValueError as exc:
+            return ToolResult(ok=False, output=str(exc))
         return ToolResult(
             ok=True,
             output=(

@@ -55,17 +55,23 @@ class VoiceTrace:
     def record(self, event: str, **state: Any) -> None:
         if not self.enabled:
             return
-        line = _format(event, state)
-        self._entries.append(line)
-        log.info(line)
+        self._write(event, state)
 
-    def record_wake(self, event: str, **state: Any) -> None:
-        """Wake decisions always hit the ring and logs/voice.log.
+    def record_always(self, event: str, **state: Any) -> None:
+        """Conversation decisions always hit the ring and logs/voice.log.
 
-        Full debug stays opt-in. Matching, missing, and the UI ack have to be
-        countable without turning the rest of the voice loop into a firehose.
+        Full debug stays opt-in for every VAD tick. Wake, barge-in, Smart Turn,
+        live STT, dropped utterances, and engine fallbacks have to be countable
+        without turning the rest of the loop into a firehose.
         """
         _attach_file_handler(self._log_dir or logs_dir())
+        self._write(event, state)
+
+    def record_wake(self, event: str, **state: Any) -> None:
+        """Wake decisions always hit logs/voice.log (alias of record_always)."""
+        self.record_always(event, **state)
+
+    def _write(self, event: str, state: dict[str, Any]) -> None:
         line = _format(event, state)
         self._entries.append(line)
         log.info(line)
@@ -101,17 +107,29 @@ def _attach_file_handler(log_dir: Path) -> None:
 
     Handlers are tagged rather than counted: the window rebuilds its controller
     when voice recovers from a capture failure, and a second handler would
-    double every line for the rest of the session.
+    double every line for the rest of the session. If the path changes (tests
+    pass a tmp dir), retarget instead of keeping the first process handler.
     """
-    for existing in log.handlers:
-        if getattr(existing, "_arelis_tag", "") == _HANDLER_TAG:
+    target = Path(log_dir) / "voice.log"
+    for existing in list(log.handlers):
+        if getattr(existing, "_arelis_tag", "") != _HANDLER_TAG:
+            continue
+        current = Path(getattr(existing, "baseFilename", "") or "")
+        try:
+            same = current.resolve() == target.resolve()
+        except OSError:
+            same = current == target
+        if same:
             return
+        log.removeHandler(existing)
+        existing.close()
+        break
     try:
         from logging.handlers import RotatingFileHandler
 
         log_dir.mkdir(parents=True, exist_ok=True)
         handler = RotatingFileHandler(
-            log_dir / "voice.log",
+            target,
             maxBytes=2 * 1024 * 1024,
             backupCount=3,
             encoding="utf-8",

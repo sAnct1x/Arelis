@@ -235,6 +235,9 @@ agent:
   # newest line, so follow-ups forgot the last sentence.
   history_min_recent: 6
   # Hold ASSISTANT_DELTA until tool rounds settle (H5/R13 retract storms).
+  # Schemas still ride every turn (chat_fast_path off). Hold and the
+  # "call a tool first" hint only apply when this turn actually expects a
+  # tool — otherwise chitchat streams while the prefix cache stays intact.
   stream_answer_after_tools: true
   # Fat scrape/doc/research bodies: cache full text, inject summary card.
   tool_summary_inject: true
@@ -541,11 +544,10 @@ voice:
   # Recordings are deleted once transcribed. Set true to keep them under
   # outputs/voice/ when diagnosing a capture problem.
   keep_recordings: false
-  # Write one line per state change of the conversation loop to logs/voice.log:
-  # mode, whether she is listening, and the three flags that decide it. Turn on
-  # when she stops hearing you and the last few lines will say which one stuck.
-  # Off by default: it is a diagnostic, not something every machine should be
-  # writing to disk forever.
+  # Write conversation decisions to logs/voice.log always (wake, barge-in,
+  # Smart Turn, dropped utterances, live STT). voice.debug adds every VAD
+  # tick on top of that. Off for debug means the firehose is off, not that
+  # the file is empty.
   debug: false
 
   # Live onset / end-point detector for conversation and dictate.
@@ -583,7 +585,9 @@ voice:
   stt:
     enabled: true
     # sherpa (default ear) | faster-whisper (fallback if Sherpa or its
-    # model files are missing). Wake still uses Whisper / future ONNX.
+    # model files are missing). Conversation uses the Kroko 2025 Zipformer
+    # pack when present (mixed-case, punctuation), else the 2023 LibriSpeech
+    # pack. Wake still uses Whisper / openWakeWord.
     backend: sherpa
     model_dir: "models/sherpa"
     allow_download: true
@@ -628,13 +632,11 @@ voice:
     length_scale: 0.85
 
   conversation:
-    # Hands-free mode: how quiet, and for how long, ends an utterance.
-    # Slightly longer windows so mid-thought pauses ("I'm not bad, just…")
-    # are not chopped under Silero.
-    silence_ms: 1400
-    # Adaptive end-point (conversation only): after a short command, end sooner.
-    # Equal to silence_ms so last words are not chopped ("tonight", "hobbies").
-    short_silence_ms: 1400
+    # Hands-free mode. With Smart Turn loaded these are a short pause after
+    # which the ONNX decides complete vs still-thinking. Without the model
+    # the controller floors them to 900 / 550 so last words are not chopped.
+    silence_ms: 280
+    short_silence_ms: 280
     short_utterance_ms: 2800
     # Level counted as speech, as a fraction of full scale. The floor is also
     # measured from the room at the start of each listen and the higher of the
@@ -645,6 +647,16 @@ voice:
     # Talking over her cuts her off. Turn this off if you use speakers rather
     # than a headset, where her own voice can trip the microphone.
     barge_in: true
+    # Headset default: the interrupt clip is the next question. Speakers:
+    # false keeps the mixed clip as control-only (stop / allow / deny).
+    barge_in_as_turn: true
+    # Semantic end-of-turn after the short Silero pause. First launch may
+    # download ~8 MB into models/smart_turn/. False disables it.
+    smart_turn:
+      enabled: true
+      allow_download: true
+      threshold: 0.5
+      model_path: ""
 
 location:
   # So you do not have to say which city you are in every time you ask about

@@ -188,7 +188,7 @@ async def test_room_with_folder_writes_to_documents(project) -> None:
 
     root, _data, workspace = project
     store = RoomStore(root / "rooms.yaml")
-    store.create("Physics", root="project", kind="writing")
+    store.update("physics", root="project", kind="writing")
     store.set_active("physics")
     tool = DocumentTool(workspace, store)
     result = await tool.run(format="md", title="Dirac", body="notes")

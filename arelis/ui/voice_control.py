@@ -24,11 +24,10 @@ the speakers as the next question. Deriving the answer from the inputs makes
 that state unrepresentable.
 
 The microphone is not closed while she talks, because barge-in needs to hear the
-user interrupt. Barge-in is the interrupt: talking over her cuts playback.
-That same clip is not a new turn (it is still her voice mixed into the mic).
-It is transcribed as deliver "control" so a spoken stop / allow / deny on
-that clip is not thrown away. Soup is dropped after STT. The next clean
-utterance is a normal turn — same as before.
+user interrupt. Talking over her cuts playback. On a headset that clip is the
+next turn. Speakers with barge_in_as_turn false keep the old path: the mixed
+clip is deliver "control" so stop / allow / deny still land and soup does not
+start a question.
 """
 from __future__ import annotations
 
@@ -85,6 +84,8 @@ class VoiceController(QObject):
     # True while the user is being listened to, for the level indicator.
     listening_changed = Signal(bool)
     barge_in = Signal()
+    live_started = Signal()
+    live_pcm = Signal(bytes, int, int)
 
     def __init__(self, config: dict[str, Any], parent: QObject | None = None) -> None:
         super().__init__(parent)
@@ -93,7 +94,46 @@ class VoiceController(QObject):
         wake_cfg = voice.get("wake") or {}
         self._wake_enabled = bool(wake_cfg.get("enabled", True))
         self._barge_in_enabled = bool(conversation.get("barge_in", True))
-        silence_ms = int(conversation.get("silence_ms", 900))
+        # Headset default: talking over her is the next turn, not soup-as-control.
+        # Speakers set barge_in_as_turn false (or barge_in false) to keep the old clip.
+        self._barge_in_as_turn = bool(conversation.get("barge_in_as_turn", True))
+        smart_cfg = conversation.get("smart_turn")
+        if isinstance(smart_cfg, dict):
+            self._smart_turn_on = bool(smart_cfg.get("enabled", True))
+            self._smart_turn_path = str(smart_cfg.get("model_path") or "").strip()
+            self._smart_turn_threshold = float(smart_cfg.get("threshold", 0.5))
+            self._smart_turn_download = bool(smart_cfg.get("allow_download", True))
+        elif smart_cfg is False:
+            self._smart_turn_on = False
+            self._smart_turn_path = ""
+            self._smart_turn_threshold = 0.5
+            self._smart_turn_download = False
+        else:
+            # Key omitted: use a local file if present, never download.
+            # Production yaml sets conversation.smart_turn.allow_download.
+            self._smart_turn_on = True
+            self._smart_turn_path = ""
+            self._smart_turn_threshold = 0.5
+            self._smart_turn_download = False
+        self._smart_turn = None
+        if self._smart_turn_on:
+            from arelis.voice.smart_turn import load_smart_turn
+
+            self._smart_turn = load_smart_turn(
+                self._smart_turn_path or None,
+                allow_download=self._smart_turn_download,
+                threshold=self._smart_turn_threshold,
+            )
+        # Smart Turn asks after a short pause. Without it, keep the longer
+        # adaptive windows so last words are not chopped. Yaml may list the
+        # Smart Turn windows (280 ms); floor those when the ONNX is missing.
+        default_silence = 280 if self._smart_turn is not None else 900
+        default_short = 280 if self._smart_turn is not None else 550
+        silence_ms = int(conversation.get("silence_ms", default_silence))
+        short_silence_ms = int(conversation.get("short_silence_ms", default_short))
+        if self._smart_turn is None:
+            silence_ms = max(silence_ms, 900)
+            short_silence_ms = max(short_silence_ms, 550)
         agent = config.get("agent") or {}
         self._speculate_preflight = bool(agent.get("voice_speculate_preflight", True))
         vad_cfg = voice.get("vad") or {}
@@ -124,7 +164,7 @@ class VoiceController(QObject):
             "silence_ms": silence_ms,
             # Adaptive end-point: short commands end sooner; long thoughts keep
             # silence_ms. Wake disables this by setting short == silence.
-            "short_silence_ms": int(conversation.get("short_silence_ms", 550)),
+            "short_silence_ms": short_silence_ms,
             "short_utterance_ms": int(conversation.get("short_utterance_ms", 2800)),
             "speech_level": float(conversation.get("speech_level", 0.02)),
             "max_utterance_s": int(conversation.get("max_utterance_s", 60)),
@@ -181,6 +221,7 @@ class VoiceController(QObject):
         self._speculate_timer.setSingleShot(True)
         self._speculate_timer.timeout.connect(self._on_speculate_tick)
         self._speculate_armed = False
+        self._live_feeding = False
 
     # ------------------------------------------------------------- readiness
 
@@ -213,10 +254,12 @@ class VoiceController(QObject):
             "speaking": self._speaking,
             "confirm_pending": self._confirm_pending,
             "discard_barge": self._discard_barge_clip,
+            "barge_as_turn": self._barge_in_as_turn,
             "mic": self.recorder.is_recording(),
             "vad": self._detector.speaking,
             "vad_backend": getattr(self._detector, "backend", "energy"),
             "wake_engine": self._wake_engine,
+            "smart_turn": self._smart_turn is not None,
         }
 
     # ------------------------------------------------------------ mode entry
@@ -273,6 +316,26 @@ class VoiceController(QObject):
             # was still finishing the wake clip.
             if not (prev == WAKE and mode == CONVERSATION):
                 self.recorder.take()
+            elif prev == WAKE and mode == CONVERSATION:
+                # Remainder after Hey Arelis is still in the buffer. Keep it as
+                # the first conversation utterance.
+                force = getattr(self._detector, "force_speaking", None)
+                if callable(force):
+                    force()
+                self.trace.record_always(
+                    "wake_remainder",
+                    seconds=self._seconds(
+                        self.recorder.peek() if hasattr(self.recorder, "peek") else b""
+                    ),
+                    **self.debug_state(),
+                )
+                self._live_feeding = True
+                self.live_started.emit()
+                peeked = self.recorder.peek() if hasattr(self.recorder, "peek") else b""
+                if peeked:
+                    self.live_pcm.emit(
+                        peeked, self.recorder.sample_rate, self.recorder.channels
+                    )
             if mode == WAKE and self._openwake is not None:
                 self._openwake.reset()
                 self._openwake.set_device_rate(self.recorder.sample_rate)
@@ -318,6 +381,7 @@ class VoiceController(QObject):
         self._clear_awaiting()
         self._discard_barge_clip = False
         pcm = self.recorder.stop()
+        self._live_feeding = False
         self._sync_listening()
         self.trace.record("leave", from_mode=mode, **self.debug_state())
         if flush and mode == DICTATE:
@@ -440,7 +504,7 @@ class VoiceController(QObject):
         if self._mode != CONVERSATION:
             return
         self._clear_awaiting()
-        self.trace.record("utterance_dropped", **self.debug_state())
+        self.trace.record_always("utterance_dropped", **self.debug_state())
         self._sync_listening()
 
     def notify_speaking(self, speaking: bool) -> None:
@@ -503,7 +567,7 @@ class VoiceController(QObject):
             # felt like after a confirm skip. Wake/dictate can still fall back.
             self._listening = False
             self.listening_changed.emit(False)
-            self.trace.record("mic_resume_failed", **self.debug_state())
+            self.trace.record_always("mic_resume_failed", **self.debug_state())
             if self._mode == CONVERSATION:
                 self._mic_retries += 1
                 if self._mic_retries <= 3:
@@ -524,7 +588,7 @@ class VoiceController(QObject):
         self.trace.record("listening" if want else "held", **self.debug_state())
         self.listening_changed.emit(want)
         if want and announce and self._mode == CONVERSATION:
-            self.status.emit("Listening again.")
+            self.trace.record_always("listen_resume", **self.debug_state())
 
     def _retry_conversation_mic(self) -> None:
         if self._mode != CONVERSATION:
@@ -555,7 +619,7 @@ class VoiceController(QObject):
             return
         log.warning("Voice: no turn reported for a handed-off utterance; resuming listen")
         self._awaiting_turn = False
-        self.trace.record("turn_watchdog", **self.debug_state())
+        self.trace.record_always("turn_watchdog", **self.debug_state())
         self._sync_listening()
 
     # ---------------------------------------------------------- audio blocks
@@ -582,8 +646,7 @@ class VoiceController(QObject):
                     score=getattr(self._openwake, "last_score", None),
                     **self.debug_state(),
                 )
-                self.recorder.take()
-                self._detector.reset_soft()
+                # Keep the buffer. Remainder after the phrase is the first turn.
                 self.utterance.emit(
                     b"",
                     self.recorder.sample_rate,
@@ -593,6 +656,10 @@ class VoiceController(QObject):
             return
         event = self._detector.feed(block)
         if event is None:
+            if self._live_feeding:
+                self.live_pcm.emit(
+                    block, self.recorder.sample_rate, self.recorder.channels
+                )
             return
         if event == STARTED:
             self._on_speech_started()
@@ -613,11 +680,25 @@ class VoiceController(QObject):
         )
         if self._mode == CONVERSATION and self._speaking and self._barge_in_enabled:
             # Existing barge-in: she stops talking now. The window cuts
-            # playback. This clip is still soup (her voice in the mic), so it
-            # must not become a turn — mark it so speech_ended hears stop /
-            # allow / deny only.
+            # playback. Headset: this clip is the next turn. Speakers with
+            # barge_in_as_turn false: control only (stop / allow / deny).
             self._discard_barge_clip = True
+            self.trace.record_always(
+                "barge_in",
+                as_turn=self._barge_in_as_turn,
+                **self.debug_state(),
+            )
             self.barge_in.emit()
+        if self._mode in {CONVERSATION, DICTATE}:
+            if not self._live_feeding:
+                self._live_feeding = True
+                self.live_started.emit()
+                peeked = self.recorder.peek() if hasattr(self.recorder, "peek") else b""
+                if peeked:
+                    self.live_pcm.emit(
+                        peeked, self.recorder.sample_rate, self.recorder.channels
+                    )
+            return
         if (
             self._speculate_preflight
             and self._mode == CONVERSATION
@@ -642,6 +723,9 @@ class VoiceController(QObject):
     def _on_speech_ended(self, *, timed_out: bool) -> None:
         self._speculate_timer.stop()
         self._speculate_armed = False
+        if self._should_hold_for_smart_turn(timed_out=timed_out):
+            return
+        self._live_feeding = False
         pcm = self.recorder.take()
         self._detector.reset()
         # Trailing end-point silence is useful for VAD. Keep enough pad that
@@ -680,11 +764,15 @@ class VoiceController(QObject):
                 # cut. That is her own voice coming back through the speakers,
                 # not someone talking over her. STT on it would hear her "yes"
                 # or "stop" as a decision.
-                self.trace.record("echo_discarded", **self.debug_state())
+                self.trace.record_always("echo_discarded", **self.debug_state())
                 return
-            # Same barge-in utterance. She is already cut. Hear a speech act
-            # on this clip; do not start a question from the mix.
-            self.trace.record("barge_control", **self.debug_state())
+            if self._barge_in_as_turn:
+                self.trace.record_always(
+                    "barge_turn", seconds=self._seconds(pcm), **self.debug_state()
+                )
+                self._emit_turn(pcm)
+                return
+            self.trace.record_always("barge_control", **self.debug_state())
             self._emit_control(pcm)
             return
 
@@ -692,14 +780,53 @@ class VoiceController(QObject):
             if self._speaking:
                 # Her own voice arriving back through the speakers. Silent: the
                 # user did nothing and does not need telling about it.
-                self.trace.record("echo_discarded", **self.debug_state())
+                self.trace.record_always("echo_discarded", **self.debug_state())
             else:
                 # Mid-turn: hear stop / allow / deny. Anything else is dropped
                 # after STT so Discord bleed does not queue a second ask.
-                self.trace.record("mid_turn_control", **self.debug_state())
+                self.trace.record_always("mid_turn_control", **self.debug_state())
                 self._emit_control(pcm)
             return
 
+        self._emit_turn(pcm)
+
+    def _should_hold_for_smart_turn(self, *, timed_out: bool) -> bool:
+        """True when Smart Turn says this pause is mid-thought — keep listening."""
+        if timed_out or self._mode != CONVERSATION:
+            return False
+        if self._smart_turn is None or self._discard_barge_clip:
+            return False
+        if not self._listening:
+            return False
+        peeked = self.recorder.peek() if hasattr(self.recorder, "peek") else b""
+        if self._too_short(peeked, _MIN_UTTERANCE_S):
+            return False
+        try:
+            result = self._smart_turn.predict(
+                peeked,
+                sample_rate=self.recorder.sample_rate,
+                channels=self.recorder.channels,
+            )
+        except Exception:
+            log.exception("Smart Turn failed")
+            self.trace.record_always("smart_turn_error", **self.debug_state())
+            return False
+        complete = bool(result.get("complete"))
+        self.trace.record_always(
+            "smart_turn",
+            complete=complete,
+            p=result.get("probability"),
+            seconds=self._seconds(peeked),
+            **self.debug_state(),
+        )
+        if complete:
+            return False
+        resume = getattr(self._detector, "resume_after_pause", None)
+        if callable(resume):
+            resume()
+        return True
+
+    def _emit_turn(self, pcm: bytes) -> None:
         if self._too_short(pcm, _MIN_UTTERANCE_S):
             return
         self._awaiting_turn = True

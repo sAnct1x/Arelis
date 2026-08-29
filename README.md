@@ -140,7 +140,7 @@ An installed copy and a checkout on the same PC do not share a profile.
 
 These wait until you connect them. Until then they are hidden from
 **Systems**, the tools are not offered, and if you ask she says she
-cannot. They live in Settings.
+cannot.
 
 | Copy this | To this | For |
 |---|---|---|
@@ -148,9 +148,12 @@ cannot. They live in Settings.
 | `data/contacts.example.yaml` | `data/contacts.yaml` | People she can text or email |
 | `data/secrets.example.yaml` | `data/secrets.yaml` | Mail login, phone pair, calendar |
 
-Phone: Settings → Notify, scan the QR.
+There is no Mail tab in Settings. Mail is the `email:` block in
+`secrets.yaml` (Gmail app password, not your Google password). Phone:
+Settings → Notify, scan the QR.
 [notify-inbound.md](docs/notify-inbound.md). Calendar:
-[calendar-oauth.md](docs/calendar-oauth.md).
+[calendar-oauth.md](docs/calendar-oauth.md). Timed jobs need mail first:
+[jobs.md](docs/jobs.md).
 
 ## Using her
 
@@ -177,8 +180,12 @@ after you allow the card.
 never types a password or clicks Book / Pay / Checkout.
 [browser-control.md](docs/browser-control.md).
 
-**Voice.** Say **Hey Arelis**. A bare name does not wake her.
+**Voice.** Say **Hey Arelis**. A bare name does not wake her. Two-arcs /
+Ctrl+Shift+M is conversation; Ctrl+M is dictate.
 [voice-wake.md](docs/voice-wake.md).
+
+**Jobs.** Calendar tile → **jobs** (Ctrl+7). A prompt, a time, an email
+of the answer. Needs mail. [jobs.md](docs/jobs.md).
 
 **Memory.** Settings → Memory. Dated backups in `data\backups\` for a
 fortnight.
@@ -187,8 +194,11 @@ fortnight.
 
 Rooms. Files in folders you allowed. Web search and real page reads. Her
 own browser. Facts, goals, tasks. OCR. Look at pictures. Resize a
-picture on disk. Generate pictures if ComfyUI is set up. Listen and
-speak.
+picture on disk. Generate pictures if ComfyUI is set up (it is not
+started at launch). Listen and speak. Scheduled jobs that email a
+digest. Closed forms (CAS), units, a short Python cell, charts, and
+documents. From a source checkout: the physics-room World plate, solar
+lab, and Earth zone ([earth.md](docs/earth.md)).
 
 Mail, calendar, and texts through your Android phone work **after** you
 connect them. She can also write a PDF, Word file, spreadsheet, or
@@ -203,14 +213,16 @@ yours is worth an issue. The published installer is **0.2.3**. Notes:
 
 | Document | What |
 |---|---|
-| [whats-new.md](docs/whats-new.md) | 0.2.3 |
+| [whats-new.md](docs/whats-new.md) | 0.2.3, and this checkout |
 | [rooms.md](docs/rooms.md) | Named project spaces |
+| [jobs.md](docs/jobs.md) | Timed prompts, emailed |
 | [models.md](docs/models.md) | Which models, and why |
-| [voice-wake.md](docs/voice-wake.md) | Hey Arelis |
+| [voice-wake.md](docs/voice-wake.md) | Hey Arelis, talk, dictate |
 | [browser-control.md](docs/browser-control.md) | Her browser |
 | [notify-inbound.md](docs/notify-inbound.md) | Phone app |
 | [calendar-oauth.md](docs/calendar-oauth.md) | Connecting a calendar |
 | [architecture.md](docs/architecture.md) | How the pieces fit |
+| [earth.md](docs/earth.md) | Earth zone inside the solar lab |
 | [telemetry.md](docs/telemetry.md) | Logs, on your disk |
 | [win-installer/README.md](win-installer/README.md) | Building the installer |
 

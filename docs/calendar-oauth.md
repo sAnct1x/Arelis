@@ -89,3 +89,6 @@ calendar.
 - `agenda` create / update / delete open a confirm card. Never silent.
   Never batched.
 - Unattended jobs do not get calendar write tools.
+
+Timed email digests need mail first, not a calendar token.
+[jobs.md](jobs.md).

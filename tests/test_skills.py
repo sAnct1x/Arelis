@@ -46,6 +46,21 @@ def test_clock_ask_does_not_take_the_web_fallback() -> None:
     assert fallback is False
 
 
+def test_who_are_you_is_not_web_fallback() -> None:
+    tools = {"web_search", "scrape", "web_fetch", "workspace"}
+    ids, fallback = select_skill_ids_detailed("who are you", available_tools=tools)
+    assert "web" not in ids
+    assert fallback is False
+
+
+def test_who_is_this_is_fallback_only_not_a_web_card() -> None:
+    """A fighter on TV is not 'who are you'. Floor to web, but mark it fallback."""
+    tools = {"web_search", "scrape", "web_fetch", "workspace"}
+    ids, fallback = select_skill_ids_detailed("Who is this", available_tools=tools)
+    assert ids == ["web"]
+    assert fallback is True
+
+
 def test_every_tool_with_rules_has_them_shipped() -> None:
     """Structural, not textual.
 

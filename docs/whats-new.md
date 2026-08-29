@@ -7,18 +7,46 @@ Older: [v0.2.2](releases/v0.2.2.md). [v0.2.1](releases/v0.2.1.md).
 
 ## This checkout
 
+Living notes for the tree you have now. The 0.2.3 notes below are what
+that installer shipped. A few of them are no longer how this tree
+behaves.
+
+**Turns.** The full tool schema array rides every turn so Ollama can
+reuse the prefix. A greeting that skipped schemas (the 0.2.3 clock-ask
+shortcut) blew that cache and made the next real question pay ~40s of
+prefill. Tiny asks (clock, hello, thanks, "who are you") still stream;
+tool-bearing turns still hold the answer until the tools finish. "Who
+is this" is not identity.
+
+**First message.** Launch pins the model, then seeds that prefix. The
+window says **loading the model…**, not **thinking…**, until the seed
+is done.
+
+**Voice.** Conversation and dictate are Sherpa-ONNX (Kroko Zipformer).
+Speech out is Kokoro-82M `af_heart` on CPU (Piper fallback). End of
+turn is Silero plus Smart Turn v3 when the ONNX is present. Headset
+barge-in is the next question. [voice-wake.md](voice-wake.md). First
+run may download those weights; they are not stuffed in the setup
+`.exe`.
+
+**Jobs.** Timed prompts email a digest. Calendar tile → **jobs**. Needs
+mail. Already in the installer; the page is new. [jobs.md](jobs.md).
+
 **World.** Source checkout only. Physics room, Ctrl+8, solar lab
-(`.[astro]`) and hands (`.[spatial]`). Not in the installer. Travel to
-Earth (or say enter Earth) lights the Earth zone on the globe — an
-observer plate of whatever is broadcasting or published (planes, ships,
-sats, UAV ADS-B, cameras as positions). Individual cars are not a public
-feed. live=on pulls OpenSky, AISStream (free key), Fintraffic Digitraffic
-(no key), CelesTrak, TfL, Caltrans, Sentinel-1 gyre footprints (NASA ASF),
-and the rest of `arelis/earth/feeds.py`.
+(`.[astro]`) and hands (`.[spatial]`). Not in the installer. Physics
+cannot be forgotten. Travel to Earth (or say enter Earth) lights the
+Earth zone on the globe — an observer plate of whatever is broadcasting
+or published (planes, ships, sats, UAV ADS-B, cameras as positions).
+Individual cars are not a public feed. live=on pulls OpenSky, AISStream
+(free key), Fintraffic Digitraffic (no key), CelesTrak, TfL, Caltrans,
+Sentinel-1 gyre footprints (NASA ASF), and the rest of
+`arelis/earth/feeds.py`.
 Mid-ocean AIS stays empty — VHF dies offshore; we do not buy satellite AIS.
 Radar over those gyres is a pass, not a named hull.
 The lab camera uses ecliptic north as up so the globe is not Antarctica-first.
 Not a product title. [earth.md](earth.md).
+
+**Mail.** There is no Mail tab. Credentials live in `data/secrets.yaml`.
 
 ## 0.2.3
 
@@ -32,7 +60,8 @@ Not a product title. [earth.md](earth.md).
 - **Mail, SMS, and calendar stay dark** until they are connected. They
   are hidden from Systems. Chat will say she cannot, instead of calling
   a tool that always fails.
-- **A clock ask does not load every tool.**
+- **A clock ask skipped the tool list** in that installer. This checkout
+  keeps the schemas on (prefix cache) and skips the web floor instead.
 - **Typing in the window** no longer raises a `TypeError` on every
   keystroke.
 - **Documents.** PDF, Word, spreadsheet, or a markdown note — a real

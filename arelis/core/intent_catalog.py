@@ -52,6 +52,18 @@ class IntentSpec:
         )
 
 
+# "Who are you" is identity, not a web lookup. Do not steal "who is this"
+# (a fighter on TV, a photo) or "who won".
+_IDENTITY_ASK = re.compile(
+    r"(?i)^\s*(?:"
+    r"who\s+are\s+you|"
+    r"what\s+are\s+you|"
+    r"what(?:'s|\s+is)\s+your\s+name|"
+    r"what(?:'s|\s+is)\s+your\s+name\s+again|"
+    r"introduce\s+yourself"
+    r")[?!.\s]*$"
+)
+
 # The clock is already in the system prompt (now_line). These asks must not
 # take the unmatched "what/who/when" web fallback, which fail-opens every
 # tool schema and costs a 30s prefill for the time of day.
@@ -836,11 +848,16 @@ def looks_like_local_clock_ask(text: str) -> bool:
     return bool(_LOCAL_CLOCK.match((text or "").strip()))
 
 
+def looks_like_identity_ask(text: str) -> bool:
+    """True when they are asking who Arelis is, not who is on screen."""
+    return bool(_IDENTITY_ASK.match((text or "").strip()))
+
+
 def is_tiny_prompt_ask(text: str) -> bool:
-    """Clock, hello, or thanks — no full tool surface, no web fallback.
+    """Clock, hello, thanks, or identity — no web fallback.
 
     Unmatched real work still fail-opens. A place ("what time is it in Tokyo")
-    does not match: that still needs a tool.
+    does not match: that still needs a tool. "Who is this" is not identity.
     """
     from arelis.core.sms_complete import (
         looks_like_closing_chitchat,
@@ -854,4 +871,5 @@ def is_tiny_prompt_ask(text: str) -> bool:
         looks_like_local_clock_ask(raw)
         or looks_like_greeting(raw)
         or looks_like_closing_chitchat(raw)
+        or looks_like_identity_ask(raw)
     )

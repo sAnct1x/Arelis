@@ -51,6 +51,7 @@ class TurnContext:
     research_min_sources: int = 2
     wants_fresh_page: bool = False
     offer_tools: bool = True
+    expect_tool_round: bool = False
     ollama_tools: list[dict[str, Any]] = field(default_factory=list)
     fallback_mode: bool = False
     allow_writes_this_turn: bool = False

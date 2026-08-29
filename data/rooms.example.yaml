@@ -1,8 +1,9 @@
 # Copy to rooms.yaml to hand-write rooms, or just ask:
 #   "make me a survey room that works in my Lab Notes folder"
 #
-# The room id `physics` is reserved. World plate, solar lab, and C920
-# hands run only on a source checkout. Installed copies keep the room.
+# The room id `physics` is permanent. It is seeded if missing and cannot
+# be forgotten. World plate, solar lab, and C920 hands run only on a
+# source checkout. Installed copies still get the room.
 #
 # A room is a named place to work on one thing. It keeps its own conversation
 # thread, points at one workspace project, and hands Arelis its purpose at the

@@ -17,6 +17,7 @@ from __future__ import annotations
 from arelis.ui.status_copy import (
     THINKING_STATUS,
     WAITING_STATUS,
+    WARMING_STATUS,
     tool_status_line,
 )
 
@@ -75,6 +76,13 @@ def test_the_waiting_state_describes_the_right_side_of_the_wait() -> None:
     """An Allow card means the app is blocked on a person, not working."""
     assert "waiting for you" in WAITING_STATUS
     assert WAITING_STATUS != THINKING_STATUS
+
+
+def test_warmup_is_not_called_thinking() -> None:
+    """The first turn waits on the prefix seed. 'thinking' made that look hung."""
+    assert "loading the model" in WARMING_STATUS
+    assert WARMING_STATUS != THINKING_STATUS
+    assert len(WARMING_STATUS) <= 48
 
 
 def test_the_errands_only_name_tools_the_registry_offers() -> None:
@@ -144,6 +152,25 @@ def test_status_shows_without_being_asked_and_never_outlives_the_turn(
 
     window._on_event(Event(EventType.ASSISTANT_DONE, {"text": "It will be sunny."}))
     assert window.chat.progress.isHidden()
+
+
+def test_a_first_turn_during_warmup_says_loading_not_thinking(arelis_window) -> None:
+    from arelis.core.events import Event, EventType
+    from arelis.llm.startup import WARMUP_READY
+
+    window = arelis_window()
+
+    class _Warming:
+        def warmup_pending(self) -> bool:
+            return True
+
+    window.router = _Warming()  # type: ignore[assignment]
+    window._set_busy(True)
+    assert "loading the model" in window.chat.progress.text()
+
+    window._on_event(Event(EventType.STATUS, {"message": WARMUP_READY}))
+    assert "thinking" in window.chat.progress.text()
+    assert "loading the model" not in window.chat.progress.text()
 
 
 def test_an_allow_card_says_it_is_waiting_on_you_not_working(arelis_window) -> None:

@@ -147,6 +147,10 @@ def next_speakable_units(
         return []
     if finalize:
         return units[already:]
+    # A complete trailing sentence can start audio before the turn ends.
+    trailing = units[-1].rstrip()
+    if trailing[-1:] in ".!?" and not _ends_on_abbreviation(trailing):
+        return units[already:]
     # Hold the trailing unit until another sentence appears or the turn ends.
     if len(units) <= already + 1:
         return []

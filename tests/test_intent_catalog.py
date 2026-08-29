@@ -145,3 +145,17 @@ def test_diagnostics_catalog_is_phrase_only() -> None:
     extra = research_extras_for_text("run diagnostics")
     assert "diagnostics" in extra
     assert "diagnostics" not in research_extras_for_text("what's the weather")
+
+
+def test_identity_ask_is_tiny_and_who_is_this_is_not() -> None:
+    from arelis.core.intent_catalog import (
+        is_tiny_prompt_ask,
+        looks_like_identity_ask,
+    )
+
+    assert looks_like_identity_ask("who are you")
+    assert looks_like_identity_ask("What's your name?")
+    assert is_tiny_prompt_ask("who are you")
+    assert not looks_like_identity_ask("Who is this")
+    assert not looks_like_identity_ask("who won the fight")
+    assert not is_tiny_prompt_ask("Who is this")

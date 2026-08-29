@@ -107,7 +107,7 @@ a deliberate, one-time copy.
 
 The failure that actually bites is scheduled jobs. A task holds one
 absolute path and is named after the job, so both copies want the same
-task. Editing a job in the checkout can move your real 23:00 run into
+task. Editing a job in the checkout can move a live 7pm digest into
 the working tree. `ARELIS_DATA_DIR` settles that: jobs are read from
 `jobs.yaml` inside the data root, so a sandbox without one has nothing
 to claim.

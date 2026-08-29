@@ -5,7 +5,11 @@ from __future__ import annotations
 from pathlib import Path
 
 from arelis.attachments import format_attachments_block, wants_image_edit
-from arelis.core.agent_loop import should_offer_tools, should_redirect_wander_to_sms
+from arelis.core.agent_loop import (
+    should_offer_tools,
+    should_redirect_wander_to_sms,
+    turn_expects_tool_round,
+)
 from arelis.core.claims import detect_exactness_need, detect_vision_ask
 from arelis.core.image_refs import (
     CAMERA_FRESH_S,
@@ -184,6 +188,51 @@ def test_chat_fast_path_skips_a_clock_ask() -> None:
         exact_need=need,
         wants_fresh_page=False,
         active_plan=plan,
+    )
+
+
+def test_web_fallback_does_not_count_as_a_tool_round() -> None:
+    """Schemas stay on (chat_fast_path off). Hold/hint must not follow the floor."""
+    from arelis.core.skills import select_skill_ids_detailed
+
+    need = detect_exactness_need("Who is this")
+    ids, fallback = select_skill_ids_detailed(
+        "Who is this",
+        available_tools={"web_search", "scrape", "web_fetch"},
+    )
+    plan_ids = () if fallback else ids
+    assert fallback is True
+    assert should_offer_tools(
+        chat_fast_path=False,
+        skill_ids=ids,
+        preflight_kinds=[],
+        research_mode=False,
+        expected_tools=set(),
+        exact_need=need,
+        wants_fresh_page=False,
+        active_plan=None,
+    )
+    assert not turn_expects_tool_round(
+        skill_ids=plan_ids,
+        preflight_kinds=[],
+        research_mode=False,
+        expected_tools=set(),
+        exact_need=need,
+        wants_fresh_page=False,
+        active_plan=None,
+    )
+
+
+def test_weather_still_expects_a_tool_round() -> None:
+    need = detect_exactness_need("What's the weather today?")
+    assert turn_expects_tool_round(
+        skill_ids=("weather",),
+        preflight_kinds=["weather"],
+        research_mode=False,
+        expected_tools={"weather"},
+        exact_need=need,
+        wants_fresh_page=False,
+        active_plan=object(),
     )
 
 

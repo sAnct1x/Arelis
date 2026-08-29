@@ -15,7 +15,10 @@ import pytest
 from arelis.rooms import (
     DEFAULT_KIND,
     KINDS,
+    PHYSICS_PURPOSE,
+    PHYSICS_ROOM_ID,
     RoomStore,
+    is_perma,
     match_enter_intent,
     match_leave_intent,
     match_list_rooms_intent,
@@ -34,17 +37,17 @@ def test_a_room_survives_being_written_and_read_back(tmp_path: Path) -> None:
     path = tmp_path / "rooms.yaml"
     first = RoomStore(path)
     first.create(
-        "Physics",
+        "Survey",
         purpose="Analysing the survey data.",
         root="Lab Notes",
         kind="analysis",
     )
 
     reopened = RoomStore(path)
-    room = reopened.get("physics")
+    room = reopened.get("survey")
 
     assert room is not None
-    assert room.name == "Physics"
+    assert room.name == "Survey"
     assert room.purpose == "Analysing the survey data."
     assert room.root == "Lab Notes"
     assert room.kind == "analysis"
@@ -54,6 +57,40 @@ def test_a_room_survives_being_written_and_read_back(tmp_path: Path) -> None:
     assert "analyze" in KINDS["analysis"].skills
     assert "document" in KINDS["writing"].skills
     assert "workspace" in KINDS["writing"].skills
+
+
+def test_physics_ids_match() -> None:
+    from arelis import spatial
+
+    assert PHYSICS_ROOM_ID == spatial.PHYSICS_ROOM_ID
+
+
+def test_a_fresh_store_has_physics(store: RoomStore) -> None:
+    room = store.get(PHYSICS_ROOM_ID)
+    assert room is not None
+    assert is_perma(room.id)
+    assert room.name == "Physics"
+    assert room.purpose == PHYSICS_PURPOSE
+    assert room.kind == "analysis"
+    assert room.root == ""
+
+
+def test_existing_physics_purpose_is_not_overwritten(tmp_path: Path) -> None:
+    path = tmp_path / "rooms.yaml"
+    first = RoomStore(path)
+    first.update(PHYSICS_ROOM_ID, purpose="My lab notes, not the shipped blurb.")
+
+    reopened = RoomStore(path)
+    assert reopened.get(PHYSICS_ROOM_ID).purpose == "My lab notes, not the shipped blurb."
+
+
+def test_hand_deleted_physics_comes_back(tmp_path: Path) -> None:
+    path = tmp_path / "rooms.yaml"
+    path.write_text("rooms:\n  survey:\n    name: Survey\n", encoding="utf-8")
+
+    store = RoomStore(path)
+    assert store.get(PHYSICS_ROOM_ID) is not None
+    assert store.get("survey") is not None
 
 
 def test_the_file_is_the_interface_so_a_typo_costs_one_room(tmp_path: Path) -> None:
@@ -83,15 +120,18 @@ def test_the_file_is_the_interface_so_a_typo_costs_one_room(tmp_path: Path) -> N
     assert odd is not None and odd.kind == DEFAULT_KIND
 
 
-def test_an_unreadable_file_is_no_rooms_rather_than_no_arelis(tmp_path: Path) -> None:
+def test_an_unreadable_file_still_has_physics_rather_than_no_arelis(
+    tmp_path: Path,
+) -> None:
     path = tmp_path / "rooms.yaml"
     path.write_text("rooms: [oh, dear\n", encoding="utf-8")
 
-    assert len(RoomStore(path)) == 0
+    store = RoomStore(path)
+    assert store.get(PHYSICS_ROOM_ID) is not None
+    assert [r.id for r in store.all()] == [PHYSICS_ROOM_ID]
 
 
 def test_a_name_resolves_by_id_name_or_unique_prefix(store: RoomStore) -> None:
-    store.create("Physics")
     store.create("Reading Group")
 
     assert store.find("physics").id == "physics"
@@ -114,7 +154,6 @@ def test_an_ambiguous_name_resolves_to_nothing(store: RoomStore) -> None:
     reading" — and picking whichever sorts first would be a coin flip over
     which conversation the next answer belongs to.
     """
-    store.create("Physics")
     store.create("Physics Reading")
 
     assert store.find("phys") is None
@@ -136,26 +175,34 @@ def test_a_room_needs_a_name_with_something_in_it(store: RoomStore) -> None:
 
 
 def test_two_rooms_cannot_share_an_id(store: RoomStore) -> None:
-    store.create("Physics")
     with pytest.raises(ValueError):
         store.create("physics")
+    store.create("Writing")
+    with pytest.raises(ValueError):
+        store.create("writing")
 
 
 def test_forgetting_a_room_leaves_the_others_and_closes_it(store: RoomStore) -> None:
-    store.create("Physics")
     store.create("Writing")
-    store.set_active("physics")
+    store.set_active("writing")
 
-    assert store.remove("physics") is True
+    assert store.remove("writing") is True
     assert store.active is None
     assert store.last_active_id == ""
-    assert [r.id for r in store.all()] == ["writing"]
+    assert [r.id for r in store.all()] == [PHYSICS_ROOM_ID]
+
+
+def test_forgetting_physics_is_refused(store: RoomStore) -> None:
+    store.set_active(PHYSICS_ROOM_ID)
+    with pytest.raises(ValueError, match="permanent"):
+        store.remove(PHYSICS_ROOM_ID)
+    assert store.get(PHYSICS_ROOM_ID) is not None
+    assert store.active_id == PHYSICS_ROOM_ID
 
 
 def test_last_entered_room_survives_a_reopen(tmp_path: Path) -> None:
     path = tmp_path / "rooms.yaml"
     first = RoomStore(path)
-    first.create("Physics")
     first.create("Writing")
     first.set_active("physics")
 
@@ -167,17 +214,17 @@ def test_last_entered_room_survives_a_reopen(tmp_path: Path) -> None:
 def test_creating_a_room_does_not_count_as_entering(tmp_path: Path) -> None:
     path = tmp_path / "rooms.yaml"
     first = RoomStore(path)
-    first.create("Physics")
+    first.create("Writing")
 
     reopened = RoomStore(path)
     assert reopened.last_active_id == ""
     assert reopened.active_id == ""
+    assert reopened.get(PHYSICS_ROOM_ID) is not None
 
 
 def test_leaving_clears_the_resume_hint(tmp_path: Path) -> None:
     path = tmp_path / "rooms.yaml"
     first = RoomStore(path)
-    first.create("Physics")
     first.set_active("physics")
     first.leave()
 
@@ -188,17 +235,18 @@ def test_leaving_clears_the_resume_hint(tmp_path: Path) -> None:
 def test_a_forgotten_room_is_not_resumed(tmp_path: Path) -> None:
     path = tmp_path / "rooms.yaml"
     first = RoomStore(path)
-    first.create("Physics")
-    first.set_active("physics")
-    first.remove("physics")
+    first.create("Survey")
+    first.set_active("survey")
+    first.remove("survey")
 
     reopened = RoomStore(path)
     assert reopened.last_active_id == ""
+    assert reopened.get(PHYSICS_ROOM_ID) is not None
 
 
 def test_the_purpose_reaches_the_prompt_with_the_folder(store: RoomStore) -> None:
-    room = store.create(
-        "Physics", purpose="Analysing the survey data.", root="Lab Notes"
+    room = store.update(
+        PHYSICS_ROOM_ID, purpose="Analysing the survey data.", root="Lab Notes"
     )
 
     block = room.prompt_block()
@@ -261,8 +309,6 @@ def test_these_are_not(said: str) -> None:
 
 
 def test_some_physics_is_the_physics_room(store: RoomStore) -> None:
-    store.create("Physics")
-
     assert normalize_room_name("some physics") == "physics"
     assert match_enter_intent("let's work on some physics") == "physics"
     assert store.find("some physics").id == "physics"

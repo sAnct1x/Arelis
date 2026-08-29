@@ -35,10 +35,24 @@ That pins both composer chips to one tag in `config.local.yaml`. A copy
 that already pinned `models.fast` is not asked again. Vision waits until
 the first picture. Tags: [models.md](models.md).
 
+## Every launch
+
+She pins the chat model, then seeds Ollama's prefix cache
+(`arelis/llm/startup.py`) with the persona, the tool policy, and the
+full tool schema array — about 17,800 tokens, identical every turn.
+Measured on a 12 GB card that seed is about 40 seconds once. After it, a
+warm hello is about a second.
+
+The window says **loading the model…** while the seed runs. It does not
+say **thinking…** until a real turn has started. Sending while the seed
+is still running waits on that work.
+
 ## One turn
 
-1. Your text (or a voice transcript) hits the orchestrator.
-2. The role model thinks. It may call tools.
+1. Your text (or a voice transcript) hits the orchestrator. Typed and
+   spoken share this path after the transcript exists.
+2. The role model thinks. Tool schemas are already in the prompt from
+   the launch seed. It may call tools.
 3. Risky actions pause. A drive you already asked for does not. Mail and
    texts always do.
 4. Tool results go back into the turn. She answers with what she actually
@@ -61,8 +75,13 @@ that she was stopped. Idle wake stays deaf so Discord is not a decision.
 **Settings → Allow** is the list. Mail, texts, and calendar never ride
 along with **rest of this ask**.
 
-A tiny ask (the time, a greeting, thanks) does not load the full tool
-list. Unmatched real work still fail-opens.
+A tiny ask (the time, a greeting, thanks, "who are you") still sends the
+full schema array so the prefix cache stays intact. What it skips is the
+unmatched web floor, the "call a tool first" hint, and holding the
+answer until a tool round finishes — those turns stream. "Who is this"
+(a photo, a fighter on TV) is not identity; it may still search. A place
+("what time is it in Tokyo") still needs a tool. Unmatched real work
+still fail-opens.
 
 ## Ways to run her
 
@@ -95,9 +114,9 @@ docks.
 | History dock | Sessions, pending fact approve / reject |
 | Notifications | Inbound SMS while the UI is open |
 | Contacts | Named people for texts. View → contacts / Ctrl+6 |
-| Calendar | Local tile, Ctrl+7. Empty of Google events until you authorize |
-| Settings | Audio / Window / Allow / Notify / Roots / Memory |
-| World plate | Floating stage. Only while the `physics` room is active **and** this copy is a source checkout (`world_stage_allowed`). Needs `pip install -e ".[spatial]"` for hands and `.[astro]` for REBOUND. Not in the installer. Default size 1280×800. Solar GPU path is `--solar-gl` / `ARELIS_SOLAR_GL=1` (offscreen FBO). Inspect-only WASD fly camera; H recites live keys; no craft chase-cam |
+| Calendar | Local tile, Ctrl+7. Month / week / day / agenda, plus **tasks** and **jobs**. Empty of Google events until you authorize |
+| Settings | Audio / Window / Allow / Notify / Roots / Memory. Mail and calendar credentials are not a Settings tab: `data/secrets.yaml` and [calendar-oauth.md](calendar-oauth.md) |
+| World plate | Floating stage. View → world / Ctrl+8. Only while the `physics` room is active **and** this copy is a source checkout (`world_stage_allowed`). Needs `pip install -e ".[spatial]"` for hands and `.[astro]` for REBOUND. Not in the installer. Default size 1280×800. Solar GPU path is `--solar-gl` / `ARELIS_SOLAR_GL=1` (offscreen FBO). Inspect-only WASD fly camera; H recites live keys; no craft chase-cam |
 
 Settings → Window can fold unused panels after 30, 45, or 60 minutes
 with no click, type, send, or wake word. Off by default. A turn, a card,
@@ -120,12 +139,15 @@ Settings → Notify has the pairing QR.
 | Skills | `arelis/core/skills.py` | Which tools she leans on |
 | Router | `arelis/llm/` | Pick the role model, warm, unload |
 | Setup | `arelis/setup/` | First open: hardware, one model, pull |
+| Startup | `arelis/llm/startup.py` | Pin the chat model, seed the prefix cache |
 | Tools | `arelis/tools/` | Everything she can call |
+| Jobs | `arelis/jobs/` | Unattended runner + Task Scheduler |
 | Browser | `arelis/browser/` | Her Chrome |
 | UI | `arelis/ui/` | Window, orbit, docks |
 | Presence | `arelis/presence/` | Core, tray, IPC |
 | Voice | `arelis/voice/` | Listen and speak. [voice-wake.md](voice-wake.md) |
 | Spatial | `arelis/spatial/` | World engine, grant, takes. Pose is not a chat turn |
+| Earth | `arelis/earth/` | Earth zone on the solar globe. ECEF store, simulated observatory, optional USGS/OpenSky |
 | Config | `arelis/config/default.yaml` | Defaults. Overrides in `data/` |
 
 Only one chat model sits in graphics memory. First open recommends one
@@ -138,24 +160,27 @@ Tags: [models.md](models.md).
 
 Persona text and the tool-policy block are byte-stable across turns.
 Shipped config keeps the full tool schema array (`skill_tool_subset` and
-`research_tool_subset` are false). Startup (`arelis/llm/startup.py`) pays
-the cold prefill once so the first chat turn does not. Independent reads
-in the same round can run together. Writes and pause-gated tools stay
-serial.
+`research_tool_subset` are false). A per-turn 6-tool subset was measured
+and lost: the array sits near the front of the prompt, so shrinking it
+blows the prefix cache and prefills ~17s every turn instead of ~3s after
+one seed. `scripts/measure_tool_surface_prefill.py` is the receipt.
+Startup pays the cold prefill once so the first chat turn does not.
+Independent reads in the same round can run together. Writes and
+pause-gated tools stay serial.
 
-Two things still change the tools JSON, which sits at the front of the
-Ollama prompt and can forfeit the prefix cache: `send_sms` / `send_email`
-are hidden unless this utterance asked to send (safety, not speed), and a
-room that lists `tools:` cages the set. Leave that list off unless you
-mean it. If `skill_tool_subset` is missing from a partial config, the
-loop currently defaults it to true — that is the old expensive path.
-Shipped `default.yaml` is false.
+Two things still change the tools JSON on purpose: `send_sms` /
+`send_email` are hidden unless this utterance asked to send (safety — a
+greeting used to replay the last draft), and a room that lists `tools:`
+cages the set. Leave that list off unless you mean it. If
+`skill_tool_subset` is missing from a partial config, the loop defaults
+it to **false**. Do not turn it on to "go faster".
 
 ## Tools (short)
 
 Registered in `arelis/tools/__init__.py`. Scheduled jobs leave out send,
-browser, vision, plot, document, and the other tools that need a person present.
-`cas`, `units`, and `catalog` may run unattended.
+browser, vision, plot, document, solar, earth, the archive tools, and the other
+tools that need a person present. `cas`, `units`, `catalog`, `python`,
+and `calculator` may run unattended. [jobs.md](jobs.md).
 
 `send_email` / `inbox`, `send_sms` / `inbound_sms`, and `agenda` are
 registered only when mail, the phone, or a calendar source is actually
@@ -170,14 +195,18 @@ connected. Otherwise chat says she cannot.
 | `workspace` | Files in allowed roots | Writes: yes |
 | `analyze` / `doc_extract` / `git_info` | Tables, PDFs, git | No |
 | `calculator` | Arithmetic | No |
+| `python` | Short numerics cell (math / sympy / numpy). No files, no shell | No |
 | `cas` / `units` | Closed forms, conversions, constants | No |
+| `diagnostics` | Her own pytest suite. Source checkout with `tests/` | No |
+| `tile` | Open or close a View-menu panel (thinking, calendar, world, …) | No |
 | `plot` | PNG. Room → `plots/` in the project; orbit → `outputs/plots/` | Yes |
 | `document` | PDF, Word, Excel, CSV, markdown. Room → `documents/` in the project; orbit → `outputs/documents/` | Yes |
 | `catalog` | arXiv, Horizons; APOD / ADS after a free key | No |
 | `solar` | Physics-room N-body (Horizons VECTORS + REBOUND IAS15). Source checkout. Approach/orbit, inspect-only fly camera, IAU spheres. Not landing | Yes |
+| `earth` | Earth zone inside that lab: observer plate for published/squawking contacts. Simulated unless `live` (OpenSky / AIS / CelesTrak / TfL / Caltrans / …). Source checkout | No |
 | `clipboard` / `ocr` / `vision` / `camera` | Paste, screen text, see an image, webcam | Yes (the still is free; seeing it pauses) |
 | `memory` / `recall` / `tasks` / `goals` | Remember, chores, "what needs my attention" | Mutates: yes |
-| `inbox` / `send_email` / `schedule` | Mail and timed jobs | Send: yes. Inbox list is free; trash / archive / move / flags: yes |
+| `inbox` / `send_email` / `schedule` | Mail and timed jobs | Send: yes. Creating a job: yes. Inbox list is free; trash / archive / move / flags: yes |
 | `send_sms` / `inbound_sms` | Text out / list inbound | Send: yes |
 | `agenda` | Calendar | Writes: yes |
 | `weather` / `user_location` | Forecast / where she thinks you are | No |
@@ -189,6 +218,12 @@ connected. Otherwise chat says she cannot.
 \*Writes a local file. Outbound mail and SMS always need their own allow
 / deny and are never batched with other tools.
 
+ComfyUI is a separate app. Arelis does not start it at launch. Shipped
+`tools.image.auto_start` is false; if you set it true and point
+`launch_cwd` at a Comfy install, the first **image** call may start it.
+Until then, generating a picture reports unavailable rather than
+launching something that is not there.
+
 Scrape reads a URL for her, no window. `browser` moves her Chrome under
 `data/browser-profile/`, not your daily Chrome. [browser-control.md](browser-control.md).
 
@@ -197,13 +232,24 @@ Scrape reads a URL for her, no window. `browser` moves her Chrome under
 A room is a named place to work on one thing: its own thread, a folder,
 a purpose she reads every turn. `/room physics` goes in. `/leave` comes
 out. Launch resumes the last room you entered. The room id `physics` is
-reserved: it is the only place the World plate and C920 tracking run.
+permanent: always present, forget refused, and the only place the World
+plate and C920 tracking run.
 [rooms.md](rooms.md).
+
+## Jobs
+
+A saved prompt, a time, and an email of the answer. Windows Task
+Scheduler fires it; nobody is watching, so anything that would need
+Allow is skipped and send/browser/vision are not registered. Mail must
+already be connected or the job cannot run. Calendar tile → **jobs**, or
+ask her to schedule it. [jobs.md](jobs.md).
 
 ## Memory and safety
 
-- Chat history is a sliding window (24 messages). History dock: sessions
-  plus pending fact approve / reject.
+- Chat history is a sliding window (`agent.history_max_messages`, shipped
+  **120** — about 60 turns). The old 24-message cap dropped the front of
+  the prompt long before the 65k window filled, which also blew the
+  prefix cache. History dock: sessions plus pending fact approve / reject.
 - Active facts live in `memory.db`. Manage them in Settings → Memory.
 - Workspace roots are only folders you configure. Writes wait.
 - Attachments stage copies under `data/drops/`.
@@ -235,7 +281,10 @@ it.
 | `data/secrets.yaml` | Tokens (gitignored) |
 | `data/profile.yaml` | Who and where you are |
 | `data/rooms.yaml` | Your rooms |
+| `data/jobs.yaml` | Scheduled jobs. Hand-editable. Paired with Task Scheduler `\Arelis\<id>` |
+| `arelis/jobs/` | Store, Windows task XML, unattended runner |
 | `arelis/physics/` | Solar lab: Horizons ICs, REBOUND, IAU WGCCRE attitude, equirectangular maps |
+| `arelis/earth/` | Earth zone: ECEF observer plate, simulated layers, live public/keyed feeds |
 | `arelis/ui/solar_gl.py` | Offscreen GL globes. Native GL widget aborted this AMD driver |
 | `arelis/spatial/` | World engine (source checkout) |
 | `outputs/physics/takes/` | Hand-tracking takes. If it is not in a take, it did not happen |

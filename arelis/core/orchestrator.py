@@ -258,9 +258,10 @@ class Orchestrator:
         goodbye hangs up the call, stop cancels the turn, a card hears
         allow / deny / rest-of-ask, and any other sentence on a send card
         rewrites the draft. After a stop, the next line is a normal turn
-        with a one-line note — the model decides. Barge-in / mid-turn clips
-        arrive as deliver ``control`` and only those acts land — soup does
-        not start a turn.
+        with a one-line note — the model decides. Headset barge-in arrives
+        as a normal turn and cancels the running one first. Speakers with
+        barge_in_as_turn false still send deliver ``control`` so only stop /
+        allow / deny land — soup does not start a turn.
         """
         if event.payload.get("deliver") == "dictate":
             return
@@ -316,6 +317,15 @@ class Orchestrator:
             return
         if control_only:
             return
+        if conversing:
+            task = self._turn_task
+            if task is not None and not task.done():
+                # Headset barge-in is the next question. Cancel this turn
+                # first so the new USER_MESSAGE does not wait on the lock
+                # behind an answer nobody is listening to anymore.
+                await self.bus.publish(
+                    Event(EventType.TURN_CANCEL, {"reason": "voice"})
+                )
         await self.bus.publish(
             Event(EventType.USER_MESSAGE, {"text": text, "source": "voice"})
         )
@@ -1018,7 +1028,10 @@ class Orchestrator:
         room = self.rooms.find(wanted) if wanted else self.rooms.active
         if room is None:
             return f"No room called `{wanted}`." if wanted else "No room is open."
-        self.rooms.remove(room.id)
+        try:
+            self.rooms.remove(room.id)
+        except ValueError as exc:
+            return str(exc)
         return (
             f"Forgot the `{room.id}` room. Its conversations are still in History "
             "— only the room itself is gone."

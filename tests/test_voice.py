@@ -56,6 +56,11 @@ def _config(**overrides: Any) -> dict[str, Any]:
         "vad": {"backend": "energy", "allow_download": False},
         "wake": {"engine": "whisper", "enabled": True},
     }
+    conv = {"smart_turn": False}
+    extra_conv = overrides.pop("conversation", None)
+    if extra_conv:
+        conv.update(extra_conv)
+    voice["conversation"] = conv
     voice.update(overrides)
     return {"voice": voice, "agent": {}, "_persona_path": "does-not-exist.md"}
 
@@ -106,6 +111,9 @@ class _FakeSTT:
 
     def loaded(self) -> bool:
         return True
+
+    def resolved_backend(self, *, purpose: str = "turn") -> str | None:
+        return "whisper" if self.ready else None
 
     async def transcribe(self, path, *, proceed=None, purpose: str = "turn") -> str:
         if proceed is not None and not proceed():
@@ -224,8 +232,13 @@ def test_next_speakable_units_holds_the_trailing_sentence_until_finalize() -> No
     ]
     assert next_speakable_units(prepared, 2, finalize=False) == []
     assert next_speakable_units(prepared, 2, finalize=True) == ["Third growing"]
-    assert next_speakable_units("Only one.", 0, finalize=False) == []
+    # A finished sentence can start audio before ASSISTANT_DONE.
+    assert next_speakable_units("Only one.", 0, finalize=False) == ["Only one."]
+    assert next_speakable_units("Only one.", 1, finalize=True) == []
     assert next_speakable_units("Only one.", 0, finalize=True) == ["Only one."]
+    # Growing fragment without terminal punctuation is still held.
+    assert next_speakable_units("Hello there", 0, finalize=False) == []
+    assert next_speakable_units("Hello there", 0, finalize=True) == ["Hello there"]
 
 
 def test_abbreviations_do_not_split_a_sentence() -> None:
@@ -618,6 +631,24 @@ def test_sherpa_finds_transducer_files_in_a_pack_folder(tmp_path) -> None:
     assert sherpa_files_present(tmp_path)
 
 
+def test_sherpa_prefers_kroko_pack_over_2023(tmp_path) -> None:
+    from arelis.voice.sherpa_stt import find_transducer_files
+
+    def _pack(name: str) -> None:
+        folder = tmp_path / name
+        folder.mkdir()
+        (folder / "tokens.txt").write_text("a\n", encoding="utf-8")
+        (folder / "encoder.onnx").write_bytes(b"x")
+        (folder / "decoder.onnx").write_bytes(b"x")
+        (folder / "joiner.onnx").write_bytes(b"x")
+
+    _pack("sherpa-onnx-streaming-zipformer-en-2023-06-26")
+    _pack("sherpa-onnx-streaming-zipformer-en-kroko-2025-08-06")
+    found = find_transducer_files(tmp_path)
+    assert found is not None
+    assert found["pack"] == "sherpa-onnx-streaming-zipformer-en-kroko-2025-08-06"
+
+
 def test_sherpa_does_not_download_when_asked_not_to(tmp_path) -> None:
     from arelis.voice.sherpa_stt import SherpaUnavailableError, ensure_sherpa_files
 
@@ -992,7 +1023,8 @@ def test_wake_oww_utterance_skips_wav(qt_app) -> None:
         "voice": {
             "enabled": True,
             "wake": {"engine": "whisper"},
-            "vad": {"backend": "energy"},
+            "vad": {"backend": "energy", "allow_download": False},
+            "conversation": {"smart_turn": False},
         }
     }
     ctrl = VoiceController(cfg)
@@ -1213,6 +1245,9 @@ def test_voice_trace_wake_lines_write_when_debug_is_off(tmp_path) -> None:
     text = log_file.read_text(encoding="utf-8")
     assert "wake_heard" in text
     assert "matched=1" in text
+    trace.record_always("barge_in", as_turn=1)
+    assert any("barge_in" in line for line in trace.recent())
+    assert "barge_in" in log_file.read_text(encoding="utf-8")
 
 
 def test_voice_controls_are_hidden_when_voice_is_off(qt_app) -> None:
@@ -1376,6 +1411,9 @@ class _FakeRecorder(QObject):
         keep = max(0, int(self.sample_rate * (ms / 1000.0)) * 2)
         if len(self._buffer) > keep:
             self._buffer[:] = self._buffer[-keep:]
+
+    def peek(self) -> bytes:
+        return bytes(self._buffer)
 
     def push(self, pcm: bytes, *, block_ms: int = 100) -> None:
         block = int(self.sample_rate * block_ms / 1000) * 2
@@ -2672,12 +2710,8 @@ def test_her_own_voice_is_not_sent_as_the_next_question(qt_app) -> None:
     assert sent == ["turn"], "that was her own answer coming back"
 
 
-def test_barge_in_discards_the_mixed_clip(qt_app) -> None:
-    """Talking over her used to ship the TTS+mic soup as the next turn.
-
-    The clip is still transcribed, but as control — stop/allow/deny only —
-    so soup does not become a question.
-    """
+def test_barge_in_becomes_the_next_turn(qt_app) -> None:
+    """Headset: talking over her is the next question, not soup-as-control."""
     controller, recorder = _controller(qt_app)
     sent: list[str] = []
     controller.utterance.connect(lambda pcm, rate, ch, deliver: sent.append(deliver))
@@ -2697,11 +2731,31 @@ def test_barge_in_discards_the_mixed_clip(qt_app) -> None:
     controller.notify_speaking(False)  # the window cut playback
     recorder.push(_tone(0.5) + _silence(1.4))
 
-    assert sent == ["control"], "the barge-in clip must not become a turn"
+    assert sent == ["turn"], "headset barge-in is the next turn"
     assert controller.debug_state()["discard_barge"] is False
 
-    recorder.push(_tone(1.0) + _silence(1.4))
-    assert sent == ["control", "turn"]
+
+def test_barge_in_as_control_when_speakers(qt_app) -> None:
+    """Speakers: mixed clip stays control so her own voice is not a question."""
+    from arelis.ui.voice_control import VoiceController
+
+    config = _config(conversation={"barge_in_as_turn": False})
+    controller = VoiceController(config)
+    recorder = _FakeRecorder(controller)
+    controller.recorder = recorder
+    recorder.frames.connect(controller._on_frames)
+    sent: list[str] = []
+    controller.utterance.connect(lambda pcm, rate, ch, deliver: sent.append(deliver))
+    controller.set_conversation(True)
+    recorder.push(_silence(0.5) + _tone(1.0) + _silence(1.4))
+    controller.notify_turn_started()
+    controller.notify_speaking(True)
+    controller.notify_turn_finished()
+    sent.clear()
+    recorder.push(_tone(0.8))
+    controller.notify_speaking(False)
+    recorder.push(_tone(0.5) + _silence(1.4))
+    assert sent == ["control"]
 
 
 def test_a_lost_utterance_callback_does_not_deafen_conversation(qt_app) -> None:
@@ -2926,3 +2980,110 @@ async def test_bus_mirrors_user_message_before_orchestrator_runs_the_turn() -> N
     )
     assert order == ["mirror", "orchestrator"]
     assert EventType.ASSISTANT_DONE in [e.type for e in events]
+
+
+@pytest.mark.asyncio
+async def test_ingest_strips_a_leading_wake_phrase(tmp_path) -> None:
+    bus = EventBus()
+    service = VoiceService(bus, _config())
+    service.stt = _FakeSTT("Hey Arelis, what is the weather like today")
+    clip = tmp_path / "clip.wav"
+    clip.write_bytes(b"x")
+    events = await _collect(bus, service.ingest_audio(clip, strip_wake=True))
+    transcripts = [e for e in events if e.type == EventType.VOICE_TRANSCRIPT]
+    assert transcripts
+    assert transcripts[0].payload["text"] == "what is the weather like today"
+
+
+@pytest.mark.asyncio
+async def test_ingest_drops_a_wake_only_remainder(tmp_path) -> None:
+    bus = EventBus()
+    service = VoiceService(bus, _config())
+    service.stt = _FakeSTT("Hey Arelis")
+    clip = tmp_path / "clip.wav"
+    clip.write_bytes(b"x")
+    events = await _collect(bus, service.ingest_audio(clip, strip_wake=True))
+    assert EventType.VOICE_TRANSCRIPT not in [e.type for e in events]
+
+
+@pytest.mark.asyncio
+async def test_finish_live_stt_peels_wake() -> None:
+    class _FakeBridge:
+        def finish(self, timeout: float = 20.0) -> str:
+            return "Hey Arelis, lights off"
+
+    bus = EventBus()
+    service = VoiceService(bus, _config())
+    service._live_bridge = _FakeBridge()
+    events = await _collect(bus, service.finish_live_stt(strip_wake=True))
+    transcripts = [e for e in events if e.type == EventType.VOICE_TRANSCRIPT]
+    assert transcripts
+    assert transcripts[0].payload["text"] == "lights off"
+
+
+def test_start_live_stt_skips_without_sherpa() -> None:
+    bus = EventBus()
+    service = VoiceService(bus, _config())
+    service.stt = _FakeSTT()
+    assert service.start_live_stt() is False
+
+
+def test_smart_turn_incomplete_pause_does_not_end_the_turn(qt_app) -> None:
+    class _StubSmartTurn:
+        def __init__(self) -> None:
+            self.complete_value = False
+            self.calls = 0
+
+        def predict(self, pcm, sample_rate=16000, channels=1):
+            self.calls += 1
+            return {
+                "complete": self.complete_value,
+                "probability": 0.9 if self.complete_value else 0.1,
+            }
+
+    controller, recorder = _controller(qt_app)
+    stub = _StubSmartTurn()
+    controller._smart_turn = stub
+    sent: list[str] = []
+    controller.utterance.connect(lambda pcm, rate, ch, deliver: sent.append(deliver))
+    controller.set_conversation(True)
+    recorder.push(_silence(0.5) + _tone(1.0) + _silence(1.4))
+    assert sent == []
+    assert stub.calls >= 1
+    stub.complete_value = True
+    recorder.push(_tone(0.6) + _silence(1.4))
+    assert sent == ["turn"]
+
+
+def test_missing_smart_turn_uses_silence_ms(qt_app) -> None:
+    controller, recorder = _controller(qt_app)
+    assert controller._smart_turn is None
+    sent: list[str] = []
+    controller.utterance.connect(lambda pcm, rate, ch, deliver: sent.append(deliver))
+    controller.set_conversation(True)
+    recorder.push(_silence(0.5) + _tone(1.0) + _silence(1.4))
+    assert sent == ["turn"]
+
+
+def test_conversation_onset_emits_live_started(qt_app) -> None:
+    controller, recorder = _controller(qt_app)
+    hits: list[int] = []
+    controller.live_started.connect(lambda: hits.append(1))
+    controller.set_conversation(True)
+    recorder.push(_silence(0.5) + _tone(1.0) + _silence(1.4))
+    assert hits == [1]
+
+
+def test_wake_to_conversation_keeps_the_buffer(qt_app) -> None:
+    controller, recorder = _controller(qt_app)
+    hits: list[int] = []
+    controller.live_started.connect(lambda: hits.append(1))
+    controller.start_wake()
+    recorder.push(_tone(0.8))
+    kept = len(recorder.peek())
+    assert kept > 0
+    controller.set_conversation(True)
+    assert len(recorder.peek()) == kept
+    assert hits == [1]
+    assert controller.debug_state()["vad"] is True
+

@@ -35,6 +35,11 @@ tag plus `nomic-embed-text`. Tags land in the default Ollama store.
 A copy that already pinned `models.fast` in `config.local.yaml` is not
 asked again.
 
+Every later launch pins that tag, then seeds Ollama's prefix cache with
+the persona, the tool policy, and every tool schema (~17,800 tokens).
+The window says **loading the model…** until that finishes. After it, a
+warm hello is about a second. Details: [architecture.md](architecture.md).
+
 ## Shipped last-resort (if setup has not run)
 
 `arelis/config/default.yaml`:

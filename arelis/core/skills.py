@@ -891,9 +891,10 @@ SKILL_CARDS: dict[str, SkillCard] = {
   conversation thread, points at one workspace project, and gives you its
   purpose at the start of every turn inside it.
 - Walking in is not your job. "Let's work on physics", "open the physics room",
-  and `/room physics` are handled before the turn — they enter an existing
-  room or make one. Do not call rooms(action=create) for that, and never
-  create a room that already exists.
+  and `/room physics` are handled before the turn — they enter the permanent
+  physics room, or make a room that does not exist yet. Do not call
+  rooms(action=create) for that, and never create a room that already exists.
+  Physics cannot be forgotten.
 - When they ask for a configured room (purpose, folder, kind in the same
   sentence), call rooms(action=create) and fill those fields from what they
   already said. Ask only for what is genuinely missing.

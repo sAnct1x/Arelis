@@ -164,7 +164,7 @@ async def test_room_with_folder_writes_to_plots(project) -> None:
 
     root, _data, workspace = project
     store = RoomStore(root / "rooms.yaml")
-    store.create("Physics", root="project", kind="analysis")
+    store.update("physics", root="project", kind="analysis")
     store.set_active("physics")
     tool = PlotTool(workspace, store)
     result = await tool.run(action="line", xs="1, 2, 3", ys="1, 2, 3")

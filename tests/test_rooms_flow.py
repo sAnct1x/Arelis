@@ -128,7 +128,7 @@ async def test_a_room_keeps_its_own_conversation(harness) -> None:
     harness.memory.add("user", "what is the weather")
     general = harness.store.session_id
 
-    await harness.say("/room new physics")
+    await harness.say("/room physics")
     in_room = harness.store.session_id
     harness.memory.add("user", "three weeks of analysis")
 
@@ -148,7 +148,7 @@ async def test_a_room_keeps_its_own_conversation(harness) -> None:
 
 @pytest.mark.asyncio
 async def test_entering_a_room_points_the_workspace_at_its_folder(harness) -> None:
-    harness.rooms.create("Physics", root="notes")
+    harness.rooms.update("physics", root="notes")
 
     await harness.say("/room physics")
 
@@ -172,7 +172,6 @@ async def test_help_lists_every_room_verb_that_exists(harness) -> None:
 
 @pytest.mark.asyncio
 async def test_changing_the_kind_leans_the_model_now_not_next_time(harness) -> None:
-    harness.rooms.create("Physics")
     await harness.say("/room physics")
     assert harness.orchestrator.router.default_role == "fast"
 
@@ -186,7 +185,7 @@ async def test_changing_the_kind_leans_the_model_now_not_next_time(harness) -> N
 @pytest.mark.asyncio
 async def test_the_folder_is_named_the_way_the_operator_named_it(harness) -> None:
     """A project name is a path component, so its case is not cosmetic."""
-    harness.rooms.create("Physics", root="notes")
+    harness.rooms.update("physics", root="notes")
 
     await harness.say("/room physics")
 
@@ -201,7 +200,7 @@ async def test_a_room_whose_folder_vanished_still_opens(harness) -> None:
     the part that cannot be rebuilt. Paths keep resolving against whatever is
     active and the answer says so.
     """
-    harness.rooms.create("Physics", root="deleted-project")
+    harness.rooms.update("physics", root="deleted-project")
 
     await harness.say("/room physics")
 
@@ -212,7 +211,7 @@ async def test_a_room_whose_folder_vanished_still_opens(harness) -> None:
 
 @pytest.mark.asyncio
 async def test_the_room_kind_sets_the_model_chip(harness) -> None:
-    harness.rooms.create("Physics", kind="research")
+    harness.rooms.update("physics", kind="research")
 
     await harness.say("/room physics")
 
@@ -221,8 +220,6 @@ async def test_the_room_kind_sets_the_model_chip(harness) -> None:
 
 @pytest.mark.asyncio
 async def test_saying_it_works_when_the_room_exists(harness) -> None:
-    harness.rooms.create("Physics")
-
     await harness.say("let's work on physics")
 
     assert harness.rooms.active_id == "physics"
@@ -230,8 +227,6 @@ async def test_saying_it_works_when_the_room_exists(harness) -> None:
 
 @pytest.mark.asyncio
 async def test_some_physics_enters_the_physics_room(harness) -> None:
-    harness.rooms.create("Physics")
-
     await harness.say("let's work on some physics")
 
     assert harness.rooms.active_id == "physics"
@@ -248,7 +243,6 @@ async def test_saying_it_makes_the_room_when_it_is_missing(harness) -> None:
 
 @pytest.mark.asyncio
 async def test_already_in_the_room_does_not_start_a_turn(harness) -> None:
-    harness.rooms.create("Physics")
     await harness.say("/room physics")
     seen = len(harness.said)
 
@@ -269,7 +263,6 @@ async def test_entering_a_room_in_conversation_speaks_the_ack(harness) -> None:
 
     harness.bus.subscribe(EventType.VOICE_SPEAK, capture)
     harness.orchestrator.config["_speak_replies"] = True
-    harness.rooms.create("Physics")
 
     await harness.say("let's work on physics")
 
@@ -287,7 +280,6 @@ async def test_entering_a_room_outside_conversation_stays_silent(harness) -> Non
             spoken.append(str(event.payload.get("text") or ""))
 
     harness.bus.subscribe(EventType.VOICE_SPEAK, capture)
-    harness.rooms.create("Physics")
 
     await harness.say("let's work on physics")
 
@@ -299,7 +291,6 @@ async def test_entering_a_room_outside_conversation_stays_silent(harness) -> Non
 @pytest.mark.asyncio
 async def test_a_room_swap_is_refused_while_a_turn_is_running(harness) -> None:
     """Both own SessionMemory. Interleaving them answers into the wrong room."""
-    harness.rooms.create("Physics")
 
     async def _forever() -> None:
         await asyncio.sleep(30)
@@ -318,7 +309,7 @@ async def test_a_room_swap_is_refused_while_a_turn_is_running(harness) -> None:
 async def test_leaving_returns_to_the_thread_you_left(harness) -> None:
     harness.memory.add("user", "general talk")
     general = harness.store.session_id
-    await harness.say("/room new physics")
+    await harness.say("/room physics")
 
     await harness.say("/leave")
 
@@ -345,7 +336,7 @@ async def test_asking_for_a_room_that_does_not_exist_makes_it(harness) -> None:
 
 @pytest.mark.asyncio
 async def test_the_room_is_configured_by_talking_to_it(harness) -> None:
-    await harness.say("/room new physics")
+    await harness.say("/room physics")
 
     await harness.say("/room set purpose analysing the survey data")
     await harness.say("/room set root notes")
@@ -365,7 +356,7 @@ async def test_changing_a_room_repaints_the_banner(harness) -> None:
     longer existed in that form, and it looked exactly like the setting had not
     taken.
     """
-    await harness.say("/room new physics")
+    await harness.say("/room physics")
     seen_before = len(harness.rooms_seen)
 
     await harness.say("/room set purpose analysing the survey data")
@@ -379,7 +370,7 @@ async def test_changing_a_room_repaints_the_banner(harness) -> None:
 async def test_a_root_that_is_not_a_project_is_refused_with_the_list(
     harness,
 ) -> None:
-    await harness.say("/room new physics")
+    await harness.say("/room physics")
 
     await harness.say("/room set root nowhere")
 
@@ -391,13 +382,14 @@ async def test_a_root_that_is_not_a_project_is_refused_with_the_list(
 @pytest.mark.asyncio
 async def test_forgetting_a_room_keeps_its_conversations(harness) -> None:
     """The definition is cheap to rebuild. The thread is not."""
-    await harness.say("/room new physics")
+    await harness.say("/room new survey")
     harness.memory.add("user", "three weeks of analysis")
     thread = harness.store.session_id
 
-    await harness.say("/room forget physics")
+    await harness.say("/room forget survey")
 
-    assert harness.rooms.get("physics") is None
+    assert harness.rooms.get("survey") is None
+    assert harness.rooms.get("physics") is not None
     assert harness.store.get_session(thread) is not None
     assert harness.store.get_messages(thread)[0]["content"] == (
         "three weeks of analysis"
@@ -405,8 +397,15 @@ async def test_forgetting_a_room_keeps_its_conversations(harness) -> None:
 
 
 @pytest.mark.asyncio
+async def test_forgetting_physics_is_refused(harness) -> None:
+    await harness.say("/room forget physics")
+
+    assert "permanent" in harness.said[-1]
+    assert harness.rooms.get("physics") is not None
+
+
+@pytest.mark.asyncio
 async def test_the_room_list_names_the_open_one(harness) -> None:
-    harness.rooms.create("Physics")
     harness.rooms.create("Writing")
 
     await harness.say("/room physics")
@@ -423,7 +422,7 @@ async def test_launch_resumes_the_room_you_were_in(tmp_path: Path) -> None:
     first = _Harness(tmp_path)
     await first.start()
     try:
-        first.rooms.create("Physics", root="notes")
+        first.rooms.update("physics", root="notes")
         await first.say("/room physics")
         first.memory.add("user", "three weeks of analysis")
         assert first.rooms.active_id == "physics"
@@ -453,7 +452,7 @@ async def test_launch_does_not_enter_a_room_you_only_created(tmp_path: Path) -> 
     first = _Harness(tmp_path)
     await first.start()
     try:
-        first.rooms.create("Physics")
+        first.rooms.create("Writing")
     finally:
         await first.stop()
 
@@ -472,7 +471,6 @@ async def test_launch_stays_in_orbit_if_you_left(tmp_path: Path) -> None:
     first = _Harness(tmp_path)
     await first.start()
     try:
-        first.rooms.create("Physics")
         await first.say("/room physics")
         await first.say("/leave")
     finally:

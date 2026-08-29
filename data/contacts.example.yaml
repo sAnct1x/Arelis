@@ -14,7 +14,10 @@
 # A leading "my " is stripped when matching ("my wife" → wife).
 #
 # id + phone are required to text; email is optional but used for send_email.
-# Optional card fields: title (e.g. My Wife), work_phone, notes.
+# Optional lat/lon (WGS84 degrees) to plot this person on the Earth zone.
+# Unknown people stay off the map. Do not invent coordinates.
+# lat:
+# lon:
 # The View → contacts panel writes the same file. An old `carrier` /
 # `sms_email` field is ignored if still present.
 

@@ -221,6 +221,7 @@ def test_clock_ask_does_not_load_the_full_surface() -> None:
         "what's the time",
         "hello",
         "Thanks!",
+        "who are you",
     ):
         visible = filter_tool_names(
             _EVERYDAY,

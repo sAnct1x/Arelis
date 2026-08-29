@@ -132,7 +132,7 @@ def body_frame_ecliptic(
 def spin_caption(name: str) -> str:
     """One inspect/HUD sentence. Does not claim a landing model."""
     if name == "Sun":
-        return "Photosphere has no map. Dipole corona is a sketch."
+        return "Photosphere has no map. Convection is procedural. Dipole is the magnetic overlay."
     if name == "Earth":
         return "GMST+obliquity on the globe."
     if name == "Moon":

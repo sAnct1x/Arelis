@@ -173,6 +173,8 @@ def capability_class(
         return "WRITE_LOCAL" if action in ROOMS_WRITE_ACTIONS else "READ"
     if tool == "solar":
         return "WRITE_LOCAL" if action in SOLAR_WRITE_ACTIONS else "READ"
+    if tool == "earth":
+        return "READ"
     if tool == "schedule":
         return "WRITE_LOCAL" if action in SCHEDULE_WRITE_ACTIONS else "READ"
     if tool == "plot":
@@ -310,6 +312,8 @@ class ToolRegistry:
         if name == "solar":
             action = str(args.get("action") or "").lower()
             return confirm_writes if action in SOLAR_WRITE_ACTIONS else False
+        if name == "earth":
+            return False
         if name == "schedule":
             action = str(args.get("action") or "").lower()
             return confirm_writes if action in SCHEDULE_WRITE_ACTIONS else False

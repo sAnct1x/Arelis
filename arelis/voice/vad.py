@@ -110,6 +110,22 @@ class EnergyUtteranceDetector:
         self._finished = False
         self._last_speech_prob = None
 
+    def resume_after_pause(self) -> None:
+        """Keep the utterance open after a pause Smart Turn called incomplete."""
+        self._finished = False
+        self._silence_samples = 0
+
+    def force_speaking(self) -> None:
+        """Treat the live buffer as already in speech (OWW remainder)."""
+        self._speaking = True
+        self._finished = False
+        self._onset_samples = 0
+        self._silence_samples = 0
+        if self._speech_samples <= 0:
+            self._speech_samples = 1
+        if self._voiced_samples <= 0:
+            self._voiced_samples = 1
+
     def reset_soft(self) -> None:
         """Clear utterance state but keep a capped floor (post-reply resume).
 
@@ -223,6 +239,24 @@ class SileroUtteranceDetector:
         self._last_speech_prob: float | None = None
         self._prob_ema = 0.0
         self.reset()
+
+    def resume_after_pause(self) -> None:
+        """Keep the utterance open after a pause Smart Turn called incomplete."""
+        self._finished = False
+        self._silence_samples = 0
+
+    def force_speaking(self) -> None:
+        """Treat the live buffer as already in speech (OWW remainder)."""
+        from arelis.voice.silero_vad import FRAME_SAMPLES
+
+        self._speaking = True
+        self._finished = False
+        self._onset_samples = 0
+        self._silence_samples = 0
+        if self._speech_samples <= 0:
+            self._speech_samples = FRAME_SAMPLES
+        if self._voiced_samples <= 0:
+            self._voiced_samples = FRAME_SAMPLES
 
     def reset(self) -> None:
         self._speaking = False

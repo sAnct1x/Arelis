@@ -449,6 +449,48 @@ async def test_control_stop_cancels() -> None:
 
 
 @pytest.mark.asyncio
+async def test_barge_turn_cancels_the_running_turn_then_asks() -> None:
+    bus = EventBus()
+    seen: list[Event] = []
+
+    async def capture(event: Event) -> None:
+        seen.append(event)
+
+    bus.subscribe(None, capture)
+    orch = _voice_orch(bus)
+
+    async def _hang() -> None:
+        await asyncio.sleep(30)
+
+    orch._turn_task = asyncio.create_task(_hang())
+
+    async def _no_turn(*_a, **_k):
+        return None
+
+    orch._run_turn = _no_turn  # type: ignore[method-assign]
+    bus_task = asyncio.create_task(bus.run())
+    try:
+        await bus.publish(
+            Event(EventType.VOICE_TRANSCRIPT, {"text": "what's the weather"})
+        )
+        await bus.drain()
+        try:
+            await orch._turn_task
+        except asyncio.CancelledError:
+            pass
+    finally:
+        bus.stop()
+        bus_task.cancel()
+        if orch._turn_task is not None and not orch._turn_task.done():
+            orch._turn_task.cancel()
+    types = [e.type for e in seen]
+    assert EventType.TURN_CANCEL in types
+    assert types.index(EventType.TURN_CANCEL) < types.index(EventType.USER_MESSAGE)
+    messages = [e for e in seen if e.type == EventType.USER_MESSAGE]
+    assert messages[0].payload.get("text") == "what's the weather"
+
+
+@pytest.mark.asyncio
 async def test_spoken_goodbye_hangs_up_and_is_not_a_turn() -> None:
     bus = EventBus()
     seen: list[Event] = []

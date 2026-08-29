@@ -40,6 +40,8 @@ class SolarTool:
         "There is no rideable craft; action=craft is inspect. "
         "impulse, add_probe, add_planet, tracer, l4, and epoch change the "
         "universe and need Allow. "
+        "realtime locks IAS15 to UTC now (1 sim second per wall second). "
+        "It is not a warp of 1× from midnight. "
         "dump writes a cited JSONL receipt under outputs/physics/solar. "
         "Leaving the solar lab does the same automatically. Not a screenshot. "
         "Belt tracers omitted. No GL still. "
@@ -179,11 +181,30 @@ class SolarTool:
                 data={"rate": system.rate},
             )
         if action == "realtime":
-            system.set_rate(1.0)
+            system.go_realtime()
+            when = ""
+            from arelis.physics.attitude import spin_jd
+            from arelis.physics.clocks import TT_MINUS_UTC_S, jd_iso
+            from arelis.physics.constants import DAY_S
+
+            stamp = jd_iso(spin_jd(system.epoch_jd, system.t) - TT_MINUS_UTC_S / DAY_S)
+            if stamp:
+                when = f" Sim UTC {stamp}."
+            if not system.wall_lock:
+                reason = (
+                    " This lab is counterfactual."
+                    if system.counterfactual
+                    else " Needs a Horizons epoch within 400 days of now."
+                )
+                return ToolResult(
+                    ok=True,
+                    output=f"1×, not locked to UTC now.{reason}{when}",
+                    data={"rate": system.rate, "wall_lock": system.wall_lock, "t": system.t},
+                )
             return ToolResult(
                 ok=True,
-                output="Realtime.",
-                data={"rate": system.rate},
+                output=f"Realtime — IAS15 locked to UTC now.{when}",
+                data={"rate": system.rate, "wall_lock": system.wall_lock, "t": system.t},
             )
         if action == "craft":
             system.enter_inspect()
@@ -485,6 +506,8 @@ class SolarTool:
                 },
             )
         set_system(system)
+        if not system.counterfactual:
+            system.sync_to_now()
         missing = [b.name for b in BODIES if b.name not in states]
         note = ""
         if missing:

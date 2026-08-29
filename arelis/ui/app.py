@@ -57,6 +57,7 @@ from arelis.llm import (
     run_model_warmup,
 )
 from arelis.llm.router import ModelRouter
+from arelis.llm.startup import WARMUP_READY
 from arelis.local_open import open_local_file, reveal_local_file
 from arelis.mail import load_account
 from arelis.memory import DEFAULT_EMBED_MODEL, MemoryIndexer, MemoryStore
@@ -154,6 +155,7 @@ from arelis.ui.stage import StageBackground, paint_atmosphere
 from arelis.ui.status_copy import (
     THINKING_STATUS,
     WAITING_STATUS,
+    WARMING_STATUS,
     tool_status_line,
 )
 from arelis.ui.surface_report import log_report
@@ -937,6 +939,8 @@ class ArelisWindow(QMainWindow):
         self._wake_generation = 0
         # Mid-utterance provisional STT must not hold Whisper past speech-end.
         self._prov_generation = 0
+        self._live_stt_active = False
+        self._peel_wake_next = False
         # A spoken reply is in flight from the moment the answer lands until
         # synthesis has finished and the player has drained. Both halves are
         # needed. Waiting only for the player reopens the microphone in the gap
@@ -962,6 +966,8 @@ class ArelisWindow(QMainWindow):
                 self.voice_controller = controller
                 controller.utterance.connect(self._on_utterance)
                 controller.provisional.connect(self._on_provisional_pcm)
+                controller.live_started.connect(self._on_live_started)
+                controller.live_pcm.connect(self._on_live_pcm)
                 controller.status.connect(self._on_voice_status)
                 controller.failed.connect(self._on_capture_failed)
                 controller.mode_changed.connect(self._on_voice_mode)
@@ -1056,9 +1062,26 @@ class ArelisWindow(QMainWindow):
         """
         if deliver == "wake_oww":
             # Dedicated wake engine already matched — skip Whisper entirely.
+            # Remainder of the clip (still in the mic buffer) is the first turn.
+            self._peel_wake_next = True
             self.wake_detected.emit("")
             return
         if self.voice is None:
+            return
+        if self._live_stt_active:
+            self._live_stt_active = False
+            peel = bool(self._peel_wake_next and deliver == "turn")
+            if peel:
+                self._peel_wake_next = False
+            if deliver != "dictate":
+                self.thinking.append("transcribing", kind="status")
+            self._invalidate_wake()
+            self._invalidate_provisional()
+            future = asyncio.run_coroutine_threadsafe(
+                self.voice.finish_live_stt(deliver=deliver, strip_wake=peel),
+                self.loop,
+            )
+            future.add_done_callback(self._utterance_resolved)
             return
         target = outputs_dir() / "voice" / f"capture_{uuid4().hex[:8]}.wav"
         try:
@@ -1102,11 +1125,28 @@ class ArelisWindow(QMainWindow):
         # peek still queued on the STT lock so Whisper serves the real clip.
         self._invalidate_wake()
         self._invalidate_provisional()
+        peel = bool(self._peel_wake_next and deliver == "turn")
+        if peel:
+            self._peel_wake_next = False
         future = asyncio.run_coroutine_threadsafe(
-            self.voice.ingest_audio(str(target), deliver=deliver),
+            self.voice.ingest_audio(
+                str(target), deliver=deliver, strip_wake=peel
+            ),
             self.loop,
         )
         future.add_done_callback(self._utterance_resolved)
+
+    def _on_live_started(self) -> None:
+        """Conversation/dictate onset: feed Sherpa while they talk, if the pack is ready."""
+        if self.voice is None:
+            self._live_stt_active = False
+            return
+        self._live_stt_active = self.voice.start_live_stt()
+
+    def _on_live_pcm(self, pcm: bytes, rate: int, channels: int) -> None:
+        if self.voice is None or not self._live_stt_active or not pcm:
+            return
+        self.voice.feed_live_stt(pcm, rate, channels)
 
     def _invalidate_wake(self) -> None:
         self._wake_generation += 1
@@ -1236,6 +1276,11 @@ class ArelisWindow(QMainWindow):
             self.voice.speak_enabled = mode == "conversation"
         # Agent loop reads this to bias spoken answers toward brevity.
         self.config["_speak_replies"] = mode == "conversation"
+        if mode not in {"conversation", "dictate"}:
+            self._live_stt_active = False
+            self._peel_wake_next = False
+            if self.voice is not None:
+                self.voice.abort_live_stt()
         if mode in {"dictate", "conversation"}:
             # Drop superseding wake/provisional jobs so they do not hold STT.
             self._invalidate_wake()
@@ -1273,10 +1318,11 @@ class ArelisWindow(QMainWindow):
         self._stop_speech()
 
     def _on_barge_in(self) -> None:
-        """Talking over her. Cut playback now. The clip is not a turn.
+        """Talking over her. Cut playback now.
 
-        Spoken stop / allow / deny on that same clip is a later transcript
-        (deliver control). This is the interrupt; that is not a second one.
+        Headset: the same clip is the next turn. Speakers with barge_in_as_turn
+        false: control only (stop / allow / deny). This is the interrupt;
+        the transcript is not a second one.
         """
         self.thinking.append("interrupted", kind="status")
         self._stop_speech()
@@ -2445,7 +2491,7 @@ class ArelisWindow(QMainWindow):
             elif verb == "slower":
                 system.set_rate(system.rate / 10.0)
             elif verb == "realtime":
-                system.set_rate(1.0)
+                system.go_realtime()
             elif verb == "hour":
                 system.set_rate(3_600.0)
             elif verb == "day":
@@ -4052,8 +4098,14 @@ class ArelisWindow(QMainWindow):
 
     def _show_model_loading(self, role: str) -> None:
         """Composer hint while waiting for first token (L1 cold TTFT)."""
-        model = str((self.config.get("models") or {}).get(role) or self._current_model or "")
-        tip = f"thinking… ({role}" + (f":{model}" if model else "") + ")"
+        pending = getattr(self.router, "warmup_pending", None)
+        if callable(pending) and pending():
+            tip = "loading the model — first reply after that is quick"
+        else:
+            model = str(
+                (self.config.get("models") or {}).get(role) or self._current_model or ""
+            )
+            tip = f"thinking… ({role}" + (f":{model}" if model else "") + ")"
         self.thinking.append(tip, kind="status")
         if self.conversation.confirm_open():
             return
@@ -4216,6 +4268,13 @@ class ArelisWindow(QMainWindow):
         if not pending:
             self._flush_held_inbound()
 
+    def _busy_status_line(self) -> str:
+        """Shimmer copy for an in-flight turn with no named tool yet."""
+        pending = getattr(self.router, "warmup_pending", None)
+        if callable(pending) and pending():
+            return WARMING_STATUS
+        return THINKING_STATUS
+
     def _set_busy(self, busy: bool) -> None:
         self._turn_busy = busy
         self.conversation.set_busy(busy)
@@ -4224,7 +4283,7 @@ class ArelisWindow(QMainWindow):
         # turn that started it — including the turns that end at the watchdog
         # rather than at an answer.
         if busy:
-            self.chat.show_progress(THINKING_STATUS)
+            self.chat.show_progress(self._busy_status_line())
         else:
             self.chat.clear_progress()
         if not busy:
@@ -4569,7 +4628,7 @@ class ArelisWindow(QMainWindow):
             # This is the moment the thread empties itself, and the one that made
             # three spoken SMS turns look dead. Something has to remain.
             if self._turn_busy:
-                self.chat.show_progress(THINKING_STATUS)
+                self.chat.show_progress(self._busy_status_line())
             self._assistant_streaming = False
             self._stop_speech()
         elif t == EventType.ASSISTANT_DONE:
@@ -4714,6 +4773,10 @@ class ArelisWindow(QMainWindow):
                 self.conversation.role.blockSignals(True)
                 self.conversation.role.setCurrentText(role_set)
                 self.conversation.role.blockSignals(False)
+            # Prefix seed just finished. A first message that was waiting on
+            # it should stop claiming the model is still loading.
+            if str(msg) == WARMUP_READY and self._turn_busy:
+                self.chat.show_progress(THINKING_STATUS)
             self._schedule_readiness_probe()
         elif t == EventType.MODEL_SWITCH:
             self._current_model = p.get("to") or self._current_model
@@ -4795,7 +4858,7 @@ class ArelisWindow(QMainWindow):
             # not, and leaving "checking the weather…" up would be a small lie
             # that runs for the rest of the round.
             if self._turn_busy:
-                self.chat.show_progress(THINKING_STATUS)
+                self.chat.show_progress(self._busy_status_line())
             data = p.get("data") or {}
             intro = str(data.get("intro") or "").strip()
             if p.get("tool") == "agenda" and p.get("ok") and data.get("open"):

@@ -94,6 +94,7 @@ class VoiceService:
         self._stream_open = False
         self._pending: list[tuple[str, bool]] = []
         self._drain_task: asyncio.Task[None] | None = None
+        self._live_bridge = None
         if self.tts_enabled:
             bus.subscribe(EventType.ASSISTANT_DELTA, self.on_delta)
             bus.subscribe(EventType.ASSISTANT_RETRACT, self.on_retract)
@@ -230,6 +231,8 @@ class VoiceService:
                         await self._status(f"Voice output failed: {exc}")
                         return
                     clips += 1
+                    if index == 0 and turn_telemetry_enabled(self.config):
+                        log_span("tts_first", utterance=utterance, chars=len(sentence))
                     await self.bus.publish(
                         Event(
                             EventType.VOICE_AUDIO_READY,
@@ -318,6 +321,8 @@ class VoiceService:
                 if self._speak_cancelled >= utterance:
                     return
                 self._stream_clips += 1
+                if index == 0 and turn_telemetry_enabled(self.config):
+                    log_span("tts_first", utterance=utterance, chars=len(sentence))
                 await self.bus.publish(
                     Event(
                         EventType.VOICE_AUDIO_READY,
@@ -351,6 +356,7 @@ class VoiceService:
         *,
         deliver: str = "turn",
         proceed: Callable[[], bool] | None = None,
+        strip_wake: bool = False,
     ) -> str:
         """Transcribe a recorded clip and put it into the pipeline.
 
@@ -361,6 +367,9 @@ class VoiceService:
         (stop, allow, deny, resume); or "wake" for always-listen clips that
         are transcribed but not published (the window decides whether the
         wake phrase matched).
+
+        strip_wake peels a leading Hey Arelis (openWakeWord remainder-of-clip)
+        so the first conversation turn is the command, not the greeting.
 
         proceed aborts after the STT lock is taken when a wake clip has been
         superseded (conversation took the mic). Without that, ambient wake
@@ -418,8 +427,106 @@ class VoiceService:
                 await self._status("No speech detected.")
             return ""
 
+        if strip_wake:
+            text = _peel_wake(text)
+            if not text:
+                if deliver != "wake":
+                    await self._status("No speech detected.")
+                return ""
+
         if deliver == "wake":
             return text
+        await self._publish_transcript(text, deliver=deliver)
+        return text
+
+    def start_live_stt(self) -> bool:
+        """Begin a live Sherpa session. False means fall back to a WAV.
+
+        Does not download a pack. If the Kroko/Zipformer files are not already
+        on disk, conversation uses the existing clip path instead.
+        """
+        self.abort_live_stt()
+        if not self.stt_enabled or not self.stt.available():
+            return False
+        resolved = getattr(self.stt, "resolved_backend", None)
+        if callable(resolved) and resolved(purpose="turn") != "sherpa":
+            return False
+        try:
+            from arelis.voice.sherpa_stt import LiveSherpaBridge, sherpa_files_present
+
+            engine = self.stt._sherpa_engine()
+            if not engine.loaded() and not sherpa_files_present(engine.model_dir):
+                return False
+            bridge = LiveSherpaBridge(engine)
+            bridge.start()
+        except Exception:
+            log.exception("Live Sherpa could not start")
+            return False
+        self._live_bridge = bridge
+        log.info("Live Sherpa STT started")
+        return True
+
+    def feed_live_stt(self, pcm: bytes, sample_rate: int, channels: int) -> None:
+        bridge = self._live_bridge
+        if bridge is None or not pcm:
+            return
+        try:
+            bridge.feed(pcm, sample_rate, channels)
+        except Exception:
+            log.exception("Live Sherpa feed failed")
+
+    def abort_live_stt(self) -> None:
+        bridge = self._live_bridge
+        self._live_bridge = None
+        if bridge is None:
+            return
+        abort = getattr(bridge, "abort", None)
+        if callable(abort):
+            abort()
+            return
+        try:
+            bridge.finish(timeout=0.1)
+        except Exception:
+            pass
+
+    async def finish_live_stt(
+        self, *, deliver: str = "turn", strip_wake: bool = False
+    ) -> str:
+        """End the live session and publish like ingest_audio."""
+        bridge = self._live_bridge
+        self._live_bridge = None
+        if bridge is None:
+            return ""
+        stt_t0 = time.perf_counter()
+        try:
+            text = (await asyncio.to_thread(bridge.finish)).strip()
+        except Exception as exc:
+            log.exception("Live Sherpa finish failed")
+            await self._error(f"Could not transcribe that: {exc}")
+            return ""
+        from arelis.voice.stt import scrub_transcript, soften_stt_case
+
+        text = soften_stt_case(scrub_transcript(text))
+        stt_ms = int((time.perf_counter() - stt_t0) * 1000)
+        if turn_telemetry_enabled(self.config):
+            log_span(
+                "stt",
+                ms=stt_ms,
+                chars=len(text),
+                deliver=deliver,
+                live=1,
+                loaded=True,
+            )
+        if strip_wake:
+            text = _peel_wake(text)
+        if not text:
+            if deliver != "wake":
+                await self._status("No speech detected.")
+            return ""
+        await self._publish_transcript(text, deliver=deliver)
+        return text
+
+    async def _publish_transcript(self, text: str, *, deliver: str) -> None:
         if deliver == "dictate":
             await self.bus.publish(
                 Event(EventType.VOICE_TRANSCRIPT, {"text": text, "deliver": "dictate"})
@@ -430,7 +537,6 @@ class VoiceService:
             )
         else:
             await self.bus.publish(Event(EventType.VOICE_TRANSCRIPT, {"text": text}))
-        return text
 
     async def preload(self) -> None:
         """Warm the speech model and TTS so the first exchange is not the slow one."""
@@ -495,6 +601,14 @@ class VoiceService:
             except OSError:
                 # Still held by the player, most likely. It will go next time.
                 pass
+
+
+def _peel_wake(text: str) -> str:
+    """Strip a leading Hey Arelis so the remainder is the first turn."""
+    remainder = match_wake(text)
+    if remainder is None:
+        return (text or "").strip()
+    return remainder.strip()
 
 
 def _remove(path: Path) -> None:

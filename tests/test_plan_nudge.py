@@ -84,6 +84,23 @@ def test_clock_ask_does_not_plan_web() -> None:
     assert select_plan("what time is it", skill_ids=["web"]) is None
 
 
+def test_who_is_this_without_a_real_web_skill_has_no_scrape_plan() -> None:
+    """Live 15 Aug 2026: 'Who is this' got plan=multi_web and a 48s re-prefill.
+
+    The loop passes plan_ids=() on fallback-only. Direct skill_ids=['web']
+    still plans, because that is a matched card, not the floor.
+    """
+    from arelis.core.skills import select_skill_ids_detailed
+
+    ids, fallback = select_skill_ids_detailed(
+        "Who is this",
+        available_tools={"web_search", "scrape", "web_fetch"},
+    )
+    assert fallback is True
+    plan_ids = () if fallback else ids
+    assert select_plan("Who is this", skill_ids=plan_ids) is None
+
+
 def test_research_beats_web_skill() -> None:
     msg = plan_system_message(
         "deep dive into lithium",
