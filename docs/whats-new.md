@@ -1,14 +1,16 @@
 # What's new
 
-The installer on GitHub is **0.2.3**.
+The installer on GitHub is **0.2.4**.
 
-Published: [v0.2.3](releases/v0.2.3.md).
-Older: [v0.2.2](releases/v0.2.2.md). [v0.2.1](releases/v0.2.1.md).
+Published: [v0.2.4](releases/v0.2.4.md).
+Older: [v0.2.3](releases/v0.2.3.md). [v0.2.2](releases/v0.2.2.md).
+[v0.2.1](releases/v0.2.1.md).
 
 ## This checkout
 
-Notes for the tree you have now. The 0.2.3 notes below are what that
-installer shipped. A few of them are no longer how this tree behaves.
+Notes for the tree you have now. The 0.2.4 installer is this tree
+without the 3D plate. Reality's room still ships. Earth and the
+true-scale globe stay on a source checkout.
 
 **Turns.** The full tool schema array rides every turn so Ollama can
 reuse the prefix. A greeting that skipped schemas (the 0.2.3 clock-ask
@@ -105,6 +107,12 @@ login. Out stays out (sat-AIS, unowned cameras, face index, VIN).
 [earth.md](earth.md).
 
 **Mail.** There is no Mail tab. Credentials live in `data/secrets.yaml`.
+
+## 0.2.4
+
+The glass, the prefix, and Reality as a permanent room. The 3D plate
+and the Earth zone are still checkout-only. Full notes:
+[v0.2.4](releases/v0.2.4.md).
 
 ## 0.2.3
 

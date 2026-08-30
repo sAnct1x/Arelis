@@ -10,7 +10,7 @@ drive her own browser, and keep longer work in named **rooms**. Mail,
 texts, and calendar stay off until you connect them. Anything that
 writes a file or sends a message waits for you to allow it.
 
-The published installer is **0.2.3**. A source checkout has more:
+The published installer is **0.2.4**. A source checkout has more:
 **Reality** — the permanent room for the true-scale solar system and
 the Earth zone. Those are not in the installer.
 
@@ -39,7 +39,7 @@ Windows 10 or later, 64-bit.
 
 Latest setup:
 [GitHub releases](https://github.com/sAnct1x/arelis/releases/latest).
-The current file is `Arelis-0.2.3-win64-setup.exe`. About 155 MB to
+The current file is `Arelis-0.2.4-win64-setup.exe`. About 155 MB to
 download, about 640 MB installed. Per-user, into
 `%LOCALAPPDATA%\Programs\Arelis`. No administrator prompt.
 
@@ -47,8 +47,8 @@ It is **not code-signed.** SmartScreen will warn on first run. That is
 Windows doing its job. Check the SHA-256 next to the installer:
 
 ```powershell
-Get-FileHash .\Arelis-0.2.3-win64-setup.exe -Algorithm SHA256
-Get-Content .\Arelis-0.2.3-win64-setup.exe.sha256
+Get-FileHash .\Arelis-0.2.4-win64-setup.exe -Algorithm SHA256
+Get-Content .\Arelis-0.2.4-win64-setup.exe.sha256
 ```
 
 The hashes should match. That catches a bad download. It is not a
@@ -216,14 +216,14 @@ Reality as a room (chat, CAS, Horizons). The 3D plate does not ship.
 
 Tests cover this. Voice timing, a real handset, and image generation
 have only been run end to end on the author's hardware. Odd behaviour on
-yours is worth an issue. The published installer is **0.2.3**. Notes:
+yours is worth an issue. The published installer is **0.2.4**. Notes:
 [whats-new.md](docs/whats-new.md).
 
 ## More
 
 | Document | What |
 |---|---|
-| [whats-new.md](docs/whats-new.md) | 0.2.3, and this checkout |
+| [whats-new.md](docs/whats-new.md) | 0.2.4, and this checkout |
 | [rooms.md](docs/rooms.md) | Named project spaces |
 | [jobs.md](docs/jobs.md) | Timed prompts, emailed |
 | [models.md](docs/models.md) | Which models, and why |
