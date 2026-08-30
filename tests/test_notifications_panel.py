@@ -184,7 +184,7 @@ def test_notify_pill_sits_above_the_room_strip(qt_app) -> None:
         qt_app.processEvents()
         stage.room.set_room(
             PHYSICS_ROOM_ID,
-            name="Physics",
+            name="Reality",
             purpose="Spatial stage. Hands and voice drive a live simulation.",
         )
         qt_app.processEvents()

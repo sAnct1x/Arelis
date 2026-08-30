@@ -7,19 +7,13 @@ from typing import Any
 from arelis.config import load_config
 from arelis.core.bus import EventBus
 from arelis.core.events import Event, EventType
-from arelis.core.memory import SessionMemory
-from arelis.core.orchestrator import Orchestrator
 from arelis.llm import (
-    build_router,
     prefix_warmup_for,
     run_auto_lessons,
     run_model_preflight,
     run_model_warmup,
 )
-from arelis.memory import MemoryStore
-from arelis.tools import build_tool_registry
 from arelis.voice import VoiceService
-from arelis.workspace import WorkspaceRoots, compose_stt_initial_prompt
 
 
 class CliPrinter:
@@ -138,38 +132,15 @@ async def run_cli_async(
     allow_write: bool = False,
 ) -> int:
     config = config or load_config()
-    workspace = WorkspaceRoots.from_config(config)
-    config["_workspace"] = workspace
-    stt_cfg = config.setdefault("voice", {}).setdefault("stt", {})
-    stt_cfg["initial_prompt"] = compose_stt_initial_prompt(config, workspace)
-    bus = EventBus()
-    from arelis.core.event_audit import attach_event_audit
+    from arelis.core.seat import build_seat
 
-    attach_event_audit(bus, config)
+    # CLI continues the last real thread. Glass starts a new chat (profile="ui").
+    seat = build_seat(config, profile="cli")
+    bus = seat.bus
+    router = seat.router
+    tools = seat.tools
+    orchestrator = seat.orchestrator
     CliPrinter(bus, allow_write=allow_write)
-    router = build_router(config)
-    store = MemoryStore()
-    from arelis.memory.backup import backup_memory_db
-
-    backup_memory_db(store.path)
-    # CLI continues the last real thread. The glass UI starts a new chat
-    # on cold launch instead (see MemoryStore.start_glass_session).
-    restore_id = store.latest_session_id(require_messages=True)
-    if restore_id:
-        store.open_session(restore_id)
-    else:
-        store.start_session()
-    tools = build_tool_registry(
-        config,
-        workspace,
-        memory_store=store,
-        provider=router.provider,
-        router=router,
-    )
-    memory = SessionMemory.from_config(config, sink=store)
-    if restore_id:
-        memory.hydrate(store.get_messages(restore_id), summary=store.get_summary(restore_id))
-    orchestrator = Orchestrator(bus, router, tools, config, memory, workspace=workspace)
     VoiceService(bus, _muted(config))
 
     bus_task = asyncio.create_task(bus.run())

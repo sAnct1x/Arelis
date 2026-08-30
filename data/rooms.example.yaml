@@ -1,16 +1,17 @@
 # Copy to rooms.yaml to hand-write rooms, or just ask:
 #   "make me a survey room that works in my Lab Notes folder"
 #
-# The room id `physics` is permanent. It is seeded if missing and cannot
-# be forgotten. World plate, solar lab, and C920 hands run only on a
-# source checkout. Installed copies still get the room.
+# The room id `physics` is permanent. Humans read Reality. It is seeded
+# if missing and cannot be forgotten. The plate, solar system, and C920
+# hands run only on a source checkout. Installed copies still get the
+# room.
 #
 # A room is a named place to work on one thing. It keeps its own conversation
 # thread, points at one workspace project, and hands Arelis its purpose at the
 # start of every turn inside it.
 #
 #   /rooms                  what exists
-#   /room physics           go in  (or say "let's work on physics")
+#   /room physics           go in  (or say "let's work on Reality")
 #   /leave                  come back out
 #
 # kind: analysis | code | general | research | writing
@@ -23,13 +24,14 @@
 
 rooms:
   physics:
-    name: Physics
+    name: Reality
     purpose: >-
-      Physics lab. The solar-system stage is approach and orbit — true scale,
-      JPL Horizons ICs, REBOUND. No landing. Hands drive the camera, not
-      metres in the ODE. Forces and periods come from the engine; you do not
-      invent them. Leave ends the motion grant. Record takes in this project's
-      folder, not in orbit.
+      Reality. True-scale solar system — JPL Horizons ICs, REBOUND, the
+      laws as they are. Approach and orbit. No landing. Hands drive the
+      camera, not metres in the ODE. Forces and periods come from the
+      engine; you do not invent them. Earth is a zone on that globe, not
+      another room. Leave ends the motion grant. Record takes in this
+      project's folder, not in orbit.
     root: Lab Notes
     kind: analysis
 

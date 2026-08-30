@@ -1638,7 +1638,7 @@ def test_a_spoken_physics_verb_does_not_deafen_conversation(qt_app) -> None:
     window = ArelisWindow(config, BusBridge(), asyncio.new_event_loop(), EventBus())
     try:
         window.voice_controller = controller
-        window.conversation.room.set_room("physics", name="Physics")
+        window.conversation.room.set_room("physics", name="Reality")
         controller.set_conversation(True)
         recorder.push(_silence(0.5) + _tone(1.0) + _silence(1.4))
         assert listening[-1] is False

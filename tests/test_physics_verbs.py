@@ -98,6 +98,8 @@ def test_travel_and_overlay_phrases() -> None:
     assert toy.page == "hands"
     assert classify_physics_act("close the solar lab").on is False
     assert classify_physics_act("open world").page == ""
+    assert classify_physics_act("open Reality").verb == "lab"
+    assert classify_physics_act("open Reality").page == ""
     assert classify_physics_act("open thinking") is None
 
 

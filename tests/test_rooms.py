@@ -15,6 +15,7 @@ import pytest
 from arelis.rooms import (
     DEFAULT_KIND,
     KINDS,
+    PHYSICS_DISPLAY_NAME,
     PHYSICS_PURPOSE,
     PHYSICS_ROOM_ID,
     RoomStore,
@@ -69,7 +70,8 @@ def test_a_fresh_store_has_physics(store: RoomStore) -> None:
     room = store.get(PHYSICS_ROOM_ID)
     assert room is not None
     assert is_perma(room.id)
-    assert room.name == "Physics"
+    assert room.name == PHYSICS_DISPLAY_NAME
+    assert room.name == "Reality"
     assert room.purpose == PHYSICS_PURPOSE
     assert room.kind == "analysis"
     assert room.root == ""
@@ -136,6 +138,10 @@ def test_a_name_resolves_by_id_name_or_unique_prefix(store: RoomStore) -> None:
 
     assert store.find("physics").id == "physics"
     assert store.find("Physics").id == "physics"
+    assert store.find("Reality").id == "physics"
+    assert store.find("world").id == "physics"
+    assert store.find("solar lab").id == "physics"
+    assert store.find("reality").id == "physics"
     assert store.find("reading group").id == "reading-group"
     assert store.find("read").id == "reading-group"
 
@@ -177,9 +183,27 @@ def test_a_room_needs_a_name_with_something_in_it(store: RoomStore) -> None:
 def test_two_rooms_cannot_share_an_id(store: RoomStore) -> None:
     with pytest.raises(ValueError):
         store.create("physics")
+    with pytest.raises(ValueError, match="Reality already exists"):
+        store.create("Reality")
+    with pytest.raises(ValueError, match="Reality already exists"):
+        store.create("world")
+    with pytest.raises(ValueError, match="Reality already exists"):
+        store.create("solar lab")
     store.create("Writing")
     with pytest.raises(ValueError):
         store.create("writing")
+
+
+def test_an_old_physics_name_becomes_reality(tmp_path: Path) -> None:
+    path = tmp_path / "rooms.yaml"
+    first = RoomStore(path)
+    first.update(PHYSICS_ROOM_ID, name="Physics")
+    assert first.get(PHYSICS_ROOM_ID).name == "Physics"
+
+    reopened = RoomStore(path)
+    assert reopened.get(PHYSICS_ROOM_ID).name == "Reality"
+    assert reopened.find("Reality").id == "physics"
+    assert reopened.find("physics").id == "physics"
 
 
 def test_forgetting_a_room_leaves_the_others_and_closes_it(store: RoomStore) -> None:
@@ -251,7 +275,7 @@ def test_the_purpose_reaches_the_prompt_with_the_folder(store: RoomStore) -> Non
 
     block = room.prompt_block()
 
-    assert "Physics" in block
+    assert "Reality" in block
     assert "Analysing the survey data." in block
     assert "Lab Notes" in block
 
@@ -280,6 +304,12 @@ def test_slugs_stay_sayable(store: RoomStore) -> None:
         "go to the physics room",
         "work in physics",
         "can we work on physics?",
+        "let's work on Reality",
+        "open Reality",
+        "enter Reality",
+        "open the Reality room",
+        "open world",
+        "open the solar lab",
     ],
 )
 def test_these_are_asking_for_a_room(said: str) -> None:
@@ -314,6 +344,10 @@ def test_some_physics_is_the_physics_room(store: RoomStore) -> None:
     assert store.find("some physics").id == "physics"
     assert store.find(match_enter_intent("let's work on the budget") or "") is None
     assert store.find(match_enter_intent("let's work on physics") or "").id == "physics"
+    assert store.find(match_enter_intent("open Reality") or "").id == "physics"
+    assert store.find(match_enter_intent("enter Reality") or "").id == "physics"
+    assert store.find(match_enter_intent("open world") or "").id == "physics"
+    assert store.find(match_enter_intent("open the solar lab") or "").id == "physics"
 
 
 @pytest.mark.parametrize(

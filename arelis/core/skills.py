@@ -682,10 +682,10 @@ SKILL_CARDS: dict[str, SkillCard] = {
 - Papers on arXiv, JPL Horizons, NASA APOD, and NASA ADS call catalog.
   Acknowledge arXiv. Do not scrape NASA JavaScript. APOD and ADS need a
   free key in data/secrets.yaml; say so if the tool reports it is missing.
-  Horizons `table=vectors` is SSB ECLIPJ2000 state for the solar lab;
+  Horizons `table=vectors` is SSB ECLIPJ2000 state for Reality;
   observer tables are for the sky. Do not invent a bibcode, an abstract,
   or an ephemeris. "Find me a paper" is catalog, not a guess.
-- The physics-room solar lab is the `solar` tool (REBOUND, true scale).
+- Reality's solar system is the `solar` tool (REBOUND, true scale).
   load uses Horizons VECTORS. realtime (key 1, or 1×) discards any warp
   and locks IAS15 to UTC now from the Horizons epoch — Moon and Earth are
   where they are this minute, not a warped future and not midnight of the
@@ -694,10 +694,10 @@ SKILL_CARDS: dict[str, SkillCard] = {
   bite, Saturn's shadow on the rings). Night is dark; earthshine on the Moon.
   impulse/add_probe need Allow. fetch_maps
   pulls NASA public albedo for approach/orbit only — not landing.
-  Leaving the solar lab writes a cited JSONL under outputs/physics/solar.
+  Leaving Reality writes a cited JSONL under outputs/physics/solar.
   dump this state is solar action=dump without leaving. Not a screenshot. No GL still.
-  In the physics room, "take me to Earth", "show the magnetosphere",
-  pause/faster, and open/close the solar lab or toy are closed verbs —
+  In Reality, "take me to Earth", "show the magnetosphere",
+  pause/faster, and open/close Reality or the toy are closed verbs —
   do not call solar or tile for those. For an unnamed body, solar
   action=travel or lock. Travel flies the camera; inspect/lock does not.
 - Earth is a zone inside that lab, not a new room and not a titled product.
@@ -834,6 +834,8 @@ SKILL_CARDS: dict[str, SkillCard] = {
             "close the camera",
             "open contacts",
             "close contacts",
+            "open Reality",
+            "close Reality",
             "open world",
             "close world",
             "hide the tile",
@@ -850,16 +852,16 @@ SKILL_CARDS: dict[str, SkillCard] = {
         body="""
 ### Tiles (View menu)
 - To show or hide an Arelis panel ("open my notifications", "close history",
-  "open the workspace", "close thinking", "open the camera", "open contacts",
-  "open world"),
+  "open the workspace", "close thinking", "open the camera", "open contacts"),
   call tile(action=open|close, name=thinking|workspace|history|notifications|
   camera|contacts|calendar|world). Do not use the browser.
 - "Close them" / "hide it" after opening a tile: tile(action=close) with no
   name reuses the last one.
 - Calendar events still use agenda. tile(name=calendar) only shows or hides
-  the local calendar window. World is the physics-room plate. "Open the
-  solar lab" is tile(action=open, name=world, page=solar); "open the toy
-  area" / "open hands" uses page=hands. "Open world" is the chooser.
+  the local calendar window. Reality is the plate (tile name=world).
+  "Open Reality" is tile(action=open, name=world, page=solar) when they
+  want the sim, or omit page for the chooser. "Open hands" / "open the
+  toy area" uses page=hands. Do not invent a World or solar-lab tile.
 """.strip(),
     ),
     "rooms": SkillCard(
@@ -890,11 +892,12 @@ SKILL_CARDS: dict[str, SkillCard] = {
 - A room is a named place for one long-running piece of work. It keeps its own
   conversation thread, points at one workspace project, and gives you its
   purpose at the start of every turn inside it.
-- Walking in is not your job. "Let's work on physics", "open the physics room",
-  and `/room physics` are handled before the turn — they enter the permanent
-  physics room, or make a room that does not exist yet. Do not call
-  rooms(action=create) for that, and never create a room that already exists.
-  Physics cannot be forgotten.
+- Walking in is not your job. "Let's work on Reality", "open Reality",
+  "enter Reality", and `/room physics` are handled before the turn — they
+  enter the permanent Reality room (id physics), or make a room that does
+  not exist yet. Do not call rooms(action=create) for that, and never
+  create a room that already exists. Reality cannot be forgotten. Do not
+  create a second room named Reality or Earth.
 - When they ask for a configured room (purpose, folder, kind in the same
   sentence), call rooms(action=create) and fill those fields from what they
   already said. Ask only for what is genuinely missing.

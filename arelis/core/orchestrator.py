@@ -942,7 +942,11 @@ class Orchestrator:
             mark = " (open)" if room.id == active else ""
             detail = room.purpose or room.spec.blurb
             where = f" · `{room.root}`" if room.root else ""
-            lines.append(f"- `{room.id}`{mark} — {detail}{where}")
+            if room.name and room.name.lower() != room.id:
+                ident = f"{room.name} (`{room.id}`)"
+            else:
+                ident = f"`{room.id}`"
+            lines.append(f"- {ident}{mark} — {detail}{where}")
         body = "Rooms:\n" + "\n".join(lines)
         if active:
             body += "\n\nLeave with `/leave`."
@@ -951,35 +955,52 @@ class Orchestrator:
         return body
 
     async def _enter_or_create_room(self, wanted: str) -> None:
-        """`/room physics` and \"let's work on some physics\" are the same.
+        """`/room physics` and \"let's work on Reality\" are the same room.
 
         Find the room. Walk in. If there isn't one and the name is a room
         name, make it and walk in. Already inside: say so, do not start a turn.
+        Earth is a zone inside Reality, not a room to create.
         """
+        from arelis.rooms import PHYSICS_ALIASES
+
         name = normalize_room_name(wanted)
         if not name:
             await self._say(
-                "Name it: `/room new physics`, or say \"let's work on physics\"."
+                "Name it: `/room physics`, or say \"let's work on Reality\"."
+            )
+            return
+        folded = name.lower()
+        if folded == "earth":
+            await self._say(
+                "Earth is a zone inside Reality, not a room. "
+                "Say \"let's work on Reality\", then enter Earth."
             )
             return
         room = self.rooms.find(name)
         created = False
         if room is None:
-            if not looks_like_room_name(name):
+            if folded in PHYSICS_ALIASES:
+                room = self.rooms.get(PHYSICS_ROOM_ID)
+            if room is None and not looks_like_room_name(name):
                 await self._say(
                     f"No room called `{name}`. "
                     f"Make one with `/room new {name}`, or `/rooms` to see what exists."
                 )
                 return
-            display = name if any(ch.isupper() for ch in name) else name.title()
-            try:
-                room = self.rooms.create(display)
-            except ValueError as exc:
-                await self._say(str(exc))
-                return
-            created = True
+            if room is None:
+                display = name if any(ch.isupper() for ch in name) else name.title()
+                try:
+                    room = self.rooms.create(display)
+                except ValueError as exc:
+                    await self._say(str(exc))
+                    return
+                created = True
+        if room is None:
+            await self._say(f"No room called `{name}`.")
+            return
         if room.id == self.rooms.active_id:
-            await self._say(f"Already in the `{room.id}` room.")
+            await self._offer_reality_plate(room)
+            await self._say(f"Already in {room.name}.")
             return
         preamble = ""
         if created:
@@ -989,6 +1010,18 @@ class Orchestrator:
                 f"`/room set root <project>` — `/project` lists them."
             )
         await self._enter_room(room, preamble=preamble)
+        await self._offer_reality_plate(room)
+
+    async def _offer_reality_plate(self, room: Room) -> None:
+        """Open Reality's plate when the stage is granted. One room, one thread."""
+        if room.id != PHYSICS_ROOM_ID:
+            return
+        await self.bus.publish(
+            Event(
+                EventType.PHYSICS_VERB,
+                {"verb": "lab", "on": True, "text": "open Reality"},
+            )
+        )
 
     def _set_room_field(self, rest: str) -> str:
         room = self.rooms.active
@@ -1102,7 +1135,7 @@ class Orchestrator:
         if silent:
             return
         opened = "Picking up where we left off." if rows else "New thread."
-        lines = [preamble] if preamble else [f"In the `{room.id}` room. {opened}"]
+        lines = [preamble] if preamble else [f"In {room.name}. {opened}"]
         if room.purpose:
             lines.append(room.purpose)
         where = []
@@ -1150,7 +1183,7 @@ class Orchestrator:
         self._general_session = ""
 
         await self._publish_room(None, target, rows, summary)
-        await self._say(f"Out of the `{room.id}` room. Back to the general conversation.")
+        await self._say(f"Out of {room.name}. Back to the general conversation.")
 
     async def _publish_room_only(self, room: Room) -> None:
         """The room's details changed, but the thread did not.

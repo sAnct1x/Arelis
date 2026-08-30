@@ -226,6 +226,39 @@ async def test_saying_it_works_when_the_room_exists(harness) -> None:
 
 
 @pytest.mark.asyncio
+async def test_saying_reality_enters_the_physics_room(harness) -> None:
+    await harness.say("open Reality")
+
+    assert harness.rooms.active_id == "physics"
+    assert "Reality" in harness.said[-1]
+
+
+@pytest.mark.asyncio
+async def test_saying_open_world_enters_reality(harness) -> None:
+    await harness.say("open world")
+
+    assert harness.rooms.active_id == "physics"
+    assert "Reality" in harness.said[-1]
+
+
+@pytest.mark.asyncio
+async def test_saying_solar_lab_enters_reality(harness) -> None:
+    await harness.say("open the solar lab")
+
+    assert harness.rooms.active_id == "physics"
+    assert "Reality" in harness.said[-1]
+
+
+@pytest.mark.asyncio
+async def test_enter_earth_is_not_a_room(harness) -> None:
+    await harness.say("enter Earth")
+
+    assert harness.rooms.active_id == ""
+    assert harness.rooms.get("earth") is None
+    assert "zone" in harness.said[-1].lower()
+
+
+@pytest.mark.asyncio
 async def test_some_physics_enters_the_physics_room(harness) -> None:
     await harness.say("let's work on some physics")
 
@@ -268,7 +301,7 @@ async def test_entering_a_room_in_conversation_speaks_the_ack(harness) -> None:
 
     assert harness.rooms.active_id == "physics"
     assert spoken
-    assert "physics" in spoken[0].lower()
+    assert "reality" in spoken[0].lower()
 
 
 @pytest.mark.asyncio
@@ -412,7 +445,7 @@ async def test_the_room_list_names_the_open_one(harness) -> None:
     await harness.say("/rooms")
 
     listing = harness.said[-1]
-    assert "`physics` (open)" in listing
+    assert "Reality (`physics`) (open)" in listing
     assert "`writing`" in listing
 
 

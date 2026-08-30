@@ -14,8 +14,8 @@ class TileTool:
         "Open or close an Arelis tile (the View menu): thinking, workspace, "
         "history, notifications, camera, contacts, calendar, world. "
         "action=open shows it; action=close hides it. "
-        "World is the physics-room plate (hands sandbox / solar lab). "
-        "page=solar enters the lab; page=hands enters the toy. "
+        "name=world is Reality's plate (true-scale solar system / hands). "
+        "page=solar enters the sim; page=hands enters the toy. "
         "Omit page for the chooser. "
         "For calendar events use agenda, not this tool. "
         "Do not use the browser to open these."
@@ -39,7 +39,7 @@ class TileTool:
                 "type": "string",
                 "enum": ["solar", "hands"],
                 "description": (
-                    "World page. solar is the lab; hands is the toy. "
+                    "Reality page. solar is the sim; hands is the toy. "
                     "Omit for the chooser."
                 ),
             },
@@ -62,7 +62,8 @@ class TileTool:
                 ok=False,
                 output=(
                     "Name a tile: thinking, workspace, history, "
-                    "notifications, camera, contacts, calendar, or world."
+                    "notifications, camera, contacts, calendar, or Reality "
+                    "(name=world)."
                 ),
             )
         type(self).last_name = name
@@ -80,8 +81,9 @@ class TileTool:
         if page:
             data["page"] = page
         note = f" {page}" if page else ""
+        shown = "Reality" if name == "world" else name
         return ToolResult(
             ok=True,
-            output=f"{verb} {name}{note}.",
+            output=f"{verb} {shown}{note}.",
             data=data,
         )

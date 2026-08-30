@@ -19,13 +19,9 @@ from typing import Any
 from arelis.config import load_config
 from arelis.core.bus import EventBus
 from arelis.core.events import Event, EventType
-from arelis.core.memory import SessionMemory
-from arelis.core.orchestrator import Orchestrator
 from arelis.jobs.store import Job, get_job, record_run
-from arelis.llm import build_router
 from arelis.mail import Mailer, load_account
 from arelis.paths import logs_dir
-from arelis.tools import build_tool_registry
 from arelis.workspace import WorkspaceRoots
 
 log = logging.getLogger(__name__)
@@ -106,14 +102,14 @@ async def run_job_async(job: Job, config: dict[str, Any] | None = None) -> int:
             )
         return await _mail_and_finish(job, mailer, to, subject, body, status)
 
-    bus = EventBus()
+    from arelis.core.seat import build_seat
+
+    # allow_send=False (and attended=False with it) is the load-bearing line.
+    # Fresh memory, no sink: the job neither sees chat nor leaves anything in it.
+    seat = build_seat(config, profile="job")
+    bus = seat.bus
+    router = seat.router
     collector = _Collector(bus)
-    router = build_router(config)
-    # allow_send=False is the load-bearing line in this file.
-    tools = build_tool_registry(config, workspace, allow_send=False)
-    # A fresh memory per run: the job neither sees your chat history nor leaves
-    # anything in it, and two runs of the same job never blur together.
-    Orchestrator(bus, router, tools, config, SessionMemory(), workspace=workspace)
 
     bus_task = asyncio.create_task(bus.run())
     status = "ok"

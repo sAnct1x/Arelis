@@ -1,4 +1,4 @@
-"""Drive the Earth zone from the physics room. Not a second product.
+"""Drive the Earth zone from Reality. Not a second product.
 
 Enter/leave reparents knowledge, not the whole UI. Entities are ECEF.
 The plate still paints ECLIPJ2000. dump writes a cited JSONL under
@@ -21,7 +21,7 @@ WRITE_ACTIONS: frozenset[str] = frozenset()
 class EarthTool:
     name = "earth"
     description = (
-        "Earth zone inside the physics-room solar lab. "
+        "Earth zone inside Reality. "
         "enter opens an observer plate on Earth (every squawking plane, "
         "coastal ships when keyed, sats, UAV ADS-B, ISS, quakes, fires, radio, "
         "published camera pins). Individual cars are not a public feed. "

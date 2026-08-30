@@ -1,14 +1,29 @@
 """ECEF metres <-> ECLIPJ2000 metres using the solar-lab Earth body.
 
-The Earth-zone store is ECEF. The plate is still ECLIPJ2000. This is the
-handoff, not a second camera until ride mode asks for one.
+The Earth-zone store is ECEF. The plate still paints ECLIPJ2000. Once
+the globe fills the view, the inspect eye is also ECEF — continents stay
+put, contacts move over them. Leave / travel away / reset view drops
+that lock and the solar-lab camera is inertial again.
 """
 
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 
 from arelis.physics.attitude import _earth_frame, gmst_rad, spin_jd
+
+# Inside this many IAU radii the eye rides Earth. Outside, inertial.
+EARTH_LOCK_RADII = 24.0
+
+
+@dataclass(frozen=True)
+class EarthCam:
+    """Inspect eye in ECEF metres. Not a spacecraft state."""
+
+    eye: tuple[float, float, float]
+    look: tuple[float, float, float]
+    up: tuple[float, float, float]
 
 # WGS84. Sketch geoid: spherical labels, ellipsoidal radius for height.
 WGS84_A = 6_378_137.0
@@ -153,3 +168,46 @@ def ecef_vel_from_track(
         ve * east[1] + vn * north[1] + vu * up[1],
         ve * east[2] + vn * north[2] + vu * up[2],
     )
+
+
+def earth_eye_locked(
+    earth_xyz: tuple[float, float, float],
+    earth_radius: float,
+    cam_xyz: tuple[float, float, float],
+) -> bool:
+    """True when the inspect eye is close enough to ride ECEF."""
+    dx = cam_xyz[0] - earth_xyz[0]
+    dy = cam_xyz[1] - earth_xyz[1]
+    dz = cam_xyz[2] - earth_xyz[2]
+    reach = max(float(earth_radius), 1.0) * EARTH_LOCK_RADII
+    return dx * dx + dy * dy + dz * dz <= reach * reach
+
+
+def capture_earth_cam(cam, earth_xyz: tuple[float, float, float], jd: float) -> EarthCam:
+    """Read the solar-lab camera as an ECEF pose."""
+    ex, ey, ez = earth_xyz
+    eye = ecliptic_offset_to_ecef((cam.x - ex, cam.y - ey, cam.z - ez), jd)
+    fx, fy, fz = cam.forward()
+    dist = float(cam.distance) if cam.distance > 1.0 else math.hypot(
+        cam.x - ex, cam.y - ey, cam.z - ez
+    )
+    look_ecl = (cam.x + fx * dist, cam.y + fy * dist, cam.z + fz * dist)
+    look = ecliptic_offset_to_ecef(
+        (look_ecl[0] - ex, look_ecl[1] - ey, look_ecl[2] - ez), jd
+    )
+    up = ecliptic_offset_to_ecef(cam.up, jd)
+    return EarthCam(eye=eye, look=look, up=up)
+
+
+def apply_earth_cam(
+    cam,
+    earth_xyz: tuple[float, float, float],
+    jd: float,
+    pose: EarthCam,
+) -> None:
+    """Write an ECEF pose onto the solar-lab camera for this instant."""
+    eye = ecef_to_ecliptic(earth_xyz, pose.eye, jd)
+    look = ecef_to_ecliptic(earth_xyz, pose.look, jd)
+    up = ecef_vel_to_ecliptic(pose.up, jd)
+    cam.x, cam.y, cam.z = eye
+    cam.aim(look[0], look[1], look[2], up=up)

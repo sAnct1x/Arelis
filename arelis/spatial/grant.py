@@ -1,4 +1,4 @@
-"""MotionGrant: pose is allowed only in the physics room, while tracking is on."""
+"""MotionGrant: pose is allowed only in Reality, while tracking is on."""
 
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ class MotionGrant:
 
 
 def world_stage_allowed() -> bool:
-    """World plate, solar sim, and C920 stage. Source checkout only.
+    """Reality plate, solar sim, and C920 stage. Source checkout only.
 
     An installer tree (unins000.exe at install_root) and a wheel in
     site-packages must not offer the stage. The physics *room* still

@@ -10,9 +10,9 @@ drive her own browser, and keep longer work in named **rooms**. Mail,
 texts, and calendar stay off until you connect them. Anything that
 writes a file or sends a message waits for you to allow it.
 
-The published installer is **0.2.3**. A source checkout has more: the
-physics room's World plate, the solar lab, and the Earth zone. Those
-are not in the installer.
+The published installer is **0.2.3**. A source checkout has more:
+**Reality** — the permanent room for the true-scale solar system and
+the Earth zone. Those are not in the installer.
 
 AGPL. How the code is put together: [architecture.md](docs/architecture.md).
 
@@ -209,9 +209,10 @@ Mail, calendar, and texts through your Android phone work **after** you
 connect them. She can also write a PDF, Word file, spreadsheet, or
 markdown note.
 
-From a source checkout only: the physics-room World plate, solar lab,
-and Earth zone ([earth.md](docs/earth.md)). Installed copies still get
-the physics *room* (chat, CAS, Horizons). The 3D plate does not ship.
+From a source checkout only: Reality's plate, the true-scale solar
+system, and the Earth zone ([earth.md](docs/earth.md)). Installed copies
+still get Reality as a room (chat, CAS, Horizons). The 3D plate does
+not ship.
 
 Tests cover this. Voice timing, a real handset, and image generation
 have only been run end to end on the author's hardware. Odd behaviour on
@@ -231,7 +232,7 @@ yours is worth an issue. The published installer is **0.2.3**. Notes:
 | [notify-inbound.md](docs/notify-inbound.md) | Phone app |
 | [calendar-oauth.md](docs/calendar-oauth.md) | Connecting a calendar |
 | [architecture.md](docs/architecture.md) | How the code is put together |
-| [earth.md](docs/earth.md) | Earth zone (source checkout) |
+| [earth.md](docs/earth.md) | Earth zone inside Reality (source checkout) |
 | [telemetry.md](docs/telemetry.md) | Logs, on your disk |
 | [win-installer/README.md](win-installer/README.md) | Building the installer |
 

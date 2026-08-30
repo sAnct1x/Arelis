@@ -13,6 +13,7 @@ from arelis.earth.frames import (
     earth_spin_jd,
     ecef_to_ecliptic,
     ecef_to_lla,
+    ecef_vel_to_ecliptic,
     ecliptic_offset_to_ecef,
     lla_to_ecef,
 )
@@ -310,7 +311,19 @@ def hit_entity(
 def ride_eye(
     system: SolarSystem, entity: Entity
 ) -> tuple[float, float, float] | None:
-    """Camera a few radii behind the contact, looking at Earth."""
+    """Sit on the contact: a short hop along Earth-radial, not a chase cam."""
+    pose = ride_pose(system, entity)
+    return None if pose is None else pose[0]
+
+
+def ride_pose(
+    system: SolarSystem, entity: Entity
+) -> tuple[
+    tuple[float, float, float],
+    tuple[float, float, float],
+    tuple[float, float, float],
+] | None:
+    """Eye, look-at, and Earth-radial up for sitting on a contact."""
     world = entity_world(system, entity)
     earth = system.nbody.find("Earth")
     if world is None or earth is None:
@@ -319,8 +332,17 @@ def ride_eye(
     ex, ey, ez = earth.x, earth.y, earth.z
     dx, dy, dz = wx - ex, wy - ey, wz - ez
     n = math.sqrt(dx * dx + dy * dy + dz * dz) or 1.0
-    standoff = max(80_000.0, 0.08 * n)
-    return (wx + dx / n * standoff, wy + dy / n * standoff, wz + dz / n * standoff)
+    ux, uy, uz = dx / n, dy / n, dz / n
+    sit = max(40.0, min(250.0, 0.00002 * n))
+    eye = (wx + ux * sit, wy + uy * sit, wz + uz * sit)
+    jd = earth_jd(system)
+    vx, vy, vz = ecef_vel_to_ecliptic((entity.vx, entity.vy, entity.vz), jd)
+    speed = math.sqrt(vx * vx + vy * vy + vz * vz)
+    if speed >= 0.5:
+        look = (wx + vx, wy + vy, wz + vz)
+    else:
+        look = (ex, ey, ez)
+    return (eye, look, (ux, uy, uz))
 
 
 def _occulted(

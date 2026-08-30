@@ -1,4 +1,4 @@
-"""Floating world plate — physics room only. Calendar-class chrome."""
+"""Floating Reality plate — physics room only. Calendar-class chrome."""
 
 from __future__ import annotations
 
@@ -109,7 +109,7 @@ class WorldPause(QWidget):
 
 
 class WorldChooser(QWidget):
-    """First page behind World: hands sandbox or the solar lab."""
+    """First page behind Reality: hands sandbox or the solar system."""
 
     hands_requested = Signal()
     solar_requested = Signal()
@@ -127,8 +127,8 @@ class WorldChooser(QWidget):
         layout.addWidget(title)
         hint = QLabel(
             "Hands is the tracking sandbox — polygons, g = 2.4, not metres.\n"
-            "Solar system is the lab. The plate fills now; one Horizons fetch "
-            "replaces the catalog if JPL answers."
+            "Solar system is the true-scale sim. The plate fills now; one "
+            "Horizons fetch replaces the catalog if JPL answers."
         )
         hint.setObjectName("InstrumentHint")
         hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -152,14 +152,14 @@ class WorldChooser(QWidget):
 
 
 class WorldWindow(QWidget):
-    """Frameless plate. Hide, do not destroy. Leave Physics must hide it."""
+    """Frameless plate. Hide, do not destroy. Leave Reality must hide it."""
 
     closed = Signal()
 
     def __init__(self, scene: WorldScene, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("WorldWindow")
-        self.setWindowTitle("world")
+        self.setWindowTitle("Reality")
         self.resize(1280, 800)
         self.setMinimumSize(720, 480)
         self.setWindowFlags(
@@ -193,10 +193,10 @@ class WorldWindow(QWidget):
         root.setSpacing(8)
 
         head = QHBoxLayout()
-        self.heading = QLabel("world")
+        self.heading = QLabel("Reality")
         self.heading.setObjectName("SettingsHeading")
         self.heading.setCursor(Qt.CursorShape.OpenHandCursor)
-        self.heading.setToolTip("Physics room · drag to move")
+        self.heading.setToolTip("Reality · drag to move")
         self.heading.installEventFilter(self)
         head.addWidget(self.heading, stretch=1)
         self.min_btn = _chrome_btn("ChromeMin", window_minimize_icon(14), self._minimize)
@@ -206,7 +206,7 @@ class WorldWindow(QWidget):
         close_btn.setIcon(window_close_icon(12))
         close_btn.setFixedSize(METRICS["row"], METRICS["row"])
         close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        close_btn.setToolTip("Hide world (strip or Ctrl+8)")
+        close_btn.setToolTip("Hide Reality (strip or Ctrl+8)")
         close_btn.clicked.connect(self.close)
         head.addWidget(self.min_btn)
         head.addWidget(self.max_btn)
@@ -286,7 +286,7 @@ class WorldWindow(QWidget):
         elif page is self.panel:
             self.heading.setText("hands")
         else:
-            self.heading.setText("world")
+            self.heading.setText("Reality")
 
     def _escape(self) -> None:
         if self.pause.isVisible():

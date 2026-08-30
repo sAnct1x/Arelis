@@ -1,4 +1,4 @@
-"""Instantiate and drive the solar-system laboratory. Physics room."""
+"""Instantiate and drive the solar-system laboratory. Reality."""
 
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ WRITE_ACTIONS = frozenset(
 class SolarTool:
     name = "solar"
     description = (
-        "True-scale solar-system laboratory in the physics room. "
+        "True-scale solar-system laboratory in Reality. "
         "load fetches JPL Horizons VECTORS (SSB, ECLIPJ2000) and runs "
         "REBOUND IAS15. That is the only IC. status reads the HUD. "
         "lock opens the inspect tile; travel flies the camera "
@@ -43,7 +43,7 @@ class SolarTool:
         "realtime locks IAS15 to UTC now (1 sim second per wall second). "
         "It is not a warp of 1× from midnight. "
         "dump writes a cited JSONL receipt under outputs/physics/solar. "
-        "Leaving the solar lab does the same automatically. Not a screenshot. "
+        "Leaving Reality does the same automatically. Not a screenshot. "
         "Belt tracers omitted. No GL still. "
         "Do not invent an ephemeris or Euler-step in prose. "
         "Belt tracers are unlabeled particles, not named asteroids. "
@@ -147,7 +147,7 @@ class SolarTool:
                 ok=False,
                 output=(
                     "The solar-system stage is source-checkout only. "
-                    "The physics room still works for chat and Horizons observer."
+                    "Reality still works for chat and Horizons observer."
                 ),
                 data={"fail_class": "fail:stage"},
             )
@@ -157,7 +157,7 @@ class SolarTool:
         if system is None:
             return ToolResult(
                 ok=False,
-                output="No solar system loaded. Call solar action=load in the physics room.",
+                output="No solar system loaded. Call solar action=load in Reality.",
                 data={"fail_class": "fail:empty"},
             )
         if action == "pause":

@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 
 import pytest
 
 from arelis.earth.dump import dump_state
 from arelis.earth.frames import ecef_to_ecliptic, ecef_to_lla, lla_to_ecef
-from arelis.earth.runtime import EarthRuntime, set_earth
+from arelis.earth.runtime import EarthRuntime, get_earth, set_earth
 from arelis.earth.simulate import CAMERAS, ISS_NORAD, ISS_PERIOD_S, iss_entity, populate
 from arelis.earth.store import EntityStore
 from arelis.spatial.verbs import classify_physics_act
@@ -198,6 +199,127 @@ def test_ecef_to_ecliptic_moves_with_earth_center() -> None:
     a = ecef_to_ecliptic((0.0, 0.0, 0.0), ecef, 2_451_545.0)
     b = ecef_to_ecliptic((1.0e9, 0.0, 0.0), ecef, 2_451_545.0)
     assert b[0] - a[0] == pytest.approx(1.0e9, rel=1e-9)
+
+
+def test_earth_cam_follows_earth_center() -> None:
+    from arelis.earth.frames import EarthCam, apply_earth_cam
+    from arelis.physics.camera import FlyCamera
+
+    cam = FlyCamera()
+    jd = 2_451_545.0
+    earth_a = (1.5e11, 0.0, 0.0)
+    earth_b = (0.0, 1.5e11, 0.0)
+    pose = EarthCam(
+        eye=lla_to_ecef(0.0, 0.0, 50_000_000.0),
+        look=(0.0, 0.0, 0.0),
+        up=(0.0, 0.0, 1.0),
+    )
+    apply_earth_cam(cam, earth_a, jd, pose)
+    off_a = (cam.x - earth_a[0], cam.y - earth_a[1], cam.z - earth_a[2])
+    apply_earth_cam(cam, earth_b, jd, pose)
+    off_b = (cam.x - earth_b[0], cam.y - earth_b[1], cam.z - earth_b[2])
+    assert off_a[0] == pytest.approx(off_b[0], rel=1e-9, abs=1.0)
+    assert off_a[1] == pytest.approx(off_b[1], rel=1e-9, abs=1.0)
+    assert off_a[2] == pytest.approx(off_b[2], rel=1e-9, abs=1.0)
+
+
+def test_ride_pose_sits_on_the_contact() -> None:
+    from types import SimpleNamespace
+
+    from arelis.earth.entity import Entity
+    from arelis.ui.earth_overlay import entity_world, ride_pose
+
+    ecef = lla_to_ecef(0.0, 0.0, 400_000.0)
+    entity = Entity(
+        id="ride:test",
+        cls="station",
+        layer="iss",
+        label="ISS",
+        x=ecef[0],
+        y=ecef[1],
+        z=ecef[2],
+        vx=0.0,
+        vy=7_600.0,
+        vz=0.0,
+    )
+    earth = SimpleNamespace(x=0.0, y=0.0, z=0.0)
+    system = SimpleNamespace(
+        nbody=SimpleNamespace(find=lambda name: earth if name == "Earth" else None),
+        epoch_jd=2_451_545.0,
+        t=0.0,
+    )
+    pose = ride_pose(system, entity)
+    assert pose is not None
+    eye, look, up = pose
+    world = entity_world(system, entity)
+    assert world is not None
+    sit = math.dist(eye, world)
+    assert 40.0 <= sit <= 250.0
+    un = math.sqrt(up[0] ** 2 + up[1] ** 2 + up[2] ** 2)
+    assert un == pytest.approx(1.0, abs=1e-6)
+    ahead = math.dist(look, world)
+    to_earth = math.dist(look, (earth.x, earth.y, earth.z))
+    assert ahead < to_earth
+    still = Entity(
+        id="ride:still",
+        cls="camera",
+        layer="cameras",
+        label="cam",
+        x=ecef[0],
+        y=ecef[1],
+        z=ecef[2],
+    )
+    still_pose = ride_pose(system, still)
+    assert still_pose is not None
+    assert still_pose[1] == (earth.x, earth.y, earth.z)
+
+
+def test_earth_cam_roundtrip_keeps_the_eye() -> None:
+    from arelis.earth.frames import apply_earth_cam, capture_earth_cam
+    from arelis.physics.camera import FlyCamera
+
+    cam = FlyCamera()
+    earth = (1.4e11, 2.0e10, -1.0e9)
+    cam.x, cam.y, cam.z = earth[0] + 8.0e7, earth[1], earth[2]
+    cam.look_at(*earth)
+    jd = 2_451_545.0
+    pose = capture_earth_cam(cam, earth, jd)
+    cam.x += 1.0e9
+    apply_earth_cam(cam, earth, jd, pose)
+    assert cam.x == pytest.approx(earth[0] + 8.0e7, rel=1e-6, abs=20.0)
+    assert cam.y == pytest.approx(earth[1], rel=1e-6, abs=20.0)
+    assert cam.z == pytest.approx(earth[2], rel=1e-6, abs=20.0)
+
+
+def test_earth_cam_spin_keeps_ecef_eye() -> None:
+    from arelis.earth.frames import (
+        EarthCam,
+        apply_earth_cam,
+        ecliptic_offset_to_ecef,
+    )
+    from arelis.physics.camera import FlyCamera
+
+    cam = FlyCamera()
+    earth = (1.5e11, 0.0, 0.0)
+    pose = EarthCam(
+        eye=lla_to_ecef(40.0, -75.0, 40_000_000.0),
+        look=(0.0, 0.0, 0.0),
+        up=(0.0, 0.0, 1.0),
+    )
+    jd_a = 2_451_545.0
+    jd_b = jd_a + 0.5
+    apply_earth_cam(cam, earth, jd_a, pose)
+    off_a = (cam.x - earth[0], cam.y - earth[1], cam.z - earth[2])
+    apply_earth_cam(cam, earth, jd_b, pose)
+    off_b = (cam.x - earth[0], cam.y - earth[1], cam.z - earth[2])
+    ecef_a = ecliptic_offset_to_ecef(off_a, jd_a)
+    ecef_b = ecliptic_offset_to_ecef(off_b, jd_b)
+    assert ecef_a[0] == pytest.approx(pose.eye[0], rel=1e-6, abs=50.0)
+    assert ecef_b[0] == pytest.approx(pose.eye[0], rel=1e-6, abs=50.0)
+    assert ecef_a[1] == pytest.approx(pose.eye[1], rel=1e-6, abs=50.0)
+    assert ecef_b[1] == pytest.approx(pose.eye[1], rel=1e-6, abs=50.0)
+    assert math.hypot(*off_a) != pytest.approx(0.0)
+    assert off_a[0] != pytest.approx(off_b[0], abs=1.0e5)
 
 
 def test_jobs_do_not_get_earth() -> None:
@@ -2029,4 +2151,28 @@ def test_osm_tile_math_is_stable() -> None:
     assert len(corners) == 4
     lats = [c[0] for c in corners]
     assert min(lats) < 51.5 < max(lats)
+
+
+def test_travel_to_earth_locks_the_eye(qt_app) -> None:
+    from arelis.physics.demo import sun_and_planet
+    from arelis.physics.engine import rebound_available
+    from arelis.physics.runtime import set_system
+    from arelis.physics.scene import SolarSystem
+    from arelis.ui.panels.solar import SolarPanel
+
+    if not rebound_available():
+        pytest.skip("REBOUND is not installed")
+    set_system(SolarSystem.from_states(sun_and_planet(), tracers=0))
+    panel = SolarPanel()
+    panel.resize(640, 480)
+    panel._travel_to("Earth")
+    panel._finish_travel()
+    assert get_earth() is not None
+    assert get_earth().active
+    assert panel._earth_cam is not None
+    panel.reset_view()
+    assert panel._earth_cam is None
+    assert get_earth() is None or not get_earth().active
+    panel.hide()
+    set_system(None)
 

@@ -31,7 +31,7 @@ _ALIASES: tuple[tuple[str, str], ...] = (
     ("calendar", r"calendar|agenda"),
     (
         "world",
-        r"world|solar\s+lab|solar\s+system|toy\s+area|"
+        r"world|reality|solar\s+lab|solar\s+system|toy\s+area|"
         r"hands(?:\s+sandbox)?|sandbox",
     ),
 )
@@ -94,7 +94,7 @@ _HANDS_PAGE = re.compile(r"(?i)\b(?:toy\s+area|hands(?:\s+sandbox)?|sandbox)\b")
 
 
 def world_page_for(text: str) -> str:
-    """solar / hands when the words name a page; empty means the World chooser."""
+    """solar / hands when the words name a page; empty means Reality's chooser."""
     raw = text or ""
     if _SOLAR_PAGE.search(raw):
         return "solar"

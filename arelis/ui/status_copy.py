@@ -71,7 +71,7 @@ _ERRANDS: dict[str, str] = {
     "web_search": "searching the web",
     "workspace": "reading the file",
     "earth": "looking at Earth",
-    "solar": "looking at the solar lab",
+    "solar": "looking at Reality",
 }
 
 # A few tools do more than one thing, and the difference is worth a word. Keyed by

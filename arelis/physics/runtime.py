@@ -1,4 +1,4 @@
-"""Process-wide live solar system. The tool and the World plate share it."""
+"""Process-wide live solar system. The tool and Reality's plate share it."""
 
 from __future__ import annotations
 

@@ -41,6 +41,70 @@ HK_CAMERAS = (
 HK_HOST = "static.data.gov.hk"
 ON_CAMERAS = "https://511on.ca/api/v2/get/cameras?format=json"
 ON_HOST = "511on.ca"
+# Same CARS camera JSON as Ontario. Hosts already pinned for events,
+# plus a few more no-key CARS catalogs.
+_CARS_CAMERAS: tuple[tuple[str, str, str, str], ...] = (
+    (
+        "511.gov.mb.ca",
+        "https://511.gov.mb.ca/api/v2/get/cameras?format=json",
+        "mb-cam",
+        "Manitoba 511 cameras",
+    ),
+    (
+        "511.novascotia.ca",
+        "https://511.novascotia.ca/api/v2/get/cameras?format=json",
+        "ns-cam",
+        "Nova Scotia 511 cameras",
+    ),
+    (
+        "511.alberta.ca",
+        "https://511.alberta.ca/api/v2/get/cameras?format=json",
+        "ab-cam",
+        "Alberta 511 cameras",
+    ),
+    (
+        "hotline.gov.sk.ca",
+        "https://hotline.gov.sk.ca/api/v2/get/cameras?format=json",
+        "sk-cam",
+        "Saskatchewan 511 cameras",
+    ),
+    (
+        "fl511.com",
+        "https://fl511.com/api/v2/get/cameras?format=json",
+        "fl-cam",
+        "Florida 511 cameras",
+    ),
+    (
+        "511ny.org",
+        "https://511ny.org/api/v2/get/cameras?format=json",
+        "ny-cam",
+        "New York 511 cameras",
+    ),
+    (
+        "www.cotrip.org",
+        "https://www.cotrip.org/api/v2/get/cameras?format=json",
+        "co-cam",
+        "COtrip 511 cameras",
+    ),
+    (
+        "511ia.org",
+        "https://511ia.org/api/v2/get/cameras?format=json",
+        "ia-cam",
+        "Iowa 511 cameras",
+    ),
+    (
+        "511mn.org",
+        "https://511mn.org/api/v2/get/cameras?format=json",
+        "mn-cam",
+        "Minnesota 511 cameras",
+    ),
+    (
+        "511ga.org",
+        "https://511ga.org/api/v2/get/cameras?format=json",
+        "ga-cam",
+        "Georgia 511 cameras",
+    ),
+)
 TRIPCHECK = "https://tripcheck.com/Scripts/map/data/cctvinventory.js"
 TRIPCHECK_HOST = "tripcheck.com"
 MD_CAMERAS = (
@@ -90,6 +154,10 @@ _ON_CITE = (
     "Ontario 511 published camera positions. Operator catalog. "
     "Position only. No still ingest."
 )
+_CARS_CAM_CITE = (
+    "Published 511 camera catalog. Operator JSON. Position only. "
+    "No still ingest."
+)
 _TRIP_CITE = (
     "ODOT TripCheck CCTV inventory. Operator catalog. "
     "Position only. No still ingest."
@@ -135,7 +203,7 @@ _DIR_HEADING: dict[str, float] = {
 
 def fetch_cameras() -> list[Entity] | None:
     chunks: list[list[Entity] | None] = []
-    with ThreadPoolExecutor(max_workers=11) as pool:
+    with ThreadPoolExecutor(max_workers=12) as pool:
         futs = [
             pool.submit(_fetch_tfl),
             pool.submit(_fetch_caltrans),
@@ -144,6 +212,7 @@ def fetch_cameras() -> list[Entity] | None:
             pool.submit(_fetch_finland),
             pool.submit(_fetch_hongkong),
             pool.submit(_fetch_ontario),
+            pool.submit(_fetch_cars_cameras),
             pool.submit(_fetch_tripcheck),
             pool.submit(_fetch_md_cameras),
             pool.submit(_fetch_nd_cameras),
@@ -764,6 +833,46 @@ def entities_from_geojson_cameras(
         if len(out) >= _CAP:
             break
     return out
+
+
+def _fetch_cars_cameras() -> list[Entity] | None:
+    chunks: list[list[Entity] | None] = []
+    with ThreadPoolExecutor(max_workers=len(_CARS_CAMERAS)) as pool:
+        futs = [
+            pool.submit(_get_json, url, host) for host, url, _prefix, _source in _CARS_CAMERAS
+        ]
+        meta = [(prefix, source) for _host, _url, prefix, source in _CARS_CAMERAS]
+        for fut, (prefix, source) in zip(futs, meta, strict=True):
+            payload = fut.result()
+            if isinstance(payload, list):
+                rows = [row for row in payload if isinstance(row, dict)]
+            elif isinstance(payload, dict):
+                raw = payload.get("cameras") or payload.get("data") or []
+                rows = (
+                    [row for row in raw if isinstance(row, dict)]
+                    if isinstance(raw, list)
+                    else []
+                )
+            else:
+                chunks.append(None)
+                continue
+            pins = entities_from_cars_cameras(
+                rows, prefix=prefix, source=source, cite=_CARS_CAM_CITE
+            )
+            chunks.append(pins or None)
+    if all(chunk is None for chunk in chunks):
+        return None
+    out: list[Entity] = []
+    seen: set[str] = set()
+    for chunk in chunks:
+        for entity in chunk or []:
+            if entity.id in seen:
+                continue
+            seen.add(entity.id)
+            out.append(entity)
+            if len(out) >= _CAP:
+                return out
+    return out or None
 
 
 def _fetch_ontario() -> list[Entity] | None:

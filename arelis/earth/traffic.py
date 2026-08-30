@@ -57,6 +57,9 @@ _CARS: tuple[tuple[str, str, str], ...] = (
     ("fl511.com", "https://fl511.com/api/v2/get/event?format=json", "Florida 511"),
     ("511ny.org", "https://511ny.org/api/v2/get/event?format=json", "New York 511"),
     ("www.cotrip.org", "https://www.cotrip.org/api/v2/get/event?format=json", "COtrip 511"),
+    ("511ia.org", "https://511ia.org/api/v2/get/event?format=json", "Iowa 511"),
+    ("511mn.org", "https://511mn.org/api/v2/get/event?format=json", "Minnesota 511"),
+    ("511ga.org", "https://511ga.org/api/v2/get/event?format=json", "Georgia 511"),
 )
 
 # WZDx work-zone GeoJSON. Same honesty: published closures, not cars.
@@ -82,6 +85,9 @@ _WZDX: tuple[tuple[str, str, str], ...] = (
     ("511.novascotia.ca", "https://511.novascotia.ca/api/wzdx", "Nova Scotia WZDx"),
     ("hotline.gov.sk.ca", "https://hotline.gov.sk.ca/api/wzdx", "Saskatchewan WZDx"),
     ("fl511.com", "https://fl511.com/api/wzdx", "FL511 WZDx"),
+    ("511ia.org", "https://511ia.org/api/wzdx", "Iowa WZDx"),
+    ("511mn.org", "https://511mn.org/api/wzdx", "Minnesota WZDx"),
+    ("511ga.org", "https://511ga.org/api/wzdx", "Georgia WZDx"),
 )
 
 # Official ArcGIS FeatureServer GeoJSON. Operator catalogs, not VINs.
@@ -618,7 +624,7 @@ def _fetch_wzdx() -> list[Entity] | None:
     any_ok = False
     out: list[Entity] = []
     seen: set[str] = set()
-    with ThreadPoolExecutor(max_workers=6) as pool:
+    with ThreadPoolExecutor(max_workers=8) as pool:
         futs = [pool.submit(_get_json, url, host) for host, url, _name in _WZDX]
         names = {host: name for host, _url, name in _WZDX}
         hosts = [host for host, _url, _name in _WZDX]
@@ -800,7 +806,7 @@ def _fetch_cars() -> list[Entity] | None:
     any_ok = False
     out: list[Entity] = []
     seen: set[str] = set()
-    with ThreadPoolExecutor(max_workers=6) as pool:
+    with ThreadPoolExecutor(max_workers=8) as pool:
         futs = [pool.submit(_get_json, url, host) for host, url, _name in _CARS]
         names = {host: name for host, _url, name in _CARS}
         hosts = [host for host, _url, _name in _CARS]

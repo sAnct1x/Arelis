@@ -64,6 +64,7 @@ def build_tool_registry(
     workspace: WorkspaceRoots | None = None,
     *,
     allow_send: bool = True,
+    attended: bool | None = None,
     memory_store: MemoryStore | None = None,
     provider: OllamaProvider | None = None,
     router: ModelRouter | None = None,
@@ -78,17 +79,25 @@ def build_tool_registry(
     Pass the same WorkspaceRoots instance the orchestrator and UI hold so the
     active project stays shared.
 
-    allow_send=False leaves send_email and send_sms out. The scheduled job
-    runner uses it: nobody is watching at 7pm to read a confirm card, so the
-    answer is to give the model no way to send rather than a rule telling it
-    not to. The runner mails the finished answer itself.
+    Two flags used to be one. ``allow_send`` is outbound mail and SMS (and
+    schedule, which exists to deliver mail). ``attended`` is "a person is
+    here to read an Allow card": archive, vision, browser, solar, earth,
+    plot, document, clipboard, OCR, tile, research, agenda, contacts.
+
+    When ``attended`` is omitted it follows ``allow_send``, so every existing
+    caller keeps the same registry. Jobs pass ``allow_send=False`` and get
+    ``attended=False`` for free. Comfy ``image`` and deterministic
+    ``image_edit`` stay registered unattended — tests pin that; the job
+    runner skips the card rather than hiding the tool.
 
     memory_store is the same archive SessionMemory writes through in the UI and
     CLI. Archive tools (recall, memory) are registered only when a person is
-    present (allow_send=True) or when a store is passed in explicitly. The job
+    present (attended) or when a store is passed in explicitly. The job
     runner passes neither, so an unattended turn cannot search chat or write
     facts into an emailed digest.
     """
+    if attended is None:
+        attended = allow_send
     registry = ToolRegistry()
     workspace = workspace or WorkspaceRoots.from_config(config)
     # One RoomStore for rooms, documents, plots, and the orchestrator.
@@ -108,7 +117,7 @@ def build_tool_registry(
     research_cfg = tools_cfg.get("research") or {}
 
     archive: MemoryStore | None = None
-    if allow_send or memory_store is not None:
+    if attended or memory_store is not None:
         archive = memory_store or MemoryStore()
         embed_model = str(
             (config.get("memory") or {}).get("embed_model") or DEFAULT_EMBED_MODEL
@@ -176,9 +185,9 @@ def build_tool_registry(
         )
         registry.register(search_tool)
     # Attended multi-source research disposer. Needs search + scrape; unattended
-    # jobs skip it (allow_send=False) the same way send tools are withheld.
+    # jobs skip it (attended=False).
     if (
-        allow_send
+        attended
         and research_cfg.get("enabled", True)
         and search_tool is not None
         and scrape_tool is not None
@@ -256,7 +265,7 @@ def build_tool_registry(
             if allow_send and tools_cfg.get("schedule", {}).get("enabled", True):
                 registry.register(ScheduleTool())
     # Agenda: Google/Outlook (+ ICS fallback). Writes need Allow; unattended
-    # jobs do not get this tool (allow_send=False).
+    # jobs do not get this tool (attended=False).
     #
     # tools.briefing.enabled is still read here. The briefing tool is gone, but
     # that key also stands for "keep the calendar side of the briefing working",
@@ -264,7 +273,7 @@ def build_tool_registry(
     # the agenda the digest is built from.
     cal_cfg = tools_cfg.get("calendar") or {}
     if (
-        allow_send
+        attended
         and (
             cal_cfg.get("enabled", True)
             or tools_cfg.get("briefing", {}).get("enabled", True)
@@ -273,7 +282,7 @@ def build_tool_registry(
     ):
         registry.register(AgendaTool(config))
     # Clipboard read needs a person for the Allow card (privacy).
-    if allow_send and (tools_cfg.get("clipboard") or {}).get("enabled", True):
+    if attended and (tools_cfg.get("clipboard") or {}).get("enabled", True):
         registry.register(
             ClipboardTool(
                 max_chars=int((tools_cfg.get("clipboard") or {}).get("max_chars", 8000)),
@@ -281,7 +290,7 @@ def build_tool_registry(
         )
     # CPU Tesseract OCR (+ optional screen grab). Attended + confirm_vision.
     ocr_cfg = tools_cfg.get("ocr") or {}
-    if allow_send and ocr_cfg.get("enabled", True):
+    if attended and ocr_cfg.get("enabled", True):
         out = ocr_cfg.get("output_dir") or "outputs/images"
         out_path = Path(out)
         if not out_path.is_absolute():
@@ -305,16 +314,16 @@ def build_tool_registry(
     # honestly until a free key is pasted.
     if tools_cfg.get("catalog", {}).get("enabled", True):
         registry.register(CatalogTool())
-    if allow_send and tools_cfg.get("solar", {}).get("enabled", True):
+    if attended and tools_cfg.get("solar", {}).get("enabled", True):
         registry.register(SolarTool())
-    if allow_send and tools_cfg.get("earth", {}).get("enabled", True):
+    if attended and tools_cfg.get("earth", {}).get("enabled", True):
         registry.register(EarthTool())
     # Charts write a PNG (Allow). Jobs skip — nobody is there to approve the file.
-    if allow_send and (tools_cfg.get("plot") or {}).get("enabled", True):
+    if attended and (tools_cfg.get("plot") or {}).get("enabled", True):
         registry.register(PlotTool(workspace, config["_rooms"]))
     # PDF / Word / Excel / CSV / markdown. Allow. Jobs skip — nobody is there
     # to approve a file landing on disk.
-    if allow_send and (tools_cfg.get("document") or {}).get("enabled", True):
+    if attended and (tools_cfg.get("document") or {}).get("enabled", True):
         registry.register(DocumentTool(workspace, config["_rooms"]))
     registry.register(CodeWorkspaceTool(workspace))
     # Read-only git; same roots as workspace. Always on when workspace is.
@@ -360,8 +369,8 @@ def build_tool_registry(
     # anyone anything — unlike vision, which needs somebody present to Allow.
     if (tools_cfg.get("image_edit") or {}).get("enabled", True):
         registry.register(ImageEditTool(workspace))
-    # Single-frame VL: attended only (Allow card). Jobs skip (allow_send=False).
-    if allow_send and vision_cfg.get("enabled", True) and router is not None:
+    # Single-frame VL: attended only (Allow card). Jobs skip (attended=False).
+    if attended and vision_cfg.get("enabled", True) and router is not None:
         ollama_cfg = config.get("ollama") or {}
         models_cfg = config.get("models") or {}
         vl_model = str(
@@ -400,7 +409,7 @@ def build_tool_registry(
         registry.register(CameraTool(config))
     # User-browser drive: attended turns only (jobs have nobody to Allow).
     browser_cfg = tools_cfg.get("browser") or {}
-    if allow_send and browser_cfg.get("enabled", True):
+    if attended and browser_cfg.get("enabled", True):
         from arelis.browser.session import BrowserSession
 
         aliases_raw = browser_cfg.get("aliases") or {}
@@ -416,6 +425,6 @@ def build_tool_registry(
         )
         registry.register(BrowserTool(session, aliases=aliases))
     # View-menu tiles. Attended only — there is no window in a job.
-    if allow_send:
+    if attended:
         registry.register(TileTool())
     return registry

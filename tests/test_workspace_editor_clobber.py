@@ -39,10 +39,10 @@ def window(qt_app, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     buffer, the window owns the disk and the copy — so a panel-only test would
     miss the half that matters.
     """
-    import arelis.ui.app as app_module
+    import arelis.ui.workspace_host as workspace_host
     from arelis.ui.app import ArelisWindow, BusBridge
 
-    monkeypatch.setattr(app_module, "push_recent_workspace_file", lambda path: [])
+    monkeypatch.setattr(workspace_host, "push_recent_workspace_file", lambda path: [])
     roots = WorkspaceRoots.from_paths([str(tmp_path)], active=tmp_path.name)
     window = ArelisWindow(
         {

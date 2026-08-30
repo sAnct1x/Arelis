@@ -103,7 +103,7 @@ async def test_the_rooms_purpose_is_in_front_of_her_every_turn(
     await _loop(rooms, recorder).run("what does the fit say?", "fast")
 
     text = _system_text(recorder)
-    assert "Room — Physics" in text
+    assert "Room — Reality" in text
     assert "Show the numbers you used." in text
 
 
@@ -220,7 +220,7 @@ async def test_analysis_room_does_not_plan_analyze_on_a_physics_question(
     await loop.run("how do toroids relate to physics?", "fast")
 
     text = _system_text(recorder)
-    assert "Room — Physics" in text
+    assert "Room — Reality" in text
     assert "Call analyze" not in text
     assert "named table/CSV" not in text
 

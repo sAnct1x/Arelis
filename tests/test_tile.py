@@ -30,6 +30,8 @@ from arelis.tools.tile import TileTool
         ("open world", ("open", "world")),
         ("open the world", ("open", "world")),
         ("close world", ("close", "world")),
+        ("open Reality", ("open", "world")),
+        ("close Reality", ("close", "world")),
         ("open the solar lab", ("open", "world")),
         ("close the solar lab", ("close", "world")),
         ("open the toy area", ("open", "world")),
@@ -102,6 +104,7 @@ async def test_tile_tool_world_page_is_solar_or_hands() -> None:
     opened = await tool.run(action="open", name="world", page="solar")
     assert opened.ok
     assert opened.data["page"] == "solar"
+    assert opened.output == "Opened Reality solar."
     toy = await tool.run(action="open", name="world", page="hands")
     assert toy.ok
     assert toy.data["page"] == "hands"
@@ -240,7 +243,7 @@ def test_tile_tool_result_opens_world_in_physics(arelis_window, qt_app) -> None:
     window._on_event(
         Event(
             EventType.ROOM_CHANGED,
-            {"room_id": "physics", "name": "Physics"},
+            {"room_id": "physics", "name": "Reality"},
         )
     )
     qt_app.processEvents()
@@ -285,7 +288,7 @@ def test_tile_tool_result_opens_solar_lab_not_chooser(
     window._on_event(
         Event(
             EventType.ROOM_CHANGED,
-            {"room_id": "physics", "name": "Physics"},
+            {"room_id": "physics", "name": "Reality"},
         )
     )
     qt_app.processEvents()

@@ -1,4 +1,4 @@
-"""Physics-room spatial stage. Rung 0: hands as numbers, not a world.
+"""Reality spatial stage. Rung 0: hands as numbers, not a world.
 
 The role model is not in this package. Pose updates must not wait on a turn.
 """

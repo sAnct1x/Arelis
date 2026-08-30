@@ -28,7 +28,7 @@ There is no person to press **allow**. The runner answers every confirm
 card with skip, and it never registers the tools that would need you:
 
 Send mail / SMS, her browser, vision, camera, clipboard, OCR, plot,
-document, solar, earth, the World plate, memory writes, contacts, rooms,
+document, solar, earth, Reality's plate, memory writes, contacts, rooms,
 research reports, calendar writes.
 
 It **will** search, scrape, fetch, do weather, CAS, units, catalogs,

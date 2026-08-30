@@ -125,7 +125,7 @@ def test_world_window_opens_on_the_chooser(qt_app) -> None:
     qt_app.processEvents()
     window.show_chooser()
     assert window.stack.currentWidget() is window.chooser
-    assert window.heading.text() == "world"
+    assert window.heading.text() == "Reality"
     window.enter_hands()
     assert window.stack.currentWidget() is window.panel
     assert window.heading.text() == "hands"
@@ -309,8 +309,10 @@ def test_spoken_lab_verbs_skip_the_chooser(arelis_window, qt_app, monkeypatch, t
     monkeypatch.setenv("ARELIS_DATA_DIR", str(tmp_path))
     set_system(SolarSystem.from_states(sun_and_planet(), tracers=0))
     window = arelis_window()
-    window.conversation.room.set_room("physics", name="Physics")
+    window.conversation.room.set_room("physics", name="Reality")
     try:
+        assert window._try_physics_verb("open Reality") is True
+        assert not window.world_window.isHidden()
         assert window._try_physics_verb("open the solar lab") is True
         assert window.world_window.solar_active()
         assert window._try_physics_verb("take me to Earth") is True

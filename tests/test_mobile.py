@@ -13,7 +13,8 @@ import pytest
 from arelis.core.bus import EventBus
 from arelis.core.events import Event, EventType
 from arelis.core.memory import SessionMemory
-from arelis.mobile import PHONE_PERSONA_TAIL, MobileHub, PendingConfirm
+from arelis.mobile import PHONE_PERSONA_TAIL, MobileHub
+from arelis.presence.pending_confirms import PendingConfirm
 from arelis.sms_inbound import SeenMessageStore
 from arelis.sms_ingest import InboundIngestServer
 
@@ -79,7 +80,13 @@ def test_glance_serves_small_file(tmp_path: Path) -> None:
 def test_allow_notice_is_not_sms() -> None:
     hub = MobileHub()
     hub.set_confirm(
-        PendingConfirm(id="c1", tool="send_sms", headline="text wife", summary="hello")
+        PendingConfirm(
+            id="c1",
+            tool="send_sms",
+            args={},
+            headline="text wife",
+            summary="hello",
+        )
     )
     status = hub.status()
     assert status["pending_confirm"]["id"] == "c1"
@@ -231,7 +238,7 @@ async def test_mobile_confirm_and_sync_publish(tmp_path: Path) -> None:
         current_chat=lambda: {"id": "s1", "title": "hello"},
     )
     server.mobile.set_confirm(
-        PendingConfirm(id="c9", tool="send_email", headline="mail", summary="hi")
+        PendingConfirm(id="c9", tool="send_email", args={}, headline="mail", summary="hi")
     )
     server.start()
     base = f"http://127.0.0.1:{port}"
@@ -512,7 +519,9 @@ def test_status_focus_uses_viewed_chat_not_pc() -> None:
         },
     )
     hub.replace_transcript([{"role": "user", "content": "pc room talk"}])
-    hub.set_confirm(PendingConfirm(id="c1", tool="send_sms", headline="text", summary="hi"))
+    hub.set_confirm(
+        PendingConfirm(id="c1", tool="send_sms", args={}, headline="text", summary="hi")
+    )
     live = hub.status()
     assert live["chat"]["id"] == "pc"
     assert live["transcript"][0]["text"] == "pc room talk"

@@ -20,10 +20,13 @@ from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from arelis.core.events import Event, EventType
+
+if TYPE_CHECKING:
+    from arelis.presence.pending_confirms import PendingConfirm
 
 log = logging.getLogger(__name__)
 
@@ -53,15 +56,6 @@ class Glance:
     title: str
     kind: GlanceKind
     path: str
-
-
-@dataclass
-class PendingConfirm:
-    id: str
-    tool: str
-    headline: str
-    summary: str
-    detail: str = ""
 
 
 @dataclass
@@ -500,13 +494,19 @@ class MobileHub:
             self._end_turn()
             return
         if event.type == EventType.TOOL_CONFIRM:
-            confirm = PendingConfirm(
-                id=str(payload.get("id") or ""),
-                tool=str(payload.get("tool") or ""),
-                headline=str(payload.get("headline") or payload.get("summary") or "Allow"),
-                summary=str(payload.get("summary") or ""),
-                detail=str(payload.get("detail") or ""),
+            # Lazy: presence.__init__ imports ingest, which imports this module.
+            from arelis.presence.pending_confirms import (
+                pending_from_event_payload,
+                pending_from_payload,
             )
+
+            confirm = pending_from_event_payload(payload) or pending_from_payload(
+                payload
+            )
+            if not confirm.headline:
+                confirm.headline = str(
+                    payload.get("headline") or payload.get("summary") or "Allow"
+                )
             self.set_confirm(confirm)
             self._confirm_session_id = self._turn_session_id or str(
                 self._pc_chat().get("id") or ""

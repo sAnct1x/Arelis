@@ -26,7 +26,7 @@ class EventType(str, Enum):
     the loop knows whether the round is an answer at all: a round that ends in a
     tool call was a preamble, not a reply, and has to come back off the screen.
 
-    PHYSICS_VERB is a closed lexicon hit in the physics room (heavier,
+    PHYSICS_VERB is a closed lexicon hit in Reality (heavier,
     freeze, undo). It mutates the live scene this frame and never starts
     a turn. The 9B is not on this path.
 

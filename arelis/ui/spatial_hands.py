@@ -150,7 +150,7 @@ class SpatialHands(QObject):
 
     def start_track(self, meta: dict[str, Any] | None = None) -> bool:
         if must_revoke(self._room_id):
-            self.hint.emit("Hands only run in the physics room.")
+            self.hint.emit("Hands only run in Reality.")
             return False
         if self._tracking:
             return True
@@ -187,7 +187,7 @@ class SpatialHands(QObject):
 
     def start_record(self, extra_meta: dict[str, Any] | None = None) -> Path | None:
         if not self.allowed:
-            self.hint.emit("Start tracking in the physics room first.")
+            self.hint.emit("Start tracking in Reality first.")
             return None
         if self._take is not None:
             return self._take.path

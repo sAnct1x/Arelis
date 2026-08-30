@@ -105,7 +105,7 @@ async def test_listing_a_fresh_store_names_physics(store: RoomStore) -> None:
     assert result.ok
     ids = [r["id"] for r in result.data["rooms"]]
     assert ids == ["physics"]
-    assert "Physics" in result.output
+    assert "Reality" in result.output
 
 
 def test_making_a_room_asks_first(tmp_path: Path) -> None:

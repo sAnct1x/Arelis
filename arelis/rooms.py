@@ -15,7 +15,7 @@ A room is that place. It carries four things and nothing else:
 
 What a room deliberately does *not* do is take capability away. The obvious
 design is an allowlist per room, and it is wrong by default: ask her the time
-in the physics room and a caged agent has to say no, which teaches you to stop
+in Reality and a caged agent has to say no, which teaches you to stop
 asking. Rooms lean, they do not cage. A room that genuinely needs a cage can
 set `tools:` explicitly, and then it is a decision somebody made rather than a
 side effect of naming a folder.
@@ -51,14 +51,21 @@ _RESERVED_IDS = frozenset({"", "general", "none", "new", "list", "leave", "help"
 
 # Same id as arelis.spatial.PHYSICS_ROOM_ID. Literal so this module does
 # not depend on the spatial package — installed copies still get the room.
+# Humans read Reality. The slash id stays physics so grants and tests
+# do not fork. Spoken "Reality" resolves here; it is not a second room.
 PHYSICS_ROOM_ID = "physics"
+PHYSICS_DISPLAY_NAME = "Reality"
+PHYSICS_ALIASES = frozenset(
+    {"physics", "reality", "world", "solar-lab", "solar-system"}
+)
 
 PHYSICS_PURPOSE = (
-    "Physics lab. The solar-system stage is approach and orbit — true scale, "
-    "JPL Horizons ICs, REBOUND. No landing. Hands drive the camera, not "
-    "metres in the ODE. Forces and periods come from the engine; you do not "
-    "invent them. Leave ends the motion grant. Record takes in this project's "
-    "folder, not in orbit."
+    "Reality. True-scale solar system — JPL Horizons ICs, REBOUND, the laws "
+    "as they are. Approach and orbit. No landing. Hands drive the camera, "
+    "not metres in the ODE. Forces and periods come from the engine; you do "
+    "not invent them. Earth is a zone on that globe, not another room. "
+    "Leave ends the motion grant. Record takes in this project's folder, "
+    "not in orbit."
 )
 
 
@@ -137,7 +144,7 @@ _LEAVE_INTENT = re.compile(
 
 
 def normalize_room_name(name: str) -> str:
-    """'some physics', 'the physics room' → 'physics'."""
+    """'some physics', 'the Reality room' → 'physics' / 'Reality'."""
     cleaned = _clean(name)
     while True:
         stripped = _clean(_NAME_FILLERS.sub("", cleaned))
@@ -336,7 +343,7 @@ class Room:
 def _perma_physics() -> Room:
     return Room(
         id=PHYSICS_ROOM_ID,
-        name="Physics",
+        name=PHYSICS_DISPLAY_NAME,
         purpose=PHYSICS_PURPOSE,
         kind="analysis",
     )
@@ -428,7 +435,12 @@ class RoomStore:
         )
 
     def _ensure_perma(self) -> None:
-        """Put permanent rooms back if the file never had them, or forgot them."""
+        """Put permanent rooms back if the file never had them, or forgot them.
+
+        The physics id is permanent. The display name migrated from Physics
+        to Reality; a still-default Physics name is rewritten. A custom
+        name is left alone. Spoken Reality still resolves via aliases.
+        """
         dirty = False
         for room_id, spec in PERMA_ROOMS.items():
             if room_id not in self._rooms:
@@ -436,6 +448,11 @@ class RoomStore:
                     spec,
                     created_at=datetime.now(UTC).isoformat(timespec="seconds"),
                 )
+                dirty = True
+                continue
+            existing = self._rooms[room_id]
+            if room_id == PHYSICS_ROOM_ID and existing.name == "Physics":
+                self._rooms[room_id] = replace(existing, name=spec.name)
                 dirty = True
         if dirty:
             self.save()
@@ -455,7 +472,8 @@ class RoomStore:
             "# tools: optional. Leave it out and the room leans without\n"
             "#        restricting; list tool names to lock the room to them.\n"
             "# last_active: written on enter/leave. Launch resumes that room.\n"
-            "# physics is permanent: always present, cannot be forgotten.\n\n"
+            "# physics is permanent (display name Reality). Always present,\n"
+            "# cannot be forgotten. Do not add a second room called Reality.\n\n"
         )
         payload: dict[str, Any] = {"rooms": body}
         if self._resume_id and self._resume_id in self._rooms:
@@ -484,9 +502,10 @@ class RoomStore:
         """Resolve what someone said to a room: id, name, or unique prefix.
 
         Spoken input arrives without punctuation and often without the exact
-        name — "physics" for "Physics Lab", "some physics" for Physics. An
-        ambiguous prefix returns None rather than a guess, because entering
-        the wrong room silently swaps both the thread and the folder.
+        name — "physics" or "Reality" for the permanent room, "some physics"
+        for the same place. An ambiguous prefix returns None rather than a
+        guess, because entering the wrong room silently swaps both the
+        thread and the folder.
         """
         wanted = _clean(text).lower()
         if not wanted:
@@ -506,6 +525,8 @@ class RoomStore:
         wanted = _clean(wanted).lower()
         if not wanted:
             return None
+        if wanted in PHYSICS_ALIASES or slugify(wanted) in PHYSICS_ALIASES:
+            return self._rooms.get(PHYSICS_ROOM_ID)
         direct = self._rooms.get(slugify(wanted))
         if direct is not None:
             return direct
@@ -564,6 +585,11 @@ class RoomStore:
         if slug in _RESERVED_IDS:
             raise ValueError(
                 f"`{slug}` is reserved — it means 'no room' in commands. Pick another name."
+            )
+        if slug in PHYSICS_ALIASES or slugify(name) in PHYSICS_ALIASES:
+            raise ValueError(
+                "Reality already exists — it is the permanent room "
+                f"(`/room {PHYSICS_ROOM_ID}`). Say \"let's work on Reality\"."
             )
         if slug in self._rooms:
             raise ValueError(f"A room called `{slug}` already exists.")

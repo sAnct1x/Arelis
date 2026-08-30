@@ -1,22 +1,26 @@
 # Earth zone
 
-Not a product title. Physics room, solar lab, travel to Earth.
-You are an observer of what is broadcasting or published.
+A zone inside Reality, not a room and not a product title. Travel to
+Earth, or say **enter Earth**. You are an observer of what is
+broadcasting or published.
 
 This page is the inventory and the legal line. The globe lives on a
-source checkout only (`world_stage_allowed`), in the physics room, with
+source checkout only (`world_stage_allowed`), in Reality, with
 `pip install -e ".[astro]"`. Travel to Earth or say **enter Earth**.
 Leave: **leave Earth**, travel to another body, or `earth action=leave`.
 
-Inventory is `arelis/earth/feeds.py`: **63 shipped**, **9 keyed**,
+Inventory is `arelis/earth/feeds.py`: **79 shipped**, **9 keyed**,
 **3 later**, **4 out**. Adapters replace a layer; they do not invent
 coverage. Completeness is the anti-beacon — do not thin a region.
 
 ## What it is
 
-A **zone** on the existing Earth globe. Store is ECEF metres. The plate is
-still ECLIPJ2000; `arelis/earth/frames.py` is the handoff (including local
-ENU for street frustums). Same sodium HUD. No thriller skin.
+A **zone** on the existing Earth globe, inside Reality. Store is ECEF
+metres. The plate is still ECLIPJ2000; `arelis/earth/frames.py` is the
+handoff (including local ENU for street frustums). Once the globe fills
+the view, the inspect eye is Earth-fixed too — continents stay put,
+contacts move over them. Leave Earth, travel to another body, or reset
+view returns to heliocentric. Same sodium HUD. No thriller skin.
 
 Enter: travel to Earth (warp finish), say **enter Earth**, or
 `earth action=enter`. Leave: **leave Earth**, travel to another body,
@@ -48,7 +52,7 @@ runs adapters in parallel, then applies in a stable order.
 | Airports | OurAirports large/medium scheduled fields. Not a live radar |
 | Ocean floats | Argo last-fix *sample* (IFREMER ERDDAP, cap 80). Not a painted shell |
 | Every car | **Hole.** 511 / WZDx / Open511 / official ArcGIS catalogs, not VINs |
-| Every camera | TfL, Caltrans, NYC, SG LTA, Fintraffic, HK TD, Ontario 511, ODOT TripCheck, SHA/NDDOT, OSM worldwide. Positions only |
+| Every camera | TfL, Caltrans, NYC, SG LTA, Fintraffic, HK TD, CARS 511 (ON, MB, NS, AB, SK, FL, NY, CO, IA, MN, GA), ODOT TripCheck, SHA/NDDOT, OSM worldwide. Positions only |
 | Street tiles | Optional OSM raster when **Tiles** is on. ODbL. Cache + 2 connections |
 | Every satellite | CelesTrak GNSS / weather / visual / science / comm + Starlink/OneWeb/Planet *samples*, not a painted shell |
 | Military | adsb.lol public squawks. Silent airframes stay absent |
@@ -56,9 +60,9 @@ runs adapters in parallel, then applies in a stable order.
 
 Shipped traffic catalogs (operator JSON, not cars): Caltrans LCS, TfL
 Road, Fintraffic, DriveBC Open511, NSW / QLD / NZTA, CARS 511 (ON, MB,
-NS, AB, SK, FL511, 511ny, COtrip), WZDx (UDOT, KYTC, MoDOT, WisDOT,
-ITD, 511ny, AZ511, LADOTD, AB, NS, SK, FL511), ArcGIS (SHA CHART, SA
-DIT, Main Roads WA), NDDOT alerts.
+NS, AB, SK, FL511, 511ny, COtrip, IA, MN, GA), WZDx (UDOT, KYTC, MoDOT,
+WisDOT, ITD, 511ny, AZ511, LADOTD, AB, NS, SK, FL511, IA, MN, GA),
+ArcGIS (SHA CHART, SA DIT, Main Roads WA), NDDOT alerts.
 
 Shipped quake catalogs: USGS all_day, EMSC FDSN (min M2, depth when
 published), GeoNet NZ.
@@ -143,6 +147,6 @@ Individual cars stay a labeled hole.
 
 ## How to run
 
-Source checkout only (`world_stage_allowed`), physics room, solar
-loaded, `pip install -e ".[astro]"`. Travel to Earth or say enter Earth.
+Source checkout only (`world_stage_allowed`), Reality, solar loaded,
+`pip install -e ".[astro]"`. Travel to Earth or say enter Earth.
 Live is the chip / `earth action=live` / chat — not a closed verb.

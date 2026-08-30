@@ -2,7 +2,7 @@
 
 Entering a room swaps three things at once — the thread, the project folder and
 the model role — and every one of them is invisible. Without something on screen
-saying so, the only difference between the physics room and the general
+saying so, the only difference between Reality and the general
 conversation is that she answers differently, which reads as her being
 inconsistent rather than as you being somewhere else.
 
@@ -17,10 +17,9 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QResizeEvent
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QSizePolicy, QToolButton
 
-from arelis.spatial import PHYSICS_ROOM_ID
-from arelis.spatial.grant import world_stage_allowed
 from arelis.ui.glass import GlassFrame
 from arelis.ui.theme import GLASS
+from arelis.ui.world_host import should_offer_world
 
 
 class _ElideLabel(QLabel):
@@ -82,7 +81,7 @@ class RoomStrip(GlassFrame):
         self.detail.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
         row.addWidget(self.detail, stretch=1)
 
-        self.world_btn = _chip("RoomWorldButton", "world", "hands sandbox or solar lab")
+        self.world_btn = _chip("RoomWorldButton", "open", "open Reality")
         self.world_btn.clicked.connect(self.world_requested.emit)
         self.world_btn.hide()
         row.addWidget(self.world_btn, 0, Qt.AlignmentFlag.AlignRight)
@@ -110,9 +109,7 @@ class RoomStrip(GlassFrame):
             self.hide()
             self.changed.emit()
             return
-        self.world_btn.setVisible(
-            self._room_id == PHYSICS_ROOM_ID and world_stage_allowed()
-        )
+        self.world_btn.setVisible(should_offer_world(self._room_id))
         self.name.setText(name or self._room_id)
         bits = []
         if purpose:

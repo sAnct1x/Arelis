@@ -261,7 +261,9 @@ def test_second_launch_that_never_hears_back_says_so(monkeypatch, qt_app) -> Non
 
     monkeypatch.setattr(activate, "activate_existing_ui", lambda _cfg: False)
     monkeypatch.setattr(time, "sleep", lambda _s: None)
-    monkeypatch.setattr(app_module, "_HANDOFF_MAX_TRIES", 2)
+    from arelis.ui import launch as launch_module
+
+    monkeypatch.setattr(launch_module, "_HANDOFF_MAX_TRIES", 2)
     told: list[str] = []
     monkeypatch.setattr(
         dialog, "notice", lambda *a, **k: told.append(str(a[1]) if len(a) > 1 else "")

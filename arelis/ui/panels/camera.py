@@ -6,7 +6,7 @@ or cameras are missing — same stance as arelis.ui.audio for the mic.
 Ask Arelis: snapshot then emit ask_arelis so the app submits an Identify look.
 Optional snapshot_blocking() for the camera tool while the dock is live.
 
-In the physics room, track/record map knuckles onto the same preview.
+In Reality, track/record map knuckles onto the same preview.
 The camera tool stays snapshot-only. Pose is not ambient watching.
 """
 
@@ -355,7 +355,7 @@ class CameraPanel(QWidget):
         self.record_btn.setCheckable(True)
         self.track_btn.setVisible(False)
         self.record_btn.setVisible(False)
-        self.track_btn.setToolTip("Map knuckles on this preview. Physics room only.")
+        self.track_btn.setToolTip("Map knuckles on this preview. Reality only.")
         self.record_btn.setToolTip("Write a take under outputs/physics/takes/.")
         for btn in (
             self.start_btn,
@@ -524,7 +524,7 @@ class CameraPanel(QWidget):
             self.track_btn.setChecked(False)
 
     def set_spatial_available(self, available: bool) -> None:
-        """Show track/record only in the physics room."""
+        """Show track/record only in Reality."""
         self.track_btn.setVisible(available)
         self.record_btn.setVisible(available)
         for widget in (self.reach_caption, self.reach_slider, self.reach_label):

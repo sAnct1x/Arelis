@@ -25,25 +25,28 @@ The thread is the part that matters. Everything else is convenience.
 
 ```
 /rooms                     what exists
-/room physics              go in
+/room physics              go in (slash id)
 /leave                     come back out
 ```
 
-Or say it: "let's work on physics", "open the physics room", "leave the
-room". Spoken navigation only fires on a name that already exists.
-"Let's work on the budget" in a house with no budget room is an ordinary
-sentence.
+Or say it: "let's work on Reality", "open Reality", "enter Reality",
+"leave the room". `/room physics` is the same place. Older words
+("open world", "open the solar lab") still enter Reality — those
+names are gone. Spoken navigation only fires on a name that already
+exists. "Let's work on the budget" in a house with no budget room is
+an ordinary sentence.
 
-The room id `physics` is permanent. It is always there, and `/room forget
-physics` is refused. Delete the key from `rooms.yaml` and the next launch
-puts it back.
+The room id `physics` is permanent. Humans read **Reality**. It is
+always there, and `/room forget physics` is refused. Delete the key from
+`rooms.yaml` and the next launch puts it back. Do not add a second room
+called Reality. Earth is a zone inside Reality, not a room.
 
-Installed copies still get the physics *room* (chat, CAS, Horizons).
-The World plate, REBOUND solar system, C920 hands, and Earth zone run
-only on a **source checkout** with `.[astro]` / `.[spatial]`. Not in
-the installer. Say "open world" or View → world / Ctrl+8. Travel to
-Earth (or say **enter Earth**) opens the Earth zone on that globe.
-[earth.md](earth.md). Pose and spoken world verbs hit the scene without
+Installed copies still get Reality (chat, CAS, Horizons). The plate,
+REBOUND solar system, C920 hands, and Earth zone run only on a **source
+checkout** with `.[astro]` / `.[spatial]`. Not in the installer. Say
+"open Reality" or View → Reality / Ctrl+8. Travel to Earth (or say
+**enter Earth**) opens the Earth zone on that globe.
+[earth.md](earth.md). Pose and spoken Reality verbs hit the scene without
 a chat turn. The phone is not a sensor. Do not turn this room into a
 spreadsheet workspace; make a different room for that.
 
@@ -69,7 +72,7 @@ without going in, does not.
 
 `/room forget survey` removes the definition. Its conversations stay in
 History. Only the room is gone. A forgotten room is not recreated on
-launch, except `physics`: that one cannot be forgotten.
+launch, except Reality: that one cannot be forgotten.
 
 ## Kinds
 
@@ -91,8 +94,8 @@ is a spreadsheet. Asking what a toroid is still gets an answer;
 
 ## Rooms lean, they do not cage
 
-Ask the time in the physics room and a caged assistant has to refuse,
-which teaches you to stop asking. So by default a room changes what she
+Ask the time in Reality and a caged assistant has to refuse, which
+teaches you to stop asking. So by default a room changes what she
 reaches for first and nothing else.
 
 If you genuinely want a locked room, name the tools in `data/rooms.yaml`:
@@ -136,5 +139,5 @@ never resume a room.
 
 This is not a second window. A strip above the transcript names the
 room, its purpose, and its folder, and a way out. The conversation
-itself is the same surface it always was. In `physics`, the World plate
-is a separate floating window, not a second chat.
+itself is the same surface it always was. In Reality, the plate is a
+separate floating window, not a second chat.

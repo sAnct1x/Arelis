@@ -109,7 +109,7 @@ def dump_on_leave(
     camera: dict[str, Any] | None = None,
     root: Path | None = None,
 ) -> Path | None:
-    """Receipt when leaving the solar lab. No-op if nothing is loaded. Never raises."""
+    """Receipt when leaving Reality. No-op if nothing is loaded. Never raises."""
     from arelis.physics.runtime import get_system
 
     system = get_system()

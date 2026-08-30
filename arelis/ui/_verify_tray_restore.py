@@ -34,15 +34,11 @@ from PySide6.QtWidgets import QApplication
 from arelis.config import load_config
 from arelis.core.bus import EventBus
 from arelis.core.events import Event
-from arelis.core.memory import SessionMemory
-from arelis.core.orchestrator import Orchestrator
-from arelis.llm import build_router
-from arelis.memory import DEFAULT_EMBED_MODEL, MemoryIndexer, MemoryStore
+from arelis.core.seat import bind_workspace, build_seat
+from arelis.memory import DEFAULT_EMBED_MODEL, MemoryIndexer
 from arelis.paths import logs_dir
-from arelis.tools import build_tool_registry
 from arelis.ui.app import ArelisWindow, BusBridge
 from arelis.ui.theme import app_font, load_fonts, stylesheet
-from arelis.workspace import WorkspaceRoots, compose_stt_initial_prompt
 
 _OUT = logs_dir()
 
@@ -90,10 +86,7 @@ def _grab(tag: str) -> str:
 
 def main() -> int:
     config = load_config()
-    workspace = WorkspaceRoots.from_config(config)
-    config["_workspace"] = workspace
-    stt = config.setdefault("voice", {}).setdefault("stt", {})
-    stt["initial_prompt"] = compose_stt_initial_prompt(config, workspace)
+    workspace = bind_workspace(config)
 
     app = QApplication.instance() or QApplication(sys.argv)
     app.setApplicationName("Arelis")
@@ -109,13 +102,9 @@ def main() -> int:
         bridge.feed(event)
 
     bus.subscribe(None, mirror)
-    router = build_router(config)
-    store = MemoryStore()
-    store.start_session()
-    tools = build_tool_registry(
-        config, workspace, memory_store=store, provider=router.provider, router=router
-    )
-    Orchestrator(bus, router, tools, config, SessionMemory(sink=store), workspace=workspace)
+    seat = build_seat(config, profile="verify_tray", bus=bus)
+    router = seat.router
+    store = seat.store
     from arelis.voice import VoiceService
 
     voice = VoiceService(bus, config)

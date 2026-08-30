@@ -31,13 +31,14 @@ run may download those weights; they are not stuffed in the setup
 **Jobs.** Timed prompts email a digest. Calendar tile → **jobs**. Needs
 mail. Already in the installer; the page is new. [jobs.md](jobs.md).
 
-**World.** Source checkout only. Physics room, Ctrl+8, solar lab
-(`.[astro]`) and hands (`.[spatial]`). Not in the installer. Physics
+**Reality.** The permanent room (slash id `physics`). Source checkout
+only for the plate: Ctrl+8 / View → Reality, true-scale solar
+(`.[astro]`) and hands (`.[spatial]`). Not in the installer. Reality
 cannot be forgotten. Travel to Earth (or say enter Earth) lights the
 Earth zone — an observer of whatever is broadcasting or published.
-Not a product title.
+Earth is a zone, not a second room.
 
-Now: `arelis/earth/feeds.py` is **63 shipped / 9 keyed / 3 later / 4 out**.
+Now: `arelis/earth/feeds.py` is **79 shipped / 9 keyed / 3 later / 4 out**.
 Live merge runs adapters in parallel. Air and ships coast as
 dead-reckoned, then stale. Overlay paints freshness, heading ticks,
 and an inspect card with source. Completeness is the anti-beacon —

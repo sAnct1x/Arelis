@@ -106,8 +106,8 @@ has started.
 | Presence | `arelis/presence/` | Core, tray, IPC |
 | Voice | `arelis/voice/` | Listen and speak. [voice-wake.md](voice-wake.md) |
 | Spatial | `arelis/spatial/` | World engine, grant, takes. Pose is not a chat turn |
-| Earth | `arelis/earth/` | Earth zone on the solar globe. 63 shipped / 9 keyed / 3 later / 4 out. [earth.md](earth.md) |
-| Physics | `arelis/physics/` | Solar lab: Horizons ICs, REBOUND, IAU attitude |
+| Earth | `arelis/earth/` | Earth zone on Reality's globe. 79 shipped / 9 keyed / 3 later / 4 out. [earth.md](earth.md) |
+| Physics | `arelis/physics/` | Reality's solar system: Horizons ICs, REBOUND, IAU attitude |
 | Calendar | `arelis/calendar/` | Google / Outlook OAuth. [calendar-oauth.md](calendar-oauth.md) |
 | Memory | `arelis/memory/` | SQLite archive + recall |
 | Config | `arelis/config/default.yaml` | Defaults. Overrides in `data/` |
@@ -152,13 +152,13 @@ docks.
 | Drive strip | Stop / Pause / your-turn while her browser is in flight |
 | Thinking dock | Status, tools, rounds, and a wrapping think paragraph |
 | Workspace dock | Roots, files, tool output |
-| Camera dock | Webcam still. View → camera / Ctrl+5. In the `physics` room: Track / Record |
+| Camera dock | Webcam still. View → camera / Ctrl+5. In Reality: Track / Record |
 | History dock | Sessions, pending fact approve / reject |
 | Notifications | Inbound SMS while the UI is open |
 | Contacts | Named people for texts. View → contacts / Ctrl+6 |
 | Calendar | Local tile, Ctrl+7. Month / week / day / agenda, plus **tasks** and **jobs**. Empty of Google events until you authorize |
 | Settings | Audio / Window / Allow / Notify / Roots / Memory. Mail and calendar credentials are not a Settings tab: `data/secrets.yaml` and [calendar-oauth.md](calendar-oauth.md) |
-| World plate | Floating stage. View → world / Ctrl+8. Only while the `physics` room is active **and** this copy is a source checkout (`world_stage_allowed`). Needs `pip install -e ".[spatial]"` for hands and `.[astro]` for REBOUND. Not in the installer. Default size 1280×800. Solar GPU path is `--solar-gl` / `ARELIS_SOLAR_GL=1` (offscreen FBO). Inspect-only WASD fly camera; H recites live keys; no craft chase-cam |
+| Reality plate | Floating stage. View → Reality / Ctrl+8. Only while Reality (`physics`) is active **and** this copy is a source checkout (`world_stage_allowed`). Needs `pip install -e ".[spatial]"` for hands and `.[astro]` for REBOUND. Not in the installer. Default size 1280×800. Solar GPU path is `--solar-gl` / `ARELIS_SOLAR_GL=1` (offscreen FBO). Inspect-only WASD fly camera; H recites live keys; no craft chase-cam |
 
 Settings → Window can fold unused panels after 30, 45, or 60 minutes
 with no click, type, send, or wake word. Off by default. A turn, a card,
@@ -198,8 +198,8 @@ connected. Otherwise chat says she cannot.
 | `plot` | PNG. Room → `plots/` in the project; orbit → `outputs/plots/` | Yes |
 | `document` | PDF, Word, Excel, CSV, markdown. Room → `documents/` in the project; orbit → `outputs/documents/` | Yes |
 | `catalog` | arXiv, Horizons; APOD / ADS after a free key | No |
-| `solar` | Physics-room N-body (Horizons VECTORS + REBOUND IAS15). Source checkout. Approach/orbit, inspect-only fly camera, IAU spheres. Not landing | Yes |
-| `earth` | Earth zone inside that lab. Inventory in `feeds.py` (63 shipped / 9 keyed / 3 later / 4 out). Source checkout. [earth.md](earth.md) | No |
+| `solar` | Reality N-body (Horizons VECTORS + REBOUND IAS15). Source checkout. Approach/orbit, inspect-only fly camera, IAU spheres. Not landing | Yes |
+| `earth` | Earth zone inside Reality. Inventory in `feeds.py` (79 shipped / 9 keyed / 3 later / 4 out). Source checkout. [earth.md](earth.md) | No |
 | `clipboard` / `ocr` / `vision` / `camera` | Paste, screen text, see an image, webcam | Yes (the still is free; seeing it pauses) |
 | `memory` / `recall` / `tasks` / `goals` | Remember, chores, "what needs my attention" | Mutates: yes |
 | `inbox` / `send_email` / `schedule` | Mail and timed jobs | Send: yes. Creating a job: yes. Inbox list is free; trash / archive / move / flags: yes |
@@ -271,7 +271,7 @@ it.
 | `data/rooms.yaml` | Your rooms |
 | `data/jobs.yaml` | Scheduled jobs. Hand-editable. Paired with Task Scheduler `\Arelis\<id>` |
 | `arelis/jobs/` | Store, Windows task XML, unattended runner |
-| `arelis/physics/` | Solar lab |
+| `arelis/physics/` | Reality solar system |
 | `arelis/earth/` | Earth zone. [earth.md](earth.md) |
 | `arelis/ui/solar_gl.py` | Offscreen GL globes |
 | `arelis/spatial/` | World engine (source checkout) |

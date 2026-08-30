@@ -33,6 +33,7 @@ class PendingConfirm:
     source: str = ""
     batch_ok: bool = False
     created_at: str = ""
+    headline: str = ""
 
     def to_payload(self) -> dict[str, Any]:
         return {
@@ -44,6 +45,7 @@ class PendingConfirm:
             "note": self.note,
             "source": self.source,
             "batch_ok": self.batch_ok,
+            "headline": self.headline,
         }
 
 
@@ -144,6 +146,7 @@ class PendingConfirmStore:
                     source=str(row.get("source") or ""),
                     batch_ok=bool(row.get("batch_ok", False)),
                     created_at=str(row.get("created_at") or ""),
+                    headline=str(row.get("headline") or ""),
                 )
             )
         return out
@@ -156,14 +159,7 @@ class PendingConfirmStore:
         tmp.replace(self.path)
 
 
-def pending_from_event_payload(payload: dict[str, Any]) -> PendingConfirm | None:
-    """Build a store row from a TOOL_CONFIRM payload, or None if not persistable."""
-    tool = str(payload.get("tool") or "")
-    if tool not in PERSIST_TOOLS:
-        return None
-    cid = str(payload.get("id") or "").strip()
-    if not cid:
-        return None
+def _string_args(payload: dict[str, Any]) -> dict[str, str]:
     args_raw = payload.get("args") or {}
     args = {
         str(k): str(v)
@@ -174,13 +170,30 @@ def pending_from_event_payload(payload: dict[str, Any]) -> PendingConfirm | None
     full = payload.get("full_args")
     if isinstance(full, dict) and full:
         args = {str(k): str(v) for k, v in full.items() if isinstance(k, str)}
+    return args
+
+
+def pending_from_payload(payload: dict[str, Any]) -> PendingConfirm:
+    """Build a confirm record from a TOOL_CONFIRM payload (any tool)."""
     return PendingConfirm(
-        id=cid,
-        tool=tool,
-        args=args,
+        id=str(payload.get("id") or "").strip(),
+        tool=str(payload.get("tool") or ""),
+        args=_string_args(payload),
         summary=str(payload.get("summary") or ""),
         detail=str(payload.get("detail") or ""),
         note=str(payload.get("note") or ""),
         source=str(payload.get("source") or ""),
         batch_ok=bool(payload.get("batch_ok", False)),
+        headline=str(payload.get("headline") or ""),
     )
+
+
+def pending_from_event_payload(payload: dict[str, Any]) -> PendingConfirm | None:
+    """Build a store row from a TOOL_CONFIRM payload, or None if not persistable."""
+    tool = str(payload.get("tool") or "")
+    if tool not in PERSIST_TOOLS:
+        return None
+    cid = str(payload.get("id") or "").strip()
+    if not cid:
+        return None
+    return pending_from_payload(payload)

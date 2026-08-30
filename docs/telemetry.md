@@ -18,8 +18,8 @@ Nothing here is sent anywhere.
 | Scheduled job mail digest | `logs/jobs.log` |
 | Conversation mic stuck | `logs/voice.log` (wake, barge-in, Smart Turn, dropped utterances always. `voice.debug: true` for the VAD firehose) |
 | Did that chat turn re-prefill the whole prompt? | `logs/turns.jsonl` → `model_prefill_ms`, `prompt_eval_count` |
-| World plate / hands hitch | Overlay FPS. Take jsonl under `outputs/physics/takes/` |
-| Solar lab receipt (IAS15 state, not a screenshot) | `outputs/physics/solar/<utc>/` (`manifest.json` + `state.jsonl`) |
+| Reality plate / hands hitch | Overlay FPS. Take jsonl under `outputs/physics/takes/` |
+| Reality solar receipt (IAS15 state, not a screenshot) | `outputs/physics/solar/<utc>/` (`manifest.json` + `state.jsonl`) |
 
 ## Files
 
@@ -68,7 +68,7 @@ when ids do not join: `id=` (turn), `session=`, `span=` (STT), `eid=`
 - Pose and World-plate motion (not a chat turn; only take jsonl + overlay FPS)
 - Phone Gemma latency while the house is away
 
-**`outputs/physics/solar/`** is not a log. Leaving the solar lab writes a
+**`outputs/physics/solar/`** is not a log. Leaving Reality writes a
 cited snapshot of the live IAS15 state (ECLIPJ2000 metres) so a figure can
 be the same integrator, not a PNG. `solar action=dump` does the same
 without leaving. Leaving Earth writes `outputs/physics/earth/<utc>/`

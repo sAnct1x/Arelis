@@ -164,21 +164,38 @@ def test_session_memory_without_a_sink_writes_nothing(tmp_path: Path) -> None:
 
 def test_the_job_runner_builds_session_memory_with_no_sink() -> None:
     """Scheduled runs must stay isolated by construction, not by remembering."""
-    source = Path("arelis/jobs/runner.py").read_text(encoding="utf-8")
-    tree = ast.parse(source)
+    runner = Path("arelis/jobs/runner.py").read_text(encoding="utf-8")
+    assert "build_seat(config, profile=\"job\")" in runner
+    assert "SessionMemory(" not in runner
+
+    tree = ast.parse(Path("arelis/core/seat.py").read_text(encoding="utf-8"))
     calls: list[ast.Call] = []
     for node in ast.walk(tree):
-        if isinstance(node, ast.Call):
-            func = node.func
+        if not isinstance(node, ast.If):
+            continue
+        test = node.test
+        if not (
+            isinstance(test, ast.Compare)
+            and isinstance(test.left, ast.Name)
+            and test.left.id == "profile"
+            and any(
+                isinstance(c, ast.Constant) and c.value == "job" for c in test.comparators
+            )
+        ):
+            continue
+        for child in ast.walk(node):
+            if not isinstance(child, ast.Call):
+                continue
+            func = child.func
             if isinstance(func, ast.Name) and func.id == "SessionMemory":
-                calls.append(node)
+                calls.append(child)
             elif isinstance(func, ast.Attribute) and func.attr == "SessionMemory":
-                calls.append(node)
-    assert calls, "runner.py no longer constructs SessionMemory"
+                calls.append(child)
+    assert calls, "job seat no longer constructs SessionMemory"
     for call in calls:
         for keyword in call.keywords:
-            assert keyword.arg != "sink", "job runner must not attach a memory sink"
-        assert call.args == [], "job runner must use the bare SessionMemory() default"
+            assert keyword.arg != "sink", "job seat must not attach a memory sink"
+        assert call.args == [], "job seat must use the bare SessionMemory() default"
 
 
 def test_glass_launch_starts_new_and_prunes_empty_shells(tmp_path: Path) -> None:

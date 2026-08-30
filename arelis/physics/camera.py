@@ -133,9 +133,21 @@ class FlyCamera:
         self.z += (fwd * bz[2] + right * bx[2] + up * by[2]) * s
 
     def look_at(self, tx: float, ty: float, tz: float) -> None:
-        self.up = WORLD_UP
+        self.aim(tx, ty, tz, up=WORLD_UP)
+
+    def aim(
+        self,
+        tx: float,
+        ty: float,
+        tz: float,
+        *,
+        up: tuple[float, float, float] | None = None,
+    ) -> None:
+        """Point the eye at a world point. Optional up stays body-fixed."""
+        self.up = WORLD_UP if up is None else _unit3(up)
         dx, dy, dz = tx - self.x, ty - self.y, tz - self.z
         n = math.sqrt(dx * dx + dy * dy + dz * dz) or 1.0
+        self.distance = n
         self.pitch, self.yaw = _forward_pitch_yaw((dx / n, dy / n, dz / n))
 
     def place_looking_at(self, tx: float, ty: float, tz: float, dist: float) -> None:

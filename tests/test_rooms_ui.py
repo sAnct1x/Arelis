@@ -30,11 +30,11 @@ def test_the_strip_names_the_room_and_its_folder(qt_app) -> None:
 
     strip = RoomStrip()
     strip.set_room(
-        "physics", name="Physics", purpose="Analysing the survey data.", root="Lab Notes"
+        "physics", name="Reality", purpose="Analysing the survey data.", root="Lab Notes"
     )
 
     assert not strip.isHidden()
-    assert strip.name.text() == "Physics"
+    assert strip.name.text() == "Reality"
     assert "Analysing the survey data." in strip.detail.text()
     assert "Lab Notes" in strip.detail.text()
 
@@ -45,7 +45,7 @@ def test_a_long_purpose_stays_one_line_and_keeps_the_rest_on_hover(qt_app) -> No
 
     purpose = "Analysing the survey data. " * 12
     strip = RoomStrip()
-    strip.set_room("physics", name="Physics", purpose=purpose)
+    strip.set_room("physics", name="Reality", purpose=purpose)
     strip.resize(360, 38)
     strip.show()
     qt_app.processEvents()
@@ -60,9 +60,9 @@ def test_world_button_hides_when_the_stage_is_off(qt_app, monkeypatch) -> None:
     from arelis.ui.panels import room as room_mod
     from arelis.ui.panels.room import RoomStrip
 
-    monkeypatch.setattr(room_mod, "world_stage_allowed", lambda: False)
+    monkeypatch.setattr(room_mod, "should_offer_world", lambda _room_id: False)
     strip = RoomStrip()
-    strip.set_room("physics", name="Physics")
+    strip.set_room("physics", name="Reality")
     assert strip.world_btn.isHidden()
 
 
@@ -70,7 +70,7 @@ def test_leaving_puts_the_strip_away(qt_app) -> None:
     from arelis.ui.panels.room import RoomStrip
 
     strip = RoomStrip()
-    strip.set_room("physics", name="Physics")
+    strip.set_room("physics", name="Reality")
 
     strip.set_room("")
 
@@ -97,7 +97,7 @@ def test_the_window_paints_the_room_it_is_told_about(qt_app) -> None:
                 EventType.ROOM_CHANGED,
                 {
                     "room_id": "physics",
-                    "name": "Physics",
+                    "name": "Reality",
                     "purpose": "Analysing the survey data.",
                     "root": "Lab Notes",
                 },
@@ -105,7 +105,7 @@ def test_the_window_paints_the_room_it_is_told_about(qt_app) -> None:
         )
 
         assert window.conversation.room.room_id == "physics"
-        assert window.conversation.room.name.text() == "Physics"
+        assert window.conversation.room.name.text() == "Reality"
         assert not window.camera.track_btn.isHidden()
         assert not window.conversation.room.world_btn.isHidden()
 
@@ -142,11 +142,11 @@ def test_the_rooms_menu_lists_them_and_marks_the_open_one(tmp_path, qt_app) -> N
     try:
         menu = window._build_rooms_menu()
         labels = [act.text() for act in menu.actions() if not act.isSeparator()]
-        assert labels[0] == "Physics"
+        assert labels[0] == "Reality"
         assert labels[1] == "Writing"
         assert labels[-1] == "leave"
         checked = [act.text() for act in menu.actions() if act.isChecked()]
-        assert checked == ["Physics"]
+        assert checked == ["Reality"]
         leave = menu.actions()[-1]
         assert leave.isEnabled()
     finally:
@@ -188,7 +188,7 @@ def test_the_rooms_menu_enter_is_the_same_as_typing(tmp_path, qt_app) -> None:
     try:
         task = loop.create_task(bus.run())
         menu = window._build_rooms_menu()
-        physics = next(act for act in menu.actions() if act.text() == "Physics")
+        physics = next(act for act in menu.actions() if act.text() == "Reality")
         physics.trigger()
         loop.run_until_complete(settle())
         task.cancel()
@@ -238,7 +238,7 @@ def test_the_leave_button_asks_for_the_same_thing_typing_does(qt_app) -> None:
 
     try:
         task = loop.create_task(bus.run())
-        window.conversation.room.set_room("physics", name="Physics")
+        window.conversation.room.set_room("physics", name="Reality")
         window.conversation.room.leave_btn.click()
         loop.run_until_complete(settle(task))
 
@@ -267,7 +267,7 @@ def test_orbit_cannot_open_the_world(qt_app) -> None:
         window._on_event(
             Event(
                 EventType.ROOM_CHANGED,
-                {"room_id": "physics", "name": "Physics"},
+                {"room_id": "physics", "name": "Reality"},
             )
         )
         window._toggle_world(True)
@@ -296,7 +296,7 @@ def test_the_room_strip_is_not_on_the_atmosphere_tick(qt_app) -> None:
     )
     try:
         window.conversation.room.set_room(
-            "physics", name="Physics", purpose="Pose up."
+            "physics", name="Reality", purpose="Pose up."
         )
         window._toggle_world(True)
         from arelis.ui.glass import GlassFrame

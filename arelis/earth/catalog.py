@@ -102,7 +102,7 @@ LAYERS: tuple[LayerSpec, ...] = (
         "Cameras",
         "Published municipal camera *positions*. Not a video dragnet.",
         "live: TfL, Caltrans, NYC, SG LTA, Fintraffic, HK TD, "
-        "Ontario 511, ODOT TripCheck, SHA/NDDOT, OSM worldwide",
+        "CARS 511 cameras, ODOT TripCheck, SHA/NDDOT, OSM worldwide",
         "Rural is blind. Unpublished cams are holes. Viewsheds need a pose prior.",
     ),
     LayerSpec(

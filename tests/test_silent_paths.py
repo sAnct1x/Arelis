@@ -19,9 +19,9 @@ from arelis.ui.app import voice_restart_notices
 
 def _quiet_mail(monkeypatch: pytest.MonkeyPatch) -> None:
     """Stop _on_notify_poll from starting a real IMAP thread."""
-    import arelis.ui.app as app_mod
+    import arelis.ui.notify_host as notify_host
 
-    monkeypatch.setattr(app_mod, "peek_contact_mail_sync", lambda config=None: [])
+    monkeypatch.setattr(notify_host, "peek_contact_mail_sync", lambda config=None: [])
 
 
 def test_write_that_cannot_be_read_back_says_so(arelis_window, tmp_path: Path) -> None:
@@ -51,7 +51,7 @@ def test_write_that_cannot_be_read_back_says_so(arelis_window, tmp_path: Path) -
 def test_broken_calendar_poll_speaks_once_then_on_recovery(
     arelis_window, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import arelis.ui.app as app_mod
+    import arelis.ui.notify_host as notify_host
 
     _quiet_mail(monkeypatch)
     win = arelis_window()
@@ -59,7 +59,7 @@ def test_broken_calendar_poll_speaks_once_then_on_recovery(
     def _boom(config=None):
         raise RuntimeError("calendar cache is locked")
 
-    monkeypatch.setattr(app_mod, "load_today_events", _boom)
+    monkeypatch.setattr(notify_host, "load_today_events", _boom)
     win._on_notify_poll()
     win._on_notify_poll()
     win._on_notify_poll()
@@ -67,7 +67,7 @@ def test_broken_calendar_poll_speaks_once_then_on_recovery(
     assert text.count("Calendar notifications stopped") == 1
     assert "cache is locked" in text
 
-    monkeypatch.setattr(app_mod, "load_today_events", lambda config=None: [])
+    monkeypatch.setattr(notify_host, "load_today_events", lambda config=None: [])
     win._on_notify_poll()
     assert "working again" not in win.thinking.view.toPlainText()
     win._on_notify_poll()

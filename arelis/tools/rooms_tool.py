@@ -1,7 +1,7 @@
 """Make and describe rooms from a sentence, through the confirm gate.
 
 The slash commands are exact and the operator has to know them. This is the
-other half: "make me a physics room that works in my Interferometer folder for
+other half: "make me a survey room that works in my Interferometer folder for
 analysing fringe data" should end with that room existing, configured, without
 anybody spelling `/room set purpose`.
 
@@ -49,7 +49,7 @@ class RoomsTool:
             "name": {
                 "type": "string",
                 "description": (
-                    "Room name, as the user would say it — 'Physics'. Required "
+                    "Room name, as the user would say it — 'Reality'. Required "
                     "for create; identifies the room for get/update/forget."
                 ),
             },

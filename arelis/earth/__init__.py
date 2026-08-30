@@ -1,12 +1,13 @@
-"""Earth zone: nested knowledge on the solar-lab Earth globe.
+"""Earth zone: nested knowledge on Reality's Earth globe.
 
-Not a product title. Travel to Earth, or say enter Earth. Leave Earth
-returns to heliocentric. Breadcrumb for the next agent:
+A zone inside Reality, not a room. Travel to Earth, or say enter Earth.
+Leave Earth returns to heliocentric. Breadcrumb for the next agent:
 
-- Now: feeds.FEEDS is 63 shipped / 9 keyed / 3 later / 4 out.
+- Now: feeds.FEEDS is 79 shipped / 9 keyed / 3 later / 4 out.
   Parallel merge_live. Overlay paints freshness, heading, inspect card.
   Docs: docs/earth.md (now vs next).
 - Frames: store is ECEF metres; plate paints ECLIPJ2000 via frames.ecef_to_ecliptic.
+  Near Earth the inspect eye is also ECEF (`EarthCam`). Leave / reset drops it.
 - Honesty: simulated layers stay labeled simulated. live=on pulls
   shipped adapters. Failures keep sim. Mid-ocean VHF is deaf; a packet
   a keyed feed sent is painted. We do not buy sat-AIS. Sentinel-1
