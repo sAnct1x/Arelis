@@ -140,7 +140,7 @@ def test_settings_allow_tab(qt_app) -> None:
         initial_tab="Allow",
     )
     try:
-        assert dlg.tabs.tabText(dlg.tabs.currentIndex()) == "Allow"
+        assert dlg.tabs.tabText(dlg.tabs.currentIndex()) == "allow"
         assert dlg.confirm_browser.isChecked() is False
         assert dlg.confirm_send.isChecked() is True
         dlg._preset_allow_trust_local()
@@ -282,7 +282,7 @@ def test_settings_opens_notify_tab(qt_app) -> None:
         initial_tab="Notify",
     )
     try:
-        assert dlg.tabs.tabText(dlg.tabs.currentIndex()) == "Notify"
+        assert dlg.tabs.tabText(dlg.tabs.currentIndex()) == "notify"
         assert dlg.pair_qr.sizePolicy().horizontalPolicy() == QSizePolicy.Policy.Fixed
         assert dlg.pair_qr.hasScaledContents() is False
         assert dlg.pair_status.wordWrap() is True

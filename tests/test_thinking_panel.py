@@ -17,10 +17,11 @@ def test_streamed_think_tokens_join_into_prose(qt_app) -> None:
     panel.extend_stream(" you.")
     panel.append("Listening again.", kind="status")
     text = panel.view.toPlainText()
-    assert "trace  round 0/8  model step" in text
-    assert "think  I love you." in text
-    assert "status  Listening again." in text
-    assert "trace  I" not in text
+    assert "round 0/8  model step" in text
+    assert "I love you." in text
+    assert "Listening again." in panel.footer.text()
+    assert "trace" not in text
+    assert "think" not in text
     panel.deleteLater()
 
 
@@ -30,9 +31,7 @@ def test_repeated_status_line_is_shown_once(qt_app) -> None:
     panel.append("Loading speech recognition…", kind="status")
     panel.append("Speech recognition ready.", kind="status")
     panel.append("Speech recognition ready.", kind="status")
-    text = panel.view.toPlainText()
-    assert text.count("Loading speech recognition…") == 1
-    assert text.count("Speech recognition ready.") == 1
+    assert panel.footer.text() == "Speech recognition ready."
     panel.deleteLater()
 
 
@@ -57,8 +56,10 @@ def test_window_stream_flag_uses_think_paragraph(qt_app) -> None:
             Event(EventType.THINKING, {"text": " asked about mail.", "stream": True})
         )
         text = window.thinking.view.toPlainText()
-        assert "trace  round 1/8  model step" in text
-        assert "think  The user asked about mail." in text
+        assert "round 1/8  model step" in text
+        assert "The user asked about mail." in text
+        assert "trace" not in text
+        assert "think  " not in text
     finally:
         window.hide()
         window.loop.close()

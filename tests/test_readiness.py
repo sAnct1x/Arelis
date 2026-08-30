@@ -320,7 +320,7 @@ def test_readiness_strip_applies_statuses(qt_app) -> None:
     assert "confirm" not in strip._chips
     assert "models" not in strip._chips
     assert strip.systems_btn.property("status") == "warn"
-    assert "systems ·" in strip.systems_btn.text().lower()
+    assert "house ·" in strip.systems_btn.text().lower()
     menu_text = " ".join(a.text() for a in strip._systems_menu.actions())
     assert "Model" in menu_text
     assert "Allow gates" in menu_text

@@ -469,8 +469,11 @@ def test_idle_ghosts_are_not_clipped(qt_app) -> None:
     assert idle.rect().contains(ghosts.geometry())
     layout = ghosts.layout()
     assert layout is not None
-    assert layout.count() == 3
-    for i in range(3):
+    assert layout.count() == 4
+    new_row = layout.itemAt(0).widget()
+    assert new_row is not None
+    assert new_row.findChild(QLabel, "VoidGhostValue").text() == "new chat"
+    for i in range(1, 4):
         row = layout.itemAt(i).widget()
         assert row is not None
         assert ghosts.rect().contains(row.geometry())

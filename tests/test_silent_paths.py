@@ -17,6 +17,11 @@ from arelis.core.events import Event, EventType
 from arelis.ui.app import voice_restart_notices
 
 
+def _rail(win) -> str:
+    """Essay plus the latest housekeeping line."""
+    return f"{win.thinking.view.toPlainText()}\n{win.thinking.footer.text()}"
+
+
 def _quiet_mail(monkeypatch: pytest.MonkeyPatch) -> None:
     """Stop _on_notify_poll from starting a real IMAP thread."""
     import arelis.ui.notify_host as notify_host
@@ -45,7 +50,7 @@ def test_write_that_cannot_be_read_back_says_so(arelis_window, tmp_path: Path) -
     chat = win.chat.view.toPlainText()
     assert "could not read it back" in chat
     assert "notes.md" in chat
-    assert "read-back failed" in win.thinking.view.toPlainText()
+    assert "read-back failed" in _rail(win)
 
 
 def test_broken_calendar_poll_speaks_once_then_on_recovery(
@@ -63,24 +68,24 @@ def test_broken_calendar_poll_speaks_once_then_on_recovery(
     win._on_notify_poll()
     win._on_notify_poll()
     win._on_notify_poll()
-    text = win.thinking.view.toPlainText()
+    text = _rail(win)
     assert text.count("Calendar notifications stopped") == 1
     assert "cache is locked" in text
 
     monkeypatch.setattr(notify_host, "load_today_events", lambda config=None: [])
     win._on_notify_poll()
-    assert "working again" not in win.thinking.view.toPlainText()
+    assert "working again" not in _rail(win)
     win._on_notify_poll()
-    assert "calendar notifications are working again" in win.thinking.view.toPlainText()
+    assert "calendar notifications are working again" in _rail(win)
 
 
 def test_mail_peek_failure_reaches_the_rail(arelis_window) -> None:
     win = arelis_window()
     err = RuntimeError("Mail notifications stopped: login refused")
     win._on_mail_headers(err)
-    assert "login refused" not in win.thinking.view.toPlainText()
+    assert "login refused" not in _rail(win)
     win._on_mail_headers(err)
-    text = win.thinking.view.toPlainText()
+    text = _rail(win)
     assert text.count("login refused") == 1
     assert not win._mail_poll_inflight
 
@@ -91,9 +96,9 @@ def test_mail_peek_flap_does_not_announce_recovery(arelis_window) -> None:
     win._on_mail_headers(err)
     win._on_mail_headers(err)
     win._on_mail_headers([])
-    assert "working again" not in win.thinking.view.toPlainText()
+    assert "working again" not in _rail(win)
     win._on_mail_headers([])
-    assert "mail notifications are working again" in win.thinking.view.toPlainText()
+    assert "mail notifications are working again" in _rail(win)
 
 
 def test_mail_peek_raises_instead_of_returning_nothing(
@@ -198,6 +203,6 @@ def test_settings_warn_when_the_live_voice_service_cannot_follow(
             }
         }
     )
-    text = win.thinking.view.toPlainText()
+    text = _rail(win)
     assert "Restart Arelis to finish turning Speak on" in text
     assert "Listen" not in text

@@ -36,7 +36,7 @@ def test_the_strip_names_the_room_and_its_folder(qt_app) -> None:
     assert not strip.isHidden()
     assert strip.name.text() == "Reality"
     assert "Analysing the survey data." in strip.detail.text()
-    assert "Lab Notes" in strip.detail.text()
+    assert "Lab Notes" in strip.detail.toolTip()
 
 
 def test_a_long_purpose_stays_one_line_and_keeps_the_rest_on_hover(qt_app) -> None:

@@ -154,7 +154,7 @@ def test_a_crashed_turn_puts_no_exception_in_the_transcript(arelis_window) -> No
     assert "Errno" not in shown
     assert "went wrong mid-turn" in shown
     # The detail is not lost, it is where there is room for it.
-    assert "ConnectError" in window.thinking.view.toPlainText()
+    assert "ConnectError" in window.thinking.footer.text()
 
 
 def test_a_tool_that_answers_in_instructions_is_translated_at_the_window(
