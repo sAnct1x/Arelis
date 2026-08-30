@@ -45,10 +45,6 @@ class SherpaUnavailableError(RuntimeError):
     """Package, model files, or download failed."""
 
 
-def default_model_dir() -> Path:
-    return _DEFAULT_DIR
-
-
 def sherpa_package_available() -> bool:
     import importlib.util
 

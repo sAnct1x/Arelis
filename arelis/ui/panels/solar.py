@@ -6,6 +6,7 @@ camera. Overlay flags live on SolarSystem.overlay. No rideable craft.
 
 from __future__ import annotations
 
+import json
 import math
 import os
 import threading
@@ -51,6 +52,8 @@ from arelis.physics.runtime import get_system
 from arelis.physics.scene import BodyView, SolarSystem
 from arelis.ui.earth_overlay import (
     hit_entity,
+    hit_geo,
+    look_from_pose,
     ride_pose,
 )
 from arelis.ui.panels.solar_const import (  # noqa: F401
@@ -174,6 +177,15 @@ from arelis.ui.panels.solar_paint import (
 from arelis.ui.theme import color
 
 
+def _emit_earth_lock(on: bool) -> None:
+    try:
+        from arelis.physics.telemetry import emit
+
+        emit("earth_lock", on=on)
+    except Exception:
+        pass
+
+
 class SolarPanel(QWidget):
     """True-scale solar system in Reality. OpenGL space when the context lives."""
 
@@ -204,6 +216,12 @@ class SolarPanel(QWidget):
         self._inspect: str | None = None
         self._earth_id: str | None = None
         self._earth_cam = None
+        self._earth_fly = None
+        self._place: dict | None = None
+        self._earth_card_box = QRect()
+        self._look_session = None
+        self._look_frame = None
+        self._look_status = ""
         self._inspect_more = False
         self._roster_scroll = 0
         self._hud_bottom = 120
@@ -248,6 +266,12 @@ class SolarPanel(QWidget):
         self._painted_t = 0.0
         self._painted_wall = 0.0
         self._painted_note = ""
+        self._tile_gen = 0
+        self._globe_host = None
+        self._earth_hud = None
+        self._globe_cam_push = 0.0
+        self._globe_data_push = 0.0
+        self._globe_hpr: tuple[float, float] | None = None
 
     def showEvent(self, event) -> None:
         super().showEvent(event)
@@ -272,6 +296,7 @@ class SolarPanel(QWidget):
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
+        self._layout_earth_globe()
 
     def _ensure_space(self) -> None:
         from arelis.ui.solar_gl import SolarSpaceView, arm_fault_log, gl_wanted, trace
@@ -302,6 +327,7 @@ class SolarPanel(QWidget):
     def hideEvent(self, event) -> None:
         self._clock.stop()
         self._watch.stop()
+        self._close_earth_look()
         super().hideEvent(event)
 
     def _ensure_ic(self) -> None:
@@ -460,10 +486,13 @@ class SolarPanel(QWidget):
             if self._warp is not None:
                 self._step_warp(system, dt)
             else:
+                self._step_earth_fly(dt)
                 self._hold_earth_eye(system)
                 self._follow_earth_ride(system)
+                self._sync_earth_look()
                 self._fly_camera(dt)
                 self._remember_earth_eye(system)
+                self._sync_earth_globe()
             if not system.paused:
                 system.tick(dt)
             self._hold_earth_eye(system)
@@ -481,6 +510,8 @@ class SolarPanel(QWidget):
             return True
         if self._warp is not None:
             return True
+        if self._earth_fly is not None:
+            return True
         if self._maps_note != self._painted_note:
             return True
         if system is None:
@@ -488,13 +519,22 @@ class SolarPanel(QWidget):
         from arelis.earth.runtime import get_earth
 
         zone = get_earth()
-        if (
-            zone is not None
-            and zone.active
-            and self._close_globe()
-            and time.perf_counter() - self._painted_wall >= 0.12
-        ):
-            return True
+        if zone is not None and zone.active:
+            try:
+                from arelis.earth.tiles import tile_generation
+
+                gen = tile_generation()
+            except Exception:
+                gen = 0
+            if gen != getattr(self, "_tile_gen", 0):
+                self._tile_gen = gen
+                return True
+            if (
+                zone.live
+                and not system.paused
+                and time.perf_counter() - self._painted_wall >= 2.0
+            ):
+                return True
         # Dipole flares and granulation run on wall time, even while IAS15 is paused.
         if system.paused:
             wait = 0.16 if system.show_osculating else 0.32
@@ -640,7 +680,17 @@ class SolarPanel(QWidget):
                 self.update()
                 return
             if self._inspect and self._inspect_travel_rect().contains(int(px), int(py)):
-                self._travel_to(self._inspect)
+                from arelis.earth.runtime import get_earth
+
+                zone = get_earth()
+                if (
+                    self._inspect == "Earth"
+                    and zone is not None
+                    and zone.active
+                ):
+                    self._leave_earth_zone()
+                else:
+                    self._travel_to(self._inspect)
                 return
             roster_hit = self._roster_hit(px, py)
             if roster_hit is not None:
@@ -727,6 +777,13 @@ class SolarPanel(QWidget):
             if self._chrome_covers(int(px), int(py)):
                 event.accept()
                 return
+            system = get_system()
+            if system is not None:
+                hit = hit_entity(self, system, px, py)
+                if hit is not None:
+                    self._select_earth_entity(hit, ride=True)
+                    event.accept()
+                    return
             name = self._body_at(px, py)
             if name:
                 self._travel_to(name)
@@ -778,15 +835,20 @@ class SolarPanel(QWidget):
         elif key == Qt.Key.Key_1:
             system.go_realtime()
         elif key == Qt.Key.Key_2:
-            system.set_rate(RATE_HOUR)
+            if not self._earth_zone_on():
+                system.set_rate(RATE_HOUR)
         elif key == Qt.Key.Key_3:
-            system.set_rate(RATE_DAY)
+            if not self._earth_zone_on():
+                system.set_rate(RATE_DAY)
         elif key == Qt.Key.Key_4:
-            system.set_rate(RATE_YEAR)
+            if not self._earth_zone_on():
+                system.set_rate(RATE_YEAR)
         elif key == Qt.Key.Key_BracketRight or key == Qt.Key.Key_Equal:
-            system.set_rate(system.rate * 10.0)
+            if not self._earth_zone_on():
+                system.set_rate(system.rate * 10.0)
         elif key == Qt.Key.Key_BracketLeft or key == Qt.Key.Key_Minus:
-            system.set_rate(system.rate / 10.0)
+            if not self._earth_zone_on():
+                system.set_rate(system.rate / 10.0)
         elif key == Qt.Key.Key_G:
             system.overlay.show_gravity = not system.overlay.show_gravity
         elif key == Qt.Key.Key_M:
@@ -802,7 +864,11 @@ class SolarPanel(QWidget):
         elif key == Qt.Key.Key_L:
             system.show_lagrange = not system.show_lagrange
         elif key == Qt.Key.Key_Backslash:
-            system.toggle_warp()
+            from arelis.earth.runtime import get_earth
+
+            zone = get_earth()
+            if zone is None or not zone.active:
+                system.toggle_warp()
         elif key == Qt.Key.Key_T:
             system.show_trails = not system.show_trails
         elif key == Qt.Key.Key_QuoteLeft:
@@ -852,6 +918,11 @@ class SolarPanel(QWidget):
         over_speed = self._speed_rect().contains(int(pos.x()), int(pos.y()))
         if over_speed or event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
             self.cam.nudge_speed(0.85 if delta < 0 else 1.18)
+        elif self._earth_globe_live() and not self._chrome_covers(
+            int(pos.x()), int(pos.y())
+        ):
+            event.ignore()
+            return
         elif delta != 0:
             if self._warp is None:
                 self._camera_fly(1.0 if delta > 0 else -1.0, 0.0, 0.0, 0.20)
@@ -863,21 +934,323 @@ class SolarPanel(QWidget):
         if system is not None:
             hit = hit_entity(self, system, px, py)
             if hit is not None:
-                self._earth_id = hit.id
-                from arelis.earth.runtime import get_earth
-
-                zone = get_earth()
-                if zone is not None:
-                    zone.track(hit.id)
-                self.update()
+                self._place = None
+                self._select_earth_entity(hit, ride=hit.layer == "cameras")
                 return
+            from arelis.earth.runtime import get_earth
+
+            zone = get_earth()
+            if zone is not None and zone.active:
+                geo = hit_geo(self, system, px, py)
+                if geo is not None:
+                    self._select_earth_place(geo)
+                    return
         name = self._body_at(px, py)
         if name:
             self._earth_id = None
+            self._place = None
+            self._close_earth_look()
             self._set_inspect(name)
         elif not self._inspect_rect().contains(int(px), int(py)):
+            from arelis.earth.runtime import get_earth
+
+            zone = get_earth()
+            if zone is not None:
+                zone.stop_ride()
+                zone.track_id = ""
             self._earth_id = None
+            self._place = None
+            self._close_earth_look()
             self._set_inspect(None)
+            self.update()
+
+    def _select_earth_entity(self, hit, *, ride: bool) -> None:
+        from arelis.earth.runtime import get_earth
+
+        self._earth_id = hit.id
+        zone = get_earth()
+        if zone is not None:
+            if ride:
+                zone.ride(hit.id)
+            else:
+                zone.stop_ride()
+                zone.track(hit.id)
+        self._open_earth_look(hit)
+        self.update()
+
+    def _select_earth_place(self, geo: dict) -> None:
+        from arelis.earth.frames import EarthCam, nadir_cam
+        from arelis.earth.runtime import get_earth
+
+        self._earth_id = None
+        self._close_earth_look()
+        self._place = geo
+        zone = get_earth()
+        if zone is not None:
+            zone.stop_ride()
+            zone.track_id = ""
+        if self._earth_cam is None:
+            self._remember_earth_eye()
+        kind = str(geo.get("kind") or "earth")
+        alt = {"city": 80_000.0, "country": 1_100_000.0}.get(kind, 2_400_000.0)
+        dest = nadir_cam(float(geo["lat"]), float(geo["lon"]), alt)
+        start = self._earth_cam if isinstance(self._earth_cam, EarthCam) else dest
+        self._earth_fly = {"start": start, "end": dest, "t": 0.0, "dur": 1.05}
+        self._earth_cam = start
+        self.update()
+
+    def _step_earth_fly(self, dt: float) -> None:
+        flight = self._earth_fly
+        if not isinstance(flight, dict):
+            return
+        start = flight.get("start")
+        end = flight.get("end")
+        if start is None or end is None:
+            self._earth_fly = None
+            return
+        dur = max(0.2, float(flight.get("dur") or 1.0))
+        t = min(1.0, float(flight.get("t") or 0.0) + dt / dur)
+        flight["t"] = t
+        u = t * t * (3.0 - 2.0 * t)
+
+        def mix(
+            a: tuple[float, float, float], b: tuple[float, float, float]
+        ) -> tuple[float, float, float]:
+            return (
+                a[0] + (b[0] - a[0]) * u,
+                a[1] + (b[1] - a[1]) * u,
+                a[2] + (b[2] - a[2]) * u,
+            )
+
+        from arelis.earth.frames import EarthCam
+
+        self._earth_cam = EarthCam(
+            eye=mix(start.eye, end.eye),
+            look=mix(start.look, end.look),
+            up=mix(start.up, end.up),
+        )
+        if t >= 1.0:
+            self._earth_cam = end
+            self._earth_fly = None
+        if self._earth_globe_live():
+            self._push_globe_camera()
+
+    def _leave_earth_zone(self) -> None:
+        from arelis.earth.runtime import get_earth
+
+        zone = get_earth()
+        if zone is not None:
+            zone.stop_ride()
+            zone.leave()
+        self._earth_cam = None
+        self._earth_fly = None
+        self._earth_id = None
+        self._place = None
+        self._close_earth_look()
+        self._leave_earth_globe()
+        self._globe_hpr = None
+        self.update()
+
+    def _earth_zone_on(self) -> bool:
+        from arelis.earth.runtime import get_earth
+
+        zone = get_earth()
+        return zone is not None and zone.active
+
+    def _earth_globe_live(self) -> bool:
+        host = self._globe_host
+        return host is not None and not host.failed and host.isVisible()
+
+    def _enter_earth_globe(self) -> None:
+        system = get_system()
+        if system is not None:
+            try:
+                system.go_realtime()
+            except Exception:
+                pass
+        if os.environ.get("PYTEST_CURRENT_TEST"):
+            return
+        from arelis.ui.earth_globe_host import (
+            EarthGlobeHost,
+            EarthHudGlass,
+            entity_rows,
+            place_rows,
+            webengine_available,
+        )
+
+        if self._globe_host is None and webengine_available():
+            host = EarthGlobeHost(self)
+            host.bridge.hostPicked.connect(self._on_globe_pick)
+            host.bridge.hostCamera.connect(self._on_globe_camera)
+            host.bridge.hostReady.connect(lambda _k: self._on_globe_ready())
+            host.bridge.hostTiles.connect(lambda _k: self._on_globe_ready())
+            host.bridge.hostFailed.connect(lambda _w: self._on_globe_failed())
+            self._globe_host = host
+        if self._earth_hud is None and self._globe_host is not None:
+            self._earth_hud = EarthHudGlass(self)
+        host = self._globe_host
+        if host is not None and not host.failed:
+            host.show()
+            host.lower()
+        if self._earth_hud is not None:
+            self._earth_hud.show()
+            self._earth_hud.raise_()
+        self._layout_earth_globe()
+        if host is not None and not host.failed:
+            view = getattr(self, "_earth_cam", None)
+            zone = None
+            try:
+                from arelis.earth.frames import ecef_to_geodetic
+                from arelis.earth.runtime import get_earth
+
+                zone = get_earth()
+                if view is not None:
+                    lat, lon, alt = ecef_to_geodetic(*view.eye)
+                    host.push_camera(lat, lon, max(alt, 80_000.0))
+            except Exception:
+                pass
+            host.push_entities(entity_rows())
+            if zone is not None and zone.last_view is not None:
+                host.push_places(
+                    place_rows(zone.last_view.band, zone.last_view.lat, zone.last_view.lon)
+                )
+                host.push_streets(bool(zone.tiles))
+                host.push_buildings()
+        self.update()
+
+    def _leave_earth_globe(self) -> None:
+        if self._globe_host is not None:
+            self._globe_host.hide()
+        if self._earth_hud is not None:
+            self._earth_hud.hide()
+        self._globe_hpr = None
+
+    def _layout_earth_globe(self) -> None:
+        if self._globe_host is not None:
+            self._globe_host.setGeometry(self.rect())
+        if self._earth_hud is not None:
+            self._earth_hud.setGeometry(self.rect())
+            host = self._globe_host
+            if host is not None and not host.failed and host.isVisible():
+                self._earth_hud.show()
+                self._earth_hud.raise_()
+            else:
+                self._earth_hud.hide()
+
+    def _on_globe_ready(self) -> None:
+        self._layout_earth_globe()
+        self._sync_earth_globe(force=True)
+        self.update()
+
+    def _on_globe_failed(self) -> None:
+        self._leave_earth_globe()
+        self.update()
+
+    def _on_globe_pick(self, entity_id: str) -> None:
+        from arelis.earth.runtime import get_earth
+
+        zone = get_earth()
+        if zone is None:
+            return
+        hit = zone.get(entity_id)
+        if hit is None:
+            return
+        self._earth_id = hit.id
+        zone.track(hit.id)
+        self._open_earth_look(hit)
+        self.update()
+
+    def _on_globe_camera(self, raw: str) -> None:
+        if self._keys or self._earth_fly is not None:
+            return
+        try:
+            payload = json.loads(raw)
+            lat = float(payload["lat"])
+            lon = float(payload["lon"])
+            alt = float(payload["alt_m"])
+            heading = float(payload.get("heading") or 0.0)
+            pitch = float(payload.get("pitch") or -90.0)
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+            return
+        from arelis.earth.frames import nadir_cam
+
+        self._globe_hpr = (heading, pitch)
+        self._earth_cam = nadir_cam(lat, lon, alt)
+        self._remember_earth_eye()
+        try:
+            from arelis.physics.runtime import get_system
+            from arelis.ui.earth_overlay import sync_earth_view
+
+            system = get_system()
+            if system is not None:
+                sync_earth_view(self, system)
+        except Exception:
+            pass
+        self.update()
+
+    def _push_globe_camera(self) -> None:
+        host = self._globe_host
+        pose = self._earth_cam
+        if host is None or host.failed or not host.isVisible() or pose is None:
+            return
+        from arelis.earth.frames import ecef_to_geodetic
+
+        lat, lon, alt = ecef_to_geodetic(*pose.eye)
+        heading, pitch = self._globe_hpr if self._globe_hpr is not None else (None, None)
+        host.push_camera(lat, lon, max(alt, 200.0), heading, pitch)
+        self._globe_cam_push = time.perf_counter()
+
+    def _sync_earth_globe(self, *, force: bool = False, camera: bool = False) -> None:
+        host = self._globe_host
+        if host is None or host.failed or not host.isVisible():
+            return
+        now = time.perf_counter()
+        if camera or force:
+            self._push_globe_camera()
+        if not force and now - self._globe_data_push < 1.0:
+            return
+        self._globe_data_push = now
+        from arelis.earth.runtime import get_earth
+        from arelis.ui.earth_globe_host import entity_rows, place_rows
+
+        host.push_entities(entity_rows())
+        zone = get_earth()
+        if zone is not None and zone.last_view is not None:
+            host.push_places(
+                place_rows(zone.last_view.band, zone.last_view.lat, zone.last_view.lon)
+            )
+            host.push_streets(bool(zone.tiles))
+            host.push_buildings()
+
+    def _open_earth_look(self, hit) -> None:
+        from arelis.earth.look import resolve
+
+        handle = resolve(hit.id)
+        if handle is None:
+            self._close_earth_look()
+            return
+        if self._look_session is None:
+            from arelis.ui.look_session import LookSession
+
+            session = LookSession(self)
+            session.frame.connect(self._on_look_frame)
+            session.status.connect(self._on_look_status)
+            self._look_session = session
+        self._look_session.start(handle)
+
+    def _close_earth_look(self) -> None:
+        session = self._look_session
+        if session is not None:
+            session.stop()
+        self._look_frame = None
+        self._look_status = ""
+
+    def _on_look_frame(self, image) -> None:
+        self._look_frame = image
+        self.update()
+
+    def _on_look_status(self, text: str) -> None:
+        self._look_status = str(text or "")
         self.update()
 
     def _fov_y(self) -> float:
@@ -903,6 +1276,12 @@ class SolarPanel(QWidget):
             body.radius,
             sun_p,
         )
+        try:
+            from arelis.physics.telemetry import emit
+
+            emit("travel", body=name, radius=body.radius)
+        except Exception:
+            pass
         self._fly_v = [0.0, 0.0, 0.0]
         self._set_inspect(name)
         self.update()
@@ -948,12 +1327,16 @@ class SolarPanel(QWidget):
         if name == "Earth":
             require_earth().enter()
             self._remember_earth_eye()
+            self._enter_earth_globe()
             return
         zone = get_earth()
         if zone is not None and zone.active:
             zone.stop_ride()
             zone.leave()
         self._earth_cam = None
+        self._earth_id = None
+        self._close_earth_look()
+        self._leave_earth_globe()
 
     def _earth_lock_ready(self, system: SolarSystem) -> bool:
         from arelis.earth.frames import earth_eye_locked
@@ -998,11 +1381,16 @@ class SolarPanel(QWidget):
 
         live = system if system is not None else _live()
         zone = get_earth()
+        had = self._earth_cam is not None
         if live is None or zone is None or not zone.active:
             self._earth_cam = None
+            if had:
+                _emit_earth_lock(False)
             return
         if not self._earth_lock_ready(live):
             self._earth_cam = None
+            if had:
+                _emit_earth_lock(False)
             return
         earth = live.nbody.find("Earth")
         if earth is None:
@@ -1012,6 +1400,8 @@ class SolarPanel(QWidget):
             (earth.x, earth.y, earth.z),
             earth_spin_jd(live.epoch_jd, live.t),
         )
+        if not had:
+            _emit_earth_lock(True)
 
     def _follow_earth_ride(self, system: SolarSystem) -> None:
         from arelis.earth.runtime import get_earth
@@ -1022,12 +1412,33 @@ class SolarPanel(QWidget):
         ent = zone.get(zone.ride_id)
         if ent is None:
             return
-        pose = ride_pose(system, ent)
+        pose = None
+        if ent.layer == "cameras":
+            pose = look_from_pose(system, ent)
+        if pose is None:
+            pose = ride_pose(system, ent)
         if pose is None:
             return
         eye, look, up = pose
         self.cam.x, self.cam.y, self.cam.z = eye
         self.cam.aim(look[0], look[1], look[2], up=up)
+
+    def _sync_earth_look(self) -> None:
+        """Tool/voice ride or track should open the same live look as a click."""
+        from arelis.earth.runtime import get_earth
+
+        zone = get_earth()
+        if zone is None or not zone.active or not zone.ride_id:
+            return
+        eid = zone.ride_id
+        session = self._look_session
+        if session is not None and session.active_id() == eid:
+            return
+        hit = zone.get(eid)
+        if hit is None:
+            return
+        self._earth_id = hit.id
+        self._open_earth_look(hit)
 
     def _body_at(self, px: float, py: float) -> str | None:
         system = get_system()
@@ -1218,18 +1629,30 @@ class SolarPanel(QWidget):
                 painter.drawRect(row.adjusted(2, 1, -2, -1))
             painter.setPen(color("text") if name == self._inspect else color("text_dim"))
             spec = BODY_BY_NAME.get(name)
-            if spec is not None and spec.kind == "moon":
-                painter.drawText(
-                    row.adjusted(14, 0, -8, 0),
-                    Qt.AlignmentFlag.AlignVCenter,
-                    f"· {name}",
+            body = system.nbody.find(name)
+            kind = getattr(body, "kind", None) if body is not None else None
+            if kind is None and spec is not None:
+                kind = spec.kind
+            if kind in {"star", "planet", "moon", "asteroid", "probe", "lagrange"}:
+                from arelis.ui.earth_marks import ink_for_kind, paint_mark
+
+                paint_mark(
+                    painter,
+                    row.left() + 12,
+                    row.center().y(),
+                    kind,
+                    band="city",
+                    size=12,
+                    ink=ink_for_kind(kind),
                 )
-            else:
-                painter.drawText(
-                    row.adjusted(8, 0, -8, 0),
-                    Qt.AlignmentFlag.AlignVCenter,
-                    name,
-                )
+            indent = 22 if kind == "moon" else 20
+            label = f"· {name}" if spec is not None and spec.kind == "moon" else name
+            painter.setPen(color("text") if name == self._inspect else color("text_dim"))
+            painter.drawText(
+                row.adjusted(indent, 0, -8, 0),
+                Qt.AlignmentFlag.AlignVCenter,
+                label,
+            )
 
     def _anchor(self) -> tuple[float, float, float]:
         system = get_system()
@@ -1281,6 +1704,8 @@ class SolarPanel(QWidget):
         self.cam.speed = saved
         self._clamp_pullback()
         self._remember_earth_eye()
+        if self._earth_globe_live() and (abs(fwd) + abs(right) + abs(up)) > 1e-6:
+            self._push_globe_camera()
 
     def _clamp_pullback(self) -> None:
         ox, oy, oz = self._anchor()
@@ -1316,6 +1741,11 @@ class SolarPanel(QWidget):
             zone.stop_ride()
             zone.leave()
         self._earth_cam = None
+        self._earth_fly = None
+        self._earth_id = None
+        self._place = None
+        self._close_earth_look()
+        self._leave_earth_globe()
         system = get_system()
         self._warp = None
         self.cam.frame_system(self._system_span(system))
@@ -1336,21 +1766,42 @@ class SolarPanel(QWidget):
         system = get_system()
         if system is not None:
             self._painted_t = system.t
-        self._painted_wall = time.perf_counter()
         self._painted_note = self._maps_note
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        if self._space_live():
-            assert self._gl is not None
-            frame = self._gl.render(self.width(), self.height())
-            if frame is not None and not frame.isNull():
-                painter.drawImage(self.rect(), frame)
-            else:
-                painter.fillRect(self.rect(), QColor(4, 5, 8))
-            self._paint_overlay(painter, software=False)
-            return
-        painter.fillRect(self.rect(), QColor(4, 5, 8))
-        self._paint_overlay(painter, software=True)
+        try:
+            if self._earth_globe_live():
+                self._layout_earth_globe()
+                painter = QPainter(self)
+                painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+                if self._space_live():
+                    assert self._gl is not None
+                    frame = self._gl.render(
+                        self.width(), self.height(), stars_only=True
+                    )
+                    if frame is not None and not frame.isNull():
+                        painter.drawImage(self.rect(), frame)
+                    else:
+                        painter.fillRect(self.rect(), QColor(4, 5, 8))
+                else:
+                    painter.fillRect(self.rect(), QColor(4, 5, 8))
+                if self._earth_hud is not None:
+                    self._earth_hud.update()
+                return
+            painter = QPainter(self)
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+            if self._space_live():
+                assert self._gl is not None
+                frame = self._gl.render(self.width(), self.height())
+                if frame is not None and not frame.isNull():
+                    painter.drawImage(self.rect(), frame)
+                else:
+                    painter.fillRect(self.rect(), QColor(4, 5, 8))
+                self._paint_overlay(painter, software=False)
+                return
+            painter.fillRect(self.rect(), QColor(4, 5, 8))
+            self._paint_overlay(painter, software=True)
+        finally:
+            # End, not start: a 150 ms Earth paint must not look already stale.
+            self._painted_wall = time.perf_counter()
 
     def _paint_overlay(self, painter: QPainter, *, software: bool) -> None:
         return paint_overlay(self, painter, software=software)
@@ -1513,7 +1964,18 @@ class SolarPanel(QWidget):
         return earth_chip_at(self, px, py)
 
     def _toggle_earth_chip(self, kind: str) -> None:
-        return toggle_earth_chip(self, kind)
+        toggle_earth_chip(self, kind)
+        if not self._earth_globe_live():
+            return
+        from arelis.earth.runtime import get_earth
+
+        zone = get_earth()
+        if zone is None:
+            return
+        if kind == "tiles":
+            self._globe_host.push_streets(bool(zone.tiles))
+        elif kind == "buildings":
+            self._globe_host.push_buildings()
 
     def _start_earth_live(self) -> None:
         return start_earth_live(self)

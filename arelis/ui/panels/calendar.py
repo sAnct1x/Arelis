@@ -1110,9 +1110,6 @@ class CalendarPanel(QWidget):
         self._events = list(events)
         self._paint()
 
-    def close_sheet(self) -> None:
-        self._close_sheet()
-
     def _window(self) -> tuple[date, date]:
         if self._view == "week":
             days = week_cells(self._anchor)

@@ -15,7 +15,6 @@ import queue
 import socket
 import threading
 from collections import deque
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -40,11 +39,6 @@ TOKEN_ENV = "ARELIS_INGEST_TOKEN"
 DEFAULT_HOST = "0.0.0.0"
 DEFAULT_PORT = 8765
 RECENT_LIMIT = 40
-
-
-@dataclass(frozen=True)
-class IngestSecrets:
-    token: str
 
 
 def list_lan_ipv4() -> list[str]:

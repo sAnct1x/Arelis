@@ -787,8 +787,10 @@ class PlaywrightDriver:
 
         from playwright.async_api import async_playwright
 
-        if self._browser is not None and self._mode.startswith("attach"):
-            # Already attached to same CDP.
+        already = self._browser is not None and self._context is not None
+        if already:
+            # Keep the tab open/navigate just selected. Re-picking after a
+            # launch-mode connect used to snap back to the front tab (Gmail).
             if self._page is None:
                 self._page = await self._pick_page()
             self._mode = mode

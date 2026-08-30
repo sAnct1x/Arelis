@@ -129,9 +129,6 @@ class NotificationsPanel(QWidget):
         self._rebuild()
         self.unread_changed.emit(self._unread)
 
-    def mark_opened(self) -> None:
-        self.opened.emit()
-
     def show_notice(self, notice_id: str) -> None:
         """Select the row. The body already lives on the row — do not clone it."""
         self._open_id = notice_id

@@ -38,6 +38,7 @@ from arelis.ui.icons import (
     microphone_icon,
     paperclip_icon,
     signal_flare_icon,
+    window_close_icon,
 )
 from arelis.ui.notify_overlay import NotifyOverlay
 from arelis.ui.panels.chat import ChatPanel
@@ -134,6 +135,7 @@ class ConversationStage(GlassFrame):
     attach_errors = Signal(list)  # list[str] for STATUS / system lines
     idle_conditions_changed = Signal()
     session_clicked = Signal(str)
+    new_requested = Signal()
     leave_room_requested = Signal()
     world_requested = Signal()
 
@@ -161,6 +163,7 @@ class ConversationStage(GlassFrame):
         layout.addWidget(self.chat, stretch=1)
         self.chat.session_clicked.connect(self.session_clicked.emit)
         self.chat.suggestion_clicked.connect(self._on_suggestion)
+        self.chat.new_requested.connect(self.new_requested.emit)
 
         self.confirm = ConfirmCard()
         layout.addWidget(self.confirm)
@@ -206,7 +209,7 @@ class ConversationStage(GlassFrame):
         self.role.setToolTip(
             "Reply role for this message (fast / research). "
             "File and git work stays on fast. Auto-routing may still "
-            "switch to research for a deep-dive; Systems → Model shows "
+            "switch to research for a deep-dive; house → model shows "
             "what is hot in VRAM."
         )
         polish_combo_popup(self.role, compact=True)
@@ -226,6 +229,17 @@ class ConversationStage(GlassFrame):
         # Either can be on, never both.
         _btn = METRICS["control"]
         _icon = METRICS["icon"]
+        self.clear_btn = QToolButton()
+        self.clear_btn.setObjectName("ComposerClear")
+        self.clear_btn.setIcon(window_close_icon(_icon))
+        self.clear_btn.setIconSize(QSize(_icon, _icon))
+        self.clear_btn.setFixedSize(_btn, _btn)
+        self.clear_btn.setToolTip("clear the box")
+        self.clear_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.clear_btn.setAutoRaise(True)
+        self.clear_btn.clicked.connect(self.input.clear)
+        self.clear_btn.hide()
+
         self.attach_btn = QToolButton()
         self.attach_btn.setObjectName("AttachButton")
         self.attach_btn.setIcon(paperclip_icon(_icon))
@@ -281,6 +295,7 @@ class ConversationStage(GlassFrame):
 
         row.addWidget(self.role)
         row.addWidget(self.input, stretch=1)
+        row.addWidget(self.clear_btn)
         row.addWidget(self.attach_btn)
         row.addWidget(self.mic_btn)
         row.addWidget(self.conversation_btn)
@@ -491,6 +506,7 @@ class ConversationStage(GlassFrame):
             self._fit_idle_prompt()
         else:
             self._fit_workbench_prompt()
+        self._sync_composer_buttons()
 
     def _fit_idle_prompt(self) -> None:
         """Widen with the sentence, then wrap — never clip the start."""
@@ -592,6 +608,7 @@ class ConversationStage(GlassFrame):
             self.input.setAlignment(Qt.AlignmentFlag.AlignCenter)
             self.input.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
             self.input.setClearButtonEnabled(False)
+            self.clear_btn.hide()
             self._composer.hide()
             self._hairline.hide()
             self.drive.hide()
@@ -736,6 +753,8 @@ class ConversationStage(GlassFrame):
         self.send_btn.setEnabled(not blocked)
         self.attach_btn.setEnabled(not blocked)
         self.stop_btn.setVisible(self._busy or self._speaking)
+        typing = bool(self.input.text().strip())
+        self.clear_btn.setVisible(typing and not self._idle_mode)
         if self.confirm_open():
             self.input.setPlaceholderText("Enter = allow · Esc = deny…")
         elif self._idle_mode:

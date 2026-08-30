@@ -171,12 +171,6 @@ def firefox_executable() -> str | None:
     )
 
 
-def chrome_user_data_dir() -> Path:
-    """Daily Chrome profile — do not launch or kill this path."""
-    local = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
-    return Path(local) / "Google" / "Chrome" / "User Data"
-
-
 def arelis_user_data_dir() -> Path:
     """Dedicated Chromium profile Arelis owns, beside the rest of its state."""
     return state_dir() / "browser-profile"
@@ -248,11 +242,6 @@ def mark_intro_shown(user_data: Path | None = None) -> None:
         _intro_marker(root).write_text("1\n", encoding="utf-8")
     except OSError:
         log.warning("could not write browser intro marker under %s", root)
-
-
-def edge_user_data_dir() -> Path:
-    local = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
-    return Path(local) / "Microsoft" / "Edge" / "User Data"
 
 
 def open_url_in_browser(

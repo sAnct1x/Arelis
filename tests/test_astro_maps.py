@@ -68,6 +68,7 @@ def test_download_maps_skips_files_already_on_disk(tmp_path, monkeypatch) -> Non
     monkeypatch.setattr(maps_mod, "maps_dir", lambda: tmp_path)
     for _body, meta in maps_mod.MAPS.items():
         _jpeg(tmp_path / meta[0])
+    _jpeg(tmp_path / maps_mod.EARTH_HI_FILE)
 
     class BoomClient:
         def __init__(self, *args, **kwargs):
@@ -98,6 +99,23 @@ def test_store_image_rejects_html_and_accepts_jpeg(tmp_path) -> None:
     assert dest.is_file()
 
 
+def test_describe_prefers_earth_8192(tmp_path, monkeypatch) -> None:
+    from arelis.physics import maps as maps_mod
+
+    monkeypatch.setattr(maps_mod, "maps_dir", lambda: tmp_path)
+    maps_mod.forget_ready()
+    _jpeg(tmp_path / "earth.jpg")
+    coarse = maps_mod.describe("Earth")
+    assert coarse.path is not None
+    assert coarse.path.name == "earth.jpg"
+    _jpeg(tmp_path / maps_mod.EARTH_HI_FILE, size=(512, 256))
+    maps_mod.forget_ready()
+    hi = maps_mod.describe("Earth")
+    assert hi.path is not None
+    assert hi.path.name == maps_mod.EARTH_HI_FILE
+    assert hi.km_per_px == maps_mod.EARTH_HI_KM
+
+
 def test_describe_uncatalogued_body_does_not_invent_a_map() -> None:
     from arelis.physics.maps import describe
 
@@ -113,6 +131,7 @@ def test_generated_surfaces_are_real_jpegs(tmp_path, monkeypatch) -> None:
     for _body, meta in maps_mod.MAPS.items():
         if meta[3].startswith("http"):
             _jpeg(tmp_path / meta[0])
+    _jpeg(tmp_path / maps_mod.EARTH_HI_FILE)
 
     class BoomClient:
         def __init__(self, *args, **kwargs):

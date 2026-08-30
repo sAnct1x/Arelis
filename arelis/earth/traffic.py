@@ -16,6 +16,7 @@ import httpx
 from arelis import __source_url__, __version__
 from arelis.earth.entity import Coverage, Entity
 from arelis.earth.frames import lla_to_ecef
+from arelis.earth.secrets import earth_cars_key, earth_secret
 
 CALTRANS_HOST = "cwwp2.dot.ca.gov"
 CALTRANS_LCS = tuple(
@@ -88,29 +89,114 @@ _WZDX: tuple[tuple[str, str, str], ...] = (
     ("511ia.org", "https://511ia.org/api/wzdx", "Iowa WZDx"),
     ("511mn.org", "https://511mn.org/api/wzdx", "Minnesota WZDx"),
     ("511ga.org", "https://511ga.org/api/wzdx", "Georgia WZDx"),
+    ("drivenc.gov", "https://drivenc.gov/api/wzdx", "NCDOT WZDx"),
+    (
+        "in.carsprogram.org",
+        "https://in.carsprogram.org/carsapi_v1/api/wzdx",
+        "Indiana WZDx",
+    ),
+    (
+        "kscars.kandrive.gov",
+        "https://kscars.kandrive.gov/carsapi_v1/api/wzdx",
+        "Kansas WZDx",
+    ),
+    (
+        "wzdx.wsdot.wa.gov",
+        "https://wzdx.wsdot.wa.gov/api/v4/WorkZoneFeed",
+        "WSDOT WZDx",
+    ),
+    ("511.gnb.ca", "https://511.gnb.ca/api/wzdx", "New Brunswick WZDx"),
+    ("511.gov.pe.ca", "https://511.gov.pe.ca/api/wzdx", "PEI WZDx"),
+    ("511yukon.ca", "https://511yukon.ca/api/wzdx", "Yukon WZDx"),
+    ("511.alaska.gov", "https://511.alaska.gov/api/wzdx", "Alaska 511 WZDx"),
+    ("nvroads.com", "https://nvroads.com/api/wzdx", "Nevada WZDx"),
 )
 
 # Official ArcGIS FeatureServer GeoJSON. Operator catalogs, not VINs.
-_ARCGIS: tuple[tuple[str, str, str], ...] = (
+# host, url, source, prefix
+_ARCGIS: tuple[tuple[str, str, str, str], ...] = (
     (
         "chartimap1.sha.maryland.gov",
         "https://chartimap1.sha.maryland.gov/arcgis/rest/services/CHART/Incidents/MapServer/0/query?where=1%3D1&outFields=*&f=geojson&returnGeometry=true",
         "Maryland CHART",
+        "md-chart",
     ),
     (
         "maps.sa.gov.au",
         "https://maps.sa.gov.au/arcgis/rest/services/DPTIExtTransport/TrafficSAOpenData2/MapServer/0/query?where=1%3D1&outFields=*&f=geojson&returnGeometry=true",
         "South Australia traffic",
+        "sa-road",
+    ),
+    (
+        "maps.sa.gov.au",
+        "https://maps.sa.gov.au/arcgis/rest/services/DPTIExtTransport/TrafficSAOpenData2/MapServer/1/query?where=1%3D1&outFields=*&f=geojson&returnGeometry=true",
+        "South Australia closures",
+        "sa-clo",
     ),
     (
         "gisservices.mainroads.wa.gov.au",
         "https://gisservices.mainroads.wa.gov.au/arcgis/rest/services/TravelInformation/MapServer/0/query?where=1%3D1&outFields=*&f=geojson&returnGeometry=true",
         "Main Roads WA",
+        "wa-road",
+    ),
+    (
+        "gisservices.mainroads.wa.gov.au",
+        "https://gisservices.mainroads.wa.gov.au/arcgis/rest/services/TravelInformation/MapServer/1/query?where=1%3D1&outFields=*&f=geojson&returnGeometry=true",
+        "Main Roads WA roadworks",
+        "wa-works",
+    ),
+    (
+        "gisservices.mainroads.wa.gov.au",
+        "https://gisservices.mainroads.wa.gov.au/arcgis/rest/services/TravelInformation/MapServer/2/query?where=1%3D1&outFields=*&f=geojson&returnGeometry=true",
+        "Main Roads WA events",
+        "wa-evt",
     ),
 )
 
 ND_ALERTS = "https://travelfiles.dot.nd.gov/geojson_nc/alerts.json"
 ND_HOST = "travelfiles.dot.nd.gov"
+TX_HOST = "api.drivetexas.org"
+TX_CONDITIONS = "https://api.drivetexas.org/api/conditions.geojson"
+TX_WZDX = "https://api.drivetexas.org/api/conditions.wzdx.geojson"
+TX_ENV = "ARELIS_DRIVETEXAS_KEY"
+QC_EVENTS = (
+    "https://ws.mapserver.transports.gouv.qc.ca/swtq?service=wfs&version=2.0.0"
+    "&request=GetFeature&typename=ms:evenements&srsname=EPSG:4326&outputformat=geojson"
+)
+QC_CHANTIERS = (
+    "https://ws.mapserver.transports.gouv.qc.ca/swtq?service=wfs&version=2.0.0"
+    "&request=GetFeature&typename=ms:chantiers_mtmdet&srsname=EPSG:4326&outputformat=geojson"
+)
+QC_CONDITIONS = (
+    "https://ws.mapserver.transports.gouv.qc.ca/swtq?service=wfs&version=2.0.0"
+    "&request=GetFeature&typename=ms:conditions_routieres&srsname=EPSG:4326&outputformat=geojson"
+)
+QC_HOST = "ws.mapserver.transports.gouv.qc.ca"
+DE_AUTOBAHN = "https://verkehr.autobahn.de/o/autobahn"
+DE_HOST = "verkehr.autobahn.de"
+WA_ALERTS = (
+    "https://wsdot.wa.gov/Traffic/api/HighwayAlerts/"
+    "HighwayAlertsREST.svc/GetAlertsAsJson"
+)
+WA_HOST = "wsdot.wa.gov"
+WA_ENV = "ARELIS_WSDOT_ACCESS_CODE"
+OH_HOST = "publicapi.ohgo.com"
+OH_ENV = "ARELIS_OHGO_KEY"
+OH_INCIDENTS = "https://publicapi.ohgo.com/api/v1/incidents"
+OH_CONSTRUCTION = "https://publicapi.ohgo.com/api/v1/construction"
+# Same CARS clones as cameras.py. Query is ?key=
+_KEYED_CARS: tuple[tuple[str, str, str, str], ...] = (
+    ("drivenc.gov", "NCDOT", "drivenc_key", "ARELIS_DRIVENC_KEY"),
+    ("udottraffic.utah.gov", "UDOT", "", ""),
+    ("az511.gov", "AZ511", "", ""),
+    ("511.idaho.gov", "ITD", "", ""),
+    ("511wi.gov", "WisDOT", "", ""),
+    ("511la.org", "LADOTD", "", ""),
+    ("511.alaska.gov", "Alaska 511", "", ""),
+    ("nvroads.com", "Nevada 511", "", ""),
+    ("ctroads.org", "CTDOT", "", ""),
+    ("511.nebraska.gov", "Nebraska 511", "", ""),
+)
 
 _TIMEOUT = 8.0
 _CAP = 2500
@@ -158,11 +244,31 @@ _ND_CITE = (
     "NDDOT highway alerts GeoJSON. North Dakota roads. "
     "Not a VIN index. Individual cars are not in this feed."
 )
+_QC_CITE = (
+    "Quebec 511 / MTMD published road events. Operator GeoJSON. "
+    "Not a VIN index. Individual cars are not in this feed."
+)
+_DE_CITE = (
+    "Autobahn GmbH published roadworks and warnings. Operator JSON. "
+    "Not a VIN index. Individual cars are not in this feed."
+)
+_TX_CITE = (
+    "DriveTexas / TxDOT published highway conditions. Operator GeoJSON. "
+    "Not cameras. Not a VIN index. Individual cars are not in this feed."
+)
+_WA_CITE = (
+    "WSDOT published highway alerts. Operator JSON. "
+    "Not a VIN index. Individual cars are not in this feed."
+)
+_OH_CITE = (
+    "OHGO / ODOT published incidents and construction. Operator JSON. "
+    "Not a VIN index. Individual cars are not in this feed."
+)
 
 
 def fetch_traffic() -> list[Entity] | None:
     chunks: list[list[Entity] | None] = []
-    with ThreadPoolExecutor(max_workers=12) as pool:
+    with ThreadPoolExecutor(max_workers=16) as pool:
         futs = [
             pool.submit(_fetch_caltrans),
             pool.submit(_fetch_tfl),
@@ -175,6 +281,12 @@ def fetch_traffic() -> list[Entity] | None:
             pool.submit(_fetch_wzdx),
             pool.submit(_fetch_arcgis),
             pool.submit(_fetch_nd),
+            pool.submit(_fetch_quebec),
+            pool.submit(_fetch_autobahn),
+            pool.submit(_fetch_drivetexas),
+            pool.submit(_fetch_wsdot),
+            pool.submit(_fetch_ohgo),
+            pool.submit(_fetch_keyed_cars),
         ]
         for fut in as_completed(futs):
             chunks.append(fut.result())
@@ -547,8 +659,14 @@ def _entity_from_geojson_incident(
         return None
     cid = str(
         props.get("id")
+        or props.get("Id")
+        or props.get("GLOBALID")
+        or props.get("identifiant")
+        or props.get("identifiantChantier")
+        or props.get("NumeroSegment")
         or props.get("hazardId")
         or props.get("event_id")
+        or props.get("LOCATION_ID")
         or props.get("OBJECTID")
         or props.get("FID")
         or feat.get("id")
@@ -557,15 +675,39 @@ def _entity_from_geojson_incident(
     title = str(
         props.get("headline")
         or props.get("displayName")
-        or props.get("event_type")
+        or props.get("EventDescription")
+        or props.get("identificationDesTravaux")
+        or props.get("descriptionFrancais")
+        or props.get("DescriptionEtatChausseeEN")
+        or props.get("DescriptionEtatChausseeFR")
+        or props.get("Description")
         or props.get("description")
         or props.get("DESCRIPTION")
+        or props.get("PLOT_ALT_TEXT")
+        or props.get("PLOT_DETAILS")
+        or props.get("event_type")
+        or props.get("RTE_NM")
+        or props.get("type")
+        or props.get("entrave")
+        or props.get("localisation")
         or props.get("INCIDENTTYPE")
+        or props.get("IncidentType")
         or props.get("EventType")
+        or props.get("WorkType")
         or props.get("NAME")
         or props.get("title")
         or cid
     ).strip()
+    road = str(
+        props.get("Road")
+        or props.get("NomRoute")
+        or props.get("routeAutoroute")
+        or props.get("LOCAL_ROAD_NAME")
+        or props.get("RoadwayName")
+        or ""
+    ).strip()
+    if road and road.casefold() not in title.casefold():
+        title = f"{road} {title}" if title else road
     roads = props.get("roads")
     if isinstance(roads, list) and roads:
         first = roads[0] if isinstance(roads[0], dict) else {}
@@ -624,7 +766,7 @@ def _fetch_wzdx() -> list[Entity] | None:
     any_ok = False
     out: list[Entity] = []
     seen: set[str] = set()
-    with ThreadPoolExecutor(max_workers=8) as pool:
+    with ThreadPoolExecutor(max_workers=12) as pool:
         futs = [pool.submit(_get_json, url, host) for host, url, _name in _WZDX]
         names = {host: name for host, _url, name in _WZDX}
         hosts = [host for host, _url, _name in _WZDX]
@@ -672,6 +814,24 @@ def _wzdx_prefix(host: str) -> str:
         return "sk-wzdx"
     if host.startswith("fl511"):
         return "fl-wzdx"
+    if host.startswith("drivenc"):
+        return "nc-wzdx"
+    if host.startswith("in.cars"):
+        return "in-wzdx"
+    if host.startswith("kscars"):
+        return "ks-wzdx"
+    if "wsdot" in host:
+        return "wa-wzdx"
+    if host.endswith("gnb.ca"):
+        return "nb-wzdx"
+    if host.endswith("pe.ca"):
+        return "pe-wzdx"
+    if "yukon" in host:
+        return "yt-wzdx"
+    if "alaska" in host:
+        return "ak-wzdx"
+    if host.startswith("nvroads"):
+        return "nv-wzdx"
     return host.split(".")[0][:12]
 
 
@@ -758,16 +918,16 @@ def _fetch_arcgis() -> list[Entity] | None:
     out: list[Entity] = []
     seen: set[str] = set()
     with ThreadPoolExecutor(max_workers=4) as pool:
-        futs = [pool.submit(_get_json, url, host) for host, url, _name in _ARCGIS]
-        names = {host: name for host, _url, name in _ARCGIS}
-        hosts = [host for host, _url, _name in _ARCGIS]
-        for host, fut in zip(hosts, futs, strict=True):
+        futs = [
+            pool.submit(_get_json, url, host) for host, url, _name, _prefix in _ARCGIS
+        ]
+        meta = [(name, prefix) for _host, _url, name, prefix in _ARCGIS]
+        for fut, (name, prefix) in zip(futs, meta, strict=True):
             payload = fut.result()
             if not isinstance(payload, dict):
                 continue
             any_ok = True
-            source = names.get(host, "ArcGIS traffic")
-            prefix = _arcgis_prefix(host)
+            source = name
             for entity in entities_from_geojson_incidents(
                 payload, prefix=prefix, source=source, cite=_ARCGIS_CITE
             ):
@@ -780,16 +940,6 @@ def _fetch_arcgis() -> list[Entity] | None:
     if not any_ok:
         return None
     return out or None
-
-
-def _arcgis_prefix(host: str) -> str:
-    if "maryland" in host:
-        return "md-chart"
-    if host.startswith("maps.sa"):
-        return "sa-road"
-    if "wa.gov" in host or "mainroads" in host:
-        return "wa-road"
-    return host.split(".")[0][:12]
 
 
 def _fetch_nd() -> list[Entity] | None:
@@ -930,6 +1080,402 @@ def _entity_from_cars(
     )
 
 
+def _fetch_ohgo() -> list[Entity] | None:
+    key = earth_secret("ohgo_key", OH_ENV)
+    if not key:
+        return None
+    extra = {"Authorization": f"APIKEY {key}"}
+    params = {"page-all": "true"}
+    chunks: list[list[Entity] | None] = []
+    incidents = _get_json(OH_INCIDENTS, OH_HOST, params=params, extra=extra)
+    if isinstance(incidents, dict):
+        chunks.append(
+            entities_from_ohgo_events(
+                _list_rows(incidents, "results"), prefix="oh511", source="OHGO incidents"
+            )
+            or None
+        )
+    else:
+        chunks.append(None)
+    construction = _get_json(OH_CONSTRUCTION, OH_HOST, params=params, extra=extra)
+    if isinstance(construction, dict):
+        chunks.append(
+            entities_from_ohgo_events(
+                _list_rows(construction, "results"),
+                prefix="oh-wz",
+                source="OHGO construction",
+            )
+            or None
+        )
+    else:
+        chunks.append(None)
+    if all(chunk is None for chunk in chunks):
+        return None
+    out: list[Entity] = []
+    seen: set[str] = set()
+    for chunk in chunks:
+        for entity in chunk or []:
+            if entity.id in seen:
+                continue
+            seen.add(entity.id)
+            out.append(entity)
+            if len(out) >= _CAP:
+                return out
+    return out or None
+
+
+def entities_from_ohgo_events(
+    rows: list[dict[str, Any]], *, prefix: str, source: str
+) -> list[Entity]:
+    out: list[Entity] = []
+    seen: set[str] = set()
+    for row in rows:
+        lat = _num(row.get("latitude"), row.get("Latitude"))
+        lon = _num(row.get("longitude"), row.get("Longitude"))
+        if lat is None or lon is None:
+            continue
+        if abs(lat) > 90.0 or abs(lon) > 180.0:
+            continue
+        if abs(lat) < 1e-6 and abs(lon) < 1e-6:
+            continue
+        eid = str(row.get("id") or row.get("Id") or "").strip()
+        road = str(row.get("routeName") or row.get("RouteName") or "").strip()
+        desc = str(
+            row.get("description")
+            or row.get("Description")
+            or row.get("location")
+            or row.get("category")
+            or eid
+            or road
+        ).strip()
+        label = desc
+        if road and road.casefold() not in label.casefold():
+            label = f"{road} {label}" if label else road
+        if not eid and not label:
+            continue
+        kid = f"{prefix}:{eid or label.casefold()[:40]}"
+        if kid in seen:
+            continue
+        seen.add(kid)
+        pos = lla_to_ecef(lat, lon, 0.0)
+        out.append(
+            Entity(
+                id=kid,
+                cls="traffic",
+                layer="traffic",
+                label=label[:80],
+                x=pos[0],
+                y=pos[1],
+                z=pos[2],
+                source=source,
+                freshness="delayed",
+                confidence=0.7,
+                cite=_OH_CITE,
+                meta={"lat": lat, "lon": lon},
+                coverage=Coverage(
+                    "incident",
+                    "Published OHGO event. Not a car. Not a plate.",
+                ),
+            )
+        )
+        if len(out) >= _CAP:
+            break
+    return out
+
+
+def _fetch_wsdot() -> list[Entity] | None:
+    key = earth_secret("wsdot_access_code", WA_ENV)
+    if not key:
+        return None
+    payload = _get_json(WA_ALERTS, WA_HOST, params={"AccessCode": key})
+    rows = _list_rows(payload)
+    if not rows:
+        return None
+    pins = entities_from_wsdot_alerts(rows)
+    return pins or None
+
+
+def _fetch_keyed_cars() -> list[Entity] | None:
+    jobs: list[tuple[str, str, str, str]] = []
+    for host, name, field, env in _KEYED_CARS:
+        key = earth_secret(field, env) if field else earth_cars_key(host)
+        if not key:
+            continue
+        url = f"https://{host}/api/v2/get/event?format=json"
+        jobs.append((host, url, name, key))
+    if not jobs:
+        return None
+    any_ok = False
+    out: list[Entity] = []
+    seen: set[str] = set()
+    with ThreadPoolExecutor(max_workers=len(jobs)) as pool:
+        futs = [
+            pool.submit(_get_json, url, host, params={"key": key})
+            for host, url, _name, key in jobs
+        ]
+        for fut, (host, _url, name, _key) in zip(futs, jobs, strict=True):
+            payload = fut.result()
+            if payload is None:
+                continue
+            any_ok = True
+            rows = _list_rows(payload, "events", "Events", "data")
+            prefix = host.split(".")[0].replace("www", "cars")[:12]
+            if prefix == "cars":
+                prefix = host.split(".")[1][:12] if "." in host else "cars"
+            for entity in entities_from_cars(rows, prefix=prefix, source=name):
+                if entity.id in seen:
+                    continue
+                seen.add(entity.id)
+                out.append(entity)
+                if len(out) >= _CAP:
+                    return out
+    if not any_ok:
+        return None
+    return out or None
+
+
+def entities_from_wsdot_alerts(rows: list[dict[str, Any]]) -> list[Entity]:
+    out: list[Entity] = []
+    seen: set[str] = set()
+    for row in rows:
+        start = (
+            row.get("StartRoadwayLocation")
+            if isinstance(row.get("StartRoadwayLocation"), dict)
+            else {}
+        )
+        lat = _num(start.get("Latitude"), row.get("Latitude"), row.get("latitude"))
+        lon = _num(start.get("Longitude"), row.get("Longitude"), row.get("longitude"))
+        if lat is None or lon is None:
+            continue
+        if abs(lat) > 90.0 or abs(lon) > 180.0:
+            continue
+        if abs(lat) < 1e-6 and abs(lon) < 1e-6:
+            continue
+        eid = str(row.get("AlertID") or row.get("Id") or row.get("id") or "").strip()
+        road = str(start.get("RoadName") or row.get("RoadName") or "").strip()
+        desc = str(
+            row.get("HeadlineDescription")
+            or row.get("ExtendedDescription")
+            or row.get("EventCategory")
+            or eid
+            or road
+        ).strip()
+        label = desc
+        if road and road.casefold() not in label.casefold():
+            label = f"{road} {label}" if label else road
+        if not eid and not label:
+            continue
+        pos = lla_to_ecef(lat, lon, 0.0)
+        kid = f"wa511:{eid or label.casefold()[:40]}"
+        if kid in seen:
+            continue
+        seen.add(kid)
+        out.append(
+            Entity(
+                id=kid,
+                cls="traffic",
+                layer="traffic",
+                label=label[:80],
+                x=pos[0],
+                y=pos[1],
+                z=pos[2],
+                source="WSDOT alerts",
+                freshness="delayed",
+                confidence=0.7,
+                cite=_WA_CITE,
+                meta={"lat": lat, "lon": lon},
+                coverage=Coverage(
+                    "incident",
+                    "Published highway alert. Not a car. Not a plate.",
+                ),
+            )
+        )
+        if len(out) >= _CAP:
+            break
+    return out
+
+
+def _list_rows(payload: Any, *keys: str) -> list[dict[str, Any]]:
+    if isinstance(payload, list):
+        return [row for row in payload if isinstance(row, dict)]
+    if isinstance(payload, dict):
+        for key in keys or ("alerts", "data", "Alerts"):
+            raw = payload.get(key)
+            if isinstance(raw, list):
+                return [row for row in raw if isinstance(row, dict)]
+    return []
+
+
+def _fetch_drivetexas() -> list[Entity] | None:
+    key = earth_secret("drivetexas_key", TX_ENV)
+    if not key:
+        return None
+    params = {"key": key}
+    chunks: list[list[Entity] | None] = []
+    conditions = _get_json(TX_CONDITIONS, TX_HOST, params=params)
+    if isinstance(conditions, dict):
+        chunks.append(
+            entities_from_geojson_incidents(
+                conditions, prefix="tx-dt", source="DriveTexas", cite=_TX_CITE
+            )
+            or None
+        )
+    else:
+        chunks.append(None)
+    wzdx = _get_json(TX_WZDX, TX_HOST, params=params)
+    if isinstance(wzdx, dict):
+        chunks.append(
+            entities_from_wzdx(wzdx, prefix="tx-wzdx", source="DriveTexas WZDx") or None
+        )
+    else:
+        chunks.append(None)
+    if all(chunk is None for chunk in chunks):
+        return None
+    out: list[Entity] = []
+    seen: set[str] = set()
+    for chunk in chunks:
+        for entity in chunk or []:
+            if entity.id in seen:
+                continue
+            seen.add(entity.id)
+            out.append(entity)
+            if len(out) >= _CAP:
+                return out
+    return out or None
+
+
+def _fetch_quebec() -> list[Entity] | None:
+    jobs = (
+        (QC_EVENTS, "qc511", "Quebec 511 events"),
+        (QC_CHANTIERS, "qc-wz", "Quebec 511 construction"),
+        (QC_CONDITIONS, "qc-road", "Quebec 511 road conditions"),
+    )
+    chunks: list[list[Entity] | None] = []
+    for url, prefix, source in jobs:
+        payload = _get_json(url, QC_HOST)
+        if not isinstance(payload, dict):
+            chunks.append(None)
+            continue
+        chunks.append(
+            entities_from_geojson_incidents(
+                payload, prefix=prefix, source=source, cite=_QC_CITE
+            )
+            or None
+        )
+    if all(chunk is None for chunk in chunks):
+        return None
+    out: list[Entity] = []
+    seen: set[str] = set()
+    for chunk in chunks:
+        for entity in chunk or []:
+            if entity.id in seen:
+                continue
+            seen.add(entity.id)
+            out.append(entity)
+            if len(out) >= _CAP:
+                return out
+    return out or None
+
+
+def _fetch_autobahn() -> list[Entity] | None:
+    listing = _get_json(DE_AUTOBAHN, DE_HOST)
+    if not isinstance(listing, dict):
+        return None
+    roads = listing.get("roads")
+    if not isinstance(roads, list) or not roads:
+        return None
+    jobs: list[tuple[str, str]] = []
+    for road in roads:
+        name = str(road or "").strip()
+        if not name or "/" in name or " " in name or len(name) > 8:
+            continue
+        jobs.append((f"{DE_AUTOBAHN}/{name}/services/roadworks", "roadworks"))
+        jobs.append((f"{DE_AUTOBAHN}/{name}/services/warning", "warning"))
+    if not jobs:
+        return None
+    any_ok = False
+    out: list[Entity] = []
+    seen: set[str] = set()
+    with ThreadPoolExecutor(max_workers=16) as pool:
+        futs = [pool.submit(_get_json, url, DE_HOST) for url, _key in jobs]
+        keys = [key for _url, key in jobs]
+        for fut, key in zip(futs, keys, strict=True):
+            payload = fut.result()
+            if not isinstance(payload, dict):
+                continue
+            any_ok = True
+            for entity in entities_from_autobahn(
+                payload, key=key, prefix="de-ab", source="Autobahn GmbH"
+            ):
+                if entity.id in seen:
+                    continue
+                seen.add(entity.id)
+                out.append(entity)
+                if len(out) >= _CAP:
+                    return out
+    if not any_ok:
+        return None
+    return out or None
+
+
+def entities_from_autobahn(
+    payload: dict[str, Any], *, key: str, prefix: str, source: str
+) -> list[Entity]:
+    rows = payload.get(key)
+    if not isinstance(rows, list):
+        return []
+    out: list[Entity] = []
+    seen: set[str] = set()
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        entity = _entity_from_autobahn(row, prefix=prefix, source=source)
+        if entity is None or entity.id in seen:
+            continue
+        seen.add(entity.id)
+        out.append(entity)
+        if len(out) >= _CAP:
+            break
+    return out
+
+
+def _entity_from_autobahn(
+    row: dict[str, Any], *, prefix: str, source: str
+) -> Entity | None:
+    coord = row.get("coordinate") if isinstance(row.get("coordinate"), dict) else {}
+    lat = _num(coord.get("lat"), row.get("lat"))
+    lon = _num(coord.get("long"), coord.get("lon"), row.get("long"))
+    if lat is None or lon is None:
+        return None
+    if abs(lat) > 90.0 or abs(lon) > 180.0:
+        return None
+    if abs(lat) < 1e-6 and abs(lon) < 1e-6:
+        return None
+    eid = str(row.get("identifier") or row.get("id") or "").strip()
+    title = str(row.get("title") or row.get("subtitle") or eid).strip()
+    if not eid and not title:
+        return None
+    pos = lla_to_ecef(lat, lon, 0.0)
+    return Entity(
+        id=f"{prefix}:{eid or title.casefold()[:40]}",
+        cls="traffic",
+        layer="traffic",
+        label=title[:80],
+        x=pos[0],
+        y=pos[1],
+        z=pos[2],
+        source=source,
+        freshness="delayed",
+        confidence=0.7,
+        cite=_DE_CITE,
+        meta={"lat": lat, "lon": lon},
+        coverage=Coverage(
+            "incident",
+            "Published autobahn event. Not a car. Not a plate.",
+        ),
+    )
+
+
 def _tfl_ll(row: dict[str, Any]) -> tuple[float | None, float | None]:
     lat = _num(row.get("latitude") or row.get("lat"))
     lon = _num(row.get("longitude") or row.get("lon") or row.get("lng"))
@@ -967,12 +1513,20 @@ def _host_pinned(host: str | None, pin: str) -> bool:
     return name == pin or name.endswith("." + pin)
 
 
-def _get_json(url: str, pin: str) -> Any:
+def _get_json(
+    url: str,
+    pin: str,
+    params: dict[str, str] | None = None,
+    extra: dict[str, str] | None = None,
+) -> Any:
     if not _host_pinned(urlparse(url).hostname, pin):
         return None
+    headers = {"User-Agent": _UA}
+    if extra:
+        headers.update(extra)
     try:
         with httpx.Client(timeout=_TIMEOUT, follow_redirects=True) as client:
-            resp = client.get(url, headers={"User-Agent": _UA})
+            resp = client.get(url, headers=headers, params=params)
             resp.raise_for_status()
             if not _host_pinned(urlparse(str(resp.url)).hostname, pin):
                 return None

@@ -3,12 +3,11 @@
 from arelis.eval.conversation import (
     ConversationTurn,
     SoakReport,
-    format_markdown_report,
     run_conversation_soak,
     soak_registry,
 )
 from arelis.eval.harness import EvalResult, run_scripted_scenario
-from arelis.eval.scenarios import SCENARIOS, Scenario, scenario_category
+from arelis.eval.scenarios import SCENARIOS, Scenario
 
 __all__ = [
     "SCENARIOS",
@@ -16,9 +15,7 @@ __all__ = [
     "EvalResult",
     "Scenario",
     "SoakReport",
-    "format_markdown_report",
     "run_conversation_soak",
     "run_scripted_scenario",
-    "scenario_category",
     "soak_registry",
 ]

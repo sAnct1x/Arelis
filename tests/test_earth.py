@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import re
 from pathlib import Path
 
 import pytest
@@ -19,13 +20,17 @@ from arelis.tools.earth_tool import EarthTool
 
 @pytest.fixture(autouse=True)
 def _isolate_earth(monkeypatch: pytest.MonkeyPatch) -> None:
+    from arelis.earth.look import forget
+
     set_earth(None)
+    forget()
     # Enter must not read the developer's contacts.yaml / secrets cameras.
     monkeypatch.setattr(
         "arelis.earth.runtime.EarthRuntime._merge_local",
         lambda self: None,
     )
     yield
+    forget()
     set_earth(None)
 
 
@@ -61,6 +66,9 @@ _LIVE_FETCHERS = (
     "fetch_gdacs",
     "fetch_tides",
     "fetch_argo",
+    "fetch_openaq",
+    "fetch_rwis",
+    "fetch_fdsn",
 )
 
 
@@ -133,7 +141,7 @@ def test_layer_toggle_hides() -> None:
     earth = EarthRuntime()
     earth.enter(unix=1.0)
     n = len(earth.visible())
-    assert earth.set_layer("flights", False) is False
+    assert earth.set_layer("satellites", False) is False
     assert len(earth.visible()) < n
     assert earth.set_layer("nope") is None
 
@@ -830,6 +838,7 @@ def test_bundled_cameras_have_pose_prior_viewsheds() -> None:
         assert ent.freshness == "reconstructed"
         assert ent.coverage is not None
         assert ent.coverage.kind == "viewshed"
+        assert "No terrain" in (ent.coverage.note or "")
         fan = ent.meta.get("viewshed_ecef")
         assert isinstance(fan, list) and len(fan) >= 4
 
@@ -910,7 +919,7 @@ def test_camera_fetch_failure_does_not_open_if_unpinned(
 
 
 def test_opensky_uav_category_is_the_drones_layer() -> None:
-    from arelis.earth.live import entities_from_opensky
+    from arelis.earth.opensky import entities_from_opensky
 
     payload = {
         "time": 1.0,
@@ -957,6 +966,7 @@ def test_caltrans_look_direction_becomes_a_viewshed() -> None:
     assert hit.id.startswith("caltrans:")
     assert hit.coverage is not None
     assert hit.coverage.kind == "viewshed"
+    assert "No terrain" in (hit.coverage.note or "")
     assert hit.meta.get("heading_deg") == 180.0
     assert "should-not-be-stored" not in str(hit.meta)
     assert "should-not-be-stored" not in hit.cite
@@ -1060,34 +1070,45 @@ def test_earth_docs_inventory_matches_feeds() -> None:
     assert f"{counts['keyed']} keyed" in earth
     assert f"**{counts['later']} later**" in earth
     assert f"**{counts['out']} out**" in earth
+    assert "No terrain" in earth
+    assert "**Streets**" in earth
+    assert "**Buildings**" in earth
 
 
 def test_merge_live_stubs_every_fetcher() -> None:
     import arelis.earth.live as live_mod
 
     named = {name for name in _LIVE_FETCHERS}
-    # Every fetch_* on live.py used by merge_live must be in the mute list.
+    # merge_live looks up adapters at call time. A new fetch_* must land here.
     source = live_mod.merge_live.__code__.co_names
     fetches = {name for name in source if name.startswith("fetch_")}
+    adapters = {fn.__name__ for fn in live_mod._adapter_fns().values()}
     assert fetches <= named
-    assert "fetch_cameras" in fetches
-    assert "fetch_traffic" in fetches
-    assert "fetch_aprs" in fetches
-    assert "fetch_shodan" in fetches
-    assert "fetch_radar" in fetches
-    assert "fetch_gfw" in fetches
-    assert "fetch_eonet" in fetches
-    assert "fetch_nws" in fetches
-    assert "fetch_airports" in fetches
-    assert "fetch_spacetrack" in fetches
-    assert "fetch_emsc" in fetches
-    assert "fetch_waqi" in fetches
-    assert "fetch_geonet" in fetches
-    assert "fetch_ndbc" in fetches
-    assert "fetch_volcanoes" in fetches
-    assert "fetch_gdacs" in fetches
-    assert "fetch_tides" in fetches
-    assert "fetch_argo" in fetches
+    assert adapters <= named
+    for name in (
+        "fetch_cameras",
+        "fetch_traffic",
+        "fetch_aprs",
+        "fetch_shodan",
+        "fetch_radar",
+        "fetch_gfw",
+        "fetch_eonet",
+        "fetch_nws",
+        "fetch_airports",
+        "fetch_spacetrack",
+        "fetch_emsc",
+        "fetch_waqi",
+        "fetch_geonet",
+        "fetch_ndbc",
+        "fetch_volcanoes",
+        "fetch_gdacs",
+        "fetch_tides",
+        "fetch_argo",
+        "fetch_openaq",
+        "fetch_rwis",
+        "fetch_fdsn",
+    ):
+        assert name in adapters
 
 
 def test_caltrans_cctv_covers_twelve_districts() -> None:
@@ -1190,6 +1211,7 @@ def test_tfl_road_disruption_is_not_a_car() -> None:
     assert pins[0].id == "tfl-road:ABC"
     assert pins[0].layer == "traffic"
     assert "not a vin" in pins[0].cite.lower()
+    assert "individual cars" in pins[0].cite.lower()
 
 
 def test_eonet_uses_the_last_point() -> None:
@@ -1242,6 +1264,58 @@ def test_osm_webcam_has_no_stream_url() -> None:
     assert pins[0].layer == "cameras"
     blob = str(pins[0].meta) + pins[0].cite
     assert "rtsp://" not in blob
+
+
+def test_look_from_allowlist_never_lands_on_the_pin(tmp_path: Path) -> None:
+    from arelis.earth.entity import Entity
+    from arelis.earth.look import (
+        describe,
+        forget,
+        offer_official,
+        official_url_ok,
+        remember,
+    )
+
+    still = "https://jamcams.tfl.gov.uk/00001.01251.jpg"
+    assert official_url_ok(still)
+    assert not official_url_ok("https://insecam.org/en/view/1/")
+    assert not official_url_ok("https://example.com/cam.jpg")
+    assert remember("shodan:1.2.3.4", kind="official", source=still, media="still") is None
+
+    handle = offer_official("tfl:look-test", still)
+    assert handle is not None
+    assert still not in repr(handle)
+    line = describe("tfl:look-test", layer="cameras")
+    assert "Look-from" in line
+    assert "jamcams" not in line
+    assert "http" not in line.lower()
+
+    pos = lla_to_ecef(51.508, -0.128, 12.0)
+    earth = EarthRuntime()
+    earth.enter(unix=1.0)
+    earth.store.upsert(
+        Entity(
+            id="tfl:look-test",
+            cls="camera",
+            layer="cameras",
+            label="Look test",
+            x=pos[0],
+            y=pos[1],
+            z=pos[2],
+            freshness="reconstructed",
+            source="TfL JamCam",
+            cite="Published municipal pin.",
+            meta={"lat": 51.508, "lon": -0.128, "url": still},
+        )
+    )
+    folder = dump_state(earth, root=tmp_path / "earth", stamp="look")
+    blob = (folder / "state.jsonl").read_text(encoding="utf-8")
+    manifest = (folder / "manifest.json").read_text(encoding="utf-8")
+    assert "jamcams.tfl.gov.uk" not in blob
+    assert "jamcams.tfl.gov.uk" not in manifest
+    assert "labeled hole" in manifest.lower()
+    earth.leave()
+    forget()
 
 
 def test_radar_keeps_ocean_passes() -> None:
@@ -1347,9 +1421,16 @@ def test_earth_chip_items_cover_live_and_every_layer() -> None:
     from arelis.ui.earth_overlay import earth_chip_items
 
     kinds = [kind for kind, _label in earth_chip_items()]
-    assert kinds[0] == "live"
-    assert kinds[1] == "tiles"
-    assert tuple(kinds[2:]) == LAYER_IDS
+    assert kinds[:5] == ["band", "live", "grid", "tiles", "buildings"]
+    layers = [k for k in LAYER_IDS if k != "people"]
+    assert tuple(kinds[5:]) == tuple(layers)
+    space = [kind for kind, _label in earth_chip_items("space")]
+    assert space[:3] == ["band", "live", "grid"]
+    assert "tiles" not in space
+    assert "buildings" not in space
+    assert "flights" not in space
+    assert "satellites" in space
+    assert "iss" in space
 
 
 def test_earth_chips_toggle_live_and_layers(
@@ -1369,14 +1450,15 @@ def test_earth_chips_toggle_live_and_layers(
     panel._hud_bottom = 80
     hits, box = panel._earth_chip_layout()
     kinds = [kind for kind, _rect in hits]
-    assert kinds[0] == "live"
+    assert kinds[0] == "band"
+    assert "live" in kinds
     assert "tiles" in kinds
     assert "flights" in kinds
     assert "traffic" in kinds
     assert not box.isEmpty()
-    assert earth.layers["flights"] is True
-    panel._toggle_earth_chip("flights")
     assert earth.layers["flights"] is False
+    panel._toggle_earth_chip("flights")
+    assert earth.layers["flights"] is True
     assert earth.layers["traffic"] is False
     panel._toggle_earth_chip("traffic")
     assert earth.layers["traffic"] is True
@@ -1909,6 +1991,7 @@ def test_wzdx_is_not_a_car() -> None:
     assert pins[0].id == "ut-wzdx:ut-42"
     assert pins[0].layer == "traffic"
     assert "not a vin" in pins[0].cite.lower()
+    assert "individual cars" in pins[0].cite.lower()
 
 
 def test_ndbc_buoy_is_not_a_hull() -> None:
@@ -2145,12 +2228,132 @@ def test_osm_tile_math_is_stable() -> None:
     from arelis.earth.tiles import latlon_to_tile, tile_corners, zoom_for_disc
 
     assert zoom_for_disc(100.0) == 3
+    assert zoom_for_disc(600.0, "near") == 14
+    assert zoom_for_disc(700.0, "city") == 15
     z, x, y = latlon_to_tile(51.5, -0.12, 8)
     assert z == 8
     corners = tile_corners(z, x, y)
     assert len(corners) == 4
     lats = [c[0] for c in corners]
     assert min(lats) < 51.5 < max(lats)
+
+
+def test_buildings_rings_from_overpass_fixture() -> None:
+    from arelis.earth.buildings import fabric_bbox, rings_from_overpass
+
+    south, west, north, east = fabric_bbox(40.7, -74.0)
+    assert south < 40.7 < north
+    assert west < -74.0 < east
+    rings = rings_from_overpass(
+        {
+            "elements": [
+                {
+                    "type": "way",
+                    "geometry": [
+                        {"lat": 40.70, "lon": -74.00},
+                        {"lat": 40.70, "lon": -73.99},
+                        {"lat": 40.71, "lon": -73.99},
+                        {"lat": 40.70, "lon": -74.00},
+                    ],
+                },
+                {"type": "node", "lat": 40.7, "lon": -74.0},
+            ]
+        }
+    )
+    assert len(rings) == 1
+    assert rings[0][0] == (40.70, -74.00)
+
+
+def test_lod_gates_planes_boats_and_cameras() -> None:
+    from arelis.earth.lod import adapter_allowed, chip_layers, paint_layers
+
+    assert adapter_allowed("opensky", "space") is False
+    assert adapter_allowed("opensky", "approach") is True
+    assert adapter_allowed("ais", "approach") is False
+    assert adapter_allowed("ais", "near") is True
+    assert adapter_allowed("cameras", "near") is False
+    assert adapter_allowed("cameras", "city") is True
+    assert adapter_allowed("celestrak", "city") is False
+    assert adapter_allowed(
+        "opensky", "city", {"flights": False, "drones": False}
+    ) is False
+    assert adapter_allowed("opensky", "city", {"flights": True}) is True
+    assert "flights" in paint_layers("approach")
+    assert "cameras" not in paint_layers("approach")
+    assert "vessels" in paint_layers("near")
+    assert "cameras" not in paint_layers("near")
+    assert "cameras" in paint_layers("city")
+    assert chip_layers("space") == ("satellites", "iss")
+    assert chip_layers("city") is None
+    from arelis.earth.lod import adapters_due
+
+    due = adapters_due(
+        "city", {}, 1000.0, {"cameras": False, "flights": True, "drones": False}
+    )
+    assert "cameras" not in due
+    assert "opensky" in due
+    assert "ais" not in due
+
+
+def test_gibs_zoom_caps_at_eight() -> None:
+    from arelis.earth.tiles import zoom_for_ground
+
+    assert zoom_for_ground(50.0) == 4
+    assert zoom_for_ground(200.0, "approach") == 6
+    assert zoom_for_ground(500.0, "near") == 7
+    assert zoom_for_ground(700.0, "city") == 8
+
+
+def test_buildings_stay_off_until_city() -> None:
+    from arelis.earth.buildings import footprints_for_view
+
+    assert footprints_for_view(40.7, -74.0, "space") == []
+    assert footprints_for_view(40.7, -74.0, "approach") == []
+    assert footprints_for_view(40.7, -74.0, "near") == []
+
+
+def test_look_still_pins_are_official_and_on_egress() -> None:
+    from urllib.parse import urlparse
+
+    from arelis.earth.look import _STILL_PIN_URLS, official_url_ok
+    from tests.test_egress import ALLOWED
+
+    assert _STILL_PIN_URLS
+    for url in _STILL_PIN_URLS:
+        assert official_url_ok(url), url
+        host = urlparse(url).hostname
+        assert host in ALLOWED, host
+
+
+def test_sync_earth_view_notes_band_without_qt_paint(qt_app) -> None:
+    from arelis.earth.frames import nadir_cam
+    from arelis.physics.demo import sun_and_planet
+    from arelis.physics.engine import rebound_available
+    from arelis.physics.runtime import get_system, set_system
+    from arelis.physics.scene import SolarSystem
+    from arelis.ui.earth_overlay import sync_earth_view
+    from arelis.ui.panels.solar import SolarPanel
+
+    if not rebound_available():
+        pytest.skip("REBOUND is not installed")
+    set_system(SolarSystem.from_states(sun_and_planet(), tracers=0))
+    earth = EarthRuntime()
+    earth.enter(unix=1.0)
+    set_earth(earth)
+    panel = SolarPanel()
+    panel.resize(640, 480)
+    panel._earth_cam = nadir_cam(40.7, -74.0, 8_000.0)
+    view = sync_earth_view(panel, get_system())
+    assert view is not None
+    assert view.band == "city"
+    assert earth.last_view is not None
+    assert earth.last_view.band == "city"
+    panel._earth_cam = nadir_cam(40.7, -74.0, 3_000_000.0)
+    space = sync_earth_view(panel, get_system())
+    assert space is not None
+    assert space.band == "space"
+    panel.hide()
+    set_system(None)
 
 
 def test_travel_to_earth_locks_the_eye(qt_app) -> None:
@@ -2175,4 +2378,153 @@ def test_travel_to_earth_locks_the_eye(qt_app) -> None:
     assert get_earth() is None or not get_earth().active
     panel.hide()
     set_system(None)
+
+
+def test_earth_marks_are_unique_and_drawn(qt_app) -> None:
+    from arelis.earth.entity import LAYER_IDS
+    from arelis.ui.earth_marks import (
+        ALL_KINDS,
+        OVERLAY_KINDS,
+        SOLAR_KINDS,
+        mark_digest,
+        mark_image,
+    )
+    from arelis.ui.earth_marks import (
+        LAYER_IDS as MARK_LAYERS,
+    )
+
+    assert MARK_LAYERS == LAYER_IDS
+    assert len(LAYER_IDS) == 15
+    src = Path("arelis/ui/earth_marks.py").read_text(encoding="utf-8")
+    assert "fromTheme" not in src
+    assert "FontAwesome" not in src
+    assert "fontawesome" not in src
+    assert "material-icons" not in src
+    assert "QIcon.fromTheme" not in src
+    seen: dict[str, str] = {}
+    for kind in LAYER_IDS:
+        digest = mark_digest(kind, band="city")
+        assert digest not in seen.values(), kind
+        seen[kind] = digest
+        img = mark_image(kind, band="city")
+        assert not img.isNull()
+        assert img.width() == 32
+    for kind in SOLAR_KINDS + OVERLAY_KINDS:
+        digest = mark_digest(kind, band="city")
+        assert digest not in seen.values(), kind
+        seen[kind] = digest
+    assert mark_digest("flights", heading_deg=0) != mark_digest(
+        "flights", heading_deg=90
+    )
+    assert mark_digest("flights", freshness="stale") != mark_digest("flights")
+    assert mark_digest("flights", freshness="dead-reckoned") != mark_digest("flights")
+    assert set(ALL_KINDS) >= set(LAYER_IDS) | set(SOLAR_KINDS) | set(OVERLAY_KINDS)
+    from arelis.ui.earth_marks import atlas_data_uris
+
+    atlas = atlas_data_uris()
+    assert atlas["flights"].startswith("data:image/png")
+    assert "flights:city" in atlas
+    assert "stale" in atlas
+    assert "dead-reckon" in atlas
+    assert "probe" in atlas
+    space_seen: dict[str, str] = {}
+    for kind in LAYER_IDS:
+        digest = mark_digest(kind, band="space")
+        assert digest not in space_seen.values(), kind
+        space_seen[kind] = digest
+    city_flights = seen["flights"]
+    space_flights = space_seen["flights"]
+    if city_flights == space_flights:
+        assert mark_digest("military", band="city") != city_flights
+        assert mark_digest("military", band="space") != space_flights
+    for layer in LAYER_IDS:
+        key = f"{layer}:city"
+        assert key in atlas, key
+        assert atlas[key].startswith("data:image/png"), key
+        assert atlas[layer].startswith("data:image/png"), layer
+    assert atlas["stale"].startswith("data:image/png")
+    assert atlas["dead-reckon"].startswith("data:image/png")
+
+
+def test_overlay_and_globe_share_earth_marks() -> None:
+    overlay = Path("arelis/ui/earth_overlay.py").read_text(encoding="utf-8")
+    paint = Path("arelis/ui/panels/solar_paint.py").read_text(encoding="utf-8")
+    assert "from arelis.ui.earth_marks import" in overlay
+    assert "paint_mark(" in overlay
+    assert "_paint_heading" not in overlay
+    assert "180, 255, 200" not in paint
+    assert "180, 220, 255" not in paint
+    assert "paint_mark(" in paint
+    start = overlay.index("def paint_earth(")
+    end = overlay.index("\ndef ", start + 1)
+    body = overlay[start:end]
+    assert "paint_mark(" in body
+    assert not re.search(
+        r"else:\s*(?:\n[ \t]+.*)*?drawEllipse",
+        body,
+    )
+    for layer in ("flights", "vessels", "satellites", "radio", "fires"):
+        assert f'if ent.layer == "{layer}"' not in body or "paint_mark(" in body
+
+
+def test_earth_marks_are_not_ellipse_only(qt_app) -> None:
+    from PySide6.QtCore import Qt
+    from PySide6.QtGui import QColor, QImage, QPainter
+
+    from arelis.earth.entity import LAYER_IDS
+    from arelis.ui.earth_marks import mark_digest, mark_image
+
+    blob = QImage(32, 32, QImage.Format.Format_ARGB32)
+    blob.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(blob)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+    painter.setPen(QColor("#ff7a22"))
+    painter.setBrush(QColor("#ff7a22"))
+    painter.drawEllipse(16, 16, 4, 4)
+    painter.end()
+    ptr = blob.constBits()
+    import hashlib
+
+    ellipse = hashlib.sha256(bytes(ptr)).hexdigest()
+    for kind in LAYER_IDS:
+        assert mark_digest(kind, band="city") != ellipse, kind
+        img = mark_image(kind, band="city", size=10)
+        assert not img.isNull()
+    speck = QImage(32, 32, QImage.Format.Format_ARGB32)
+    speck.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(speck)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(QColor("#ff7a22"))
+    painter.drawEllipse(15, 15, 2, 2)
+    painter.end()
+    fire = mark_image("fires", size=10)
+    assert _opaque_pixels(fire) > _opaque_pixels(speck)
+
+
+def test_flights_city_mark_is_readable(qt_app) -> None:
+    from arelis.ui.earth_marks import mark_image
+
+    img = mark_image("flights", band="city", size=22)
+    assert not img.isNull()
+    assert _opaque_pixels(img) > 40
+
+
+def test_heading_of_reads_track_heading_and_cog() -> None:
+    from types import SimpleNamespace
+
+    from arelis.ui.earth_marks import heading_of
+
+    assert heading_of(SimpleNamespace(meta={"track_deg": 90})) == 90.0
+    assert heading_of(SimpleNamespace(meta={"heading_deg": 45})) == 45.0
+    assert heading_of(SimpleNamespace(meta={"cog_deg": 180})) == 180.0
+    assert heading_of(SimpleNamespace(meta={})) is None
+
+
+def _opaque_pixels(img) -> int:
+    n = 0
+    for y in range(img.height()):
+        for x in range(img.width()):
+            if img.pixelColor(x, y).alpha() > 0:
+                n += 1
+    return n
 

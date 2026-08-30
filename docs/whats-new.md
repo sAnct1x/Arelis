@@ -28,6 +28,16 @@ barge-in is the next question. [voice-wake.md](voice-wake.md). First
 run may download those weights; they are not stuffed in the setup
 `.exe`.
 
+**Glass.** One lowercase voice. Thinking is the essay — no `think` /
+`model` / `tool` prefixes — with housekeeping as a footer.
+Workspace is file names, one chrome row, `..` to go up. Settings
+tabs are `audio` / `window` / `allow` / `notify` / `roots` /
+`memory`. Idle readout is `ollama` / `listening`, not caps. After
+the last finished answer: `copy` · `again`. Tables in an answer
+are columns, not orange cages. An empty history title is **new
+chat**; the lamp follows the click; dates say today / yesterday.
+Hue stays sodium (`#ff7a22`). Icons stay unlabeled.
+
 **Jobs.** Timed prompts email a digest. Calendar tile → **jobs**. Needs
 mail. Already in the installer; the page is new. [jobs.md](jobs.md).
 
@@ -38,18 +48,61 @@ cannot be forgotten. Travel to Earth (or say enter Earth) lights the
 Earth zone — an observer of whatever is broadcasting or published.
 Earth is a zone, not a second room.
 
-Now: `arelis/earth/feeds.py` is **79 shipped / 9 keyed / 3 later / 4 out**.
+Now: `arelis/earth/feeds.py` is **108 shipped / 25 keyed / 3 later / 4 out**.
+Live is distance-gated (`arelis/earth/lod.py`): from space only
+satellites are fetched; closer in, local planes; closer still, boats
+and planes and no satellite refresh; at city scale every toggled
+layer, still boxed to the look area so we do not hammer every 511
+from orbit. Earth layer chips start off except satellites and ISS; the bar
+only lists what the current band can show. Click a country or city
+to fall toward it. Enter Earth jumps the clock to now and opens the
+Cesium globe (WebEngine, astro extra) for the planet only — Arelis
+keeps the starfield and the sodium HUD. NASA GIBS is the ground if no
+Google key is pasted; Photorealistic 3D cities light up close-in when
+`earth.google_maps_key` is set. Natural Earth country lines paint on
+the Qt disc so landfall still reads if Cesium is down. The GL Earth
+map shares that frame — Greenwich is the texture center, not the seam.
+The Earth
+software sphere can grow once you have fallen in so the NASA albedo
+still reads; optional `earth_8192.jpg` (Blue Marble shallow topo) is
+preferred when present; optional Streets (OSM) go to z15 at city band;
+optional building footprints are a city-band chip, look-pin boxed,
+and the same outlines ride Cesium when WebEngine is up.
+Viewsheds say No terrain. Collision stays no mesh, no DEM. OpenSky uses a bbox
+(1 credit) once you have a look box. Reality telemetry is on while
+we tune: `logs/reality.log` + `logs/reality.jsonl`
+(`arelis/physics/telemetry.py`). Stream URLs never land there.
+
+Earth grew another worldwide catalog batch: ALGO and DelDOT cameras
+with official look-from, NZTA and Quebec 511 camera pins, Quebec
+events, Autobahn roadworks, and no-key WZDx for NC / IN / KS / WA /
+NB / PE / YT / AK / NV. Keyed adapters are wired and wait on paste:
+WSDOT cameras + alerts, OHGO, DriveNC cameras, NSW cameras,
+DriveTexas conditions, and the Travel-IQ CARS fleet. Same-host
+completeness pass added South Australia closures, Main Roads WA
+roadworks + events, INGV / GEOFON / IRIS / NRCAN / GeoNet station
+text, MoDOT cameras, Quebec construction and road conditions, and
+Fintraffic / Lithuania / Quebec road-weather stations. Individual
+cars stay a labeled hole.
 Live merge runs adapters in parallel. Air and ships coast as
-dead-reckoned, then stale. Overlay paints freshness, heading ticks,
-and an inspect card with source. Completeness is the anti-beacon —
+dead-reckoned, then stale. Each Earth layer and solar body kind has
+its own sodium mark (`arelis/ui/earth_marks.py`) — Qt overlay, Cesium
+billboards, inspect card, and solar roster share the same drawn paths.
+Heading is the nose of the air/sea mark. A photoreal miss does not
+kill the globe. Overlay paints freshness and an inspect card with
+source. Completeness is the anti-beacon —
 do not thin a region. Mid-ocean VHF is deaf; we do not buy sat-AIS.
 Starlink is a sample, not a painted shell. Individual cars stay a
 labeled hole. WGS84 on `earth.local_camera` is enough for an owned pin.
-The lab camera uses ecliptic north as up.
+Click an owned camera for live footage (the stream you pasted), sitting
+in the frustum when heading is set. Official publisher stills refresh
+on click when the catalog JSON includes them. Stream URLs stay off the
+pin. The lab camera uses ecliptic north as up.
 
-Next: more no-key 511 / WZDx / camera inventories; OpenAQ after a
-paste; VIIRS only if Mines opens FINAL without a login. Out stays
-out (sat-AIS, unowned cameras, face index, VIN). [earth.md](earth.md).
+Next: more no-key 511 / WZDx / camera inventories and official still
+CDNs (WA/TX cameras stay keyed); VIIRS only if Mines opens FINAL without a
+login. Out stays out (sat-AIS, unowned cameras, face index, VIN).
+[earth.md](earth.md).
 
 **Mail.** There is no Mail tab. Credentials live in `data/secrets.yaml`.
 

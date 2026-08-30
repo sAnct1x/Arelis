@@ -9,7 +9,6 @@ import yaml
 from arelis.config import load_config
 from arelis.tools.analyze import AnalyzeTool
 from arelis.tools.code_workspace import CodeWorkspaceTool
-from arelis.tools.safety import resolve_within_roots
 from arelis.workspace import AmbiguousPathError, RootEntry, WorkspaceRoots
 
 
@@ -202,15 +201,6 @@ def test_switch_active_changes_create_target(tmp_path: Path) -> None:
     assert second.root_name == "interferometer"
     assert first.qualified(multi=True) == "arelis:new.txt"
     assert second.qualified(multi=True) == "interferometer:new.txt"
-
-
-def test_resolve_within_roots_wrapper_returns_resolved_path(tmp_path: Path) -> None:
-    root = tmp_path / "r"
-    root.mkdir()
-    (root / "f.txt").write_text("x", encoding="utf-8")
-    hit = resolve_within_roots("f.txt", [root.resolve()])
-    assert hit.path == (root / "f.txt").resolve()
-    assert hit.root_name == "r"
 
 
 @pytest.mark.asyncio

@@ -28,15 +28,19 @@ class EarthTool:
         "leave returns to solar. "
         "status reads the HUD. track/ride lock a contact id from status. "
         "layer toggles a named layer. search finds a label. dump writes a "
-        "cited JSONL under outputs/physics/earth. live=on pulls USGS, OpenSky "
+        "cited JSONL under outputs/physics/earth. live=on is distance-gated "
+        "(space=sats, approach=local planes, near=boats+planes, city=toggled "
+        "layers in the look box). City-scale pulls USGS, OpenSky "
         "(every squawk + UAV), adsb.lol military, AISStream, Digitraffic AIS, "
         "BarentsWatch if keyed, CelesTrak TLE samples, Radio Browser, published "
         "camera catalogs worldwide (TfL, Caltrans, NYC, Singapore, Finland, "
         "Hong Kong, OSM), OSM tiles when Tiles is on, Open-Meteo, FIRMS, "
         "launches, EONET, OurAirports, NWS alerts, APRS, Shodan banners, "
         "Sentinel-1 footprints, GFW SAR if keyed, national 511 catalogs, "
-        "EMSC, METAR, SWPC aurora, SatNOGS, Space-Track if keyed, WAQI if keyed. "
-        "Owned RTSP/webcam boxes stay local. Failures keep sim. "
+        "EMSC, METAR, SWPC aurora, SatNOGS, Space-Track if keyed, WAQI/OpenAQ if keyed. "
+        "Owned RTSP/webcam look-from is live footage. Official publisher "
+        "stills refresh on click. Stream URLs never stored. "
+        "Owned face boxes stay local. Failures keep sim. "
         "VHF-deaf mid-ocean; a packet a keyed feed sent is still painted. "
         "We do not buy sat-AIS. Radar is not a hull name. Not a face index. "
         "Not logging into cameras you do not own. Closed verbs: enter Earth, "
@@ -83,6 +87,12 @@ class EarthTool:
                 data={"fail_class": "fail:stage"},
             )
         earth = require_earth()
+        try:
+            from arelis.physics.telemetry import emit
+
+            emit("earth_tool", action=action)
+        except Exception:
+            pass
         if action == "enter":
             note = earth.enter()
             return ToolResult(

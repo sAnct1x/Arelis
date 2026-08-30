@@ -20,7 +20,7 @@ from arelis.local_open import open_local_file, reveal_local_file
 from arelis.spatial import PHYSICS_ROOM_ID
 from arelis.ui.layout_store import push_recent_workspace_file
 from arelis.ui.panels.workspace import is_workspace_listing, status_for_tool_result
-from arelis.ui.status_copy import THINKING_STATUS, WAITING_STATUS, tool_status_line
+from arelis.ui.status_copy import THINKING_STATUS, WAITING_STATUS, tool_errand, tool_status_line
 from arelis.ui.world_host import should_offer_world
 
 # A spoken reply holds the microphone closed. This is the backstop, sized
@@ -67,7 +67,6 @@ def dispatch_event(window: Any, event: Event) -> None:
             )
             if not window._mobile_foreign:
                 window.chat.add_user(text, attachments=list(attachments or []) or None)
-                window.thinking.append(text, kind="trace")
             window._set_busy(True)
             if p.get("source") == "voice":
                 prov = getattr(window, "_provisional_intent", None)
@@ -227,11 +226,7 @@ def dispatch_event(window: Any, event: Event) -> None:
         if p.get("new"):
             window.thinking.append("new conversation", kind="status")
         elif sid:
-            window.thinking.append(f"loaded conversation {sid[:8]}", kind="status")
-        # Re-surface in thinking after clear/load. This line is not a
-        # conversation; painting it into chat used to hide the orbit.
-        if window._inbound_banner:
-            window.thinking.append(window._inbound_banner, kind="status")
+            window.thinking.append("loaded", kind="status")
         window._sync_idle_mode()
     elif t == EventType.ROOM_CHANGED:
         room_id = str(p.get("room_id") or "")
@@ -316,7 +311,10 @@ def dispatch_event(window: Any, event: Event) -> None:
             window.chat.show_progress(WAITING_STATUS)
         window.conversation.set_turn_visible(True)
         window._reveal_dock(window.think_dock, window.act_thinking)
-        window.thinking.append(f"allow  {p.get('headline') or p.get('summary')}", kind="tool")
+        window.thinking.append(
+            str(p.get("headline") or p.get("summary") or "waiting for you"),
+            kind="tool",
+        )
     elif t == EventType.TOOL_CONFIRM_REPLY:
         # Timeout / remote skip — dismiss the open card if it matches.
         cid = str(p.get("id") or "")
@@ -332,9 +330,9 @@ def dispatch_event(window: Any, event: Event) -> None:
     elif t == EventType.TOOL_START:
         tool = p.get("tool")
         args = p.get("args") or {}
-        # Short args for thinking — never dump file bodies
-        brief = {k: (str(v)[:60] + "…" if len(str(v)) > 60 else v) for k, v in args.items()}
-        window.thinking.append(f"{tool} {brief}", kind="tool")
+        errand = tool_errand(str(tool or ""), args)
+        if errand:
+            window.thinking.append(errand, kind="tool")
         if str(tool or "") == "workspace" and isinstance(args, dict):
             window._workspace_tool_args = dict(args)
         # Said in the transcript, in the user's words, whether or not the
@@ -355,8 +353,6 @@ def dispatch_event(window: Any, event: Event) -> None:
             window._reveal_dock(window.work_dock, window.act_workspace)
         # The shimmer is set for every tool now, so image needs no special
         # case beyond its own Thinking line.
-        if str(tool or "") == "image":
-            window.thinking.append("Generating image…", kind="status")
         if str(tool or "") in {"image", "research_report"}:
             window._begin_job(str(tool))
         if str(tool or "") == "browser":
@@ -364,7 +360,7 @@ def dispatch_event(window: Any, event: Event) -> None:
             window._drive_session = True
             window.conversation.set_drive(True, format_drive_status(action, args))
     elif t == EventType.TOOL_RESULT:
-        window.thinking.append(f"ok={p.get('ok')} {p.get('tool')}", kind="tool")
+        # Result dumps stay out of the essay. The composer line already moved on.
         # Back to the bare waiting state: the errand is over but the turn is
         # not, and leaving "checking the weather…" up would be a small lie
         # that runs for the rest of the round.

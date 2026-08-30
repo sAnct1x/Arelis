@@ -7,18 +7,17 @@ conversation is that she answers differently, which reads as her being
 inconsistent rather than as you being somewhere else.
 
 So the strip is not decoration; it is the answer to "why did she just say that".
-It sits above the transcript, holds the name, a short purpose that may elide,
-and the way back out. Leave is never optional chrome.
+It sits above the transcript as type in the void, not a second title bar.
+Leave is never optional chrome.
 """
 
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QResizeEvent
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QSizePolicy, QToolButton
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QSizePolicy, QToolButton, QWidget
 
-from arelis.ui.glass import GlassFrame
-from arelis.ui.theme import GLASS
+from arelis.ui.theme import METRICS
 from arelis.ui.world_host import should_offer_world
 
 
@@ -49,26 +48,23 @@ class _ElideLabel(QLabel):
         )
 
 
-class RoomStrip(GlassFrame):
-    """Thin plate above the transcript. Hidden whenever no room is open."""
+class RoomStrip(QWidget):
+    """Quiet line above the transcript. Hidden whenever no room is open."""
 
     leave_requested = Signal()
     world_requested = Signal()
     changed = Signal()
 
     def __init__(self, parent=None) -> None:
-        super().__init__(
-            parent,
-            object_name="RoomStrip",
-            fill_alpha=int(GLASS.get("fill_strip", 120)),
-            radius=float(GLASS["radius"]),
-            pulse_rim=False,
-        )
-        self.setFixedHeight(38)
+        super().__init__(parent)
+        self.setObjectName("RoomStrip")
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.setAutoFillBackground(False)
+        self.setFixedHeight(METRICS["row"])
         self._room_id = ""
 
         row = QHBoxLayout(self)
-        row.setContentsMargins(12, 4, 8, 4)
+        row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(10)
 
         self.name = QLabel("")
@@ -111,14 +107,12 @@ class RoomStrip(GlassFrame):
             return
         self.world_btn.setVisible(should_offer_world(self._room_id))
         self.name.setText(name or self._room_id)
-        bits = []
-        if purpose:
-            bits.append(_one_line(purpose))
+        purpose_line = _one_line(purpose) if purpose else ""
+        self.detail.set_full(purpose_line)
+        tip_bits = [purpose] if purpose else []
         if root:
-            bits.append(f"· {root}")
-        full = "  ".join(bits)
-        self.detail.set_full(full)
-        self.detail.setToolTip(purpose or full)
+            tip_bits.append(root)
+        self.detail.setToolTip(" · ".join(tip_bits))
         self.show()
         self.changed.emit()
 
@@ -127,8 +121,8 @@ def _chip(obj: str, text: str, tooltip: str) -> QToolButton:
     btn = QToolButton()
     btn.setObjectName(obj)
     btn.setText(text)
-    btn.setFixedHeight(26)
-    btn.setMinimumWidth(52)
+    btn.setFixedHeight(METRICS["row"])
+    btn.setMinimumWidth(44)
     btn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
     btn.setToolTip(tooltip)
     btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -137,10 +131,7 @@ def _chip(obj: str, text: str, tooltip: str) -> QToolButton:
 
 
 def _one_line(text: str, limit: int = 96) -> str:
-    """Purpose is a paragraph by design; the strip has one line for it.
-
-    The full text is on the tooltip, and she is reading all of it either way.
-    """
+    """Purpose is a paragraph by design; the strip has one line for it."""
     flat = " ".join((text or "").split())
     if len(flat) <= limit:
         return flat

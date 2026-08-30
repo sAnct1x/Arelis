@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from calendar import Calendar
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from typing import Any
 
 from arelis.calendar.models import CachedEvent
@@ -83,9 +83,3 @@ def format_event_time(ev: CachedEvent) -> str:
         return "all day"
     local = ev.starts_at.astimezone() if ev.starts_at.tzinfo else ev.starts_at
     return local.strftime("%I:%M %p").lstrip("0").replace("  ", " ")
-
-
-def coerce_local(dt: datetime) -> datetime:
-    if dt.tzinfo is None:
-        return dt.replace(tzinfo=datetime.now().astimezone().tzinfo)
-    return dt

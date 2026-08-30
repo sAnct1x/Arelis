@@ -43,3 +43,18 @@ def earth_block(path: Path | None = None) -> dict[str, Any]:
         return {}
     block = data.get("earth")
     return block if isinstance(block, dict) else {}
+
+
+def earth_cars_key(host: str, path: Path | None = None) -> str:
+    """Per-host Travel-IQ / CARS developer key. Empty means skip that host."""
+    name = (host or "").strip().lower()
+    if not name:
+        return ""
+    block = earth_block(path)
+    raw = block.get("cars_keys")
+    if not isinstance(raw, dict):
+        return ""
+    for key, value in raw.items():
+        if str(key or "").strip().lower() == name:
+            return str(value or "").strip()
+    return ""

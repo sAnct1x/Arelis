@@ -5,7 +5,6 @@ import ipaddress
 import re
 import socket
 from dataclasses import dataclass
-from pathlib import Path
 from urllib.parse import urlparse
 
 # Redaction runs on every tool output before it reaches the model, the UI, or a
@@ -118,26 +117,6 @@ async def check_url_allowed(url: str, *, block_private: bool = True) -> str | No
         if reason is not None:
             return reason
     return None
-
-
-def resolve_within_roots(
-    path_str: str,
-    roots: list[Path],
-    *,
-    for_create: bool = False,
-):
-    """Map a caller-supplied path to a real path inside an allowed root.
-
-    Thin back-compat wrapper for callers that still pass a bare path list.
-    Prefer the shared WorkspaceRoots instance (names, active project, read_only,
-    session grants). This rebuild drops those and should not be used in hot paths.
-    """
-    from arelis.workspace import WorkspaceRoots
-
-    if not roots:
-        raise PermissionError("No workspace roots are configured")
-    workspace = WorkspaceRoots.from_paths([str(r) for r in roots])
-    return workspace.resolve(path_str, for_create=for_create)
 
 
 def redact_secrets(text: str) -> str:

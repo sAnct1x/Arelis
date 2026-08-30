@@ -278,6 +278,16 @@ def run_ui(config: dict[str, Any] | None = None) -> int:
         QApplication.setAttribute(
             Qt.ApplicationAttribute.AA_UseDesktopOpenGL, True
         )
+    # WebEngine + the offscreen solar GL share a context. Without this,
+    # enter Earth can abort the process on the first globe.
+    QApplication.setAttribute(
+        Qt.ApplicationAttribute.AA_ShareOpenGLContexts, True
+    )
+    # Import before QApplication so Chromium and the solar GL share a context.
+    try:
+        from PySide6.QtWebEngineWidgets import QWebEngineView  # noqa: F401
+    except Exception:
+        pass
     app = QApplication.instance() or QApplication([])
     app.setApplicationName("Arelis")
     icon_path = app_icon_path()

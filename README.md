@@ -210,9 +210,9 @@ connect them. She can also write a PDF, Word file, spreadsheet, or
 markdown note.
 
 From a source checkout only: Reality's plate, the true-scale solar
-system, and the Earth zone ([earth.md](docs/earth.md)). Installed copies
-still get Reality as a room (chat, CAS, Horizons). The 3D plate does
-not ship.
+system, and the Earth zone ([earth.md](docs/earth.md)). Contacts on
+Earth share one drawn mark language. Installed copies still get
+Reality as a room (chat, CAS, Horizons). The 3D plate does not ship.
 
 Tests cover this. Voice timing, a real handset, and image generation
 have only been run end to end on the author's hardware. Odd behaviour on

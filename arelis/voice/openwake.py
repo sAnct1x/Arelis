@@ -28,10 +28,6 @@ class OpenWakeUnavailableError(RuntimeError):
     """openwakeword package or custom ONNX missing."""
 
 
-def default_wake_model_path() -> Path:
-    return _DEFAULT_MODEL
-
-
 def openwake_available(model_path: str | Path | None = None) -> bool:
     try:
         import openwakeword  # noqa: F401

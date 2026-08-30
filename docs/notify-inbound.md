@@ -69,7 +69,7 @@ are not flooded with backlog.
    restart **Arelis (dev)** once so `send_sms` is registered.
 
 The STATUS line about the Phone Notify URL is written to the thinking
-dock, not chat.
+dock footer, not chat.
 
 ### Core + UI
 

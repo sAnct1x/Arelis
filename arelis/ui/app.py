@@ -680,6 +680,7 @@ class ArelisWindow(QMainWindow):
         self._apply_always_on_top(self._always_on_top, persist=False)
         self._apply_chat_font_scale(self._chat_font_scale, persist=False)
         self.conversation.submitted.connect(self._on_submit)
+        self.chat.again_requested.connect(self._on_again)
         # QPlainTextEdit.textChanged has no arg; a `_t` lambda TypeError'd every keystroke.
         self.conversation.input.textChanged.connect(self._note_engagement)
         self.conversation.attach_errors.connect(self._on_attach_errors)
@@ -705,6 +706,7 @@ class ArelisWindow(QMainWindow):
         self.history.session_selected.connect(self._on_history_selected)
         self.history.session_delete_requested.connect(self._on_history_delete)
         self.history.new_requested.connect(self._on_history_new)
+        self.conversation.new_requested.connect(self._on_history_new)
         self.history.fact_decided.connect(self._on_fact_decided)
         self.notifications.unread_changed.connect(self._on_notify_unread)
         self.bridge.event_arrived.connect(self._on_event)
@@ -2627,6 +2629,20 @@ class ArelisWindow(QMainWindow):
             if text:
                 self.chat.add_system(text)
 
+    def _on_again(self) -> None:
+        """Re-submit the last user turn. Same role; composer stays empty."""
+        if self._turn_busy:
+            self._toast_finish_or_stop(
+                "Finish or stop the current turn before asking again."
+            )
+            return
+        text = self.chat._last_user_text
+        attachments = list(self.chat._last_user_attachments or [])
+        if not text and not attachments:
+            return
+        role = self._current_role or self.conversation.role.currentText()
+        self._on_submit(text, role, attachments)
+
     def _on_submit(self, text: str, role: str, attachments: list | None = None) -> None:
         self._note_engagement()
         if not attachments and self._try_physics_verb(text):
@@ -2642,14 +2658,8 @@ class ArelisWindow(QMainWindow):
                 except Exception:
                     pass
         self._set_busy(True)
-        display = text or (
-            f"({len(attachments)} attachment{'s' if len(attachments) != 1 else ''})"
-            if attachments
-            else ""
-        )
         self.chat.add_user(text, attachments=attachments)
         self._sync_idle_mode()
-        self.thinking.append(display, kind="trace")
         if not (text or "").lstrip().startswith("/"):
             self._show_model_loading(role)
         payload: dict = {"text": text, "role": role}

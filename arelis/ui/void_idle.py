@@ -270,6 +270,7 @@ class OrbitIdle(QWidget):
     # An opening suggestion was clicked. Carries the text to put in the composer;
     # it is never sent on the user's behalf.
     suggestion_clicked = Signal(str)
+    new_requested = Signal()
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -343,12 +344,12 @@ class OrbitIdle(QWidget):
         read_l.setContentsMargins(0, 0, 0, 0)
         read_l.setSpacing(16)
         read_l.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        self._ollama_row = self._make_readout("OLLAMA", "—")
-        self._listen_row = self._make_readout("LISTENING", "OFF")
+        self._ollama_row = self._make_readout("ollama", "—")
+        self._listen_row = self._make_readout("listening", "off")
         read_l.addWidget(self._ollama_row, alignment=Qt.AlignmentFlag.AlignRight)
         read_l.addWidget(self._listen_row, alignment=Qt.AlignmentFlag.AlignRight)
 
-        self.hint = QLabel("talk or type  ·  esc to clear", self)
+        self.hint = QLabel("talk or type whenever you're ready", self)
         self.hint.setObjectName("VoidListenWord")
         self.hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
@@ -398,8 +399,12 @@ class OrbitIdle(QWidget):
                 row.adjustSize()
             self._layout_idle()
             return
+        fresh = _GhostRow("new", "new chat", self._ghosts, key_text="NEW")
+        fresh.clicked.connect(self.new_requested.emit)
+        self._ghost_layout.addWidget(fresh)
+        fresh.adjustSize()
         for sid, title in sessions[:3]:
-            row = _GhostRow(sid, title or "(untitled)", self._ghosts)
+            row = _GhostRow(sid, title or "new chat", self._ghosts)
             row.clicked.connect(lambda s=sid: self.session_clicked.emit(s))
             self._ghost_layout.addWidget(row)
             row.adjustSize()
@@ -435,8 +440,8 @@ class OrbitIdle(QWidget):
         return self.listen_word.text()
 
     def set_readout(self, *, ollama: str, listening: str) -> None:
-        self._ollama_row._value.setText((ollama or "—").upper())  # type: ignore[attr-defined]
-        self._listen_row._value.setText((listening or "OFF").upper())  # type: ignore[attr-defined]
+        self._ollama_row._value.setText((ollama or "—").lower())  # type: ignore[attr-defined]
+        self._listen_row._value.setText((listening or "off").lower())  # type: ignore[attr-defined]
 
     def fit_prompt(self, width: int, height: int, *, typing: bool) -> None:
         """Idle composer grows with the sentence; hint yields once typing."""

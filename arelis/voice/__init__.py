@@ -573,9 +573,6 @@ class VoiceService:
 
     # ----------------------------------------------------------------- misc
 
-    def input_device_hint(self) -> str:
-        return str(self.config.get("voice", {}).get("input_device") or "")
-
     async def _status(self, message: str) -> None:
         await self.bus.publish(Event(EventType.STATUS, {"message": message}))
 

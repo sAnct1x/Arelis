@@ -16,6 +16,11 @@ build/
 .coverage
 htmlcov/
 
+# Manual Reality plate dumps (ARELIS_WALK_SHOTS). Pytest uses tmp_path.
+.tmp-reality-walk/
+.tmp-reality-walk-live/
+.tmp-reality-marks/
+
 # Local / secrets
 .env
 .env.*
@@ -81,3 +86,6 @@ models/
 # digest is pinned in build.py so a stale or truncated copy is rejected rather than
 # reused.
 win-installer/.cache/
+
+# One-off local patches. Not product.
+scripts/_patch_globe_*.py

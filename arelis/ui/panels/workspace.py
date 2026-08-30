@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QSizePolicy,
     QSplitter,
+    QStyleFactory,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -188,7 +189,7 @@ class WorkspacePanel(QWidget):
         self.project_combo.setObjectName("InstrumentCombo")
         self.project_combo.setFixedHeight(METRICS["row"])
         polish_combo_popup(self.project_combo)
-        self.project_combo.setMinimumWidth(120)
+        self.project_combo.setMinimumWidth(100)
         self.project_combo.setToolTip("Active project")
         self.project_combo.currentTextChanged.connect(self._on_project_changed)
         self.path_edit = QLineEdit()
@@ -197,14 +198,6 @@ class WorkspacePanel(QWidget):
         self.path_edit.setFixedHeight(METRICS["row"])
         self.open_btn = _icon_btn(file_open_icon(16), "Open file")
         self.save_btn = _icon_btn(file_save_icon(16), "Save file")
-        path_row.addWidget(self.project_combo)
-        path_row.addWidget(self.path_edit, stretch=1)
-        path_row.addWidget(self.open_btn)
-        path_row.addWidget(self.save_btn)
-        layout.addLayout(path_row)
-
-        roots_row = QHBoxLayout()
-        roots_row.setSpacing(6)
         self.add_root_btn = _icon_btn(
             folder_plus_icon(16),
             "Add an existing folder as a project",
@@ -220,22 +213,26 @@ class WorkspacePanel(QWidget):
         self.add_root_btn.clicked.connect(self.add_root_requested.emit)
         self.new_root_btn.clicked.connect(self.new_root_requested.emit)
         self.remove_root_btn.clicked.connect(self.remove_root_requested.emit)
-        roots_row.addWidget(self.add_root_btn)
-        roots_row.addWidget(self.new_root_btn)
-        roots_row.addWidget(self.remove_root_btn)
         self.recent_combo = QComboBox()
         self.recent_combo.setObjectName("InstrumentCombo")
         self.recent_combo.setFixedHeight(METRICS["row"])
-        self.recent_combo.setMinimumWidth(160)
+        self.recent_combo.setMinimumWidth(100)
         self.recent_combo.setToolTip("Recently opened or saved files")
         self.recent_combo.setPlaceholderText("recent")
         polish_combo_popup(self.recent_combo)
         self.recent_combo.activated.connect(self._on_recent_activated)
-        roots_row.addWidget(self.recent_combo, stretch=1)
         self.dirty_label = QLabel("")
         self.dirty_label.setObjectName("InstrumentHint")
-        roots_row.addWidget(self.dirty_label)
-        layout.addLayout(roots_row)
+        path_row.addWidget(self.project_combo)
+        path_row.addWidget(self.path_edit, stretch=1)
+        path_row.addWidget(self.open_btn)
+        path_row.addWidget(self.save_btn)
+        path_row.addWidget(self.add_root_btn)
+        path_row.addWidget(self.new_root_btn)
+        path_row.addWidget(self.remove_root_btn)
+        path_row.addWidget(self.recent_combo)
+        path_row.addWidget(self.dirty_label)
+        layout.addLayout(path_row)
 
         self.root_label = QLabel("")
         self.root_label.setObjectName("InstrumentHint")
@@ -254,21 +251,25 @@ class WorkspacePanel(QWidget):
         self.browse_label.setObjectName("InstrumentHint")
         self.up_btn = _icon_btn(folder_up_icon(16), "Up one folder")
         self.up_btn.clicked.connect(self._browse_up)
+        self.up_btn.hide()
         self.refresh_btn = _icon_btn(refresh_icon(16), "Refresh this folder")
         self.refresh_btn.clicked.connect(self.refresh_browse)
+        self.refresh_btn.hide()
         browse_head.addWidget(self.browse_label, stretch=1)
-        browse_head.addWidget(self.up_btn)
-        browse_head.addWidget(self.refresh_btn)
         left_l.addLayout(browse_head)
         self.browse_list = QListWidget()
         # Not #OutputView: that is the code editor's rule and it set filenames
         # in the mono face, which made a folder listing look like a diff.
         self.browse_list.setObjectName("BrowseList")
-        self.browse_list.setIconSize(QSize(14, 14))
+        self.browse_list.setIconSize(QSize(0, 0))
         self.browse_list.setToolTip("Caches and dot-folders are hidden")
         self.browse_list.itemActivated.connect(self._on_browse_activated)
         self._folder_icon = browse_folder_icon(14)
         self._file_icon = browse_file_icon(14)
+        self._fusion_style = QStyleFactory.create("Fusion")
+        if self._fusion_style is not None:
+            self._fusion_style.setParent(self)
+            self.browse_list.setStyle(self._fusion_style)
         left_l.addWidget(self.browse_list, stretch=1)
 
         mid = QWidget()
@@ -433,9 +434,16 @@ class WorkspacePanel(QWidget):
             return
         visible = [entry for entry in entries if not _browse_junk(entry)]
         shown = visible[:_MAX_BROWSE_ENTRIES]
+        try:
+            can_up = cwd.resolve() != root.resolve()
+        except OSError:
+            can_up = False
+        if can_up:
+            up = QListWidgetItem("..")
+            up.setData(Qt.ItemDataRole.UserRole, "..")
+            self.browse_list.addItem(up)
         for entry in shown:
             item = QListWidgetItem(entry.name)
-            item.setIcon(self._folder_icon if entry.is_dir() else self._file_icon)
             item.setData(Qt.ItemDataRole.UserRole, str(entry))
             self.browse_list.addItem(item)
         if len(visible) > len(shown):
@@ -460,6 +468,9 @@ class WorkspacePanel(QWidget):
     def _on_browse_activated(self, item: QListWidgetItem) -> None:
         raw = str(item.data(Qt.ItemDataRole.UserRole) or "")
         if not raw:
+            return
+        if raw == "..":
+            self._browse_up()
             return
         path = Path(raw)
         if path.is_dir():

@@ -124,21 +124,32 @@ _BY_ACTION: dict[str, dict[str, str]] = {
 }
 
 
+def tool_errand(tool: str, args: dict[str, Any] | None = None) -> str:
+    """The errand in her words, no star. Empty if there is no tool."""
+    name = (tool or "").strip()
+    if not name:
+        return ""
+    action = str((args or {}).get("action") or "").strip().lower()
+    errand = _BY_ACTION.get(name, {}).get(action) or _ERRANDS.get(name)
+    return errand or f"using {name}"
+
+
 def tool_status_line(tool: str, args: dict[str, Any] | None = None) -> str:
     """The shimmer line for a tool that just started.
 
     Falls back to the tool's own name rather than inventing an errand for it. A
     new tool should read as slightly unpolished, not as the wrong sentence.
     """
-    name = (tool or "").strip()
-    if not name:
-        return THINKING_STATUS
-
-    action = str((args or {}).get("action") or "").strip().lower()
-    errand = _BY_ACTION.get(name, {}).get(action) or _ERRANDS.get(name)
+    errand = tool_errand(tool, args)
     if not errand:
-        errand = f"using {name}"
+        return THINKING_STATUS
     return f"✦ {errand}…"
 
 
-__all__ = ["THINKING_STATUS", "WAITING_STATUS", "WARMING_STATUS", "tool_status_line"]
+__all__ = [
+    "THINKING_STATUS",
+    "WAITING_STATUS",
+    "WARMING_STATUS",
+    "tool_errand",
+    "tool_status_line",
+]

@@ -14,7 +14,7 @@ class LayerSpec:
     what: str
     source: str
     hole: str
-    default_on: bool = True
+    default_on: bool = False
 
 
 LAYERS: tuple[LayerSpec, ...] = (
@@ -59,6 +59,7 @@ LAYERS: tuple[LayerSpec, ...] = (
         "LEO/MEO from public TLEs (sim shells, or CelesTrak + SGP4).",
         "simulated shells; live: CelesTrak samples + Space-Track GP if keyed",
         "Classified objects are not in the file. Starlink is a sample, not the shell.",
+        True,
     ),
     LayerSpec(
         "iss",
@@ -87,7 +88,7 @@ LAYERS: tuple[LayerSpec, ...] = (
         "Weather",
         "Sampled stations + a jet-stream sketch.",
         "simulated climates; live: Open-Meteo + NWS + METAR/SIGMET + "
-        "SWPC + NDBC + CO-OPS/IOC + WAQI if keyed",
+        "SWPC + NDBC + CO-OPS/IOC + WAQI/OpenAQ if keyed",
         "Not a forecast model. NWS is US CAP. Most of Earth is a hole.",
     ),
     LayerSpec(
@@ -111,7 +112,6 @@ LAYERS: tuple[LayerSpec, ...] = (
         "Street-scale *flow* sketch. Individual cars are not a public feed.",
         "simulated dots; live: 511 / WZDx / Open511 / ArcGIS. No VIN, no plate",
         "No legal global car tracker. Adapters replace; they do not invent cars.",
-        False,
     ),
     LayerSpec(
         "sites",

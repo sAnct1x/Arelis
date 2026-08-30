@@ -13,12 +13,13 @@ Nothing here is sent anywhere.
 | Did the first chat token wait on the prefix seed? | Thinking dock: **loading the model…**. Also `logs/turns.jsonl` → `model_prefill_ms` after a turn |
 | Did she enter JSON fallback or answer from a tool result? | Thinking dock. Also `logs/turns.jsonl` |
 | Did a confirm / SMS / error fire on the bus? | `logs/events.log` |
-| Are Ollama / calendar / SMS / mail up? | UI **Systems** menu (mail / SMS / calendar only show once connected). CLI `ready …` STATUS |
+| Are Ollama / calendar / SMS / mail up? | UI **house ▾** (mail / SMS / calendar only show once connected). CLI `ready …` STATUS |
 | App crash, IMAP, router, indexer exceptions | `logs/arelis.log` |
 | Scheduled job mail digest | `logs/jobs.log` |
 | Conversation mic stuck | `logs/voice.log` (wake, barge-in, Smart Turn, dropped utterances always. `voice.debug: true` for the VAD firehose) |
 | Did that chat turn re-prefill the whole prompt? | `logs/turns.jsonl` → `model_prefill_ms`, `prompt_eval_count` |
-| Reality plate / hands hitch | Overlay FPS. Take jsonl under `outputs/physics/takes/` |
+| Reality plate / Earth live / hitch | `logs/reality.log` plus `logs/reality.jsonl` |
+| Reality plate / hands hitch (GL crash) | `logs/solar_gl.log`. Hands takes under `outputs/physics/takes/` |
 | Reality solar receipt (IAS15 state, not a screenshot) | `outputs/physics/solar/<utc>/` (`manifest.json` + `state.jsonl`) |
 
 ## Files
@@ -47,6 +48,16 @@ bus events only. Not token deltas or TTS clips.
 Full state-machine vector when `voice.debug: true`. `tts_first` and live
 `stt` spans land in `turns.log` when turn telemetry is on.
 
+**`logs/reality.log`** and **`logs/reality.jsonl`** (always on while we
+tune Reality). Enter/leave Earth, band changes, live merge, each
+adapter (ms / n / err), OpenSky spend, land/OSM/buildings fetches, travel, lock,
+look-from (id/kind/media only — never a URL), dumps, overlay chips,
+Cesium host ready/failed (photoreal miss is not a host fail),
+and a 1 Hz paint sample (ms, band, n). Pytest writes nothing unless a
+test points the module at a temp dir. Clean this firehose up once the
+plate is right. `arelis/physics/telemetry.py`. Stream URLs never land
+here.
+
 Timestamps are local wall-clock. Match nearby lines across files by time
 when ids do not join: `id=` (turn), `session=`, `span=` (STT), `eid=`
 (bus), `confirm=` (card).
@@ -65,8 +76,8 @@ when ids do not join: `id=` (turn), `session=`, `span=` (STT), `eid=`
 - Full assistant token streams (thinking dock only. `events.log` keeps a
   240-char preview on ASSISTANT_DONE)
 - Entire tool result bodies (400-char preview in `events.log`)
-- Pose and World-plate motion (not a chat turn; only take jsonl + overlay FPS)
 - Phone Gemma latency while the house is away
+- Look-from stream URLs (deliberate; pin stays honest)
 
 **`outputs/physics/solar/`** is not a log. Leaving Reality writes a
 cited snapshot of the live IAS15 state (ECLIPJ2000 metres) so a figure can

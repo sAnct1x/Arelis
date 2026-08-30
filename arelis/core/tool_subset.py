@@ -165,7 +165,7 @@ def _must_keep_full_surface(
 
     kinds = {h.kind for h in detect_intents(text, history=history)}
     if sms_negative_hit(text or ""):
-        kinds -= {"sms_send", "inbound_sms", "sms"}
+        kinds -= {"sms_send", "inbound_sms"}
     if kinds & FULL_SURFACE_KINDS:
         return True
     if looks_like_email_send_followup(text, history):

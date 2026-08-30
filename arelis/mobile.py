@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
+from arelis.attachments import display_session_title
 from arelis.core.events import Event, EventType
 
 if TYPE_CHECKING:
@@ -357,7 +358,7 @@ class MobileHub:
             sid = str(row.get("id") or "").strip()
             if not sid:
                 continue
-            title = str(row.get("title") or "").strip() or "(untitled)"
+            title = display_session_title(str(row.get("title") or ""))
             out.append(
                 {
                     "id": sid,
@@ -385,7 +386,7 @@ class MobileHub:
         sid = str(chat.get("id") or "").strip()
         if not sid:
             return {}
-        title = str(chat.get("title") or "").strip() or "(untitled)"
+        title = display_session_title(str(chat.get("title") or ""))
         return {"id": sid, "title": title}
 
     def busy(self) -> bool:

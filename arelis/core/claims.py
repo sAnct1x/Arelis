@@ -47,8 +47,9 @@ _PICTURE_SIZE = re.compile(
 
 _MATH_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(
-        r"\b(?:what\s+is|what's|calculate|compute|how\s+much\s+is)\b.{0,40}?"
-        r"(?:\d|percent|%|\+|minus|times|divided)",
+        r"\b(?:what\s+is|what's|calculate|compute|how\s+much\s+is|"
+        r"how\s+much\s+does)\b.{0,80}?"
+        r"(?:\d|percent|%)",
         re.I | re.S,
     ),
     re.compile(r"\b\d+(?:\.\d+)?\s*%\s+of\s+\d+", re.I),
@@ -92,8 +93,6 @@ _CAS_FORCE = (
     re.compile(r"(?i)\bd/dx\b"),
     re.compile(r"(?i)\bpartial\s+derivative\b"),
     re.compile(r"(?i)\b(solve\s+(this\s+|the\s+)?(ode|differential\s+equation))\b"),
-    re.compile(r"(?i)\bdifferential\s+equation\b"),
-    re.compile(r"(?i)\b\bode\b"),
     re.compile(
         r"(?i)\bsimplify\s+(?:this|the)\s+(?:expression|equation|algebra)\b"
     ),
@@ -115,12 +114,25 @@ _UNITS_FORCE = (
     re.compile(
         rf"(?i)\bconvert\b.{{0,48}}\bto\s+(?:{_UNIT_NAMES})\b",
     ),
+    # "convert 60 mi/hr to m/s" — abbreviations the name list does not cover.
+    re.compile(r"(?i)\bconvert\b.{0,48}\d"),
+    # A number going into a unit — not "measured in joules" / "temperature in kelvin".
     re.compile(
-        rf"(?i)\b(?:in|into|to)\s+(?:{_UNIT_NAMES})\b",
+        rf"(?i)\b\d+(?:\.\d+)?(?:\s*[a-zA-Zµμ/%]+)?\s+"
+        rf"(?:in|into|to)\s+(?:{_UNIT_NAMES})\b",
     ),
     re.compile(r"(?i)\b\d+(?:\.\d+)?\s*(?:ft|feet)\s+\d+(?:\.\d+)?\s*(?:in|inches)\b"),
-    re.compile(r"(?i)\bdimensional\s+analysis\b"),
     re.compile(rf"(?i)\bhow\s+many\s+(?:{_UNIT_NAMES})\b"),
+)
+_CONSTANT_CONCEPT = re.compile(
+    r"(?i)\b("
+    r"explain|conceptually|as\s+a\s+concept|"
+    r"used\s+for|used\s+to|"
+    r"why\s+is|why\s+does|"
+    r"tell\s+me\s+about|"
+    r"what\s+does\b.{0,48}\bmean|"
+    r"what\s+is\s+(?:a|an)\s+"
+    r")\b"
 )
 _CMB_FRAME = re.compile(
     r"(?i)\b(cmb\s+frame|rest\s+frame|comoving)\b"
@@ -142,19 +154,39 @@ _CONSTANT_FORCE = (
 )
 
 # High-precision contingent asks that need a tool warrant this turn.
+# Bare "news" / "article" / "according to" / "what did X say" are how people
+# talk about scripture, Kant, and constitutional articles.
+_NEWS_OUTLET = (
+    r"(?:wsj|wall\s+street\s+journal|nytimes|new\s+york\s+times|"
+    r"reuters|bbc|bloomberg|associated\s+press|"
+    r"the\s+guardian|cnn|npr|financial\s+times)"
+)
 _NEWS_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(
-        r"\b(?:news|headline|breaking|latest\s+(?:on|about)|what\s+did\s+\w+\s+say)\b",
+        r"\b(?:breaking\s+news|latest\s+(?:news|headlines?)|"
+        r"news\s+(?:today|tonight|this\s+(?:week|morning)))\b",
         re.I,
     ),
-    re.compile(r"\b(?:according\s+to|article|wsj|nytimes|reuters|bbc)\b", re.I),
+    re.compile(r"\b(?:latest\s+(?:on|about)|headlines?\s+(?:on|about|from))\b", re.I),
+    re.compile(rf"\b(?:according\s+to|what\s+did)\s+(?:the\s+)?{_NEWS_OUTLET}\b", re.I),
+    re.compile(rf"\b{_NEWS_OUTLET}\b", re.I),
+    re.compile(
+        r"\bwhat\s+did\s+\w+\s+say\b.{0,48}\b"
+        r"(?:today|yesterday|this\s+week|recently|in\s+(?:an\s+)?interview)\b",
+        re.I,
+    ),
 )
 _PRICE_PATTERNS: tuple[re.Pattern[str], ...] = (
-    re.compile(
-        r"\b(?:price|stock\s+price|how\s+much\s+does|cost\s+of|trading\s+at)\b",
-        re.I,
-    ),
+    re.compile(r"\b(?:stock\s+price|share\s+price|trading\s+at)\b", re.I),
 )
+_DEFINITIONAL_WEB = re.compile(
+    r"(?i)\bwhat\s+is\s+(?:a|an)\s+"
+    r"(?:news\s+)?(?:headline|article|research\s+report)\b"
+)
+_TEMP_SCALE = re.compile(
+    r"(?i)\btemperature\s+in\s+(?:kelvin|celsius|fahrenheit|rankine)\b"
+)
+_PROOF_ASK = re.compile(r"(?i)\bproof\b")
 # PDF / local-doc quote asks — narrow; avoid "what is a PDF?" definitional hits.
 _DOC_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(
@@ -459,7 +491,7 @@ def detect_cas_ask(text: str) -> bool:
 def detect_units_ask(text: str) -> bool:
     """True for unit conversion or published-constant asks.
 
-    File conversions and CMB-frame boosts are not Pint.
+    File conversions, CMB-frame boosts, and teach-me constant talk are not Pint.
     """
     raw = text or ""
     if not raw.strip():
@@ -467,6 +499,8 @@ def detect_units_ask(text: str) -> bool:
     if _CMB_FRAME.search(raw):
         return False
     if any(p.search(raw) for p in _CONSTANT_FORCE):
+        if _CONSTANT_CONCEPT.search(raw):
+            return any(p.search(raw) for p in _UNITS_FORCE)
         return True
     if _FILE_CONVERT.search(raw) and not re.search(
         rf"(?i)\b(?:{_UNIT_NAMES})\b", raw
@@ -478,6 +512,8 @@ def detect_units_ask(text: str) -> bool:
 def detect_math_ask(text: str) -> bool:
     lowered = (text or "").strip()
     if not lowered:
+        return False
+    if _PROOF_ASK.search(lowered):
         return False
     if _SYMBOLIC_MATH.search(lowered):
         return False
@@ -666,6 +702,10 @@ def detect_exactness_need(text: str) -> ExactnessNeed:
     # Prefer the vision warrant; never force calculator on those asks.
     if needs_vision and needs_calc:
         needs_calc = False
+    # A chart of y=x^2/2 matches "2/2" as arithmetic. The PNG is the answer;
+    # forcing calculator after plot already wrote the file stalls the turn.
+    if needs_plot:
+        needs_calc = False
     if needs_cas:
         needs_calc = False
         needs_units = False
@@ -693,7 +733,12 @@ def detect_exactness_need(text: str) -> ExactnessNeed:
         or any(p.search(text or "") for p in _PRICE_PATTERNS)
         or exactness_match("research", text)
     )
+    if needs_web and _DEFINITIONAL_WEB.search(text or ""):
+        needs_web = False
     needs_weather = exactness_match("weather", text)
+    if needs_weather and _TEMP_SCALE.search(text or ""):
+        if not re.search(r"(?i)\b(today|tomorrow|tonight|outside|forecast|weather)\b", text or ""):
+            needs_weather = False
     # A weather ask is Open-Meteo, not a news page. Tagging both made a missed
     # weather call refuse with "no retrieved page warrant" — the 9am job mailed
     # that sentence instead of a forecast.

@@ -74,12 +74,15 @@ _STYLE_QUOTE = (
 )
 _STYLE_RULE = f"border:none; border-top:1px solid {_EDGE}; margin:8px 0 8px 0;"
 _STYLE_LINK = f"color:{COLORS['accent2']}; text-decoration:underline;"
-_STYLE_TABLE = f"border-collapse:collapse; margin:6px 0 6px 0; color:{COLORS['text']};"
-_STYLE_TH = f"border:1px solid {_EDGE}; color:{COLORS['accent']}; font-weight:600;"
-_STYLE_TD = f"border:1px solid {_EDGE};"
+_STYLE_TABLE = f"border-collapse:collapse; margin:8px 0 10px 0; color:{COLORS['text']};"
+_STYLE_TH = (
+    f"border:none; border-bottom:1px solid {COLORS['hairline_faint']}; "
+    f"color:{COLORS['accent2']}; font-weight:500;"
+)
+_STYLE_TD = "border:none;"
 # Cell spacing comes from the cellpadding attribute. Qt reads that rather than
 # CSS padding on the cells, so setting it in the style has no effect.
-_TABLE_ATTRS = 'border="0" cellspacing="0" cellpadding="4"'
+_TABLE_ATTRS = 'border="0" cellspacing="0" cellpadding="6"'
 _HEADING_SIZES = {1: 17, 2: 15, 3: 14, 4: 13, 5: 13, 6: 13}
 
 

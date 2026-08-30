@@ -111,8 +111,6 @@ _IMAGE_TEXT_ASK = re.compile(
     r")\b"
 )
 
-_IMAGE_SUFFIXES = _IMAGE
-
 # User asked for the picture itself to come back changed, not described. Without
 # this the routing block told her to call vision, which can only look, and she
 # spent the turn hunting for a tool that would do it -- ending on the image
@@ -165,15 +163,6 @@ def route_tool(kind: str, user_text: str = "") -> str:
     if kind == "text":
         return "workspace read"
     return "(unsupported — say what you can)"
-
-
-def suggested_tool(kind: str) -> str:
-    """Default tool for a kind (no user text). Prefer route_tool when text exists."""
-    return route_tool(kind, "")
-
-
-def is_image_path(path: str | Path) -> bool:
-    return Path(path).suffix.lower() in _IMAGE_SUFFIXES
 
 
 _ATTACH_KIND_LINE = re.compile(
@@ -232,6 +221,21 @@ def split_attachments_turn(text: str) -> tuple[str, str]:
     block = parts[0].strip()
     ask = parts[1].strip() if len(parts) > 1 else ""
     return block, ask
+
+
+NEW_SESSION_TITLE = "new chat"
+
+
+def display_session_title(raw: str) -> str:
+    """History / phone label. Blank threads read as ``new chat``, not untitled."""
+    text = (raw or "").strip()
+    if not text or text in {"(untitled)", "untitled"}:
+        return NEW_SESSION_TITLE
+    if text.startswith("Attachments for this turn") or "\nAttachments for this turn" in text:
+        return session_title_from_turn(text) or NEW_SESSION_TITLE
+    if text.startswith("Continue the prior request"):
+        return session_title_from_turn(text) or NEW_SESSION_TITLE
+    return text
 
 
 def session_title_from_turn(content: str, *, max_len: int = 80) -> str:

@@ -110,6 +110,10 @@ class RecallTool:
 
     async def run(self, **kwargs: Any) -> ToolResult:
         action = str(kwargs.get("action") or "").strip().lower()
+        # Query without action is search. The 9B often omits the enum and
+        # used to get "Unknown action ''" for a perfectly good lookup.
+        if not action and str(kwargs.get("query") or "").strip():
+            action = "search"
         if action == "search":
             return await self._search(kwargs)
         if action == "session":

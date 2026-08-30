@@ -401,7 +401,8 @@ def _score_turn(
                 reasons.append(
                     f"arg {key}={raw!r} missing {needle!r} on {target.name}"
                 )
-        if target.ok is False:
+        same = [r for r in tool_records if r.name == target.name]
+        if target.ok is False and not any(r.ok for r in same):
             reasons.append(f"{target.name} returned ok=False")
 
     low = final_text.lower()
@@ -719,38 +720,3 @@ async def run_conversation_soak(
         turns=reports,
         summary=summary,
     )
-
-
-def format_markdown_report(report: SoakReport) -> str:
-    lines = [
-        f"# Soak `{report.id}` - {report.summary}",
-        "",
-        f"- mode: `{report.mode}`",
-        f"- started: {report.started_at}",
-        f"- finished: {report.finished_at}",
-        f"- wall_ms: {report.total_ms}",
-        "",
-        "| # | turn | ok | tools | total_ms | model_ms | confirm_ms | paint_ms |",
-        "|---|------|----|-------|----------|----------|------------|----------|",
-    ]
-    for i, t in enumerate(report.turns, start=1):
-        tools = ",".join(t.tools_called) or "-"
-        paint = t.first_paint_ms if t.first_paint_ms is not None else "-"
-        lines.append(
-            f"| {i} | `{t.turn_id}` | {'OK' if t.ok else 'FAIL'} | `{tools}` | "
-            f"{t.total_ms} | {t.model_ms} | {t.confirm_ms} | {paint} |"
-        )
-    lines.append("")
-    for t in report.turns:
-        if t.ok:
-            continue
-        lines.append(f"## FAIL `{t.turn_id}`")
-        lines.append(f"- user: {t.user!r}")
-        lines.append(f"- expected: {t.expect_tools}")
-        lines.append(f"- got: {t.tools_called}")
-        for r in t.reasons:
-            lines.append(f"- reason: {r}")
-        if t.thinking_tail:
-            lines.append(f"- thinking: {t.thinking_tail[-3:]}")
-        lines.append("")
-    return "\n".join(lines)

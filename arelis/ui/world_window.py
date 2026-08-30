@@ -265,6 +265,12 @@ class WorldWindow(QWidget):
         self._sync_heading()
 
     def enter_hands(self) -> None:
+        try:
+            from arelis.physics.telemetry import emit
+
+            emit("enter_hands")
+        except Exception:
+            pass
         self._end_solar_visit()
         self.stack.setCurrentWidget(self.panel)
         self.panel.refresh()
@@ -274,6 +280,12 @@ class WorldWindow(QWidget):
         from arelis.ui.solar_gl import gl_wanted, trace
 
         trace(f"enter_solar gl_wanted={gl_wanted()}")
+        try:
+            from arelis.physics.telemetry import emit
+
+            emit("enter_solar", gl=gl_wanted())
+        except Exception:
+            pass
         self.solar._ensure_ic()
         self.stack.setCurrentWidget(self.solar)
         self.solar.setFocus(Qt.FocusReason.OtherFocusReason)

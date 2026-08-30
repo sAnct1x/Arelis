@@ -1,9 +1,9 @@
 """OpenGL space for the solar lab. Approach/orbit, not landing.
 
 Offscreen FBO — a native GL widget aborted this AMD driver. Software
-QPainter globes stay as fallback. Body spin for mapped planets is IAU W
-from attitude.py; Earth is still GMST+obliquity in this file. Radii drawn
-here may use a screen-space floor; physics does not.
+QPainter globes stay as fallback. Body spin is attitude.py (IAU W, or
+GMST+obliquity for Earth) times a mesh-to-body map. Radii drawn here
+may use a screen-space floor; physics does not.
 """
 
 from __future__ import annotations
@@ -40,7 +40,6 @@ from shiboken6 import VoidPtr
 
 from arelis.physics.attitude import (
     body_frame_ecliptic,
-    gmst_rad,
     saturn_ring_axes,
     spin_jd,
     sun_pole_ecliptic,
@@ -193,8 +192,6 @@ _PERF_EVERY_S = 4.0
 _GL_BGRA = 0x80E1
 _GL_UNSIGNED_BYTE = 0x1401
 _GL_PACK_ALIGNMENT = 0x0D05
-# IAU 2006 mean obliquity at J2000, degrees. Same as attitude._EPS.
-_EARTH_OBLIQUITY_DEG = 23.43927944444444
 
 # Clip w is metres; 24-bit depth cannot span the system linearly.
 _LOG_DEPTH = """
@@ -618,6 +615,62 @@ _ATMO: dict[str, tuple[tuple[float, float, float], float, float]] = {
     "Titan": ((0.82, 0.60, 0.32), 1.03, 0.55),
 }
 _GAS = {"Jupiter", "Saturn", "Uranus", "Neptune"}
+
+
+def earth_mesh_to_ecef() -> QMatrix4x4:
+    """Mesh UV → ECEF so NASA plate-carrée lines up with overlays.
+
+    make_sphere: u=0 is +Z, u=0.5 is −Z, +Y is the north pole. NASA
+    Blue Marble has u=0 at the antimeridian and u=0.5 at Greenwich, so
+    mesh −Z must be ECEF +X and mesh +Y must be ECEF +Z.
+    """
+    return QMatrix4x4(
+        0.0,
+        0.0,
+        -1.0,
+        0.0,
+        -1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+    )
+
+
+def earth_spin_matrix(jd: float) -> QMatrix4x4:
+    """ECLIPJ2000 from a unit mesh point. Same axes as ecef_to_ecliptic."""
+    frame = body_frame_ecliptic("Earth", jd)
+    assert frame is not None
+    return _frame_matrix(frame) * earth_mesh_to_ecef()
+
+
+def _frame_matrix(frame) -> QMatrix4x4:
+    xx, yx, zx = frame
+    return QMatrix4x4(
+        xx[0],
+        yx[0],
+        zx[0],
+        0.0,
+        xx[1],
+        yx[1],
+        zx[1],
+        0.0,
+        xx[2],
+        yx[2],
+        zx[2],
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+    )
 
 
 def make_sphere(slices: int = 96, stacks: int = 64) -> tuple[np.ndarray, np.ndarray]:
@@ -1081,10 +1134,12 @@ class SolarSpaceView(QOpenGLFunctions):
             # Qt flips for us here, and the scene is already rendered flipped.
             return fbo.toImage().mirrored(False, True)
 
-    def render(self, width: int, height: int) -> QImage | None:
+    def render(
+        self, width: int, height: int, *, stars_only: bool = False
+    ) -> QImage | None:
         if not self.gl_ok or self._ctx is None or self._surface is None:
             return None
-        key = self._view_key(width, height)
+        key = (*self._view_key(width, height), stars_only)
         if key == self._frame_key and self._frame is not None and not self._frame.isNull():
             return self._frame
         first = not self._logged_paint
@@ -1106,7 +1161,7 @@ class SolarSpaceView(QOpenGLFunctions):
             proj = projection(self._fb_w, self._fb_h, fov_y=panel._fov_y())
             self._draw_stars(view, proj)
             system = get_system()
-            if system is not None:
+            if system is not None and not stars_only:
                 views = system.views()
                 sun = system.nbody.find("Sun")
                 sun_p = (
@@ -1280,6 +1335,15 @@ class SolarSpaceView(QOpenGLFunctions):
             fill, wrap, limb = 0.12, 0.22, 0.52
         else:
             fill, wrap, limb = _FILL, 0.12, 0.88
+        if body.name == "Earth":
+            try:
+                from arelis.earth.runtime import get_earth
+
+                zone = get_earth()
+                if zone is not None and zone.active:
+                    fill = 0.78
+            except Exception:
+                pass
         self._prog_body.bind()
         self._set_far(self._prog_body)
         self._uni(self._prog_body, "uMVP", mvp)
@@ -1356,46 +1420,21 @@ class SolarSpaceView(QOpenGLFunctions):
             0.0,
             1.0,
         )
+        jd = spin_jd(system.epoch_jd, system.t)
         if body.name == "Earth":
-            # Keep the proven GMST path. Do not route Earth through IAU W;
-            # software globes already use earth_lonlat_grid.
-            jd = 2_451_545.0
-            if system.epoch_jd > 0.0:
-                jd = system.epoch_jd + system.t / 86400.0
-            eq = QMatrix4x4()
-            eq.rotate(-math.degrees(gmst_rad(jd)), 0.0, 0.0, 1.0)
-            ecl = QMatrix4x4()
-            ecl.rotate(-_EARTH_OBLIQUITY_DEG, 1.0, 0.0, 0.0)
-            return ecl * eq * geo
+            # Same GMST+obliquity as software globes and Earth-zone overlays.
+            # Do not use the generic mesh map — that parks Greenwich at u=0.
+            return earth_spin_matrix(jd)
         moon = system.nbody.find("Moon")
         earth = system.nbody.find("Earth")
         frame = body_frame_ecliptic(
             body.name,
-            spin_jd(system.epoch_jd, system.t),
+            jd,
             moon=(moon.x, moon.y, moon.z) if moon is not None else None,
             earth=(earth.x, earth.y, earth.z) if earth is not None else None,
         )
         if frame is not None:
-            xx, yx, zx = frame
-            world = QMatrix4x4(
-                xx[0],
-                yx[0],
-                zx[0],
-                0.0,
-                xx[1],
-                yx[1],
-                zx[1],
-                0.0,
-                xx[2],
-                yx[2],
-                zx[2],
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-                1.0,
-            )
-            return world * geo
+            return _frame_matrix(frame) * geo
         pole = QMatrix4x4()
         pole.rotate(90.0, 1.0, 0.0, 0.0)
         return pole

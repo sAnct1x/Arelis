@@ -6,6 +6,8 @@ import asyncio
 import logging
 from pathlib import Path
 
+from arelis.attachments import display_session_title
+
 log = logging.getLogger(__name__)
 
 def bind_mobile_hub(window) -> None:
@@ -117,7 +119,7 @@ def bind_mobile_hub(window) -> None:
         if not sid:
             return {}
         row = store.get_session(sid) or {}
-        title = str(row.get("title") or "").strip() or "(untitled)"
+        title = display_session_title(str(row.get("title") or ""))
         return {
             "id": sid,
             "title": title,
@@ -136,7 +138,7 @@ def bind_mobile_hub(window) -> None:
         rooms = window.config.get("_rooms")
         room_id = str(row.get("room_id") or "")
         room = rooms.get(room_id) if rooms is not None and room_id else None
-        title = str(row.get("title") or "").strip() or "(untitled)"
+        title = display_session_title(str(row.get("title") or ""))
         transcript = []
         for msg in store.get_messages(wanted):
             role = str(msg.get("role") or "")

@@ -1152,3 +1152,66 @@ def test_roster_hides_moons_until_parent_is_inspect(qt_app) -> None:
     assert vis.index("Moon") == vis.index("Earth") + 1
     panel.hide()
     set_system(None)
+
+
+def test_solar_markers_use_drawn_marks_not_rgb_dots() -> None:
+    from pathlib import Path
+
+    paint = Path("arelis/ui/panels/solar_paint.py").read_text(encoding="utf-8")
+    roster = Path("arelis/ui/panels/solar.py").read_text(encoding="utf-8")
+    assert "QColor(180, 255, 200)" not in paint
+    assert "QColor(180, 220, 255)" not in paint
+    assert "180, 255, 200" not in paint
+    assert "180, 220, 255" not in paint
+    assert "ink_for_kind" in paint
+    assert "paint_mark(" in paint
+    assert "paint_mark(" in roster
+    start = paint.index("def paint_free_markers(")
+    end = paint.index("\ndef ", start + 1)
+    assert "paint_mark(" in paint[start:end]
+    start = paint.index("def paint_lagrange(")
+    end = paint.index("\ndef ", start + 1)
+    assert "paint_mark(" in paint[start:end]
+
+
+def test_solar_panel_paints_kind_marks(qt_app) -> None:
+    from arelis.physics.demo import circular_system
+    from arelis.physics.engine import rebound_available
+    from arelis.physics.scene import SolarSystem
+    from arelis.ui.earth_marks import mark_digest
+
+    if not rebound_available():
+        pytest.skip("REBOUND is not installed")
+    set_system(SolarSystem.from_states(circular_system(), tracers=0))
+    panel = SolarPanel()
+    panel.resize(960, 720)
+    panel.show()
+    qt_app.processEvents()
+    panel._set_inspect("Earth")
+    panel.update()
+    qt_app.processEvents()
+    grab = panel.grab()
+    assert not grab.isNull()
+    assert mark_digest("planet") != mark_digest("star")
+    assert mark_digest("probe") != mark_digest("lagrange")
+    panel.hide()
+    set_system(None)
+
+
+def test_spawn_lagrange_offscreen_grab_is_not_null(qt_app) -> None:
+    from arelis.physics.demo import sun_and_planet
+    from arelis.physics.engine import rebound_available
+    from arelis.physics.scene import SolarSystem
+
+    if not rebound_available():
+        pytest.skip("REBOUND is not installed")
+    set_system(SolarSystem.from_states(sun_and_planet(), tracers=0))
+    panel = SolarPanel()
+    panel.resize(960, 720)
+    system = get_system()
+    assert system is not None
+    system.spawn_lagrange("L4")
+    grab = panel.grab()
+    assert not grab.isNull()
+    panel.hide()
+    set_system(None)

@@ -1,14 +1,19 @@
 """Space-Track GP + TIP. Free account. Official SSA, not a paid product.
 
-Register at https://www.space-track.org/auth/createAccount (a .edu login
-is accepted). Identity/password from earth.spacetrack_user / _password or
-ARELIS_SPACETRACK_USER / _PASSWORD. Session cookie only. Credentials never
-land on entities. Sample payloads + ISS, not the painted catalog. TIP
-reentries upsert onto sites. Failures return None so CelesTrak stays.
+There is no API key. Register at
+https://www.space-track.org/auth/createAccount then paste the same
+identity and password you log in with (earth.spacetrack_user /
+_password). We POST ajaxauth/login and keep a session cookie. Their
+docs: GP and TIP at most once per hour; under 30 queries/min. We
+gate both classes to one successful pull per hour. Sample payloads +
+ISS, not the painted catalog. No GP_HISTORY, SATCAT, or CDM. Do not
+republish the dump. Failures return None so CelesTrak stays.
 """
 
 from __future__ import annotations
 
+import json
+import time
 from typing import Any
 from urllib.parse import urlparse
 
@@ -19,6 +24,7 @@ from arelis.earth.entity import Coverage, Entity
 from arelis.earth.frames import lla_to_ecef
 from arelis.earth.secrets import earth_secret
 from arelis.earth.tle import entities_from_tle_text
+from arelis.paths import state_dir
 
 SPACETRACK_HOST = "www.space-track.org"
 SPACETRACK_LOGIN = "https://www.space-track.org/ajaxauth/login"
@@ -34,6 +40,9 @@ TIP_PATH = (
 )
 USER_ENV = "ARELIS_SPACETRACK_USER"
 PASS_ENV = "ARELIS_SPACETRACK_PASSWORD"
+BUDGET_PATH = state_dir() / "spacetrack_budget.json"
+# space-track.org: GP 1/hour, TIP 1/hour. Stay under 30/min.
+_HOUR_S = 3600.0
 _UA = f"Arelis/{__version__} (+{__source_url__})"
 _TIMEOUT = 20.0
 _CAP = 400
@@ -62,6 +71,8 @@ def fetch_spacetrack(*, unix: float | None = None) -> list[Entity] | None:
     password = spacetrack_password()
     if not user or not password:
         return None
+    if not _due("gp"):
+        return None
     if not _sgp4_ready():
         return None
     now = unix if unix is not None else _now()
@@ -81,7 +92,10 @@ def fetch_spacetrack(*, unix: float | None = None) -> list[Entity] | None:
             entity.meta = {**entity.meta, "ssa": "space-track", "sample": True}
             out.append(entity)
             if len(out) >= _CAP:
+                _stamp("gp")
                 return out
+    if out:
+        _stamp("gp")
     return out or None
 
 
@@ -90,10 +104,15 @@ def fetch_tip() -> list[Entity] | None:
     password = spacetrack_password()
     if not user or not password:
         return None
+    if not _due("tip"):
+        return None
     rows = _get_json(user, password, TIP_PATH)
     if not isinstance(rows, list):
         return None
-    return entities_from_tip(rows) or None
+    pins = entities_from_tip(rows) or None
+    if pins:
+        _stamp("tip")
+    return pins
 
 
 def entities_from_tip(rows: list[Any]) -> list[Entity]:
@@ -153,9 +172,34 @@ def _sgp4_ready() -> bool:
 
 
 def _now() -> float:
-    import time
-
     return time.time()
+
+
+def _due(kind: str) -> bool:
+    budget = _load_budget()
+    last = float(budget.get(f"{kind}_unix") or 0.0)
+    if last and (_now() - last) < _HOUR_S:
+        return False
+    return True
+
+
+def _stamp(kind: str) -> None:
+    budget = _load_budget()
+    budget[f"{kind}_unix"] = _now()
+    dest = BUDGET_PATH
+    try:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(json.dumps(budget, sort_keys=True) + "\n", encoding="utf-8")
+    except OSError:
+        return
+
+
+def _load_budget() -> dict[str, Any]:
+    try:
+        raw = json.loads(BUDGET_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return raw if isinstance(raw, dict) else {}
 
 
 def _host_pinned(host: str | None) -> bool:

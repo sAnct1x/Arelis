@@ -113,8 +113,8 @@ Sherpa-ONNX Zipformer EN. TTS is Kokoro-82M `af_heart` (Piper Jenny
 fallback). Details: [voice-wake.md](voice-wake.md).
 
 Qwen3.5 streams native thinking one token per SSE frame. The thinking
-dock joins those into one wrapping paragraph. That is UI, not a second
-model.
+dock joins those into one wrapping paragraph. Housekeeping sits under
+it, not in the essay. That is UI, not a second model.
 
 ## How VRAM is shared
 

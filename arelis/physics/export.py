@@ -101,6 +101,19 @@ def dump_state(
         ("\n".join(lines) + ("\n" if lines else "")),
         encoding="utf-8",
     )
+    try:
+        from arelis.physics.telemetry import emit
+
+        emit(
+            "solar_dump",
+            trigger=trigger,
+            n=len(rows),
+            t_s=system.t,
+            rate=system.rate,
+            paused=system.paused,
+        )
+    except Exception:
+        pass
     return folder
 
 

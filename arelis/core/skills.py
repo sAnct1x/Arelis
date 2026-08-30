@@ -113,13 +113,16 @@ SKILL_CARDS: dict[str, SkillCard] = {
 - For current events, prices, schedules, anything after training: web_search first,
   then scrape the result most likely to answer. Never guess a URL, and never
   answer from a snippet alone — snippets are previews and are often stale.
+  Skip listicle mills (ScienceTimes, TechTimes, "10 groundbreaking" pages).
+  For a judgment or ranking, one search is enough; do not scrape mills or
+  workspace-read tool_cache.
 - Search results list Title: and URL: on separate lines. When you scrape or
   fetch a hit, copy the URL: value character-for-character (must start with
   http). Never pass the title as url. Never invent a URL from a headline.
   Never ask the user to paste a URL that web_search already gave you.
 - Search in a few words. Pass recency=day or recency=week for news. Put the
   user's city in the query when place matters.
-- If the first search is thin, rephrase once before giving up.
+- If the first search is thin, rephrase once before giving up. Then stop.
 - Prefer scrape for human-readable pages (news, docs, articles). It pulls the
   main article (JSON-LD / microdata / <article> / paragraph lattice / density),
   not the whole page chrome, and will retry AMP/print twins and an RSS/Atom

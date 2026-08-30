@@ -140,7 +140,12 @@ class WeatherTool:
                 ),
             )
 
-        days = int(kwargs.get("days") or 3)
+        raw_days = kwargs.get("days")
+        try:
+            days = int(raw_days) if raw_days not in (None, "") else 3
+        except (TypeError, ValueError):
+            # The 9B often passes days="today" instead of 1.
+            days = 3
         days = max(1, min(7, days))
         try:
             data = await fetch_forecast(lat, lon, days=days)
@@ -204,7 +209,8 @@ _NOT_A_PLACE = re.compile(
     r"today|tomorrow|weekend|week|"
     r"going(?:\s+to(?:\s+be)?)?|gonna|will|be|right|currently|"
     r"celsius|fahrenheit|degrees|"
-    r"a\s+(?:few\s+)?days?|\d+\s+days?"
+    r"a\s+(?:few\s+)?days?|\d+\s+days?|"
+    r"call|use|run|try|invoke|tool|days"
     r")$"
 )
 _DATEISH = re.compile(
@@ -221,6 +227,10 @@ _WEEKDAY = re.compile(
     r"(?i)\b(?:mon(?:day)?|tue(?:s(?:day)?)?|wed(?:nesday)?|"
     r"thu(?:rs(?:day)?)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?)\b"
 )
+_TOOL_INSTRUCTION = re.compile(
+    r"(?i)\b(?:please\s+)?(?:call|use|run|try|invoke)\s+"
+    r"(?:the\s+)?(?:weather\s+)?tool\b.*$"
+)
 _WEATHER_NOISE = re.compile(
     r"(?i)\b(?:"
     r"web\s+search|search(?:\s+the\s+web)?(?:\s+for)?|google|"
@@ -233,6 +243,7 @@ _WEATHER_NOISE = re.compile(
     r"today|tonight|tomorrow|weekend|"
     r"outside|outdoors|"
     r"e-?mail|mail|inbox|send|summary|digest|briefing|every|day|"
+    r"call|use|run|try|invoke|tool|days|"
     r"\d{1,2}(?::\d{2})?\s*(?:a\.?m\.?|p\.?m\.?)"
     r")\b"
 )
@@ -265,6 +276,10 @@ def weather_place_key(place: str | None) -> str:
 def extract_weather_places(text: str) -> list[str]:
     """Named cities in the ask, in order, at most four. Empty list means home."""
     raw = " ".join((text or "").split())
+    if not raw:
+        return []
+    raw = _TOOL_INSTRUCTION.sub(" ", raw)
+    raw = " ".join(raw.split())
     if not raw:
         return []
     hits = list(_IN_PLACE.finditer(raw))

@@ -130,9 +130,9 @@ FILAMENT = {
 BLOOM = {
     "inner": (
         (0.0, (255, 150, 72, 92)),
-        (0.16, (255, 120, 40, 62)),
-        (0.42, (200, 80, 24, 32)),
-        (0.72, (96, 36, 10, 12)),
+        (0.16, (255, 122, 40, 70)),
+        (0.42, (200, 84, 26, 40)),
+        (0.72, (96, 38, 12, 18)),
     ),
     "outer": (
         (0.0, (255, 118, 36, 40)),
@@ -725,7 +725,7 @@ def stylesheet() -> str:
         color: {c['dim']};
         font-size: 10px;
         font-family: {f['mono']};
-        letter-spacing: 0.32em;
+        letter-spacing: 0.16em;
         background: transparent;
         border: none;
     }}
@@ -891,6 +891,7 @@ def stylesheet() -> str:
         color: {c['text']};
         font-size: 12px;
         font-family: {f['body']};
+        show-decoration-selected: 1;
     }}
     #BrowseList::item, #HistoryList::item, #FactsList::item,
     #ActiveFactsList::item,
@@ -919,6 +920,15 @@ def stylesheet() -> str:
     #ContactsList::item:selected {{
         background: {c['row_selected']};
         border-color: transparent;
+        color: {c['text']};
+    }}
+    /* Seated chat — a lamp, not a brick. Keep the wash when the composer
+       has focus; Fusion paints this instead of a native Windows plate. */
+    #HistoryList::item:selected,
+    #HistoryList::item:selected:active,
+    #HistoryList::item:selected:!active {{
+        background: {c['row_selected']};
+        border: none;
         color: {c['text']};
     }}
     #InstrumentTitle {{
@@ -1045,6 +1055,14 @@ def stylesheet() -> str:
         font-family: {f['body']};
         background: transparent;
         padding: 0 0 2px 2px;
+        border: none;
+    }}
+    #HistoryEmpty {{
+        color: {c['text_muted']};
+        font-size: 12px;
+        font-family: {f['body']};
+        background: transparent;
+        padding: 28px 12px 12px 12px;
         border: none;
     }}
     #SmsChatScroll, #SmsChatThread {{
@@ -1257,11 +1275,20 @@ def stylesheet() -> str:
     }}
     #ThinkingView {{
         color: {c['thinking']};
-        font-family: {f['mono']};
-        font-size: 11px;
+        font-family: {f['body']};
+        font-size: {FONT_PX}px;
+        font-weight: 300;
         background-color: transparent;
         border: none;
         padding: 4px 2px;
+    }}
+    #ThinkingFooter {{
+        color: {c['dim']};
+        font-family: {f['body']};
+        font-size: 11px;
+        background: transparent;
+        padding: 0 2px 4px 2px;
+        border: none;
     }}
     #Editor {{
         font-family: {f['mono']};
@@ -1379,29 +1406,38 @@ def stylesheet() -> str:
         border-color: {c['danger']};
     }}
     #RoomName {{
-        color: {c['accent']};
-        font-family: {f['mono']};
-        font-size: 11px;
+        color: {c['accent2']};
+        font-family: {f['body']};
+        font-size: 12px;
         background: transparent;
+        letter-spacing: 0.04em;
     }}
     #RoomDetail {{
-        color: {c['text_dim']};
-        font-family: {f['mono']};
-        font-size: 11px;
+        color: {c['text_muted']};
+        font-family: {f['body']};
+        font-size: 12px;
         background: transparent;
     }}
     #RoomLeaveButton, #RoomWorldButton {{
         background: transparent;
-        border: 1px solid {c['edge_mid']};
-        border-radius: 8px;
-        padding: 2px 10px;
-        color: {c['text_dim']};
-        font-family: {f['mono']};
-        font-size: 11px;
+        border: none;
+        border-radius: 0;
+        padding: 2px 6px;
+        color: {c['dim']};
+        font-family: {f['body']};
+        font-size: 12px;
     }}
     #RoomLeaveButton:hover, #RoomWorldButton:hover {{
-        background: {c['button_hover_soft']};
+        background: transparent;
         color: {c['accent']};
+    }}
+    #ComposerClear {{
+        background: transparent;
+        border: none;
+        padding: 0;
+    }}
+    #ComposerClear:hover {{
+        background: transparent;
     }}
     #WorldChooserHands, #WorldChooserSolar,
     #WorldPauseResume, #WorldPauseSettings, #WorldPauseExit {{
@@ -1733,13 +1769,15 @@ def stylesheet() -> str:
         color: {c['status_amber']};
         background: transparent;
         border: none;
+        border-bottom: 1px solid {c['hairline_faint']};
         font-size: {FONT_PX}px;
-        padding: 10px 8px;
+        padding: 10px 8px 8px 8px;
         letter-spacing: 0.04em;
         text-decoration: none;
     }}
     #ChatProgress:hover {{
         color: {c['accent2']};
+        border-bottom: 1px solid {c['hairline_mid']};
         text-decoration: none;
     }}
     /* Frameless in-app dialogs: first run, confirms, the update prompt. */

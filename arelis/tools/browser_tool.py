@@ -601,12 +601,6 @@ class BrowserTool:
 
         return ToolResult(ok=False, output=f"Unhandled action {action!r}.")
 
-    async def _open_plain(self, target: str, *, browser: str) -> ToolResult:
-        """Back-compat name — open now lands in Arelis Chrome."""
-        return await self._open_or_navigate(
-            "open", target, browser=browser, private=False
-        )
-
     async def _open_or_navigate(
         self,
         action: str,

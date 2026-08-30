@@ -26,6 +26,7 @@ _Basis = tuple[
 
 _FILL = 0.0  # night is vacuum. Pick uses the disc alpha, not a fake fill.
 _GLOBE_MAX = 384  # software sphere; approach, not landing
+_EARTH_GLOBE_MAX = 768  # Earth zone only. Still a drape, not a DEM.
 _IDLE_PX = 0.35  # redraw once the fastest body has moved this far on screen
 _CLOSE_GLOBE_PX = 48.0  # hide heliocentric orbits once a globe fills the view
 SOLAR_OVERLAY: tuple[tuple[str, str, str], ...] = (
@@ -161,6 +162,23 @@ def _fmt_m(metres: float) -> str:
     return f"{metres:.4g} m"
 
 
+def globe_cap(name: str, px_r: float) -> int:
+    """Earth zone may grow the software sphere. Other bodies stay 384."""
+    if name != "Earth" or px_r < 220.0:
+        return _GLOBE_MAX
+    try:
+        from arelis.earth.runtime import get_earth
+
+        zone = get_earth()
+        if zone is None or not zone.active:
+            return _GLOBE_MAX
+    except Exception:
+        return _GLOBE_MAX
+    if px_r < 520.0:
+        return 512
+    return _EARTH_GLOBE_MAX
+
+
 def _albedo(path: Path) -> np.ndarray | None:
     key = str(path)
     hit = _cache.get(key)
@@ -232,10 +250,11 @@ def _globe(
     shine_light: tuple[float, float, float] | None = None,
     shine: float = 0.0,
     umbra_glow: bool = False,
+    max_edge: int = _GLOBE_MAX,
 ) -> QImage:
     """Sphere sample. Finite-disk sun, umbra/penumbra, optional earthshine."""
 
-    size = max(16, min(int(size), _GLOBE_MAX))
+    size = max(16, min(int(size), max(16, int(max_edge))))
     yy, xx = np.mgrid[0:size, 0:size]
     nx = (xx + 0.5) / size * 2.0 - 1.0
     ny = 1.0 - (yy + 0.5) / size * 2.0
@@ -332,8 +351,10 @@ def _world_normals(
     return nwx, nwy, nwz
 
 
-def _sphere_axes(size: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    size = max(16, min(int(size), _GLOBE_MAX))
+def _sphere_axes(
+    size: int, max_edge: int = _GLOBE_MAX
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    size = max(16, min(int(size), max(16, int(max_edge))))
     yy, xx = np.mgrid[0:size, 0:size]
     nx = (xx + 0.5) / size * 2.0 - 1.0
     ny = 1.0 - (yy + 0.5) / size * 2.0

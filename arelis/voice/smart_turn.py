@@ -33,19 +33,6 @@ class SmartTurnUnavailableError(RuntimeError):
     """onnxruntime or the Smart Turn ONNX is missing / unusable."""
 
 
-def default_model_path() -> Path:
-    return _DEFAULT_MODEL
-
-
-def smart_turn_available(model_path: Path | None = None) -> bool:
-    try:
-        import onnxruntime  # noqa: F401
-    except ImportError:
-        return False
-    path = Path(model_path) if model_path else _DEFAULT_MODEL
-    return path.is_file()
-
-
 def ensure_smart_turn_model(
     model_path: Path | None = None,
     *,

@@ -15,6 +15,7 @@ import httpx
 
 from arelis.earth.entity import Coverage, Entity
 from arelis.earth.frames import lla_to_ecef
+from arelis.earth.look import offer_radio
 
 RADIO_BROWSER_ALL = "https://all.api.radio-browser.info/json/stations/search"
 RADIO_BROWSER_DE = "https://de1.api.radio-browser.info/json/stations/search"
@@ -76,6 +77,11 @@ def _entity_from_row(row: dict[str, Any]) -> Entity | None:
     country = str(row.get("country") or "").strip()
     homepage = str(row.get("homepage") or "").strip()
     pos = lla_to_ecef(lat, lon, 80.0)
+    offer_radio(
+        eid,
+        str(row.get("url_resolved") or "").strip(),
+        str(row.get("url") or "").strip(),
+    )
     return Entity(
         id=eid,
         cls="rf",

@@ -8,7 +8,7 @@ resizable while it still paints frameless.
 from __future__ import annotations
 
 import sys
-from ctypes import byref, c_int, c_short, sizeof
+from ctypes import c_short
 from typing import Any
 
 from PySide6.QtCore import QPoint, Qt
@@ -52,8 +52,6 @@ HTBOTTOMLEFT = 16
 HTBOTTOMRIGHT = 17
 
 GWL_STYLE = -16
-# GWLP_HWNDPARENT clears the owner so floating docks don't raise with the main window.
-GWLP_HWNDPARENT = -8
 
 RDW_INVALIDATE = 0x0001
 RDW_ERASE = 0x0004
@@ -69,21 +67,8 @@ SWP_NOMOVE = 0x0002
 SWP_NOSIZE = 0x0001
 SWP_NOZORDER = 0x0004
 
-# DWM immersive dark mode (Win10 1903+ uses 20; some builds used 19).
-DWMWA_USE_IMMERSIVE_DARK_MODE = 20
-DWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1 = 19
-
 # Logical pixels; scaled by devicePixelRatio at hit-test time.
 _BORDER = 10
-
-
-def detach_owned_window(widget: QWidget) -> None:
-    """Deprecated: clearing HWND owner spawned translucent ghost dock windows.
-
-    Kept as a no-op so any stray callers stay safe. Z-order independence needs a
-    different approach than SetWindowLongPtr(GWLP_HWNDPARENT, 0).
-    """
-    return
 
 
 def configure_native_windows() -> None:
@@ -190,27 +175,6 @@ def invalidate_window_surface(widget: QWidget) -> None:
         None,
         RDW_INVALIDATE | RDW_ERASE | RDW_FRAME | RDW_ALLCHILDREN,
     )
-
-
-def enable_dark_title_bar(widget: QWidget) -> None:
-    """Match floating dock captions to the dark glass shell (Windows DWM)."""
-    if sys.platform != "win32":
-        return
-    hwnd = top_level_hwnd(widget)
-    if hwnd is None:
-        return
-    from ctypes import windll
-
-    value = c_int(1)
-    dwm = windll.dwmapi
-    for attr in (
-        DWMWA_USE_IMMERSIVE_DARK_MODE,
-        DWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1,
-    ):
-        try:
-            dwm.DwmSetWindowAttribute(hwnd, attr, byref(value), sizeof(value))
-        except Exception:
-            continue
 
 
 def _event_type_bytes(event_type: Any) -> bytes:

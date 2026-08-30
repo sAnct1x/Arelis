@@ -47,7 +47,8 @@ def dump_state(
         "note": earth.note,
         "warning": (
             "Not for navigation, emergency, or targeting. "
-            "Simulated layers are labeled simulated."
+            "Simulated layers are labeled simulated. "
+            "Individual cars are a labeled hole."
         ),
     }
     (folder / "manifest.json").write_text(
@@ -57,6 +58,12 @@ def dump_state(
     with (folder / "state.jsonl").open("w", encoding="utf-8") as handle:
         for row in rows:
             handle.write(json.dumps(row, sort_keys=True) + "\n")
+    try:
+        from arelis.physics.telemetry import emit
+
+        emit("earth_dump", trigger=trigger, n=len(rows), live=earth.live)
+    except Exception:
+        pass
     return folder
 
 

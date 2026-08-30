@@ -18,7 +18,6 @@ from arelis.presence.ipc import (
     encode_line,
     event_from_message,
     hello_message,
-    open_ui_request_message,
     shutdown_message,
 )
 from arelis.presence.ports import candidates
@@ -97,19 +96,6 @@ class IpcClient:
             return True
         except Exception as exc:
             log.warning("IPC confirm_reply failed: %s", exc)
-            return False
-
-    async def send_open_ui_request(self, **payload: Any) -> bool:
-        """Ask core to rebroadcast open_ui (second-instance activate)."""
-        writer = self._writer
-        if writer is None or not self._attached:
-            return False
-        try:
-            writer.write(encode_line(open_ui_request_message(**payload)))
-            await writer.drain()
-            return True
-        except Exception as exc:
-            log.warning("IPC open_ui_request failed: %s", exc)
             return False
 
     async def send_shutdown(self, *, reason: str = "quit") -> bool:

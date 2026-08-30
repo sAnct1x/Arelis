@@ -40,6 +40,7 @@ The room id `physics` is permanent. Humans read **Reality**. It is
 always there, and `/room forget physics` is refused. Delete the key from
 `rooms.yaml` and the next launch puts it back. Do not add a second room
 called Reality. Earth is a zone inside Reality, not a room.
+Contacts there use one drawn mark language ([earth.md](earth.md)).
 
 Installed copies still get Reality (chat, CAS, Horizons). The plate,
 REBOUND solar system, C920 hands, and Earth zone run only on a **source

@@ -50,58 +50,6 @@ class Scenario:
     script: list[list[tuple[str, Any]]] = field(default_factory=list)
 
 
-def scenario_category(scenario: Scenario) -> str:
-    """Scorecard category for reporting (explicit or derived)."""
-    if scenario.category.strip():
-        return scenario.category.strip()
-    sid = scenario.id
-    if sid.startswith("browser_") or "browser" in sid:
-        return "browser"
-    if sid.startswith("look_"):
-        return "perception"
-    if sid.startswith("vision_") or "perception" in sid:
-        return "perception"
-    if sid.startswith("goals_"):
-        return "memory"
-    if sid.startswith("attention_"):
-        return "proactivity"
-    if sid.startswith("chain_"):
-        return "chaining"
-    if "research" in sid or sid.startswith("fat_scrape"):
-        return "research"
-    if "recall" in sid or "memory" in sid or "fact" in sid:
-        return "memory"
-    if any(
-        x in sid
-        for x in ("sms", "email", "inbox", "inbound", "send_claim", "agenda", "tasks")
-    ):
-        return "comms"
-    if any(
-        x in sid
-        for x in (
-            "math",
-            "calculator",
-            "cas",
-            "units",
-            "plot",
-            "catalog",
-            "refuses",
-            "warrant",
-            "exact",
-        )
-    ):
-        return "exactness"
-    if scenario.failure_class in {
-        "incomplete_fulfillment",
-        "contextual_misinterpretation",
-        "knowing_doing_gap",
-    }:
-        return "tool_select"
-    if "confirm" in sid or "safety" in sid:
-        return "safety"
-    return "tool_select"
-
-
 def _tool_call(name: str, args: dict[str, Any]) -> dict[str, Any]:
     return {
         "type": "function",

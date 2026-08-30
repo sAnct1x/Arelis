@@ -157,7 +157,13 @@ include = ["arelis*"]
 # and also lived outside the package, so an installed Arelis had no icon at all
 # while a checkout looked perfect. tests/test_packaged_assets.py now fails when a
 # non-Python file in the package is not covered by one of these globs.
-arelis = ["persona/*.md", "config/*.yaml", "ui/fonts/*", "assets/*"]
+arelis = [
+    "persona/*.md",
+    "config/*.yaml",
+    "ui/fonts/*",
+    "ui/earth_globe/*",
+    "assets/*",
+]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
@@ -213,3 +219,6 @@ ignore = [
 # IAU / dipole / body-frame sketches use L, R, Rp as the paper does. Renaming
 # them to satisfy N806 would make the code disagree with every citation.
 "arelis/physics/**" = ["N806"]
+# QWebChannel signals keep the JS camelCase names. Snake-case would
+# silently stop the Cesium bridge.
+"arelis/ui/earth_globe_host.py" = ["N815"]

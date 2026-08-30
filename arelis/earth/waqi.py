@@ -1,8 +1,10 @@
 """WAQI / AQICN map pins. Free token. Not a VIN.
 
-Token from earth.waqi_token or ARELIS_WAQI_TOKEN. Free token from the
-AQICN data-platform page. Worldwide station AQI, capped.
-Failures return None. Host pinned in egress.
+Token from earth.waqi_token or ARELIS_WAQI_TOKEN. Their ToS: free,
+local observer only, not sold, not republished as a cache. Attribution
+to the World Air Quality Index Project and the originating EPA is
+required. Bounds pins name the station; we do not archive the feed.
+Unvalidated live reading. Failures return None. Host pinned in egress.
 """
 
 from __future__ import annotations
@@ -24,7 +26,9 @@ _UA = f"Arelis/{__version__} (+{__source_url__})"
 _TIMEOUT = 10.0
 _CAP = 400
 _CITE = (
-    "WAQI / AQICN station AQI (CC-ish station feed). Free token. "
+    "World Air Quality Index Project (https://waqi.info/) and the "
+    "originating EPA. Free token. Local observer only. Unvalidated "
+    "live reading. Do not sell. Do not republish the dump. "
     "A published monitor, not a car and not a face."
 )
 
@@ -94,7 +98,7 @@ def _entity_from_row(row: dict[str, Any]) -> Entity | None:
         source="WAQI",
         freshness="delayed",
         confidence=0.65,
-        cite=_CITE,
+        cite=f"{name}. {_CITE}" if name else _CITE,
         meta={"lat": lat, "lon": lon, "aqi": aqi},
         coverage=Coverage(
             "station",

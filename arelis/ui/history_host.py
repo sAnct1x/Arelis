@@ -119,6 +119,10 @@ def on_history_selected(window, session_id: str) -> None:
         window._toast_finish_or_stop(
             "Finish or stop the current turn before switching conversations."
         )
+        seated = ""
+        if window.store is not None:
+            seated = str(window.store.session_id or "")
+        window.history.set_active(seated)
         return
     window._request_session_load(session_id)
 

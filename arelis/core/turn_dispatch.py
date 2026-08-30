@@ -7,81 +7,89 @@ import contextlib
 import time
 from types import SimpleNamespace
 from typing import Any
+from uuid import uuid4
 
-from arelis.core.agent_loop import (
-    _BROWSER_WANDER,
-    _LOCAL_STORE,
-    _MAX_THINKING_SNIPPET,
-    _SKIP_NOTICE,
-    _SMS_WANDER,
-    _WEATHER_WANDER,
-    INBOX_PEEK_ACTIONS,
-    LOOKING_STATUS,
-    Event,
-    EventType,
-    PreparedToolOutput,
-    _tool_fail_fingerprint,
-    action_receipt,
+from arelis.contacts import format_contact_spoken, web_search_targets_known_contact
+from arelis.core.agenda_complete import (
     agenda_force_call_notice,
     agenda_read_action,
-    append_action_ledger,
-    classify_fetch_failure,
-    confirm_args_blocked,
-    confirm_toggles_for_call,
-    cross_tool_arg_error,
     draft_agenda_create_args,
     draft_agenda_delete_args,
-    draft_browser_args,
-    draft_send_email_args,
-    draft_send_sms_args,
-    draft_weather_args,
     fill_agenda_args,
-    fill_doc_extract_args,
-    fill_document_args,
-    fill_inbox_args,
-    fill_send_email_args,
-    fill_send_sms_args,
-    fill_vision_args,
-    fill_weather_args,
-    format_action_receipt,
-    format_contact_spoken,
-    format_see_record,
-    frame_external_tool_output,
-    inbox_peek_was_empty,
-    local_store_inject_args,
     lock_agenda_delete_args,
-    lock_memory_forget_args,
-    look_call_blocked,
-    looks_like_browser_or_url,
     looks_like_calendar_close,
     looks_like_calendar_delete,
     looks_like_calendar_open,
     looks_like_calendar_read,
+)
+from arelis.core.agent_loop import (
+    _BROWSER_WANDER,
+    _LOCAL_STORE,
+    _MAX_THINKING_SNIPPET,
+    _SMS_WANDER,
+    _WEATHER_WANDER,
+    should_redirect_wander_to_sms,
+)
+from arelis.core.claims import local_store_inject_args, lock_memory_forget_args
+from arelis.core.document_refs import fill_doc_extract_args, fill_document_args
+from arelis.core.email_complete import (
+    draft_send_email_args,
+    fill_send_email_args,
+    looks_like_schedule_manage,
+    looks_like_scheduled_send,
+)
+from arelis.core.events import Event, EventType
+from arelis.core.evidence import classify_fetch_failure
+from arelis.core.fail_tags import tool_fail_replan_notice
+from arelis.core.image_refs import fill_vision_args
+from arelis.core.look import (
+    LOOKING_STATUS,
+    format_see_record,
+    look_call_blocked,
+    vision_question,
+)
+from arelis.core.loop_helpers import _SKIP_NOTICE, _tool_fail_fingerprint
+from arelis.core.memory import tool_trace_entry
+from arelis.core.preflight import draft_browser_args, user_asked_for_browser
+from arelis.core.read_fanout import should_fanout_reads
+from arelis.core.receipts import (
+    action_receipt,
+    append_action_ledger,
+    format_action_receipt,
+)
+from arelis.core.sms_complete import (
+    draft_send_sms_args,
+    fill_send_sms_args,
+    looks_like_browser_or_url,
     looks_like_contact_email_ask,
     looks_like_contact_phone_ask,
     looks_like_contacts_followup,
     looks_like_contacts_utterance,
-    looks_like_schedule_manage,
-    looks_like_scheduled_send,
-    match_tile_intent,
+)
+from arelis.core.tile_complete import match_tile_intent, tile_tool_args
+from arelis.core.tool_args import cross_tool_arg_error, schema_keys
+from arelis.core.tool_results import (
+    PreparedToolOutput,
+    is_tool_cache_path,
     prepare_tool_output,
-    redact_secrets,
-    schema_keys,
-    should_fanout_reads,
-    should_redirect_wander_to_sms,
-    tile_tool_args,
-    tool_fail_replan_notice,
-    tool_trace_entry,
-    truncate_tool_output,
-    user_asked_for_browser,
-    uuid4,
-    vision_question,
+)
+from arelis.core.turn_context import TurnContext
+from arelis.core.untrusted import frame_external_tool_output
+from arelis.tools.base import confirm_args_blocked
+from arelis.tools.inbox import (
+    INBOX_PEEK_ACTIONS,
+    fill_inbox_args,
+    inbox_peek_was_empty,
+)
+from arelis.tools.policy import confirm_toggles_for_call
+from arelis.tools.safety import redact_secrets, truncate_tool_output
+from arelis.tools.weather import (
+    draft_weather_args,
+    fill_weather_args,
     weather_place_key,
     weather_places_missing,
     weather_wants_beyond_today,
-    web_search_targets_known_contact,
 )
-from arelis.core.turn_context import TurnContext
 
 
 async def dispatch_calls(
@@ -990,8 +998,38 @@ async def dispatch_calls(
                     loop._trace.append(f"{name} duplicate fetch blocked")
                     continue
 
+            if name == "workspace":
+                ws_path = str(args.get("path") or "")
+                if is_tool_cache_path(ws_path):
+                    notice = (
+                        "That path is this turn's scrape cache; not reading "
+                        "it again. Use the scrape card already in context, "
+                        "or scrape a different URL. Do not declare a winner "
+                        "from a thin listicle."
+                    )
+                    await loop.bus.publish(
+                        Event(EventType.THINKING, {"text": f"skip  {notice}"})
+                    )
+                    messages.append(loop._tool_message(name, notice))
+                    loop._trace.append(f"{name} tool_cache blocked")
+                    continue
+
             if name in {"scrape", "web_fetch"}:
                 page = str(args.get("url") or "").strip().casefold()
+                scrape_cap = 3 if research_mode else 2
+                if len(page_ok) >= scrape_cap:
+                    notice = (
+                        f"Already opened {len(page_ok)} pages this turn; "
+                        "not fetching another. Answer from those. If they "
+                        "were thin or listicles, say the sources were weak "
+                        "— do not rank or declare a winner."
+                    )
+                    await loop.bus.publish(
+                        Event(EventType.THINKING, {"text": f"skip  {notice}"})
+                    )
+                    messages.append(loop._tool_message(name, notice))
+                    loop._trace.append(f"{name} page budget blocked")
+                    continue
                 if page and page in page_ok:
                     notice = (
                         "Already fetched that URL this turn; not fetching "
@@ -1005,9 +1043,25 @@ async def dispatch_calls(
                     messages.append(loop._tool_message(name, notice))
                     loop._trace.append(f"{name} duplicate url blocked")
                     continue
+                if page:
+                    page_ok.add(page)
 
             if name == "web_search":
                 q = str(args.get("query") or "").strip().casefold()
+                search_cap = 3 if research_mode else 2
+                if len(web_search_ok) >= search_cap:
+                    notice = (
+                        f"Already ran {len(web_search_ok)} searches this turn; "
+                        "not searching again. Answer from what you have. If "
+                        "the hits were listicles, say so — do not declare a "
+                        "winner."
+                    )
+                    await loop.bus.publish(
+                        Event(EventType.THINKING, {"text": f"skip  {notice}"})
+                    )
+                    messages.append(loop._tool_message(name, notice))
+                    loop._trace.append(f"{name} search budget blocked")
+                    continue
                 if q and q in web_search_ok:
                     notice = (
                         "Already ran web_search with that query this turn; "
@@ -1020,6 +1074,8 @@ async def dispatch_calls(
                     messages.append(loop._tool_message(name, notice))
                     loop._trace.append(f"{name} duplicate query blocked")
                     continue
+                if q:
+                    web_search_ok.add(q)
 
             if (
                 name == "inbox"

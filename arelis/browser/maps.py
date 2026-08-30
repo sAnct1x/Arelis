@@ -22,11 +22,6 @@ def normalize_travel_mode(mode: str) -> str:
     return _MODES.get(key, "driving")
 
 
-def maps_search_url(query: str) -> str:
-    q = (query or "").strip()
-    return "https://www.google.com/maps/search/?api=1&query=" + quote_plus(q)
-
-
 def maps_directions_url(
     destination: str,
     *,

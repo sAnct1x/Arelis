@@ -35,6 +35,34 @@ _TAG_RE = re.compile(r"<[^>]+>")
 _MAX_RESULTS = 10
 _SNIPPET_CHARS = 300
 
+# SEO listicle mills. The JWST/LIGO dump spent eight rounds on these, then
+# ranked discoveries from thin chrome. Drop them so Wikipedia can answer.
+_MILL_HOSTS = frozenset(
+    {
+        "sciencetimes.com",
+        "techtimes.com",
+        "knowledia.com",
+        "newsbreak.com",
+        "dailyadvent.com",
+        "scoop.upbeat.news",
+    }
+)
+_LISTICLE_TITLE = re.compile(
+    r"(?i)(?:^|\b)(?:\d+|ten|top)\s+"
+    r"(?:groundbreaking|best|amazing|incredible|unbelievable|"
+    r"mind-?blowing)"
+    r"|every\s+(?:science\s+)?fan\s+should\s+know"
+    r"|will\s+blow\s+your\s+mind"
+)
+
+
+def result_is_mill(url: str, title: str = "") -> bool:
+    """True for listicle / slideshow hosts we should not scrape."""
+    host = urlparse(url or "").netloc.lower().removeprefix("www.")
+    if host in _MILL_HOSTS or any(host.endswith("." + h) for h in _MILL_HOSTS):
+        return True
+    return bool(_LISTICLE_TITLE.search(title or ""))
+
 
 @dataclass(frozen=True)
 class SearchResult:
@@ -325,7 +353,13 @@ class WebSearchTool:
                 errors.append(f"{backend.name}: {exc}")
                 continue
             if results:
-                break
+                kept = [row for row in results if not result_is_mill(row.url, row.title)]
+                if kept:
+                    results = kept
+                    break
+                errors.append(f"{backend.name}: only listicle/mill hits")
+                results = []
+                continue
             errors.append(f"{backend.name}: no results")
 
         results = _dedupe(results)[:limit]
@@ -425,7 +459,11 @@ def _format(results: list[SearchResult]) -> str:
             lines.append(f"   Snippet: {snippet}")
     lines.append("")
     lines.append(
-        "Snippets are previews. Scrape the most relevant result before answering. "
+        "Snippets are previews. Scrape the most relevant result before "
+        "answering a cited fact (encyclopedia, journal, agency, newspaper) "
+        "— not a listicle. "
+        "For a judgment or ranking, snippets plus what you know are enough; "
+        "do not open mills or re-read tool_cache. "
         "Call scrape (HTML) or web_fetch (API/JSON) with the URL: value copied "
         "exactly. Never pass the Title line as url - titles are not URLs."
     )

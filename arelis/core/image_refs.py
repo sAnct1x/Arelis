@@ -24,15 +24,6 @@ _PATH_MENTION = re.compile(
     r")"
 )
 
-_JUST_GENERATED = re.compile(
-    r"(?i)\b("
-    r"(?:just\s+)?(?:generated|made|created|drew)|"
-    r"the\s+(?:image|picture|photo)\s+(?:you|we)\s+(?:just\s+)?"
-    r"(?:generated|made|created|drew|saved)|"
-    r"(?:this|that|the)\s+(?:image|picture|photo|puppy)"
-    r")\b"
-)
-
 _CAMERA_LOOK = re.compile(
     r"(?i)\b("
     r"(?:look\s+at|see|check|describe|what(?:'s|\s+is)\s+on)\s+"
@@ -50,11 +41,6 @@ _CAMERA_LOOK = re.compile(
 _CAMERA_FILE_PREFIX = "camera_"
 # Fresh enough to reuse without a new capture (camera tool + fill_vision_args).
 CAMERA_FRESH_S = 30.0
-
-
-def mentions_recent_image(text: str) -> bool:
-    """True when the user points at the last generated/shown image without a path."""
-    return bool(_JUST_GENERATED.search(text or ""))
 
 
 def mentions_camera_look(text: str) -> bool:

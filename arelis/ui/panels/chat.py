@@ -5,7 +5,7 @@ from typing import Any
 from uuid import uuid4
 
 from PySide6.QtCore import Qt, QTimer, QUrl, QUrlQuery, Signal
-from PySide6.QtGui import QDesktopServices, QMouseEvent, QTextCursor
+from PySide6.QtGui import QDesktopServices, QGuiApplication, QMouseEvent, QTextCursor
 from PySide6.QtWidgets import (
     QGraphicsOpacityEffect,
     QLabel,
@@ -47,6 +47,16 @@ _ASSISTANT_OPEN = (
     f'<div style="background:{_BUBBLE};padding:8px 12px;border-radius:8px;color:{_TEXT};">'
 )
 _ASSISTANT_CLOSE = "</div></div>"
+_ACTS_HTML = (
+    f'<div style="margin:0 18% 12px 0;color:{_TEXT_DIM};font-size:11px;'
+    f'letter-spacing:0.08em;">'
+    f'<a href="arelis-act://copy" style="color:{_TEXT_DIM};text-decoration:none;">'
+    f"copy</a>"
+    f'<span style="color:{_TEXT_DIM};"> · </span>'
+    f'<a href="arelis-act://again" style="color:{_TEXT_DIM};text-decoration:none;">'
+    f"again</a>"
+    f"</div>"
+)
 
 _CARET_GLYPHS = {"▍", "|", "▌"}
 
@@ -64,6 +74,7 @@ class ChatProgress(QLabel):
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
         self.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
+        self.setToolTip("open thinking")
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
@@ -87,8 +98,10 @@ class ChatPanel(QWidget):
     session_clicked = Signal(str)
     # An opening suggestion from the empty orbit, on its way to the composer.
     suggestion_clicked = Signal(str)
+    new_requested = Signal()
     # The thinking line above the composer: open Thinking, or pulse it.
     progress_clicked = Signal()
+    again_requested = Signal()
 
     def __init__(self, parent=None, *, embedded: bool = False) -> None:
         super().__init__(parent)
@@ -104,6 +117,7 @@ class ChatPanel(QWidget):
         self.empty_hint = self.empty.listen_word
         self.empty.session_clicked.connect(self._on_idle_session)
         self.empty.suggestion_clicked.connect(self.suggestion_clicked.emit)
+        self.empty.new_requested.connect(self.new_requested.emit)
         layout.addWidget(self.empty, stretch=1)
 
         self.view = QTextBrowser()
@@ -142,6 +156,9 @@ class ChatPanel(QWidget):
         # with the same text (ASSISTANT_DONE after _close_stream raced) must not
         # append a duplicate copy below the user line.
         self._last_assistant_body: str | None = None
+        self._last_user_text = ""
+        self._last_user_attachments: list[dict[str, Any]] = []
+        self._acts_pos: int | None = None
         self._pending_notices: list[str] = []
         self._pending_files: list[tuple[str, str]] = []
         self._file_tokens: dict[str, tuple[str, str]] = {}
@@ -239,12 +256,16 @@ class ChatPanel(QWidget):
         if not had_stream:
             self._last_assistant_body = None
         self._ensure_view()
+        self._strip_last_acts()
+        self._last_user_text = text
+        self._last_user_attachments = list(attachments or [])
         self.view.append(_user_bubble_html(text, attachments=attachments))
         self._scroll(follow=follow)
 
     def begin_assistant(self) -> None:
         follow = self._near_bottom()
         self._close_stream()
+        self._strip_last_acts()
         self._ensure_view()
         self._anchor = self._end_position()
         self._stream_text = []
@@ -296,6 +317,7 @@ class ChatPanel(QWidget):
         self._anchor = None
         self._last_assistant_body = body
         self._flush_pending_notices()
+        self._place_last_acts()
         self._scroll(follow=follow)
 
     def discard_stream(self) -> None:
@@ -370,6 +392,13 @@ class ChatPanel(QWidget):
         if scheme in {"http", "https", "mailto"}:
             QDesktopServices.openUrl(url)
             return
+        if scheme == "arelis-act":
+            host = (url.host() or url.path() or "").strip("/").lower()
+            if host == "copy":
+                self._copy_last()
+            elif host == "again":
+                self.again_requested.emit()
+            return
         if scheme != "arelis-file":
             return
         token = QUrlQuery(url).queryItemValue("t")
@@ -384,6 +413,36 @@ class ChatPanel(QWidget):
         except OSError:
             leaf = Path(path).name or "that file"
             self.add_system(f"I could not open {leaf}.")
+
+    def _copy_last(self) -> None:
+        body = self._last_assistant_body
+        if not body:
+            return
+        clip = QGuiApplication.clipboard()
+        if clip is not None:
+            clip.setText(body)
+
+    def _place_last_acts(self) -> None:
+        self._strip_last_acts()
+        if not self._last_assistant_body:
+            return
+        self._ensure_view()
+        self._acts_pos = self._end_position()
+        self.view.append(_ACTS_HTML)
+
+    def _strip_last_acts(self) -> None:
+        if self._acts_pos is None:
+            return
+        cursor = self.view.textCursor()
+        end = self._end_position()
+        if self._acts_pos > end:
+            self._acts_pos = None
+            return
+        cursor.setPosition(self._acts_pos)
+        cursor.movePosition(QTextCursor.MoveOperation.End, QTextCursor.MoveMode.KeepAnchor)
+        cursor.removeSelectedText()
+        self.view.setTextCursor(cursor)
+        self._acts_pos = None
 
     def show_progress(self, text: str = "✦ Generating image…") -> None:
         """Shimmering status gate while a long tool (e.g. Comfy) runs."""
@@ -431,6 +490,9 @@ class ChatPanel(QWidget):
         self._anchor = None
         self._stream_text = []
         self._last_assistant_body = None
+        self._last_user_text = ""
+        self._last_user_attachments = []
+        self._acts_pos = None
         self._pending_notices = []
         self._pending_files = []
         self._file_tokens = {}
@@ -448,6 +510,8 @@ class ChatPanel(QWidget):
         self.clear()
         chunks: list[str] = []
         last_assistant: str | None = None
+        last_user = ""
+        last_atts: list[dict[str, Any]] = []
         for message in messages:
             role = str(message.get("role") or "")
             content = str(message.get("content") or "")
@@ -461,8 +525,10 @@ class ChatPanel(QWidget):
                 if stored:
                     _block, ask = split_attachments_turn(content)
                     chunks.append(_user_bubble_html(ask, attachments=stored))
+                    last_user, last_atts = ask, stored
                 else:
                     chunks.append(_user_bubble_html(content))
+                    last_user, last_atts = content, []
             elif role == "assistant":
                 if content:
                     chunks.append(_assistant_bubble_html(content))
@@ -477,6 +543,10 @@ class ChatPanel(QWidget):
         self._ensure_view()
         self.view.setHtml("".join(chunks))
         self._last_assistant_body = last_assistant
+        self._last_user_text = last_user
+        self._last_user_attachments = last_atts
+        if last_assistant:
+            self._place_last_acts()
         self._scroll(follow=True)
 
     def _flush_pending_notices(self) -> None:

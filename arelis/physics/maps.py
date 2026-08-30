@@ -24,7 +24,15 @@ _NASA3D = (
     "Images%20and%20Textures"
 )
 _MAX_EDGE = 2048
+_EARTH_HI_EDGE = 8192
 _MIN_W, _MIN_H = 256, 128
+EARTH_HI_FILE = "earth_8192.jpg"
+EARTH_HI_SOURCE = "NASA Visible Earth Blue Marble (land_shallow_topo_8192)"
+EARTH_HI_KM = 5.0
+EARTH_HI_URL = (
+    "https://eoimages.gsfc.nasa.gov/images/imagerecords/57000/"
+    "57752/land_shallow_topo_8192.tif"
+)
 
 
 def _n3d(folder: str) -> str:
@@ -370,6 +378,10 @@ def map_ready(path: Path) -> bool:
 
 
 def describe(body: str) -> MapInfo:
+    if body == "Earth":
+        hi = maps_dir() / EARTH_HI_FILE
+        if map_ready(hi):
+            return MapInfo(body, hi, EARTH_HI_SOURCE, EARTH_HI_KM)
     meta = MAPS.get(body)
     path = map_path(body)
     exists = map_ready(path)
@@ -385,8 +397,9 @@ def missing_maps() -> list[str]:
     return [name for name in MAPS if not map_ready(map_path(name))]
 
 
-def _store_image(dest: Path, content: bytes) -> str | None:
+def _store_image(dest: Path, content: bytes, *, max_edge: int | None = None) -> str | None:
     """Write a JPEG mosaic. Returns an error string, or None on success."""
+    edge = _MAX_EDGE if max_edge is None else max(int(max_edge), _MIN_W)
     if len(content) < 1000:
         return "too small"
     if content.lstrip()[:1] in (b"<", b"{") or content[:5] == b"<?xml":
@@ -401,9 +414,9 @@ def _store_image(dest: Path, content: bytes) -> str | None:
     width, height = rgb.size
     if width < _MIN_W or height < _MIN_H:
         return f"{width}x{height} too small for a wrap map"
-    if width > _MAX_EDGE:
-        height = max(1, round(height * _MAX_EDGE / width))
-        rgb = rgb.resize((_MAX_EDGE, height), Image.Resampling.LANCZOS)
+    if width > edge:
+        height = max(1, round(height * edge / width))
+        rgb = rgb.resize((edge, height), Image.Resampling.LANCZOS)
     dest.parent.mkdir(parents=True, exist_ok=True)
     rgb.save(dest, "JPEG", quality=88)
     return None
@@ -419,7 +432,9 @@ def download_maps() -> tuple[list[str], list[str]]:
         for body, meta in MAPS.items()
         if meta[3].startswith("http") and not map_ready(map_path(body))
     ]
-    if not todo:
+    hi_dest = maps_dir() / EARTH_HI_FILE
+    want_hi = not map_ready(hi_dest)
+    if not todo and not want_hi:
         return saved, errors
     import httpx
 
@@ -449,4 +464,19 @@ def download_maps() -> tuple[list[str], list[str]]:
                 saved.append(body)
             except httpx.HTTPError as exc:
                 errors.append(f"{body}: {exc}")
+        if want_hi:
+            try:
+                response = client.get(EARTH_HI_URL)
+                if response.status_code >= 400:
+                    errors.append(f"Earth-8192: HTTP {response.status_code}")
+                else:
+                    err = _store_image(
+                        hi_dest, response.content, max_edge=_EARTH_HI_EDGE
+                    )
+                    if err:
+                        errors.append(f"Earth-8192: {err}")
+                    else:
+                        saved.append("Earth-8192")
+            except httpx.HTTPError as exc:
+                errors.append(f"Earth-8192: {exc}")
     return saved, errors

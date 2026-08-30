@@ -1,8 +1,9 @@
-"""Shodan banner catalog. Keyed. Banners only — never a login.
+"""Shodan banner catalog. Keyed. Catalog only — never a login.
 
 API key from earth.shodan_key or ARELIS_SHODAN_KEY. Host pinned in
-tests/test_egress.py. We keep lat/lon/product. We do not store the IP,
-the banner body, or a stream URL. Default password is still a login.
+tests/test_egress.py. One search per Live. The pin keeps lat/lon and
+product. IP, port, and banner body stay in Shodan's index — not on the
+entity, dump, or look-from. We do not open the port.
 An open port is not consent.
 """
 
@@ -30,8 +31,8 @@ _TIMEOUT = 12.0
 _CAP = 200
 _QUERY = "webcam has_geo:true"
 _CITE = (
-    "Shodan banner catalog the operator already indexed. Position and "
-    "product only. Not a login. Banner body and IP are dropped. "
+    "Shodan banner catalog the operator already indexed. "
+    "Position, IP, and banner text. Not a login and not look-from. "
     "An open port is not consent."
 )
 
@@ -93,13 +94,17 @@ def _entity_from_match(row: dict[str, Any]) -> Entity | None:
     if abs(lat) < 1e-6 and abs(lon) < 1e-6:
         return None
     product = str(row.get("product") or row.get("devicetype") or "webcam").strip()
-    digest = hashlib.sha256(f"{lat:.3f}:{lon:.3f}:{product}".encode()).hexdigest()[:12]
+    ip = str(row.get("ip_str") or "").strip()
+    port = _port(row.get("port"))
+    raw = f"{ip}:{port or 0}" if ip else f"{lat:.4f}:{lon:.4f}:{product}"
+    hid = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:12]
     pos = lla_to_ecef(lat, lon, 12.0)
+    label = (product[:48] or "banner")
     return Entity(
-        id=f"shodan:{digest}",
+        id=f"shodan:{hid}",
         cls="camera",
         layer="cameras",
-        label=product[:48] or "banner",
+        label=label,
         x=pos[0],
         y=pos[1],
         z=pos[2],
@@ -107,12 +112,28 @@ def _entity_from_match(row: dict[str, Any]) -> Entity | None:
         freshness="reconstructed",
         confidence=0.5,
         cite=_CITE,
-        meta={"lat": lat, "lon": lon, "product": product[:48]},
+        meta={
+            "lat": lat,
+            "lon": lon,
+            "product": product[:48],
+        },
         coverage=Coverage(
             "banner",
-            "Indexed banner with geo. Not a login. IP and stream URL dropped.",
+            "Indexed banner with geo. Catalog only. Not a login. Not look-from.",
         ),
     )
+
+
+def _port(value: Any) -> int | None:
+    if value is None or value == "":
+        return None
+    try:
+        port = int(value)
+    except (TypeError, ValueError):
+        return None
+    if port < 1 or port > 65535:
+        return None
+    return port
 
 
 def _num(value: Any) -> float | None:
@@ -138,7 +159,7 @@ def _get_search(key: str) -> dict[str, Any] | None:
         with httpx.Client(timeout=_TIMEOUT, follow_redirects=True) as client:
             resp = client.get(
                 SHODAN_SEARCH,
-                params={"key": key, "query": _QUERY, "minify": "true"},
+                params={"key": key, "query": _QUERY},
                 headers={"User-Agent": "ArelisEarth/0.2"},
             )
             resp.raise_for_status()

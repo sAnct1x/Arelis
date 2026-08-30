@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<!-- Live enter-Earth plate. Not dead: pytest skips WebEngine on purpose. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Arelis Earth</title>
+  <style>
+    html, body, #globe { margin: 0; width: 100%; height: 100%; overflow: hidden; background: transparent; }
+    .cesium-viewer-bottom, .cesium-viewer-toolbar, .cesium-viewer-animationContainer,
+    .cesium-viewer-timelineContainer, .cesium-viewer-fullscreenContainer,
+    .cesium-viewer-vrButton, .cesium-viewer-geocoderContainer { display: none !important; }
+    #credit {
+      position: absolute; left: 10px; bottom: 8px; z-index: 2;
+      font: 11px "IBM Plex Sans", "Segoe UI", sans-serif;
+      color: #d8a482; pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+  <div id="globe"></div>
+  <div id="credit"></div>
+  <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
+  <script src="bridge.js"></script>
+</body>
+</html>

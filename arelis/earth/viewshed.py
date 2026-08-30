@@ -26,7 +26,7 @@ _ALT_M = 12.0
 _RAYS = 5
 _CITE = (
     "Published municipal pin. Viewshed is a pose prior, not a survey. "
-    "No video ingest. Occluders not meshed. Unpublished cameras are holes."
+    "No video ingest. No terrain. Occluders not meshed. Unpublished cameras are holes."
 )
 
 
@@ -91,9 +91,9 @@ def attach_viewshed(entity: Entity) -> Entity:
         "viewshed_ecef": [list(p) for p in fan],
     }
     note = (
-        "Pose-prior frustum. Occluders not meshed. Unpublished cams are holes."
+        "Pose-prior frustum. No terrain. Occluders not meshed. Unpublished cams are holes."
         if source == "prior"
-        else "Operator-published direction. Occluders not meshed. No video."
+        else "Operator-published direction. No terrain. Occluders not meshed. No video."
     )
     entity.coverage = Coverage(
         kind="viewshed",

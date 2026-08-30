@@ -222,7 +222,7 @@ class SettingsDialog(QDialog):
         audio_form.addRow(self.tts_enabled)
         audio_form.addRow(test_row)
         audio_form.addRow(self.test_status)
-        tabs.addTab(audio, "Audio")
+        tabs.addTab(audio, "audio")
 
         # --- Window ---
         window = QWidget()
@@ -237,15 +237,15 @@ class SettingsDialog(QDialog):
             Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
         )
 
-        self.always_on_top = QCheckBox("Always on top")
+        self.always_on_top = QCheckBox("always on top")
         self.always_on_top.setChecked(always_on_top)
-        self.close_to_tray = QCheckBox("Close to tray")
+        self.close_to_tray = QCheckBox("close to tray")
         self.close_to_tray.setChecked(bool(presence.get("close_to_tray", True)))
         self.close_to_tray.setToolTip(
             "Closing the window leaves Arelis in the tray so inbound Notify keeps working."
         )
 
-        self.away_rest = QCheckBox("Collapse unused panels")
+        self.away_rest = QCheckBox("collapse unused panels")
         self.away_rest.setChecked(bool(away_rest))
         self.away_rest.setToolTip(
             "After a stretch with no click, type, send, or wake word, "
@@ -287,7 +287,7 @@ class SettingsDialog(QDialog):
         win_form.addRow("After", self.away_rest_min)
         win_form.addRow("Chat text size", font_row)
         win_form.addRow(self.reset_layout_btn)
-        tabs.addTab(window, "Window")
+        tabs.addTab(window, "window")
 
         # --- Allow ---
         allow_tab = QWidget()
@@ -334,7 +334,7 @@ class SettingsDialog(QDialog):
         preset_row.addStretch(1)
         allow_l.addLayout(preset_row)
         allow_l.addStretch(1)
-        tabs.addTab(allow_tab, "Allow")
+        tabs.addTab(allow_tab, "allow")
 
         # --- Notify ---
         notify = QWidget()
@@ -446,7 +446,7 @@ class SettingsDialog(QDialog):
         notify_l.addLayout(pair_btns)
         notify_l.addWidget(self.pair_status)
         notify_l.addStretch(1)
-        tabs.addTab(notify, "Notify")
+        tabs.addTab(notify, "notify")
         self._pairing_text = ""
         self._refresh_pairing_qr(config, rotate=False)
 
@@ -506,14 +506,14 @@ class SettingsDialog(QDialog):
         root_btns.addStretch(1)
         roots_l.addLayout(root_btns)
         self._refresh_roots_list()
-        tabs.addTab(roots_tab, "Roots")
+        tabs.addTab(roots_tab, "roots")
 
         # --- Memory (live: forget commits immediately, not via Apply) ---
         self.memory = ActiveFactsPanel()
         self.memory.setObjectName("SettingsTabBody")
         self.memory.fact_decided.connect(self.fact_decided.emit)
         self.memory.set_facts(list(active_facts or []))
-        tabs.addTab(self.memory, "Memory")
+        tabs.addTab(self.memory, "memory")
         self.tabs = tabs
         want = (initial_tab or "").strip().lower()
         if want:

@@ -1,8 +1,8 @@
 """Compact readiness chips under the glass title bar.
 
 Only Ollama stays on the strip. Model pin, Allow gates, and the rest live
-under Systems ▾ so the strip does not compete with the composer role picker
-(UI polish).
+under house ▾ so the strip does not compete with the composer role picker
+(fast / research).
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ from arelis.presence.readiness import ChipLevel, ReadinessChip, ReadinessSnapsho
 
 # Always on the strip.
 _PRIMARY_KEYS = ("ollama",)
-# Nested under Systems ▾ (aggregate status on the Systems chip).
+# Nested under house ▾ (aggregate status on the house chip).
 _SYSTEMS_KEYS = (
     "models",
     "role",  # hot/pinned model — not the composer reply-role picker
@@ -36,12 +36,12 @@ _SYSTEMS_KEYS = (
     "image",
 )
 # Optional integrations. Off means not connected yet — hide them rather than
-# paint Systems as broken for mail/SMS/calendar nobody has set up.
+# paint house as broken for mail/SMS/calendar nobody has set up.
 _OPTIONAL_SYSTEMS = frozenset({"calendar", "sms", "mail"})
 
 
 def _rank(status: str) -> int:
-    # Attention-first: warn beats off beats ok for the Systems summary.
+    # Attention-first: warn beats off beats ok for the house summary.
     return {"ok": 0, "off": 1, "warn": 2, "wait": 3, "wait_dim": 3}.get(status, 0)
 
 
@@ -52,7 +52,7 @@ def _aggregate(statuses: list[str]) -> str:
 
 
 class ReadinessStrip(QWidget):
-    """Thin row: Ollama chip + Systems menu."""
+    """Thin row: Ollama chip + house menu."""
 
     settings_requested = Signal(str)
 
@@ -85,7 +85,7 @@ class ReadinessStrip(QWidget):
 
         self.systems_btn = QToolButton()
         self.systems_btn.setObjectName("ReadinessSystems")
-        self.systems_btn.setText("Systems ▾")
+        self.systems_btn.setText("house ▾")
         self.systems_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.systems_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         self.systems_btn.setToolTip("Models, allow gates, calendar, SMS, mail…")
@@ -120,7 +120,7 @@ class ReadinessStrip(QWidget):
         self.notify_chip.update()
 
     def set_confirm_waiting(self, waiting: bool) -> None:
-        """Pulse Systems while an Allow card is open in chat."""
+        """Pulse house while an Allow card is open in chat."""
         self._confirm_waiting = bool(waiting)
         self._refresh_systems_label()
         self._rebuild_systems_menu()
@@ -135,7 +135,7 @@ class ReadinessStrip(QWidget):
             self._set_status(self.systems_btn, self._systems_base_status)
 
     def apply(self, snapshot: ReadinessSnapshot) -> None:
-        """Update Ollama + rebuild the Systems menu."""
+        """Update Ollama + rebuild the house menu."""
         sig = tuple(
             (item.key, item.status.value, item.detail) for item in snapshot.chips
         )
@@ -180,11 +180,11 @@ class ReadinessStrip(QWidget):
             for item in self._systems_details.values()
             if item.status == ChipLevel.WARN
         )
-        label = "systems ▾"
+        label = "house ▾"
         if self._confirm_waiting:
-            label = "systems · allow ▾"
+            label = "house · allow ▾"
         elif warn_n:
-            label = f"systems · {warn_n} ▾"
+            label = f"house · {warn_n} ▾"
         self.systems_btn.setText(label)
         tip_bits = [
             f"{item.label}: {item.status.value} — {item.detail}"

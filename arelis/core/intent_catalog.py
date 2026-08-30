@@ -696,6 +696,7 @@ _PLOT_MENTION = (
     # chart to the nudge that would have sent the plot tool at it.
     re.compile(r"(?i)\bshow\s+me\s+a\s+(?:plot|chart|graph)\b"),
     re.compile(r"(?i)\bplot\s+.{0,40}\b(?:csv|tsv|xlsx|spreadsheet|columns?)\b"),
+    re.compile(r"(?i)\bplot\s+[a-zA-Z]\s*="),
 )
 
 PLOT = IntentSpec(
@@ -792,9 +793,7 @@ BY_KIND: dict[str, IntentSpec] = {s.kind: s for s in CATALOG}
 
 AUTO_HINTS: tuple[IntentSpec, ...] = tuple(s for s in CATALOG if s.auto_hint)
 
-FULL_SURFACE_KINDS = frozenset(
-    s.kind for s in CATALOG if s.full_surface
-) | frozenset({"sms"})  # legacy alias some callers still use
+FULL_SURFACE_KINDS = frozenset(s.kind for s in CATALOG if s.full_surface)
 
 FULL_SURFACE_PHRASES: tuple[str, ...] = tuple(
     phrase for s in CATALOG for phrase in s.surface_phrases

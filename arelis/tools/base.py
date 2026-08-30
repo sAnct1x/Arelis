@@ -6,7 +6,11 @@ from typing import Any, Protocol
 
 from arelis.tools.policy import (
     CONTACTS_WRITE_ACTIONS,
+    GOALS_WRITE_ACTIONS,  # noqa: F401 — re-exported
     INBOX_WRITE_ACTIONS,
+    NEVER_BATCH,  # noqa: F401 — re-exported
+    SOLAR_WRITE_ACTIONS,  # noqa: F401 — re-exported
+    TASKS_WRITE_ACTIONS,  # noqa: F401 — re-exported
     CapabilityClass,
     ToolRisk,
     evaluate_capability,

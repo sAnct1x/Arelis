@@ -22,7 +22,9 @@ import yaml
 from arelis import __source_url__, __version__
 from arelis.earth.entity import Coverage, Entity
 from arelis.earth.frames import lla_to_ecef
+from arelis.earth.look import first_url, offer_official, offer_owned
 from arelis.earth.osm import fetch_osm_webcams
+from arelis.earth.secrets import earth_cars_key, earth_secret
 from arelis.earth.viewshed import attach_viewshed
 from arelis.paths import state_dir
 
@@ -115,6 +117,53 @@ MD_CAMERAS = (
 MD_CAM_HOST = "mdgeodata.md.gov"
 ND_CAMERAS = "https://travelfiles.dot.nd.gov/geojson_nc/cameras.json"
 ND_CAM_HOST = "travelfiles.dot.nd.gov"
+AL_CAMERAS = "https://api.algotraffic.com/v4.0/cameras"
+AL_HOST = "api.algotraffic.com"
+DE_CAMERAS = "https://tmc.deldot.gov/json/videocamera.json"
+DE_CAM_HOST = "tmc.deldot.gov"
+NZ_CAMERAS = "https://www.journeys.nzta.govt.nz/assets/map-data-cache/cameras.json"
+NZ_CAM_HOST = "www.journeys.nzta.govt.nz"
+QC_CAMERAS = (
+    "https://ws.mapserver.transports.gouv.qc.ca/swtq?service=wfs&version=2.0.0"
+    "&request=GetFeature&typename=ms:infos_cameras&srsname=EPSG:4326&outputformat=geojson"
+)
+QC_CAM_HOST = "ws.mapserver.transports.gouv.qc.ca"
+NSW_CAMERAS = "https://api.transport.nsw.gov.au/v1/live/cameras"
+NSW_CAM_HOST = "api.transport.nsw.gov.au"
+NSW_ENV = "ARELIS_NSW_KEY"
+WA_CAMERAS = (
+    "https://wsdot.wa.gov/Traffic/api/HighwayCameras/"
+    "HighwayCamerasREST.svc/GetCamerasAsJson"
+)
+WA_CAM_HOST = "wsdot.wa.gov"
+WA_ENV = "ARELIS_WSDOT_ACCESS_CODE"
+OH_CAMERAS = "https://publicapi.ohgo.com/api/v1/cameras"
+OH_CAM_HOST = "publicapi.ohgo.com"
+OH_ENV = "ARELIS_OHGO_KEY"
+MO_CAMERAS = (
+    "https://mapping.modot.mo.gov/arcgis/rest/services/"
+    "TravelerInformation/NWSDATA/MapServer/0/query"
+    "?where=1%3D1&outFields=*&f=geojson&returnGeometry=true"
+)
+MO_CAM_HOST = "mapping.modot.mo.gov"
+_MO_CAM_CITE = (
+    "MoDOT published camera catalog. Operator GeoJSON. "
+    "Position only. No still ingest."
+)
+# CARS clones that 400 without a developer key. Query is ?key=
+# field empty means earth.cars_keys[host].
+_KEYED_CARS_CAMERAS: tuple[tuple[str, str, str, str, str], ...] = (
+    ("drivenc.gov", "nc-cam", "NCDOT cameras", "drivenc_key", "ARELIS_DRIVENC_KEY"),
+    ("udottraffic.utah.gov", "ut-cam", "UDOT cameras", "", ""),
+    ("az511.gov", "az-cam", "AZ511 cameras", "", ""),
+    ("511.idaho.gov", "id-cam", "ITD cameras", "", ""),
+    ("511wi.gov", "wi-cam", "WisDOT cameras", "", ""),
+    ("511la.org", "la-cam", "LADOTD cameras", "", ""),
+    ("511.alaska.gov", "ak-cam", "Alaska 511 cameras", "", ""),
+    ("nvroads.com", "nv-cam", "Nevada 511 cameras", "", ""),
+    ("ctroads.org", "ct-cam", "CTDOT cameras", "", ""),
+    ("511.nebraska.gov", "ne-cam", "Nebraska 511 cameras", "", ""),
+)
 CALTRANS_HOST = "cwwp2.dot.ca.gov"
 CALTRANS_CCTV = tuple(
     f"https://cwwp2.dot.ca.gov/data/d{d}/cctv/cctvStatusD{d:02d}.json"
@@ -170,8 +219,41 @@ _ND_CAM_CITE = (
     "NDDOT camera GeoJSON. Operator catalog. "
     "Position only. No still ingest."
 )
+_AL_CITE = (
+    "ALGO / ALDOT published camera catalog. Operator JSON. "
+    "Position only. No still ingest."
+)
+_DE_CAM_CITE = (
+    "DelDOT published camera catalog. Operator JSON. "
+    "Position only. No still ingest."
+)
+_NZ_CAM_CITE = (
+    "Waka Kotahi / NZTA published camera catalog. Operator GeoJSON. "
+    "Position only. No still ingest."
+)
+_QC_CAM_CITE = (
+    "Quebec 511 / MTMD published camera locations. Operator GeoJSON. "
+    "Position only. No still ingest."
+)
+_NSW_CAM_CITE = (
+    "NSW Live Traffic published camera catalog. Operator GeoJSON. "
+    "Position only. No still ingest."
+)
+_WA_CAM_CITE = (
+    "WSDOT published highway-camera catalog. Operator JSON. "
+    "Position only. No still ingest."
+)
+_KEYED_CARS_CAM_CITE = (
+    "Published 511 camera catalog (developer key). Operator JSON. "
+    "Position only. No still ingest."
+)
+_OH_CAM_CITE = (
+    "OHGO / ODOT published camera catalog. Operator JSON. "
+    "Position only. No still ingest."
+)
 _OWNED_CITE = (
-    "Owned camera pin from secrets. Position only. No video ingest."
+    "Owned camera pin from secrets. Look-from plays the stream you pasted. "
+    "Stream URL is not stored on the pin."
 )
 _DIR_HEADING: dict[str, float] = {
     "n": 0.0,
@@ -203,7 +285,7 @@ _DIR_HEADING: dict[str, float] = {
 
 def fetch_cameras() -> list[Entity] | None:
     chunks: list[list[Entity] | None] = []
-    with ThreadPoolExecutor(max_workers=12) as pool:
+    with ThreadPoolExecutor(max_workers=16) as pool:
         futs = [
             pool.submit(_fetch_tfl),
             pool.submit(_fetch_caltrans),
@@ -216,6 +298,15 @@ def fetch_cameras() -> list[Entity] | None:
             pool.submit(_fetch_tripcheck),
             pool.submit(_fetch_md_cameras),
             pool.submit(_fetch_nd_cameras),
+            pool.submit(_fetch_algo),
+            pool.submit(_fetch_deldot),
+            pool.submit(_fetch_nz_cameras),
+            pool.submit(_fetch_quebec_cameras),
+            pool.submit(_fetch_nsw_cameras),
+            pool.submit(_fetch_wsdot_cameras),
+            pool.submit(_fetch_ohgo_cameras),
+            pool.submit(_fetch_keyed_cars_cameras),
+            pool.submit(_fetch_modot_cameras),
             pool.submit(fetch_osm_webcams),
         ]
         for fut in as_completed(futs):
@@ -351,6 +442,7 @@ def _entity_from_tfl(row: dict[str, Any]) -> Entity | None:
         return None
     eid = f"tfl:{pid or name.casefold()[:48]}"
     pos = lla_to_ecef(lat, lon, 12.0)
+    offer_official(eid, *_tfl_media(row))
     return Entity(
         id=eid,
         cls="camera",
@@ -383,6 +475,10 @@ def _entity_from_nyc(row: dict[str, Any]) -> Entity | None:
         return None
     eid = f"nyc:{cid or name.casefold()[:48]}"
     pos = lla_to_ecef(lat, lon, 12.0)
+    offer_official(
+        eid,
+        first_url(row.get("imageUrl"), row.get("image_url"), row.get("url")),
+    )
     return Entity(
         id=eid,
         cls="camera",
@@ -413,9 +509,11 @@ def _entity_from_sg(row: dict[str, Any]) -> Entity | None:
     cid = str(row.get("camera_id") or row.get("id") or "").strip()
     if not cid:
         return None
+    eid = f"sg:{cid}"
     pos = lla_to_ecef(lat, lon, 12.0)
+    offer_official(eid, first_url(row.get("image"), row.get("image_url")))
     return Entity(
-        id=f"sg:{cid}",
+        id=eid,
         cls="camera",
         layer="cameras",
         label=f"Singapore {cid}",
@@ -447,9 +545,11 @@ def _entity_from_fi(feat: dict[str, Any]) -> Entity | None:
     name = str(props.get("name") or cid).strip()
     if not cid:
         return None
+    eid = f"fi:{cid}"
     pos = lla_to_ecef(lat, lon, 12.0)
+    offer_official(eid, *_finland_media(feat, props))
     return Entity(
-        id=f"fi:{cid}",
+        id=eid,
         cls="camera",
         layer="cameras",
         label=name[:80],
@@ -478,9 +578,11 @@ def _entity_from_hk(row: dict[str, Any]) -> Entity | None:
     name = str(row.get("description") or cid).strip()
     if not cid:
         return None
+    eid = f"hk:{cid}"
     pos = lla_to_ecef(lat, lon, 12.0)
+    offer_official(eid, first_url(row.get("url"), row.get("imageUrl")))
     return Entity(
-        id=f"hk:{cid}",
+        id=eid,
         cls="camera",
         layer="cameras",
         label=name[:80],
@@ -517,6 +619,16 @@ def _entity_from_caltrans(row: dict[str, Any]) -> Entity | None:
     label = name if not route else f"{name} {route}"
     eid = f"caltrans:{district or 'x'}:{idx or name.casefold()[:32]}"
     pos = lla_to_ecef(lat, lon, 12.0)
+    image = cctv.get("imageData") if isinstance(cctv.get("imageData"), dict) else {}
+    offer_official(
+        eid,
+        first_url(
+            image.get("streamingVideoURL"),
+            image.get("currentImageURL"),
+            cctv.get("streamingVideoURL"),
+            cctv.get("currentImageURL"),
+        ),
+    )
     meta: dict[str, Any] = {"lat": lat, "lon": lon, "route": route}
     if heading is not None:
         meta["heading_deg"] = heading
@@ -554,6 +666,14 @@ def _owned_from_row(row: dict[str, Any]) -> Entity | None:
         return None
     heading = _num(row.get("heading_deg"))
     pos = lla_to_ecef(lat, lon, 12.0)
+    device = row.get("device")
+    if device is None:
+        device = row.get("index") or row.get("device_index")
+    offer_owned(
+        f"owned:{cid.casefold()[:48]}",
+        rtsp=str(row.get("rtsp") or row.get("url") or "").strip(),
+        device=device,
+    )
     meta: dict[str, Any] = {"lat": lat, "lon": lon}
     if heading is not None:
         meta["heading_deg"] = heading
@@ -575,7 +695,7 @@ def _owned_from_row(row: dict[str, Any]) -> Entity | None:
         meta=meta,
         coverage=Coverage(
             "owned",
-            "Operator-owned pin. No video ingest on this stretch.",
+            "Operator-owned pin. Look-from plays the stream you pasted.",
         ),
         pii="none",
     )
@@ -593,6 +713,76 @@ def _bundled_without_live(seen: set[str]) -> list[Entity]:
             continue
         out.append(attach_viewshed(_camera_entity(*row)))
     return out
+
+
+def _tfl_media(row: dict[str, Any]) -> tuple[str, ...]:
+    props = row.get("additionalProperties")
+    video = ""
+    image = ""
+    if isinstance(props, list):
+        for prop in props:
+            if not isinstance(prop, dict):
+                continue
+            key = str(prop.get("key") or "").casefold()
+            val = str(prop.get("value") or "").strip()
+            if not val:
+                continue
+            if key in {"videourl", "video_url"}:
+                video = val
+            elif key in {"imageurl", "image_url"}:
+                image = val
+    extra = first_url(row.get("url"))
+    return (video, image, extra)
+
+
+def _finland_media(feat: dict[str, Any], props: dict[str, Any]) -> tuple[str, ...]:
+    urls: list[str] = []
+    for key in ("imageUrl", "imageUrlNearest", "image_url"):
+        got = first_url(props.get(key))
+        if got:
+            urls.append(got)
+    presets = props.get("cameraPresets") or props.get("presets") or feat.get("cameraPresets")
+    if isinstance(presets, list):
+        for preset in presets:
+            if not isinstance(preset, dict):
+                continue
+            got = first_url(
+                preset.get("imageUrl"),
+                preset.get("imageUrlNearest"),
+                preset.get("url"),
+            )
+            if got:
+                urls.append(got)
+    return tuple(urls)
+
+
+def _media_url(*values: Any) -> str:
+    """First http(s) URL that is not an HTML player page."""
+    text = first_url(*values)
+    if not text:
+        return ""
+    low = text.lower()
+    if any(token in low for token in (".html", ".htm", "fenetrevideo")):
+        return ""
+    return text
+
+
+def _cars_media(row: dict[str, Any]) -> tuple[str, ...]:
+    urls: list[str] = []
+    for key in ("VideoUrl", "Url", "ImageUrl", "url", "imageUrl"):
+        got = _media_url(row.get(key))
+        if got:
+            urls.append(got)
+    views = row.get("Views") or row.get("views")
+    if isinstance(views, list):
+        for view in views:
+            if not isinstance(view, dict):
+                continue
+            for key in ("VideoUrl", "Url", "ImageUrl", "url"):
+                got = _media_url(view.get(key))
+                if got:
+                    urls.append(got)
+    return tuple(urls)
 
 
 def _heading(raw: str) -> float | None:
@@ -669,6 +859,7 @@ def entities_from_cars_cameras(
             continue
         seen.add(eid)
         pos = lla_to_ecef(lat, lon, 12.0)
+        offer_official(eid, *_cars_media(row))
         out.append(
             attach_viewshed(
                 Entity(
@@ -737,6 +928,15 @@ def entities_from_tripcheck(payload: dict[str, Any]) -> list[Entity]:
             continue
         seen.add(eid)
         pos = lla_to_ecef(lat, lon, 12.0)
+        offer_official(
+            eid,
+            first_url(
+                attrs.get("VIDEOURL"),
+                attrs.get("IMAGEURL"),
+                attrs.get("URL"),
+                attrs.get("url"),
+            ),
+        )
         out.append(
             attach_viewshed(
                 Entity(
@@ -782,12 +982,25 @@ def entities_from_geojson_cameras(
         lon = _num(coords[0] if len(coords) > 0 else None)
         lat = _num(coords[1] if len(coords) > 1 else None)
         if not _ok_ll(lat, lon):
-            lat = _num(props.get("lat") or props.get("latitude") or props.get("LATITUDE"))
-            lon = _num(props.get("lon") or props.get("longitude") or props.get("LONGITUDE"))
+            lat = _num(
+                props.get("lat")
+                or props.get("latitude")
+                or props.get("LATITUDE")
+                or props.get("Y")
+            )
+            lon = _num(
+                props.get("lon")
+                or props.get("longitude")
+                or props.get("LONGITUDE")
+                or props.get("X")
+            )
         if not _ok_ll(lat, lon):
             continue
         cid = str(
             props.get("id")
+            or props.get("CAM_ID")
+            or props.get("IDEcamera")
+            or props.get("NumeroCamera")
             or props.get("CAMERAID")
             or props.get("OBJECTID")
             or feat.get("id")
@@ -795,7 +1008,12 @@ def entities_from_geojson_cameras(
         ).strip()
         name = str(
             props.get("name")
+            or props.get("Name")
             or props.get("NAME")
+            or props.get("title")
+            or props.get("DESCRIPTION")
+            or props.get("DescriptionLocalisationEn")
+            or props.get("DescriptionLocalisationFr")
             or props.get("LOCATION")
             or props.get("description")
             or cid
@@ -807,6 +1025,22 @@ def entities_from_geojson_cameras(
             continue
         seen.add(eid)
         pos = lla_to_ecef(lat, lon, 12.0)
+        offer_official(
+            eid,
+            _media_url(
+                props.get("VideoUrl"),
+                props.get("videoUrl"),
+                props.get("ImageUrl"),
+                props.get("imageUrl"),
+                props.get("href"),
+                props.get("view"),
+                props.get("snapshotImageUrl"),
+                props.get("url"),
+                props.get("URL"),
+                props.get("URL1"),
+                props.get("URL2"),
+            ),
+        )
         out.append(
             attach_viewshed(
                 Entity(
@@ -936,6 +1170,366 @@ def _fetch_nd_cameras() -> list[Entity] | None:
     return pins or None
 
 
+def _fetch_modot_cameras() -> list[Entity] | None:
+    payload = _get_json(MO_CAMERAS, MO_CAM_HOST)
+    if not isinstance(payload, dict):
+        return None
+    pins = entities_from_geojson_cameras(
+        payload, prefix="mo-cam", source="MoDOT cameras", cite=_MO_CAM_CITE
+    )
+    return pins or None
+
+
+def _fetch_algo() -> list[Entity] | None:
+    payload = _get_json(AL_CAMERAS, AL_HOST)
+    if not isinstance(payload, list):
+        return None
+    pins = entities_from_algo([row for row in payload if isinstance(row, dict)])
+    return pins or None
+
+
+def entities_from_algo(rows: list[dict[str, Any]]) -> list[Entity]:
+    return _collect(_entity_from_algo, rows)
+
+
+def _entity_from_algo(row: dict[str, Any]) -> Entity | None:
+    loc = row.get("location") if isinstance(row.get("location"), dict) else {}
+    lat = _num(loc.get("latitude"), row.get("latitude"))
+    lon = _num(loc.get("longitude"), row.get("longitude"))
+    if not _ok_ll(lat, lon):
+        return None
+    cid = str(row.get("id") or "").strip()
+    route = str(loc.get("displayRouteDesignator") or loc.get("routeDesignator") or "").strip()
+    cross = str(loc.get("displayCrossStreet") or loc.get("crossStreet") or "").strip()
+    name = " ".join(part for part in (route, cross) if part) or cid
+    if not cid and not name:
+        return None
+    eid = f"al-cam:{cid or name.casefold()[:40]}"
+    pos = lla_to_ecef(lat, lon, 12.0)
+    play = row.get("playbackUrls") if isinstance(row.get("playbackUrls"), dict) else {}
+    offer_official(
+        eid,
+        _media_url(play.get("hls"), row.get("snapshotImageUrl"), row.get("mapImageUrl")),
+    )
+    return Entity(
+        id=eid,
+        cls="camera",
+        layer="cameras",
+        label=name[:80],
+        x=pos[0],
+        y=pos[1],
+        z=pos[2],
+        source="ALGO cameras",
+        freshness="reconstructed",
+        confidence=0.75,
+        cite=_AL_CITE,
+        meta={"lat": lat, "lon": lon},
+        coverage=Coverage(
+            "pin",
+            "Operator catalog. No video. Pose unknown.",
+        ),
+        pii="none",
+    )
+
+
+def _fetch_deldot() -> list[Entity] | None:
+    payload = _get_json(DE_CAMERAS, DE_CAM_HOST)
+    if not isinstance(payload, dict):
+        return None
+    raw = payload.get("videoCameras") or payload.get("cameras") or []
+    if not isinstance(raw, list):
+        return None
+    pins = entities_from_deldot([row for row in raw if isinstance(row, dict)])
+    return pins or None
+
+
+def entities_from_deldot(rows: list[dict[str, Any]]) -> list[Entity]:
+    return _collect(_entity_from_deldot, rows)
+
+
+def _entity_from_deldot(row: dict[str, Any]) -> Entity | None:
+    lat = _num(row.get("lat"), row.get("latitude"))
+    lon = _num(row.get("lon"), row.get("lng"), row.get("longitude"))
+    if not _ok_ll(lat, lon):
+        return None
+    cid = str(row.get("id") or "").strip()
+    name = str(row.get("title") or row.get("name") or cid).strip()
+    if not cid and not name:
+        return None
+    eid = f"de-cam:{cid or name.casefold()[:40]}"
+    pos = lla_to_ecef(lat, lon, 12.0)
+    urls = row.get("urls") if isinstance(row.get("urls"), dict) else {}
+    offer_official(
+        eid,
+        _media_url(
+            urls.get("m3u8s"),
+            urls.get("m3u8"),
+            row.get("imageUrl"),
+            row.get("url"),
+        ),
+    )
+    return Entity(
+        id=eid,
+        cls="camera",
+        layer="cameras",
+        label=name[:80],
+        x=pos[0],
+        y=pos[1],
+        z=pos[2],
+        source="DelDOT cameras",
+        freshness="reconstructed",
+        confidence=0.75,
+        cite=_DE_CAM_CITE,
+        meta={"lat": lat, "lon": lon},
+        coverage=Coverage(
+            "pin",
+            "Operator catalog. No video. Pose unknown.",
+        ),
+        pii="none",
+    )
+
+
+def _fetch_nz_cameras() -> list[Entity] | None:
+    payload = _get_json(NZ_CAMERAS, NZ_CAM_HOST)
+    if not isinstance(payload, dict):
+        return None
+    pins = entities_from_geojson_cameras(
+        payload, prefix="nz-cam", source="NZTA cameras", cite=_NZ_CAM_CITE
+    )
+    return pins or None
+
+
+def _fetch_nsw_cameras() -> list[Entity] | None:
+    key = earth_secret("nsw_key", NSW_ENV)
+    if not key:
+        return None
+    payload = _get_json(
+        NSW_CAMERAS,
+        NSW_CAM_HOST,
+        extra={"Authorization": f"apikey {key}", "Accept": "application/json"},
+    )
+    if not isinstance(payload, dict):
+        return None
+    pins = entities_from_geojson_cameras(
+        payload, prefix="nsw-cam", source="NSW Live Traffic cameras", cite=_NSW_CAM_CITE
+    )
+    return pins or None
+
+
+def _fetch_ohgo_cameras() -> list[Entity] | None:
+    key = earth_secret("ohgo_key", OH_ENV)
+    if not key:
+        return None
+    payload = _get_json(
+        OH_CAMERAS,
+        OH_CAM_HOST,
+        params={"page-all": "true"},
+        extra={"Authorization": f"APIKEY {key}"},
+    )
+    if not isinstance(payload, dict):
+        return None
+    rows = _list_rows(payload, "results")
+    if not rows:
+        return None
+    pins = entities_from_ohgo_cameras(rows)
+    return pins or None
+
+
+def entities_from_ohgo_cameras(rows: list[dict[str, Any]]) -> list[Entity]:
+    out: list[Entity] = []
+    seen: set[str] = set()
+    for row in rows:
+        lat = _num(row.get("latitude"), row.get("Latitude"))
+        lon = _num(row.get("longitude"), row.get("Longitude"))
+        if not _ok_ll(lat, lon):
+            continue
+        cid = str(row.get("id") or row.get("Id") or "").strip()
+        name = str(
+            row.get("location") or row.get("Location") or row.get("description") or cid
+        ).strip()
+        if not cid and not name:
+            continue
+        eid = f"oh-cam:{cid or name.casefold()[:40]}"
+        if eid in seen:
+            continue
+        seen.add(eid)
+        views = row.get("cameraViews") or row.get("CameraViews") or []
+        media: list[str] = []
+        heading = None
+        if isinstance(views, list):
+            for view in views:
+                if not isinstance(view, dict):
+                    continue
+                media.append(_media_url(view.get("largeUrl"), view.get("LargeUrl")))
+                media.append(_media_url(view.get("smallUrl"), view.get("SmallUrl")))
+                if heading is None:
+                    heading = _heading(str(view.get("direction") or view.get("Direction") or ""))
+        offer_official(eid, *media)
+        pos = lla_to_ecef(lat, lon, 12.0)
+        meta: dict[str, Any] = {"lat": lat, "lon": lon}
+        if heading is not None:
+            meta["heading_deg"] = heading
+        out.append(
+            attach_viewshed(
+                Entity(
+                    id=eid,
+                    cls="camera",
+                    layer="cameras",
+                    label=(name or cid)[:80],
+                    x=pos[0],
+                    y=pos[1],
+                    z=pos[2],
+                    source="OHGO cameras",
+                    freshness="reconstructed",
+                    confidence=0.8,
+                    cite=_OH_CAM_CITE,
+                    meta=meta,
+                    coverage=Coverage(
+                        "viewshed" if heading is not None else "pin",
+                        "Operator catalog. Published look direction."
+                        if heading is not None
+                        else "Operator catalog. No video. Pose unknown.",
+                    ),
+                    pii="none",
+                )
+            )
+        )
+        if len(out) >= _CAP:
+            break
+    return out
+
+
+def _fetch_wsdot_cameras() -> list[Entity] | None:
+    key = earth_secret("wsdot_access_code", WA_ENV)
+    if not key:
+        return None
+    payload = _get_json(WA_CAMERAS, WA_CAM_HOST, params={"AccessCode": key})
+    rows = _list_rows(payload)
+    if not rows:
+        return None
+    pins = entities_from_wsdot_cameras(rows)
+    return pins or None
+
+
+def _fetch_keyed_cars_cameras() -> list[Entity] | None:
+    jobs: list[tuple[str, str, str, str, str]] = []
+    for host, prefix, source, field, env in _KEYED_CARS_CAMERAS:
+        key = earth_secret(field, env) if field else earth_cars_key(host)
+        if not key:
+            continue
+        url = f"https://{host}/api/v2/get/cameras?format=json"
+        jobs.append((host, url, prefix, source, key))
+    if not jobs:
+        return None
+    chunks: list[list[Entity] | None] = []
+    with ThreadPoolExecutor(max_workers=len(jobs)) as pool:
+        futs = [
+            pool.submit(_get_json, url, host, params={"key": key})
+            for host, url, _prefix, _source, key in jobs
+        ]
+        for fut, (_host, _url, prefix, source, _key) in zip(futs, jobs, strict=True):
+            payload = fut.result()
+            rows = _list_rows(payload, "cameras", "data")
+            if not rows:
+                chunks.append(None)
+                continue
+            chunks.append(
+                entities_from_cars_cameras(
+                    rows, prefix=prefix, source=source, cite=_KEYED_CARS_CAM_CITE
+                )
+                or None
+            )
+    if all(chunk is None for chunk in chunks):
+        return None
+    out: list[Entity] = []
+    seen: set[str] = set()
+    for chunk in chunks:
+        for entity in chunk or []:
+            if entity.id in seen:
+                continue
+            seen.add(entity.id)
+            out.append(entity)
+            if len(out) >= _CAP:
+                return out
+    return out or None
+
+
+def entities_from_wsdot_cameras(rows: list[dict[str, Any]]) -> list[Entity]:
+    out: list[Entity] = []
+    seen: set[str] = set()
+    for row in rows:
+        loc = row.get("CameraLocation") if isinstance(row.get("CameraLocation"), dict) else {}
+        lat = _num(loc.get("Latitude"), row.get("Latitude"), row.get("latitude"))
+        lon = _num(loc.get("Longitude"), row.get("Longitude"), row.get("longitude"))
+        if not _ok_ll(lat, lon):
+            continue
+        cid = str(row.get("CameraID") or row.get("Id") or row.get("id") or "").strip()
+        name = str(
+            row.get("Title") or loc.get("Description") or row.get("Description") or cid
+        ).strip()
+        if not cid and not name:
+            continue
+        eid = f"wa-cam:{cid or name.casefold()[:40]}"
+        if eid in seen:
+            continue
+        seen.add(eid)
+        heading = _heading(str(loc.get("Direction") or row.get("Direction") or ""))
+        pos = lla_to_ecef(lat, lon, 12.0)
+        offer_official(eid, _media_url(row.get("ImageURL"), row.get("ImageUrl")))
+        meta: dict[str, Any] = {"lat": lat, "lon": lon}
+        if heading is not None:
+            meta["heading_deg"] = heading
+        out.append(
+            attach_viewshed(
+                Entity(
+                    id=eid,
+                    cls="camera",
+                    layer="cameras",
+                    label=(name or cid)[:80],
+                    x=pos[0],
+                    y=pos[1],
+                    z=pos[2],
+                    source="WSDOT cameras",
+                    freshness="reconstructed",
+                    confidence=0.8,
+                    cite=_WA_CAM_CITE,
+                    meta=meta,
+                    coverage=Coverage(
+                        "viewshed" if heading is not None else "pin",
+                        "Operator catalog. No video. Pose unknown."
+                        if heading is None
+                        else "Operator catalog. Published look direction.",
+                    ),
+                    pii="none",
+                )
+            )
+        )
+        if len(out) >= _CAP:
+            break
+    return out
+
+
+def _list_rows(payload: Any, *keys: str) -> list[dict[str, Any]]:
+    if isinstance(payload, list):
+        return [row for row in payload if isinstance(row, dict)]
+    if isinstance(payload, dict):
+        for key in keys or ("cameras", "data", "Cameras"):
+            raw = payload.get(key)
+            if isinstance(raw, list):
+                return [row for row in raw if isinstance(row, dict)]
+    return []
+
+
+def _fetch_quebec_cameras() -> list[Entity] | None:
+    payload = _get_json(QC_CAMERAS, QC_CAM_HOST)
+    if not isinstance(payload, dict):
+        return None
+    pins = entities_from_geojson_cameras(
+        payload, prefix="qc-cam", source="Quebec 511 cameras", cite=_QC_CAM_CITE
+    )
+    return pins or None
+
+
 def _fetch_tfl() -> list[Entity] | None:
     places = _get_json(TFL_JAMCAM, TFL_HOST)
     if not isinstance(places, list):
@@ -1017,7 +1611,10 @@ def _fetch_many_json(urls: tuple[str, ...], pin: str) -> list[Any]:
 
 
 def _get_json(
-    url: str, pin: str, extra: dict[str, str] | None = None
+    url: str,
+    pin: str,
+    extra: dict[str, str] | None = None,
+    params: dict[str, str] | None = None,
 ) -> Any:
     if not _host_pinned(urlparse(url).hostname, pin):
         return None
@@ -1026,7 +1623,7 @@ def _get_json(
         headers.update(extra)
     try:
         with httpx.Client(timeout=_TIMEOUT, follow_redirects=True) as client:
-            resp = client.get(url, headers=headers)
+            resp = client.get(url, headers=headers, params=params)
             resp.raise_for_status()
             if not _host_pinned(urlparse(str(resp.url)).hostname, pin):
                 return None

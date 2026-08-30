@@ -44,10 +44,6 @@ def set_rim_pulse_phase(phase: float) -> None:
     _rim_pulse_phase = float(phase) % 6.283185307179586
 
 
-def rim_pulse_phase() -> float:
-    return _rim_pulse_phase
-
-
 def advance_rim_pulse(dt_seconds: float = 0.1) -> float:
     """Advance pulse by wall time; returns new phase."""
     period = max(1.5, float(GLASS.get("rim_pulse_seconds", 6.0)))

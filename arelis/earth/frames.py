@@ -32,9 +32,28 @@ WGS84_B = WGS84_A * (1.0 - WGS84_F)
 MEAN_R = 6_371_000.0
 
 
+def nadir_cam(lat_deg: float, lon_deg: float, alt_m: float) -> EarthCam:
+    """Birds-eye inspect pose. Look at the surface pin, north-ish up."""
+    eye = lla_to_ecef(lat_deg, lon_deg, alt_m)
+    look = lla_to_ecef(lat_deg, lon_deg, 0.0)
+    north = lla_to_ecef(min(89.0, lat_deg + 0.25), lon_deg, alt_m)
+    up = (north[0] - eye[0], north[1] - eye[1], north[2] - eye[2])
+    return EarthCam(eye=eye, look=look, up=up)
+
+
 def julian_unix(unix: float) -> float:
     """Unix seconds → Julian day (UTC≈UT1)."""
     return float(unix) / 86400.0 + 2_440_587.5
+
+
+def lla_to_sphere(
+    lat_deg: float, lon_deg: float, radius: float = MEAN_R
+) -> tuple[float, float, float]:
+    """Geographic lat/lon on a sphere. Same surface the globe mesh uses."""
+    lat = math.radians(lat_deg)
+    lon = math.radians(lon_deg)
+    c = math.cos(lat)
+    return (radius * c * math.cos(lon), radius * c * math.sin(lon), radius * math.sin(lat))
 
 
 def lla_to_ecef(lat_deg: float, lon_deg: float, alt_m: float = 0.0) -> tuple[float, float, float]:
@@ -55,6 +74,25 @@ def ecef_to_lla(x: float, y: float, z: float) -> tuple[float, float, float]:
     lat = math.degrees(math.asin(max(-1.0, min(1.0, z / r))))
     lon = math.degrees(math.atan2(y, x))
     return (lat, lon, r - MEAN_R)
+
+
+def ecef_to_geodetic(x: float, y: float, z: float) -> tuple[float, float, float]:
+    """WGS84 lat/lon/alt. Look pin and tile fabric, not a HUD sketch."""
+    lon = math.degrees(math.atan2(y, x))
+    p = math.hypot(x, y)
+    e2 = 1.0 - (WGS84_B * WGS84_B) / (WGS84_A * WGS84_A)
+    lat = math.atan2(z, p * (1.0 - e2))
+    for _ in range(8):
+        s = math.sin(lat)
+        n = WGS84_A / math.sqrt(1.0 - e2 * s * s)
+        lat = math.atan2(z + e2 * n * s, p)
+    c = math.cos(lat)
+    n = WGS84_A / math.sqrt(1.0 - e2 * math.sin(lat) ** 2)
+    if abs(c) > 1.0e-12:
+        alt = p / c - n
+    else:
+        alt = abs(z) - WGS84_B
+    return (math.degrees(lat), lon, alt)
 
 
 def ecef_to_ecliptic(

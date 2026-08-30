@@ -242,11 +242,6 @@ class Orchestrator:
             return "fast", "tool_loop"
         return (explicit or self.router.default_role), "default"
 
-    def choose_role(self, text: str, explicit: ModelRole | None = None) -> ModelRole:
-        """Pick a model role for this message (see classify_role for reason)."""
-        role, _reason = self.classify_role(text, explicit)
-        return role
-
     async def on_voice_transcript(self, event: Event) -> None:
         """Turn speech into a message, unless it was only dictation.
 

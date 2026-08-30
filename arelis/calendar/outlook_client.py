@@ -55,12 +55,6 @@ class OutlookCalendarClient:
         self._access = str(result["access_token"])
         return self._access
 
-    def _events_url(self) -> str:
-        cal = (self.creds.calendar_id or "").strip()
-        if cal:
-            return f"{GRAPH}/me/calendars/{quote(cal, safe='')}/events"
-        return f"{GRAPH}/me/calendar/events"
-
     async def list_events(
         self,
         *,

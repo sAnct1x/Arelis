@@ -71,14 +71,6 @@ class KokoroUnavailableError(RuntimeError):
     """Weights, onnxruntime, or G2P are missing / unusable."""
 
 
-def default_model_path() -> Path:
-    return _DEFAULT_MODEL
-
-
-def default_voices_path() -> Path:
-    return _DEFAULT_VOICES
-
-
 def g2p_available() -> bool:
     return importlib_ok("phonemizer") and importlib_ok("espeakng_loader")
 

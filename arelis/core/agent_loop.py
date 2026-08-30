@@ -605,8 +605,11 @@ class AgentLoop:
                 "role": "user",
                 "content": (
                     "Stop calling tools. Provide your best final answer now "
-                    "from the information gathered. If you lack a tool warrant "
-                    "for a precise or contingent claim, say you do not know."
+                    "from the information gathered. If the pages you opened "
+                    "were listicles or thin, say the sources were weak — do "
+                    "not rank or declare a winner from them. If you lack a "
+                    "tool warrant for a precise or contingent claim, say you "
+                    "do not know."
                 ),
             },
         ]

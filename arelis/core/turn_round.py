@@ -16,20 +16,32 @@ import time
 from types import SimpleNamespace
 from typing import Any
 
+from arelis.attachments import (
+    parse_attachments_from_turn,
+    split_attachments_turn,
+    wants_image_edit,
+)
+from arelis.core.agenda_complete import (
+    agenda_force_call_notice,
+    agenda_force_close_notice,
+    agenda_force_delete_notice,
+    agenda_force_open_notice,
+    agenda_force_read_notice,
+    agenda_read_action,
+    draft_agenda_create_args,
+    draft_agenda_delete_args,
+    looks_like_calendar_close,
+    looks_like_calendar_delete,
+    looks_like_calendar_open,
+    looks_like_calendar_read,
+)
 from arelis.core.agent_loop import (
     _FILE_ANSWER_TOOLS,
     _HIDE_WANDER_FOR,
     _JS_SHELL_BROWSER_NOTICE,
-    _MALFORMED_CALL_NOTICE,
     _MAX_TOOL_NUDGES,
     _SCRAPE_AFTER_SEARCH_NOTICE,
     _WEB_TOOLS,
-    FORCE_GATE_KINDS,
-    LOOK_TOOL_SUBSET,
-    Event,
-    EventType,
-    _answer_has_quote_span,
-    _exactness_finish_refuse,
     _hide_daily_wander,
     _is_ollama_object_400,
     _native_tool_call,
@@ -37,77 +49,72 @@ from arelis.core.agent_loop import (
     _offer_expected,
     _StoppedError,
     _tool_followup_fallback,
-    agenda_force_call_notice,
-    agenda_force_close_notice,
-    agenda_force_delete_notice,
-    agenda_force_open_notice,
-    agenda_force_read_notice,
-    agenda_read_action,
+)
+from arelis.core.claims import (
     answer_looks_like_ack_only,
     answer_looks_like_refusal,
-    apply_force_gates,
     catalog_force_notice,
-    classify_ollama_failure,
     contact_who_from_text,
-    draft_agenda_create_args,
-    draft_agenda_delete_args,
-    draft_browser_args,
     draft_catalog_args,
-    draft_inbox_mutate_args,
-    draft_rooms_create_args,
-    draft_send_email_args,
-    draft_send_sms_args,
-    draft_signin_click_args,
-    draft_weather_args,
-    dual_hit_notice,
-    email_force_call_notice,
     evidence_force_notice,
-    extract_native_tool_calls,
     file_answer_force_notice,
-    fill_vision_args,
-    filter_tool_names,
-    image_force_call_notice,
-    is_research_mode,
-    is_vram_failure,
     last_store_ids_from_context,
     local_store_inject_args,
+    unsupported_exactness_reply,
+    weather_force_notice,
+)
+from arelis.core.email_complete import (
+    draft_send_email_args,
+    email_force_call_notice,
     looks_like_bare_confirm,
+    looks_like_mailbox_mutate,
+    looks_like_schedule_manage,
+    looks_like_scheduled_send,
+    rewrite_schedule_calls,
+)
+from arelis.core.events import Event, EventType
+from arelis.core.evidence import dual_hit_notice, quote_first_notice
+from arelis.core.gates import FORCE_GATE_KINDS, apply_force_gates
+from arelis.core.image_refs import fill_vision_args, image_force_call_notice
+from arelis.core.json_tools import (
+    extract_native_tool_calls,
+    parse_fallback_payload,
+    strip_thinking_text,
+)
+from arelis.core.look import LOOK_TOOL_SUBSET, next_look_call
+from arelis.core.loop_helpers import (
+    _MALFORMED_CALL_NOTICE,
+    _answer_has_quote_span,
+    _exactness_finish_refuse,
+)
+from arelis.core.plan_nudge import plan_progress_notice
+from arelis.core.preflight import (
+    draft_browser_args,
+    draft_rooms_create_args,
+    draft_signin_click_args,
     looks_like_browser_click_signin,
+    looks_like_room_create,
+    rewrite_browser_calls,
+)
+from arelis.core.sms_complete import (
+    draft_send_sms_args,
     looks_like_browser_or_url,
-    looks_like_calendar_close,
-    looks_like_calendar_delete,
-    looks_like_calendar_open,
-    looks_like_calendar_read,
     looks_like_contacts_followup,
     looks_like_contacts_utterance,
     looks_like_goals_utterance,
     looks_like_image_gen,
-    looks_like_mailbox_mutate,
     looks_like_memory_utterance,
-    looks_like_room_create,
-    looks_like_schedule_manage,
-    looks_like_scheduled_send,
     looks_like_stale_sms_skip,
     looks_like_tasks_utterance,
-    match_tile_intent,
-    next_look_call,
-    parse_attachments_from_turn,
-    parse_fallback_payload,
-    plan_progress_notice,
-    quote_first_notice,
-    rewrite_browser_calls,
-    rewrite_schedule_calls,
     sms_force_call_notice,
-    split_attachments_turn,
-    strip_thinking_text,
-    tile_tool_args,
-    unsupported_exactness_reply,
-    wants_image_edit,
-    weather_force_notice,
-    weather_places_missing,
 )
+from arelis.core.tile_complete import match_tile_intent, tile_tool_args
+from arelis.core.tool_subset import filter_tool_names, is_research_mode
 from arelis.core.turn_context import TurnContext
 from arelis.core.turn_dispatch import dispatch_calls
+from arelis.llm.errors import classify_ollama_failure, is_vram_failure
+from arelis.tools.inbox import draft_inbox_mutate_args
+from arelis.tools.weather import draft_weather_args, weather_places_missing
 
 
 def _round_scratch(

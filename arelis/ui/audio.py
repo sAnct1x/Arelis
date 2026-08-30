@@ -18,7 +18,7 @@ from pathlib import Path
 from PySide6.QtCore import QObject, QTimer, QUrl, Signal
 
 from arelis.core.failure_copy import plain_reason
-from arelis.voice.pcm import duration_seconds, rms_level
+from arelis.voice.pcm import rms_level
 
 log = logging.getLogger(__name__)
 
@@ -235,11 +235,6 @@ class MicRecorder(QObject):
         self.stop()
         self._buffer.clear()
 
-    def buffered_seconds(self) -> float:
-        return duration_seconds(
-            bytes(self._buffer), sample_rate=self.sample_rate, channels=self.channels
-        )
-
     def _on_ready_read(self) -> None:
         self._drain()
 
@@ -290,9 +285,6 @@ class SpeechPlayer(QObject):
     def available(self) -> bool:
         return self._player is not None
 
-    def is_playing(self) -> bool:
-        return self._active
-
     def has_work(self) -> bool:
         """True while a clip is playing or still queued (covers SPEECH_DONE races)."""
         return self._active or bool(self._queue)
@@ -318,12 +310,6 @@ class SpeechPlayer(QObject):
             matched = default if not default.isNull() else (outputs[0] if outputs else None)
         if matched is not None:
             self._output.setDevice(matched)
-
-    def output_device_name(self) -> str:
-        if self._output is None or not MULTIMEDIA_AVAILABLE:
-            return ""
-        device = self._output.device()
-        return device.description() if device is not None and not device.isNull() else ""
 
     def enqueue(self, path: str | Path, utterance: int = 0) -> None:
         if self._player is None:

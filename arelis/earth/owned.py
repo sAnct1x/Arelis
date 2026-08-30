@@ -133,12 +133,10 @@ def _owned_rows(path: Path | None) -> list[dict[str, Any]]:
             continue
         if abs(lat) > 90.0 or abs(lon) > 180.0:
             continue
-        rtsp = str(row.get("rtsp") or "").strip()
+        rtsp = str(row.get("rtsp") or row.get("url") or "").strip()
         device = row.get("device")
         if device is None:
             device = row.get("index") or row.get("device_index")
-        if rtsp.lower().startswith("http"):
-            continue
         if not rtsp and device is None:
             continue
         packed = dict(row)
@@ -162,10 +160,8 @@ def _grab_frame(row: dict[str, Any]) -> Any:
         import numpy as np
     except ImportError:
         return None
-    source: Any = row.get("rtsp") or row.get("device")
+    source: Any = row.get("rtsp") or row.get("url") or row.get("device")
     if source is None or source == "":
-        return None
-    if isinstance(source, str) and source.lower().startswith("http"):
         return None
     try:
         import cv2

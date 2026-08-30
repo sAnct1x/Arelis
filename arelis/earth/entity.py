@@ -33,6 +33,27 @@ Freshness = Literal[
 
 PiiKind = Literal["none", "contact", "inferred"]
 
+# Dump / cite never carry a playable source. Adapters must keep these off
+# meta; this is the last door if one slips through.
+_LOOK_META = frozenset(
+    {
+        "url",
+        "imageurl",
+        "image_url",
+        "stream",
+        "stream_url",
+        "video_url",
+        "videourl",
+        "rtsp",
+        "token",
+        "apikey",
+        "api_key",
+        "password",
+        "streamingvideourl",
+        "currentimageurl",
+    }
+)
+
 LAYER_IDS: tuple[str, ...] = (
     "flights",
     "drones",
@@ -86,11 +107,17 @@ class Entity:
         return (self.vx * self.vx + self.vy * self.vy + self.vz * self.vz) ** 0.5
 
     def to_row(self) -> dict[str, Any]:
-        meta = {
-            k: v
-            for k, v in self.meta.items()
-            if k != "viewshed_ecef" and not str(k).startswith("_")
-        }
+        meta = {}
+        for k, v in self.meta.items():
+            if k == "viewshed_ecef" or str(k).startswith("_"):
+                continue
+            if str(k).lower().replace("-", "_") in _LOOK_META:
+                continue
+            if isinstance(v, str) and v.lower().startswith(
+                ("http://", "https://", "rtsp://", "rtsps://")
+            ):
+                continue
+            meta[k] = v
         row: dict[str, Any] = {
             "id": self.id,
             "class": self.cls,

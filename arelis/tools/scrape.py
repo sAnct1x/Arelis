@@ -22,6 +22,7 @@ from arelis.tools.base import ToolResult
 from arelis.tools.fetch import BlockedUrlError, guarded_get, reject_non_http_url
 from arelis.tools.html_text import content_type_main
 from arelis.tools.safety import redact_secrets
+from arelis.tools.search import result_is_mill
 
 
 def _fail_output(message: str) -> str:
@@ -79,6 +80,15 @@ class ScrapeTool:
             return ToolResult(ok=False, output=_fail_output(bad))
         max_chars = int(kwargs.get("max_chars", self.max_chars))
         page_url = str(url).strip()
+        if result_is_mill(page_url):
+            return ToolResult(
+                ok=False,
+                output=_fail_output(
+                    f"{page_url} is a listicle mill. Pick an encyclopedia, "
+                    "journal, agency, or newspaper URL from search instead."
+                ),
+                data={"url": page_url, "fail_class": "fail:mill"},
+            )
 
         extract = ArticleExtract()
         final = page_url

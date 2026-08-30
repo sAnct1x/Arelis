@@ -14,8 +14,6 @@ from typing import Any
 
 log = logging.getLogger(__name__)
 
-_MAX_PROJECT_SNIPPET = 120
-
 
 def world_state_prompt_line(
     config: dict[str, Any] | None,
@@ -263,24 +261,3 @@ def _pending_confirms_part(config: dict[str, Any]) -> str:
     if count <= 0:
         return ""
     return f"pending confirms {count}"
-
-
-def _project_part(workspace: Any) -> str:
-    if workspace is None:
-        return ""
-    prompt_line = getattr(workspace, "prompt_line", None)
-    if not callable(prompt_line):
-        return ""
-    line = prompt_line()
-    if not line:
-        return ""
-    text = " ".join(str(line).split())
-    if not text:
-        return ""
-    # First sentence is enough; the path-qualify instruction is noise here.
-    snippet = text.split(".")[0].strip()
-    if not snippet:
-        snippet = text
-    if len(snippet) > _MAX_PROJECT_SNIPPET:
-        snippet = snippet[: _MAX_PROJECT_SNIPPET - 1].rstrip() + "…"
-    return snippet
