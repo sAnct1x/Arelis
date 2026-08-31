@@ -129,6 +129,9 @@ def run_core(config: dict[str, Any]) -> int:
     bus = EventBus()
     bus.subscribe(None, _on_bus)
     attach_event_audit(bus, config)
+    from arelis.guard import attach_watch
+
+    attach_watch(bus, config)
 
     presence_cfg = config.get("presence") or {}
     ipc_enabled = bool(presence_cfg.get("ipc_enabled", True))

@@ -28,6 +28,8 @@ def test_detect_kind() -> None:
     assert detect_kind("ui_launch.log") == "text"
     assert detect_kind("app.LOG") == "text"
     assert detect_kind("config.yaml") == "text"
+    assert detect_kind("mod.py") == "text"
+    assert detect_kind("x.pyi") == "text"
     assert detect_kind("t.csv") == "data"
     assert detect_kind("t.xlsx") == "data"
     assert detect_kind("doc.pdf") == "pdf"
@@ -43,6 +45,15 @@ def test_route_log_uses_workspace_read() -> None:
     )
     assert "→ workspace read" in block
     assert "log" in block.lower()
+
+
+def test_route_python_uses_workspace_read() -> None:
+    assert route_tool("text", "what does this module do") == "workspace read"
+    block = format_attachments_block(
+        [{"path": "arelis/attachments.py", "kind": "text"}],
+        user_text="how does this file work",
+    )
+    assert "→ workspace read" in block
 
 
 def test_stage_files_copies_and_kinds(tmp_path: Path) -> None:

@@ -11,7 +11,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from arelis.browser.hold import format_drive_status
+from arelis.browser.hold import format_drive_done, format_drive_status
 from arelis.browser.walls import your_turn_status
 from arelis.core.events import Event, EventType
 from arelis.core.failure_copy import plain_reason, tool_failure_notice
@@ -21,12 +21,26 @@ from arelis.spatial import PHYSICS_ROOM_ID
 from arelis.ui.layout_store import push_recent_workspace_file
 from arelis.ui.panels.workspace import is_workspace_listing, status_for_tool_result
 from arelis.ui.status_copy import THINKING_STATUS, WAITING_STATUS, tool_errand, tool_status_line
+from arelis.ui.workspace_host import record_artifact, refresh_desk
 from arelis.ui.world_host import should_offer_world
 
 # A spoken reply holds the microphone closed. This is the backstop, sized
 # for one very long sentence synthesizing while the previous one plays.
 # Every clip and playback transition restarts it.
 SPEECH_WATCHDOG_MS = 45000
+
+
+def _browser_drive_done(data: dict[str, Any]) -> str:
+    """Past-tense Drive line from a browser tool result. Empty keeps the about-to copy."""
+    if data.get("label") or data.get("ref"):
+        return format_drive_done("click", data=data)
+    if data.get("query") and data.get("search_url"):
+        return format_drive_done("search", data=data)
+    if data.get("maps_url"):
+        return format_drive_done("maps", data=data)
+    if data.get("url") and not data.get("snapshot"):
+        return format_drive_done("open", data=data)
+    return ""
 
 
 def parse_role_set_message(message: str) -> str | None:
@@ -239,6 +253,7 @@ def dispatch_event(window: Any, event: Event) -> None:
         # The room owns a project, so the dock's switcher has to follow or
         # the two disagree about where a bare path lands.
         window.workspace.set_active_project(window.workspace_roots.active)
+        refresh_desk(window)
         window.camera.set_spatial_available(should_offer_world(room_id))
         window.spatial.set_room(room_id)
         if room_id != PHYSICS_ROOM_ID:
@@ -310,7 +325,19 @@ def dispatch_event(window: Any, event: Event) -> None:
         if window._turn_busy:
             window.chat.show_progress(WAITING_STATUS)
         window.conversation.set_turn_visible(True)
-        window._reveal_dock(window.think_dock, window.act_thinking)
+        from arelis.tools.policy import action_is_destructive
+        from arelis.ui.theme import active_theme
+
+        if active_theme() == "filament":
+            headline = str(p.get("headline") or p.get("summary") or "is that alright")
+            args = p.get("args") if isinstance(p.get("args"), dict) else {}
+            if action_is_destructive(str(p.get("tool") or ""), args):
+                spoken = f"{headline}. say yes or no."
+            else:
+                spoken = headline
+            window.bus.publish(Event(EventType.VOICE_SPEAK, {"text": spoken}))
+        else:
+            window._reveal_dock(window.think_dock, window.act_thinking)
         window.thinking.append(
             str(p.get("headline") or p.get("summary") or "waiting for you"),
             kind="tool",
@@ -402,9 +429,9 @@ def dispatch_event(window: Any, event: Event) -> None:
                 window.chat.add_system(note or "Your turn — the page stays.")
                 window.thinking.append(f"your turn  {kind or code}", kind="status")
             else:
-                out = str(p.get("output") or "").strip()
-                if out:
-                    window.conversation.set_drive_status(out.splitlines()[0][:80])
+                done = _browser_drive_done(data)
+                if done:
+                    window.conversation.set_drive_status(done)
         if p.get("tool") in {"image", "image_edit"}:
             if p.get("ok"):
                 window.chat.add_system("Image ready — open in Workspace")
@@ -481,6 +508,15 @@ def dispatch_event(window: Any, event: Event) -> None:
                             window.workspace.set_recent(
                                 push_recent_workspace_file(display)
                             )
+                            if action in {"write", "edit", "keep"}:
+                                record_artifact(
+                                    window,
+                                    str(target),
+                                    label=display,
+                                    source="keep" if action == "keep" else "workspace",
+                                    root_name=root_name,
+                                )
+                                window.workspace.show_desk()
                         else:
                             window.chat.add_system(
                                 f"I wrote {display}, but you have unsaved edits open in the "
@@ -521,6 +557,13 @@ def dispatch_event(window: Any, event: Event) -> None:
         if path:
             window.workspace.show_image(path)
             window.workspace.append_output(f"Image ready — {Path(str(path)).name}")
+            record_artifact(
+                window,
+                str(path),
+                label=Path(str(path)).name,
+                source="image",
+            )
+            window.workspace.show_desk()
             window._reveal_dock(window.work_dock, window.act_workspace)
     elif t == EventType.FILE_READY:
         abs_path = str(p.get("abs_path") or p.get("path") or "").strip()
@@ -529,6 +572,18 @@ def dispatch_event(window: Any, event: Event) -> None:
             name = Path(abs_path).name
         if abs_path and p.get("show_card", True):
             window.chat.add_file_card(name or Path(abs_path).name, abs_path)
+        if abs_path:
+            kind = str(p.get("kind") or "")
+            record_artifact(
+                window,
+                abs_path,
+                label=name or Path(abs_path).name,
+                kind=kind,
+                source="keep" if kind == "note" else "",
+            )
+            if p.get("show_card", True) or kind == "note":
+                window.workspace.show_desk()
+                window._reveal_dock(window.work_dock, window.act_workspace)
         if abs_path and p.get("open"):
             try:
                 open_local_file(abs_path)
@@ -560,9 +615,11 @@ def dispatch_event(window: Any, event: Event) -> None:
         if str(p.get("reason") or "") == "your_turn":
             kind = str(p.get("kind") or "")
             window.conversation.set_drive_your_turn(your_turn_status(kind))
+        else:
+            window.conversation.set_drive_paused(True)
     elif t == EventType.TURN_RESUME:
+        window.conversation.set_drive_paused(False)
         if str(p.get("reason") or "") == "wall_cleared":
-            window.conversation.set_drive_paused(False)
             window.conversation.set_drive_status("continuing…")
             window.thinking.append("wall gone — continuing", kind="status")
     elif t == EventType.ERROR:

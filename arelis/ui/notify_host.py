@@ -20,6 +20,13 @@ def on_notify_unread(window, count: int) -> None:
         window.act_notifications.setText(f"notifications ({count})")
     else:
         window.act_notifications.setText("notifications")
+    from arelis.ui.theme import active_theme
+
+    if active_theme() != "filament":
+        return
+    place = getattr(window, "_place_filament_floats", None)
+    if callable(place):
+        place(reshape=False)
 
 
 def on_notify_inbox_closed(window) -> None:

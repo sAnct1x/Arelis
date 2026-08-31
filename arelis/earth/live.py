@@ -118,6 +118,21 @@ def merge_live(
     jobs = _jobs(view, layers, only)
     if not jobs:
         return
+    try:
+        from arelis.guard import get_watch
+
+        if not get_watch().egress_open():
+            from arelis.physics.telemetry import emit
+
+            emit(
+                "live_merge",
+                band=view.band if view is not None else "full",
+                n_jobs=0,
+                skipped="watch_mute",
+            )
+            return
+    except Exception:
+        pass
     t0 = time.perf_counter()
     got = _gather(jobs)
     _apply_live(store, got, set(jobs), view)

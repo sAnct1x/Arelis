@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security
+    url: https://github.com/sAnct1x/Arelis/security/policy
+    about: A hole that lets someone read or send as you. Private report. Not an issue.

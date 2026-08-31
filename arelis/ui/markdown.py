@@ -51,34 +51,57 @@ _INLINE = re.compile(
 )
 _LINK_PARTS = re.compile(r"^\[([^\]\n]*)\]\(([^)\s]+)\)$")
 
-# The theme quotes font names with double quotes, which would close the style
-# attribute the moment it was interpolated into one and drop everything after it.
-_MONO = FONTS["mono"].replace('"', "'")
-_CODE_BG = COLORS["code_fill"]
-_EDGE = COLORS["edge_soft"]
+def _mono() -> str:
+    # Theme quotes font names with double quotes, which would close a style
+    # attribute the moment they were interpolated into one.
+    return FONTS["mono"].replace('"', "'")
 
-# No border here. Qt's rich text engine keeps borders on table cells but drops
-# them on block elements, so declaring one would be styling that never renders.
-# The background is what separates a code block from the prose around it.
-_STYLE_PRE = (
-    f"background-color:{_CODE_BG}; font-family:{_MONO}; "
-    f"font-size:12px; color:{COLORS['text']}; margin:6px 0 6px 0;"
-)
-_STYLE_CODE = (
-    f"background-color:{_CODE_BG}; font-family:{_MONO}; "
-    f"font-size:12px; color:{COLORS['accent']};"
-)
-_STYLE_QUOTE = (
-    f"border-left:2px solid {COLORS['accent']}; color:{COLORS['text_dim']}; "
-    "margin:6px 0 6px 4px; padding-left:8px;"
-)
-_STYLE_RULE = f"border:none; border-top:1px solid {_EDGE}; margin:8px 0 8px 0;"
-_STYLE_LINK = f"color:{COLORS['accent2']}; text-decoration:underline;"
-_STYLE_TABLE = f"border-collapse:collapse; margin:8px 0 10px 0; color:{COLORS['text']};"
-_STYLE_TH = (
-    f"border:none; border-bottom:1px solid {COLORS['hairline_faint']}; "
-    f"color:{COLORS['accent2']}; font-weight:500;"
-)
+
+def _style_pre() -> str:
+    return (
+        f"background-color:{COLORS['code_fill']}; font-family:{_mono()}; "
+        f"font-size:12px; color:{COLORS['text']}; margin:6px 0 6px 0;"
+    )
+
+
+def _style_code() -> str:
+    return (
+        f"background-color:{COLORS['code_fill']}; font-family:{_mono()}; "
+        f"font-size:12px; color:{COLORS['accent']};"
+    )
+
+
+def _style_quote() -> str:
+    return (
+        f"border-left:2px solid {COLORS['accent']}; color:{COLORS['text_dim']}; "
+        "margin:6px 0 6px 4px; padding-left:8px;"
+    )
+
+
+def _style_rule() -> str:
+    return (
+        f"border:none; border-top:1px solid {COLORS['edge_soft']}; "
+        "margin:8px 0 8px 0;"
+    )
+
+
+def _style_link() -> str:
+    return f"color:{COLORS['accent2']}; text-decoration:underline;"
+
+
+def _style_table() -> str:
+    return (
+        f"border-collapse:collapse; margin:8px 0 10px 0; color:{COLORS['text']};"
+    )
+
+
+def _style_th() -> str:
+    return (
+        f"border:none; border-bottom:1px solid {COLORS['hairline_faint']}; "
+        f"color:{COLORS['accent2']}; font-weight:500;"
+    )
+
+
 _STYLE_TD = "border:none;"
 # Cell spacing comes from the cellpadding attribute. Qt reads that rather than
 # CSS padding on the cells, so setting it in the style has no effect.
@@ -197,7 +220,7 @@ def render_markdown(text: str) -> str:
             i += 1
             continue
         if _RULE.match(line):
-            out.append(f'<hr style="{_STYLE_RULE}" />')
+            out.append(f'<hr style="{_style_rule()}" />')
             i += 1
             continue
         heading = _HEADING.match(line)
@@ -247,7 +270,7 @@ def _render_match(match: re.Match[str]) -> str:
     # back through the scanner. Recursion terminates because the body is always
     # shorter than the match that produced it.
     if kind == "code":
-        return f'<code style="{_STYLE_CODE}">{_escape(raw[1:-1])}</code>'
+        return f'<code style="{_style_code()}">{_escape(raw[1:-1])}</code>'
     if kind == "link":
         parts = _LINK_PARTS.match(raw)
         if parts is None:
@@ -267,7 +290,7 @@ def _render_match(match: re.Match[str]) -> str:
 def _anchor(href: str, label: str) -> str:
     if not href.lower().startswith(_SAFE_SCHEMES):
         return label
-    return f'<a href="{_escape(href, quote=True)}" style="{_STYLE_LINK}">{label}</a>'
+    return f'<a href="{_escape(href, quote=True)}" style="{_style_link()}">{label}</a>'
 
 
 def _escape(text: str, *, quote: bool = False) -> str:
@@ -284,7 +307,7 @@ def _take_code_block(lines: list[str], i: int) -> tuple[int, str]:
         i += 1
     i += 1
     code = _escape("\n".join(body))
-    return i, f'<pre style="{_STYLE_PRE}">{code}</pre>'
+    return i, f'<pre style="{_style_pre()}">{code}</pre>'
 
 
 def _take_quote(lines: list[str], i: int) -> tuple[int, str]:
@@ -295,7 +318,7 @@ def _take_quote(lines: list[str], i: int) -> tuple[int, str]:
             break
         body.append(render_inline(match.group(1)))
         i += 1
-    return i, f'<p style="{_STYLE_QUOTE}">{"<br/>".join(body)}</p>'
+    return i, f'<p style="{_style_quote()}">{"<br/>".join(body)}</p>'
 
 
 def _take_paragraph(lines: list[str], i: int) -> tuple[int, str]:
@@ -397,10 +420,10 @@ def _take_table(lines: list[str], i: int) -> tuple[int, str]:
         rows.append(_split_row(lines[i]))
         i += 1
 
-    parts = [f'<table {_TABLE_ATTRS} style="{_STYLE_TABLE}"><tr>']
+    parts = [f'<table {_TABLE_ATTRS} style="{_style_table()}"><tr>']
     for column, cell in enumerate(header):
         parts.append(
-            f'<th style="{_STYLE_TH} text-align:{_align_of(aligns, column)};">'
+            f'<th style="{_style_th()} text-align:{_align_of(aligns, column)};">'
             f"{render_inline(cell)}</th>"
         )
     parts.append("</tr>")

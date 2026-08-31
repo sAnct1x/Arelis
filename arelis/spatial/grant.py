@@ -1,4 +1,4 @@
-"""MotionGrant: pose is allowed only in Reality, while tracking is on."""
+"""MotionGrant: pose is allowed in Reality, or on filament with the Hands chip."""
 
 from __future__ import annotations
 
@@ -12,14 +12,16 @@ from arelis.spatial import PHYSICS_ROOM_ID
 class MotionGrant:
     room_id: str
     tracking: bool
+    filament: bool = False
+    chip: bool = False
 
     @property
     def allowed(self) -> bool:
-        return (
-            world_stage_allowed()
-            and self.room_id == PHYSICS_ROOM_ID
-            and self.tracking
-        )
+        if not world_stage_allowed() or not self.tracking:
+            return False
+        if self.filament and self.chip:
+            return True
+        return self.room_id == PHYSICS_ROOM_ID
 
 
 def world_stage_allowed() -> bool:
@@ -36,9 +38,28 @@ def world_stage_allowed() -> bool:
     return is_source_checkout()
 
 
-def grant_for(room_id: str | None, tracking: bool) -> MotionGrant:
-    return MotionGrant(room_id=str(room_id or ""), tracking=bool(tracking))
+def grant_for(
+    room_id: str | None,
+    tracking: bool,
+    *,
+    filament: bool = False,
+    chip: bool = False,
+) -> MotionGrant:
+    return MotionGrant(
+        room_id=str(room_id or ""),
+        tracking=bool(tracking),
+        filament=bool(filament),
+        chip=bool(chip),
+    )
 
 
-def must_revoke(room_id: str | None) -> bool:
+def must_revoke(
+    room_id: str | None,
+    *,
+    filament: bool = False,
+    chip: bool = False,
+) -> bool:
+    """Leave Reality kills sodium Track. Filament + chip survives a room change."""
+    if filament and chip:
+        return False
     return str(room_id or "") != PHYSICS_ROOM_ID

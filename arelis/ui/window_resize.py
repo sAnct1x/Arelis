@@ -11,7 +11,7 @@ import sys
 from ctypes import c_short
 from typing import Any
 
-from PySide6.QtCore import QPoint, Qt
+from PySide6.QtCore import QPoint, QRect, QSize, Qt
 from PySide6.QtGui import QCursor
 from PySide6.QtWidgets import QApplication, QWidget
 
@@ -23,6 +23,7 @@ from PySide6.QtWidgets import QApplication, QWidget
 
 WM_NCHITTEST = 0x0084
 WM_NCCALCSIZE = 0x0083
+WM_GETMINMAXINFO = 0x0024
 
 # What WM_NCCALCSIZE hands back when wParam is TRUE.
 #
@@ -41,6 +42,7 @@ WVR_HREDRAW = 0x0100
 WVR_VREDRAW = 0x0200
 WVR_REDRAW = WVR_HREDRAW | WVR_VREDRAW
 
+HTTRANSPARENT = -1
 HTCLIENT = 1
 HTLEFT = 10
 HTRIGHT = 11
@@ -66,9 +68,19 @@ SWP_FRAMECHANGED = 0x0020
 SWP_NOMOVE = 0x0002
 SWP_NOSIZE = 0x0001
 SWP_NOZORDER = 0x0004
+SWP_NOACTIVATE = 0x0010
+SWP_NOSENDCHANGING = 0x0400
+
+SM_XVIRTUALSCREEN = 76
+SM_YVIRTUALSCREEN = 77
+SM_CXVIRTUALSCREEN = 78
+SM_CYVIRTUALSCREEN = 79
 
 # Logical pixels; scaled by devicePixelRatio at hit-test time.
 _BORDER = 10
+
+# Qt's QWIDGETSIZE_MAX. PySide6 6.11 does not export the name.
+_WIDGET_SIZE_MAX = 16777215
 
 
 def configure_native_windows() -> None:
@@ -203,6 +215,12 @@ def _msg_from_message(message: Any) -> Any:
         return None
 
 
+def win32_msg(event_type: Any, message: Any) -> Any:
+    if _event_type_bytes(event_type) != b"windows_generic_MSG":
+        return None
+    return _msg_from_message(message)
+
+
 def _border_px(widget: QWidget, border: int) -> int:
     handle = widget.windowHandle()
     dpr = float(handle.devicePixelRatio() if handle is not None else 1.0)
@@ -272,6 +290,181 @@ def hit_test_resize(widget: QWidget, *, border: int = _BORDER) -> int | None:
     return hit_test_resize_at(widget, pos.x(), pos.y(), border=border)
 
 
+def _geo_matches(got: QRect, want: QRect) -> bool:
+    return (
+        abs(got.x() - want.x()) <= 8
+        and abs(got.y() - want.y()) <= 8
+        and abs(got.width() - want.width()) <= 24
+        and abs(got.height() - want.height()) <= 24
+    )
+
+
+def _virtual_desktop_native() -> tuple[int, int, int, int]:
+    """Virtual desktop x, y, w, h in physical pixels."""
+    from ctypes import windll
+
+    user32 = windll.user32
+    return (
+        int(user32.GetSystemMetrics(SM_XVIRTUALSCREEN)),
+        int(user32.GetSystemMetrics(SM_YVIRTUALSCREEN)),
+        int(user32.GetSystemMetrics(SM_CXVIRTUALSCREEN)),
+        int(user32.GetSystemMetrics(SM_CYVIRTUALSCREEN)),
+    )
+
+
+def _fill_minmax_info(info: Any) -> None:
+    """Let a frameless HWND span the whole row. Default max track is one desk."""
+    vx, vy, vw, vh = _virtual_desktop_native()
+    info.ptMaxPosition.x = vx
+    info.ptMaxPosition.y = vy
+    info.ptMaxSize.x = vw
+    info.ptMaxSize.y = vh
+    info.ptMaxTrackSize.x = vw
+    info.ptMaxTrackSize.y = vh
+    info.ptMinTrackSize.x = 1
+    info.ptMinTrackSize.y = 1
+
+
+def _native_place_rect(rect: QRect, dpr: float) -> tuple[int, int, int, int]:
+    scale = max(0.25, float(dpr))
+    return (
+        round(rect.x() * scale),
+        round(rect.y() * scale),
+        round(rect.width() * scale),
+        round(rect.height() * scale),
+    )
+
+
+def _place_scale(handle: Any) -> float:
+    """Physical / logical. Virtual desktop, not the HWND's current monitor."""
+    try:
+        from PySide6.QtGui import QGuiApplication
+
+        app = QGuiApplication.instance()
+        screen = app.primaryScreen() if app is not None else None
+        virt = screen.virtualGeometry() if screen is not None else None
+        if virt is not None and virt.width() > 0:
+            _vx, _vy, vw, _vh = _virtual_desktop_native()
+            if vw > 0:
+                sx = vw / float(virt.width())
+                if 0.5 <= sx <= 4.0:
+                    return sx
+    except Exception:
+        pass
+    if handle is not None:
+        try:
+            return max(1.0, float(handle.devicePixelRatio()))
+        except Exception:
+            pass
+    return 1.0
+
+
+def _set_hwnd_rect(hwnd: int, rect: QRect, scale: float) -> None:
+    from ctypes import windll
+
+    nx, ny, nw, nh = _native_place_rect(rect, scale)
+    windll.user32.SetWindowPos(
+        hwnd,
+        0,
+        nx,
+        ny,
+        nw,
+        nh,
+        SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOSENDCHANGING,
+    )
+
+
+def _hwnd_logical_rect(hwnd: int, scale: float) -> QRect | None:
+    from ctypes import byref, windll, wintypes
+
+    rc = wintypes.RECT()
+    if not windll.user32.GetWindowRect(hwnd, byref(rc)):
+        return None
+    s = max(0.25, float(scale))
+    return QRect(
+        round(rc.left / s),
+        round(rc.top / s),
+        round((rc.right - rc.left) / s),
+        round((rc.bottom - rc.top) / s),
+    )
+
+
+def _qt_set_rect(widget: QWidget, handle: Any, rect: QRect) -> None:
+    if handle is not None:
+        handle.setGeometry(rect)
+    widget.setGeometry(rect)
+
+
+def _step_rects(current: QRect, want: QRect) -> list[QRect]:
+    """Origin jump: land first, then grow/shrink along +x. One shot otherwise.
+
+    Windows treats a leftward origin change as a move onto that monitor, then
+    clamps width to that desk. Growing right from the new origin is allowed.
+    """
+    if not current.isValid():
+        return [want]
+    dx = want.x() - current.x()
+    if dx < -8:
+        return [
+            QRect(want.x(), want.y(), max(1, current.width()), want.height()),
+            want,
+        ]
+    if dx > 8:
+        return [
+            QRect(current.x(), want.y(), want.width(), want.height()),
+            want,
+        ]
+    return [want]
+
+
+def place_frameless_rect(widget: QWidget, rect: QRect) -> bool:
+    """Put a frameless HWND on a multi-desk rect. Qt setGeometry often only moves."""
+    if not rect.isValid():
+        return False
+    from PySide6.QtGui import QGuiApplication
+
+    try:
+        widget.setMinimumSize(1, 1)
+        widget.setMaximumSize(_WIDGET_SIZE_MAX, _WIDGET_SIZE_MAX)
+        if widget.isMaximized() or widget.isFullScreen():
+            widget.showNormal()
+        handle = widget.windowHandle()
+        if handle is not None:
+            handle.setMinimumSize(QSize(1, 1))
+            handle.setMaximumSize(QSize(_WIDGET_SIZE_MAX, _WIDGET_SIZE_MAX))
+        if QGuiApplication.platformName() != "windows":
+            for step in _step_rects(widget.geometry(), rect):
+                _qt_set_rect(widget, handle, step)
+            _qt_set_rect(widget, handle, rect)
+            return _geo_matches(widget.geometry(), rect)
+        hwnd = top_level_hwnd(widget)
+        if hwnd is None:
+            for step in _step_rects(widget.geometry(), rect):
+                _qt_set_rect(widget, handle, step)
+            return _geo_matches(widget.geometry(), rect)
+        scale = _place_scale(handle)
+        current = _hwnd_logical_rect(hwnd, scale) or widget.geometry()
+        for step in _step_rects(current, rect):
+            _set_hwnd_rect(hwnd, step, scale)
+        _set_hwnd_rect(hwnd, rect, scale)
+        # HWND first. Qt setGeometry *before* that is the grow-left clamp.
+        QGuiApplication.processEvents()
+        if not _geo_matches(widget.geometry(), rect):
+            # Cache sync only. If the native rect already matches, this is a
+            # no-op at Win32; if Qt then clamps, put the HWND back.
+            _qt_set_rect(widget, handle, rect)
+            native = _hwnd_logical_rect(hwnd, scale)
+            if native is not None and not _geo_matches(native, rect):
+                _set_hwnd_rect(hwnd, rect, scale)
+                QGuiApplication.processEvents()
+        native = _hwnd_logical_rect(hwnd, scale)
+        if native is not None and _geo_matches(native, rect):
+            return True
+        return _geo_matches(widget.geometry(), rect)
+    except Exception:
+        return _geo_matches(widget.geometry(), rect)
+
+
 def enable_win32_resize_frame(widget: QWidget) -> None:
     """Add WS_THICKFRAME so Windows will deliver resize hit-tests / snap."""
     if sys.platform != "win32":
@@ -317,6 +510,28 @@ def handle_native_resize(
     msg = _msg_from_message(message)
     if msg is None:
         return None
+
+    if msg.message == WM_GETMINMAXINFO and msg.lParam:
+        from ctypes import Structure, c_long
+
+        class _Point(Structure):
+            _fields_ = [("x", c_long), ("y", c_long)]
+
+        class _MinMaxInfo(Structure):
+            _fields_ = [
+                ("ptReserved", _Point),
+                ("ptMaxSize", _Point),
+                ("ptMaxPosition", _Point),
+                ("ptMinTrackSize", _Point),
+                ("ptMaxTrackSize", _Point),
+            ]
+
+        try:
+            info = _MinMaxInfo.from_address(int(msg.lParam))
+            _fill_minmax_info(info)
+        except (TypeError, ValueError, OverflowError):
+            return None
+        return True, 0
 
     if msg.message == WM_NCCALCSIZE and msg.wParam:
         # Leaving rgrc[0] alone is what makes the client area fill the window:

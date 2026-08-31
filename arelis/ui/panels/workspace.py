@@ -12,15 +12,20 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QListWidget,
     QListWidgetItem,
+    QMenu,
     QPlainTextEdit,
+    QPushButton,
     QSizePolicy,
     QSplitter,
+    QStackedWidget,
     QStyleFactory,
+    QTextBrowser,
     QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
+from arelis.desk import Artifact, infer_kind, is_image_kind, is_text_kind
 from arelis.ui.code_highlight import QuietPythonHighlighter
 from arelis.ui.icons import (
     browse_file_icon,
@@ -31,6 +36,7 @@ from arelis.ui.icons import (
     folder_new_icon,
     folder_plus_icon,
     folder_up_icon,
+    note_keep_icon,
     refresh_icon,
 )
 from arelis.ui.theme import METRICS, polish_combo_popup
@@ -163,6 +169,12 @@ class WorkspacePanel(QWidget):
     add_root_requested = Signal()
     new_root_requested = Signal()
     remove_root_requested = Signal()
+    keep_requested = Signal()
+    pin_requested = Signal(str, bool)
+    drop_requested = Signal(str)
+    desk_open_requested = Signal(str)
+    reveal_requested = Signal(str)
+    outside_requested = Signal(str)
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -170,6 +182,11 @@ class WorkspacePanel(QWidget):
         self._project_names: list[str] = []
         self._project_paths: dict[str, str] = {}
         self._root_name = ""
+        self._room_id = ""
+        self._room_name = ""
+        self._mode = "desk"
+        self._desk_items: list[Artifact] = []
+        self._preview_md = False
         self._image_mode = False
         self._browse_cwd = Path(".")
         # What the editor held when the file was last loaded or saved. Dirty is
@@ -210,9 +227,11 @@ class WorkspacePanel(QWidget):
             folder_minus_icon(16),
             "Remove this project from the workspace — files stay on disk",
         )
+        self.keep_btn = _icon_btn(note_keep_icon(16), "Keep a note on the desk")
         self.add_root_btn.clicked.connect(self.add_root_requested.emit)
         self.new_root_btn.clicked.connect(self.new_root_requested.emit)
         self.remove_root_btn.clicked.connect(self.remove_root_requested.emit)
+        self.keep_btn.clicked.connect(self.keep_requested.emit)
         self.recent_combo = QComboBox()
         self.recent_combo.setObjectName("InstrumentCombo")
         self.recent_combo.setFixedHeight(METRICS["row"])
@@ -227,6 +246,7 @@ class WorkspacePanel(QWidget):
         path_row.addWidget(self.path_edit, stretch=1)
         path_row.addWidget(self.open_btn)
         path_row.addWidget(self.save_btn)
+        path_row.addWidget(self.keep_btn)
         path_row.addWidget(self.add_root_btn)
         path_row.addWidget(self.new_root_btn)
         path_row.addWidget(self.remove_root_btn)
@@ -245,6 +265,50 @@ class WorkspacePanel(QWidget):
         left_l = QVBoxLayout(left)
         left_l.setContentsMargins(0, 0, 0, 0)
         left_l.setSpacing(6)
+        mode_row = QHBoxLayout()
+        mode_row.setSpacing(6)
+        self.desk_btn = QPushButton("desk")
+        self.folders_btn = QPushButton("folders")
+        for btn, tip in (
+            (self.desk_btn, "Things she made, and notes you kept"),
+            (self.folders_btn, "Browse the project folder"),
+        ):
+            btn.setObjectName("InstrumentAction")
+            btn.setFixedHeight(METRICS["row"])
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.setCheckable(True)
+            btn.setToolTip(tip)
+        self.desk_btn.setChecked(True)
+        self.desk_btn.clicked.connect(lambda: self.show_desk())
+        self.folders_btn.clicked.connect(lambda: self.show_folders())
+        mode_row.addWidget(self.desk_btn)
+        mode_row.addWidget(self.folders_btn)
+        mode_row.addStretch(1)
+        left_l.addLayout(mode_row)
+        self.desk_hint = QLabel("this project's papers")
+        self.desk_hint.setObjectName("DeskHint")
+        self.desk_hint.setWordWrap(True)
+        left_l.addWidget(self.desk_hint)
+        self.desk_empty = QLabel(
+            "Nothing on the desk yet.\n"
+            "Files she writes and notes you keep land here.\n"
+            "Say keep this: and what to write down, or press the note mark."
+        )
+        self.desk_empty.setObjectName("DeskEmpty")
+        self.desk_empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.desk_empty.setWordWrap(True)
+        left_l.addWidget(self.desk_empty)
+        self.desk_list = QListWidget()
+        self.desk_list.setObjectName("DeskList")
+        self.desk_list.setFrameShape(QListWidget.Shape.NoFrame)
+        self.desk_list.setWordWrap(True)
+        self.desk_list.setTextElideMode(Qt.TextElideMode.ElideRight)
+        self.desk_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.desk_list.setVerticalScrollMode(QListWidget.ScrollMode.ScrollPerPixel)
+        self.desk_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.desk_list.itemClicked.connect(self._on_desk_activated)
+        self.desk_list.customContextMenuRequested.connect(self._on_desk_menu)
+        left_l.addWidget(self.desk_list, stretch=1)
         browse_head = QHBoxLayout()
         browse_head.setSpacing(6)
         self.browse_label = QLabel("browse")
@@ -270,21 +334,62 @@ class WorkspacePanel(QWidget):
         if self._fusion_style is not None:
             self._fusion_style.setParent(self)
             self.browse_list.setStyle(self._fusion_style)
+            self.desk_list.setStyle(self._fusion_style)
         left_l.addWidget(self.browse_list, stretch=1)
 
         mid = QWidget()
         mid.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         mid_l = QVBoxLayout(mid)
         mid_l.setContentsMargins(0, 0, 0, 0)
-        mid_l.setSpacing(0)
+        mid_l.setSpacing(6)
+        read_row = QHBoxLayout()
+        read_row.setSpacing(6)
+        self.read_btn = QPushButton("read")
+        self.edit_btn = QPushButton("edit")
+        for btn, tip in (
+            (self.read_btn, "Read this note as a page"),
+            (self.edit_btn, "Edit the source"),
+        ):
+            btn.setObjectName("InstrumentAction")
+            btn.setFixedHeight(METRICS["row"])
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.setCheckable(True)
+            btn.setToolTip(tip)
+        self.read_btn.clicked.connect(lambda: self._show_preview(True))
+        self.edit_btn.clicked.connect(lambda: self._show_preview(False))
+        self.open_outside_btn = QPushButton("open")
+        self.open_outside_btn.setObjectName("InstrumentAction")
+        self.open_outside_btn.setFixedHeight(METRICS["row"])
+        self.open_outside_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.open_outside_btn.setToolTip("Open in the usual app")
+        self.open_outside_btn.clicked.connect(self._open_loaded_outside)
+        read_row.addWidget(self.read_btn)
+        read_row.addWidget(self.edit_btn)
+        read_row.addWidget(self.open_outside_btn)
+        read_row.addStretch(1)
+        mid_l.addLayout(read_row)
+        self.editor_stack = QStackedWidget()
         self.editor = QPlainTextEdit()
         self.editor.setObjectName("Editor")
-        self.editor.setPlaceholderText("file contents…")
+        self.editor.setPlaceholderText(
+            "Pick something on the desk, or keep a note."
+        )
         self.editor.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.editor.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
         self._highlight = QuietPythonHighlighter(self.editor.document())
         self._highlight.set_enabled(False)
-        mid_l.addWidget(self.editor)
+        self.preview = QTextBrowser()
+        self.preview.setObjectName("DeskPreview")
+        self.preview.setOpenExternalLinks(False)
+        self.preview.setPlaceholderText("")
+        self.binary_label = QLabel("This file opens in the usual app.")
+        self.binary_label.setObjectName("DeskEmpty")
+        self.binary_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.binary_label.setWordWrap(True)
+        self.editor_stack.addWidget(self.editor)
+        self.editor_stack.addWidget(self.preview)
+        self.editor_stack.addWidget(self.binary_label)
+        mid_l.addWidget(self.editor_stack, stretch=1)
 
         right = QWidget()
         right.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
@@ -330,6 +435,8 @@ class WorkspacePanel(QWidget):
         self.open_btn.clicked.connect(self._on_open)
         self.save_btn.clicked.connect(self._on_save)
         self.editor.textChanged.connect(self._sync_dirty)
+        self.show_desk()
+        self._sync_chrome()
 
     def set_projects(
         self,
@@ -353,6 +460,7 @@ class WorkspacePanel(QWidget):
         self.project_combo.blockSignals(False)
         self._browse_cwd = Path(".")
         self._sync_root_label(active if active in names else (names[0] if names else ""))
+        self._sync_desk_hint()
         self.refresh_browse()
 
     def set_recent(self, paths: list[str]) -> None:
@@ -370,6 +478,7 @@ class WorkspacePanel(QWidget):
         self.project_combo.setCurrentText(name)
         self.project_combo.blockSignals(False)
         self._sync_root_label(name)
+        self._sync_desk_hint()
         self.refresh_browse()
 
     def _sync_root_label(self, name: str) -> None:
@@ -610,7 +719,9 @@ class WorkspacePanel(QWidget):
         self._highlight.set_enabled(
             Path(abs_path or display).suffix.lower() in {".py", ".pyw"}
         )
+        self._apply_page_mode(abs_path or display, content)
         self._sync_dirty()
+        self._sync_chrome()
         if abs_path:
             parent = Path(abs_path).parent
             self.root_label.setToolTip(str(parent))
@@ -644,6 +755,7 @@ class WorkspacePanel(QWidget):
             except OSError:
                 pass
         self.refresh_browse()
+        self.show_folders()
 
     def append_output(self, text: str) -> None:
         """One status line. A dump cannot become a third column again."""
@@ -680,18 +792,194 @@ class WorkspacePanel(QWidget):
         """Image takes the right well; the editor yields. Status stays a strip."""
         self._image_mode = on
         if on:
-            self.editor.hide()
+            self.editor_stack.hide()
+            self.read_btn.hide()
+            self.edit_btn.hide()
+            self.open_outside_btn.hide()
             self.image_label.show()
             self.split.setCollapsible(1, True)
             self.split.setCollapsible(2, False)
             self.split.setSizes([180, 0, 620])
         else:
-            self.editor.show()
+            self.editor_stack.show()
             self.image_label.hide()
             self.split.setCollapsible(1, False)
             self.split.setCollapsible(2, True)
             self.split.setSizes([220, 700, 0])
+            self._sync_chrome()
         if self.output.toPlainText().strip():
             self.output.show()
         else:
             self.output.hide()
+
+    def set_desk_context(self, *, room_id: str = "", room_name: str = "") -> None:
+        self._room_id = room_id
+        self._room_name = room_name
+        self._sync_desk_hint()
+
+    def set_desk_items(self, items: list[Artifact] | list[dict]) -> None:
+        parsed: list[Artifact] = []
+        for raw in items:
+            if isinstance(raw, Artifact):
+                parsed.append(raw)
+                continue
+            if not isinstance(raw, dict):
+                continue
+            abs_path = str(raw.get("abs_path") or "").strip()
+            if not abs_path:
+                continue
+            parsed.append(
+                Artifact(
+                    abs_path=abs_path,
+                    label=str(raw.get("label") or Path(abs_path).name),
+                    kind=str(raw.get("kind") or "file"),
+                    source=str(raw.get("source") or "open"),
+                    root_name=str(raw.get("root_name") or ""),
+                    room_id=str(raw.get("room_id") or ""),
+                    created_at=str(raw.get("created_at") or ""),
+                    last_seen=str(raw.get("last_seen") or ""),
+                    pinned=bool(raw.get("pinned")),
+                )
+            )
+        pinned = [item for item in parsed if item.pinned]
+        rest = [item for item in parsed if not item.pinned]
+        self._desk_items = pinned + rest
+        self.desk_list.clear()
+        for item in self._desk_items:
+            pin = "pinned · " if item.pinned else ""
+            kind = item.kind or "file"
+            row = QListWidgetItem(f"{item.label}\n{pin}{kind}")
+            row.setData(Qt.ItemDataRole.UserRole, item.abs_path)
+            row.setToolTip(item.abs_path)
+            self.desk_list.addItem(row)
+        empty = len(parsed) == 0
+        self.desk_empty.setVisible(empty and self._mode == "desk")
+        self.desk_list.setVisible((not empty) and self._mode == "desk")
+        self._sync_desk_hint()
+
+    def show_desk(self) -> None:
+        self._mode = "desk"
+        self.desk_btn.setChecked(True)
+        self.folders_btn.setChecked(False)
+        has_items = bool(self._desk_items)
+        self.desk_empty.setVisible(not has_items)
+        self.desk_list.setVisible(has_items)
+        self.desk_hint.setVisible(True)
+        self.browse_label.hide()
+        self.browse_list.hide()
+        self._sync_chrome()
+
+    def show_folders(self) -> None:
+        self._mode = "files"
+        self.desk_btn.setChecked(False)
+        self.folders_btn.setChecked(True)
+        self.desk_empty.hide()
+        self.desk_list.hide()
+        self.desk_hint.hide()
+        self.browse_label.show()
+        self.browse_list.show()
+        self.refresh_browse()
+        self._sync_chrome()
+
+    def _sync_desk_hint(self) -> None:
+        room = (self._room_name or "").strip()
+        project = self.project_combo.currentText() or self._root_name
+        if room and project:
+            self.desk_hint.setText(f"{room} · {project}")
+        elif project:
+            self.desk_hint.setText(f"{project} · papers")
+        else:
+            self.desk_hint.setText("this project's papers")
+
+    def _sync_chrome(self) -> None:
+        files_mode = self._mode == "files"
+        has_file = bool(self._loaded_abs)
+        self.path_edit.setVisible(files_mode or has_file)
+        self.open_btn.setVisible(files_mode)
+        self.save_btn.setVisible(has_file and not self._image_mode)
+        self.recent_combo.setVisible(files_mode)
+        suffix = Path(self._loaded_abs or self.path_edit.text()).suffix.lower()
+        md = suffix == ".md"
+        _binary = has_file and not is_text_kind(
+            infer_kind(self._loaded_abs or "", source=""),
+            self._loaded_abs,
+        ) and not is_image_kind(
+            infer_kind(self._loaded_abs or "", source=""),
+            self._loaded_abs,
+        )
+        self.read_btn.setVisible(md and has_file and not self._image_mode)
+        self.edit_btn.setVisible(md and has_file and not self._image_mode)
+        self.open_outside_btn.setVisible(has_file and not self._image_mode)
+
+    def _apply_page_mode(self, path: str, content: str) -> None:
+        kind = infer_kind(path)
+        if is_image_kind(kind, path):
+            return
+        if not is_text_kind(kind, path):
+            leaf = Path(path).name
+            self.binary_label.setText(
+                f"{leaf} opens in the usual app.\n"
+                "Press open, or show it in its folder from the desk."
+            )
+            self.editor_stack.setCurrentWidget(self.binary_label)
+            self.read_btn.setChecked(False)
+            self.edit_btn.setChecked(False)
+            self._sync_chrome()
+            return
+        suffix = Path(path).suffix.lower()
+        if suffix == ".md" and not self._dirty:
+            self._set_preview_text(content)
+            self._show_preview(True)
+        else:
+            self._show_preview(False)
+        self._sync_chrome()
+
+    def _set_preview_text(self, content: str) -> None:
+        try:
+            self.preview.setMarkdown(content)
+        except Exception:
+            self.preview.setPlainText(content)
+
+    def _show_preview(self, on: bool) -> None:
+        self._preview_md = on
+        if on:
+            self._set_preview_text(self.editor.toPlainText())
+            self.editor_stack.setCurrentWidget(self.preview)
+        else:
+            self.editor_stack.setCurrentWidget(self.editor)
+        self.read_btn.setChecked(on)
+        self.edit_btn.setChecked(not on)
+
+    def _open_loaded_outside(self) -> None:
+        path = self._loaded_abs or self.qualified_path()
+        if path:
+            self.outside_requested.emit(path)
+
+    def _on_desk_activated(self, item: QListWidgetItem) -> None:
+        path = str(item.data(Qt.ItemDataRole.UserRole) or "").strip()
+        if path:
+            self.desk_open_requested.emit(path)
+
+    def _on_desk_menu(self, pos) -> None:
+        item = self.desk_list.itemAt(pos)
+        if item is None:
+            return
+        path = str(item.data(Qt.ItemDataRole.UserRole) or "").strip()
+        if not path:
+            return
+        pinned = False
+        for art in self._desk_items:
+            if art.abs_path == path:
+                pinned = art.pinned
+                break
+        menu = QMenu(self)
+        pin = menu.addAction("unpin" if pinned else "pin")
+        drop = menu.addAction("take off the desk")
+        show = menu.addAction("show in folder")
+        chosen = menu.exec(self.desk_list.mapToGlobal(pos))
+        if chosen is pin:
+            self.pin_requested.emit(path, not pinned)
+        elif chosen is drop:
+            self.drop_requested.emit(path)
+        elif chosen is show:
+            self.reveal_requested.emit(path)

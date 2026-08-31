@@ -200,6 +200,10 @@ def test_enter_earth_is_a_closed_verb() -> None:
     assert classify_physics_act("leave Earth").verb == "leave_earth"
     assert classify_physics_act("ride the ISS").verb == "ride_iss"
     assert classify_physics_act("take me to Earth", names=("Earth",)).verb == "travel"
+    tokyo = classify_physics_act("take me to Tokyo", names=("Earth",))
+    assert tokyo is not None
+    assert tokyo.verb == "goto_earth"
+    assert tokyo.name == "Tokyo"
 
 
 def test_ecef_to_ecliptic_moves_with_earth_center() -> None:
@@ -1422,8 +1426,8 @@ def test_earth_chip_items_cover_live_and_every_layer() -> None:
 
     kinds = [kind for kind, _label in earth_chip_items()]
     assert kinds[:5] == ["band", "live", "grid", "tiles", "buildings"]
-    layers = [k for k in LAYER_IDS if k != "people"]
-    assert tuple(kinds[5:]) == tuple(layers)
+    assert tuple(kinds[5:]) == tuple(LAYER_IDS)
+    assert "people" in kinds
     space = [kind for kind, _label in earth_chip_items("space")]
     assert space[:3] == ["band", "live", "grid"]
     assert "tiles" not in space

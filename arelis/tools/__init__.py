@@ -54,6 +54,7 @@ from arelis.tools.tile import TileTool
 from arelis.tools.units import UnitsTool
 from arelis.tools.user_location import UserLocationTool
 from arelis.tools.vision import VisionTool
+from arelis.tools.watch import WatchTool
 from arelis.tools.weather import WeatherTool
 from arelis.tools.web import WebFetchTool
 from arelis.workspace import WorkspaceRoots
@@ -305,6 +306,7 @@ def build_tool_registry(
     registry.register(CalculatorTool())
     registry.register(PythonTool())
     registry.register(DiagnosticsTool())
+    registry.register(WatchTool())
     if tools_cfg.get("cas", {}).get("enabled", True):
         registry.register(CasTool())
     if tools_cfg.get("units", {}).get("enabled", True):

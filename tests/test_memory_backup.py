@@ -41,3 +41,13 @@ def test_backup_prunes_old_copies(tmp_path: Path) -> None:
     names = sorted(p.name for p in dest.glob("memory-*.db"))
     assert len(names) <= 2
     assert any(n.startswith("memory-") for n in names)
+
+
+def test_backup_keep_zero_writes_nothing_and_clears(tmp_path: Path) -> None:
+    db = tmp_path / "memory.db"
+    dest = tmp_path / "backups"
+    MemoryStore(db).start_session()
+    dest.mkdir()
+    (dest / "memory-20260101.db").write_bytes(b"old")
+    assert backup_memory_db(db, dest_dir=dest, keep=0) is None
+    assert list(dest.glob("memory-*.db")) == []

@@ -34,42 +34,50 @@ _ACTIONS = (
     "press",
     "select",
     "wait",
+    "back",
+    "forward",
+    "reload",
+    "find",
 )
 
 
 class BrowserTool:
     name = "browser"
     description = (
-        "Open and drive the user's real desktop browser (usually the system "
-        "default — Chrome when that is default), using their existing logged-in "
-        "sessions. Prefer this when they ask to pull up / open / go to a site "
-        "or click around a page. Use search/scrape when YOU need to read the "
-        "web without opening a window. Never type passwords or OTP codes. "
-        "If a captcha, sign-in, or Book/Pay/Order screen appears, stop and "
-        "tell the user it is their turn — do not solve captchas or click Pay. "
-        "Actions: open (alias or https URL in Arelis' Chrome window, not the "
-        "daily browser), navigate (same window), snapshot (get click refs), "
-        "read (compact text of the tab she is on — not scrape), "
+        "Drive Arelis' own Chrome window (data/browser-profile/), not the "
+        "daily browser. You watch it. Prefer this when they ask to pull up / "
+        "open / go to a site or click around a page. Use search/scrape when "
+        "YOU need to read the web without opening a window. Never type "
+        "passwords or OTP codes. If a captcha, sign-in, or Book/Pay/Order "
+        "screen appears, stop and tell the user it is their turn — do not "
+        "solve captchas or click Pay. "
+        "Actions: open (alias or https URL in her window), navigate (same "
+        "window), snapshot (visible click targets, ranked — not footer "
+        "chrome), read (compact text of the tab she is on — not scrape), "
         "maps (directions in her window + a phone link), "
         "search (Google / YouTube / Amazon results in her window), "
         "reserve (OpenTable / Resy / Google — fills party/date/time; you click Book), "
-        "click(ref) (glows first), type(ref, text), scroll, press(key), "
-        "select(ref, text), wait(seconds), tabs, screenshot (PNG under "
-        "outputs/images/ — then vision to describe), relaunch (CDP restart; "
-        "optional url opens after). Prefer open when they only asked to pull "
-        "up a site. Prefer read when they ask what is on this tab/page. "
-        "Prefer maps when they ask for directions — opens Maps in her "
-        "window and returns a phone link. Do not scrape for directions. "
-        "Prefer search when they ask to look something up on YouTube / "
-        "Google / Amazon in her window. Add to cart is fine; stop before "
-        "Checkout / Pay / Buy now. "
-        "Sign in on the current page: snapshot, then click Sign in by ref. "
-        "There is no goto_sign_in action. Username they provide can be typed "
-        "into a non-secret field; never type passwords or OTP. "
-        "Prefer reserve when they ask to book a table / make a reservation. "
-        "That opens OpenTable (or Resy / Google) with party, date, and time "
-        "filled in the URL. Type remaining non-secret fields. Never click "
-        "Book / Reserve / Confirm reservation — that is their turn. "
+        "click(ref) or click(text='Sign in') or click(nth=1) for the first "
+        "result (glows first), type(text=…, into='search') or type(ref), "
+        "scroll, press(key), select(ref or into, text=option), wait(seconds), "
+        "back, forward, reload, find(text) lists matches, tabs (select=N / "
+        "tab=new|close, optional url), "
+        "screenshot (PNG under outputs/images/ — then vision to describe), "
+        "relaunch (restarts HER window only; optional url opens after). "
+        "You plan the drive: search, click the first result, read, go back. "
+        "Prefer open when they only asked to pull up a site. Prefer read "
+        "when they ask what is on this tab/page. Prefer maps when they ask "
+        "for directions — opens Maps in her window and returns a phone link. "
+        "Do not scrape for directions. Prefer search when they ask to look "
+        "something up on YouTube / Google / Amazon in her window. Add to "
+        "cart is fine; stop before Checkout / Pay / Buy now. "
+        "Sign in on the current page: click(text='Sign in') or snapshot then "
+        "click by ref. There is no goto_sign_in action. Username they "
+        "provide can be typed into a non-secret field; never type passwords "
+        "or OTP. Prefer reserve when they ask to book a table. That opens "
+        "OpenTable (or Resy / Google) with party, date, and time in the URL. "
+        "Type remaining non-secret fields. Never click Book / Reserve / "
+        "Confirm reservation — that is their turn. "
         "Optional browser=default|chrome|edge|firefox; "
         "private=true for Firefox private; full_page=true for screenshot."
     )
@@ -83,7 +91,7 @@ class BrowserTool:
                 "description": (
                     "open / navigate / snapshot / read / maps / search / "
                     "reserve / click / type / scroll / press / select / wait / "
-                    "tabs / screenshot / relaunch"
+                    "back / forward / reload / find / tabs / screenshot / relaunch"
                 ),
             },
             "url": {
@@ -103,11 +111,33 @@ class BrowserTool:
             },
             "text": {
                 "type": "string",
-                "description": "Text to type into a non-secret field",
+                "description": (
+                    "click/find: visible label (e.g. Sign in). "
+                    "type: the string to type. select: the option to pick."
+                ),
+            },
+            "into": {
+                "type": "string",
+                "description": (
+                    "type/select: field label (search, email, party). "
+                    "Empty type prefers the search box."
+                ),
+            },
+            "nth": {
+                "type": "integer",
+                "description": "click/find: 1-based result (1 = first)",
             },
             "select": {
                 "type": "integer",
                 "description": "Tab index for action=tabs",
+            },
+            "tab": {
+                "type": "string",
+                "description": "tabs: new / close (optional url on new)",
+            },
+            "focus": {
+                "type": "string",
+                "description": "snapshot: results = short result links only",
             },
             "browser": {
                 "type": "string",
@@ -204,6 +234,7 @@ class BrowserTool:
         self.aliases = dict(aliases or {})
         # Optional callable(kind: str, **payload) for Thinking telemetry.
         self._event_sink = event_sink
+        self._revived = False
 
     def _emit(self, kind: str, **payload: Any) -> None:
         if self._event_sink is None:
@@ -234,6 +265,8 @@ class BrowserTool:
                 ),
             )
 
+        self._revived = False
+
         if action == "relaunch":
             ensured = await self.session.ensure(
                 browser, private=private, relaunch=True
@@ -261,6 +294,9 @@ class BrowserTool:
         if action == "snapshot":
             ensured = await self._ensure(browser, private)
             if not ensured.ok:
+                if await self._revive_once(browser, private, ensured):
+                    ensured = await self._ensure(browser, private)
+            if not ensured.ok:
                 if invented_note:
                     return ToolResult(
                         ok=False,
@@ -268,7 +304,15 @@ class BrowserTool:
                         data=dict(ensured.data or {}),
                     )
                 return ensured
-            result = await self.session.snapshot()
+            result = await self.session.snapshot(
+                focus=str(kwargs.get("focus") or "").strip()
+            )
+            if not result.ok and await self._revive_once(
+                browser, private, _to_tool(result)
+            ):
+                result = await self.session.snapshot(
+                    focus=str(kwargs.get("focus") or "").strip()
+                )
             self._emit("browser_snapshot", ok=result.ok)
             tool = _to_tool(result)
             if invented_note:
@@ -293,19 +337,39 @@ class BrowserTool:
                 return ensured
             select = kwargs.get("select")
             sel = int(select) if select is not None and str(select) != "" else None
-            result = await self.session.tabs(select=sel)
+            tab_op = str(kwargs.get("tab") or kwargs.get("op") or "").strip().lower()
+            tab_url = str(kwargs.get("url") or kwargs.get("target") or "").strip()
+            result = await self.session.tabs(select=sel, op=tab_op, url=tab_url)
             self._emit("browser_tabs", ok=result.ok)
             return _to_tool(result)
 
         if action == "click":
             ensured = await self._ensure(browser, private)
             if not ensured.ok:
+                if await self._revive_once(browser, private, ensured):
+                    ensured = await self._ensure(browser, private)
+            if not ensured.ok:
                 return ensured
             ref = str(kwargs.get("ref") or "").strip()
-            if not ref:
-                return ToolResult(ok=False, output="click needs ref from snapshot.")
-            result = await self.session.click(ref)
-            self._emit("browser_click", ref=ref, ok=result.ok)
+            text = str(kwargs.get("text") or "").strip()
+            try:
+                nth = int(kwargs.get("nth") or 0)
+            except (TypeError, ValueError):
+                nth = 0
+            if not ref and not text and nth < 1:
+                return ToolResult(
+                    ok=False,
+                    output=(
+                        "click needs ref, text (the visible label), or nth=1 "
+                        "for the first result."
+                    ),
+                )
+            result = await self.session.click(ref, text=text, nth=nth)
+            if not result.ok and await self._revive_once(
+                browser, private, _to_tool(result)
+            ):
+                result = await self.session.click(ref, text=text, nth=nth)
+            self._emit("browser_click", ref=ref or text or f"nth={nth}", ok=result.ok)
             return _to_tool(result)
 
         if action == "type":
@@ -314,12 +378,13 @@ class BrowserTool:
                 return ensured
             ref = str(kwargs.get("ref") or "").strip()
             text = str(kwargs.get("text") or "")
-            if not ref:
-                return ToolResult(ok=False, output="type needs ref from snapshot.")
+            into = str(kwargs.get("into") or kwargs.get("target") or "").strip()
+            if ref and not _looks_like_ref(ref) and not into:
+                into, ref = ref, ""
             if text == "" and "text" not in kwargs:
                 return ToolResult(ok=False, output="type needs text.")
-            result = await self.session.type_text(ref, text)
-            self._emit("browser_type", ref=ref, ok=result.ok)
+            result = await self.session.type_text(ref, text, into=into)
+            self._emit("browser_type", ref=ref or into or "field", ok=result.ok)
             return _to_tool(result)
 
         if action == "screenshot":
@@ -391,12 +456,13 @@ class BrowserTool:
                 return ensured
             ref = str(kwargs.get("ref") or "").strip()
             value = str(kwargs.get("text") or kwargs.get("value") or "").strip()
-            if not ref:
-                return ToolResult(ok=False, output="select needs ref from snapshot.")
+            into = str(kwargs.get("into") or "").strip()
+            if ref and not _looks_like_ref(ref) and not into:
+                into, ref = ref, ""
             if not value:
                 return ToolResult(ok=False, output="select needs text (the option).")
-            result = await self.session.select_option(ref, value)
-            self._emit("browser_select", ref=ref, ok=result.ok)
+            result = await self.session.select_option(ref, value, into=into)
+            self._emit("browser_select", ref=ref or into or "select", ok=result.ok)
             return _to_tool(result)
 
         if action == "wait":
@@ -409,6 +475,43 @@ class BrowserTool:
                 seconds = 1.0
             result = await self.session.wait(seconds)
             self._emit("browser_wait", ok=result.ok)
+            return _to_tool(result)
+
+        if action == "back":
+            ensured = await self._ensure(browser, private)
+            if not ensured.ok:
+                return ensured
+            result = await self.session.back()
+            self._emit("browser_back", ok=result.ok)
+            return _to_tool(result)
+
+        if action == "forward":
+            ensured = await self._ensure(browser, private)
+            if not ensured.ok:
+                return ensured
+            result = await self.session.forward()
+            self._emit("browser_forward", ok=result.ok)
+            return _to_tool(result)
+
+        if action == "reload":
+            ensured = await self._ensure(browser, private)
+            if not ensured.ok:
+                return ensured
+            result = await self.session.reload()
+            self._emit("browser_reload", ok=result.ok)
+            return _to_tool(result)
+
+        if action == "find":
+            ensured = await self._ensure(browser, private)
+            if not ensured.ok:
+                return ensured
+            text = str(kwargs.get("text") or kwargs.get("query") or "").strip()
+            try:
+                nth = int(kwargs.get("nth") or 0)
+            except (TypeError, ValueError):
+                nth = 0
+            result = await self.session.find(text, nth=nth)
+            self._emit("browser_find", text=text, ok=result.ok)
             return _to_tool(result)
 
         if action == "search":
@@ -432,17 +535,25 @@ class BrowserTool:
             opened = await self._open_or_navigate(
                 "open", url, browser=browser, private=private
             )
+            if not opened.ok and await self._revive_once(browser, private, opened):
+                opened = await self._open_or_navigate(
+                    "open", url, browser=browser, private=private
+                )
             self._emit("browser_search", query=query, site=site, ok=opened.ok)
             if not opened.ok:
                 return opened
+            await self.session.settle()
             tab = await self.session.read()
             extra_parts = [f"Search ({site}): {query}"]
             if tab.ok and (tab.output or "").strip():
                 extra_parts.append(tab.output.strip())
+            snap = await self.session.snapshot(focus="results")
+            if snap.ok and (snap.output or "").strip():
+                extra_parts.append(snap.output.strip())
             extra_parts.append(
-                "Answer from this tab. Snapshot or click a result if they "
-                "asked to open one. Add to cart is fine. Stop before "
-                "Checkout / Pay / Buy now."
+                "Answer from this tab. Click a result by text, or "
+                "click(nth=1) for the first one. Add to cart is fine. "
+                "Stop before Checkout / Pay / Buy now."
             )
             extra = "\n\n" + "\n\n".join(extra_parts)
             data = dict(opened.data or {})
@@ -689,6 +800,32 @@ class BrowserTool:
             data["intro"] = sign_in
         return ToolResult(ok=True, output="\n\n".join(parts), data=data)
 
+    async def _revive_once(
+        self, browser: str, private: bool, prior: ToolResult
+    ) -> bool:
+        """One auto-relaunch of her Chrome after mid-turn CDP death. Not OS-open."""
+        code = str((prior.data or {}).get("code") or "")
+        if prior.ok or code not in {"CDP_DEAD", "CDP_TIMEOUT"}:
+            return False
+        if self._revived:
+            return False
+        self._revived = True
+        self._emit(
+            "browser_relaunch_auto",
+            browser=browser,
+            reason=code,
+        )
+        relaunched = await self.session.ensure(
+            browser, private=private, relaunch=True
+        )
+        self._emit(
+            "browser_relaunch",
+            browser=self.session.last_browser or browser,
+            ok=relaunched.ok,
+            auto=True,
+        )
+        return bool(relaunched.ok)
+
     async def _ensure(self, browser: str, private: bool) -> ToolResult:
         ensured = await self.session.ensure(browser, private=private, relaunch=False)
         mode = str((ensured.data or {}).get("mode") or "")
@@ -702,6 +839,11 @@ class BrowserTool:
             )
             self._emit(kind, browser=self.session.last_browser or browser, mode=mode)
         return _to_tool(ensured)
+
+
+def _looks_like_ref(raw: str) -> bool:
+    text = (raw or "").strip().lower()
+    return len(text) >= 2 and text[0] == "e" and text[1:].isdigit()
 
 
 def _to_tool(result: Any) -> ToolResult:

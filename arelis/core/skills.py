@@ -36,6 +36,14 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+
+def _inspect_path_guide() -> str:
+    """Catalog owns the path map. Skill cards quote it; they do not keep a copy."""
+    from arelis.core.intent_catalog import inspect_path_guide
+
+    return inspect_path_guide()
+
+
 # Always shipped. Short on purpose — the knowing-doing gap is not fixed by
 # longer prose.
 SKILL_CORE = """
@@ -304,6 +312,9 @@ SKILL_CARDS: dict[str, SkillCard] = {
             "workspace",
             "folder",
             "directory",
+            "keep this",
+            "jot this",
+            "on the desk",
             "readme",
             "diff",
             "refactor",
@@ -319,11 +330,56 @@ SKILL_CARDS: dict[str, SkillCard] = {
   it; do not guess.
 - Creating or editing a file uses workspace(action=write|edit). Never call
   send_sms or contacts for "write a file" / "temp file" / "text file" asks.
+- "Keep this", "put this on the desk", "jot this down" is workspace
+  action=keep (a short note in notes/). That is a page they can reopen,
+  not a memory fact. Use memory remember only for durable identity
+  ("remember that I climb").
 - Never write or edit under a read-only root (the prompt lists those names).
 - Never tell the user to run a shell command to do something a tool can do.
 - Do not claim you edited a file unless a write/edit tool succeeded.
 - Prefer git_info (status/diff/log) over inventing branch or dirty state.
-""".strip(),
+- How you work, where a feature lives, or read your source: workspace(action=read)
+  on arelis/… or docs/…. {inspect_guide} Answer from the result. Do not recall the
+  package or web_search. A fix is write/edit (Allow), never a silent self-edit.
+""".strip().format(inspect_guide=_inspect_path_guide()),
+    ),
+    "inspect": SkillCard(
+        id="inspect",
+        hints=(
+            "confirm writes",
+            "how does confirm",
+            "confirm work",
+            "confirm gate work",
+            "policy.py",
+            "tool_subset",
+            "drive strip",
+            "show me your source",
+            "your own source",
+            "how do you work",
+            "how you work",
+            "read arelis",
+            "arelis/core",
+            "arelis/tools",
+        ),
+        negative_hints=(
+            "fix your",
+            "edit your",
+            "patch your",
+            "create a pdf",
+            "read this pdf",
+            "what does this pdf",
+        ),
+        requires_tool="workspace",
+        body="""
+### Your own source
+- When they ask how you work, where a feature lives, or to read your source,
+  call workspace(action=read) on arelis/… or docs/…. Mapped files: {inspect_guide}
+- Answer from the tool result. Quote function names, gates, and paths. Do
+  not invent architecture. Do not recall the package (the indexer skips
+  arelis/). Do not web_search. This is read-only.
+- "Fix your confirm gate" is a write — workspace write/edit, still Allow.
+  Never silent self-edits.
+""".strip().format(inspect_guide=_inspect_path_guide()),
     ),
     "memory": SkillCard(
         id="memory",
@@ -341,6 +397,7 @@ SKILL_CARDS: dict[str, SkillCard] = {
             "from our chat",
             "from our conversation",
             "my notes",
+            "on the desk",
             "fact",
             "todo",
             "to-do",
@@ -363,7 +420,8 @@ SKILL_CARDS: dict[str, SkillCard] = {
 - When the user asks you to remember something durable about them, use the
   memory tool with action=remember. Do not call remember after reading a file
   or summarizing content — working memory for the turn is free; durable store
-  is only for explicit "remember that…" requests. When a stored fact is wrong,
+  is only for explicit "remember that…" requests. A page they want to reopen
+  ("keep this", "put this on the desk") is workspace keep, not memory. When a stored fact is wrong,
   use action=forget with the fact quoted exactly. Do not promise either without
   calling the tool. For a short moment summary, use action=episode (or
   remember with type=episode). Episodes are never written silently each turn.
@@ -462,6 +520,7 @@ SKILL_CARDS: dict[str, SkillCard] = {
 - Do not claim what a spreadsheet contains unless analyze (or a successful
   workspace read of that file) returned it this turn. Prefer analyze over
   dumping a whole file into chat.
+- Never call analyze on a PDF or image; those are doc_extract / vision.
 """.strip(),
     ),
     "docs": SkillCard(
@@ -502,6 +561,7 @@ SKILL_CARDS: dict[str, SkillCard] = {
             "create a word",
             "make a spreadsheet",
             "export csv",
+            "export this as",
             "save as excel",
             "create a document",
             "make a docx",
@@ -528,6 +588,8 @@ SKILL_CARDS: dict[str, SkillCard] = {
 - from_path reads an existing .md/.txt to export as PDF/Word without
   retyping the body.
 - In a writing room, a write-up with no named format is markdown.
+- Export or save as csv/xlsx/pdf is document, not workspace write. Reading
+  a file is not document.
 - doc_extract reads an existing PDF. workspace write is for source files in
   the project folder, not office files.
 - Do not invent an abstract into a PDF. Use the catalog result from this turn,
@@ -551,8 +613,9 @@ SKILL_CARDS: dict[str, SkillCard] = {
 ### Chat attachments
 - When the turn lists "Attachments for this turn", call the tool after → on
   each line. Kind rules: image → vision (or ocr only if they asked for text in
-  the image); pdf → doc_extract; csv/xlsx/json → analyze; txt/md/log and other
-  plain text → workspace read. Never call doc_extract on images — it is PDF-only.
+  the image); pdf → doc_extract; csv/xlsx/json → analyze; .py is workspace
+  read (plain text); txt/md/log and other plain text → workspace read. Never
+  call doc_extract on images — it is PDF-only.
 - If the user affirms ("yes"/"yea"/"ok") a prior attachment offer, the turn may
   re-list those paths — call the tools and finish the prior ask; do not greet.
 - Do not invent file contents. Prefer the staged data/drops/ path.
@@ -1107,14 +1170,19 @@ SKILL_CARDS: dict[str, SkillCard] = {
         requires_tool="browser",
         body="""
 ### Browser control
-- When the user wants a site opened on THEIR desktop browser, call
-  browser(action=open, url or alias like youtube). That just opens the URL
-  (new tab/window) — no Chrome restart. System default unless they name a browser.
-- For click-around control: snapshot → click/type by ref. Never type passwords/OTP.
-- Sign in / Log in on the page she is on: snapshot, then click the Sign in
-  control by ref. There is no goto_sign_in or sign_in action. Do not invent a
-  URL or a receipt. If they give a username or email, type it into a non-secret
-  field after snapshot. Never type a password or OTP — that is their turn.
+- When the user wants a site opened, call browser(action=open, url or alias
+  like youtube). That shows the URL in Arelis' Chrome (data/browser-profile),
+  not their daily browser. Leave browser=default unless they name Firefox/Edge.
+- You drive the window. Plan the errand: open or search, click, type,
+  read, go back. Do not wait for them to hand you refs.
+- Click: text='Sign in', or nth=1 for the first result, or a snapshot ref.
+  Type: type(text='…', into='search') — empty into uses the search box.
+  Find lists matches. Never type passwords/OTP.
+- Sign in / Log in on the page she is on: click(text='Sign in'). There is
+  no goto_sign_in action. Username they give goes in a non-secret field.
+  Never type a password or OTP — that is their turn.
+- Wrong page: back. Other way: forward. Stale page: reload.
+  New tab: tabs with tab=new (optional url). Close: tab=close.
 - To read the tab she is on: browser(action=read). That is compact text of the
   open page, not scrape / web_fetch. Do not invent page contents.
 - To see pixels: browser(action=screenshot) then vision(path=…) with the Saved
@@ -1125,8 +1193,8 @@ SKILL_CARDS: dict[str, SkillCard] = {
   in her window and returns a phone link. If they asked to text it, send_sms
   that link (Allow). Do not scrape for directions.
 - Search in her window: browser(action=search, query=…, site=youtube|google|amazon).
-  Then snapshot/click a result. Add to cart / Add to bag is fine. Never click
-  Checkout / Pay / Buy now — that is their turn.
+  That returns a short results list. click(nth=1) plays/opens the first.
+  Add to cart / Add to bag is fine. Never click Checkout / Pay / Buy now.
 - Reservations: browser(action=reserve, place=…, date=YYYY-MM-DD, time=7pm,
   party=2, site=opentable|resy|google). That opens the search with party/date/time
   filled in the URL. Snapshot and type remaining non-secret fields. Never click
@@ -1377,7 +1445,11 @@ def select_skill_ids_detailed(
     # Clock / hello / thanks are not those: now_line already has the time, and
     # `\bwhat\b` on "what time is it" used to tag skills=web and fail-open.
     fallback_only = False
-    from arelis.core.intent_catalog import is_tiny_prompt_ask
+    from arelis.core.intent_catalog import is_tiny_prompt_ask, looks_like_source_inspect
+
+    # Catalog is the matcher. Leftover hint substrings must not select inspect.
+    if "inspect" in chosen and not looks_like_source_inspect(text):
+        chosen = [c for c in chosen if c != "inspect"]
 
     if (
         not chosen
@@ -1386,6 +1458,7 @@ def select_skill_ids_detailed(
         and "web_search" in available_tools
         and re.search(r"\b(what|who|when|where|how much|latest)\b", lowered)
         and not is_tiny_prompt_ask(text)
+        and not looks_like_source_inspect(text)
     ):
         chosen = ["web"]
         fallback_only = True

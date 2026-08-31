@@ -12,6 +12,7 @@ from typing import Any
 import numpy as np
 from PySide6.QtCore import QObject, QThread, Signal
 
+from arelis.spatial import hands_log
 from arelis.spatial.backend import PoseBackend, StubBackend, load_backend
 from arelis.spatial.gesture import GestureMachine
 from arelis.spatial.grant import grant_for, must_revoke
@@ -37,6 +38,10 @@ class PoseWorker(QThread):
         self._stop = threading.Event()
         self._backend: PoseBackend | None = None
         self._filters = FilterBank()
+        self._emit_preview = True
+
+    def set_emit_preview(self, on: bool) -> None:
+        self._emit_preview = bool(on)
 
     def submit(self, rgb: np.ndarray, t_capture: float, width: int, height: int) -> None:
         with self._lock:
@@ -100,7 +105,8 @@ class PoseWorker(QThread):
             rgb, src_w, src_h = video_frame_to_rgb(frame, POSE_MAX_WIDTH)
             if rgb is None:
                 return None, float(t_cap), 0, 0
-            self.preview_ready.emit(rgb_to_qimage(rgb))
+            if self._emit_preview:
+                self.preview_ready.emit(rgb_to_qimage(rgb))
             return rgb, float(t_cap), src_w, src_h
         return None, 0.0, 0, 0
 
@@ -113,11 +119,16 @@ class SpatialHands(QObject):
     hint = Signal(str)
     tracking_changed = Signal(bool)
     recording_changed = Signal(bool)
+    clicked = Signal(object)
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self._room_id = ""
+        self._filament = False
+        self._chip = False
+        self._preview_wanted = False
         self._tracking = False
+        self._parked = False
         self._worker: PoseWorker | None = None
         self._gesture = GestureMachine()
         self._take: TakeWriter | None = None
@@ -129,6 +140,7 @@ class SpatialHands(QObject):
         self.last_fps = 0.0
         self.last_hand = None
         self.last_tracks = ()
+        self.last_clicks = ()
         self.scene_log: Callable[[], dict[str, Any]] | None = None
 
     @property
@@ -141,25 +153,55 @@ class SpatialHands(QObject):
 
     @property
     def allowed(self) -> bool:
-        return grant_for(self._room_id, self._tracking).allowed
+        return grant_for(
+            self._room_id,
+            self._tracking,
+            filament=self._filament,
+            chip=self._chip,
+        ).allowed
+
+    @property
+    def preview_wanted(self) -> bool:
+        return self._preview_wanted
+
+    def set_face(self, *, filament: bool, chip: bool) -> None:
+        self._filament = bool(filament)
+        self._chip = bool(chip)
+        if must_revoke(
+            self._room_id, filament=self._filament, chip=self._chip
+        ):
+            self.stop_track()
+
+    def set_preview_wanted(self, on: bool) -> None:
+        self._preview_wanted = bool(on)
+        if self._worker is not None:
+            self._worker.set_emit_preview(self._preview_wanted)
 
     def set_room(self, room_id: str) -> None:
         self._room_id = str(room_id or "")
-        if must_revoke(self._room_id):
+        if must_revoke(
+            self._room_id, filament=self._filament, chip=self._chip
+        ):
             self.stop_track()
 
     def start_track(self, meta: dict[str, Any] | None = None) -> bool:
-        if must_revoke(self._room_id):
-            self.hint.emit("Hands only run in Reality.")
+        if must_revoke(
+            self._room_id, filament=self._filament, chip=self._chip
+        ):
+            self.hint.emit(
+                "Hands need Reality Track, or the filament Hands chip."
+            )
             return False
         if self._tracking:
             return True
+        self._parked = False
         self._tracking = True
         self._gesture.reset()
         self._intervals.clear()
         self._wrist_hist.clear()
         self._last_t = None
         self._worker = PoseWorker(self)
+        self._worker.set_emit_preview(self._preview_wanted)
         self._worker.hands_ready.connect(self._on_hands)
         self._worker.preview_ready.connect(self.preview_ready.emit)
         self._worker.status.connect(self.hint.emit)
@@ -167,6 +209,14 @@ class SpatialHands(QObject):
         self.tracking_changed.emit(True)
         device = (meta or {}).get("device", "")
         self.hint.emit(f"Tracking on{': ' + device if device else ''}.")
+        hands_log.emit(
+            "session_start",
+            room=self._room_id,
+            filament=self._filament,
+            chip=self._chip,
+            preview=self._preview_wanted,
+            device=str(device or ""),
+        )
         return True
 
     def stop_track(self) -> None:
@@ -180,10 +230,34 @@ class SpatialHands(QObject):
             worker.wait(2000)
             worker.deleteLater()
         self._last_frame = None
+        self.last_clicks = ()
+        self.last_tracks = ()
+        self.last_hand = None
+        self.last_state = "idle"
         self.frame_ready.emit(None)
         if was:
             self.tracking_changed.emit(False)
             self.hint.emit("Tracking off.")
+            hands_log.emit(
+                "session_stop",
+                room=self._room_id,
+                filament=self._filament,
+                chip=self._chip,
+                parked=self._parked,
+            )
+
+    def park_session(self) -> None:
+        """Rest / minimize: tear the camera down. Chip can bring it back."""
+        if not self._tracking:
+            return
+        self._parked = True
+        self.stop_track()
+
+    def resume_if_parked(self, meta: dict[str, Any] | None = None) -> bool:
+        if not self._parked:
+            return False
+        self._parked = False
+        return self.start_track(meta)
 
     def start_record(self, extra_meta: dict[str, Any] | None = None) -> Path | None:
         if not self.allowed:
@@ -235,9 +309,20 @@ class SpatialHands(QObject):
                 (wrist[0] * frame.width, wrist[1] * frame.height)
             )
         self._last_frame = frame
+        clicks = self._gesture.consume_clicks()
         self.last_state = state
         self.last_hand = control
         self.last_tracks = tuple(self._gesture.tracks)
+        self.last_clicks = tuple(clicks)
+        for click in clicks:
+            hands_log.emit(
+                "click",
+                who=click.who,
+                x=round(click.x, 4),
+                y=round(click.y, 4),
+                travel=round(click.travel, 4),
+            )
+            self.clicked.emit(click)
         fps = 0.0
         if self._intervals:
             mean = sum(self._intervals) / len(self._intervals)
@@ -254,6 +339,23 @@ class SpatialHands(QObject):
                 self.frame_ready.emit(frame)
                 return
         self.frame_ready.emit(frame)
+        tracks = [
+            {
+                "who": str(getattr(track, "who", "") or ""),
+                "state": str(getattr(track, "state", "") or ""),
+                "drag": bool(getattr(track, "dragging", False)),
+            }
+            for track in self.last_tracks
+        ]
+        hands_log.sample(
+            "pose",
+            n=len(frame.hands),
+            state=state,
+            fps=round(fps, 2),
+            infer=f"{frame.infer_width}x{frame.infer_height}",
+            preview=self._preview_wanted,
+            tracks=tracks,
+        )
         self.hint.emit(self._status_line(frame, state, fps))
 
     def _status_line(self, frame: HandsFrame, state: str, fps: float) -> str:

@@ -46,6 +46,7 @@ _ERRANDS: dict[str, str] = {
     "cas": "working the algebra",
     "python": "running the numbers",
     "diagnostics": "running my tests",
+    "watch": "checking the house watch",
     "camera": "looking through the camera",
     "clipboard": "reading your clipboard",
     "contacts": "looking up the contact",
@@ -80,6 +81,7 @@ _BY_ACTION: dict[str, dict[str, str]] = {
     "workspace": {
         "read": "reading the file",
         "write": "saving the file",
+        "keep": "keeping that note",
         "list": "looking through the folder",
         "search": "searching your files",
     },

@@ -17,7 +17,14 @@ def on_camera_dock_visibility(window, visible: bool) -> None:
         return
     if visible:
         window.camera.start()
+        if window.spatial.tracking:
+            window.spatial.set_preview_wanted(True)
     else:
+        window.spatial.set_preview_wanted(False)
+        if window.spatial.tracking:
+            window.camera.set_hands(())
+            window._refresh_camera_capture_hook()
+            return
         window.camera.stop()
     window._refresh_camera_capture_hook()
 
@@ -30,6 +37,7 @@ def on_camera_track(window, on: bool) -> None:
     if on:
         if not getattr(window.camera, "_running", False):
             window.camera.start()
+        window.spatial.set_preview_wanted(window.camera_dock.isVisible())
         ok = window.spatial.start_track(
             {"device": window.camera.current_device_name()}
         )
@@ -40,6 +48,9 @@ def on_camera_track(window, on: bool) -> None:
         return
     window.spatial.stop_track()
     window.camera.set_hands(())
+    from arelis.ui.hands_desk import apply_desk
+
+    apply_desk(window, [], REACH_DEFAULT)
 
 
 def on_camera_record(window, on: bool) -> None:
@@ -101,6 +112,9 @@ def on_spatial_hands(window, frame: object) -> None:
         window.world_scene.drop(t=time.perf_counter())
         if hasattr(window, "world_window") and not window.world_window.isHidden():
             window.world_window.panel.clear_hand()
+        from arelis.ui.hands_desk import apply_desk
+
+        apply_desk(window, [], REACH_DEFAULT)
         return
     hands = getattr(frame, "hands", ())
     state = str(getattr(window.spatial, "last_state", "") or "idle")
@@ -152,7 +166,8 @@ def on_spatial_hands(window, frame: object) -> None:
         hand = getattr(track, "hand", None)
         st = str(getattr(track, "state", "") or "idle")
         held = window.world_scene.held_names()
-        if who in held and st in ("fist", "pinch"):
+        dragging = bool(getattr(track, "dragging", False))
+        if who in held and dragging:
             alive.add(who)
         if getattr(track, "coasting", False):
             if who in held and st in ("fist", "pinch"):
@@ -174,25 +189,34 @@ def on_spatial_hands(window, frame: object) -> None:
                 window.world_scene.forget_pending(who)
             continue
         thumb, index = hand.pinch_tips()
-        holding = st in ("fist", "pinch")
+        closed = st in ("fist", "pinch")
+        grabbing = dragging or st == "fist"
         centroid, off = grab_drive(
-            hand, closed=holding, offset=window._closed_off.get(who)
+            hand, closed=closed, offset=window._closed_off.get(who)
         )
         if who and off is not None:
             window._closed_off[who] = off
         elif who:
             window._closed_off.pop(who, None)
         tw, ti = image_to_world(*thumb, reach=reach), image_to_world(*index, reach=reach)
-        cw = image_to_world(*centroid, reach=reach)
+        frozen = getattr(track, "frozen_xy", None)
+        if st == "pinch" and not grabbing and frozen is not None:
+            cw = image_to_world(*frozen, reach=reach)
+        else:
+            cw = image_to_world(*centroid, reach=reach)
+        ang = None
+        if st == "fist" and hasattr(hand, "palm_angle"):
+            ang = hand.palm_angle()
         if not solar:
             window.world_scene.apply_pointer(
                 cw[0],
                 cw[1],
-                holding,
+                grabbing,
                 t=stamp,
                 who=who,
-                kind=st if holding else "open",
+                kind=st if grabbing else "open",
                 z=window._hand_depth(who, hand, stamp, frame),
+                angle=ang,
             )
         if st == "fist":
             apertures.append((cw, cw, True))
@@ -264,6 +288,9 @@ def on_spatial_hands(window, frame: object) -> None:
         window.world_scene.drop(t=stamp)
         if world_up:
             window.world_window.panel.clear_hand()
+        from arelis.ui.hands_desk import apply_desk
+
+        apply_desk(window, [], reach)
         return
     if world_up:
         if solar:
@@ -287,6 +314,11 @@ def on_spatial_hands(window, frame: object) -> None:
                 )
         else:
             window.world_window.panel.set_apertures(apertures)
+    from arelis.ui.hands_desk import apply_desk, deliver_click
+
+    apply_desk(window, apertures, reach)
+    for click in tuple(getattr(window.spatial, "last_clicks", ()) or ()):
+        deliver_click(window, click, reach)
 
 
 def refresh_camera_capture_hook(window) -> None:

@@ -17,9 +17,12 @@ class CodeWorkspaceTool:
     name = "workspace"
     description = (
         "Sandboxed file ops under allowed roots. "
-        "Actions: list, read, write, edit. "
+        "Actions: list, read, write, edit, keep. "
         "Use list/read freely; write/edit change files. "
-        "With multiple projects, qualify paths as name:relative/path."
+        "Use keep when the user says keep this / put this on the desk "
+        "/ jot this down — that writes a short note into notes/ on the "
+        "active project. Do not use memory remember for a page they want "
+        "to reopen. With multiple projects, qualify paths as name:relative/path."
     )
     # Registered as read because list/read dominate. write/edit are gated by
     # ToolRegistry.needs_confirm inspecting the action argument.
@@ -29,12 +32,20 @@ class CodeWorkspaceTool:
         "properties": {
             "action": {
                 "type": "string",
-                "enum": ["list", "read", "write", "edit"],
+                "enum": ["list", "read", "write", "edit", "keep"],
                 "description": "Workspace action",
             },
             "path": {
                 "type": "string",
                 "description": "Path relative to a root, or name:relative/path",
+            },
+            "text": {
+                "type": "string",
+                "description": "Note body for action=keep (or use content)",
+            },
+            "title": {
+                "type": "string",
+                "description": "Optional short title for action=keep",
             },
             "content": {"type": "string", "description": "Full file content for write"},
             "old": {"type": "string", "description": "Exact text to replace for edit"},
@@ -79,6 +90,16 @@ class CodeWorkspaceTool:
                         ),
                     )
                 return await asyncio.to_thread(self._list, path_str or ".")
+
+            if action == "keep":
+                body = str(
+                    kwargs.get("text")
+                    or kwargs.get("content")
+                    or kwargs.get("fact")
+                    or ""
+                )
+                title = str(kwargs.get("title") or "")
+                return await asyncio.to_thread(self._keep, body, title)
 
             if not path_str:
                 return ToolResult(ok=False, output="Missing path")
@@ -180,6 +201,21 @@ class CodeWorkspaceTool:
             ok=True,
             output=f"Edited {resolved.qualified(multi=len(self.workspace) > 1)}",
             data=self._path_data(resolved),
+        )
+
+    def _keep(self, text: str, title: str) -> ToolResult:
+        from arelis.desk import write_note
+
+        item = write_note(self.workspace, text, title=title)
+        resolved = self.workspace.resolve(item.abs_path)
+        return ToolResult(
+            ok=True,
+            output=f"On the desk: {item.label}",
+            data={
+                **self._path_data(resolved),
+                "kind": "note",
+                "title": item.label,
+            },
         )
 
     def _path_data(self, resolved) -> dict[str, str]:

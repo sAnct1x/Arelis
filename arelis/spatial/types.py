@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -122,6 +123,12 @@ class Hand:
     def hand_curl(self) -> float:
         """Mean knuckle curl of middle, ring, pinky. Index is the pinch."""
         return sum(self.finger_curl(*bones) for bones in CURL_FINGERS) / 3.0
+
+    def palm_angle(self) -> float:
+        """Index MCP → pinky MCP. Fist rotate uses the delta, not the absolute."""
+        ix, iy = self.xy(INDEX_MCP)
+        px, py = self.xy(PINKY_MCP)
+        return math.atan2(py - iy, px - ix)
 
     def clips_frame(self) -> bool:
         """True when pose bones have left the sensor.

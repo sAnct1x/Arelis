@@ -18,6 +18,18 @@ from typing import Literal
 
 from arelis.spatial.types import Hand, HandsFrame
 
+CLICK_DEBOUNCE = 0.20
+
+
+@dataclass(frozen=True)
+class PinchClick:
+    """Pinch tap: close then open without travel. Frozen at pinch-down."""
+
+    who: str
+    x: float
+    y: float
+    travel: float
+
 TrackState = Literal["idle", "fist", "pinch", "lost"]
 GestureState = Literal["idle", "fist", "pinch", "both", "lost"]
 PoseReading = Literal["open", "fist", "pinch", "ambiguous"]
@@ -96,6 +108,8 @@ class GestureParams:
     # Same C920 lie as the fist. Pinch used to leave in frames_off=3.
     pinch_off: int = 8
     still_wrist: float = 0.035
+    # Pinch tap vs grab. Below this travel, unpinch is a click.
+    click_travel: float = 0.035
 
 
 def read_pose(hand: Hand, params: GestureParams | None = None) -> PoseReading:
@@ -123,6 +137,10 @@ class HandTrack:
     _miss: int = 0
     _want: str = ""
     _lock_wrist: tuple[float, float] | None = None
+    _pinch_origin: tuple[float, float] | None = None
+    _frozen_xy: tuple[float, float] | None = None
+    _travel: float = 0.0
+    _click: PinchClick | None = None
 
     @property
     def who(self) -> str:
@@ -136,6 +154,24 @@ class HandTrack:
         if self.hand is not None:
             return self.hand.xy(0)
         return self._lock_wrist
+
+    @property
+    def dragging(self) -> bool:
+        """Pinch is a click until the wrist travels. Fist grabs immediately."""
+        if self.state == "fist":
+            return True
+        if self.state == "pinch":
+            return self._travel >= self.params.click_travel
+        return False
+
+    @property
+    def frozen_xy(self) -> tuple[float, float] | None:
+        return self._frozen_xy
+
+    def take_click(self) -> PinchClick | None:
+        hit = self._click
+        self._click = None
+        return hit
 
     @property
     def coasting(self) -> bool:
@@ -155,6 +191,10 @@ class HandTrack:
         self._miss = 0
         self._want = ""
         self._lock_wrist = None
+        self._pinch_origin = None
+        self._frozen_xy = None
+        self._travel = 0.0
+        self._click = None
 
     def _remember(self, hand: Hand) -> None:
         self.hand = hand
@@ -247,6 +287,8 @@ class HandTrack:
                 self.state = self._want  # type: ignore[assignment]
                 self._held = 0
                 self._open = 0
+                if self.state == "pinch":
+                    self._arm_pinch(hand)
             elif self.state == "lost" and reading == "open":
                 self.state = "idle"
         elif self.state in ("fist", "pinch"):
@@ -258,18 +300,48 @@ class HandTrack:
                 self._open -= 1
             hold = p.fist_off if self.state == "fist" else p.pinch_off
             need = hold if not moving else p.frames_off
+            if self.state == "pinch" and self._pinch_origin is not None:
+                wrist = hand.xy(0)
+                dist = _xy_dist(wrist, self._pinch_origin)
+                if dist > self._travel:
+                    self._travel = dist
             if self._open >= need:
+                if self.state == "pinch":
+                    self._maybe_click()
                 self.state = "idle"
                 self._open = 0
                 self._want = ""
+                self._pinch_origin = None
+                self._frozen_xy = None
+                self._travel = 0.0
         return self.state
+
+    def _arm_pinch(self, hand: Hand) -> None:
+        self._pinch_origin = hand.xy(0)
+        self._frozen_xy = hand.pointer_xy()
+        self._travel = 0.0
+        self._click = None
+
+    def _maybe_click(self) -> None:
+        if self._travel >= self.params.click_travel:
+            return
+        if self._frozen_xy is None:
+            return
+        self._click = PinchClick(
+            who=self.who,
+            x=self._frozen_xy[0],
+            y=self._frozen_xy[1],
+            travel=self._travel,
+        )
 
 
 @dataclass
 class GestureMachine:
     params: GestureParams = GestureParams()
     tracks: list[HandTrack] = field(default_factory=list)
+    clicks: list[PinchClick] = field(default_factory=list)
     _bare: GestureState = "idle"
+    _last_click_t: float = -1.0
 
     @property
     def state(self) -> GestureState:
@@ -310,7 +382,14 @@ class GestureMachine:
 
     def reset(self) -> None:
         self.tracks.clear()
+        self.clicks.clear()
         self._bare = "idle"
+        self._last_click_t = -1.0
+
+    def consume_clicks(self) -> list[PinchClick]:
+        out = list(self.clicks)
+        self.clicks.clear()
+        return out
 
     def step(self, frame: HandsFrame | None) -> GestureState:
         if frame is None:
@@ -354,7 +433,19 @@ class GestureMachine:
             for track in self.tracks
             if track.hand is not None or track.state != "idle"
         ]
+        self._collect_clicks(frame.t_capture)
         return self.state
+
+    def _collect_clicks(self, t: float) -> None:
+        self.clicks.clear()
+        for track in self.tracks:
+            hit = track.take_click()
+            if hit is None:
+                continue
+            if self._last_click_t >= 0 and (t - self._last_click_t) < CLICK_DEBOUNCE:
+                continue
+            self.clicks.append(hit)
+            self._last_click_t = t
 
     def _wrist_taken(self, wrist: tuple[float, float]) -> bool:
         for track in self.tracks:

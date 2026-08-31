@@ -128,6 +128,65 @@ def apply_settings(window, values: dict[str, Any]) -> None:
             window._stop_speech()
 
 
+def apply_window_theme(window, theme_id: str, *, persist: bool = True) -> str:
+    """Install a room palette and restyle the open window. No restart."""
+    from PySide6.QtGui import QColor
+    from PySide6.QtWidgets import QApplication, QComboBox, QDockWidget, QWidget
+
+    from arelis.ui.dock_surface import apply_dock_surface
+    from arelis.ui.glass import GlassFrame, Hairline
+    from arelis.ui.theme import (
+        PLATE,
+        apply_theme,
+        polish_combo_popup,
+        stylesheet,
+    )
+
+    resolved = apply_theme(theme_id)
+    window.config.setdefault("ui", {})["theme"] = resolved
+    if persist:
+        merge_local_config({"ui": {"theme": resolved}})
+
+    css = stylesheet()
+    window.setStyleSheet(css)
+    app = QApplication.instance()
+    if app is not None:
+        app.setStyleSheet(css)
+
+    pal = window.palette()
+    pal.setColor(window.backgroundRole(), QColor(*PLATE["seal"]))
+    window.setPalette(pal)
+    for frame in window.findChildren(GlassFrame):
+        frame.update()
+    for line in window.findChildren(Hairline):
+        line.update()
+    for dock in window.findChildren(QDockWidget):
+        apply_dock_surface(dock)
+    for combo in window.findChildren(QComboBox):
+        polish_combo_popup(combo, compact=combo.count() <= 2)
+
+    for child in window.findChildren(QWidget):
+        refresh = getattr(child, "refresh_theme_icons", None)
+        if callable(refresh):
+            refresh()
+    conversation = getattr(window, "conversation", None)
+    if conversation is not None and hasattr(conversation, "refresh_theme_icons"):
+        conversation.refresh_theme_icons()
+    chat = getattr(window, "chat", None)
+    if chat is not None:
+        empty = getattr(chat, "empty", None)
+        if empty is not None:
+            empty.update()
+            orbit = getattr(empty, "orbit", None)
+            if orbit is not None:
+                orbit.update()
+    sync = getattr(window, "_sync_filament_face", None)
+    if callable(sync):
+        sync()
+    window.update()
+    return resolved
+
+
 def toggle_fullscreen(window) -> None:
     if window.isFullScreen():
         window.showNormal()

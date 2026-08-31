@@ -42,6 +42,7 @@ from arelis.core.intent_catalog import (
     DIAGNOSTICS,
     FULL_SURFACE_KINDS,
     RESEARCH,
+    WATCH,
     is_tiny_prompt_ask,
     must_keep_full_surface_text,
     research_extras_for_text,
@@ -98,6 +99,7 @@ SKILL_TOOLS: dict[str, frozenset[str]] = {
     ),
     "calculator": frozenset({"calculator", "python"}),
     "diagnostics": frozenset({"diagnostics"}),
+    "watch": frozenset({"watch"}),
     "science": frozenset(
         {
             "cas",
@@ -138,6 +140,8 @@ SKILL_TOOLS: dict[str, frozenset[str]] = {
     ),
     "deadline": frozenset({"tasks", "agenda"}),
     "tile": frozenset({"tile"}),
+    "inspect": frozenset({"workspace", "git_info"}),
+    "inspect_write": frozenset({"workspace", "git_info"}),
 }
 
 
@@ -275,6 +279,8 @@ def _without_unauthorized_sends(
                 out.discard("send_email")
     if "diagnostics" in out and not DIAGNOSTICS.matches(text):
         out.discard("diagnostics")
+    if "watch" in out and not WATCH.matches(text):
+        out.discard("watch")
     return out
 
 
@@ -321,6 +327,8 @@ def filter_tool_names(
     if not skill_subset:
         if "diagnostics" in names and not DIAGNOSTICS.matches(text):
             names.discard("diagnostics")
+        if "watch" in names and not WATCH.matches(text):
+            names.discard("watch")
         return names
     return _skill_subset(
         names,

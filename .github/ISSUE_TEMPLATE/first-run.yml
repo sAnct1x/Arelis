@@ -1,0 +1,55 @@
+name: First run broke
+description: The setup file, SmartScreen, first-open questions, or the first answer.
+title: "first run: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        She is supposed to ask which folder she may use, then which model
+        to pull. If that never happened, or the window died, this is the
+        form.
+
+        Do not paste a real name, a home path, a phone number, or a
+        consumer email. `C:/Users/you/...` and `you@example.com` are
+        fine. The repo cannot take a secret back.
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where it died
+      options:
+        - SmartScreen / Windows would not run the file
+        - Installer itself
+        - First-open (folder or model)
+        - Ollama download or pull
+        - Window opened, then nothing
+        - First question never came back
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Setup file
+      description: The name you downloaded. Example — Arelis-0.2.4-win64-setup.exe
+      placeholder: Arelis-0.2.4-win64-setup.exe
+    validations:
+      required: true
+  - type: input
+    id: windows
+    attributes:
+      label: Windows
+      placeholder: Windows 11, 16 GB RAM, 8 GB NVIDIA
+    validations:
+      required: true
+  - type: textarea
+    id: happened
+    attributes:
+      label: What you did, and what she did
+      description: Ordinary sentences. Not a stack dump unless that is all you have.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+      description: Optional. Skip if it is "it should have worked."

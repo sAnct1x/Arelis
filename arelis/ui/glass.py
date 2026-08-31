@@ -16,19 +16,11 @@ from PySide6.QtWidgets import QFrame, QGraphicsOpacityEffect, QWidget
 
 from arelis.ui.theme import GLASS, HAIRLINE, PLATE, color
 
-# The plate is lit from above by the same lamp as everything else: a warm
-# shoulder at the top edge falling to the void at the bottom. Rim alphas come
-# from GLASS / HAIRLINE so a dock, a float, and the composer line stay one light.
-_PLATE_SEAL = QColor(*PLATE["seal"])
-_PLATE_BODY = QColor(*PLATE["body"])
-_PLATE_OPAQUE = PLATE["opaque"]
-_PLATE_SMOKED = PLATE["smoked"]
+# The plate is lit from above by the same lamp as everything else. Rim alphas
+# come from GLASS / HAIRLINE so a dock, a float, and the composer line stay
+# one light. Read live — apply_theme mutates those dicts in place.
 
 _CLEAR = QColor(0, 0, 0, 0)
-
-# Resting and fully-lit alpha for the composer hairline.
-_HAIRLINE_REST = int(HAIRLINE["rest"])
-_HAIRLINE_LIVE = int(HAIRLINE["live"])
 
 
 def _alpha(base: QColor, value: float) -> QColor:
@@ -164,14 +156,14 @@ class GlassFrame(QFrame):
         if not rim_only:
             if a >= 240:
                 if not self._round_cutout:
-                    painter.fillRect(self.rect(), _PLATE_SEAL)
-                painter.fillPath(path, _PLATE_BODY)
+                    painter.fillRect(self.rect(), QColor(*PLATE["seal"]))
+                painter.fillPath(path, QColor(*PLATE["body"]))
             body = QLinearGradient(rect.topLeft(), rect.bottomLeft())
             if a >= 240:
-                for stop, (r, g, b) in _PLATE_OPAQUE:
+                for stop, (r, g, b) in PLATE["opaque"]:
                     body.setColorAt(stop, QColor(r, g, b, 255))
             else:
-                for stop, (r, g, b), lift in _PLATE_SMOKED:
+                for stop, (r, g, b), lift in PLATE["smoked"]:
                     body.setColorAt(stop, QColor(r, g, b, max(28, min(255, a + lift))))
             painter.fillPath(path, body)
 
@@ -231,16 +223,16 @@ class Hairline(QWidget):
         self.setFixedHeight(1)
         if width is not None:
             self.setFixedWidth(int(width))
-        self._glow = _HAIRLINE_REST
+        self._glow = int(HAIRLINE["rest"])
 
     def set_glow(self, alpha: int) -> None:
-        wanted = max(_HAIRLINE_REST, min(_HAIRLINE_LIVE, int(alpha)))
+        wanted = max(int(HAIRLINE["rest"]), min(int(HAIRLINE["live"]), int(alpha)))
         if wanted != self._glow:
             self._glow = wanted
             self.update()
 
     def rest(self) -> None:
-        self.set_glow(_HAIRLINE_REST)
+        self.set_glow(int(HAIRLINE["rest"]))
 
     @property
     def glow(self) -> int:
@@ -291,7 +283,7 @@ def seal_tool_window(
     widget.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent, True)
     widget.setAutoFillBackground(True)
     pal = widget.palette()
-    pal.setColor(widget.backgroundRole(), QColor(_PLATE_SEAL))
+    pal.setColor(widget.backgroundRole(), QColor(*PLATE["seal"]))
     widget.setPalette(pal)
     if round_corners:
         r = float(GLASS.get("radius", 12.0) if radius is None else radius)

@@ -47,6 +47,7 @@ from arelis.core.intent_catalog import (
     BARE_SIGNIN,
     BROWSER_CART,
     BROWSER_CLICK_SIGNIN,
+    BROWSER_FIRST,
     BROWSER_MAPS,
     BROWSER_MAPS_SEND,
     BROWSER_READ,
@@ -58,6 +59,7 @@ from arelis.core.intent_catalog import (
     INBOX,
     IntentHint,
     corrects_a_path,
+    inspect_preflight_nudge,
     mentions_tabular_data,
 )
 from arelis.core.look import classify_look, look_preflight_nudge
@@ -162,6 +164,10 @@ _BROWSER_REAL_ACTIONS = frozenset(
         "press",
         "select",
         "wait",
+        "back",
+        "forward",
+        "reload",
+        "find",
     }
 )
 
@@ -286,6 +292,7 @@ def user_asked_for_browser(text: str) -> bool:
         or BROWSER_SEARCH.search(raw)
         or BROWSER_MAPS.search(raw)
         or BROWSER_CART.search(raw)
+        or BROWSER_FIRST.search(raw)
         or _BROWSER_SCREENSHOT.search(raw)
         or BROWSER_READ.search(raw)
     )
@@ -341,7 +348,7 @@ def rewrite_browser_calls(
 ) -> list[tuple[str, dict[str, Any]]]:
     """Replace invented / guessed sign-in drives with snapshot before Allow."""
     signin = looks_like_browser_click_signin(text)
-    keep = {"snapshot", "click", "type", "wait"}
+    keep = {"snapshot", "click", "type", "wait", "back", "forward", "reload", "find"}
     out: list[tuple[str, dict[str, Any]]] = []
     for name, args in calls:
         if name != "browser":
@@ -369,7 +376,16 @@ def draft_browser_args(text: str) -> dict[str, str]:
     """Open/read args when the 7B never called browser."""
     raw = text or ""
     if looks_like_browser_click_signin(raw):
-        return {"action": "snapshot"}
+        return {"action": "click", "text": "Sign in"}
+    if BROWSER_FIRST.search(raw) and not BROWSER_SEARCH.search(raw):
+        from arelis.browser.snapshot import parse_ordinal
+
+        hit = BROWSER_FIRST.search(raw)
+        nth = 1
+        if hit is not None:
+            piece = (hit.group("n") or hit.group("n2") or "first").strip()
+            nth = parse_ordinal(piece) or 1
+        return {"action": "click", "nth": str(nth)}
     if BROWSER_READ.search(raw):
         return {"action": "read"}
     if BROWSER_SEARCH.search(raw) and not re.search(
@@ -429,6 +445,20 @@ def detect_intents(
     for item in AUTO_HINTS:
         if item.matches(raw):
             hints.append(item.to_hint())
+
+    # Catalog owns the matcher and the nudge template. Stamp the mapped path.
+    if any(h.kind == "inspect" for h in hints):
+        named = inspect_preflight_nudge(raw)
+        hints = [
+            IntentHint(
+                kind="inspect",
+                expected_tools=("workspace",),
+                nudge=named,
+            )
+            if h.kind == "inspect"
+            else h
+            for h in hints
+        ]
 
     if mentions_tabular_data(raw):
         from arelis.core.email_complete import looks_like_compose_email
@@ -533,9 +563,10 @@ def detect_intents(
                     "Intent preflight: this message asks to search in her "
                     "browser. Call browser(action=search, query=…, site="
                     "youtube|google|amazon). That opens results in her window. "
-                    "Do not scrape or web_search instead. Then snapshot/click "
-                    "a result if they asked. Allow still applies — do not ask "
-                    "permission in chat."
+                    "Do not scrape or web_search instead. Then click(nth=1) "
+                    "if they asked to play/open the first result, or click "
+                    "by text. Allow still applies — do not ask permission "
+                    "in chat."
                 ),
             )
         )
@@ -546,7 +577,7 @@ def detect_intents(
                 expected_tools=("browser",),
                 nudge=(
                     "Intent preflight: this message asks to add something to "
-                    "a cart. Snapshot, then click Add to cart / Add to bag. "
+                    "a cart. Call browser(action=click, text='Add to cart'). "
                     "Do not click Checkout / Pay / Buy now — that is their "
                     "turn. Allow still applies — do not ask permission in chat."
                 ),
@@ -559,15 +590,34 @@ def detect_intents(
                 expected_tools=("browser",),
                 nudge=(
                     "Intent preflight: this message asks to open Sign in on "
-                    "the tab she is already on. Call browser(action=snapshot), "
-                    "then browser(action=click, ref=…) on the Sign in / Log in "
-                    "control. Do not stop after snapshot to list refs. Prefer "
-                    "the header Sign in, not the sidebar pitch. There is no "
+                    "the tab she is already on. Call "
+                    "browser(action=click, text='Sign in') — or snapshot then "
+                    "click the header Sign in by ref, not the sidebar pitch. "
+                    "Do not stop after snapshot to list refs. There is no "
                     "goto_sign_in or sign_in action — do not invent a URL or a "
                     "receipt. If they give a username or email, type it into a "
                     "non-secret field after snapshot. "
                     "Never type a password or OTP — that is their turn. Allow "
                     "still applies — do not ask permission in chat."
+                ),
+            )
+        )
+    elif BROWSER_FIRST.search(raw):
+        from arelis.browser.snapshot import parse_ordinal
+
+        hit = BROWSER_FIRST.search(raw)
+        nth = 1
+        if hit is not None:
+            piece = (hit.group("n") or hit.group("n2") or "first").strip()
+            nth = parse_ordinal(piece) or 1
+        hints.append(
+            IntentHint(
+                kind="browser_click",
+                expected_tools=("browser",),
+                nudge=(
+                    f"Intent preflight: they want result #{nth} on this tab. "
+                    f"Call browser(action=click, nth={nth}). Do not invent a URL. "
+                    "Allow still applies — do not ask permission in chat."
                 ),
             )
         )
@@ -594,10 +644,10 @@ def detect_intents(
                 kind="browser",
                 expected_tools=("browser",),
                 nudge=(
-                    "Intent preflight: this message asks to open a site in the "
-                    "user's desktop browser. Call browser(action=open, url or "
-                    "alias like youtube) — that only opens the URL (no Chrome "
-                    "restart). Use browser=firefox and private=true only if they "
+                    "Intent preflight: this message asks to open a site in "
+                    "Arelis' Chrome. Call browser(action=open, url or "
+                    "alias like youtube) — that opens the URL in her window. "
+                    "Use browser=firefox and private=true only if they "
                     "asked for Firefox private; otherwise leave browser=default. "
                     "Do not scrape instead of opening. Do not call relaunch "
                     "unless they need click/screenshot control. Allow still "
@@ -906,7 +956,16 @@ def detect_intents(
             or looks_like_scheduled_send(raw)
             or looks_like_schedule_manage(raw)
             or any(
-                h.kind in {"analyze", "vision", "image_edit", "rooms", "browser_click"}
+                h.kind
+                in {
+                    "analyze",
+                    "vision",
+                    "image_edit",
+                    "rooms",
+                    "browser_click",
+                    "inspect",
+                    "inspect_write",
+                }
                 for h in hints
             )
             or (image_attached and not _EXPLICIT_SMS_VERB.match(raw))
@@ -929,7 +988,16 @@ def detect_intents(
             bool(INBOX.matches(raw))
             or looks_like_mailbox_mutate(raw)
             or any(
-                h.kind in {"analyze", "vision", "image_edit", "schedule", "rooms"}
+                h.kind
+                in {
+                    "analyze",
+                    "vision",
+                    "image_edit",
+                    "schedule",
+                    "rooms",
+                    "inspect",
+                    "inspect_write",
+                }
                 for h in hints
             )
             or looks_like_image_gen(raw)

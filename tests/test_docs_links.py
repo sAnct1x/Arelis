@@ -25,11 +25,23 @@ MARKDOWN_LINK = re.compile(r"\[[^\]]*\]\(([^)\s]+)")
 SKIP_PREFIXES = ("http://", "https://", "mailto:", "#")
 
 
+def _is_gitignored(path: Path) -> bool:
+    """Gitignored local notes under docs/ must not fail the front door."""
+    import subprocess
+
+    result = subprocess.run(
+        ["git", "check-ignore", "-q", str(path)],
+        cwd=PROJECT_ROOT,
+        check=False,
+    )
+    return result.returncode == 0
+
+
 def _markdown_files() -> list[Path]:
     """Tracked prose. Excludes the working notes, which are not published."""
     roots = [PROJECT_ROOT / "README.md", PROJECT_ROOT / "CONTRIBUTING.md"]
     roots.extend(sorted((PROJECT_ROOT / "docs").glob("*.md")))
-    return [path for path in roots if path.is_file()]
+    return [path for path in roots if path.is_file() and not _is_gitignored(path)]
 
 
 def test_every_relative_link_in_the_docs_resolves() -> None:
@@ -134,6 +146,8 @@ def test_every_top_level_doc_is_linked_from_the_readme() -> None:
     readme = (PROJECT_ROOT / "README.md").read_text(encoding="utf-8")
     missing = []
     for path in sorted((PROJECT_ROOT / "docs").glob("*.md")):
+        if _is_gitignored(path):
+            continue
         needle = f"docs/{path.name}"
         if needle not in readme.replace("\\", "/"):
             missing.append(path.name)

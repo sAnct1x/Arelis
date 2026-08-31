@@ -46,6 +46,7 @@ class EarthRuntime:
     last_fetch_unix: dict[str, float] = field(default_factory=dict)
     _live_busy: bool = False
     note: str = ""
+    pending_goto: dict | None = None
 
     def enter(self, *, unix: float | None = None) -> str:
         now = float(unix if unix is not None else time.time())
@@ -77,8 +78,9 @@ class EarthRuntime:
             self._merge_live()
         self.last_tick_unix = now
         n = len(self.store)
-        mode = "live" if self.live else "simulated"
-        self.note = f"observing Earth  ECEF  {n} entities  {mode}"
+        from arelis.earth.copy import enter_note
+
+        self.note = enter_note(live=self.live, n=n)
         try:
             from arelis.physics.telemetry import emit
 
@@ -94,6 +96,7 @@ class EarthRuntime:
         self.active = False
         self.track_id = ""
         self.ride_id = ""
+        self.pending_goto = None
         self.last_view = None
         self.last_live_view = None
         self.last_fetch_unix.clear()
@@ -104,7 +107,9 @@ class EarthRuntime:
             forget()
         except Exception:
             pass
-        self.note = "left Earth"
+        from arelis.earth.copy import leave_note
+
+        self.note = leave_note()
         try:
             from arelis.physics.telemetry import emit
 
@@ -112,6 +117,24 @@ class EarthRuntime:
         except Exception:
             pass
         return self.note
+
+    def request_goto(self, place: object) -> None:
+        """Queue a plate fly. The solar tick consumes it once Earth is in view."""
+        if hasattr(place, "as_place"):
+            self.pending_goto = place.as_place()
+            return
+        if isinstance(place, dict):
+            self.pending_goto = {
+                "kind": str(place.get("kind") or "city"),
+                "name": str(place.get("name") or ""),
+                "lat": float(place["lat"]),
+                "lon": float(place["lon"]),
+            }
+
+    def take_goto(self) -> dict | None:
+        hit = self.pending_goto
+        self.pending_goto = None
+        return hit
 
     def tick(self, *, unix: float | None = None) -> None:
         if not self.active:
@@ -233,17 +256,9 @@ class EarthRuntime:
         return tuple(hits[:24])
 
     def status_line(self) -> str:
-        if not self.active:
-            return "solar"
-        n = len(self.visible())
-        mode = "live" if self.live else "simulated"
-        band = self.last_view.band if self.last_view is not None else ""
-        extra = f"  {band}" if band else ""
-        if self.ride_id:
-            extra += f"  ride {self.ride_id}"
-        elif self.track_id:
-            extra += f"  track {self.track_id}"
-        return f"observing Earth  ECEF  {n}  {mode}{extra}"
+        from arelis.earth.copy import status_sentence
+
+        return status_sentence(self)
 
     def coverage_notes(self) -> list[str]:
         notes: list[str] = []

@@ -226,6 +226,7 @@ class WorldScene:
     last_verb: str = ""
     _hit: Disc | None = field(default=None, repr=False)
     _pz: float | None = field(default=None, repr=False)
+    _p_ang: float | None = field(default=None, repr=False)
     _grips: dict[str, tuple[float, float]] = field(default_factory=dict)
     _grip_kind: dict[str, str] = field(default_factory=dict)
     _undo: list[dict] = field(default_factory=list)
@@ -573,11 +574,13 @@ class WorldScene:
         who: str = "",
         kind: str | None = None,
         z: float | None = None,
+        angle: float | None = None,
     ) -> None:
         now = time.perf_counter() if t is None else float(t)
         px = min(1.0, max(0.0, float(x)))
         py = min(1.0, max(0.0, float(y)))
         self._pz = None if z is None else min(1.0, max(0.0, float(z)))
+        self._p_ang = None if angle is None else float(angle)
         owner = str(who or "")
         pose = (kind or ("fist" if grabbing else "open")).lower()
         if pose not in ("open", "fist", "pinch"):
@@ -596,6 +599,7 @@ class WorldScene:
         finally:
             self._hit = None
             self._pz = None
+            self._p_ang = None
 
     def _mark_grip(self, owner: str, px: float, py: float, pose: str) -> None:
         if owner:
@@ -631,6 +635,7 @@ class WorldScene:
                 if self.disc.scaler:
                     return
                 self._follow_fist(px, py, now)
+                self._apply_fist_turn()
                 return
             if owner and self.disc.holder and owner != self.disc.holder:
                 return
@@ -641,6 +646,7 @@ class WorldScene:
                 self.disc.holder = owner
                 self._lock_hold()
                 self._follow_fist(px, py, now)
+                self._apply_fist_turn()
                 return
         elif not self.near(px, py):
             return
@@ -661,6 +667,16 @@ class WorldScene:
             self._lock_hold()
         self.disc.attached = True
         self._follow_fist(px, py, now)
+        self._apply_fist_turn()
+
+    def _apply_fist_turn(self) -> None:
+        """Palm angle delta. Fist rotate; pinch does not call this."""
+        ang = self._p_ang
+        if ang is None:
+            return
+        if self.disc._spin_last is not None:
+            self.disc.angle += _wrap(ang - self.disc._spin_last)
+        self.disc._spin_last = ang
 
     def _apply_pinch(self, px: float, py: float, owner: str, now: float) -> None:
         if self._hit is None:
@@ -679,6 +695,8 @@ class WorldScene:
                     self._note_scale_hand(owner, now)
                 elif self.disc.size_locked:
                     self._orbit_spin(px, py)
+                else:
+                    self._follow_fist(px, py, now)
                 return
             if (
                 owner
@@ -719,7 +737,26 @@ class WorldScene:
         partner = self._other_pinch(owner, px, py)
         if partner is None:
             self._replace_close_pending(owner, px, py)
+            if not self.near(px, py):
+                self._mark_grip(owner, px, py, "pinch")
+                return
+            if (
+                owner
+                and owner == self._last_holder
+                and self._released_at >= 0
+                and now - self._released_at < REGRAB_LOCK
+            ):
+                return
             self._mark_grip(owner, px, py, "pinch")
+            if not self.disc.attached:
+                self._trail.clear()
+                self._clear_peak()
+                self._clear_hitch()
+                self._clear_spin(self.disc)
+                self.disc.holder = owner
+                self._lock_hold()
+            self.disc.attached = True
+            self._follow_fist(px, py, now)
             return
         self._mark_grip(owner, px, py, "pinch")
         self.disc.attached = True

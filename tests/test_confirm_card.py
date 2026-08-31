@@ -11,6 +11,7 @@ from arelis.core.bus import EventBus
 from arelis.core.confirm_speech import (
     apply_confirm_edit,
     classify_confirm_utterance,
+    classify_drive_act,
     classify_hangup,
     classify_voice_act,
     stopped_ask_note,
@@ -27,6 +28,9 @@ def test_headlines_are_human() -> None:
     assert confirm_headline("send_sms", {"to": "wife", "body": "On my way"}) == "text wife"
     assert confirm_headline("workspace", {"action": "write", "path": "data/note.txt"}) == (
         "write note.txt"
+    )
+    assert confirm_headline("workspace", {"action": "keep", "text": "spare key under the planter"}) == (
+        "keep spare key under the planter"
     )
     assert confirm_headline("browser", {"action": "open", "url": "youtube"}) == "open youtube"
     assert confirm_headline("plot", {}) == "write a plot"
@@ -69,6 +73,12 @@ def test_yes_no_lists() -> None:
     assert not classify_hangup("stop talking")
     assert not classify_hangup("tell her goodbye")
     assert not classify_hangup("that's all I needed")
+    assert classify_drive_act("pause") == "pause"
+    assert classify_drive_act("hold on") == "pause"
+    assert classify_drive_act("go") == "resume"
+    assert classify_drive_act("keep going") == "resume"
+    assert classify_drive_act("freeze") is None
+    assert classify_drive_act("pause the sim") is None
 
 
 def test_stopped_ask_note_is_one_fact() -> None:
@@ -362,6 +372,115 @@ async def test_wasnt_talking_to_you_is_ordinary_talk() -> None:
     messages = [e for e in seen if e.type == EventType.USER_MESSAGE]
     assert messages
     assert messages[0].payload.get("text") == "I wasn't talking to you"
+
+
+def _silent_orch(bus: EventBus) -> Orchestrator:
+    return Orchestrator(
+        bus,
+        _StubRouter(),  # type: ignore[arg-type]
+        ToolRegistry(),
+        {
+            "agent": {"confirm_timeout_s": 30},
+            "workspace": {"roots": ["."]},
+            "_persona_path": str(PROJECT_ROOT / "arelis" / "persona" / "arelis.md"),
+        },
+        SessionMemory(),
+    )
+
+
+@pytest.mark.asyncio
+async def test_spoken_stop_cancels_without_conversation() -> None:
+    bus = EventBus()
+    seen: list[Event] = []
+
+    async def capture(event: Event) -> None:
+        seen.append(event)
+
+    bus.subscribe(None, capture)
+    orch = _silent_orch(bus)
+    orch._turn_task = asyncio.get_running_loop().create_future()
+    bus_task = asyncio.create_task(bus.run())
+    try:
+        await bus.publish(Event(EventType.VOICE_TRANSCRIPT, {"text": "stop"}))
+        await bus.drain()
+    finally:
+        bus.stop()
+        bus_task.cancel()
+        if orch._turn_task is not None and not orch._turn_task.done():
+            orch._turn_task.cancel()
+    assert any(e.type == EventType.TURN_CANCEL for e in seen)
+    assert not any(e.type == EventType.USER_MESSAGE for e in seen)
+
+
+@pytest.mark.asyncio
+async def test_spoken_allow_without_conversation() -> None:
+    bus = EventBus()
+    seen: list[Event] = []
+
+    async def capture(event: Event) -> None:
+        seen.append(event)
+
+    bus.subscribe(None, capture)
+    orch = _silent_orch(bus)
+    fut: asyncio.Future[str] = asyncio.get_running_loop().create_future()
+    orch._confirm_waiters["c-filament"] = fut
+    bus_task = asyncio.create_task(bus.run())
+    try:
+        await bus.publish(Event(EventType.VOICE_TRANSCRIPT, {"text": "yes"}))
+        await bus.drain()
+        decision = await asyncio.wait_for(fut, timeout=2)
+    finally:
+        bus.stop()
+        bus_task.cancel()
+    assert decision == "allow"
+    assert not any(e.type == EventType.USER_MESSAGE for e in seen)
+
+
+@pytest.mark.asyncio
+async def test_spoken_pause_while_the_turn_is_live() -> None:
+    bus = EventBus()
+    seen: list[Event] = []
+
+    async def capture(event: Event) -> None:
+        seen.append(event)
+
+    bus.subscribe(None, capture)
+    orch = _silent_orch(bus)
+    orch._turn_task = asyncio.get_running_loop().create_future()
+    bus_task = asyncio.create_task(bus.run())
+    try:
+        await bus.publish(Event(EventType.VOICE_TRANSCRIPT, {"text": "pause"}))
+        await bus.drain()
+    finally:
+        bus.stop()
+        bus_task.cancel()
+        if orch._turn_task is not None and not orch._turn_task.done():
+            orch._turn_task.cancel()
+    assert any(e.type == EventType.TURN_PAUSE for e in seen)
+    assert not any(e.type == EventType.USER_MESSAGE for e in seen)
+    assert not any(e.type == EventType.PHYSICS_VERB for e in seen)
+
+
+@pytest.mark.asyncio
+async def test_spoken_go_resumes_a_held_drive() -> None:
+    bus = EventBus()
+    seen: list[Event] = []
+
+    async def capture(event: Event) -> None:
+        seen.append(event)
+
+    bus.subscribe(None, capture)
+    orch = _silent_orch(bus)
+    orch._pause = True
+    bus_task = asyncio.create_task(bus.run())
+    try:
+        await bus.publish(Event(EventType.VOICE_TRANSCRIPT, {"text": "go"}))
+        await bus.drain()
+    finally:
+        bus.stop()
+        bus_task.cancel()
+    assert any(e.type == EventType.TURN_RESUME for e in seen)
+    assert not any(e.type == EventType.USER_MESSAGE for e in seen)
 
 
 @pytest.mark.asyncio

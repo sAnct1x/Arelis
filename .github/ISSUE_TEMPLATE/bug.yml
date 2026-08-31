@@ -1,0 +1,42 @@
+name: Something else broke
+description: She is installed. A later ask went wrong.
+title: ""
+body:
+  - type: markdown
+    attributes:
+      value: |
+        First-run and SmartScreen have their own form.
+
+        Nothing that identifies a real person. No contacts, no real
+        mailbox, no home folder. Springfield is the town we keep.
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: F1 in the window, or the setup file name.
+      placeholder: 0.2.4
+    validations:
+      required: true
+  - type: textarea
+    id: ask
+    attributes:
+      label: What you asked her
+      description: The words, not a theory about the model.
+    validations:
+      required: true
+  - type: textarea
+    id: happened
+    attributes:
+      label: What happened
+    validations:
+      required: true
+  - type: checkboxes
+    id: extras
+    attributes:
+      label: In play
+      options:
+        - label: Voice
+        - label: Her browser
+        - label: Mail or texts
+        - label: Phone app
+        - label: Reality / Earth (source checkout)

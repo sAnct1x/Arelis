@@ -8,7 +8,8 @@
 #
 # A room is a named place to work on one thing. It keeps its own conversation
 # thread, points at one workspace project, and hands Arelis its purpose at the
-# start of every turn inside it.
+# start of every turn inside it. The first time you enter an empty room she
+# asks those in chat (typed or spoken) and writes what you said.
 #
 #   /rooms                  what exists
 #   /room physics           go in  (or say "let's work on Reality")

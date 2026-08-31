@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from arelis import paths
 from arelis.config import load_config
 from arelis.tools.analyze import AnalyzeTool
 from arelis.tools.code_workspace import CodeWorkspaceTool
@@ -395,3 +396,63 @@ async def test_project_slash_command_switches(tmp_path: Path) -> None:
     assert ws.active == "interferometer"
     done = [e for e in events if e.type == EventType.ASSISTANT_DONE]
     assert done and "interferometer" in done[-1].payload["text"]
+
+
+def _installed_package_roots(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> tuple[Path, dict]:
+    """Installed copy: Documents/Arelis writable, package inspectable."""
+    home = tmp_path / "home"
+    (home / "Documents").mkdir(parents=True)
+    site_packages = tmp_path / "site-packages"
+    package = site_packages / "arelis"
+    package.mkdir(parents=True)
+    (package / "inspect_me.py").write_text("# shipped\n", encoding="utf-8")
+    monkeypatch.setattr(paths, "INSTALL_PARENT", site_packages)
+    monkeypatch.setattr(paths, "PACKAGE_ROOT", package)
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
+    monkeypatch.delenv(paths.DATA_DIR_ENV, raising=False)
+    cfg = tmp_path / "cfg.yaml"
+    cfg.write_text(
+        yaml.dump({"workspace": {"roots": ["."]}, "persona_file": "persona/arelis.md"}),
+        encoding="utf-8",
+    )
+    return package, load_config(cfg)
+
+
+def test_installed_package_inspect_root_is_readable_not_writable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    package, data = _installed_package_roots(monkeypatch, tmp_path)
+    ws = WorkspaceRoots.from_config(data)
+
+    hit = ws.resolve_read(str(package / "inspect_me.py"))
+    assert hit.path == (package / "inspect_me.py").resolve()
+    assert hit.root_name in ("source", "arelis-source")
+
+    with pytest.raises(PermissionError, match="read-only"):
+        ws.resolve(str(package / "inspect_me.py"), for_write=True)
+    with pytest.raises(PermissionError, match="read-only"):
+        ws.resolve(str(package / "new.py"), for_create=True)
+
+    docs = tmp_path / "home" / "Documents" / "Arelis"
+    created = ws.resolve("fresh.txt", for_create=True)
+    assert created.path == (docs / "fresh.txt").resolve()
+    assert created.root_name != hit.root_name
+
+
+@pytest.mark.asyncio
+async def test_installed_package_inspect_root_workspace_tool_cannot_write(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    package, data = _installed_package_roots(monkeypatch, tmp_path)
+    ws = WorkspaceRoots.from_config(data)
+    tool = CodeWorkspaceTool(ws)
+    target = package / "inspect_me.py"
+    denied = await tool.run(action="write", path=str(target), content="overwrite")
+    assert not denied.ok
+    assert "read-only" in denied.output.lower()
+    assert target.read_text(encoding="utf-8") == "# shipped\n"
+    read = await tool.run(action="read", path=str(target))
+    assert read.ok
+    assert "# shipped" in read.output

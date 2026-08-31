@@ -39,11 +39,15 @@ Leave Earth returns to heliocentric. Breadcrumb for the next agent:
 - Inventory: arelis.earth.feeds.FEEDS.
 - People: contacts with lat/lon; local webcam boxes; events/assets.
 - Tool: arelis.tools.earth_tool.EarthTool  (always schemaed; stage-gated).
-- Verbs: enter Earth / leave Earth skip the 9B.
+- Verbs: enter Earth / leave Earth / take me to <place> skip the 9B.
 - Dump: outputs/physics/earth/<utc>/manifest.json + state.jsonl
 - Visual: Qt overlay (`earth_overlay.py`) plus Cesium plate
   (`earth_globe_host.py`) on enter. Do not delete the WebEngine host.
 - Canvases: earth-hub, earth-layers, earth-runtime, earth-build.
+  Plate polish: arelis/earth/copy.py, goto.py, key_paste.py,
+  arelis/ui/earth_find.py, earth_chrome.py. Status is a sentence.
+  Find is on the plate. Say take me to Tokyo (typed or spoken).
+  Band is type. Live off / Live on.
 
 Live adapters replace a layer; they do not invent coverage.
 """

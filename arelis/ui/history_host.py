@@ -29,6 +29,13 @@ def build_rooms_menu(window) -> QMenu:
     if not active:
         active = str(getattr(window.conversation.room, "room_id", "") or "")
 
+    from arelis.rooms import PHYSICS_ROOM_ID
+    from arelis.ui.theme import active_theme
+
+    # Filament has its own Reality particle. The list is future rooms.
+    if active_theme() == "filament":
+        rooms = [room for room in rooms if room.id != PHYSICS_ROOM_ID]
+
     if not rooms:
         empty = QAction("no rooms yet", window)
         empty.setEnabled(False)

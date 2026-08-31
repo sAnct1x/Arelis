@@ -128,6 +128,7 @@ async def test_probe_ok_when_tags_and_integrations_ready(
         "models",
         "role",
         "confirm",
+        "watch",
         "calendar",
         "sms",
         "mail",
@@ -146,6 +147,8 @@ async def test_probe_ok_when_tags_and_integrations_ready(
     assert "fast" in role_detail.lower()
     assert snap.chip("confirm") and snap.chip("confirm").status == ChipLevel.OK
     assert snap.chip("confirm").label == "Allow gates"
+    assert snap.chip("watch") and snap.chip("watch").status == ChipLevel.OK
+    assert snap.chip("watch").label == "Watch"
     assert "browser" in (snap.chip("confirm").detail if snap.chip("confirm") else "")
     assert snap.chip("calendar") and snap.chip("calendar").status == ChipLevel.OK
     assert snap.chip("sms") and snap.chip("sms").status == ChipLevel.OK

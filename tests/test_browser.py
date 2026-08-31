@@ -433,11 +433,30 @@ def test_normalize_press_key() -> None:
     assert normalize_press_key("Ctrl+C") is None
 
 
-def test_format_drive_status() -> None:
-    from arelis.browser.hold import format_drive_status
+def test_format_drive_done_is_past_tense() -> None:
+    from arelis.browser.hold import format_drive_done
 
+    assert format_drive_done("click", data={"label": "Sign in"}) == "clicked Sign in"
+    assert "never" in format_drive_done("search", data={"query": "never gonna"})
+    assert format_drive_done("snapshot", {}) == "read the page"
+    assert format_drive_done("wait", {}) == ""
+
+
+def test_format_drive_status() -> None:
+    from arelis.browser.hold import format_drive_status, set_drive_labels
+
+    set_drive_labels({})
     assert "e3" in format_drive_status("click", {"ref": "e3"})
     assert "about to click" in format_drive_status("click", {"ref": "e3"})
+    assert "Sign in" in format_drive_status("click", {"text": "Sign in"})
+    set_drive_labels({"e11": "Sign in"})
+    assert "Sign in" in format_drive_status("click", {"ref": "e11"})
+    set_drive_labels({})
+    assert format_drive_status("back", {}) == "going back…"
+    assert format_drive_status("forward", {}) == "going forward…"
+    assert format_drive_status("reload", {}) == "reloading…"
+    assert "search" in format_drive_status("type", {"into": "search"})
+    assert "opening a tab" in format_drive_status("tabs", {"tab": "new"})
     assert "x.com" in format_drive_status("open", {"url": "https://x.com/home"})
     assert format_drive_status("wait", {}) == "waiting…"
     assert format_drive_status("read", {}) == "reading this tab…"
@@ -782,8 +801,8 @@ def test_click_sign_in_preflight_is_snapshot_not_a_fake_action() -> None:
     assert any(h.kind == "browser_click" for h in hints)
     hint = next(h for h in hints if h.kind == "browser_click")
     assert hint.expected_tools == ("browser",)
-    assert "action=snapshot" in hint.nudge
-    assert "click" in hint.nudge.lower()
+    assert "action=click" in hint.nudge
+    assert "sign in" in hint.nudge.lower()
     click = detect_intents("click on the sign in the top right corner")
     assert any(h.kind == "browser_click" for h in click)
     assert any(h.kind == "browser_click" for h in detect_intents("take me to the login"))
@@ -836,5 +855,328 @@ def test_browser_session_close_is_idempotent() -> None:
         await session.close()
         await session.close()
         assert session._driver.connected is False
+
+    asyncio.run(_run())
+
+
+def test_rank_snapshot_skips_footer_and_hidden() -> None:
+    from arelis.browser.snapshot import rank_snapshot_nodes
+
+    ranked = rank_snapshot_nodes(
+        [
+            {
+                "text": "Privacy",
+                "tag": "a",
+                "region": "footer",
+                "visible": True,
+                "in_view": False,
+            },
+            {
+                "text": "Sign in",
+                "tag": "button",
+                "region": "header",
+                "visible": True,
+                "in_view": True,
+            },
+            {
+                "text": "hidden",
+                "tag": "a",
+                "region": "main",
+                "visible": False,
+                "in_view": True,
+            },
+            {
+                "text": "Never Gonna Give You Up",
+                "tag": "a",
+                "region": "main",
+                "visible": True,
+                "in_view": True,
+            },
+        ]
+    )
+    refs = [n["ref"] for n in ranked]
+    labels = [n["text"] for n in ranked]
+    assert refs[0] == "e1"
+    assert labels[0] == "Sign in"
+    assert "hidden" not in labels
+    assert "Privacy" not in labels or labels[-1] == "Privacy"
+
+
+def test_click_by_text_picks_header_sign_in() -> None:
+    session = BrowserSession.fake()
+    tool = BrowserTool(session)
+
+    async def _run() -> None:
+        await tool.run(action="open", url="youtube")
+        clicked = await tool.run(action="click", text="Sign in")
+        assert clicked.ok
+        assert "e11" in clicked.output
+        assert "e11" in getattr(session._driver, "clicked", [])
+        assert "e24" not in getattr(session._driver, "clicked", [])
+
+    asyncio.run(_run())
+
+
+def test_click_by_text_refuses_pay() -> None:
+    from arelis.browser.hold import set_paused
+
+    session = BrowserSession.fake()
+    tool = BrowserTool(session)
+    set_paused(False)
+    try:
+
+        async def _run() -> None:
+            await tool.run(action="open", url="youtube")
+            result = await tool.run(action="click", text="Pay")
+            assert not result.ok
+            assert result.data.get("code") == "YOUR_TURN"
+            assert "e5" not in getattr(session._driver, "clicked", [])
+
+        asyncio.run(_run())
+    finally:
+        set_paused(False)
+
+
+def test_back_returns_to_prior_url() -> None:
+    session = BrowserSession.fake()
+    tool = BrowserTool(session)
+
+    async def _run() -> None:
+        await tool.run(action="open", url="youtube")
+        await tool.run(action="open", url="https://www.github.com")
+        back = await tool.run(action="back")
+        assert back.ok
+        assert "youtube.com" in (back.data.get("url") or "").lower()
+
+    asyncio.run(_run())
+
+
+def test_prefer_cdp_skips_foreign_port(monkeypatch) -> None:
+    from arelis.browser import launch as launch_mod
+
+    def _up(url: str, *, timeout_s: float = 0.8) -> bool:
+        del timeout_s
+        return "9222" in url
+
+    monkeypatch.setattr(launch_mod, "cdp_is_up", _up)
+    monkeypatch.setattr(launch_mod, "cdp_port_is_arelis", lambda _url: False)
+    assert launch_mod.prefer_cdp_url("http://127.0.0.1:9222") == (
+        "http://127.0.0.1:9333"
+    )
+    monkeypatch.setattr(launch_mod, "cdp_port_is_arelis", lambda _url: True)
+    assert launch_mod.prefer_cdp_url("http://127.0.0.1:9222") == (
+        "http://127.0.0.1:9222"
+    )
+
+
+def test_empty_process_scan_keeps_preferred_port(monkeypatch) -> None:
+    from arelis.browser import launch as launch_mod
+
+    monkeypatch.setattr(launch_mod.sys, "platform", "win32")
+    monkeypatch.setattr(launch_mod, "_chrome_cmdlines", lambda: [])
+    monkeypatch.setattr(launch_mod, "cdp_is_up", lambda _url, **_k: True)
+    assert launch_mod.cdp_port_is_arelis("http://127.0.0.1:9222") is None
+    assert launch_mod.prefer_cdp_url("http://127.0.0.1:9222") == (
+        "http://127.0.0.1:9222"
+    )
+
+
+def test_ensure_keeps_attached_cdp_url(monkeypatch) -> None:
+    from arelis.browser import launch as launch_mod
+    from arelis.browser.actions import ActionResult, PlaywrightDriver
+
+    hops: list[str] = []
+
+    def _prefer(url: str) -> str:
+        hops.append(url)
+        return "http://127.0.0.1:9333"
+
+    monkeypatch.setattr(launch_mod, "prefer_cdp_url", _prefer)
+    monkeypatch.setattr(launch_mod, "cdp_is_up", lambda _url, **_k: True)
+    monkeypatch.setattr(launch_mod, "playwright_available", lambda: True)
+
+    driver = PlaywrightDriver(cdp_url="http://127.0.0.1:9222")
+    driver._browser = object()
+    driver._page = object()
+
+    async def _attach(*, mode: str) -> ActionResult:
+        return ActionResult(
+            ok=True,
+            output=f"Connected ({mode}).",
+            data={"mode": mode, "cdp": driver.cdp_url},
+        )
+
+    driver._attach_cdp = _attach  # type: ignore[method-assign]
+
+    async def _run() -> None:
+        got = await driver.ensure("chrome")
+        assert got.ok
+        assert driver.cdp_url == "http://127.0.0.1:9222"
+        assert hops == []
+
+    asyncio.run(_run())
+
+
+def test_search_includes_click_refs() -> None:
+    session = BrowserSession.fake()
+    tool = BrowserTool(session)
+
+    async def _run() -> None:
+        got = await tool.run(action="search", query="never gonna", site="youtube")
+        assert got.ok
+        assert "results:" in got.output.lower()
+        assert "Never Gonna" in got.output or "[e6]" in got.output
+        assert "elements:" not in got.output.lower()
+
+    asyncio.run(_run())
+
+
+def test_type_by_label_uses_search_box() -> None:
+    session = BrowserSession.fake()
+    tool = BrowserTool(session)
+
+    async def _run() -> None:
+        await tool.run(action="open", url="youtube")
+        typed = await tool.run(action="type", text="peanut live", into="search")
+        assert typed.ok
+        assert ("e2", "peanut live") in getattr(session._driver, "typed", [])
+        bare = await tool.run(action="type", text="optics")
+        assert bare.ok
+        assert ("e2", "optics") in getattr(session._driver, "typed", [])
+
+    asyncio.run(_run())
+
+
+def test_click_nth_opens_first_result() -> None:
+    session = BrowserSession.fake()
+    tool = BrowserTool(session)
+
+    async def _run() -> None:
+        await tool.run(action="open", url="youtube")
+        clicked = await tool.run(action="click", nth=1)
+        assert clicked.ok
+        assert "e6" in getattr(session._driver, "clicked", [])
+        assert "e1" not in getattr(session._driver, "clicked", [])
+
+    asyncio.run(_run())
+
+
+def test_find_lists_sign_in() -> None:
+    session = BrowserSession.fake()
+    tool = BrowserTool(session)
+
+    async def _run() -> None:
+        await tool.run(action="open", url="youtube")
+        found = await tool.run(action="find", text="Sign in")
+        assert found.ok
+        assert "e11" in found.output
+        assert "e24" not in found.output
+
+    asyncio.run(_run())
+
+
+def test_tabs_new_close_and_forward() -> None:
+    session = BrowserSession.fake()
+    tool = BrowserTool(session)
+
+    async def _run() -> None:
+        await tool.run(action="open", url="youtube")
+        await tool.run(action="open", url="https://www.github.com")
+        back = await tool.run(action="back")
+        assert back.ok
+        assert "youtube.com" in (back.data.get("url") or "").lower()
+        fwd = await tool.run(action="forward")
+        assert fwd.ok
+        assert "github.com" in (fwd.data.get("url") or "").lower()
+        reloaded = await tool.run(action="reload")
+        assert reloaded.ok
+        opened = await tool.run(action="tabs", tab="new", url="https://x.com")
+        assert opened.ok
+        assert "x.com" in (opened.data.get("url") or "")
+        listed = await tool.run(action="tabs")
+        assert listed.ok
+        assert "x.com" in listed.output
+        closed = await tool.run(action="tabs", tab="close")
+        assert closed.ok
+
+    asyncio.run(_run())
+
+
+def test_draft_play_the_first() -> None:
+    from arelis.core.preflight import detect_intents, draft_browser_args
+
+    assert draft_browser_args("play the first video") == {
+        "action": "click",
+        "nth": "1",
+    }
+    assert draft_browser_args("play the second one") == {
+        "action": "click",
+        "nth": "2",
+    }
+    assert draft_browser_args("open the third result") == {
+        "action": "click",
+        "nth": "3",
+    }
+    hints = detect_intents("open the first result")
+    assert any(h.kind == "browser_click" for h in hints)
+    search = detect_intents("search youtube for never gonna and play the first")
+    assert any(h.kind == "browser_search" for h in search)
+
+
+def test_search_settles_before_read() -> None:
+    session = BrowserSession.fake()
+    tool = BrowserTool(session)
+
+    async def _run() -> None:
+        got = await tool.run(action="search", query="never gonna", site="youtube")
+        assert got.ok
+        assert getattr(session._driver, "settled", [])
+
+    asyncio.run(_run())
+
+
+def test_prefer_result_nodes_keeps_result_ahead_of_header_chips() -> None:
+    from arelis.browser.snapshot import prefer_result_nodes
+
+    chips = [
+        {
+            "tag": "button",
+            "text": f"Chip {i}",
+            "region": "header",
+            "href": "",
+        }
+        for i in range(80)
+    ]
+    result = {
+        "tag": "a",
+        "role": "link",
+        "text": "Never Gonna Give You Up",
+        "href": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+        "region": "main",
+    }
+    ordered = prefer_result_nodes([*chips, result], limit=40)
+    assert ordered[0]["text"] == "Never Gonna Give You Up"
+    channel = {
+        "tag": "a",
+        "role": "link",
+        "text": "Go to channel Rick Astley",
+        "href": "https://www.youtube.com/@RickAstley",
+        "region": "main",
+    }
+    skipped = prefer_result_nodes([channel, result], limit=40)
+    assert skipped[0]["text"] == "Never Gonna Give You Up"
+
+
+def test_cdp_dead_snapshot_relaunches_once() -> None:
+    session = BrowserSession.fake()
+    driver = session._driver
+    tool = BrowserTool(session)
+
+    async def _run() -> None:
+        await tool.run(action="open", url="youtube")
+        driver.fail_until_relaunch = True  # type: ignore[attr-defined]
+        snap = await tool.run(action="snapshot")
+        assert snap.ok
+        assert driver.relaunch_count >= 1  # type: ignore[attr-defined]
 
     asyncio.run(_run())

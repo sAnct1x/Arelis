@@ -44,6 +44,10 @@ Thumbs.db
 # than deleted: they are worth keeping and not worth publishing.
 .planning/
 
+# How to get her in front of people. Local only. A public repo that
+# admits nobody else has run the installer is not a front door.
+docs/push.md
+
 # Strips agent attribution out of commit messages. Local for the same reason
 # .cursor/ is. The pre-commit hook beside it is tracked on purpose — it runs
 # the personal-data guards, and every contributor should get that.

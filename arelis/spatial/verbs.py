@@ -97,6 +97,16 @@ _TRAVEL_TO = re.compile(
     r"(?i)^\s*(?:take\s+me\s+to|go\s+to|fly\s+to|fly\s+me\s+to)\s+"
     r"(?P<body>.+?)\s*[.!]?\s*$"
 )
+_GOTO_PLACE = re.compile(
+    r"(?i)^\s*(?:"
+    r"take\s+(?:me|us)\s+to|go\s+to|fly\s+(?:me\s+)?to|"
+    r"show\s+me|visit|head\s+to|bring\s+me\s+to|let'?s\s+go\s+to|"
+    r"zoom\s+to|fall\s+toward|i\s+want\s+to\s+see"
+    r")\s+(?P<place>.+?)\s*[.!]?\s*$"
+)
+_TAKE_HOME = re.compile(
+    r"(?i)^\s*(?:take\s+(?:me|us)\s+home|go\s+home|fly\s+home)\s*[.!]?\s*$"
+)
 _INSPECT_BODY = re.compile(
     r"(?i)^\s*(?:inspect|look\s+at)\s+(?P<body>.+?)\s*[.!]?\s*$"
 )
@@ -323,6 +333,27 @@ def match_inspect_body(text: str, *, names: Iterable[str] | None = None) -> str 
     return resolve_body(hit.group("body") or "", names)
 
 
+def match_earth_place(text: str) -> str | None:
+    """A named Earth destination, or None. Bodies stay travel, not here."""
+    raw = (text or "").strip()
+    if not raw:
+        return None
+    if _TAKE_HOME.match(raw):
+        return "home"
+    hit = _GOTO_PLACE.match(raw)
+    if not hit:
+        return None
+    blob = (hit.group("place") or "").strip()
+    if not blob or _NOT_BODY.search(blob):
+        return None
+    from arelis.earth.gazetteer import resolve_place
+
+    found = resolve_place(blob)
+    if found is None:
+        return None
+    return found.name
+
+
 def classify_physics_act(
     text: str,
     *,
@@ -351,6 +382,9 @@ def classify_physics_act(
     inspected = match_inspect_body(text, names=names)
     if inspected:
         return PhysicsAct(verb="inspect_body", name=inspected)
+    place = match_earth_place(text)
+    if place:
+        return PhysicsAct(verb="goto_earth", name=place)
     from arelis.core.tile_complete import match_tile_intent, world_page_for
 
     hit = match_tile_intent(text)

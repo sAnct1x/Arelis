@@ -56,6 +56,7 @@ _CHIP_ORDER = (
     "models",
     "role",
     "confirm",
+    "watch",
     "calendar",
     "sms",
     "mail",
@@ -171,6 +172,7 @@ async def probe_readiness(
 
     chips["role"] = _role_chip(config, router, configured)
     chips["confirm"] = _confirm_chip(config)
+    chips["watch"] = _watch_chip(config)
     chips["calendar"] = _calendar_chip(config)
     chips["sms"] = _sms_chip(config)
     chips["mail"] = _mail_chip(config)
@@ -181,6 +183,27 @@ async def probe_readiness(
 
     ordered = tuple(chips[key] for key in _CHIP_ORDER if key in chips)
     return ReadinessSnapshot(chips=ordered)
+
+
+def _watch_chip(config: dict[str, Any]) -> ReadinessChip:
+    """The doors Arelis opened — not a scan of the rest of the PC."""
+    watch_cfg = ((config.get("agent") or {}).get("watch") or {})
+    if not bool(watch_cfg.get("enabled", True)):
+        return ReadinessChip(
+            "watch",
+            "Watch",
+            ChipLevel.OFF,
+            "Watch disabled in config.",
+        )
+    from arelis.guard import get_watch
+
+    snap = get_watch().snapshot()
+    level = {
+        "ok": ChipLevel.OK,
+        "warn": ChipLevel.WARN,
+        "off": ChipLevel.OFF,
+    }.get(snap.level, ChipLevel.OK)
+    return ReadinessChip("watch", "Watch", level, snap.detail)
 
 
 def _confirm_chip(config: dict[str, Any]) -> ReadinessChip:

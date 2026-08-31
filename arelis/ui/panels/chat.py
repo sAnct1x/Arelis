@@ -26,37 +26,48 @@ from arelis.ui.markdown import render_markdown
 from arelis.ui.theme import COLORS
 from arelis.ui.void_idle import OrbitIdle
 
+
 # The assistant bubble is built in two pieces because it is painted twice per
 # turn. While tokens arrive it is left open and text is appended as fast plain
 # text. When the turn ends the whole thing is replaced with rendered markdown.
 # Rendering per token is not an option: a half-typed "**" would flicker between
 # literal asterisks and bold on every keystroke.
-_ACCENT = COLORS["accent"]
-_TEXT = COLORS["text"]
-_TEXT_DIM = COLORS["text_dim"]
-_AMBER = COLORS.get("status_amber", COLORS["amber"])
-_STATUS_WHITE = COLORS.get("status_white", COLORS["text"])
-_BUBBLE = COLORS["bubble_wash"]
-_ASSISTANT_LABEL = (
-    '<div style="margin:14px 18% 3px 0;">'
-    f'<div style="color:{_TEXT_DIM};font-size:11px;'
-    f'letter-spacing:0.08em;margin-bottom:3px;">arelis</div></div>'
-)
-_ASSISTANT_OPEN = (
-    '<div style="margin:0 18% 8px 0;">'
-    f'<div style="background:{_BUBBLE};padding:8px 12px;border-radius:8px;color:{_TEXT};">'
-)
+def _ink(name: str, fallback: str = "") -> str:
+    return COLORS.get(name) or COLORS.get(fallback) or COLORS["text"]
+
+
+def _assistant_label() -> str:
+    dim = _ink("text_dim")
+    return (
+        '<div style="margin:14px 18% 3px 0;">'
+        f'<div style="color:{dim};font-size:11px;'
+        f'letter-spacing:0.08em;margin-bottom:3px;">arelis</div></div>'
+    )
+
+
+def _assistant_open() -> str:
+    return (
+        '<div style="margin:0 18% 8px 0;">'
+        f'<div style="background:{_ink("bubble_wash")};padding:8px 12px;'
+        f'border-radius:8px;color:{_ink("text")};">'
+    )
+
+
 _ASSISTANT_CLOSE = "</div></div>"
-_ACTS_HTML = (
-    f'<div style="margin:0 18% 12px 0;color:{_TEXT_DIM};font-size:11px;'
-    f'letter-spacing:0.08em;">'
-    f'<a href="arelis-act://copy" style="color:{_TEXT_DIM};text-decoration:none;">'
-    f"copy</a>"
-    f'<span style="color:{_TEXT_DIM};"> · </span>'
-    f'<a href="arelis-act://again" style="color:{_TEXT_DIM};text-decoration:none;">'
-    f"again</a>"
-    f"</div>"
-)
+
+
+def _acts_html() -> str:
+    dim = _ink("text_dim")
+    return (
+        f'<div style="margin:0 18% 12px 0;color:{dim};font-size:11px;'
+        f'letter-spacing:0.08em;">'
+        f'<a href="arelis-act://copy" style="color:{dim};text-decoration:none;">'
+        f"copy</a>"
+        f'<span style="color:{dim};"> · </span>'
+        f'<a href="arelis-act://again" style="color:{dim};text-decoration:none;">'
+        f"again</a>"
+        f"</div>"
+    )
 
 _CARET_GLYPHS = {"▍", "|", "▌"}
 
@@ -102,6 +113,7 @@ class ChatPanel(QWidget):
     # The thinking line above the composer: open Thinking, or pulse it.
     progress_clicked = Signal()
     again_requested = Signal()
+    desk_requested = Signal(str)
 
     def __init__(self, parent=None, *, embedded: bool = False) -> None:
         super().__init__(parent)
@@ -270,8 +282,8 @@ class ChatPanel(QWidget):
         self._anchor = self._end_position()
         self._stream_text = []
         self._last_assistant_body = None
-        self.view.append(_ASSISTANT_LABEL)
-        self.view.append(_ASSISTANT_OPEN)
+        self.view.append(_assistant_label())
+        self.view.append(_assistant_open())
         self._stream_open = True
         self._start_caret()
         self._scroll(follow=follow)
@@ -369,20 +381,26 @@ class ChatPanel(QWidget):
     def _file_card_html(self, name: str, path: str) -> str:
         open_token = uuid4().hex
         reveal_token = uuid4().hex
+        desk_token = uuid4().hex
         self._file_tokens[open_token] = ("open", path)
         self._file_tokens[reveal_token] = ("reveal", path)
+        self._file_tokens[desk_token] = ("desk", path)
         open_href = f"arelis-file://local/?t={open_token}"
         reveal_href = f"arelis-file://local/?t={reveal_token}"
+        desk_href = f"arelis-file://local/?t={desk_token}"
         return (
             f'<div style="margin:2px 18% 12px 0;">'
-            f'<div style="background:{_BUBBLE};padding:8px 12px;border-radius:8px;'
-            f'display:inline-block;color:{_TEXT};">'
-            f'<div style="color:{_TEXT};font-size:13px;margin-bottom:4px;">'
+            f'<div style="background:{_ink("bubble_wash")};padding:8px 12px;border-radius:8px;'
+            f'display:inline-block;color:{_ink("text")};">'
+            f'<div style="color:{_ink("text")};font-size:13px;margin-bottom:4px;">'
             f"{_esc(name)}</div>"
-            f'<a href="{open_href}" style="color:{_ACCENT};text-decoration:none;">'
+            f'<a href="{open_href}" style="color:{_ink("accent")};text-decoration:none;">'
             f"open</a>"
-            f'<span style="color:{_TEXT_DIM};"> · </span>'
-            f'<a href="{reveal_href}" style="color:{_ACCENT};text-decoration:none;">'
+            f'<span style="color:{_ink("text_dim")};"> · </span>'
+            f'<a href="{desk_href}" style="color:{_ink("accent")};text-decoration:none;">'
+            f"on desk</a>"
+            f'<span style="color:{_ink("text_dim")};"> · </span>'
+            f'<a href="{reveal_href}" style="color:{_ink("accent")};text-decoration:none;">'
             f"show in folder</a>"
             f"</div></div>"
         )
@@ -406,6 +424,9 @@ class ChatPanel(QWidget):
         if not path:
             return
         try:
+            if action == "desk":
+                self.desk_requested.emit(path)
+                return
             if action == "reveal":
                 reveal_local_file(path)
             else:
@@ -428,7 +449,7 @@ class ChatPanel(QWidget):
             return
         self._ensure_view()
         self._acts_pos = self._end_position()
-        self.view.append(_ACTS_HTML)
+        self.view.append(_acts_html())
 
     def _strip_last_acts(self) -> None:
         if self._acts_pos is None:
@@ -610,7 +631,7 @@ class ChatPanel(QWidget):
     def _insert_caret(self) -> None:
         cursor = self.view.textCursor()
         cursor.movePosition(QTextCursor.MoveOperation.End)
-        cursor.insertHtml(f'<span id="arelisCaret" style="color:{_ACCENT};">▍</span>')
+        cursor.insertHtml(f'<span id="arelisCaret" style="color:{_ink("accent")};">▍</span>')
 
     def _strip_caret(self) -> None:
         cursor = self.view.textCursor()
@@ -694,14 +715,15 @@ def _attachment_html(item: dict[str, Any]) -> str:
             f'style="margin:2px 0 0 4px;vertical-align:middle;" />'
         )
     return (
-        f'<span style="margin:2px 0 0 4px;font-size:11px;color:{_TEXT_DIM};">'
+        f'<span style="margin:2px 0 0 4px;font-size:11px;color:{_ink("text_dim")};">'
         f"{_esc(name)}</span>"
     )
 
 
 def _notice_html(text: str) -> str:
     return (
-        f'<p style="color:{_AMBER};font-size:12px;margin:10px 8%;text-align:center;">'
+        f'<p style="color:{_ink("status_amber", "amber")};'
+        f'font-size:12px;margin:10px 8%;text-align:center;">'
         f"{_esc(text)}</p>"
     )
 
@@ -743,10 +765,11 @@ def _user_bubble_html(
         # Nested table shrink-wraps; a lone block div still fills the row in Qt.
         '<table cellspacing="0" cellpadding="0" align="right">'
         "<tr><td align=\"right\">"
-        f'<div style="color:{_TEXT_DIM};font-size:11px;letter-spacing:0.08em;margin:0 2px 3px 0;" '
+        f'<div style="color:{_ink("text_dim")};font-size:11px;'
+        f'letter-spacing:0.08em;margin:0 2px 3px 0;" '
         f'align="right">you</div>'
-        f'<div style="background:{_BUBBLE};padding:8px 12px;'
-        f'border-radius:8px;color:{_TEXT_DIM};text-align:left;">'
+        f'<div style="background:{_ink("bubble_wash")};padding:8px 12px;'
+        f'border-radius:8px;color:{_ink("text_dim")};text-align:left;">'
         f"{inner}</div>"
         "</td></tr></table>"
         "</td></tr></table>"
@@ -755,8 +778,8 @@ def _user_bubble_html(
 
 def _assistant_bubble_html(body: str) -> str:
     return (
-        _ASSISTANT_LABEL
-        + _ASSISTANT_OPEN
+        _assistant_label()
+        + _assistant_open()
         + render_markdown(body)
         + _ASSISTANT_CLOSE
     )

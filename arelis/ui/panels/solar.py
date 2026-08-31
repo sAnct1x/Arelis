@@ -20,12 +20,13 @@ from PySide6.QtGui import (
     QFont,
     QFontMetrics,
     QKeyEvent,
+    QKeySequence,
     QMouseEvent,
     QPainter,
     QPen,
     QWheelEvent,
 )
-from PySide6.QtWidgets import QWidget
+from PySide6.QtWidgets import QApplication, QWidget
 
 from arelis.physics.camera import (
     SOLAR_SPAN_M,
@@ -74,6 +75,7 @@ from arelis.ui.panels.solar_const import (  # noqa: F401
     _TINT,
     HELP_HOTKEYS,
     KEY_HINT,
+    KEY_HINT_EARTH,
     KEY_LEGEND,
     KEY_STRIP,
     SOLAR_OVERLAY,
@@ -232,6 +234,18 @@ class SolarPanel(QWidget):
         self._earth_chip_box = QRect()
         self._earth_live_busy = False
         self._earth_live_done = False
+        self._earth_find_on = False
+        self._earth_find_q = ""
+        self._earth_find_ix = 0
+        self._earth_find_hits = []
+        self._earth_find_box = QRect()
+        self._earth_find_field = QRect()
+        self._earth_find_hit_rects = []
+        self._earth_coach_box = QRect()
+        self._earth_key_hits = []
+        self._earth_key_box = QRect()
+        self._earth_paste_field = ""
+        self._earth_paste_buf = ""
         self._drawn_labels: list[tuple[str, int, int, int]] = []
         self._cover: tuple[float, float, float] | None = None
         self._press: tuple[float, float] | None = None
@@ -483,6 +497,7 @@ class SolarPanel(QWidget):
                 name = system.pending_travel
                 system.pending_travel = None
                 self._travel_to(name)
+            self._apply_pending_earth_goto()
             if self._warp is not None:
                 self._step_warp(system, dt)
             else:
@@ -662,6 +677,20 @@ class SolarPanel(QWidget):
                 self._help = not self._help
                 self.update()
                 return
+            from arelis.ui.earth_chrome import begin_paste, key_chip_at
+            from arelis.ui.earth_find import apply_goto, hit_find, open_find
+
+            key_field = key_chip_at(self, px, py)
+            if key_field:
+                begin_paste(self, key_field)
+                return
+            find_hit = hit_find(self, px, py)
+            if find_hit == "field":
+                open_find(self)
+                return
+            if isinstance(find_hit, int):
+                apply_goto(self, find_hit)
+                return
             earth_kind = self._earth_chip_at(px, py)
             if earth_kind:
                 self._toggle_earth_chip(earth_kind)
@@ -793,6 +822,17 @@ class SolarPanel(QWidget):
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
         if event.key() == Qt.Key.Key_Escape:
+            from arelis.ui.earth_chrome import cancel_paste
+            from arelis.ui.earth_find import close_find
+
+            if str(getattr(self, "_earth_paste_field", "") or ""):
+                cancel_paste(self)
+                event.accept()
+                return
+            if getattr(self, "_earth_find_on", False):
+                close_find(self)
+                event.accept()
+                return
             if self._confirm is not None:
                 self._confirm = None
                 self.update()
@@ -802,6 +842,9 @@ class SolarPanel(QWidget):
             escape = getattr(win, "_escape", None)
             if callable(escape):
                 escape()
+            event.accept()
+            return
+        if self._earth_key_event(event):
             event.accept()
             return
         mods = event.modifiers()
@@ -819,6 +862,66 @@ class SolarPanel(QWidget):
         # Pause, O, H and the rate keys all change a still frame.
         self.update()
         event.accept()
+
+    def _earth_key_event(self, event: QKeyEvent) -> bool:
+        """Find, key paste, and slash. True when the plate consumed the key."""
+        from arelis.ui.earth_chrome import (
+            backspace_paste,
+            commit_paste,
+            type_paste,
+        )
+        from arelis.ui.earth_find import (
+            apply_goto,
+            backspace_find,
+            move_find,
+            open_find,
+            type_find,
+        )
+
+        paste_on = bool(str(getattr(self, "_earth_paste_field", "") or ""))
+        find_on = bool(getattr(self, "_earth_find_on", False))
+        if event.matches(QKeySequence.StandardKey.Paste):
+            clip = QApplication.clipboard().text() if QApplication.clipboard() else ""
+            if paste_on:
+                type_paste(self, clip)
+                return True
+            if find_on:
+                type_find(self, clip)
+                return True
+        if paste_on:
+            if event.key() in {Qt.Key.Key_Return, Qt.Key.Key_Enter}:
+                commit_paste(self)
+                return True
+            if event.key() == Qt.Key.Key_Backspace:
+                backspace_paste(self)
+                return True
+            text = event.text()
+            if text and text.isprintable():
+                type_paste(self, text)
+                return True
+            return True
+        if find_on:
+            if event.key() in {Qt.Key.Key_Return, Qt.Key.Key_Enter}:
+                apply_goto(self)
+                return True
+            if event.key() == Qt.Key.Key_Backspace:
+                backspace_find(self)
+                return True
+            if event.key() == Qt.Key.Key_Up:
+                move_find(self, -1)
+                return True
+            if event.key() == Qt.Key.Key_Down:
+                move_find(self, 1)
+                return True
+            text = event.text()
+            if text and text.isprintable():
+                type_find(self, text)
+                return True
+            return False
+        if event.key() == Qt.Key.Key_Slash and self._earth_zone_on():
+            open_find(self)
+            return True
+        return False
 
     def keyReleaseEvent(self, event: QKeyEvent) -> None:
         if event.isAutoRepeat():
@@ -992,7 +1095,15 @@ class SolarPanel(QWidget):
         if self._earth_cam is None:
             self._remember_earth_eye()
         kind = str(geo.get("kind") or "earth")
-        alt = {"city": 80_000.0, "country": 1_100_000.0}.get(kind, 2_400_000.0)
+        alt = {
+            "city": 80_000.0,
+            "home": 80_000.0,
+            "contact": 80_000.0,
+            "state": 350_000.0,
+            "province": 350_000.0,
+            "country": 1_100_000.0,
+            "continent": 5_000_000.0,
+        }.get(kind, 2_400_000.0)
         dest = nadir_cam(float(geo["lat"]), float(geo["lon"]), alt)
         start = self._earth_cam if isinstance(self._earth_cam, EarthCam) else dest
         self._earth_fly = {"start": start, "end": dest, "t": 0.0, "dur": 1.05}
@@ -1328,6 +1439,7 @@ class SolarPanel(QWidget):
             require_earth().enter()
             self._remember_earth_eye()
             self._enter_earth_globe()
+            self._apply_pending_earth_goto()
             return
         zone = get_earth()
         if zone is not None and zone.active:
@@ -1337,6 +1449,20 @@ class SolarPanel(QWidget):
         self._earth_id = None
         self._close_earth_look()
         self._leave_earth_globe()
+
+    def _apply_pending_earth_goto(self) -> None:
+        """Fly to a spoken or tool destination once Earth is the inspect body."""
+        if self._warp is not None:
+            return
+        from arelis.earth.runtime import get_earth
+
+        zone = get_earth()
+        if zone is None or not zone.active:
+            return
+        dest = zone.take_goto()
+        if dest is None:
+            return
+        self._select_earth_place(dest)
 
     def _earth_lock_ready(self, system: SolarSystem) -> bool:
         from arelis.earth.frames import earth_eye_locked

@@ -25,27 +25,63 @@ def settings() -> QSettings:
     return QSettings(str(_settings_path()), QSettings.Format.IniFormat)
 
 
+def _looks_like_abs_path(text: str) -> bool:
+    path = Path(text)
+    if path.is_absolute():
+        return True
+    return len(text) >= 3 and text[1] == ":" and text[2] in "\\/"
+
+
+def _relative_workspace_file_exists(text: str) -> bool:
+    from arelis.paths import INSTALL_PARENT, user_data_dir
+
+    rel = text.replace("\\", "/").lstrip("/")
+    if not rel or ".." in Path(rel).parts:
+        return False
+    for base in (INSTALL_PARENT, user_data_dir()):
+        if (base / rel).is_file():
+            return True
+    return Path(rel).is_file()
+
+
+def _keep_recent_workspace_file(text: str) -> bool:
+    from arelis.core.tool_results import is_tool_cache_path
+    from arelis.desk import is_desk_junk
+
+    if is_tool_cache_path(text) or is_desk_junk(text):
+        return False
+    if _looks_like_abs_path(text):
+        return Path(text).is_file()
+    # `root:rel` labels need the workspace to resolve; leave them.
+    if ":" in text and not _looks_like_abs_path(text):
+        return True
+    return _relative_workspace_file_exists(text)
+
+
 def load_recent_workspace_files() -> list[str]:
     """Qualified or relative paths recently opened/saved in the workspace dock."""
     s = settings()
     raw = s.value("recent_workspace_files", [])
     if isinstance(raw, str):
-        return [raw] if raw.strip() else []
+        raw = [raw] if raw.strip() else []
     if not isinstance(raw, list):
         return []
-    out: list[str] = []
+    stored: list[str] = []
     for item in raw:
         text = str(item or "").strip()
-        if text and text not in out:
-            out.append(text)
-        if len(out) >= _RECENT_WORKSPACE_LIMIT:
-            break
+        if text and text not in stored:
+            stored.append(text)
+    out = [text for text in stored if _keep_recent_workspace_file(text)]
+    out = out[:_RECENT_WORKSPACE_LIMIT]
+    if out != stored[:_RECENT_WORKSPACE_LIMIT]:
+        s.setValue("recent_workspace_files", out)
+        s.sync()
     return out
 
 
 def push_recent_workspace_file(path: str) -> list[str]:
     text = (path or "").strip()
-    if not text:
+    if not text or not _keep_recent_workspace_file(text):
         return load_recent_workspace_files()
     recent = [text] + [p for p in load_recent_workspace_files() if p != text]
     recent = recent[:_RECENT_WORKSPACE_LIMIT]

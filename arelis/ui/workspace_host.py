@@ -6,6 +6,9 @@ from pathlib import Path
 
 from arelis.config import _parse_workspace_roots, merge_local_config
 from arelis.core.failure_copy import plain_reason
+from arelis.desk import DeskStore, infer_kind, is_image_kind, is_text_kind, write_note
+from arelis.local_open import open_local_file, reveal_local_file
+from arelis.ui.dialog import ask_text
 from arelis.ui.layout_store import push_recent_workspace_file
 from arelis.workspace import RootEntry
 
@@ -54,6 +57,7 @@ def apply_workspace_roots(
         + ", ".join(window.workspace_roots.names()),
         kind="status",
     )
+    refresh_desk(window)
 
 
 def workspace_root_dicts(window) -> list[dict[str, object]]:
@@ -256,6 +260,136 @@ def save_file(window, path: str, content: str) -> None:
         label, content, root_name=hit.root_name, abs_path=str(hit.path), force=True
     )
     window.workspace.set_recent(push_recent_workspace_file(label))
+    record_artifact(
+        window,
+        str(hit.path),
+        label=label,
+        source="save",
+        root_name=hit.root_name,
+    )
     window.thinking.append(f"workspace saved {label}", kind="status")
     window.chat.add_system(f"Saved {label}")
+
+
+def desk_store(window) -> DeskStore:
+    store = getattr(window, "desk", None)
+    if isinstance(store, DeskStore):
+        return store
+    store = DeskStore()
+    window.desk = store
+    return store
+
+
+def refresh_desk(window) -> None:
+    store = desk_store(window)
+    room = window.conversation.room
+    room_id = str(room.room_id or "")
+    root_name = window.workspace_roots.active
+    items = store.list_for(
+        root_name=root_name,
+        room_id=room_id,
+        include_orbit=not room_id,
+    )
+    room_name = ""
+    if room_id:
+        room_name = str(room.name.text() or room_id)
+    window.workspace.set_desk_context(room_id=room_id, room_name=room_name)
+    window.workspace.set_desk_items(items)
+
+
+def record_artifact(
+    window,
+    abs_path: str,
+    *,
+    label: str = "",
+    kind: str = "",
+    source: str = "open",
+    root_name: str = "",
+    pin: bool = False,
+) -> None:
+    store = desk_store(window)
+    room_id = str(window.conversation.room.room_id or "")
+    store.record(
+        abs_path,
+        label=label,
+        kind=kind,
+        source=source,
+        root_name=root_name,
+        room_id=room_id,
+        pin=pin,
+    )
+    refresh_desk(window)
+
+
+def keep_note_dialog(window) -> None:
+    text = ask_text(
+        window,
+        "Keep a note",
+        "This lands on the desk as a page in this project. Say it again later and she can find it.",
+        placeholder="the spare key is under the planter",
+        accept_text="Keep",
+    )
+    if not text:
+        return
+    room_id = str(window.conversation.room.room_id or "")
+    try:
+        item = write_note(
+            window.workspace_roots, text, room_id=room_id, store=desk_store(window)
+        )
+    except Exception as exc:
+        window.chat.add_system(f"I could not keep that. {plain_reason(exc)}")
+        return
+    window.workspace.show_desk()
+    window._reveal_dock(window.work_dock, window.act_workspace)
+    open_desk_item(window, item.abs_path)
+    window.chat.add_system(f"On the desk: {item.label}")
+    refresh_desk(window)
+
+
+def pin_desk_item(window, abs_path: str, pinned: bool) -> None:
+    desk_store(window).pin(abs_path, pinned=pinned)
+    refresh_desk(window)
+
+
+def drop_desk_item(window, abs_path: str) -> None:
+    desk_store(window).drop(abs_path)
+    refresh_desk(window)
+
+
+def open_desk_item(window, abs_path: str) -> None:
+    path = Path(abs_path)
+    if not path.is_file():
+        window.chat.add_system("That file is no longer on disk.")
+        refresh_desk(window)
+        return
+    kind = infer_kind(path)
+    window._reveal_dock(window.work_dock, window.act_workspace)
+    window.workspace.show_desk()
+    record_artifact(window, str(path), source="open")
+    if is_image_kind(kind, str(path)):
+        window.workspace.show_image(str(path))
+        return
+    if is_text_kind(kind, str(path)):
+        open_file(window, str(path))
+        return
+    try:
+        open_local_file(path)
+    except OSError as exc:
+        window.chat.add_system(f"I could not open {path.name}. {plain_reason(exc)}")
+
+
+def reveal_desk_item(window, abs_path: str) -> None:
+    try:
+        reveal_local_file(abs_path)
+    except OSError as exc:
+        leaf = Path(abs_path).name or "that file"
+        window.chat.add_system(f"I could not show {leaf}. {plain_reason(exc)}")
+
+
+def open_outside(window, abs_path: str) -> None:
+    try:
+        open_local_file(abs_path)
+    except OSError as exc:
+        leaf = Path(abs_path).name or "that file"
+        window.chat.add_system(f"I could not open {leaf}. {plain_reason(exc)}")
 

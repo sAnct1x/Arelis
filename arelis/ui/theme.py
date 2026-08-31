@@ -193,6 +193,237 @@ FONTS = {
     "mono": '"IBM Plex Mono", "Cascadia Mono", "Consolas", monospace',
 }
 
+# Tracking and body weight ride the active palette so a later room can
+# change type without a second stylesheet.
+TYPE = {
+    "body_weight": "300",
+    "track_wide": "0.14em",
+    "track_mid": "0.12em",
+    "track_idle": "0.16em",
+    "track_heading": "0.08em",
+}
+
+DEFAULT_THEME = "sodium"
+_ACTIVE_THEME = DEFAULT_THEME
+
+# Snapshot the shipped lamp so apply_theme can restore it without a rewrite.
+# A new room is another entry in _PALETTES with the same token names — not a
+# second stylesheet and not a hue slider. Sodium stays the default.
+_SODIUM_COLORS = dict(COLORS)
+_SODIUM_FILAMENT = dict(FILAMENT)
+_SODIUM_BLOOM = dict(BLOOM)
+_SODIUM_GLASS = dict(GLASS)
+_SODIUM_PLATE = dict(PLATE)
+_SODIUM_HAIRLINE = dict(HAIRLINE)
+_SODIUM_TYPE = dict(TYPE)
+
+
+def _filament_colors() -> dict[str, str]:
+    """Charcoal void, gold type. Same token names as sodium. Float stays opaque."""
+    c = dict(_SODIUM_COLORS)
+    gold = (196, 160, 106)
+    cream = (232, 212, 176)
+    void = (7, 8, 11)
+    plate = (18, 20, 26)
+    well = (28, 30, 38)
+
+    def rgba(rgb: tuple[int, int, int], a: int) -> str:
+        return f"rgba({rgb[0]}, {rgb[1]}, {rgb[2]}, {a})"
+
+    def hex6(rgb: tuple[int, int, int]) -> str:
+        return f"#{rgb[0]:02x}{rgb[1]:02x}{rgb[2]:02x}"
+
+    c.update({
+        "bg0": hex6(void),
+        "bg1": "#101218",
+        "bg2": "#181c24",
+        "plate": rgba(plate, 255),
+        "panel_fill": rgba(plate, 255),
+        "veil": rgba(void, 36),
+        "scrim": rgba(void, 200),
+        "code_fill": rgba((12, 14, 18), 180),
+        "glass": rgba(void, 140),
+        "glass_strong": rgba((14, 16, 22), 176),
+        "glass_soft": rgba((32, 34, 42), 110),
+        "glass_fill": rgba(void, 248),
+        "glass_fill_float": rgba(void, 248),
+        "glass_fill_docked": rgba(void, 0),
+        "glass_fill_settings": rgba(void, 255),
+        "bubble_fill": rgba((24, 26, 32), 130),
+        "bubble_wash": rgba((20, 22, 28), 120),
+        "menu_fill": rgba((22, 24, 30), 242),
+        "inset": rgba((14, 16, 22), 150),
+        "well": rgba(well, 255),
+        "well_focus": rgba((40, 42, 52), 255),
+        "well_soft": rgba(well, 130),
+        "card_fill": rgba((32, 34, 42), 160),
+        "raised": rgba((36, 38, 46), 255),
+        "raised_warm": rgba((48, 42, 32), 255),
+        "sunk": rgba((16, 18, 24), 255),
+        "sunk_soft": rgba((16, 18, 24), 190),
+        "tab_selected": rgba((72, 58, 36), 255),
+        "groove": rgba((32, 34, 42), 170),
+        "chip": rgba((40, 36, 28), 110),
+        "chip_solid": rgba((40, 36, 28), 220),
+        "row_hover": rgba(gold, 80),
+        "row_selected": rgba(gold, 110),
+        "hover_soft": rgba(gold, 110),
+        "hover": rgba(gold, 150),
+        "hover_strong": rgba(gold, 210),
+        "button_fill": rgba((64, 52, 32), 170),
+        "button_hover": rgba(gold, 210),
+        "button_hover_hot": rgba((212, 168, 96), 220),
+        "button_hover_soft": rgba(gold, 150),
+        "live_fill": rgba(gold, 150),
+        "selection": rgba(gold, 190),
+        "selection_strong": rgba(gold, 210),
+        "rim": rgba(gold, 110),
+        "rim_glow": rgba(gold, 56),
+        "hairline_faint": rgba(gold, 44),
+        "hairline": rgba(gold, 68),
+        "hairline_mid": rgba(gold, 88),
+        "edge_soft": rgba(gold, 70),
+        "edge": rgba(gold, 96),
+        "edge_mid": rgba(gold, 130),
+        "edge_strong": rgba(gold, 165),
+        "edge_hot": rgba(gold, 210),
+        "edge_warm": rgba(cream, 96),
+        "edge_bright": rgba(cream, 140),
+        "catch": rgba(cream, 80),
+        "text": hex6(cream),
+        "hint": "#d4b888",
+        "thinking": "#c4a06a",
+        "text_dim": "#b89468",
+        "dim": "#a88858",
+        "status_white": hex6(cream),
+        "text_soft": rgba(cream, 200),
+        "text_muted": rgba(cream, 150),
+        "text_faint": rgba(cream, 96),
+        "accent": "#c4a06a",
+        "accent2": "#e4c896",
+        "amber": "#c4a06a",
+        "status_amber": "#c4a06a",
+        "warn": "#d4783c",
+    })
+    return c
+
+
+_FILAMENT_COLORS = _filament_colors()
+_FILAMENT_CORE = {
+    "core": (255, 236, 210),
+    "core_halo": (212, 168, 96),
+    "tick": (196, 160, 106),
+    "tick_halo": (196, 160, 106),
+}
+_FILAMENT_BLOOM = {
+    "inner": (
+        (0.0, (196, 160, 106, 36)),
+        (0.22, (120, 96, 64, 22)),
+        (0.55, (40, 32, 24, 10)),
+        (1.0, (7, 8, 11, 0)),
+    ),
+    "outer": (
+        (0.0, (196, 160, 106, 18)),
+        (0.5, (40, 32, 24, 8)),
+    ),
+    "grain": (196, 160, 106),
+    "vignette": (7, 8, 11, 56),
+}
+_FILAMENT_PLATE = {
+    "seal": (7, 8, 11, 255),
+    "body": (18, 20, 26, 255),
+    "opaque": ((0.0, (48, 40, 28)), (0.36, (22, 24, 30)), (1.0, (7, 8, 11))),
+    "smoked": (
+        (0.0, (36, 32, 24), 20),
+        (0.42, (16, 18, 22), 4),
+        (1.0, (7, 8, 11), -6),
+    ),
+}
+
+_PALETTES = {
+    "sodium": {
+        "colors": _SODIUM_COLORS,
+        "filament": _SODIUM_FILAMENT,
+        "bloom": _SODIUM_BLOOM,
+        "glass": _SODIUM_GLASS,
+        "plate": _SODIUM_PLATE,
+        "hairline": _SODIUM_HAIRLINE,
+        "type": _SODIUM_TYPE,
+    },
+    "filament": {
+        "colors": _FILAMENT_COLORS,
+        "filament": _FILAMENT_CORE,
+        "bloom": _FILAMENT_BLOOM,
+        "glass": dict(_SODIUM_GLASS),
+        "plate": _FILAMENT_PLATE,
+        "hairline": dict(_SODIUM_HAIRLINE),
+        "type": dict(_SODIUM_TYPE),
+    },
+}
+
+THEME_IDS = tuple(_PALETTES)
+_THEME_LABELS = {
+    "sodium": "sodium",
+    "filament": "filament (testing)",
+}
+THEME_CHOICES = tuple((tid, _THEME_LABELS.get(tid, tid)) for tid in THEME_IDS)
+
+_THEME_ALIASES = {
+    "default": "sodium",
+    "dark": "sodium",
+    "lamp": "sodium",
+}
+
+
+def resolve_theme_id(value: str | None) -> str:
+    """Known room, or sodium. Unknown names do not invent a palette."""
+    raw = (value or "").strip().lower()
+    if raw in _PALETTES:
+        return raw
+    return _THEME_ALIASES.get(raw, DEFAULT_THEME)
+
+
+def active_theme() -> str:
+    return _ACTIVE_THEME
+
+
+def theme_from_config(config: dict | None) -> str:
+    ui = (config or {}).get("ui") or {}
+    return resolve_theme_id(str(ui.get("theme") or DEFAULT_THEME))
+
+
+def _install_palette(theme_id: str) -> None:
+    pal = _PALETTES[theme_id]
+    COLORS.clear()
+    COLORS.update(pal["colors"])
+    FILAMENT.clear()
+    FILAMENT.update(pal["filament"])
+    BLOOM.clear()
+    BLOOM.update(pal["bloom"])
+    GLASS.clear()
+    GLASS.update(pal["glass"])
+    PLATE.clear()
+    PLATE.update(pal["plate"])
+    HAIRLINE.clear()
+    HAIRLINE.update(pal["hairline"])
+    TYPE.clear()
+    TYPE.update(pal["type"])
+
+
+def apply_theme(theme_id: str | None) -> str:
+    """Install a palette into the live token dicts. Painters that call
+    color() / COLORS / FILAMENT / GLASS / PLATE follow without a rewrite.
+    """
+    global _ACTIVE_THEME
+    resolved = resolve_theme_id(theme_id)
+    _install_palette(resolved)
+    _ACTIVE_THEME = resolved
+    from arelis.tools.policy import set_confirm_mode
+
+    set_confirm_mode("voice" if resolved == "filament" else "card")
+    return resolved
+
+
 _FONT_DIR = Path(__file__).resolve().parent / "fonts"
 
 
@@ -307,7 +538,7 @@ def dock_tab_bar_qss() -> str:
         margin-right: 4px;
         min-width: 52px;
         font-size: 12px;
-        letter-spacing: 0.06em;
+        letter-spacing: {TYPE['track_mid']};
     }}
     QTabBar::tab:selected {{
         color: {c['accent2']};
@@ -367,6 +598,7 @@ def stylesheet() -> str:
     c = COLORS
     f = FONTS
     m = METRICS
+    t = TYPE
     return f"""
     QMainWindow {{
         background: transparent;
@@ -384,10 +616,11 @@ def stylesheet() -> str:
         color: {c['text']};
         font-family: {f['body']};
         font-size: {FONT_PX}px;
-        font-weight: 300;
+        font-weight: {t['body_weight']};
     }}
     /* Glass panels: painted in code — keep stylesheets transparent */
     #GlassPanel, #GlassDockContent, #ChatStage, #ChatPanelInner, #ComposerInner,
+    #FilamentChatGlass, #FilamentChatBody,
     #SettingsGlass, #NotifyInboxGlass, #CalendarWindowGlass, #NotifyCard,
     #DriveStrip, #RoomStrip, #ChatEmpty, #VoidPromptHost,
     #VoidVoiceHost, #GlassDialogGlass {{
@@ -407,7 +640,7 @@ def stylesheet() -> str:
         font-family: {f['display']};
         font-size: 11px;
         font-weight: 400;
-        letter-spacing: 0.12em;
+        letter-spacing: {t['track_mid']};
         background: transparent;
         border: none;
         padding: 0;
@@ -416,9 +649,9 @@ def stylesheet() -> str:
     #ChromeTitle {{
         color: {c['dim']};
         font-family: {f['mono']};
-        font-size: 11px;
+        font-size: 12px;
         font-weight: 400;
-        letter-spacing: 0.14em;
+        letter-spacing: {t['track_wide']};
         background: transparent;
         border: none;
         padding: 0 2px 0 0;
@@ -435,6 +668,23 @@ def stylesheet() -> str:
         color: {c['accent']};
         background: {c['hover']};
     }}
+    #ChromeSpanBtn {{
+        background: transparent;
+        border: none;
+        border-radius: 6px;
+        padding: 2px 8px;
+        color: {c['text_dim']};
+        font-family: {f['mono']};
+        font-size: 11px;
+        letter-spacing: {t['track_mid']};
+    }}
+    #ChromeSpanBtn:hover {{
+        color: {c['accent']};
+        background: {c['hover']};
+    }}
+    #ChromeSpanBtn:checked {{
+        color: {c['accent']};
+    }}
     #SettingsDialog, #ContactsInbox, #NotificationsInbox, #SmsChat,
     #GlassDialog, #CalendarWindow {{
         background: {c['plate']};
@@ -446,7 +696,7 @@ def stylesheet() -> str:
         font-family: {f['display']};
         font-size: 15px;
         font-weight: 400;
-        letter-spacing: 0.08em;
+        letter-spacing: {t['track_heading']};
         background: transparent;
         padding: 2px 0;
     }}
@@ -651,7 +901,7 @@ def stylesheet() -> str:
         color: {c['dim']};
         font-size: 10px;
         font-family: {f['mono']};
-        letter-spacing: 0.12em;
+        letter-spacing: {t['track_mid']};
     }}
     #ReadinessChip[status="ok"] {{
         color: {c['accent']};
@@ -682,7 +932,7 @@ def stylesheet() -> str:
         color: {c['warn']};
         font-size: 10px;
         font-family: {f['mono']};
-        letter-spacing: 0.12em;
+        letter-spacing: {t['track_mid']};
     }}
     #ReadinessNotifyChip:hover {{
         background-color: {c['hover']};
@@ -723,9 +973,9 @@ def stylesheet() -> str:
        and left the label's measured width disagreeing with its painted one. */
     #VoidListenWord {{
         color: {c['dim']};
-        font-size: 10px;
+        font-size: 12px;
         font-family: {f['mono']};
-        letter-spacing: 0.16em;
+        letter-spacing: {t['track_idle']};
         background: transparent;
         border: none;
     }}
@@ -733,11 +983,18 @@ def stylesheet() -> str:
     #VoidListenWord[live="true"] {{
         color: {c['accent']};
     }}
+    #VoidListenWord[wake="true"] {{
+        color: {c['accent']};
+        font-size: 18px;
+        font-family: {f['body']};
+        font-weight: {t['body_weight']};
+        letter-spacing: 0.01em;
+    }}
     #VoidGhostKey {{
         color: {c['dim']};
         font-size: 9px;
         font-family: {f['mono']};
-        letter-spacing: 0.14em;
+        letter-spacing: {t['track_wide']};
         background: transparent;
         border: none;
     }}
@@ -782,7 +1039,7 @@ def stylesheet() -> str:
         color: {c['dim']};
         font-size: 9px;
         font-family: {f['mono']};
-        letter-spacing: 0.14em;
+        letter-spacing: {t['track_wide']};
         background: transparent;
         padding-bottom: 4px;
     }}
@@ -813,7 +1070,7 @@ def stylesheet() -> str:
         color: {c['dim']};
         font-size: 10px;
         font-family: {f['mono']};
-        letter-spacing: 0.12em;
+        letter-spacing: {t['track_mid']};
     }}
     #ReadinessSystems:hover {{
         color: {c['accent']};
@@ -865,7 +1122,7 @@ def stylesheet() -> str:
         color: {c['dim']};
         font-size: 9px;
         font-family: {f['mono']};
-        letter-spacing: 0.16em;
+        letter-spacing: {t['track_idle']};
         background: transparent;
         padding: 4px 10px 2px 10px;
     }}
@@ -883,7 +1140,7 @@ def stylesheet() -> str:
        rule: filenames were being set in the mono face because the workspace
        dock borrowed the editor's object name to get a transparent background. */
     #HistoryList, #FactsList, #ActiveFactsList, #NotificationsList,
-    #ContactsList, #BrowseList {{
+    #ContactsList, #BrowseList, #DeskList {{
         background: transparent;
         border: none;
         outline: none;
@@ -894,7 +1151,7 @@ def stylesheet() -> str:
         show-decoration-selected: 1;
     }}
     #BrowseList::item, #HistoryList::item, #FactsList::item,
-    #ActiveFactsList::item,
+    #ActiveFactsList::item, #DeskList::item,
     #NotificationsList::item, #ContactsList::item {{
         background: transparent;
         border: none;
@@ -909,13 +1166,13 @@ def stylesheet() -> str:
         padding: 8px 10px;
     }}
     #BrowseList::item:hover, #HistoryList::item:hover, #FactsList::item:hover,
-    #ActiveFactsList::item:hover,
+    #ActiveFactsList::item:hover, #DeskList::item:hover,
     #NotificationsList::item:hover, #ContactsList::item:hover {{
         background: {c['row_hover']};
         border-color: transparent;
     }}
     #BrowseList::item:selected, #HistoryList::item:selected,
-    #FactsList::item:selected,
+    #FactsList::item:selected, #DeskList::item:selected,
     #ActiveFactsList::item:selected, #NotificationsList::item:selected,
     #ContactsList::item:selected {{
         background: {c['row_selected']};
@@ -935,7 +1192,7 @@ def stylesheet() -> str:
         color: {c['dim']};
         font-size: 11px;
         font-weight: 400;
-        letter-spacing: 0.12em;
+        letter-spacing: {t['track_mid']};
         background: transparent;
         padding: 0 0 2px 2px;
     }}
@@ -1057,13 +1314,29 @@ def stylesheet() -> str:
         padding: 0 0 2px 2px;
         border: none;
     }}
-    #HistoryEmpty {{
+    #HistoryEmpty, #DeskEmpty {{
         color: {c['text_muted']};
         font-size: 12px;
         font-family: {f['body']};
         background: transparent;
         padding: 28px 12px 12px 12px;
         border: none;
+    }}
+    #DeskHint {{
+        color: {c['hint']};
+        font-size: 12px;
+        font-family: {f['body']};
+        background: transparent;
+        padding: 0 2px 2px 2px;
+        border: none;
+    }}
+    #DeskPreview {{
+        font-family: {f['body']};
+        font-size: 13px;
+        background-color: transparent;
+        border: none;
+        color: {c['text']};
+        padding: 8px 2px;
     }}
     #SmsChatScroll, #SmsChatThread {{
         background: {c['panel_fill']};
@@ -1244,7 +1517,7 @@ def stylesheet() -> str:
         border-radius: 8px;
         padding: 5px 14px;
         font-size: 11px;
-        letter-spacing: 0.06em;
+        letter-spacing: {t['track_mid']};
         margin-right: 4px;
     }}
     QDockWidget QTabBar::tab:selected, #DockTabBar::tab:selected {{
@@ -1270,14 +1543,14 @@ def stylesheet() -> str:
         border: none;
         padding: 12px 28px 16px 18px;
         font-size: 15px;
-        font-weight: 300;
+        font-weight: {t['body_weight']};
         color: {c['text']};
     }}
     #ThinkingView {{
         color: {c['thinking']};
         font-family: {f['body']};
         font-size: {FONT_PX}px;
-        font-weight: 300;
+        font-weight: {t['body_weight']};
         background-color: transparent;
         border: none;
         padding: 4px 2px;
@@ -1322,7 +1595,7 @@ def stylesheet() -> str:
         border-radius: 0;
         color: {c['text']};
         font-size: 16px;
-        font-weight: 300;
+        font-weight: {t['body_weight']};
         letter-spacing: 0.01em;
         selection-background-color: {c['selection']};
     }}
@@ -1334,12 +1607,33 @@ def stylesheet() -> str:
     }}
     #VoidIdlePlaceholder {{
         color: {c['text_muted']};
-        font-size: 16px;
+        font-size: 18px;
         font-family: {f['body']};
-        font-weight: 300;
+        font-weight: {t['body_weight']};
         letter-spacing: 0.01em;
         background: transparent;
         border: none;
+    }}
+    #FilamentFloat {{
+        background: transparent;
+        border: none;
+        color: {c['accent']};
+        font-size: 16px;
+        font-family: {f['body']};
+        font-weight: {t['body_weight']};
+        letter-spacing: {t['track_mid']};
+        padding: 2px 6px;
+    }}
+    #FilamentFloat:hover {{
+        color: {c['accent2']};
+    }}
+    #FilamentFloat[live="true"] {{
+        color: {c['accent2']};
+    }}
+    #FilamentBead {{
+        background: transparent;
+        border: none;
+        padding: 0;
     }}
     QLineEdit {{
         background-color: {c['well']};
@@ -1786,7 +2080,7 @@ def stylesheet() -> str:
         font-family: {f['display']};
         font-size: 15px;
         font-weight: 400;
-        letter-spacing: 0.08em;
+        letter-spacing: {t['track_heading']};
         background: transparent;
         padding: 2px 0;
     }}

@@ -103,6 +103,43 @@ def test_travel_and_overlay_phrases() -> None:
     assert classify_physics_act("open thinking") is None
 
 
+def test_take_me_to_a_place_is_closed() -> None:
+    names = ("Sun", "Earth", "Moon", "Saturn")
+    tokyo = classify_physics_act("take me to Tokyo", names=names)
+    assert tokyo is not None
+    assert tokyo.verb == "goto_earth"
+    assert tokyo.name == "Tokyo"
+    japan = classify_physics_act("show me Japan", names=names)
+    assert japan is not None
+    assert japan.verb == "goto_earth"
+    assert japan.name == "Japan"
+    africa = classify_physics_act("fly to Africa", names=names)
+    assert africa is not None
+    assert africa.verb == "goto_earth"
+    cal = classify_physics_act("go to Illinois", names=names)
+    assert cal is not None
+    assert cal.verb == "goto_earth"
+    assert cal.name == "Illinois"
+    uk = classify_physics_act("take me to the UK", names=names)
+    assert uk is not None
+    assert uk.verb == "goto_earth"
+    assert uk.name == "United Kingdom"
+    see = classify_physics_act("I want to see France", names=names)
+    assert see is not None
+    assert see.verb == "goto_earth"
+    nsw = classify_physics_act("take me to New South Wales", names=names)
+    assert nsw is not None
+    assert nsw.name == "New South Wales"
+    assert classify_physics_act("take me to Earth", names=names).verb == "travel"
+    assert classify_physics_act("take me to the Moon", names=names).verb == "travel"
+    assert classify_physics_act("go to bed", names=names) is None
+    assert classify_physics_act("show me gravity", names=names).verb == "overlay"
+    home = classify_physics_act("take me home", names=names)
+    assert home is not None
+    assert home.verb == "goto_earth"
+    assert home.name == "home"
+
+
 def test_heavier_hits_the_held_disc() -> None:
     scene = _plane()
     scene.apply_pointer(0.50, 0.50, True, t=1.00, who="Right", kind="fist")
@@ -304,4 +341,83 @@ async def test_spoken_take_me_to_earth_is_a_verb_not_a_turn(tmp_path: Path) -> N
     assert hits
     assert hits[0].payload.get("verb") == "travel"
     assert hits[0].payload.get("name") == "Earth"
+    assert not any(e.type == EventType.USER_MESSAGE for e in seen)
+
+
+@pytest.mark.asyncio
+async def test_spoken_take_me_to_tokyo_is_a_verb(tmp_path: Path) -> None:
+    bus = EventBus()
+    seen: list[Event] = []
+
+    async def capture(event: Event) -> None:
+        seen.append(event)
+
+    bus.subscribe(None, capture)
+    rooms = RoomStore(tmp_path / "rooms.yaml")
+    rooms.set_active("physics")
+    _orch = Orchestrator(
+        bus,
+        _StubRouter(),  # type: ignore[arg-type]
+        ToolRegistry(),
+        {
+            "agent": {},
+            "workspace": {"roots": ["."]},
+            "_persona_path": str(PROJECT_ROOT / "arelis" / "persona" / "arelis.md"),
+            "_speak_replies": True,
+            "_rooms": rooms,
+        },
+        SessionMemory(),
+    )
+    bus_task = asyncio.create_task(bus.run())
+    try:
+        await bus.publish(Event(EventType.VOICE_TRANSCRIPT, {"text": "take me to Tokyo"}))
+        await bus.drain()
+    finally:
+        bus.stop()
+        bus_task.cancel()
+    hits = [e for e in seen if e.type == EventType.PHYSICS_VERB]
+    assert hits
+    assert hits[0].payload.get("verb") == "goto_earth"
+    assert hits[0].payload.get("name") == "Tokyo"
+    assert not any(e.type == EventType.USER_MESSAGE for e in seen)
+
+
+@pytest.mark.asyncio
+async def test_spoken_take_me_to_tokyo_works_outside_reality(tmp_path: Path) -> None:
+    bus = EventBus()
+    seen: list[Event] = []
+
+    async def capture(event: Event) -> None:
+        seen.append(event)
+
+    bus.subscribe(None, capture)
+    orch = Orchestrator(
+        bus,
+        _StubRouter(),  # type: ignore[arg-type]
+        ToolRegistry(),
+        {
+            "agent": {},
+            "workspace": {"roots": ["."]},
+            "_persona_path": str(PROJECT_ROOT / "arelis" / "persona" / "arelis.md"),
+            "_speak_replies": True,
+            "_rooms": RoomStore(tmp_path / "rooms.yaml"),
+        },
+        SessionMemory(),
+    )
+
+    async def _no_turn(*_a, **_k):
+        return None
+
+    orch._run_turn = _no_turn  # type: ignore[method-assign]
+    bus_task = asyncio.create_task(bus.run())
+    try:
+        await bus.publish(Event(EventType.VOICE_TRANSCRIPT, {"text": "take me to Tokyo"}))
+        await bus.drain()
+    finally:
+        bus.stop()
+        bus_task.cancel()
+    hits = [e for e in seen if e.type == EventType.PHYSICS_VERB]
+    assert hits
+    assert hits[0].payload.get("verb") == "goto_earth"
+    assert hits[0].payload.get("name") == "Tokyo"
     assert not any(e.type == EventType.USER_MESSAGE for e in seen)

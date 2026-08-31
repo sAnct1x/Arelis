@@ -8,6 +8,7 @@ from arelis.core.intent_catalog import (
     DIAGNOSTICS,
     INBOX,
     SMS_SEND,
+    WATCH,
     WEATHER,
     exactness_match,
     must_keep_full_surface_text,
@@ -147,6 +148,34 @@ def test_diagnostics_catalog_is_phrase_only() -> None:
     assert "diagnostics" not in research_extras_for_text("what's the weather")
 
 
+def test_watch_catalog_is_phrase_only() -> None:
+    assert WATCH.matches("are we safe?")
+    assert WATCH.matches("are the ports open")
+    assert WATCH.matches("house watch")
+    assert not WATCH.matches("watch a movie")
+    assert not WATCH.matches("port wine")
+    assert any(h.kind == "watch" for h in detect_intents("are we safe?"))
+    extra = research_extras_for_text("are we safe")
+    assert "watch" in extra
+    available = _EVERYDAY | {"watch", "diagnostics"}
+    on = filter_tool_names(
+        available,
+        role="fast",
+        text="are we safe?",
+        enabled=False,
+        skill_subset=False,
+    )
+    assert "watch" in on
+    off = filter_tool_names(
+        available,
+        role="fast",
+        text="what's the weather today?",
+        enabled=False,
+        skill_subset=False,
+    )
+    assert "watch" not in off
+
+
 def test_identity_ask_is_tiny_and_who_is_this_is_not() -> None:
     from arelis.core.intent_catalog import (
         is_tiny_prompt_ask,
@@ -159,3 +188,55 @@ def test_identity_ask_is_tiny_and_who_is_this_is_not() -> None:
     assert not looks_like_identity_ask("Who is this")
     assert not looks_like_identity_ask("who won the fight")
     assert not is_tiny_prompt_ask("Who is this")
+
+
+def test_source_inspect_catalog_and_path_map() -> None:
+    from arelis.core.intent_catalog import (
+        AUTO_HINTS,
+        BY_KIND,
+        INSPECT,
+        INSPECT_WRITE,
+        inspect_read_path,
+        looks_like_source_inspect,
+        looks_like_source_write,
+    )
+
+    assert INSPECT.kind == "inspect"
+    assert INSPECT.expected_tools == ("workspace",)
+    assert INSPECT.schema_tools == frozenset({"workspace", "git_info"})
+    assert INSPECT.auto_hint
+    assert INSPECT.research_extra
+    assert INSPECT_WRITE.kind == "inspect_write"
+    assert INSPECT_WRITE.expected_tools == ("workspace",)
+    assert INSPECT_WRITE.auto_hint
+    assert BY_KIND["inspect"] is INSPECT
+    assert BY_KIND["inspect_write"] is INSPECT_WRITE
+    assert INSPECT in AUTO_HINTS
+    assert INSPECT_WRITE in AUTO_HINTS
+    assert inspect_read_path("how do you work") == "docs/architecture.md"
+    assert inspect_read_path("show me your source") == "docs/architecture.md"
+    assert inspect_read_path("what's in orchestrator.py") == (
+        "arelis/core/orchestrator.py"
+    )
+    assert inspect_read_path("read docs/architecture.md") == "docs/architecture.md"
+    assert looks_like_source_inspect("how do you work")
+    assert looks_like_source_write("edit policy.py")
+    assert not looks_like_source_inspect("edit policy.py")
+    assert not looks_like_source_inspect("how does pytest work")
+    assert not looks_like_source_inspect("cite your source")
+    assert not looks_like_source_inspect("the confirm gate paused that write")
+    assert not looks_like_source_inspect("email me docs/architecture.md")
+    assert not looks_like_source_inspect("email me policy.py")
+    extra = research_extras_for_text("what's in policy.py?")
+    assert "workspace" in extra
+    assert "git_info" in extra
+    from arelis.core.intent_catalog import inspect_path_guide, inspect_preflight_nudge
+
+    guide = inspect_path_guide()
+    assert "arelis/tools/policy.py" in guide
+    assert "arelis/core/tool_subset.py" in guide
+    assert "arelis/ui/panels/drive.py" in guide
+    assert "docs/architecture.md" in guide
+    nudge = inspect_preflight_nudge("what's in policy.py?")
+    assert "arelis/tools/policy.py" in nudge
+    assert "workspace(action=read)" in nudge

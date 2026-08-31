@@ -1,98 +1,116 @@
 # Voice
 
-Talking and listening are in the Windows installer. From a source
-checkout they need `pip install -e ".[voice]"`.
+Talking and listening both come bundled in the Windows installer. If
+you're running from a source checkout, you'll need
+`pip install -e ".[voice]"` first.
 
-Three listen modes. There is not a fourth.
+There are exactly three listen modes — no fourth hiding somewhere:
 
 | Control | Mode |
-|---------|------|
-| **Hey Arelis**, or the two-arcs button / **Ctrl+Shift+M** | Conversation. She talks back. Say **goodbye** to hang up. |
-| Mic button / **Ctrl+M** | Dictate into the composer. Does not send. |
-| Idle, after hangup | Wake only. Deaf to ordinary speech, including a bare **Arelis**. |
+|---|---|
+| **Hey Arelis**, or the two-arcs button / Ctrl+Shift+M | Conversation. She talks back. Say **goodbye** to hang up. |
+| Mic button / Ctrl+M | Dictation into the composer. Doesn't send anything on its own. |
+| Idle, after hangup | Wake-only. Deaf to ordinary speech, including a bare **Arelis**. |
 
-## What you do
+## What actually happens when you say something
 
 | You say | What happens |
-|--------|----------------|
-| **Hey Arelis** or **Hey Arelis, what's the weather** | She enters conversation, the same as pressing the two-arcs talk button. Anything after the name in the same clip is the first turn. |
-| **goodbye**, **that's all**, **stop listening**, **go to sleep** | She hangs up. Wake stays on. Say Hey Arelis when you want her again. The room you were in stays put. |
-| **stop**, **be quiet**, **shut up** | She cuts the turn and stays in the call. |
-| A bare **Arelis**, "Hi Arelis", "Okay Arelis", or her name in passing | Nothing. Those fire too easily on a call or in a room. |
+|---|---|
+| **Hey Arelis** or **Hey Arelis, what's the weather** | She enters conversation mode, same as pressing the two-arcs talk button. Anything after her name in that same clip counts as the first turn. |
+| **Goodbye**, **that's all**, **stop listening**, **go to sleep** | She hangs up. Wake detection stays on in the background — just say **Hey Arelis** again when you want her back. Whatever room you were in stays put. |
+| **Stop**, **be quiet**, **shut up** | She cuts off mid-turn. Works in conversation, on a one-shot wake, and while you are dictating — if a turn or a card is live. |
+| **Pause**, **hold on** | Freezes her Chrome drive. The page stays. In Reality with no live drive, **pause** is still the sim. |
+| **Go**, **resume**, **keep going** | Continues a held drive. After a stop, **keep going** is ordinary talk. |
+| **Yes** / **no** (or **allow** / **deny**) | Resolves an open card — sodium paints it; filament (testing) hides it and the spoken ask is the grant. Deletes and Pay still wait for this. |
+| A bare **Arelis**, **Hi Arelis**, **Okay Arelis**, or her name mentioned in passing | Nothing happens. Those trigger too easily during a call or while you're just talking in a room. |
 
-A match is meant to be obvious: the talk button latches on, flares for a
-beat, and the composer or orbit says **listening**. After that it is
-ordinary conversation until you say **goodbye** (or toggle the button /
-Ctrl+Shift+M). If an allow / deny card is up, the mic stays on: say
-**allow** or **deny**. Anything else is ignored, including hangup, until
-the card is decided.
+A real match is meant to be unmistakable: the talk button latches on,
+flares briefly, and the composer or empty session shows **listening**.
+From there it's just ordinary conversation until you say goodbye (or
+toggle the button / Ctrl+Shift+M). If an allow / deny card is up on
+screen, the mic stays live specifically for **allow** or **deny** —
+anything else gets ignored, including a hangup attempt, until you've
+actually decided on the card.
 
-Conversation STT is Sherpa-ONNX Zipformer, not Whisper. The default pack
-is Kroko 2025 (mixed-case, punctuation). The 2023 LibriSpeech pack is the
-fallback if Kroko is missing. Sherpa often hears mail words as a French
-name or a split (`emile` for email, `in box` for inbox). Those are
-repaired so the email skill sees the words you said. Wake matching is a
-separate engine and does not use that repair.
+Conversation speech-to-text runs on Sherpa-ONNX Zipformer, not
+Whisper. The default pack is Kroko 2025 (mixed case, with
+punctuation); the 2023 LibriSpeech pack is the fallback if Kroko
+isn't available. Sherpa has a habit of mishearing mail-related words
+— "email" sometimes comes out as a French-sounding name, "inbox" as
+two separate words. Those get quietly repaired so the email skill
+actually sees what you meant to say. Wake-word matching runs on a
+completely separate engine and doesn't get this same repair pass.
 
-End of an utterance is a short Silero pause plus Pipecat Smart Turn v3
-when `models/smart_turn/` is present (or first-run download, ~8 MB).
-Missing that ONNX keeps the longer silence windows.
+The end of an utterance is detected with a short Silero pause
+combined with Pipecat Smart Turn v3, whenever `models/smart_turn/` is
+present (or gets downloaded on first run — about 8 MB). If that ONNX
+file is missing, she just falls back to longer silence windows
+instead.
 
-First speak may download Kokoro-82M (~300 MB) into `models/kokoro/`.
-First conversation may download the Kroko Zipformer pack into
-`models/sherpa/` if it is not there. STT and TTS stay on CPU. The GPU is
-for Ollama.
+The first time you use speech output, Kokoro-82M may need to download
+(~300 MB) into `models/kokoro/`. The first conversation may similarly
+need to pull the Kroko Zipformer pack into `models/sherpa/` if it
+isn't already there. Both speech-to-text and text-to-speech run on
+the CPU — the GPU stays dedicated to Ollama.
 
-Headset barge-in is the next turn (she stops talking, then your clip is
-the question). Speakers: set `conversation.barge_in_as_turn: false` so
-the mixed clip stays control-only (stop / allow / deny).
+If you're on a headset, talking over her counts as the start of a new
+turn: she stops talking, and whatever you said becomes the question.
+On speakers, you'll want `conversation.barge_in_as_turn: false` set,
+so a clip that picks up both her voice and yours stays control-only
+(interpreted as stop / allow / deny rather than a new question).
 
-Every wake and conversation decision is written to `logs/voice.log` even
-when `voice.debug` is off: `wake_heard`, `wake_ack`, `wake_drop`,
-`barge_in`, `smart_turn`, `utterance_dropped`. The VAD firehose only
-lands in that file when `voice.debug` is true.
+Every wake and conversation decision gets logged to `logs/voice.log`,
+even with `voice.debug` turned off — things like `wake_heard`,
+`wake_ack`, `wake_drop`, `barge_in`, `smart_turn`,
+`utterance_dropped`. The full raw VAD firehose only gets written when
+`voice.debug` is actually set to true.
 
 ## Phrase matching (`arelis/voice/wake.py`)
 
-Required: **Hey** or Whisper's **Hay**, then a tight name list
-(`arelis`, `airelyse`, `aurelis`, `arrelis`, …). Mid-clip search is
-greeting plus name only. A clip that starts with Whisper's **Pay** plus
-the name also counts (`Pay a relus`). Mid-clip "pay Aurelis" does not.
-Cousins that match ordinary speech (`or Ellis`, `air Elise`) are not
+A wake requires **Hey** (or Whisper's occasional mishearing of it as
+**Hay**), followed by a tight list of accepted name variants —
+arelis, airelyse, aurelis, arrelis, and a few others in that vein.
+Mid-clip matching only looks for the greeting plus the name together.
+A clip that opens with Whisper's **Pay** plus her name also counts
+("Pay a relus," as odd as that sounds) — but that same "pay Aurelis"
+phrasing mid-clip does not count. Near-miss cousins that overlap with
+normal speech — "or Ellis," "air Elise" — are deliberately not
 accepted.
 
-Idle Whisper clips do not get `initial_prompt: "Hey Arelis."` That
-prompt was being echoed back from noise and counted as a wake.
+Idle Whisper clips are never given the `initial_prompt: "Hey Arelis"`
+hint, on purpose — that prompt was actually getting echoed back out
+of background noise and registering as a false wake.
 
-## Engines
+## Engines involved
 
 | Job | Engine |
-|-----|--------|
-| Idle wake "Hey Arelis" | faster-whisper until `models/wake/hey_arelis.onnx` exists. Then openwakeword on that ONNX. Remainder of the same clip is the first turn. |
-| Voice activity | Silero VAD |
-| End of turn | Smart Turn v3 after a short pause. silence_ms if the ONNX is missing. |
-| Conversation + dictate (`Ctrl+M`) | Sherpa-ONNX Kroko Zipformer (live PCM). 2023 pack or faster-whisper if Kroko is missing. |
-| Speech out | Kokoro-82M `af_heart`. First punctuated sentence can play before the answer is finished. Piper Jenny if Kokoro cannot run. |
+|---|---|
+| Idle wake (**Hey Arelis**) | faster-whisper until `models/wake/hey_arelis.onnx` exists, then openwakeword running on that ONNX. Whatever's left in the same audio clip becomes the first turn. |
+| Voice activity detection | Silero VAD |
+| End of turn | Smart Turn v3, after a short pause — or a fixed `silence_ms` if that ONNX file is missing |
+| Conversation + dictation (Ctrl+M) | Sherpa-ONNX Kroko Zipformer, on live PCM audio. Falls back to the 2023 pack or faster-whisper if Kroko isn't available |
+| Speech output | Kokoro-82M (`af_heart` voice) — the first punctuated sentence can start playing before the rest of the answer has even finished generating. Falls back to Piper Jenny if Kokoro can't run |
 
-Train a wake ONNX on **Hey Arelis** only, not the bare name. The
-openwakeword package is an optional extra because there is no free
-`hey_arelis.onnx` to download.
+If you're training your own wake model, train it on **Hey Arelis**
+specifically, not the bare name alone. The openwakeword package is
+kept as an optional extra simply because there's no freely
+downloadable `hey_arelis.onnx` out there to bundle.
 
-Porcupine is not in this tree.
+Porcupine isn't used anywhere in this codebase, for what it's worth.
 
 ## Code map
 
 | File | Job |
-|------|-----|
-| `arelis/voice/wake.py` | Compound-phrase regex |
-| `arelis/voice/openwake.py` | Optional ONNX wake when `models/wake/hey_arelis.onnx` exists |
-| `arelis/ui/voice_control.py` | WAKE / CONVERSATION / DICTATE |
-| `arelis/ui/app.py` | `_on_wake_detected` latches conversation |
-| `arelis/voice/telemetry.py` | `record_always` / `record_wake` always hits `logs/voice.log` |
-| `arelis/voice/stt.py` | No wake-clip prompt seed. Mail-word repair on conversation and dictate |
-| `arelis/voice/sherpa_stt.py` | Live Kroko session; 2023 pack fallback |
+|---|---|
+| `arelis/voice/wake.py` | The compound-phrase matching regex |
+| `arelis/voice/openwake.py` | Optional ONNX-based wake detection, once `models/wake/hey_arelis.onnx` exists |
+| `arelis/ui/voice_control.py` | Manages WAKE / CONVERSATION / DICTATE states |
+| `arelis/ui/app.py` | `_on_wake_detected` latches into conversation mode |
+| `arelis/voice/telemetry.py` | `record_always` / `record_wake` — always writes to `logs/voice.log` |
+| `arelis/voice/stt.py` | No prompt-seeding on wake clips; mail-word repair applied during conversation and dictation |
+| `arelis/voice/sherpa_stt.py` | The live Kroko session, with the 2023 pack as fallback |
 | `arelis/voice/smart_turn.py` | Pipecat Smart Turn v3 ONNX |
-| `arelis/voice/whisper_mel.py` | Whisper-compatible mel for Smart Turn |
-| `arelis/voice/speech_text.py` | First punctuated sentence for TTS |
-| `arelis/voice/kokoro_tts.py` | Kokoro-82M `af_heart` on CPU |
-| `arelis/voice/vad.py` / `silero_vad.py` | Live onset / end-point |
+| `arelis/voice/whisper_mel.py` | Whisper-compatible mel spectrogram, used for Smart Turn |
+| `arelis/voice/speech_text.py` | Extracts the first punctuated sentence for TTS to start on |
+| `arelis/voice/kokoro_tts.py` | Kokoro-82M (`af_heart`), running on CPU |
+| `arelis/voice/vad.py` / `silero_vad.py` | Live speech onset and end-point detection |

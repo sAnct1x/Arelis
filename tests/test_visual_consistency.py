@@ -184,6 +184,9 @@ def test_every_colour_in_the_stylesheet_came_from_a_token() -> None:
     stylesheet emits has to be one that COLORS declares, so retuning a token
     moves every pixel it is supposed to move.
     """
+    from arelis.ui.theme import apply_theme
+
+    apply_theme("sodium")
     qss = stylesheet()
     known = {
         re.sub(r"\s+", "", value).lower()
@@ -236,12 +239,18 @@ def test_every_tile_dock_and_line_is_in_the_stylesheet() -> None:
         "#RoomStrip",
         "#TitleBar",
         "#ChromeTitle",
+        "#ChromeSpanBtn",
+        "#FilamentBead",
         "#VoidHairline",
         "#DropOverlay",
         "#AttachBar",
         "#ChatView",
         "#ThinkingView",
         "#ConfirmAllow",
+        "#DeskList",
+        "#DeskEmpty",
+        "#DeskHint",
+        "#DeskPreview",
     ):
         assert hook in qss, hook
 
@@ -306,6 +315,7 @@ def test_workspace_actions_are_icon_only(qt_app) -> None:
         for btn, tip in (
             (panel.open_btn, "Open file"),
             (panel.save_btn, "Save file"),
+            (panel.keep_btn, "Keep a note on the desk"),
             (panel.add_root_btn, "Add an existing folder as a project"),
             (panel.new_root_btn, "Create a folder and add it as a project"),
             (

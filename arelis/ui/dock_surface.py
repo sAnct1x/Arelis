@@ -44,7 +44,8 @@ DOCKED_MIN_WIDTH = 220
 # Workspace is the one instrument with an editor in it; below this it is a slit.
 WORKSPACE_MIN_HEIGHT = 160
 
-_FLOAT_DOCK_QSS = f"""
+def _float_dock_qss() -> str:
+    return f"""
 QDockWidget {{
     color: {COLORS["text"]};
     background-color: {COLORS["plate"]};
@@ -52,7 +53,9 @@ QDockWidget {{
 }}
 """
 
-_FLOAT_SHELL_QSS = f"background-color: {COLORS['plate']};"
+
+def _float_shell_qss() -> str:
+    return f"background-color: {COLORS['plate']};"
 
 _FLOAT_FLAGS = (
     Qt.WindowType.Window
@@ -108,12 +111,12 @@ def apply_dock_surface(dock: QDockWidget, floating: bool | None = None) -> None:
     # autoFillBackground on any widget it styles, on the assumption that the
     # sheet is painting the background itself. Sealing first and styling second
     # therefore un-sets half of what was just asked for.
-    dock.setStyleSheet(_FLOAT_DOCK_QSS if floating else "")
+    dock.setStyleSheet(_float_dock_qss() if floating else "")
     _seal(dock, floating)
 
     shell = dock.widget()
     if shell is not None:
-        shell.setStyleSheet(_FLOAT_SHELL_QSS if floating else "")
+        shell.setStyleSheet(_float_shell_qss() if floating else "")
         _seal(shell, floating)
         for panel in _instrument_panels(shell):
             _seal(panel, floating)

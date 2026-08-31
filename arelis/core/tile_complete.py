@@ -23,7 +23,7 @@ _ALIASES: tuple[tuple[str, str], ...] = (
     ("thinking", r"thinking|thoughts"),
     (
         "workspace",
-        r"workspace|work\s*space|(?:file|files)\s+(?:tile|panel|dock)|the\s+editor",
+        r"workspace|work\s*space|(?:the\s+)?desk|(?:file|files)\s+(?:tile|panel|dock)|the\s+editor",
     ),
     ("history", r"history|(?:past|old)\s+(?:chats?|conversations?)"),
     ("camera", r"camera|webcam|web\s*cam"),

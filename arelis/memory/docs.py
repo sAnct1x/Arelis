@@ -8,9 +8,11 @@ mtime so an idle tick only rewrites what changed.
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 
 from arelis.memory.store import MemoryStore
+from arelis.paths import INSTALL_PARENT, PACKAGE_ROOT, is_source_checkout
 from arelis.workspace import WorkspaceRoots
 
 log = logging.getLogger(__name__)
@@ -92,12 +94,55 @@ _SKIP_DIR_NAMES = frozenset(
         "outputs",
         "logs",
         ".cursor",
+        "tool_cache",
+        "browser-profile",
+        "drops",
+        "backups",
     }
 )
 
 DEFAULT_MAX_FILE_BYTES = 512_000
 DEFAULT_CHUNK_CHARS = 1200
 DEFAULT_CHUNK_OVERLAP = 200
+
+
+def _product_skip_roots() -> tuple[Path, ...]:
+    """Never treat this checkout's package, tests, or docs as her papers."""
+    roots = [PACKAGE_ROOT]
+    if is_source_checkout():
+        for name in ("tests", "docs"):
+            path = INSTALL_PARENT / name
+            if path.is_dir():
+                roots.append(path)
+    resolved: list[Path] = []
+    for path in roots:
+        try:
+            resolved.append(path.resolve())
+        except OSError:
+            continue
+    return tuple(resolved)
+
+
+def _skip_walk_dir(path: Path, skip_roots: tuple[Path, ...]) -> bool:
+    if path.name in _SKIP_DIR_NAMES:
+        return True
+    try:
+        resolved = path.resolve()
+    except OSError:
+        return True
+    return any(resolved == root or root in resolved.parents for root in skip_roots)
+
+
+def _is_indexable_name(path: Path) -> bool:
+    suffix = path.suffix.lower()
+    name = path.name.lower()
+    return suffix in _TEXT_SUFFIXES or name in {
+        "makefile",
+        "dockerfile",
+        "readme",
+        "license",
+        "licence",
+    }
 
 
 def chunk_text(
@@ -200,30 +245,30 @@ class DocumentIndexer:
 
     def _iter_files(self) -> list[tuple[str, str, Path]]:
         found: list[tuple[str, str, Path]] = []
+        skip_roots = _product_skip_roots()
         for root in self.workspace.roots:
             root_path = root.path
             if not root_path.is_dir():
                 continue
-            for path in root_path.rglob("*"):
-                if not path.is_file():
-                    continue
-                if any(part in _SKIP_DIR_NAMES for part in path.parts):
-                    continue
-                suffix = path.suffix.lower()
-                name = path.name.lower()
-                if suffix not in _TEXT_SUFFIXES and name not in {
-                    "makefile",
-                    "dockerfile",
-                    "readme",
-                    "license",
-                    "licence",
-                }:
-                    continue
-                try:
-                    rel = path.resolve().relative_to(root_path.resolve()).as_posix()
-                except ValueError:
-                    continue
-                found.append((root.name, rel, path))
+            try:
+                root_resolved = root_path.resolve()
+            except OSError:
+                continue
+            for dirpath, dirnames, filenames in os.walk(root_path, followlinks=False):
+                dirnames[:] = [
+                    name
+                    for name in dirnames
+                    if not _skip_walk_dir(Path(dirpath) / name, skip_roots)
+                ]
+                for name in filenames:
+                    path = Path(dirpath) / name
+                    if not _is_indexable_name(path):
+                        continue
+                    try:
+                        rel = path.resolve().relative_to(root_resolved).as_posix()
+                    except (OSError, ValueError):
+                        continue
+                    found.append((root.name, rel, path))
         found.sort(key=lambda item: (item[0], item[1]))
         return found
 

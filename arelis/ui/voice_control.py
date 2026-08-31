@@ -653,7 +653,10 @@ class VoiceController(QObject):
                     self.recorder.channels,
                     "wake_oww",
                 )
-            return
+                return
+            if not (self._turn_busy or self._confirm_pending):
+                return
+            # Mid-drive / armed card: hear stop / allow / pause without Hey Arelis.
         event = self._detector.feed(block)
         if event is None:
             if self._live_feeding:
@@ -749,6 +752,13 @@ class VoiceController(QObject):
         if timed_out and mode != WAKE:
             self.status.emit("That was a long one. Sending what I have.")
 
+        if (
+            mode == WAKE
+            and self._openwake is not None
+            and (self._turn_busy or self._confirm_pending)
+        ):
+            self._emit_control(pcm)
+            return
         if mode in (DICTATE, WAKE):
             # Keep listening. For dictation the pause was a breath, not the end;
             # for wake, clips are filtered after transcription.

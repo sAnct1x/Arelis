@@ -166,7 +166,7 @@ async def test_help_lists_every_room_verb_that_exists(harness) -> None:
     await harness.say("/help")
     help_text = harness.said[-1]
 
-    for verb in ("/rooms", "/room new", "/room set", "/room forget", "/leave"):
+    for verb in ("/rooms", "/room new", "/room set", "/room forget", "/leave", "/keep"):
         assert verb in help_text, f"`{verb}` works but /help never mentions it"
 
 
@@ -364,7 +364,8 @@ async def test_asking_for_a_room_that_does_not_exist_makes_it(harness) -> None:
 
     assert harness.rooms.active_id == "chemistry"
     assert harness.rooms.get("chemistry") is not None
-    assert "Made the `chemistry` room" in harness.said[-1]
+    assert any("Made the `chemistry` room" in line for line in harness.said)
+    assert "What is Chemistry for" in harness.said[-1]
 
 
 @pytest.mark.asyncio
@@ -424,9 +425,8 @@ async def test_forgetting_a_room_keeps_its_conversations(harness) -> None:
     assert harness.rooms.get("survey") is None
     assert harness.rooms.get("physics") is not None
     assert harness.store.get_session(thread) is not None
-    assert harness.store.get_messages(thread)[0]["content"] == (
-        "three weeks of analysis"
-    )
+    texts = [row["content"] for row in harness.store.get_messages(thread)]
+    assert "three weeks of analysis" in texts
 
 
 @pytest.mark.asyncio
@@ -516,3 +516,98 @@ async def test_launch_stays_in_orbit_if_you_left(tmp_path: Path) -> None:
         assert second.rooms.active_id == ""
     finally:
         await second.stop()
+
+
+@pytest.mark.asyncio
+async def test_a_new_room_is_configured_by_answering_in_chat(harness) -> None:
+    await harness.say("let's work on the survey")
+
+    assert harness.rooms.active_id == "survey"
+    assert "What is Survey for" in harness.said[-1]
+
+    await harness.say("analysing the field data")
+    await harness.say("notes")
+    await harness.say("a plot in plots/")
+    await harness.say("pytest passes")
+
+    room = harness.rooms.get("survey")
+    assert room.purpose == "analysing the field data"
+    assert room.root == "notes"
+    assert room.result == "a plot in plots/"
+    assert room.test == "pytest passes"
+    assert room.setup == "done"
+    assert room.kind == "analysis"
+    assert harness.workspace.active == "notes"
+    assert harness.orchestrator._room_setup is None
+    assert "is set" in harness.said[-1]
+
+
+@pytest.mark.asyncio
+async def test_later_stops_the_room_interview(harness) -> None:
+    await harness.say("/room chemistry")
+    await harness.say("later")
+
+    room = harness.rooms.get("chemistry")
+    assert room.setup == "skipped"
+    assert room.purpose == ""
+    assert harness.orchestrator._room_setup is None
+    assert "can wait" in harness.said[-1]
+
+
+@pytest.mark.asyncio
+async def test_reality_does_not_interview(harness) -> None:
+    await harness.say("let's work on Reality")
+
+    assert harness.rooms.active_id == "physics"
+    assert harness.orchestrator._room_setup is None
+    assert "What is" not in harness.said[-1]
+
+
+@pytest.mark.asyncio
+async def test_spoken_edits_write_the_open_room(harness) -> None:
+    await harness.say("/room physics")
+    seen = len(harness.said)
+
+    await harness.say("this room is for analysing the survey data")
+    await harness.say("work in notes")
+    await harness.say("make it a research room")
+
+    room = harness.rooms.get("physics")
+    assert room.purpose == "analysing the survey data"
+    assert room.root == "notes"
+    assert room.kind == "research"
+    assert harness.workspace.active == "notes"
+    assert len(harness.said) == seen + 3
+
+
+@pytest.mark.asyncio
+async def test_a_wrong_folder_stays_on_the_question(harness) -> None:
+    await harness.say("/room survey")
+    await harness.say("analysing the field data")
+    await harness.say("nowhere")
+
+    assert harness.rooms.get("survey").root == ""
+    assert harness.orchestrator._room_setup is not None
+    assert harness.orchestrator._room_setup.step == "root"
+    assert "don't have a project" in harness.said[-1].lower()
+
+
+@pytest.mark.asyncio
+async def test_set_up_this_room_asks_again(harness) -> None:
+    await harness.say("/room survey")
+    await harness.say("later")
+
+    await harness.say("set up this room")
+
+    assert harness.orchestrator._room_setup is not None
+    assert harness.orchestrator._room_setup.step == "purpose"
+    assert "What is Survey for" in harness.said[-1]
+
+
+@pytest.mark.asyncio
+async def test_leaving_cancels_the_interview(harness) -> None:
+    await harness.say("/room survey")
+    await harness.say("/leave")
+
+    assert harness.orchestrator._room_setup is None
+    assert harness.rooms.active_id == ""

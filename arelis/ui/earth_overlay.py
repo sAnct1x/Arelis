@@ -74,20 +74,13 @@ _CHIP_GAP = 4
 _CHIP_PAD = 8
 
 
-_BAND_CHIP = {
-    "space": "Space",
-    "approach": "Approach",
-    "near": "Near",
-    "city": "City",
-}
-
-
 def earth_chip_items(band: str = "") -> tuple[tuple[str, str], ...]:
-    """Band, live, then only the layers this distance can show."""
+    """Band type, live, then only the layers this distance can show."""
     from arelis.earth.catalog import LAYER_BY_ID, LAYERS
+    from arelis.earth.copy import band_phrase, live_chip_label
 
-    label = _BAND_CHIP.get(band, "Earth")
-    items = [("band", label), ("live", "Live")]
+    label = band_phrase(band) if band else "on Earth"
+    items = [("band", label), ("live", live_chip_label(on=False))]
     items.append(("grid", "Grid"))
     if band in {"near", "city", ""}:
         items.append(("tiles", "Streets"))
@@ -96,8 +89,6 @@ def earth_chip_items(band: str = "") -> tuple[tuple[str, str], ...]:
     wanted = chip_layers(band)
     specs = LAYERS if wanted is None else [LAYER_BY_ID[k] for k in wanted if k in LAYER_BY_ID]
     for spec in specs:
-        if spec.id == "people":
-            continue
         items.append((spec.id, _CHIP_SHORT.get(spec.id, spec.title)))
     return tuple(items)
 
@@ -742,8 +733,11 @@ def inspect_caption(entity: Entity) -> str:
     mag = entity.meta.get("mag")
     if isinstance(mag, (int, float)):
         bits.append(f"M{float(mag):.1f}")
+    from arelis.earth.copy import inspect_kind_line
+
     lines = [
         entity.label,
+        inspect_kind_line(entity.layer, entity.freshness),
         f"{entity.id}  {entity.layer}  {entity.freshness}",
     ]
     if entity.source:

@@ -323,7 +323,49 @@ class InboundIngestServer:
                     got = (self.headers.get("X-Arelis-Token") or "").strip()
                 return bool(got) and got == server.token
 
+            def _client_ip(self) -> str:
+                return (self.client_address[0] if self.client_address else "") or "?"
+
+            def _watch_admit(self) -> bool:
+                from arelis.guard import get_watch
+
+                decision = get_watch().admit_inbound(self._client_ip())
+                if decision.ok:
+                    return True
+                self._reply(
+                    429,
+                    {
+                        "ok": False,
+                        "error": "slow down",
+                        "retry_after": decision.retry_after,
+                    },
+                )
+                return False
+
+            def _watch_token(self) -> bool:
+                from arelis.guard import get_watch
+
+                ip = self._client_ip()
+                if self._token_ok():
+                    get_watch().note_auth_ok(ip)
+                    return True
+                locked = get_watch().note_auth_fail(ip)
+                if not locked.ok:
+                    self._reply(
+                        429,
+                        {
+                            "ok": False,
+                            "error": "slow down",
+                            "retry_after": locked.retry_after,
+                        },
+                    )
+                    return False
+                self._reply(401, {"ok": False, "error": "unauthorized"})
+                return False
+
             def do_GET(self) -> None:
+                if not self._watch_admit():
+                    return
                 path = self.path.split("?", 1)[0]
                 # No auth: lets the companion distinguish "PC unreachable" from
                 # "wrong token" when Test ping fails.
@@ -344,14 +386,12 @@ class InboundIngestServer:
                     )
                     return
                 if path in {"/inbound/ping", "/ping"}:
-                    if not self._token_ok():
-                        self._reply(401, {"ok": False, "error": "unauthorized"})
+                    if not self._watch_token():
                         return
                     self._reply(200, {"ok": True, "service": "arelis-inbound"})
                     return
                 if path in {"/mobile/status", "/mobile/persona", "/mobile/chats"}:
-                    if not self._token_ok():
-                        self._reply(401, {"ok": False, "error": "unauthorized"})
+                    if not self._watch_token():
                         return
                     if path == "/mobile/status":
                         qs = parse_qs(urlparse(self.path).query)
@@ -381,8 +421,7 @@ class InboundIngestServer:
                     self._reply(200, server.mobile.persona_payload())
                     return
                 if path.startswith("/mobile/file/"):
-                    if not self._token_ok():
-                        self._reply(401, {"ok": False, "error": "unauthorized"})
+                    if not self._watch_token():
                         return
                     glance_id = path.rsplit("/", 1)[-1].strip()
                     got = server.mobile.file_bytes(glance_id)
@@ -392,8 +431,7 @@ class InboundIngestServer:
                     self._send_bytes(*got)
                     return
                 if path in {"/mobile/files", "/mobile/open"}:
-                    if not self._token_ok():
-                        self._reply(401, {"ok": False, "error": "unauthorized"})
+                    if not self._watch_token():
                         return
                     qs = parse_qs(urlparse(self.path).query)
                     rel = unquote((qs.get("path") or [""])[0] or "")
@@ -466,8 +504,16 @@ class InboundIngestServer:
                 self._reply(404, {"ok": False, "error": "not found"})
 
             def do_POST(self) -> None:
+                if not self._watch_admit():
+                    return
                 path = self.path.split("?", 1)[0]
                 length = int(self.headers.get("Content-Length") or 0)
+                from arelis.guard import get_watch
+
+                max_body = get_watch().max_body_bytes
+                if length > max_body:
+                    self._reply(413, {"ok": False, "error": "too large"})
+                    return
                 raw = self.rfile.read(max(0, length)) if length else b"{}"
                 if path in {
                     "/inbound/sms",
@@ -483,8 +529,7 @@ class InboundIngestServer:
                 else:
                     self._reply(404, {"ok": False, "error": "not found"})
                     return
-                if not self._token_ok():
-                    self._reply(401, {"ok": False, "error": "unauthorized"})
+                if not self._watch_token():
                     return
                 try:
                     data = json.loads(raw.decode("utf-8") or "{}")
@@ -959,6 +1004,19 @@ class InboundIngestServer:
             daemon=True,
         )
         self._thread.start()
+        try:
+            from arelis.guard import Listener, get_watch
+
+            get_watch().register_listener(
+                Listener(
+                    name="ingest",
+                    host=self.host,
+                    port=self.port,
+                    bind="loopback" if self.host in {"127.0.0.1", "::1"} else "lan",
+                )
+            )
+        except Exception:
+            log.debug("Watch did not register ingest", exc_info=True)
         if not self._mobile_hooked:
             for kind in (
                 EventType.USER_MESSAGE,
@@ -987,6 +1045,12 @@ class InboundIngestServer:
             )
 
     def stop(self) -> None:
+        try:
+            from arelis.guard import get_watch
+
+            get_watch().drop_listener("ingest")
+        except Exception:
+            pass
         announcer = self._announce
         self._announce = None
         if announcer is not None:

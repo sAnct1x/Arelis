@@ -61,8 +61,13 @@ def build_seat(
         bus = EventBus()
     if profile in {"ui", "cli"}:
         from arelis.core.event_audit import attach_event_audit
+        from arelis.housekeep import run_startup_housekeep
 
         attach_event_audit(bus, config)
+        from arelis.guard import attach_watch
+
+        attach_watch(bus, config)
+        run_startup_housekeep()
 
     router = build_router(config)
     store: MemoryStore | None = None

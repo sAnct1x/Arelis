@@ -7,9 +7,10 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import QEvent, QObject, QPoint, QRect, QSize, Qt, QTimer, Signal
+from PySide6.QtCore import QByteArray, QEvent, QObject, QPoint, QRect, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import (
     QAction,
+    QActionGroup,
     QIcon,
     QKeyEvent,
     QKeySequence,
@@ -32,6 +33,7 @@ from PySide6.QtWidgets import (
 
 from arelis.core.bus import EventBus, bind_app_bus
 from arelis.core.events import Event, EventType
+from arelis.desk import DeskStore
 from arelis.llm.router import ModelRouter
 from arelis.memory import MemoryIndexer, MemoryStore
 from arelis.notify import NotificationCenter
@@ -102,9 +104,38 @@ from arelis.ui.confirm_host import emit_restored_confirm
 from arelis.ui.contacts_inbox import ContactsInboxWindow
 from arelis.ui.dock_surface import apply_dock_chrome, apply_dock_surface, chrome_applying
 from arelis.ui.event_host import dispatch_event
+from arelis.ui.filament_field import (
+    FilamentChatWindow,
+    FilamentField,
+    FilamentFloatBar,
+    attach_on_rect,
+    chrome_band_on_glass,
+    clamp_filament_span,
+    filament_chosen_desks,
+    filament_row_desks,
+    filament_span_geometry,
+    filament_work_region,
+    home_band_from_union,
+    home_band_in_window,
+)
+from arelis.ui.filament_tile import (
+    DEFAULT_OPACITY,
+    DEFAULT_SIZES,
+    apply_tile_opacity,
+    apply_tile_size,
+    bind_tile_opacity,
+    bind_tile_size,
+    flush_tile_geom,
+    load_opacities,
+    load_tile_origins,
+    load_tile_sizes,
+    origin_on_a_desk,
+    play_tile_grow,
+)
 from arelis.ui.foreground import flash_taskbar, process_owns_foreground
 from arelis.ui.glass import GlassFrame, advance_rim_pulse, seal_tool_window
 from arelis.ui.glass_dock import GlassDockWidget
+from arelis.ui.hands_host import apply_hands_face, on_hands_chip, park_hands, resume_hands
 from arelis.ui.history_host import (
     build_rooms_menu,
     enter_room_from_menu,
@@ -216,7 +247,11 @@ from arelis.ui.status_copy import (
 from arelis.ui.surface_report import log_report
 from arelis.ui.theme import (
     GLASS,
+    THEME_CHOICES,
+    active_theme,
+    apply_theme,
     stylesheet,
+    theme_from_config,
 )
 from arelis.ui.voice_host import (
     arm_speech,
@@ -252,6 +287,7 @@ from arelis.ui.window_resize import (
     handle_native_resize,
     hit_test_resize,
     invalidate_window_surface,
+    place_frameless_rect,
     release_native_children,
     try_system_resize,
 )
@@ -259,10 +295,17 @@ from arelis.ui.workspace_host import (
     add_workspace_folder_dialog,
     apply_workspace_roots,
     disk_moved_under_editor,
+    drop_desk_item,
+    keep_note_dialog,
     new_workspace_folder_dialog,
+    open_desk_item,
     open_file,
+    open_outside,
+    pin_desk_item,
+    refresh_desk,
     register_workspace_folder,
     remove_active_workspace_root,
+    reveal_desk_item,
     save_file,
     unique_root_name,
     workspace_root_dicts,
@@ -415,6 +458,9 @@ class ArelisWindow(QMainWindow):
         self.workspace_roots: WorkspaceRoots = (
             config.get("_workspace") or WorkspaceRoots.from_config(config)
         )
+        raw_desk = config.get("_desk")
+        self.desk = raw_desk if isinstance(raw_desk, DeskStore) else DeskStore()
+        self.config["_desk"] = self.desk
         ui_cfg = config.get("ui", {})
         self._atmosphere_phase = 0.0
         self.setWindowTitle(ui_cfg.get("window_title", "Arelis"))
@@ -426,6 +472,7 @@ class ArelisWindow(QMainWindow):
             QMainWindow.DockOption.AnimatedDocks
             | QMainWindow.DockOption.AllowNestedDocks
         )
+        apply_theme(theme_from_config(config))
         self.setStyleSheet(stylesheet())
         # Native Windows chrome removed — custom glass title bar
         self.setWindowFlags(
@@ -445,6 +492,7 @@ class ArelisWindow(QMainWindow):
         self.readiness_strip = ReadinessStrip()
         chrome_stack = QWidget()
         chrome_stack.setObjectName("ChromeStack")
+        self._chrome_stack = chrome_stack
         chrome_layout = QVBoxLayout(chrome_stack)
         chrome_layout.setContentsMargins(0, 0, 0, 0)
         chrome_layout.setSpacing(0)
@@ -460,6 +508,7 @@ class ArelisWindow(QMainWindow):
         self.title_bar.view_menu_requested.connect(self._show_view_menu)
         self.title_bar.rooms_menu_requested.connect(self._show_rooms_menu)
         self.title_bar.settings_requested.connect(self._open_settings)
+        self.title_bar.span_requested.connect(self._filament_set_span)
         self.readiness_strip.settings_requested.connect(self._open_settings)
         self.readiness_updated.connect(self.readiness_strip.apply)
 
@@ -478,6 +527,27 @@ class ArelisWindow(QMainWindow):
         self.chat = self.conversation.chat
         self.chat.progress_clicked.connect(self._on_thinking_status_clicked)
         self._stage_layout.addWidget(self.conversation, stretch=1)
+        self._filament = FilamentField()
+        self._filament_parked: dict[str, Any] | None = None
+        self._filament_chrome_peek = False
+        self._filament_hiding = False
+        self._filament_chat_open = False
+        self._filament_woken = False
+        self._filament_span = clamp_filament_span((config.get("ui") or {}).get("filament_span", 1))
+        self._filament_home: QRect | None = None
+        self._filament_opacity = load_opacities(config)
+        self._filament_tile_sizes = load_tile_sizes(config)
+        self._filament_tile_pos = load_tile_origins(config)
+        self._filament_dock_areas: dict[str, object] | None = None
+        self._filament_floats = FilamentFloatBar(self._filament, self.conversation)
+        self._filament_floats.opened.connect(self._on_filament_float)
+        self._filament_floats.hands_toggled.connect(self._on_hands_chip)
+        self._filament_floats.hide()
+        self._hands_chip = bool((config.get("ui") or {}).get("hands_chip", False))
+        self._filament_chat_tile = FilamentChatWindow(self)
+        self._filament_chat_tile.closed.connect(self._on_filament_chat_closed)
+        self._filament_chat_tile.hide()
+        self.conversation.setMouseTracking(True)
 
         # Dockable instruments — full glass bodies, no broken native title chrome
         self.thinking = ThinkingPanel()
@@ -506,6 +576,7 @@ class ArelisWindow(QMainWindow):
             paths={r.name: str(r.path) for r in self.workspace_roots.roots},
         )
         self.workspace.set_recent(load_recent_workspace_files())
+        refresh_desk(self)
         self.think_host = InstrumentPanel("thinking", self.thinking)
         self.work_host = InstrumentPanel("workspace", self.workspace)
         self.history_host = InstrumentPanel("history", self.history)
@@ -703,6 +774,13 @@ class ArelisWindow(QMainWindow):
         self.workspace.add_root_requested.connect(self._add_workspace_folder_dialog)
         self.workspace.new_root_requested.connect(self._new_workspace_folder_dialog)
         self.workspace.remove_root_requested.connect(self._remove_active_workspace_root)
+        self.workspace.keep_requested.connect(self._keep_note_dialog)
+        self.workspace.pin_requested.connect(self._pin_desk_item)
+        self.workspace.drop_requested.connect(self._drop_desk_item)
+        self.workspace.desk_open_requested.connect(self._open_desk_item)
+        self.workspace.reveal_requested.connect(self._reveal_desk_item)
+        self.workspace.outside_requested.connect(self._open_outside)
+        self.chat.desk_requested.connect(self._keep_file_on_desk)
         self.history.session_selected.connect(self._on_history_selected)
         self.history.session_delete_requested.connect(self._on_history_delete)
         self.history.new_requested.connect(self._on_history_new)
@@ -841,6 +919,7 @@ class ArelisWindow(QMainWindow):
         self._atmosphere_timer.setInterval(100)
         self._atmosphere_timer.timeout.connect(self._tick_atmosphere)
         self._atmosphere_timer.start()
+        self._sync_filament_face()
 
         self._later(0, self._schedule_readiness_probe)
         self._later(80, self.conversation.focus_input)
@@ -906,8 +985,21 @@ class ArelisWindow(QMainWindow):
         if cal is not None:
             cal.hide()
 
-    def _reveal_dock(self, dock: QDockWidget, action: QAction | None = None) -> None:
-        """Show an instrument once, with the same fade used by the View menu."""
+    def _reveal_dock(
+        self,
+        dock: QDockWidget,
+        action: QAction | None = None,
+        *,
+        asked: bool = False,
+    ) -> None:
+        """Show an instrument once, with the same fade used by the View menu.
+
+        Filament plates open from the bead, not from a turn. Auto-show is
+        sodium stacked glass. asked=True is View / click. Thinking still
+        breathes on the current.
+        """
+        if active_theme() == "filament" and not asked:
+            return
         if getattr(self, "_away_resting", False):
             return
         if dock.isVisible():
@@ -916,6 +1008,14 @@ class ArelisWindow(QMainWindow):
         if action is not None:
             action.setChecked(True)
         self._animate_dock(dock)
+        if active_theme() == "filament":
+            names = {
+                self.think_dock: "thinking",
+                self.work_dock: "files",
+                self.history_dock: "history",
+                self.camera_dock: "camera",
+            }
+            self._filament_present_tile(dock, names.get(dock, "files"))
 
     def _on_thinking_status_clicked(self) -> None:
         """The status line is a control: open Thinking, or pulse that plate."""
@@ -924,7 +1024,7 @@ class ArelisWindow(QMainWindow):
         if not self.think_dock.isHidden():
             self._pulse_thinking_instrument()
             return
-        self._reveal_dock(self.think_dock, self.act_thinking)
+        self._reveal_dock(self.think_dock, self.act_thinking, asked=True)
 
     def _pulse_thinking_instrument(self) -> None:
         """One short amber hairline on the thinking plate, then rest."""
@@ -963,6 +1063,18 @@ class ArelisWindow(QMainWindow):
         self._atmosphere_phase = (self._atmosphere_phase + 0.012) % 6.283185307179586
         # Slow grain drift. Rim on plates is a static hairline, not a pulse circus.
         advance_rim_pulse(0.1)
+        if active_theme() == "filament":
+            camera = getattr(self, "camera_dock", None)
+            live = camera is not None and camera.isVisible()
+            self._filament.set_load("camera" if live else "")
+            ms = self._filament.atmosphere_ms()
+            self._atmosphere_timer.setInterval(ms)
+            self._filament.set_state(self._filament_weather())
+            self._filament.tick(ms / 1000.0)
+            self._place_filament_floats(reshape=False)
+            self.update(self._filament.dirty_rect(self.rect()))
+            return
+        self._atmosphere_timer.setInterval(100)
         self.update()
         for frame in self._atmosphere_glass_frames():
             frame.update()
@@ -1048,6 +1160,7 @@ class ArelisWindow(QMainWindow):
         self.act_thinking.setCheckable(True)
         self.act_thinking.setChecked(self.think_dock.isVisible())
         self.act_thinking.setShortcut(QKeySequence("Ctrl+1"))
+        self.act_thinking.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
         self.act_thinking.triggered.connect(self._toggle_thinking)
         self.addAction(self.act_thinking)
 
@@ -1055,6 +1168,7 @@ class ArelisWindow(QMainWindow):
         self.act_workspace.setCheckable(True)
         self.act_workspace.setChecked(self.work_dock.isVisible())
         self.act_workspace.setShortcut(QKeySequence("Ctrl+2"))
+        self.act_workspace.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
         self.act_workspace.triggered.connect(self._toggle_workspace)
         self.addAction(self.act_workspace)
 
@@ -1062,6 +1176,7 @@ class ArelisWindow(QMainWindow):
         self.act_history.setCheckable(True)
         self.act_history.setChecked(self.history_dock.isVisible())
         self.act_history.setShortcut(QKeySequence("Ctrl+3"))
+        self.act_history.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
         self.act_history.triggered.connect(self._toggle_history)
         self.addAction(self.act_history)
 
@@ -1069,6 +1184,7 @@ class ArelisWindow(QMainWindow):
         self.act_notifications.setCheckable(True)
         self.act_notifications.setChecked(self.notify_inbox.isVisible())
         self.act_notifications.setShortcut(QKeySequence("Ctrl+4"))
+        self.act_notifications.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
         self.act_notifications.triggered.connect(self._toggle_notifications)
         self.addAction(self.act_notifications)
         self._on_notify_unread(self.notify_center.unread_count())
@@ -1077,6 +1193,7 @@ class ArelisWindow(QMainWindow):
         self.act_camera.setCheckable(True)
         self.act_camera.setChecked(self.camera_dock.isVisible())
         self.act_camera.setShortcut(QKeySequence("Ctrl+5"))
+        self.act_camera.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
         self.act_camera.triggered.connect(self._toggle_camera)
         self.addAction(self.act_camera)
 
@@ -1084,6 +1201,7 @@ class ArelisWindow(QMainWindow):
         self.act_contacts.setCheckable(True)
         self.act_contacts.setChecked(self.contacts_inbox.isVisible())
         self.act_contacts.setShortcut(QKeySequence("Ctrl+6"))
+        self.act_contacts.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
         self.act_contacts.triggered.connect(self._toggle_contacts)
         self.addAction(self.act_contacts)
 
@@ -1091,6 +1209,7 @@ class ArelisWindow(QMainWindow):
         self.act_calendar.setCheckable(True)
         self.act_calendar.setChecked(not self.calendar_window.isHidden())
         self.act_calendar.setShortcut(QKeySequence("Ctrl+7"))
+        self.act_calendar.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
         self.act_calendar.triggered.connect(self._toggle_calendar)
         self.addAction(self.act_calendar)
 
@@ -1098,6 +1217,7 @@ class ArelisWindow(QMainWindow):
         self.act_world.setCheckable(True)
         self.act_world.setChecked(False)
         self.act_world.setShortcut(QKeySequence("Ctrl+8"))
+        self.act_world.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
         self.act_world.triggered.connect(self._toggle_world)
         self.addAction(self.act_world)
 
@@ -1150,6 +1270,21 @@ class ArelisWindow(QMainWindow):
         self.act_shortcuts.triggered.connect(self._open_shortcuts)
         self.addAction(self.act_shortcuts)
 
+        self._theme_group = QActionGroup(self)
+        self._theme_group.setExclusive(True)
+        self._theme_actions: dict[str, QAction] = {}
+        current = theme_from_config(self.config)
+        for theme_id, label in THEME_CHOICES:
+            act = QAction(label, self)
+            act.setCheckable(True)
+            act.setChecked(theme_id == current)
+            act.triggered.connect(
+                lambda checked=False, tid=theme_id: self._choose_theme(tid, checked)
+            )
+            self._theme_group.addAction(act)
+            self.addAction(act)
+            self._theme_actions[theme_id] = act
+
         self.act_dictate = QAction("dictate", self)
         self.act_dictate.triggered.connect(self.conversation.toggle_dictate)
         self.addAction(self.act_dictate)
@@ -1171,6 +1306,9 @@ class ArelisWindow(QMainWindow):
         et = event.type()
         if et == QEvent.Type.MouseButtonPress:
             self._note_engagement()
+            return super().eventFilter(obj, event)
+        if et == QEvent.Type.MouseMove:
+            self._filament_on_mouse_move(event)
             return super().eventFilter(obj, event)
         if et not in {QEvent.Type.ShortcutOverride, QEvent.Type.KeyPress}:
             return super().eventFilter(obj, event)
@@ -1226,8 +1364,14 @@ class ArelisWindow(QMainWindow):
     def paintEvent(self, event: QPaintEvent) -> None:
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        if active_theme() == "filament":
+            painter.setClipRegion(event.region())
+            self._filament.paint(painter, self.rect())
+            return
         path = QPainterPath()
-        path.addRoundedRect(self.rect().adjusted(0, 0, -1, -1), _WINDOW_RADIUS, _WINDOW_RADIUS)
+        path.addRoundedRect(
+            self.rect().adjusted(0, 0, -1, -1), _WINDOW_RADIUS, _WINDOW_RADIUS
+        )
         painter.setClipPath(path)
         paint_atmosphere(painter, self.rect(), drift=self._atmosphere_phase)
         # Corner ticks live on ConversationStage so they don't cut the title bar.
@@ -1245,8 +1389,13 @@ class ArelisWindow(QMainWindow):
         # _flush_glass_surface call at each of the dozen places that can move a
         # widget, because the next one added would not know it had to call it.
         # update() coalesces into a single paint per frame.
+        # Filament titles are child buttons — Qt already dirties their move
+        # rects. Flushing 7680×1466 on every place() undoes the band update.
         if event.type() == QEvent.Type.LayoutRequest:
-            self.update()
+            if active_theme() == "filament":
+                self.update(self._filament.dirty_rect(self.rect()))
+            else:
+                self.update()
         return super().event(event)
 
     def resizeEvent(self, event) -> None:
@@ -1257,11 +1406,15 @@ class ArelisWindow(QMainWindow):
             self.clearMask()
         self._mask_timer.start()
         self._sync_browser_anchor()
+        # Floats follow the coil. Remask waits for _on_resize_settled —
+        # reshape here put setMask back on every drag pixel.
+        self._place_filament_floats(reshape=False)
 
     def showEvent(self, event) -> None:
         super().showEvent(event)
         # Frameless alone drops OS resize; re-add thick frame after the HWND exists.
-        enable_win32_resize_frame(self)
+        if not (self.isMaximized() or self.isFullScreen()):
+            enable_win32_resize_frame(self)
         # QMainWindow will have promoted docks/toolbars to child HWNDs by now.
         # Those are the second paint of each panel, offset by the child's origin.
         release_native_children(self)
@@ -1272,6 +1425,8 @@ class ArelisWindow(QMainWindow):
         self.setMouseTracking(True)
         self._sync_browser_anchor()
         self._sync_idle_mode()
+        if active_theme() == "filament" and self._filament_parked is not None:
+            self._later(0, self._filament_place_entity)
 
     def _sync_browser_anchor(self) -> None:
         """Her Chrome matches this window's size and sits beside chat."""
@@ -1304,8 +1459,10 @@ class ArelisWindow(QMainWindow):
             )
             if self.isMinimized():
                 self._park_floating_docks()
+                park_hands(self)
             elif was_minimized:
                 self._unpark_floating_docks()
+                resume_hands(self)
             self._sync_chrome_state()
             self._apply_round_mask()
             self._clamp_dock_widths()
@@ -1314,6 +1471,9 @@ class ArelisWindow(QMainWindow):
             self._sync_notify_surface()
 
     def nativeEvent(self, eventType, message):
+        passed = self._filament_native_hit(eventType, message)
+        if passed is not None:
+            return passed
         handled = handle_native_resize(self, eventType, message)
         if handled is not None:
             return handled
@@ -1370,6 +1530,9 @@ class ArelisWindow(QMainWindow):
             self.resizeDocks(docks, widths, Qt.Orientation.Horizontal)
 
     def _apply_round_mask(self) -> None:
+        if active_theme() == "filament":
+            self._filament_apply_shape()
+            return
         if self.isMaximized() or self.isFullScreen():
             self.clearMask()
             return
@@ -1403,12 +1566,66 @@ class ArelisWindow(QMainWindow):
         menu.addSeparator()
         menu.addAction(self.act_always_on_top)
         menu.addAction(self.act_fullscreen)
+        themes = menu.addMenu("themes")
+        for act in self._theme_actions.values():
+            themes.addAction(act)
         menu.addSeparator()
         menu.addAction(self.act_shortcuts)
         menu.addAction(self.act_notify_url)
         menu.addAction(self.act_reset)
         # Settings lives on the title-bar button (and Ctrl+,), not in View.
         menu.exec(anchor.mapToGlobal(QPoint(0, anchor.height())))
+
+    def contextMenuEvent(self, event) -> None:  # type: ignore[override]
+        if active_theme() == "filament":
+            self._popup_filament_menu(event.globalPos())
+            event.accept()
+            return
+        super().contextMenuEvent(event)
+
+    def _build_filament_menu(self) -> QMenu:
+        """Leave hatch when chrome is gone. Themes first so sodium is one click."""
+        self._sync_view_checks()
+        menu = QMenu(self)
+        menu.setObjectName("FilamentMenu")
+        themes = menu.addMenu("themes")
+        for act in self._theme_actions.values():
+            themes.addAction(act)
+        menu.addSeparator()
+        settings = menu.addAction("settings")
+        settings.triggered.connect(lambda: self._open_settings())
+        chat = menu.addAction("chat")
+        chat.setCheckable(True)
+        chat.setChecked(bool(self._filament_chat_open))
+        chat.triggered.connect(lambda c=False: self._filament_set_chat_open(bool(c)))
+        desks = menu.addMenu("desks")
+        have = len(filament_row_desks(self, self._filament_home)[0])
+        for n, label in ((1, "1 monitor"), (2, "2 monitors"), (3, "3 monitors")):
+            act = desks.addAction(label)
+            act.setCheckable(True)
+            act.setChecked(self._filament_span == n)
+            act.setEnabled(n <= max(1, have))
+            act.triggered.connect(lambda _c=False, k=n: self._filament_set_span(k))
+        rooms = self._build_rooms_menu()
+        rooms.setTitle("rooms")
+        menu.addMenu(rooms)
+        menu.addSeparator()
+        menu.addAction(self.act_thinking)
+        menu.addAction(self.act_workspace)
+        menu.addAction(self.act_history)
+        menu.addAction(self.act_notifications)
+        menu.addAction(self.act_camera)
+        menu.addAction(self.act_contacts)
+        menu.addAction(self.act_calendar)
+        if world_available():
+            menu.addAction(self.act_world)
+        menu.addSeparator()
+        menu.addAction(self.act_always_on_top)
+        menu.addAction(self.act_shortcuts)
+        return menu
+
+    def _popup_filament_menu(self, global_pos) -> None:
+        self._build_filament_menu().exec(global_pos)
 
     def _show_rooms_menu(self, anchor) -> None:
         return show_rooms_menu(self, anchor)
@@ -1429,6 +1646,11 @@ class ArelisWindow(QMainWindow):
         return enter_room_from_menu(self, room_id)
 
     def _toggle_fullscreen(self) -> None:
+        if active_theme() == "filament":
+            if self.isFullScreen() or self.isMaximized():
+                self.showNormal()
+            self._filament_place_entity()
+            return
         return toggle_fullscreen(self)
 
     def _toggle_always_on_top(self, checked: bool) -> None:
@@ -1493,12 +1715,14 @@ class ArelisWindow(QMainWindow):
         self.think_dock.setVisible(checked)
         if checked:
             self._animate_dock(self.think_dock)
+            self._filament_present_tile(self.think_dock, "thinking")
 
     def _toggle_workspace(self, checked: bool) -> None:
         self._note_engagement()
         self.work_dock.setVisible(checked)
         if checked:
             self._animate_dock(self.work_dock)
+            self._filament_present_tile(self.work_dock, "files")
 
     def _toggle_history(self, checked: bool) -> None:
         self._note_engagement()
@@ -1506,6 +1730,7 @@ class ArelisWindow(QMainWindow):
         if checked:
             self._refresh_history()
             self._animate_dock(self.history_dock)
+            self._filament_present_tile(self.history_dock, "history")
         self._stack_left_instruments()
 
     def _toggle_notifications(self, checked: bool) -> None:
@@ -1515,7 +1740,12 @@ class ArelisWindow(QMainWindow):
             self.notify_inbox.show()
             self.notify_inbox.raise_()
             self.notifications.opened.emit()
+            if active_theme() == "filament":
+                self._filament_dress_tile(self.notify_inbox, "notify")
+                self._filament_place_near_title(self.notify_inbox, "notify")
         else:
+            if active_theme() == "filament":
+                flush_tile_geom(self.notify_inbox)
             self.notify_inbox.hide()
 
         self._sync_notify_surface()
@@ -1527,6 +1757,7 @@ class ArelisWindow(QMainWindow):
         if checked:
             self.camera.start()
             self._animate_dock(self.camera_dock)
+            self._filament_present_tile(self.camera_dock, "camera")
         else:
             self.camera.stop()
         self._stack_left_instruments()
@@ -1537,7 +1768,12 @@ class ArelisWindow(QMainWindow):
             self.contacts.show_list()
             self.contacts_inbox.show()
             self.contacts_inbox.raise_()
+            if active_theme() == "filament":
+                self._filament_dress_tile(self.contacts_inbox, "contacts")
+                self._filament_place_near_title(self.contacts_inbox, "contacts")
         else:
+            if active_theme() == "filament":
+                flush_tile_geom(self.contacts_inbox)
             self.contacts_inbox.hide()
         self._sync_idle_mode()
 
@@ -1553,7 +1789,12 @@ class ArelisWindow(QMainWindow):
             self.calendar.reload()
             self._kick_calendar_sync()
             self._calendar_sync_timer.start()
+            if active_theme() == "filament":
+                self._filament_dress_tile(self.calendar_window, "days")
+                self._filament_place_near_title(self.calendar_window, "days")
         else:
+            if active_theme() == "filament":
+                flush_tile_geom(self.calendar_window)
             self.calendar_window.hide()
             self._calendar_sync_timer.stop()
             self._calendar_sync_watchdog.stop()
@@ -1563,7 +1804,7 @@ class ArelisWindow(QMainWindow):
         self.act_world.setChecked(True)
         self._toggle_world(True)
 
-    def _toggle_world(self, checked: bool, page: str = "") -> None:
+    def _toggle_world(self, checked: bool, page: str = "", *, force: bool = False) -> None:
         self._note_engagement()
         if not world_available():
             self.act_world.setChecked(False)
@@ -1574,7 +1815,7 @@ class ArelisWindow(QMainWindow):
                 )
             return
         if checked:
-            if not should_offer_world(self.conversation.room.room_id):
+            if not force and not should_offer_world(self.conversation.room.room_id):
                 self.act_world.setChecked(False)
                 self.thinking.append(
                     "Reality is that room. Say let's work on Reality first.",
@@ -1587,7 +1828,12 @@ class ArelisWindow(QMainWindow):
                 page=page,
                 placed=getattr(self, "_world_placed", False),
             )
+            if active_theme() == "filament":
+                self._filament_dress_tile(self.world_window, "reality")
+                self._filament_place_near_title(self.world_window, "reality")
         else:
+            if active_theme() == "filament":
+                flush_tile_geom(self.world_window)
             hide_world(self.world_window)
         self._sync_idle_mode()
 
@@ -1604,10 +1850,11 @@ class ArelisWindow(QMainWindow):
 
     def _try_physics_verb(self, text: str) -> bool:
         """Closed lexicon in this room. True when it must not start a turn."""
-        if self.conversation.room.room_id != PHYSICS_ROOM_ID:
-            return False
         act = classify_physics_act(text, names=speech_body_names())
         if not act:
+            return False
+        in_reality = self.conversation.room.room_id == PHYSICS_ROOM_ID
+        if not in_reality and act.verb != "goto_earth":
             return False
         self._apply_physics_act(act)
         return True
@@ -1723,6 +1970,45 @@ class ArelisWindow(QMainWindow):
             except OSError:
                 pass
             self.thinking.append(zone.leave(), kind="status")
+            self._touch_solar()
+            return
+        if verb == "goto_earth":
+            from arelis.earth.gazetteer import resolve_place
+            from arelis.earth.runtime import require_earth
+
+            query = (act.name or "").strip()
+            zone = require_earth()
+            hit = resolve_place(query, zone)
+            if hit is None:
+                if query.casefold() in {"home", "here"}:
+                    self.thinking.append(
+                        "Set a home city in your profile first.", kind="status"
+                    )
+                    return
+                self.thinking.append(
+                    f"I don't know a place named {query!r}.", kind="status"
+                )
+                return
+            if not world_available():
+                self.thinking.append(
+                    "Reality's plate is a source-checkout stage — not in the installer.",
+                    kind="status",
+                )
+                return
+            self._toggle_world(True, page="solar", force=True)
+            if not zone.active:
+                zone.enter()
+            zone.request_goto(hit)
+            system = get_system()
+            on_earth = False
+            if hasattr(self, "world_window"):
+                on_earth = getattr(self.world_window.solar, "_earth_cam", None) is not None
+            if system is not None and system.nbody.find("Earth") is not None:
+                system.lock = "Earth"
+                system.pending_inspect = "Earth"
+                if not on_earth:
+                    system.pending_travel = "Earth"
+            self.thinking.append(f"flying to {hit.name}", kind="status")
             self._touch_solar()
             return
         if verb == "ride_iss":
@@ -1921,6 +2207,9 @@ class ArelisWindow(QMainWindow):
     def _on_camera_track(self, on: bool) -> None:
         return on_camera_track(self, on)
 
+    def _on_hands_chip(self, on: bool) -> None:
+        return on_hands_chip(self, on)
+
     def _on_camera_record(self, on: bool) -> None:
         return on_camera_record(self, on)
 
@@ -1960,6 +2249,710 @@ class ArelisWindow(QMainWindow):
             self.act_calendar.setChecked(not self.calendar_window.isHidden())
         if hasattr(self, "act_world"):
             self.act_world.setChecked(not self.world_window.isHidden())
+        self._sync_theme_checks()
+
+    def _sync_theme_checks(self) -> None:
+        from arelis.ui.theme import active_theme
+
+        current = active_theme()
+        for theme_id, act in getattr(self, "_theme_actions", {}).items():
+            act.blockSignals(True)
+            act.setChecked(theme_id == current)
+            act.blockSignals(False)
+
+    def _choose_theme(self, theme_id: str, checked: bool) -> None:
+        if not checked:
+            return
+        from arelis.config import merge_local_config
+        from arelis.ui.dialog import confirm
+        from arelis.ui.settings_host import apply_window_theme
+
+        if theme_id == "filament" and not (self.config.get("ui") or {}).get(
+            "filament_ack"
+        ):
+            ok = confirm(
+                self,
+                "filament (testing)",
+                "this replaces the app face. it may take the desk you give it.",
+                detail=(
+                    "the current sits on the desk. talk does not need a chat tile. "
+                    "history, thinking, chat, days, files open as their own plates "
+                    "— drag them anywhere. right-click for themes. sodium is one click."
+                ),
+                confirm_text="enter filament",
+                cancel_text="stay in sodium",
+            )
+            if not ok:
+                self._sync_theme_checks()
+                return
+            self.config.setdefault("ui", {})["filament_ack"] = True
+            merge_local_config({"ui": {"filament_ack": True}})
+        apply_window_theme(self, theme_id, persist=True)
+        self._sync_filament_face()
+        self._sync_theme_checks()
+
+    def _filament_weather(self) -> str:
+        conv = getattr(self, "conversation", None)
+        if conv is None:
+            return "idle"
+        if getattr(conv, "_speaking", False):
+            self._filament_woken = True
+            return "speak"
+        if getattr(conv, "_busy", False) or getattr(self, "_turn_busy", False):
+            self._filament_woken = True
+            return "think"
+        if conv.conversation_btn.isChecked() or conv.mic_btn.isChecked():
+            self._filament_woken = True
+            return "listen"
+        if getattr(self, "_away_resting", False):
+            self._filament_woken = False
+            return "idle"
+        if not getattr(self, "_filament_woken", False):
+            return "idle"
+        return "awake"
+
+    def _filament_can_claim_desk(self) -> bool:
+        app = QApplication.instance()
+        if app is None:
+            return False
+        return str(app.platformName()) != "offscreen"
+
+    def _filament_apply_glass(self, _on: bool) -> None:
+        """Enter and leave both seal. The desk HWND is never layered.
+
+        WA_TranslucentBackground stacked every glyph (a second history
+        header, a second orbit). Opacity lives on the floating plates.
+        """
+        seal_tool_window(self)
+
+    def _filament_pin_home(self) -> QRect | None:
+        """Always the OS primary desk. Never the screen the HWND drifted onto."""
+        app = QApplication.instance()
+        screen = app.primaryScreen() if app is not None else None
+        if screen is None:
+            screen = self.screen()
+        if screen is None:
+            return QRect(self._filament_home) if self._filament_home is not None else None
+        self._filament_home = QRect(screen.availableGeometry())
+        return QRect(self._filament_home)
+
+    def _filament_set_span(self, n: int) -> None:
+        want = clamp_filament_span(n)
+        self._filament_span = want
+        self.title_bar.set_span_choice(want)
+        self.config.setdefault("ui", {})["filament_span"] = want
+        from arelis.config import merge_local_config
+
+        merge_local_config({"ui": {"filament_span": want}})
+        if active_theme() == "filament":
+            self._filament_place_entity()
+
+    def _filament_place_entity(self) -> None:
+        """Grow or shrink to the chosen 1 / 2 / 3 desks."""
+        if not self._filament_can_claim_desk():
+            self.title_bar.set_span_choice(self._filament_span)
+            return
+        home = self._filament_pin_home()
+        union, pinned, count = filament_span_geometry(self, self._filament_span, home)
+        have = len(filament_row_desks(self, pinned)[0])
+        self.title_bar.set_span_choice(self._filament_span)
+        self.title_bar.set_span_available(have)
+        if pinned is None:
+            return
+        # Place during __init__ used to take the app down. The HWND is real
+        # after show; showEvent already re-places.
+        if not self.isVisible() or self.windowHandle() is None:
+            self._filament_apply_shape()
+            return
+        if count <= 1:
+            self._filament_fill_home_desk(pinned)
+        else:
+            placed = place_frameless_rect(self, union)
+            if not home_band_in_window(self, pinned).isValid():
+                placed = place_frameless_rect(self, union) or placed
+            # HWND on the union with a stale Qt cache still counts. Snapping
+            # home here is how a working 3-span got thrown away.
+            if not placed and not home_band_in_window(self, pinned).isValid():
+                self._filament_fill_home_desk(pinned)
+        self._filament_apply_shape()
+        empty = getattr(getattr(self, "chat", None), "empty", None)
+        layout_idle = getattr(empty, "_layout_idle", None)
+        if callable(layout_idle):
+            layout_idle()
+        self.title_bar.sync_window_state(self)
+        # dirty_rect is the old band. New desk glass has to void-fill once.
+        self.update()
+
+    def _filament_fill_home_desk(self, pinned: QRect) -> None:
+        """Sit on the primary work area. showMaximized follows the HWND to the wrong desk."""
+        if pinned is None or not pinned.isValid():
+            return
+        place_frameless_rect(self, pinned)
+
+    def _filament_is_spanned(self) -> bool:
+        if self._filament_span >= 2:
+            home = self._filament_pin_home()
+            if home is None:
+                return True
+            return self.width() >= int(home.width() * 1.2)
+        home = self._filament_pin_home()
+        if home is None:
+            return bool(self.isMaximized() or self.isFullScreen())
+        geo = self.geometry()
+        return (
+            abs(geo.x() - home.x()) <= 16
+            and abs(geo.width() - home.width()) <= 24
+            and abs(geo.height() - home.height()) <= 24
+        )
+
+    def _filament_toggle_span(self) -> None:
+        """Maximize snaps back to the chosen 1 / 2 / 3. It does not cycle
+        desks and it does not fullscreen — F11 follows the HWND left."""
+        if self.isFullScreen() or self.isMaximized():
+            self.showNormal()
+        self._filament_place_entity()
+
+    def _filament_apply_shape(self) -> None:
+        self.clearMask()
+        if not self._filament_can_claim_desk():
+            self._filament.set_span(self._filament_span)
+            self._filament_place_chrome()
+            return
+        home = self._filament_pin_home()
+        union, pinned, desks = filament_chosen_desks(self, self._filament_span, home)
+        count = len(desks)
+        work = filament_work_region(union, desks)
+        if not work.isEmpty() and count >= 2:
+            self.setMask(work)
+        band = home_band_from_union(union, pinned)
+        if not band.isValid() or band.width() < 280:
+            band = home_band_in_window(self, pinned)
+        win_w = max(1, int(self.width()))
+        if band.isValid() and band.width() >= 280:
+            desk_left = int(band.x())
+            desk_w = int(band.width())
+        else:
+            desk_left = 0
+            desk_w = win_w
+        self._filament.set_span(
+            max(1, count),
+            desk_left=float(desk_left),
+            desk_width=float(desk_w),
+        )
+        self._filament_place_chrome()
+
+    def _filament_place_chrome(self) -> None:
+        """Slim 1/2/3 bar sits on the primary overlap, above the field."""
+        bar = self.title_bar
+        bar.set_slim(True)
+        home = self._filament_pin_home()
+        union, pinned, _count = filament_span_geometry(self, self._filament_span, home)
+        glass = QRect(0, 0, max(1, int(self.width())), max(32, int(self.height())))
+        band = chrome_band_on_glass(union, pinned, glass)
+        if bar.parent() is not self:
+            bar.setParent(self)
+        bar.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        bar.set_home_band(0, 0, 0)
+        bar.setGeometry(band)
+        bar.show()
+        bar.raise_()
+        self.chrome_bar.hide()
+        self.readiness_strip.hide()
+
+    def _filament_dock_chrome(self) -> None:
+        bar = self.title_bar
+        stack = getattr(self, "_chrome_stack", None)
+        bar.set_home_band(0, 0, 0)
+        if stack is not None and bar.parent() is not stack:
+            lay = stack.layout()
+            if lay is not None:
+                lay.insertWidget(0, bar)
+        bar.set_slim(False)
+        self.chrome_bar.show()
+
+    def _filament_lock_tiles(self, on: bool) -> None:
+        docks = {
+            "thinking": self.think_dock,
+            "files": self.work_dock,
+            "history": self.history_dock,
+            "camera": self.camera_dock,
+        }
+        sides = (
+            Qt.DockWidgetArea.LeftDockWidgetArea
+            | Qt.DockWidgetArea.RightDockWidgetArea
+            | Qt.DockWidgetArea.BottomDockWidgetArea
+        )
+        if on:
+            if self._filament_dock_areas is None:
+                self._filament_dock_areas = {
+                    name: dock.allowedAreas() for name, dock in docks.items()
+                }
+            for name, dock in docks.items():
+                dock.setAllowedAreas(Qt.DockWidgetArea.NoDockWidgetArea)
+                bind_tile_opacity(dock, name, self._filament_opacity)
+                bind_tile_size(
+                    dock, name, self._filament_tile_sizes, self._filament_tile_pos
+                )
+                if not getattr(dock, "_filament_afloat_bound", False):
+                    dock._filament_afloat_bound = True
+                    dock.topLevelChanged.connect(
+                        lambda floating, d=dock, n=name: self._filament_refuse_dock(
+                            d, n, floating
+                        )
+                    )
+            for widget, name in self._filament_extra_tiles():
+                bind_tile_opacity(widget, name, self._filament_opacity)
+                bind_tile_size(
+                    widget, name, self._filament_tile_sizes, self._filament_tile_pos
+                )
+        else:
+            parked = self._filament_dock_areas or {}
+            self._filament_dock_areas = None
+            for name, dock in docks.items():
+                dock.setAllowedAreas(parked.get(name, sides))
+                apply_tile_opacity(dock, 1.0)
+            for widget, _name in self._filament_extra_tiles():
+                apply_tile_opacity(widget, 1.0)
+            self.calendar_window.setMinimumSize(720, 520)
+
+    def _filament_extra_tiles(self) -> list[tuple[object, str]]:
+        extras: list[tuple[object, str]] = [
+            (self._filament_chat_tile, "chat"),
+            (self.calendar_window, "days"),
+            (self.notify_inbox, "notify"),
+            (self.contacts_inbox, "contacts"),
+        ]
+        world = getattr(self, "world_window", None)
+        if world is not None:
+            extras.append((world, "reality"))
+        return extras
+
+    @staticmethod
+    def _filament_plate_open(widget) -> bool:
+        return widget is not None and not widget.isHidden()
+
+    def _filament_native_hit(self, event_type, message):
+        """No HTTRANSPARENT. The desk is an opaque HWND; click-through
+        ate the title bar and left holes in the field."""
+        return None
+
+    def _filament_wants_click(self, global_pos) -> bool:
+        local = self.mapFromGlobal(global_pos)
+        bar = getattr(self, "chrome_bar", None)
+        if (
+            self._filament_chrome_peek
+            and bar is not None
+            and bar.isVisible()
+            and bar.geometry().contains(local)
+        ):
+            return True
+        if self._filament.hit_band(self.rect()).contains(local):
+            return True
+        if self._filament.prompt_rect(self.rect()).contains(local):
+            return True
+        floats = getattr(self, "_filament_floats", None)
+        if floats is not None:
+            hits = list(floats.chips().values())
+            hits.extend(getattr(floats, "_beads", {}).values())
+            for btn in hits:
+                if not btn.isVisible():
+                    continue
+                top = QRect(btn.mapTo(self, QPoint(0, 0)), btn.size())
+                if top.contains(local):
+                    return True
+        return False
+
+    def _filament_on_mouse_move(self, event) -> None:
+        """Sodium used to peek chrome on hover. Filament keeps the slim bar."""
+        return
+
+    def _filament_set_chrome_peek(self, on: bool) -> None:
+        if active_theme() != "filament":
+            return
+        self._filament_chrome_peek = bool(on)
+        bar = getattr(self, "chrome_bar", None)
+        if bar is None:
+            return
+        bar.setVisible(on)
+        if on:
+            bar.raise_()
+
+    def _filament_enter_presence(self) -> None:
+        if self._filament_parked is not None:
+            return
+        self.act_fullscreen.setEnabled(False)
+        # Capture before showNormal. After it, both flags are false and
+        # leave would restore a normal window the user never asked for.
+        was_full = self.isFullScreen()
+        was_max = self.isMaximized()
+        parked_geo = QByteArray(self.saveGeometry())
+        if was_full or was_max:
+            self.showNormal()
+        self._filament_woken = False
+        self._filament_home = None
+        self._filament_pin_home()
+        self.title_bar.set_span_choice(self._filament_span)
+        world = getattr(self, "world_window", None)
+        self._filament_parked = {
+            "geometry": parked_geo,
+            "maximized": was_max,
+            "fullscreen": was_full,
+            "docks": {
+                "think": not self.think_dock.isHidden(),
+                "work": not self.work_dock.isHidden(),
+                "history": not self.history_dock.isHidden(),
+                "camera": not self.camera_dock.isHidden(),
+                "notify": not self.notify_inbox.isHidden(),
+                "contacts": not self.contacts_inbox.isHidden(),
+                "calendar": not self.calendar_window.isHidden(),
+                "world": world is not None and not world.isHidden(),
+            },
+        }
+        self._filament_hiding = True
+        try:
+            self.title_bar.set_slim(True)
+            self.readiness_strip.hide()
+            self.think_dock.hide()
+            self.work_dock.hide()
+            self.history_dock.hide()
+            self.camera_dock.hide()
+            self.notify_inbox.hide()
+            self.contacts_inbox.hide()
+            self.calendar_window.hide()
+            if world is not None:
+                world.hide()
+        finally:
+            self._filament_hiding = False
+        self._filament_apply_glass(True)
+        self._filament_lock_tiles(True)
+        self._filament_place_entity()
+        apply = getattr(self.conversation, "apply_filament_desk", None)
+        if callable(apply):
+            apply(True, chat_open=False)
+        self._sync_panel_margins()
+        self._sync_view_checks()
+        self._sync_idle_mode()
+        self._place_filament_floats()
+        self._filament_apply_shape()
+        self._flush_glass_surface()
+        self.update()
+
+    def _filament_leave_presence(self) -> None:
+        self.act_fullscreen.setEnabled(True)
+        parked = self._filament_parked
+        self._filament_parked = None
+        self._filament_home = None
+        self._filament_chrome_peek = False
+        self._filament_set_chat_open(False)
+        self._filament_lock_tiles(False)
+        self._filament_apply_glass(False)
+        self.clearMask()
+        self._filament_dock_chrome()
+        self.readiness_strip.show()
+        apply = getattr(self.conversation, "apply_filament_desk", None)
+        if callable(apply):
+            apply(False)
+        if parked is None:
+            self._sync_panel_margins()
+            self._sync_idle_mode()
+            return
+        docks = parked.get("docks") or {}
+        self._filament_hiding = True
+        try:
+            self.think_dock.setVisible(bool(docks.get("think")))
+            self.work_dock.setVisible(bool(docks.get("work")))
+            self.history_dock.setVisible(bool(docks.get("history")))
+            self.camera_dock.setVisible(bool(docks.get("camera")))
+            if docks.get("notify"):
+                self.notify_inbox.show()
+            else:
+                self.notify_inbox.hide()
+            if docks.get("contacts"):
+                self.contacts_inbox.show()
+            else:
+                self.contacts_inbox.hide()
+            if docks.get("calendar"):
+                self.calendar_window.show()
+            else:
+                self.calendar_window.hide()
+            world = getattr(self, "world_window", None)
+            if world is not None:
+                if docks.get("world"):
+                    world.show()
+                else:
+                    world.hide()
+        finally:
+            self._filament_hiding = False
+        if self._filament_can_claim_desk():
+            geo = parked.get("geometry")
+            if parked.get("fullscreen"):
+                self.showFullScreen()
+            elif parked.get("maximized"):
+                self.showMaximized()
+            else:
+                self.showNormal()
+                if geo:
+                    self.restoreGeometry(geo)
+        self._sync_panel_margins()
+        self._sync_view_checks()
+        self._sync_idle_mode()
+        self._apply_round_mask()
+        self.update()
+
+    def _sync_filament_face(self) -> None:
+        on = active_theme() == "filament"
+        floats = getattr(self, "_filament_floats", None)
+        if floats is None:
+            return
+        if on:
+            self._filament_enter_presence()
+            floats.setVisible(True)
+            self._place_filament_floats()
+            apply_hands_face(self)
+        else:
+            floats.setVisible(False)
+            self._filament_leave_presence()
+            apply_hands_face(self)
+        empty = getattr(getattr(self, "chat", None), "empty", None)
+        if empty is not None and hasattr(empty, "apply_theme_face"):
+            empty.apply_theme_face()
+
+    def _place_filament_floats(self, *, reshape: bool = True) -> None:
+        floats = getattr(self, "_filament_floats", None)
+        if floats is None or active_theme() != "filament":
+            return
+        history = getattr(self, "history_dock", None)
+        think = getattr(self, "think_dock", None)
+        work = getattr(self, "work_dock", None)
+        cal = getattr(self, "calendar_window", None)
+        camera = getattr(self, "camera_dock", None)
+        notify = getattr(self, "notify_inbox", None)
+        contacts = getattr(self, "contacts_inbox", None)
+        world = getattr(self, "world_window", None)
+        floats.skip("reality", not world_available())
+        hidden = set()
+        if not world_available():
+            hidden.add("reality")
+        self._filament.set_hidden_faces(hidden)
+        floats.set_open("history", self._filament_plate_open(history))
+        floats.set_open("thinking", self._filament_plate_open(think))
+        floats.set_open("files", self._filament_plate_open(work))
+        floats.set_open("days", self._filament_plate_open(cal))
+        floats.set_open("camera", self._filament_plate_open(camera))
+        floats.set_open("notify", self._filament_plate_open(notify))
+        floats.set_open("contacts", self._filament_plate_open(contacts))
+        floats.set_open("reality", self._filament_plate_open(world))
+        floats.set_open("chat", bool(self._filament_chat_open))
+        live: set[str] = set()
+        if self._filament_weather() == "think" or getattr(
+            self, "_confirm_waiting", False
+        ):
+            live.add("thinking")
+        unread = 0
+        center = getattr(self, "notify_center", None)
+        if center is not None:
+            unread = int(center.unread_count())
+        if unread > 0 and not self._filament_plate_open(notify):
+            live.add("notify")
+        self._filament.set_live_faces(live)
+        self._filament.set_load("camera" if self._filament_plate_open(camera) else "")
+        floats.place(self.rect())
+        self._filament_sync_tethers()
+        if reshape:
+            self._filament_apply_shape()
+
+    def _filament_sync_tethers(self) -> None:
+        tiles = {
+            "history": getattr(self, "history_dock", None),
+            "thinking": getattr(self, "think_dock", None),
+            "files": getattr(self, "work_dock", None),
+            "days": getattr(self, "calendar_window", None),
+            "camera": getattr(self, "camera_dock", None),
+            "notify": getattr(self, "notify_inbox", None),
+            "contacts": getattr(self, "contacts_inbox", None),
+            "reality": getattr(self, "world_window", None),
+            "chat": getattr(self, "_filament_chat_tile", None),
+        }
+        open_faces = {name for name, w in tiles.items() if w is not None and not w.isHidden()}
+        self._filament.set_open_faces(open_faces)
+        for name, widget in tiles.items():
+            if widget is None or widget.isHidden():
+                self._filament.bind_tether(name, None)
+                continue
+            geo = widget.frameGeometry()
+            local = QRect(self.mapFromGlobal(geo.topLeft()), geo.size())
+            anchor = self._filament.anchor_point(name, self.rect())
+            self._filament.bind_tether(name, attach_on_rect(local, anchor))
+
+    def _on_filament_float(self, name: str) -> None:
+        if name == "chat":
+            self._filament_set_chat_open(not self._filament_chat_open)
+            return
+        if name == "rooms":
+            chips = self._filament_floats.chips()
+            self._show_rooms_menu(chips.get("rooms") or self)
+            return
+        if name == "history":
+            self.act_history.trigger()
+        elif name == "thinking":
+            self.act_thinking.trigger()
+        elif name == "files":
+            self.act_workspace.trigger()
+        elif name == "days":
+            self.act_calendar.trigger()
+        elif name == "camera":
+            self.act_camera.trigger()
+        elif name == "notify":
+            self.act_notifications.trigger()
+        elif name == "contacts":
+            self.act_contacts.trigger()
+        elif name == "reality":
+            self._filament_open_reality()
+
+    def _filament_open_reality(self) -> None:
+        """The particle is the door. Orbit still cannot open the plate."""
+        if not world_available():
+            self._toggle_world(True)
+            return
+        if self._filament_plate_open(getattr(self, "world_window", None)):
+            self._toggle_world(False)
+            return
+        room_id = str(getattr(self.conversation.room, "room_id", "") or "")
+        if room_id != PHYSICS_ROOM_ID:
+            self._enter_room_from_menu(PHYSICS_ROOM_ID)
+        self._toggle_world(True, force=True)
+
+    def _filament_refuse_dock(self, dock: QDockWidget, name: str, floating: bool) -> None:
+        if active_theme() != "filament" or floating or dock.isHidden():
+            return
+        dock.setAllowedAreas(Qt.DockWidgetArea.NoDockWidgetArea)
+        dock.setFloating(True)
+        apply_dock_chrome(dock, True)
+
+    def _filament_dress_tile(self, widget, name: str) -> None:
+        self._filament_woken = True
+        widget.setMinimumSize(240, 180)
+        apply_tile_opacity(widget, self._filament_opacity.get(name, DEFAULT_OPACITY))
+        bind_tile_opacity(widget, name, self._filament_opacity)
+        apply_tile_size(widget, name, self._filament_tile_sizes)
+        bind_tile_size(widget, name, self._filament_tile_sizes, self._filament_tile_pos)
+
+    def _filament_present_tile(self, dock: QDockWidget, name: str) -> None:
+        if active_theme() != "filament" or dock.isHidden():
+            return
+        dock.setAllowedAreas(Qt.DockWidgetArea.NoDockWidgetArea)
+        dock.setFloating(True)
+        apply_dock_chrome(dock, True)
+        self._filament_dress_tile(dock, name)
+        self._filament_place_near_title(dock, name)
+
+    def _filament_place_near_title(self, widget, name: str) -> None:
+        p = self._filament.title_point(name, self.rect())
+        origin = self.mapToGlobal(QPoint(int(p.x()) + 12, int(p.y()) + 24))
+        size = self._filament_tile_sizes.get(name) or DEFAULT_SIZES.get(name, (320, 280))
+        parked = self._filament_tile_pos.get(name)
+        if (
+            active_theme() == "filament"
+            and parked is not None
+            and origin_on_a_desk(parked[0], parked[1], size[0], size[1])
+        ):
+            dest = QRect(int(parked[0]), int(parked[1]), int(size[0]), int(size[1]))
+            start = self._filament.bead_point(name, self.rect())
+            local = QRect(self.mapFromGlobal(dest.topLeft()), dest.size())
+            self._filament.bind_tether(name, attach_on_rect(local, start))
+            widget.setMinimumSize(240, 180)
+            apply_tile_opacity(
+                widget, self._filament_opacity.get(name, DEFAULT_OPACITY)
+            )
+            widget.setGeometry(dest)
+            widget.show()
+            widget.raise_()
+            self._place_filament_floats()
+            return
+        if active_theme() == "filament":
+            dest = QRect(self.mapFromGlobal(origin), QSize(int(size[0]), int(size[1])))
+            start = self._filament.bead_point(name, self.rect())
+            self._filament.bind_tether(name, attach_on_rect(dest, start))
+            play_tile_grow(
+                widget,
+                origin,
+                size,
+                opacity=self._filament_opacity.get(name, DEFAULT_OPACITY),
+            )
+            self._place_filament_floats()
+            return
+        widget.move(origin)
+        widget.show()
+        widget.raise_()
+
+    def _filament_set_chat_open(self, on: bool) -> None:
+        want = bool(on)
+        if want == self._filament_chat_open and (
+            want is False or self.conversation.chat.parent() is self._filament_chat_tile.body
+        ):
+            if want:
+                self._filament_chat_tile.show()
+                self._filament_chat_tile.raise_()
+            self._place_filament_floats()
+            return
+        if want:
+            self._filament_mount_chat()
+            self._filament_chat_open = True
+            self._filament_dress_tile(self._filament_chat_tile, "chat")
+            self._filament_place_near_title(self._filament_chat_tile, "chat")
+        else:
+            if active_theme() == "filament":
+                flush_tile_geom(self._filament_chat_tile)
+            self._filament_unmount_chat()
+            self._filament_chat_open = False
+            self._filament_chat_tile.hide()
+        apply = getattr(self.conversation, "apply_filament_desk", None)
+        if callable(apply) and active_theme() == "filament":
+            apply(True, chat_open=want)
+        self._place_filament_floats()
+
+    def _on_filament_chat_closed(self) -> None:
+        if self._filament_chat_open:
+            self._filament_set_chat_open(False)
+
+    def _filament_mount_chat(self) -> None:
+        conv = self.conversation
+        tile = self._filament_chat_tile
+        if conv.chat.parent() is tile.body:
+            return
+        lay = conv.layout()
+        if lay is not None:
+            lay.removeWidget(conv.chat)
+            lay.removeWidget(conv._composer)
+        tile.body_layout.addWidget(conv.chat, stretch=1)
+        tile.body_layout.addWidget(conv._composer)
+        conv.chat.setMinimumWidth(0)
+        conv._composer.setMinimumWidth(0)
+        conv.chat.show()
+        empty = getattr(conv.chat, "empty", None)
+        if empty is not None:
+            empty.hide()
+        if conv.chat.has_messages:
+            conv.chat.view.show()
+        else:
+            conv.chat.view.hide()
+        conv._place_composer(False)
+        conv._composer.show()
+        apply_tile_size(tile, "chat", self._filament_tile_sizes)
+
+    def _filament_unmount_chat(self) -> None:
+        conv = self.conversation
+        tile = self._filament_chat_tile
+        if conv.chat.parent() is not tile.body:
+            return
+        tile.body_layout.removeWidget(conv.chat)
+        tile.body_layout.removeWidget(conv._composer)
+        lay = conv.layout()
+        if lay is not None:
+            lay.insertWidget(1, conv.chat, stretch=1)
+            lay.addWidget(conv._composer)
+        conv.chat.hide()
+        conv._composer.hide()
 
     def _on_dock_visibility(self, visible: bool) -> None:
         # Ignore the transient hide that setWindowFlags causes while swapping
@@ -1968,11 +2961,20 @@ class ArelisWindow(QMainWindow):
         # tray or the taskbar and took its floating panels with it, which is not
         # the user turning an instrument off.
         sender = self.sender()
+        if getattr(self, "_filament_hiding", False):
+            return
         if isinstance(sender, QDockWidget) and (
             chrome_applying(sender) or getattr(sender, "_arelis_parked", False)
         ):
             return
+        if (
+            not visible
+            and active_theme() == "filament"
+            and isinstance(sender, QDockWidget)
+        ):
+            flush_tile_geom(sender)
         self._sync_view_checks()
+        self._place_filament_floats()
         self._sync_panel_margins()
         self._flush_glass_surface()
         if visible:
@@ -2007,6 +3009,8 @@ class ArelisWindow(QMainWindow):
 
     def _stack_left_instruments(self) -> None:
         """History above camera on the left. No tabs. Float restores history."""
+        if active_theme() == "filament":
+            return
         if getattr(self, "_disposed", False) or getattr(self, "_stacking_left", False):
             return
         if chrome_applying(self.history_dock) or chrome_applying(self.camera_dock):
@@ -2054,7 +3058,10 @@ class ArelisWindow(QMainWindow):
         chat_l = _PANEL_HALF if left else _PANEL_OUTER
         chat_r = _PANEL_HALF if right else _PANEL_OUTER
         chat_b = _PANEL_HALF if bottom else _PANEL_BOTTOM
-        self._stage_layout.setContentsMargins(chat_l, _PANEL_TOP, chat_r, chat_b)
+        if active_theme() == "filament" and not left and not right and not bottom:
+            self._stage_layout.setContentsMargins(0, 0, 0, 0)
+        else:
+            self._stage_layout.setContentsMargins(chat_l, _PANEL_TOP, chat_r, chat_b)
 
         # Floating shells must stay margin-0 / opaque — docked gutters punch holes.
         hist_left = self._left_column_member(self.history_dock)
@@ -2204,6 +3211,8 @@ class ArelisWindow(QMainWindow):
         """Write geometry. Rest must not persist a collapsed window."""
         if self._away_resting:
             self._wake_from_away_rest()
+        if getattr(self, "_filament_parked", None) is not None and active_theme() == "filament":
+            return
         save_window_layout(self)
 
     def _on_idle_readiness(self, snapshot) -> None:
@@ -2814,11 +3823,14 @@ class ArelisWindow(QMainWindow):
         await emit_restored_confirm(self.bus, item, self.config)
 
     def _set_confirm_pending(self, pending: bool) -> None:
+        self._confirm_waiting = bool(pending)
         self.readiness_strip.set_confirm_waiting(pending)
         if self.voice_controller is not None:
             self.voice_controller.notify_confirm_pending(pending)
         if not pending:
             self._flush_held_inbound()
+        if active_theme() == "filament":
+            self._place_filament_floats(reshape=False)
 
     def _busy_status_line(self) -> str:
         """Shimmer copy for an in-flight turn with no named tool yet."""
@@ -2864,6 +3876,7 @@ class ArelisWindow(QMainWindow):
             self.workspace.set_active_project(self.workspace_roots.active)
             return
         self.thinking.append(f"project  active → {name}", kind="status")
+        refresh_desk(self)
 
     def _refresh_history(self) -> None:
         return refresh_history(self)
@@ -2897,6 +3910,32 @@ class ArelisWindow(QMainWindow):
 
     def _save_file(self, path: str, content: str) -> None:
         return save_file(self, path, content)
+
+    def _keep_note_dialog(self) -> None:
+        return keep_note_dialog(self)
+
+    def _pin_desk_item(self, path: str, pinned: bool) -> None:
+        return pin_desk_item(self, path, pinned)
+
+    def _drop_desk_item(self, path: str) -> None:
+        return drop_desk_item(self, path)
+
+    def _open_desk_item(self, path: str) -> None:
+        return open_desk_item(self, path)
+
+    def _reveal_desk_item(self, path: str) -> None:
+        return reveal_desk_item(self, path)
+
+    def _open_outside(self, path: str) -> None:
+        return open_outside(self, path)
+
+    def _keep_file_on_desk(self, path: str) -> None:
+        from arelis.ui.workspace_host import record_artifact
+
+        record_artifact(self, path, source="open", pin=True)
+        self.workspace.show_desk()
+        self._reveal_dock(self.work_dock, self.act_workspace)
+        self.chat.add_system(f"On the desk: {Path(path).name}")
 
     def _on_event(self, event: Event) -> None:
         dispatch_event(self, event)

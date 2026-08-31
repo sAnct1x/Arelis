@@ -47,6 +47,14 @@ def confirm_headline(tool: str, args: dict[str, Any] | None = None) -> str:
             return f"write {leaf}" if leaf else "write a file"
         if action == "edit":
             return f"edit {leaf}" if leaf else "edit a file"
+        if action == "keep":
+            title = _who(args, "title", "text", "content", "fact")
+            if title:
+                cut = title.splitlines()[0].strip()
+                if len(cut) > 40:
+                    cut = cut[:39].rstrip() + "…"
+                return f"keep {cut}"
+            return "keep this note"
         if action == "delete":
             return f"delete {leaf}" if leaf else "delete a file"
         return f"workspace {action}" if action else "change a file"

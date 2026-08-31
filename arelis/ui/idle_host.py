@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from arelis.presence.readiness import ChipLevel
+from arelis.ui.theme import active_theme
 
 
 def idle_eligible(window) -> bool:
@@ -36,15 +37,21 @@ def sync_idle_mode(window) -> None:
     ) or (not window.notify_inbox.isHidden()) or (not window.contacts_inbox.isHidden()) or (
         not window.calendar_window.isHidden()
     ) or (not window.world_window.isHidden())
-    window.readiness_strip.setVisible(not idle or instruments)
+    filament = active_theme() == "filament"
+    window.readiness_strip.setVisible((not idle or instruments) and not filament)
     empty = getattr(window.chat, "empty", None)
     if empty is not None and hasattr(empty, "set_side_chrome"):
         empty.set_side_chrome(
             ghosts=idle
             and window.history_dock.isHidden()
-            and window.camera_dock.isHidden(),
-            readout=idle and not window.readiness_strip.isVisible(),
+            and window.camera_dock.isHidden()
+            and not filament,
+            readout=idle and not window.readiness_strip.isVisible() and not filament,
         )
+    if filament:
+        apply = getattr(window.conversation, "apply_filament_desk", None)
+        if callable(apply):
+            apply(True, chat_open=bool(getattr(window, "_filament_chat_open", False)))
     window._refresh_idle_face()
 
 
@@ -137,6 +144,12 @@ def enter_away_rest(window) -> None:
             window.camera.stop()
         except Exception:
             pass
+    try:
+        from arelis.ui.hands_host import park_hands
+
+        park_hands(window)
+    except Exception:
+        pass
     overlay = window.conversation.notify_overlay
     if overlay is not None and overlay.expanded:
         overlay.collapse()
@@ -176,6 +189,12 @@ def wake_from_away_rest(window) -> None:
     window._stack_left_instruments()
     window._sync_idle_mode()
     window._arm_away_rest_timer()
+    try:
+        from arelis.ui.hands_host import resume_hands
+
+        resume_hands(window)
+    except Exception:
+        pass
 
 
 def on_idle_readiness(window, snapshot) -> None:

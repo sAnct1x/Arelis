@@ -9,6 +9,7 @@ from arelis.tools.policy import (
     confirm_toggles_for_call,
     evaluate_capability,
     evaluate_confirm,
+    set_confirm_mode,
 )
 
 
@@ -61,6 +62,7 @@ def test_evaluate_confirm_matches_registry() -> None:
     pairs = [
         ("workspace", {"action": "read"}, False),
         ("workspace", {"action": "write"}, True),
+        ("workspace", {"action": "keep"}, True),
         ("image", {}, True),
         ("send_sms", {}, True),
         ("browser", {"action": "open"}, True),
@@ -75,6 +77,11 @@ def test_evaluate_confirm_matches_registry() -> None:
         risk = tool.risk if tool is not None else None
         assert evaluate_confirm(name, args, risk=risk) is expected
         assert reg.needs_confirm(name, args) is expected
+    set_confirm_mode("card")
+    assert evaluate_confirm("workspace", {"action": "write"}, risk="read")
+    assert evaluate_confirm("send_sms", {}, risk="side_effect")
+    assert evaluate_confirm("browser", {"action": "open"}, risk="side_effect")
+    assert not evaluate_confirm("workspace", {"action": "read"}, risk="read")
 
 
 def test_allow_turn_does_not_cover_send_or_agenda() -> None:

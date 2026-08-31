@@ -16,6 +16,7 @@ from arelis.core.intent_catalog import (
     BARE_SIGNIN,
     BROWSER_CART,
     BROWSER_CLICK_SIGNIN,
+    BROWSER_FIRST,
     BROWSER_MAPS,
     BROWSER_READ,
     BROWSER_RESERVE,
@@ -24,6 +25,9 @@ from arelis.core.intent_catalog import (
     HOWTO_SIGNIN,
     RESEARCH,
     corrects_a_path,
+    inspect_read_path,
+    looks_like_source_inspect,
+    looks_like_source_write,
     mentions_tabular_data,
 )
 
@@ -365,7 +369,8 @@ _PLAN_BROWSER_SEARCH = PlanSpec(
     message=(
         "Plan: 1) browser(action=search, query=…, site=youtube|google|amazon) "
         "in her window. Do not scrape. "
-        "2) Snapshot and click a result if they asked. Add to cart is fine. "
+        "2) If they asked to play/open the first, click(nth=1). Else click "
+        "a result by text. Add to cart is fine. "
         "Stop before Checkout / Pay / Buy now."
     ),
     steps=("browser",),
@@ -397,8 +402,8 @@ _PLAN_BROWSER_READ = PlanSpec(
 _PLAN_BROWSER_CLICK = PlanSpec(
     id="browser_click",
     message=(
-        "Plan: 1) browser(action=snapshot) on the tab she is on (Allow). "
-        "2) browser(action=click, ref=…) on Sign in / Log in. "
+        "Plan: 1) browser(action=click, text='Sign in') on the tab she is "
+        "on (Allow), or snapshot then click by ref. "
         "There is no goto_sign_in action. Do not invent a URL or a receipt. "
         "Username they give can go in a non-secret field. Never type a "
         "password or OTP — that is their turn."
@@ -432,6 +437,29 @@ _PLAN_GOALS = PlanSpec(
     ),
     steps=("goals",),
 )
+
+_PLAN_INSPECT_WRITE = PlanSpec(
+    id="inspect_write",
+    message=(
+        "Plan: this is a write to her source. Call workspace with "
+        "action=write or action=edit. Allow still applies. Do not silently edit."
+    ),
+    steps=("workspace",),
+)
+
+
+def _inspect_read_plan(text: str) -> PlanSpec:
+    path = inspect_read_path(text) or "the arelis/ or docs/ path they named"
+    return PlanSpec(
+        id="inspect",
+        message=(
+            f"Plan: workspace(action=read, path={path}). "
+            "Answer from that text; quote names, gates, and paths; "
+            "do not invent, recall the package, or web_search. Read-only. "
+            "Writes still need Allow."
+        ),
+        steps=("workspace",),
+    )
 
 
 def select_plan(
@@ -489,6 +517,20 @@ def select_plan(
     if "data" in att_kinds:
         return _PLAN_ANALYZE
 
+    if (
+        "inspect_write" in kinds
+        or "inspect_write" in skills
+        or (raw and looks_like_source_write(raw))
+    ):
+        return _PLAN_INSPECT_WRITE
+
+    if (
+        "inspect" in kinds
+        or "inspect" in skills
+        or (raw and looks_like_source_inspect(raw))
+    ):
+        return _inspect_read_plan(raw)
+
     if "ocr" in skills or (raw and _OCR.search(raw)):
         return _PLAN_OCR
 
@@ -537,6 +579,24 @@ def select_plan(
     # its own copy of the search matcher.
     if raw and (BROWSER_SEARCH.search(raw) or BROWSER_CART.search(raw)):
         return _PLAN_BROWSER_SEARCH
+
+    if raw and BROWSER_FIRST.search(raw):
+        from arelis.browser.snapshot import parse_ordinal
+
+        hit = BROWSER_FIRST.search(raw)
+        nth = 1
+        if hit is not None:
+            piece = (hit.group("n") or hit.group("n2") or "first").strip()
+            nth = parse_ordinal(piece) or 1
+        return PlanSpec(
+            id="browser_click",
+            message=(
+                f"Plan: 1) browser(action=click, nth={nth}) on result #{nth} "
+                "on this tab (Allow). If results are not up, search first. "
+                "Do not invent a URL."
+            ),
+            steps=("browser",),
+        )
 
     if raw and BROWSER_READ.search(raw) and "screenshot" not in raw.lower():
         return _PLAN_BROWSER_READ

@@ -125,3 +125,23 @@ def test_append_action_ledger(tmp_path: Path) -> None:
     assert row["session_id"] == "s1"
     assert row["action"] == "workspace.write"
     assert "ts" in row
+
+
+def test_prune_action_ledger_drops_old_lines(tmp_path: Path) -> None:
+    from datetime import UTC, datetime, timedelta
+
+    from arelis.core.receipts import prune_action_ledger
+
+    path = tmp_path / "ledger.jsonl"
+    old_ts = (datetime.now(UTC) - timedelta(days=20)).isoformat()
+    new_ts = datetime.now(UTC).isoformat()
+    path.write_text(
+        json.dumps({"ts": old_ts, "action": "old"})
+        + "\n"
+        + json.dumps({"ts": new_ts, "action": "new"})
+        + "\n",
+        encoding="utf-8",
+    )
+    assert prune_action_ledger(path=path, days=14) == 1
+    rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+    assert [row["action"] for row in rows] == ["new"]

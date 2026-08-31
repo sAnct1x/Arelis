@@ -6,6 +6,7 @@ import asyncio
 import logging
 import os
 import re
+import time
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
@@ -37,6 +38,7 @@ class ElementInfo:
     text: str = ""
     href: str = ""
     autocomplete: str = ""
+    region: str = ""
 
     def is_secret_field(self) -> bool:
         if self.type.lower() in _SECRET_INPUT_TYPES:
@@ -53,6 +55,8 @@ class ElementInfo:
             bits.append(f"role={self.role}")
         if self.type:
             bits.append(f"type={self.type}")
+        if self.region and self.region != "main":
+            bits.append(self.region)
         if self.text:
             bits.append(repr(self.text[:60]))
         if self.href:
@@ -82,7 +86,9 @@ class BrowserDriver(Protocol):
 
     async def navigate(self, url: str) -> ActionResult: ...
 
-    async def snapshot(self, *, max_chars: int = 6000) -> ActionResult: ...
+    async def snapshot(
+        self, *, max_chars: int = 6000, focus: str = ""
+    ) -> ActionResult: ...
 
     async def read(self, *, max_chars: int = 3500) -> ActionResult: ...
 
@@ -90,7 +96,13 @@ class BrowserDriver(Protocol):
 
     async def type_text(self, ref: str, text: str) -> ActionResult: ...
 
-    async def tabs(self, *, select: int | None = None) -> ActionResult: ...
+    async def tabs(
+        self,
+        *,
+        select: int | None = None,
+        op: str = "",
+        url: str = "",
+    ) -> ActionResult: ...
 
     async def screenshot(
         self, path: str, *, full_page: bool = False
@@ -109,6 +121,14 @@ class BrowserDriver(Protocol):
     async def select_option(self, ref: str, value: str) -> ActionResult: ...
 
     async def wait(self, seconds: float) -> ActionResult: ...
+
+    async def back(self) -> ActionResult: ...
+
+    async def forward(self) -> ActionResult: ...
+
+    async def reload(self) -> ActionResult: ...
+
+    async def settle(self, *, timeout_s: float = 4.0) -> ActionResult: ...
 
     async def close(self) -> None: ...
 
@@ -145,6 +165,31 @@ def _same_open_url(current: str, wanted: str) -> bool:
 
 # Glow beat before click. Tests set this to 0.
 GLOW_S = 0.4
+SETTLE_S = 4.0
+SETTLE_POLL_S = 0.2
+
+SETTLE_HAS_RESULT_JS = r"""() => {
+  const root = document.querySelector('main, [role="main"], #content, ytd-app')
+    || document.body;
+  if (!root) return false;
+  const links = root.querySelectorAll('a[href]');
+  for (const a of links) {
+    const href = a.href || '';
+    const text = (a.innerText || a.getAttribute('aria-label') || '').trim();
+    if (href.startsWith('http') && text.length >= 4
+        && !/^(go to channel|subscribe)\b/i.test(text)
+        && !/(?:youtube\.com|youtu\.be)\/(?:channel\/|@|c\/|user\/|results)/i.test(href)
+        && (!(href.toLowerCase().includes('youtube.com') || href.toLowerCase().includes('youtu.be'))
+            || href.toLowerCase().includes('/watch')
+            || href.toLowerCase().includes('/shorts/'))) {
+      const host = a.closest(
+        'header, nav, footer, [role="banner"], [role="navigation"], [role="contentinfo"]'
+      );
+      if (!host) return true;
+    }
+  }
+  return false;
+}"""
 
 _PRESS_KEYS = {
     "enter": "Enter",
@@ -314,14 +359,23 @@ class FakeDriver:
                 role="link",
                 text="Home",
                 href="https://www.youtube.com/",
+                region="header",
             ),
             "e2": ElementInfo(
                 ref="e2",
                 tag="input",
                 role="textbox",
                 type="search",
-                text="",
+                text="Search",
                 name="search_query",
+            ),
+            "e6": ElementInfo(
+                ref="e6",
+                tag="a",
+                role="link",
+                text="Never Gonna Give You Up",
+                href="https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+                region="main",
             ),
             "e3": ElementInfo(
                 ref="e3",
@@ -362,13 +416,18 @@ class FakeDriver:
         self.pressed: list[str] = []
         self.selected: list[tuple[str, str]] = []
         self.waited: list[float] = []
+        self.settled: list[float] = []
         self.glowed: list[str] = []
         self._tabs: list[dict[str, str]] = [
             {"index": "0", "title": "New Tab", "url": "about:blank"},
         ]
+        self._history: list[tuple[str, str]] = []
+        self._future: list[tuple[str, str]] = []
         self._active = 0
         # When True, ensure() reports PROFILE_LOCKED unless relaunch=True.
         self.simulate_locked = False
+        # When True, page actions fail with CDP_DEAD until relaunch=True.
+        self.fail_until_relaunch = False
         self.heading = ""
         self.page_text = "Home\nSearch\nArelis test page. Welcome to the fake tab."
 
@@ -424,9 +483,31 @@ class FakeDriver:
             data={"mode": "os_open", "browser": browser, "url": url},
         )
 
+    def _push_history(self) -> None:
+        current = (self.url, self.title)
+        if current[0] and (not self._history or self._history[-1] != current):
+            self._history.append(current)
+        self._future.clear()
+
+    def _dead_until_relaunch(self) -> ActionResult | None:
+        if self.fail_until_relaunch and self.relaunch_count < 1:
+            return ActionResult(
+                ok=False,
+                output=(
+                    "[fail:browser] Browser control failed (disconnected). "
+                    "Call browser(action=relaunch, url=…) after Allow."
+                ),
+                data={"code": "CDP_DEAD"},
+            )
+        return None
+
     async def open_url(self, url: str) -> ActionResult:
+        dead = self._dead_until_relaunch()
+        if dead:
+            return dead
         if not self.connected:
             return ActionResult(ok=False, output="Browser not connected.")
+        self._push_history()
         self.url = url
         self.title = url
         self.heading = ""
@@ -445,13 +526,28 @@ class FakeDriver:
     async def navigate(self, url: str) -> ActionResult:
         return await self.open_url(url)
 
-    async def snapshot(self, *, max_chars: int = 6000) -> ActionResult:
+    async def snapshot(self, *, max_chars: int = 6000, focus: str = "") -> ActionResult:
+        dead = self._dead_until_relaunch()
+        if dead:
+            return dead
         if not self.connected:
             return ActionResult(ok=False, output="Browser not connected.")
-        lines = [f"title: {self.title}", f"url: {self.url}", "elements:"]
-        for info in self._elements.values():
-            lines.append(info.line())
-        text = "\n".join(lines)
+        from arelis.browser.hold import set_drive_labels
+        from arelis.browser.snapshot import format_result_lines
+
+        set_drive_labels(
+            {ref: info.text or info.name for ref, info in self._elements.items()}
+        )
+        if (focus or "").strip().lower() == "results":
+            results = format_result_lines(self._elements)
+            text = "\n".join(
+                [f"title: {self.title}", f"url: {self.url}", results or "results:"]
+            )
+        else:
+            lines = [f"title: {self.title}", f"url: {self.url}", "elements:"]
+            for info in self._elements.values():
+                lines.append(info.line())
+            text = "\n".join(lines)
         if len(text) > max_chars:
             text = text[: max_chars - 20] + "\n…(snapshot truncated)"
         return ActionResult(
@@ -461,6 +557,7 @@ class FakeDriver:
                 "url": self.url,
                 "title": self.title,
                 "refs": list(self._elements),
+                "focus": (focus or "").strip().lower(),
             },
         )
 
@@ -505,6 +602,9 @@ class FakeDriver:
         return extra
 
     async def click(self, ref: str) -> ActionResult:
+        dead = self._dead_until_relaunch()
+        if dead:
+            return dead
         info = self._elements.get(ref)
         if info is None:
             return ActionResult(ok=False, output=f"Unknown ref {ref!r}. Call snapshot.")
@@ -524,6 +624,7 @@ class FakeDriver:
         self.glowed.append(ref)
         self.clicked.append(ref)
         if info.href:
+            self._push_history()
             self.url = info.href
             self.title = info.text or info.href
         return ActionResult(
@@ -553,10 +654,66 @@ class FakeDriver:
             data={"ref": ref, "length": len(text)},
         )
 
-    async def tabs(self, *, select: int | None = None) -> ActionResult:
+    def _sync_active_tab(self) -> None:
+        self._tabs[self._active] = {
+            "index": str(self._active),
+            "title": self.title,
+            "url": self.url,
+        }
+
+    async def tabs(
+        self,
+        *,
+        select: int | None = None,
+        op: str = "",
+        url: str = "",
+    ) -> ActionResult:
+        kind = (op or "").strip().lower()
+        if kind == "new":
+            self._sync_active_tab()
+            self._active = len(self._tabs)
+            target = (url or "").strip() or "about:blank"
+            self.url = target
+            self.title = target
+            self._tabs.append(
+                {"index": str(self._active), "title": self.title, "url": self.url}
+            )
+            self._history.clear()
+            self._future.clear()
+            return ActionResult(
+                ok=True,
+                output=f"Opened tab {self._active}: {self.url}",
+                data={"tabs": list(self._tabs), "active": self._active, "url": self.url},
+            )
+        if kind == "close":
+            if len(self._tabs) <= 1:
+                self.url = "about:blank"
+                self.title = "New Tab"
+                self._tabs = [{"index": "0", "title": self.title, "url": self.url}]
+                self._active = 0
+                self._history.clear()
+                self._future.clear()
+                return ActionResult(
+                    ok=True,
+                    output="Closed the last tab — blank tab stays.",
+                    data={"tabs": list(self._tabs), "active": 0},
+                )
+            self._tabs.pop(self._active)
+            self._active = min(self._active, len(self._tabs) - 1)
+            for i, tab in enumerate(self._tabs):
+                tab["index"] = str(i)
+            tab = self._tabs[self._active]
+            self.url = tab["url"]
+            self.title = tab["title"]
+            return ActionResult(
+                ok=True,
+                output=f"Closed a tab. Now {self._active}: {self.title}",
+                data={"tabs": list(self._tabs), "active": self._active},
+            )
         if select is not None:
             if select < 0 or select >= len(self._tabs):
                 return ActionResult(ok=False, output=f"No tab index {select}.")
+            self._sync_active_tab()
             self._active = select
             tab = self._tabs[select]
             self.url = tab["url"]
@@ -640,6 +797,57 @@ class FakeDriver:
         self.waited.append(float(seconds))
         return ActionResult(ok=True, output=f"Waited {seconds:.1f}s.")
 
+    async def back(self) -> ActionResult:
+        if not self.connected:
+            return ActionResult(ok=False, output="Browser not connected.")
+        if not self._history:
+            return ActionResult(ok=False, output="Nothing to go back to.")
+        self._future.append((self.url, self.title))
+        self.url, self.title = self._history.pop()
+        self._tabs[self._active] = {
+            "index": str(self._active),
+            "title": self.title,
+            "url": self.url,
+        }
+        return ActionResult(
+            ok=True,
+            output=f"Went back to {self.url}",
+            data={"url": self.url, "title": self.title},
+        )
+
+    async def forward(self) -> ActionResult:
+        if not self.connected:
+            return ActionResult(ok=False, output="Browser not connected.")
+        if not self._future:
+            return ActionResult(ok=False, output="Nothing to go forward to.")
+        self._history.append((self.url, self.title))
+        self.url, self.title = self._future.pop()
+        self._tabs[self._active] = {
+            "index": str(self._active),
+            "title": self.title,
+            "url": self.url,
+        }
+        return ActionResult(
+            ok=True,
+            output=f"Went forward to {self.url}",
+            data={"url": self.url, "title": self.title},
+        )
+
+    async def reload(self) -> ActionResult:
+        if not self.connected:
+            return ActionResult(ok=False, output="Browser not connected.")
+        return ActionResult(
+            ok=True,
+            output=f"Reloaded {self.url}",
+            data={"url": self.url, "title": self.title},
+        )
+
+    async def settle(self, *, timeout_s: float = 4.0) -> ActionResult:
+        if not self.connected:
+            return ActionResult(ok=False, output="Browser not connected.")
+        self.settled.append(float(timeout_s))
+        return ActionResult(ok=True, output="Settled.", data={"settled": True})
+
     async def close(self) -> None:
         self.connected = False
 
@@ -682,6 +890,24 @@ class PlaywrightDriver:
 
         if browser == "firefox":
             return await self._ensure_firefox(private=private)
+
+        live = (
+            not relaunch
+            and self._browser is not None
+            and self._page is not None
+            and launch_mod.cdp_is_up(self.cdp_url)
+        )
+        if live:
+            return await self._attach_cdp(mode="attach")
+
+        chosen = launch_mod.prefer_cdp_url(self.cdp_url)
+        if chosen != self.cdp_url:
+            log.info(
+                "CDP %s is not Arelis Chrome; using %s",
+                self.cdp_url,
+                chosen,
+            )
+            self.cdp_url = chosen
 
         if relaunch:
             launch_mod.terminate_browser_processes(browser)  # type: ignore[arg-type]
@@ -954,6 +1180,7 @@ class PlaywrightDriver:
                 current = ""
             if not _same_open_url(current, url):
                 await page.goto(url, wait_until="domcontentloaded")
+                await self.settle()
             await self._apply_placement()
             title = await page.title()
             heading = await _page_heading(page)
@@ -978,6 +1205,7 @@ class PlaywrightDriver:
         assert self._page is not None
         try:
             await self._page.goto(url, wait_until="domcontentloaded")
+            await self.settle()
             await self._apply_placement()
             title = await self._page.title()
             return ActionResult(
@@ -1027,46 +1255,37 @@ class PlaywrightDriver:
             return {}
         return dict(raw or {}) if isinstance(raw, dict) else {}
 
-    async def snapshot(self, *, max_chars: int = 6000) -> ActionResult:
+    async def snapshot(self, *, max_chars: int = 6000, focus: str = "") -> ActionResult:
         err = await self._require_page()
         if err:
             return err
         assert self._page is not None
         try:
-            raw = await self._page.evaluate(
-                """() => {
-  const sel = 'a[href], button, input, textarea, select, '
-    + '[role="button"], [role="link"], [role="textbox"], [contenteditable="true"]';
-  const nodes = Array.from(document.querySelectorAll(sel)).slice(0, 80);
-  const heading = ((document.querySelector('h1') || {}).innerText || '')
-    .trim().slice(0, 120);
-  return {
-    heading: heading,
-    nodes: nodes.map((el, i) => {
-      const ref = 'e' + (i + 1);
-      el.setAttribute('data-arelis-ref', ref);
-      const text = (el.innerText || el.value || el.getAttribute('aria-label')
-        || el.getAttribute('placeholder') || '').trim().slice(0, 80);
-      return {
-        ref: ref,
-        tag: el.tagName.toLowerCase(),
-        role: el.getAttribute('role') || '',
-        type: (el.getAttribute('type') || '').toLowerCase(),
-        name: el.getAttribute('name') || '',
-        text: text,
-        href: el.href || '',
-        autocomplete: el.getAttribute('autocomplete') || '',
-      };
-    }),
-  };
-}"""
+            from arelis.browser.snapshot import (
+                SNAPSHOT_COLLECT_JS,
+                SNAPSHOT_STAMP_JS,
+                rank_snapshot_nodes,
             )
+
+            focus_key = (focus or "").strip().lower()
+            raw = await self._page.evaluate(SNAPSHOT_COLLECT_JS, focus_key)
             if isinstance(raw, list):
                 heading = ""
-                nodes = raw
+                collected = raw
             else:
                 heading = str((raw or {}).get("heading") or "").strip()
-                nodes = list((raw or {}).get("nodes") or [])
+                collected = list((raw or {}).get("nodes") or [])
+            nodes = rank_snapshot_nodes(collected)
+            if nodes:
+                await self._page.evaluate(
+                    SNAPSHOT_STAMP_JS,
+                    {
+                        "focus": focus_key,
+                        "pairs": [
+                            {"index": n["index"], "ref": n["ref"]} for n in nodes
+                        ],
+                    },
+                )
             self._refs = {
                 item["ref"]: ElementInfo(
                     ref=item["ref"],
@@ -1077,24 +1296,41 @@ class PlaywrightDriver:
                     text=item.get("text") or "",
                     href=item.get("href") or "",
                     autocomplete=item.get("autocomplete") or "",
+                    region=str(item.get("region") or ""),
                 )
                 for item in nodes
             }
             title = await self._page.title()
             url = self._page.url
+            from arelis.browser.snapshot import format_result_lines
+
             lines = [f"title: {title}", f"url: {url}"]
             if heading:
                 lines.append(f"heading: {heading}")
-            lines.append("elements:")
-            for info in self._refs.values():
-                lines.append(info.line())
+            if (focus or "").strip().lower() == "results":
+                results = format_result_lines(self._refs)
+                lines.append(results or "results:")
+            else:
+                lines.append("elements:")
+                for info in self._refs.values():
+                    lines.append(info.line())
             text = "\n".join(lines)
             if len(text) > max_chars:
                 text = text[: max_chars - 20] + "\n…(snapshot truncated)"
+            from arelis.browser.hold import set_drive_labels
+
+            set_drive_labels(
+                {ref: info.text or info.name for ref, info in self._refs.items()}
+            )
             return ActionResult(
                 ok=True,
                 output=text,
-                data={"url": url, "title": title, "refs": list(self._refs)},
+                data={
+                    "url": url,
+                    "title": title,
+                    "refs": list(self._refs),
+                    "focus": (focus or "").strip().lower(),
+                },
             )
         except Exception as exc:
             self._page = None
@@ -1180,6 +1416,13 @@ class PlaywrightDriver:
             await _glow_ref(self._page, ref)
             loc = self._page.locator(f'[data-arelis-ref="{ref}"]')
             await loc.first.click(timeout=10_000)
+            try:
+                await self._page.wait_for_load_state(
+                    "domcontentloaded", timeout=4_000
+                )
+            except Exception:
+                pass
+            await self.settle()
             return ActionResult(
                 ok=True,
                 output=f"Clicked [{ref}] {info.text or info.tag}",
@@ -1226,12 +1469,55 @@ class PlaywrightDriver:
             self._page = None
             return _playwright_fail(exc)
 
-    async def tabs(self, *, select: int | None = None) -> ActionResult:
+    async def tabs(
+        self,
+        *,
+        select: int | None = None,
+        op: str = "",
+        url: str = "",
+    ) -> ActionResult:
         err = await self._require_page()
         if err:
             return err
         assert self._context is not None
         try:
+            kind = (op or "").strip().lower()
+            if kind == "new":
+                page = await self._context.new_page()
+                self._page = page
+                target = (url or "").strip()
+                if target:
+                    await page.goto(target, wait_until="domcontentloaded")
+                await page.bring_to_front()
+                title = await page.title()
+                return ActionResult(
+                    ok=True,
+                    output=f"Opened tab: {page.url}",
+                    data={"url": page.url, "title": title, "active": "new"},
+                )
+            if kind == "close":
+                pages = list(self._context.pages)
+                current = self._page
+                if current is None:
+                    return ActionResult(ok=False, output="No tab to close.")
+                if len(pages) <= 1:
+                    await current.goto("about:blank", wait_until="domcontentloaded")
+                    return ActionResult(
+                        ok=True,
+                        output="Closed the last tab — blank tab stays.",
+                        data={"url": current.url, "title": await current.title()},
+                    )
+                idx = pages.index(current) if current in pages else 0
+                await current.close()
+                remain = list(self._context.pages)
+                self._page = remain[min(idx, len(remain) - 1)]
+                await self._page.bring_to_front()
+                title = await self._page.title()
+                return ActionResult(
+                    ok=True,
+                    output=f"Closed a tab. Now: {title}",
+                    data={"url": self._page.url, "title": title},
+                )
             pages = self._context.pages
             if select is not None:
                 if select < 0 or select >= len(pages):
@@ -1399,3 +1685,86 @@ class PlaywrightDriver:
         delay = max(0.2, min(float(seconds), 8.0))
         await cooperative_wait(delay)
         return ActionResult(ok=True, output=f"Waited {delay:.1f}s.")
+
+    async def settle(self, *, timeout_s: float = SETTLE_S) -> ActionResult:
+        """Wait until a result-like link exists, or the cap. Not networkidle."""
+        err = await self._require_page()
+        if err:
+            return err
+        assert self._page is not None
+        cap = max(0.4, min(float(timeout_s), 8.0))
+        deadline = time.monotonic() + cap
+        try:
+            while True:
+                try:
+                    hit = await self._page.evaluate(SETTLE_HAS_RESULT_JS)
+                except Exception:
+                    hit = False
+                if hit:
+                    return ActionResult(
+                        ok=True, output="Settled.", data={"settled": True}
+                    )
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return ActionResult(
+                        ok=True,
+                        output="Settled (timeout).",
+                        data={"settled": False},
+                    )
+                await cooperative_wait(min(SETTLE_POLL_S, remaining))
+        except Exception as exc:
+            self._page = None
+            return _playwright_fail(exc)
+
+    async def back(self) -> ActionResult:
+        err = await self._require_page()
+        if err:
+            return err
+        assert self._page is not None
+        try:
+            await self._page.go_back(wait_until="domcontentloaded")
+            await self._apply_placement()
+            title = await self._page.title()
+            return ActionResult(
+                ok=True,
+                output=f"Went back to {self._page.url}",
+                data={"url": self._page.url, "title": title},
+            )
+        except Exception as exc:
+            self._page = None
+            return _playwright_fail(exc)
+
+    async def forward(self) -> ActionResult:
+        err = await self._require_page()
+        if err:
+            return err
+        assert self._page is not None
+        try:
+            await self._page.go_forward(wait_until="domcontentloaded")
+            await self._apply_placement()
+            title = await self._page.title()
+            return ActionResult(
+                ok=True,
+                output=f"Went forward to {self._page.url}",
+                data={"url": self._page.url, "title": title},
+            )
+        except Exception as exc:
+            self._page = None
+            return _playwright_fail(exc)
+
+    async def reload(self) -> ActionResult:
+        err = await self._require_page()
+        if err:
+            return err
+        assert self._page is not None
+        try:
+            await self._page.reload(wait_until="domcontentloaded")
+            title = await self._page.title()
+            return ActionResult(
+                ok=True,
+                output=f"Reloaded {self._page.url}",
+                data={"url": self._page.url, "title": title},
+            )
+        except Exception as exc:
+            self._page = None
+            return _playwright_fail(exc)

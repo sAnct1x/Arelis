@@ -378,6 +378,16 @@ BROWSER_SEARCH = re.compile(
     r")\b"
 )
 
+BROWSER_FIRST = re.compile(
+    r"(?i)\b("
+    r"(?:play|open|click|watch)\s+(?:the\s+)?"
+    r"(?P<n>first|1st|second|2nd|third|3rd|fourth|4th|fifth|5th|[1-5])"
+    r"(?:\s+(?:one|result|video|link|hit))?"
+    r"|the\s+(?P<n2>first|1st|second|2nd|third|3rd|fourth|4th|fifth|5th|[1-5])"
+    r"\s+(?:one|result|video|link|hit)"
+    r")\b"
+)
+
 BROWSER_CART = re.compile(
     r"(?i)\b("
     r"add\s+(?:it\s+|that\s+|this\s+|them\s+)?to\s+(?:(?:the|my)\s+)?(?:cart|bag)|"
@@ -768,6 +778,210 @@ DIAGNOSTICS = IntentSpec(
     research_extra=True,
 )
 
+# Phrase-only. "watch a movie" / "port wine" are not a house-watch ask.
+_WATCH_ASK = re.compile(
+    r"(?i)(?<!n't )(?<!not )"
+    r"(?:\bare we (?:safe|protected|secure)\b|"
+    r"\bhouse watch\b|"
+    r"\bwatch status\b|"
+    r"\bsecurity (?:watch|status|check)\b|"
+    r"\b(?:open ports|ports open)\b|"
+    r"\bmass api\b|"
+    r"\b(?:api (?:budget|flood|quota)|being (?:hammered|scanned))\b|"
+    r"\b(?:inbound lock|egress mute|auth(?:entication)? fail)\b)"
+)
+
+WATCH = IntentSpec(
+    kind="watch",
+    patterns=(_WATCH_ASK,),
+    expected_tools=("watch",),
+    nudge=(
+        "Intent preflight: they asked about the house watch (ports, inbound, "
+        "outbound APIs). Call watch now. Report the snapshot. Do not invent a "
+        "threat or claim the PC is fully secured."
+    ),
+    schema_tools=frozenset({"watch"}),
+    auto_hint=True,
+    research_extra=True,
+)
+
+# Spoken inspect: how she works / where a feature lives / read her source.
+# Not generic "how does X work" (pytest, physics, interference, sign-in).
+# Write verbs (fix/edit/patch/change) are excluded — those are inspect_write.
+# "your source" / "confirm gate" alone are not an ask — need a read/how verb.
+_SOURCE_WRITE = re.compile(
+    r"(?i)\b(?:fix|edit|patch|change)\b.{0,48}(?:"
+    r"confirm(?:\s+gate|\s+writes?)?|"
+    r"policy\.py|"
+    r"(?:her|your|the|own)\s+source|"
+    r"your\s+own\s+source|"
+    r"tool_subset(?:\.py)?|"
+    r"orchestrator(?:\.py)?|"
+    r"drive(?:\.py|\s+strip)"
+    r")\b"
+)
+
+# Shared with path / file / source asks. "email me docs/…" has no read verb.
+_INSPECT_READ_VERB = (
+    r"(?:read|show(?:\s+me)?|what(?:'s|\s+is)\s+in|what\s+does|"
+    r"where(?:'s|\s+is)|tell\s+me(?:\s+what)?|how\s+does|how\s+do\s+you|open)"
+)
+
+_INSPECT_CONFIRM = re.compile(
+    r"(?i)(?:"
+    r"how\s+do\s+you\s+confirm(?:\s+writes?)?|"
+    r"how\s+does\s+(?:my\s+|the\s+|your\s+)?confirm(?:\s+gate)?\s+work|"
+    + _INSPECT_READ_VERB
+    + r"\b.{0,40}\bconfirm\s+(?:writes?|gate)\b"
+    r")"
+)
+_INSPECT_DRIVE = re.compile(r"(?i)\bdrive\s+strip\b")
+# Filename alone is not an inspect ask ("email me policy.py"). Same verb as paths.
+_INSPECT_BARE_FILE_ASK = re.compile(
+    r"(?i)"
+    + _INSPECT_READ_VERB
+    + r"\b.{0,80}\b(?:"
+    r"policy\.py|"
+    r"tool_subset(?:\.py)?|"
+    r"orchestrator\.py|"
+    r"drive\.py"
+    r")\b"
+)
+_HOW_YOU_WORK_PATH = "docs/architecture.md"
+_INSPECT_HOW_YOU_WORK = re.compile(
+    r"(?i)(?:"
+    r"how\s+do\s+you\s+work|"
+    r"how\s+you\s+work|"
+    + _INSPECT_READ_VERB
+    + r"\b.{0,40}\b(?:your|her)\s+(?:own\s+)?source\b"
+    r")"
+)
+_INSPECT_EXPLICIT_PATH = re.compile(
+    r"(?i)\b((?:arelis|docs)[/\\][A-Za-z0-9_./\\-]+)"
+)
+# Path mention alone is not an inspect ask ("email me docs/…"). Need a read verb.
+_INSPECT_PATH_ASK = re.compile(
+    r"(?i)"
+    + _INSPECT_READ_VERB
+    + r"\b.{0,80}\b(?:arelis|docs)[/\\]"
+)
+
+_INSPECT_PATTERNS = (
+    _INSPECT_CONFIRM,
+    _INSPECT_DRIVE,
+    _INSPECT_BARE_FILE_ASK,
+    _INSPECT_HOW_YOU_WORK,
+    _INSPECT_PATH_ASK,
+)
+
+_BARE_INSPECT_FILES = (
+    ("policy.py", "arelis/tools/policy.py"),
+    ("tool_subset.py", "arelis/core/tool_subset.py"),
+    ("orchestrator.py", "arelis/core/orchestrator.py"),
+    ("drive.py", "arelis/ui/panels/drive.py"),
+)
+
+
+def looks_like_source_write(text: str) -> bool:
+    """True for fix/edit/patch her confirm gate / policy.py / source. Write + Allow."""
+    raw = text or ""
+    return bool(raw.strip()) and bool(_SOURCE_WRITE.search(raw))
+
+
+def looks_like_source_inspect(text: str) -> bool:
+    """True when they ask how she works, or to read her source. Not generic how-does-X."""
+    if looks_like_source_write(text):
+        return False
+    raw = text or ""
+    if not raw.strip():
+        return False
+    return any(p.search(raw) for p in _INSPECT_PATTERNS)
+
+
+def inspect_read_path(text: str) -> str | None:
+    """Canonical workspace path, or None."""
+    raw = text or ""
+    if not raw.strip():
+        return None
+    explicit = _INSPECT_EXPLICIT_PATH.search(raw)
+    if explicit:
+        return explicit.group(1).replace("\\", "/")
+    lowered = raw.lower()
+    by_name = dict(_BARE_INSPECT_FILES)
+    for name, path in _BARE_INSPECT_FILES:
+        if name in lowered:
+            return path
+    if re.search(r"(?i)\btool_subset\b", raw):
+        return by_name["tool_subset.py"]
+    if _INSPECT_DRIVE.search(raw):
+        return by_name["drive.py"]
+    if _INSPECT_CONFIRM.search(raw):
+        return by_name["policy.py"]
+    if _INSPECT_HOW_YOU_WORK.search(raw):
+        return _HOW_YOU_WORK_PATH
+    return None
+
+
+def inspect_path_guide() -> str:
+    """One path map for skill cards. Built from the same table as inspect_read_path."""
+    by_name = dict(_BARE_INSPECT_FILES)
+    return (
+        f"confirm → {by_name['policy.py']}; "
+        f"tool_subset → {by_name['tool_subset.py']}; "
+        f"Drive strip → {by_name['drive.py']}; "
+        f"how you work → {_HOW_YOU_WORK_PATH}; "
+        "a named arelis/ or docs/ path → that path."
+    )
+
+
+_INSPECT_NUDGE = (
+    "Intent preflight: they asked how she works or to read her source. "
+    "Call workspace(action=read) on {path}. "
+    "Quote function names, gates, and paths from the tool result. "
+    "Do not invent. Do not recall the package. Do not web_search. "
+    "This is read-only. Writes still need Allow. "
+    "Do not ask permission in chat."
+)
+
+
+def inspect_preflight_nudge(text: str) -> str:
+    """Path-named inspect nudge. Preflight uses this; do not copy the template."""
+    path = inspect_read_path(text) or "the arelis/ or docs/ path they named"
+    return _INSPECT_NUDGE.format(path=path)
+
+
+@dataclass(frozen=True)
+class _InspectReadSpec(IntentSpec):
+    """Inspect reads; write verbs never match (inspect_write wins)."""
+
+    def matches(self, text: str) -> bool:
+        return looks_like_source_inspect(text)
+
+
+INSPECT_WRITE = IntentSpec(
+    kind="inspect_write",
+    patterns=(_SOURCE_WRITE,),
+    expected_tools=("workspace",),
+    nudge=(
+        "Intent preflight: this is a write to her source. "
+        "Call workspace with action=write or action=edit. "
+        "Allow still applies. Do not silently edit. "
+        "Do not ask permission in chat."
+    ),
+    schema_tools=frozenset({"workspace", "git_info"}),
+    auto_hint=True,
+)
+
+INSPECT = _InspectReadSpec(
+    kind="inspect",
+    patterns=_INSPECT_PATTERNS,
+    expected_tools=("workspace",),
+    nudge=_INSPECT_NUDGE.format(path="the mapped path"),
+    schema_tools=frozenset({"workspace", "git_info"}),
+    auto_hint=True,
+    research_extra=True,
+)
+
 CATALOG: tuple[IntentSpec, ...] = (
     WEATHER,
     RECALL,
@@ -787,6 +1001,9 @@ CATALOG: tuple[IntentSpec, ...] = (
     PLOT,
     SCIENCE_CATALOG,
     DIAGNOSTICS,
+    WATCH,
+    INSPECT_WRITE,
+    INSPECT,
 )
 
 BY_KIND: dict[str, IntentSpec] = {s.kind: s for s in CATALOG}

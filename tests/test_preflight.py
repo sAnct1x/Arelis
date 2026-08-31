@@ -324,9 +324,9 @@ def test_tasks_and_goal_delete_intents() -> None:
     ):
         hints = detect_intents(phrase)
         assert any(h.kind == "browser_click" for h in hints), phrase
-        assert draft_browser_args(phrase) == {"action": "snapshot"}
+        assert draft_browser_args(phrase) == {"action": "click", "text": "Sign in"}
         nudge = next(h.nudge for h in hints if h.kind == "browser_click")
-        assert "snapshot" in nudge.lower()
+        assert "click" in nudge.lower()
         assert "goto_sign_in" in nudge
     howto = detect_intents("how do I sign in to github from the terminal")
     assert not any(h.kind == "browser_click" for h in howto)
@@ -451,3 +451,41 @@ def test_create_a_pdf_reaches_document_not_extract() -> None:
     ):
         assert "document" in _expected(phrase), phrase
         assert "doc_extract" not in _expected(phrase), phrase
+
+
+def test_inspect_preflight_names_the_path_and_skips_stale_sends() -> None:
+    history_sms = [
+        {"role": "user", "content": "Text Brian"},
+        {"role": "assistant", "content": "What should I say?"},
+    ]
+    history_email = [
+        {
+            "role": "user",
+            "content": "Email Brian subject: Hi body: Hello there friend.",
+        },
+        {"role": "assistant", "content": "Ready to send when you say so."},
+    ]
+    ask = "what's in policy.py?"
+    hints = detect_intents(ask, history=history_sms)
+    inspect = next(h for h in hints if h.kind == "inspect")
+    assert inspect.expected_tools == ("workspace",)
+    assert "arelis/tools/policy.py" in inspect.nudge
+    assert "workspace(action=read)" in inspect.nudge
+    assert "do not ask permission" in inspect.nudge.lower()
+    assert not any(h.kind == "sms_send" for h in hints)
+    email_hints = detect_intents(ask, history=history_email)
+    assert any(h.kind == "inspect" for h in email_hints)
+    assert not any(h.kind == "compose_email" for h in email_hints)
+
+
+def test_inspect_write_preflight_is_allow_not_a_read() -> None:
+    hints = detect_intents("fix your confirm gate")
+    kinds = {h.kind for h in hints}
+    assert "inspect_write" in kinds or "workspace_write" in kinds
+    assert "inspect" not in kinds
+    write = next(
+        h for h in hints if h.kind in {"inspect_write", "workspace_write"}
+    )
+    assert write.expected_tools == ("workspace",)
+    assert "Allow" in write.nudge
+    assert "write" in write.nudge.lower() or "edit" in write.nudge.lower()

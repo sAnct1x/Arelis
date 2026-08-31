@@ -182,7 +182,7 @@ def test_analyze_git_agenda_clipboard_ocr_plans() -> None:
     assert "action=reserve" in reserve_plan
     assert "Book" in reserve_plan
     signin_plan = plan_system_message("go to sign in") or ""
-    assert "action=snapshot" in signin_plan
+    assert "action=click" in signin_plan
     assert "goto_sign_in" in signin_plan
     assert "1) browser(action=screenshot)" not in signin_plan
 
@@ -361,3 +361,25 @@ def test_web_fallback_is_not_a_scrape_plan() -> None:
     trap = select_plan(text, skill_ids=ids)
     assert trap is not None and trap.id == "multi_web"
     assert select_plan(text, skill_ids=()) is None
+
+
+def test_inspect_plan_wins_over_web_fallback() -> None:
+    for text, path in (
+        ("what's in policy.py?", "arelis/tools/policy.py"),
+        ("what does tool_subset do?", "arelis/core/tool_subset.py"),
+        ("where is the Drive strip?", "arelis/ui/panels/drive.py"),
+    ):
+        plan = select_plan(text, skill_ids=["web"])
+        assert plan is not None, text
+        assert plan.id == "inspect", text
+        assert plan.steps == ("workspace",), text
+        assert path in plan.message, text
+        assert "web_search" not in plan.steps, text
+
+
+def test_physics_and_clock_do_not_plan_inspect() -> None:
+    assert select_plan(_PHYSICS_ASK) is None or select_plan(_PHYSICS_ASK).id != "inspect"
+    physics = select_plan(_PHYSICS_ASK)
+    assert physics is None
+    assert select_plan("what time is it") is None
+    assert select_plan("what time is it", skill_ids=["web"]) is None

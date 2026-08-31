@@ -115,6 +115,21 @@ agent:
   # High-value bus events → logs/events.log (confirms, SMS, tools, errors).
   # Omits ASSISTANT_DELTA / audio. See docs/telemetry.md.
   event_telemetry: true
+  # House watch: the doors Arelis opened (LAN ingest, outbound APIs). Not
+  # antivirus and not a scan of the whole PC. STATUS lines start with "Watch:".
+  watch:
+    enabled: true
+    inbound_burst: 40
+    inbound_window_s: 10
+    auth_fail_limit: 8
+    auth_fail_window_s: 60
+    auth_lock_s: 300
+    max_body_bytes: 2097152
+    egress_burst: 48
+    egress_window_s: 10
+    egress_daily: 8000
+    per_host_burst: 24
+
   # Off: every turn sends the same tool schemas the startup prefix seed used.
   # On, a greeting skips schemas and blows that cache — the next real question
   # then prefills ~18k tokens again (~40s). That is the 50s TTFT after "hi".
@@ -372,7 +387,8 @@ tools:
     # Drive Arelis' own Chrome (data/browser-profile), not daily Chrome.
     # Install: pip install -e ".[browser]" && playwright install chromium firefox
     # See docs/browser-control.md. Never enters passwords/OTP. Never taskkills
-    # chrome.exe — relaunch only stops her profile.
+    # chrome.exe — relaunch only stops her profile. If 9222 is already someone
+    # else's Chrome, she opens her window on 9333+ instead of attaching.
     enabled: true
     cdp_url: "http://127.0.0.1:9222"
     max_snapshot_chars: 6000
@@ -705,6 +721,10 @@ presence:
   ipc_port: 8766
 
 ui:
+  # Room look. View → themes. sodium is the shipped lamp. filament is testing.
+  theme: sodium
+  # Filament desk span: 1 / 2 / 3 monitors. Starts on one desk; expand if you want.
+  filament_span: 1
   window_title: "Arelis"
   default_width: 1440
   default_height: 900

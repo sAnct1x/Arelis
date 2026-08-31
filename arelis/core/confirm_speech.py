@@ -2,8 +2,8 @@
 
 Whole utterance only for decisions and hangup. Room chat and "I don't know"
 must not allow a send. Stop is the turn, not deny-this-step. Hangup ends
-the hands-free call. After a stop, ordinary talk goes to the model with a
-one-line note — no resume phrase list.
+the hands-free call. Pause / go hold her Chrome drive. After a stop,
+ordinary talk goes to the model with a one-line note — no resume phrase list.
 """
 
 from __future__ import annotations
@@ -50,6 +50,19 @@ _HANGUP = re.compile(
     r"(?:i(?:'?m|\s+am)\s+)?done\s+talking|"
     r"talk\s+later|"
     r"see\s+y(?:a|ou)(?:\s+later)?"
+    r")\s*[.!]?\s*$"
+)
+_DRIVE_PAUSE = re.compile(
+    r"(?i)^\s*(?:"
+    r"pause|"
+    r"hold on|hold up|hang on|"
+    r"wait(?: a (?:sec(?:ond)?|minute))?"
+    r")\s*[.!]?\s*$"
+)
+_DRIVE_RESUME = re.compile(
+    r"(?i)^\s*(?:"
+    r"go|resume|unpause|unfreeze|"
+    r"keep going|continue|go ahead"
     r")\s*[.!]?\s*$"
 )
 _DENY = re.compile(
@@ -105,6 +118,23 @@ def classify_voice_act(text: str) -> str | None:
         return "allow"
     if _DENY.match(raw):
         return "skip"
+    return None
+
+
+def classify_drive_act(text: str) -> str | None:
+    """``pause`` / ``resume`` for her Chrome drive, or None.
+
+    Whole utterance only. Physics ``pause`` is classified first in the
+    orchestrator when Reality is open. ``go ahead`` is also allow — the
+    caller uses resume only while the drive is held.
+    """
+    raw = (text or "").strip()
+    if not raw:
+        return None
+    if _DRIVE_PAUSE.match(raw):
+        return "pause"
+    if _DRIVE_RESUME.match(raw):
+        return "resume"
     return None
 
 

@@ -4,6 +4,9 @@ from __future__ import annotations
 
 POSE_MAX_WIDTH = 640
 PREVIEW_MAX_WIDTH = 640
+# Sensor tap for the tile. 1080p MJPEG at 30 Hz is a decode we then
+# shrink to 640 — the camera plate is ~340px wide.
+PREVIEW_CAPTURE_MAX_WIDTH = 1280
 
 
 def score_live_format(
@@ -29,6 +32,18 @@ def pick_live_format(
     viable = [r for r in rows if float(r[2] or 0) >= 24]
     pool = viable or rows
     return max(pool, key=lambda r: score_live_format(r[0], r[1], r[2], r[3]))
+
+
+def pick_preview_format(
+    rows: list[tuple[int, int, float, str]],
+    max_width: int = PREVIEW_CAPTURE_MAX_WIDTH,
+) -> tuple[int, int, float, str] | None:
+    """Live tap for the camera plate. Cap width so we do not decode 1080p."""
+    if not rows:
+        return None
+    cap = max(320, int(max_width))
+    capped = [r for r in rows if int(r[0]) <= cap]
+    return pick_live_format(capped) or pick_live_format(rows)
 
 
 def fit_size(width: int, height: int, max_width: int) -> tuple[int, int]:

@@ -34,8 +34,6 @@ from arelis.ui.theme import COLORS
 ATTACH_TILE = 56
 _MAX_ASPECT = 1.7
 _RADIUS = 8.0
-_ACCENT = QColor(COLORS["accent"])
-_TEXT_DIM = QColor(COLORS["text_dim"])
 
 
 def tile_pixel_size(src_w: int, src_h: int, *, height: int = ATTACH_TILE) -> tuple[int, int]:
@@ -173,7 +171,7 @@ class AttachmentTile(QWidget):
             self._paint_file(painter, rect)
         painter.setClipping(False)
         hover = self.underMouse()
-        rim = QColor(_ACCENT)
+        rim = QColor(COLORS["accent"])
         rim.setAlpha(200 if hover else 110)
         painter.setPen(QPen(rim, 1.0))
         painter.setBrush(Qt.BrushStyle.NoBrush)
@@ -186,7 +184,7 @@ class AttachmentTile(QWidget):
         glyph.setPixelSize(13)
         glyph.setBold(True)
         painter.setFont(glyph)
-        painter.setPen(_ACCENT)
+        painter.setPen(QColor(COLORS["accent"]))
         painter.drawText(
             QRectF(rect.left(), rect.top() + 8, rect.width(), 20),
             Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter,
@@ -195,7 +193,7 @@ class AttachmentTile(QWidget):
         name_font = QFont(self.font())
         name_font.setPixelSize(10)
         painter.setFont(name_font)
-        painter.setPen(_TEXT_DIM)
+        painter.setPen(QColor(COLORS["text_dim"]))
         metrics = QFontMetrics(name_font)
         elided = metrics.elidedText(
             self._name,

@@ -19,13 +19,23 @@ from arelis.rooms import (
     PHYSICS_PURPOSE,
     PHYSICS_ROOM_ID,
     RoomStore,
+    infer_kind,
     is_perma,
     match_enter_intent,
     match_leave_intent,
     match_list_rooms_intent,
     match_make_room_intent,
+    match_room_project,
+    match_set_kind_intent,
+    match_set_purpose_intent,
+    match_set_root_intent,
+    match_skip_setup_intent,
+    match_skip_step_intent,
+    match_start_setup_intent,
+    needs_setup,
     normalize_room_name,
     slugify,
+    strip_setup_value,
 )
 
 
@@ -389,3 +399,53 @@ def test_these_are_asking_to_come_out(said: str) -> None:
 )
 def test_these_are_not_asking_to_come_out(said: str) -> None:
     assert not match_leave_intent(said)
+
+
+def test_set_up_this_room_is_not_creating_a_room_called_this() -> None:
+    assert match_make_room_intent("set up this room") is None
+    assert match_make_room_intent("make it a research room") is None
+    assert match_start_setup_intent("set up this room")
+    assert match_start_setup_intent("configure the room")
+    assert not match_start_setup_intent("set up a room called Lab Notes")
+
+
+def test_spoken_field_edits_are_closed() -> None:
+    assert match_set_purpose_intent("this room is for analysing the field data") == (
+        "analysing the field data"
+    )
+    assert match_set_kind_intent("make it an analysis room") == "analysis"
+    assert match_set_kind_intent("kind research") == "research"
+    assert match_set_kind_intent("make it a kitchen room") is None
+    assert match_set_root_intent("work in Lab Notes", ["Lab Notes", "lab"]) == "Lab Notes"
+    assert match_room_project("notes", ["lab", "notes"]) == "notes"
+    assert match_room_project("nowhere", ["lab", "notes"]) is None
+
+
+def test_skip_setup_is_not_skip_this_question() -> None:
+    assert match_skip_setup_intent("later")
+    assert match_skip_setup_intent("skip setup")
+    assert not match_skip_setup_intent("skip")
+    assert match_skip_step_intent("skip")
+    assert match_skip_step_intent("skip this")
+
+
+def test_an_empty_room_needs_setup_and_reality_does_not(store: RoomStore) -> None:
+    empty = store.create("Survey")
+    assert needs_setup(empty)
+    assert not needs_setup(store.get(PHYSICS_ROOM_ID))
+    store.update("survey", purpose="Analysing the field data.")
+    assert not needs_setup(store.get("survey"))
+
+
+def test_kind_is_inferred_from_the_words() -> None:
+    assert infer_kind("analysing the survey data", "a plot in plots/") == "analysis"
+    assert infer_kind("reading the literature", "a cited note") == "research"
+    assert infer_kind("refactor the codebase") == "code"
+    assert infer_kind("hello") == DEFAULT_KIND
+
+
+def test_setup_answers_strip_the_lead_in() -> None:
+    assert strip_setup_value("purpose", "this room is for the field data") == (
+        "the field data"
+    )
+    assert strip_setup_value("result", "a plot in plots/") == "a plot in plots/"

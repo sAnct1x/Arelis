@@ -32,7 +32,7 @@ SHORTCUTS: tuple[tuple[str, str, str], ...] = (
     ("conversation", "Esc", "stop the turn, clear the box, or go back to the orbit"),
     ("conversation", "Ctrl+Shift+A", "attach files"),
     ("panels", "Ctrl+1", "thinking — what she is doing, in detail"),
-    ("panels", "Ctrl+2", "workspace — files and tool output"),
+    ("panels", "Ctrl+2", "workspace — the desk: notes and files she made"),
     ("panels", "Ctrl+3", "history — past conversations"),
     ("panels", "Ctrl+4", "notifications"),
     ("panels", "Ctrl+5", "camera"),

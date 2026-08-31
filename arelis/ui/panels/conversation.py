@@ -46,8 +46,15 @@ from arelis.ui.panels.confirm import ConfirmCard
 from arelis.ui.panels.drive import DriveStrip
 from arelis.ui.panels.room import RoomStrip
 from arelis.ui.stage import paint_corner_ticks
-from arelis.ui.theme import METRICS, polish_combo_popup
+from arelis.ui.theme import METRICS, active_theme, polish_combo_popup
 from arelis.ui.void_idle import OrbitCanvas
+
+
+def _talk_mark_px() -> tuple[int, int]:
+    """Wake mark under the filament prompt is a bit larger than chrome."""
+    if active_theme() == "filament":
+        return 32, 42
+    return int(METRICS["icon"]), int(METRICS["control"])
 
 
 class _ComposerLineEdit(QPlainTextEdit):
@@ -264,8 +271,7 @@ class ConversationStage(GlassFrame):
         self.conversation_btn.setObjectName("ConversationButton")
         self.conversation_btn.setCheckable(True)
         self.conversation_btn.setIcon(conversation_icon(_icon))
-        self.conversation_btn.setIconSize(QSize(_icon, _icon))
-        self.conversation_btn.setFixedSize(_btn, _btn)
+        self._apply_talk_mark_size()
         self.conversation_btn.setToolTip(
             "talk with Arelis (Ctrl+Shift+M) · say goodbye to stop"
         )
@@ -336,12 +342,24 @@ class ConversationStage(GlassFrame):
         self._listen_pulse.setInterval(50)
         self._listen_pulse.timeout.connect(self._tick_listen_pulse)
         self.set_voice_available(False, "")
+        self._filament_desk = False
         self.set_idle_mode(True)
 
     def paintEvent(self, event: QPaintEvent) -> None:
         super().paintEvent(event)
+        if active_theme() == "filament":
+            return
         painter = QPainter(self)
         paint_corner_ticks(painter, self.rect(), inset=8, length=12)
+
+    def contextMenuEvent(self, event) -> None:  # type: ignore[override]
+        win = self.window()
+        popup = getattr(win, "_popup_filament_menu", None)
+        if callable(popup) and active_theme() == "filament":
+            popup(event.globalPos())
+            event.accept()
+            return
+        super().contextMenuEvent(event)
 
     def resizeEvent(self, event) -> None:  # type: ignore[override]
         super().resizeEvent(event)
@@ -429,24 +447,27 @@ class ConversationStage(GlassFrame):
         self._driving = bool(driving)
         if status:
             self.drive.set_status(status)
-        if self._idle_mode and not self.chat.has_messages:
-            self.drive.hide()
-            return
-        self.drive.set_driving(self._driving)
+        self._sync_drive_face()
 
     def set_drive_status(self, status: str) -> None:
         self.drive.set_status(status)
 
     def set_drive_paused(self, paused: bool) -> None:
         self.drive.set_paused(paused)
+        if paused or self._driving:
+            self._sync_drive_face()
 
     def set_drive_your_turn(self, message: str) -> None:
         self._driving = True
-        if self._idle_mode and not self.chat.has_messages:
-            self.drive.hide()
-            return
-        self.drive.set_driving(True)
         self.drive.set_your_turn(message)
+        self._sync_drive_face()
+
+    def _sync_drive_face(self) -> None:
+        """Keep Stop / Pause on both sodium and the filament field while she drives."""
+        if self._driving:
+            self.drive.set_driving(True)
+        else:
+            self.drive.hide()
 
     def set_busy(self, busy: bool) -> None:
         """Swap the composer between send and stop for the duration of a turn.
@@ -499,7 +520,63 @@ class ConversationStage(GlassFrame):
         self._place_composer(want)
         self._sync_parked_orbit(want)
         self._sync_composer_buttons()
+        if getattr(self, "_filament_desk", False):
+            win = self.window()
+            chat_open = bool(
+                getattr(win, "_filament_chat_open", False)
+            ) if win is not None else False
+            self.apply_filament_desk(True, chat_open=chat_open)
         self.update()
+
+    def apply_filament_desk(self, on: bool, *, chat_open: bool = False) -> None:
+        """Field is the face. Composer and transcript live on the chat tile."""
+        was = getattr(self, "_filament_desk", False)
+        self._filament_desk = bool(on)
+        if not on:
+            self._apply_talk_mark_size()
+            if was:
+                self.chat.show()
+                idle = self._idle_mode
+                self._idle_mode = not idle
+                self.set_idle_mode(idle)
+            return
+        self._sync_drive_face()
+        self._hairline.hide()
+        self.attach_bar.hide()
+        if chat_open:
+            return
+        self.chat.show()
+        empty = getattr(self.chat, "empty", None)
+        if empty is not None:
+            empty.show()
+            if hasattr(empty, "apply_theme_face"):
+                empty.apply_theme_face()
+        view = getattr(self.chat, "view", None)
+        if view is not None:
+            view.hide()
+        self._composer.hide()
+        self.role.hide()
+        self.send_btn.hide()
+        self.attach_btn.hide()
+        self.mic_btn.hide()
+        self.conversation_btn.show()
+        self._apply_talk_mark_size()
+        host = getattr(empty, "voice_host", None) if empty is not None else None
+        if host is not None and self.conversation_btn.parent() is not host:
+            row = getattr(self, "_composer_row", None)
+            if row is not None:
+                row.removeWidget(self.conversation_btn)
+            self.conversation_btn.setParent(host)
+            host.layout().addWidget(self.conversation_btn)
+        if self._idle_mode:
+            self._place_composer(True)
+        self.input.hide()
+        self.mic_btn.hide()
+        self.conversation_btn.show()
+        if host is not None:
+            host.show()
+        if empty is not None:
+            empty._layout_idle()
 
     def _on_composer_text(self) -> None:
         if self._idle_mode:
@@ -589,6 +666,10 @@ class ConversationStage(GlassFrame):
 
             if isinstance(focus, (QLineEdit, QPlainTextEdit, QTextEdit)):
                 return
+        if getattr(self, "_filament_desk", False):
+            win = self.window()
+            if win is not None and not getattr(win, "_filament_chat_open", False):
+                return
         self.input.setFocus(Qt.FocusReason.OtherFocusReason)
         self.input.ensureCursorVisible()
 
@@ -599,7 +680,44 @@ class ConversationStage(GlassFrame):
         cursor = self.input.cursorPosition()
         moved = False
         self.input._idle = bool(idle)  # type: ignore[attr-defined]
+        if (
+            idle
+            and getattr(self, "_filament_desk", False)
+            and host is not None
+            and not self.chat.has_messages
+        ):
+            if self.input.parent() is host:
+                host_l = host.layout()
+                if host_l is not None:
+                    host_l.removeWidget(self.input)
+                self.input.setParent(self._composer)
+                self._composer_row.insertWidget(1, self.input, stretch=1)
+            self.input.hide()
+            host.hide()
+            self.clear_btn.hide()
+            self._composer.hide()
+            self._hairline.hide()
+            self._sync_drive_face()
+            self.role.hide()
+            self.attach_btn.hide()
+            self.send_btn.hide()
+            empty = getattr(self.chat, "empty", None)
+            voice_host = getattr(empty, "voice_host", None) if empty is not None else None
+            if voice_host is not None:
+                for btn in (self.mic_btn, self.conversation_btn):
+                    if btn.parent() is not voice_host:
+                        self._composer_row.removeWidget(btn)
+                        btn.setParent(voice_host)
+                        voice_host.layout().addWidget(btn)
+                voice_host.setVisible(True)
+            self.mic_btn.hide()
+            self.conversation_btn.show()
+            if empty is not None and hasattr(empty, "apply_theme_face"):
+                empty.apply_theme_face()
+            return
         if idle and host is not None and not self.chat.has_messages:
+            self.input.show()
+            host.show()
             if self.input.parent() is not host:
                 self._composer_row.removeWidget(self.input)
                 self.input.setParent(host)
@@ -611,7 +729,7 @@ class ConversationStage(GlassFrame):
             self.clear_btn.hide()
             self._composer.hide()
             self._hairline.hide()
-            self.drive.hide()
+            self._sync_drive_face()
             self.role.hide()
             self.attach_btn.hide()
             self.send_btn.hide()
@@ -641,6 +759,7 @@ class ConversationStage(GlassFrame):
                 self.input.setSizePolicy(
                     QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
                 )
+            self.input.show()
             self.input.setClearButtonEnabled(True)
             self._composer.show()
             self._hairline.show()
@@ -672,7 +791,9 @@ class ConversationStage(GlassFrame):
 
     def _sync_parked_orbit(self, idle: bool) -> None:
         """Keep a small dim orbit in the corner once a thread exists."""
-        parked = not idle
+        from arelis.ui.theme import active_theme
+
+        parked = not idle and active_theme() != "filament"
         self._parked_orbit.setVisible(parked)
         self._parked_orbit.set_animating(parked)
         if parked:
@@ -756,7 +877,12 @@ class ConversationStage(GlassFrame):
         typing = bool(self.input.text().strip())
         self.clear_btn.setVisible(typing and not self._idle_mode)
         if self.confirm_open():
-            self.input.setPlaceholderText("Enter = allow · Esc = deny…")
+            from arelis.ui.theme import active_theme
+
+            if active_theme() == "filament":
+                self.input.setPlaceholderText("say yes · or type allow")
+            else:
+                self.input.setPlaceholderText("Enter = allow · Esc = deny…")
         elif self._idle_mode:
             # Idle prompt is the centered VoidIdlePlaceholder label; Qt's own
             # placeholder paints left-aligned and shoves the line off-axis.
@@ -770,6 +896,30 @@ class ConversationStage(GlassFrame):
         else:
             self.input.setPlaceholderText("message Arelis…")
 
+    def _apply_talk_mark_size(self) -> None:
+        mark, box = _talk_mark_px()
+        self.conversation_btn.setIconSize(QSize(mark, mark))
+        self.conversation_btn.setFixedSize(box, box)
+
+    def refresh_theme_icons(self) -> None:
+        """Redraw composer glyphs from the live palette."""
+        icon = METRICS["icon"]
+        self.clear_btn.setIcon(window_close_icon(icon))
+        self.attach_btn.setIcon(paperclip_icon(icon))
+        self.send_btn.setIcon(signal_flare_icon(icon))
+        self.mic_btn.setIcon(
+            microphone_icon(icon, live=self.mic_btn.isChecked())
+        )
+        self._apply_talk_mark_size()
+        mark, _box = _talk_mark_px()
+        self.conversation_btn.setIcon(
+            conversation_icon(mark, live=self.conversation_btn.isChecked())
+        )
+        parked = getattr(self, "_parked_orbit", None)
+        if parked is not None:
+            self._sync_parked_orbit(self._idle_mode)
+            parked.update()
+
     def toggle_dictate(self) -> None:
         self.mic_btn.setChecked(not self.mic_btn.isChecked())
 
@@ -781,7 +931,8 @@ class ConversationStage(GlassFrame):
         self._sync_listen_pulse()
 
     def set_conversing(self, active: bool) -> None:
-        self._set_toggle(self.conversation_btn, active, conversation_icon(24, live=active))
+        mark, _box = _talk_mark_px()
+        self._set_toggle(self.conversation_btn, active, conversation_icon(mark, live=active))
         self._sync_listen_pulse()
         self._sync_composer_buttons()
 
@@ -839,7 +990,8 @@ class ConversationStage(GlassFrame):
     def _on_conversation_toggled(self, checked: bool) -> None:
         if checked and self.mic_btn.isChecked():
             self.mic_btn.setChecked(False)
-        self.conversation_btn.setIcon(conversation_icon(24, live=checked))
+        mark, _box = _talk_mark_px()
+        self.conversation_btn.setIcon(conversation_icon(mark, live=checked))
         self._sync_listen_pulse()
         self.conversation_toggled.emit(checked)
         self._sync_composer_buttons()
@@ -868,7 +1020,8 @@ class ConversationStage(GlassFrame):
         if self.mic_btn.isChecked():
             self.mic_btn.setIcon(microphone_icon(24, live=True, pulse=amp))
         if self.conversation_btn.isChecked():
-            self.conversation_btn.setIcon(conversation_icon(24, live=True, pulse=amp))
+            mark, _box = _talk_mark_px()
+            self.conversation_btn.setIcon(conversation_icon(mark, live=True, pulse=amp))
         self._hairline.set_glow(glow)
 
     def insert_dictation(self, text: str) -> None:
@@ -912,15 +1065,20 @@ class ConversationStage(GlassFrame):
         batch_ok: bool = True,
         headline: str = "",
     ) -> None:
-        self.confirm.ask(
-            confirm_id,
-            tool,
-            summary,
-            detail=detail,
-            note=note,
-            batch_ok=batch_ok,
-            headline=headline,
-        )
+        from arelis.ui.theme import active_theme
+
+        if active_theme() == "filament":
+            self.confirm.arm(confirm_id, headline or summary)
+        else:
+            self.confirm.ask(
+                confirm_id,
+                tool,
+                summary,
+                detail=detail,
+                note=note,
+                batch_ok=batch_ok,
+                headline=headline,
+            )
         self._sync_composer_buttons()
         self.idle_conditions_changed.emit()
 
@@ -984,10 +1142,18 @@ class ConversationStage(GlassFrame):
             self.stop_requested.emit()
 
     def _escape(self) -> None:
-        # Fullscreen first: Esc leaves F11 mode before it touches a turn.
+        # Sodium: Esc leaves F11 before it touches a turn. Filament has no
+        # fullscreen — F11 would have followed the HWND onto the left desk.
         win = self.window()
         if win is not None and win.isFullScreen():
+            from arelis.ui.theme import active_theme
+
             win.showNormal()
+            if active_theme() == "filament":
+                place = getattr(win, "_filament_place_entity", None)
+                if callable(place):
+                    place()
+                    return
             sync = getattr(win, "_sync_chrome_state", None)
             if callable(sync):
                 sync()

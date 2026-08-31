@@ -56,10 +56,21 @@ class RoomsTool:
             "purpose": {
                 "type": "string",
                 "description": (
-                    "One or two sentences on what this room is for, written to "
-                    "be read by you at the start of every turn in it. Say what "
-                    "the work is and what a good answer looks like."
+                "One or two sentences on what this room is for, written to "
+                "be read by you at the start of every turn in it. Say what "
+                "the work is and what a good answer looks like."
                 ),
+            },
+            "result": {
+                "type": "string",
+                "description": (
+                    "What a finished result looks like — a plot, a dump, a "
+                    "table, two sentences in documents/."
+                ),
+            },
+            "test": {
+                "type": "string",
+                "description": "How we know a run actually happened.",
             },
             "root": {
                 "type": "string",
@@ -118,6 +129,10 @@ class RoomsTool:
         bits = [f"`{room.id}` — {room.name}"]
         if room.purpose:
             bits.append(f"  purpose: {room.purpose}")
+        if room.result:
+            bits.append(f"  result: {room.result}")
+        if room.test:
+            bits.append(f"  test: {room.test}")
         if room.root:
             bits.append(f"  project: {room.root}")
         bits.append(f"  kind: {room.kind} ({room.spec.blurb})")
@@ -214,14 +229,14 @@ class RoomsTool:
                 ),
             )
         fields: dict[str, Any] = {}
-        for key in ("purpose", "root", "kind"):
+        for key in ("purpose", "root", "kind", "result", "test"):
             value = str(kwargs.get(key) or "").strip()
             if value:
                 fields[key] = value.lower() if key == "kind" else value
         if not fields:
             return ToolResult(
                 ok=False,
-                output="Nothing to change. Pass purpose, root or kind.",
+                output="Nothing to change. Pass purpose, root, kind, result or test.",
             )
         try:
             updated = self.store.update(room.id, **fields)

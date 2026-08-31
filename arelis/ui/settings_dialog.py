@@ -1,4 +1,4 @@
-"""Single Settings dialog — Audio, Window, Notify, Roots, Memory (glass panel)."""
+"""Single Settings dialog — audio, window, allow, notify, roots, memory."""
 from __future__ import annotations
 
 from collections.abc import Callable

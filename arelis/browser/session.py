@@ -55,6 +55,9 @@ class BrowserSession:
         if result.ok:
             self.last_browser = name
             self.last_mode = str((result.data or {}).get("mode") or "")
+            self.cdp_url = str(
+                getattr(self._driver, "cdp_url", self.cdp_url) or self.cdp_url
+            )
         return result
 
     async def open_url(self, url: str) -> ActionResult:
@@ -72,9 +75,11 @@ class BrowserSession:
     async def navigate(self, url: str) -> ActionResult:
         return await self._with_wall(await self._driver.navigate(url))
 
-    async def snapshot(self) -> ActionResult:
+    async def snapshot(self, *, focus: str = "") -> ActionResult:
         return await self._with_wall(
-            await self._driver.snapshot(max_chars=self.max_snapshot_chars)
+            await self._driver.snapshot(
+                max_chars=self.max_snapshot_chars, focus=focus
+            )
         )
 
     async def read(self) -> ActionResult:
@@ -82,8 +87,78 @@ class BrowserSession:
             await self._driver.read(max_chars=self.max_read_chars)
         )
 
-    async def click(self, ref: str) -> ActionResult:
-        result = await self._driver.click(ref)
+    def _clickable(self) -> dict[str, Any]:
+        refs = getattr(self._driver, "_refs", None)
+        if isinstance(refs, dict) and refs:
+            return refs
+        elements = getattr(self._driver, "_elements", None)
+        return elements if isinstance(elements, dict) else {}
+
+    async def _ensure_targets(self) -> ActionResult | None:
+        if self._clickable():
+            return None
+        snap = await self.snapshot()
+        return None if snap.ok else snap
+
+    async def _resolve(
+        self,
+        *,
+        ref: str = "",
+        text: str = "",
+        nth: int = 0,
+        kind: str = "click",
+    ) -> tuple[str, ActionResult | None]:
+        from arelis.browser.snapshot import resolve_target_ref
+
+        resolved = (ref or "").strip()
+        if resolved:
+            return resolved, None
+        missing = await self._ensure_targets()
+        if missing is not None:
+            return "", missing
+        ref_hit, err, matches = resolve_target_ref(
+            self._clickable(), text=text, nth=nth, kind=kind
+        )
+        if ref_hit:
+            return ref_hit, None
+        lines = [err or "No match."]
+        lines.extend(info.line() for info in matches[:8])
+        code = "AMBIGUOUS" if matches else "NO_MATCH"
+        return "", ActionResult(
+            ok=False,
+            output="\n".join(lines),
+            data={"code": code, "text": text, "refs": [info.ref for info in matches]},
+        )
+
+    async def click(
+        self, ref: str = "", *, text: str = "", nth: int = 0
+    ) -> ActionResult:
+        label = (text or "").strip()
+        if label:
+            wall = detect_wall(click_label=label)
+            if wall is not None and wall.kind == "pay":
+                return attach_wall(
+                    ActionResult(
+                        ok=False,
+                        output=f"Stopped before {label!r}.",
+                        data={"label": label},
+                    ),
+                    wall,
+                    ok=False,
+                )
+        resolved, err = await self._resolve(ref=ref, text=text, nth=nth, kind="click")
+        if err is not None:
+            return err
+        result = await self._driver.click(resolved)
+        if not result.ok and "Unknown ref" in (result.output or ""):
+            snap = await self.snapshot()
+            if snap.ok:
+                retry_ref = "" if (text or nth) else resolved
+                resolved, err = await self._resolve(
+                    ref=retry_ref, text=text, nth=nth, kind="click"
+                )
+                if err is None and resolved:
+                    result = await self._driver.click(resolved)
         if not result.ok and "Unknown ref" in (result.output or ""):
             self._click_misses += 1
             if self._click_misses >= 2:
@@ -103,8 +178,15 @@ class BrowserSession:
         label = str((result.data or {}).get("label") or "")
         return await self._with_wall(result, click_label=label)
 
-    async def type_text(self, ref: str, text: str) -> ActionResult:
-        result = await self._driver.type_text(ref, text)
+    async def type_text(
+        self, ref: str, text: str, *, into: str = ""
+    ) -> ActionResult:
+        resolved, err = await self._resolve(
+            ref=ref, text=into or ref, nth=0, kind="type"
+        )
+        if err is not None:
+            return err
+        result = await self._driver.type_text(resolved, text)
         if str((result.data or {}).get("code") or "") == "SECRET_FIELD":
             from arelis.browser.hold import set_paused
 
@@ -118,8 +200,14 @@ class BrowserSession:
             )
         return result
 
-    async def tabs(self, *, select: int | None = None) -> ActionResult:
-        return await self._driver.tabs(select=select)
+    async def tabs(
+        self,
+        *,
+        select: int | None = None,
+        op: str = "",
+        url: str = "",
+    ) -> ActionResult:
+        return await self._driver.tabs(select=select, op=op, url=url)
 
     async def screenshot(
         self, path: str, *, full_page: bool = False
@@ -140,11 +228,56 @@ class BrowserSession:
     async def press(self, key: str) -> ActionResult:
         return await self._driver.press(key)
 
-    async def select_option(self, ref: str, value: str) -> ActionResult:
-        return await self._driver.select_option(ref, value)
+    async def select_option(
+        self, ref: str, value: str, *, into: str = ""
+    ) -> ActionResult:
+        resolved, err = await self._resolve(
+            ref=ref, text=into, nth=0, kind="select"
+        )
+        if err is not None:
+            return err
+        return await self._driver.select_option(resolved, value)
 
     async def wait(self, seconds: float) -> ActionResult:
         return await self._driver.wait(seconds)
+
+    async def settle(self, *, timeout_s: float = 4.0) -> ActionResult:
+        settler = getattr(self._driver, "settle", None)
+        if not callable(settler):
+            return ActionResult(ok=True, output="Settled.", data={"settled": True})
+        return await settler(timeout_s=timeout_s)
+
+    async def find(self, text: str, *, nth: int = 0) -> ActionResult:
+        from arelis.browser.snapshot import resolve_target_ref
+
+        missing = await self._ensure_targets()
+        if missing is not None:
+            return missing
+        _ref, err, matches = resolve_target_ref(
+            self._clickable(), text=text, nth=nth, kind="click"
+        )
+        if not matches:
+            return ActionResult(
+                ok=False,
+                output=err or f"Nothing matching {text!r}.",
+                data={"code": "NO_MATCH", "text": text},
+            )
+        lines = [f"Found {len(matches)} for {text or 'controls'!r}:"]
+        lines.extend(info.line() for info in matches[:12])
+        return ActionResult(
+            ok=True,
+            output="\n".join(lines),
+            data={"refs": [info.ref for info in matches], "text": text},
+        )
+
+    async def back(self) -> ActionResult:
+        return await self._with_wall(await self._driver.back())
+
+    async def forward(self) -> ActionResult:
+        return await self._with_wall(await self._driver.forward())
+
+    async def reload(self) -> ActionResult:
+        return await self._with_wall(await self._driver.reload())
 
     async def close(self) -> None:
         closer = getattr(self._driver, "close", None)

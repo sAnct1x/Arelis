@@ -29,7 +29,14 @@ from arelis.presence.ipc_server import IpcServer
 from arelis.presence.lock import external_core_available
 from arelis.ui.first_run import prompt_for_workspace_root
 from arelis.ui.setup_wizard import prompt_for_model_setup
-from arelis.ui.theme import app_font, load_fonts, qt_font_directory, stylesheet
+from arelis.ui.theme import (
+    app_font,
+    apply_theme,
+    load_fonts,
+    qt_font_directory,
+    stylesheet,
+    theme_from_config,
+)
 from arelis.ui.window_resize import configure_native_windows
 from arelis.voice import VoiceService
 from arelis.workspace import WorkspaceRoots
@@ -158,6 +165,7 @@ def _raise_running_instance(config: dict[str, Any]) -> int:
         icon_path = app_icon_path()
         if icon_path.is_file():
             app.setWindowIcon(QIcon(str(icon_path)))
+        apply_theme(theme_from_config(config))
         app.setFont(app_font(load_fonts()))
         app.setStyleSheet(stylesheet())
         notice(
@@ -293,6 +301,7 @@ def run_ui(config: dict[str, Any] | None = None) -> int:
     icon_path = app_icon_path()
     if icon_path.is_file():
         app.setWindowIcon(QIcon(str(icon_path)))
+    apply_theme(theme_from_config(config))
     families = load_fonts()
     app.setFont(app_font(families))
     app.setStyleSheet(stylesheet())

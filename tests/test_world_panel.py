@@ -319,6 +319,15 @@ def test_spoken_lab_verbs_skip_the_chooser(arelis_window, qt_app, monkeypatch, t
         system = get_system()
         assert system is not None
         assert system.pending_travel == "Earth"
+        system.pending_travel = None
+        assert window._try_physics_verb("take me to Tokyo") is True
+        from arelis.earth.runtime import get_earth
+
+        zone = get_earth()
+        assert zone is not None
+        dest = zone.take_goto()
+        assert dest is not None
+        assert dest["name"] == "Tokyo"
         assert window._try_physics_verb("show the magnetosphere") is True
         assert system.overlay.show_magnetic is True
         assert window._try_physics_verb("hide the orbits") is True

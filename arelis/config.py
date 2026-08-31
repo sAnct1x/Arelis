@@ -6,6 +6,7 @@ from typing import Any
 
 import yaml
 
+from arelis import paths
 from arelis.paths import default_workspace_root, state_dir
 
 PACKAGE_ROOT = Path(__file__).resolve().parent
@@ -91,6 +92,7 @@ def load_config(path: Path | None = None) -> dict[str, Any]:
             deep_merge(data, local)
 
     named_roots = _parse_workspace_roots(data.get("workspace", {}).get("roots", ["."]))
+    named_roots = ensure_package_inspect_root(named_roots)
     data.setdefault("workspace", {})
     data["workspace"]["named_roots"] = named_roots
     # Flat absolute paths kept for anything that still reads roots as strings.
@@ -141,6 +143,47 @@ def _parse_workspace_roots(roots: list[Any]) -> list[dict[str, Any]]:
         seen.add(name)
         named.append({"name": name, "path": str(p), "read_only": read_only})
     return named
+
+
+def ensure_package_inspect_root(named: list[dict]) -> list[dict]:
+    """Give an installed copy a read-only window onto its own package.
+
+    A checkout already has the repository as ``workspace.roots`` ``"."``, so
+    stacking ``PACKAGE_ROOT`` on top would be a second overlapping root.
+    Installed, ``"."`` is Documents/Arelis and the package lives under
+    site-packages — they need a separate root to inspect shipped code, and
+    that root must not accept writes.
+    """
+    if paths.is_source_checkout():
+        return named
+
+    try:
+        package = paths.PACKAGE_ROOT.resolve()
+    except OSError:
+        return named
+
+    out = [dict(entry) for entry in named]
+    for entry in out:
+        raw = entry.get("path")
+        if raw is None:
+            continue
+        try:
+            root_path = Path(str(raw)).resolve()
+        except OSError:
+            continue
+        if root_path == package:
+            entry["read_only"] = True
+            return out
+        try:
+            if package.is_relative_to(root_path):
+                return out
+        except (ValueError, OSError):
+            continue
+
+    taken = {str(entry.get("name") or "") for entry in out}
+    name = "source" if "source" not in taken else "arelis-source"
+    out.append({"name": name, "path": str(package), "read_only": True})
+    return out
 
 
 def _resolve_root_path(root: str) -> Path:

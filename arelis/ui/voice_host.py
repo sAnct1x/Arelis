@@ -325,6 +325,16 @@ def wake_resolved(window, future, generation: int) -> None:
     try:
         if result.matched:
             window.wake_detected.emit(result.remainder)
+        elif _idle_control_heard(window, result.heard):
+            asyncio.run_coroutine_threadsafe(
+                window.bus.publish(
+                    Event(
+                        EventType.VOICE_TRANSCRIPT,
+                        {"text": result.heard, "deliver": "control"},
+                    )
+                ),
+                window.loop,
+            )
         elif result.heard and looks_like_wake_attempt(result.heard):
             # Near-miss: name-ish but regex still failed — tell the operator.
             snippet = result.heard.strip()
@@ -336,6 +346,24 @@ def wake_resolved(window, future, generation: int) -> None:
             )
     except RuntimeError:
         pass
+
+
+def _idle_control_heard(window, heard: object) -> bool:
+    """True when wake missed but she is mid-turn / armed and this is stop / yes / pause."""
+    from arelis.core.confirm_speech import classify_drive_act, classify_voice_act
+
+    text = str(heard or "").strip()
+    if not text:
+        return False
+    if classify_voice_act(text) is None and classify_drive_act(text) is None:
+        return False
+    if getattr(window, "_turn_busy", False):
+        return True
+    conv = getattr(window, "conversation", None)
+    if conv is not None and conv.confirm_open():
+        return True
+    return bool(getattr(window, "_drive_session", False))
+
 
 def on_wake_detected(window, remainder: object) -> None:
     """Wake phrase matched. Enter conversation; send remainder if any."""

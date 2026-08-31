@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import math
 
-from PySide6.QtCore import QPoint, QPointF, QSize, Qt, QTimer, Signal
+from PySide6.QtCore import QPoint, QPointF, QRect, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QMouseEvent, QPainter, QPaintEvent, QPen, QRadialGradient
 from PySide6.QtWidgets import (
     QHBoxLayout,
@@ -20,30 +20,25 @@ from PySide6.QtWidgets import (
 
 from arelis.ui.glass import Hairline
 from arelis.ui.stage import BLOOM_X, BLOOM_Y
-from arelis.ui.theme import FILAMENT, color
+from arelis.ui.theme import FILAMENT, active_theme, color
 
 _GHOST_WIDTH = 220
 
-_ACCENT = color("accent")
-_CORE = QColor(*FILAMENT["core"])
-_CORE_HALO = QColor(*FILAMENT["core_halo"])
-_TICK = QColor(*FILAMENT["tick"])
-_TICK_HALO = QColor(*FILAMENT["tick_halo"])
 _CLEAR = QColor(0, 0, 0, 0)
 
 
 def _lit(base: QColor, alpha: float) -> QColor:
     return QColor(base.red(), base.green(), base.blue(), max(0, min(255, int(alpha))))
 
-# The line under the orbit is the only place the idle face can say which voice
-# mode is latched. The two-arc button is 34px of parked chrome and reads as
-# decoration, so a wake that worked looked like nothing happened.
+# Sodium idle: "what are we working on" is the typeable ask; wake status only
+# while something is latched. Filament idle: the field is not a composer —
+# the line is say "hey arelis", one line. Text lives on the chat plate.
 #
 # Keep these no wider than the prompt host. This label sits in the centre
 # column, so its width becomes the column's width, and a longer line pushed the
 # column out far enough that _layout_idle had no room left for the session
 # ghosts and hid them.
-_LISTEN_IDLE = "say hey arelis"
+_LISTEN_IDLE = 'say "hey arelis"'
 _LISTEN_TALKING = "talking · say goodbye"
 _LISTEN_DICTATING = "dictating · ctrl+m to stop"
 _LISTEN_ACK = "listening"
@@ -72,28 +67,33 @@ def paint_orbit(
     beat: float = 0.0,
 ) -> None:
     """Ring, tick, beating core. Same painter the idle canvas uses."""
+    accent = color("accent")
+    core = QColor(*FILAMENT["core"])
+    core_halo = QColor(*FILAMENT["core_halo"])
+    tick = QColor(*FILAMENT["tick"])
+    tick_halo = QColor(*FILAMENT["tick_halo"])
     s = box / 220.0
     d = max(0.2, min(1.0, float(dim)))
     r = 68.0 * s
 
     painter.setPen(Qt.PenStyle.NoPen)
     room = QRadialGradient(QPointF(cx, cy), r + 52.0 * s)
-    room.setColorAt(0.0, _lit(_CORE_HALO, 40 * d))
-    room.setColorAt(0.4, _lit(_ACCENT, 22 * d))
+    room.setColorAt(0.0, _lit(core_halo, 40 * d))
+    room.setColorAt(0.4, _lit(accent, 22 * d))
     room.setColorAt(1.0, _CLEAR)
     painter.setBrush(room)
     painter.drawEllipse(QPointF(cx, cy), r + 52.0 * s, r + 52.0 * s)
 
     halo = QRadialGradient(QPointF(cx, cy), r + 18.0 * s)
     halo.setColorAt(0.72, _CLEAR)
-    halo.setColorAt(0.88, _lit(_ACCENT, 52 * d))
+    halo.setColorAt(0.88, _lit(accent, 52 * d))
     halo.setColorAt(1.0, _CLEAR)
     painter.setBrush(halo)
     painter.drawEllipse(QPointF(cx, cy), r + 18.0 * s, r + 18.0 * s)
 
     painter.setBrush(Qt.BrushStyle.NoBrush)
     for width, alpha in ((3.2, 48), (1.4, 110)):
-        ring = QPen(_lit(_ACCENT, alpha * d))
+        ring = QPen(_lit(accent, alpha * d))
         ring.setWidthF(max(1.0, width * s))
         painter.setPen(ring)
         painter.drawEllipse(QPointF(cx, cy), r, r)
@@ -103,25 +103,25 @@ def paint_orbit(
     ty = cy - r * math.cos(rad)
     tick_r = 16.0 * s
     tick_glow = QRadialGradient(QPointF(tx, ty), tick_r)
-    tick_glow.setColorAt(0.0, _lit(_TICK_HALO, 190 * d))
-    tick_glow.setColorAt(0.45, _lit(_ACCENT, 70 * d))
+    tick_glow.setColorAt(0.0, _lit(tick_halo, 190 * d))
+    tick_glow.setColorAt(0.45, _lit(accent, 70 * d))
     tick_glow.setColorAt(1.0, _CLEAR)
     painter.setPen(Qt.PenStyle.NoPen)
     painter.setBrush(tick_glow)
     painter.drawEllipse(QPointF(tx, ty), tick_r, tick_r)
-    painter.setBrush(_lit(_TICK, 255 * d))
+    painter.setBrush(_lit(tick, 255 * d))
     painter.drawEllipse(QPointF(tx, ty), 2.4 * s, 2.4 * s)
 
     t = 0.5 - 0.5 * math.cos(beat * 6.283185307179586)
     glow_r = (22.0 + 10.0 * t) * s
     core_glow = QRadialGradient(QPointF(cx, cy), glow_r)
-    core_glow.setColorAt(0.0, _lit(_CORE_HALO, (160 + 50 * t) * d))
-    core_glow.setColorAt(0.35, _lit(_ACCENT, (70 + 30 * t) * d))
+    core_glow.setColorAt(0.0, _lit(core_halo, (160 + 50 * t) * d))
+    core_glow.setColorAt(0.35, _lit(accent, (70 + 30 * t) * d))
     core_glow.setColorAt(1.0, _CLEAR)
     painter.setBrush(core_glow)
     painter.drawEllipse(QPointF(cx, cy), glow_r, glow_r)
     core_r = (2.4 + 1.2 * t) * s
-    painter.setBrush(_lit(_CORE, 255 * d))
+    painter.setBrush(_lit(core, 255 * d))
     painter.drawEllipse(QPointF(cx, cy), core_r, core_r)
 
 
@@ -170,6 +170,8 @@ class OrbitCanvas(QWidget):
         self.update()
 
     def paintEvent(self, event: QPaintEvent) -> None:
+        if active_theme() == "filament":
+            return
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         paint_orbit(
@@ -335,6 +337,8 @@ class OrbitIdle(QWidget):
         voice_l.setAlignment(Qt.AlignmentFlag.AlignHCenter)
         self.voice_host.hide()
         col.addWidget(self.voice_host, alignment=Qt.AlignmentFlag.AlignHCenter)
+        self._prompt_typing = False
+        self.listen_word.hide()
 
         self._readout = QWidget(self)
         self._readout.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
@@ -352,6 +356,42 @@ class OrbitIdle(QWidget):
         self.hint = QLabel("talk or type whenever you're ready", self)
         self.hint.setObjectName("VoidListenWord")
         self.hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.apply_theme_face()
+
+    def apply_theme_face(self) -> None:
+        """Sodium keeps the lamp. Filament hides it — the window paints the field."""
+        filament = active_theme() == "filament"
+        orbit = getattr(self, "orbit", None)
+        if orbit is not None:
+            orbit.setVisible(not filament)
+            if filament:
+                orbit.set_animating(False)
+        hair = getattr(self, "idle_hairline", None)
+        if hair is not None:
+            hair.setVisible(not filament)
+        host = getattr(self, "prompt_host", None)
+        if host is not None:
+            host.setVisible(not filament)
+        label = getattr(self, "idle_placeholder", None)
+        if label is not None:
+            label.setVisible(not filament)
+        listen = getattr(self, "listen_word", None)
+        if listen is not None:
+            listen.setProperty("wake", "true" if filament else "false")
+            listen.setWordWrap(not filament)
+            listen.setMaximumWidth(480 if filament else 300)
+            style = listen.style()
+            if style is not None:
+                style.unpolish(listen)
+                style.polish(listen)
+        self._sync_listen_visibility()
+        hint = getattr(self, "hint", None)
+        if hint is not None:
+            hint.setVisible(not filament)
+        self._layout_idle()
+
+    def refresh_theme_icons(self) -> None:
+        self.apply_theme_face()
 
     def set_side_chrome(self, *, ghosts: bool, readout: bool) -> None:
         """Hide idle ghosts/readout when a dock already shows the same facts."""
@@ -425,16 +465,30 @@ class OrbitIdle(QWidget):
             text, live = _LISTEN_ACK, True
         else:
             text, live = _LISTEN_IDLE, False
-        if self.listen_word.text() == text:
+        changed = self.listen_word.text() != text
+        if changed:
+            self.listen_word.setText(text)
+            self.listen_word.setProperty("live", "true" if live else "false")
+            style = self.listen_word.style()
+            if style is not None:
+                style.unpolish(self.listen_word)
+                style.polish(self.listen_word)
+            self.listen_word.adjustSize()
+        self._sync_listen_visibility()
+        if changed:
+            self._layout_idle()
+
+    def _sync_listen_visibility(self) -> None:
+        """Sodium: status only while voice is on. Filament: the wake is the face."""
+        listen = getattr(self, "listen_word", None)
+        if listen is None:
             return
-        self.listen_word.setText(text)
-        self.listen_word.setProperty("live", "true" if live else "false")
-        style = self.listen_word.style()
-        if style is not None:
-            style.unpolish(self.listen_word)
-            style.polish(self.listen_word)
-        self.listen_word.adjustSize()
-        self._layout_idle()
+        typing = getattr(self, "_prompt_typing", False)
+        if active_theme() == "filament":
+            listen.setVisible(not typing)
+            return
+        live = listen.property("live") == "true"
+        listen.setVisible(live and not typing)
 
     def voice_mode_text(self) -> str:
         return self.listen_word.text()
@@ -445,9 +499,10 @@ class OrbitIdle(QWidget):
 
     def fit_prompt(self, width: int, height: int, *, typing: bool) -> None:
         """Idle composer grows with the sentence; hint yields once typing."""
+        self._prompt_typing = bool(typing)
         self.prompt_host.setFixedSize(max(120, int(width)), max(36, int(height) + 8))
         self.idle_hairline.setFixedWidth(max(120, int(width)))
-        self.listen_word.setVisible(not typing)
+        self._sync_listen_visibility()
         self.idle_placeholder.setVisible(not typing)
         self.idle_placeholder.setGeometry(self.prompt_host.rect())
         self.idle_placeholder.lower()
@@ -493,7 +548,11 @@ class OrbitIdle(QWidget):
             return
         margin = 16
         self.hint.adjustSize()
-        hint_h = self.hint.height() + 20
+        hint_h = (
+            0
+            if active_theme() == "filament" or not self.hint.isVisible()
+            else self.hint.height() + 20
+        )
         center_layout = self._center.layout()
         if center_layout is not None:
             center_layout.activate()
@@ -503,12 +562,33 @@ class OrbitIdle(QWidget):
             return
         bloom = self._bloom_in_self()
         orbit_h = self.orbit.height()
-        cx = bloom.x() - cw // 2
-        cy = bloom.y() - orbit_h // 2
-        # Stay inside the leftover column. Pinning to window bloom without this
-        # let the face hang into a transparent dock — a second orbit on the right.
-        cx = max(margin, min(cx, w - cw - margin))
-        cy = max(margin, min(cy, h - hint_h - ch - margin))
+        pinned_home = False
+        if active_theme() == "filament":
+            win = self.window()
+            field = getattr(win, "_filament", None) if win is not None else None
+            if field is not None and win is not None:
+                p = field.prompt_point(win.rect())
+                local = self.mapFrom(win, p.toPoint())
+                cx = local.x() - cw // 2
+                cy = local.y()
+                home = field.home_rect(win.rect())
+                band = QRect(self.mapFrom(win, home.topLeft()), home.size())
+                if band.width() > cw + margin * 2:
+                    cx = max(band.left() + margin, min(cx, band.right() - cw - margin))
+                    cy = max(band.top() + margin, min(cy, band.bottom() - ch - margin))
+                    pinned_home = True
+            else:
+                cx = bloom.x() - cw // 2
+                cy = bloom.y() + 80
+        else:
+            cx = bloom.x() - cw // 2
+            cy = bloom.y() - orbit_h // 2
+        # Sodium: stay inside the leftover column. Filament already pinned to
+        # the primary band — clamping to this widget yanks the ask onto the
+        # left desk when the idle face has not grown with a 3-span yet.
+        if not pinned_home:
+            cx = max(margin, min(cx, w - cw - margin))
+            cy = max(margin, min(cy, h - hint_h - ch - margin))
         self._center.move(cx, cy)
         self._center.raise_()
 
@@ -522,7 +602,11 @@ class OrbitIdle(QWidget):
             ghost_layout.activate()
         self._ghosts.adjustSize()
         gx = self._window_inset_x(from_left=True, width=self._ghosts.width())
-        room_left = self._want_ghosts and gx + self._ghosts.width() + 12 <= cx
+        room_left = (
+            self._want_ghosts
+            and active_theme() != "filament"
+            and gx + self._ghosts.width() + 12 <= cx
+        )
         self._ghosts.setVisible(room_left)
         if self._ghosts.isVisible():
             gy = max(margin, min(cy, h - hint_h - self._ghosts.height() - margin))
@@ -531,7 +615,11 @@ class OrbitIdle(QWidget):
 
         self._readout.adjustSize()
         rx = self._window_inset_x(from_left=False, width=self._readout.width())
-        room_right = self._want_readout and (cx + cw) + 12 <= rx
+        room_right = (
+            self._want_readout
+            and active_theme() != "filament"
+            and (cx + cw) + 12 <= rx
+        )
         self._readout.setVisible(room_right)
         if self._readout.isVisible():
             ry = max(margin, min(cy, h - hint_h - self._readout.height() - margin))

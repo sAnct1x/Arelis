@@ -45,7 +45,7 @@ SOLAR_SPAWN: tuple[tuple[str, str, str], ...] = (
 )
 HELP_HOTKEYS: tuple[str, ...] = (
     "WASD/QE fly  wheel dolly  click inspect  right/dblclick travel  "
-    "Home/R reset  Enter travel",
+    "Home/R reset  Enter travel  / find on Earth",
     "Space pause  1–4 [ ] rate  \\ warp  O orbits  L Lagrange  T trails  "
     "` graphs",
     "G gravity  M magnetic  P wind  ; grid  H this plate  "
@@ -61,6 +61,7 @@ KEY_STRIP: tuple[tuple[str, str], ...] = (
     ("H", "keys"),
 )
 KEY_HINT = "WASD fly · Space pause · click inspect"
+KEY_HINT_EARTH = "WASD fly · / find · click Live"
 KEY_LEGEND: tuple[tuple[str, tuple[tuple[str, str], ...]], ...] = (
     (
         "Move",

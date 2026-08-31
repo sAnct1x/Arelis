@@ -71,6 +71,7 @@ _STATUS_PREFIXES: tuple[str, ...] = (
     "Live bridge",
     "Detached",
     "open_ui",
+    "Watch",
 )
 
 

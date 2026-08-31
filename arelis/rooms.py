@@ -6,12 +6,10 @@ and wrong for "we have been building an interferometry analysis for three
 weeks". Those need somewhere that remembers, that already knows which folder
 the work lives in, and that does not have to be re-explained every launch.
 
-A room is that place. It carries four things and nothing else:
-
-    purpose   plain language, written once, handed to her every turn in the room
-    root      which workspace project the work lives in
-    kind      the lean — which model role and which skills to reach for first
-    thread    its own conversation, resumed on entry, never mixed with general
+A room is that place. It carries a thread, a folder, a lean, and a
+purpose. The first time you walk into an empty one she asks for those
+in the chat — typed or spoken, same path — and writes what you said.
+Slash commands still work. You can also say the fields later.
 
 What a room deliberately does *not* do is take capability away. The obvious
 design is an allowlist per room, and it is wrong by default: ask her the time
@@ -33,6 +31,7 @@ from __future__ import annotations
 import logging
 import re
 import unicodedata
+from collections.abc import Iterable
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -185,12 +184,23 @@ def match_enter_intent(text: str) -> str | None:
     return name
 
 
+_NOT_A_NEW_ROOM = frozenset({"this", "that", "the", "our", "my", "current", "new"})
+
+
 def match_make_room_intent(text: str) -> str | None:
-    """`/room new <name>` said out loud, or None."""
+    """`/room new <name>` said out loud, or None.
+
+    "Set up this room" is configuring the open room, not creating `this`.
+    """
     found = _MAKE_ROOM_INTENT.match(text or "")
     if found is None:
         return None
     name = normalize_room_name(found.group("called") or found.group("named") or "")
+    if name.lower() in _NOT_A_NEW_ROOM:
+        return None
+    # "make it a research room" is a lean, not a room called "it a research".
+    if match_set_kind_intent(text):
+        return None
     return name if name and looks_like_room_name(name) else None
 
 
@@ -200,6 +210,282 @@ def match_list_rooms_intent(text: str) -> bool:
 
 def match_leave_intent(text: str) -> bool:
     return _LEAVE_INTENT.match(text or "") is not None
+
+
+_SKIP_SETUP = re.compile(
+    r"""(?ix)
+    ^\s*
+    (?:hey\s+)? (?:arelis\s*[,:]?\s*)?
+    (?:
+        skip\s+(?:the\s+)?setup
+      | later
+      | not\s+now
+      | (?:i(?:'ll| will)\s+)? (?:set\s+this\s+up|do\s+(?:this|it))\s+later
+    )
+    \s*[.!]?\s*$
+    """
+)
+_SKIP_STEP = re.compile(
+    r"""(?ix)
+    ^\s*
+    (?:hey\s+)? (?:arelis\s*[,:]?\s*)?
+    (?:
+        skip(?:\s+(?:this|it|that))?
+      | none
+      | no\s+(?:folder|project|root)
+      | no\s+thanks
+    )
+    \s*[.!]?\s*$
+    """
+)
+_START_SETUP = re.compile(
+    r"""(?ix)
+    ^\s*
+    (?:hey\s+)? (?:arelis\s*[,:]?\s*)?
+    (?:
+        set\s+up\s+(?:this|the|our)\s+room
+      | configure\s+(?:this|the)\s+room
+    )
+    \s*[.!]?\s*$
+    """
+)
+_SET_PURPOSE = re.compile(
+    r"""(?ix)
+    ^\s*
+    (?:hey\s+)? (?:arelis\s*[,:]?\s*)?
+    (?:
+        (?:this\s+room|it)\s+is\s+for
+      | the\s+purpose\s+is
+      | it'?s\s+for
+    )
+    \s+(?P<value>.+?)
+    \s*[.!]?\s*$
+    """
+)
+_SET_ROOT = re.compile(
+    r"""(?ix)
+    ^\s*
+    (?:hey\s+)? (?:arelis\s*[,:]?\s*)?
+    (?:
+        work\s+in
+      | use(?:\s+the)?
+      | the\s+folder\s+is
+      | the\s+project\s+is
+      | point\s+(?:it\s+)?at
+    )
+    \s+(?P<value>.+?)
+    \s*[.!]?\s*$
+    """
+)
+_SET_KIND = re.compile(
+    r"""(?ix)
+    ^\s*
+    (?:hey\s+)? (?:arelis\s*[,:]?\s*)?
+    (?:
+        kind\s+(?P<kind>\w+)
+      | make\s+it\s+(?:an?\s+)?(?P<make>\w+)\s+room
+      | this\s+is\s+(?:an?\s+)?(?P<this>\w+)\s+room
+      | lean\s+(?P<lean>\w+)
+    )
+    \s*[.!]?\s*$
+    """
+)
+_PURPOSE_LEAD = re.compile(
+    r"""(?ix)
+    ^\s*
+    (?:hey\s+)? (?:arelis\s*[,:]?\s*)?
+    (?:
+        (?:this\s+room|it)\s+is\s+for
+      | the\s+purpose\s+is
+      | it'?s\s+for
+    )
+    \s+
+    """
+)
+_RESULT_LEAD = re.compile(
+    r"""(?ix)
+    ^\s*
+    (?:hey\s+)? (?:arelis\s*[,:]?\s*)?
+    (?:
+        (?:a\s+finished\s+)?result(?:\s+looks\s+like)?
+      | done\s+(?:looks\s+like|is)
+    )
+    \s*(?:is|:)?\s+
+    """
+)
+_TEST_LEAD = re.compile(
+    r"""(?ix)
+    ^\s*
+    (?:hey\s+)? (?:arelis\s*[,:]?\s*)?
+    (?:
+        (?:a\s+)?run\s+counts\s+when
+      | we\s+know\s+it\s+ran\s+when
+      | the\s+test\s+is
+    )
+    \s+
+    """
+)
+_FOLDER_TRAIL = re.compile(
+    r"(?i)\s+(?:folder|project|root)$"
+)
+_KIND_HINTS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("code", ("pytest", "unit test", "refactor", "codebase", "pull request")),
+    (
+        "writing",
+        ("draft", "essay", "write-up", "write up", "manuscript", "write the"),
+    ),
+    ("research", ("paper", "literature", "arxiv", "cite", "review the")),
+    (
+        "analysis",
+        ("data", "plot", "csv", "survey", "catalog", "spreadsheet", "table"),
+    ),
+)
+
+SETUP_STEPS: tuple[str, ...] = ("purpose", "root", "result", "test")
+
+
+@dataclass(frozen=True)
+class RoomSetup:
+    """In-process first-entry interview. Not written to rooms.yaml mid-way."""
+
+    room_id: str
+    step: str
+
+    def advance(self) -> RoomSetup | None:
+        try:
+            index = SETUP_STEPS.index(self.step)
+        except ValueError:
+            return None
+        if index + 1 >= len(SETUP_STEPS):
+            return None
+        return RoomSetup(self.room_id, SETUP_STEPS[index + 1])
+
+
+def needs_setup(room: Room) -> bool:
+    """Empty new rooms only. Reality already has a contract."""
+    if room.id == PHYSICS_ROOM_ID:
+        return False
+    if room.setup in {"done", "skipped"}:
+        return False
+    return not bool(room.purpose.strip())
+
+
+def match_skip_setup_intent(text: str) -> bool:
+    return _SKIP_SETUP.match(text or "") is not None
+
+
+def match_skip_step_intent(text: str) -> bool:
+    return _SKIP_STEP.match(text or "") is not None
+
+
+def match_start_setup_intent(text: str) -> bool:
+    return _START_SETUP.match(text or "") is not None
+
+
+def match_set_purpose_intent(text: str) -> str | None:
+    found = _SET_PURPOSE.match(text or "")
+    if found is None:
+        return None
+    value = _clean(found.group("value"))
+    return value or None
+
+
+def match_set_kind_intent(text: str) -> str | None:
+    found = _SET_KIND.match(text or "")
+    if found is None:
+        return None
+    kind = (
+        found.group("kind")
+        or found.group("make")
+        or found.group("this")
+        or found.group("lean")
+        or ""
+    ).strip().lower()
+    return kind if kind in KINDS else None
+
+
+def match_room_project(text: str, names: Iterable[str]) -> str | None:
+    """Resolve a spoken folder to one workspace project, or None."""
+    raw = _FOLDER_TRAIL.sub("", _clean(text))
+    raw = re.sub(
+        r"(?i)^(work\s+in|use(?:\s+the)?|the\s+folder\s+is|the\s+project\s+is|"
+        r"point\s+(?:it\s+)?at)\s+",
+        "",
+        raw,
+    )
+    raw = _FOLDER_TRAIL.sub("", _clean(raw))
+    if not raw:
+        return None
+    known = [name for name in names if name]
+    lowered = raw.lower()
+    exact = [name for name in known if name.lower() == lowered]
+    if len(exact) == 1:
+        return exact[0]
+    prefix = [name for name in known if name.lower().startswith(lowered)]
+    if len(prefix) == 1:
+        return prefix[0]
+    inside = [name for name in known if lowered in name.lower() or name.lower() in lowered]
+    if len(inside) == 1:
+        return inside[0]
+    return None
+
+
+def match_set_root_intent(text: str, names: Iterable[str]) -> str | None:
+    found = _SET_ROOT.match(text or "")
+    if found is None:
+        return None
+    return match_room_project(found.group("value"), names)
+
+
+def strip_setup_value(step: str, text: str) -> str:
+    raw = _clean(text)
+    if step == "purpose":
+        raw = _clean(_PURPOSE_LEAD.sub("", raw))
+    elif step == "result":
+        raw = _clean(_RESULT_LEAD.sub("", raw))
+    elif step == "test":
+        raw = _clean(_TEST_LEAD.sub("", raw))
+    return raw
+
+
+def infer_kind(*texts: str) -> str:
+    blob = " ".join(part for part in texts if part).lower()
+    for kind, hints in _KIND_HINTS:
+        if any(hint in blob for hint in hints):
+            return kind
+    return DEFAULT_KIND
+
+
+def setup_prompt(step: str, room: Room, projects: Iterable[str]) -> str:
+    name = room.name
+    if step == "purpose":
+        return (
+            f"What is {name} for? One sentence is enough. "
+            "Or say skip, or later to do this another time."
+        )
+    if step == "root":
+        names = list(projects)
+        if names:
+            listed = ", ".join(f"`{item}`" for item in names)
+            return (
+                f"Which folder should the work live in? {listed}. "
+                "Say the name, or skip."
+            )
+        return (
+            "Which folder should the work live in? Add one in the workspace "
+            "dock first, or say skip."
+        )
+    if step == "result":
+        return (
+            "What does a finished result look like — a plot, a dump, a table, "
+            "two sentences in documents/? Or say skip."
+        )
+    if step == "test":
+        return (
+            "How will we know a run actually happened? "
+            "Or say skip."
+        )
+    return ""
 
 
 @dataclass(frozen=True)
@@ -286,6 +572,9 @@ class Room:
     purpose: str = ""
     root: str = ""
     kind: str = DEFAULT_KIND
+    result: str = ""
+    test: str = ""
+    setup: str = ""
     tools: tuple[str, ...] = ()
     created_at: str = ""
 
@@ -307,6 +596,10 @@ class Room:
         lines = [f"### Room — {self.name}"]
         if self.purpose:
             lines.append(self.purpose.strip())
+        if self.result:
+            lines.append(f"A finished result looks like: {self.result.strip()}")
+        if self.test:
+            lines.append(f"A run counts when: {self.test.strip()}")
         if self.root:
             lines.append(f"Work happens in the `{self.root}` project unless told otherwise.")
             if self.kind == "writing":
@@ -333,6 +626,12 @@ class Room:
             out["root"] = self.root
         if self.kind and self.kind != DEFAULT_KIND:
             out["kind"] = self.kind
+        if self.result:
+            out["result"] = self.result
+        if self.test:
+            out["test"] = self.test
+        if self.setup:
+            out["setup"] = self.setup
         if self.tools:
             out["tools"] = list(self.tools)
         if self.created_at:
@@ -424,12 +723,18 @@ class RoomStore:
         tools = body.get("tools") or ()
         if isinstance(tools, str):
             tools = [tools]
+        setup = _clean(body.get("setup")).lower()
+        if setup not in {"", "done", "skipped"}:
+            setup = ""
         return Room(
             id=slug,
             name=_clean(body.get("name")) or slug,
             purpose=str(body.get("purpose") or "").strip(),
             root=_clean(body.get("root")),
             kind=kind,
+            result=str(body.get("result") or "").strip(),
+            test=str(body.get("test") or "").strip(),
+            setup=setup,
             tools=tuple(sorted({_clean(t) for t in tools if _clean(t)})),
             created_at=_clean(body.get("created_at")),
         )
@@ -614,7 +919,7 @@ class RoomStore:
         room = self.get(room_id)
         if room is None:
             raise ValueError(f"No room called `{room_id}`.")
-        allowed = {"name", "purpose", "root", "kind", "tools"}
+        allowed = {"name", "purpose", "root", "kind", "result", "test", "setup", "tools"}
         unknown = set(fields) - allowed
         if unknown:
             raise ValueError(f"Cannot set {', '.join(sorted(unknown))} on a room.")

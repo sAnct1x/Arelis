@@ -124,6 +124,14 @@ def test_recall_ask_selects_memory_card() -> None:
     )
 
 
+def test_keep_this_selects_workspace_not_memory() -> None:
+    ids = select_skill_ids(
+        "keep this: the spare key is under the planter",
+        available_tools={"workspace", "memory", "recall"},
+    )
+    assert "workspace" in ids
+
+
 def test_analyze_ask_selects_analyze_card() -> None:
     ids = select_skill_ids(
         "Summarize data in reports/sales.csv",
@@ -320,3 +328,71 @@ def test_summarize_the_readme_selects_workspace() -> None:
         available_tools={"workspace", "web_search", "send_sms"},
     )
     assert "workspace" in ids
+
+
+def test_inspect_phrases_select_inspect_not_web_fallback() -> None:
+    tools = {"workspace", "web_search", "scrape", "web_fetch"}
+    for phrase in (
+        "how do you confirm writes?",
+        "how does my confirm gate work?",
+        "how does confirm work",
+        "where is the Drive strip?",
+        "what's in policy.py?",
+        "what does tool_subset do?",
+        "show me the Drive strip",
+        "how do you work",
+        "read arelis/core/tool_subset.py and tell me what it does",
+    ):
+        ids, fallback = select_skill_ids_detailed(phrase, available_tools=tools)
+        assert "inspect" in ids or "workspace" in ids, phrase
+        assert fallback is False, phrase
+
+
+def test_source_inspect_asks_are_not_fallback_only_web() -> None:
+    tools = {"workspace", "web_search", "scrape", "web_fetch"}
+    for phrase in (
+        "read arelis/core/tool_subset.py and tell me what it does",
+        "what's in policy.py?",
+        "where is the Drive strip?",
+    ):
+        ids, fallback = select_skill_ids_detailed(phrase, available_tools=tools)
+        assert fallback is False, phrase
+        assert ids != ["web"], phrase
+
+
+def test_toroids_physics_is_not_inspect() -> None:
+    ids = select_skill_ids(
+        "how do toroids relate to physics?",
+        available_tools={"workspace", "cas", "web_search"},
+    )
+    assert "inspect" not in ids
+
+
+def test_fix_your_confirm_gate_does_not_select_inspect() -> None:
+    ids = select_skill_ids(
+        "fix your confirm gate",
+        available_tools={"workspace", "web_search"},
+    )
+    assert "inspect" not in ids
+
+
+def test_source_and_confirm_mentions_without_a_read_are_not_inspect() -> None:
+    tools = {"workspace", "web_search", "scrape", "web_fetch"}
+    for phrase in (
+        "cite your source",
+        "what's your source for that weather number",
+        "the confirm gate paused that write",
+        "don't mention the confirm gate",
+        "email me docs/architecture.md",
+        "email me policy.py",
+    ):
+        ids = select_skill_ids(phrase, available_tools=tools)
+        assert "inspect" not in ids, phrase
+
+
+def test_inspect_and_workspace_cards_quote_the_catalog_path_map() -> None:
+    from arelis.core.intent_catalog import inspect_path_guide
+
+    guide = inspect_path_guide()
+    assert guide in SKILL_CARDS["inspect"].body
+    assert guide in SKILL_CARDS["workspace"].body

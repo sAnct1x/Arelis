@@ -60,6 +60,26 @@ def qt_app():
     return QApplication.instance() or QApplication([])
 
 
+@pytest.fixture(autouse=True)
+def _reset_house_watch():
+    """Inbound lockout and egress mute must not leak across tests."""
+    from arelis.guard import reset_watch
+
+    reset_watch()
+    yield
+    reset_watch()
+
+
+@pytest.fixture(autouse=True)
+def _reset_theme():
+    """Paper tests mutate the live palette. Sodium is the suite default."""
+    from arelis.ui.theme import apply_theme
+
+    apply_theme("sodium")
+    yield
+    apply_theme("sodium")
+
+
 @pytest.fixture
 def arelis_window(qt_app):
     """Build ArelisWindows that are taken apart when the test ends.

@@ -45,6 +45,7 @@ def test_the_errand_is_named_not_the_tool() -> None:
 
 def test_an_action_sharpens_the_line_where_it_matters() -> None:
     assert "saving the file" in tool_status_line("workspace", {"action": "write"})
+    assert "keeping that note" in tool_status_line("workspace", {"action": "keep"})
     assert "reading the file" in tool_status_line("workspace", {"action": "read"})
     assert "adding that task" in tool_status_line("tasks", {"action": "add"})
     assert "checking your tasks" in tool_status_line("tasks", {"action": "list"})

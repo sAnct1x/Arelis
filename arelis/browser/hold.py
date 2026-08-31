@@ -12,6 +12,13 @@ import time
 from typing import Any
 
 _paused = False
+_drive_labels: dict[str, str] = {}
+
+
+def set_drive_labels(labels: dict[str, str] | None) -> None:
+    """Last snapshot labels, so the Drive strip can say 'Sign in' not 'e11'."""
+    global _drive_labels
+    _drive_labels = dict(labels or {})
 
 
 def set_paused(on: bool) -> None:
@@ -46,13 +53,29 @@ def format_drive_status(action: str, args: dict[str, Any] | None = None) -> str:
     else:
         host = url[:48]
     if act == "click":
+        label = str(args.get("text") or args.get("label") or "").strip()
+        if not label and ref:
+            label = (_drive_labels.get(ref) or "").strip()
+        if label:
+            return f"about to click {label[:40]}…"
         return f"about to click {ref}…" if ref else "about to click…"
+    if act == "back":
+        return "going back…"
     if act == "open":
         return f"opening {host}…" if host else "opening…"
     if act == "navigate":
         return f"going to {host}…" if host else "navigating…"
     if act == "type":
-        return f"typing in {ref}…" if ref else "typing…"
+        into = str(args.get("into") or "").strip()
+        where = into or ref
+        return f"typing in {where}…" if where else "typing…"
+    if act == "forward":
+        return "going forward…"
+    if act == "reload":
+        return "reloading…"
+    if act == "find":
+        q = str(args.get("text") or args.get("query") or "").strip()
+        return f"finding {q[:40]}…" if q else "finding…"
     if act == "scroll":
         return "scrolling…"
     if act == "press":
@@ -81,7 +104,46 @@ def format_drive_status(action: str, args: dict[str, Any] | None = None) -> str:
     if act == "screenshot":
         return "capturing…"
     if act == "tabs":
+        tab = str(args.get("tab") or "").strip().lower()
+        if tab == "new":
+            return "opening a tab…"
+        if tab == "close":
+            return "closing a tab…"
         return "checking tabs…"
     if act == "relaunch":
         return "restarting her Chrome…"
     return "driving…"
+
+
+def format_drive_done(
+    action: str,
+    args: dict[str, Any] | None = None,
+    *,
+    data: dict[str, Any] | None = None,
+) -> str:
+    """Past-tense Drive line after a step. Empty means keep the about-to copy."""
+    args = args or {}
+    data = data or {}
+    act = (action or "").strip().lower()
+    label = str(
+        data.get("label") or args.get("text") or args.get("label") or ""
+    ).strip()
+    if act == "click":
+        return f"clicked {label[:40]}" if label else "clicked"
+    if act == "search":
+        q = str(args.get("query") or args.get("text") or data.get("query") or "").strip()
+        return f"searched {q[:40]}" if q else "searched"
+    if act == "open":
+        return "opened"
+    if act == "navigate":
+        return "opened the page"
+    if act == "type":
+        return "typed"
+    if act == "maps":
+        dest = str(data.get("destination") or args.get("destination") or "").strip()
+        return f"opened maps to {dest[:40]}" if dest else "opened maps"
+    if act == "read":
+        return "read this tab"
+    if act == "snapshot":
+        return "read the page"
+    return ""

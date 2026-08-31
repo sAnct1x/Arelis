@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -17,7 +17,17 @@ from arelis.paths import state_dir
 
 log = logging.getLogger(__name__)
 
-DEFAULT_LEDGER_PATH = state_dir() / "action_ledger.jsonl"
+# Tests may set this. Live code resolves through state_dir() on each write.
+DEFAULT_LEDGER_PATH: Path | None = None
+LEDGER_KEEP_DAYS = 14
+
+
+def default_ledger_path() -> Path:
+    return (
+        DEFAULT_LEDGER_PATH
+        if DEFAULT_LEDGER_PATH is not None
+        else state_dir() / "action_ledger.jsonl"
+    )
 
 # Mutating / side-effect tools that should emit a receipt when they succeed.
 _RECEIPT_TOOLS = frozenset(
@@ -64,7 +74,17 @@ _INBOX_MUTATE = frozenset(
     }
 )
 _BROWSER_MUTATE = frozenset(
-    {"open", "navigate", "click", "type", "relaunch", "screenshot"}
+    {
+        "open",
+        "navigate",
+        "click",
+        "type",
+        "relaunch",
+        "screenshot",
+        "back",
+        "forward",
+        "reload",
+    }
 )
 
 
@@ -203,7 +223,7 @@ def append_action_ledger(
     session_id: str | None = None,
 ) -> None:
     """Append one receipt line to the action ledger (best-effort)."""
-    out = path or DEFAULT_LEDGER_PATH
+    out = path or default_ledger_path()
     row = {
         "ts": datetime.now(UTC).isoformat(),
         "session_id": session_id or "",
@@ -215,3 +235,52 @@ def append_action_ledger(
             fh.write(json.dumps(row, ensure_ascii=False) + "\n")
     except Exception:
         log.debug("action ledger write failed", exc_info=True)
+
+
+def prune_action_ledger(
+    *,
+    path: Path | None = None,
+    days: int = LEDGER_KEEP_DAYS,
+) -> int:
+    """Drop ledger lines older than ``days``. Keeps unparseable lines."""
+    out = path if path is not None else default_ledger_path()
+    if not out.is_file():
+        return 0
+    keep_days = max(1, int(days))
+    cutoff = datetime.now(UTC) - timedelta(days=keep_days)
+    try:
+        raw = out.read_text(encoding="utf-8")
+    except OSError:
+        return 0
+    kept: list[str] = []
+    removed = 0
+    for line in raw.splitlines():
+        text = line.strip()
+        if not text:
+            continue
+        try:
+            row = json.loads(text)
+            ts = datetime.fromisoformat(str(row.get("ts") or "").replace("Z", "+00:00"))
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=UTC)
+            if ts < cutoff:
+                removed += 1
+                continue
+        except (json.JSONDecodeError, TypeError, ValueError):
+            pass
+        kept.append(text)
+    if not removed:
+        return 0
+    tmp = out.with_suffix(out.suffix + ".tmp")
+    try:
+        tmp.write_text(("\n".join(kept) + "\n") if kept else "", encoding="utf-8")
+        tmp.replace(out)
+    except OSError:
+        log.debug("action ledger prune failed", exc_info=True)
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+        return 0
+    log.info("pruned %d action ledger line(s)", removed)
+    return removed

@@ -90,6 +90,19 @@ class IpcServer:
             self._server = server
             self.bus.subscribe(None, self._on_bus_event)
             log.info("Core IPC listening on %s:%s", self.host, self.port)
+            try:
+                from arelis.guard import Listener, get_watch
+
+                get_watch().register_listener(
+                    Listener(
+                        name="ipc",
+                        host=self.host,
+                        port=self.port,
+                        bind="loopback",
+                    )
+                )
+            except Exception:
+                log.debug("Watch did not register IPC", exc_info=True)
             return
         if last_error is not None:
             raise last_error
@@ -110,6 +123,12 @@ class IpcServer:
                 pass
         self._clients.clear()
         self._attached = 0
+        try:
+            from arelis.guard import get_watch
+
+            get_watch().drop_listener("ipc")
+        except Exception:
+            pass
         if self._server is not None:
             self._server.close()
             await self._server.wait_closed()

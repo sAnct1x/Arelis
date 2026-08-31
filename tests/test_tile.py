@@ -21,6 +21,8 @@ from arelis.tools.tile import TileTool
         ("close history", ("close", "history")),
         ("open the workspace", ("open", "workspace")),
         ("close the workspace", ("close", "workspace")),
+        ("open the desk", ("open", "workspace")),
+        ("close the desk", ("close", "workspace")),
         ("open thinking", ("open", "thinking")),
         ("close thinking", ("close", "thinking")),
         ("open the camera", ("open", "camera")),

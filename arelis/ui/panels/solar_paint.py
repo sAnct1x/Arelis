@@ -78,6 +78,7 @@ from arelis.ui.panels.solar_const import (
     _LEGEND_ROW,
     _TINT,
     KEY_HINT,
+    KEY_HINT_EARTH,
     KEY_LEGEND,
     SOLAR_OVERLAY,
     SOLAR_SPAWN,
@@ -435,6 +436,9 @@ def chrome_rects(panel) -> list[QRect]:
         panel._tools_open,
         bool(panel._earth_chip_box.isEmpty()),
         bool(getattr(panel, "_earth_card_box", QRect()).isEmpty()),
+        bool(getattr(panel, "_earth_find_box", QRect()).isEmpty()),
+        bool(getattr(panel, "_earth_coach_box", QRect()).isEmpty()),
+        bool(getattr(panel, "_earth_key_box", QRect()).isEmpty()),
         panel._earth_id or "",
         str(panel._confirm.get("kind") or "") if panel._confirm else "",
         id(system),
@@ -455,6 +459,10 @@ def chrome_rects(panel) -> list[QRect]:
         boxes.append(panel._tools_rect())
     if not panel._earth_chip_box.isEmpty():
         boxes.append(QRect(panel._earth_chip_box))
+    for name in ("_earth_coach_box", "_earth_find_box", "_earth_key_box"):
+        extra = getattr(panel, name, QRect())
+        if extra is not None and not extra.isEmpty():
+            boxes.append(QRect(extra))
     card = getattr(panel, "_earth_card_box", QRect())
     if not card.isEmpty():
         boxes.append(QRect(card))
@@ -1185,7 +1193,11 @@ def key_strip_chips(
     hint = QRect(
         inner_left, y, max(40, toggle.left() - inner_left - 8), _KEYS_ROW
     )
-    return [(hint, KEY_HINT, False), (toggle, "Keys", panel._help)], y + _KEYS_ROW + 4
+    from arelis.earth.runtime import get_earth
+
+    zone = get_earth()
+    hint_text = KEY_HINT_EARTH if zone is not None and zone.active else KEY_HINT
+    return [(hint, hint_text, False), (toggle, "Keys", panel._help)], y + _KEYS_ROW + 4
 
 
 def legend_items(
@@ -1195,7 +1207,14 @@ def legend_items(
     col_w = max(130, inner_w // max(cols, 1))
     items: list[tuple[int, int, str, tuple[tuple[str, str], ...], int]] = []
     bottom = legend_top
-    for gi, (title, rows) in enumerate(KEY_LEGEND):
+    legend = list(KEY_LEGEND)
+    from arelis.earth.runtime import get_earth
+    from arelis.ui.earth_chrome import MARK_HINTS
+
+    zone = get_earth()
+    if zone is not None and zone.active:
+        legend.append(("Earth marks", MARK_HINTS))
+    for gi, (title, rows) in enumerate(legend):
         cx = box_left + 10 + (gi % cols) * col_w
         cy = legend_top + (gi // cols) * _LEGEND_BLOCK
         items.append((cx, cy, title, rows, col_w))
@@ -1214,6 +1233,14 @@ def keys_chrome_height(panel, fm: QFontMetrics, width: int) -> int:
 
 
 def keys_footer(panel) -> str:
+    from arelis.earth.runtime import get_earth
+
+    zone = get_earth()
+    if zone is not None and zone.active:
+        return (
+            "Slash finds a city. Live is published feeds. "
+            "Sparse is a hole, not a miss. No F."
+        )
     return "Spoken flags match H and ⋯. No F. Travel flies the eye, not a burn."
 
 
@@ -1431,17 +1458,22 @@ def paint_earth_toggles(panel, painter: QPainter) -> None:
     panel._earth_chip_hits = hits
     panel._earth_chip_box = QRect(box)
     if box.isEmpty():
+        panel._earth_coach_box = QRect()
         return
     band = zone.last_view.band if zone.last_view is not None else ""
     labels = dict(earth_chip_items(band))
     panel._paint_plate(painter, box, radius=6)
+    from arelis.ui.earth_chrome import paint_band_type, paint_live_chip
+
     for kind, rect in hits:
+        if kind == "band":
+            paint_band_type(painter, rect, band)
+            continue
+        if kind == "live":
+            paint_live_chip(panel, painter, rect, on=bool(zone.live))
+            continue
         on = (
-            True
-            if kind == "band"
-            else zone.live
-            if kind == "live"
-            else bool(getattr(zone, "grid", False))
+            bool(getattr(zone, "grid", False))
             if kind == "grid"
             else zone.tiles
             if kind == "tiles"
@@ -1449,10 +1481,23 @@ def paint_earth_toggles(panel, painter: QPainter) -> None:
             if kind == "buildings"
             else bool(zone.layers.get(kind, False))
         )
-        label = labels.get(kind, kind)
-        if kind == "live" and panel._earth_live_busy:
-            label = "Live …"
-        panel._paint_chip(painter, rect, label, on=on)
+        panel._paint_chip(painter, rect, labels.get(kind, kind), on=on)
+    y = box.bottom() + 6
+    left = box.left()
+    width = box.width()
+    from arelis.ui.earth_chrome import paint_coach, paint_key_chips
+    from arelis.ui.earth_find import paint_find
+
+    coach = paint_coach(painter, left, y, width, zone)
+    panel._earth_coach_box = QRect(coach)
+    if not coach.isEmpty():
+        y = coach.bottom() + 6
+    find_box = paint_find(panel, painter, left, y, width)
+    if not find_box.isEmpty():
+        y = find_box.bottom() + 4
+    key_box = paint_key_chips(panel, painter, left, y, width)
+    if not key_box.isEmpty():
+        y = key_box.bottom() + 4
     paint_earth_grid(panel, painter, zone)
     paint_earth_loading(panel, painter, zone)
 
@@ -1467,6 +1512,12 @@ def paint_earth_grid(panel, painter: QPainter, zone) -> None:
     if box.isEmpty():
         return
     y = box.bottom() + 4
+    extra = getattr(panel, "_earth_key_box", QRect())
+    if extra is not None and not extra.isEmpty():
+        y = extra.bottom() + 4
+    find = getattr(panel, "_earth_find_box", QRect())
+    if find is not None and not find.isEmpty():
+        y = max(y, find.bottom() + 4)
     painter.setPen(color("text_dim"))
     painter.drawText(box.left() + 4, y + fm.ascent(), text)
 
@@ -1478,21 +1529,27 @@ def paint_earth_loading(panel, painter: QPainter, zone) -> None:
             painter.setPen(color("warn"))
             box = panel._earth_chip_box
             if not box.isEmpty():
-                painter.drawText(
-                    box.left() + 4,
-                    box.bottom() + 36,
-                    "fancy map failed — NASA ball",
-                )
+                y = box.bottom() + 36
+                for name in ("_earth_key_box", "_earth_find_box"):
+                    extra = getattr(panel, name, QRect())
+                    if extra is not None and not extra.isEmpty():
+                        y = max(y, extra.bottom() + 8)
+                painter.drawText(box.left() + 4, y, "fancy map failed — NASA ball")
         return
     box = panel._earth_chip_box
     if box.isEmpty():
         return
+    y = box.bottom() + 36
+    for name in ("_earth_key_box", "_earth_find_box", "_earth_coach_box"):
+        extra = getattr(panel, name, QRect())
+        if extra is not None and not extra.isEmpty():
+            y = max(y, extra.bottom() + 8)
     painter.setPen(color("text"))
-    painter.drawText(box.left() + 4, box.bottom() + 36, "falling in")
+    painter.drawText(box.left() + 4, y, "falling in")
     painter.setPen(color("text_dim"))
     painter.drawText(
         box.left() + 4,
-        box.bottom() + 52,
+        y + 16,
         "engine · tiles · contacts",
     )
 
@@ -1544,6 +1601,10 @@ def paint_earth_card(panel, painter: QPainter) -> None:
     top = panel._hud_bottom + 8
     if not panel._earth_chip_box.isEmpty():
         top = panel._earth_chip_box.bottom() + 8
+    for name in ("_earth_find_box", "_earth_key_box", "_earth_coach_box"):
+        extra = getattr(panel, name, QRect())
+        if extra is not None and not extra.isEmpty():
+            top = max(top, extra.bottom() + 8)
     if top + h > panel.height() - 24:
         extra = top + h - (panel.height() - 24)
         if frame_h:
@@ -1879,9 +1940,7 @@ def build_inspect_lines(panel, system: SolarSystem) -> list[str]:
             label = "native" if host is not None and host.failed else stack.label()
             compact = [
                 lines[0],
-                "Leave Earth",
                 f"stack {label}",
-                zone.status_line(),
             ]
             return [line for line in compact if line]
     return [line for line in lines if line]

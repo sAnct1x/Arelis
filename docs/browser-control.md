@@ -2,7 +2,10 @@
 
 Arelis drives **her own Chrome window** (profile under
 `data/browser-profile/`), not your daily Chrome. You watch it. You sign
-into Google and Maps in that window once. She does not enter passwords,
+into Google and Maps in that window once — launch prunes Cache / GPU
+trees but keeps the sign-in. A full wipe is
+`python -m arelis.housekeep --reset-browser`; the next open is a new
+profile. She does not enter passwords,
 OTP codes, or payment fields. Relaunch never runs `taskkill /IM
 chrome.exe`.
 
@@ -36,16 +39,21 @@ First time: she tells you to sign into Google and Maps in that window.
 ## How click / snapshot / screenshot connect
 
 1. If her Chrome already has CDP up at `tools.browser.cdp_url` (default
-   `http://127.0.0.1:9222`), attach.
+   `http://127.0.0.1:9222`), attach. If that port is already someone
+   else's Chrome, she does not attach — she opens her window on 9333+.
+   An empty process scan is unknown, not foreign: she keeps the port
+   she already attached. A live attach is not hopped mid-errand.
 2. If not: launch Chrome or Edge with `--remote-debugging-port` and
    `data/browser-profile/` (never `%LOCALAPPDATA%\Google\Chrome\User Data`).
 3. If her window is wedged (process up, CDP down), she can `relaunch`.
-   That stops **her** profile processes only.
+   That stops **her** profile processes only. Mid-turn CDP death
+   relaunches her Chrome once, then retries the same step.
 
 Daily Chrome can stay open.
 
-`open` / `navigate` / `click` all use this window. Mid-turn CDP death
-returns `CDP_DEAD` instead of crashing the turn.
+`open` / `navigate` / `click` all use this window. Search waits for
+result links before the snapshot. Mid-turn CDP death no longer dumps
+the turn — she restarts her window once.
 
 Override per call: `browser=edge`, `browser=firefox`, `private=true`
 (Firefox only).
@@ -54,12 +62,21 @@ Override per call: `browser=edge`, `browser=firefox`, `private=true`
 
 `browser` actions: `open`, `navigate`, `snapshot`, `read`, `maps`,
 `search`, `reserve`, `click`, `type`, `scroll`, `press`, `select`,
-`wait`, `tabs`, `screenshot`, `relaunch`.
+`wait`, `back`, `forward`, `reload`, `find`, `tabs`, `screenshot`,
+`relaunch`.
 
 - Aliases: `youtube`, `gmail`, `github`, … (see `tools.browser.aliases`).
-- Click and type use snapshot refs. Password and OTP fields are refused.
+- You tell her the errand. She plans the clicks. Refs are optional.
+- `click(text="Sign in")` or `click(nth=1)` for the first result.
+  `type(text="…", into="search")` — empty `into` uses the search box.
+  `find` lists matches without clicking. Password and OTP fields are refused.
+- Snapshot ranks visible controls (light DOM, one shadow root, same-origin
+  iframes). `focus=results` (what search returns)
+  is a short result list, not the footer.
 - `click` glows the target in-page (not your mouse), waits a beat, then
-  clicks.
+  clicks. The Drive strip says the label, not `e3`.
+- `back` / `forward` / `reload`. `tabs` with `tab=new` (optional url) or
+  `tab=close`. The window stays.
 - `open` reuses the current tab and returns a short receipt.
 - `read` returns compact visible text of the tab she is on. That is not
   scrape. The body is framed as untrusted data.
@@ -74,7 +91,8 @@ Override per call: `browser=edge`, `browser=firefox`, `private=true`
   Reserve / Confirm is still your turn.
 - A **Drive strip** in Arelis (not in Chrome) shows Stop / Pause /
   "about to click…". Pause freezes the glow beat and the next step. The
-  page stays. Go continues. Stop aborts the turn.
+  page stays. Go continues. Stop aborts the turn. The same words work
+  out loud on both faces.
 - `screenshot` writes a PNG under `outputs/images/browser_….png`.
   Describe pixels with `vision` in a separate call. Optional
   `full_page=true`.

@@ -23,9 +23,15 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+import yaml
 
 from arelis import paths
-from arelis.config import _parse_workspace_roots, _resolve_root_path
+from arelis.config import (
+    _parse_workspace_roots,
+    _resolve_root_path,
+    ensure_package_inspect_root,
+    load_config,
+)
 
 
 @pytest.fixture
@@ -155,3 +161,80 @@ def test_a_redirected_documents_folder_still_yields_a_root_off_the_profile(
 
     assert not (home / "Documents").exists()
     assert _resolve_root_path(".") == home / "Arelis"
+
+
+def test_installed_adds_a_read_only_inspect_root_on_the_package(
+    installed: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Installed, she can read her own package and must not write it."""
+    package = tmp_path / "site-packages" / "arelis"
+    package.mkdir(parents=True)
+    monkeypatch.setattr(paths, "PACKAGE_ROOT", package)
+
+    named = ensure_package_inspect_root(_parse_workspace_roots(["."]))
+    by_path = {Path(e["path"]).resolve(): e for e in named}
+
+    inspect = by_path[package.resolve()]
+    assert inspect["read_only"] is True
+    assert inspect["name"] == "source"
+
+    default = by_path[(installed / "Documents" / "Arelis").resolve()]
+    assert default["read_only"] is False
+
+    cfg = tmp_path / "cfg.yaml"
+    cfg.write_text(
+        yaml.dump({"workspace": {"roots": ["."]}, "persona_file": "persona/arelis.md"}),
+        encoding="utf-8",
+    )
+    loaded = load_config(cfg)["workspace"]["named_roots"]
+    loaded_by_path = {Path(e["path"]).resolve(): e for e in loaded}
+    assert loaded_by_path[package.resolve()]["read_only"] is True
+    assert loaded_by_path[(installed / "Documents" / "Arelis").resolve()]["read_only"] is False
+
+
+def test_installed_inspect_root_renames_when_source_is_taken(
+    installed: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    package = tmp_path / "site-packages" / "arelis"
+    package.mkdir(parents=True)
+    monkeypatch.setattr(paths, "PACKAGE_ROOT", package)
+
+    named = [
+        {"name": "source", "path": str((installed / "Documents" / "Arelis").resolve()), "read_only": False},
+    ]
+    result = ensure_package_inspect_root(named)
+    inspect = next(e for e in result if Path(e["path"]).resolve() == package.resolve())
+    assert inspect["name"] == "arelis-source"
+    assert inspect["read_only"] is True
+
+
+def test_installed_forces_read_only_when_the_package_is_already_a_root(
+    installed: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    package = tmp_path / "site-packages" / "arelis"
+    package.mkdir(parents=True)
+    monkeypatch.setattr(paths, "PACKAGE_ROOT", package)
+
+    named = [
+        {"name": "Arelis", "path": str((installed / "Documents" / "Arelis").resolve()), "read_only": False},
+        {"name": "pkg", "path": str(package.resolve()), "read_only": False},
+    ]
+    result = ensure_package_inspect_root(named)
+    assert len(result) == 2
+    pkg = next(e for e in result if Path(e["path"]).resolve() == package.resolve())
+    assert pkg["read_only"] is True
+    docs = next(
+        e for e in result if Path(e["path"]).resolve() == (installed / "Documents" / "Arelis").resolve()
+    )
+    assert docs["read_only"] is False
+
+
+def test_checkout_does_not_add_a_second_inspect_root() -> None:
+    """On a source checkout, "." already is the repo. Do not stack another."""
+    assert paths.is_source_checkout(), "these tests run from a checkout"
+    before = [
+        {"name": "repo", "path": str(paths.INSTALL_PARENT.resolve()), "read_only": False},
+    ]
+    after = ensure_package_inspect_root(before)
+    assert after is before
+    assert after == before

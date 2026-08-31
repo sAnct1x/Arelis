@@ -27,6 +27,7 @@ _SYSTEMS_KEYS = (
     "models",
     "role",  # hot/pinned model — not the composer reply-role picker
     "confirm",  # Allow-gate config — not a second confirm UI
+    "watch",
     "calendar",
     "sms",
     "mail",

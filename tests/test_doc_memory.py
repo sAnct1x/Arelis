@@ -62,6 +62,26 @@ def test_deleted_files_are_pruned_from_the_archive(tmp_path: Path) -> None:
     store.close()
 
 
+def test_document_indexer_skips_tool_cache_and_product_tree(tmp_path: Path) -> None:
+    root = tmp_path / "proj"
+    (root / "notes").mkdir(parents=True)
+    (root / "tool_cache").mkdir()
+    (root / "notes" / "desk.md").write_text(
+        "A kept note about the violet garden fence.\n", encoding="utf-8"
+    )
+    (root / "tool_cache" / "scrape.txt").write_text(
+        "scraped page mentioning the violet garden fence.\n", encoding="utf-8"
+    )
+    store = MemoryStore(tmp_path / "memory.db")
+    workspace = WorkspaceRoots.from_config({"workspace": {"roots": [str(root)]}})
+    indexer = DocumentIndexer(store, workspace)
+    assert indexer.sync_batch(max_files=20) == 1
+    hits = store.search_documents("violet garden fence")
+    assert hits
+    assert all("tool_cache" not in hit.path.replace("\\", "/") for hit in hits)
+    store.close()
+
+
 @pytest.mark.asyncio
 async def test_recall_can_search_docs_only(tmp_path: Path) -> None:
     root = tmp_path / "proj"

@@ -12,6 +12,26 @@ Notes for the tree you have now. The 0.2.4 installer is this tree
 without the 3D plate. Reality's room still ships. Earth and the
 true-scale globe stay on a source checkout.
 
+**Watch.** The house now watches the doors it opened: LAN ingest is
+rate-limited and locks a client after repeated bad tokens; outbound
+catalog / web calls have a burst budget (Earth live skips a refresh
+when muted). **house ▾ → Watch.** Ask "are we safe?" and she reads
+that snapshot — she is not antivirus and does not scan the rest of
+the PC.
+
+**Browser.** Her Chrome (`data/browser-profile/`) is the window you
+watch. Tell her the errand — she plans the clicks. Snapshot ranks
+visible controls (including one shadow root and same-origin iframes).
+Search waits for result links, then returns a short list; `click(nth=1)`
+opens the first. Type into a field by its label (`into="search"`).
+`find`, new/close tab, back / forward / reload. The Drive strip says
+what she is about to click. **Stop**, **pause**, and **go** work from
+the strip or out loud, on sodium and filament. If something else is
+already on port 9222, she will not attach to it — but an empty process
+scan does not abandon a window she already attached. Mid-turn CDP death
+relaunches her Chrome once. Housekeep still prunes Cache / GPU only;
+Cookies and Login Data stay.
+
 **Turns.** The full tool schema array rides every turn so Ollama can
 reuse the prefix. A greeting that skipped schemas (the 0.2.3 clock-ask
 shortcut) blew that cache and made the next real question pay ~40s of
@@ -30,15 +50,47 @@ barge-in is the next question. [voice-wake.md](voice-wake.md). First
 run may download those weights; they are not stuffed in the setup
 `.exe`.
 
+**Hands.** Source checkout only (`.[spatial]`). On filament a **hands**
+chip on the field starts the C920 session — the camera tile is inspect
+only and can stay closed. Sodium is still camera → Track. Pinch tap is
+a click (frozen at pinch-down); pinch plus travel grabs a tile rim or a
+Reality disc; fist rotates and dollies; two pinches scale. Open palm
+scrolls the list under that hand; a fast release flicks a held tile
+across the 1 / 2 / 3 span. Thumb–index apertures paint on the HWND
+under each hand. `logs/hands.log` + `logs/hands.jsonl`. Rest, minimize,
+and leave-filament tear the camera down; the chip brings it back.
+
 **Glass.** One lowercase voice. Thinking is the essay — no `think` /
 `model` / `tool` prefixes — with housekeeping as a footer.
-Workspace is file names, one chrome row, `..` to go up. Settings
+Workspace is the desk — notes you kept and files she wrote, not an empty
+folder tree. Folders is still there underneath. Launch tidies scrape
+dumps, the action ledger, spoken-reply wavs, old drops, stale logs,
+and her Chrome caches. Dated memory copies are off. Settings
 tabs are `audio` / `window` / `allow` / `notify` / `roots` /
 `memory`. Idle readout is `ollama` / `listening`, not caps. After
 the last finished answer: `copy` · `again`. Tables in an answer
 are columns, not orange cages. An empty history title is **new
 chat**; the lamp follows the click; dates say today / yesterday.
-Hue stays sodium (`#ff7a22`). Icons stay unlabeled.
+Hue stays sodium (`#ff7a22`). View → themes picks the room;
+`filament (testing)` is the second look — the current fills the
+chosen desks. Slim title bar and say “hey arelis” stay on the primary
+desk (the middle one) even when 2 / 3 are lit. 1 / 2 / 3
+are how many desks, not Windows monitor numbers. Default
+is one desk on the primary; 2 adds the desk to
+its right, 3 is the whole row. The field is not a
+composer — type on the chat plate. Voice status replaces
+the wake once she is actually listening or talking.
+Each plate has its own particle on the current — same
+speed as the title, click the bead or the word. Some dust
+runs hotter; every strand carries some. The coil is only at first rest
+or after unused idle. While a turn is running, `thinking`
+breathes on the current — a clock, not a blink — next to
+the warmer think weather. Talk does not need a chat tile. Right-click
+an open plate for translucency. The field remasks only on span /
+resize, not every tick; dust glows are stamped from RAM, not
+rebuilt; the camera plate asks for 720p and converts off the
+HWND thread. Sodium stays the default. Icons
+stay unlabeled.
 
 **Jobs.** Timed prompts email a digest. Calendar tile → **jobs**. Needs
 mail. Already in the installer; the page is new. [jobs.md](jobs.md).
@@ -56,7 +108,11 @@ satellites are fetched; closer in, local planes; closer still, boats
 and planes and no satellite refresh; at city scale every toggled
 layer, still boxed to the look area so we do not hammer every 511
 from orbit. Earth layer chips start off except satellites and ISS; the bar
-only lists what the current band can show. Click a country or city
+only lists what the current band can show. Distance is a sentence
+(from space / in the city), not a toggle. Live reads **Live off**
+until you click it. Slash finds a city. Say take me to Tokyo —
+or Japan, Illinois, Africa, the UK, home — typed or spoken.
+Click a country or city
 to fall toward it. Enter Earth jumps the clock to now and opens the
 Cesium globe (WebEngine, astro extra) for the planet only — Arelis
 keeps the starfield and the sodium HUD. NASA GIBS is the ground if no
@@ -135,6 +191,10 @@ and the Earth zone are still checkout-only. Full notes:
   folder. In orbit: `outputs/documents/`. Chat is not the document.
 - **Charts.** Same open / show chip. Room `plots` folder, or
   `outputs/plots/` in orbit.
+- She can read her own source (`workspace` read of `arelis/…` /
+  `docs/…` on a checkout; installed copies get a read-only package
+  root). Inspect is read + `git_info`; writes to her package still
+  Allow.
 - **Mail.** Trash, archive, mark read/unread, move, make a folder —
   Allow first. Looking still does not mark mail read. Jobs cannot change
   the mailbox.

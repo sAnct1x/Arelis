@@ -20,6 +20,7 @@ from arelis.core.agent_loop import AgentLoop
 from arelis.core.bus import EventBus
 from arelis.core.confirm_speech import (
     apply_confirm_edit,
+    classify_drive_act,
     classify_hangup,
     classify_voice_act,
 )
@@ -27,17 +28,30 @@ from arelis.core.events import Event, EventType
 from arelis.core.failure_copy import turn_failed_notice
 from arelis.core.memory import SessionMemory, tool_trace_entry, tool_trace_note
 from arelis.core.untrusted import confirm_note_after_external
+from arelis.desk import DeskStore, match_keep_last, match_keep_note, write_note
 from arelis.llm.router import ModelRole, ModelRouter
 from arelis.memory.store import MemoryStore
 from arelis.rooms import (
     Room,
+    RoomSetup,
     RoomStore,
+    infer_kind,
     looks_like_room_name,
     match_enter_intent,
     match_leave_intent,
     match_list_rooms_intent,
     match_make_room_intent,
+    match_room_project,
+    match_set_kind_intent,
+    match_set_purpose_intent,
+    match_set_root_intent,
+    match_skip_setup_intent,
+    match_skip_step_intent,
+    match_start_setup_intent,
+    needs_setup,
     normalize_room_name,
+    setup_prompt,
+    strip_setup_value,
 )
 from arelis.spatial import PHYSICS_ROOM_ID
 from arelis.spatial.verbs import classify_physics_act, speech_body_names
@@ -179,6 +193,9 @@ class Orchestrator:
         self.config = config
         self.workspace = workspace or config.get("_workspace") or WorkspaceRoots.from_config(config)
         self.config["_workspace"] = self.workspace
+        shared_desk = config.get("_desk")
+        self.desk: DeskStore = shared_desk if isinstance(shared_desk, DeskStore) else DeskStore()
+        self.config["_desk"] = self.desk
         # Explicit None: RoomStore has __len__, so `or` would replace a shared
         # store that merely happens to be empty — which is every first launch.
         # The tool and the loop would then be looking at a different object.
@@ -188,6 +205,9 @@ class Orchestrator:
         # The general thread to come back to when a room closes. Empty until a
         # room is entered from one.
         self._general_session = ""
+        # First-entry room interview. In-process; answers are ordinary
+        # USER_MESSAGE lines (typed or spoken). Not a model turn.
+        self._room_setup: RoomSetup | None = None
         self.memory = memory or SessionMemory()
         self.persona = load_persona(config)
         self._cancel = False
@@ -252,18 +272,25 @@ class Orchestrator:
         Conversation mode (or a wake remainder, which sets the same flag):
         goodbye hangs up the call, stop cancels the turn, a card hears
         allow / deny / rest-of-ask, and any other sentence on a send card
-        rewrites the draft. After a stop, the next line is a normal turn
-        with a one-line note — the model decides. Headset barge-in arrives
-        as a normal turn and cancels the running one first. Speakers with
+        rewrites the draft. Stop / allow / deny / pause / go also land
+        while she is mid-turn or a card is armed — conversation does not
+        have to be latched (filament one-shot yes, dictate while she
+        drives). After a stop, the next line is a normal turn with a
+        one-line note — the model decides. Headset barge-in arrives as a
+        normal turn and cancels the running one first. Speakers with
         barge_in_as_turn false still send deliver ``control`` so only stop /
-        allow / deny land — soup does not start a turn.
+        allow / deny / pause / go land — soup does not start a turn.
         """
-        if event.payload.get("deliver") == "dictate":
-            return
         text = (event.payload.get("text") or "").strip()
         if not text:
             return
+        deliver = str(event.payload.get("deliver") or "")
+        control_only = deliver == "control"
         conversing = bool(self.config.get("_speak_replies"))
+        if await self._voice_control(text, deliver=deliver):
+            return
+        if deliver == "dictate":
+            return
         if conversing and not self._confirm_waiters and classify_hangup(text):
             task = self._turn_task
             if task is not None and not task.done():
@@ -274,41 +301,18 @@ class Orchestrator:
                 Event(EventType.CONVERSATION_END, {"reason": "voice"})
             )
             return
-        if self.rooms.active_id == PHYSICS_ROOM_ID:
-            act = classify_physics_act(text, names=speech_body_names())
-            if act:
-                payload = dict(act.payload())
-                payload["text"] = text
-                await self.bus.publish(Event(EventType.PHYSICS_VERB, payload))
-                return
-        control_only = event.payload.get("deliver") == "control"
+        act = classify_physics_act(text, names=speech_body_names())
+        if act and (
+            self.rooms.active_id == PHYSICS_ROOM_ID or act.verb == "goto_earth"
+        ):
+            payload = dict(act.payload())
+            payload["text"] = text
+            await self.bus.publish(Event(EventType.PHYSICS_VERB, payload))
+            return
         if not conversing and not control_only:
             await self.bus.publish(
                 Event(EventType.USER_MESSAGE, {"text": text, "source": "voice"})
             )
-            return
-        act = classify_voice_act(text)
-        if act == "stop":
-            await self.bus.publish(Event(EventType.TURN_CANCEL, {"reason": "voice"}))
-            return
-        if self._confirm_waiters and act in {"allow", "skip", "allow_turn"}:
-            confirm_id = next(iter(self._confirm_waiters), "")
-            if confirm_id:
-                await self.bus.publish(
-                    Event(
-                        EventType.TOOL_CONFIRM_REPLY,
-                        {
-                            "id": confirm_id,
-                            "decision": "allow" if act != "skip" else "skip",
-                            "allow_turn": act == "allow_turn",
-                            "reason": "voice",
-                        },
-                    )
-                )
-            return
-        if self._confirm_waiters and not control_only:
-            if await self._apply_voice_confirm_edit(text):
-                return
             return
         if control_only:
             return
@@ -324,6 +328,66 @@ class Orchestrator:
         await self.bus.publish(
             Event(EventType.USER_MESSAGE, {"text": text, "source": "voice"})
         )
+
+    def _turn_live(self) -> bool:
+        task = self._turn_task
+        return task is not None and not task.done()
+
+    def _drive_held(self) -> bool:
+        from arelis.browser.hold import is_paused
+
+        return bool(self._pause or is_paused())
+
+    async def _voice_control(self, text: str, *, deliver: str) -> bool:
+        """Stop / allow / deny / pause / go from any listen path. True = handled."""
+        from arelis.browser.hold import is_paused
+
+        conversing = bool(self.config.get("_speak_replies"))
+        control_only = deliver == "control"
+        act = classify_voice_act(text)
+        drive = classify_drive_act(text)
+        waiting = bool(self._confirm_waiters)
+        live = self._turn_live()
+        held = bool(self._pause or is_paused())
+        in_physics = self.rooms.active_id == PHYSICS_ROOM_ID
+
+        if act == "stop":
+            if live or waiting or held or conversing or control_only:
+                await self.bus.publish(
+                    Event(EventType.TURN_CANCEL, {"reason": "voice"})
+                )
+                return True
+            return False
+
+        if waiting and act in {"allow", "skip", "allow_turn"}:
+            confirm_id = next(iter(self._confirm_waiters), "")
+            if confirm_id:
+                await self.bus.publish(
+                    Event(
+                        EventType.TOOL_CONFIRM_REPLY,
+                        {
+                            "id": confirm_id,
+                            "decision": "allow" if act != "skip" else "skip",
+                            "allow_turn": act == "allow_turn",
+                            "reason": "voice",
+                        },
+                    )
+                )
+            return True
+
+        if waiting and conversing and deliver not in {"control", "dictate"}:
+            if await self._apply_voice_confirm_edit(text):
+                return True
+            return True
+
+        if drive == "pause" and (held or (live and not in_physics)):
+            await self.bus.publish(Event(EventType.TURN_PAUSE, {}))
+            return True
+        if held and (drive == "resume" or act == "allow"):
+            await self.bus.publish(Event(EventType.TURN_RESUME, {}))
+            return True
+
+        return False
 
     async def _apply_voice_confirm_edit(self, text: str) -> bool:
         """Rewrite the open send draft. True when the card was refreshed."""
@@ -585,6 +649,9 @@ class Orchestrator:
                 await self._set_project(text)
                 return
 
+            if await self._keep_from_speech(text):
+                return
+
             if re.match(r"(?i)^/rooms?\b", text):
                 await self._room_command(text)
                 return
@@ -606,9 +673,28 @@ class Orchestrator:
             if match_list_rooms_intent(text):
                 await self._say(self._rooms_overview())
                 return
+            # "work in notes" is also an enter phrasing. If a room is already
+            # open and the words name a project, that is the folder, not a
+            # new room.
+            if self.rooms.active is not None:
+                pointed = match_set_root_intent(text, self.workspace.names())
+                if pointed:
+                    await self._apply_room_fields({"root": pointed}, user_text=text)
+                    if (
+                        self._room_setup is not None
+                        and self._room_setup.step == "root"
+                    ):
+                        await self._advance_room_setup()
+                    return
+                lean = match_set_kind_intent(text)
+                if lean:
+                    await self._apply_room_fields({"kind": lean}, user_text=text)
+                    return
             spoken = match_enter_intent(text) or match_make_room_intent(text)
             if spoken:
                 await self._enter_or_create_room(spoken)
+                return
+            if await self._handle_room_talk(text):
                 return
 
             from arelis.core.document_refs import (
@@ -859,6 +945,88 @@ class Orchestrator:
         await self.bus.publish(Event(EventType.STATUS, {"message": message}))
         await self.bus.publish(Event(EventType.ASSISTANT_DONE, {"text": message}))
 
+    async def _keep_from_speech(self, text: str) -> bool:
+        """Handle /keep, 'keep this: …', and a bare 'pin that'. True if consumed."""
+        body = match_keep_note(text)
+        if body:
+            room = self.rooms.active
+            room_id = room.id if room is not None else ""
+            try:
+                item = write_note(
+                    self.workspace, body, room_id=room_id, store=self.desk
+                )
+            except Exception as exc:
+                await self._say(f"I could not keep that. {exc}")
+                return True
+            await self.bus.publish(
+                Event(
+                    EventType.FILE_READY,
+                    {
+                        "path": item.abs_path,
+                        "abs_path": item.abs_path,
+                        "title": item.label,
+                        "format": "md",
+                        "kind": "note",
+                        "show_card": True,
+                        "open": False,
+                    },
+                )
+            )
+            self.memory.add(
+                "assistant",
+                f"On the desk: {item.label}",
+                note=f"[tools used this turn: workspace {item.abs_path}]",
+            )
+            await self._say(f"On the desk: {item.label}")
+            return True
+        if not match_keep_last(text):
+            return False
+        from arelis.core.document_refs import latest_openable_path
+
+        path = latest_openable_path(self.memory.messages)
+        if not path:
+            items = self.desk.list_for(
+                root_name=self.workspace.active,
+                include_orbit=True,
+            )
+            path = items[0].abs_path if items else ""
+        if not path:
+            await self._say(
+                "There isn't a file to pin. Say keep this: and what to write down."
+            )
+            return True
+        room = self.rooms.active
+        root_name = ""
+        try:
+            hit = self.workspace.resolve_read(path)
+            root_name = hit.root_name
+            path = str(hit.path)
+        except Exception:
+            pass
+        item = self.desk.record(
+            path,
+            source="pin",
+            root_name=root_name,
+            room_id=room.id if room is not None else "",
+            pin=True,
+        )
+        name = (item.label if item else Path(path).name) or "that file"
+        await self.bus.publish(
+            Event(
+                EventType.FILE_READY,
+                {
+                    "path": path,
+                    "abs_path": path,
+                    "title": name,
+                    "show_card": True,
+                    "open": False,
+                    "kind": item.kind if item else "",
+                },
+            )
+        )
+        await self._say(f"Pinned on the desk: {name}")
+        return True
+
     async def _set_project(self, text: str) -> None:
         """List or switch the active project. Session memory is kept."""
         parts = text.split(maxsplit=1)
@@ -909,6 +1077,7 @@ class Orchestrator:
             room = self.rooms.active
             if room is not None:
                 await self._publish_room_only(room)
+            self._room_setup = None
             await self._say(message)
             return
         if verb == "forget":
@@ -928,8 +1097,8 @@ class Orchestrator:
                 "No rooms yet. A room is a named place to work on one thing — it "
                 "keeps its own conversation, points at one project folder, and "
                 "remembers what it is for.\n\n"
-                "Make one with `/room new <name>`, then `/room set purpose <what "
-                "it is for>` and `/room set root <project>`."
+                "Make one by saying \"let's work on <name>\", or `/room new "
+                "<name>`. She will ask what it is for in the chat."
             )
         active = self.rooms.active_id
         lines = []
@@ -995,17 +1164,19 @@ class Orchestrator:
             return
         if room.id == self.rooms.active_id:
             await self._offer_reality_plate(room)
+            if needs_setup(room) and self._room_setup is None:
+                await self._begin_room_setup(room)
+                return
             await self._say(f"Already in {room.name}.")
             return
         preamble = ""
         if created:
-            preamble = (
-                f"Made the `{room.id}` room and opened it. Tell me what it is for "
-                f"with `/room set purpose …`, and point it at a folder with "
-                f"`/room set root <project>` — `/project` lists them."
-            )
+            preamble = f"Made the `{room.id}` room and opened it."
         await self._enter_room(room, preamble=preamble)
         await self._offer_reality_plate(room)
+        live = self.rooms.get(room.id) or room
+        if needs_setup(live):
+            await self._begin_room_setup(live)
 
     async def _offer_reality_plate(self, room: Room) -> None:
         """Open Reality's plate when the stage is granted. One room, one thread."""
@@ -1018,6 +1189,182 @@ class Orchestrator:
             )
         )
 
+    async def _handle_room_talk(self, text: str) -> bool:
+        """Closed room setup and spoken field edits. True = no model turn."""
+        room = self.rooms.active
+        if match_start_setup_intent(text):
+            if room is None:
+                await self._say(
+                    "No room is open. Say \"let's work on\" a name first."
+                )
+                return True
+            await self._begin_room_setup(room, restart=True)
+            return True
+        if self._room_setup is not None:
+            if room is None or room.id != self._room_setup.room_id:
+                self._room_setup = None
+            elif match_skip_setup_intent(text):
+                await self._finish_room_setup(skipped=True, user_text=text)
+                return True
+            elif match_skip_step_intent(text):
+                await self._advance_room_setup(user_text=text)
+                return True
+            elif await self._take_setup_answer(text):
+                return True
+        if room is None:
+            return False
+        purpose = match_set_purpose_intent(text)
+        if purpose:
+            await self._apply_room_fields({"purpose": purpose}, user_text=text)
+            return True
+        root = match_set_root_intent(text, self.workspace.names())
+        if root:
+            await self._apply_room_fields({"root": root}, user_text=text)
+            return True
+        kind = match_set_kind_intent(text)
+        if kind:
+            await self._apply_room_fields({"kind": kind}, user_text=text)
+            return True
+        return False
+
+    async def _begin_room_setup(self, room: Room, *, restart: bool = False) -> None:
+        self._room_setup = RoomSetup(room.id, "purpose")
+        if restart and room.setup:
+            try:
+                self.rooms.update(room.id, setup="")
+            except ValueError:
+                pass
+        prompt = setup_prompt(self._room_setup.step, room, self.workspace.names())
+        self.memory.add("assistant", prompt)
+        await self._say(prompt)
+
+    async def _take_setup_answer(self, text: str) -> bool:
+        setup = self._room_setup
+        room = self.rooms.active
+        if setup is None or room is None:
+            return False
+        step = setup.step
+        if step == "root":
+            root = match_room_project(text, self.workspace.names())
+            if root is None:
+                names = self.workspace.names()
+                listed = ", ".join(f"`{item}`" for item in names) or "none yet"
+                reply = (
+                    f"I don't have a project called that. Existing: {listed}. "
+                    "Say the name, or skip."
+                )
+                self.memory.add("user", text)
+                self.memory.add("assistant", reply)
+                await self._say(reply)
+                return True
+            await self._apply_room_fields({"root": root}, user_text=text, quiet=True)
+            await self._advance_room_setup()
+            return True
+        value = strip_setup_value(step, text)
+        if not value:
+            return False
+        await self._apply_room_fields({step: value}, user_text=text, quiet=True)
+        await self._advance_room_setup()
+        return True
+
+    async def _advance_room_setup(self, *, user_text: str = "") -> None:
+        setup = self._room_setup
+        if setup is None:
+            return
+        nxt = setup.advance()
+        room = self.rooms.active
+        if nxt is None or room is None:
+            await self._finish_room_setup(skipped=False, user_text=user_text)
+            return
+        self._room_setup = nxt
+        if user_text:
+            self.memory.add("user", user_text)
+        prompt = setup_prompt(nxt.step, room, self.workspace.names())
+        self.memory.add("assistant", prompt)
+        await self._say(prompt)
+
+    async def _finish_room_setup(
+        self, *, skipped: bool, user_text: str = ""
+    ) -> None:
+        room = self.rooms.active
+        self._room_setup = None
+        if room is None:
+            return
+        live = self.rooms.get(room.id) or room
+        fields: dict[str, Any] = {"setup": "skipped" if skipped else "done"}
+        if not skipped and live.kind == "general":
+            guessed = infer_kind(live.purpose, live.result)
+            if guessed != live.kind:
+                fields["kind"] = guessed
+        await self._apply_room_fields(fields, user_text=user_text, quiet=True)
+        updated = self.rooms.get(room.id) or live
+        message = self._setup_closing(updated, skipped)
+        self.memory.add("assistant", message)
+        await self._say(message)
+
+    def _setup_closing(self, room: Room, skipped: bool) -> str:
+        if skipped:
+            return (
+                f"{room.name} can wait. Say \"set up this room\" when you want "
+                "the questions, or just talk."
+            )
+        bits = [f"{room.name} is set."]
+        if room.purpose:
+            bits.append(room.purpose)
+        if room.root:
+            bits.append(f"Working in `{room.root}`.")
+        if room.result:
+            bits.append(f"Done looks like: {room.result}")
+        if room.test:
+            bits.append(f"A run counts when: {room.test}")
+        bits.append(f"I'll lean {room.kind}.")
+        return " ".join(bits)
+
+    async def _apply_room_fields(
+        self,
+        fields: dict[str, Any],
+        *,
+        user_text: str = "",
+        quiet: bool = False,
+        closing: str = "",
+    ) -> None:
+        room = self.rooms.active
+        if room is None:
+            await self._say("No room is open.")
+            return
+        if "root" in fields and fields["root"] not in self.workspace.names():
+            await self._say(
+                f"No project called `{fields['root']}`. Existing: "
+                + ", ".join(f"`{n}`" for n in self.workspace.names())
+                + ". Add a folder in the workspace dock first."
+            )
+            return
+        try:
+            updated = self.rooms.update(room.id, **fields)
+        except ValueError as exc:
+            await self._say(str(exc))
+            return
+        if "root" in fields:
+            self._point_workspace_at(updated)
+        if "kind" in fields and updated.role is not None:
+            self.router.default_role = updated.role  # type: ignore[assignment]
+        await self._publish_room_only(updated)
+        message = closing or self._field_ack(updated, fields)
+        if user_text:
+            self.memory.add("user", user_text)
+        self.memory.add("assistant", message)
+        if not quiet or closing:
+            await self._say(message)
+
+    def _field_ack(self, room: Room, fields: dict[str, Any]) -> str:
+        shown = {key: fields[key] for key in fields if key != "setup"}
+        if not shown:
+            return f"{room.name} is updated."
+        if len(shown) == 1:
+            key, value = next(iter(shown.items()))
+            return f"{room.name}: {key} is {value}."
+        return f"{room.name} is updated."
+
     def _set_room_field(self, rest: str) -> str:
         room = self.rooms.active
         if room is None:
@@ -1025,9 +1372,9 @@ class Orchestrator:
         parts = rest.split(maxsplit=1)
         field = parts[0].strip().lower() if parts else ""
         value = parts[1].strip() if len(parts) > 1 else ""
-        if field not in {"purpose", "root", "kind", "name"}:
+        if field not in {"purpose", "root", "kind", "name", "result", "test"}:
             return (
-                "Set `purpose`, `root`, `kind` or `name`. "
+                "Set `purpose`, `root`, `kind`, `name`, `result` or `test`. "
                 "For example: `/room set purpose analysing the survey data`."
             )
         if not value:
@@ -1164,6 +1511,7 @@ class Orchestrator:
             return
 
         self.rooms.leave()
+        self._room_setup = None
         rows: list[dict[str, Any]] = []
         summary = ""
         target = self._general_session or store.latest_session_id(
@@ -1380,13 +1728,14 @@ class Orchestrator:
             "  /rooms                       list rooms\n"
             "  /room <name>                 open one (or say \"let's work on <name>\")\n"
             "  /room new <name>             make one\n"
-            "  /room set purpose|root|kind|name <value>\n"
+            "  /room set purpose|root|kind|name|result|test <value>\n"
             "  /room forget <name>          drop the room, keep its conversations\n"
             "  /leave                       back to the general conversation\n"
             "  /web_search query=...\n"
             "  /web_fetch url=...\n"
             "  /scrape url=...\n"
-            "  /workspace action=list|read|write|edit path=...\n"
+            "  /keep <note>                 put a note on the desk\n"
+            "  /workspace action=list|read|write|edit|keep path=...\n"
             "  /analyze path=... action=summary|head|describe\n"
             "  /image prompt=...\n"
             "Slash commands run the tool directly and skip the confirm card.\n"

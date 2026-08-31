@@ -12,6 +12,9 @@ from arelis.ui.void_idle import OrbitCanvas, OrbitIdle
 
 
 def test_orbit_tokens() -> None:
+    from arelis.ui.theme import apply_theme
+
+    apply_theme("sodium")
     assert COLORS["accent"].lower() == "#ff7a22"
     assert COLORS["accent2"].lower() == "#ffc08a"
     assert int(GLASS["fill_float"]) == 255
@@ -23,6 +26,18 @@ def test_orbit_tokens() -> None:
     assert 18 <= hue <= 28, f"accent hue {hue:.1f} is not sodium orange"
 
 
+def test_apply_theme_restyles_the_window(arelis_window) -> None:
+    from arelis.ui.settings_host import apply_window_theme
+    from arelis.ui.theme import apply_theme, resolve_theme_id
+
+    assert resolve_theme_id("bogus") == "sodium"
+    window = arelis_window()
+    apply_window_theme(window, "sodium", persist=False)
+    assert COLORS["accent"].lower() == "#ff7a22"
+    assert "#ff7a22" in window.styleSheet()
+    apply_theme("sodium")
+
+
 def test_every_surface_is_lit_by_one_warm_source() -> None:
     """No neutral and no green anywhere on the ramp.
 
@@ -32,6 +47,9 @@ def test_every_surface_is_lit_by_one_warm_source() -> None:
     the more saturated it is, which is what makes a shadow an ember rather than
     grey paint with a tint on it.
     """
+    from arelis.ui.theme import apply_theme
+
+    apply_theme("sodium")
     ramp = ("bg0", "bg1", "bg2", "dim", "text_dim", "thinking", "hint", "text")
     previous = -1.0
     for name in ramp:
@@ -213,6 +231,7 @@ def test_cold_start_is_orbit_idle(qt_app) -> None:
         assert not window.chat.empty.isHidden()
         assert not window.chat.has_messages
         assert window.chat.empty.idle_placeholder.text() == "what are we working on"
+        assert window.chat.empty.listen_word.isHidden()
         assert window.conversation.input.placeholderText() == ""
         assert window.conversation.input.parent() is window.chat.empty.prompt_host
         assert window.conversation.role.isHidden()
@@ -593,6 +612,23 @@ def test_drive_strip_pause_go(qt_app) -> None:
         assert stage.drive.pause_btn.text() == "go"
     finally:
         stage.deleteLater()
+
+
+def test_filament_desk_keeps_drive_when_driving(qt_app) -> None:
+    from arelis.ui.panels.conversation import ConversationStage
+    from arelis.ui.theme import apply_theme
+
+    apply_theme("filament")
+    stage = ConversationStage()
+    try:
+        stage.apply_filament_desk(True, chat_open=False)
+        stage.set_drive(True, "about to click Sign in…")
+        assert not stage.drive.isHidden()
+        stage.apply_filament_desk(True, chat_open=True)
+        assert not stage.drive.isHidden()
+    finally:
+        stage.deleteLater()
+        apply_theme("sodium")
 
 
 def test_fade_in_drops_the_opacity_effect(qt_app) -> None:

@@ -71,6 +71,31 @@ def test_recent_workspace_files_roundtrip(tmp_path: Path, monkeypatch) -> None:
     ]
 
 
+def test_recent_workspace_files_drop_junk_and_missing(tmp_path: Path, monkeypatch) -> None:
+    from arelis.ui.layout_store import load_recent_workspace_files, settings
+
+    ini = tmp_path / "ui_layout.ini"
+    monkeypatch.setattr("arelis.ui.layout_store._settings_path", lambda: ini)
+    alive = tmp_path / "kept.md"
+    alive.write_text("ok", encoding="utf-8")
+    ghost = tmp_path / "gone.md"
+    cache = tmp_path / "tool_cache" / "scrape.txt"
+    cache.parent.mkdir()
+    cache.write_text("scraped", encoding="utf-8")
+    s = settings()
+    s.setValue(
+        "recent_workspace_files",
+        [str(alive), str(ghost), str(cache), "arelis:notes.md", "gone-note.md"],
+    )
+    s.sync()
+    recent = load_recent_workspace_files()
+    assert str(alive) in recent
+    assert "arelis:notes.md" in recent
+    assert str(ghost) not in recent
+    assert str(cache) not in recent
+    assert "gone-note.md" not in recent
+
+
 def test_away_rest_prefs_roundtrip(tmp_path: Path, monkeypatch) -> None:
     from arelis.ui.layout_store import (
         clamp_away_rest_min,
@@ -223,6 +248,23 @@ def test_title_bar_is_view_rooms_settings(qt_app) -> None:
         assert widgets.index(bar.view_btn) < widgets.index(bar.rooms_btn)
         assert widgets.index(bar.rooms_btn) < widgets.index(bar.settings_btn)
         assert hasattr(bar, "max_btn")
+        bar.set_slim(True)
+        bar.set_home_band(2560, 2560, 7680)
+        assert bar._span_left.width() == 2560
+        assert bar._span_right.width() == 2560
+        bar.set_home_band(2560, 2560, 2560)
+        assert bar._span_left.width() == 0
+        bar.set_home_band(0, 0, 0)
+        assert bar._span_left.width() == 0
+        assert bar.view_btn.isHidden()
+        assert not bar.span_btns[1].isHidden()
+        assert bar.height() == 32
+        bar.set_span_choice(1)
+        assert bar.span_btns[1].isChecked()
+        bar.set_slim(False)
+        assert not bar.view_btn.isHidden()
+        assert bar.span_btns[1].isHidden()
+        assert bar.height() == 40
     finally:
         bar.close()
 
@@ -261,8 +303,63 @@ def test_view_menu_omits_settings() -> None:
     assert "act_thinking" in body
     assert "act_settings" not in body
     assert "menu.addAction(self.act_settings)" not in body
+    assert 'addMenu("themes")' in body
     # Ctrl+, wiring stays on the window action list.
     assert 'QAction("settings…"' in src or "settings…" in src
+
+
+def test_settings_has_no_theme_tab(qt_app) -> None:
+    from arelis.ui.settings_dialog import SettingsDialog
+
+    dlg = SettingsDialog(
+        {
+            "voice": {},
+            "presence": {},
+            "workspace": {
+                "named_roots": [
+                    {"name": "arelis", "path": str(Path.cwd()), "read_only": False}
+                ]
+            },
+            "tools": {"sms": {"inbound": {"ingest": {}}}},
+        },
+    )
+    try:
+        labels = [dlg.tabs.tabText(i) for i in range(dlg.tabs.count())]
+        assert labels == [
+            "audio",
+            "window",
+            "allow",
+            "notify",
+            "roots",
+            "memory",
+        ]
+        assert "theme" not in labels
+        assert not hasattr(dlg, "theme_combo")
+        assert "theme" not in dlg.values().get("ui", {})
+    finally:
+        dlg.close()
+
+
+def test_view_menu_themes_submenu(arelis_window) -> None:
+    from arelis.ui.theme import THEME_IDS, active_theme
+
+    window = arelis_window()
+    assert tuple(window._theme_actions) == THEME_IDS
+    assert window._theme_actions["sodium"].isChecked()
+    assert active_theme() == "sodium"
+    window._choose_theme("sodium", True)
+    assert window._theme_actions["sodium"].isChecked()
+
+
+def test_theme_persists_in_local_config(tmp_path: Path, monkeypatch) -> None:
+    from arelis.ui.theme import apply_theme
+
+    local = tmp_path / "config.local.yaml"
+    monkeypatch.setattr("arelis.config.LOCAL_CONFIG_PATH", local)
+    merge_local_config({"ui": {"theme": "sodium"}}, path=local)
+    data = yaml.safe_load(local.read_text(encoding="utf-8"))
+    assert data["ui"]["theme"] == "sodium"
+    apply_theme("sodium")
 
 
 def test_settings_opens_notify_tab(qt_app) -> None:

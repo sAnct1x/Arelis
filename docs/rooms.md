@@ -1,25 +1,29 @@
 # Rooms
 
-A room is a named place to work on one thing: its own thread, a folder,
-and a purpose she reads at the start of every turn.
+A room is a named place to work on one thing. It has its own thread,
+its own folder, and a purpose that she reads back to herself at the
+start of every turn.
 
-The general conversation is meant to be forgettable. Last night in
-orbit sits in History. Work you come back to belongs in a room, and
-that room comes back with you.
+The general conversation is meant to be forgettable — last night's
+rambling chat sits quietly in History and that's fine. But work you
+actually come back to belongs in a room, and that room comes back
+with you.
 
-Cold launch: if you left inside a room, you are in it again. If you
-left with `/leave`, you are in orbit.
+On a cold launch: if you were inside a room when you left, you're
+back in it. If you'd left with `/leave`, you land back in the general
+conversation (orbit).
 
-## What a room carries
+## What a room actually carries
 
 | | |
 |---|---|
 | **purpose** | Plain language, written once. She reads it at the start of every turn in the room. |
 | **root** | The workspace folder the work lives in. Entering the room makes it active. |
-| **kind** | The lean: which model she reaches for first, which skills she leans on. |
-| **thread** | Its own conversation, resumed when you walk in, never mixed with general. |
+| **kind** | The lean — which model she reaches for first, which skills she leans on. |
+| **thread** | Its own conversation, picked back up when you walk in, never mixed with the general one. |
 
-The thread is the part that matters. Everything else is convenience.
+The thread is really the part that matters. Everything else is just
+convenience around it.
 
 ## Getting in and out
 
@@ -29,37 +33,52 @@ The thread is the part that matters. Everything else is convenience.
 /leave                     come back out
 ```
 
-Or say it: "let's work on Reality", "open Reality", "enter Reality",
-"leave the room". `/room physics` is the same place. Older words
-("open world", "open the solar lab") still enter Reality — those
-names are gone. Spoken navigation only fires on a name that already
-exists. "Let's work on the budget" in a house with no budget room is
-an ordinary sentence.
+Or just say it — "let's work on Reality," "open Reality," "enter
+Reality," "leave the room" all work, and `/room physics` gets you to
+the same place. Older phrasing like "open world" or "open the solar
+lab" still gets you into Reality, but those names themselves are gone
+now. Spoken navigation only fires on a room name that already exists
+— if you say "let's work on the budget" and there's no budget room,
+that's just treated as an ordinary sentence.
 
-The room id `physics` is permanent. Humans read **Reality**. It is
-always there, and `/room forget physics` is refused. Delete the key from
-`rooms.yaml` and the next launch puts it back. Do not add a second room
-called Reality. Earth is a zone inside Reality, not a room.
-Contacts there use one drawn mark language ([earth.md](earth.md)).
+The room id `physics` is permanent. Humans read **Reality**. That room
+is always there — `/room forget physics` gets refused, and if you
+delete the entry from `rooms.yaml` by hand, the next launch just puts
+it back. Don't create a second room also called Reality. Earth is a
+zone inside Reality, not its own room.
 
-Installed copies still get Reality (chat, CAS, Horizons). The plate,
-REBOUND solar system, C920 hands, and Earth zone run only on a **source
-checkout** with `.[astro]` / `.[spatial]`. Not in the installer. Say
-"open Reality" or View → Reality / Ctrl+8. Travel to Earth (or say
-**enter Earth**) opens the Earth zone on that globe.
-[earth.md](earth.md). Pose and spoken Reality verbs hit the scene without
-a chat turn. The phone is not a sensor. Do not turn this room into a
-spreadsheet workspace; make a different room for that.
+Installed copies still get Reality as a room — chat, CAS, Horizons,
+all of it works. But the 3D solar system, the C920 hand tracking, and
+the Earth view only run from a source checkout with `.[astro]` /
+`.[spatial]` installed — none of that ships in the installer. Say
+"open Reality," or use View → Reality (Ctrl+8). Saying "travel to
+Earth", "enter Earth", or "take me to Tokyo" opens the Earth view
+on the globe — see
+[earth.md](earth.md). Pose and spoken Reality commands act directly
+on the scene without needing a chat turn. Just note: the phone isn't
+a sensor here, and this room isn't meant to become a spreadsheet
+workspace — make a separate room for that kind of work.
 
 ## Making one
 
-Ask:
+Just ask her, in plain language:
 
-> make me a survey room for analysing the field data, working in my Lab Notes
-> folder
+> make me a survey room for analysing the field data, working in my
+> Lab Notes folder
 
-She fills in the purpose and the folder from what you said, then shows an
-allow / deny card before anything is written. Or do it by hand:
+She'll fill in the purpose and the folder from what you said, then
+show you an allow / deny card before anything actually gets written.
+
+Or say **"let's work on survey"** (or `/room new survey`). The first
+time you walk into an empty room she asks in the chat — what it is
+for, which folder, what a finished result looks like, how you will
+know a run happened. Typed or spoken is the same path. Your answers
+write the room. Say **skip** for one question, **later** to stop, or
+**set up this room** to start again. You can also say the fields
+anytime: "this room is for analysing the field data", "work in Lab
+Notes", "make it an analysis room".
+
+Slash still works if you want it:
 
 ```
 /room new survey
@@ -68,38 +87,45 @@ allow / deny card before anything is written. Or do it by hand:
 /room set kind analysis
 ```
 
-`/room new` also enters the room. Creating one in `rooms.yaml` by hand,
-without going in, does not.
+`/room new` also puts you inside the room right away. Adding an entry
+to `rooms.yaml` by hand, without actually going in, doesn't count as
+entering it. Reality already has a contract — she does not interview
+you there.
 
-`/room forget survey` removes the definition. Its conversations stay in
-History. Only the room is gone. A forgotten room is not recreated on
-launch, except Reality: that one cannot be forgotten.
+`/room forget survey` removes the definition, but its past
+conversations stay put in History — only the room itself disappears.
+A forgotten room won't come back on the next launch, with one
+exception: Reality, which can never be forgotten.
 
 ## Kinds
 
 | kind | model | for |
 |---|---|---|
-| `general` | whatever you were using | no lean |
+| `general` | whatever you were using | no particular lean |
 | `code` | fast | reading and writing files, running tests |
-| `analysis` | fast | data, maths, plots, named catalogs |
+| `analysis` | fast | data, math, plots, named catalogs |
 | `research` | research | reading widely, keeping notes, citing sources |
 | `writing` | research | drafting and revising documents in the project's `documents` folder |
 
-A kind is a starting chip, not a lock. `/role` still overrides it. Every
-tool still works in every room. The kind's skills are a lean (which
-cards she reaches for first), not a smaller tool list — shipped config
-sends the full schema array every turn so the prefix cache holds. It is
-a menu bias, not a plan: `kind: analysis` does not mean every sentence
-is a spreadsheet. Asking what a toroid is still gets an answer;
-`analyze` runs when the ask actually names a table.
+A kind is a starting bias, not a lock — `/role` still overrides it,
+and every tool still works in every room regardless of kind. The kind
+just shifts which skills she reaches for first; it's not a smaller
+toolset (the full schema array actually gets sent every turn, on
+purpose, so the prefix cache holds). Think of it as a menu bias
+rather than a fixed plan — `kind: analysis` doesn't mean every
+sentence you type gets treated as a spreadsheet. Ask what a toroid is
+in an analysis room and you'll just get an answer; the analyze tool
+only kicks in when you actually name a table.
 
-## Rooms lean, they do not cage
+## Rooms lean, they don't cage
 
-Ask the time in Reality and a caged assistant has to refuse, which
-teaches you to stop asking. So by default a room changes what she
-reaches for first and nothing else.
+If you ask the time while in Reality and a caged assistant has to
+refuse, that just teaches you to stop asking questions there. So by
+default, entering a room changes what she reaches for first — and
+nothing else.
 
-If you genuinely want a locked room, name the tools in `data/rooms.yaml`:
+If you genuinely want a locked-down room, you can name the exact
+tools it's allowed to use in `data/rooms.yaml`:
 
 ```yaml
 rooms:
@@ -114,31 +140,36 @@ rooms:
       - analyze
 ```
 
-Then that room offers those and nothing else. A `tools:` list that
-matches no real tool is ignored, because a typo there would otherwise
-leave her with nothing.
+Once you do that, the room offers only those tools and nothing else.
+If a `tools:` list ends up matching no real tool (say, a typo), it's
+simply ignored — otherwise a small mistake there would leave her with
+nothing to work with at all.
 
-## Where things live
+## Where things actually live
 
-- `data/rooms.yaml`: the definitions. Hand-editable. See
-  `data/rooms.example.yaml`. Under your records folder:
-  `%LOCALAPPDATA%\Arelis\data` installed, or `data\` in the repository
-  from source.
-- `data/memory.db`: the threads. Each conversation row carries the room
-  it belongs to, so History shows them and the cold-launch prune cannot
-  touch them.
-- Files she creates (PDF, Word, spreadsheet, markdown) land in
-  `<project>/documents/` while you are in a room with a folder. Charts
-  land in `<project>/plots/`. Orbit one-offs still go to
-  `outputs/documents/` and `outputs/plots/`.
+- **`data/rooms.yaml`** — the room definitions themselves.
+  Hand-editable; see `data/rooms.example.yaml` for the format. Lives
+  under your records folder: `%LOCALAPPDATA%\Arelis\data` if
+  installed, or `data\` in the repo if you're running from source.
+- **`data/memory.db`** — the actual threads. Every conversation row
+  is tagged with the room it belongs to, so History can show them
+  properly and the cold-launch cleanup can't touch them.
+- **Generated files** (PDF, Word, spreadsheet, markdown) land in
+  `<project>/documents/` while you're working inside a room with a
+  folder attached. Charts land in `<project>/plots/`. One-off files
+  made outside a room still go to `outputs/documents/` and
+  `outputs/plots/`.
 
-## Launch
+## Launch behavior
 
-The last room you actually entered comes back on the next start. Leave
-first if you want orbit. A room you only created is not entered. Jobs
-never resume a room.
+Whichever room you were actually *in* when you last used her comes
+back automatically on the next launch. If you'd rather start in the
+general conversation, leave the room before you close her. Just
+creating a room doesn't count as entering it. And scheduled jobs
+never resume a room on their own.
 
-This is not a second window. A strip above the transcript names the
-room, its purpose, and its folder, and a way out. The conversation
-itself is the same surface it always was. In Reality, the plate is a
-separate floating window, not a second chat.
+This isn't a second window, either — just a strip above the
+transcript naming the room, its purpose, its folder, and a way back
+out. The conversation itself stays on the same surface it's always
+been. In Reality specifically, the 3D view is its own floating
+window, not a second chat.

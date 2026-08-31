@@ -1142,7 +1142,9 @@ def file_answer_force_notice() -> str:
     """One-shot nudge after a file tool when the model only acknowledged."""
     return (
         "You already have file contents from a tool result. Answer the user's "
-        "request using that content now in plain prose. Do not call "
+        "request from that tool result now in plain prose. Quote the function "
+        "names, gates, and paths that appear in the file. Do not invent "
+        "architecture that is not in the tool result. Do not call "
         "memory.remember unless they explicitly asked you to store a durable "
         "fact. Do not reply with only an acknowledgment."
     )

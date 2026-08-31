@@ -8,13 +8,19 @@ from __future__ import annotations
 
 import json
 
-from arelis.spatial.gesture import LOCK_MISS, GestureMachine, GestureParams, read_pose
+from arelis.spatial.gesture import (
+    LOCK_MISS,
+    GestureMachine,
+    GestureParams,
+    PinchClick,
+    read_pose,
+)
 from arelis.spatial.grant import grant_for, must_revoke
 from arelis.spatial.one_euro import OneEuro
 from arelis.spatial.scene import WorldScene, image_to_world
 from arelis.spatial.takes import KEEP_MARKER, TakeWriter, prune_stills, prune_takes
 from arelis.spatial.types import Hand, HandsFrame, Landmark
-from arelis.spatial.video import POSE_MAX_WIDTH, fit_size, pick_live_format
+from arelis.spatial.video import POSE_MAX_WIDTH, fit_size, pick_live_format, pick_preview_format
 
 
 def _hand(
@@ -96,6 +102,14 @@ def test_grant_only_in_physics_while_tracking() -> None:
     assert must_revoke("arelis")
     assert must_revoke("")
     assert not must_revoke("physics")
+
+
+def test_filament_chip_allows_any_room() -> None:
+    assert grant_for("arelis", True, filament=True, chip=True).allowed
+    assert not grant_for("arelis", True, filament=True, chip=False).allowed
+    assert not grant_for("arelis", False, filament=True, chip=True).allowed
+    assert not must_revoke("arelis", filament=True, chip=True)
+    assert must_revoke("arelis", filament=True, chip=False)
 
 
 def test_one_euro_holds_a_still_value() -> None:
@@ -260,6 +274,21 @@ def test_live_format_prefers_mjpeg_30_over_yuy2_5() -> None:
     )
     assert picked is not None
     assert picked[0] == 1920
+    assert picked[2] == 30.0
+    assert "Jpeg" in picked[3]
+
+
+def test_preview_format_caps_at_720p() -> None:
+    picked = pick_preview_format(
+        [
+            (1920, 1080, 30.0, "Format_Jpeg"),
+            (1280, 720, 30.0, "Format_Jpeg"),
+            (1280, 720, 5.0, "Format_YUYV"),
+        ]
+    )
+    assert picked is not None
+    assert picked[0] == 1280
+    assert picked[1] == 720
     assert picked[2] == 30.0
     assert "Jpeg" in picked[3]
 
@@ -682,3 +711,53 @@ def test_leave_drops_attach_and_resets() -> None:
     scene.reset()
     assert scene.disc.x == 0.5
     assert not scene.disc.attached
+
+
+def test_still_pinch_unpinch_is_a_click() -> None:
+    machine = GestureMachine(
+        GestureParams(frames_on=1, frames_off=1, pinch_off=1, click_travel=0.035)
+    )
+    closed = _frame((_pinch_hand(0.04, origin=(0.50, 0.40)),), t=1.00)
+    assert machine.step(closed) == "pinch"
+    track = machine.tracks[0]
+    assert not track.dragging
+    frozen = track.frozen_xy
+    assert frozen is not None
+    opened = _frame((_pinch_hand(0.20, origin=(0.50, 0.40)),), t=1.05)
+    machine.step(opened)
+    clicks = machine.consume_clicks()
+    assert len(clicks) == 1
+    assert isinstance(clicks[0], PinchClick)
+    assert abs(clicks[0].x - frozen[0]) < 1e-9
+    assert clicks[0].travel < 0.035
+
+
+def test_moving_pinch_is_a_grab_not_a_click() -> None:
+    machine = GestureMachine(
+        GestureParams(frames_on=1, frames_off=1, pinch_off=1, click_travel=0.035)
+    )
+    machine.step(_frame((_pinch_hand(0.04, origin=(0.50, 0.40)),), t=1.00))
+    moved = _frame((_pinch_hand(0.04, origin=(0.60, 0.40)),), t=1.05)
+    assert machine.step(moved) == "pinch"
+    assert machine.tracks[0].dragging
+    machine.step(_frame((_pinch_hand(0.20, origin=(0.60, 0.40)),), t=1.10))
+    assert machine.consume_clicks() == []
+
+
+def test_click_uses_pinch_down_not_release() -> None:
+    """Heisenberg: unpinch must not walk the hit."""
+    machine = GestureMachine(
+        GestureParams(frames_on=1, frames_off=1, pinch_off=1, click_travel=0.08)
+    )
+    first = _pinch_hand(0.04, origin=(0.40, 0.40))
+    machine.step(_frame((first,), t=1.00))
+    frozen = machine.tracks[0].frozen_xy
+    assert frozen is not None
+    # Small drift under click_travel — still a click, frozen stays.
+    drifted = _pinch_hand(0.04, origin=(0.42, 0.40))
+    machine.step(_frame((drifted,), t=1.03))
+    machine.step(_frame((_pinch_hand(0.20, origin=(0.42, 0.40)),), t=1.08))
+    clicks = machine.consume_clicks()
+    assert len(clicks) == 1
+    assert abs(clicks[0].x - frozen[0]) < 1e-9
+    assert abs(clicks[0].y - frozen[1]) < 1e-9

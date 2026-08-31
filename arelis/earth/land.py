@@ -1,7 +1,8 @@
 """Political geography for landfall. Not a live feed.
 
 Natural Earth 110m countries (fill + strokes) and admin-1 lines,
-cached under state/earth/ne. Public domain. Fetched once, then painted
+plus 50m admin-1 centroids for spoken go-to, cached under
+state/earth/ne. Public domain. Fetched once, then painted
 as projected polygons and polylines so continents read from space —
 the NASA albedo alone is too coarse once you fall toward land.
 
@@ -39,6 +40,10 @@ NE_PLACES_50M = (
     "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/"
     "master/geojson/ne_50m_populated_places.geojson"
 )
+NE_ADMIN1 = (
+    "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/"
+    "master/geojson/ne_50m_admin_1_states_provinces.geojson"
+)
 _UA = f"Arelis/{__version__} (+{__source_url__})"
 _TIMEOUT = 20.0
 _CACHE = state_dir() / "earth" / "ne"
@@ -50,6 +55,7 @@ _boxes: dict[str, tuple[object, list[tuple[float, float, float, float]]]] = {}
 _names: dict[str, list[str]] = {}
 _places: list[tuple[str, float, float]] | None = None
 _places_dense: list[tuple[str, float, float]] | None = None
+_admin1: list[tuple[str, float, float]] | None = None
 
 
 def country_rings() -> list[list[tuple[float, float]]]:
@@ -189,6 +195,19 @@ def places_dense() -> list[tuple[str, float, float]]:
     return places()
 
 
+def admin1_places() -> list[tuple[str, float, float]]:
+    """States and provinces. Centroids from Natural Earth 50m when cached."""
+    global _admin1
+    if _admin1 is not None:
+        return _admin1
+    cached = _read_places("admin1")
+    if cached is not None:
+        _admin1 = cached
+        return cached
+    schedule_fetch("admin1", NE_ADMIN1)
+    return []
+
+
 def hit_country(lat: float, lon: float) -> str | None:
     """Point-in-polygon on country exteriors. First named hit wins."""
     fills = country_fills()
@@ -223,6 +242,7 @@ def schedule_land_fetch() -> None:
     state_rings()
     places()
     places_dense()
+    admin1_places()
 
 
 def _load(name: str, url: str) -> list[list[tuple[float, float]]]:
@@ -268,9 +288,12 @@ def schedule_fetch(name: str, url: str) -> None:
     with _lock:
         if name in _inflight:
             return
-        if name.startswith("places"):
+        if name.startswith("places") or name == "admin1":
             if name == "places50":
                 if _places_dense is not None or _read_places("places50") is not None:
+                    return
+            elif name == "admin1":
+                if _admin1 is not None or _read_places("admin1") is not None:
                     return
             elif _places is not None or _read_places() is not None:
                 return
@@ -284,7 +307,7 @@ def schedule_fetch(name: str, url: str) -> None:
 
 
 def _fetch_one(name: str, url: str) -> None:
-    global _places, _places_dense
+    global _places, _places_dense, _admin1
     try:
         if not _host_pinned(urlparse(url).hostname):
             return
@@ -298,13 +321,19 @@ def _fetch_one(name: str, url: str) -> None:
             return
         dest = _CACHE / f"{name}.json"
         dest.parent.mkdir(parents=True, exist_ok=True)
-        if name.startswith("places"):
-            found = places_from_geojson(data)
+        if name.startswith("places") or name == "admin1":
+            found = (
+                admin1_from_geojson(data)
+                if name == "admin1"
+                else places_from_geojson(data)
+            )
             if not found:
                 return
             dest.write_text(json.dumps(found), encoding="utf-8")
             if name == "places50":
                 _places_dense = found
+            elif name == "admin1":
+                _admin1 = found
             else:
                 _places = found
             n = len(found)
@@ -403,6 +432,45 @@ def names_from_geojson(payload: dict[str, Any]) -> list[str]:
     return out
 
 
+def admin1_from_geojson(payload: dict[str, Any]) -> list[tuple[str, float, float]]:
+    """State and province centroids. Tests use a tiny fixture."""
+    out: list[tuple[str, float, float]] = []
+    for feat in payload.get("features") or []:
+        if not isinstance(feat, dict):
+            continue
+        label = _prop_name(feat.get("properties") or {})
+        if not label:
+            continue
+        geom = feat.get("geometry") or {}
+        kind = str(geom.get("type") or "")
+        coords = geom.get("coordinates")
+        rings: list[list[tuple[float, float]]] = []
+        if kind == "Polygon":
+            ring = _exterior_ring(coords)
+            if ring:
+                rings.append(ring)
+        elif kind == "MultiPolygon":
+            if isinstance(coords, list):
+                for poly in coords:
+                    ring = _exterior_ring(poly)
+                    if ring:
+                        rings.append(ring)
+        elif kind == "Point":
+            if isinstance(coords, (list, tuple)) and len(coords) >= 2:
+                try:
+                    out.append((label, float(coords[1]), float(coords[0])))
+                except (TypeError, ValueError):
+                    pass
+            continue
+        pts = [p for ring in rings for p in ring]
+        if not pts:
+            continue
+        lat = sum(p[0] for p in pts) / len(pts)
+        lon = sum(p[1] for p in pts) / len(pts)
+        out.append((label, lat, lon))
+    return out
+
+
 def places_from_geojson(payload: dict[str, Any]) -> list[tuple[str, float, float]]:
     out: list[tuple[str, float, float]] = []
     for feat in payload.get("features") or []:
@@ -491,7 +559,7 @@ def _host_pinned(host: str | None) -> bool:
 
 def _cache_dir_for_tests(path: Path) -> None:
     """Test hook. Do not use from adapters."""
-    global _CACHE, _places, _places_dense
+    global _CACHE, _places, _places_dense, _admin1
     _CACHE = path
     _rings.clear()
     _ecef.clear()
@@ -499,3 +567,4 @@ def _cache_dir_for_tests(path: Path) -> None:
     _names.clear()
     _places = None
     _places_dense = None
+    _admin1 = None

@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QDialog,
     QHBoxLayout,
     QLabel,
+    QPlainTextEdit,
     QPushButton,
     QVBoxLayout,
     QWidget,
@@ -265,3 +266,30 @@ def confirm(
         destructive=destructive,
     )
     return dialog.exec() == QDialog.DialogCode.Accepted
+
+
+def ask_text(
+    parent: QWidget | None,
+    heading: str,
+    message: str,
+    *,
+    placeholder: str = "",
+    accept_text: str = "Keep",
+    cancel_text: str = "Cancel",
+) -> str:
+    """Ask for a short note. Empty string means they cancelled or left it blank."""
+    dialog = GlassDialog(heading, parent=parent, width=420)
+    dialog.add_text(message)
+    edit = QPlainTextEdit()
+    edit.setObjectName("ComposerInput")
+    edit.setPlaceholderText(placeholder)
+    edit.setFixedHeight(120)
+    dialog.body.addWidget(edit)
+    cancel = dialog.add_button(cancel_text)
+    ok = dialog.add_button(accept_text, primary=True)
+    cancel.clicked.connect(dialog.reject)
+    ok.clicked.connect(dialog.accept)
+    edit.setFocus()
+    if dialog.exec() != QDialog.DialogCode.Accepted:
+        return ""
+    return edit.toPlainText().strip()

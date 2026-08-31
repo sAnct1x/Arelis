@@ -94,6 +94,46 @@ def cdp_is_up(cdp_url: str, *, timeout_s: float = 0.8) -> bool:
         return False
 
 
+def cdp_port_is_arelis(cdp_url: str) -> bool | None:
+    """True when her profile holds this CDP port. None if we cannot tell.
+
+    An empty process scan is unknown, not "foreign." CIM often returns no
+    rows while Chrome is up; treating that as False hops off a live 9222.
+    """
+    if sys.platform != "win32":
+        return None
+    rows = _chrome_cmdlines()
+    if not rows:
+        return None
+    port = parse_cdp_port(cdp_url)
+    marker = str(arelis_user_data_dir().resolve()).replace("/", "\\").lower()
+    needle = f"--remote-debugging-port={port}"
+    for _pid, cmd in rows:
+        low = (cmd or "").replace("/", "\\").lower()
+        if marker in low and needle in low:
+            return True
+    return False
+
+
+def prefer_cdp_url(preferred: str) -> str:
+    """Keep her window. If 9222 is someone else's Chrome, pick another port."""
+    raw = (preferred or "").strip() or "http://127.0.0.1:9222"
+    if not cdp_is_up(raw):
+        return raw
+    owned = cdp_port_is_arelis(raw)
+    if owned is True or owned is None:
+        return raw
+    parsed = urlparse(raw)
+    host = parsed.hostname or "127.0.0.1"
+    for port in range(9333, 9343):
+        url = f"http://{host}:{port}"
+        if cdp_is_up(url) and cdp_port_is_arelis(url) is True:
+            return url
+        if not cdp_is_up(url):
+            return url
+    return f"http://{host}:9333"
+
+
 def parse_cdp_port(cdp_url: str) -> int:
     parsed = urlparse(cdp_url)
     if parsed.port:
@@ -373,10 +413,35 @@ def terminate_arelis_browser() -> None:
         time.sleep(0.6)
 
 
-def _pids_using_arelis_profile() -> list[int]:
-    marker = str(arelis_user_data_dir().resolve()).replace("/", "\\").lower()
-    if sys.platform != "win32" or not marker:
+def _parse_pid_cmd_lines(out: str) -> list[tuple[int, str]]:
+    rows: list[tuple[int, str]] = []
+    for line in (out or "").splitlines():
+        if "\t" not in line:
+            continue
+        pid_s, cmd = line.split("\t", 1)
+        try:
+            rows.append((int(pid_s.strip()), cmd or ""))
+        except ValueError:
+            continue
+    return rows
+
+
+def _chrome_cmdlines() -> list[tuple[int, str]] | None:
+    """Chrome/Edge pid + command line. None when every scan failed."""
+    if sys.platform != "win32":
         return []
+    primary = _chrome_cmdlines_cim()
+    if primary:
+        return primary
+    fallback = _chrome_cmdlines_wmic()
+    if fallback:
+        return fallback
+    if primary is None and fallback is None:
+        return None
+    return []
+
+
+def _chrome_cmdlines_cim() -> list[tuple[int, str]] | None:
     try:
         out = subprocess.check_output(
             [
@@ -384,8 +449,8 @@ def _pids_using_arelis_profile() -> list[int]:
                 "-NoProfile",
                 "-Command",
                 (
-                    "Get-CimInstance Win32_Process | "
-                    "Where-Object { $_.Name -match '^(chrome|msedge)\\.exe$' } | "
+                    "Get-CimInstance -ClassName Win32_Process "
+                    "-Filter \"Name='chrome.exe' OR Name='msedge.exe'\" | "
                     "ForEach-Object { '{0}`t{1}' -f $_.ProcessId, $_.CommandLine }"
                 ),
             ],
@@ -394,19 +459,56 @@ def _pids_using_arelis_profile() -> list[int]:
             timeout=12,
         )
     except Exception:
+        return None
+    return _parse_pid_cmd_lines(out)
+
+
+def _chrome_cmdlines_wmic() -> list[tuple[int, str]] | None:
+    """Second shape when CIM returns no rows. No extra package."""
+    try:
+        out = subprocess.check_output(
+            [
+                "wmic",
+                "process",
+                "where",
+                "name='chrome.exe' or name='msedge.exe'",
+                "get",
+                "ProcessId,CommandLine",
+                "/format:csv",
+            ],
+            text=True,
+            stderr=subprocess.DEVNULL,
+            timeout=12,
+        )
+    except Exception:
+        return None
+    rows: list[tuple[int, str]] = []
+    for line in (out or "").splitlines():
+        parts = [p.strip() for p in line.split(",")]
+        if len(parts) < 3 or parts[-1].lower() == "processid":
+            continue
+        try:
+            pid = int(parts[-1])
+        except ValueError:
+            continue
+        cmd = ",".join(parts[1:-1]).strip()
+        rows.append((pid, cmd))
+    return rows
+
+
+def _pids_using_arelis_profile() -> list[int]:
+    marker = str(arelis_user_data_dir().resolve()).replace("/", "\\").lower()
+    if not marker:
+        return []
+    rows = _chrome_cmdlines()
+    if not rows:
         return []
     pids: list[int] = []
-    for line in out.splitlines():
-        if "\t" not in line:
-            continue
-        pid_s, cmd = line.split("\t", 1)
+    for pid, cmd in rows:
         low = (cmd or "").replace("/", "\\").lower()
         if marker not in low:
             continue
-        try:
-            pids.append(int(pid_s.strip()))
-        except ValueError:
-            continue
+        pids.append(pid)
     return pids
 
 

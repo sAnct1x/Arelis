@@ -272,3 +272,24 @@ def test_from_path_allows_empty_body() -> None:
         "document", {"format": "pdf", "from_path": "notes.md"}
     )
     assert confirm_args_blocked("document", {"format": "pdf"})
+
+
+@pytest.mark.asyncio
+async def test_from_path_exports_markdown_to_pdf(project, tool) -> None:
+    _root, data, _ws = project
+    source = data / "outputs" / "documents" / "brief.md"
+    source.parent.mkdir(parents=True, exist_ok=True)
+    source.write_text("# Brief\n\nExport this markdown to a PDF.\n", encoding="utf-8")
+    result = await tool.run(
+        format="pdf",
+        from_path=str(source),
+        title="Brief",
+    )
+    assert result.ok, result.output
+    dest = Path(result.data["abs_path"])
+    assert dest.suffix == ".pdf"
+    reader = PdfReader(str(dest))
+    assert len(reader.pages) >= 1
+    extracted = "".join((page.extract_text() or "") for page in reader.pages)
+    if extracted.strip():
+        assert "Export this markdown to a PDF" in extracted

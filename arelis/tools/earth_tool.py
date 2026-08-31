@@ -44,7 +44,8 @@ class EarthTool:
         "VHF-deaf mid-ocean; a packet a keyed feed sent is still painted. "
         "We do not buy sat-AIS. Radar is not a hull name. Not a face index. "
         "Not logging into cameras you do not own. Closed verbs: enter Earth, "
-        "leave Earth. Do not invent an ADS-B fix."
+        "leave Earth, take me to <place>. action=goto flies to a named "
+        "continent, country, state, city, or home. Do not invent an ADS-B fix."
     )
     risk = "read"
     parameters_schema: dict[str, Any] = {
@@ -63,13 +64,14 @@ class EarthTool:
                     "dump",
                     "live",
                     "coverage",
+                    "goto",
                 ],
                 "description": "What to do",
             },
             "id": {"type": "string", "description": "Entity id for track/ride"},
             "layer": {"type": "string", "description": "Layer id for action=layer"},
             "on": {"type": "boolean", "description": "layer/live on or off"},
-            "query": {"type": "string", "description": "search text"},
+            "query": {"type": "string", "description": "search or goto text"},
         },
         "required": ["action"],
     }
@@ -208,6 +210,47 @@ class EarthTool:
                 ok=True,
                 output="\n".join(lines) if lines else f"No match for {q!r}.",
                 data={"n": len(hits), "ids": [e.id for e in hits]},
+            )
+        if action == "goto":
+            from arelis.earth.gazetteer import resolve_place
+
+            q = str(kwargs.get("query") or kwargs.get("id") or "").strip()
+            hit = resolve_place(q, earth)
+            if hit is None:
+                if q.casefold() in {"home", "here"}:
+                    return ToolResult(
+                        ok=False,
+                        output="Set a home city in your profile first.",
+                        data={"fail_class": "fail:empty"},
+                    )
+                return ToolResult(
+                    ok=False,
+                    output=f"No place named {q!r} in the gazetteer.",
+                    data={"fail_class": "fail:name"},
+                )
+            if not earth.active:
+                earth.enter()
+            earth.request_goto(hit)
+            try:
+                from arelis.physics.runtime import get_system
+
+                system = get_system()
+            except Exception:
+                system = None
+            if system is not None and system.nbody.find("Earth") is not None:
+                system.lock = "Earth"
+                system.pending_inspect = "Earth"
+                system.pending_travel = "Earth"
+            return ToolResult(
+                ok=True,
+                output=f"Flying to {hit.name}.",
+                data={
+                    "name": hit.name,
+                    "kind": hit.kind,
+                    "lat": hit.lat,
+                    "lon": hit.lon,
+                    "active": earth.active,
+                },
             )
         if action == "coverage":
             notes = earth.coverage_notes() if earth.active else ["Not in Earth."]

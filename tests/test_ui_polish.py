@@ -448,6 +448,58 @@ def test_esc_skips_confirm_while_busy(qt_app) -> None:
     stage.deleteLater()
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="WM_GETMINMAXINFO is a Windows message")
+def test_frameless_span_can_exceed_one_desk(qt_app) -> None:
+    """Default ptMaxTrackSize is one monitor. 2→3 grows left and Windows clamps."""
+    from ctypes import Structure, addressof, c_long, memset, sizeof, wintypes
+
+    from PySide6.QtWidgets import QWidget
+
+    from arelis.ui.window_resize import (
+        SM_CXVIRTUALSCREEN,
+        SM_CYVIRTUALSCREEN,
+        WM_GETMINMAXINFO,
+        handle_native_resize,
+    )
+
+    class _Point(Structure):
+        _fields_ = [("x", c_long), ("y", c_long)]
+
+    class _MinMaxInfo(Structure):
+        _fields_ = [
+            ("ptReserved", _Point),
+            ("ptMaxSize", _Point),
+            ("ptMaxPosition", _Point),
+            ("ptMinTrackSize", _Point),
+            ("ptMaxTrackSize", _Point),
+        ]
+
+    info = _MinMaxInfo()
+    memset(addressof(info), 0, sizeof(info))
+    info.ptMaxTrackSize.x = 2560
+    info.ptMaxTrackSize.y = 1440
+    msg = wintypes.MSG()
+    msg.message = WM_GETMINMAXINFO
+    msg.lParam = addressof(info)
+    widget = QWidget()
+    try:
+        assert handle_native_resize(widget, b"windows_generic_MSG", addressof(msg)) == (
+            True,
+            0,
+        )
+        from ctypes import windll
+
+        assert info.ptMaxTrackSize.x == int(
+            windll.user32.GetSystemMetrics(SM_CXVIRTUALSCREEN)
+        )
+        assert info.ptMaxTrackSize.y == int(
+            windll.user32.GetSystemMetrics(SM_CYVIRTUALSCREEN)
+        )
+        assert info.ptMaxTrackSize.x >= 2560
+    finally:
+        widget.deleteLater()
+
+
 @pytest.mark.skipif(sys.platform != "win32", reason="WM_NCCALCSIZE is a Windows message")
 def test_frameless_resize_asks_windows_to_redraw_the_client(qt_app) -> None:
     """Returning 0 from WM_NCCALCSIZE is what smears the previous frame.

@@ -47,6 +47,7 @@ def test_needs_confirm_gate() -> None:
     assert not reg.needs_confirm("workspace", {"action": "list"})
     assert reg.needs_confirm("workspace", {"action": "write", "path": "x", "content": "y"})
     assert reg.needs_confirm("workspace", {"action": "edit", "path": "x", "old": "a", "new": "b"})
+    assert reg.needs_confirm("workspace", {"action": "keep", "text": "spare key"})
     assert reg.needs_confirm("image", {"prompt": "nebula"})
     assert not reg.needs_confirm(
         "workspace", {"action": "write", "path": "x", "content": "y"}, confirm_writes=False

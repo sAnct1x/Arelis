@@ -42,7 +42,7 @@ CapabilityClass = Literal[
 
 # Actions that turn a reader into a writer. The tool is registered as "read"
 # because list/read is the common case; the gate looks at the action argument.
-WORKSPACE_WRITE_ACTIONS = frozenset({"write", "edit"})
+WORKSPACE_WRITE_ACTIONS = frozenset({"write", "edit", "keep", "delete", "remove"})
 CONTACTS_WRITE_ACTIONS = frozenset({"add", "update", "remove"})
 AGENDA_WRITE_ACTIONS = frozenset({"create", "update", "delete"})
 TASKS_WRITE_ACTIONS = frozenset({"add", "done", "reopen", "remove", "attach", "detach"})
@@ -90,6 +90,59 @@ def _action(args: dict[str, Any] | None) -> str:
 def _inbox_action(args: dict[str, Any] | None) -> str:
     action = _action(args)
     return "trash" if action == "delete" else action
+
+
+# Filament: the spoken ask is the grant. Only a destructive call pauses.
+_CONFIRM_MODE = "card"
+
+DELETE_ACTIONS = {
+    "contacts": frozenset({"remove"}),
+    "agenda": frozenset({"delete"}),
+    "tasks": frozenset({"remove"}),
+    "goals": frozenset({"drop", "remove"}),
+    "memory": frozenset({"forget"}),
+    "rooms": frozenset({"forget"}),
+    "schedule": frozenset({"delete"}),
+    "inbox": frozenset({"trash", "delete"}),
+    "workspace": frozenset({"delete", "remove"}),
+}
+
+
+def set_confirm_mode(mode: str) -> None:
+    """card (sodium) or voice (filament). Tests reset this via apply_theme."""
+    global _CONFIRM_MODE
+    _CONFIRM_MODE = "voice" if (mode or "").strip().lower() == "voice" else "card"
+
+
+def confirm_mode() -> str:
+    return _CONFIRM_MODE
+
+
+def action_is_delete(name: str, args: dict[str, Any] | None) -> bool:
+    """True when this call removes something that cannot be walked back easily."""
+    tool = (name or "").strip()
+    action = _inbox_action(args) if tool == "inbox" else _action(args)
+    wanted = DELETE_ACTIONS.get(tool)
+    return bool(wanted and action in wanted)
+
+
+def _browser_is_pay(args: dict[str, Any] | None) -> bool:
+    """Checkout / Pay / Buy — she stops. You click, or you say yes."""
+    from arelis.browser.walls import pay_cta_label
+
+    action = _action(args)
+    if action not in {"click", "press", "type"}:
+        return False
+    raw = args or {}
+    label = str(raw.get("text") or raw.get("target") or raw.get("url") or "")
+    return pay_cta_label(label) is not None
+
+
+def action_is_destructive(name: str, args: dict[str, Any] | None) -> bool:
+    """Pay, delete, forget. Writes, sends, and opening a page are not this."""
+    if action_is_delete(name, args):
+        return True
+    return (name or "").strip() == "browser" and _browser_is_pay(args)
 
 
 def action_is_write(name: str, args: dict[str, Any] | None) -> bool:
@@ -178,7 +231,12 @@ def evaluate_confirm(
     Argument-dependent, not just risk-dependent. An unknown tool (no risk)
     and a read action both return False — the loop rejects unknown names
     before it reaches here.
+
+    Voice mode (filament) skips the card: saying the ask is the grant.
+    Destructive calls still pause so she can ask out loud.
     """
+    if _CONFIRM_MODE == "voice":
+        return action_is_destructive(name, args)
     toggle = confirm_toggle(name, args, risk=risk)
     if toggle == "send":
         return confirm_send
@@ -435,7 +493,29 @@ def describe_call(
         if action == "wait":
             lines.append("Pauses briefly so the page can settle (max 8s).")
         if action == "click":
-            lines.append("Glows the target, waits a beat, then clicks.")
+            lines.append(
+                "Glows the target in her Chrome, waits a beat, then clicks. "
+                "text= is the visible label; nth=1 is the first result."
+            )
+        if action == "type":
+            lines.append(
+                "Types into a non-secret field. into= is the field label "
+                "(search, email). She does not type passwords."
+            )
+        if action == "back":
+            lines.append("Goes back one page in her Chrome. The tab stays.")
+        if action == "forward":
+            lines.append("Goes forward one page in her Chrome.")
+        if action == "reload":
+            lines.append("Reloads the current tab.")
+        if action == "find":
+            lines.append("Lists visible controls matching the text. Does not click.")
+        if action == "tabs":
+            tab = str(args.get("tab") or "").strip().lower()
+            if tab == "new":
+                lines.append("Opens a new tab in her Chrome.")
+            elif tab == "close":
+                lines.append("Closes the current tab. The window stays.")
         if action == "navigate":
             lines.append(
                 "Navigates a controlled browser tab. If the browser is open "

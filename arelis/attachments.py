@@ -34,6 +34,8 @@ _TEXT = frozenset(
         ".conf",
         ".env",
         ".jsonl",
+        ".py",
+        ".pyi",
     }
 )
 _DATA = frozenset({".json", ".csv", ".tsv", ".tab", ".xlsx", ".xls"})

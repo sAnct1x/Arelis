@@ -115,7 +115,10 @@ class InstrumentPanel(GlassFrame):
 
         kind = event.type()
         if kind == QMouseEvent.Type.MouseButtonDblClick:
-            dock.setFloating(not dock.isFloating())
+            from arelis.ui.theme import active_theme
+
+            if active_theme() != "filament":
+                dock.setFloating(not dock.isFloating())
             return True
         if kind == QMouseEvent.Type.MouseButtonPress:
             if event.button() != Qt.MouseButton.LeftButton:

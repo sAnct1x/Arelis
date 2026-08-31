@@ -117,9 +117,11 @@ Do these before digging in PC code:
    `published=false` (duplicate), or `published id=…` lines.
 
 Misses that cluster when the phone screen has been off for a while are
-usually doze, not Arelis rate-limiting. There is no inbound rate
-limiter. Failed POSTs stay in a queue on the phone and retry when the
-PC is back.
+usually doze, not Arelis rate-limiting. Ingest now has a house watch:
+about 40 requests / 10s per client IP, and a lock after several bad
+tokens. A real phone does not hit those. Failed POSTs stay in a queue
+on the phone and retry when the PC is back. A 429 is "slow down", not
+"wrong token".
 
 ## Troubleshooting
 

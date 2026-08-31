@@ -13,12 +13,13 @@ The camera tool stays snapshot-only. Pose is not ambient watching.
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from datetime import UTC, datetime
 from pathlib import Path
 
 import numpy as np
-from PySide6.QtCore import QEventLoop, Qt, QTimer, Signal
+from PySide6.QtCore import QEventLoop, Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QImage
 from PySide6.QtWidgets import (
     QComboBox,
@@ -36,7 +37,7 @@ from arelis.spatial import PREFERRED_CAMERA
 from arelis.spatial.scene import REACH_DEFAULT, clamp_reach
 from arelis.spatial.takes import prune_stills
 from arelis.spatial.types import Hand
-from arelis.spatial.video import PREVIEW_MAX_WIDTH, pick_live_format
+from arelis.spatial.video import PREVIEW_MAX_WIDTH, pick_preview_format
 from arelis.ui.panels.hand_preview import HandPreview
 from arelis.ui.panels.world import make_reach_control
 from arelis.ui.theme import METRICS, polish_combo_popup
@@ -254,14 +255,63 @@ def _format_rows(device) -> list[tuple[int, int, float, str, object]]:
     return rows
 
 
-def _prefer_1080p(camera, device) -> None:
-    """Ask for the fastest 1080p (MJPEG 30), not YUY2 1080p5."""
+class PreviewConvertWorker(QThread):
+    """Latest-frame-only. Preview convert stays off the HWND thread."""
+
+    frame_ready = Signal(object)
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self._lock = threading.Lock()
+        self._latest: object | None = None
+        self._new = threading.Event()
+        self._stop = threading.Event()
+
+    def submit(self, frame: object) -> None:
+        with self._lock:
+            self._latest = frame
+        self._new.set()
+
+    def stop_worker(self) -> None:
+        self._stop.set()
+        self._new.set()
+
+    def run(self) -> None:
+        while not self._stop.is_set():
+            self._new.wait(timeout=0.25)
+            self._new.clear()
+            if self._stop.is_set():
+                break
+            with self._lock:
+                frame = self._latest
+                self._latest = None
+            if frame is None:
+                continue
+            try:
+                rgb, _, _ = video_frame_to_rgb(frame, PREVIEW_MAX_WIDTH)
+                if rgb is None:
+                    continue
+                self.frame_ready.emit(rgb_to_qimage(rgb))
+            except Exception:
+                log.debug("preview convert failed", exc_info=True)
+
+
+def _prefer_preview(camera, device, max_width: int | None = None) -> None:
+    """Ask for the fastest ≤720p (MJPEG 30), not YUY2 5 fps or 1080p decode.
+
+    Session-only (camera tile hidden) asks for ~640 so the desk stays at 33 ms.
+    """
     if camera is None or device is None:
         return
     rows = _format_rows(device)
     if not rows:
         return
-    picked = pick_live_format([(w, h, fps, pix) for w, h, fps, pix, _ in rows])
+    kwargs = {}
+    if max_width is not None:
+        kwargs["max_width"] = int(max_width)
+    picked = pick_preview_format(
+        [(w, h, fps, pix) for w, h, fps, pix, _ in rows], **kwargs
+    )
     if picked is None:
         return
     pw, ph, pfps, ppix = picked
@@ -330,6 +380,7 @@ class CameraPanel(QWidget):
         self._ask_after_next_save = False
         self._sink = None
         self._want_pose = False
+        self._preview: PreviewConvertWorker | None = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -471,7 +522,7 @@ class CameraPanel(QWidget):
             self.stop()
             self.start()
 
-    def start(self) -> None:
+    def start(self, max_width: int | None = None) -> None:
         problem = self.problem()
         if problem:
             self._set_hint(problem)
@@ -487,7 +538,7 @@ class CameraPanel(QWidget):
         try:
             self._session = QMediaCaptureSession(self)
             self._camera = QCamera(device, self)
-            _prefer_1080p(self._camera, device)
+            _prefer_preview(self._camera, device, max_width)
             self._image_capture = QImageCapture(self)
             self._session.setCamera(self._camera)
             self._session.setImageCapture(self._image_capture)
@@ -495,6 +546,7 @@ class CameraPanel(QWidget):
                 self._sink = QVideoSink(self)
                 self._sink.videoFrameChanged.connect(self._on_video_frame)
                 self._session.setVideoSink(self._sink)
+            self._ensure_preview_worker()
             self._image_capture.imageSaved.connect(self._on_image_saved)
             self._image_capture.errorOccurred.connect(self._on_capture_error)
             self._camera.errorOccurred.connect(self._on_camera_error)
@@ -587,17 +639,44 @@ class CameraPanel(QWidget):
     def _on_record_toggled(self, checked: bool) -> None:
         self.record_toggled.emit(bool(checked))
 
+    def _ensure_preview_worker(self) -> None:
+        if self._preview is not None:
+            return
+        worker = PreviewConvertWorker(self)
+        worker.frame_ready.connect(self._on_preview_ready)
+        worker.start()
+        self._preview = worker
+
+    def _stop_preview_worker(self) -> None:
+        worker = self._preview
+        self._preview = None
+        if worker is None:
+            return
+        try:
+            worker.frame_ready.disconnect(self._on_preview_ready)
+        except (TypeError, RuntimeError):
+            pass
+        worker.stop_worker()
+        worker.wait(1500)
+        worker.deleteLater()
+
+    def _on_preview_ready(self, image: QImage) -> None:
+        if not self._running:
+            return
+        self.set_preview(image)
+
     def _on_video_frame(self, frame) -> None:
         if QVideoFrame is None or not frame.isValid():
             return
         if self._want_pose:
-            # Convert off the UI thread. Preview comes back scaled from the worker.
+            # Pose worker already converts off the UI thread.
             self.pose_video.emit(frame, time.perf_counter())
             return
-        rgb, _, _ = video_frame_to_rgb(frame, PREVIEW_MAX_WIDTH)
-        if rgb is None or not isinstance(self.video, HandPreview):
+        self._ensure_preview_worker()
+        if self._preview is None:
             return
-        self.video.set_frame(rgb_to_qimage(rgb))
+        held = QVideoFrame(frame)
+        self._preview.submit(held)
 
     def _teardown_camera(self) -> None:
         cam = self._camera
@@ -607,6 +686,7 @@ class CameraPanel(QWidget):
         self._image_capture = None
         self._sink = None
         self._pending_snapshot = None
+        self._stop_preview_worker()
         if sink is not None:
             try:
                 sink.videoFrameChanged.disconnect(self._on_video_frame)
