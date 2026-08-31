@@ -44,10 +44,10 @@ def _redact(status: str) -> str:
     return f"{status.lower()} (detail redacted)"
 
 
-async def _call(reg: ToolRegistry, name: str, **kwargs: Any) -> tuple[str, str, int]:
-    tool = reg.get(name)
+async def _call(reg: ToolRegistry, tool_name: str, **kwargs: Any) -> tuple[str, str, int]:
+    tool = reg.get(tool_name)
     if tool is None:
-        return "SKIP", f"{name} not registered", 0
+        return "SKIP", f"{tool_name} not registered", 0
     t0 = time.perf_counter()
     try:
         result = await tool.run(**kwargs)
