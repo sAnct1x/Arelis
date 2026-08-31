@@ -30,9 +30,11 @@ private path when you ask.
 
 ## How open works
 
-`browser(action=open, url=…)` launches or attaches Arelis Chrome, same
-size as the Arelis app, offset down-right so it does not cover chat. The
-tab opens there. Your other Chrome windows are left alone.
+`browser(action=open, url=…)` launches or attaches Arelis Chrome as a
+normal window on one monitor (~60% of that desk), not maximized across
+the 1/2/3 span. If a single-desk Arelis window leaves room, she parks
+beside chat. The tab opens there. Your other Chrome windows are left
+alone.
 
 First time: she tells you to sign into Google and Maps in that window.
 

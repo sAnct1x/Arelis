@@ -44,7 +44,7 @@ won't be asked again.
 
 Every launch after that pins the chosen tag, then seeds Ollama's
 prefix cache with the persona, the tool policy, and every tool schema
-— roughly 17,800 tokens' worth. While that's happening, the window
+— roughly 5,500 tokens' worth. While that's happening, the window
 just says **loading the model…** Once it's done, a warm hello takes
 about a second. More detail in
 [architecture.md](architecture.md).
@@ -97,12 +97,11 @@ detects (`arelis/setup/context.py`) and writes it into
 `config.local.yaml` — so a 24 GB card isn't stuck with a 12 GB-sized
 answer, and an 8 GB card isn't handed a window it can't actually hold.
 The floor is 32768, and that's not just being cautious: the persona,
-tool policy, and schemas for every tool already add up to about 17,800
-tokens before you've even said anything, so a smaller window would
-overflow on the very first turn. Ollama discards overflow from the
-front of the context — which is exactly where the persona lives — so
-this really matters. `tests/test_prompt_fits_window.py` holds that
-math in place.
+telegraph policy, and skinny schemas already add up to about 5,500
+tokens before you've even said anything, and history needs the rest.
+Ollama discards overflow from the front of the context — which is
+exactly where the persona lives — so this really matters.
+`tests/test_prompt_fits_window.py` holds that math in place.
 
 The old 14B dense-model niche is gone in Qwen3.5 — it jumps straight
 from 9B to 27B. A 27B-with-offload setup wasn't kept, mainly because

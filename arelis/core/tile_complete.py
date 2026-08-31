@@ -15,6 +15,7 @@ TILE_NAMES: tuple[str, ...] = (
     "contacts",
     "calendar",
     "world",
+    "chat",
 )
 
 # Longer aliases first so "past conversations" wins over a stray "history" later.
@@ -34,6 +35,7 @@ _ALIASES: tuple[tuple[str, str], ...] = (
         r"world|reality|solar\s+lab|solar\s+system|toy\s+area|"
         r"hands(?:\s+sandbox)?|sandbox",
     ),
+    ("chat", r"chat(?:\s+tile)?"),
 )
 
 

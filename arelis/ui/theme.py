@@ -203,6 +203,7 @@ TYPE = {
     "track_heading": "0.08em",
 }
 
+# Sodium is the product. Filament is a test face (View → themes).
 DEFAULT_THEME = "sodium"
 _ACTIVE_THEME = DEFAULT_THEME
 
@@ -654,7 +655,12 @@ def stylesheet() -> str:
         letter-spacing: {t['track_wide']};
         background: transparent;
         border: none;
-        padding: 0 2px 0 0;
+        padding: 0 8px 0 0;
+    }}
+    #ChromeTitle:hover {{
+        color: {c['accent']};
+        background: transparent;
+        border: none;
     }}
     #ChromeViewBtn, #ChromeRoomsBtn, #ChromeSettingsBtn {{
         background: transparent;
@@ -668,7 +674,7 @@ def stylesheet() -> str:
         color: {c['accent']};
         background: {c['hover']};
     }}
-    #ChromeSpanBtn {{
+    #ChromeSpanBtn, #ChromeHandsBtn {{
         background: transparent;
         border: none;
         border-radius: 6px;
@@ -678,11 +684,11 @@ def stylesheet() -> str:
         font-size: 11px;
         letter-spacing: {t['track_mid']};
     }}
-    #ChromeSpanBtn:hover {{
+    #ChromeSpanBtn:hover, #ChromeHandsBtn:hover {{
         color: {c['accent']};
         background: {c['hover']};
     }}
-    #ChromeSpanBtn:checked {{
+    #ChromeSpanBtn:checked, #ChromeHandsBtn:checked {{
         color: {c['accent']};
     }}
     #SettingsDialog, #ContactsInbox, #NotificationsInbox, #SmsChat,

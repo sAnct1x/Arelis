@@ -213,7 +213,7 @@ async def prepare_turn(
             visible=len(visible),
             available=len(available_all),
         )
-    # Static prefix first (persona + the whole tool policy) so the front of
+    # Static prefix first (persona + telegraph policy) so the front of
     # the prompt is byte-stable across turns. Turn-specific lines trail it,
     # never precede it.
     system_messages = static_system_prefix(loop.persona)

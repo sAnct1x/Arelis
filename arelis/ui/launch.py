@@ -28,6 +28,7 @@ from arelis.presence.ipc_client import IpcClient
 from arelis.presence.ipc_server import IpcServer
 from arelis.presence.lock import external_core_available
 from arelis.ui.first_run import prompt_for_workspace_root
+from arelis.ui.scale import configure_display_scale
 from arelis.ui.setup_wizard import prompt_for_model_setup
 from arelis.ui.theme import (
     app_font,
@@ -229,6 +230,8 @@ def run_ui(config: dict[str, Any] | None = None) -> int:
     # handed in by a caller (tests, harnesses) must not be silently replaced.
     config_was_given = config is not None
     config = config or load_config()
+    # Per-monitor DPI + optional ui.scale. Must land before QApplication.
+    configure_display_scale(config)
     # Single glass: a second launch raises the first rather than opening again.
     from arelis.presence.lock import PresenceLock, ui_lock_path
 

@@ -39,7 +39,7 @@ SHORTCUTS: tuple[tuple[str, str, str], ...] = (
     ("panels", "Ctrl+6", "contacts"),
     ("panels", "Ctrl+7", "calendar"),
     ("panels", "Ctrl+8", "Reality — plate"),
-    ("window", "Ctrl+,", "settings"),
+    ("window", "Ctrl+,", "settings — audio, window scale, allow"),
     ("window", "F11", "fullscreen"),
     ("window", "F1", "this sheet"),
     ("text", "Ctrl+=", "larger chat text"),

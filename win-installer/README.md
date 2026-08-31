@@ -39,7 +39,7 @@ winget install -e --id JRSoftware.InnoSetup
 `win-installer/dist/Arelis/` is around 640 MB. A directory that runs
 Arelis with nothing installed and nothing on PATH.
 
-`win-installer/dist/Arelis-0.2.4-win64-setup.exe` is the same tree,
+`win-installer/dist/Arelis-0.2.5-win64-setup.exe` is the same tree,
 compressed, installing per-user into `%LOCALAPPDATA%\Programs\Arelis`.
 
 Where the 640 MB goes, largest first: Playwright's driver, Qt, PyAV's
@@ -170,7 +170,7 @@ What a cautious person can check instead: `build.py` prints the SHA-256
 of the setup `.exe`, and releases publish it.
 
 ```powershell
-Get-FileHash .\Arelis-0.2.4-win64-setup.exe -Algorithm SHA256
+Get-FileHash .\Arelis-0.2.5-win64-setup.exe -Algorithm SHA256
 ```
 
 The bundled interpreter is verified during the build against the digest

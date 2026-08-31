@@ -35,6 +35,7 @@ def _chrome_btn(obj: str, icon, slot, *, tooltip: str = "") -> QPushButton:
 class TitleBar(QWidget):
     """Frameless window chrome that matches the glass shell."""
 
+    title_menu_requested = Signal(object)  # same menu as a right-click on filament
     view_menu_requested = Signal(object)  # emits the view button for QMenu.exec
     rooms_menu_requested = Signal(object)  # emits the rooms button for QMenu.exec
     settings_requested = Signal()
@@ -45,6 +46,8 @@ class TitleBar(QWidget):
         self.setObjectName("TitleBar")
         self.setFixedHeight(40)
         self._drag_pos: QPoint | None = None
+        self._slim = False
+        self._hands_wanted = False
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(18, 0, 10, 0)
@@ -56,9 +59,27 @@ class TitleBar(QWidget):
         self._span_right.setFixedWidth(0)
         layout.addWidget(self._span_left)
 
-        self.title = QLabel("arelis")
+        self.title = QToolButton()
         self.title.setObjectName("ChromeTitle")
+        self.title.setText("arelis")
+        self.title.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+        self.title.setAutoRaise(True)
+        self.title.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.title.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.title.setToolTip("themes, rooms, desks")
+        self.title.clicked.connect(lambda: self.title_menu_requested.emit(self.title))
         layout.addWidget(self.title)
+
+        self.hands_btn = QToolButton()
+        self.hands_btn.setObjectName("ChromeHandsBtn")
+        self.hands_btn.setText("hands")
+        self.hands_btn.setCheckable(True)
+        self.hands_btn.setAutoRaise(True)
+        self.hands_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.hands_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.hands_btn.setToolTip("C920 hands. Camera tile is inspect-only.")
+        self.hands_btn.setVisible(False)
+        layout.addWidget(self.hands_btn)
         layout.addSpacing(10)
 
         self.view_btn = QToolButton()
@@ -119,7 +140,7 @@ class TitleBar(QWidget):
         layout.addWidget(self._span_right)
 
     def set_home_band(self, left: int, width: int, total: int) -> None:
-        """Keep arelis + 1/2/3 + window buttons on the primary desk."""
+        """Keep arelis + hands + 1/2/3 + window buttons on the primary desk."""
         if width <= 0 or total <= 0:
             self._span_left.setFixedWidth(0)
             self._span_right.setFixedWidth(0)
@@ -136,17 +157,23 @@ class TitleBar(QWidget):
         self._span_right.setFixedWidth(right)
 
     def set_slim(self, on: bool) -> None:
-        """Filament: word + window buttons. View / rooms / settings live on the field."""
+        """Filament: arelis · hands · 1 2 3. View / rooms / settings live on the field."""
         slim = bool(on)
+        self._slim = slim
         self.view_btn.setVisible(not slim)
         self.rooms_btn.setVisible(not slim)
         self.settings_btn.setVisible(not slim)
         for btn in self.span_btns.values():
             btn.setVisible(slim)
+        self.hands_btn.setVisible(slim and self._hands_wanted)
         self.setFixedHeight(32 if slim else 40)
         lay = self.layout()
         if lay is not None:
             lay.setContentsMargins(14 if slim else 18, 0, 6 if slim else 10, 0)
+
+    def set_hands_visible(self, on: bool) -> None:
+        self._hands_wanted = bool(on)
+        self.hands_btn.setVisible(self._slim and self._hands_wanted)
 
     def set_span_choice(self, n: int) -> None:
         btn = self.span_btns.get(max(1, min(3, int(n))))

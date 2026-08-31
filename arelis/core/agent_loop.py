@@ -276,35 +276,18 @@ FACTS:
 # Hard cap: even a chatty compress pass cannot flood the History review queue.
 _MAX_PROPOSED_FACTS = 2
 
-# Every rule, in one block, on every turn. Cards remain how the text is
-# authored and reviewed — one section per capability — but selection between
-# them is no longer part of building a prompt.
+# Telegraph policy every turn. Cards in skills.py author the long form and
+# classify turns; they are not pasted into the prompt. Byte-stable so the
+# prefix cache lives. The tail still varies (preflight, facts, clock).
 TOOL_POLICY = full_tool_policy()
-
-# The whole policy is the static prefix. It used to be SKILL_CORE alone (333
-# tokens) with four matched cards trailing behind it, because at num_ctx 16384
-# the full policy plus the tool schemas came to 108% of the window and did not
-# fit. At 65536 the same prompt is 27% (persona 905 + policy 6,248 + schemas
-# 10,674 = 17,827 tokens; see scripts/measure_prompt_budget.py), which buys back
-# two things selection was costing:
-#
-#   A rule the model needs is always present. Selection is keyword matching, and
-#   a miss shipped a turn with no rule for the tool it was about to call — the
-#   failure mode the fallback bug showed when a local file path went to
-#   web_fetch.
-#
-#   The prefix is byte-stable much deeper. The focus block sat ahead of the
-#   conversation, so changing which cards matched re-prefilled all of history
-#   behind it. Now only the short tail varies: preflight, facts, world state,
-#   clock.
 STATIC_TOOL_POLICY = TOOL_POLICY
 
 
 def static_system_prefix(persona: str) -> list[dict[str, str]]:
     """Byte-stable system prefix for KV/prefix cache across turns.
 
-    Persona + the whole tool policy. Everything turn-specific (clock, preflight,
-    facts, …) must trail this list.
+    Persona + the compact tool policy. Everything turn-specific (clock,
+    preflight, facts, …) must trail this list.
     """
     return [
         {"role": "system", "content": persona},

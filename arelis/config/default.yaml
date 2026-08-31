@@ -23,9 +23,9 @@ ollama:
   # model, Comfy, and the desktop; 131072 fits but leaves under 3 GiB.
   #
   # Setup overrides this per machine from measured VRAM — see
-  # arelis/setup/context.py. Two consequences worth knowing: the full tool
-  # registry (~7,900 tokens) is now 12% of the window instead of 48%, and a
-  # long session no longer needs the history summariser to survive.
+  # arelis/setup/context.py. Persona + telegraph policy + skinny schemas
+  # stay under ~10k tokens (see tests/test_prompt_fits_window.py). A long
+  # session no longer needs the history summariser to survive.
   num_ctx: 65536
   # Research is a deeper loop on the same weights, so it gets the same window.
   # It used to be 8192 — smaller than chat — which meant the role that reads the
@@ -222,8 +222,8 @@ agent:
   # Folding the oldest turns into a one-paragraph summary costs an extra model
   # round mid-turn, so it is worth knowing when it fires. It is a last resort,
   # not a routine step: it only runs when the token budget cannot hold the
-  # history, and at num_ctx 65536 the budget is ~47,700 tokens after the persona,
-  # the policy and the schemas — around 150 turns of conversation.
+  # history, and at num_ctx 65536 the budget is ~60,000 tokens after the persona,
+  # the telegraph policy and the skinny schemas — well over 150 turns.
   #
   # It used to run every few turns, which is what made it look like a design
   # flaw. That was the window, not this: at 16384 the budget left for history was
@@ -721,10 +721,15 @@ presence:
   ipc_port: 8766
 
 ui:
-  # Room look. View → themes. sodium is the shipped lamp. filament is testing.
+  # Room look. View → themes. sodium is the shipped lamp — the default face.
+  # filament is a test desk for a row of monitors; three is the intended layout.
   theme: sodium
-  # Filament desk span: 1 / 2 / 3 monitors. Starts on one desk; expand if you want.
+  # Filament desk span: 1 / 2 / 3 desks from the OS primary. Starts on one;
+  # press 3 when the row is there. Not Windows monitor numbers.
   filament_span: 1
+  # Extra zoom on top of the OS display scale (100% / 125% / 150% / 200%).
+  # 1.0 follows Windows. Do not set this to "fix" 4K — the OS already did.
+  scale: 1.0
   window_title: "Arelis"
   default_width: 1440
   default_height: 900

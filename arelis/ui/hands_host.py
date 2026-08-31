@@ -15,7 +15,10 @@ def apply_hands_face(window) -> None:
     floats = getattr(window, "_filament_floats", None)
     if floats is not None:
         floats.set_hands_on(filament and chip)
-        if hasattr(floats, "hands_btn"):
+        chrome = getattr(window, "title_bar", None)
+        if chrome is not None and hasattr(chrome, "set_hands_visible"):
+            chrome.set_hands_visible(filament and world_stage_allowed())
+        elif hasattr(floats, "hands_btn") and not getattr(floats, "_hands_on_chrome", False):
             floats.hands_btn.setVisible(filament and world_stage_allowed())
     if filament and chip and world_stage_allowed():
         _ensure_session(window)

@@ -1,17 +1,15 @@
-"""Skill cards: the tool policy, authored one capability at a time.
+"""Skill cards: long-form tool rules, authored one capability at a time.
 
-A card is a section of the policy — the SMS rules, the mail rules, the scrape
-rules — kept separate so each can be read and reviewed on its own. The union of
-every card is ``TOOL_POLICY`` in agent_loop, and that union is what ships on
-every turn.
+A card is a section of the rules — the SMS rules, the mail rules, the scrape
+rules — kept separate so each can be read and reviewed on its own. Ollama does
+not see these bodies. The prompt ships ``compact_tool_policy()`` (telegraph)
+plus skinny schemas; cards stay here for humans and for ``select_skill_ids``.
 
-It did not used to. Cards were originally *retrieved*: at num_ctx 8192-16384 the
-whole policy plus the tool schemas came to more than the window, so only the
-handful of cards whose keywords matched the user text were injected. That was a
-correct answer to a real constraint, and the constraint is gone — the window is
-now large enough to hold all of it (see the note on ``STATIC_TOOL_POLICY``).
-Selecting stopped being a saving and stayed a way to ship a turn missing the one
-rule it needed.
+Cards were originally *retrieved*: at num_ctx 8192-16384 the whole policy plus
+the tool schemas came to more than the window, so only the handful of cards
+whose keywords matched the user text were injected. Shipping every essay then
+made every turn pay ~20k tokens of prefill. The compact policy is the third
+answer: every tool still named, every turn, without the essays.
 
 ``select_skill_ids`` survives the change because it turned out to be doing a
 second, unrelated job: classifying what a turn is about. tool_subset, plan_nudge
@@ -920,7 +918,8 @@ SKILL_CARDS: dict[str, SkillCard] = {
 - To show or hide an Arelis panel ("open my notifications", "close history",
   "open the workspace", "close thinking", "open the camera", "open contacts"),
   call tile(action=open|close, name=thinking|workspace|history|notifications|
-  camera|contacts|calendar|world). Do not use the browser.
+  camera|contacts|calendar|world|chat). Do not use the browser.
+  On filament, "close the chat tile" is tile(action=close, name=chat).
 - "Close them" / "hide it" after opening a tile: tile(action=close) with no
   name reuses the last one.
 - Calendar events still use agenda. tile(name=calendar) only shows or hides
@@ -1506,7 +1505,9 @@ def assemble_tool_policy(
 
 
 def full_tool_policy() -> str:
-    """Every card, in order. This is the policy that ships on every turn."""
-    return assemble_tool_policy(force_all=True)
+    """What Ollama sees every turn. Cards stay here for hints, not the prompt."""
+    from arelis.core.compact_prompt import compact_tool_policy
+
+    return compact_tool_policy()
 
 

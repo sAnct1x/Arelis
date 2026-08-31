@@ -51,7 +51,20 @@ def apply_settings(window, values: dict[str, Any]) -> None:
         }
     )
 
-    notify_patch = (values.get("ui") or {}).get("notifications") or {}
+    ui_patch = values.get("ui") or {}
+    if "scale" in ui_patch:
+        from arelis.ui.scale import clamp_scale, scale_from_config
+
+        new_scale = clamp_scale(ui_patch.get("scale"))
+        old_scale = scale_from_config(window.config)
+        window.config.setdefault("ui", {})["scale"] = new_scale
+        merge_local_config({"ui": {"scale": new_scale}})
+        if abs(new_scale - old_scale) > 0.001:
+            window.thinking.append(
+                "Restart Arelis to apply interface scale.",
+                kind="status",
+            )
+    notify_patch = ui_patch.get("notifications") or {}
     if notify_patch:
         deep_merge(
             window.config.setdefault("ui", {}).setdefault("notifications", {}),

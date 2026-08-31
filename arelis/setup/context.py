@@ -41,10 +41,10 @@ _LADDER = (131072, 98304, 65536, 49152, 32768, 24576, 16384, 12288, 8192)
 # here is theoretical for a desktop assistant and the cost is real.
 _MAX_PINNED = 131072
 # The floor, and not a cautious one — a window under this does not hold the
-# prompt. Persona (905) + the whole tool policy (6,248) + the tool schemas for
-# 34 tools (10,674) is 17,827 tokens before a single word of conversation, so
-# 16384 overflows on turn one and Ollama drops the persona off the front. 32768
-# leaves roughly 15,000 tokens for history and the reply.
+# prompt plus room to talk. Persona (~905) + telegraph policy (~455) + skinny
+# schemas for 39 tools (~4,105) is about 5,500 tokens before conversation.
+# 16384 would fit the prefix but starve history; 32768 leaves ~27k for the
+# reply. Ollama still drops overflow from the front (the persona).
 #
 # This is a floor rather than a compromise because a card too small for 32768 is
 # too small for the weights: the 9B measures 5.62 GiB at 16384 and 6.15 GiB at

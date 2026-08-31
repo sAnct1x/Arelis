@@ -239,6 +239,7 @@ def test_every_tile_dock_and_line_is_in_the_stylesheet() -> None:
         "#RoomStrip",
         "#TitleBar",
         "#ChromeTitle",
+        "#ChromeHandsBtn",
         "#ChromeSpanBtn",
         "#FilamentBead",
         "#VoidHairline",

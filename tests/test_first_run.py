@@ -111,9 +111,10 @@ def test_the_answer_reaches_the_config_the_agent_loads(fresh_install: Path) -> N
     onboarding.record_choice(chosen)
 
     config = load_config()
-    assert [Path(p).resolve() for p in config["workspace"]["roots"]] == [
-        chosen.resolve()
-    ]
+    roots = [Path(p).resolve() for p in config["workspace"]["roots"]]
+    # Installed copies also get a read-only window onto the package
+    # (ensure_package_inspect_root). The recorded folder still has to be there.
+    assert chosen.resolve() in roots
 
 
 def test_an_accepted_suggestion_is_pinned_like_any_other_choice(

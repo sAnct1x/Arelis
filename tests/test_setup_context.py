@@ -41,7 +41,7 @@ def test_a_window_is_never_larger_than_the_ceiling() -> None:
 
 
 def test_a_small_card_still_gets_room_for_the_tool_schemas() -> None:
-    """The full registry is ~7,900 tokens. A window under the floor was the bug."""
+    """Skinny schemas plus telegraph still need the floor. Under it was the bug."""
     for model in CATALOG:
         for gb in (4.0, 6.0, 8.0, 12.0):
             assert context_window_for(model, _card(gb)) >= _MIN_PINNED

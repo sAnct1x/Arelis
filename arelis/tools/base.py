@@ -119,20 +119,21 @@ class ToolRegistry:
         """OpenAI-style tools array for Ollama /api/chat.
 
         When ``names`` is set, only those tools are offered (per-turn subset).
+        Descriptions are one line; param essays are stripped. Names, enums,
+        and required stay — that is what structured calling needs.
         """
+        from arelis.core.compact_prompt import skinny_ollama_tool
+
         out: list[dict[str, Any]] = []
         for tool in self._tools.values():
             if names is not None and tool.name not in names:
                 continue
             out.append(
-                {
-                    "type": "function",
-                    "function": {
-                        "name": tool.name,
-                        "description": tool.description,
-                        "parameters": tool.parameters_schema,
-                    },
-                }
+                skinny_ollama_tool(
+                    tool.name,
+                    getattr(tool, "description", "") or "",
+                    getattr(tool, "parameters_schema", None),
+                )
             )
         return out
 

@@ -43,6 +43,9 @@ from arelis.tools.tile import TileTool
         ("hide the alerts", ("close", "notifications")),
         ("close them", ("close", "")),
         ("hide it", ("close", "")),
+        ("close the chat tile", ("close", "chat")),
+        ("open chat", ("open", "chat")),
+        ("hide the chat tile", ("close", "chat")),
     ],
 )
 def test_tile_phrases_match(text: str, want: tuple[str, str]) -> None:
@@ -115,6 +118,15 @@ async def test_tile_tool_world_page_is_solar_or_hands() -> None:
     assert "page" not in plate.data
 
 
+def test_close_chat_tile_is_preflight() -> None:
+    hints = detect_intents("Please close the chat tile")
+    assert any(h.kind == "tile_close" for h in hints)
+    assert tile_tool_args("Please close the chat tile") == {
+        "action": "close",
+        "name": "chat",
+    }
+
+
 def test_notifications_preflight_and_plan() -> None:
     hints = detect_intents("open my notifications")
     assert any(h.kind == "tile_open" for h in hints)
@@ -170,6 +182,30 @@ def test_calendar_open_is_still_agenda_not_tile_preflight() -> None:
     assert any(h.kind == "agenda_open" for h in hints)
     assert not any(h.kind == "tile_open" for h in hints)
     assert not any(h.kind == "browser" for h in hints)
+
+
+def test_tile_tool_result_closes_filament_chat(arelis_window, qt_app) -> None:
+    from arelis.ui.settings_host import apply_window_theme
+
+    window = arelis_window()
+    apply_window_theme(window, "filament", persist=False)
+    window._filament_set_chat_open(True)
+    qt_app.processEvents()
+    assert window._filament_chat_open
+    window._on_event(
+        Event(
+            EventType.TOOL_RESULT,
+            {
+                "tool": "tile",
+                "ok": True,
+                "output": "Closed chat.",
+                "data": {"open": False, "close": True, "name": "chat"},
+            },
+        )
+    )
+    qt_app.processEvents()
+    assert not window._filament_chat_open
+    apply_window_theme(window, "sodium", persist=False)
 
 
 def test_tile_tool_result_opens_and_closes_history(arelis_window, qt_app) -> None:

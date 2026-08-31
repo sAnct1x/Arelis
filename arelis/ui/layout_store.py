@@ -8,6 +8,7 @@ from PySide6.QtWidgets import QMainWindow
 
 from arelis.paths import state_dir
 from arelis.spatial.scene import REACH_DEFAULT, clamp_reach
+from arelis.ui.scale import clamp_widget_to_screens
 
 _DEFAULT_CHAT_FONT_SCALE = 1.0
 _RECENT_WORKSPACE_LIMIT = 12
@@ -126,6 +127,12 @@ def restore_window_layout(window: QMainWindow, default_size: QSize) -> bool:
     if isinstance(state, QByteArray) and not state.isEmpty():
         window.restoreState(state)
         restored = True
+    # Saved geometry can land on a monitor that is no longer there.
+    # Sodium stays on one desk; filament span reapplies its own union.
+    from arelis.ui.theme import active_theme
+
+    if restored and active_theme() != "filament":
+        clamp_widget_to_screens(window)
     return restored
 
 

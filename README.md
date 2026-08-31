@@ -12,7 +12,7 @@ organized in named **rooms**. Mail, texting, and calendar access stay
 switched off until you connect them yourself, and anything that writes
 a file or sends a message will wait for your go-ahead first.
 
-The published installer is **0.2.4**. If you build from source,
+The published installer is **0.2.5**. If you build from source,
 you also get **Reality** — a room with a 3D solar system and an Earth
 view — but that doesn't ship with the installer.
 
@@ -47,7 +47,7 @@ You'll need Windows 10 or later, 64-bit.
 
 Grab the latest setup file from
 [GitHub releases](https://github.com/sAnct1x/arelis/releases/latest).
-The current file is `Arelis-0.2.4-win64-setup.exe` — about 155 MB to
+The current file is `Arelis-0.2.5-win64-setup.exe` — about 155 MB to
 download, roughly 640 MB once installed. It installs per-user into
 `%LOCALAPPDATA%\Programs\Arelis`, so you won't get an administrator
 prompt.
@@ -57,8 +57,8 @@ you run it — that's just Windows doing its job, not a sign anything's
 wrong. Worth checking the SHA-256 against the installer, though:
 
 ```powershell
-Get-FileHash .\Arelis-0.2.4-win64-setup.exe -Algorithm SHA256
-Get-Content .\Arelis-0.2.4-win64-setup.exe.sha256
+Get-FileHash .\Arelis-0.2.5-win64-setup.exe -Algorithm SHA256
+Get-Content .\Arelis-0.2.5-win64-setup.exe.sha256
 ```
 
 The two hashes should match — that just confirms your download wasn't
@@ -190,10 +190,15 @@ that scheduled jobs need mail set up first — details in
 
 ## Using her
 
-**The window.** Just type in the box. Once you send a message, you'll
-see the full workbench: chat, composer, and docks for thinking, files,
-history, contacts, and notifications. Press **F1** any time for
-shortcuts and the current version.
+**The window.** Sodium is the default face — just type in the box.
+Once you send a message, you'll see the full workbench: chat,
+composer, and docks for thinking, files, history, contacts, and
+notifications. She follows your Windows display scale (1080p, 2K,
+4K, mixed monitors) the same way other desktop apps do; Settings →
+window → Interface scale is an extra zoom if you want one. **filament
+(testing)** under View → themes is a checkout experiment that wants
+a row of desks — three monitors is the intended layout. Press **F1**
+any time for shortcuts and the current version.
 
 **Rooms.** The main chat is for everyday questions. Anything you want
 to pick back up later belongs in a **room** — a name, a folder, and
@@ -253,14 +258,14 @@ There's test coverage for most of this, but voice timing, a real
 handset, and image generation have really only been exercised
 end-to-end on the author's own hardware — so if something behaves
 oddly on yours, it's worth opening an issue. Again, the current
-published installer is **0.2.4**; see
+published installer is **0.2.5**; see
 [whats-new.md](docs/whats-new.md) for what's changed.
 
 ## Further reading
 
 | Document | What's in it |
 |---|---|
-| [whats-new.md](docs/whats-new.md) | 0.2.4, and what's in this checkout |
+| [whats-new.md](docs/whats-new.md) | 0.2.5, and what's in this checkout |
 | [rooms.md](docs/rooms.md) | Named project spaces |
 | [jobs.md](docs/jobs.md) | Timed prompts, emailed |
 | [models.md](docs/models.md) | Which models, and why |

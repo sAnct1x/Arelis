@@ -210,6 +210,7 @@ from arelis.ui.panels import (
     WorkspacePanel,
 )
 from arelis.ui.readiness_strip import ReadinessStrip
+from arelis.ui.scale import default_window_size
 from arelis.ui.settings_host import (
     apply_always_on_top,
     apply_chat_font_scale,
@@ -505,6 +506,7 @@ class ArelisWindow(QMainWindow):
         self.chrome_bar.setAllowedAreas(Qt.ToolBarArea.TopToolBarArea)
         self.chrome_bar.addWidget(chrome_stack)
         self.addToolBar(Qt.ToolBarArea.TopToolBarArea, self.chrome_bar)
+        self.title_bar.title_menu_requested.connect(self._show_title_menu)
         self.title_bar.view_menu_requested.connect(self._show_view_menu)
         self.title_bar.rooms_menu_requested.connect(self._show_rooms_menu)
         self.title_bar.settings_requested.connect(self._open_settings)
@@ -703,19 +705,16 @@ class ArelisWindow(QMainWindow):
         self._mask_timer.timeout.connect(self._on_resize_settled)
 
         # Defaults before restore — chat-only until the user or an event opens
-        # an instrument. Saved layout still wins after the first run.
-        self.resize(
-            int(ui_cfg.get("default_width", 1440)),
-            int(ui_cfg.get("default_height", 900)),
-        )
+        # an instrument. Saved layout still wins after the first run. Size is
+        # logical pixels; fit_window_size shrinks 1440×900 onto a 1080p desk
+        # and leaves 4K-at-150% alone (that screen is already ~1440 logical).
+        opening = default_window_size(self.config)
+        self.resize(opening)
         self.think_dock.resize(320, 600)
         self.history_dock.resize(280, 600)
         self._apply_calm_instrument_defaults()
 
-        restored = restore_window_layout(
-            self,
-            QSize(int(ui_cfg.get("default_width", 1440)), int(ui_cfg.get("default_height", 900))),
-        )
+        restored = restore_window_layout(self, opening)
         if not restored:
             self._apply_calm_instrument_defaults()
         # Seal restored floats now, before the first show. Do not redock them
@@ -1429,22 +1428,28 @@ class ArelisWindow(QMainWindow):
             self._later(0, self._filament_place_entity)
 
     def _sync_browser_anchor(self) -> None:
-        """Her Chrome matches this window's size and sits beside chat."""
+        """Park her Chrome on one desk. Never pass the 1/2/3 span as its size."""
         from arelis.browser.launch import set_arelis_anchor
+        from arelis.ui.scale import available_work_area
 
         geo = self.geometry()
-        screen = self.screen()
-        avail = screen.availableGeometry() if screen is not None else None
+        home = getattr(self, "_filament_home", None)
+        if (
+            active_theme() == "filament"
+            and home is not None
+            and home.isValid()
+            and home.width() > 80
+        ):
+            avail = home
+        else:
+            screen = self.screen()
+            avail = screen.availableGeometry() if screen is not None else available_work_area(self)
         set_arelis_anchor(
             geo.x(),
             geo.y(),
             geo.width(),
             geo.height(),
-            screen=(
-                (avail.x(), avail.y(), avail.width(), avail.height())
-                if avail is not None
-                else None
-            ),
+            screen=(avail.x(), avail.y(), avail.width(), avail.height()),
         )
 
     def changeEvent(self, event) -> None:
@@ -1550,6 +1555,12 @@ class ArelisWindow(QMainWindow):
         sheet.show()
         sheet.raise_()
         sheet.activateWindow()
+
+    def _show_title_menu(self, anchor) -> None:
+        if active_theme() == "filament":
+            self._popup_filament_menu(anchor.mapToGlobal(QPoint(0, anchor.height())))
+            return
+        self._show_view_menu(anchor)
 
     def _show_view_menu(self, anchor) -> None:
         self._sync_view_checks()
@@ -2112,6 +2123,10 @@ class ArelisWindow(QMainWindow):
             "calendar": (self.act_calendar, self._toggle_calendar),
             "world": (self.act_world, self._toggle_world),
         }
+        if key == "chat":
+            if active_theme() == "filament":
+                self._filament_set_chat_open(show)
+            return
         pair = mapping.get(key)
         if pair is None:
             return
@@ -2273,11 +2288,12 @@ class ArelisWindow(QMainWindow):
             ok = confirm(
                 self,
                 "filament (testing)",
-                "this replaces the app face. it may take the desk you give it.",
+                "a test face. it wants a row of desks — three is the intended layout.",
                 detail=(
-                    "the current sits on the desk. talk does not need a chat tile. "
-                    "history, thinking, chat, days, files open as their own plates "
-                    "— drag them anywhere. right-click for themes. sodium is one click."
+                    "sodium is the app. filament is a checkout experiment for a "
+                    "three-monitor desk; 1 and 2 still work. talk does not need a "
+                    "chat tile. plates float — drag them. right-click for themes. "
+                    "sodium is one click."
                 ),
                 confirm_text="enter filament",
                 cancel_text="stay in sodium",
@@ -3174,10 +3190,7 @@ class ArelisWindow(QMainWindow):
         self.act_contacts.setChecked(False)
         self.act_calendar.setChecked(False)
         self._calendar_placed = False
-        self.resize(
-            int(self.config.get("ui", {}).get("default_width", 1440)),
-            int(self.config.get("ui", {}).get("default_height", 900)),
-        )
+        self.resize(default_window_size(self.config))
         self._sync_panel_margins()
         if self.conversation.graphicsEffect() is not None:
             self.conversation.setGraphicsEffect(None)

@@ -65,7 +65,16 @@ jobs:
         run: python -m pip install -e ".[dev]"
 
       - name: Pytest
-        run: python -m pytest -q --tb=short
+        run: python -m pytest -q --tb=short --junitxml=pytest-results.xml
+
+      # One file instead of eight identical "exit code 1" mails with no body.
+      - name: Upload pytest results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-${{ matrix.os }}-${{ matrix.python-version }}
+          path: pytest-results.xml
+          if-no-files-found: ignore
 
       # Unit tests can prove the XML says the right thing; only Windows can prove
       # Task Scheduler accepts it. Registers a harmless smoke task and deletes it.

@@ -14,7 +14,7 @@ body:
     attributes:
       label: Version
       description: F1 in the window, or the setup file name.
-      placeholder: 0.2.4
+      placeholder: 0.2.5
     validations:
       required: true
   - type: textarea

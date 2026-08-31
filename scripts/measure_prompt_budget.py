@@ -24,8 +24,8 @@ def main() -> int:
     args = ap.parse_args()
 
     from arelis.config import load_config, load_persona
-    from arelis.core.agent_loop import STATIC_TOOL_POLICY, TOOL_POLICY
-    from arelis.core.skills import SKILL_CARDS, SKILL_CORE
+    from arelis.core.agent_loop import STATIC_TOOL_POLICY
+    from arelis.core.skills import SKILL_CARDS, SKILL_CORE, assemble_tool_policy
     from arelis.tools import build_tool_registry
 
     config = load_config()
@@ -38,11 +38,12 @@ def main() -> int:
     schemas = registry.ollama_tools()
     schema_json = json.dumps(schemas)
 
+    essay_union = assemble_tool_policy(force_all=True)
     rows: list[tuple[str, int]] = [
-        ("persona", _tok(persona)),
-        ("SKILL_CORE (shipped every turn)", _tok(SKILL_CORE)),
-        ("STATIC_TOOL_POLICY (live prefix)", _tok(STATIC_TOOL_POLICY)),
-        ("TOOL_POLICY (full union)", _tok(TOOL_POLICY)),
+        ("persona (unchanged)", _tok(persona)),
+        ("SKILL_CORE (cards only, not shipped)", _tok(SKILL_CORE)),
+        ("STATIC_TOOL_POLICY (telegraph)", _tok(STATIC_TOOL_POLICY)),
+        ("essay union (not shipped)", _tok(essay_union)),
         (f"tool schemas ({len(schemas)} tools)", _tok(schema_json)),
     ]
 
@@ -58,14 +59,13 @@ def main() -> int:
     print(f"{len(SKILL_CARDS)} skill cards, {total_cards:,} tokens total, "
           f"largest {biggest:,}")
 
-    # What a turn costs if the whole policy ships statically.
-    full = _tok(persona) + _tok(TOOL_POLICY) + _tok(schema_json)
     live = _tok(persona) + _tok(STATIC_TOOL_POLICY) + _tok(schema_json)
+    old = _tok(persona) + _tok(essay_union) + _tok(schema_json)
     print()
-    print(f"{'today (core + schemas + persona)':<38}{live:>9,}{live / num_ctx * 100:>9.1f}%")
-    print(f"{'full policy shipped statically':<38}{full:>9,}{full / num_ctx * 100:>9.1f}%")
-    print(f"{'left for history and reply':<38}{num_ctx - full:>9,}"
-          f"{(num_ctx - full) / num_ctx * 100:>9.1f}%")
+    print(f"{'today (persona + telegraph + schemas)':<38}{live:>9,}{live / num_ctx * 100:>9.1f}%")
+    print(f"{'old essay union + fat schemas (ref)':<38}{old:>9,}{old / num_ctx * 100:>9.1f}%")
+    print(f"{'left for history and reply':<38}{num_ctx - live:>9,}"
+          f"{(num_ctx - live) / num_ctx * 100:>9.1f}%")
     return 0
 
 

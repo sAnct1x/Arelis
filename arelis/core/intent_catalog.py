@@ -895,6 +895,10 @@ def looks_like_source_inspect(text: str) -> bool:
     raw = text or ""
     if not raw.strip():
         return False
+    # A PDF under docs/ is a document, not her source. "what does docs/x.pdf
+    # say" must stay doc_extract (W4), not a workspace read of the package.
+    if re.search(r"(?i)\.(pdf|docx?|xlsx?|pptx?|csv|tsv)\b", raw):
+        return False
     return any(p.search(raw) for p in _INSPECT_PATTERNS)
 
 

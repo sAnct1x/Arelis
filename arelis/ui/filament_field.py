@@ -8,6 +8,7 @@ Invariants the next sitting will break if they "clean up":
 - One opaque HWND. Never WA_TranslucentBackground on the desk.
 - 1 / 2 / 3 are desk counts from the OS primary, not Windows monitor ids.
   2 is primary + right. Never steal the left desk to fake a pair.
+  Three desks is the intended test layout; sodium stays the shipped face.
 - Remask / chrome reshape on span and resize only. Not every atmosphere tick.
 - dirty_rect must cover the idle ellipse apex, not just the unwrapped wave.
 - CPU / RAM only. The GPU is Reality (Cesium, solar GL).
@@ -76,19 +77,21 @@ FLOATS = (
 )
 FREE_FLOATS = frozenset({"reality"})
 
-# Mini-world at the home corner. Rings are distinct radii so they read
-# as orbits, not one smudged ellipse. Inset is the glass from the outer
-# ring to the home edge — same on the right and the bottom.
-_REALITY_RX = 34.0
-_REALITY_RY = 17.0
+# Mini-world off the home corner. Rings are distinct radii so they read
+# as orbits, not one smudged ellipse. The center sits the same air off
+# the right edge and the bottom — not jammed in the corner.
+_REALITY_RX = 42.5
+_REALITY_RY = 21.25
 _REALITY_RINGS = (
     0.55,
     0.88,
     1.22,
     1.58,
 )
-_REALITY_MARGIN = 76.0
-_REALITY_HIT = 52.0
+_REALITY_INSET = 176.0
+_REALITY_HIT = 65.0
+_REALITY_TITLE_LIFT = 45.0
+_REALITY_BEAD = 70
 
 _STRANDS = 4
 _DUST = 1100
@@ -554,8 +557,8 @@ class FilamentField:
             if name in self._hidden:
                 continue
             p = self.bead_point(name, rect)
-            reach = int(_REALITY_RY * _REALITY_RINGS[-1]) + 16
-            top = min(top, int(p.y()) - reach - 36)
+            reach = int(_REALITY_RY * _REALITY_RINGS[-1]) + 20
+            top = min(top, int(p.y()) - reach - int(_REALITY_TITLE_LIFT))
             bot = max(bot, int(p.y()) + reach)
         top = max(rect.top(), top)
         bot = min(rect.bottom() + 1, bot)
@@ -653,14 +656,12 @@ class FilamentField:
         return self._point(found[0], 2.0, rect)
 
     def _free_bead(self, rect: QRect) -> QPointF:
-        """Reality sits off the current, squared to the home corner."""
+        """Reality sits off the current, same air to the right and the bottom."""
         home = self.home_rect(rect)
         if not home.isValid():
             home = QRect(rect)
-        reach_x = _REALITY_RX * _REALITY_RINGS[-1]
-        reach_y = _REALITY_RY * _REALITY_RINGS[-1]
-        x = float(home.right()) - _REALITY_MARGIN - reach_x
-        y = float(home.bottom()) - _REALITY_MARGIN - reach_y
+        x = float(home.right()) - _REALITY_INSET
+        y = float(home.bottom()) - _REALITY_INSET
         sway = math.sin(self.time * 0.70 + 1.3) * 3.0
         bob = math.cos(self.time * 0.55) * 2.5
         return QPointF(x + sway, y + bob)
@@ -698,7 +699,7 @@ class FilamentField:
     def title_point(self, name: str, rect: QRect) -> QPointF:
         if name in FREE_FLOATS:
             p = self._free_bead(rect)
-            return QPointF(p.x(), p.y() - 36.0)
+            return QPointF(p.x(), p.y() - _REALITY_TITLE_LIFT)
         found = self.spec(name)
         if found is None:
             cx, cy, _rx, _ry = self.ellipse(rect)
@@ -838,9 +839,9 @@ class FilamentField:
                 self._paint_reality_orbit(painter, p)
                 lure = 0.5 + 0.5 * math.sin(self.time * 1.15)
                 if open_:
-                    halo, core, glow = 14.0, 4.6, 0.62 + lure * 0.08
+                    halo, core, glow = 17.5, 5.8, 0.62 + lure * 0.08
                 else:
-                    halo, core, glow = 28.0 + lure * 5.0, 10.4, 1.04 + lure * 0.12
+                    halo, core, glow = 35.0 + lure * 6.2, 13.0, 1.04 + lure * 0.12
                 if name in self._hot:
                     halo *= 1.28
                     glow = min(1.4, glow + 0.22)
@@ -904,7 +905,7 @@ class FilamentField:
                     fade = self._path_fade(t)
                     if fade > 0.12:
                         pen = QPen(_lit(_GOLD, (0.14 + s * 0.05) * fade))
-                        pen.setWidthF(1.45 - s * 0.12)
+                        pen.setWidthF(1.80 - s * 0.14)
                         painter.setPen(pen)
                         painter.drawLine(prev, p)
                 prev = p
@@ -916,7 +917,7 @@ class FilamentField:
                 center.x() + math.cos(ang) * rx * outer,
                 center.y() + math.sin(ang) * ry * outer,
             )
-            _paint_soft_orb(painter, q, 2.6, _CORE, 0.56, core=0.9, pin=0.4)
+            _paint_soft_orb(painter, q, 3.2, _CORE, 0.56, core=1.1, pin=0.5)
 
     def _paint_stems(self, painter: QPainter, rect: QRect) -> None:
         """Short strand from the light to each closed title."""
@@ -1091,7 +1092,8 @@ class FilamentFloatBar(QObject):
             self._buttons[name] = btn
             bead = QPushButton("", host)
             bead.setObjectName("FilamentBead")
-            bead.setFixedSize(56, 56) if name in FREE_FLOATS else bead.setFixedSize(40, 40)
+            size = (_REALITY_BEAD, _REALITY_BEAD) if name in FREE_FLOATS else (40, 40)
+            bead.setFixedSize(*size)
             bead.setCursor(Qt.CursorShape.PointingHandCursor)
             bead.setFocusPolicy(Qt.FocusPolicy.NoFocus)
             bead.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
@@ -1099,14 +1101,23 @@ class FilamentFloatBar(QObject):
             bead.clicked.connect(lambda _=False, n=name: self.opened.emit(n))
             bead.hide()
             self._beads[name] = bead
-        self.hands_btn = QPushButton("hands", host)
-        self.hands_btn.setObjectName("FilamentFloat")
-        self.hands_btn.setCheckable(True)
-        self.hands_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.hands_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.hands_btn.setToolTip("C920 hands. Camera tile is inspect-only.")
-        self.hands_btn.toggled.connect(self.hands_toggled.emit)
-        self.hands_btn.hide()
+        win = host.window()
+        chrome = getattr(win, "title_bar", None)
+        chrome_hands = getattr(chrome, "hands_btn", None)
+        if chrome_hands is not None:
+            self.hands_btn = chrome_hands
+            self._hands_on_chrome = True
+            self.hands_btn.toggled.connect(self.hands_toggled.emit)
+        else:
+            self._hands_on_chrome = False
+            self.hands_btn = QPushButton("hands", host)
+            self.hands_btn.setObjectName("FilamentFloat")
+            self.hands_btn.setCheckable(True)
+            self.hands_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            self.hands_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            self.hands_btn.setToolTip("C920 hands. Camera tile is inspect-only.")
+            self.hands_btn.toggled.connect(self.hands_toggled.emit)
+            self.hands_btn.hide()
 
     def chips(self) -> dict[str, QPushButton]:
         return self._buttons
@@ -1120,7 +1131,8 @@ class FilamentFloatBar(QObject):
                 btn.hide()
             for bead in self._beads.values():
                 bead.hide()
-            self.hands_btn.hide()
+            if not self._hands_on_chrome:
+                self.hands_btn.hide()
 
     def set_open(self, name: str, open: bool) -> None:
         if open:
@@ -1183,8 +1195,13 @@ class FilamentFloatBar(QObject):
     def _place_hands(self, window_rect: QRect) -> None:
         from arelis.spatial.grant import world_stage_allowed
 
+        allowed = world_stage_allowed()
+        chrome = getattr(self._host.window(), "title_bar", None)
+        if self._hands_on_chrome and chrome is not None:
+            chrome.set_hands_visible(allowed)
+            return
         btn = self.hands_btn
-        if not world_stage_allowed():
+        if not allowed:
             btn.hide()
             return
         win = self._host.window()

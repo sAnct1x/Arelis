@@ -19,8 +19,10 @@ log = logging.getLogger(__name__)
 
 # Her Chrome only. Daily Chrome/Edge profiles are never launched or taskkilled.
 _GAP = 16
-_DEFAULT_W = 1100
-_DEFAULT_H = 800
+# One desk, not the 1/2/3 span. A 3-monitor HWND is not a browser size.
+_DESK_FRACTION = 0.60
+_MIN_W = 720
+_MIN_H = 520
 _anchor: tuple[int, int, int, int] | None = None
 _screen: tuple[int, int, int, int] | None = None
 _last_arelis_proc: subprocess.Popen[bytes] | None = None
@@ -224,7 +226,11 @@ def set_arelis_anchor(
     *,
     screen: tuple[int, int, int, int] | None = None,
 ) -> None:
-    """Remember the Arelis window so her Chrome can match size and sit beside it."""
+    """Remember Arelis so her Chrome can sit beside chat on the same desk.
+
+    ``screen`` is one monitor's work area — never the 1/2/3 span union.
+    Chrome size comes from that desk, not from the Arelis HWND.
+    """
     global _anchor, _screen
     _anchor = (int(x), int(y), max(400, int(w)), max(300, int(h)))
     if screen is not None:
@@ -236,23 +242,51 @@ def set_arelis_anchor(
         )
 
 
+def _one_desk() -> tuple[int, int, int, int]:
+    """Work area of one monitor. Never the three-desk union."""
+    if _screen is not None:
+        return _screen
+    return (0, 0, 1920, 1080)
+
+
+def _desk_window_size(sw: int, sh: int) -> tuple[int, int]:
+    w = max(_MIN_W, int(sw * _DESK_FRACTION))
+    h = max(_MIN_H, int(sh * _DESK_FRACTION))
+    return min(w, max(_MIN_W, sw - 32)), min(h, max(_MIN_H, sh - 32))
+
+
+def _clamp_to_desk(
+    x: int, y: int, w: int, h: int, sx: int, sy: int, sw: int, sh: int
+) -> tuple[int, int, int, int]:
+    w = min(w, sw)
+    h = min(h, sh)
+    x = min(max(x, sx), sx + sw - w)
+    y = min(max(y, sy), sy + sh - h)
+    return (x, y, w, h)
+
+
 def window_placement() -> tuple[int, int, int, int]:
-    """x, y, w, h — same size as Arelis, parked to the right (or left) of chat."""
+    """x, y, w, h — ~60% of one monitor, never maximized across the span.
+
+    Sits to the right (or left) of a single-desk Arelis window when that
+    still fits. A 1/2/3 filament HWND is ignored for size; Chrome is
+    centered on the home desk instead.
+    """
+    sx, sy, sw, sh = _one_desk()
+    w, h = _desk_window_size(sw, sh)
+    cx = sx + (sw - w) // 2
+    cy = sy + (sh - h) // 2
     if _anchor is not None:
         ax, ay, aw, ah = _anchor
-    else:
-        ax, ay, aw, ah = (80, 80, _DEFAULT_W, _DEFAULT_H)
-    right = (ax + aw + _GAP, ay, aw, ah)
-    left = (ax - _GAP - aw, ay, aw, ah)
-    if _screen is None:
-        return right
-    sx, _sy, sw, _sh = _screen
-    if right[0] + aw <= sx + sw:
-        return right
-    if left[0] >= sx:
-        return left
-    # Not enough desk: slight cascade so the title bars stay distinct.
-    return (ax + 80, ay + 80, aw, ah)
+        on_this_desk = aw <= sw * 1.15 and ah <= sh * 1.15
+        if on_this_desk:
+            right = ax + aw + _GAP
+            if right + w <= sx + sw:
+                return _clamp_to_desk(right, ay, w, h, sx, sy, sw, sh)
+            left = ax - _GAP - w
+            if left >= sx:
+                return _clamp_to_desk(left, ay, w, h, sx, sy, sw, sh)
+    return _clamp_to_desk(cx, cy, w, h, sx, sy, sw, sh)
 
 
 def profile_has_sign_in(user_data: Path | None = None) -> bool:

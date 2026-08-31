@@ -1,9 +1,9 @@
-"""What a turn is about, and that every rule ships.
+"""What a turn is about, and that every governed tool is named.
 
-``select_skill_ids`` is an intent classifier. It no longer decides which rules
-reach the prompt — the whole policy does, every turn — but tool_subset,
-plan_nudge and lessons all ask it what the turn is about, so its answers still
-matter.
+``select_skill_ids`` is an intent classifier. It does not decide which rules
+reach the prompt — the compact policy names every tool, every turn — but
+tool_subset, plan_nudge and lessons all ask it what the turn is about, so
+its answers still matter.
 """
 
 from __future__ import annotations
@@ -62,16 +62,13 @@ def test_who_is_this_is_fallback_only_not_a_web_card() -> None:
 
 
 def test_every_tool_with_rules_has_them_shipped() -> None:
-    """Structural, not textual.
-
-    This replaces a list of substrings ("weather tool", "web_search first",
-    "Prefer scrape") that had to be edited by hand every time the policy was
-    reworded, so a clearer sentence read as a regression. What actually matters
-    is that a card claiming to cover a tool ends up in the policy that ships.
-    """
+    """Cards stay authored; the prompt names each governed tool."""
     for card_id, card in SKILL_CARDS.items():
         assert card.body.strip(), f"{card_id} card is empty"
-        assert card.body in TOOL_POLICY, f"{card_id} card is not in the policy"
+        tool = card.requires_tool
+        if not tool:
+            continue
+        assert tool in TOOL_POLICY, f"{card_id} tool {tool} is not in the policy"
 
 
 def test_a_card_names_the_tool_it_governs() -> None:

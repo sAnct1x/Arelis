@@ -70,7 +70,8 @@ def test_launch_uses_arelis_profile_not_daily_chrome(monkeypatch, tmp_path) -> N
     assert "browser-profile" in joined
     assert "Google\\Chrome\\User Data" not in joined
     assert "--new-window" in argv
-    assert any(a.startswith("--window-size=1200,800") for a in argv)
+    want_w, want_h = launch_mod._desk_window_size(3840, 1080)
+    assert any(a == f"--window-size={want_w},{want_h}" for a in argv)
     # Beside Arelis (100+1200+16), not stacked on it.
     assert "--window-position=1316,80" in argv
 
@@ -136,13 +137,28 @@ def test_window_placement_sits_beside_not_on_top() -> None:
 
     launch_mod.set_arelis_anchor(100, 80, 1200, 800, screen=(0, 0, 3840, 1080))
     x, y, w, h = launch_mod.window_placement()
-    assert (w, h) == (1200, 800)
+    assert (w, h) == launch_mod._desk_window_size(3840, 1080)
     assert x == 1316
     assert y == 80
     launch_mod.set_arelis_anchor(2000, 80, 1200, 800, screen=(0, 0, 2560, 1080))
     x2, _y2, w2, h2 = launch_mod.window_placement()
-    assert x2 == 2000 - 16 - 1200
-    assert (w2, h2) == (1200, 800)
+    assert (w2, h2) == launch_mod._desk_window_size(2560, 1080)
+    assert x2 == 2000 - 16 - w2
+
+
+def test_window_placement_stays_on_one_desk() -> None:
+    """A 3-span HWND is not a browser size. Chrome is ~60% of one monitor."""
+    from arelis.browser import launch as launch_mod
+
+    launch_mod.set_arelis_anchor(0, 0, 7680, 1440, screen=(2560, 0, 2560, 1440))
+    x, y, w, h = launch_mod.window_placement()
+    assert (w, h) == launch_mod._desk_window_size(2560, 1440)
+    assert w < 2000
+    assert h < 1000
+    assert 2560 <= x < 5120
+    assert x + w <= 5120
+    assert 0 <= y < 1440
+    assert y + h <= 1440
 
 
 def test_open_url_in_browser_launches_exe(monkeypatch) -> None:

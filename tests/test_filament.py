@@ -370,15 +370,13 @@ def test_three_desks_unwrap_across_the_row() -> None:
     lure = field.bead_point("reality", rect)
     home = field.home_rect(rect)
     assert home.contains(lure.toPoint())
-    from arelis.ui.filament_field import _REALITY_MARGIN, _REALITY_RINGS, _REALITY_RX, _REALITY_RY
+    from arelis.ui.filament_field import _REALITY_INSET
 
-    reach_x = _REALITY_RX * _REALITY_RINGS[-1]
-    reach_y = _REALITY_RY * _REALITY_RINGS[-1]
-    right_glass = home.right() - lure.x() - reach_x
-    bottom_glass = home.bottom() - lure.y() - reach_y
-    assert abs(right_glass - _REALITY_MARGIN) < 8
-    assert abs(bottom_glass - _REALITY_MARGIN) < 8
-    assert abs(right_glass - bottom_glass) < 8
+    right_air = home.right() - lure.x()
+    bottom_air = home.bottom() - lure.y()
+    assert abs(right_air - _REALITY_INSET) < 8
+    assert abs(bottom_air - _REALITY_INSET) < 8
+    assert abs(right_air - bottom_air) < 8
     left = field._point(0.06, 2.0, rect)
     right = field._point(0.94, 2.0, rect)
     assert right.x() - left.x() > 6400
@@ -481,6 +479,9 @@ def test_filament_takes_the_desk(arelis_window) -> None:
     assert window.title_bar.settings_btn.isHidden()
     assert not window.title_bar.min_btn.isHidden()
     assert not window.title_bar.close_btn.isHidden()
+    assert window.title_bar.title.text() == "arelis"
+    assert not window.title_bar.hands_btn.isHidden()
+    assert window._filament_floats.hands_btn is window.title_bar.hands_btn
     assert not window.title_bar.span_btns[1].isHidden()
     assert not window.title_bar.span_btns[3].isHidden()
     assert window._filament_span == 1

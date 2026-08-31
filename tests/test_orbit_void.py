@@ -31,6 +31,8 @@ def test_apply_theme_restyles_the_window(arelis_window) -> None:
     from arelis.ui.theme import apply_theme, resolve_theme_id
 
     assert resolve_theme_id("bogus") == "sodium"
+    assert resolve_theme_id(None) == "sodium"
+    assert resolve_theme_id("filament") == "filament"
     window = arelis_window()
     apply_window_theme(window, "sodium", persist=False)
     assert COLORS["accent"].lower() == "#ff7a22"
@@ -418,8 +420,8 @@ def test_idle_orbit_stays_on_window_bloom(qt_app) -> None:
     )
     try:
         window.show()
-        window.resize(1440, 900)
         window._reset_layout()
+        window.resize(1440, 900)
         qt_app.processEvents()
         window.chat.empty._layout_idle()
         bloom_x = int(window.width() * BLOOM_X)

@@ -1051,7 +1051,7 @@ class PlaywrightDriver:
         )
 
     async def _apply_placement(self) -> None:
-        """Park her Chrome beside Arelis. Launch flags are often ignored once Chrome exists."""
+        """Park her Chrome on one desk. Launch flags are often ignored once Chrome exists."""
         if self._page is None:
             return
         from arelis.browser.launch import window_placement

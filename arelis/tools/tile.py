@@ -12,7 +12,7 @@ class TileTool:
     name = "tile"
     description = (
         "Open or close an Arelis tile (the View menu): thinking, workspace, "
-        "history, notifications, camera, contacts, calendar, world. "
+        "history, notifications, camera, contacts, calendar, world, chat. "
         "action=open shows it; action=close hides it. "
         "name=world is Reality's plate (true-scale solar system / hands). "
         "page=solar enters the sim; page=hands enters the toy. "
@@ -62,8 +62,8 @@ class TileTool:
                 ok=False,
                 output=(
                     "Name a tile: thinking, workspace, history, "
-                    "notifications, camera, contacts, calendar, or Reality "
-                    "(name=world)."
+                    "notifications, camera, contacts, calendar, chat, or "
+                    "Reality (name=world)."
                 ),
             )
         type(self).last_name = name

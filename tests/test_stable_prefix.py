@@ -8,8 +8,9 @@ re-prefills the conversation behind it.
 
 Completeness, because the alternative was selecting which rules to ship by
 keyword, and a miss meant the model called a tool whose rules it had never been
-given. These tests deliberately do not assert on the policy's prose — a test
-that pins wording makes every prompt improvement look like a regression.
+given. The telegraph names every governed tool. These tests do not pin card
+essays — a test that pins wording makes every prompt improvement look like a
+regression.
 """
 
 from __future__ import annotations
@@ -20,7 +21,7 @@ from arelis.core.agent_loop import (
     static_prefix_text,
     static_system_prefix,
 )
-from arelis.core.skills import SKILL_CARDS, SKILL_CORE
+from arelis.core.skills import SKILL_CARDS
 
 
 def test_static_prefix_identical_across_assemblies() -> None:
@@ -38,22 +39,26 @@ def test_static_prefix_is_persona_then_the_whole_policy() -> None:
 
 
 def test_the_shipped_policy_is_the_whole_policy() -> None:
-    """No selection step between the cards and the prompt."""
+    """No selection step between compact_tool_policy and the prefix."""
     assert STATIC_TOOL_POLICY == TOOL_POLICY
 
 
-def test_every_card_reaches_the_prompt() -> None:
-    """A rule that exists but is not shipped is worse than no rule.
-
-    Named per card so a failure says which capability lost its rules, rather
-    than that a length changed.
-    """
+def test_every_named_tool_reaches_the_prompt() -> None:
+    """A card's tool must be named in the telegraph. Essays stay in skills.py."""
     for card_id, card in SKILL_CARDS.items():
-        assert card.body in STATIC_TOOL_POLICY, f"{card_id} card is not shipped"
+        tool = card.requires_tool
+        if not tool:
+            continue
+        assert tool in STATIC_TOOL_POLICY, f"{card_id} tool {tool} is not named"
 
 
 def test_the_shared_preamble_reaches_the_prompt() -> None:
-    assert SKILL_CORE in STATIC_TOOL_POLICY
+    """Core call/fallback rules, not the SKILL_CORE essay."""
+    text = STATIC_TOOL_POLICY.lower()
+    assert "would you like me to proceed" in text
+    assert '{"tool":' in STATIC_TOOL_POLICY
+    assert '{"final":' in STATIC_TOOL_POLICY
+    assert "attach" in text
 
 
 def test_nothing_turn_specific_is_in_the_prefix() -> None:

@@ -39,6 +39,14 @@ from arelis.ui.audio import list_audio_input_names, list_audio_output_names
 from arelis.ui.glass import GlassFrame, advance_rim_pulse, seal_tool_window
 from arelis.ui.icons import window_close_icon
 from arelis.ui.panels.memory import ActiveFactsPanel
+from arelis.ui.scale import (
+    SCALE_PRESETS,
+    available_work_area,
+    fit_window_size,
+    nearest_scale_preset,
+    scale_from_config,
+    scale_preset_label,
+)
 from arelis.ui.theme import GLASS, polish_combo_popup
 
 
@@ -70,7 +78,7 @@ class SettingsDialog(QDialog):
         self.setObjectName("SettingsDialog")
         self.setWindowTitle("Settings")
         self.setModal(True)
-        self.resize(560, 700)
+        self.resize(fit_window_size(560, 700, available_work_area()))
         self.setWindowFlags(
             Qt.WindowType.Dialog
             | Qt.WindowType.FramelessWindowHint
@@ -263,6 +271,20 @@ class SettingsDialog(QDialog):
         self.away_rest_min.setEnabled(self.away_rest.isChecked())
         self.away_rest.toggled.connect(self.away_rest_min.setEnabled)
 
+        self.ui_scale = QComboBox()
+        self.ui_scale.setObjectName("SettingsField")
+        polish_combo_popup(self.ui_scale, compact=True)
+        for step in SCALE_PRESETS:
+            self.ui_scale.addItem(scale_preset_label(step), step)
+        want_scale = nearest_scale_preset(scale_from_config(config))
+        scale_idx = self.ui_scale.findData(want_scale)
+        self.ui_scale.setCurrentIndex(scale_idx if scale_idx >= 0 else 1)
+        self.ui_scale.setToolTip(
+            "How large the whole window is. Windows already scales 1080p, 2K, "
+            "and 4K. Leave this on follow display unless type still looks small. "
+            "Needs a restart. Chat text size is just the transcript."
+        )
+
         self.font_slider = QSlider(Qt.Orientation.Horizontal)
         self.font_slider.setObjectName("SettingsSlider")
         self.font_slider.setRange(75, 175)
@@ -285,6 +307,7 @@ class SettingsDialog(QDialog):
         win_form.addRow(self.close_to_tray)
         win_form.addRow(self.away_rest)
         win_form.addRow("After", self.away_rest_min)
+        win_form.addRow("Interface scale", self.ui_scale)
         win_form.addRow("Chat text size", font_row)
         win_form.addRow(self.reset_layout_btn)
         tabs.addTab(window, "window")
@@ -873,6 +896,7 @@ class SettingsDialog(QDialog):
                 ]
             },
             "ui": {
+                "scale": float(self.ui_scale.currentData() or 1.0),
                 "notifications": {
                     "channels": {
                         key: str(combo.currentData() or "visual")

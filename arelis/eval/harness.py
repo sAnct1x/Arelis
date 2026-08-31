@@ -51,9 +51,9 @@ _STUB_SCHEMAS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
         ("action",),
         (
             "action", "amount", "browser", "date", "destination", "direction",
-            "full_page", "key", "mode", "name", "notes", "origin", "party",
-            "phone", "place", "private", "query", "ref", "seconds", "select",
-            "site", "target", "text", "time", "url",
+            "focus", "full_page", "into", "key", "mode", "name", "notes", "nth",
+            "origin", "party", "phone", "place", "private", "query", "ref",
+            "seconds", "select", "site", "tab", "target", "text", "time", "url",
         ),
     ),
     "calculator": (("expression",), ("expression",)),
@@ -129,7 +129,7 @@ _STUB_SCHEMAS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     "web_search": (("query",), ("max_results", "query", "recency")),
     "workspace": (
         ("action",),
-        ("action", "content", "max_chars", "new", "old", "path"),
+        ("action", "content", "max_chars", "new", "old", "path", "text", "title"),
     ),
 }
 

@@ -8,10 +8,9 @@ mid-turn HTTP 404; this reports the exact ``ollama pull`` up front instead.
 Pin the default chat model so the first turn is not a cold weight load.
 
 Prefill the static prefix, so the first turn is not a cold *prompt* either. The
-persona, the whole tool policy and the tool schemas are around 17,800 tokens and
+persona, the telegraph policy and the skinny schemas are around 5,500 tokens and
 identical every turn, which is what makes the prefix cache useful — but somebody
-has to process them once, and measured on a 12 GB card that was 44 seconds. Doing
-it here took the first reply to 0.9s.
+has to process them once. Doing it here took the first reply to 0.9s.
 
 This file was ``llm/preflight.py`` and sat beside ``core/preflight.py``, which is
 intent detection and shares nothing with it but a name. Nothing here inspects a
@@ -163,8 +162,8 @@ async def run_model_warmup(
     """Pin the default chat model so the first turn is not a cold load.
 
     Pinning loads the weights. It does not process any prompt, and the prompt is
-    now the larger half of a first turn: the persona, the whole tool policy and
-    the tool schemas come to roughly 17,800 tokens, which on a 12 GB AMD card
+    now the larger half of a first turn: the persona, the telegraph policy and
+    the skinny schemas come to roughly 5,500 tokens, which on a 12 GB AMD card
     prefills at a few hundred tokens a second. Passing ``prefix`` sends that
     block once here, so Ollama's prefix cache already holds it.
 

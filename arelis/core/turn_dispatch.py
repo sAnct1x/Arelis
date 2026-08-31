@@ -1136,18 +1136,9 @@ async def dispatch_calls(
                 )
                 messages.append(loop._tool_message(name, notice))
                 loop._trace.append(f"{name} skip_repeat_fail")
-                # Drop the tool from the remaining offer so the 7B cannot
-                # burn every round on the same dead call.
-                if name in tool_names:
-                    visible = {t for t in tool_names if t != name}
-                    ctx.tool_names.clear()
-                    ctx.tool_names.update(visible)
-                    tool_names = ctx.tool_names
-                    ollama_tools = (
-                        loop.tools.ollama_tools(visible)
-                        if offer_tools and visible
-                        else []
-                    )
+                # Do not rebuild ollama_tools. Changing the schema array
+                # busts the prefix cache and the next round pays ~50s to
+                # re-read the persona. fail_counts already drops the call.
                 stop_msg = (
                     f"Stop calling `{name}` with those same arguments — it "
                     "already failed twice this turn."
@@ -1804,16 +1795,9 @@ async def dispatch_calls(
                             {"role": "user", "content": more_msg}
                         )
                     else:
-                        if "weather" in tool_names:
-                            visible = {t for t in tool_names if t != "weather"}
-                            ctx.tool_names.clear()
-                            ctx.tool_names.update(visible)
-                            tool_names = ctx.tool_names
-                            ollama_tools = (
-                                loop.tools.ollama_tools(visible)
-                                if offer_tools and visible
-                                else []
-                            )
+                        # Keep the tool array byte-stable. Stripping weather
+                        # here used to re-prefill the whole 23k prefix (~50s)
+                        # for "answer from the reading you already have."
                         messages.append(
                             {
                                 "role": "user",

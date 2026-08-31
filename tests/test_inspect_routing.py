@@ -38,6 +38,7 @@ NEGATIVES = (
     "don't mention the confirm gate",
     "email me docs/architecture.md",
     "email me policy.py",
+    "What does docs/contract.pdf say about termination?",
 )
 
 

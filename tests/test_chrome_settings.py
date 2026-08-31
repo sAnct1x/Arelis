@@ -144,6 +144,7 @@ def test_settings_roots_values(qt_app) -> None:
     prefs = values["ui_prefs"]
     assert prefs["away_rest"] is False
     assert prefs["away_rest_min"] == 45
+    assert values["ui"]["scale"] == 1.0
     dlg.close()
 
 
@@ -245,10 +246,16 @@ def test_title_bar_is_view_rooms_settings(qt_app) -> None:
             for i in range(bar.layout().count())
             if bar.layout().itemAt(i).widget() is not None
         ]
+        assert widgets.index(bar.title) < widgets.index(bar.hands_btn)
+        assert widgets.index(bar.hands_btn) < widgets.index(bar.view_btn)
         assert widgets.index(bar.view_btn) < widgets.index(bar.rooms_btn)
         assert widgets.index(bar.rooms_btn) < widgets.index(bar.settings_btn)
+        assert widgets.index(bar.settings_btn) < widgets.index(bar.span_btns[1])
+        assert bar.title.text() == "arelis"
+        assert bar.hands_btn.text() == "hands"
         assert hasattr(bar, "max_btn")
         bar.set_slim(True)
+        bar.set_hands_visible(True)
         bar.set_home_band(2560, 2560, 7680)
         assert bar._span_left.width() == 2560
         assert bar._span_right.width() == 2560
@@ -257,12 +264,14 @@ def test_title_bar_is_view_rooms_settings(qt_app) -> None:
         bar.set_home_band(0, 0, 0)
         assert bar._span_left.width() == 0
         assert bar.view_btn.isHidden()
+        assert not bar.hands_btn.isHidden()
         assert not bar.span_btns[1].isHidden()
         assert bar.height() == 32
         bar.set_span_choice(1)
         assert bar.span_btns[1].isChecked()
         bar.set_slim(False)
         assert not bar.view_btn.isHidden()
+        assert bar.hands_btn.isHidden()
         assert bar.span_btns[1].isHidden()
         assert bar.height() == 40
     finally:

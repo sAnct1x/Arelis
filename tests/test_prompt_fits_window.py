@@ -1,7 +1,8 @@
 """The prompt we always send must fit in the smallest window we ever pin.
 
-The whole tool policy now ships on every turn, which is only safe while the
-window is genuinely large. When it is not, Ollama drops the overflow from the
+The compact policy and skinny schemas ship on every turn, which is only
+safe while the window is genuinely large. When it is not, Ollama drops
+the overflow from the
 *front* — the persona and the policy go first, silently, and the model answers
 the rest of the session with no identity and no rules. There is no exception and
 no error; the reply just gets worse.
@@ -29,6 +30,10 @@ _CHARS_PER_TOKEN = 4
 # What must be left over for history, the tool results, and the reply. A prompt
 # that fits with nothing to spare does not fit.
 _MIN_ROOM_FOR_CONVERSATION = 8000
+
+# Compact target: persona + telegraph + skinny schemas. The old union sat
+# near 22k and made every cache miss a 50s prefill. Stay under 10k.
+_MAX_STATIC_PREFIX_AND_SCHEMAS = 10000
 
 
 def _tokens(text: str) -> int:
@@ -71,6 +76,16 @@ def test_the_smallest_window_leaves_room_to_talk(parts: dict[str, int]) -> None:
     assert spare >= _MIN_ROOM_FOR_CONVERSATION, (
         f"only {spare:,} tokens left for history and the reply at the "
         f"{_MIN_PINNED:,} floor; raise the floor or shrink the policy"
+    )
+
+
+def test_static_prompt_stays_under_the_compact_ceiling(parts: dict[str, int]) -> None:
+    """Prefill we pay every turn. A new essay here is a regression."""
+    total = parts["prefix"] + parts["schemas"]
+    assert total < _MAX_STATIC_PREFIX_AND_SCHEMAS, (
+        f"prefix {parts['prefix']:,} + schemas {parts['schemas']:,} "
+        f"= {total:,} tokens; compact ceiling is "
+        f"{_MAX_STATIC_PREFIX_AND_SCHEMAS:,}"
     )
 
 

@@ -1,14 +1,14 @@
 # What's new
 
-The installer on GitHub is **0.2.4**.
+The installer on GitHub is **0.2.5**.
 
-Published: [v0.2.4](releases/v0.2.4.md).
-Older: [v0.2.3](releases/v0.2.3.md). [v0.2.2](releases/v0.2.2.md).
-[v0.2.1](releases/v0.2.1.md).
+Published: [v0.2.5](releases/v0.2.5.md).
+Older: [v0.2.4](releases/v0.2.4.md). [v0.2.3](releases/v0.2.3.md).
+[v0.2.2](releases/v0.2.2.md). [v0.2.1](releases/v0.2.1.md).
 
 ## This checkout
 
-Notes for the tree you have now. The 0.2.4 installer is this tree
+Notes for the tree you have now. The 0.2.5 installer is this tree
 without the 3D plate. Reality's room still ships. Earth and the
 true-scale globe stay on a source checkout.
 
@@ -20,7 +20,8 @@ that snapshot — she is not antivirus and does not scan the rest of
 the PC.
 
 **Browser.** Her Chrome (`data/browser-profile/`) is the window you
-watch. Tell her the errand — she plans the clicks. Snapshot ranks
+watch — a normal window on one desk (~60% of that monitor), not the
+1 / 2 / 3 span. Tell her the errand — she plans the clicks. Snapshot ranks
 visible controls (including one shadow root and same-origin iframes).
 Search waits for result links, then returns a short list; `click(nth=1)`
 opens the first. Type into a field by its label (`into="search"`).
@@ -33,9 +34,11 @@ relaunches her Chrome once. Housekeep still prunes Cache / GPU only;
 Cookies and Login Data stay.
 
 **Turns.** The full tool schema array rides every turn so Ollama can
-reuse the prefix. A greeting that skipped schemas (the 0.2.3 clock-ask
-shortcut) blew that cache and made the next real question pay ~40s of
-prefill. Tiny asks (clock, hello, thanks, "who are you") still stream;
+reuse the prefix. Descriptions are one line and param essays are
+stripped; the policy is a telegraph, not the skill-card essays. A
+greeting that skipped schemas (the 0.2.3 clock-ask shortcut) blew that
+cache and made the next real question pay ~40s of prefill. Tiny asks
+(clock, hello, thanks, "who are you") still stream;
 tool-bearing turns still hold the answer until the tools finish. "Who
 is this" is not identity.
 
@@ -51,8 +54,10 @@ run may download those weights; they are not stuffed in the setup
 `.exe`.
 
 **Hands.** Source checkout only (`.[spatial]`). On filament a **hands**
-chip on the field starts the C920 session — the camera tile is inspect
-only and can stay closed. Sodium is still camera → Track. Pinch tap is
+chip sits in the slim title bar after **arelis** (click **arelis** for
+the same menu as a right-click) and before 1 / 2 / 3. The chip starts
+the C920 session — the camera tile is inspect only and can stay closed.
+Sodium is still camera → Track. Pinch tap is
 a click (frozen at pinch-down); pinch plus travel grabs a tile rim or a
 Reality disc; fist rotates and dollies; two pinches scale. Open palm
 scrolls the list under that hand; a fast release flicks a held tile
@@ -71,13 +76,18 @@ tabs are `audio` / `window` / `allow` / `notify` / `roots` /
 the last finished answer: `copy` · `again`. Tables in an answer
 are columns, not orange cages. An empty history title is **new
 chat**; the lamp follows the click; dates say today / yesterday.
-Hue stays sodium (`#ff7a22`). View → themes picks the room;
-`filament (testing)` is the second look — the current fills the
-chosen desks. Slim title bar and say “hey arelis” stay on the primary
-desk (the middle one) even when 2 / 3 are lit. 1 / 2 / 3
-are how many desks, not Windows monitor numbers. Default
-is one desk on the primary; 2 adds the desk to
-its right, 3 is the whole row. The field is not a
+Hue stays sodium (`#ff7a22`). **sodium** is the default face.
+View → themes picks the room; `filament (testing)` is a
+checkout experiment that wants a row of desks — three
+monitors is the intended layout. Slim title bar (arelis · hands · 1 2 3) and say
+“hey arelis” stay on the primary desk (the middle one)
+even when 2 / 3 are lit. 1 / 2 / 3 are how many desks,
+not Windows monitor numbers. Default is one desk on the
+primary; 2 adds the desk to its right, 3 is the whole
+row. The window follows the OS display scale (1080p / 2K
+/ 4K / mixed DPI) the same way Chrome does; Settings →
+window → Interface scale is an extra zoom if type still
+looks small. First open fits the current work area. The field is not a
 composer — type on the chat plate. Voice status replaces
 the wake once she is actually listening or talking.
 Each plate has its own particle on the current — same
@@ -163,6 +173,13 @@ login. Out stays out (sat-AIS, unowned cameras, face index, VIN).
 [earth.md](earth.md).
 
 **Mail.** There is no Mail tab. Credentials live in `data/secrets.yaml`.
+
+## 0.2.5
+
+The persona is unchanged. Every turn still lists every tool so the
+prefix cache lives, but the skill-card essays are gone: telegraph
+policy plus skinny schemas. Static prompt is about 5,500 tokens
+instead of about 22k. Full notes: [v0.2.5](releases/v0.2.5.md).
 
 ## 0.2.4
 

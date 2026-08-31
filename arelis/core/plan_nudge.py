@@ -303,7 +303,7 @@ _PLAN_TILE = PlanSpec(
     message=(
         "Plan: 1) Call tile with action=open or close and the tile name "
         "(thinking, workspace, history, notifications, camera, contacts, "
-        "calendar). That is the View menu. Do not use the browser."
+        "calendar, chat). That is the View menu. Do not use the browser."
     ),
     steps=("tile",),
 )

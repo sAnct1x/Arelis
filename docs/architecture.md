@@ -108,9 +108,10 @@ refusing.
 
 Every launch after the first pins the chat model, then seeds
 Ollama's prefix cache (`arelis/llm/startup.py`) with the persona, the
-tool policy, and the complete tool schema array — about 17,800
+telegraph policy, and the skinny tool schema array — about 5,500
 tokens, identical every single turn. On a 12 GB card, that seeding
-takes roughly 40 seconds, once. After that, a warm hello takes about
+used to take roughly 40 seconds on the fat prefix; the seed is now
+about a third the size. After that, a warm hello takes about
 a second. The window shows **loading the model…** while that seed is
 running — it won't say **thinking…** until an actual turn has
 started.
@@ -149,10 +150,10 @@ loop on the same weights. File work always stays on Fast. That model
 can see images itself, so `models.vision` only exists as a fallback
 for a model that can't. Full details in [models.md](models.md).
 
-The persona text and the tool-policy block stay byte-identical
-across every turn. Shipped config keeps the full tool schema array
-(`skill_tool_subset` and `research_tool_subset` are both false). A
-per-turn 6-tool subset was actually tried and measured, and it lost:
+The persona text and the compact tool-policy block stay byte-identical
+across every turn. Shipped config keeps the full skinny tool schema
+array (`skill_tool_subset` and `research_tool_subset` are both false).
+A per-turn 6-tool subset was actually tried and measured, and it lost:
 because the array sits near the front of the prompt, shrinking it
 blows out the prefix cache and turns a ~3 second prefill (after the
 initial seed) into ~17 seconds, every single turn.
@@ -191,7 +192,8 @@ docks.
 | Contacts | People you can text, under View → Contacts / Ctrl+6 |
 | Calendar | Local tile, Ctrl+7 — month / week / day / agenda views, plus tasks and jobs. Empty of any Google events until you authorize |
 | Settings | Audio / window / allow / notify / roots / memory. Mail and calendar credentials aren't a Settings tab at all — they live in `data/secrets.yaml` and are set up via [calendar-oauth.md](calendar-oauth.md) |
-| Themes | View → Themes. Sets the room's look (`sodium` default, `filament` testing), saved to `data/config.local.yaml`. Filament is a desk presence: coil at first rest or away-idle, unwrapped once in use. Slim title bar, say “hey arelis”, and 1 / 2 / 3 stay on the primary desk. 1 / 2 / 3 are desk counts, not Windows monitor numbers; default is one primary desk. Text lives on the chat plate. The thinking title breathes while a turn is running. Each title has its own particle on the current (same motion as the word). Click the bead or the word. HWND stays opaque; tiles are floating resizable plates. The field paints a horizontal band and remasks only on span / resize, not every atmosphere tick. Dust stamps live in RAM; camera preview convert is a worker, not the HWND thread |
+| Themes | View → Themes. **sodium** is the shipped face. **filament (testing)** is a checkout experiment for a row of desks — three monitors is the intended layout; 1 and 2 still work. Saved to `data/config.local.yaml`. Filament is a desk presence: coil at first rest or away-idle, unwrapped once in use. Slim title bar, say “hey arelis”, and 1 / 2 / 3 stay on the primary desk. 1 / 2 / 3 are desk counts, not Windows monitor numbers; default is one primary desk. Text lives on the chat plate. The thinking title breathes while a turn is running. Each title has its own particle on the current (same motion as the word). Click the bead or the word. HWND stays opaque; tiles are floating resizable plates. The field paints a horizontal band and remasks only on span / resize, not every atmosphere tick. Dust stamps live in RAM; camera preview convert is a worker, not the HWND thread |
+| Display | Same model as Chrome / VS Code / Office. Qt 6 per-monitor DPI: a 4K panel at 150% is ~2560×1440 logical, not a second 4K mode. First-launch size (1440×900) shrinks to the current work area so 1080p fits; 2K and 4K stay that size until you maximize. Restored geometry that landed on an unplugged monitor moves back. Settings → window → Interface scale is an optional zoom on top of the OS (`ui.scale`, default 1.0, needs a restart). Chat text size is just the transcript (Ctrl+= / − / 0). |
 | Reality | A floating 3D window. View → Reality / Ctrl+8. Only appears while the Reality room is active, and only on a source checkout (`world_stage_allowed`). Needs `pip install -e ".[spatial]"` for hand tracking and `.[astro]` for REBOUND — none of it ships in the installer. Default size 1280×800. The solar GPU path is `--solar-gl` / `ARELIS_SOLAR_GL=1` (an offscreen FBO). The Earth view renders the planet through Cesium, with Arelis handling stars and the HUD; contacts there use `earth_marks.py`. It's inspect-only — a WASD fly camera, with H reciting the live key bindings. There's no piloted chase-cam |
 
 Under **Settings → window**, you can have unused panels fold away

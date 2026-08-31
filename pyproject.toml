@@ -216,6 +216,9 @@ ignore = [
 # arelis, so their imports cannot all sit at the top of the file. Case lambdas
 # also run long on purpose (tool name + assistant snippet checks).
 "scripts/*" = ["E402", "E501"]
+# Telegraph policy is one line per tool on purpose; wrapping it hides the
+# keywords tests lock.
+"arelis/core/compact_prompt.py" = ["E501"]
 # IAU / dipole / body-frame sketches use L, R, Rp as the paper does. Renaming
 # them to satisfy N806 would make the code disagree with every citation.
 "arelis/physics/**" = ["N806"]
