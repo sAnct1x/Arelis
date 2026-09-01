@@ -65,16 +65,18 @@ The two hashes should match — that just confirms your download wasn't
 corrupted, not that it's been signed by anyone. Both files ship
 together in the same release.
 
-The installer bundles voice support and her browser, but not the
-models themselves. The first time you open her, she'll ask which folder
-she's allowed to read and modify, then which model to download. You
-can go with the recommended one, or pick Gemma or DeepSeek instead —
-just note that Fast and Research modes share whichever model you
-choose, so it's one at a time. If [Ollama](https://ollama.com/download)
-isn't already on your system, she'll grab that first (about 1.4 GB),
-then the model itself. The recommended model can already read images
-on its own; a separate vision model only gets downloaded if you choose
-one that can't.
+The installer bundles voice support and her browser, but not the chat
+model or the voice weights. The first time you open her, she'll ask
+which folder she's allowed to read and modify, then which model to
+download — the ear (Sherpa, Kokoro, Silero) comes down in that same
+step. The window says **getting the ear…** until wake can hear; then
+**say "hey arelis"**. You can go with the recommended model, or pick
+Gemma or DeepSeek instead — just note that Fast and Research modes
+share whichever model you choose, so it's one at a time. If
+[Ollama](https://ollama.com/download) isn't already on your system,
+she'll grab that first (about 1.4 GB), then the model itself. The
+recommended model can already read images on its own; a separate
+vision model only gets downloaded if you choose one that can't.
 
 If you're running an 8–16 GB graphics card, `qwen3.5:9b` is the usual
 recommendation. If you're working from source, you can pull it
@@ -223,8 +225,9 @@ on-device, and those messages sync back once the PC is up again.
 that you can watch. She'll never type a password or click Book, Pay,
 or Checkout. See [browser-control.md](docs/browser-control.md).
 
-**Voice.** Say **Hey Arelis** — just her name on its own won't wake
-her. Ctrl+Shift+M starts a conversation, Ctrl+M is for dictation.
+**Voice.** Wait until the idle line says **say "hey arelis"** — not
+**getting the ear…**. A bare name still will not wake her.
+Ctrl+Shift+M starts a conversation, Ctrl+M is for dictation.
 Details in [voice-wake.md](docs/voice-wake.md).
 
 **Jobs.** Found under the calendar tile (Ctrl+7). Set a prompt and a

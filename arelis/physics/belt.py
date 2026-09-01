@@ -6,7 +6,7 @@ import math
 import random
 from dataclasses import dataclass
 
-from arelis.physics.constants import AU_M, GM_JUPITER, GM_SUN
+from arelis.physics.constants import AU_M, GM_SUN
 
 # Jupiter semi-major axis (AU), DE440-ish
 A_JUPITER_AU = 5.20336301
@@ -119,7 +119,3 @@ def generate_tracers(n: int = 800, *, seed: int = 20260824) -> list[Tracer]:
 
 def kirkwood_au() -> tuple[float, ...]:
     return KIRKWOOD_AU
-
-
-def jupiter_gm() -> float:
-    return GM_JUPITER

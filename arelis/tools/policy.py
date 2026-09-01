@@ -80,7 +80,7 @@ INBOX_WRITE_ACTIONS = frozenset({
 # Approved one at a time, never covered by "allow all this turn".
 NEVER_BATCH = frozenset({"send_email", "send_sms", "agenda", "external_read", "inbox"})
 
-ConfirmToggle = Literal["none", "send", "image", "browser", "vision", "writes"]
+ConfirmToggle = Literal["none", "send", "image", "browser", "vision", "writes", "run"]
 
 
 def _action(args: dict[str, Any] | None) -> str:
@@ -194,6 +194,8 @@ def confirm_toggle(
         return "vision"
     if tool == "earth":
         return "none"
+    if tool == "run_script":
+        return "run"
     if tool == "clipboard":
         return "writes"
     if tool in {
@@ -225,6 +227,7 @@ def evaluate_confirm(
     confirm_send: bool = True,
     confirm_browser: bool = True,
     confirm_vision: bool = True,
+    confirm_run: bool = True,
 ) -> bool:
     """Decide whether this call must go through the confirm card.
 
@@ -233,9 +236,12 @@ def evaluate_confirm(
     before it reaches here.
 
     Voice mode (filament) skips the card: saying the ask is the grant.
-    Destructive calls still pause so she can ask out loud.
+    Destructive calls still pause so she can ask out loud. Running a
+    project program is not ordinary — it pauses on voice too.
     """
     if _CONFIRM_MODE == "voice":
+        if (name or "").strip() == "run_script":
+            return True
         return action_is_destructive(name, args)
     toggle = confirm_toggle(name, args, risk=risk)
     if toggle == "send":
@@ -246,6 +252,8 @@ def evaluate_confirm(
         return confirm_browser
     if toggle == "vision":
         return confirm_vision
+    if toggle == "run":
+        return confirm_run
     if toggle == "writes":
         return confirm_writes
     return False
@@ -292,6 +300,8 @@ def evaluate_capability(
         return "WRITE_LOCAL" if action_is_write(tool, args) else "READ"
     if tool == "earth":
         return "READ"
+    if tool == "run_script":
+        return "SIDE_EFFECT_LOCAL"
     if tool == "plot":
         return "WRITE_LOCAL"
     if tool == "document":
@@ -313,6 +323,7 @@ def confirm_toggles_for_call(
     confirm_browser: bool,
     confirm_vision: bool,
     allow_writes_this_turn: bool,
+    confirm_run: bool = True,
 ) -> dict[str, bool]:
     """Turn-scoped toggles. 'Rest of this ask' does not cover mail/SMS/agenda."""
     return {
@@ -322,6 +333,7 @@ def confirm_toggles_for_call(
         "confirm_send": confirm_send,
         "confirm_browser": confirm_browser and not allow_writes_this_turn,
         "confirm_vision": confirm_vision and not allow_writes_this_turn,
+        "confirm_run": confirm_run,
     }
 
 
@@ -674,6 +686,13 @@ def describe_call(
         horizon = str(args.get("horizon") or "").strip()
         if horizon:
             lines.append(f"Horizon: {horizon}")
+        return "\n".join(lines)
+    if name == "run_script":
+        path = str(args.get("path") or "").strip() or "(path)"
+        extra = args.get("args")
+        lines = ["Run this program", f"Path: {path}"]
+        if extra:
+            lines.append(f"Args: {extra}")
         return "\n".join(lines)
     if name == "workspace":
         action = str(args.get("action") or "").strip().lower() or "?"

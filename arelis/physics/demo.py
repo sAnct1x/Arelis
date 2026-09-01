@@ -10,7 +10,6 @@ from arelis.physics.constants import (
     BODY_BY_NAME,
     GM_SUN,
     PLANET_NAMES,
-    mass_kg,
 )
 from arelis.physics.horizons import VectorState
 
@@ -119,7 +118,3 @@ def two_body_period(name: str, a: float) -> float:
     spec = BODY_BY_NAME[name]
     mu = GM_SUN + spec.gm
     return 2.0 * math.pi * math.sqrt(a**3 / mu)
-
-
-def mass_of(name: str) -> float:
-    return mass_kg(BODY_BY_NAME[name])

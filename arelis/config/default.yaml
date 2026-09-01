@@ -107,6 +107,9 @@ agent:
   # See one local image (VL). Separate from confirm_image so disabling Comfy
   # generation confirm does not disable vision. rest of this ask covers it.
   confirm_vision: true
+  # Run a project .py (run_script). Separate from file writes so trusting
+  # notes does not auto-run programs. Filament still pauses on voice.
+  confirm_run: true
   json_fallback: true      # allow the JSON tool protocol when native calling fails
   block_private_urls: true # refuse loopback, private, and link-local targets
   # Per-turn latency to logs/turns.log (and a one-line "timing …" in Thinking).
@@ -475,6 +478,12 @@ tools:
     calendar_path: "data/calendar.ics"
   analyze:
     enabled: true
+  # Run a project .py under workspace roots. Attended only. Allow
+  # (confirm_run). Optional python: absolute interpreter; else <root>/.venv
+  # then Arelis's own Python.
+  run_script:
+    enabled: true
+    # python: "C:/path/to/lab/.venv/Scripts/python.exe"
   # Symbolic algebra (SymPy). Read, no Allow; unattended jobs may call it.
   cas:
     enabled: true

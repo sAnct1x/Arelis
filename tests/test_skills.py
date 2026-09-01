@@ -194,6 +194,8 @@ def test_science_card_in_catalog() -> None:
 def test_diagnostics_card_in_catalog() -> None:
     assert "diagnostics" in SKILL_CARDS
     assert SKILL_CARDS["diagnostics"].requires_tool == "diagnostics"
+    assert "code" in SKILL_CARDS
+    assert SKILL_CARDS["code"].requires_tool == "run_script"
     ids = select_skill_ids(
         "run diagnostics",
         available_tools={"diagnostics", "calculator", "send_sms"},
@@ -224,6 +226,13 @@ def test_document_card_in_catalog() -> None:
     assert leaned[0] in {"workspace", "document"}
     assert "document" in leaned
     assert "workspace" in leaned
+    code_lean = select_skill_ids(
+        "how's the weather",
+        available_tools={"run_script", "workspace", "weather"},
+        extra_ids=("workspace", "code"),
+    )
+    assert "code" in code_lean
+    assert "workspace" in code_lean
     conv = select_skill_ids(
         "convert 5 ft 8 in to meters",
         available_tools={"cas", "units", "calculator", "weather"},

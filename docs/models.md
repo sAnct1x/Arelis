@@ -130,11 +130,12 @@ ollama pull nomic-embed-text
 
 ## Voice
 
-Speech-to-text and text-to-speech both stay on the CPU. Idle wake
-detection uses faster-whisper until `models/wake/hey_arelis.onnx`
-exists on disk. Actual conversation and dictation use Sherpa-ONNX
-Zipformer EN. Text-to-speech is Kokoro-82M (the `af_heart` voice),
-with Piper Jenny as a fallback. More in
+Speech-to-text and text-to-speech both stay on the CPU. Those
+weights are fetched on first open, not stuffed in the setup `.exe`;
+the idle line says **getting the ear…** until wake can hear. Idle
+wake uses faster-whisper until `models/wake/hey_arelis.onnx` exists.
+Conversation and dictation use Sherpa-ONNX Zipformer EN. Speech out
+is Kokoro-82M (`af_heart`), Piper Jenny as fallback. More in
 [voice-wake.md](voice-wake.md).
 
 Qwen3.5 streams its native thinking one token per SSE frame. The

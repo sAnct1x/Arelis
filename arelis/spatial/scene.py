@@ -201,13 +201,6 @@ def polygon_xy(body: Disc) -> list[tuple[float, float]]:
     return pts
 
 
-def spin_mark_xy(body: Disc) -> tuple[float, float]:
-    """A pip on the rim so a sphere can show spin. Tilt pulls it inward."""
-    reach = float(body.radius) * max(0.38, abs(math.cos(float(body.tilt))))
-    a = float(body.angle) - math.pi / 2.0
-    return (body.x + reach * math.cos(a), body.y + reach * math.sin(a))
-
-
 def _wrap(delta: float) -> float:
     while delta > math.pi:
         delta -= 2.0 * math.pi

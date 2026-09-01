@@ -518,7 +518,7 @@ KINDS: dict[str, RoomKind] = {
         label="Code",
         role="fast",
         skills=("workspace", "code"),
-        blurb="Reading and writing files in the project, running the tests.",
+        blurb="Reading and writing files in the project, running a named .py.",
     ),
     "research": RoomKind(
         id="research",

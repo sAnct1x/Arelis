@@ -337,12 +337,15 @@ class SettingsDialog(QDialog):
         self.confirm_vision.setChecked(bool(agent.get("confirm_vision", True)))
         self.confirm_send = QCheckBox("mail and texts")
         self.confirm_send.setChecked(bool(agent.get("confirm_send", True)))
+        self.confirm_run = QCheckBox("programs in the project")
+        self.confirm_run.setChecked(bool(agent.get("confirm_run", True)))
         for box in (
             self.confirm_writes,
             self.confirm_image,
             self.confirm_browser,
             self.confirm_vision,
             self.confirm_send,
+            self.confirm_run,
         ):
             allow_l.addWidget(box)
         preset_row = QHBoxLayout()
@@ -858,6 +861,7 @@ class SettingsDialog(QDialog):
         self.confirm_browser.setChecked(True)
         self.confirm_vision.setChecked(True)
         self.confirm_send.setChecked(True)
+        self.confirm_run.setChecked(True)
 
     def _preset_allow_trust_local(self) -> None:
         self.confirm_writes.setChecked(False)
@@ -865,6 +869,7 @@ class SettingsDialog(QDialog):
         self.confirm_browser.setChecked(False)
         self.confirm_vision.setChecked(False)
         self.confirm_send.setChecked(True)
+        self.confirm_run.setChecked(True)
 
     def values(self) -> dict[str, Any]:
         return {
@@ -910,6 +915,7 @@ class SettingsDialog(QDialog):
                 "confirm_browser": self.confirm_browser.isChecked(),
                 "confirm_vision": self.confirm_vision.isChecked(),
                 "confirm_send": self.confirm_send.isChecked(),
+                "confirm_run": self.confirm_run.isChecked(),
             },
         }
 

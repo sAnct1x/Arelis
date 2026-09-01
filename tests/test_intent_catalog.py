@@ -7,6 +7,7 @@ from arelis.core.intent_catalog import (
     COMPOSE_EMAIL,
     DIAGNOSTICS,
     INBOX,
+    RUN_SCRIPT,
     SMS_SEND,
     WATCH,
     WEATHER,
@@ -146,6 +147,36 @@ def test_diagnostics_catalog_is_phrase_only() -> None:
     extra = research_extras_for_text("run diagnostics")
     assert "diagnostics" in extra
     assert "diagnostics" not in research_extras_for_text("what's the weather")
+
+
+def test_run_script_catalog_is_phrase_only() -> None:
+    assert RUN_SCRIPT.matches("run measure_drift.py")
+    assert RUN_SCRIPT.matches("execute lab/measure_drift.py")
+    assert RUN_SCRIPT.matches("run the script")
+    assert RUN_SCRIPT.matches("run it again")
+    assert not RUN_SCRIPT.matches("run diagnostics")
+    assert not RUN_SCRIPT.matches("run the tests")
+    assert not RUN_SCRIPT.matches("run this job now")
+    assert not RUN_SCRIPT.matches("run now")
+    assert any(h.kind == "run_script" for h in detect_intents("run measure_drift.py"))
+    assert not any(h.kind == "run_script" for h in detect_intents("run diagnostics"))
+    available = _EVERYDAY | {"run_script", "diagnostics"}
+    on = filter_tool_names(
+        available,
+        role="fast",
+        text="run measure_drift.py and tell me the results",
+        enabled=False,
+        skill_subset=False,
+    )
+    assert "run_script" in on
+    off = filter_tool_names(
+        available,
+        role="fast",
+        text="what's the weather today?",
+        enabled=False,
+        skill_subset=False,
+    )
+    assert "run_script" not in off
 
 
 def test_watch_catalog_is_phrase_only() -> None:

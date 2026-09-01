@@ -56,7 +56,6 @@ ALLOWED: dict[str, str] = {
     "login.microsoftonline.com": "Microsoft OAuth, user-initiated",
     # The user's own phone, running software they installed.
     "api.sms-gate.app": "SMSGate cloud mode, if the user chose it",
-    "sms-gate.app": "named in setup copy so the user can find the app",
     # Model and voice weights, downloaded once when a feature is first used and
     # gated behind allow_download in config.
     "github.com": "release assets for Kokoro, Silero, Sherpa, and the Ollama engine if missing",

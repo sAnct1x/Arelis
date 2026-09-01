@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
-from arelis.physics.constants import AU_M, GM_SUN
+from arelis.physics.constants import GM_SUN
 
 
 @dataclass(frozen=True)
@@ -96,21 +96,6 @@ def well_grid(
             th = 2.0 * math.pi * it / n_th
             pts.append((rho * math.cos(th), rho * math.sin(th), z))
     return pts
-
-
-def well_mesh_indices(n: int) -> list[int]:
-    """Triangle list for polar well_grid (rings × spokes)."""
-    n_r = max(int(n), 4)
-    n_th = well_theta_count(n_r)
-    idx: list[int] = []
-    for ir in range(n_r):
-        for it in range(n_th):
-            a = ir * n_th + it
-            b = a + n_th
-            a2 = ir * n_th + (it + 1) % n_th
-            b2 = a2 + n_th
-            idx.extend((a, b, a2, a2, b, b2))
-    return idx
 
 
 def well_inner_ring(n: int) -> int:
@@ -208,15 +193,3 @@ def osculating(
         true_anomaly=ta,
         period_s=kepler_period(a, mu),
     )
-
-
-def tisserand_jupiter(
-    a: float,
-    e: float,
-    inc: float,
-    a_jup: float = 5.203_363_01 * AU_M,
-) -> float:
-    """Tisserand parameter vs Jupiter (circular Jupiter)."""
-    if a <= 0.0 or a_jup <= 0.0:
-        return float("nan")
-    return a_jup / a + 2.0 * math.sqrt(a / a_jup * max(0.0, 1.0 - e * e)) * math.cos(inc)

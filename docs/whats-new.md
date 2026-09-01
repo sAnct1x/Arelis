@@ -49,9 +49,10 @@ is done.
 **Voice.** Conversation and dictate are Sherpa-ONNX (Kroko Zipformer).
 Speech out is Kokoro-82M `af_heart` on CPU (Piper fallback). End of
 turn is Silero plus Smart Turn v3 when the ONNX is present. Headset
-barge-in is the next question. [voice-wake.md](voice-wake.md). First
-run may download those weights; they are not stuffed in the setup
-`.exe`.
+barge-in is the next question. [voice-wake.md](voice-wake.md). Those
+weights are not in the setup `.exe`. First open fetches them with the
+model; the idle line says **getting the ear…** until wake can hear, and
+only then **say "hey arelis"**.
 
 **Hands.** Source checkout only (`.[spatial]`). On filament a **hands**
 chip sits in the slim title bar after **arelis** (click **arelis** for
@@ -203,6 +204,11 @@ and the Earth zone are still checkout-only. Full notes:
   keeps the schemas on (prefix cache) and skips the web floor instead.
 - **Typing in the window** no longer raises a `TypeError` on every
   keystroke.
+- **Run a program.** Name a `.py` in the project — she starts it,
+  waits, and answers from what it printed. Allow first (Settings →
+  Allow → programs). Not a shell, not her own test suite, not
+  `schedule run_now`. A room with `kind: code` leans on that plus
+  files. You can still run the file yourself.
 - **Documents.** PDF, Word, spreadsheet, or a markdown note — a real
   file. Open / show in folder. In a room: that room's `documents`
   folder. In orbit: `outputs/documents/`. Chat is not the document.

@@ -593,6 +593,7 @@ async def run_scripted_scenario(
         "confirm_send": True,
         "confirm_browser": True,
         "confirm_vision": True,
+        "confirm_run": True,
         "json_fallback": True,
         "skill_cards": True,
         "intent_preflight": True,

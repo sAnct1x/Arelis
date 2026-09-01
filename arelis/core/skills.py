@@ -341,6 +341,38 @@ SKILL_CARDS: dict[str, SkillCard] = {
   package or web_search. A fix is write/edit (Allow), never a silent self-edit.
 """.strip().format(inspect_guide=_inspect_path_guide()),
     ),
+    "code": SkillCard(
+        id="code",
+        hints=(
+            "run",
+            "execute",
+            "script",
+            ".py",
+            "python file",
+            "run the program",
+        ),
+        negative_hints=(
+            "run diagnostics",
+            "run the tests",
+            "run this job",
+            "run the job",
+            "run now",
+            "run_now",
+        ),
+        requires_tool="run_script",
+        body="""
+### Project programs
+- Creating or editing a file uses workspace(action=write|edit). The locked
+  python cell is a formula, not their script.
+- When they name a .py to run, call run_script with that path. Not a shell.
+  Not diagnostics (that is her tests/ only). Not schedule run_now.
+- Prefer print or a CSV so you can read the result. Do not invent numbers
+  a process did not print. A later workspace read is how you open a file
+  the script wrote.
+- Writes and runs still Allow. Do not claim a run succeeded unless
+  run_script returned this turn.
+""".strip(),
+    ),
     "inspect": SkillCard(
         id="inspect",
         hints=(

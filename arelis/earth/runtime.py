@@ -7,8 +7,8 @@ import threading
 import time
 from dataclasses import dataclass, field
 
-from arelis.earth.catalog import LAYER_BY_ID, LAYERS
-from arelis.earth.entity import LAYER_IDS, Entity
+from arelis.earth.catalog import LAYERS
+from arelis.earth.entity import Entity
 from arelis.earth.lod import (
     EarthView,
     adapters_due,
@@ -363,12 +363,3 @@ def require_earth() -> EarthRuntime:
 
 def stage_ok() -> bool:
     return world_stage_allowed()
-
-
-def layer_title(layer: str) -> str:
-    spec = LAYER_BY_ID.get(layer)
-    return spec.title if spec is not None else layer
-
-
-def known_layers() -> tuple[str, ...]:
-    return LAYER_IDS

@@ -350,7 +350,12 @@ def _union_desks(desks: list[QRect], home: QRect | None = None) -> QRect:
 
 
 def filament_row_geometry(window: QWidget) -> tuple[QRect, QRect, int]:
-    """Horizontal desk row: union, home monitor, how many desks (1–3)."""
+    """Horizontal desk row: union, home monitor, how many desks (1–3).
+
+    Span API for the filament sitting. Not dead if nothing calls it yet —
+    1/2/3 and chrome_band_on_glass go through filament_row_desks /
+    home_band_from_union; this is the one-tuple form of that row.
+    """
     row, home = filament_row_desks(window)
     return _union_desks(row, home), home, min(3, len(row))
 

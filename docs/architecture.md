@@ -125,14 +125,14 @@ started.
 | Agent loop | `arelis/core/agent_loop.py` | Model, tools, confirmations, finish rules |
 | Skills | `arelis/core/skills.py` | Which tools she leans toward |
 | Router | `arelis/llm/` | Picks the role model, warms it, unloads it |
-| Setup | `arelis/setup/` | First-open flow: hardware detection, model choice, pulling |
+| Setup | `arelis/setup/` | First-open flow: hardware, model, voice weights, pulling |
 | Startup | `arelis/llm/startup.py` | Pins the chat model, seeds the prefix cache |
 | Tools | `arelis/tools/` | Everything she can actually call — registry lives in `__init__.py` |
 | Jobs | `arelis/jobs/` | The unattended runner plus Task Scheduler integration |
 | Browser | `arelis/browser/` | Her own Chrome instance |
 | UI | `arelis/ui/` | Window, empty session, docks |
 | Presence | `arelis/presence/` | Core process, tray, IPC |
-| Voice | `arelis/voice/` | Listening and speaking — see [voice-wake.md](voice-wake.md) |
+| Voice | `arelis/voice/` | Listening and speaking; `prepare.py` is the first-open fetch — [voice-wake.md](voice-wake.md) |
 | Spatial | `arelis/spatial/` | World engine, grants, hand-tracking takes. Pose input is not a chat turn |
 | Earth | `arelis/earth/` | Earth view on Reality's globe — 108 shipped / 25 keyed / 3 coming later / 4 left out. Marks come from `arelis/ui/earth_marks.py`. See [earth.md](earth.md) |
 | Physics | `arelis/physics/` | Reality's solar system — Horizons initial conditions, REBOUND, IAU attitude |
@@ -233,6 +233,7 @@ connected. Until then, if you ask, she'll just tell you she can't.
 | `analyze` / `doc_extract` / `git_info` | Tables, PDFs, git | No |
 | `calculator` | Arithmetic | No |
 | `python` | Short numerics cell (math / sympy / numpy). No file or shell access | No |
+| `run_script` | A project `.py` under a workspace root. Not a shell. Not her own tests | Yes (card / spoken on filament) |
 | `cas` / `units` | Closed forms, conversions, constants | No |
 | `diagnostics` | Her own pytest suite. Source checkout with `tests/` needed | No |
 | `tile` | Open or close a View-menu panel (thinking, calendar, world, …) | No |

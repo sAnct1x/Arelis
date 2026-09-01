@@ -626,14 +626,6 @@ def hit_entity(
     return best
 
 
-def ride_eye(
-    system: SolarSystem, entity: Entity
-) -> tuple[float, float, float] | None:
-    """Sit on the contact: a short hop along Earth-radial, not a chase cam."""
-    pose = ride_pose(system, entity)
-    return None if pose is None else pose[0]
-
-
 def ride_pose(
     system: SolarSystem, entity: Entity
 ) -> tuple[

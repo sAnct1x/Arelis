@@ -482,6 +482,10 @@ class AgentLoop:
         self.confirm_send = bool(agent.get("confirm_send", True))
         self.confirm_browser = bool(agent.get("confirm_browser", True))
         self.confirm_vision = bool(agent.get("confirm_vision", True))
+        self.confirm_run = bool(agent.get("confirm_run", True))
+        run_tool = self.tools.get("run_script")
+        if run_tool is not None:
+            run_tool.is_cancelled = is_cancelled
         self.json_fallback = bool(agent.get("json_fallback", True))
         self.terminal_sent = False
         # Tools that have actually run this turn. The orchestrator reads this

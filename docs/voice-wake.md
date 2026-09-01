@@ -41,17 +41,16 @@ two separate words. Those get quietly repaired so the email skill
 actually sees what you meant to say. Wake-word matching runs on a
 completely separate engine and doesn't get this same repair pass.
 
-The end of an utterance is detected with a short Silero pause
-combined with Pipecat Smart Turn v3, whenever `models/smart_turn/` is
-present (or gets downloaded on first run — about 8 MB). If that ONNX
-file is missing, she just falls back to longer silence windows
-instead.
+The end of an utterance is a short Silero pause plus Pipecat Smart
+Turn v3 when `models/smart_turn/` is present. If that ONNX is missing,
+she falls back to longer silence windows.
 
-The first time you use speech output, Kokoro-82M may need to download
-(~300 MB) into `models/kokoro/`. The first conversation may similarly
-need to pull the Kroko Zipformer pack into `models/sherpa/` if it
-isn't already there. Both speech-to-text and text-to-speech run on
-the CPU — the GPU stays dedicated to Ollama.
+Those weights are not in the setup `.exe`. First open fetches Sherpa,
+Kokoro (~300 MB), Silero, and Smart Turn (~8 MB) with the chat model.
+Until they are on disk and loaded, wake stays off and the idle line
+says **getting the ear…** — not **say "hey arelis"**. Both
+speech-to-text and text-to-speech run on the CPU; the GPU stays on
+Ollama.
 
 If you're on a headset, talking over her counts as the start of a new
 turn: she stops talking, and whatever you said becomes the question.
@@ -102,6 +101,7 @@ Porcupine isn't used anywhere in this codebase, for what it's worth.
 
 | File | Job |
 |---|---|
+| `arelis/voice/prepare.py` | First-open / first-talk fetch; idle stays on **getting the ear…** until ready |
 | `arelis/voice/wake.py` | The compound-phrase matching regex |
 | `arelis/voice/openwake.py` | Optional ONNX-based wake detection, once `models/wake/hey_arelis.onnx` exists |
 | `arelis/ui/voice_control.py` | Manages WAKE / CONVERSATION / DICTATE states |

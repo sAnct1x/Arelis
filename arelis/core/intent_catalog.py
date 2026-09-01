@@ -791,6 +791,36 @@ _WATCH_ASK = re.compile(
     r"\b(?:inbound lock|egress mute|auth(?:entication)? fail)\b)"
 )
 
+# Phrase-only. "run diagnostics" / "run the tests" / schedule "run now" stay out.
+_RUN_SCRIPT_FILE = re.compile(
+    r"(?i)(?<!n't )(?<!not )(?<!never )\b(?:run|execute)\s+"
+    r"(?!diagnostics\b)(?!the\s+tests\b)(?!this\s+job\b)(?!the\s+job\b)(?!now\b)"
+    r"(?:(?:the|that|my)\s+(?:script|program|file)\s+)?"
+    r"(?P<path>[\w./\\-]+\.py)\b"
+)
+_RUN_SCRIPT_BARE = re.compile(
+    r"(?i)(?<!n't )(?<!not )(?<!never )\b(?:run|execute)\s+"
+    r"(?:the|that|my)\s+(?:script|program)\b"
+    r"(?!\s+now\b)(?!\s+job\b)"
+)
+_RUN_IT_AGAIN = re.compile(
+    r"(?i)(?<!n't )(?<!not )(?<!never )\brun\s+it\s+again\b"
+)
+
+RUN_SCRIPT = IntentSpec(
+    kind="run_script",
+    patterns=(_RUN_SCRIPT_FILE, _RUN_SCRIPT_BARE, _RUN_IT_AGAIN),
+    expected_tools=("run_script",),
+    nudge=(
+        "Intent preflight: they asked to run a project program. "
+        "Call run_script with the .py they named. Not a shell. "
+        "Not diagnostics. Not schedule run_now. "
+        "Allow still applies — do not ask permission in chat."
+    ),
+    schema_tools=frozenset({"run_script"}),
+    auto_hint=True,
+)
+
 WATCH = IntentSpec(
     kind="watch",
     patterns=(_WATCH_ASK,),
@@ -1005,6 +1035,7 @@ CATALOG: tuple[IntentSpec, ...] = (
     PLOT,
     SCIENCE_CATALOG,
     DIAGNOSTICS,
+    RUN_SCRIPT,
     WATCH,
     INSPECT_WRITE,
     INSPECT,

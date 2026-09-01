@@ -115,6 +115,17 @@ class _PrepareWorker(QThread):
             pull_tag(EMBED_TAG, progress=self._report)
         if self._cancel:
             return
+        try:
+            from arelis.voice.prepare import missing_voice_parts, prepare_voice_files
+
+            if missing_voice_parts(allowed_only=True):
+                self._report("Getting the voice files…")
+                prepare_voice_files(progress=self._report)
+        except Exception:
+            # Typing still works. The window will try again and say so.
+            pass
+        if self._cancel:
+            return
         self.finished_ok.emit()
 
 
@@ -228,7 +239,8 @@ class ModelSetupDialog(GlassDialog):
         t1 = QLabel("She's ready")
         t1.setObjectName("DialogHeading")
         t2 = QLabel(
-            "Type in the box under the ring. Say Hey Arelis to talk.\n\n"
+            "Type in the box under the ring. The window will say when "
+            "she's listening — then say Hey Arelis.\n\n"
             "When she wants to send a text, send mail, or change a file, "
             "two buttons: allow and deny.\n\n"
             "Mail, phone, and calendar can wait. They live in Settings "

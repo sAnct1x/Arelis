@@ -319,14 +319,6 @@ def _save_budget(budget: dict[str, Any], path: Path | None = None) -> None:
         return
 
 
-def reset_gfw_budget(path: Path | None = None) -> None:
-    dest = path or BUDGET_PATH
-    try:
-        dest.unlink()
-    except OSError:
-        pass
-
-
 def _unix_date(stamp: str, fallback: float) -> float:
     if not stamp:
         return fallback

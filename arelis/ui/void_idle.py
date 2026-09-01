@@ -42,6 +42,7 @@ _LISTEN_IDLE = 'say "hey arelis"'
 _LISTEN_TALKING = "talking · say goodbye"
 _LISTEN_DICTATING = "dictating · ctrl+m to stop"
 _LISTEN_ACK = "listening"
+_LISTEN_PREPARING = "getting the ear…"
 
 # Shown in the ghost column only while there is no history to put there, and
 # gone for good after the first conversation. The face is deliberately bare —
@@ -338,6 +339,7 @@ class OrbitIdle(QWidget):
         self.voice_host.hide()
         col.addWidget(self.voice_host, alignment=Qt.AlignmentFlag.AlignHCenter)
         self._prompt_typing = False
+        self._voice_preparing = False
         self.listen_word.hide()
 
         self._readout = QWidget(self)
@@ -450,19 +452,32 @@ class OrbitIdle(QWidget):
             row.adjustSize()
         self._layout_idle()
 
+    def set_voice_preparing(self, on: bool) -> None:
+        """Hold the idle line on getting the ear until wake can actually hear."""
+        self._voice_preparing = bool(on)
+        if on:
+            self.set_voice_mode("preparing")
+        else:
+            self.set_voice_mode("off")
+
     def set_voice_mode(self, mode: str) -> None:
         """Say the latched voice mode in the copy, not just in the button.
 
         ``mode`` is the controller's mode: conversation, dictate, wake, or off.
         Wake and off are both "nothing is latched" as far as the operator is
-        concerned — idle is always listening for Hey Arelis.
+        concerned — idle is always listening for Hey Arelis. Preparing wins
+        until the ear is loaded, so a first-run "say hey arelis" is not a lie.
         """
+        if self._voice_preparing and mode != "preparing":
+            mode = "preparing"
         if mode == "conversation":
             text, live = _LISTEN_TALKING, True
         elif mode == "dictate":
             text, live = _LISTEN_DICTATING, True
         elif mode == "ack":
             text, live = _LISTEN_ACK, True
+        elif mode == "preparing":
+            text, live = _LISTEN_PREPARING, True
         else:
             text, live = _LISTEN_IDLE, False
         changed = self.listen_word.text() != text

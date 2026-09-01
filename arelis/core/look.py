@@ -141,15 +141,6 @@ class LookIntent:
 
 
 @dataclass
-class LookGrant:
-    frame_sha256: str
-    speech_act: LookAct
-    can_see: bool = True
-    can_act: bool = False
-    minted: bool = False
-
-
-@dataclass
 class OcrInspect:
     text: str
     mean_conf: float | None = None

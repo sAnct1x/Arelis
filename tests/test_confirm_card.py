@@ -38,6 +38,9 @@ def test_headlines_are_human() -> None:
     assert confirm_headline("solar", {"action": "dump"}) == "dump solar state"
     assert confirm_headline("document", {"format": "pdf"}) == "write a pdf"
     assert confirm_headline("document", {"filename": "dirac.pdf"}) == "write dirac.pdf"
+    assert confirm_headline("run_script", {"path": "lab/measure_drift.py"}) == (
+        "run measure_drift.py"
+    )
     assert "`" not in confirm_headline("send_email", {"to": "me", "subject": "Hi"})
 
 

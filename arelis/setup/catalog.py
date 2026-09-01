@@ -16,7 +16,6 @@ from dataclasses import dataclass
 from arelis.setup.hardware import HardwareSnapshot
 
 EMBED_TAG = "nomic-embed-text"
-VISION_TAG = "qwen2.5vl:3b"
 
 
 @dataclass(frozen=True)

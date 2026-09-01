@@ -128,10 +128,6 @@ def earth_spin_jd(system_epoch_jd: float, system_t: float) -> float:
     return spin_jd(system_epoch_jd, system_t)
 
 
-def gmst(jd: float) -> float:
-    return gmst_rad(jd)
-
-
 def teme_to_ecef(
     teme: tuple[float, float, float], jd: float
 ) -> tuple[float, float, float]:

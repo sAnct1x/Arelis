@@ -173,6 +173,7 @@ def test_settings_allow_tab(qt_app) -> None:
         values = dlg.values()["agent"]
         assert values["confirm_writes"] is False
         assert values["confirm_send"] is True
+        assert values["confirm_run"] is True
         dlg._preset_allow_everything()
         assert dlg.values()["agent"]["confirm_browser"] is True
     finally:

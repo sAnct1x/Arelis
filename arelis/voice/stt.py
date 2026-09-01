@@ -260,11 +260,27 @@ class SpeechToText:
     def available(self) -> bool:
         return self.resolved_backend() is not None
 
+    def _backend_in_memory(self, backend: str | None) -> bool:
+        if backend == "sherpa":
+            return self._sherpa is not None and self._sherpa.loaded()
+        if backend == "faster-whisper":
+            return self._model is not None
+        return backend is None
+
     def loaded(self) -> bool:
-        """True once the weights are in memory, so the caller can warn first."""
-        if self.resolved_backend() == "sherpa":
-            return self._sherpa_engine().loaded()
-        return self._model is not None
+        """True when every ear this session will use is in memory.
+
+        Wake is faster-whisper; turns are Sherpa. An earlier version only
+        asked the turn backend, so the first "Hey Arelis" downloaded Whisper
+        with no status — loaded() was already true, and nothing said so.
+        """
+        turn = self.resolved_backend()
+        if not self._backend_in_memory(turn):
+            return False
+        wake = self.resolved_backend(purpose="wake")
+        if wake != turn and not self._backend_in_memory(wake):
+            return False
+        return True
 
     async def transcribe(
         self,

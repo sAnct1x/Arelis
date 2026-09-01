@@ -285,16 +285,3 @@ def sample_system(*, ollama_base_url: str | None = "http://127.0.0.1:11434") -> 
         ollama_models=ollama_models,
         notes=notes,
     )
-
-
-class SystemSampler:
-    """Background-friendly sampler: call ``tick()`` on an interval."""
-
-    def __init__(self, *, ollama_base_url: str | None = "http://127.0.0.1:11434") -> None:
-        self.ollama_base_url = ollama_base_url
-        self.series = SampleSeries()
-
-    def tick(self) -> SystemSample:
-        sample = sample_system(ollama_base_url=self.ollama_base_url)
-        self.series.add(sample)
-        return sample

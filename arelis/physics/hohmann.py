@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
 
 from arelis.physics.elements import kepler_period, vis_viva
@@ -37,7 +36,3 @@ def hohmann(r1: float, r2: float, mu: float) -> Hohmann:
         dv2=abs(v2 - va),
         tof_s=tof,
     )
-
-
-def circular_speed(r: float, mu: float) -> float:
-    return math.sqrt(mu / r)

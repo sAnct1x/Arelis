@@ -81,6 +81,9 @@ class VoiceService:
         # Wake start and conversation-mode both call preload(). Without a lock
         # both see "not loaded" and the rail prints Loading/Ready twice.
         self._preload_lock = asyncio.Lock()
+        # False until preload finishes. The glass must not say "say hey arelis"
+        # while Whisper is still downloading — that is the first-run lie.
+        self.ear_ready = not self.stt_enabled
         # The bus dispatches handlers concurrently, so delta/retract/speak must
         # not race on the stream buffer even though Piper itself is serialized
         # under _speak_lock.
@@ -394,7 +397,7 @@ class VoiceService:
             return ""
 
         if not self.stt.loaded():
-            await self._status("Loading speech recognition…")
+            await self._status("Getting the ear…")
         try:
             stt_t0 = time.perf_counter()
             text = (
@@ -541,7 +544,10 @@ class VoiceService:
     async def preload(self) -> None:
         """Warm the speech model and TTS so the first exchange is not the slow one."""
         async with self._preload_lock:
-            await self._preload_stt()
+            try:
+                await self._preload_ear()
+            finally:
+                self.ear_ready = True
 
         if not self.tts_enabled:
             return
@@ -556,20 +562,33 @@ class VoiceService:
         finally:
             await asyncio.to_thread(_remove, warm)
 
-    async def _preload_stt(self) -> None:
+    async def _preload_ear(self) -> None:
+        from arelis.voice.prepare import missing_voice_parts, prepare_voice_files
+
+        missing = missing_voice_parts(self.config, allowed_only=True)
+        need_warm = bool(
+            self.stt_enabled and self.stt.available() and not self.stt.loaded()
+        )
+        announced = False
+        if missing or need_warm:
+            await self._status(
+                "Getting the voice files — then I'll hear you."
+                if missing
+                else "Warming the ear…"
+            )
+            announced = True
+        if missing:
+            await asyncio.to_thread(prepare_voice_files, self.config)
         if not (self.stt_enabled and self.stt.available()):
             return
-        was_loaded = self.stt.loaded()
-        if not was_loaded:
-            await self._status("Loading speech recognition…")
         try:
             await self.stt.preload()
         except Exception as exc:
             log.warning("Speech model preload failed: %s", exc)
-            await self._status(f"Speech recognition failed to load: {exc}")
+            await self._status(f"Could not get the ear: {exc}")
             return
-        if self.stt.loaded() and not was_loaded:
-            await self._status("Speech recognition ready.")
+        if announced and self.stt.loaded():
+            await self._status("I'm listening. Say Hey Arelis.")
 
     # ----------------------------------------------------------------- misc
 

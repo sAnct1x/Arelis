@@ -215,6 +215,7 @@ def _confirm_chip(config: dict[str, Any]) -> ReadinessChip:
         "vision": bool(agent.get("confirm_vision", True)),
         "send": bool(agent.get("confirm_send", True)),
         "image": bool(agent.get("confirm_image", True)),
+        "run": bool(agent.get("confirm_run", True)),
     }
     on = [k for k, v in flags.items() if v]
     off = [k for k, v in flags.items() if not v]

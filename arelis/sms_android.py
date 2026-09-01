@@ -32,13 +32,6 @@ log = logging.getLogger(__name__)
 PASSWORD_ENV = "ARELIS_SMSGATE_PASSWORD"
 SECRETS_PATH = state_dir() / "secrets.yaml"
 
-SETUP_HINT = (
-    "SMS is not configured. Pair the Arelis companion (Settings → Notify on "
-    "this PC, scan the QR on the phone), or paste an SMSGate leftover "
-    "(https://sms-gate.app) base URL, username, and password into the sms: "
-    "block of data/secrets.yaml."
-)
-
 
 @dataclass(frozen=True)
 class SmsGateAccount:

@@ -478,9 +478,3 @@ class GestureMachine:
             ):
                 kept[twin_at] = track
         self.tracks = kept
-
-
-def best_pinch(hands: tuple[Hand, ...]) -> float | None:
-    if not hands:
-        return None
-    return min(hand.pinch_metric() for hand in hands)

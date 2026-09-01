@@ -42,6 +42,7 @@ from arelis.core.intent_catalog import (
     DIAGNOSTICS,
     FULL_SURFACE_KINDS,
     RESEARCH,
+    RUN_SCRIPT,
     WATCH,
     is_tiny_prompt_ask,
     must_keep_full_surface_text,
@@ -74,10 +75,6 @@ RESEARCH_TOOL_ALLOWLIST = frozenset(
 # Tiny schemas that exactness still needs when a turn otherwise shrinks.
 ALWAYS_ON_TOOLS = frozenset({"calculator", "python", "cas", "units"})
 
-# Fail-open unmatched chat used to keep these. The 7B then replayed the last
-# SMS draft (grocery to wife) on "how are you today?".
-OUTBOUND_SEND_TOOLS = frozenset({"send_sms", "send_email"})
-
 # Skill card id → tools the model should see. Broader than requires_tool so
 # sibling tools (inbound_sms with sms, git_info with workspace) stay callable.
 SKILL_TOOLS: dict[str, frozenset[str]] = {
@@ -88,6 +85,7 @@ SKILL_TOOLS: dict[str, frozenset[str]] = {
     "contacts": frozenset({"contacts"}),
     "email": frozenset({"inbox", "send_email"}),
     "workspace": frozenset({"workspace", "git_info"}),
+    "code": frozenset({"workspace", "git_info", "run_script"}),
     "memory": frozenset({"recall", "memory", "tasks"}),
     "goals": frozenset({"goals"}),
     "attention": frozenset({"tasks", "goals", "agenda"}),
@@ -279,6 +277,10 @@ def _without_unauthorized_sends(
                 out.discard("send_email")
     if "diagnostics" in out and not DIAGNOSTICS.matches(text):
         out.discard("diagnostics")
+    if "run_script" in out and "run_script" not in expected and not RUN_SCRIPT.matches(
+        text
+    ):
+        out.discard("run_script")
     if "watch" in out and not WATCH.matches(text):
         out.discard("watch")
     return out
@@ -327,6 +329,8 @@ def filter_tool_names(
     if not skill_subset:
         if "diagnostics" in names and not DIAGNOSTICS.matches(text):
             names.discard("diagnostics")
+        if "run_script" in names and not RUN_SCRIPT.matches(text):
+            names.discard("run_script")
         if "watch" in names and not WATCH.matches(text):
             names.discard("watch")
         return names

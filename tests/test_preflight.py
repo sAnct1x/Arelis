@@ -25,6 +25,13 @@ def test_no_false_sms_on_text_me_later() -> None:
     assert not any(h.kind == "sms_send" for h in hints)
 
 
+def test_run_script_not_diagnostics() -> None:
+    hints = detect_intents("run measure_drift.py and tell me the results")
+    assert any(h.kind == "run_script" for h in hints)
+    assert not any(h.kind == "diagnostics" for h in hints)
+    assert "run_script" in {t for h in hints for t in h.expected_tools}
+
+
 def test_workspace_write_not_sms() -> None:
     for phrase in (
         "write a temp file with hello",

@@ -45,6 +45,7 @@ _ERRANDS: dict[str, str] = {
     "calculator": "working that out",
     "cas": "working the algebra",
     "python": "running the numbers",
+    "run_script": "running a program",
     "diagnostics": "running my tests",
     "watch": "checking the house watch",
     "camera": "looking through the camera",
@@ -131,6 +132,10 @@ def tool_errand(tool: str, args: dict[str, Any] | None = None) -> str:
     name = (tool or "").strip()
     if not name:
         return ""
+    if name == "run_script":
+        raw = str((args or {}).get("path") or "").strip().replace("\\", "/")
+        leaf = raw.rsplit("/", 1)[-1] if raw else ""
+        return f"running {leaf}" if leaf else "running a program"
     action = str((args or {}).get("action") or "").strip().lower()
     errand = _BY_ACTION.get(name, {}).get(action) or _ERRANDS.get(name)
     return errand or f"using {name}"

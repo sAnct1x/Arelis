@@ -152,10 +152,6 @@ def tiles_for_view(
     return out
 
 
-def cached_png(z: int, x: int, y: int) -> bytes | None:
-    return cached_bytes("osm", z, x, y)
-
-
 def cached_bytes(source: Source, z: int, x: int, y: int) -> bytes | None:
     path = _CACHE[source] / str(z) / str(x) / f"{y}.{_ext(source)}"
     try:

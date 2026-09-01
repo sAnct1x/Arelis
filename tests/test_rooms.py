@@ -68,6 +68,11 @@ def test_a_room_survives_being_written_and_read_back(tmp_path: Path) -> None:
     assert "analyze" in KINDS["analysis"].skills
     assert "document" in KINDS["writing"].skills
     assert "workspace" in KINDS["writing"].skills
+    assert KINDS["code"].skills == ("workspace", "code")
+    from arelis.core.skills import SKILL_CARDS
+
+    assert "code" in SKILL_CARDS
+    assert SKILL_CARDS["code"].requires_tool == "run_script"
 
 
 def test_physics_ids_match() -> None:

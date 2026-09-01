@@ -44,6 +44,7 @@ from arelis.tools.python_exec import PythonTool
 from arelis.tools.recall import RecallTool
 from arelis.tools.research_report import ResearchReportTool
 from arelis.tools.rooms_tool import RoomsTool
+from arelis.tools.run_script import RunScriptTool
 from arelis.tools.schedule_jobs import ScheduleTool
 from arelis.tools.scrape import ScrapeTool
 from arelis.tools.search import build_search_tool
@@ -330,6 +331,12 @@ def build_tool_registry(
     registry.register(CodeWorkspaceTool(workspace))
     # Read-only git; same roots as workspace. Always on when workspace is.
     registry.register(GitInfoTool(workspace))
+    # Project .py under workspace. Attended only — jobs must not start a
+    # user script. Allow card / spoken grant; not the locked python cell.
+    run_cfg = tools_cfg.get("run_script") or {}
+    if attended and run_cfg.get("enabled", True):
+        python = str(run_cfg.get("python") or "").strip() or None
+        registry.register(RunScriptTool(workspace, python=python))
     if tools_cfg.get("analyze", {}).get("enabled", True):
         registry.register(AnalyzeTool(workspace))
     doc_cfg = tools_cfg.get("doc_extract") or {}

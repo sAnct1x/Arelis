@@ -41,6 +41,7 @@ def should_fanout_reads(
     confirm_send: bool = True,
     confirm_browser: bool = True,
     confirm_vision: bool = True,
+    confirm_run: bool = True,
     allow_writes_this_turn: bool = False,
     tools_used: set[str] | None = None,
     web_search_ok: set[str] | None = None,
@@ -78,6 +79,7 @@ def should_fanout_reads(
                 confirm_send=confirm_send,
                 confirm_browser=confirm_browser,
                 confirm_vision=confirm_vision,
+                confirm_run=confirm_run,
                 allow_writes_this_turn=allow_writes_this_turn,
             ),
         ):

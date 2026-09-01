@@ -17,7 +17,6 @@ from arelis.tools.safety import is_blocked_url
 log = logging.getLogger(__name__)
 
 MAX_MEDIA_BYTES = 1_000_000
-MAX_DISPLAY_PX = 800
 FINGERPRINT_WINDOW_S = 45.0
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".jfif"}
 _PHOTO_BODIES = frozenset(

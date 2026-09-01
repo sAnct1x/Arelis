@@ -29,11 +29,6 @@ log = logging.getLogger(__name__)
 PASSWORD_ENV = "ARELIS_EMAIL_PASSWORD"
 SECRETS_PATH = state_dir() / "secrets.yaml"
 
-SETUP_HINT = (
-    "Email is not configured. Copy data/secrets.example.yaml to "
-    "data/secrets.yaml, then fill in your address and a Gmail app password."
-)
-
 # Deliberately loose. Rejecting valid addresses is worse than passing a typo to
 # the SMTP server, which will refuse it with a better message than this could.
 _ADDRESS = re.compile(r"^[^@\s,;]+@[^@\s,;]+\.[^@\s,;]+$")

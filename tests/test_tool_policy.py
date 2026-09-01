@@ -28,6 +28,7 @@ def test_capability_class_is_the_policy_table() -> None:
         ("agenda", {"action": "create"}, "WRITE_EXTERNAL"),
         ("agenda", {"action": "sync", "provider": "ics"}, "WRITE_LOCAL"),
         ("image", None, "SIDE_EFFECT_LOCAL"),
+        ("run_script", {"path": "x.py"}, "SIDE_EFFECT_LOCAL"),
         ("earth", {"action": "dump"}, "READ"),
     ]
     for name, args, expected in cases:
@@ -56,6 +57,7 @@ def test_evaluate_confirm_matches_registry() -> None:
         ("camera", "side_effect"),
         ("earth", "read"),
         ("plot", "write"),
+        ("run_script", "side_effect"),
     ):
         reg.register(_Stub(name, risk))
 
@@ -70,6 +72,7 @@ def test_evaluate_confirm_matches_registry() -> None:
         ("camera", {"action": "snapshot"}, False),
         ("earth", {"action": "dump"}, False),
         ("plot", {}, True),
+        ("run_script", {"path": "x.py"}, True),
         ("unknown", {}, False),
     ]
     for name, args, expected in pairs:
@@ -125,6 +128,7 @@ def test_attended_follows_allow_send_by_default() -> None:
     assert "image" in jobs.names()
     assert "image_edit" in jobs.names()
     assert "research_report" not in jobs.names()
+    assert "run_script" not in jobs.names()
 
 
 def test_attended_can_differ_from_allow_send() -> None:

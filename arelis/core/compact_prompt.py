@@ -37,6 +37,7 @@ _SHORT_DESC: dict[str, str] = {
     "recall": "search memory before claiming you do not know",
     "research_report": "multi-source writeup under outputs/research",
     "rooms": "list / go to a room. Reality is physics",
+    "run_script": "run a project .py under workspace. not a shell; not diagnostics; not schedule run_now",
     "schedule": "local jobs. action=list|create|run|delete",
     "scrape": "readable page text. Prefer scrape for news/docs",
     "send_email": "send mail. confirm card. never invent sent",
@@ -71,7 +72,7 @@ memory: recall before claiming you do not know; remember/forget via the memory t
 goals: goals. tasks: tasks. analyze: analyze. doc_extract: doc_extract. document: document. calculator: calculator. diagnostics: diagnostics. cas: cas. clipboard: clipboard. ocr: ocr.
 agenda: agenda (events). tile: tile (thinking|workspace|history|chat|…; filament chat = name=chat). rooms: rooms. schedule: schedule.
 image: image. image_edit: image_edit. vision: vision. research_report: research_report.
-solar: solar. earth: earth. catalog: catalog. plot: plot. units: units. python: python. watch: watch. git_info: git_info. camera: camera.
+solar: solar. earth: earth. catalog: catalog. plot: plot. units: units. python: python. run_script: a project .py; not a shell; not diagnostics; not schedule run_now. watch: watch. git_info: git_info. camera: camera.
 """.strip()
 
 

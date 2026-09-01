@@ -102,7 +102,7 @@ exception: Reality, which can never be forgotten.
 | kind | model | for |
 |---|---|---|
 | `general` | whatever you were using | no particular lean |
-| `code` | fast | reading and writing files, running tests |
+| `code` | fast | reading and writing files, running a project `.py` (`run_script`) |
 | `analysis` | fast | data, math, plots, named catalogs |
 | `research` | research | reading widely, keeping notes, citing sources |
 | `writing` | research | drafting and revising documents in the project's `documents` folder |

@@ -147,6 +147,7 @@ class ToolRegistry:
         confirm_send: bool = True,
         confirm_browser: bool = True,
         confirm_vision: bool = True,
+        confirm_run: bool = True,
     ) -> bool:
         """Decide whether this specific call must go through the confirm card.
 
@@ -174,6 +175,7 @@ class ToolRegistry:
             confirm_send=confirm_send,
             confirm_browser=confirm_browser,
             confirm_vision=confirm_vision,
+            confirm_run=confirm_run,
         )
 
     def summarize_call(self, name: str, args: dict[str, Any]) -> str:
