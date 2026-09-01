@@ -12,11 +12,9 @@ organized in named **rooms**. Mail, texting, and calendar access stay
 switched off until you connect them yourself, and anything that writes
 a file or sends a message will wait for your go-ahead first.
 
-The published installer is **0.2.5**. A source checkout is ahead of
-that installer on conversation (research rounds, scrape wrap-up,
-workspace grants) — [whats-new.md](docs/whats-new.md). If you build
-from source you also get **Reality** — a room with a 3D solar system
-and an Earth view — but that doesn't ship with the installer.
+The published installer is **0.2.6**. If you build from source, you
+also get **Reality** — a room with a 3D solar system and an Earth
+view — but that doesn't ship with the installer.
 
 Arelis is licensed under AGPL. If you're curious how the code is
 organized, see [architecture.md](docs/architecture.md).
@@ -49,7 +47,7 @@ You'll need Windows 10 or later, 64-bit.
 
 Grab the latest setup file from
 [GitHub releases](https://github.com/sAnct1x/arelis/releases/latest).
-The current file is `Arelis-0.2.5-win64-setup.exe` — about 155 MB to
+The current file is `Arelis-0.2.6-win64-setup.exe` — about 155 MB to
 download, roughly 640 MB once installed. It installs per-user into
 `%LOCALAPPDATA%\Programs\Arelis`, so you won't get an administrator
 prompt.
@@ -59,8 +57,8 @@ you run it — that's just Windows doing its job, not a sign anything's
 wrong. Worth checking the SHA-256 against the installer, though:
 
 ```powershell
-Get-FileHash .\Arelis-0.2.5-win64-setup.exe -Algorithm SHA256
-Get-Content .\Arelis-0.2.5-win64-setup.exe.sha256
+Get-FileHash .\Arelis-0.2.6-win64-setup.exe -Algorithm SHA256
+Get-Content .\Arelis-0.2.6-win64-setup.exe.sha256
 ```
 
 The two hashes should match — that just confirms your download wasn't
@@ -269,14 +267,14 @@ There's test coverage for most of this, but voice timing, a real
 handset, and image generation have really only been exercised
 end-to-end on the author's own hardware — so if something behaves
 oddly on yours, it's worth opening an issue. Again, the current
-published installer is **0.2.5**; see
+published installer is **0.2.6**; see
 [whats-new.md](docs/whats-new.md) for what's changed.
 
 ## Further reading
 
 | Document | What's in it |
 |---|---|
-| [whats-new.md](docs/whats-new.md) | 0.2.5 installer, and what's in this checkout |
+| [whats-new.md](docs/whats-new.md) | 0.2.6 installer, and what's in this checkout |
 | [rooms.md](docs/rooms.md) | Named project spaces |
 | [jobs.md](docs/jobs.md) | Timed prompts, emailed |
 | [models.md](docs/models.md) | Which models, and why |

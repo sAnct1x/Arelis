@@ -1,18 +1,17 @@
 # What's new
 
-The installer on GitHub is **0.2.5**.
+The installer on GitHub is **0.2.6**.
 
-Published: [v0.2.5](releases/v0.2.5.md).
-Next installer notes (this checkout): [v0.2.6](releases/v0.2.6.md).
-Older: [v0.2.4](releases/v0.2.4.md). [v0.2.3](releases/v0.2.3.md).
-[v0.2.2](releases/v0.2.2.md). [v0.2.1](releases/v0.2.1.md).
+Published: [v0.2.6](releases/v0.2.6.md).
+Older: [v0.2.5](releases/v0.2.5.md). [v0.2.4](releases/v0.2.4.md).
+[v0.2.3](releases/v0.2.3.md). [v0.2.2](releases/v0.2.2.md).
+[v0.2.1](releases/v0.2.1.md).
 
 ## This checkout
 
-Notes for the tree you have now. The 0.2.5 installer is the
-prefix-cache ship: this tree without the 3D plate, and without the
-conversation fixes below. Reality's room still ships in the
-installer. Earth and the true-scale globe stay on a source checkout.
+Notes for the tree you have now. The 0.2.6 installer is this tree
+without the 3D plate. Reality's room still ships. Earth and the
+true-scale globe stay on a source checkout.
 
 **Watch.** The house now watches the doors it opened: LAN ingest is
 rate-limited and locks a client after repeated bad tokens; outbound
@@ -196,6 +195,13 @@ login. Out stays out (sat-AIS, unowned cameras, face index, VIN).
 [earth.md](earth.md).
 
 **Mail.** There is no Mail tab. Credentials live in `data/secrets.yaml`.
+
+## 0.2.6
+
+The conversation 0.2.5 did not prove. Deep research is 32 rounds even
+on the default fast chip. Empty chat after a scrape asks her to write
+instead of pasting the page. A granted folder includes the files
+inside it. Full notes: [v0.2.6](releases/v0.2.6.md).
 
 ## 0.2.5
 
