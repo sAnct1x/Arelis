@@ -1,9 +1,7 @@
-"""Dock stack and View-menu toggles. ArelisWindow methods stay as delegates.
+"""Dock stack and View-menu toggles.
 
-The integrator deletes the matching methods from ``app.py`` and calls these
-instead. Filament present/dress/place stay on the window until Wave 3.
-``_animate_dock``, ``_sync_view_checks``, ``_place_filament_floats``, and
-``_flush_glass_surface`` stay on the window.
+ArelisWindow keeps ``window._foo`` aliases on ``WindowAliases``. Call these
+functions from hosts. Do not reopen ``app.py`` for a View toggle.
 """
 
 from __future__ import annotations

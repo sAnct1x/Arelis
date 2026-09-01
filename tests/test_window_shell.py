@@ -1,7 +1,9 @@
-"""Pins the sodium shell so an extract fails here, not in a click loop.
+"""The other person at the sodium desk.
 
-Construct one ArelisWindow, toggle docks, switch theme, and count HWNDs.
-Cesium / voice / Chrome stay unopened — pytest is offscreen on purpose.
+Construct one ArelisWindow, type in the composer, press Enter, click View
+and the theme actions, count HWNDs. Cesium / voice / Chrome stay unopened
+— pytest is offscreen on purpose, not because those paths are skipped as
+ideas.
 """
 
 from __future__ import annotations
@@ -69,3 +71,67 @@ def test_reality_offer_is_the_grant_not_cesium() -> None:
     assert world_available() is True
     assert should_offer_world("physics") is True
     assert should_offer_world("lab") is False
+
+
+def test_user_types_a_line_and_presses_enter(arelis_window, qt_app) -> None:
+    """Sit at the composer: type, Return, the line leaves and the turn is busy."""
+    import threading
+
+    from PySide6.QtTest import QTest
+
+    window = arelis_window()
+    loop = window.loop
+    thread = threading.Thread(target=loop.run_forever, daemon=True)
+    thread.start()
+    try:
+        composer = window.conversation.input
+        composer.setFocus()
+        QTest.keyClicks(composer, "hello from the desk")
+        qt_app.processEvents()
+        assert composer.toPlainText() == "hello from the desk"
+        QTest.keyClick(composer, Qt.Key.Key_Return)
+        qt_app.processEvents()
+        assert composer.toPlainText() == ""
+        assert window._turn_busy
+        assert window.chat._last_user_text == "hello from the desk"
+    finally:
+        loop.call_soon_threadsafe(loop.stop)
+        thread.join(timeout=2)
+
+
+def test_user_clicks_view_thinking_and_it_is_still_one_window(
+    arelis_window, qt_app
+) -> None:
+    """The View → thinking action, not a private helper."""
+    window = arelis_window()
+    window._reset_layout()
+    assert window.think_dock.isHidden()
+    before = len(
+        [w for w in QApplication.topLevelWidgets() if type(w).__name__ == "ArelisWindow"]
+    )
+    window.act_thinking.trigger()
+    qt_app.processEvents()
+    assert not window.think_dock.isHidden()
+    after = len(
+        [w for w in QApplication.topLevelWidgets() if type(w).__name__ == "ArelisWindow"]
+    )
+    assert after == before == 1
+    window.act_thinking.trigger()
+    qt_app.processEvents()
+    assert window.think_dock.isHidden()
+
+
+def test_user_picks_filament_from_the_theme_action(arelis_window, qt_app) -> None:
+    """Theme menu click after the first-run ack. Same HWND, voice confirms."""
+    window = arelis_window()
+    window.config.setdefault("ui", {})["filament_ack"] = True
+    window._theme_actions["filament"].trigger()
+    qt_app.processEvents()
+    assert active_theme() == "filament"
+    assert confirm_mode() == "voice"
+    assert not window.testAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+    window._theme_actions["sodium"].trigger()
+    qt_app.processEvents()
+    assert active_theme() == "sodium"
+    assert confirm_mode() == "card"
+    assert _watched_count(report_lines(window), "ArelisWindow") == 1
