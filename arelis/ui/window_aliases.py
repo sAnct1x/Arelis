@@ -7,6 +7,8 @@ reopen ``app.py`` for a View toggle.
 
 from __future__ import annotations
 
+from typing import Any
+
 from arelis.spatial.verbs import PhysicsAct
 from arelis.ui.hands_host import on_hands_chip
 from arelis.ui.history_host import (
@@ -145,6 +147,36 @@ class WindowAliases:
 
     def _sync_notify_surface(self) -> None:
         return sync_notify_surface(self)
+
+    def _on_notify_poll(self) -> None:
+        from arelis.ui.notify_host import on_notify_poll
+
+        return on_notify_poll(self)
+
+    def _on_mail_headers(self, rows: object) -> None:
+        from arelis.ui.notify_host import on_mail_headers
+
+        return on_mail_headers(self, rows)
+
+    def _on_sms_received(self, payload: dict[str, Any]) -> None:
+        from arelis.ui.sms_host import on_sms_received
+
+        return on_sms_received(self, payload)
+
+    def _open_file(self, path: str) -> None:
+        from arelis.ui.workspace_host import open_file
+
+        return open_file(self, path)
+
+    def _save_file(self, path: str, content: str) -> None:
+        from arelis.ui.workspace_host import save_file
+
+        return save_file(self, path, content)
+
+    def _apply_settings(self, values: dict[str, Any]) -> None:
+        from arelis.ui.settings_host import apply_settings
+
+        return apply_settings(self, values)
 
     async def _operator_send_sms(self, alias: str, phone: str, body: str) -> None:
         return await operator_send_sms(self, alias, phone, body)

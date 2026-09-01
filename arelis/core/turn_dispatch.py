@@ -32,6 +32,7 @@ from arelis.core.claims import local_store_inject_args, lock_memory_forget_args
 from arelis.core.document_refs import fill_doc_extract_args, fill_document_args
 from arelis.core.email_complete import (
     draft_send_email_args,
+    email_remaining,
     fill_send_email_args,
     looks_like_schedule_manage,
     looks_like_scheduled_send,
@@ -41,6 +42,7 @@ from arelis.core.image_refs import fill_vision_args
 from arelis.core.look import look_call_blocked, vision_question
 from arelis.core.preflight import draft_browser_args
 from arelis.core.read_fanout import should_fanout_reads
+from arelis.core.same_call import already_ran_same_call
 from arelis.core.sms_complete import (
     draft_send_sms_args,
     fill_send_sms_args,
@@ -49,6 +51,7 @@ from arelis.core.sms_complete import (
 from arelis.core.tile_complete import match_tile_intent, tile_tool_args
 from arelis.core.tool_args import cross_tool_arg_error, schema_keys
 from arelis.core.tool_results import is_tool_cache_path
+from arelis.core.tool_subset import web_read_caps
 from arelis.core.turn_confirm import RUN, STOP, confirm_call
 from arelis.core.turn_context import TurnContext
 from arelis.core.turn_execute import execute_call
@@ -567,7 +570,14 @@ async def dispatch_calls(
             elif (
                 name in {"web_search", "analyze"}
                 and "send_email" in loop._expected_tools
-                and "send_email" not in loop.tools_used
+                and (
+                    "send_email" not in loop.tools_used
+                    or (
+                        email_draft is not None
+                        and email_draft.complete
+                        and email_remaining(email_draft, ctx.email_sent)
+                    )
+                )
                 and "analyze" not in loop._expected_tools
             ):
                 notice = (
@@ -588,7 +598,9 @@ async def dispatch_calls(
                     and "send_email" in tool_names
                 ):
                     name = "send_email"
-                    args = draft_send_email_args(email_draft)
+                    args = draft_send_email_args(
+                        email_draft, already_sent=ctx.email_sent
+                    )
                     await loop.bus.publish(
                         Event(
                             EventType.THINKING,
@@ -840,10 +852,13 @@ async def dispatch_calls(
                     loop._trace.append(f"{name} extra body blocked")
                     continue
             if name == "send_email" and email_draft is not None:
-                args = fill_send_email_args(args, email_draft)
-                if "send_email" in loop.tools_used:
+                args = fill_send_email_args(
+                    args, email_draft, already_sent=ctx.email_sent
+                )
+                to_arg = str(args.get("to") or "").strip()
+                if to_arg and to_arg.lower() in {s.lower() for s in ctx.email_sent}:
                     notice = (
-                        "Already sent this email earlier this turn; "
+                        f"Already sent email to {to_arg} earlier this turn; "
                         "not sending a duplicate."
                     )
                     await loop.bus.publish(
@@ -986,7 +1001,7 @@ async def dispatch_calls(
 
             if name in {"scrape", "web_fetch"}:
                 page = str(args.get("url") or "").strip().casefold()
-                scrape_cap = 3 if research_mode else 2
+                _, scrape_cap = web_read_caps(research_mode, agent_cfg)
                 if len(page_ok) >= scrape_cap:
                     notice = (
                         f"Already opened {len(page_ok)} pages this turn; "
@@ -1018,7 +1033,7 @@ async def dispatch_calls(
 
             if name == "web_search":
                 q = str(args.get("query") or "").strip().casefold()
-                search_cap = 3 if research_mode else 2
+                search_cap, _ = web_read_caps(research_mode, agent_cfg)
                 if len(web_search_ok) >= search_cap:
                     notice = (
                         f"Already ran {len(web_search_ok)} searches this turn; "
@@ -1079,6 +1094,16 @@ async def dispatch_calls(
                 loop._trace.append(f"{name} duplicate generate blocked")
                 continue
 
+            # Same successful args this turn — a loop, not more work.
+            same_notice = already_ran_same_call(ctx.same_ok, name, args)
+            if same_notice:
+                await loop.bus.publish(
+                    Event(EventType.THINKING, {"text": f"skip  {same_notice}"})
+                )
+                messages.append(loop._tool_message(name, same_notice))
+                loop._trace.append(f"{name} same call blocked")
+                continue
+
             action, summary, call_fp = await confirm_call(
                 loop,
                 ctx,
@@ -1111,6 +1136,9 @@ async def dispatch_calls(
                 round_i=round_i,
                 call_i=call_i,
                 fanout_results=fanout_results,
+                later_weather=any(
+                    other == "weather" for other, _ in calls[call_i + 1 :]
+                ),
             )
             available = r.available
             visible = r.visible

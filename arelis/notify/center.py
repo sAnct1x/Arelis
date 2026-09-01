@@ -242,6 +242,7 @@ class NotificationCenter:
         done: bool = False,
         failed: bool = False,
         output: str = "",
+        path: str = "",
     ) -> Notice | None:
         name = (tool or "job").strip() or "job"
         key = f"job:{name}"
@@ -271,9 +272,19 @@ class NotificationCenter:
             existing.data["tool"] = name
             existing.data["failed"] = failed
             existing.data["done"] = done
+            if path:
+                existing.data["path"] = path
             if not failed and not done:
                 existing.created_at = existing.created_at
             return existing
+        data = {
+            "pill": pill,
+            "tool": name,
+            "failed": failed,
+            "done": done,
+        }
+        if path:
+            data["path"] = path
         return self.add(
             new_notice(
                 kind="job",
@@ -281,12 +292,7 @@ class NotificationCenter:
                 body=body,
                 group_key=key,
                 sticky=sticky,
-                data={
-                    "pill": pill,
-                    "tool": name,
-                    "failed": failed,
-                    "done": done,
-                },
+                data=data,
             )
         )
 

@@ -22,7 +22,8 @@ class SendEmailTool:
     description = (
         "Send an email. Use this when the user asks you to email something, "
         "to them or to anyone else. Leave `to` empty to send it to the user. "
-        "Optional `attach` is a file path the user named (PDF, etc.). "
+        "Optional `attach` is one path or several comma-separated paths "
+        "(markdown and PDF on the same send). "
         "The user sees and approves every message before it goes."
     )
     risk = "side_effect"
@@ -41,8 +42,9 @@ class SendEmailTool:
             "attach": {
                 "type": "string",
                 "description": (
-                    "Optional absolute or workspace path to attach (PDF, image, …). "
-                    "Only use a path the user named or that was Allowed for read."
+                    "Optional path or comma-separated paths to attach "
+                    "(PDF, markdown, image, …). One send can carry both files. "
+                    "Only use paths the user named or that were Allowed for read."
                 ),
             },
             "path": {
@@ -92,20 +94,25 @@ class SendEmailTool:
 
         attachments: list[Path] = []
         if attach_raw:
-            from arelis.core.email_complete import resolve_attach_path
+            from arelis.core.email_complete import (
+                resolve_attach_path,
+                split_attach_args,
+            )
 
-            resolved = resolve_attach_path(attach_raw)
-            path = Path(resolved) if resolved else Path(attach_raw)
-            if not path.is_file():
-                return ToolResult(
-                    ok=False,
-                    output=(
-                        f"[fail:send_email] Attachment not found: {attach_raw}. "
-                        "Ask for an absolute path that exists on disk "
-                        "(or re-attach the file). Do not claim the email was sent."
-                    ),
-                )
-            attachments.append(path)
+            chunks = split_attach_args(attach_raw) or [attach_raw]
+            for chunk in chunks:
+                resolved = resolve_attach_path(chunk)
+                path = Path(resolved) if resolved else Path(chunk)
+                if not path.is_file():
+                    return ToolResult(
+                        ok=False,
+                        output=(
+                            f"[fail:send_email] Attachment not found: {chunk}. "
+                            "Ask for an absolute path that exists on disk "
+                            "(or re-attach the file). Do not claim the email was sent."
+                        ),
+                    )
+                attachments.append(path)
 
         try:
             message_id = await self.mailer.send_async(
@@ -125,7 +132,9 @@ class SendEmailTool:
 
         note = ""
         if attachments:
-            note = f" Attachment: {attachments[0].name}."
+            names = ", ".join(p.name for p in attachments)
+            label = "Attachments" if len(attachments) > 1 else "Attachment"
+            note = f" {label}: {names}."
         return ToolResult(
             ok=True,
             output=f"Sent email to {to}.{note}",
@@ -133,6 +142,7 @@ class SendEmailTool:
                 "to": to,
                 "subject": subject,
                 "message_id": message_id,
-                "attach": str(attachments[0]) if attachments else "",
+                "attach": ", ".join(str(p) for p in attachments),
+                "attachments": [str(p) for p in attachments],
             },
         )

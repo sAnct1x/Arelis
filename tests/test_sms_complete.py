@@ -638,6 +638,22 @@ def test_greeting_does_not_revive_prior_sms_draft() -> None:
     )
 
 
+def test_sent_text_does_not_turn_the_next_ask_into_a_body() -> None:
+    history = [
+        ChatMessage(role="user", content="Text Brian that I am running late"),
+        ChatMessage(role="assistant", content="Sent your text to Brian."),
+    ]
+    book = _book(brian={"name": "Brian Montgomery", "aliases": ["brian"]})
+    assert (
+        complete_sms_draft(
+            "put dinner on my calendar Friday at 7",
+            history=history,
+            contacts=book,
+        )
+        is None
+    )
+
+
 def test_excellent_job_is_closing_chitchat() -> None:
     from arelis.core.sms_complete import looks_like_closing_chitchat
 

@@ -10,8 +10,9 @@ actually come back to belongs in a room, and that room comes back
 with you.
 
 On a cold launch: if you were inside a room when you left, you're
-back in it. If you'd left with `/leave`, you land back in the general
-conversation (orbit).
+back in it — on a new empty chat. Last night's thread stays in
+History. If you'd left with `/leave`, you land in orbit. Two unused
+"new chat" rows do not fight; the empty one in that room is reused.
 
 ## What a room actually carries
 

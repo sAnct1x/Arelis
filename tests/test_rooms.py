@@ -293,6 +293,8 @@ def test_the_purpose_reaches_the_prompt_with_the_folder(store: RoomStore) -> Non
     assert "Reality" in block
     assert "Analysing the survey data." in block
     assert "Lab Notes" in block
+    assert "Casual talk stays casual" in block
+    assert "continuing thread about this work" not in block
 
 
 def test_slugs_stay_sayable(store: RoomStore) -> None:
@@ -351,6 +353,16 @@ def test_these_are_not(said: str) -> None:
     """
     found = match_enter_intent(said)
     assert found is None or found.lower() not in {"physics", "the physics"}
+
+
+def test_open_the_workspace_is_not_a_room() -> None:
+    """View → workspace tile. Must not mint a room named Workspace."""
+    assert match_enter_intent("open the workspace") is None
+    assert match_enter_intent("close the workspace") is None
+    assert match_enter_intent("open thinking") is None
+    assert match_enter_intent("open history") is None
+    assert match_enter_intent("let's work on workspace") == "workspace"
+    assert match_enter_intent("open Reality") == "Reality"
 
 
 def test_some_physics_is_the_physics_room(store: RoomStore) -> None:

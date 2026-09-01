@@ -421,3 +421,92 @@ def test_analyze_followup_does_not_complete_pending_email() -> None:
         )
         is None
     )
+
+
+def test_two_addresses_keep_the_same_test_body() -> None:
+    from arelis.core.email_complete import (
+        _DEFAULT_TEST_BODY,
+        email_remaining,
+        named_addresses_in_text,
+    )
+
+    ask = (
+        "send an email to one@example.com and two@example.com "
+        "be creative, but let them know its a test."
+    )
+    assert named_addresses_in_text(ask) == [
+        "one@example.com",
+        "two@example.com",
+    ]
+    draft = complete_email_draft(ask)
+    assert draft is not None and draft.complete
+    assert draft.all_tos == ("one@example.com", "two@example.com")
+    assert draft.tool_body == _DEFAULT_TEST_BODY
+    assert "two@example.com" not in draft.tool_body
+    first = fill_send_email_args({}, draft)
+    assert first["to"] == "one@example.com"
+    assert first["body"] == _DEFAULT_TEST_BODY
+    second = fill_send_email_args({}, draft, already_sent={"one@example.com"})
+    assert second["to"] == "two@example.com"
+    assert second["body"] == _DEFAULT_TEST_BODY
+    assert email_remaining(draft, {"one@example.com", "two@example.com"}) == []
+
+
+def test_as_well_followup_revives_prior_body() -> None:
+    from arelis.core.email_complete import _DEFAULT_TEST_BODY
+
+    history = [
+        ChatMessage(
+            role="user",
+            content=(
+                "send an email to one@example.com and two@example.com "
+                "be creative, but let them know its a test."
+            ),
+        ),
+        ChatMessage(role="assistant", content="Sent email to one@example.com."),
+    ]
+    draft = complete_email_draft(
+        "did you email two@example.com as well?",
+        history=history,
+    )
+    assert draft is not None and draft.complete
+    assert "two@example.com" in draft.all_tos
+    assert draft.tool_body == _DEFAULT_TEST_BODY
+    assert draft.tool_body != "as well?"
+
+
+def test_sent_email_does_not_turn_the_next_ask_into_a_body() -> None:
+    """A finished send is done. The next turn is not a body for that letter."""
+    history = [
+        ChatMessage(
+            role="user",
+            content=(
+                "i want it as a markdown file, then converted to a pdf, "
+                "and i want both emailed to you@example.com"
+            ),
+        ),
+        ChatMessage(
+            role="assistant",
+            content="Sent email to you@example.com.",
+        ),
+    ]
+    ask = (
+        "i want a calendar event created for September 20th, repeating, "
+        "once, every year, forever, its my daughters birthday. "
+        "i want this event set at 9 am"
+    )
+    assert complete_email_draft(ask, history=history) is None
+    hints = detect_intents(ask, history=history)
+    assert "send_email" not in {t for h in hints for t in h.expected_tools}
+    assert "compose_email" not in [h.kind for h in hints]
+
+
+def test_body_still_fills_when_she_just_asked() -> None:
+    history = [
+        ChatMessage(role="user", content="Email bob@example.com"),
+        ChatMessage(role="assistant", content="What should the body say?"),
+    ]
+    draft = complete_email_draft("Can we meet at 3pm?", history=history)
+    assert draft is not None and draft.complete
+    assert draft.tool_to == "bob@example.com"
+    assert draft.body == "Can we meet at 3pm?"

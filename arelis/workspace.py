@@ -202,20 +202,39 @@ class WorkspaceRoots:
         if not resolved.exists():
             return None
         self._external_reads.add(resolved)
-        # Also grant the parent when a file was attached so list of that folder
-        # is not needed — only the exact path. Directories are grantable too.
         return resolved
 
     def clear_external_reads(self) -> None:
         """Drop all session grants (call on UI quit)."""
         self._external_reads.clear()
 
+    def _external_covers(self, path: Path) -> bool:
+        """True when ``path`` is a granted file or lives under a granted folder."""
+        if path in self._external_reads:
+            return True
+        for granted in self._external_reads:
+            try:
+                path.relative_to(granted)
+                return True
+            except ValueError:
+                continue
+        return False
+
+    def _external_root(self, path: Path) -> Path:
+        for granted in self._external_reads:
+            try:
+                path.relative_to(granted)
+                return granted if granted.is_dir() else granted.parent
+            except ValueError:
+                continue
+        return path.parent if path.is_file() else path
+
     def has_external_read(self, path: Path | str) -> bool:
         try:
             resolved = Path(path).expanduser().resolve()
         except OSError:
             return False
-        return resolved in self._external_reads
+        return self._external_covers(resolved)
 
     def resolve(
         self,
@@ -280,11 +299,15 @@ class WorkspaceRoots:
             try:
                 return self._contain_any(path, for_write=for_write)
             except PermissionError:
-                if allow_external and not for_create and path in self._external_reads:
+                if (
+                    allow_external
+                    and not for_create
+                    and self._external_covers(path)
+                ):
                     return ResolvedPath(
                         path=path,
                         root_name="external",
-                        root=path.parent if path.is_file() else path,
+                        root=self._external_root(path),
                     )
                 raise
 

@@ -40,6 +40,24 @@ _ALLOWED_IMPORTS = frozenset(
     }
 )
 
+_CHART_IMPORTS = frozenset(
+    {"matplotlib", "pyplot", "pylab", "seaborn", "plotly"}
+)
+
+
+def _import_refusal(name: str) -> str:
+    if name in _CHART_IMPORTS:
+        return (
+            f"import {name!r} is not allowed in this cell. "
+            "Compute xs and ys here (print comma-separated numbers), "
+            "then call plot with those series and out='name.png'. "
+            "path= is a CSV table, not the PNG."
+        )
+    return (
+        f"import {name!r} is not allowed. "
+        "math/sympy/numpy are preloaded; os/subprocess are not."
+    )
+
 _FORBIDDEN_CALLS = frozenset(
     {
         "open",
@@ -98,7 +116,9 @@ class PythonTool:
         "subprocess, or open files. Timeout 10s. Use calculator for a single "
         "arithmetic expression; use cas for one symbolic integrate/diff/solve; "
         "use this when you need a script (projectile range, quadratic time of "
-        "flight, systems of equations)."
+        "flight, systems of equations). matplotlib is not allowed — print "
+        "comma-separated xs and ys, then call plot with those numbers and "
+        "out='name.png' (path= is a CSV, not the picture)."
     )
     risk = "read"
     parameters_schema: dict[str, Any] = {
@@ -232,10 +252,7 @@ def _assert_safe(tree: ast.AST) -> None:
                     names = [root]
             for name in names:
                 if name not in _ALLOWED_IMPORTS:
-                    raise ValueError(
-                        f"import {name!r} is not allowed. "
-                        "math/sympy/numpy are preloaded; os/subprocess are not."
-                    )
+                    raise ValueError(_import_refusal(name))
         if isinstance(node, ast.Attribute) and str(node.attr).startswith("_"):
             raise ValueError("private attributes are not allowed")
         if isinstance(node, ast.Name) and node.id.startswith("_"):
@@ -268,10 +285,7 @@ def _safe_import(
         raise ValueError("relative imports are not allowed")
     root = str(name or "").split(".", 1)[0]
     if root not in _ALLOWED_IMPORTS:
-        raise ValueError(
-            f"import {root!r} is not allowed. "
-            "math/sympy/numpy are preloaded; os/subprocess are not."
-        )
+        raise ValueError(_import_refusal(root))
     return __import__(name, globals, locals, fromlist, 0)
 
 

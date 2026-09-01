@@ -19,6 +19,7 @@ from arelis.core.failure_copy import (
     TURN_FAILED_NOTICE,
     is_model_directed,
     plain_reason,
+    should_nudge_write_after_page,
     tool_failure_notice,
     turn_failed_notice,
 )
@@ -122,6 +123,59 @@ def test_empty_after_tool_strips_agenda_instruction_footers() -> None:
     assert "Do not invent" not in chat
     assert "Summarize these events" not in chat
     assert "No events" in chat
+
+
+def test_long_scrape_nudges_a_write_short_fact_does_not() -> None:
+    price = "NASDAQ:SPCX last $143.34"
+    assert not should_nudge_write_after_page("scrape", price)
+    assert not should_nudge_write_after_page("agenda", "Created on google: lab")
+    article = (
+        "# What is Single Crystal Piezo or PMN-PT?\n"
+        "Site: piezo.com\n"
+        + ("PMN-PT single crystals have a high d33. " * 20)
+    )
+    assert should_nudge_write_after_page("scrape", article)
+
+
+def test_scrape_fallback_is_a_lede_not_the_article() -> None:
+    from arelis.core.failure_copy import chat_followup_from_tool
+
+    raw = (
+        "# Song Yadong KO's Umar Nurmagomedov in massive UFC upset\n"
+        "\n"
+        "Site: ESPN.com\n"
+        "Length: ~794 words (4 min read)\n"
+        "\n"
+        "Song Yadong saved the greatest performance of his career for his "
+        "home country, knocking out former title challenger Umar Nurmagomedov "
+        "in the men's bantamweight main event of UFC Fight Night on Saturday "
+        "in Shanghai. Song, a nearly 5-1 underdog, dropped Nurmagomedov with "
+        "a short right hand. The rest of the article goes on for many "
+        "paragraphs about walkouts, nine years, and finishing shots on the mat. "
+        + ("filler " * 80)
+        + "\n[extracted via json-ld]\n"
+    )
+    chat = chat_followup_from_tool("scrape", raw)
+    assert "Song Yadong" in chat
+    assert "Nurmagomedov" in chat
+    assert "filler" not in chat
+    assert "[extracted via" not in chat
+    assert "Site:" not in chat
+    assert len(chat) < 600
+
+
+def test_search_fallback_is_the_first_hit() -> None:
+    from arelis.core.failure_copy import chat_followup_from_tool
+
+    raw = (
+        "1. Title: Song Yadong KO's Umar Nurmagomedov\n"
+        "   URL: https://espn.com/mma/story\n"
+        "2. Title: Some other fight recap\n"
+        "   URL: https://example.com/other\n"
+    )
+    chat = chat_followup_from_tool("web_search", raw)
+    assert "Song Yadong" in chat
+    assert "other fight" not in chat
 
 
 def test_workspace_list_fallback_is_not_a_dir_dump() -> None:

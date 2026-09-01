@@ -28,6 +28,7 @@ class NotificationsPanel(QWidget):
     opened = Signal()
     notice_activated = Signal(str)
     chat_requested = Signal(str)
+    artifact_requested = Signal(str, str)
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -110,6 +111,7 @@ class NotificationsPanel(QWidget):
                 "kind": n.kind,
                 "unread": n.unread,
                 "sticky": n.sticky,
+                "path": str((n.data or {}).get("path") or ""),
             }
             for n in notices
         ]
@@ -162,24 +164,52 @@ class NotificationsPanel(QWidget):
                 return str(entry.get("kind") or "")
         return ""
 
+    def _path_for(self, notice_id: str) -> str:
+        for entry in self._items:
+            if str(entry.get("id")) == notice_id:
+                return str(entry.get("path") or "").strip()
+        return ""
+
     def _on_double(self, item: QListWidgetItem) -> None:
         mid = str(item.data(Qt.ItemDataRole.UserRole) or "")
-        if mid and self._kind_for(mid) == "sms":
+        if not mid:
+            return
+        if self._kind_for(mid) == "sms":
             self.chat_requested.emit(mid)
+            return
+        if self._path_for(mid):
+            self.artifact_requested.emit(mid, "open")
 
     def _on_menu(self, pos) -> None:
         item = self.list.itemAt(pos)
         if item is None:
             return
         mid = str(item.data(Qt.ItemDataRole.UserRole) or "")
-        if not mid or self._kind_for(mid) != "sms":
+        if not mid:
             return
         menu = QMenu(self)
-        open_act = QAction("Open as chat", menu)
+        if self._kind_for(mid) == "sms":
+            open_act = QAction("Open as chat", menu)
+            menu.addAction(open_act)
+            chosen = menu.exec(self.list.mapToGlobal(pos))
+            if chosen is open_act:
+                self.chat_requested.emit(mid)
+            return
+        if not self._path_for(mid):
+            return
+        open_act = QAction("Open", menu)
+        with_act = QAction("Open with…", menu)
+        reveal_act = QAction("Show in folder", menu)
         menu.addAction(open_act)
+        menu.addAction(with_act)
+        menu.addAction(reveal_act)
         chosen = menu.exec(self.list.mapToGlobal(pos))
         if chosen is open_act:
-            self.chat_requested.emit(mid)
+            self.artifact_requested.emit(mid, "open")
+        elif chosen is with_act:
+            self.artifact_requested.emit(mid, "openas")
+        elif chosen is reveal_act:
+            self.artifact_requested.emit(mid, "reveal")
 
     def _rebuild(self) -> None:
         self.list.clear()

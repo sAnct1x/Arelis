@@ -197,6 +197,8 @@ _DEEP_DIVE = re.compile(
     r"(?i)\b("
     r"investigate|"
     r"deep\s*-?\s*dive|"
+    r"deeply\s+research|"
+    r"deep\s+research|"
     r"write\s+a\s+report|"
     r"research\s+report|"
     r"multi\s*-?\s*source|"
@@ -208,6 +210,7 @@ _DEEP_DIVE = re.compile(
 )
 _DEEP_DIVE_EXACT = (
     re.compile(r"\b(?:investigate|deep\s*-?\s*dive)\b", re.I),
+    re.compile(r"\b(?:deeply\s+research|deep\s+research)\b", re.I),
     re.compile(r"\b(?:write\s+a\s+report|research\s+report)\b", re.I),
     re.compile(r"\b(?:multi\s*-?\s*source|thorough\s+research)\b", re.I),
     re.compile(r"\bin\s*-?\s*depth\s+(?:research|look|analysis|report)\b", re.I),
@@ -705,6 +708,10 @@ _PLOT_MENTION = (
     # this" was a chart to the gate that refuses invented numbers and not a
     # chart to the nudge that would have sent the plot tool at it.
     re.compile(r"(?i)\bshow\s+me\s+a\s+(?:plot|chart|graph)\b"),
+    # "gives me a graph of position over time" never said "make a plot".
+    re.compile(r"(?i)\b(?:give|gives|draw|write)\s+(?:me\s+)?(?:a\s+)?(?:graph|plot|chart)\b"),
+    re.compile(r"(?i)\b(?:a\s+)?graph\s+of\b"),
+    re.compile(r"(?i)\b(?:position|height|trajectory)\s+over\s+time\b"),
     re.compile(r"(?i)\bplot\s+.{0,40}\b(?:csv|tsv|xlsx|spreadsheet|columns?)\b"),
     re.compile(r"(?i)\bplot\s+[a-zA-Z]\s*="),
 )
@@ -715,7 +722,9 @@ PLOT = IntentSpec(
     expected_tools=("plot",),
     nudge=(
         "Intent preflight: this message asks for a chart. Call plot now "
-        "(line, scatter, or residuals). It writes a PNG and needs Allow. "
+        "(line, scatter, or residuals) with xs/ys numbers and out='name.png', "
+        "or a CSV via path= plus x/y columns. path= is the table, not the PNG. "
+        "If you need numbers first, call python, then plot. Allow applies. "
         "Do not draw an ASCII chart. Do not call image."
     ),
     schema_tools=frozenset({"plot", "analyze"}),
@@ -853,7 +862,8 @@ _SOURCE_WRITE = re.compile(
 
 # Shared with path / file / source asks. "email me docs/…" has no read verb.
 _INSPECT_READ_VERB = (
-    r"(?:read|show(?:\s+me)?|what(?:'s|\s+is)\s+in|what\s+does|"
+    r"(?:read|show(?:\s+me)?|look\s+(?:at|through)|inspect|"
+    r"what(?:'s|\s+is)\s+in|what\s+does|"
     r"where(?:'s|\s+is)|tell\s+me(?:\s+what)?|how\s+does|how\s+do\s+you|open)"
 )
 
@@ -895,6 +905,40 @@ _INSPECT_PATH_ASK = re.compile(
     + _INSPECT_READ_VERB
     + r"\b.{0,80}\b(?:arelis|docs)[/\\]"
 )
+# "look at the files" / "how accurate is the space sim" — a crawl, not a named path.
+_INSPECT_CODEBASE = re.compile(
+    r"(?i)(?:"
+    r"(?:look\s+(?:at|through)|read|show(?:\s+me)?|inspect|review|assess|dig\s+into)\s+"
+    r"(?:the\s+)?(?:files?|code|source|workspace|folder|tree|checkout|sandbox)"
+    r"|"
+    r"investigate\b.{0,80}\b(?:files?|code|source|workspace|folder|checkout)"
+    r"|"
+    r"(?:accurate\s+assessment|how\s+accurate|glaring\s+holes|biggest\s+holes|"
+    r"what(?:'s|\s+is)\s+missing)\b.{0,120}"
+    r"(?:simulat|physics|code|source|files?)"
+    r"|"
+    r"(?:simulat|physics\s+code|n-?body).{0,80}"
+    r"(?:how\s+accurate|holes?|missing|limitation)"
+    r")"
+)
+_INSPECT_PHYSICS = re.compile(
+    r"(?i)(?:"
+    r"solar\s+system|"
+    r"space\s+simulat|"
+    r"(?:n-?body|orbital)\s|"
+    r"physics\s+(?:engine|sim|code|room|files?)"
+    r"|\breality\b.{0,40}\b(?:sim|engine|code|files?|accurac)"
+    r"|\brebound\b"
+    r"|\bias15\b"
+    r")"
+)
+PHYSICS_INSPECT_PATH = "arelis/physics/engine.py"
+PHYSICS_INSPECT_FANOUT = (
+    "arelis/physics/engine.py",
+    "arelis/physics/constants.py",
+    "arelis/physics/horizons.py",
+    "arelis/physics/scene.py",
+)
 
 _INSPECT_PATTERNS = (
     _INSPECT_CONFIRM,
@@ -902,6 +946,7 @@ _INSPECT_PATTERNS = (
     _INSPECT_BARE_FILE_ASK,
     _INSPECT_HOW_YOU_WORK,
     _INSPECT_PATH_ASK,
+    _INSPECT_CODEBASE,
 )
 
 _BARE_INSPECT_FILES = (
@@ -951,6 +996,8 @@ def inspect_read_path(text: str) -> str | None:
         return by_name["drive.py"]
     if _INSPECT_CONFIRM.search(raw):
         return by_name["policy.py"]
+    if _INSPECT_PHYSICS.search(raw):
+        return PHYSICS_INSPECT_PATH
     if _INSPECT_HOW_YOU_WORK.search(raw):
         return _HOW_YOU_WORK_PATH
     return None
@@ -963,6 +1010,8 @@ def inspect_path_guide() -> str:
         f"confirm → {by_name['policy.py']}; "
         f"tool_subset → {by_name['tool_subset.py']}; "
         f"Drive strip → {by_name['drive.py']}; "
+        f"solar / space sim → {PHYSICS_INSPECT_PATH} "
+        f"(+ {', '.join(PHYSICS_INSPECT_FANOUT[1:])}); "
         f"how you work → {_HOW_YOU_WORK_PATH}; "
         "a named arelis/ or docs/ path → that path."
     )
@@ -971,7 +1020,22 @@ def inspect_path_guide() -> str:
 _INSPECT_NUDGE = (
     "Intent preflight: they asked how she works or to read her source. "
     "Call workspace(action=read) on {path}. "
+    "If several files are needed, list one folder then fanout-read; "
+    "do not list the workspace root. "
     "Quote function names, gates, and paths from the tool result. "
+    "Do not invent. Do not recall the package. Do not web_search. "
+    "This is read-only. Writes still need Allow. "
+    "Do not ask permission in chat."
+)
+_INSPECT_PHYSICS_NUDGE = (
+    "Intent preflight: they asked to assess the solar-system sim from source. "
+    "Do not list the workspace root. "
+    "In one fanout, workspace(action=read) on "
+    + ", ".join(PHYSICS_INSPECT_FANOUT)
+    + ". "
+    "Quote the integrator, GM/constant provenance, and IC source "
+    "(Horizons VECTORS — bodies where they are now, not a homemade catalog). "
+    "scene.py may truncate; horizons.py is the IC contract. "
     "Do not invent. Do not recall the package. Do not web_search. "
     "This is read-only. Writes still need Allow. "
     "Do not ask permission in chat."
@@ -980,7 +1044,10 @@ _INSPECT_NUDGE = (
 
 def inspect_preflight_nudge(text: str) -> str:
     """Path-named inspect nudge. Preflight uses this; do not copy the template."""
-    path = inspect_read_path(text) or "the arelis/ or docs/ path they named"
+    raw = text or ""
+    if _INSPECT_PHYSICS.search(raw):
+        return _INSPECT_PHYSICS_NUDGE
+    path = inspect_read_path(raw) or "the arelis/ or docs/ path they named"
     return _INSPECT_NUDGE.format(path=path)
 
 

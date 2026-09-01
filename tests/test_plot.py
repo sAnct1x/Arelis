@@ -81,6 +81,43 @@ async def test_rejects_expression_instead_of_numbers(tool) -> None:
 
 
 @pytest.mark.asyncio
+async def test_png_path_with_series_is_treated_as_out(project, tool) -> None:
+    result = await tool.run(
+        action="line",
+        path="/outputs/projectile_motion.png",
+        xs="0, 0.36, 0.72",
+        ys="0, 0.64, 0",
+        title="Projectile",
+    )
+    assert result.ok, result.output
+    assert Path(result.data["abs_path"]).name.startswith("projectile_motion")
+
+
+@pytest.mark.asyncio
+async def test_png_path_without_series_explains_out(tool) -> None:
+    result = await tool.run(
+        action="line",
+        path="outputs/projectile_motion.png",
+        x="t",
+        y="y",
+    )
+    assert not result.ok
+    assert "out=" in result.output
+    assert "xs" in result.output.lower()
+
+
+@pytest.mark.asyncio
+async def test_rejects_truncated_series(tool) -> None:
+    result = await tool.run(
+        action="line",
+        xs="0.00,0.01,0.03…",
+        ys="0.00,0.05,0.10",
+    )
+    assert not result.ok
+    assert "truncated" in result.output.lower()
+
+
+@pytest.mark.asyncio
 async def test_path_outside_workspace_is_refused(tool, tmp_path) -> None:
     outside = tmp_path / "elsewhere" / "secret.csv"
     outside.parent.mkdir()

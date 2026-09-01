@@ -22,6 +22,14 @@ INSPECT_LINES: tuple[tuple[str, str], ...] = (
         "read arelis/core/tool_subset.py and tell me what it does",
         "arelis/core/tool_subset.py",
     ),
+    (
+        "look at the files required for an accurate assessment of the solar system simulation",
+        "arelis/physics/engine.py",
+    ),
+    (
+        "how accurate would you say the space simulation is? what are the biggest glaring holes?",
+        "arelis/physics/engine.py",
+    ),
 )
 
 NEGATIVES = (
@@ -39,6 +47,10 @@ NEGATIVES = (
     "email me docs/architecture.md",
     "email me policy.py",
     "What does docs/contract.pdf say about termination?",
+    "look at the weather",
+    "look at my inbox",
+    "how accurate is that forecast",
+    "can you even look at that stuff?",
 )
 
 
@@ -78,6 +90,41 @@ def test_fix_confirm_gate_is_a_source_write() -> None:
     assert plan.steps == ("workspace",)
     assert "write" in plan.message.lower() or "edit" in plan.message.lower()
     assert "Allow" in plan.message
+
+
+def test_investigate_the_sim_files_is_inspect_not_a_web_report() -> None:
+    text = "investigate the solar system simulation files"
+    assert looks_like_source_inspect(text)
+    plan = select_plan(text)
+    assert plan is not None and plan.id == "inspect"
+    assert "arelis/physics/engine.py" in plan.message
+    assert "research_report" not in plan.steps
+    kinds = {h.kind for h in detect_intents(text)}
+    assert "inspect" in kinds
+    assert "research" not in kinds
+
+
+def test_solar_assess_fans_out_physics_files() -> None:
+    text = (
+        "look at the files required for you to give me an accurate "
+        "assessment of the solar system simulation"
+    )
+    assert looks_like_source_inspect(text)
+    assert inspect_read_path(text) == "arelis/physics/engine.py"
+    hints = detect_intents(text)
+    inspect = [h for h in hints if h.kind == "inspect"]
+    assert inspect
+    nudge = inspect[0].nudge
+    assert "arelis/physics/engine.py" in nudge
+    assert "arelis/physics/constants.py" in nudge
+    assert "arelis/physics/horizons.py" in nudge
+    assert "arelis/physics/scene.py" in nudge
+    assert "Horizons VECTORS" in nudge
+    assert "do not list the workspace root" in nudge.lower()
+    plan = select_plan(text)
+    assert plan is not None and plan.id == "inspect"
+    assert "fanout" in plan.message.lower()
+    assert "do not list the workspace root" in plan.message.lower()
 
 
 def test_inspect_negatives_are_not_source_reads() -> None:

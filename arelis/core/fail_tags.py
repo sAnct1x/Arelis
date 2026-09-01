@@ -30,10 +30,19 @@ def tool_fail_replan_notice(
     tag (scrape / search / send / image), or when web_search clearly found nothing.
     """
     tool = (name or "").strip().lower()
+    text = output or ""
+    if tool == "workspace":
+        if ok is False and "outside allowed workspace roots" in text.lower():
+            return (
+                "Tool replan: workspace cannot read that path (outside roots). "
+                "Stop. Do not list C:\\Users, Documents, or any parent. "
+                "Tell them to Allow the path they named or add the folder in "
+                "Settings → roots. Answer from what you already have."
+            )
+        return None
     if tool not in _REPLAN_TOOLS:
         return None
 
-    text = output or ""
     tag_match = _FAIL_TAG.search(text)
     empty_search = tool == "web_search" and _web_search_failed(text)
     failed = ok is False or bool(tag_match) or empty_search

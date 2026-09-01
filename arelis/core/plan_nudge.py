@@ -23,6 +23,8 @@ from arelis.core.intent_catalog import (
     BROWSER_SEARCH,
     DEADLINE,
     HOWTO_SIGNIN,
+    PHYSICS_INSPECT_FANOUT,
+    PHYSICS_INSPECT_PATH,
     RESEARCH,
     corrects_a_path,
     inspect_read_path,
@@ -450,10 +452,26 @@ _PLAN_INSPECT_WRITE = PlanSpec(
 
 def _inspect_read_plan(text: str) -> PlanSpec:
     path = inspect_read_path(text) or "the arelis/ or docs/ path they named"
+    if path == PHYSICS_INSPECT_PATH:
+        files = ", ".join(PHYSICS_INSPECT_FANOUT)
+        return PlanSpec(
+            id="inspect",
+            message=(
+                f"Plan: fanout workspace(action=read) on {files}. "
+                "Do not list the workspace root. "
+                "Answer from those texts; quote the integrator, GM source, "
+                "and Horizons VECTORS ICs (bodies where they are now); "
+                "do not invent, recall the package, or web_search. "
+                "Read-only. Writes still need Allow."
+            ),
+            steps=("workspace",),
+        )
     return PlanSpec(
         id="inspect",
         message=(
             f"Plan: workspace(action=read, path={path}). "
+            "If several files are needed, list one folder then fanout-read; "
+            "do not list the workspace root. "
             "Answer from that text; quote names, gates, and paths; "
             "do not invent, recall the package, or web_search. Read-only. "
             "Writes still need Allow."
@@ -491,6 +509,15 @@ def select_plan(
     if "document" in kinds or "document" in skills or (raw and _DOCUMENT.search(raw)):
         return _PLAN_DOCUMENT
 
+    # Local source beats a web report. "Investigate the sim files" is a
+    # workspace crawl, not research_report.
+    if (
+        "inspect" in kinds
+        or "inspect" in skills
+        or (raw and looks_like_source_inspect(raw))
+    ) and not (raw and looks_like_source_write(raw)):
+        return _inspect_read_plan(raw)
+
     if "research" in kinds or "research" in skills or RESEARCH.matches(raw):
         return _PLAN_RESEARCH
 
@@ -523,13 +550,6 @@ def select_plan(
         or (raw and looks_like_source_write(raw))
     ):
         return _PLAN_INSPECT_WRITE
-
-    if (
-        "inspect" in kinds
-        or "inspect" in skills
-        or (raw and looks_like_source_inspect(raw))
-    ):
-        return _inspect_read_plan(raw)
 
     if "ocr" in skills or (raw and _OCR.search(raw)):
         return _PLAN_OCR

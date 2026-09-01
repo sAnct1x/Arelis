@@ -15,6 +15,7 @@ def test_evaluate_basic_ops() -> None:
     assert evaluate_expression("2+3*4") == 14
     assert evaluate_expression("(2+3)*4") == 20
     assert evaluate_expression("2**3") == 8
+    assert evaluate_expression("17^2") == 289
     assert evaluate_expression("10%4") == 2
     assert evaluate_expression("10//3") == 3
     assert evaluate_expression("-5 + 2") == -3

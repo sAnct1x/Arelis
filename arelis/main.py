@@ -70,6 +70,15 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--purge-user-data",
+        action="store_true",
+        help=(
+            "Uninstall wipe: scheduled tasks plus published data "
+            "(%%LOCALAPPDATA%%\\Arelis, Arelis-runtime, Documents\\Arelis). "
+            "Refuses a source checkout. Does not touch a system Ollama install."
+        ),
+    )
+    parser.add_argument(
         "--check-update",
         action="store_true",
         help=(
@@ -108,6 +117,12 @@ def main(argv: list[str] | None = None) -> int:
     # Before load_config, and deliberately. This runs from an uninstaller, by which time
     # the configuration may be edited, moved or already deleted, and failing to read it
     # is no reason to leave scheduled tasks behind.
+    if args.purge_user_data:
+        from arelis.uninstall import purge_user_state
+
+        removed = purge_user_state()
+        print(f"Purged {len(removed)} leftover(s): {', '.join(removed) or 'none'}")
+        return 0
     if args.remove_scheduled_tasks:
         from arelis.jobs.schedule import remove_all_tasks
 

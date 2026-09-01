@@ -251,7 +251,11 @@ class RoomsTool:
     def _forget(self, name: str) -> ToolResult:
         room = self.store.find(name) if name else self.store.active
         if room is None:
-            return ToolResult(ok=False, output=f"No room matching {name!r}.")
+            who = name or "that room"
+            return ToolResult(
+                ok=True,
+                output=f"{who} is already gone. Nothing more to forget.",
+            )
         try:
             self.store.remove(room.id)
         except ValueError as exc:

@@ -135,6 +135,8 @@ RESEARCH_HINTS: list[re.Pattern[str]] = [
     re.compile(
         r"\b("
         r"deep\s*-?\s*dive|"
+        r"deeply\s+research|"
+        r"deep\s+research|"
         r"multi\s*-?\s*source|"
         r"write\s+a\s+report|"
         r"thorough\s+research|"
@@ -243,15 +245,15 @@ class Orchestrator(OrchestratorTurns, OrchestratorSlash, OrchestratorConfirm):
         """
         if explicit == "research":
             return explicit, "chip"
-        # Composer "fast" is an explicit pin — stay on conversation (H2). Mid-turn
-        # escalate may still promote after failed tool rounds.
-        if explicit == "fast":
-            return "fast", "chip"
+        # Fast is the default chip, not a pin. "deeply research" must still
+        # route — there is no way to tell "they chose fast" from "nothing".
         # Deep research-shaped asks before tool/file loops: "write a report"
         # must not lose to the bare "write" file hint.
         for pattern in RESEARCH_HINTS:
             if pattern.search(text):
                 return "research", "research_hint"
+        if explicit == "fast":
+            return "fast", "chip"
         if TOOL_LOOP_HINT.search(text):
             if FILE_LOOP_HINT.search(text):
                 return "fast", "file_loop"
@@ -564,17 +566,20 @@ class Orchestrator(OrchestratorTurns, OrchestratorSlash, OrchestratorConfirm):
     ) -> None:
         return await publish_room(self, room, session_id, rows, summary)
 
-    async def _say(self, message: str) -> None:
+    async def _say(self, message: str, *, status: bool = True) -> None:
         """A command's whole reply. Both events, because the UI needs both.
 
         STATUS paints the line and ASSISTANT_DONE releases the composer; a
         branch that publishes only the first leaves the box disabled.
+        Setup questions stay off STATUS — that line is the thinking-dock
+        footer, not her voice.
 
         Conversation mode speaks the same line. Slash-command dumps
         (``_emit_help``, fenced tool output) stay on their own publishers
         so a wall of ``/help`` is not read aloud.
         """
-        await self.bus.publish(Event(EventType.STATUS, {"message": message}))
+        if status:
+            await self.bus.publish(Event(EventType.STATUS, {"message": message}))
         will_speak = bool(self.config.get("_speak_replies")) and bool(
             (message or "").strip()
         )

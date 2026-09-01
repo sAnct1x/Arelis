@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QPlainTextEdit
 
 from arelis.ui.panels.calendar import CalendarPanel
@@ -125,6 +126,43 @@ def test_workbench_composer_keeps_long_text_after_a_tool_sync(qt_app) -> None:
         qt_app.processEvents()
         assert stage.input.toPlainText() == draft
         assert stage.input.textCursor().position() > 0
+    finally:
+        stage.hide()
+        stage.deleteLater()
+
+
+def test_composer_highlight_drag_does_not_delete_the_draft(qt_app) -> None:
+    """The field is a short row. Highlight + mouse up/down used to start a
+    Move drag, and the draft vanished when the pointer left the box."""
+    from PySide6.QtCore import QEvent, QPointF
+    from PySide6.QtGui import QMouseEvent, QTextCursor
+
+    stage = ConversationStage()
+    try:
+        stage.set_idle_mode(False)
+        stage.resize(900, 240)
+        stage.show()
+        qt_app.processEvents()
+        field = stage.input
+        field.setText("message Arelis about hysteresis")
+        cursor = field.textCursor()
+        cursor.select(QTextCursor.SelectionType.Document)
+        field.setTextCursor(cursor)
+        assert field.textCursor().hasSelection()
+        vp = field.viewport()
+        below = QPointF(vp.width() / 2, vp.height() + 80)
+        move = QMouseEvent(
+            QEvent.Type.MouseMove,
+            below,
+            QPointF(field.mapToGlobal(below.toPoint())),
+            Qt.MouseButton.NoButton,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+        field.mouseMoveEvent(move)
+        qt_app.processEvents()
+        assert field.toPlainText() == "message Arelis about hysteresis"
+        assert field.textCursor().hasSelection()
     finally:
         stage.hide()
         stage.deleteLater()

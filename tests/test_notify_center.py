@@ -148,6 +148,36 @@ def test_allow_stays_on_head_after_read() -> None:
     assert center.head() is None
 
 
+def test_open_with_missing_file_raises() -> None:
+    from pathlib import Path
+
+    from arelis.local_open import open_local_file_as
+
+    missing = Path("C:/this/path/does/not/exist-arelis-test.md")
+    try:
+        open_local_file_as(missing)
+    except FileNotFoundError:
+        return
+    raise AssertionError("missing file must not open")
+
+
+def test_done_research_job_keeps_the_artifact_path() -> None:
+    center = NotificationCenter()
+    live = center.upsert_job("research_report", elapsed_s=8)
+    assert live is not None
+    assert not live.data.get("path")
+    done = center.upsert_job(
+        "research_report",
+        done=True,
+        output="Research report written to C:/tmp/r.md",
+        path="C:/tmp/r.md",
+    )
+    assert done is not None
+    assert done.id == live.id
+    assert done.data["path"] == "C:/tmp/r.md"
+    assert "ready" in done.data["pill"]
+
+
 def test_job_elapsed_pill() -> None:
     center = NotificationCenter()
     live = center.upsert_job("image", elapsed_s=42)

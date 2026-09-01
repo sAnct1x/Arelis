@@ -45,6 +45,7 @@ from arelis.core.intent_catalog import (
     RUN_SCRIPT,
     WATCH,
     is_tiny_prompt_ask,
+    looks_like_source_inspect,
     must_keep_full_surface_text,
     research_extras_for_text,
 )
@@ -152,6 +153,44 @@ def is_research_mode(role: str, text: str) -> bool:
     if (role or "").strip().lower() == "research":
         return True
     return is_deep_dive_ask(text)
+
+
+def turn_round_budget(
+    role: str,
+    text: str,
+    agent_cfg: dict[str, Any] | None,
+    default: int,
+) -> int:
+    """Per-turn model/tool cap. Chat stays at max_rounds; inspect crawls get more.
+
+    Research web reports use research_max_rounds. A source assess (workspace
+    crawl of arelis/physics, policy, …) uses inspect_max_rounds. Weather /
+    SMS / hello never take the higher ceiling.
+    """
+    cfg = agent_cfg or {}
+    budget = int(default)
+    if is_research_mode(role, text):
+        budget = max(budget, int(cfg.get("research_max_rounds", 32)))
+    if looks_like_source_inspect(text):
+        budget = max(budget, int(cfg.get("inspect_max_rounds", 16)))
+    return budget
+
+
+def web_read_caps(
+    research_mode: bool, agent_cfg: dict[str, Any] | None
+) -> tuple[int, int]:
+    """Distinct search queries and pages this turn. Everyday stays small.
+
+    Research may read many *different* pages. Same query / same URL is
+    still a loop (turn_dispatch). Returns ``(search_cap, page_cap)``.
+    """
+    cfg = agent_cfg or {}
+    if research_mode:
+        return (
+            max(1, int(cfg.get("research_max_searches", 8))),
+            max(1, int(cfg.get("research_max_pages", 16))),
+        )
+    return (2, 2)
 
 
 def _extras_for_text(text: str) -> set[str]:

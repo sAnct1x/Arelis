@@ -343,6 +343,55 @@ async def test_android_provider_auth_failure_is_readable(monkeypatch) -> None:
     assert "credentials" in str(caught.value).lower()
 
 
+@pytest.mark.asyncio
+async def test_android_provider_companion_401_does_not_blame_smsgate(
+    monkeypatch,
+) -> None:
+    transport = _Transport(status=401, body={"error": "unauthorized"})
+    account = SmsGateAccount(
+        "http://192.168.1.10:8080", "arelis", "key", via="companion"
+    )
+    provider = AndroidSmsProvider(account, timeout_s=5)
+    original = httpx.AsyncClient
+
+    def _client(*args, **kwargs):
+        kwargs["transport"] = transport
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(httpx, "AsyncClient", _client)
+    with pytest.raises(Exception) as caught:
+        await provider.send(phone="+15551112222", body="hello")
+    text = str(caught.value).lower()
+    assert "radio key" in text
+    assert "smsgate" not in text
+    assert "secrets.yaml" not in text
+
+
+@pytest.mark.asyncio
+async def test_android_provider_sms_grant_is_not_credentials(monkeypatch) -> None:
+    transport = _Transport(status=403, body={"error": "SEND_SMS not granted"})
+    account = SmsGateAccount(
+        "http://192.168.1.10:8080", "arelis", "key", via="companion"
+    )
+    provider = AndroidSmsProvider(account, timeout_s=5)
+    original = httpx.AsyncClient
+
+    def _client(*args, **kwargs):
+        kwargs["transport"] = transport
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(httpx, "AsyncClient", _client)
+    with pytest.raises(Exception) as caught:
+        await provider.send(phone="+15551112222", body="hello")
+    text = str(caught.value).lower()
+    assert "sms is still off" in text
+    assert "optional radio" in text
+    assert "phone app" in text
+    assert "not a pc setting" in text
+    assert "credentials" not in text
+    assert "notify" not in text
+
+
 # ------------------------------------------------------------------- tool
 
 

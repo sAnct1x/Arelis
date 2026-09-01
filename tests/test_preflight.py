@@ -92,6 +92,19 @@ def test_delete_mail_is_inbox_not_compose() -> None:
     assert "compose_email" not in kinds
 
 
+def test_graph_of_position_over_time_expects_plot() -> None:
+    ask = (
+        "write a python script that gives me a graph of position over time "
+        "for a ball thrown at 5m/s at a 45 degree angle and then show me the result"
+    )
+    hints = detect_intents(ask)
+    tools = {t for h in hints for t in h.expected_tools}
+    assert "plot" in tools
+    msg = preflight_system_message(ask)
+    assert msg and "plot" in msg.lower()
+    assert "out=" in msg
+
+
 def test_graph_ask_after_email_does_not_expect_send() -> None:
     history = [
         {

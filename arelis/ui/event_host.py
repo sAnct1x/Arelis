@@ -469,6 +469,7 @@ def dispatch_event(window: Any, event: Event) -> None:
                 str(p.get("tool") or "job"),
                 ok=bool(p.get("ok")),
                 output=str(p.get("output") or ""),
+                path=str(data.get("path") or ""),
             )
         if p.get("tool") == "send_sms" and p.get("ok"):
             window.sms_chats.append_outbound(

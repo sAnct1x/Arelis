@@ -132,6 +132,109 @@ def test_photoreal_miss_does_not_fail_the_host(qt_app, monkeypatch) -> None:
     host.hide()
 
 
+def test_solar_gl_releases_the_context_before_cesium(qt_app) -> None:
+    from arelis.ui.solar_gl import SolarSpaceView
+
+    view = SolarSpaceView.__new__(SolarSpaceView)
+    view._ctx = None
+    SolarSpaceView.release_current(view)
+    hits: list[int] = []
+
+    class _Ctx:
+        def doneCurrent(self) -> None:
+            hits.append(1)
+
+    view._ctx = _Ctx()
+    SolarSpaceView.release_current(view)
+    assert hits == [1]
+
+
+def test_solar_gl_park_skips_make_current(qt_app) -> None:
+    from PySide6.QtGui import QImage
+
+    from arelis.ui.solar_gl import SolarSpaceView
+
+    view = SolarSpaceView.__new__(SolarSpaceView)
+    view.gl_ok = True
+    view._surface = object()
+    view._parked = False
+    view._frame = QImage(2, 2, QImage.Format.Format_RGB32)
+    view._frame_key = None
+    hits: list[str] = []
+
+    class _Ctx:
+        def doneCurrent(self) -> None:
+            hits.append("done")
+
+        def makeCurrent(self, _surface) -> bool:
+            hits.append("make")
+            return True
+
+    view._ctx = _Ctx()
+    SolarSpaceView.park(view)
+    assert "done" in hits
+    assert view._parked
+    out = SolarSpaceView.render(view, 8, 8, stars_only=True)
+    assert out is view._frame
+    assert "make" not in hits
+    SolarSpaceView.unpark(view)
+    assert view._parked is False
+
+
+def test_earth_zone_paint_does_not_touch_solar_gl(qt_app) -> None:
+    from PySide6.QtGui import QImage
+
+    from arelis.ui.panels.solar import SolarPanel
+
+    panel = SolarPanel()
+    calls: list[str] = []
+
+    class FakeGL:
+        gl_ok = True
+        _parked = False
+
+        def render(self, *_a, **_k):
+            calls.append("render")
+            img = QImage(4, 4, QImage.Format.Format_RGB32)
+            img.fill(0)
+            return img
+
+        def park(self) -> None:
+            calls.append("park")
+            self._parked = True
+
+        def unpark(self) -> None:
+            calls.append("unpark")
+            self._parked = False
+
+        def release_current(self) -> None:
+            calls.append("release")
+
+    class FakeHost:
+        failed = False
+
+        def isVisible(self) -> bool:
+            return True
+
+        def setGeometry(self, _rect) -> None:
+            return None
+
+        def hide(self) -> None:
+            return None
+
+    panel._gl = FakeGL()
+    panel.resize(64, 64)
+    panel._park_space_for_earth()
+    assert "park" in calls
+    assert "render" in calls
+    n_render = calls.count("render")
+    panel._globe_host = FakeHost()
+    panel.paintEvent(None)
+    assert calls.count("render") == n_render
+    panel._leave_earth_globe()
+    assert "unpark" in calls
+
+
 def test_building_rows_need_city_and_the_chip(tmp_path) -> None:
     from arelis.earth.buildings import _cache_dir_for_tests
     from arelis.earth.lod import EarthView

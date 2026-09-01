@@ -68,6 +68,24 @@ def test_click_does_not_clone_the_body_underneath(qt_app) -> None:
     panel.deleteLater()
 
 
+def test_research_job_double_click_requests_open(qt_app) -> None:
+    from arelis.notify.center import new_notice
+
+    panel = NotificationsPanel()
+    notice = new_notice(
+        kind="job",
+        title="research_report",
+        body="ready",
+        data={"path": "C:/tmp/report.md", "done": True, "tool": "research_report"},
+    )
+    panel.set_notices([notice])
+    opened: list[tuple[str, str]] = []
+    panel.artifact_requested.connect(lambda nid, how: opened.append((nid, how)))
+    panel._on_double(panel.list.item(0))
+    assert opened == [(notice.id, "open")]
+    panel.deleteLater()
+
+
 def test_sms_row_click_requests_chat(qt_app) -> None:
     from arelis.notify.center import new_notice
 
@@ -106,6 +124,27 @@ def test_notify_overlay_pill_and_extra(qt_app) -> None:
     overlay.open_requested.connect(opened.append)
     overlay.pill.click()
     assert opened == [notice.id]
+    overlay.deleteLater()
+
+
+def test_research_overlay_open_file(qt_app) -> None:
+    from arelis.notify.center import new_notice
+    from arelis.ui.notify_overlay import NotifyOverlay
+
+    overlay = NotifyOverlay()
+    notice = new_notice(
+        kind="job",
+        title="research_report",
+        body="ready",
+        data={"path": "C:/tmp/report.md", "pill": "research_report · ready"},
+    )
+    overlay.show_notice(notice)
+    overlay.expand()
+    assert overlay.open_btn.text() == "open file"
+    hits: list[tuple[str, str]] = []
+    overlay.artifact_requested.connect(lambda nid, how: hits.append((nid, how)))
+    overlay.open_btn.click()
+    assert hits == [(notice.id, "open")]
     overlay.deleteLater()
 
 

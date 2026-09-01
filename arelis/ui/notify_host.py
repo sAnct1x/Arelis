@@ -5,8 +5,10 @@ from __future__ import annotations
 import threading
 import time
 from datetime import datetime, timedelta
+from pathlib import Path
 
 from arelis.core.failure_copy import plain_reason
+from arelis.local_open import open_local_file, open_local_file_as, reveal_local_file
 from arelis.notify.sources import (
     due_task_notices,
     load_today_events,
@@ -131,21 +133,49 @@ def begin_job(window, tool: str) -> None:
     sync_notify_surface(window)
 
 
-def finish_job(window, tool: str, *, ok: bool, output: str = "") -> None:
+def finish_job(
+    window, tool: str, *, ok: bool, output: str = "", path: str = ""
+) -> None:
     window._job_tick.stop()
     window._job_t0 = None
     window._job_name = ""
+    artifact = (path or "").strip()
     if ok:
-        window.notify_center.upsert_job(tool, done=True, output=output)
+        window.notify_center.upsert_job(
+            tool, done=True, output=output, path=artifact
+        )
         from arelis.ui.sms_host import push_mobile_notice
 
         push_mobile_notice(window, "job", f"{tool} finished", output or f"{tool} is ready.")
     else:
-        window.notify_center.upsert_job(tool, failed=True, output=output)
+        window.notify_center.upsert_job(
+            tool, failed=True, output=output, path=artifact
+        )
         from arelis.ui.sms_host import push_mobile_notice
 
         push_mobile_notice(window, "job", f"{tool} failed", output or f"{tool} failed.")
     sync_notify_surface(window)
+
+
+def on_artifact_requested(window, notice_id: str, how: str) -> None:
+    """Open / Open with… / show in folder for a job that wrote a file."""
+    notice = window.notify_center.find(notice_id)
+    raw = ""
+    if notice is not None:
+        raw = str((notice.data or {}).get("path") or "").strip()
+    if not raw:
+        return
+    target = Path(raw).expanduser()
+    try:
+        if how == "reveal":
+            reveal_local_file(target)
+        elif how == "openas":
+            open_local_file_as(target)
+        else:
+            open_local_file(target)
+    except OSError as exc:
+        leaf = target.name or "that file"
+        window.chat.add_system(f"I could not open {leaf}. {plain_reason(exc)}")
 
 
 def on_job_tick(window) -> None:
@@ -265,6 +295,9 @@ def bind_notify(window) -> None:
     overlay.dismiss_requested.connect(lambda nid: on_notice_dismiss(window, nid))
     overlay.snooze_requested.connect(lambda nid: on_notice_snooze(window, nid))
     overlay.open_requested.connect(lambda nid: on_notice_open(window, nid))
+    overlay.artifact_requested.connect(
+        lambda nid, how: on_artifact_requested(window, nid, how)
+    )
     overlay.pill_clicked.connect(lambda: on_notify_pill_clicked(window))
     window.readiness_strip.notify_chip.clicked.connect(
         lambda: on_notify_chip_clicked(window)
@@ -273,6 +306,9 @@ def bind_notify(window) -> None:
     window.notifications.opened.connect(lambda: on_inbox_opened(window))
     window.notifications.notice_activated.connect(
         lambda notice_id: on_notice_activated(window, notice_id)
+    )
+    window.notifications.artifact_requested.connect(
+        lambda notice_id, how: on_artifact_requested(window, notice_id, how)
     )
     window.notifications.mark_read_btn.clicked.connect(
         lambda: on_notify_mark_all_read(window)

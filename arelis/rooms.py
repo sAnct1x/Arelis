@@ -1,9 +1,11 @@
 """Rooms: a named place to work on one thing, with its own thread.
 
-The general conversation is deliberately ephemeral — cold launch opens an empty
-orbit and last night stays in History. That is right for "what's the weather"
-and wrong for "we have been building an interferometry analysis for three
-weeks". Those need somewhere that remembers, that already knows which folder
+The general conversation is deliberately ephemeral — last night stays in
+History. A room still opens on launch if you left inside it, but on a
+new empty chat, not last week's lecture. That is right for "what's the
+weather" and wrong for "we have been building an interferometry analysis
+for three weeks" if walking in later is how you pick that thread back
+up. Those need somewhere that remembers, that already knows which folder
 the work lives in, and that does not have to be re-explained every launch.
 
 A room is that place. It carries a thread, a folder, a lean, and a
@@ -20,10 +22,10 @@ side effect of naming a folder.
 
 Definitions live in data/rooms.yaml so they are readable and editable by hand,
 matching contacts.yaml. The last room you *entered* is stored as last_active
-and resumed on launch (the strip names it). Leaving writes an empty last_active,
-so orbit stays orbit. Creating a room does not enter it. A forgotten room is
-not recreated, except the permanent ones: they are seeded if missing and
-cannot be forgotten.
+and resumed on launch (the strip names it) on a fresh empty thread.
+Leaving writes an empty last_active, so orbit stays orbit. Creating a
+room does not enter it. A forgotten room is not recreated, except the
+permanent ones: they are seeded if missing and cannot be forgotten.
 """
 
 from __future__ import annotations
@@ -180,6 +182,13 @@ def match_enter_intent(text: str) -> str | None:
     if re.match(r"(?i)file\b", name) or any(mark in name for mark in (".", "/", "\\")):
         return None
     if _TOPIC_MARKERS.search(name):
+        return None
+    # "open the workspace" is the View tile, not a room named Workspace.
+    # Reality / world still enter the physics room (same words open the plate).
+    from arelis.core.tile_complete import match_tile_intent
+
+    tile = match_tile_intent(text)
+    if tile is not None and tile[1] != "world":
         return None
     return name
 
@@ -613,8 +622,9 @@ class Room:
                     "Files she creates land in this project's documents folder."
                 )
         lines.append(
-            "This is a continuing thread about this work. Earlier turns in this "
-            "room are yours to build on."
+            "Earlier turns in this room are yours to build on when the work "
+            "is the topic. Casual talk stays casual — do not steer back to "
+            "this work, recap the room, or ask what they want to build tonight."
         )
         return "\n".join(lines)
 

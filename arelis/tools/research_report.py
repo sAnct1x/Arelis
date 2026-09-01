@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any, Protocol
@@ -19,6 +20,60 @@ from arelis.research import (
 from arelis.tools.base import ToolResult
 
 _RECENCY = frozenset({"day", "week", "month", "year"})
+# Kitchen-sink asks ("best piezo for U100A X Y axis hysteresis…") find
+# nothing. Drop SKUs, axis letters, and filler so a second search can hit.
+_SKU = re.compile(r"(?i)^[a-z]{0,3}\d+[a-z0-9-]*$")
+_QUERY_DROP = frozenset(
+    {
+        "a",
+        "an",
+        "and",
+        "axis",
+        "axes",
+        "be",
+        "for",
+        "have",
+        "i",
+        "of",
+        "or",
+        "the",
+        "to",
+        "use",
+        "x",
+        "y",
+        "z",
+    }
+)
+
+
+def simplify_research_query(query: str) -> str:
+    """Shorter search string, or empty when the query is already short."""
+    words = (query or "").split()
+    kept: list[str] = []
+    for raw in words:
+        token = raw.strip(".,;:()[]\"'")
+        if not token:
+            continue
+        low = token.casefold()
+        if low in _QUERY_DROP or _SKU.match(token):
+            continue
+        kept.append(token)
+    simplified = " ".join(kept)
+    if len(kept) < 3:
+        return ""
+    if simplified.casefold() == (query or "").strip().casefold():
+        return ""
+    return simplified
+
+
+def _search_urls(search_result: ToolResult, max_sources: int) -> list[str]:
+    if not search_result.ok:
+        return []
+    return pick_urls(
+        extract_urls(search_result.output, search_result.data),
+        max_sources=max_sources,
+    )
+
 
 ToolRunner = Callable[..., Awaitable[ToolResult]]
 
@@ -71,8 +126,8 @@ class ResearchReportTool:
         scrape: _Runnable | ToolRunner,
         *,
         fetch: _Runnable | ToolRunner | None = None,
-        max_sources: int = 3,
-        max_chars_per_source: int = 1200,
+        max_sources: int = 8,
+        max_chars_per_source: int = 4000,
         output_dir: str | Path = "outputs/research",
     ) -> None:
         self._search = _as_runner(search)
@@ -94,7 +149,7 @@ class ResearchReportTool:
         raw_max = kwargs.get("max_sources")
         if raw_max is not None:
             try:
-                max_sources = max(1, min(10, int(raw_max)))
+                max_sources = max(1, min(20, int(raw_max)))
             except (TypeError, ValueError):
                 max_sources = self.max_sources
 
@@ -112,22 +167,36 @@ class ResearchReportTool:
 
         assert self._search is not None
         search_result = await self._search(**search_args)
-        if not search_result.ok:
-            return ToolResult(
-                ok=False,
-                output=search_result.output or "web_search failed",
-                data={"query": query, "sources": [], "ok_count": 0},
-            )
-
-        urls = pick_urls(
-            extract_urls(search_result.output, search_result.data),
-            max_sources=max_sources,
-        )
+        urls = _search_urls(search_result, max_sources)
+        simple = simplify_research_query(query)
+        retried_as = ""
+        if not urls and (simple or recency_s):
+            retried_as = simple or query
+            retry_args: dict[str, Any] = {
+                "query": retried_as,
+                "max_results": search_args["max_results"],
+            }
+            search_result = await self._search(**retry_args)
+            urls = _search_urls(search_result, max_sources)
         if not urls:
+            detail = (
+                search_result.output
+                or "web_search returned no usable http(s) URLs to scrape."
+            )
+            if retried_as and retried_as != query:
+                detail = (
+                    f"{detail} Retried as {retried_as!r}. "
+                    "Call web_search with a shorter query, then scrape."
+                )
             return ToolResult(
                 ok=False,
-                output="web_search returned no usable http(s) URLs to scrape.",
-                data={"query": query, "sources": [], "ok_count": 0},
+                output=detail,
+                data={
+                    "query": query,
+                    "sources": [],
+                    "ok_count": 0,
+                    "retried_query": retried_as or None,
+                },
             )
 
         hits: list[SourceHit] = []
@@ -152,7 +221,7 @@ class ResearchReportTool:
                         url=final_url,
                         excerpt=excerpt_text(
                             scrape_result.output,
-                            max_chars=min(600, self.max_chars_per_source),
+                            max_chars=min(2000, self.max_chars_per_source),
                         ),
                     )
                 )
@@ -177,7 +246,7 @@ class ResearchReportTool:
                             or url,
                             excerpt=excerpt_text(
                                 fetch_result.output,
-                                max_chars=min(600, self.max_chars_per_source),
+                                max_chars=min(2000, self.max_chars_per_source),
                             ),
                         )
                     )

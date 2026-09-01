@@ -42,6 +42,7 @@ from arelis.core.agent_loop import (
     _MAX_TOOL_NUDGES,
     _SCRAPE_AFTER_SEARCH_NOTICE,
     _WEB_TOOLS,
+    _WRITE_AFTER_PAGE_NOTICE,
     _hide_daily_wander,
     _is_ollama_object_400,
     _native_tool_call,
@@ -66,6 +67,7 @@ from arelis.core.claims import (
 from arelis.core.email_complete import (
     draft_send_email_args,
     email_force_call_notice,
+    email_remaining,
     looks_like_bare_confirm,
     looks_like_mailbox_mutate,
     looks_like_schedule_manage,
@@ -74,6 +76,7 @@ from arelis.core.email_complete import (
 )
 from arelis.core.events import Event, EventType
 from arelis.core.evidence import dual_hit_notice, quote_first_notice
+from arelis.core.failure_copy import should_nudge_write_after_page
 from arelis.core.gates import FORCE_GATE_KINDS, apply_force_gates
 from arelis.core.image_refs import fill_vision_args, image_force_call_notice
 from arelis.core.json_tools import (
@@ -109,7 +112,11 @@ from arelis.core.sms_complete import (
     sms_force_call_notice,
 )
 from arelis.core.tile_complete import match_tile_intent, tile_tool_args
-from arelis.core.tool_subset import filter_tool_names, is_research_mode
+from arelis.core.tool_subset import (
+    filter_tool_names,
+    is_research_mode,
+    turn_round_budget,
+)
 from arelis.core.turn_context import TurnContext
 from arelis.core.turn_dispatch import dispatch_calls
 from arelis.llm.errors import classify_ollama_failure, is_vram_failure
@@ -307,7 +314,44 @@ async def apply_no_call_path(
                 # already ran — so do not enter the sticky-note protocol
                 # and do not ship the "empty reply / model unloaded" notice.
                 # Tools may already be stripped (agenda/SMS/email wrap-up).
+                # A long scrape/search must not become the chat line —
+                # ask once for a write-up. Short facts (price, agenda)
+                # still ship from the tool result.
                 if ctx.last_ok_tool_out:
+                    if (
+                        not ctx.page_write_nudge_used
+                        and ctx.nudges < _MAX_TOOL_NUDGES
+                        and should_nudge_write_after_page(
+                            ctx.last_ok_tool_name, ctx.last_ok_tool_out
+                        )
+                    ):
+                        ctx.page_write_nudge_used = True
+                        ctx.nudges += 1
+                        offer_tools = False
+                        ollama_tools = []
+                        ctx.offer_tools = False
+                        ctx.ollama_tools = []
+                        ctx.tool_names.clear()
+                        tool_names = ctx.tool_names
+                        await loop._retract()
+                        messages.append({"role": "assistant", "content": content})
+                        messages.append(
+                            {
+                                "role": "user",
+                                "content": _WRITE_AFTER_PAGE_NOTICE,
+                            }
+                        )
+                        await loop.bus.publish(
+                            Event(
+                                EventType.THINKING,
+                                {
+                                    "text": (
+                                        "empty after page; asking for a write-up"
+                                    )
+                                },
+                            )
+                        )
+                        return False
                     await loop.bus.publish(
                         Event(
                             EventType.THINKING,
@@ -400,13 +444,14 @@ async def apply_no_call_path(
                         loop._timer.mark(
                             "exactness", gate="sms_force", action="inject"
                         )
-            # Complete email draft — nudge once, then inject.
+            # Complete email draft — nudge once, then inject. Remaining
+            # inboxes after the first send still need a call.
             elif (
                 bool(agent_cfg.get("email_force_call", True))
                 and email_draft is not None
                 and email_draft.complete
+                and email_remaining(email_draft, ctx.email_sent)
                 and "send_email" in tool_names
-                and "send_email" not in loop.tools_used
             ):
                 if ctx.email_nudge_used < 1:
                     ctx.email_nudge_used += 1
@@ -415,7 +460,9 @@ async def apply_no_call_path(
                     messages.append(
                         {
                             "role": "user",
-                            "content": email_force_call_notice(email_draft),
+                            "content": email_force_call_notice(
+                                email_draft, already_sent=ctx.email_sent
+                            ),
                         }
                     )
                     await loop.bus.publish(
@@ -434,7 +481,9 @@ async def apply_no_call_path(
                             "exactness", gate="email_force", action="nudge"
                         )
                     return False
-                inj = draft_send_email_args(email_draft)
+                inj = draft_send_email_args(
+                    email_draft, already_sent=ctx.email_sent
+                )
                 calls = [("send_email", inj)]
                 tool_calls = [_native_tool_call("send_email", inj)]
                 await loop._retract()
@@ -1629,11 +1678,12 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
         model = loop.router.model_for(role)
         if escalated:
             research_mode = is_research_mode(role, text)
-            if research_mode:
-                loop.max_rounds = max(
-                    loop.max_rounds,
-                    int(agent_cfg.get("research_max_rounds", 12)),
-                )
+            loop.max_rounds = max(
+                loop.max_rounds,
+                turn_round_budget(
+                    role, text, agent_cfg, loop._default_max_rounds
+                ),
+            )
             visible = filter_tool_names(
                 available_all,
                 role=role,
@@ -1675,7 +1725,10 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
             tool_names = ctx.tool_names
 
         if round_i > 1 and (
-            ctx.email_sent_ok or ctx.agenda_create_ok or bool(sms_sent)
+            ctx.email_sent_ok
+            or ctx.agenda_create_ok
+            or bool(sms_sent)
+            or ctx.page_write_nudge_used
         ):
             offer_tools = False
             ollama_tools = []

@@ -59,6 +59,26 @@ def start_glass_session(store: MemoryStore) -> str:
         store.delete_session(leftover)
     return store.start_session()
 
+
+def start_or_reuse_empty_session(store: MemoryStore, *, room_id: str) -> str:
+    """Open the unused empty shell in this room, or mint one.
+
+    Cold launch used to start a general 'new chat' and then swap to the
+    room's last filled thread — History showed both, and the old lecture
+    was the one you landed in. Reuse the empty row so two 'new chat'
+    titles do not fight.
+    """
+    leftover = store.latest_session_id(require_messages=False, room_id=room_id)
+    filled = store.latest_session_id(require_messages=True, room_id=room_id)
+    if (
+        leftover
+        and leftover != filled
+        and not store._session_has_messages(leftover)
+    ):
+        store.open_session(leftover)
+        return leftover
+    return store.start_session(room_id=room_id)
+
 def _session_has_messages(store: MemoryStore, session_id: str) -> bool:
     row = store._conn.execute(
         "SELECT 1 FROM messages WHERE session_id = ? LIMIT 1",

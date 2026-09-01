@@ -56,6 +56,17 @@ _SUCCESS_FOOTER = re.compile(
 )
 
 _WORKSPACE_LISTING_LINE = re.compile(r"(?m)^\[(?:dir|file)\]\s")
+_PAGE_META = re.compile(
+    r"(?i)^(site|by|published|length|url|sources|#+\s*sources)\s*:"
+)
+_SEARCH_TITLE = re.compile(r"(?i)^\s*\d+\.\s*Title:\s*(.+)$")
+_PAGE_TOOLS = frozenset({"scrape", "web_fetch"})
+_SEARCH_TOOLS = frozenset({"web_search"})
+_PAGE_WRITE_TOOLS = frozenset({"scrape", "web_search", "web_fetch"})
+_PAGE_CHAT_CHARS = 420
+# Short fact lines (a price, a one-line hit) can ship as chat.
+# A scraped article or a SERP must not — ask the model to write first.
+_PAGE_WRITE_NUDGE_CHARS = 400
 
 # Human copy for the tools whose failures reach the transcript, used when the raw
 # output turns out to be model-directed. Keyed by tool name.
@@ -159,6 +170,21 @@ def _strip_success_footers(text: str) -> str:
     return "\n".join(kept).strip()
 
 
+def should_nudge_write_after_page(tool: str, output: str) -> bool:
+    """True when empty-after-tool would paste an article instead of a fact.
+
+    Qwen3.5 often leaves chat empty after scrape and puts the wrap-up in
+    thinking. Shipping a short price is fine. Shipping a blog is not —
+    the user asked for an answer, not the page.
+    """
+    if (tool or "").strip() not in _PAGE_WRITE_TOOLS:
+        return False
+    out = output or ""
+    if "Site:" in out or out.lstrip().startswith("# "):
+        return True
+    return len(out) >= _PAGE_WRITE_NUDGE_CHARS
+
+
 def chat_followup_from_tool(tool: str, output: str) -> str:
     """Person-facing copy when the model leaves chat empty after a tool.
 
@@ -184,9 +210,69 @@ def chat_followup_from_tool(tool: str, output: str) -> str:
         if name == "agenda":
             return "No events in this window."
         return "The tool finished. The details are in Workspace."
+    if name in _PAGE_TOOLS:
+        return _page_talk(cleaned)
+    if name in _SEARCH_TOOLS:
+        return _search_talk(cleaned)
     if len(cleaned) > 1600:
         cleaned = cleaned[:1597].rstrip() + "…"
     return cleaned
+
+
+def _first_sentences(text: str, *, n: int = 2, cap: int = _PAGE_CHAT_CHARS) -> str:
+    raw = " ".join((text or "").split())
+    if not raw:
+        return ""
+    parts: list[str] = []
+    start = 0
+    for i, ch in enumerate(raw):
+        if ch in ".!?" and i + 1 < len(raw) and raw[i + 1] == " ":
+            parts.append(raw[start : i + 1].strip())
+            start = i + 2
+            if len(parts) >= n:
+                break
+    if not parts:
+        parts.append(raw)
+    out = " ".join(parts)
+    if len(out) > cap:
+        out = out[: cap - 1].rstrip() + "…"
+    return out
+
+
+def _page_talk(output: str) -> str:
+    """Title + a couple of sentences. Not the article."""
+    title = ""
+    body: list[str] = []
+    for raw in (output or "").splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        if line.startswith("[") or line.startswith("On-page"):
+            continue
+        if _PAGE_META.match(line):
+            continue
+        if line.startswith("# "):
+            if not title:
+                title = line[2:].strip()
+            continue
+        body.append(line)
+    lede = _first_sentences(" ".join(body))
+    if title and lede:
+        if lede.lower().startswith(title.lower()[:24]):
+            return lede
+        return f"{title}\n\n{lede}"
+    return title or lede or output[:_PAGE_CHAT_CHARS]
+
+
+def _search_talk(output: str) -> str:
+    """First hit, not the whole SERP."""
+    for raw in (output or "").splitlines():
+        hit = _SEARCH_TITLE.match(raw)
+        if hit:
+            title = hit.group(1).strip()
+            if title:
+                return title
+    return _first_sentences(output, n=1, cap=240)
 
 
 __all__ = [
@@ -194,6 +280,7 @@ __all__ = [
     "chat_followup_from_tool",
     "is_model_directed",
     "plain_reason",
+    "should_nudge_write_after_page",
     "tool_failure_notice",
     "turn_failed_notice",
 ]

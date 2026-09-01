@@ -347,3 +347,16 @@ def test_the_installer_script_reads_the_relaunch_flag() -> None:
     assert script.index("[Code]") > script.index("[UninstallDelete]"), (
         "[Code] must be the last section: Inno reads everything after it as Pascal."
     )
+    assert "Check: ShouldWipeData" in script
+    assert "function ShouldWipeData" in script
+    assert "function InitializeUninstall" in script
+    assert "{param:wipe|no}" in script
+    assert "MB_DEFBUTTON2" in script
+    assert "{localappdata}\\Arelis" in script
+    assert "{localappdata}\\Arelis-runtime" in script
+    assert "{localappdata}\\Arelis-dev" in script
+    assert "{userdocs}\\Arelis" not in script, (
+        "Inno cannot tell a workspace from a git clone; Documents\\Arelis "
+        "is only removed by --purge-user-data after a checkout check."
+    )
+    assert "--purge-user-data" in script

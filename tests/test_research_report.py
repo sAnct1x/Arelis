@@ -11,9 +11,18 @@ from arelis.core.claims import detect_exactness_need
 from arelis.core.evidence import EvidenceLedger
 from arelis.core.preflight import detect_intents
 from arelis.core.skills import select_skill_ids
-from arelis.research import SourceHit, extract_urls, pick_urls, render_report
+from arelis.research import (
+    SourceHit,
+    excerpt_text,
+    extract_urls,
+    pick_urls,
+    render_report,
+)
 from arelis.tools.base import ToolResult
-from arelis.tools.research_report import ResearchReportTool
+from arelis.tools.research_report import (
+    ResearchReportTool,
+    simplify_research_query,
+)
 
 
 class _FakeSearch:
@@ -75,6 +84,57 @@ def _search_ok() -> ToolResult:
             ],
         },
     )
+
+
+def test_simplify_research_query_drops_sku_and_axes() -> None:
+    q = (
+        "best piezoelectric material U100A mirror mount X Y axis "
+        "hysteresis correction"
+    )
+    assert simplify_research_query(q) == (
+        "best piezoelectric material mirror mount hysteresis correction"
+    )
+    assert simplify_research_query("thin ask") == ""
+    assert simplify_research_query("Perseid meteor shower peaks") == ""
+
+
+class _SeqSearch:
+    def __init__(self, results: list[ToolResult]) -> None:
+        self.results = list(results)
+        self.calls: list[dict[str, Any]] = []
+
+    async def run(self, **kwargs: Any) -> ToolResult:
+        self.calls.append(dict(kwargs))
+        if not self.results:
+            return ToolResult(ok=False, output="[fail:empty] no results")
+        return self.results.pop(0)
+
+
+def _search_empty(query: str = "kitchen sink") -> ToolResult:
+    return ToolResult(
+        ok=False,
+        output=f"[fail:empty] web_search found nothing for {query!r}.",
+        data={"query": query, "results": [], "fail_class": "fail:empty"},
+    )
+
+
+def test_excerpt_strips_journal_chrome_and_keeps_abstract() -> None:
+    raw = (
+        "# Model-based Hysteresis\n"
+        "Length: ~5697 words (26 min read)\n"
+        "ABOUT Aims and scope About the journal\n"
+        "BROWSE ARTICLES All issues\n"
+        "Empty dropzone\n"
+        "Abstract We present a compensation method for a fast steering mirror.\n"
+        "On-page links: - Adaptive optics\n"
+        "[extracted via article-tag]\n"
+    )
+    out = excerpt_text(raw)
+    assert "We present a compensation method" in out
+    assert "Aims and scope" not in out
+    assert "BROWSE" not in out
+    assert "Empty dropzone" not in out
+    assert "Length:" not in out
 
 
 def test_extract_and_pick_urls_from_search_shape() -> None:
@@ -212,6 +272,44 @@ async def test_research_report_fails_when_no_scrape_ok(tmp_path: Path) -> None:
     assert result.data["ok_count"] == 0
     assert result.data["sources"] == []
     assert Path(result.data["path"]).exists()
+
+
+@pytest.mark.asyncio
+async def test_research_report_retries_a_simpler_query_when_search_empty(
+    tmp_path: Path,
+) -> None:
+    kitchen = (
+        "best piezoelectric material U100A mirror mount X Y axis "
+        "hysteresis correction"
+    )
+    search = _SeqSearch([_search_empty(kitchen), _search_ok()])
+    scrape = _FakeScrape(
+        {
+            "https://news.example/alpha": ToolResult(
+                ok=True,
+                output="Alpha body " * 40,
+                data={"title": "Alpha Story", "url": "https://news.example/alpha"},
+            ),
+            "https://news.example/beta": ToolResult(
+                ok=False, output="fail", data={"url": "https://news.example/beta"}
+            ),
+            "https://news.example/gamma": ToolResult(
+                ok=True,
+                output="Gamma body " * 40,
+                data={"title": "Gamma Story", "url": "https://news.example/gamma"},
+            ),
+        }
+    )
+    tool = ResearchReportTool(search, scrape, max_sources=3, output_dir=tmp_path)
+    result = await tool.run(query=kitchen, recency="year")
+    assert result.ok
+    assert len(search.calls) == 2
+    assert search.calls[0]["query"] == kitchen
+    assert search.calls[0].get("recency") == "year"
+    assert search.calls[1]["query"] == (
+        "best piezoelectric material mirror mount hysteresis correction"
+    )
+    assert "recency" not in search.calls[1]
 
 
 def test_evidence_research_report_adds_web_warrants() -> None:

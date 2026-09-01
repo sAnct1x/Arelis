@@ -22,6 +22,17 @@ def open_local_file(path: str | Path) -> None:
     subprocess.Popen(["xdg-open", str(target)])
 
 
+def open_local_file_as(path: str | Path) -> None:
+    """Show the OS Open with… picker when the platform has one."""
+    target = Path(path).expanduser().resolve()
+    if not target.is_file():
+        raise FileNotFoundError(str(target))
+    if sys.platform == "win32":
+        os.startfile(str(target), "openas")  # type: ignore[attr-defined]
+        return
+    open_local_file(target)
+
+
 def reveal_local_file(path: str | Path) -> None:
     """Show the file selected in Explorer / Finder / the file manager."""
     target = Path(path).expanduser().resolve()

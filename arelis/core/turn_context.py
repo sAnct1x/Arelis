@@ -66,6 +66,7 @@ class TurnContext:
     active_plan: Any = None
 
     scrape_nudge_used: bool = False
+    page_write_nudge_used: bool = False
     js_shell_nudge_used: bool = False
     js_shell_url: str = ""
     plan_progress_used: bool = False
@@ -103,11 +104,13 @@ class TurnContext:
     sms_sent: set[str] = field(default_factory=set)
     sms_failed: bool = False
     email_sent_ok: bool = False
+    email_sent: set[str] = field(default_factory=set)
     agenda_created: set[str] = field(default_factory=set)
     fail_counts: dict[str, int] = field(default_factory=dict)
     skip_counts: dict[str, int] = field(default_factory=dict)
     web_search_ok: set[str] = field(default_factory=set)
     page_ok: set[str] = field(default_factory=set)
+    same_ok: set[str] = field(default_factory=set)
 
     def is_send_path(self, expected_tools: set[str]) -> bool:
         """True when finishing on a compose/send turn must not die on web warrants."""

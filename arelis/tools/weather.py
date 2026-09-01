@@ -236,7 +236,7 @@ _WEATHER_NOISE = re.compile(
     r"web\s+search|search(?:\s+the\s+web)?(?:\s+for)?|google|"
     r"look(?:ing)?\s+up|lookup|"
     r"what(?:'s|s|\s+is)|how(?:'s|\s+is)|tell\s+me|give\s+me|check|"
-    r"the|a|an|like|of|on|at|this|that|please|now|right|"
+    r"the|a|an|like|of|on|at|this|that|please|now|right|then|"
     r"going(?:\s+to)?|gonna|will|be|currently|looking|"
     r"weather|forecast|temperature|temps?|rain(?:y|ing)?|snow(?:y|ing)?|"
     r"humid(?:ity)?|umbrella|conditions?|report|"
@@ -247,7 +247,7 @@ _WEATHER_NOISE = re.compile(
     r"\d{1,2}(?::\d{2})?\s*(?:a\.?m\.?|p\.?m\.?)"
     r")\b"
 )
-_IN_PLACE = re.compile(r"(?i)\b(?:in|near|around)\s+")
+_IN_PLACE = re.compile(r"(?i)\b(?:in|near|around|for)\s+")
 _PLACE_SPLIT = re.compile(r"(?i)\s*,?\s*\b(?:and|or)\b\s*")
 _MAX_WEATHER_PLACES = 4
 _BEYOND_TODAY = re.compile(
@@ -266,11 +266,81 @@ def weather_wants_beyond_today(text: str) -> bool:
     return bool(_BEYOND_TODAY.search(text or ""))
 
 
+# City + state: "Baltimore, OH" and "baltimore ohio" are one place.
+# Phrases first so West Virginia does not become Virginia.
+_US_STATE_PHRASES: dict[tuple[str, ...], str] = {
+    ("new", "hampshire"): "nh",
+    ("new", "jersey"): "nj",
+    ("new", "mexico"): "nm",
+    ("new", "york"): "ny",
+    ("north", "carolina"): "nc",
+    ("south", "carolina"): "sc",
+    ("north", "dakota"): "nd",
+    ("south", "dakota"): "sd",
+    ("rhode", "island"): "ri",
+    ("west", "virginia"): "wv",
+    ("district", "of", "columbia"): "dc",
+}
+_US_STATE_NAME_TO_ABBR = {
+    "alabama": "al",
+    "alaska": "ak",
+    "arizona": "az",
+    "arkansas": "ar",
+    "california": "ca",
+    "colorado": "co",
+    "connecticut": "ct",
+    "delaware": "de",
+    "florida": "fl",
+    "georgia": "ga",
+    "hawaii": "hi",
+    "idaho": "id",
+    "illinois": "il",
+    "indiana": "in",
+    "iowa": "ia",
+    "kansas": "ks",
+    "kentucky": "ky",
+    "louisiana": "la",
+    "maine": "me",
+    "maryland": "md",
+    "massachusetts": "ma",
+    "michigan": "mi",
+    "minnesota": "mn",
+    "mississippi": "ms",
+    "missouri": "mo",
+    "montana": "mt",
+    "nebraska": "ne",
+    "nevada": "nv",
+    "ohio": "oh",
+    "oklahoma": "ok",
+    "oregon": "or",
+    "pennsylvania": "pa",
+    "tennessee": "tn",
+    "texas": "tx",
+    "utah": "ut",
+    "vermont": "vt",
+    "virginia": "va",
+    "washington": "wa",
+    "wisconsin": "wi",
+    "wyoming": "wy",
+}
+
+
 def weather_place_key(place: str | None) -> str:
-    """Compare places without caring about case, commas, or padding."""
+    """Compare places without caring about case, commas, or OH vs Ohio."""
     raw = (place or "").strip().casefold()
     raw = re.sub(r"[^\w\s]", " ", raw)
-    return " ".join(raw.split())
+    tokens = raw.split()
+    if len(tokens) >= 3:
+        phrase3 = tuple(tokens[-3:])
+        if phrase3 in _US_STATE_PHRASES:
+            tokens = [*tokens[:-3], _US_STATE_PHRASES[phrase3]]
+    if len(tokens) >= 2:
+        phrase2 = tuple(tokens[-2:])
+        if phrase2 in _US_STATE_PHRASES:
+            tokens = [*tokens[:-2], _US_STATE_PHRASES[phrase2]]
+        elif tokens[-1] in _US_STATE_NAME_TO_ABBR:
+            tokens = [*tokens[:-1], _US_STATE_NAME_TO_ABBR[tokens[-1]]]
+    return " ".join(tokens)
 
 
 def extract_weather_places(text: str) -> list[str]:

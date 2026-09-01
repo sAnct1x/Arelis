@@ -250,6 +250,9 @@ def test_source_inspect_catalog_and_path_map() -> None:
         "arelis/core/orchestrator.py"
     )
     assert inspect_read_path("read docs/architecture.md") == "docs/architecture.md"
+    assert inspect_read_path(
+        "look at the files for an accurate assessment of the solar system simulation"
+    ) == "arelis/physics/engine.py"
     assert looks_like_source_inspect("how do you work")
     assert looks_like_source_write("edit policy.py")
     assert not looks_like_source_inspect("edit policy.py")
@@ -267,6 +270,8 @@ def test_source_inspect_catalog_and_path_map() -> None:
     assert "arelis/tools/policy.py" in guide
     assert "arelis/core/tool_subset.py" in guide
     assert "arelis/ui/panels/drive.py" in guide
+    assert "arelis/physics/engine.py" in guide
+    assert "arelis/physics/horizons.py" in guide
     assert "docs/architecture.md" in guide
     nudge = inspect_preflight_nudge("what's in policy.py?")
     assert "arelis/tools/policy.py" in nudge

@@ -46,6 +46,18 @@ async def test_rejects_os() -> None:
 
 
 @pytest.mark.asyncio
+async def test_rejects_matplotlib_and_points_at_plot() -> None:
+    tool = PythonTool()
+    result = await tool.run(
+        code="import matplotlib.pyplot as plt\nplt.plot([1, 2], [3, 4])"
+    )
+    assert not result.ok
+    assert "matplotlib" in result.output.lower()
+    assert "plot" in result.output.lower()
+    assert "out=" in result.output
+
+
+@pytest.mark.asyncio
 async def test_rejects_open() -> None:
     tool = PythonTool()
     result = await tool.run(code="open('secrets.yaml')")

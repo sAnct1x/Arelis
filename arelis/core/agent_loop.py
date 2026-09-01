@@ -238,6 +238,12 @@ _SCRAPE_AFTER_SEARCH_NOTICE = (
     "with the URL: value from the best hit (must start with http), then answer."
 )
 
+_WRITE_AFTER_PAGE_NOTICE = (
+    "You already have tool results. Write the answer in your own words now. "
+    "Do not paste the page or the search list. Do not scrape a URL that just "
+    "failed. If a page would not load, say so and work from what you have."
+)
+
 _JS_SHELL_BROWSER_NOTICE = (
     "That page is a JavaScript shell — scrape cannot read it. Call "
     "browser(action=open, url={url}) so they can Allow her window. "

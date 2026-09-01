@@ -18,6 +18,7 @@ from arelis.core.receipts import (
     append_action_ledger,
     format_action_receipt,
 )
+from arelis.core.same_call import record_same_call
 from arelis.core.sms_complete import (
     looks_like_contact_email_ask,
     looks_like_contact_phone_ask,
@@ -48,6 +49,7 @@ async def execute_call(
     round_i: int,
     call_i: int,
     fanout_results: dict[int, tuple[int, Any]] | None,
+    later_weather: bool = False,
 ) -> bool:
     """Run the allowed tool and publish the result. True ends the turn."""
     text = r.text
@@ -132,6 +134,7 @@ async def execute_call(
         if result.ok:
             loop.tools_used.add(name)
             fail_counts.pop(call_fp, None)
+            record_same_call(ctx.same_ok, name, args)
             ctx.last_ok_tool_out = str(result.output or "")
             ctx.last_ok_tool_name = name
             if name == "inbox" and str(args.get("action") or "").lower() in {
@@ -166,6 +169,11 @@ async def execute_call(
                     sms_sent.add(sent_to)
             if name == "send_email":
                 ctx.email_sent_ok = True
+                sent_to = str(args.get("to") or "").strip()
+                if not sent_to and isinstance(data_dict, dict):
+                    sent_to = str(data_dict.get("to") or "").strip()
+                if sent_to:
+                    ctx.email_sent.add(sent_to)
             if name == "agenda" and str(args.get("action") or "").lower() == "create":
                 agenda_created.add(
                     f"{str(args.get('provider') or '').strip().lower()}|"
@@ -546,7 +554,11 @@ async def execute_call(
             else:
                 weather_ok_places.add(wx_key)
                 missing = weather_places_missing(text, weather_ok_places)
-                if missing:
+                # A two-city fanout already has the sibling in this batch.
+                # Steering "call the other city" here leaves a stale user
+                # line after the second reading, and 9b re-calls until
+                # max_rounds (~60s).
+                if not later_weather and missing:
                     nxt = missing[0]
                     if nxt:
                         more_msg = (
@@ -566,7 +578,7 @@ async def execute_call(
                     messages.append(
                         {"role": "user", "content": more_msg}
                     )
-                else:
+                elif not later_weather:
                     # Keep the tool array byte-stable. Stripping weather
                     # here used to re-prefill the whole 23k prefix (~50s)
                     # for "answer from the reading you already have."
@@ -588,9 +600,13 @@ async def execute_call(
                         "retry_days"
                         if retry_days
                         else (
-                            "need_place"
-                            if weather_places_missing(text, weather_ok_places)
-                            else "answer_now"
+                            "batch"
+                            if later_weather
+                            else (
+                                "need_place"
+                                if weather_places_missing(text, weather_ok_places)
+                                else "answer_now"
+                            )
                         )
                     ),
                 )
@@ -622,9 +638,26 @@ async def execute_call(
             and email_draft is not None
             and email_draft.complete
         ):
-            who = email_draft.tool_to or email_draft.to or "them"
+            from arelis.core.email_complete import email_remaining
+
+            still = email_remaining(email_draft, ctx.email_sent)
+            if not still:
+                who = ", ".join(email_draft.all_tos) or (
+                    email_draft.tool_to or email_draft.to or "them"
+                )
+                await loop._finish(
+                    f"Sent email to {who}.",
+                    sources,
+                    streamed="",
+                )
+                return True
+        if (
+            name == "rooms"
+            and result.ok
+            and str(args.get("action") or "").lower() == "forget"
+        ):
             await loop._finish(
-                f"Sent email to {who}.",
+                str(result.output or "").strip() or "The room is gone.",
                 sources,
                 streamed="",
             )

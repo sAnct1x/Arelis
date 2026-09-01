@@ -259,12 +259,12 @@ def test_inbound_sms_flashes_the_taskbar_when_another_app_is_in_front(
 ) -> None:
     win = arelis_window()
     flashes: list[object] = []
-    monkeypatch.setattr("arelis.ui.app.process_owns_foreground", lambda: False)
-    monkeypatch.setattr("arelis.ui.app.flash_taskbar", lambda w: flashes.append(w))
+    monkeypatch.setattr("arelis.ui.window_turn.process_owns_foreground", lambda: False)
+    monkeypatch.setattr("arelis.ui.window_turn.flash_taskbar", lambda w: flashes.append(w))
     win._alert_if_background()
     assert flashes == [win]
     flashes.clear()
-    monkeypatch.setattr("arelis.ui.app.process_owns_foreground", lambda: True)
+    monkeypatch.setattr("arelis.ui.window_turn.process_owns_foreground", lambda: True)
     win._alert_if_background()
     assert flashes == []
 

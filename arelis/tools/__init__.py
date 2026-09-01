@@ -203,9 +203,9 @@ def build_tool_registry(
                 search_tool,
                 scrape_tool,
                 fetch=web_fetch_tool,
-                max_sources=int(research_cfg.get("max_sources", 3)),
+                max_sources=int(research_cfg.get("max_sources", 8)),
                 max_chars_per_source=int(
-                    research_cfg.get("max_chars_per_source", 1200)
+                    research_cfg.get("max_chars_per_source", 4000)
                 ),
                 output_dir=out_path,
             )

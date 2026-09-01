@@ -233,10 +233,29 @@ class AndroidSmsProvider:
                 f"be on this network with the companion radio on."
             )
 
-        if response.status_code in {401, 403}:
+        if response.status_code == 401:
+            if account.via == "companion":
+                raise SmsSendError(
+                    "The phone companion rejected this house's radio key. "
+                    "Talk being linked is not enough — scan the QR again from "
+                    "Settings → Notify on this PC (same Wi-Fi)."
+                )
             raise SmsSendError(
-                f"{radio} rejected the credentials. Pair again from "
-                f"Settings → Notify, or copy SMSGate login into data/secrets.yaml."
+                "SMSGate rejected the credentials. Copy the Local Server login "
+                "into data/secrets.yaml, or pair the Arelis app from "
+                "Settings → Notify."
+            )
+        if response.status_code == 403:
+            detail = _detail(response).lower()
+            if "send_sms" in detail or "not granted" in detail:
+                raise SmsSendError(
+                    "The phone can talk, but SMS is still off. This is not a "
+                    "PC setting. In the Arelis phone app: settings → texts "
+                    "(optional radio) → tap sms → Allow. Google Messages "
+                    "stays your messenger."
+                )
+            raise SmsSendError(
+                f"{radio} refused the message (403): {_detail(response)}"
             )
         if response.status_code == 404:
             raise SmsSendError(

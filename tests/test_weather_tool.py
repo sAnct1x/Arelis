@@ -275,6 +275,37 @@ def test_extract_weather_places_splits_two_cities() -> None:
     ) == ""
 
 
+def test_baltimore_ohio_matches_baltimore_oh() -> None:
+    from arelis.tools.weather import (
+        extract_weather_places,
+        weather_place_key,
+        weather_places_missing,
+    )
+
+    ask = (
+        "tell me the weather for tomorrow in baltimore ohio, and then "
+        "tell me the weather for columbus ohio for tomorrow"
+    )
+    places = extract_weather_places(ask)
+    joined = " ".join(places).lower()
+    assert any("baltimore" in p.lower() for p in places)
+    assert any("columbus" in p.lower() for p in places)
+    assert "then" not in joined
+    assert weather_place_key("Baltimore, OH") == weather_place_key("baltimore ohio")
+    assert weather_place_key("Columbus, OH") == weather_place_key("columbus ohio")
+    assert weather_places_missing(
+        ask,
+        {
+            weather_place_key("Baltimore, OH"),
+            weather_place_key("Columbus, OH"),
+        },
+    ) == []
+    assert weather_place_key("Mexico") == "mexico"
+    assert weather_place_key("Charleston, West Virginia") == weather_place_key(
+        "charleston wv"
+    )
+
+
 def test_going_to_be_tomorrow_is_home_not_a_city() -> None:
     from arelis.tools.weather import (
         extract_weather_place,

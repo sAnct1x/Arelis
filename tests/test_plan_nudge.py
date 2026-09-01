@@ -279,6 +279,20 @@ def test_fail_replan_ignores_success() -> None:
     assert tool_fail_replan_notice("calculator", "[fail:empty] n/a", ok=False) is None
 
 
+def test_fail_replan_workspace_outside_roots() -> None:
+    notice = tool_fail_replan_notice(
+        "workspace",
+        "Path outside allowed workspace roots: C:/Users/you/Documents",
+        ok=False,
+    )
+    assert notice is not None
+    assert "do not list" in notice.lower()
+    assert "Settings" in notice
+    assert tool_fail_replan_notice(
+        "workspace", "Not a file: C:/proj/x", ok=False
+    ) is None
+
+
 def test_fail_replan_send_email() -> None:
     notice = tool_fail_replan_notice(
         "send_email",
@@ -361,6 +375,12 @@ def test_web_fallback_is_not_a_scrape_plan() -> None:
     trap = select_plan(text, skill_ids=ids)
     assert trap is not None and trap.id == "multi_web"
     assert select_plan(text, skill_ids=()) is None
+
+
+def test_inspect_plan_wins_over_research_wording() -> None:
+    plan = select_plan("investigate the solar system simulation files")
+    assert plan is not None and plan.id == "inspect"
+    assert select_plan("please investigate the outage thoroughly").id == "research"
 
 
 def test_inspect_plan_wins_over_web_fallback() -> None:

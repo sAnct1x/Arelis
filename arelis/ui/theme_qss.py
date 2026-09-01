@@ -759,7 +759,7 @@ def stylesheet() -> str:
         padding: 0 0 2px 2px;
         border: none;
     }}
-    #HistoryEmpty, #DeskEmpty {{
+    #HistoryEmpty {{
         color: {c['text_muted']};
         font-size: 12px;
         font-family: {f['body']};
@@ -767,12 +767,32 @@ def stylesheet() -> str:
         padding: 28px 12px 12px 12px;
         border: none;
     }}
-    #DeskHint {{
+    #DeskEmpty {{
         color: {c['hint']};
+        font-size: 13px;
+        font-family: {f['body']};
+        background: transparent;
+        padding: 0 8px;
+        border: none;
+    }}
+    #DeskEmptyFace {{
+        background: transparent;
+        border: none;
+    }}
+    #DeskEmptyTitle {{
+        color: {c['text']};
+        font-size: 16px;
+        font-family: {f['display']};
+        background: transparent;
+        border: none;
+        padding: 0 0 2px 0;
+    }}
+    #DeskHint {{
+        color: {c['dim']};
         font-size: 12px;
         font-family: {f['body']};
         background: transparent;
-        padding: 0 2px 2px 2px;
+        padding: 0 4px;
         border: none;
     }}
     #DeskPreview {{
@@ -909,6 +929,11 @@ def stylesheet() -> str:
     }}
     #InstrumentAction:pressed {{
         background-color: {c['sunk']};
+    }}
+    #InstrumentAction:checked {{
+        background-color: {c['tab_selected']};
+        border-color: {c['accent']};
+        color: {c['accent']};
     }}
     /* Square siblings of #InstrumentAction. Padding 0 so the glyph sits
        in the same 28px row without the word-button's horizontal inset. */

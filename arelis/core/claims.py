@@ -843,8 +843,11 @@ _UNITS_FORCE_NOTICE = (
 
 _PLOT_FORCE_NOTICE = (
     "Exactness: this question needs a chart file from the plot tool. "
-    "Call plot now (line, scatter, or residuals) with a table path or xs/ys. "
-    "Do not draw an ASCII chart or invent a trend. Allow still applies."
+    "Call plot now (line, scatter, or residuals) with xs/ys numbers "
+    "and out='name.png', or a CSV via path= plus x/y column names. "
+    "path= is the table, not the picture. If you need numbers first, "
+    "call python, then plot. Do not draw an ASCII chart or invent a trend. "
+    "Allow still applies."
 )
 
 _DOCUMENT_FORCE_NOTICE = (

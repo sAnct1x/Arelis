@@ -127,6 +127,15 @@ class CodeWorkspaceTool:
                 )
 
             return ToolResult(ok=False, output=f"Unknown action: {action}")
+        except PermissionError as exc:
+            return ToolResult(
+                ok=False,
+                output=(
+                    f"{exc} Add that folder in Settings → roots, or Allow a "
+                    "read of the path they named. Do not list a parent folder "
+                    "(C:\\Users, Documents, …)."
+                ),
+            )
         except Exception as exc:
             return ToolResult(ok=False, output=f"workspace failed: {exc}")
 

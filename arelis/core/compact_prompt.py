@@ -32,8 +32,8 @@ _SHORT_DESC: dict[str, str] = {
     "inbox": "Gmail list/search/trash/archive. never claim delete without a tool",
     "memory": "remember / forget durable facts. memory tool",
     "ocr": "read text in an image",
-    "plot": "write a chart file under outputs",
-    "python": "run a short Python snippet",
+    "plot": "chart PNG. xs/ys + out=name.png; or path=CSV + x/y cols. path is the table, not the picture",
+    "python": "short numerics (numpy). no matplotlib. print xs,ys then plot with out=",
     "recall": "search memory before claiming you do not know",
     "research_report": "multi-source writeup under outputs/research",
     "rooms": "list / go to a room. Reality is physics",
@@ -61,18 +61,18 @@ COMPACT_TOOL_POLICY = """
 tools: call; don't invent results. Never ask "Would you like me to proceed / fetch / scrape / search / check?" when the ask is clear. Multi-part: keep calling until done. Fallback: {"tool":"<name>","args":{}} or {"final":"<answer>"}.
 confirm: writes/sends = card, not a chat ask. Never claim a side effect unless a tool this turn succeeded. Confirmation without a tool is a lie.
 browser: her Chrome; no password/OTP; stop captcha|Pay; click text|ref|nth. no goto_sign_in.
-web: web_search first; never guess a url; never answer from a snippet alone; never pass the title as url (copy the URL: value); Prefer scrape for pages; web_fetch for apis.
+web: web_search first; never guess a url; never answer from a snippet alone; never pass the title as url (copy the URL: value); Prefer scrape for pages; web_fetch for apis. After scrape, talk; do not paste the page.
 weather: call the weather tool; not search; not scrape; place=name; two cities = two calls.
 location: user_location; do not web-guess.
 sms: call send_sms immediately when to+body are known; do not re-ask for the body; inbound_sms for "did they text"; contacts for the book.
 email: inbox list/search/trash/archive; send_email to send; never claim you deleted mail.
-workspace: workspace read/write/list; inspect source with workspace; writes confirm.
+workspace: workspace read/write/list; inspect source with workspace; writes confirm. Code assess: list one folder then fanout-read; do not list the repo root. Same list/read this turn is a loop — open a new path or answer. Outside roots: stop; do not list parents; Allow the path or Settings → roots.
 attach: image→vision|ocr; pdf→doc_extract; csv→analyze; text→workspace. never invent file contents.
 memory: recall before claiming you do not know; remember/forget via the memory tool.
 goals: goals. tasks: tasks. analyze: analyze. doc_extract: doc_extract. document: document. calculator: calculator. diagnostics: diagnostics. cas: cas. clipboard: clipboard. ocr: ocr.
 agenda: agenda (events). tile: tile (thinking|workspace|history|chat|…; filament chat = name=chat). rooms: rooms. schedule: schedule.
 image: image. image_edit: image_edit. vision: vision. research_report: research_report.
-solar: solar. earth: earth. catalog: catalog. plot: plot. units: units. python: python. run_script: a project .py; not a shell; not diagnostics; not schedule run_now. watch: watch. git_info: git_info. camera: camera.
+solar: solar. earth: earth. catalog: catalog. plot: plot (xs/ys + out=png; path=CSV). units: units. python: python (no matplotlib; then plot). run_script: a project .py; not a shell; not diagnostics; not schedule run_now. watch: watch. git_info: git_info. camera: camera.
 """.strip()
 
 

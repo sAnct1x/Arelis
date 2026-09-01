@@ -617,6 +617,129 @@ async def test_empty_after_successful_tool_skips_json_fallback() -> None:
     assert router.i == 2
 
 
+class _LongScrapeStub:
+    """A page, not a fact — empty-after-tool must not paste it."""
+
+    name = "scrape"
+    description = "fetch a page"
+    risk = "read"
+    parameters_schema = {
+        "type": "object",
+        "properties": {"url": {"type": "string"}},
+    }
+
+    async def run(self, **kwargs: Any) -> ToolResult:
+        del kwargs
+        return ToolResult(
+            ok=True,
+            output=(
+                "# What is Single Crystal Piezo or PMN-PT?\n"
+                "Site: piezo.com\n\n"
+                + ("PMN-PT single crystals have a high d33. " * 40)
+            ),
+        )
+
+
+def _long_scrape_loop(
+    router: _ScriptedRouter,
+) -> tuple[EventBus, AgentLoop]:
+    bus = EventBus()
+    tools = ToolRegistry()
+    tools.register(_LongScrapeStub())
+    cfg = _config()
+    cfg["agent"]["chat_fast_path"] = False
+    cfg["agent"]["max_rounds"] = 8
+    loop = AgentLoop(
+        bus,
+        router,  # type: ignore[arg-type]
+        tools,
+        SessionMemory(),
+        "persona",
+        cfg,
+        request_confirm=_deny,
+        is_cancelled=lambda: False,
+    )
+    return bus, loop
+
+
+def _scrape_then_empty(extra: list[list[tuple[str, Any]]]) -> _ScriptedRouter:
+    first: list[tuple[str, Any]] = [
+        (
+            "tool_calls",
+            [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "scrape",
+                        "arguments": {
+                            "url": "https://blog.piezo.com/pmn-pt",
+                        },
+                    },
+                }
+            ],
+        )
+    ]
+    return _ScriptedRouter([first, *extra])
+
+
+@pytest.mark.asyncio
+async def test_empty_after_long_scrape_asks_for_a_writeup() -> None:
+    """Deep research left chat empty after a blog; shipping the page
+    was the transcript. Ask once, then take the model's own words."""
+    router = _scrape_then_empty(
+        [
+            [("token", "")],
+            [("token", "Use PMN-PT. Invert the Preisach operator.")],
+        ]
+    )
+    bus, loop = _long_scrape_loop(router)
+    events = await _collect(
+        bus,
+        loop.run(
+            "best piezo for a U100A mount and the hysteresis math",
+            "fast",
+        ),
+    )
+    thinking = " ".join(
+        str(e.payload.get("text") or "")
+        for e in events
+        if e.type == EventType.THINKING
+    )
+    assert "empty after page; asking for a write-up" in thinking
+    assert "JSON fallback" not in thinking
+    done = next(e for e in events if e.type == EventType.ASSISTANT_DONE)
+    assert "Preisach" in done.payload["text"]
+    assert "What is Single Crystal Piezo" not in done.payload["text"]
+    assert router.i == 3
+
+
+@pytest.mark.asyncio
+async def test_empty_after_long_scrape_twice_ships_lede_not_article() -> None:
+    """Last resort after the write-up nudge still must not dump the page."""
+    router = _scrape_then_empty(
+        [
+            [("token", "")],
+            [("token", "")],
+        ]
+    )
+    bus, loop = _long_scrape_loop(router)
+    events = await _collect(
+        bus, loop.run("deep dive piezo hysteresis", "fast")
+    )
+    thinking = " ".join(
+        str(e.payload.get("text") or "")
+        for e in events
+        if e.type == EventType.THINKING
+    )
+    assert "empty after page; asking for a write-up" in thinking
+    assert "empty after tool; answering from result" in thinking
+    done = next(e for e in events if e.type == EventType.ASSISTANT_DONE)
+    text = done.payload["text"]
+    assert "PMN-PT" in text
+    assert text.count("high d33") <= 2
+    assert len(text) < 600
+
+
 class _AgendaStub:
     """Write tool whose wrap-up round strips schemas (agenda_create_ok)."""
 

@@ -19,6 +19,7 @@ from PySide6.QtGui import (
     QContextMenuEvent,
     QFont,
     QFontMetrics,
+    QImage,
     QKeyEvent,
     QKeySequence,
     QMouseEvent,
@@ -282,6 +283,8 @@ class SolarPanel(QWidget):
         self._painted_note = ""
         self._tile_gen = 0
         self._globe_host = None
+        self._globe_mounting = False
+        self._stars_hold: QImage | None = None
         self._earth_hud = None
         self._globe_cam_push = 0.0
         self._globe_data_push = 0.0
@@ -1181,14 +1184,31 @@ class SolarPanel(QWidget):
                 pass
         if os.environ.get("PYTEST_CURRENT_TEST"):
             return
+        self._park_space_for_earth()
+        if self._globe_host is None:
+            if getattr(self, "_globe_mounting", False):
+                return
+            self._globe_mounting = True
+            QTimer.singleShot(0, self._mount_earth_globe)
+            return
+        self._show_earth_globe()
+
+    def _mount_earth_globe(self) -> None:
+        self._globe_mounting = False
+        if os.environ.get("PYTEST_CURRENT_TEST"):
+            return
         from arelis.ui.earth_globe_host import (
             EarthGlobeHost,
             EarthHudGlass,
-            entity_rows,
-            place_rows,
             webengine_available,
         )
 
+        gl = getattr(self, "_gl", None)
+        if gl is not None:
+            if hasattr(gl, "park"):
+                gl.park()
+            else:
+                gl.release_current()
         if self._globe_host is None and webengine_available():
             host = EarthGlobeHost(self)
             host.bridge.hostPicked.connect(self._on_globe_pick)
@@ -1199,6 +1219,11 @@ class SolarPanel(QWidget):
             self._globe_host = host
         if self._earth_hud is None and self._globe_host is not None:
             self._earth_hud = EarthHudGlass(self)
+        self._show_earth_globe()
+
+    def _show_earth_globe(self) -> None:
+        from arelis.ui.earth_globe_host import entity_rows, place_rows
+
         host = self._globe_host
         if host is not None and not host.failed:
             host.show()
@@ -1229,7 +1254,35 @@ class SolarPanel(QWidget):
                 host.push_buildings()
         self.update()
 
+    def _park_space_for_earth(self) -> None:
+        """Last starfield, then stay off the shared GL context.
+
+        Chromium aborts if the offscreen solar context is current — or
+        becomes current again — while QWebEngineView is alive.
+        """
+        gl = getattr(self, "_gl", None)
+        if gl is None:
+            return
+        if not getattr(gl, "_parked", False):
+            try:
+                frame = gl.render(
+                    max(self.width(), 1), max(self.height(), 1), stars_only=True
+                )
+                if frame is not None and not frame.isNull():
+                    self._stars_hold = QImage(frame)
+            except Exception:
+                pass
+        if hasattr(gl, "park"):
+            gl.park()
+        else:
+            gl.release_current()
+
     def _leave_earth_globe(self) -> None:
+        self._globe_mounting = False
+        self._stars_hold = None
+        gl = getattr(self, "_gl", None)
+        if gl is not None and hasattr(gl, "unpark"):
+            gl.unpark()
         if self._globe_host is not None:
             self._globe_host.hide()
         if self._earth_hud is not None:
@@ -1894,19 +1947,13 @@ class SolarPanel(QWidget):
             self._painted_t = system.t
         self._painted_note = self._maps_note
         try:
-            if self._earth_globe_live():
+            if self._earth_globe_live() or self._globe_mounting:
                 self._layout_earth_globe()
                 painter = QPainter(self)
                 painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-                if self._space_live():
-                    assert self._gl is not None
-                    frame = self._gl.render(
-                        self.width(), self.height(), stars_only=True
-                    )
-                    if frame is not None and not frame.isNull():
-                        painter.drawImage(self.rect(), frame)
-                    else:
-                        painter.fillRect(self.rect(), QColor(4, 5, 8))
+                hold = self._stars_hold
+                if hold is not None and not hold.isNull():
+                    painter.drawImage(self.rect(), hold)
                 else:
                     painter.fillRect(self.rect(), QColor(4, 5, 8))
                 if self._earth_hud is not None:

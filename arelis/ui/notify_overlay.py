@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QEvent, QSize, Qt, Signal
+from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
+    QMenu,
     QPushButton,
     QSizePolicy,
     QToolButton,
@@ -30,6 +32,7 @@ class NotifyOverlay(QWidget):
     snooze_requested = Signal(str)
     reply_requested = Signal(str)
     open_requested = Signal(str)
+    artifact_requested = Signal(str, str)
     collapsed = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -56,6 +59,9 @@ class NotifyOverlay(QWidget):
         self.pill.setAutoRaise(True)
         self.pill.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
         self.pill.clicked.connect(self._on_pill)
+        self.pill.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.pill.customContextMenuRequested.connect(self._on_pill_menu)
+        self.pill.installEventFilter(self)
         root.addWidget(self.pill, alignment=Qt.AlignmentFlag.AlignRight)
 
         self.card = GlassFrame(
@@ -148,6 +154,10 @@ class NotifyOverlay(QWidget):
         self.reply_btn.setVisible(kind == "sms")
         self.snooze_btn.setVisible(kind in {"sms", "calendar", "email", "task"})
         self.open_btn.setVisible(kind != "allow")
+        if str((notice.data or {}).get("path") or "").strip():
+            self.open_btn.setText("open file")
+        else:
+            self.open_btn.setText("open")
         show_pill = not self._maximized
         self.pill.setVisible(show_pill)
         if self._expanded:
@@ -239,14 +249,44 @@ class NotifyOverlay(QWidget):
         return self.pill.sizeHint().expandedTo(QSize(120, 28))
 
     def eventFilter(self, obj, event) -> bool:  # type: ignore[override]
+        if obj is self.pill and event.type() == QEvent.Type.MouseButtonDblClick:
+            if self._artifact_path():
+                self.artifact_requested.emit(self._notice.id, "open")
+                return True
         clicked_card = obj in {self.card_title, self.card_body}
         if clicked_card and event.type() == QEvent.Type.MouseButtonRelease:
             if self._notice is not None and self._notice.kind == "sms":
                 self._on_reply()
+            elif self._artifact_path() and self._notice is not None:
+                self.artifact_requested.emit(self._notice.id, "open")
             else:
                 self._on_open()
             return True
         return super().eventFilter(obj, event)
+
+    def _artifact_path(self) -> str:
+        if self._notice is None:
+            return ""
+        return str((self._notice.data or {}).get("path") or "").strip()
+
+    def _on_pill_menu(self, pos) -> None:
+        if self._notice is None or not self._artifact_path():
+            return
+        menu = QMenu(self.pill)
+        open_act = QAction("Open", menu)
+        with_act = QAction("Open with…", menu)
+        reveal_act = QAction("Show in folder", menu)
+        menu.addAction(open_act)
+        menu.addAction(with_act)
+        menu.addAction(reveal_act)
+        chosen = menu.exec(self.pill.mapToGlobal(pos))
+        nid = self._notice.id
+        if chosen is open_act:
+            self.artifact_requested.emit(nid, "open")
+        elif chosen is with_act:
+            self.artifact_requested.emit(nid, "openas")
+        elif chosen is reveal_act:
+            self.artifact_requested.emit(nid, "reveal")
 
     def _on_pill(self) -> None:
         """Click the live pill — open the inbox on that notice."""
@@ -270,5 +310,9 @@ class NotifyOverlay(QWidget):
             self.reply_requested.emit(self._notice.id)
 
     def _on_open(self) -> None:
-        if self._notice is not None:
-            self.open_requested.emit(self._notice.id)
+        if self._notice is None:
+            return
+        if self._artifact_path():
+            self.artifact_requested.emit(self._notice.id, "open")
+            return
+        self.open_requested.emit(self._notice.id)

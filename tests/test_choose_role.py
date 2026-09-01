@@ -49,6 +49,14 @@ def test_research_hint() -> None:
     assert reason == "research_hint"
 
 
+def test_deeply_research_is_a_research_hint() -> None:
+    role, reason = _orch().classify_role(
+        "i want you to deeply research the best piezoelectric material"
+    )
+    assert role == "research"
+    assert reason == "research_hint"
+
+
 def test_short_factual_stays_on_fast() -> None:
     """H2: bare 'research' / look-up stays 7b+tools, not silent 14b."""
     role, reason = _orch().classify_role("research cyclospora outbreaks briefly")
@@ -56,12 +64,20 @@ def test_short_factual_stays_on_fast() -> None:
     assert reason == "tool_loop"
 
 
-def test_fast_chip_pins_even_for_deep_language() -> None:
+def test_fast_chip_does_not_pin_deep_language() -> None:
+    """The composer defaults to fast. That is not a pin — 'deeply research'
+    still routes. Bare look-ups stay on fast (H2)."""
     role, reason = _orch().classify_role(
         "Investigate and write a report on fusion", "fast"
     )
-    assert role == "fast"
-    assert reason == "chip"
+    assert role == "research"
+    assert reason == "research_hint"
+    role, reason = _orch().classify_role(
+        "i want you to deeply research the best piezoelectric material",
+        "fast",
+    )
+    assert role == "research"
+    assert reason == "research_hint"
 
 
 def test_default_role() -> None:

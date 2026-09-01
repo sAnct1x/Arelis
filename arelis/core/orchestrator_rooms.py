@@ -143,11 +143,14 @@ async def enter_or_create_room(orch: Any, wanted: str) -> None:
     preamble = ""
     if created:
         preamble = f"Made the `{room.id}` room and opened it."
-    await enter_room(orch, room, preamble=preamble)
+    setup_ask = ""
+    if needs_setup(room):
+        setup_ask = setup_prompt("purpose", room, orch.workspace.names())
+    await enter_room(orch, room, preamble=preamble, extra=setup_ask)
     await offer_reality_plate(orch, room)
     live = orch.rooms.get(room.id) or room
-    if needs_setup(live):
-        await begin_room_setup(orch, live)
+    if setup_ask:
+        await begin_room_setup(orch, live, announce=False)
 
 
 async def offer_reality_plate(orch: Any, room: Room) -> None:
@@ -201,7 +204,9 @@ async def handle_room_talk(orch: Any, text: str) -> bool:
     return False
 
 
-async def begin_room_setup(orch: Any, room: Room, *, restart: bool = False) -> None:
+async def begin_room_setup(
+    orch: Any, room: Room, *, restart: bool = False, announce: bool = True
+) -> None:
     orch._room_setup = RoomSetup(room.id, "purpose")
     if restart and room.setup:
         try:
@@ -210,7 +215,8 @@ async def begin_room_setup(orch: Any, room: Room, *, restart: bool = False) -> N
             pass
     prompt = setup_prompt(orch._room_setup.step, room, orch.workspace.names())
     orch.memory.add("assistant", prompt)
-    await orch._say(prompt)
+    if announce:
+        await orch._say(prompt, status=False)
 
 
 async def take_setup_answer(orch: Any, text: str) -> bool:
@@ -257,7 +263,7 @@ async def advance_room_setup(orch: Any, *, user_text: str = "") -> None:
         orch.memory.add("user", user_text)
     prompt = setup_prompt(nxt.step, room, orch.workspace.names())
     orch.memory.add("assistant", prompt)
-    await orch._say(prompt)
+    await orch._say(prompt, status=False)
 
 
 async def finish_room_setup(
@@ -420,12 +426,18 @@ async def resume_last_room(orch: Any) -> bool:
     room = orch.rooms.get(wanted) if wanted else None
     if room is None:
         return False
-    await enter_room(orch, room, silent=True)
+    await enter_room(orch, room, silent=True, fresh=True)
     return True
 
 
 async def enter_room(
-    orch: Any, room: Room, *, preamble: str = "", silent: bool = False
+    orch: Any,
+    room: Room,
+    *,
+    preamble: str = "",
+    extra: str = "",
+    silent: bool = False,
+    fresh: bool = False,
 ) -> None:
     """Open a room: its thread, its folder, its role — all three at once.
 
@@ -443,16 +455,23 @@ async def enter_room(
         return
 
     if orch.rooms.active is None and store.session_id:
-        orch._general_session = store.session_id
+        parked = store.session_id
+        if fresh and not store._session_has_messages(parked):
+            store.delete_session(parked)
+        else:
+            orch._general_session = parked
 
-    session_id = store.latest_session_id(room_id=room.id, require_messages=False)
-    if session_id is None or not store.open_session(session_id):
-        session_id = store.start_session(room_id=room.id)
-        rows: list[dict[str, Any]] = []
-        summary = ""
+    rows: list[dict[str, Any]] = []
+    summary = ""
+    if fresh:
+        session_id = store.start_or_reuse_empty_session(room_id=room.id)
     else:
-        rows = store.get_messages(session_id)
-        summary = store.get_summary(session_id)
+        session_id = store.latest_session_id(room_id=room.id, require_messages=False)
+        if session_id is None or not store.open_session(session_id):
+            session_id = store.start_session(room_id=room.id)
+        else:
+            rows = store.get_messages(session_id)
+            summary = store.get_summary(session_id)
     orch.memory.hydrate(rows, summary=summary)
     orch.rooms.set_active(room.id)
 
@@ -465,6 +484,8 @@ async def enter_room(
         return
     opened = "Picking up where we left off." if rows else "New thread."
     lines = [preamble] if preamble else [f"In {room.name}. {opened}"]
+    if extra:
+        lines.append(extra)
     if room.purpose:
         lines.append(room.purpose)
     where = []
@@ -480,7 +501,10 @@ async def enter_room(
         lines.append(sentence[0].upper() + sentence[1:] + ".")
     if note:
         lines.append(note.strip())
-    await orch._say("\n\n".join(part for part in lines if part))
+    await orch._say(
+        "\n\n".join(part for part in lines if part),
+        status=False,
+    )
 
 
 async def leave_room(orch: Any) -> None:

@@ -12,9 +12,11 @@ organized in named **rooms**. Mail, texting, and calendar access stay
 switched off until you connect them yourself, and anything that writes
 a file or sends a message will wait for your go-ahead first.
 
-The published installer is **0.2.5**. If you build from source,
-you also get **Reality** — a room with a 3D solar system and an Earth
-view — but that doesn't ship with the installer.
+The published installer is **0.2.5**. A source checkout is ahead of
+that installer on conversation (research rounds, scrape wrap-up,
+workspace grants) — [whats-new.md](docs/whats-new.md). If you build
+from source you also get **Reality** — a room with a 3D solar system
+and an Earth view — but that doesn't ship with the installer.
 
 Arelis is licensed under AGPL. If you're curious how the code is
 organized, see [architecture.md](docs/architecture.md).
@@ -170,6 +172,12 @@ a sandbox location instead using `ARELIS_DATA_DIR` —
 `scripts\run_dev_ui.ps1` does exactly this, using
 `%LOCALAPPDATA%\Arelis-dev`.
 
+Uninstall from Apps & Features always removes the program and scheduled
+tasks. It asks whether to delete records too — **No** keeps
+`%LOCALAPPDATA%\Arelis` for a later reinstall. **Yes** also takes her
+runtime folder and the default workspace, and never a source checkout
+or a system Ollama install.
+
 ## Optional: mail, phone, calendar
 
 These stay off until you connect them. Until then, they're hidden from
@@ -268,7 +276,7 @@ published installer is **0.2.5**; see
 
 | Document | What's in it |
 |---|---|
-| [whats-new.md](docs/whats-new.md) | 0.2.5, and what's in this checkout |
+| [whats-new.md](docs/whats-new.md) | 0.2.5 installer, and what's in this checkout |
 | [rooms.md](docs/rooms.md) | Named project spaces |
 | [jobs.md](docs/jobs.md) | Timed prompts, emailed |
 | [models.md](docs/models.md) | Which models, and why |

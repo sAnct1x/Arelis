@@ -458,6 +458,7 @@ def detect_intents(
             if h.kind == "inspect"
             else h
             for h in hints
+            if h.kind != "research"
         ]
 
     if mentions_tabular_data(raw):

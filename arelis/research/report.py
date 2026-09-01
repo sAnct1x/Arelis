@@ -25,23 +25,46 @@ def slugify(text: str, *, max_len: int = 48) -> str:
     return base[:max_len].rstrip("-")
 
 
+_EXCERPT_META = re.compile(
+    r"(?i)^("
+    r"(title|by|byline|published|site|strategy|words?|length|url|journal)\s*:|"
+    r"#+\s|"
+    r"about\s+(aims|the\s+journal)|"
+    r"browse\s+articles|"
+    r"editorial\s+policies|"
+    r"for\s+(contributors|authors|reviewers)|"
+    r"empty\s+dropzone|"
+    r"on-page\s+links|"
+    r"\[extracted via|"
+    r"//|"
+    r"page\s+path|"
+    r"copyright\s*©|"
+    r"disclosure\s+statement|"
+    r"data\s+availability|"
+    r"additional\s+information|"
+    r"\\\\?authormark"
+    r")"
+)
+_ABSTRACT = re.compile(r"(?i)\babstract\b[:\s]*")
+_AUTHOR_MARK = re.compile(r"\\authormark\s*\d+\*?,?")
+
+
 def excerpt_text(text: str, *, max_chars: int = 600) -> str:
     """Short deterministic excerpt — first paragraphs, not an LLM summary."""
     body = (text or "").strip()
     if not body:
         return ""
-    # Drop common scrape header lines (Title:/By:/Published:) for Findings.
     lines = [
-        ln
+        ln.strip()
         for ln in body.splitlines()
-        if ln.strip()
-        and not re.match(
-            r"(?i)^(title|by|byline|published|site|strategy|words?)\s*:",
-            ln.strip(),
-        )
+        if ln.strip() and not _EXCERPT_META.match(ln.strip())
     ]
-    joined = " ".join(ln.strip() for ln in lines) if lines else body
+    joined = " ".join(lines) if lines else body
+    joined = _AUTHOR_MARK.sub(" ", joined)
     joined = re.sub(r"\s+", " ", joined).strip()
+    found = _ABSTRACT.search(joined)
+    if found:
+        joined = joined[found.end() :].strip()
     limit = max(80, int(max_chars))
     if len(joined) <= limit:
         return joined

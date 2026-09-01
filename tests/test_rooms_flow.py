@@ -451,13 +451,14 @@ async def test_the_room_list_names_the_open_one(harness) -> None:
 
 @pytest.mark.asyncio
 async def test_launch_resumes_the_room_you_were_in(tmp_path: Path) -> None:
-    """Cold orbit every time was the hole. The strip is how you see it."""
+    """The strip comes back. The old lecture does not sit in the composer."""
     first = _Harness(tmp_path)
     await first.start()
     try:
         first.rooms.update("physics", root="notes")
         await first.say("/room physics")
         first.memory.add("user", "three weeks of analysis")
+        old = first.store.session_id
         assert first.rooms.active_id == "physics"
     finally:
         await first.stop()
@@ -465,17 +466,49 @@ async def test_launch_resumes_the_room_you_were_in(tmp_path: Path) -> None:
     second = _Harness(tmp_path)
     await second.start()
     try:
+        glass = second.store.session_id
         assert second.rooms.active_id == ""
         assert second.rooms.last_active_id == "physics"
         assert await second.orchestrator.resume_last_room() is True
         await second.bus.drain()
         assert second.rooms.active_id == "physics"
-        assert any(
+        assert second.store.session_id != old
+        assert second.store.session_id != glass
+        assert second.store.get_session(glass) is None
+        assert not any(
             m.get("content") == "three weeks of analysis"
             for m in second.memory.as_ollama()
         )
+        assert second.store.get_messages(old)[0]["content"] == "three weeks of analysis"
         assert second.rooms_seen[-1]["room_id"] == "physics"
         assert second.said == []
+    finally:
+        await second.stop()
+
+
+@pytest.mark.asyncio
+async def test_launch_reuses_the_empty_new_chat_in_that_room(tmp_path: Path) -> None:
+    first = _Harness(tmp_path)
+    await first.start()
+    try:
+        await first.say("/room physics")
+        empty = first.store.session_id
+        assert first.store.get_messages(empty) == []
+    finally:
+        await first.stop()
+
+    second = _Harness(tmp_path)
+    await second.start()
+    try:
+        assert await second.orchestrator.resume_last_room() is True
+        await second.bus.drain()
+        assert second.store.session_id == empty
+        physics = [
+            row["id"]
+            for row in second.store.list_sessions(room_id="physics")
+        ]
+        assert physics.count(empty) == 1
+        assert len(physics) == 1
     finally:
         await second.stop()
 

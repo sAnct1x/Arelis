@@ -60,7 +60,11 @@ from arelis.core.sms_complete import (
     looks_like_tasks_utterance,
     sms_intent_this_turn,
 )
-from arelis.core.tool_subset import filter_tool_names, is_research_mode
+from arelis.core.tool_subset import (
+    filter_tool_names,
+    is_research_mode,
+    turn_round_budget,
+)
 from arelis.core.turn_context import TurnContext
 from arelis.core.turn_telemetry import TurnTimer, turn_telemetry_enabled
 from arelis.core.world_state import world_state_prompt_line
@@ -124,6 +128,10 @@ async def prepare_turn(
         )
         if loop._look.path:
             loop._look.sha = frame_sha256(loop._look.path)
+    agent_cfg = loop.config.get("agent") or {}
+    loop.max_rounds = turn_round_budget(
+        role, text, agent_cfg, loop._default_max_rounds
+    )
     active = getattr(loop.router, "active_model", None)
     if active and active != model:
         await loop.bus.publish(
@@ -173,13 +181,6 @@ async def prepare_turn(
     loop.memory.add("user", text)
     agent_cfg = loop.config.get("agent") or {}
     research_mode = is_research_mode(role, text)
-    if research_mode:
-        loop.max_rounds = max(
-            loop._default_max_rounds,
-            int(agent_cfg.get("research_max_rounds", 12)),
-        )
-    else:
-        loop.max_rounds = loop._default_max_rounds
     available_all = set(loop.tools.names())
     # A room that named its tools is capped here rather than downstream,
     # because `visible` is recomputed several times below — on escalation,

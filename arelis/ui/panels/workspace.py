@@ -197,10 +197,11 @@ class WorkspacePanel(QWidget):
         self._loaded_label = ""
         self._dirty = False
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(8)
+        layout.setContentsMargins(4, 2, 4, 6)
+        layout.setSpacing(10)
 
         path_row = QHBoxLayout()
+        path_row.setContentsMargins(0, 0, 0, 0)
         path_row.setSpacing(6)
         self.project_combo = QComboBox()
         self.project_combo.setObjectName("InstrumentCombo")
@@ -258,15 +259,9 @@ class WorkspacePanel(QWidget):
         self.root_label.setObjectName("InstrumentHint")
         self.root_label.hide()
 
-        self.split = QSplitter(Qt.Orientation.Horizontal)
-
-        left = QWidget()
-        left.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
-        left_l = QVBoxLayout(left)
-        left_l.setContentsMargins(0, 0, 0, 0)
-        left_l.setSpacing(6)
         mode_row = QHBoxLayout()
-        mode_row.setSpacing(6)
+        mode_row.setContentsMargins(0, 2, 0, 0)
+        mode_row.setSpacing(8)
         self.desk_btn = QPushButton("desk")
         self.folders_btn = QPushButton("folders")
         for btn, tip in (
@@ -275,6 +270,7 @@ class WorkspacePanel(QWidget):
         ):
             btn.setObjectName("InstrumentAction")
             btn.setFixedHeight(METRICS["row"])
+            btn.setMinimumWidth(76)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
             btn.setCheckable(True)
             btn.setToolTip(tip)
@@ -284,20 +280,44 @@ class WorkspacePanel(QWidget):
         mode_row.addWidget(self.desk_btn)
         mode_row.addWidget(self.folders_btn)
         mode_row.addStretch(1)
-        left_l.addLayout(mode_row)
         self.desk_hint = QLabel("this project's papers")
         self.desk_hint.setObjectName("DeskHint")
-        self.desk_hint.setWordWrap(True)
-        left_l.addWidget(self.desk_hint)
+        self.desk_hint.setAlignment(
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+        )
+        mode_row.addWidget(self.desk_hint)
+        layout.addLayout(mode_row)
+
+        self.empty_face = QWidget()
+        self.empty_face.setObjectName("DeskEmptyFace")
+        self.empty_face.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        empty_l = QVBoxLayout(self.empty_face)
+        empty_l.setContentsMargins(32, 20, 32, 28)
+        empty_l.setSpacing(10)
+        empty_l.addStretch(1)
+        self.empty_title = QLabel("Desk")
+        self.empty_title.setObjectName("DeskEmptyTitle")
+        self.empty_title.setAlignment(Qt.AlignmentFlag.AlignHCenter)
         self.desk_empty = QLabel(
             "Nothing on the desk yet.\n"
             "Files she writes and notes you keep land here.\n"
             "Say keep this: and what to write down, or press the note mark."
         )
         self.desk_empty.setObjectName("DeskEmpty")
-        self.desk_empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.desk_empty.setAlignment(Qt.AlignmentFlag.AlignHCenter)
         self.desk_empty.setWordWrap(True)
-        left_l.addWidget(self.desk_empty)
+        empty_l.addWidget(self.empty_title)
+        empty_l.addWidget(self.desk_empty)
+        empty_l.addStretch(2)
+        layout.addWidget(self.empty_face, stretch=1)
+
+        self.split = QSplitter(Qt.Orientation.Horizontal)
+
+        left = QWidget()
+        left.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        left_l = QVBoxLayout(left)
+        left_l.setContentsMargins(0, 0, 8, 0)
+        left_l.setSpacing(8)
         self.desk_list = QListWidget()
         self.desk_list.setObjectName("DeskList")
         self.desk_list.setFrameShape(QListWidget.Shape.NoFrame)
@@ -340,8 +360,8 @@ class WorkspacePanel(QWidget):
         mid = QWidget()
         mid.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         mid_l = QVBoxLayout(mid)
-        mid_l.setContentsMargins(0, 0, 0, 0)
-        mid_l.setSpacing(6)
+        mid_l.setContentsMargins(8, 0, 0, 0)
+        mid_l.setSpacing(8)
         read_row = QHBoxLayout()
         read_row.setSpacing(6)
         self.read_btn = QPushButton("read")
@@ -415,9 +435,10 @@ class WorkspacePanel(QWidget):
         self.split.setStretchFactor(1, 1)
         self.split.setStretchFactor(2, 0)
         self.split.setCollapsible(0, False)
-        self.split.setCollapsible(1, False)
+        self.split.setCollapsible(1, True)
         self.split.setCollapsible(2, True)
-        self.split.setSizes([220, 720, 0])
+        self.split.setSizes([240, 720, 0])
+        self.split.hide()
         layout.addWidget(self.split, stretch=1)
 
         self.output = QPlainTextEdit()
@@ -722,6 +743,7 @@ class WorkspacePanel(QWidget):
         self._apply_page_mode(abs_path or display, content)
         self._sync_dirty()
         self._sync_chrome()
+        self._sync_face()
         if abs_path:
             parent = Path(abs_path).parent
             self.root_label.setToolTip(str(parent))
@@ -799,18 +821,17 @@ class WorkspacePanel(QWidget):
             self.image_label.show()
             self.split.setCollapsible(1, True)
             self.split.setCollapsible(2, False)
-            self.split.setSizes([180, 0, 620])
         else:
             self.editor_stack.show()
             self.image_label.hide()
-            self.split.setCollapsible(1, False)
+            self.split.setCollapsible(1, True)
             self.split.setCollapsible(2, True)
-            self.split.setSizes([220, 700, 0])
             self._sync_chrome()
         if self.output.toPlainText().strip():
             self.output.show()
         else:
             self.output.hide()
+        self._sync_face()
 
     def set_desk_context(self, *, room_id: str = "", room_name: str = "") -> None:
         self._room_id = room_id
@@ -852,34 +873,66 @@ class WorkspacePanel(QWidget):
             row.setData(Qt.ItemDataRole.UserRole, item.abs_path)
             row.setToolTip(item.abs_path)
             self.desk_list.addItem(row)
-        empty = len(parsed) == 0
-        self.desk_empty.setVisible(empty and self._mode == "desk")
-        self.desk_list.setVisible((not empty) and self._mode == "desk")
+        self.desk_list.setVisible(bool(parsed) and self._mode == "desk")
         self._sync_desk_hint()
+        self._sync_face()
 
     def show_desk(self) -> None:
         self._mode = "desk"
         self.desk_btn.setChecked(True)
         self.folders_btn.setChecked(False)
-        has_items = bool(self._desk_items)
-        self.desk_empty.setVisible(not has_items)
-        self.desk_list.setVisible(has_items)
+        self.desk_list.setVisible(bool(self._desk_items))
         self.desk_hint.setVisible(True)
         self.browse_label.hide()
         self.browse_list.hide()
         self._sync_chrome()
+        self._sync_face()
 
     def show_folders(self) -> None:
         self._mode = "files"
         self.desk_btn.setChecked(False)
         self.folders_btn.setChecked(True)
-        self.desk_empty.hide()
         self.desk_list.hide()
-        self.desk_hint.hide()
+        self.desk_hint.setVisible(True)
         self.browse_label.show()
         self.browse_list.show()
         self.refresh_browse()
         self._sync_chrome()
+        self._sync_face()
+
+    def _desk_idle(self) -> bool:
+        return (
+            self._mode == "desk"
+            and not self._desk_items
+            and not self._loaded_abs
+            and not self._image_mode
+        )
+
+    def _sync_face(self) -> None:
+        """Empty desk is one face. The editor only exists when there is a file."""
+        idle = self._desk_idle()
+        self.empty_face.setVisible(idle)
+        self.split.setVisible(not idle)
+        if idle:
+            return
+        mid = self.split.widget(1)
+        right = self.split.widget(2)
+        if self._image_mode:
+            if mid is not None:
+                mid.hide()
+            if right is not None:
+                right.show()
+            self.split.setSizes([180, 0, 620])
+            return
+        if right is not None:
+            right.hide()
+        has_file = bool(self._loaded_abs)
+        if mid is not None:
+            mid.setVisible(has_file)
+        if has_file:
+            self.split.setSizes([240, 720, 0])
+        else:
+            self.split.setSizes([1, 0, 0])
 
     def _sync_desk_hint(self) -> None:
         room = (self._room_name or "").strip()

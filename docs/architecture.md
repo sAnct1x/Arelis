@@ -121,7 +121,7 @@ started.
 | Piece | Path | Job |
 |---|---|---|
 | Bus | `arelis/core/bus.py` | Events between the UI and the brain |
-| Orchestrator | `arelis/core/orchestrator.py` | Runs one turn at a time; resumes the last room on launch |
+| Orchestrator | `arelis/core/orchestrator.py` | Runs one turn at a time; resumes the last room on a new empty chat |
 | Agent loop | `arelis/core/agent_loop.py` | Model, tools, confirmations, finish rules |
 | Skills | `arelis/core/skills.py` | Which tools she leans toward |
 | Router | `arelis/llm/` | Picks the role model, warms it, unloads it |
@@ -279,10 +279,10 @@ to launch something that isn't there.
 A room is a named place to work on one thing — its own thread, its
 own folder, and a purpose she reads back at the start of every turn.
 `/room physics` takes you in, `/leave` takes you out, and launch
-resumes whichever room you last entered. The room id `physics` is
-permanent: it's always present, can't be forgotten, and it's the
-only place the 3D view and C920 hand tracking actually run. See
-[rooms.md](rooms.md).
+resumes whichever room you last entered — on a new empty chat, not
+the last filled thread. The room id `physics` is permanent: it's
+always present, can't be forgotten, and it's the only place the 3D
+view and C920 hand tracking actually run. See [rooms.md](rooms.md).
 
 ## Memory and safety
 
@@ -294,7 +294,10 @@ only place the 3D view and C920 hand tracking actually run. See
   Memory**. A page you want to reopen is a desk note (`keep this:`),
   not a fact.
 - Workspace roots are only the folders you've explicitly configured
-  — writes always wait for approval.
+  — writes always wait for approval. A path you named in chat can
+  get a read-only session grant (Allow). Granting a folder includes
+  the files inside it. A deny does not mean she should list
+  `Documents` or `C:\Users`.
 - Attachments get staged as copies under `data/drops/`.
 - Loopback and LAN URLs are blocked for any fetch the model itself
   initiates.
@@ -305,7 +308,18 @@ only place the 3D view and C920 hand tracking actually run. See
   image, one allow / deny prompt, then it stops. Printed
   instructions in a photo can never turn into an actual send.
 - There's a loop cap on reasoning rounds (`agent.max_rounds` — 8
-  normally, 12 in research mode).
+  normally, 32 in research mode, 16 when she is reading her own
+  source / assessing the solar-system sim). Weather and SMS stay at 8.
+  "Deeply research" is research mode even on the default fast chip.
+  Empty chat after a long scrape asks her to write; it does not
+  paste the page. `research_report` Findings are page excerpts with
+  journal chrome stripped, not an LLM synthesis. Research may run 8
+  distinct searches and open 16 distinct pages; `research_report`
+  scrapes 8 sources by default and retries a shorter query if the
+  first search is empty. The cap is a fuse.
+  The real stop is the same successful tool+args this turn (same
+  workspace list/read, same URL, same query). A new path still runs.
+  Browser snapshots are not gated — the page can change.
 - A house watch (`agent.watch`) rate-limits LAN ingest, locks a
   client after repeated bad tokens, and mutes outbound catalog /
   web calls if they spike. The chat model is not a security monitor;

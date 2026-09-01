@@ -121,6 +121,13 @@ def test_making_a_room_asks_first(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_forgetting_a_missing_room_is_already_gone(store: RoomStore) -> None:
+    result = await RoomsTool(store).run(action="forget", name="workspace")
+    assert result.ok
+    assert "already gone" in result.output.lower()
+
+
+@pytest.mark.asyncio
 async def test_forgetting_physics_is_refused(store: RoomStore) -> None:
     result = await RoomsTool(store).run(action="forget", name="physics")
 

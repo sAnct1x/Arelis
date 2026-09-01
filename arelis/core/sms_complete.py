@@ -909,7 +909,7 @@ def complete_sms_draft(
             return None
         # Goals / tasks / memory / contacts / file-write / image-gen /
         # calendar / open-URL / analyze turns must not steal a pending SMS.
-        from arelis.core.other_work import looks_like_other_work
+        from arelis.core.other_work import looks_like_other_work, looks_like_sent_compose
 
         if looks_like_other_work(user_text, history):
             return None
@@ -923,13 +923,17 @@ def complete_sms_draft(
         pending_names: list[str] = []
         saw_ask = False
         for role, content in reversed(pairs[:-1]):
-            if role == "assistant" and _ASKED_FOR_BODY.search(content or ""):
-                saw_ask = True
+            if role == "assistant":
+                if looks_like_sent_compose(content or ""):
+                    return None
+                if _ASKED_FOR_BODY.search(content or ""):
+                    saw_ask = True
                 continue
             if role == "user":
                 prior = parse_sms_utterance(content)
                 if prior and prior.all_tos and not prior.body:
-                    pending_names = list(prior.all_tos)
+                    if saw_ask:
+                        pending_names = list(prior.all_tos)
                     break
                 if prior and prior.all_tos and prior.body:
                     # Already had a full draft earlier; only reuse if we saw an ask.

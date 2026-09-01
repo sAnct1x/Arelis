@@ -11,9 +11,11 @@ from PySide6.QtGui import (
     QImage,
     QKeyEvent,
     QKeySequence,
+    QMouseEvent,
     QPainter,
     QPaintEvent,
     QShortcut,
+    QTextCursor,
     QTextOption,
 )
 from PySide6.QtWidgets import (
@@ -80,6 +82,25 @@ class _ComposerLineEdit(QPlainTextEdit):
         self.setCursorWidth(1)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.setFixedHeight(METRICS["control"])
+        # File drops land on the chat stage. The field itself must not accept
+        # a drop — Qt's default is Move, and a highlight that slips up or
+        # down out of this short row starts a drag that deletes the draft.
+        self.setAcceptDrops(False)
+        self.viewport().setAcceptDrops(False)
+
+    def mouseMoveEvent(self, event: QMouseEvent) -> None:
+        if (
+            event.buttons() & Qt.MouseButton.LeftButton
+            and self.textCursor().hasSelection()
+        ):
+            hit = self.cursorForPosition(event.position().toPoint())
+            cursor = self.textCursor()
+            cursor.setPosition(cursor.anchor())
+            cursor.setPosition(hit.position(), QTextCursor.MoveMode.KeepAnchor)
+            self.setTextCursor(cursor)
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
 
     def text(self) -> str:
         return self.toPlainText()

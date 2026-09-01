@@ -12,6 +12,8 @@ One function, the union of every list. Callers keep their own exceptions
 
 from __future__ import annotations
 
+import re
+
 from arelis.attachments import (
     attachment_kinds_from_turn,
     split_attachments_turn,
@@ -34,6 +36,23 @@ from arelis.core.claims import (
 )
 from arelis.core.intent_catalog import WEATHER
 from arelis.core.tile_complete import match_tile_intent
+
+# Assistant already reported a send. The next user turn is a new ask, not a
+# body line for that letter — unless they said "as well" / "send it" (those
+# paths do not use Case B).
+_SENT_COMPOSE = re.compile(
+    r"(?i)\b("
+    r"sent\s+(?:your\s+)?(?:e-?mail|mail|text|sms)|"
+    r"sent\s+email\s+to|"
+    r"(?:e-?mail|text|sms)\s+sent|"
+    r"already\s+sent"
+    r")\b"
+)
+
+
+def looks_like_sent_compose(text: str) -> bool:
+    """True when the assistant already claimed a mail or text went out."""
+    return bool(_SENT_COMPOSE.search(text or ""))
 
 
 def looks_like_other_work(

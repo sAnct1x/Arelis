@@ -271,6 +271,10 @@ def test_plot_asks_are_forced() -> None:
     assert need.needs_plot
     assert "plot" in need.kinds
     assert detect_plot_ask("plot this csv")
+    assert detect_plot_ask(
+        "write a python script that gives me a graph of position over time "
+        "for a ball thrown at 5m/s at a 45 degree angle and then show me the result"
+    )
     assert not detect_plot_ask("I loved the plot twist")
     assert not detect_plot_ask("What's the weather today?")
 

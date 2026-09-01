@@ -108,6 +108,8 @@ RESEARCH_HINTS: list[re.Pattern[str]] = [
     re.compile(
         r"\b("
         r"deep\s*-?\s*dive|"
+        r"deeply\s+research|"
+        r"deep\s+research|"
         r"multi\s*-?\s*source|"
         r"write\s+a\s+report|"
         r"thorough\s+research|"

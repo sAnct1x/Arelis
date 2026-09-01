@@ -8,13 +8,57 @@ from arelis.core.tool_subset import (
     filter_tool_names,
     is_research_mode,
     should_apply_research_subset,
+    turn_round_budget,
 )
+
+
+def test_research_may_open_many_distinct_pages() -> None:
+    from arelis.core.tool_subset import web_read_caps
+
+    assert web_read_caps(False, {}) == (2, 2)
+    assert web_read_caps(True, {}) == (8, 16)
+    assert web_read_caps(True, {"research_max_searches": 4, "research_max_pages": 10}) == (
+        4,
+        10,
+    )
 
 
 def test_research_role_is_research_mode() -> None:
     assert is_research_mode("research", "hello")
     assert not is_research_mode("fast", "hello")
     assert is_research_mode("fast", "please investigate the outage thoroughly")
+    piezo = (
+        "i want you to deeply research the best specific piezoelectric "
+        "material to use to be able to control x and y axes"
+    )
+    assert is_research_mode("fast", piezo)
+    assert turn_round_budget("fast", piezo, {"research_max_rounds": 32}, 8) == 32
+
+
+def test_inspect_asks_get_a_higher_round_budget() -> None:
+    from arelis.core.tool_subset import turn_round_budget
+
+    cfg = {"max_rounds": 8, "research_max_rounds": 32, "inspect_max_rounds": 16}
+    assert turn_round_budget("fast", "what's the weather in boston", cfg, 8) == 8
+    assert turn_round_budget("fast", "text my wife I'm late", cfg, 8) == 8
+    assert (
+        turn_round_budget(
+            "fast", "please investigate the outage thoroughly", cfg, 8
+        )
+        == 32
+    )
+    assert (
+        turn_round_budget(
+            "fast", "please investigate the outage thoroughly", {}, 8
+        )
+        == 32
+    )
+    assess = (
+        "look at the files required for an accurate assessment of "
+        "the solar system simulation"
+    )
+    assert turn_round_budget("fast", assess, cfg, 8) == 16
+    assert turn_round_budget("fast", "what's in policy.py?", cfg, 8) == 16
 
 
 def test_subset_shrinks_research_turn() -> None:

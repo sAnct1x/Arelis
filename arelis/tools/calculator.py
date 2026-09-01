@@ -114,8 +114,10 @@ class CalculatorTool:
 
 def evaluate_expression(expression: str) -> float | int:
     """Eval a whitelist AST. Raises ValueError on anything unsafe."""
+    # People write 17^2. Python wants **. This tool has no bitwise XOR.
+    source = (expression or "").replace("^", "**")
     try:
-        tree = ast.parse(expression, mode="eval")
+        tree = ast.parse(source, mode="eval")
     except SyntaxError as exc:
         raise ValueError(f"invalid expression ({exc.msg})") from exc
     return _eval_node(tree.body)

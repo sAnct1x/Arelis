@@ -43,6 +43,7 @@ from arelis.ui.idle_host import (
     sync_idle_mode,
 )
 from arelis.ui.notify_host import (
+    on_artifact_requested,
     on_inbox_opened,
     on_job_tick,
     on_mail_headers,
@@ -168,6 +169,9 @@ def bind_window_hosts(window) -> None:
     window.notifications.chat_requested.connect(
         lambda notice_id: open_sms_chat(window, notice_id)
     )
+    window.notifications.artifact_requested.connect(
+        lambda notice_id, how: on_artifact_requested(window, notice_id, how)
+    )
     window.notifications.mark_read_btn.clicked.connect(
         lambda: on_notify_mark_all_read(window)
     )
@@ -179,6 +183,9 @@ def bind_window_hosts(window) -> None:
     overlay.snooze_requested.connect(lambda nid: on_notice_snooze(window, nid))
     overlay.reply_requested.connect(lambda nid: on_notice_reply(window, nid))
     overlay.open_requested.connect(lambda nid: on_notice_open(window, nid))
+    overlay.artifact_requested.connect(
+        lambda nid, how: on_artifact_requested(window, nid, how)
+    )
     overlay.pill_clicked.connect(lambda: on_notify_pill_clicked(window))
     overlay.collapsed.connect(lambda: sync_idle_mode(window))
 

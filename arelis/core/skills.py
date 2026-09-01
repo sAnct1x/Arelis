@@ -333,6 +333,9 @@ SKILL_CARDS: dict[str, SkillCard] = {
   not a memory fact. Use memory remember only for durable identity
   ("remember that I climb").
 - Never write or edit under a read-only root (the prompt lists those names).
+- If workspace says outside allowed roots, stop. Do not list C:\\Users,
+  Documents, or any parent. Tell them to Allow the path or add the folder
+  in Settings → roots.
 - Never tell the user to run a shell command to do something a tool can do.
 - Do not claim you edited a file unless a write/edit tool succeeded.
 - Prefer git_info (status/diff/log) over inventing branch or dirty state.
@@ -388,8 +391,12 @@ SKILL_CARDS: dict[str, SkillCard] = {
             "how do you work",
             "how you work",
             "read arelis",
+            "look at the files",
+            "solar system simulation",
+            "space simulation",
             "arelis/core",
             "arelis/tools",
+            "arelis/physics",
         ),
         negative_hints=(
             "fix your",
@@ -404,6 +411,10 @@ SKILL_CARDS: dict[str, SkillCard] = {
 ### Your own source
 - When they ask how you work, where a feature lives, or to read your source,
   call workspace(action=read) on arelis/… or docs/…. Mapped files: {inspect_guide}
+- A solar / space sim assess is those physics files in one fanout
+  (engine, constants, horizons, scene). Quote Horizons VECTORS ICs.
+  Do not list the workspace root. A folder you already listed, or a file
+  you already read, is a loop — open a new path or answer.
 - Answer from the tool result. Quote function names, gates, and paths. Do
   not invent architecture. Do not recall the package (the indexer skips
   arelis/). Do not web_search. This is read-only.
@@ -735,6 +746,8 @@ SKILL_CARDS: dict[str, SkillCard] = {
             "scatter plot",
             "fit a line",
             "line chart",
+            "graph of",
+            "position over time",
             "arxiv",
             "preprint",
             "jpl horizons",
@@ -771,10 +784,12 @@ SKILL_CARDS: dict[str, SkillCard] = {
   source year (CODATA / IAU / Planck). Do not present those as measured
   this turn.
 - A CMB or cosmological frame is a boost, not a Pint conversion.
-- Charts call plot (line, scatter, residuals). In a room with a folder
-  the PNG lands in that project's plots/. Otherwise outputs/plots/.
-  Needs Allow. Do not draw an ASCII chart. Do not use image (Comfy) for
-  data.
+- Charts call plot (line, scatter, residuals). Compute series with python
+  if needed, then plot with xs/ys and out='name.png'. path= is a CSV
+  table, never the PNG. In a room with a folder the file lands in that
+  project's plots/. Otherwise outputs/plots/. Needs Allow. Do not draw
+  an ASCII chart. Do not import matplotlib in the python cell. Do not
+  use image (Comfy) for data.
 - Papers on arXiv, JPL Horizons, NASA APOD, and NASA ADS call catalog.
   Acknowledge arXiv. Do not scrape NASA JavaScript. APOD and ADS need a
   free key in data/secrets.yaml; say so if the tool reports it is missing.
@@ -1245,6 +1260,8 @@ SKILL_CARDS: dict[str, SkillCard] = {
             "investigate",
             "deep dive",
             "deep-dive",
+            "deeply research",
+            "deep research",
             "write a report",
             "research report",
             "multi-source",
@@ -1259,14 +1276,21 @@ SKILL_CARDS: dict[str, SkillCard] = {
         body="""
 ### Deep research
 - For investigations, deep dives, multi-source reports, or research-role asks,
-  call research_report with the user's question as query. It searches, scrapes
-  several distinct URLs, and writes Question / Findings / Uncertainties /
-  Sources under outputs/research — do not invent that procedure by hand.
+  call research_report with a short searchable query (the material, the math,
+  the phenomenon) — not the whole paragraph, and not a product SKU unless
+  that SKU is the subject. It searches, scrapes several distinct URLs
+  (default eight), and writes Question / Findings / Uncertainties / Sources
+  under outputs/research — do not invent that procedure by hand. A follow-up
+  scrape of a URL the report missed is fine; the same URL twice is a loop.
 - Pass recency=day or recency=week when the ask is news or current events.
 - Ordinary "look this up" one-pagers can stay on web_search → scrape. Prefer
   research_report when they want thoroughness or a written report.
 - Answer from the report's Findings and Sources. Never invent citations that
   are not in the tool result. Mark single-source answers clearly.
+- Do not invent material grades, hysteresis percents, or formulas that were
+  not in a page you opened. A paper about a different device (deformable
+  mirror, FSM) is not a spec for their mount — say what the paper is about.
+- Do not end with a menu of code you could write. Write the answer.
 """.strip(),
     ),
     "deadline": SkillCard(

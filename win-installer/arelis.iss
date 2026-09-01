@@ -169,21 +169,60 @@ Filename: "{app}\pythonw.exe"; Parameters: "-m arelis"; WorkingDir: "{app}"; \
 Filename: "{app}\python.exe"; Parameters: "-m arelis --remove-scheduled-tasks"; \
     WorkingDir: "{app}"; Flags: runhidden skipifdoesntexist; \
     RunOnceId: "RemoveScheduledTasks"
+; Only when they said yes to wiping data. Tasks already went above. This removes
+; chats, memory, secrets, downloaded models, her Chrome profile, and the Ollama
+; setup we parked under Arelis-runtime -- not a system Ollama install.
+Filename: "{app}\python.exe"; Parameters: "-m arelis --purge-user-data"; \
+    WorkingDir: "{app}"; Flags: runhidden skipifdoesntexist; \
+    RunOnceId: "PurgeUserData"; Check: ShouldWipeData
 
 [UninstallDelete]
 ; Bytecode written after install, which is not in the file list and would otherwise
 ; leave the directory behind.
 Type: filesandordirs; Name: "{app}\Lib\site-packages\__pycache__"
+; The folder itself, if anything post-install (more pycache, a lock) lingered.
+Type: filesandordirs; Name: "{app}"
 
-; Deliberately absent: anything under %LOCALAPPDATA%\Arelis. That is conversations,
-; memory, saved jobs, OAuth tokens and downloaded models -- the user's data, not the
-; program's, and an uninstaller is not the place to decide it should go. Reinstalling
-; picks it back up, which is the behaviour somebody moving to a new version wants.
+; Off unless they asked. Default uninstall keeps this so a reinstall finds chats.
+; Documents\Arelis is the default workspace -- and also where people clone this
+; repository. The Python wipe skips a folder that looks like a checkout; Inno
+; cannot tell, so it must not delete the Documents workspace by name.
+Type: filesandordirs; Name: "{localappdata}\Arelis"; Check: ShouldWipeData
+Type: filesandordirs; Name: "{localappdata}\Arelis-runtime"; Check: ShouldWipeData
+Type: filesandordirs; Name: "{localappdata}\Arelis-dev"; Check: ShouldWipeData
 
 ; Last on purpose: everything after [Code] is Pascal, so a section placed below it would be
 ; read as source and silently stop being a section.
 [Code]
+var
+  WipeData: Boolean;
+
 function RelaunchRequested(): Boolean;
 begin
   Result := CompareText(ExpandConstant('{param:relaunch|no}'), 'yes') = 0;
+end;
+
+function ShouldWipeData(): Boolean;
+begin
+  Result := WipeData;
+end;
+
+function InitializeUninstall(): Boolean;
+begin
+  // Silent full removal: unins000.exe /SILENT /wipe=yes
+  WipeData := CompareText(ExpandConstant('{param:wipe|no}'), 'yes') = 0;
+  Result := True;
+  if UninstallSilent then
+    Exit;
+  if WipeData then
+    Exit;
+  if MsgBox(
+       'Also delete all Arelis data on this PC?' + #13#10 + #13#10 +
+       'That is conversations, memory, secrets, downloaded models, ' +
+       'her Chrome profile, and %LOCALAPPDATA%\Arelis-runtime.' + #13#10 + #13#10 +
+       'Documents\Arelis is removed only if it is not a source checkout.' + #13#10 + #13#10 +
+       'Choose No to keep that data for a later reinstall. ' +
+       'A system Ollama install is never removed.',
+       mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES then
+    WipeData := True;
 end;

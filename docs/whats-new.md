@@ -3,14 +3,16 @@
 The installer on GitHub is **0.2.5**.
 
 Published: [v0.2.5](releases/v0.2.5.md).
+Next installer notes (this checkout): [v0.2.6](releases/v0.2.6.md).
 Older: [v0.2.4](releases/v0.2.4.md). [v0.2.3](releases/v0.2.3.md).
 [v0.2.2](releases/v0.2.2.md). [v0.2.1](releases/v0.2.1.md).
 
 ## This checkout
 
-Notes for the tree you have now. The 0.2.5 installer is this tree
-without the 3D plate. Reality's room still ships. Earth and the
-true-scale globe stay on a source checkout.
+Notes for the tree you have now. The 0.2.5 installer is the
+prefix-cache ship: this tree without the 3D plate, and without the
+conversation fixes below. Reality's room still ships in the
+installer. Earth and the true-scale globe stay on a source checkout.
 
 **Watch.** The house now watches the doors it opened: LAN ingest is
 rate-limited and locks a client after repeated bad tokens; outbound
@@ -40,7 +42,21 @@ greeting that skipped schemas (the 0.2.3 clock-ask shortcut) blew that
 cache and made the next real question pay ~40s of prefill. Tiny asks
 (clock, hello, thanks, "who are you") still stream;
 tool-bearing turns still hold the answer until the tools finish. "Who
-is this" is not identity.
+is this" is not identity. Chat and weather stay at 8 model/tool
+rounds. A source inspect or solar-sim assess gets 16, and she is told
+to fanout-read `arelis/physics/engine.py` / `constants.py` /
+`horizons.py` / `scene.py`
+instead of listing the repo root. Research gets 32 rounds, 8
+distinct searches, and 16 distinct pages; `research_report` reads 8
+sources by default. Empty after a long scrape asks her to write
+instead of pasting the page; a short fact still ships from the tool.
+A kitchen-sink `research_report` query retries shorter, without a
+year filter. "Deeply research" is a 32-round ask even on the default
+fast chip. A folder she is Allowed to read includes the files inside
+it; a root deny does not send her walking up to Documents. Same query, same URL, same folder list, or same
+file read is blocked — that is a loop, not more work. A new path
+still runs. A larger context window does not raise the everyday cap
+— extra rounds are for crawls that actually spend them.
 
 **First message.** Launch pins the model, then seeds that prefix. The
 window says **loading the model…**, not **thinking…**, until the seed
@@ -68,6 +84,8 @@ and leave-filament tear the camera down; the chip brings it back.
 
 **Glass.** One lowercase voice. Thinking is the essay — no `think` /
 `model` / `tool` prefixes — with housekeeping as a footer.
+A finished research notice keeps the markdown path: double-click opens
+it, right-click is Open / Open with… / Show in folder.
 Workspace is the desk — notes you kept and files she wrote, not an empty
 folder tree. Folders is still there underneath. Launch tidies scrape
 dumps, the action ledger, spoken-reply wavs, old drops, stale logs,
@@ -126,7 +144,9 @@ or Japan, Illinois, Africa, the UK, home — typed or spoken.
 Click a country or city
 to fall toward it. Enter Earth jumps the clock to now and opens the
 Cesium globe (WebEngine, astro extra) for the planet only — Arelis
-keeps the starfield and the sodium HUD. NASA GIBS is the ground if no
+keeps the starfield and the sodium HUD. Solar GL parks for that
+stay so Chromium and the offscreen context do not share a current
+context (that abort closed the plate). NASA GIBS is the ground if no
 Google key is pasted; Photorealistic 3D cities light up close-in when
 `earth.google_maps_key` is set. Natural Earth country lines paint on
 the Qt disc so landfall still reads if Cesium is down. The GL Earth
@@ -158,8 +178,10 @@ dead-reckoned, then stale. Each Earth layer and solar body kind has
 its own sodium mark (`arelis/ui/earth_marks.py`) — Qt overlay, Cesium
 billboards, inspect card, and solar roster share the same drawn paths.
 Heading is the nose of the air/sea mark. A photoreal miss does not
-kill the globe. Overlay paints freshness and an inspect card with
-source. Completeness is the anti-beacon —
+kill the globe. Enter Earth waits one tick and drops the solar GL
+context so Cesium can take one — a live offscreen context was
+aborting the process on the first globe. Overlay paints freshness
+and an inspect card with source. Completeness is the anti-beacon —
 do not thin a region. Mid-ocean VHF is deaf; we do not buy sat-AIS.
 Starlink is a sample, not a painted shell. Individual cars stay a
 labeled hole. WGS84 on `earth.local_camera` is enough for an owned pin.
@@ -213,7 +235,9 @@ and the Earth zone are still checkout-only. Full notes:
   file. Open / show in folder. In a room: that room's `documents`
   folder. In orbit: `outputs/documents/`. Chat is not the document.
 - **Charts.** Same open / show chip. Room `plots` folder, or
-  `outputs/plots/` in orbit.
+  `outputs/plots/` in orbit. `path=` is a table (CSV). The PNG name
+  is `out=`. A graph of position over time is python then plot, not
+  matplotlib in the cell.
 - She can read her own source (`workspace` read of `arelis/…` /
   `docs/…` on a checkout; installed copies get a read-only package
   root). Inspect is read + `git_info`; writes to her package still

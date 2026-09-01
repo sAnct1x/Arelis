@@ -289,7 +289,7 @@ def test_every_dock_keeps_an_object_name() -> None:
     """
     from pathlib import Path
 
-    src = Path("arelis/ui/app.py").read_text(encoding="utf-8")
+    src = Path("arelis/ui/window_build.py").read_text(encoding="utf-8")
     for dock in (
         "ThinkingDock",
         "WorkspaceDock",
@@ -306,7 +306,7 @@ def test_view_menu_omits_settings() -> None:
     """Settings is title-bar only — View must not duplicate it."""
     from pathlib import Path
 
-    src = Path("arelis/ui/app.py").read_text(encoding="utf-8")
+    src = Path("arelis/ui/window_chrome.py").read_text(encoding="utf-8")
     start = src.index("def _show_view_menu")
     end = src.index("\n    def ", start + 1)
     body = src[start:end]

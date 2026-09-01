@@ -47,6 +47,46 @@ def test_external_read_grant_allows_absolute_read(tmp_path: Path) -> None:
         ws.resolve_read(str(outside))
 
 
+def test_directory_grant_covers_children(tmp_path: Path) -> None:
+    root = tmp_path / "proj"
+    root.mkdir()
+    outside = tmp_path / "interferometer"
+    outside.mkdir()
+    readme = outside / "README.md"
+    readme.write_text("our setup", encoding="utf-8")
+    core = outside / "core"
+    core.mkdir()
+    ws = WorkspaceRoots.from_paths([str(root)])
+    assert ws.grant_external_read(outside) == outside.resolve()
+    assert ws.has_external_read(readme)
+    hit = ws.resolve_read(str(readme))
+    assert hit.path == readme.resolve()
+    listed = ws.resolve_read(str(core))
+    assert listed.path == core.resolve()
+    with pytest.raises(PermissionError):
+        ws.resolve_read(str(tmp_path / "other" / "x.txt"))
+
+
+@pytest.mark.asyncio
+async def test_workspace_tool_reads_child_after_folder_grant(tmp_path: Path) -> None:
+    root = tmp_path / "proj"
+    root.mkdir()
+    folder = tmp_path / "interferometer"
+    folder.mkdir()
+    readme = folder / "README.md"
+    readme.write_text("our setup", encoding="utf-8")
+    ws = WorkspaceRoots.from_paths([str(root)])
+    ws.grant_external_read(folder)
+    tool = CodeWorkspaceTool(ws)
+    result = await tool.run(action="read", path=str(readme))
+    assert result.ok
+    assert "our setup" in result.output
+    denied = await tool.run(action="list", path=str(tmp_path / "Documents"))
+    assert not denied.ok
+    assert "outside allowed workspace roots" in denied.output
+    assert "Do not list a parent folder" in denied.output
+
+
 @pytest.mark.asyncio
 async def test_workspace_tool_reads_granted_external(tmp_path: Path) -> None:
     root = tmp_path / "proj"

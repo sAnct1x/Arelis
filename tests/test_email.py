@@ -612,6 +612,11 @@ def test_persona_forbids_narrating_side_effects_without_a_tool() -> None:
 
     text = Path("arelis/persona/arelis.md").read_text(encoding="utf-8")
     assert "Never claim you completed a side effect" in text
+    assert "Casual in, casual out" in text
+    assert "Do not diagnose mood" in text
+    assert "Do not paste the page" in text
+    assert "Do not end with a menu" in text
+    assert "Do not invent material grades" in text
 
 
 # -------------------------------------------------------------- registration

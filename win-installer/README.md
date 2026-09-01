@@ -181,10 +181,25 @@ lock.
 
 Per-user, into `%LOCALAPPDATA%\Programs\Arelis`, with no UAC prompt.
 
-Uninstall removes the program and deregisters every scheduled task
-Arelis created. A task holds an absolute path, so removing the directory
-alone leaves Windows waking on a timer to run something that is gone.
+Uninstall always removes the program and deregisters every scheduled
+task Arelis created. A task holds an absolute path, so removing the
+directory alone leaves Windows waking on a timer to run something that
+is gone.
 
-Uninstall deliberately leaves `%LOCALAPPDATA%\Arelis` alone. That is
-conversations, memory, saved jobs, OAuth tokens, and downloaded models.
-Reinstalling picks it back up.
+It then asks whether to delete data too. **No** is the default, so a
+reinstall still finds conversations, memory, saved jobs, OAuth tokens,
+and downloaded models under `%LOCALAPPDATA%\Arelis`.
+
+**Yes** also removes:
+
+| Path | What it is |
+| --- | --- |
+| `%LOCALAPPDATA%\Arelis` | Profile, chats, secrets, models, her Chrome, Playwright browsers |
+| `%LOCALAPPDATA%\Arelis-runtime` | Ollama setup we downloaded (not a system Ollama install) |
+| `%LOCALAPPDATA%\Arelis-dev` | Checkout sandbox from `run_dev_ui.ps1` |
+| `Documents\Arelis` | Default workspace, **only if it is not a source checkout** |
+
+A scripted full removal: `unins000.exe /SILENT /wipe=yes`.
+
+Never removed: a system Ollama install, `%USERPROFILE%\.ollama`, or
+this repository.

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from arelis.contacts import Contact, load_contacts, match_contact_label, resolve_contact
@@ -80,7 +81,8 @@ _FILE_PATH = re.compile(
 # "email this document to …" / "email the attached file to …"
 _COMPOSE_EMAIL_SHAPE = re.compile(
     r"(?i)\b("
-    r"e-?mail|send\s+(?:an?\s+)?(?:e-?mail|mail)|compose\s+(?:an?\s+)?(?:e-?mail|mail)"
+    r"e-?mailed|e-?mails?|"
+    r"send\s+(?:an?\s+)?(?:e-?mail|mail)|compose\s+(?:an?\s+)?(?:e-?mail|mail)"
     r")\b"
 )
 
@@ -380,7 +382,7 @@ _ASKED_FOR_FIELDS = re.compile(
 
 _EMAIL_VERB = re.compile(
     r"(?i)(?:^|[\n.!?]\s*)(?:please\s+)?("
-    r"e-?mail|send\s+(?:an?\s+)?(?:e-?mail|mail)|"
+    r"e-?mailed|e-?mails?|send\s+(?:an?\s+)?(?:e-?mail|mail)|"
     r"compose\s+(?:an?\s+)?(?:e-?mail|mail)"
     r")\b"
 )
@@ -405,16 +407,51 @@ class EmailDraft:
     resolved_to: str = ""
     source: str = "current"
     attach_path: str = ""
+    attach_paths: tuple[str, ...] = ()
+    wanted_suffixes: tuple[str, ...] = ()
+    recipients: tuple[str, ...] = ()
+    resolved_recipients: tuple[str, ...] = ()
+
+    @property
+    def all_attach_paths(self) -> tuple[str, ...]:
+        if self.attach_paths:
+            return self.attach_paths
+        if self.attach_path.strip():
+            return (self.attach_path,)
+        return ()
+
+    @property
+    def all_tos(self) -> tuple[str, ...]:
+        if self.resolved_recipients:
+            return self.resolved_recipients
+        if self.recipients:
+            return self.recipients
+        if self.tool_to:
+            return (self.tool_to,)
+        return (self.to,) if self.to.strip() else ()
 
     @property
     def unresolved_named_to(self) -> bool:
         """True when a named recipient has no contacts email / literal address."""
-        raw = self.to.strip()
-        if not raw or raw.lower() in _SELF_TO:
+        names = self.recipients or ((self.to,) if self.to.strip() else ())
+        if not names:
             return False
-        if self.resolved_to or valid_address(raw):
-            return False
-        return True
+        resolved = self.resolved_recipients or (
+            (self.resolved_to,) if self.resolved_to else ()
+        )
+        resolved_l = {r.lower() for r in resolved if r}
+        for raw in names:
+            text = raw.strip()
+            if not text or text.lower() in _SELF_TO:
+                continue
+            if valid_address(repair_email_address(text)):
+                continue
+            if text.lower() in resolved_l or (
+                self.resolved_to and text.lower() == self.to.strip().lower()
+            ):
+                continue
+            return True
+        return False
 
     @property
     def complete(self) -> bool:
@@ -424,7 +461,11 @@ class EmailDraft:
         does not skip the Allow card on the first ask. An attachment alone with
         a short body is also enough.
         """
-        if not self.body.strip() and not self.attach_path.strip():
+        if self.wanted_suffixes:
+            have = {Path(p).suffix.lower() for p in self.all_attach_paths}
+            if any(suf not in have for suf in self.wanted_suffixes):
+                return False
+        if not self.body.strip() and not self.all_attach_paths:
             return False
         if self.unresolved_named_to:
             return False
@@ -433,6 +474,8 @@ class EmailDraft:
     @property
     def tool_to(self) -> str:
         """Preferred `to` arg for send_email (address when known; empty = self)."""
+        if self.resolved_recipients:
+            return self.resolved_recipients[0]
         if self.resolved_to:
             return self.resolved_to
         raw = self.to.strip()
@@ -448,21 +491,22 @@ class EmailDraft:
     def tool_subject(self) -> str:
         if self.subject.strip():
             return self.subject.strip()
-        if self.attach_path.strip():
-            from pathlib import Path
-
-            return Path(self.attach_path).name or "A message from Arelis"
+        paths = self.all_attach_paths
+        if len(paths) == 1:
+            return Path(paths[0]).name or "A message from Arelis"
+        if paths:
+            return "Documents from Arelis"
         return "A message from Arelis"
 
     @property
     def tool_body(self) -> str:
         if self.body.strip():
             return self.body.strip()
-        if self.attach_path.strip():
-            from pathlib import Path
-
-            name = Path(self.attach_path).name
-            return f"Please see the attached file ({name})."
+        paths = self.all_attach_paths
+        if paths:
+            names = ", ".join(Path(p).name for p in paths)
+            label = "files" if len(paths) > 1 else "file"
+            return f"Please see the attached {label} ({names})."
         return ""
 
 
@@ -497,16 +541,177 @@ def repair_email_address(raw: str) -> str:
     return fixed if valid_address(fixed) else text
 
 
+_ADDR_IN_TEXT = re.compile(
+    r"(?i)\b([A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})\b"
+)
+_COMPOSE_INSTRUCTION = re.compile(
+    r"(?i)^\s*(?:,|and|&)?\s*(?:"
+    r"be\s+creative|"
+    r"make\s+it\s+(?:fun|funny|witty|creative|a\s+test)|"
+    r"let\s+(?:them|him|her)\s+know\s+it'?s\s+a\s+test|"
+    r"(?:this\s+is\s+)?(?:just\s+)?a\s+test(?:\s*[.!]?\s*)$|"
+    r"keep\s+it\s+(?:short|brief|fun|creative)"
+    r")\b"
+)
+_NOT_A_BODY = re.compile(r"(?i)^\s*(?:as\s+well|too|also)\s*[?]?\s*$")
+_EMAIL_ALSO_ASK = re.compile(
+    r"(?i)\b("
+    r"did\s+you\s+(?:also\s+)?(?:e-?mail|send)|"
+    r"(?:e-?mail|send).{0,80}\bas\s+well|"
+    r"as\s+well\s*[?]?\s*$"
+    r")\b"
+)
+_DEFAULT_TEST_BODY = "This is a test from Arelis. Please ignore."
+
+
+def named_addresses_in_text(text: str) -> list[str]:
+    """Every usable mailbox in free text, including bare @gmail / @yahoo."""
+    raw = text or ""
+    seen: set[str] = set()
+    out: list[str] = []
+    for match in _ADDR_IN_TEXT.finditer(raw):
+        addr = _clean_to(match.group(1))
+        if valid_address(addr) and addr.lower() not in seen:
+            seen.add(addr.lower())
+            out.append(addr)
+    for match in _BARE_MAIL.finditer(raw):
+        fixed = repair_email_address(match.group(0))
+        if valid_address(fixed) and fixed.lower() not in seen:
+            seen.add(fixed.lower())
+            out.append(fixed)
+    return out
+
+
 def named_address_in_text(text: str) -> str:
     """First usable mailbox in free text, including bare @gmail / @yahoo."""
+    addrs = named_addresses_in_text(text)
+    return addrs[0] if addrs else ""
+
+
+def looks_like_email_also_ask(text: str) -> bool:
+    """True for 'did you email X as well?' — not a new compose body."""
+    return bool(_EMAIL_ALSO_ASK.search(text or ""))
+
+
+def email_remaining(draft: EmailDraft | None, already_sent: set[str] | None) -> list[str]:
+    """Addresses still owed on a multi-recipient draft."""
+    if draft is None:
+        return []
+    sent = {s.lower() for s in (already_sent or set())}
+    return [
+        addr
+        for addr in draft.all_tos
+        if addr and addr.lower() not in sent
+    ]
+
+
+def wanted_attach_suffixes(text: str) -> tuple[str, ...]:
+    """File suffixes they asked to write and mail (markdown + PDF, etc.)."""
     raw = text or ""
-    m = re.search(
-        r"(?i)\b([A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})\b",
-        raw,
+    if not looks_like_compose_email(raw) and not re.search(
+        r"(?i)\be-?mailed\b", raw
+    ):
+        return ()
+    found: list[str] = []
+    if re.search(r"(?i)\bmarkdown\b|\.md\b", raw):
+        found.append(".md")
+    if re.search(r"(?i)\bpdf\b|\.pdf\b", raw):
+        found.append(".pdf")
+    return tuple(found)
+
+
+def split_attach_args(raw: str) -> list[str]:
+    """Split attach= 'a.md, b.pdf' / 'a.md and b.pdf' into paths."""
+    text = (raw or "").strip()
+    if not text:
+        return []
+    return [
+        part.strip().strip('"').strip("'")
+        for part in re.split(r"\s*(?:,|;|\n| and )\s*", text, flags=re.I)
+        if part.strip()
+    ]
+
+
+def email_remaining_files(
+    draft: EmailDraft | None, already_attached: set[str] | None
+) -> list[str]:
+    """Written files still owed on a multi-attach draft."""
+    if draft is None:
+        return []
+    have = {Path(s).name.lower() for s in (already_attached or set()) if s}
+    return [
+        path
+        for path in draft.all_attach_paths
+        if Path(path).name.lower() not in have
+    ]
+
+
+def email_files_still_owed(draft: EmailDraft | None) -> bool:
+    """True when they asked for formats that are not on the draft yet."""
+    if draft is None or not draft.wanted_suffixes:
+        return False
+    have = {Path(p).suffix.lower() for p in draft.all_attach_paths}
+    return any(suf not in have for suf in draft.wanted_suffixes)
+
+
+def email_send_finished(
+    draft: EmailDraft | None,
+    already_sent: set[str] | None,
+    already_attached: set[str] | None = None,
+) -> bool:
+    """True when every named inbox and every owed file has gone out."""
+    if draft is None:
+        return False
+    if email_remaining(draft, already_sent):
+        return False
+    if email_files_still_owed(draft):
+        return False
+    if email_remaining_files(draft, already_attached):
+        return False
+    return True
+
+
+def bind_written_files(
+    draft: EmailDraft | None,
+    written: list[str] | tuple[str, ...],
+    user_text: str = "",
+) -> EmailDraft | None:
+    """Attach this-turn document paths that match the asked formats."""
+    if draft is None:
+        return None
+    wanted = draft.wanted_suffixes or wanted_attach_suffixes(user_text)
+    if not wanted:
+        return draft
+    picked: list[str] = []
+    seen: set[str] = set()
+    for raw in (*draft.all_attach_paths, *written):
+        text = str(raw or "").strip()
+        if not text:
+            continue
+        path = resolve_attach_path(text) or text
+        key = path.lower()
+        if key in seen:
+            continue
+        if Path(path).suffix.lower() not in wanted:
+            continue
+        seen.add(key)
+        picked.append(path)
+    if not picked:
+        return draft if draft.wanted_suffixes else _clone_draft(
+            draft, wanted_suffixes=wanted
+        )
+    names = ", ".join(Path(p).name for p in picked)
+    body = draft.body.strip()
+    if not body or body.lower().startswith("please see the attached"):
+        label = "files" if len(picked) > 1 else "file"
+        body = f"Please see the attached {label} ({names})."
+    return _clone_draft(
+        draft,
+        body=body,
+        attach_path=picked[0],
+        attach_paths=tuple(picked),
+        wanted_suffixes=wanted,
     )
-    if m and valid_address(m.group(1)):
-        return _clean_to(m.group(1))
-    return repair_email_address(_BARE_MAIL.search(raw).group(0)) if _BARE_MAIL.search(raw) else ""
 
 
 def _clean_text(raw: str) -> str:
@@ -619,13 +824,17 @@ def resolve_attach_path(raw: str) -> str:
     """Turn a user/model attach string into an existing filesystem path, or ''."""
     from pathlib import Path
 
-    from arelis.paths import state_dir, user_data_dir
+    from arelis.paths import outputs_dir, state_dir, user_data_dir
 
     text = (raw or "").strip().strip('"').strip("'")
     if not text:
         return ""
     root = user_data_dir()
     candidates: list[Path] = [Path(text)]
+    name = Path(text).name
+    if name:
+        candidates.append(outputs_dir() / "documents" / name)
+        candidates.append(outputs_dir() / "plots" / name)
     # Staged drops often show up as data/drops/… or a leading /drops/…
     cleaned = text.lstrip("/").replace("\\", "/")
     if cleaned.startswith("drops/"):
@@ -715,7 +924,8 @@ def parse_email_utterance(text: str) -> EmailDraft | None:
             return None
     else:
         to = _clean_to(match.group("to") or "")
-    named = named_address_in_text(raw)
+    addrs = named_addresses_in_text(raw)
+    named = addrs[0] if addrs else ""
     if named:
         to = named
     first = to.split()[0].lower() if to else ""
@@ -769,11 +979,16 @@ def parse_email_utterance(text: str) -> EmailDraft | None:
     if first in _SELF_TO and not named:
         to = "me"
     rest = (match.group("rest") if match else "") or ""
-    if not rest and named:
+    if addrs:
+        after_last = _rest_after_addresses(raw, addrs)
+        if after_last.strip():
+            rest = after_last
+    elif not rest and named:
         after = raw.split(named, 1)
         rest = after[1] if len(after) > 1 else ""
     subject = ""
     body = ""
+    explicit_body = False
     quoted = _QUOTED_SUBJECT_BODY.search(raw)
     if quoted:
         subject = _clean_text(quoted.group("subject") or "")
@@ -782,12 +997,14 @@ def parse_email_utterance(text: str) -> EmailDraft | None:
             from pathlib import Path
 
             body = f"Please see the attached file ({Path(attach).name})."
+        recips = tuple(addrs) if addrs else ((to,) if to else ())
         return EmailDraft(
             to=to,
             subject=subject,
             body=body,
             source="current",
             attach_path=attach,
+            recipients=recips,
         )
     # "subject: test, body: hello" — must not treat "body:" as subject colon.
     inline = re.match(
@@ -798,10 +1015,12 @@ def parse_email_utterance(text: str) -> EmailDraft | None:
     if inline:
         subject = _clean_text(inline.group("subject") or "")
         body = _clean_text(inline.group("body") or "")
+        explicit_body = True
     else:
         about = _ABOUT_SUBJECT.match(rest)
         if about:
             payload = (about.group("rest") or "").strip()
+            explicit_body = True
             # "about Dinner plans: See you at 7" → subject / body on first colon.
             if ":" in payload and not re.search(r"(?i)\bbody\s*[:=]", payload):
                 left, right = payload.split(":", 1)
@@ -824,6 +1043,8 @@ def parse_email_utterance(text: str) -> EmailDraft | None:
                 body_only = _BODY_ONLY.match(rest)
                 if body_only:
                     body = _clean_text(body_only.group("body") or "")
+                    if re.match(r"(?i)^\s*(?:that|saying)\b", rest):
+                        explicit_body = True
                 elif rest.strip():
                     # Trailing text without a clear marker — treat as body when short.
                     # Drop a trailing path from the body when we already captured it.
@@ -834,12 +1055,16 @@ def parse_email_utterance(text: str) -> EmailDraft | None:
         from pathlib import Path
 
         body = f"Please see the attached file ({Path(attach).name})."
+    if not explicit_body:
+        body = _normalize_compose_body(body)
+    recips = tuple(addrs) if addrs else ((to,) if to else ())
     return EmailDraft(
         to=to,
         subject=subject,
         body=body,
         source="current",
         attach_path=attach,
+        recipients=recips,
     )
 
 def parse_subject_body_followup(text: str) -> tuple[str, str] | None:
@@ -857,15 +1082,65 @@ def parse_subject_body_followup(text: str) -> tuple[str, str] | None:
     return subject, body
 
 
+def _clone_draft(draft: EmailDraft, **overrides: Any) -> EmailDraft:
+    data = {
+        "to": draft.to,
+        "subject": draft.subject,
+        "body": draft.body,
+        "resolved_to": draft.resolved_to,
+        "source": draft.source,
+        "attach_path": draft.attach_path,
+        "attach_paths": draft.attach_paths,
+        "wanted_suffixes": draft.wanted_suffixes,
+        "recipients": draft.recipients,
+        "resolved_recipients": draft.resolved_recipients,
+    }
+    data.update(overrides)
+    return EmailDraft(**data)
+
+
 def _with_resolved(draft: EmailDraft, book: dict[str, Contact]) -> EmailDraft:
-    return EmailDraft(
-        to=draft.to,
-        subject=draft.subject,
-        body=draft.body,
-        resolved_to=resolve_email_address(draft.to, book),
-        source=draft.source,
-        attach_path=draft.attach_path,
+    names = draft.recipients or ((draft.to,) if draft.to.strip() else ())
+    resolved: list[str] = []
+    seen: set[str] = set()
+    for name in names:
+        addr = resolve_email_address(name, book)
+        if addr and addr.lower() not in seen:
+            seen.add(addr.lower())
+            resolved.append(addr)
+    primary = resolved[0] if resolved else resolve_email_address(draft.to, book)
+    return _clone_draft(
+        draft,
+        resolved_to=primary,
+        recipients=tuple(names),
+        resolved_recipients=tuple(resolved),
     )
+
+
+def _rest_after_addresses(raw: str, addrs: list[str]) -> str:
+    if not addrs:
+        return ""
+    last = addrs[-1]
+    idx = raw.lower().rfind(last.lower())
+    if idx < 0:
+        return ""
+    return raw[idx + len(last) :]
+
+
+def _normalize_compose_body(body: str) -> str:
+    text = _clean_text(body)
+    if _NOT_A_BODY.match(text):
+        return ""
+    if _looks_like_compose_instruction(text):
+        return _DEFAULT_TEST_BODY
+    return text
+
+
+def _looks_like_compose_instruction(text: str) -> bool:
+    raw = (text or "").strip(" ,.;")
+    if not raw:
+        return False
+    return bool(_COMPOSE_INSTRUCTION.match(raw))
 
 
 def _last_incomplete_email_draft(
@@ -878,13 +1153,7 @@ def _last_incomplete_email_draft(
         prior = parse_email_utterance(content)
         if prior and prior.to and not prior.complete:
             return _with_resolved(
-                EmailDraft(
-                    to=prior.to,
-                    subject=prior.subject,
-                    body=prior.body,
-                    source="history",
-                    attach_path=prior.attach_path,
-                ),
+                _clone_draft(prior, source="history"),
                 book,
             )
     return None
@@ -914,13 +1183,7 @@ def _last_complete_email_draft(
         prior = parse_email_utterance(content)
         if prior and prior.complete:
             return _with_resolved(
-                EmailDraft(
-                    to=prior.to,
-                    subject=prior.subject,
-                    body=prior.body,
-                    source="history",
-                    attach_path=prior.attach_path,
-                ),
+                _clone_draft(prior, source="history"),
                 book,
             )
         # Also accept a follow-up body turn that completed an earlier draft.
@@ -941,24 +1204,21 @@ def _last_complete_email_draft(
             if follow is not None:
                 subject, body = follow
                 return _with_resolved(
-                    EmailDraft(
-                        to=pending.to,
+                    _clone_draft(
+                        pending,
                         subject=subject or pending.subject,
                         body=body or pending.body,
                         source="history",
-                        attach_path=pending.attach_path,
                     ),
                     book,
                 )
             body = _clean_text(content)
             if body and not _EMAIL_VERB.match(content) and not _SEND_CONFIRM.match(content):
                 return _with_resolved(
-                    EmailDraft(
-                        to=pending.to,
-                        subject=pending.subject,
+                    _clone_draft(
+                        pending,
                         body=body,
                         source="history",
-                        attach_path=pending.attach_path,
                     ),
                     book,
                 )
@@ -979,7 +1239,32 @@ def complete_email_draft(
         return None
     current = parse_email_utterance(user_text)
     if current is not None:
+        suffixes = wanted_attach_suffixes(user_text)
+        if suffixes and not current.wanted_suffixes:
+            current = _clone_draft(current, wanted_suffixes=suffixes)
         current = _with_attach_from_history(current, history, user_text)
+    if looks_like_email_also_ask(user_text):
+        pairs = history_pairs(history or [])
+        if not pairs or pairs[-1] != ("user", user_text):
+            pairs = [*pairs, ("user", user_text)]
+        prior = _last_complete_email_draft(pairs[:-1], book) or _last_email_draft_any(
+            pairs[:-1], book
+        )
+        if prior is not None:
+            names = list(prior.recipients or ((prior.to,) if prior.to else ()))
+            for addr in named_addresses_in_text(user_text):
+                if addr.lower() not in {n.lower() for n in names}:
+                    names.append(addr)
+            return _with_resolved(
+                _clone_draft(
+                    prior,
+                    to=names[0] if names else prior.to,
+                    recipients=tuple(names),
+                    body=prior.body or _DEFAULT_TEST_BODY,
+                    source="history",
+                ),
+                book,
+            )
     if current and current.complete:
         return _with_resolved(current, book)
 
@@ -1004,8 +1289,8 @@ def complete_email_draft(
             if not body or body.lower().startswith("please see the attached file"):
                 body = f"Please see the attached file ({Path(resolved).name})."
             return _with_resolved(
-                EmailDraft(
-                    to=pending.to,
+                _clone_draft(
+                    pending,
                     subject=pending.subject or Path(resolved).name,
                     body=body,
                     source="history",
@@ -1034,7 +1319,7 @@ def complete_email_draft(
         if _SEND_CONFIRM.match(user_text):
             # Already handled in Case C; avoid treating "yes" as a body line.
             return None
-        from arelis.core.other_work import looks_like_other_work
+        from arelis.core.other_work import looks_like_other_work, looks_like_sent_compose
 
         if looks_like_other_work(user_text, history):
             return None
@@ -1049,13 +1334,17 @@ def complete_email_draft(
         pending: EmailDraft | None = None
         saw_ask = False
         for role, content in reversed(pairs[:-1]):
-            if role == "assistant" and _ASKED_FOR_FIELDS.search(content or ""):
-                saw_ask = True
+            if role == "assistant":
+                if looks_like_sent_compose(content or ""):
+                    return None
+                if _ASKED_FOR_FIELDS.search(content or ""):
+                    saw_ask = True
                 continue
             if role == "user":
                 prior = parse_email_utterance(content)
                 if prior and prior.to and not prior.complete:
-                    pending = prior
+                    if saw_ask:
+                        pending = prior
                     break
                 if prior and prior.to and prior.complete:
                     if saw_ask:
@@ -1067,12 +1356,11 @@ def complete_email_draft(
             merged_subject = subject or pending.subject
             merged_body = body or pending.body
             return _with_resolved(
-                EmailDraft(
-                    to=pending.to,
+                _clone_draft(
+                    pending,
                     subject=merged_subject,
                     body=merged_body,
                     source="history",
-                    attach_path=pending.attach_path,
                 ),
                 book,
             )
@@ -1085,12 +1373,11 @@ def complete_email_draft(
             prior = parse_email_utterance(content)
             if prior and prior.to and not prior.complete:
                 return _with_resolved(
-                    EmailDraft(
-                        to=prior.to,
+                    _clone_draft(
+                        prior,
                         subject=subject or prior.subject,
                         body=body or prior.body,
                         source="history",
-                        attach_path=prior.attach_path,
                     ),
                     book,
                 )
@@ -1115,14 +1402,7 @@ def _with_attach_from_history(
             body = draft.body.strip()
             if not body or body.lower().startswith("please see the attached file"):
                 body = f"Please see the attached file ({Path(resolved).name})."
-            return EmailDraft(
-                to=draft.to,
-                subject=draft.subject,
-                body=body,
-                resolved_to=draft.resolved_to,
-                source=draft.source,
-                attach_path=resolved,
-            )
+            return _clone_draft(draft, body=body, attach_path=resolved)
         return draft
 
     named = _extract_file_path(user_text)
@@ -1133,14 +1413,7 @@ def _with_attach_from_history(
         body = draft.body.strip()
         if not body or body.lower() == "please see the attached file.":
             body = f"Please see the attached file ({Path(resolved).name})."
-        return EmailDraft(
-            to=draft.to,
-            subject=draft.subject,
-            body=body,
-            resolved_to=draft.resolved_to,
-            source=draft.source,
-            attach_path=resolved,
-        )
+        return _clone_draft(draft, body=body, attach_path=resolved)
 
     # Prefer a staged attachment path from this turn / recent history.
     att = _latest_attachment_path(history, user_text)
@@ -1150,14 +1423,7 @@ def _with_attach_from_history(
         body = draft.body.strip()
         if not body or body.lower() == "please see the attached file.":
             body = f"Please see the attached file ({Path(att).name})."
-        return EmailDraft(
-            to=draft.to,
-            subject=draft.subject,
-            body=body,
-            resolved_to=draft.resolved_to,
-            source=draft.source,
-            attach_path=att,
-        )
+        return _clone_draft(draft, body=body, attach_path=att)
 
     # Last written document for "email that" / "email the file".
     from arelis.core.document_refs import (
@@ -1177,14 +1443,7 @@ def _with_attach_from_history(
             body = draft.body.strip()
             if not body or body.lower() == "please see the attached file.":
                 body = f"Please see the attached file ({Path(path).name})."
-            return EmailDraft(
-                to=draft.to,
-                subject=draft.subject,
-                body=body,
-                resolved_to=draft.resolved_to,
-                source=draft.source,
-                attach_path=path,
-            )
+            return _clone_draft(draft, body=body, attach_path=path)
 
     # Generated-image fill only for explicit image/photo asks — never for
     # "document" / "file" / spreadsheet turns.
@@ -1202,14 +1461,7 @@ def _with_attach_from_history(
     body = draft.body.strip()
     if not body or body.lower() == "please see the attached file.":
         body = f"Please see the attached file ({Path(path).name})."
-    return EmailDraft(
-        to=draft.to,
-        subject=draft.subject,
-        body=body,
-        resolved_to=draft.resolved_to,
-        source=draft.source,
-        attach_path=path,
-    )
+    return _clone_draft(draft, body=body, attach_path=path)
 
 
 def _latest_attachment_path(
@@ -1246,44 +1498,56 @@ def fill_send_email_args(
     draft: EmailDraft | None,
     *,
     contacts: dict[str, Contact] | None = None,
+    already_sent: set[str] | None = None,
 ) -> dict[str, Any]:
     """Fill to/subject/body/attach on a tool call from a known draft.
 
     When the draft is complete (subject+body), those fields are locked — the
     model cannot overwrite them with a different invent. Confirm cards therefore
-    show the message that will actually send.
+    show the message that will actually send. For two named inboxes, `to` is
+    the next address not already sent this turn.
     """
     if draft is None:
         return dict(args)
     out = dict(args)
-    named = named_address_in_text(
-        f"{draft.to} {draft.resolved_to} {draft.tool_to}".strip()
-    ) or repair_email_address(draft.tool_to or draft.to)
-    if named and valid_address(named):
-        out["to"] = named
+    remaining = email_remaining(draft, already_sent)
+    next_to = remaining[0] if remaining else draft.tool_to
+    if next_to and not valid_address(repair_email_address(next_to)):
+        next_to = draft.tool_to or next_to
+    model_to = repair_email_address(str(out.get("to") or "").strip())
+    intended = {a.lower() for a in draft.all_tos}
+    sent = {s.lower() for s in (already_sent or set())}
+    if (
+        model_to
+        and valid_address(model_to)
+        and model_to.lower() in intended
+        and model_to.lower() not in sent
+    ):
+        next_to = model_to
+    if next_to:
+        out["to"] = next_to
     if draft.complete:
-        locked_to = named or draft.tool_to
-        if locked_to:
-            out["to"] = locked_to
         out["subject"] = draft.tool_subject
         out["body"] = draft.tool_body
-        if draft.attach_path:
-            out["attach"] = draft.attach_path
+        if draft.all_attach_paths:
+            out["attach"] = ", ".join(draft.all_attach_paths)
         return out
-    if not str(out.get("to") or "").strip() and draft.tool_to:
-        out["to"] = draft.tool_to
     if not str(out.get("subject") or "").strip() and draft.subject:
         out["subject"] = draft.subject
     if not str(out.get("body") or "").strip() and draft.tool_body:
         out["body"] = draft.tool_body
-    if draft.attach_path and not str(out.get("attach") or out.get("path") or "").strip():
-        out["attach"] = draft.attach_path
+    if draft.all_attach_paths and not str(
+        out.get("attach") or out.get("path") or ""
+    ).strip():
+        out["attach"] = ", ".join(draft.all_attach_paths)
     return out
 
 
-def draft_send_email_args(draft: EmailDraft) -> dict[str, Any]:
+def draft_send_email_args(
+    draft: EmailDraft, *, already_sent: set[str] | None = None
+) -> dict[str, Any]:
     """Concrete send_email kwargs from a complete draft (for inject)."""
-    return fill_send_email_args({}, draft)
+    return fill_send_email_args({}, draft, already_sent=already_sent)
 
 
 def email_preflight_nudge(draft: EmailDraft) -> str:
@@ -1296,11 +1560,29 @@ def email_preflight_nudge(draft: EmailDraft) -> str:
             "Ask once for the email address (do not invent one, do not silently "
             "mail the user instead). Do not claim the email was sent."
         )
+    tos = ", ".join(draft.all_tos) or draft.tool_to or "(user)"
     to = draft.tool_to or "(user)"
+    if email_files_still_owed(draft):
+        kinds = ", ".join(s.lstrip(".") for s in draft.wanted_suffixes)
+        return (
+            "Intent preflight: write the asked files with document first "
+            f"({kinds}), then call send_email once to {tos} with attach= "
+            "those paths comma-separated (markdown and PDF on the same "
+            "message). Do not send until both files exist. "
+            "The confirm card is the Allow step."
+        )
     if draft.complete:
         attach = ""
-        if draft.attach_path:
-            attach = f' attach="{draft.attach_path}"'
+        if draft.all_attach_paths:
+            attach = f' attach="{ ", ".join(draft.all_attach_paths) }"'
+        if len(draft.all_tos) > 1:
+            return (
+                "Intent preflight: send an email to each address now. Call "
+                f"send_email once per address in order ({tos}) with the same "
+                f'subject="{draft.tool_subject[:120]}" '
+                f'body="{draft.tool_body[:300]}"{attach}. '
+                "Do not drop a named inbox. Each send needs its own Allow."
+            )
         return (
             "Intent preflight: send an email now. Call send_email immediately with "
             f'to="{to}" subject="{draft.tool_subject[:120]}" '
@@ -1310,7 +1592,7 @@ def email_preflight_nudge(draft: EmailDraft) -> str:
             "The confirm card is the Allow step."
         )
     missing: list[str] = []
-    if not draft.body.strip() and not draft.attach_path:
+    if not draft.body.strip() and not draft.all_attach_paths:
         missing.append("body")
     need = " and ".join(missing) if missing else "body"
     who = draft.to.strip() or "the recipient"
@@ -1322,16 +1604,22 @@ def email_preflight_nudge(draft: EmailDraft) -> str:
     )
 
 
-def email_force_call_notice(draft: EmailDraft) -> str:
+def email_force_call_notice(
+    draft: EmailDraft, *, already_sent: set[str] | None = None
+) -> str:
     """User-role nudge when the model tried to finish without calling send_email."""
-    to = draft.tool_to or "(user)"
+    remaining = email_remaining(draft, already_sent)
+    to = remaining[0] if remaining else (draft.tool_to or "(user)")
+    extra = ""
+    if len(remaining) > 1:
+        extra = f" Then repeat for: {', '.join(remaining[1:])}."
     attach = ""
-    if draft.attach_path:
-        attach = f' attach="{draft.attach_path}"'
+    if draft.all_attach_paths:
+        attach = f' attach="{ ", ".join(draft.all_attach_paths) }"'
     return (
-        "You have not called send_email yet. Call it now with "
+        "You have not finished send_email. Call it now with "
         f'to="{to}" subject="{draft.tool_subject[:120]}" '
-        f'body="{draft.tool_body[:300]}"{attach}. '
+        f'body="{draft.tool_body[:300]}"{attach}.{extra} '
         "Do not web_search. Chatting is not sending. "
         "The confirm card will ask the user to Allow."
     )

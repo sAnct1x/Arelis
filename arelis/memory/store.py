@@ -480,6 +480,9 @@ class MemoryStore:
         """Create a conversation without making it this process's open seat."""
         return sessions.mint_session(self, room_id=room_id)
 
+    def start_or_reuse_empty_session(self, *, room_id: str) -> str:
+        return sessions.start_or_reuse_empty_session(self, room_id=room_id)
+
     def start_glass_session(self) -> str:
         """Cold glass launch: new conversation. Last real thread stays in history.
 

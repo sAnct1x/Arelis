@@ -811,6 +811,7 @@ class SolarSpaceView(QOpenGLFunctions):
         self._readback: QImage | None = None
         self._perf = [0.0, 0.0, 0.0, 0.0]  # frames, render s, readback s, since
         self._keep: list[object] = []
+        self._parked = False
 
     def realize(self) -> None:
         try:
@@ -1137,6 +1138,8 @@ class SolarSpaceView(QOpenGLFunctions):
     def render(
         self, width: int, height: int, *, stars_only: bool = False
     ) -> QImage | None:
+        if getattr(self, "_parked", False):
+            return self._frame
         if not self.gl_ok or self._ctx is None or self._surface is None:
             return None
         key = (*self._view_key(width, height), stars_only)
@@ -1206,6 +1209,10 @@ class SolarSpaceView(QOpenGLFunctions):
             self._logged_paint = True
             self.gl_ok = False
             return None
+        finally:
+            # Chromium (enter Earth) aborts if this offscreen context is still
+            # current when QWebEngineView is constructed.
+            self.release_current()
 
     def _log_cost(self, started: float, drawn: float, done: float) -> None:
         """Mean GPU-frame cost every few seconds. Local file, nothing leaves."""
@@ -1227,6 +1234,27 @@ class SolarSpaceView(QOpenGLFunctions):
         )
         perf[0] = perf[1] = perf[2] = 0.0
         perf[3] = done
+
+    def release_current(self) -> None:
+        """Drop the offscreen context so Cesium can take a real one."""
+        ctx = self._ctx
+        if ctx is None:
+            return
+        try:
+            ctx.doneCurrent()
+        except Exception:
+            pass
+
+    def park(self) -> None:
+        """Stay off the shared GL context while Chromium owns Earth."""
+        self.release_current()
+        self._parked = True
+        trace("solar GL parked for Earth")
+
+    def unpark(self) -> None:
+        self._parked = False
+        self._frame_key = None
+        trace("solar GL unparked")
 
     def _unbind(self) -> None:
         for vao in (

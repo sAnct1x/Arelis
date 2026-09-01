@@ -38,7 +38,7 @@ def extract_urls(
 def pick_urls(
     urls: list[str],
     *,
-    max_sources: int = 3,
+    max_sources: int = 8,
 ) -> list[str]:
     """Keep up to N distinct page URLs (host+path), dropping empties."""
     limit = max(1, int(max_sources))

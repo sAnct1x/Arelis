@@ -348,6 +348,7 @@ def test_inspect_phrases_select_inspect_not_web_fallback() -> None:
         "show me the Drive strip",
         "how do you work",
         "read arelis/core/tool_subset.py and tell me what it does",
+        "look at the files required for an accurate assessment of the solar system simulation",
     ):
         ids, fallback = select_skill_ids_detailed(phrase, available_tools=tools)
         assert "inspect" in ids or "workspace" in ids, phrase

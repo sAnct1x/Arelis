@@ -359,6 +359,9 @@ def _public_globe(path: Path) -> bool:
         "scripts/shot_reality_polish.py",
         "docs/earth.md",
         "data/secrets.example.yaml",
+        # Public US gazetteer: "Baltimore, OH" vs "baltimore ohio".
+        "arelis/tools/weather.py",
+        "tests/test_weather_tool.py",
     }
 
 

@@ -273,6 +273,19 @@ def test_a_conversation_remembers_which_room_it_belongs_to(tmp_path: Path) -> No
     store.close()
 
 
+def test_reuse_empty_room_chat_does_not_mint_a_second(tmp_path: Path) -> None:
+    store = MemoryStore(tmp_path / "memory.db")
+    filled = store.start_session(room_id="physics")
+    memory = SessionMemory(sink=store)
+    memory.add("user", "old lecture")
+    empty = store.start_session(room_id="physics")
+    again = store.start_or_reuse_empty_session(room_id="physics")
+    assert again == empty
+    assert store.get_session(filled) is not None
+    assert store.get_messages(filled)[0]["content"] == "old lecture"
+    store.close()
+
+
 def test_a_cold_launch_cannot_prune_a_rooms_empty_thread(tmp_path: Path) -> None:
     """A room's thread is durable by design, including before it has anything in it.
 

@@ -29,6 +29,7 @@ _ACTIONS = frozenset({"line", "scatter", "residuals"})
 _MAX_ROWS = 20_000
 _MAX_INLINE = 2_000
 _TABLE_SUFFIXES = {".csv", ".tsv", ".tab", ".json", ".xlsx", ".xls"}
+_CHART_OUT_SUFFIXES = {".png", ".pdf", ".jpg", ".jpeg", ".webp", ".svg"}
 _INLINE_SPLIT = re.compile(r"[,;\s]+")
 _SAFE_STEM = re.compile(r"[^a-zA-Z0-9._-]+")
 
@@ -73,11 +74,22 @@ def _unique_dest(directory: Path, stem: str, suffix: str) -> Path:
         n += 1
 
 
+def _looks_like_chart_out(path_str: str) -> bool:
+    """True when path= was used as the PNG name (a 9B mix-up)."""
+    leaf = Path(str(path_str).replace("\\", "/")).name
+    return Path(leaf).suffix.lower() in _CHART_OUT_SUFFIXES
+
+
 def _parse_numbers(raw: str, *, name: str) -> np.ndarray:
     np = _numpy()
     text = (raw or "").strip()
     if not text:
         raise ValueError(f"Missing {name}.")
+    if "…" in text or "..." in text:
+        raise ValueError(
+            f"{name} is truncated. Pass every number, or a CSV via path=. "
+            "Do not use … or ..."
+        )
     parts = [p for p in _INLINE_SPLIT.split(text) if p]
     if len(parts) > _MAX_INLINE:
         raise ValueError(f"{name} is too long (max {_MAX_INLINE} points).")
@@ -108,10 +120,12 @@ class PlotTool:
         "plots/ directory. Otherwise it lands under outputs/plots/. Actions: "
         "line, scatter, residuals. For a CSV/TSV/Excel file pass path plus x "
         "and y column names. For a tiny series pass xs and ys as "
-        "comma-separated numbers. residuals fits a straight line (least "
-        "squares) and plots data+fit plus residuals — do not invent a trend "
-        "or draw an ASCII chart. This is not Python: do not pass code. Allow "
-        "is required. Do not use image (Comfy) for data."
+        "comma-separated numbers and out='name.png' for the file. path= is "
+        "the table, never the PNG — that name is out=. residuals fits a "
+        "straight line (least squares) and plots data+fit plus residuals — "
+        "do not invent a trend or draw an ASCII chart. This is not Python: "
+        "do not pass code or matplotlib. Allow is required. Do not use "
+        "image (Comfy) for data."
     )
     risk = "write"
     parameters_schema: dict[str, Any] = {
@@ -124,7 +138,10 @@ class PlotTool:
             },
             "path": {
                 "type": "string",
-                "description": "Table file under a workspace root (CSV/TSV/JSON/Excel)",
+                "description": (
+                    "Table file under a workspace root (CSV/TSV/JSON/Excel). "
+                    "Not the PNG — that is out="
+                ),
             },
             "x": {
                 "type": "string",
@@ -267,6 +284,11 @@ class PlotTool:
         self, kwargs: dict[str, Any]
     ) -> tuple[np.ndarray, np.ndarray, str, str, str]:
         path_str = str(kwargs.get("path") or "").strip()
+        png_as_path = bool(path_str and _looks_like_chart_out(path_str))
+        if png_as_path:
+            if not str(kwargs.get("out") or "").strip():
+                kwargs["out"] = Path(path_str.replace("\\", "/")).name
+            path_str = ""
         if path_str:
             resolved = self.workspace.resolve_read(path_str)
             path = resolved.path
@@ -300,8 +322,14 @@ class PlotTool:
         xs = str(kwargs.get("xs") or "").strip()
         ys = str(kwargs.get("ys") or "").strip()
         if not xs or not ys:
+            if png_as_path:
+                raise ValueError(
+                    "path is the PNG name — use out= for the file and xs/ys "
+                    "for the numbers (or path= to a CSV with x and y columns)."
+                )
             raise ValueError(
-                "Give a table path with x and y columns, or xs and ys as numbers."
+                "Give a table path with x and y columns, or xs and ys as numbers. "
+                "The PNG name is out=, not path=."
             )
         x = _parse_numbers(xs, name="xs")
         y = _parse_numbers(ys, name="ys")

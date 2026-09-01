@@ -201,7 +201,13 @@ agent:
   # Research role: prefer two independent web hits before high confidence.
   research_dual_hit: true
   # Deep-dive / research-role turns get a higher tool-round budget (agent_loop).
-  research_max_rounds: 12
+  # Same query / same URL still stop. This is a fuse, not a reading diet.
+  research_max_rounds: 32
+  research_max_searches: 8
+  research_max_pages: 16
+  # Source / sim assess: workspace crawls burn rounds on list+read. Chat
+  # and weather stay at max_rounds (8). Larger num_ctx does not raise this.
+  inspect_max_rounds: 16
   # Research mode finish gate: need this many ok web sources (agent_loop).
   research_min_sources: 2
   # Both of these shrink the tool schema array, and both are off because
@@ -307,14 +313,14 @@ tools:
     # Silent lookup, no API key, no container, not a Settings picker.
     # Order is fixed in search.py: DuckDuckGo HTML, DuckDuckGo Lite, then
     # Wikipedia (Wikipedia is skipped when recency is day or week).
-    max_results: 6
+    max_results: 10
     timeout_s: 20
   research:
     # Deterministic multi-source disposer (search → scrape → markdown artifact).
     # Attended turns only. Prefer for deep dives / research role.
     enabled: true
-    max_sources: 3
-    max_chars_per_source: 1200
+    max_sources: 8
+    max_chars_per_source: 4000
     output_dir: "outputs/research"
   email:
     # Transport only. Your address and app password live in data/secrets.yaml,

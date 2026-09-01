@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import pytest
 
-from arelis.core.other_work import looks_like_other_work
+from arelis.core.other_work import looks_like_other_work, looks_like_sent_compose
 
 OTHER = [
     "what's on my calendar today",
@@ -53,6 +53,12 @@ def test_a_plain_email_is_not_other_work() -> None:
 def test_empty_is_not_other_work() -> None:
     assert not looks_like_other_work("")
     assert not looks_like_other_work("   ")
+
+
+def test_sent_compose_is_a_closed_letter() -> None:
+    assert looks_like_sent_compose("Sent email to you@example.com.")
+    assert looks_like_sent_compose("Sent your text to Sam.")
+    assert not looks_like_sent_compose("What should the body say?")
 
 
 def test_cas_and_fenced_code_are_other_work() -> None:
