@@ -21,6 +21,12 @@ from arelis.sms_inbound import InboundSms, format_held_inbound_voice_cue
 from arelis.ui.sms_chat import room_owns_doorbell, seed_bodies
 
 
+def _sync_notify(window) -> None:
+    from arelis.ui.notify_host import sync_notify_surface
+
+    sync_notify_surface(window)
+
+
 def on_sms_received(window, payload: dict[str, Any]) -> None:
     """Bubble first. A visible room swallows the doorbell. Voice waits on the floor."""
     if window._force_quit or window._disposed:
@@ -68,13 +74,13 @@ def on_sms_received(window, payload: dict[str, Any]) -> None:
             },
         )
     )
-    window._sync_notify_surface()
+    _sync_notify(window)
     if notice is None:
         return
     if window._floor_busy():
         window._held_inbound.append(msg)
         return
-    window._maybe_voice_sms([msg])
+    maybe_voice_sms(window, [msg])
 
 
 def flush_held_inbound(window) -> None:
@@ -82,7 +88,7 @@ def flush_held_inbound(window) -> None:
         return
     held = window._held_inbound
     window._held_inbound = []
-    window._maybe_voice_sms(held)
+    maybe_voice_sms(window, held)
 
 
 def maybe_voice_sms(window, messages: list[InboundSms]) -> None:
@@ -98,7 +104,9 @@ def maybe_voice_sms(window, messages: list[InboundSms]) -> None:
     cue = format_held_inbound_voice_cue(known)
     if not cue:
         return
-    window._arm_speech()
+    from arelis.ui.voice_host import arm_speech
+
+    arm_speech(window)
     asyncio.run_coroutine_threadsafe(
         window.bus.publish(Event(EventType.VOICE_SPEAK, {"text": cue})),
         window.loop,
@@ -106,7 +114,7 @@ def maybe_voice_sms(window, messages: list[InboundSms]) -> None:
 
 
 def on_notice_reply(window, notice_id: str) -> None:
-    window._open_sms_chat(notice_id)
+    open_sms_chat(window, notice_id)
 
 
 def on_sms_tile_shown(window, alias: str, phone: str) -> None:
@@ -128,7 +136,7 @@ def on_sms_tile_shown(window, alias: str, phone: str) -> None:
             window.notify_center.mark_read(notice.id)
             marked = True
     if marked:
-        window._sync_notify_surface()
+        _sync_notify(window)
 
 
 def open_sms_chat(window, notice_id: str) -> None:
@@ -152,7 +160,7 @@ def open_sms_chat(window, notice_id: str) -> None:
         return
     if notice.unread:
         window.notify_center.mark_read(notice.id)
-        window._sync_notify_surface()
+        _sync_notify(window)
 
 
 def on_sms_tile_send(window, key: str, body: str, alias: str, phone: str) -> None:
@@ -160,11 +168,11 @@ def on_sms_tile_send(window, key: str, body: str, alias: str, phone: str) -> Non
         window.sms_chats.system(key, "Arelis is not ready to send.")
         return
     future = asyncio.run_coroutine_threadsafe(
-        window._operator_send_sms(alias, phone, body),
+        operator_send_sms(window, alias, phone, body),
         window.loop,
     )
     future.add_done_callback(
-        lambda fut, k=key: window._sms_send_resolved(fut, k)
+        lambda fut, k=key: sms_send_resolved(window, fut, k)
     )
 
 
@@ -209,4 +217,21 @@ def push_mobile_notice(window, kind: str, title: str, body: str) -> None:
     hub = getattr(ingest, "mobile", None) if ingest is not None else None
     if hub is not None:
         hub.push_notice(kind, title, body)
+
+
+def bind_sms(window) -> None:
+    overlay = window.conversation.notify_overlay
+    overlay.reply_requested.connect(lambda nid: on_notice_reply(window, nid))
+    window.notifications.chat_requested.connect(
+        lambda notice_id: open_sms_chat(window, notice_id)
+    )
+    window.sms_send_finished.connect(
+        lambda key, ok, error: on_sms_send_finished(window, key, ok, error)
+    )
+    window.sms_chats.set_send_handler(
+        lambda key, body, alias, phone: on_sms_tile_send(window, key, body, alias, phone)
+    )
+    window.sms_chats.set_shown_handler(
+        lambda alias, phone: on_sms_tile_shown(window, alias, phone)
+    )
 

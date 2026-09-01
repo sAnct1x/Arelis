@@ -24,7 +24,7 @@ def idle_eligible(window) -> bool:
 
 
 def sync_idle_mode(window) -> None:
-    idle = window._idle_eligible()
+    idle = idle_eligible(window)
     window.conversation.set_idle_mode(idle)
     instruments = any(
         not dock.isHidden()
@@ -52,7 +52,7 @@ def sync_idle_mode(window) -> None:
         apply = getattr(window.conversation, "apply_filament_desk", None)
         if callable(apply):
             apply(True, chat_open=bool(getattr(window, "_filament_chat_open", False)))
-    window._refresh_idle_face()
+    refresh_idle_face(window)
 
 
 def return_to_idle(window) -> None:
@@ -75,7 +75,7 @@ def return_to_idle(window) -> None:
     window._away_resting = False
     window._away_hidden = {}
     window.conversation.input.clear()
-    window._sync_idle_mode()
+    sync_idle_mode(window)
 
 
 def away_rest_blocked(window) -> bool:
@@ -105,16 +105,16 @@ def arm_away_rest_timer(window) -> None:
 def note_engagement(window) -> None:
     """A real use: click, type, send, wake, Allow — not mouse-move or STATUS."""
     if window._away_resting:
-        window._wake_from_away_rest()
+        wake_from_away_rest(window)
         return
-    window._arm_away_rest_timer()
+    arm_away_rest_timer(window)
 
 
 def enter_away_rest(window) -> None:
     if not window._away_rest or window._away_resting:
         return
-    if window._away_rest_blocked():
-        window._arm_away_rest_timer()
+    if away_rest_blocked(window):
+        arm_away_rest_timer(window)
         return
     hidden = {
         "thinking": not window.think_dock.isHidden(),
@@ -154,12 +154,12 @@ def enter_away_rest(window) -> None:
     if overlay is not None and overlay.expanded:
         overlay.collapse()
     window._away_timer.stop()
-    window._sync_idle_mode()
+    sync_idle_mode(window)
 
 
 def wake_from_away_rest(window) -> None:
     if not window._away_resting:
-        window._arm_away_rest_timer()
+        arm_away_rest_timer(window)
         return
     hidden = dict(window._away_hidden)
     window._away_resting = False
@@ -170,7 +170,9 @@ def wake_from_away_rest(window) -> None:
         window.work_dock.show()
     if hidden.get("history"):
         window.history_dock.show()
-        window._refresh_history()
+        from arelis.ui.history_host import refresh_history
+
+        refresh_history(window)
     if hidden.get("camera"):
         window.camera_dock.show()
         window.camera.start()
@@ -178,7 +180,9 @@ def wake_from_away_rest(window) -> None:
         window.calendar_window.show()
         window.calendar_window.raise_()
         window.calendar.reload()
-        window._kick_calendar_sync()
+        from arelis.ui.calendar_host import kick_calendar_sync
+
+        kick_calendar_sync(window)
         window._calendar_sync_timer.start()
     if hidden.get("notify"):
         window.notify_inbox.show()
@@ -187,8 +191,8 @@ def wake_from_away_rest(window) -> None:
         window.contacts_inbox.show()
         window.contacts_inbox.raise_()
     window._stack_left_instruments()
-    window._sync_idle_mode()
-    window._arm_away_rest_timer()
+    sync_idle_mode(window)
+    arm_away_rest_timer(window)
     try:
         from arelis.ui.hands_host import resume_hands
 
@@ -205,7 +209,7 @@ def on_idle_readiness(window, snapshot) -> None:
     chip = snapshot.chip("image") if hasattr(snapshot, "chip") else None
     if chip is not None:
         window.config["_image_ready"] = chip.status == ChipLevel.OK
-    window._refresh_idle_face()
+    refresh_idle_face(window)
 
 
 def sync_idle_voice_mode(window, mode: str | None = None) -> None:
@@ -236,7 +240,7 @@ def refresh_idle_face(window) -> None:
     idle = getattr(window.chat, "empty", None)
     if idle is None or not hasattr(idle, "set_sessions"):
         return
-    window._sync_idle_voice_mode()
+    sync_idle_voice_mode(window)
     sessions = window.history.recent_sessions(3)
     if sessions != window._idle_ghosts:
         window._idle_ghosts = sessions
@@ -249,7 +253,9 @@ def refresh_idle_face(window) -> None:
             ollama = str(chip.status.value).upper()
     listening = "OFF"
     vc = getattr(window, "voice_controller", None)
-    if vc is not None and bool(getattr(vc, "listening", False)):
+    if not getattr(window, "_voice_ear_ready", True):
+        listening = "getting"
+    elif vc is not None and bool(getattr(vc, "listening", False)):
         listening = "ON"
     elif (
         window.conversation.mic_btn.isChecked()
@@ -257,4 +263,15 @@ def refresh_idle_face(window) -> None:
     ):
         listening = "ON"
     idle.set_readout(ollama=ollama, listening=listening)
+
+
+def bind_idle(window) -> None:
+    overlay = window.conversation.notify_overlay
+    overlay.collapsed.connect(lambda: sync_idle_mode(window))
+    window.conversation.idle_conditions_changed.connect(
+        lambda: sync_idle_mode(window)
+    )
+    window.conversation.input.textChanged.connect(lambda: note_engagement(window))
+    window.readiness_updated.connect(lambda snap: on_idle_readiness(window, snap))
+    window._away_timer.timeout.connect(lambda: enter_away_rest(window))
 

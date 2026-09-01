@@ -23,14 +23,14 @@ def on_camera_dock_visibility(window, visible: bool) -> None:
         window.spatial.set_preview_wanted(False)
         if window.spatial.tracking:
             window.camera.set_hands(())
-            window._refresh_camera_capture_hook()
+            refresh_camera_capture_hook(window)
             return
         window.camera.stop()
-    window._refresh_camera_capture_hook()
+    refresh_camera_capture_hook(window)
 
 
 def on_camera_running_changed(window, _running: bool) -> None:
-    window._refresh_camera_capture_hook()
+    refresh_camera_capture_hook(window)
 
 
 def on_camera_track(window, on: bool) -> None:
@@ -215,7 +215,7 @@ def on_spatial_hands(window, frame: object) -> None:
                 t=stamp,
                 who=who,
                 kind=st if grabbing else "open",
-                z=window._hand_depth(who, hand, stamp, frame),
+                z=hand_depth(window, who, hand, stamp, frame),
                 angle=ang,
             )
         if st == "fist":
@@ -250,7 +250,7 @@ def on_spatial_hands(window, frame: object) -> None:
                 holding,
                 t=stamp,
                 kind=kind,
-                z=window._hand_depth("", hand, stamp, frame),
+                z=hand_depth(window, "", hand, stamp, frame),
             )
         if holding and kind == "fist":
             apertures.append((cw, cw, True))
@@ -304,7 +304,7 @@ def on_spatial_hands(window, frame: object) -> None:
                     hand0 = getattr(ordered[0], "hand", None) if ordered else None
                     who0 = str(getattr(ordered[0], "who", "") or "") if ordered else ""
                     if hand0 is not None:
-                        z = window._hand_depth(who0, hand0, stamp, frame)
+                        z = hand_depth(window, who0, hand0, stamp, frame)
                 window.world_window.solar.apply_hand(
                     mx, my, pinched=pinched, span=span, palm_z=z
                 )
@@ -341,4 +341,27 @@ def on_camera_ask(window, path: str) -> None:
     window.conversation.input.setFocus()
     role = str(window._current_role or "fast")
     window._on_submit(text, role)
+
+
+def bind_camera(window) -> None:
+    window.camera_dock.visibilityChanged.connect(
+        lambda visible: on_camera_dock_visibility(window, visible)
+    )
+    window.camera.running_changed.connect(
+        lambda running: on_camera_running_changed(window, running)
+    )
+    window.camera.track_toggled.connect(lambda on: on_camera_track(window, on))
+    window.camera.record_toggled.connect(lambda on: on_camera_record(window, on))
+    window.camera.pose_frame.connect(lambda payload: on_camera_pose(window, payload))
+    window.camera.pose_video.connect(
+        lambda frame, t: on_camera_pose_video(window, frame, t)
+    )
+    window.camera.ask_arelis.connect(lambda path: on_camera_ask(window, path))
+    window.spatial.frame_ready.connect(lambda frame: on_spatial_hands(window, frame))
+    window.spatial.recording_changed.connect(
+        lambda on: on_spatial_recording(window, on)
+    )
+    from arelis.ui.settings_host import on_reach_changed
+
+    window.camera.reach_changed.connect(lambda reach: on_reach_changed(window, reach))
 

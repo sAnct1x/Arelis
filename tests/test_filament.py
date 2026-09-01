@@ -662,13 +662,13 @@ def test_filament_tick_does_not_remask(arelis_window) -> None:
     window = arelis_window()
     apply_window_theme(window, "filament", persist=False)
     hits = {"n": 0}
-    real = window._filament_apply_shape
+    real = window.filament._filament_apply_shape
 
     def counted() -> None:
         hits["n"] += 1
         real()
 
-    window._filament_apply_shape = counted  # type: ignore[method-assign]
+    window.filament._filament_apply_shape = counted  # type: ignore[method-assign]
     window._place_filament_floats(reshape=False)
     assert hits["n"] == 0
     window._place_filament_floats()

@@ -31,24 +31,26 @@ def on_notify_unread(window, count: int) -> None:
 
 def on_notify_inbox_closed(window) -> None:
     window.act_notifications.setChecked(False)
-    window._sync_notify_surface()
-    window._sync_idle_mode()
+    sync_notify_surface(window)
+    from arelis.ui.idle_host import sync_idle_mode
+
+    sync_idle_mode(window)
 
 
 def on_inbox_opened(window) -> None:
-    window._sync_notify_surface()
+    sync_notify_surface(window)
 
 
 def on_notify_mark_all_read(window) -> None:
     window.notify_center.clear_non_sticky()
-    window._sync_notify_surface()
+    sync_notify_surface(window)
 
 
 def on_notice_activated(window, notice_id: str) -> None:
     notice = window.notify_center.find(notice_id)
     if notice is not None and notice.unread:
         window.notify_center.mark_read(notice_id)
-        window._sync_notify_surface()
+        sync_notify_surface(window)
     window.notifications.show_notice(notice_id)
 
 
@@ -80,36 +82,38 @@ def sync_notify_surface(window) -> None:
         window.notify_center.visible_items(),
         unread=window.notify_center.unread_count(),
     )
-    window._on_notify_unread(window.notify_center.unread_count())
-    idle = window._idle_eligible()
+    on_notify_unread(window, window.notify_center.unread_count())
+    from arelis.ui.idle_host import idle_eligible, sync_idle_mode
+
+    idle = idle_eligible(window)
     if idle != bool(window.conversation._idle_mode):
-        window._sync_idle_mode()
+        sync_idle_mode(window)
 
 
 def on_notify_pill_clicked(window) -> None:
     head = window.notify_center.head()
     if head is not None and not head.sticky:
         window.notify_center.mark_read(head.id)
-    window._sync_notify_surface()
+    sync_notify_surface(window)
 
 
 def on_notify_chip_clicked(window) -> None:
     head = window.notify_center.head()
     if head is None:
         return
-    window._on_notice_open(head.id)
+    on_notice_open(window, head.id)
 
 
 def on_notice_dismiss(window, notice_id: str) -> None:
     window.notify_center.dismiss(notice_id)
-    window._sync_notify_surface()
+    sync_notify_surface(window)
 
 
 def on_notice_snooze(window, notice_id: str) -> None:
     window.notify_center.snooze(
         notice_id, datetime.now().astimezone() + timedelta(minutes=15)
     )
-    window._sync_notify_surface()
+    sync_notify_surface(window)
 
 
 def on_notice_open(window, notice_id: str) -> None:
@@ -124,7 +128,7 @@ def begin_job(window, tool: str) -> None:
     window._job_t0 = time.monotonic()
     window.notify_center.upsert_job(tool, elapsed_s=0)
     window._job_tick.start()
-    window._sync_notify_surface()
+    sync_notify_surface(window)
 
 
 def finish_job(window, tool: str, *, ok: bool, output: str = "") -> None:
@@ -133,11 +137,15 @@ def finish_job(window, tool: str, *, ok: bool, output: str = "") -> None:
     window._job_name = ""
     if ok:
         window.notify_center.upsert_job(tool, done=True, output=output)
-        window._push_mobile_notice("job", f"{tool} finished", output or f"{tool} is ready.")
+        from arelis.ui.sms_host import push_mobile_notice
+
+        push_mobile_notice(window, "job", f"{tool} finished", output or f"{tool} is ready.")
     else:
         window.notify_center.upsert_job(tool, failed=True, output=output)
-        window._push_mobile_notice("job", f"{tool} failed", output or f"{tool} failed.")
-    window._sync_notify_surface()
+        from arelis.ui.sms_host import push_mobile_notice
+
+        push_mobile_notice(window, "job", f"{tool} failed", output or f"{tool} failed.")
+    sync_notify_surface(window)
 
 
 def on_job_tick(window) -> None:
@@ -147,7 +155,7 @@ def on_job_tick(window) -> None:
     window.notify_center.upsert_job(
         window._job_name, elapsed_s=time.monotonic() - window._job_t0
     )
-    window._sync_notify_surface()
+    sync_notify_surface(window)
 
 
 def report_poll_state(window, key: str, message: str) -> None:
@@ -190,11 +198,11 @@ def on_notify_poll(window) -> None:
         events = load_today_events(window.config)
         window.notify_center.apply_calendar(events, now)
     except Exception as exc:
-        window._report_poll_state(
-            "calendar", f"Calendar notifications stopped: {plain_reason(exc)}"
+        report_poll_state(
+            window, "calendar", f"Calendar notifications stopped: {plain_reason(exc)}"
         )
     else:
-        window._report_poll_state("calendar", "")
+        report_poll_state(window, "calendar", "")
     if window.store is not None and window.notify_center.enabled("task"):
         try:
             rows = window.store.list_tasks(status="open", limit=40)
@@ -203,12 +211,12 @@ def on_notify_poll(window) -> None:
             ):
                 window.notify_center.add(notice)
         except Exception as exc:
-            window._report_poll_state(
-                "task", f"Task due notices stopped: {plain_reason(exc)}"
+            report_poll_state(
+                window, "task", f"Task due notices stopped: {plain_reason(exc)}"
             )
         else:
-            window._report_poll_state("task", "")
-    window._sync_notify_surface()
+            report_poll_state(window, "task", "")
+    sync_notify_surface(window)
     mail_cfg = (window.config.get("ui") or {}).get("notifications") or {}
     mail_every = max(45.0, float(mail_cfg.get("mail_poll_s") or 90))
     if (
@@ -216,7 +224,7 @@ def on_notify_poll(window) -> None:
         and not window._mail_poll_inflight
         and (time.monotonic() - window._mail_poll_at) >= mail_every
     ):
-        window._kick_mail_poll()
+        kick_mail_poll(window)
 
 
 def kick_mail_poll(window) -> None:
@@ -238,12 +246,37 @@ def on_mail_headers(window, rows: object) -> None:
     if isinstance(rows, BaseException):
         # Email notices are switched on and the user is waiting for them.
         # A debug log is not a place anybody is looking.
-        window._report_poll_state("mail", plain_reason(rows))
+        report_poll_state(window, "mail", plain_reason(rows))
         return
     if not isinstance(rows, list):
         return
-    window._report_poll_state("mail", "")
+    report_poll_state(window, "mail", "")
     for notice in mail_notices(rows, remember=window.notify_center.remember_mail):
         window.notify_center.add(notice)
-    window._sync_notify_surface()
+    sync_notify_surface(window)
+
+
+def bind_notify(window) -> None:
+    window.notifications.unread_changed.connect(
+        lambda count: on_notify_unread(window, count)
+    )
+    window.notify_inbox.closed.connect(lambda: on_notify_inbox_closed(window))
+    overlay = window.conversation.notify_overlay
+    overlay.dismiss_requested.connect(lambda nid: on_notice_dismiss(window, nid))
+    overlay.snooze_requested.connect(lambda nid: on_notice_snooze(window, nid))
+    overlay.open_requested.connect(lambda nid: on_notice_open(window, nid))
+    overlay.pill_clicked.connect(lambda: on_notify_pill_clicked(window))
+    window.readiness_strip.notify_chip.clicked.connect(
+        lambda: on_notify_chip_clicked(window)
+    )
+    window.mail_headers_ready.connect(lambda rows: on_mail_headers(window, rows))
+    window.notifications.opened.connect(lambda: on_inbox_opened(window))
+    window.notifications.notice_activated.connect(
+        lambda notice_id: on_notice_activated(window, notice_id)
+    )
+    window.notifications.mark_read_btn.clicked.connect(
+        lambda: on_notify_mark_all_read(window)
+    )
+    window._notify_timer.timeout.connect(lambda: on_notify_poll(window))
+    window._job_tick.timeout.connect(lambda: on_job_tick(window))
 

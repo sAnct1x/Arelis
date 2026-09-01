@@ -25,6 +25,14 @@ from arelis.core.events import Event, EventType
 from arelis.core.memory import SessionMemory
 from arelis.core.orchestrator import Orchestrator
 from arelis.tools.base import ToolRegistry
+from arelis.ui.voice_host import (
+    on_capture_failed,
+    on_playback,
+    on_speech_watchdog,
+    on_voice_mode,
+    stop_speech,
+    update_speaking,
+)
 from arelis.voice import VoiceService, stt_enabled, tts_enabled
 from arelis.voice.pcm import (
     duration_seconds,
@@ -49,8 +57,14 @@ def _config(**overrides: Any) -> dict[str, Any]:
     voice: dict[str, Any] = {
         "enabled": True,
         "keep_recordings": False,
-        "stt": {"enabled": True, "model_size": "base"},
-        "tts": {"enabled": True, "backend": "piper", "voice_model": "", "max_chars": 0},
+        "stt": {"enabled": True, "model_size": "base", "allow_download": False},
+        "tts": {
+            "enabled": True,
+            "backend": "piper",
+            "voice_model": "",
+            "max_chars": 0,
+            "allow_download": False,
+        },
         "conversation": {},
         # Synthetic sine tones are not speech to Silero; controller tests use energy.
         "vad": {"backend": "energy", "allow_download": False},
@@ -278,6 +292,45 @@ def test_directions_default_on_under_the_master_switch() -> None:
     config = {"voice": {"enabled": True}}
     assert stt_enabled(config)
     assert tts_enabled(config)
+
+
+@pytest.mark.asyncio
+async def test_preload_says_when_the_ear_is_ready(monkeypatch) -> None:
+    """A silent first Hey Arelis is the failure. The glass has to be told."""
+
+    class _ColdSTT(_FakeSTT):
+        def __init__(self) -> None:
+            super().__init__()
+            self._warm = False
+
+        def loaded(self) -> bool:
+            return self._warm
+
+        async def preload(self) -> None:
+            self._warm = True
+
+    monkeypatch.setattr(
+        "arelis.voice.prepare.missing_voice_parts",
+        lambda _config=None, **_kw: ["the ear"],
+    )
+    monkeypatch.setattr(
+        "arelis.voice.prepare.prepare_voice_files",
+        lambda _config=None, progress=None: ["the ear"],
+    )
+    bus = EventBus()
+    service = VoiceService(bus, _config())
+    service.stt = _ColdSTT()
+    service.tts_enabled = False
+    assert service.ear_ready is False
+    events = await _collect(bus, service.preload())
+    assert service.ear_ready is True
+    notes = [
+        e.payload.get("message", "")
+        for e in events
+        if e.type == EventType.STATUS
+    ]
+    assert any("voice files" in (m or "").lower() for m in notes)
+    assert any("listening" in (m or "").lower() for m in notes)
 
 
 @pytest.mark.asyncio
@@ -654,6 +707,29 @@ def test_sherpa_does_not_download_when_asked_not_to(tmp_path) -> None:
 
     with pytest.raises(SherpaUnavailableError, match="not found"):
         ensure_sherpa_files(tmp_path / "empty", allow_download=False)
+
+
+def test_loaded_stays_false_until_the_wake_ear_is_warm() -> None:
+    """Sherpa warm + Whisper cold used to look ready. First Hey Arelis then
+    downloaded Whisper with no status."""
+    from arelis.voice.stt import SpeechToText
+
+    stt = SpeechToText({"voice": {"stt": {"backend": "sherpa", "allow_download": False}}})
+
+    class _WarmSherpa:
+        def loaded(self) -> bool:
+            return True
+
+    stt._sherpa = _WarmSherpa()
+    stt._sherpa_failed = False
+    stt._sherpa_usable = lambda: True  # type: ignore[method-assign]
+    stt._whisper_installed = lambda: True  # type: ignore[method-assign]
+    assert stt.resolved_backend() == "sherpa"
+    assert stt.resolved_backend(purpose="wake") == "faster-whisper"
+    assert stt._model is None
+    assert not stt.loaded()
+    stt._model = object()
+    assert stt.loaded()
 
 
 @pytest.mark.asyncio
@@ -1796,7 +1872,7 @@ def test_a_capture_failure_actually_leaves_the_mode(qt_app) -> None:
         window.voice_controller.set_conversation(True)
         assert recorder.is_recording()
 
-        window._on_capture_failed("The microphone was unplugged.")
+        on_capture_failed(window, "The microphone was unplugged.")
         assert not recorder.is_recording()
         assert window.voice_controller.mode() == "off"
         assert not window.conversation.conversation_btn.isChecked()
@@ -1831,7 +1907,7 @@ def test_the_window_builds_with_voice_switched_on(qt_app) -> None:
         # Not close(): that saves the window layout over the user's own.
         if window.voice_controller is not None:
             window.voice_controller.stop_all()
-        window._stop_speech()
+        stop_speech(window)
         window.hide()
         window.loop.close()
 
@@ -1948,18 +2024,18 @@ def test_the_latched_mode_is_readable_on_the_empty_orbit(qt_app) -> None:
         idle = window.chat.empty
         off = idle.listen_word.text()
 
-        window._on_voice_mode("conversation")
+        on_voice_mode(window, "conversation")
         talking = idle.listen_word.text()
         assert talking != off
         assert "talking" in talking.lower()
         assert idle.listen_word.property("live") == "true"
 
-        window._on_voice_mode("dictate")
+        on_voice_mode(window, "dictate")
         assert idle.listen_word.text() not in {off, talking}
         assert idle.listen_word.property("live") == "true"
 
         # Wake is always on in idle, so it reads the same as nothing latched.
-        window._on_voice_mode("wake")
+        on_voice_mode(window, "wake")
         assert idle.listen_word.text() == off
         assert idle.listen_word.property("live") == "false"
     finally:
@@ -2342,8 +2418,8 @@ def test_the_queue_draining_between_sentences_is_not_the_end_of_the_reply(qt_app
     window = _speech_window(spy)
     try:
         window._on_event(Event(EventType.ASSISTANT_DONE, {"text": "One. Two.", "speak": True}))
-        window._on_playback(True)
-        window._on_playback(False)
+        on_playback(window, True)
+        on_playback(window, False)
         assert spy.said("speaking")[-1] is True, "the next sentence is still in Piper"
 
         window._on_event(_speech_done(clips=2))
@@ -2358,10 +2434,10 @@ def test_synthesis_finishing_is_not_the_end_while_a_clip_is_still_playing(qt_app
     window = _speech_window(spy)
     try:
         window._on_event(Event(EventType.ASSISTANT_DONE, {"text": "One.", "speak": True}))
-        window._on_playback(True)
+        on_playback(window, True)
         window._on_event(_speech_done(clips=1))
         assert spy.said("speaking")[-1] is True, "the last clip is still audible"
-        window._on_playback(False)
+        on_playback(window, False)
         assert spy.said("speaking")[-1] is False
     finally:
         window.loop.close()
@@ -2387,7 +2463,7 @@ def test_speech_that_never_reports_finishing_gives_the_microphone_back(qt_app) -
     try:
         window._on_event(Event(EventType.ASSISTANT_DONE, {"text": "Hello.", "speak": True}))
         assert window._speech_expected
-        window._on_speech_watchdog()
+        on_speech_watchdog(window)
         assert not window._speech_expected
         assert spy.said("speaking")[-1] is False
     finally:
@@ -2416,9 +2492,9 @@ def test_speech_watchdog_clears_has_work_only_stuck(qt_app) -> None:
         window.speech_player = _StuckPlayer()  # type: ignore[assignment]
         window._speech_expected = False
         window._speech_playing = False
-        window._update_speaking()
+        update_speaking(window)
         assert spy.said("speaking")[-1] is True
-        window._on_speech_watchdog()
+        on_speech_watchdog(window)
         assert spy.said("speaking")[-1] is False
     finally:
         window.loop.close()

@@ -7,6 +7,7 @@ import asyncio
 from PySide6.QtCore import QPoint
 
 from arelis.core.bus import EventBus
+from arelis.ui.idle_host import idle_eligible, sync_idle_mode
 from arelis.ui.theme import BLOOM, COLORS, GLASS, HAIRLINE, PLATE, color
 from arelis.ui.void_idle import OrbitCanvas, OrbitIdle
 
@@ -228,7 +229,7 @@ def test_cold_start_is_orbit_idle(qt_app) -> None:
     )
     try:
         window._reset_layout()
-        assert window._idle_eligible()
+        assert idle_eligible(window)
         assert window.conversation._idle_mode
         assert not window.chat.empty.isHidden()
         assert not window.chat.has_messages
@@ -238,32 +239,32 @@ def test_cold_start_is_orbit_idle(qt_app) -> None:
         assert window.conversation.input.parent() is window.chat.empty.prompt_host
         assert window.conversation.role.isHidden()
         window.history_dock.show()
-        window._sync_idle_mode()
+        sync_idle_mode(window)
         assert window.conversation._idle_mode
         assert window.conversation.input.parent() is window.chat.empty.prompt_host
         assert window.chat.empty._want_ghosts is False
         window.conversation.conversation_btn.setChecked(True)
-        window._sync_idle_mode()
-        assert window._idle_eligible()
+        sync_idle_mode(window)
+        assert idle_eligible(window)
         assert window.conversation._idle_mode
         assert window.conversation.conversation_btn.isChecked()
         assert window.conversation.input.parent() is window.chat.empty.prompt_host
         window.conversation.conversation_btn.setChecked(False)
         window.conversation.input.setText("hello")
-        window._sync_idle_mode()
-        assert window._idle_eligible()
+        sync_idle_mode(window)
+        assert idle_eligible(window)
         assert window.conversation._idle_mode
         assert window.conversation.input.parent() is window.chat.empty.prompt_host
         assert window.conversation._parked_orbit.isHidden()
         window.chat.add_user("hello")
-        window._sync_idle_mode()
-        assert not window._idle_eligible()
+        sync_idle_mode(window)
+        assert not idle_eligible(window)
         assert not window.conversation._idle_mode
         assert window.conversation.input.parent() is window.conversation._composer
         assert not window.conversation._parked_orbit.isHidden()
         window.chat.clear()
         window.conversation.input.clear()
-        window._sync_idle_mode()
+        sync_idle_mode(window)
         assert window.conversation._idle_mode
         assert not window.chat.empty.isHidden()
         assert window.conversation.input.parent() is window.chat.empty.prompt_host
@@ -281,7 +282,7 @@ def test_idle_keeps_one_orbit_when_docks_open(arelis_window) -> None:
     window._reset_layout()
     window.history_dock.show()
     window.think_dock.show()
-    window._sync_idle_mode()
+    sync_idle_mode(window)
     assert window.conversation.graphicsEffect() is None
     assert window.chat.empty.graphicsEffect() is None
     assert not window.chat.empty.isHidden()
@@ -319,8 +320,8 @@ def test_inbound_notify_status_does_not_leave_orbit(qt_app) -> None:
                 },
             )
         )
-        window._sync_idle_mode()
-        assert window._idle_eligible()
+        sync_idle_mode(window)
+        assert idle_eligible(window)
         assert window.conversation._idle_mode
         assert not window.chat.has_messages
         assert not window.chat.empty.isHidden()
@@ -347,7 +348,7 @@ def test_parked_orbit_sits_in_a_chat_gutter(qt_app) -> None:
     try:
         window.resize(800, 600)
         window.chat.add_user("hello")
-        window._sync_idle_mode()
+        sync_idle_mode(window)
         window.conversation._place_parked_orbit()
         orbit = window.conversation._parked_orbit
         chat = window.conversation.chat
@@ -429,7 +430,7 @@ def test_idle_orbit_stays_on_window_bloom(qt_app) -> None:
         assert abs(x0 - bloom_x) < 36
 
         window.history_dock.show()
-        window._sync_idle_mode()
+        sync_idle_mode(window)
         qt_app.processEvents()
         window.chat.empty._layout_idle()
         x_hist, _ = _orbit_center_in_window(window)
@@ -437,7 +438,7 @@ def test_idle_orbit_stays_on_window_bloom(qt_app) -> None:
         assert abs(x_hist - bloom_x) < 36
 
         window.think_dock.show()
-        window._sync_idle_mode()
+        sync_idle_mode(window)
         qt_app.processEvents()
         window.chat.empty._layout_idle()
         x_both, _ = _orbit_center_in_window(window)
@@ -507,6 +508,20 @@ def test_idle_ghosts_are_not_clipped(qt_app) -> None:
     idle.deleteLater()
 
 
+def test_preparing_holds_the_idle_line_until_the_ear_is_ready(qt_app) -> None:
+    """First-run must not still say hey arelis while Whisper is downloading."""
+    from arelis.ui.void_idle import _LISTEN_IDLE, _LISTEN_PREPARING, OrbitIdle
+
+    idle = OrbitIdle()
+    idle.set_voice_preparing(True)
+    assert idle.listen_word.text() == _LISTEN_PREPARING
+    idle.set_voice_mode("conversation")
+    assert idle.listen_word.text() == _LISTEN_PREPARING
+    idle.set_voice_preparing(False)
+    assert idle.listen_word.text() == _LISTEN_IDLE
+    idle.deleteLater()
+
+
 def test_a_latched_voice_mode_does_not_push_the_ghosts_off(qt_app) -> None:
     """The mode line lives in the centre column, so its width is the column's
     width. A long one moved the column out far enough that _layout_idle found no
@@ -518,7 +533,7 @@ def test_a_latched_voice_mode_does_not_push_the_ghosts_off(qt_app) -> None:
     idle.set_sessions([("s1", "Morning brief"), ("s2", "Reply to Robin")])
     idle.set_side_chrome(ghosts=True, readout=True)
     qt_app.processEvents()
-    for mode in ("off", "conversation", "dictate", "wake", "ack"):
+    for mode in ("off", "conversation", "dictate", "wake", "ack", "preparing"):
         idle.set_voice_mode(mode)
         idle._layout_idle()
         assert idle._ghosts.isVisible(), f"{mode} hid the session ghosts"

@@ -66,7 +66,7 @@ def kick_calendar_sync(window) -> None:
     window.calendar.set_status("syncing…")
     window._calendar_sync_watchdog.start(int(window._calendar_sync_timeout_ms))
     fut = asyncio.run_coroutine_threadsafe(
-        window._calendar_service().sync(), window.loop
+        calendar_service(window).sync(), window.loop
     )
 
     def done() -> None:
@@ -77,11 +77,17 @@ def kick_calendar_sync(window) -> None:
                 summary = fut.result()
             except Exception as exc:
                 window.calendar.set_status("sync failed", failed=True)
-                window._report_poll_state(
-                    "calendar_tile", f"Calendar sync stopped: {plain_reason(exc)}"
+                from arelis.ui.notify_host import report_poll_state
+
+                report_poll_state(
+                    window,
+                    "calendar_tile",
+                    f"Calendar sync stopped: {plain_reason(exc)}",
                 )
                 return
-            window._report_poll_state("calendar_tile", "")
+            from arelis.ui.notify_host import report_poll_state
+
+            report_poll_state(window, "calendar_tile", "")
             window.calendar.reload()
             if summary.get("ok"):
                 names = [
@@ -125,8 +131,9 @@ def on_calendar_sync_watchdog(window) -> None:
     window.calendar.set_status("sync failed", failed=True)
 
 def on_calendar_create(window, payload: dict[str, Any]) -> None:
-    window._run_calendar(
-        window._calendar_service().create(
+    run_calendar(
+        window,
+        calendar_service(window).create(
             summary=str(payload.get("summary") or ""),
             starts_at=payload["starts_at"],
             ends_at=payload.get("ends_at"),
@@ -143,8 +150,9 @@ def on_calendar_update(window, payload: dict[str, Any]) -> None:
     event_id = str(payload.get("event_id") or "")
     if not event_id:
         return
-    window._run_calendar(
-        window._calendar_service().update(
+    run_calendar(
+        window,
+        calendar_service(window).update(
             event_id,
             summary=str(payload.get("summary") or ""),
             starts_at=payload.get("starts_at"),
@@ -171,11 +179,12 @@ def on_calendar_delete(window, event_id: str) -> None:
         return
     ev = None
     try:
-        ev = window._calendar_service().get(event_id)
+        ev = calendar_service(window).get(event_id)
     except Exception:
         ev = None
-    window._run_calendar(
-        window._calendar_service().delete(
+    run_calendar(
+        window,
+        calendar_service(window).delete(
             event_id,
             provider=ev.provider if ev else None,
             calendar_id=ev.calendar_id if ev else None,
@@ -304,3 +313,29 @@ def on_calendar_job_run(window, job_id: str) -> None:
 
 def on_calendar_window_closed(window) -> None:
     window.act_calendar.setChecked(False)
+
+
+def bind_calendar(window) -> None:
+    window._calendar_sync_timer.timeout.connect(lambda: kick_calendar_sync(window))
+    window._calendar_sync_watchdog.timeout.connect(lambda: on_calendar_sync_watchdog(window))
+    window.calendar.create_requested.connect(lambda payload: on_calendar_create(window, payload))
+    window.calendar.update_requested.connect(lambda payload: on_calendar_update(window, payload))
+    window.calendar.delete_requested.connect(lambda event_id: on_calendar_delete(window, event_id))
+    window.calendar.sync_requested.connect(lambda: kick_calendar_sync(window))
+    window.calendar.task_add_requested.connect(
+        lambda title, due: on_calendar_task_add(window, title, due)
+    )
+    window.calendar.task_status_requested.connect(
+        lambda task_id, status: on_calendar_task_status(window, task_id, status)
+    )
+    window.calendar.task_remove_requested.connect(
+        lambda task_id: on_calendar_task_remove(window, task_id)
+    )
+    window.calendar.job_save_requested.connect(
+        lambda payload: on_calendar_job_save(window, payload)
+    )
+    window.calendar.job_delete_requested.connect(
+        lambda job_id: on_calendar_job_delete(window, job_id)
+    )
+    window.calendar.job_run_requested.connect(lambda job_id: on_calendar_job_run(window, job_id))
+    window.calendar_window.closed.connect(lambda: on_calendar_window_closed(window))

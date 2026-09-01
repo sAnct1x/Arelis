@@ -103,11 +103,11 @@ def register_workspace_folder(window, path: Path, *, make_active: bool = True) -
             )
             return
     taken = set(window.workspace_roots.names())
-    name = window._unique_root_name(resolved.name, taken)
-    roots = window._workspace_root_dicts()
+    name = unique_root_name(resolved.name, taken)
+    roots = workspace_root_dicts(window)
     roots.append({"name": name, "path": str(resolved), "read_only": False})
-    window._apply_workspace_roots(
-        roots, preferred_active=name if make_active else None
+    apply_workspace_roots(
+        window, roots, preferred_active=name if make_active else None
     )
 
 
@@ -119,7 +119,7 @@ def add_workspace_folder_dialog(window) -> None:
         window, "Add folder to workspace", start
     )
     if chosen:
-        window._register_workspace_folder(Path(chosen), make_active=True)
+        register_workspace_folder(window, Path(chosen), make_active=True)
 
 
 def new_workspace_folder_dialog(window) -> None:
@@ -147,7 +147,7 @@ def new_workspace_folder_dialog(window) -> None:
     except OSError as exc:
         window.thinking.append(f"Could not create folder: {exc}", kind="status")
         return
-    window._register_workspace_folder(target, make_active=True)
+    register_workspace_folder(window, target, make_active=True)
 
 
 def remove_active_workspace_root(window) -> None:
@@ -155,9 +155,9 @@ def remove_active_workspace_root(window) -> None:
         window.thinking.append("Keep at least one workspace root.", kind="status")
         return
     active = window.workspace_roots.active
-    roots = [r for r in window._workspace_root_dicts() if r["name"] != active]
+    roots = [r for r in workspace_root_dicts(window) if r["name"] != active]
     next_active = str(roots[0]["name"]) if roots else None
-    window._apply_workspace_roots(roots, preferred_active=next_active)
+    apply_workspace_roots(window, roots, preferred_active=next_active)
     window.thinking.append(
         f"Removed `{active}` from the workspace (files untouched on disk).",
         kind="status",
@@ -236,7 +236,7 @@ def save_file(window, path: str, content: str) -> None:
         window.thinking.append(f"save failed: {exc!r}", kind="status")
         return
     label = hit.qualified(multi=len(window.workspace_roots) > 1)
-    if window._disk_moved_under_editor(hit.path, content):
+    if disk_moved_under_editor(window, hit.path, content):
         # The other half of the clobber: she edited the file after it was
         # opened, so this save carries a buffer that predates her work and
         # would drop it. Overwriting is allowed, once it is a decision.
@@ -392,4 +392,32 @@ def open_outside(window, abs_path: str) -> None:
     except OSError as exc:
         leaf = Path(abs_path).name or "that file"
         window.chat.add_system(f"I could not open {leaf}. {plain_reason(exc)}")
+
+
+def bind_workspace(window) -> None:
+    window.workspace.open_requested.connect(lambda path: open_file(window, path))
+    window.workspace.save_requested.connect(
+        lambda path, content: save_file(window, path, content)
+    )
+    window.workspace.add_root_requested.connect(
+        lambda: add_workspace_folder_dialog(window)
+    )
+    window.workspace.new_root_requested.connect(
+        lambda: new_workspace_folder_dialog(window)
+    )
+    window.workspace.remove_root_requested.connect(
+        lambda: remove_active_workspace_root(window)
+    )
+    window.workspace.keep_requested.connect(lambda: keep_note_dialog(window))
+    window.workspace.pin_requested.connect(
+        lambda path, pinned: pin_desk_item(window, path, pinned)
+    )
+    window.workspace.drop_requested.connect(lambda path: drop_desk_item(window, path))
+    window.workspace.desk_open_requested.connect(
+        lambda path: open_desk_item(window, path)
+    )
+    window.workspace.reveal_requested.connect(
+        lambda path: reveal_desk_item(window, path)
+    )
+    window.workspace.outside_requested.connect(lambda path: open_outside(window, path))
 

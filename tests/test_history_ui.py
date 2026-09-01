@@ -14,6 +14,7 @@ from arelis.core.memory import SessionMemory
 from arelis.core.orchestrator import Orchestrator
 from arelis.memory import MemoryStore
 from arelis.tools.base import ToolRegistry
+from arelis.ui.history_host import on_history_selected
 
 
 def _config() -> dict:
@@ -247,11 +248,11 @@ def test_switching_sessions_mid_turn_is_refused_in_the_window(qt_app, tmp_path: 
     )
     try:
         window._turn_busy = True
-        window._on_history_selected("abc123")
+        on_history_selected(window, "abc123")
         assert "Finish or stop the current turn" in window.chat.view.toPlainText()
         # Debounce: second click must not double the amber toast (L3 / S10).
         before = window.chat.view.toPlainText().count("Finish or stop")
-        window._on_history_selected("abc123")
+        on_history_selected(window, "abc123")
         after = window.chat.view.toPlainText().count("Finish or stop")
         assert after == before
     finally:

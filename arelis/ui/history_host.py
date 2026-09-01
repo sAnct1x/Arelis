@@ -13,7 +13,7 @@ from arelis.core.events import Event, EventType
 
 
 def show_rooms_menu(window, anchor) -> None:
-    menu = window._build_rooms_menu()
+    menu = build_rooms_menu(window)
     menu.exec(anchor.mapToGlobal(QPoint(0, anchor.height())))
 
 
@@ -52,13 +52,13 @@ def build_rooms_menu(window) -> QMenu:
             elif room.purpose:
                 act.setToolTip(room.purpose)
             act.triggered.connect(
-                lambda _checked=False, rid=room.id: window._enter_room_from_menu(rid)
+                lambda _checked=False, rid=room.id: enter_room_from_menu(window, rid)
             )
             menu.addAction(act)
     menu.addSeparator()
     leave = QAction("leave", window)
     leave.setEnabled(bool(active) and not window._turn_busy)
-    leave.triggered.connect(window._leave_room)
+    leave.triggered.connect(lambda: leave_room(window))
     menu.addAction(leave)
     return menu
 
@@ -67,8 +67,9 @@ def enter_room_from_menu(window, room_id: str) -> None:
     if not room_id:
         return
     if window._turn_busy:
-        window._toast_finish_or_stop(
-            "Finish or stop the current turn before switching rooms."
+        toast_finish_or_stop(
+            window,
+            "Finish or stop the current turn before switching rooms.",
         )
         return
     asyncio.run_coroutine_threadsafe(
@@ -92,7 +93,9 @@ def refresh_history(window) -> None:
     window.history.set_pending_facts(window.store.list_facts(status="pending", limit=50))
     if window.store.session_id:
         window.history.set_active(window.store.session_id)
-    window._refresh_idle_face()
+    from arelis.ui.idle_host import refresh_idle_face
+
+    refresh_idle_face(window)
 
 
 def on_fact_decided(window, fact_ids: object, status: str) -> None:
@@ -118,28 +121,30 @@ def on_fact_decided(window, fact_ids: object, status: str) -> None:
         window.thinking.append(f"fact {label}", kind="status")
     else:
         window.thinking.append(f"{changed} facts {label}", kind="status")
-    window._refresh_history()
+    refresh_history(window)
 
 
 def on_history_selected(window, session_id: str) -> None:
     if window._turn_busy:
-        window._toast_finish_or_stop(
-            "Finish or stop the current turn before switching conversations."
+        toast_finish_or_stop(
+            window,
+            "Finish or stop the current turn before switching conversations.",
         )
         seated = ""
         if window.store is not None:
             seated = str(window.store.session_id or "")
         window.history.set_active(seated)
         return
-    window._request_session_load(session_id)
+    request_session_load(window, session_id)
 
 
 def on_history_delete(window, session_id: str) -> None:
     if window.store is None:
         return
     if window._turn_busy:
-        window._toast_finish_or_stop(
-            "Finish or stop the current turn before deleting a conversation."
+        toast_finish_or_stop(
+            window,
+            "Finish or stop the current turn before deleting a conversation.",
         )
         return
     sid = str(session_id or "").strip()
@@ -150,7 +155,7 @@ def on_history_delete(window, session_id: str) -> None:
         window.chat.add_system("Could not delete that conversation.")
         return
     window.thinking.append("Conversation deleted.", kind="status")
-    window._refresh_history()
+    refresh_history(window)
     if was_active:
         asyncio.run_coroutine_threadsafe(
             window.bus.publish(Event(EventType.SESSION_LOAD, {"new": True})),
@@ -160,8 +165,9 @@ def on_history_delete(window, session_id: str) -> None:
 
 def on_history_new(window) -> None:
     if window._turn_busy:
-        window._toast_finish_or_stop(
-            "Finish or stop the current turn before starting a new conversation."
+        toast_finish_or_stop(
+            window,
+            "Finish or stop the current turn before starting a new conversation.",
         )
         return
     asyncio.run_coroutine_threadsafe(
@@ -197,12 +203,34 @@ def leave_room(window) -> None:
     and means both routes out of a room share one implementation.
     """
     if window._turn_busy:
-        window._toast_finish_or_stop(
-            "Finish or stop the current turn before leaving the room."
+        toast_finish_or_stop(
+            window,
+            "Finish or stop the current turn before leaving the room.",
         )
         return
     asyncio.run_coroutine_threadsafe(
         window.bus.publish(Event(EventType.USER_MESSAGE, {"text": "/leave"})),
         window.loop,
+    )
+
+
+def bind_history(window) -> None:
+    window.history.session_selected.connect(
+        lambda session_id: on_history_selected(window, session_id)
+    )
+    window.history.session_delete_requested.connect(
+        lambda session_id: on_history_delete(window, session_id)
+    )
+    window.history.new_requested.connect(lambda: on_history_new(window))
+    window.history.fact_decided.connect(
+        lambda fact_ids, status: on_fact_decided(window, fact_ids, status)
+    )
+    window.conversation.new_requested.connect(lambda: on_history_new(window))
+    window.conversation.session_clicked.connect(
+        lambda session_id: on_history_selected(window, session_id)
+    )
+    window.conversation.leave_room_requested.connect(lambda: leave_room(window))
+    window.title_bar.rooms_menu_requested.connect(
+        lambda anchor: show_rooms_menu(window, anchor)
     )
 

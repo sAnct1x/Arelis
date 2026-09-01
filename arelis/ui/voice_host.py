@@ -64,6 +64,8 @@ def build_voice(window) -> None:
     """
     window.voice_controller: VoiceController | None = None
     window.speech_player: SpeechPlayer | None = None
+    window._voice_ear_ready = True
+    window._voice_preload_future = None
     # Wake STT is single-flight: ambient clips must not queue on the Whisper
     # lock ahead of conversation/dictate turns.
     window._wake_inflight = False
@@ -82,9 +84,11 @@ def build_voice(window) -> None:
     window._speech_playing = False
     window._speech_watchdog = QTimer(window)
     window._speech_watchdog.setSingleShot(True)
-    window._speech_watchdog.timeout.connect(window._on_speech_watchdog)
-    window.utterance_settled.connect(window._on_utterance_settled)
-    window.wake_detected.connect(window._on_wake_detected)
+    window._speech_watchdog.timeout.connect(lambda: on_speech_watchdog(window))
+    window.utterance_settled.connect(
+        lambda became_turn: on_utterance_settled(window, became_turn)
+    )
+    window.wake_detected.connect(lambda remainder: on_wake_detected(window, remainder))
     if window.voice is None:
         window.conversation.set_voice_available(False, "")
         return
@@ -95,20 +99,38 @@ def build_voice(window) -> None:
         window.conversation.set_voice_available(problem is None, problem or "")
         if problem is None:
             window.voice_controller = controller
-            controller.utterance.connect(window._on_utterance)
-            controller.provisional.connect(window._on_provisional_pcm)
-            controller.live_started.connect(window._on_live_started)
-            controller.live_pcm.connect(window._on_live_pcm)
-            controller.status.connect(window._on_voice_status)
-            controller.failed.connect(window._on_capture_failed)
-            controller.mode_changed.connect(window._on_voice_mode)
-            controller.barge_in.connect(window._on_barge_in)
+            controller.utterance.connect(
+                lambda pcm, rate, channels, deliver: on_utterance(
+                    window, pcm, rate, channels, deliver
+                )
+            )
+            controller.provisional.connect(
+                lambda pcm, rate, channels: on_provisional_pcm(
+                    window, pcm, rate, channels
+                )
+            )
+            controller.live_started.connect(lambda: on_live_started(window))
+            controller.live_pcm.connect(
+                lambda pcm, rate, channels: on_live_pcm(window, pcm, rate, channels)
+            )
+            controller.status.connect(lambda message: on_voice_status(window, message))
+            controller.failed.connect(lambda message: on_capture_failed(window, message))
+            controller.mode_changed.connect(lambda mode: on_voice_mode(window, mode))
+            controller.barge_in.connect(lambda: on_barge_in(window))
             window._provisional_intent = None
             window.conversation.dictate_toggled.connect(controller.set_dictate)
             window.conversation.conversation_toggled.connect(controller.set_conversation)
-            # Always-listen for Hey Arelis until dictate or conversation takes the mic.
-            controller.start_wake()
-            window._preload_voice()
+            # Do not claim "say hey arelis" until the ear is actually loaded.
+            # First wake into a cold Whisper download looks like a dead mic.
+            window._voice_ear_ready = False
+            _mark_voice_preparing(window, True)
+            preload_voice(window)
+            if window._voice_preload_future is None:
+                # Loop is not running (tests, or a launch that has not
+                # started it). Do not leave the glass stuck on getting the ear.
+                window._voice_ear_ready = True
+                _mark_voice_preparing(window, False)
+                controller.start_wake()
     else:
         window.conversation.set_voice_available(False, "")
 
@@ -122,9 +144,9 @@ def build_voice(window) -> None:
             except (TypeError, ValueError):
                 player.set_volume(1.0)
             window.speech_player = player
-            player.started.connect(lambda: window._on_playback(True))
-            player.finished.connect(lambda: window._on_playback(False))
-            player.failed.connect(window._on_playback_failed)
+            player.started.connect(lambda: on_playback(window, True))
+            player.finished.connect(lambda: on_playback(window, False))
+            player.failed.connect(lambda message: on_playback_failed(window, message))
 
 # ------------------------------------------------------------------ voice
 
@@ -145,7 +167,7 @@ def on_provisional_pcm(window, pcm: bytes, rate: int, channels: int) -> None:
         window.loop,
     )
     future.add_done_callback(
-        lambda fut, gen=generation: window._provisional_resolved(fut, gen)
+        lambda fut, gen=generation: provisional_resolved(window, fut, gen)
     )
 
 async def ingest_provisional(window, path: str, generation: int) -> str:
@@ -206,13 +228,13 @@ def on_utterance(window, pcm: bytes, rate: int, channels: int, deliver: str) -> 
             window._peel_wake_next = False
         if deliver != "dictate":
             window.thinking.append("transcribing", kind="status")
-        window._invalidate_wake()
-        window._invalidate_provisional()
+        invalidate_wake(window)
+        invalidate_provisional(window)
         future = asyncio.run_coroutine_threadsafe(
             window.voice.finish_live_stt(deliver=deliver, strip_wake=peel),
             window.loop,
         )
-        future.add_done_callback(window._utterance_resolved)
+        future.add_done_callback(lambda fut: utterance_resolved(window, fut))
         return
     target = outputs_dir() / "voice" / f"capture_{uuid4().hex[:8]}.wav"
     try:
@@ -222,7 +244,7 @@ def on_utterance(window, pcm: bytes, rate: int, channels: int, deliver: str) -> 
             f"I could not save the recording. {plain_reason(exc)}"
         )
         window.thinking.append(f"capture write failed: {exc!r}", kind="status")
-        window._on_utterance_settled(False)
+        on_utterance_settled(window, False)
         return
     if deliver == "wake":
         if window._wake_inflight:
@@ -247,15 +269,15 @@ def on_utterance(window, pcm: bytes, rate: int, channels: int, deliver: str) -> 
             window.loop,
         )
         future.add_done_callback(
-            lambda fut, gen=generation: window._wake_resolved(fut, gen)
+            lambda fut, gen=generation: wake_resolved(window, fut, gen)
         )
         return
     if deliver != "dictate":
         window.thinking.append("transcribing", kind="status")
     # Conversation/dictate take priority: invalidate any wake or provisional
     # peek still queued on the STT lock so Whisper serves the real clip.
-    window._invalidate_wake()
-    window._invalidate_provisional()
+    invalidate_wake(window)
+    invalidate_provisional(window)
     peel = bool(window._peel_wake_next and deliver == "turn")
     if peel:
         window._peel_wake_next = False
@@ -265,7 +287,7 @@ def on_utterance(window, pcm: bytes, rate: int, channels: int, deliver: str) -> 
         ),
         window.loop,
     )
-    future.add_done_callback(window._utterance_resolved)
+    future.add_done_callback(lambda fut: utterance_resolved(window, fut))
 
 def on_live_started(window) -> None:
     """Conversation/dictate onset: feed Sherpa while they talk, if the pack is ready."""
@@ -367,7 +389,9 @@ def _idle_control_heard(window, heard: object) -> bool:
 
 def on_wake_detected(window, remainder: object) -> None:
     """Wake phrase matched. Enter conversation; send remainder if any."""
-    window._note_engagement()
+    from arelis.ui.idle_host import note_engagement
+
+    note_engagement(window)
     if remainder is None or window.voice_controller is None:
         return
     # Empty string is a valid match (wake-only utterance).
@@ -421,16 +445,59 @@ def on_utterance_settled(window, became_turn: bool) -> None:
     # has to be told, or it waits for one forever and stops listening.
     window.voice_controller.notify_utterance_dropped()
 
+def _mark_voice_preparing(window, on: bool) -> None:
+    idle = getattr(window.conversation.chat, "empty", None)
+    if idle is not None and hasattr(idle, "set_voice_preparing"):
+        idle.set_voice_preparing(on)
+    from arelis.ui.idle_host import sync_idle_voice_mode
+
+    sync_idle_voice_mode(window)
+
+
 def preload_voice(window) -> None:
-    """Warm Whisper once the asyncio loop is actually running."""
+    """Warm the ear once the asyncio loop is actually running.
+
+    Wake stays off until this finishes, so the idle line is not still
+    promising Hey Arelis while Whisper downloads with no status.
+    """
     if window.voice is None or not window.loop.is_running():
         return
-    asyncio.run_coroutine_threadsafe(window.voice.preload(), window.loop)
+    if getattr(window, "_voice_preload_future", None) is not None:
+        return
+    future = asyncio.run_coroutine_threadsafe(window.voice.preload(), window.loop)
+    window._voice_preload_future = future
+
+    def _done(fut) -> None:
+        try:
+            on_voice_ear_ready(window, fut)
+        except RuntimeError:
+            pass
+
+    future.add_done_callback(
+        lambda fut: QTimer.singleShot(0, lambda: _done(fut))
+    )
+
+
+def on_voice_ear_ready(window, future) -> None:
+    """Idle may say Hey Arelis now. Fail-soft: a dead preload still starts wake."""
+    window._voice_ear_ready = True
+    _mark_voice_preparing(window, False)
+    try:
+        future.result()
+    except Exception as exc:
+        window.thinking.append(f"Could not get the ear: {exc}", kind="status")
+    if window.voice_controller is not None:
+        window.voice_controller.start_wake()
+    from arelis.ui.idle_host import sync_idle_voice_mode
+
+    sync_idle_voice_mode(window)
 
 def on_voice_mode(window, mode: str) -> None:
     window.conversation.set_dictating(mode == "dictate")
     window.conversation.set_conversing(mode == "conversation")
-    window._sync_idle_voice_mode(mode)
+    from arelis.ui.idle_host import sync_idle_voice_mode
+
+    sync_idle_voice_mode(window, mode)
     if window.voice is not None:
         window.voice.speak_enabled = mode == "conversation"
     # Agent loop reads this to bias spoken answers toward brevity.
@@ -442,15 +509,15 @@ def on_voice_mode(window, mode: str) -> None:
             window.voice.abort_live_stt()
     if mode in {"dictate", "conversation"}:
         # Drop superseding wake/provisional jobs so they do not hold STT.
-        window._invalidate_wake()
-        window._invalidate_provisional()
+        invalidate_wake(window)
+        invalidate_provisional(window)
     if mode not in {"off", ""}:
         # Loading Whisper takes tens of seconds the first time. Starting it
         # now means it happens while the user is still talking instead of
         # after they stop.
-        window._preload_voice()
+        preload_voice(window)
     if mode != "conversation":
-        window._stop_speech()
+        stop_speech(window)
 
 def on_voice_status(window, message: str) -> None:
     window.thinking.append(message, kind="status")
@@ -474,7 +541,7 @@ def on_capture_failed(window, message: str) -> None:
 def on_playback_failed(window, message: str) -> None:
     """A clip failed to play — abandon speech so conversation can listen again."""
     window.thinking.append(f"playback: {message}", kind="status")
-    window._stop_speech()
+    stop_speech(window)
 
 def on_barge_in(window) -> None:
     """Talking over her. Cut playback now.
@@ -484,7 +551,7 @@ def on_barge_in(window) -> None:
     the transcript is not a second one.
     """
     window.thinking.append("interrupted", kind="status")
-    window._stop_speech()
+    stop_speech(window)
 
 def arm_speech(window) -> None:
     """A spoken reply is in flight (or about to be).
@@ -501,19 +568,19 @@ def arm_speech(window) -> None:
     if window._speech_expected:
         return
     window._speech_expected = True
-    window._trace_voice("speech_armed")
-    window._update_speaking()
+    trace_voice(window, "speech_armed")
+    update_speaking(window)
 
 def on_speech_synthesized(window, clips: int) -> None:
     """VOICE_SPEECH_DONE: no more clips are coming for this reply."""
     window._speech_expected = False
-    window._trace_voice("speech_synthesized", clips=clips)
-    window._update_speaking()
+    trace_voice(window, "speech_synthesized", clips=clips)
+    update_speaking(window)
 
 def on_playback(window, playing: bool) -> None:
     window._speech_playing = playing
-    window._trace_voice("playback")
-    window._update_speaking()
+    trace_voice(window, "playback")
+    update_speaking(window)
 
 def update_speaking(window) -> None:
     # Include the player queue so VOICE_SPEECH_DONE cannot reopen the mic in
@@ -530,17 +597,19 @@ def update_speaking(window) -> None:
     if window.voice_controller is not None:
         window.voice_controller.notify_speaking(speaking)
     if not speaking:
-        window._flush_held_inbound()
+        from arelis.ui.sms_host import flush_held_inbound
+
+        flush_held_inbound(window)
 
 def on_speech_watchdog(window) -> None:
     player_busy = window.speech_player is not None and window.speech_player.has_work()
     stuck = window._speech_expected or window._speech_playing or player_busy
     if not stuck:
         # Resync in case speaking was latched from a stale has_work read.
-        window._update_speaking()
+        update_speaking(window)
         return
     window.thinking.append("speech never reported finishing; listening again", kind="status")
-    window._stop_speech()
+    stop_speech(window)
 
 def stop_speech(window) -> None:
     # Cancelling synthesis matters as much as stopping the player. The
@@ -553,7 +622,7 @@ def stop_speech(window) -> None:
         window.speech_player.stop()
     window._speech_expected = False
     window._speech_playing = False
-    window._update_speaking()
+    update_speaking(window)
 
 def trace_voice(window, event: str, **fields: Any) -> None:
     if window.voice_controller is None:

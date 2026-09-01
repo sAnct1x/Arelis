@@ -122,7 +122,9 @@ def dispatch_event(window: Any, event: Event) -> None:
         # Streaming TTS can deliver the first clip before ASSISTANT_DONE.
         # Arm here so the mic stays deaf across that early Piper work too.
         if not window._speech_expected:
-            window._arm_speech()
+            from arelis.ui.voice_host import arm_speech
+
+            arm_speech(window)
         # Each clip is proof that synthesis is still making progress, which
         # is what keeps the speech watchdog from firing during a long answer.
         if window._speech_expected:
@@ -132,7 +134,9 @@ def dispatch_event(window: Any, event: Event) -> None:
                 str(p.get("path") or ""), int(p.get("utterance") or 0)
             )
     elif t == EventType.VOICE_SPEECH_DONE:
-        window._on_speech_synthesized(int(p.get("clips") or 0))
+        from arelis.ui.voice_host import on_speech_synthesized
+
+        on_speech_synthesized(window, int(p.get("clips") or 0))
     elif t == EventType.ASSISTANT_DELTA:
         if window._mobile_foreign:
             return
@@ -157,13 +161,17 @@ def dispatch_event(window: Any, event: Event) -> None:
         if window._turn_busy:
             window.chat.show_progress(window._busy_status_line())
         window._assistant_streaming = False
-        window._stop_speech()
+        from arelis.ui.voice_host import stop_speech
+
+        stop_speech(window)
     elif t == EventType.ASSISTANT_DONE:
         if window._mobile_foreign:
             window._assistant_streaming = False
             window._mobile_foreign = False
             window._set_busy(False)
-            window._refresh_history()
+            from arelis.ui.history_host import refresh_history
+
+            refresh_history(window)
             return
         # Repaint from the payload rather than the accumulated deltas: it is
         # the authoritative answer, and it is the version that has the
@@ -187,9 +195,13 @@ def dispatch_event(window: Any, event: Event) -> None:
         # window where the turn is over and no reply is pending, which is
         # exactly the state that means "start listening again".
         if p.get("speak"):
-            window._arm_speech()
+            from arelis.ui.voice_host import arm_speech
+
+            arm_speech(window)
         window._set_busy(False)
-        window._refresh_history()
+        from arelis.ui.history_host import refresh_history
+
+        refresh_history(window)
     elif t == EventType.MOBILE_SYNC:
         sid = str(p.get("session_id") or "")
         current = str(getattr(window.store, "session_id", "") or "")
@@ -232,7 +244,9 @@ def dispatch_event(window: Any, event: Event) -> None:
         else:
             window.chat.clear()
         sid = str(p.get("session_id") or "")
-        window._refresh_history()
+        from arelis.ui.history_host import refresh_history
+
+        refresh_history(window)
         if sid:
             window.history.set_active(sid)
         window._drive_session = False
@@ -241,7 +255,9 @@ def dispatch_event(window: Any, event: Event) -> None:
             window.thinking.append("new conversation", kind="status")
         elif sid:
             window.thinking.append("loaded", kind="status")
-        window._sync_idle_mode()
+        from arelis.ui.idle_host import sync_idle_mode
+
+        sync_idle_mode(window)
     elif t == EventType.ROOM_CHANGED:
         room_id = str(p.get("room_id") or "")
         window.conversation.room.set_room(
@@ -260,7 +276,9 @@ def dispatch_event(window: Any, event: Event) -> None:
             window._hide_world()
         shown = str(p.get("name") or "").strip() or room_id or "general"
         window.thinking.append(f"room  {shown}", kind="status")
-        window._sync_idle_mode()
+        from arelis.ui.idle_host import sync_idle_mode
+
+        sync_idle_mode(window)
     elif t == EventType.CALENDAR_CHANGED:
         if not window.calendar_window.isHidden():
             window.calendar.reload()
@@ -381,7 +399,9 @@ def dispatch_event(window: Any, event: Event) -> None:
         # The shimmer is set for every tool now, so image needs no special
         # case beyond its own Thinking line.
         if str(tool or "") in {"image", "research_report"}:
-            window._begin_job(str(tool))
+            from arelis.ui.notify_host import begin_job
+
+            begin_job(window, str(tool))
         if str(tool or "") == "browser":
             action = str(args.get("action") or "")
             window._drive_session = True
@@ -402,7 +422,9 @@ def dispatch_event(window: Any, event: Event) -> None:
             window.act_calendar.setChecked(False)
             window._toggle_calendar(False)
         if p.get("tool") == "schedule" and p.get("ok"):
-            window._reveal_calendar_jobs()
+            from arelis.ui.calendar_host import reveal_calendar_jobs
+
+            reveal_calendar_jobs(window)
             job_id = str(data.get("id") or "")
             if job_id:
                 window.calendar.reload_jobs(select_id=job_id)
@@ -440,7 +462,10 @@ def dispatch_event(window: Any, event: Event) -> None:
                     tool_failure_notice("image", str(p.get("output") or ""))
                 )
         if str(p.get("tool") or "") in {"image", "research_report"}:
-            window._finish_job(
+            from arelis.ui.notify_host import finish_job
+
+            finish_job(
+                window,
                 str(p.get("tool") or "job"),
                 ok=bool(p.get("ok")),
                 output=str(p.get("output") or ""),
@@ -601,7 +626,9 @@ def dispatch_event(window: Any, event: Event) -> None:
                     f"I could not show {leaf}. {plain_reason(exc)}"
                 )
     elif t == EventType.SMS_RECEIVED:
-        window._on_sms_received(p)
+        from arelis.ui.sms_host import on_sms_received
+
+        on_sms_received(window, p)
     elif t == EventType.TURN_CANCEL:
         # Voice stop publishes cancel from the orchestrator. The stop
         # button publishes it too — skip the echo so we do not double-cut.
@@ -645,6 +672,8 @@ def dispatch_event(window: Any, event: Event) -> None:
             window._assistant_streaming = False
             window.conversation.dismiss_confirm()
             window._set_confirm_pending(False)
-            window._stop_speech()
+            from arelis.ui.voice_host import stop_speech
+
+            stop_speech(window)
             window._set_busy(False)
 

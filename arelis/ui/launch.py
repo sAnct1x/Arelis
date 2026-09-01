@@ -28,6 +28,7 @@ from arelis.presence.ipc_client import IpcClient
 from arelis.presence.ipc_server import IpcServer
 from arelis.presence.lock import external_core_available
 from arelis.ui.first_run import prompt_for_workspace_root
+from arelis.ui.mobile_host import bind_mobile_hub
 from arelis.ui.scale import configure_display_scale
 from arelis.ui.setup_wizard import prompt_for_model_setup
 from arelis.ui.theme import (
@@ -509,7 +510,7 @@ def run_ui(config: dict[str, Any] | None = None) -> int:
         window.sms_ingest = runtime.ingest
         window.sms_watcher = runtime.watcher
         window.sms_auto_reply = runtime.auto_reply
-        window._bind_mobile_hub()
+        bind_mobile_hub(window)
         for message in runtime.status_messages:
             asyncio.run_coroutine_threadsafe(
                 bus.publish(Event(EventType.STATUS, {"message": message})),

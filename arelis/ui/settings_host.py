@@ -72,7 +72,9 @@ def apply_settings(window, values: dict[str, Any]) -> None:
         )
         merge_local_config({"ui": {"notifications": notify_patch}})
         window.notify_center.set_config(window.config)
-        window._sync_notify_surface()
+        from arelis.ui.notify_host import sync_notify_surface
+
+        sync_notify_surface(window)
 
     agent_patch = values.get("agent") or {}
     if agent_patch:
@@ -82,7 +84,9 @@ def apply_settings(window, values: dict[str, Any]) -> None:
 
     workspace_patch = values.get("workspace") or {}
     if "roots" in workspace_patch:
-        window._apply_workspace_roots(list(workspace_patch.get("roots") or []))
+        from arelis.ui.workspace_host import apply_workspace_roots
+
+        apply_workspace_roots(window, list(workspace_patch.get("roots") or []))
 
     if window.voice_controller is not None and "input_device" in voice_patch:
         window.voice_controller.set_input_device(str(voice_patch.get("input_device") or ""))
@@ -96,9 +100,9 @@ def apply_settings(window, values: dict[str, Any]) -> None:
                 pass
 
     if "always_on_top" in ui_prefs:
-        window._apply_always_on_top(bool(ui_prefs["always_on_top"]))
+        apply_always_on_top(window, bool(ui_prefs["always_on_top"]))
     if "chat_font_scale" in ui_prefs:
-        window._apply_chat_font_scale(float(ui_prefs["chat_font_scale"]))
+        apply_chat_font_scale(window, float(ui_prefs["chat_font_scale"]))
     if "away_rest" in ui_prefs or "away_rest_min" in ui_prefs:
         if "away_rest" in ui_prefs:
             window._away_rest = bool(ui_prefs["away_rest"])
@@ -109,9 +113,13 @@ def apply_settings(window, values: dict[str, Any]) -> None:
             away_rest_min=window._away_rest_min,
         )
         if not window._away_rest and window._away_resting:
-            window._wake_from_away_rest()
+            from arelis.ui.idle_host import wake_from_away_rest
+
+            wake_from_away_rest(window)
         else:
-            window._arm_away_rest_timer()
+            from arelis.ui.idle_host import arm_away_rest_timer
+
+            arm_away_rest_timer(window)
 
     # Soft-apply listen/speak availability without a full restart when possible.
     master = bool((window.config.get("voice") or {}).get("enabled", True))
@@ -138,7 +146,9 @@ def apply_settings(window, values: dict[str, Any]) -> None:
             window.conversation.set_voice_available(True, "")
             window.voice_controller.resume_wake()
         if not master or not tts_on:
-            window._stop_speech()
+            from arelis.ui.voice_host import stop_speech
+
+            stop_speech(window)
 
 
 def apply_window_theme(window, theme_id: str, *, persist: bool = True) -> str:
@@ -210,7 +220,7 @@ def toggle_fullscreen(window) -> None:
 
 
 def toggle_always_on_top(window, checked: bool) -> None:
-    window._apply_always_on_top(checked)
+    apply_always_on_top(window, checked)
 
 
 def apply_always_on_top(window, on: bool, *, persist: bool = True) -> None:
@@ -235,7 +245,7 @@ def apply_always_on_top(window, on: bool, *, persist: bool = True) -> None:
 
 
 def nudge_chat_font(window, delta: float) -> None:
-    window._apply_chat_font_scale(window._chat_font_scale + delta)
+    apply_chat_font_scale(window, window._chat_font_scale + delta)
 
 
 def apply_chat_font_scale(window, scale: float, *, persist: bool = True) -> None:
@@ -248,7 +258,7 @@ def apply_chat_font_scale(window, scale: float, *, persist: bool = True) -> None
 
 
 def on_reach_changed(window, reach: float) -> None:
-    window._apply_world_reach(reach)
+    apply_world_reach(window, reach)
 
 
 def apply_world_reach(window, reach: float, *, persist: bool = True) -> None:
@@ -271,15 +281,17 @@ def open_settings(window, tab: str = "") -> None:
         away_rest_min=window._away_rest_min,
         active_facts=active_facts,
         parent=window,
-        on_test_mic=window._settings_test_mic,
-        on_test_speak=window._settings_test_speak,
+        on_test_mic=lambda: settings_test_mic(window),
+        on_test_speak=lambda: settings_test_speak(window),
         on_reset_layout=window._reset_layout,
         initial_tab=tab,
     )
-    dlg.applied.connect(window._apply_settings)
+    dlg.applied.connect(lambda values: apply_settings(window, values))
 
     def _on_memory_fact(fact_ids: object, status: str) -> None:
-        window._on_fact_decided(fact_ids, status)
+        from arelis.ui.history_host import on_fact_decided
+
+        on_fact_decided(window, fact_ids, status)
         if window.store is not None:
             dlg.set_active_facts(window.store.list_facts(status="active", limit=50))
 
@@ -328,4 +340,11 @@ def settings_test_speak(window) -> None:
             window.thinking.append(f"Speak test failed: {exc}", kind="status")
 
     fut.add_done_callback(_done)
+
+
+def bind_settings(window) -> None:
+    window.title_bar.settings_requested.connect(lambda: open_settings(window))
+    window.readiness_strip.settings_requested.connect(
+        lambda tab="": open_settings(window, tab)
+    )
 

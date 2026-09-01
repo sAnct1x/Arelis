@@ -11,6 +11,7 @@ import pytest
 from arelis.core.bus import EventBus
 from arelis.core.events import Event, EventType
 from arelis.ui.icons import conversation_icon, microphone_icon
+from arelis.ui.idle_host import enter_away_rest, note_engagement
 from arelis.ui.theme import load_fonts
 
 
@@ -63,7 +64,7 @@ def test_typing_in_the_window_composer_notes_engagement(arelis_window, qt_app) -
     window._reset_layout()
     window.history_dock.show()
     window._away_rest = True
-    window._enter_away_rest()
+    enter_away_rest(window)
     assert window._away_resting
 
     composer = window.conversation.input
@@ -93,15 +94,15 @@ def test_away_rest_collapses_then_click_restores(qt_app) -> None:
         window.history_dock.show()
         window.think_dock.show()
         window._away_rest = True
-        window._enter_away_rest()
+        enter_away_rest(window)
         assert window._away_resting
         assert window.history_dock.isHidden()
         assert window.think_dock.isHidden()
-        window._note_engagement()
+        note_engagement(window)
         assert not window._away_resting
         assert not window.history_dock.isHidden()
         assert not window.think_dock.isHidden()
-        window._enter_away_rest()
+        enter_away_rest(window)
         window._on_event(Event(EventType.THINKING, {"text": "boot noise"}))
         assert window.think_dock.isHidden()
     finally:
