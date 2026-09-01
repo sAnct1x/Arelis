@@ -42,7 +42,11 @@ from arelis.core.orchestrator_rooms import (
 from arelis.core.orchestrator_rooms import (
     resume_last_room as resume_last_room_impl,
 )
-from arelis.core.orchestrator_slash import OrchestratorSlash
+from arelis.core.orchestrator_slash import (  # noqa: F401
+    OrchestratorSlash,
+    _as_code_block,
+    _tokenize,
+)
 from arelis.core.orchestrator_turns import OrchestratorTurns
 from arelis.desk import DeskStore
 from arelis.llm.router import ModelRole, ModelRouter
