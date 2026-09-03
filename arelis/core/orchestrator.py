@@ -48,6 +48,11 @@ from arelis.core.orchestrator_slash import (  # noqa: F401
     _tokenize,
 )
 from arelis.core.orchestrator_turns import OrchestratorTurns
+from arelis.core.route_hints import (
+    FILE_LOOP_HINT,
+    RESEARCH_HINTS,
+    TOOL_LOOP_HINT,
+)
 from arelis.desk import DeskStore
 from arelis.llm.router import ModelRole, ModelRouter
 from arelis.memory.store import MemoryStore
@@ -113,44 +118,6 @@ def comms_bypasses_sticky(text: str) -> bool:
         or looks_like_calendar_read(raw)
     )
 
-
-# Auto-routing heuristics. Tool-shaped asks stay on fast because
-# that path follows the tool schema far more reliably than a long
-# research loop, which tends to narrate a call instead of emitting one.
-TOOL_LOOP_HINT = re.compile(
-    r"\b(search|web_search|google|scrape|fetch|open|read|list|write|edit"
-    r"|analyze|workspace|web_fetch|file|email|inbox|mail|schedule"
-    r"|weather|forecast|recall|remember|agenda|calendar|tasks?|todo"
-    r"|git|sms|text|inbound|research(?:_report)?|doc_extract|pdf)\b|https?://",
-    re.IGNORECASE,
-)
-FILE_LOOP_HINT = re.compile(
-    r"\b(file|readme|path|workspace|edit|write|refactor|python|code|debug"
-    r"|class|function|lint|git|branch|commit|diff)\b",
-    re.IGNORECASE,
-)
-# Deep / heavy research only → 14b. Short factual "look this up" stays on fast
-# (7b+tools). Bare "research" / "cite" alone no longer force a VRAM swap (H2).
-RESEARCH_HINTS: list[re.Pattern[str]] = [
-    re.compile(
-        r"\b("
-        r"deep\s*-?\s*dive|"
-        r"deeply\s+research|"
-        r"deep\s+research|"
-        r"multi\s*-?\s*source|"
-        r"write\s+a\s+report|"
-        r"thorough\s+research|"
-        r"in\s*-?\s*depth\s+(?:research|look|analysis|report)|"
-        r"investigate|"
-        r"hypothesis|"
-        r"derive|"
-        r"astrophys|interferom|spectrum|"
-        r"research\s+report|"
-        r"cite\s+sources"
-        r")\b",
-        re.IGNORECASE,
-    ),
-]
 
 # Slash commands run a tool directly, bypassing the model and the confirm card.
 # That bypass is intentional and is scoped to text the user typed: naming a tool

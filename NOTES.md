@@ -181,3 +181,9 @@ The types job is `continue-on-error: true` and uses the same
 
 Coverage is a separate `continue-on-error` job on earth/ and spatial/
 tests. No `--cov-fail-under`. The 8-way matrix does not collect coverage.
+
+## Found during Phase 2 G
+
+`TOOL_LOOP_HINT` / `FILE_LOOP_HINT` / `RESEARCH_HINTS` were copy-pasted
+into four orchestrator modules; only `classify_role` used them. One
+module now owns the patterns. The regexes themselves were not rewritten.
