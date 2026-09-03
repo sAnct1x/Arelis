@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import Any, Protocol, TypeAlias
 
 from arelis.tools.policy import (
     CONTACTS_WRITE_ACTIONS,
@@ -89,6 +89,10 @@ class ToolResult:
     data: dict[str, Any] = field(default_factory=dict)
 
 
+# ToolRegistry.list shadows the builtin for later annotations in the class body.
+_OllamaToolList: TypeAlias = list[dict[str, Any]]
+
+
 class Tool(Protocol):
     name: str
     description: str
@@ -115,7 +119,7 @@ class ToolRegistry:
     def names(self) -> set[str]:
         return set(self._tools)
 
-    def ollama_tools(self, names: set[str] | None = None) -> list[dict[str, Any]]:
+    def ollama_tools(self, names: set[str] | None = None) -> _OllamaToolList:
         """OpenAI-style tools array for Ollama /api/chat.
 
         When ``names`` is set, only those tools are offered (per-turn subset).
@@ -124,7 +128,7 @@ class ToolRegistry:
         """
         from arelis.core.compact_prompt import skinny_ollama_tool
 
-        out: list[dict[str, Any]] = []
+        out: _OllamaToolList = []
         for tool in self._tools.values():
             if names is not None and tool.name not in names:
                 continue

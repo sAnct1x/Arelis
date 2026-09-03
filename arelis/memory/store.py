@@ -302,6 +302,14 @@ def _utc_now() -> str:
     return datetime.now(UTC).replace(microsecond=0).isoformat()
 
 
+def _inserted_id(cur: sqlite3.Cursor) -> int:
+    """``Cursor.lastrowid`` is typed optional; AUTOINCREMENT INSERT sets it."""
+    row_id = cur.lastrowid
+    if row_id is None:
+        raise RuntimeError("INSERT did not assign lastrowid")
+    return int(row_id)
+
+
 # Owner prefixes stripped before two facts are compared, so "my favourite fruit"
 # and "the user's favourite fruit" are recognised as the same claim. The user's
 # own name belongs here too — "Dana's favourite fruit" — but it cannot be a

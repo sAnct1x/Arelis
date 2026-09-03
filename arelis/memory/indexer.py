@@ -71,6 +71,8 @@ class MemoryIndexer:
         self.model = model
         self.batch_size = batch_size
         self._available: bool | None = None
+        self.docs: DocumentIndexer | None
+        self.mail: MailIndexer | None
         if docs is not None:
             self.docs = docs
         elif index_docs and workspace is not None:

@@ -31,6 +31,10 @@ mypy by package (same run):
 `guard/` is already clean. Phase 1 E should start with `memory/` and
 `tools/base.py`, and stay out of `core/` until A and B have merged.
 
+After the leaf pass on this branch: **1379 errors in 128 files**
+(down 12 / 6 files). `memory/` and `tools/base.py` are clean under
+`mypy --follow-imports=silent`.
+
 `tests/test_ci_gate.py` currently forbids the word `mypy` in
 `.github/workflows/ci.yml`. A later non-blocking report job has to
 rewrite that pin, not sneak a step past it.
@@ -106,3 +110,11 @@ make them legible and testable. Do not replace the approach.
 
 `tests/test_egress.py`, `arelis/earth/shodan.py`, `arelis/earth/cameras.py`
 restraint comments, `LICENSE`, `arelis/guard/`, `arelis/relay/crypto.py`.
+
+## Found during Phase 1 E
+
+`arelis/tools/__init__.py` reports every tool register as incompatible with
+`Tool` because implementations type `risk` as `str` while the protocol
+wants `ToolRisk` (`Literal["read", "write", "side_effect"]`). Left alone:
+that file is not a leaf, and widening the protocol would touch the whole
+tool surface while A/B are in flight.

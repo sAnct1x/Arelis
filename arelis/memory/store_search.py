@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from arelis.memory.store import SearchHit, _fts_match, _utc_now, log
+from arelis.memory.store import SearchHit, _fts_match, _inserted_id, _utc_now, log
 
 if TYPE_CHECKING:
     from arelis.memory.store import MemoryStore
@@ -75,7 +75,7 @@ def replace_document_chunks(
             """,
             (root_name, rel_path, int(mtime_ns), int(size), now),
         )
-        doc_id = int(cur.lastrowid)
+        doc_id = _inserted_id(cur)
     else:
         doc_id = int(existing["id"])
         store._conn.execute(
@@ -243,7 +243,7 @@ def upsert_mail_message(
                 now,
             ),
         )
-        mail_id = int(cur.lastrowid)
+        mail_id = _inserted_id(cur)
     else:
         mail_id = int(existing["id"])
         store._conn.execute(
