@@ -176,3 +176,8 @@ Space-Track login). Those already fail-soft; the new tests pin that.
 `tests/test_ci_gate.py` used to forbid the word `mypy` in `ci.yml`.
 The types job is `continue-on-error: true` and uses the same
 `mypy==2.3.1` pin. The 8-way test matrix still does not run mypy.
+
+## Found during Phase 2 F
+
+Coverage is a separate `continue-on-error` job on earth/ and spatial/
+tests. No `--cov-fail-under`. The 8-way matrix does not collect coverage.

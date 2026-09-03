@@ -83,6 +83,21 @@ def test_mypy_is_pinned_in_dev_and_is_not_a_ci_gate() -> None:
     assert "mypy" not in installed_block.lower()
 
 
+def test_coverage_report_is_informational() -> None:
+    """Earth/spatial coverage is a number in CI, not a failing threshold."""
+    pyproject = PYPROJECT.read_text(encoding="utf-8")
+    workflow = CI_YML.read_text(encoding="utf-8")
+    assert "pytest-cov" in pyproject
+    assert re.search(r"(?m)^  coverage:", workflow)
+    cov_block = workflow.split("\n  coverage:", 1)[1].split("\n  test:", 1)[0]
+    assert "continue-on-error: true" in cov_block
+    assert "--cov=arelis.earth" in cov_block
+    assert "--cov=arelis.spatial" in cov_block
+    assert "--cov-fail-under" not in workflow
+    test_block = workflow.split("\n  test:", 1)[1].split("\n  lock:", 1)[0]
+    assert "--cov" not in test_block
+
+
 def test_pytest_has_a_per_test_timeout() -> None:
     text = PYPROJECT.read_text(encoding="utf-8")
     assert "pytest-timeout" in text
