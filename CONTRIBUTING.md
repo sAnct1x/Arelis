@@ -77,6 +77,15 @@ Before you open a pull request:
 Both must be clean. Ruff is pinned in `pyproject.toml` so a new release
 cannot turn an untouched tree red on your unrelated change.
 
+Type-checking is installed with the `dev` extra and is not a merge gate.
+`mypy` is pinned the same way ruff is, so the error count is comparable
+across machines. Run it when you are working a type-fix, not as a reason
+to block an unrelated change:
+
+```
+.venv\Scripts\python -m mypy
+```
+
 ### Tests
 
 Every change lands with tests a person can read. The name states the

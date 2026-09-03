@@ -124,6 +124,10 @@ dev = [
   # ceiling fails the test instead. Pin a floor, not a star: a new timeout
   # plugin is not a new lint rule.
   "pytest-timeout>=2.3",
+  # Exact, same reason as ruff. A floating mypy release changes the baseline
+  # error count overnight, and that number is the only reason this extra
+  # exists — Phase 0 records it; nothing fails a build on it yet.
+  "mypy==2.3.1",
 ]
 
 [project.scripts]
@@ -225,3 +229,25 @@ ignore = [
 # QWebChannel signals keep the JS camelCase names. Snake-case would
 # silently stop the Cesium bridge.
 "arelis/ui/earth_globe_host.py" = ["N815"]
+
+# Permissive on purpose. This is a baseline counter, not a gate. CI does not
+# run mypy yet. `ignore_missing_imports` covers PySide6 / optional extras
+# (voice, spatial, astro) that a `pip install -e ".[dev]"` tree may lack.
+# Do not add --strict here; leaf modules get tightened one directory at a time.
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+pretty = true
+show_error_codes = true
+files = ["arelis"]
+
+# Current numpy stubs use a 3.12 `type` alias. Following them under
+# python_version = 3.11 (the requires-python floor) aborts the whole
+# run with one syntax error and no package count. Skip the stubs;
+# ignore_missing_imports still covers the import itself.
+# follow_imports_for_stubs is the load-bearing flag — without it the
+# skip does not apply to .pyi files and the syntax error persists.
+[[tool.mypy.overrides]]
+module = ["numpy", "numpy.*"]
+follow_imports = "skip"
+follow_imports_for_stubs = true

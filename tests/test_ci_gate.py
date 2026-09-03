@@ -56,6 +56,26 @@ def test_ci_ruff_pin_matches_pyproject() -> None:
     )
 
 
+def test_mypy_is_pinned_in_dev_and_is_not_a_ci_gate() -> None:
+    """mypy exists so the error count is a number, not so CI fails on it.
+
+    A floating extra would make today's baseline meaningless tomorrow. A
+    failing mypy job would block work that is not a type-fix. Pin the
+    version; keep the checker out of the workflow until a later pass
+    decides to report it without failing the build.
+    """
+    pyproject = PYPROJECT.read_text(encoding="utf-8")
+    workflow = CI_YML.read_text(encoding="utf-8")
+    pin = re.search(r'"mypy==(\d+\.\d+\.\d+)"', pyproject)
+    assert pin, "dev extra must pin mypy==x.y.z the same way it pins ruff"
+    assert "[tool.mypy]" in pyproject, "permissive mypy config lives in pyproject.toml"
+    assert "ignore_missing_imports = true" in pyproject
+    assert "mypy" not in workflow.lower(), (
+        "CI must not run mypy yet. A report job comes later; a failing "
+        "job is a different decision."
+    )
+
+
 def test_pytest_has_a_per_test_timeout() -> None:
     text = PYPROJECT.read_text(encoding="utf-8")
     assert "pytest-timeout" in text
