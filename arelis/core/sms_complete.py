@@ -12,6 +12,13 @@ from dataclasses import dataclass
 from typing import Any
 
 from arelis.contacts import Contact, load_contacts, match_contact_label, resolve_contact
+from arelis.core.complete_protocol import (
+    SEND_ALLOW_CLOSER,
+    history_with_current,
+    next_unsent,
+    remaining_labels,
+    unfinished_call_notice,
+)
 from arelis.history_view import history_pairs
 
 # Same family as preflight, kept here so completion owns the parse.
@@ -849,12 +856,10 @@ def complete_sms_draft(
         if draft.complete or draft.missing:
             return draft
 
-    pairs = history_pairs(history or [])
     # Include the current user text as the newest user turn for merging.
     # (AgentLoop adds the user message before we read history, so it may already
     # be the last entry — dedupe by comparing content.)
-    if not pairs or pairs[-1] != ("user", user_text):
-        pairs = [*pairs, ("user", user_text)]
+    pairs = history_with_current(history, user_text)
 
     # Case A: current turn is a full SMS parse with to but empty body — keep looking
     # for a following body is N/A (this IS the current turn). Incomplete.
@@ -1026,13 +1031,8 @@ def fill_send_sms_args(
     if draft is None:
         return out
     sent = {s.lower() for s in (already_sent or set())}
-    next_to = ""
-    for alias in draft.resolved_aliases or ((draft.tool_to,) if draft.tool_to else ()):
-        if alias and alias.lower() not in sent:
-            next_to = alias
-            break
-    if not next_to:
-        next_to = draft.tool_to
+    candidates = draft.resolved_aliases or ((draft.tool_to,) if draft.tool_to else ())
+    next_to = next_unsent(candidates, already_sent, draft.tool_to)
 
     if draft.complete and draft.body:
         out["body"] = draft.body
@@ -1106,14 +1106,14 @@ def sms_force_call_notice(
             f"Do not send yet — contacts missing for: {miss}. "
             "Resolve every recipient first."
         )
-    sent = {s.lower() for s in (already_sent or set())}
-    remaining = [a for a in draft.resolved_aliases if a.lower() not in sent]
+    remaining = remaining_labels(draft.resolved_aliases, already_sent)
     target = remaining[0] if remaining else draft.tool_to
     extra = ""
     if len(remaining) > 1:
         extra = f" Then repeat for: {', '.join(remaining[1:])}."
-    return (
-        "You have not finished send_sms. Call it now with "
-        f'to="{target}" body="{draft.body[:300]}".{extra} '
-        "Chatting is not sending. The confirm card will ask the user to Allow."
+    return unfinished_call_notice(
+        "send_sms",
+        f'Call it now with to="{target}" body="{draft.body[:300]}"',
+        extra=extra,
+        after=SEND_ALLOW_CLOSER,
     )

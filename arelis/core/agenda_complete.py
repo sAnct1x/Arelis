@@ -11,6 +11,11 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
 
+from arelis.core.complete_protocol import (
+    CREATE_ALLOW_CLOSER,
+    unfinished_call_notice,
+)
+from arelis.history_view import history_pairs
 from arelis.jobs.store import JobError, normalize_date, normalize_time
 
 _CREATE = re.compile(
@@ -816,14 +821,7 @@ def complete_agenda_draft(
         return current
     if not _SEND_CONFIRM.match(text or ""):
         return None
-    pairs: list[tuple[str, str]] = []
-    for item in history or []:
-        if hasattr(item, "role") and hasattr(item, "content"):
-            pairs.append((str(item.role), str(item.content or "")))
-        elif isinstance(item, dict):
-            pairs.append(
-                (str(item.get("role") or ""), str(item.get("content") or ""))
-            )
+    pairs = history_pairs(history or [])
     saw_ask = False
     for role, content in reversed(pairs):
         if role == "assistant" and _PROCEED_ASK.search(content or ""):
@@ -916,10 +914,11 @@ def agenda_force_call_notice(draft: AgendaDraft) -> str:
     desc = ""
     if draft.description:
         desc = f' description="{draft.description[:200]}"'
-    return (
-        "You have not finished creating the calendar event. Call agenda now with "
-        f'action=create provider="{draft.provider}" '
-        f'summary="{draft.summary[:120]}" start="{draft.start}"{desc}. '
-        "Do not send_sms. Do not web_search. Chatting is not creating. "
-        "The confirm card will ask the user to Allow."
+    return unfinished_call_notice(
+        "creating the calendar event",
+        (
+            f'Call agenda now with action=create provider="{draft.provider}" '
+            f'summary="{draft.summary[:120]}" start="{draft.start}"{desc}'
+        ),
+        after=CREATE_ALLOW_CLOSER,
     )

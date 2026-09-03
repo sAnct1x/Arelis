@@ -115,3 +115,10 @@ the scratch object is a later contract, not this pass.
 
 `dispatch_calls` still owns confirm/execute and the per-call skip guards
 (duplicate weather, page budget, same-call). Redirects are the table.
+
+## Found during Phase 1 B
+
+The three `*_complete` parsers stay domain-specific (`_SEND_CONFIRM` wording
+differs for text / mail / create). The shared leftover is remaining
+recipients, the unfinished-call notice, and appending the current user
+turn. A base class would have been a fake.

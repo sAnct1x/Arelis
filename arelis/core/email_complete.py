@@ -14,6 +14,11 @@ from pathlib import Path
 from typing import Any
 
 from arelis.contacts import Contact, load_contacts, match_contact_label, resolve_contact
+from arelis.core.complete_protocol import (
+    history_with_current,
+    remaining_labels,
+    unfinished_call_notice,
+)
 from arelis.history_view import history_pairs
 from arelis.mail import valid_address
 
@@ -597,12 +602,7 @@ def email_remaining(draft: EmailDraft | None, already_sent: set[str] | None) -> 
     """Addresses still owed on a multi-recipient draft."""
     if draft is None:
         return []
-    sent = {s.lower() for s in (already_sent or set())}
-    return [
-        addr
-        for addr in draft.all_tos
-        if addr and addr.lower() not in sent
-    ]
+    return remaining_labels(draft.all_tos, already_sent)
 
 
 def wanted_attach_suffixes(text: str) -> tuple[str, ...]:
@@ -1244,9 +1244,7 @@ def complete_email_draft(
             current = _clone_draft(current, wanted_suffixes=suffixes)
         current = _with_attach_from_history(current, history, user_text)
     if looks_like_email_also_ask(user_text):
-        pairs = history_pairs(history or [])
-        if not pairs or pairs[-1] != ("user", user_text):
-            pairs = [*pairs, ("user", user_text)]
+        pairs = history_with_current(history, user_text)
         prior = _last_complete_email_draft(pairs[:-1], book) or _last_email_draft_any(
             pairs[:-1], book
         )
@@ -1268,9 +1266,7 @@ def complete_email_draft(
     if current and current.complete:
         return _with_resolved(current, book)
 
-    pairs = history_pairs(history or [])
-    if not pairs or pairs[-1] != ("user", user_text):
-        pairs = [*pairs, ("user", user_text)]
+    pairs = history_with_current(history, user_text)
 
     # Path-only follow-up after a failed/missing attach: revive prior compose.
     path_only = _extract_file_path(user_text)
@@ -1616,10 +1612,15 @@ def email_force_call_notice(
     attach = ""
     if draft.all_attach_paths:
         attach = f' attach="{ ", ".join(draft.all_attach_paths) }"'
-    return (
-        "You have not finished send_email. Call it now with "
-        f'to="{to}" subject="{draft.tool_subject[:120]}" '
-        f'body="{draft.tool_body[:300]}"{attach}.{extra} '
-        "Do not web_search. Chatting is not sending. "
-        "The confirm card will ask the user to Allow."
+    return unfinished_call_notice(
+        "send_email",
+        (
+            f'Call it now with to="{to}" subject="{draft.tool_subject[:120]}" '
+            f'body="{draft.tool_body[:300]}"{attach}'
+        ),
+        extra=extra,
+        after=(
+            "Do not web_search. Chatting is not sending. "
+            "The confirm card will ask the user to Allow."
+        ),
     )
