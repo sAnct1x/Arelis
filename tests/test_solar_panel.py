@@ -1167,7 +1167,8 @@ def test_solar_markers_use_drawn_marks_not_rgb_dots() -> None:
     assert "paint_mark(" in paint
     assert "paint_mark(" in roster
     start = paint.index("def paint_free_markers(")
-    end = paint.index("\ndef ", start + 1)
+    nxt = paint.find("\ndef ", start + 1)
+    end = len(paint) if nxt < 0 else nxt
     assert "paint_mark(" in paint[start:end]
     start = paint.index("def paint_lagrange(")
     end = paint.index("\ndef ", start + 1)

@@ -122,3 +122,37 @@ The three `*_complete` parsers stay domain-specific (`_SEND_CONFIRM` wording
 differs for text / mail / create). The shared leftover is remaining
 recipients, the unfinished-call notice, and appending the current user
 turn. A base class would have been a fake.
+
+## Found during Phase 1 C
+
+`paint_overlay` already calls HUD through `panel._paint_hud` / `_paint_inspect`
+delegates, so the HUD extract has no circular import.
+
+`tests/test_solar_panel.py` pins `paint_free_markers` by slicing to the next
+`def`. After the split that function is last in `solar_paint.py`; the pin now
+allows end-of-file. `paint_mark(` must also stay in `solar.py` (roster) —
+roster was not extracted for that reason.
+
+`tests/test_earth.py` monkeypatches `cameras._host_pinned` and
+`cameras.fetch_osm_webcams`. Fetchers late-bind those two names. Ethics
+docstring and "an open port is not consent" stay on `cameras.py`.
+`test_egress.py` was not edited.
+
+`solar_gl.py` is still ~2088 lines: the shaders and `SolarSpaceView` are the
+bulk. Geom/projection/mesh left. `stars_only` and the Cesium park path stayed
+on the widget / `SolarEarthMixin`.
+
+After this pass (ruff-cleaned):
+
+| File | Lines |
+|---|---|
+| `solar_paint.py` | 1096 |
+| `solar_hud.py` | 1287 |
+| `solar.py` | 1764 |
+| `solar_earth.py` | 581 |
+| `solar_gl.py` | 2088 |
+| `solar_gl_geom.py` | 238 |
+| `cameras.py` | 69 (façade) |
+| `cameras_fetch.py` | 1653 |
+| `traffic.py` | 43 (façade) |
+| `traffic_fetch.py` | 1538 |
