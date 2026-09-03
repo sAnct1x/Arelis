@@ -8,9 +8,6 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from typing import Any
-from urllib.parse import urlparse
-
-import httpx
 
 from arelis.earth.entity import Coverage, Entity
 from arelis.earth.frames import lla_to_ecef
@@ -130,27 +127,14 @@ def _num(value: Any) -> float | None:
         return None
 
 
-def _host_pinned(host: str | None) -> bool:
-    if not host:
-        return False
-    name = host.lower()
-    return name == EONET_HOST or name.endswith("." + EONET_HOST)
-
-
 def _get_json() -> dict[str, Any] | None:
-    if not _host_pinned(urlparse(EONET_EVENTS).hostname):
-        return None
-    try:
-        with httpx.Client(timeout=_TIMEOUT, follow_redirects=True) as client:
-            resp = client.get(
-                EONET_EVENTS,
-                params={"status": "open", "limit": str(_CAP)},
-                headers={"User-Agent": "ArelisEarth/0.2"},
-            )
-            resp.raise_for_status()
-            if not _host_pinned(urlparse(str(resp.url)).hostname):
-                return None
-            data = resp.json()
-    except Exception:
-        return None
+    from arelis.earth.http import get_json
+
+    data = get_json(
+        EONET_EVENTS,
+        EONET_HOST,
+        timeout=_TIMEOUT,
+        headers={"User-Agent": "ArelisEarth/0.2"},
+        params={"status": "open", "limit": str(_CAP)},
+    )
     return data if isinstance(data, dict) else None

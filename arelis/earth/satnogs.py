@@ -7,9 +7,6 @@ and not audio. Failures return None. Host pinned in egress.
 from __future__ import annotations
 
 from typing import Any
-from urllib.parse import urlparse
-
-import httpx
 
 from arelis import __source_url__, __version__
 from arelis.earth.entity import Coverage, Entity
@@ -93,28 +90,17 @@ def _num(value: Any) -> float | None:
         return None
 
 
-def _host_pinned(host: str | None) -> bool:
-    if not host:
-        return False
-    name = host.lower()
-    return name == SATNOGS_HOST or name.endswith("." + SATNOGS_HOST)
-
-
 def _get_json() -> list[Any] | None:
-    if not _host_pinned(urlparse(SATNOGS_STATIONS).hostname):
-        return None
-    try:
-        with httpx.Client(timeout=_TIMEOUT, follow_redirects=True) as client:
-            resp = client.get(SATNOGS_STATIONS, headers={"User-Agent": _UA})
-            resp.raise_for_status()
-            if not _host_pinned(urlparse(str(resp.url)).hostname):
-                return None
-            data = resp.json()
-    except Exception:
-        return None
+    from arelis.earth.http import get_json
+
+    data = get_json(
+        SATNOGS_STATIONS, SATNOGS_HOST, timeout=_TIMEOUT, headers={"User-Agent": _UA}
+    )
     if isinstance(data, list):
         return data
     if isinstance(data, dict):
         rows = data.get("results") or data.get("stations") or []
-        return [row for row in rows if isinstance(row, dict)] if isinstance(rows, list) else None
+        if isinstance(rows, list):
+            return [row for row in rows if isinstance(row, dict)]
+        return None
     return None

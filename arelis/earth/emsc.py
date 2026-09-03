@@ -7,9 +7,6 @@ stays. Host pinned in tests/test_egress.py.
 from __future__ import annotations
 
 from typing import Any
-from urllib.parse import urlparse
-
-import httpx
 
 from arelis import __source_url__, __version__
 from arelis.earth.entity import Coverage, Entity
@@ -107,23 +104,8 @@ def _num(value: Any) -> float | None:
         return None
 
 
-def _host_pinned(host: str | None) -> bool:
-    if not host:
-        return False
-    name = host.lower()
-    return name == EMSC_HOST or name.endswith("." + EMSC_HOST)
-
-
 def _get_json() -> dict[str, Any] | None:
-    if not _host_pinned(urlparse(EMSC_QUERY).hostname):
-        return None
-    try:
-        with httpx.Client(timeout=_TIMEOUT, follow_redirects=True) as client:
-            resp = client.get(EMSC_QUERY, headers={"User-Agent": _UA})
-            resp.raise_for_status()
-            if not _host_pinned(urlparse(str(resp.url)).hostname):
-                return None
-            data = resp.json()
-    except Exception:
-        return None
+    from arelis.earth.http import get_json
+
+    data = get_json(EMSC_QUERY, EMSC_HOST, timeout=_TIMEOUT, headers={"User-Agent": _UA})
     return data if isinstance(data, dict) else None

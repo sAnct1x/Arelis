@@ -156,3 +156,17 @@ After this pass (ruff-cleaned):
 | `cameras_fetch.py` | 1653 |
 | `traffic.py` | 43 (façade) |
 | `traffic_fetch.py` | 1538 |
+
+## Found during Phase 1 D
+
+Every public `fetch_*` in `earth/` already swallowed HTTP errors
+(`except Exception: return None` / `[]`). There was no shared helper and
+no retry. `arelis/earth/http.py` is that helper: pin, timeout, optional
+retry (default 0 so a dying host is not hit twice).
+
+Wired into the clone-shaped GET JSON fetchers plus `traffic_fetch._get_json`.
+`shodan.py` ethics and `cameras_fetch.py` internals were left alone; cameras
+is covered through the public `fetch_cameras` API.
+
+Did not migrate every remaining Client (opensky credits, AIS websocket,
+Space-Track login). Those already fail-soft; the new tests pin that.

@@ -12,9 +12,6 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
-from urllib.parse import urlparse
-
-import httpx
 
 from arelis import __source_url__, __version__
 from arelis.earth.entity import Coverage, Entity
@@ -1509,30 +1506,15 @@ def _num(*values: Any) -> float | None:
     return None
 
 
-def _host_pinned(host: str | None, pin: str) -> bool:
-    if not host:
-        return False
-    name = host.lower()
-    return name == pin or name.endswith("." + pin)
-
-
 def _get_json(
     url: str,
     pin: str,
     params: dict[str, str] | None = None,
     extra: dict[str, str] | None = None,
 ) -> Any:
-    if not _host_pinned(urlparse(url).hostname, pin):
-        return None
+    from arelis.earth.http import get_json
+
     headers = {"User-Agent": _UA}
     if extra:
         headers.update(extra)
-    try:
-        with httpx.Client(timeout=_TIMEOUT, follow_redirects=True) as client:
-            resp = client.get(url, headers=headers, params=params)
-            resp.raise_for_status()
-            if not _host_pinned(urlparse(str(resp.url)).hostname, pin):
-                return None
-            return resp.json()
-    except Exception:
-        return None
+    return get_json(url, pin, timeout=_TIMEOUT, headers=headers, params=params)
