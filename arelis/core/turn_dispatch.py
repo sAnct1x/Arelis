@@ -9,46 +9,28 @@ from typing import Any
 
 from arelis.contacts import web_search_targets_known_contact
 from arelis.core.agenda_complete import (
-    agenda_force_call_notice,
-    agenda_read_action,
-    draft_agenda_create_args,
-    draft_agenda_delete_args,
     fill_agenda_args,
     lock_agenda_delete_args,
-    looks_like_calendar_close,
-    looks_like_calendar_delete,
-    looks_like_calendar_open,
-    looks_like_calendar_read,
 )
 from arelis.core.agent_loop import (
     _BROWSER_WANDER,
-    _LOCAL_STORE,
     _MAX_THINKING_SNIPPET,
-    _SMS_WANDER,
     _WEATHER_WANDER,
-    should_redirect_wander_to_sms,
 )
-from arelis.core.claims import local_store_inject_args, lock_memory_forget_args
+from arelis.core.call_redirects import apply_redirects
+from arelis.core.claims import lock_memory_forget_args
 from arelis.core.document_refs import fill_doc_extract_args, fill_document_args
 from arelis.core.email_complete import (
-    draft_send_email_args,
-    email_remaining,
     fill_send_email_args,
-    looks_like_schedule_manage,
-    looks_like_scheduled_send,
 )
 from arelis.core.events import Event, EventType
 from arelis.core.image_refs import fill_vision_args
 from arelis.core.look import look_call_blocked, vision_question
-from arelis.core.preflight import draft_browser_args
 from arelis.core.read_fanout import should_fanout_reads
 from arelis.core.same_call import already_ran_same_call
 from arelis.core.sms_complete import (
-    draft_send_sms_args,
     fill_send_sms_args,
-    looks_like_browser_or_url,
 )
-from arelis.core.tile_complete import match_tile_intent, tile_tool_args
 from arelis.core.tool_args import cross_tool_arg_error, schema_keys
 from arelis.core.tool_results import is_tool_cache_path
 from arelis.core.tool_subset import web_read_caps
@@ -57,17 +39,20 @@ from arelis.core.turn_context import TurnContext
 from arelis.core.turn_execute import execute_call
 from arelis.tools.inbox import INBOX_PEEK_ACTIONS, fill_inbox_args
 from arelis.tools.weather import (
-    draft_weather_args,
     fill_weather_args,
     weather_place_key,
-    weather_places_missing,
 )
 
 
 async def dispatch_calls(
     loop: Any, ctx: TurnContext, r: SimpleNamespace, round_i: int
 ) -> bool:
-    """Confirm and execute ``r.calls``. True ends the turn."""
+    """Confirm and execute ``r.calls``. True ends the turn.
+
+    Wander redirects live in ``call_redirects``. Confirm/execute stay here
+    with the per-call skip guards — those still share the round locals and
+    resisted a second split without a new scratch object.
+    """
     text = r.text
     role = r.role
     agent_cfg = r.agent_cfg
@@ -285,491 +270,22 @@ async def dispatch_calls(
                     )
                 continue
 
-            # Weather ask: never run web_search/scrape/fetch; inject weather.
-            if (
-                name in _WEATHER_WANDER
-                and bool(agent_cfg.get("weather_force_call", True))
-                and exact_need.needs_weather
-                and not looks_like_scheduled_send(text)
-                and not looks_like_schedule_manage(text)
-                and not ctx.schedule_managed_ok
-                and weather_places_missing(text, weather_ok_places)
-                and "weather" in tool_names
-            ):
-                notice = (
-                    "Blocked: this turn expects the weather tool, not "
-                    f"{name}. Call weather now."
-                )
-                await loop.bus.publish(
-                    Event(
-                        EventType.THINKING,
-                        {"text": f"redirect  {name} → weather"},
-                    )
-                )
-                messages.append(loop._tool_message(name, notice))
-                _drop_wander(*_WEATHER_WANDER)
-                name = "weather"
-                args = draft_weather_args(text)
-                missing = weather_places_missing(text, weather_ok_places)
-                if missing:
-                    if missing[0]:
-                        args["place"] = missing[0]
-                    else:
-                        args.pop("place", None)
-                await loop.bus.publish(
-                    Event(
-                        EventType.THINKING,
-                        {"text": "inject  weather from intent"},
-                    )
-                )
-                if loop._timer is not None:
-                    loop._timer.mark(
-                        "exactness",
-                        gate="weather_redirect",
-                        action="inject",
-                    )
-                # Fall through to execute injected weather.
-
-            elif (
-                name == "browser"
-                and looks_like_calendar_open(text)
-                and "agenda" in tool_names
-            ):
-                notice = (
-                    "Blocked: this turn expects the Arelis calendar tile, "
-                    f"not {name}. Call agenda with action=open."
-                )
-                await loop.bus.publish(
-                    Event(
-                        EventType.THINKING,
-                        {"text": "redirect  browser → agenda"},
-                    )
-                )
-                messages.append(loop._tool_message(name, notice))
-                name = "agenda"
-                args = {"action": "open"}
-                await loop.bus.publish(
-                    Event(
-                        EventType.THINKING,
-                        {"text": "inject  agenda open from intent"},
-                    )
-                )
-                if loop._timer is not None:
-                    loop._timer.mark(
-                        "exactness",
-                        gate="agenda_redirect",
-                        action="inject",
-                    )
-
-            elif (
-                name == "browser"
-                and match_tile_intent(text)
-                and "tile" in tool_names
-            ):
-                from arelis.tools.tile import TileTool
-
-                inj = tile_tool_args(text, last_name=TileTool.last_name)
-                if inj:
-                    notice = (
-                        "Blocked: this turn expects an Arelis tile, "
-                        f"not {name}. Call tile with action="
-                        f"{inj['action']} and name={inj['name']}."
-                    )
-                    await loop.bus.publish(
-                        Event(
-                            EventType.THINKING,
-                            {"text": "redirect  browser → tile"},
-                        )
-                    )
-                    messages.append(loop._tool_message(name, notice))
-                    name = "tile"
-                    args = inj
-                    await loop.bus.publish(
-                        Event(
-                            EventType.THINKING,
-                            {"text": "inject  tile from intent"},
-                        )
-                    )
-
-            # Browser drive: never run web_search/scrape; inject browser.
-            elif (
-                name in _BROWSER_WANDER
-                and (
-                    "browser" in loop._expected_tools
-                    or looks_like_browser_or_url(text)
-                )
-                and not looks_like_calendar_open(text)
-                and not looks_like_calendar_close(text)
-                and not match_tile_intent(text)
-                and "browser" not in loop.tools_used
-                and "browser" in tool_names
-            ):
-                inj = draft_browser_args(text)
-                notice = (
-                    "Blocked: this turn expects the browser tool, not "
-                    f"{name}. Call browser now."
-                )
-                await loop.bus.publish(
-                    Event(
-                        EventType.THINKING,
-                        {"text": f"redirect  {name} → browser"},
-                    )
-                )
-                messages.append(loop._tool_message(name, notice))
-                _drop_wander(*_BROWSER_WANDER)
-                name = "browser"
-                args = inj
-                await loop.bus.publish(
-                    Event(
-                        EventType.THINKING,
-                        {"text": "inject  browser from intent"},
-                    )
-                )
-                if loop._timer is not None:
-                    loop._timer.mark(
-                        "exactness",
-                        gate="browser_redirect",
-                        action="inject",
-                    )
-
-            # Local store ask: never run weather/search instead of tasks/goals.
-            elif (
-                name
-                in {
-                    "weather",
-                    "web_search",
-                    "browser",
-                    "scrape",
-                    "web_fetch",
-                    "user_location",
-                }
-                and loop._expected_tools & _LOCAL_STORE
-                and name not in loop._expected_tools
-            ):
-                target = next(
-                    (
-                        t
-                        for t in ("tasks", "goals", "contacts", "memory")
-                        if t in loop._expected_tools and t in tool_names
-                    ),
-                    "",
-                )
-                if target and target not in loop.tools_used:
-                    notice = (
-                        f"Blocked: this turn expects {target}, not {name}."
-                    )
-                    await loop.bus.publish(
-                        Event(
-                            EventType.THINKING,
-                            {"text": f"redirect  {name} → {target}"},
-                        )
-                    )
-                    messages.append(loop._tool_message(name, notice))
-                    _drop_wander(
-                        "weather",
-                        "web_search",
-                        "browser",
-                        "scrape",
-                        "web_fetch",
-                        "user_location",
-                    )
-                    name = target
-                    args = local_store_inject_args(
-                        target,
-                        text,
-                        receipts=loop._receipts,
-                        history=loop.memory.messages,
-                    )
-                    await loop.bus.publish(
-                        Event(
-                            EventType.THINKING,
-                            {"text": f"inject  {target} from intent"},
-                        )
-                    )
-
-            # SMS ask: strip wander on first miss; inject when draft is complete.
-            # contacts is wander only when the draft is already resolvable —
-            # missing recipients (or a failed send) must be allowed to look up
-            # or add a number instead of injecting the same bad card.
-            elif (
-                (
-                    should_redirect_wander_to_sms(
-                        name,
-                        loop._expected_tools,
-                        tools_used=loop.tools_used,
-                        sms_failed=ctx.sms_failed,
-                    )
-                    or (
-                        name == "contacts"
-                        and sms_draft is not None
-                        and sms_draft.complete
-                        and not sms_draft.missing
-                        and not ctx.sms_failed
-                    )
-                )
-                and "send_sms" in loop._expected_tools
-                and "send_sms" not in loop.tools_used
-                and not ctx.sms_failed
-            ):
-                notice = (
-                    "Blocked: this turn expects send_sms (or asking once "
-                    f"for the message body), not {name}. Do not invent "
-                    "a body. Call send_sms when to+body are known."
-                )
-                await loop.bus.publish(
-                    Event(
-                        EventType.THINKING,
-                        {"text": f"redirect  {name} → sms"},
-                    )
-                )
-                messages.append(loop._tool_message(name, notice))
-                _drop_wander(*_SMS_WANDER)
-                if (
-                    sms_draft is not None
-                    and sms_draft.complete
-                    and "send_sms" in tool_names
-                ):
-                    inj = draft_send_sms_args(
-                        sms_draft, already_sent=sms_sent
-                    )
-                    name = "send_sms"
-                    args = inj
-                    await loop.bus.publish(
-                        Event(
-                            EventType.THINKING,
-                            {"text": "inject  send_sms from draft"},
-                        )
-                    )
-                    if loop._timer is not None:
-                        loop._timer.mark(
-                            "exactness",
-                            gate="sms_redirect",
-                            action="inject",
-                        )
-                    # Fall through to execute injected send_sms.
-                else:
-                    messages.append(
-                        {
-                            "role": "user",
-                            "content": (
-                                "The user wants to send a text. If the body is "
-                                "missing, ask once what to say. If to and body "
-                                "are known, call send_sms. Do not web_search."
-                            ),
-                        }
-                    )
-                    if loop._timer is not None:
-                        loop._timer.mark(
-                            "exactness",
-                            gate="sms_redirect",
-                            action="block",
-                        )
-                    continue
-
-            # Email compose: block web_search/analyze; inject complete draft.
-            elif (
-                name in {"web_search", "analyze"}
-                and "send_email" in loop._expected_tools
-                and (
-                    "send_email" not in loop.tools_used
-                    or (
-                        email_draft is not None
-                        and email_draft.complete
-                        and email_remaining(email_draft, ctx.email_sent)
-                    )
-                )
-                and "analyze" not in loop._expected_tools
-            ):
-                notice = (
-                    "Blocked: this turn expects send_email, not "
-                    f"{name}. Use the literal address the user gave."
-                )
-                await loop.bus.publish(
-                    Event(
-                        EventType.THINKING,
-                        {"text": f"redirect  {name} → email"},
-                    )
-                )
-                messages.append(loop._tool_message(name, notice))
-                _drop_wander("web_search")
-                if (
-                    email_draft is not None
-                    and email_draft.complete
-                    and "send_email" in tool_names
-                ):
-                    name = "send_email"
-                    args = draft_send_email_args(
-                        email_draft, already_sent=ctx.email_sent
-                    )
-                    await loop.bus.publish(
-                        Event(
-                            EventType.THINKING,
-                            {"text": "inject  send_email from draft"},
-                        )
-                    )
-                    if loop._timer is not None:
-                        loop._timer.mark(
-                            "exactness",
-                            gate="email_redirect",
-                            action="inject",
-                        )
-                else:
-                    messages.append(
-                        {
-                            "role": "user",
-                            "content": (
-                                "Call send_email with the address and body "
-                                "the user gave. Do not web_search."
-                            ),
-                        }
-                    )
-                    if loop._timer is not None:
-                        loop._timer.mark(
-                            "exactness",
-                            gate="email_redirect",
-                            action="block",
-                        )
-                    continue
-
-            # Calendar: block wander; inject create or delete on first miss.
-            elif (
-                name in {
-                    "web_search",
-                    "contacts",
-                    "user_location",
-                    "weather",
-                    "schedule",
-                }
-                and "agenda" in loop._expected_tools
-                and not ctx.agenda_create_ok
-            ):
-                await loop.bus.publish(
-                    Event(
-                        EventType.THINKING,
-                        {"text": f"redirect  {name} → agenda"},
-                    )
-                )
-                messages.append(
-                    loop._tool_message(
-                        name,
-                        "Blocked: this turn expects agenda, not "
-                        f"{name}. Call agenda (open, close, list, create, or delete).",
-                    )
-                )
-                _drop_wander(
-                    "web_search",
-                    "contacts",
-                    "user_location",
-                    "weather",
-                    "schedule",
-                )
-                if (
-                    looks_like_calendar_delete(text)
-                    and "agenda" in tool_names
-                ):
-                    inj = draft_agenda_delete_args(
-                        text,
-                        receipts=loop._receipts,
-                        history=loop.memory.messages,
-                    )
-                    name = "agenda"
-                    args = inj
-                    await loop.bus.publish(
-                        Event(
-                            EventType.THINKING,
-                            {"text": "inject  agenda delete"},
-                        )
-                    )
-                    if loop._timer is not None:
-                        loop._timer.mark(
-                            "exactness",
-                            gate="agenda_redirect",
-                            action="inject",
-                        )
-                elif (
-                    agenda_draft is not None
-                    and agenda_draft.complete
-                    and "agenda" in tool_names
-                ):
-                    name = "agenda"
-                    args = draft_agenda_create_args(agenda_draft)
-                    await loop.bus.publish(
-                        Event(
-                            EventType.THINKING,
-                            {"text": "inject  agenda create from draft"},
-                        )
-                    )
-                    if loop._timer is not None:
-                        loop._timer.mark(
-                            "exactness",
-                            gate="agenda_redirect",
-                            action="inject",
-                        )
-                elif looks_like_calendar_close(text) and "agenda" in tool_names:
-                    name = "agenda"
-                    args = {"action": "close"}
-                    await loop.bus.publish(
-                        Event(
-                            EventType.THINKING,
-                            {"text": "inject  agenda close from intent"},
-                        )
-                    )
-                    if loop._timer is not None:
-                        loop._timer.mark(
-                            "exactness",
-                            gate="agenda_redirect",
-                            action="inject",
-                        )
-                elif looks_like_calendar_open(text) and "agenda" in tool_names:
-                    name = "agenda"
-                    args = {"action": "open"}
-                    await loop.bus.publish(
-                        Event(
-                            EventType.THINKING,
-                            {"text": "inject  agenda open from intent"},
-                        )
-                    )
-                    if loop._timer is not None:
-                        loop._timer.mark(
-                            "exactness",
-                            gate="agenda_redirect",
-                            action="inject",
-                        )
-                elif looks_like_calendar_read(text) and "agenda" in tool_names:
-                    name = "agenda"
-                    args = {"action": agenda_read_action(text)}
-                    await loop.bus.publish(
-                        Event(
-                            EventType.THINKING,
-                            {"text": "inject  agenda read from intent"},
-                        )
-                    )
-                    if loop._timer is not None:
-                        loop._timer.mark(
-                            "exactness",
-                            gate="agenda_redirect",
-                            action="inject",
-                        )
-                else:
-                    messages.append(
-                        {
-                            "role": "user",
-                            "content": agenda_force_call_notice(agenda_draft)
-                            if agenda_draft is not None and agenda_draft.complete
-                            else (
-                                "Call agenda with action=open, close, today, "
-                                "tomorrow, list, create, or delete. Do not "
-                                "web_search."
-                            ),
-                        }
-                    )
-                    if loop._timer is not None:
-                        loop._timer.mark(
-                            "exactness",
-                            gate="agenda_redirect",
-                            action="block",
-                        )
-                    continue
+            r.messages = messages
+            r.tool_names = tool_names
+            r.text = text
+            r.agent_cfg = agent_cfg
+            r.exact_need = exact_need
+            r.weather_ok_places = weather_ok_places
+            r.sms_draft = sms_draft
+            r.sms_sent = sms_sent
+            r.email_draft = email_draft
+            r.agenda_draft = agenda_draft
+            redirected = await apply_redirects(loop, ctx, r, name, args, _drop_wander)
+            tool_names = ctx.tool_names
+            messages = r.messages
+            if redirected[0] == "skip":
+                continue
+            _, name, args = redirected
 
             # After a successful SMS this turn, do not web_search contacts.
             if (

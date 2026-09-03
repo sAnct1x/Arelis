@@ -106,3 +106,12 @@ make them legible and testable. Do not replace the approach.
 
 `tests/test_egress.py`, `arelis/earth/shodan.py`, `arelis/earth/cameras.py`
 restraint comments, `LICENSE`, `arelis/guard/`, `arelis/relay/crypto.py`.
+
+## Found during Phase 1 A
+
+`apply_no_call_path` still unpacks ~40 rebound locals and writes them back
+in `finally`. The inject/finish tables are the strategy split; collapsing
+the scratch object is a later contract, not this pass.
+
+`dispatch_calls` still owns confirm/execute and the per-call skip guards
+(duplicate weather, page budget, same-call). Redirects are the table.
