@@ -60,9 +60,8 @@ def test_mypy_is_pinned_in_dev_and_is_not_a_ci_gate() -> None:
     """mypy exists so the error count is a number, not so CI fails on it.
 
     A floating extra would make today's baseline meaningless tomorrow. A
-    failing mypy job would block work that is not a type-fix. Pin the
-    version; keep the checker out of the workflow until a later pass
-    decides to report it without failing the build.
+    failing mypy job would block work that is not a type-fix. The types
+    job reports; continue-on-error keeps it off the merge gate.
     """
     pyproject = PYPROJECT.read_text(encoding="utf-8")
     workflow = CI_YML.read_text(encoding="utf-8")
@@ -70,10 +69,18 @@ def test_mypy_is_pinned_in_dev_and_is_not_a_ci_gate() -> None:
     assert pin, "dev extra must pin mypy==x.y.z the same way it pins ruff"
     assert "[tool.mypy]" in pyproject, "permissive mypy config lives in pyproject.toml"
     assert "ignore_missing_imports = true" in pyproject
-    assert "mypy" not in workflow.lower(), (
-        "CI must not run mypy yet. A report job comes later; a failing "
-        "job is a different decision."
-    )
+    wf_pin = re.search(r'mypy==(\d+\.\d+\.\d+)', workflow)
+    assert wf_pin, "types job must install the same mypy pin"
+    assert wf_pin.group(1) == pin.group(1)
+    assert re.search(r"(?m)^  types:", workflow), "CI lost the types report job"
+    types_block = workflow.split("\n  types:", 1)[1]
+    types_block = types_block.split("\n  test:", 1)[0]
+    assert "continue-on-error: true" in types_block
+    assert "python -m mypy" in types_block
+    test_block = workflow.split("\n  test:", 1)[1].split("\n  lock:", 1)[0]
+    installed_block = workflow.split("\n  installed:", 1)[1]
+    assert "mypy" not in test_block.lower()
+    assert "mypy" not in installed_block.lower()
 
 
 def test_pytest_has_a_per_test_timeout() -> None:

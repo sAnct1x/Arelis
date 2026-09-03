@@ -170,3 +170,9 @@ is covered through the public `fetch_cameras` API.
 
 Did not migrate every remaining Client (opensky credits, AIS websocket,
 Space-Track login). Those already fail-soft; the new tests pin that.
+
+## Found during Phase 1 E (CI report)
+
+`tests/test_ci_gate.py` used to forbid the word `mypy` in `ci.yml`.
+The types job is `continue-on-error: true` and uses the same
+`mypy==2.3.1` pin. The 8-way test matrix still does not run mypy.
