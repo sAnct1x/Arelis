@@ -21,10 +21,12 @@ if [ -x ".venv/Scripts/python.exe" ]; then
     PY=".venv/Scripts/python.exe"
 elif [ -x ".venv/bin/python" ]; then
     PY=".venv/bin/python"
+elif command -v python >/dev/null 2>&1; then
+    # python before python3. On Windows, python3 is often the Store alias
+    # and opens a bare 3.14 that has never seen ruff or this checkout.
+    PY="python"
 elif command -v python3 >/dev/null 2>&1; then
     PY="python3"
-elif command -v python >/dev/null 2>&1; then
-    PY="python"
 else
     echo "pre-commit: no Python found; skipping the personal-data guards." >&2
     echo "pre-commit: this commit has NOT been checked." >&2

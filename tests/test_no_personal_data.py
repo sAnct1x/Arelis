@@ -354,7 +354,6 @@ def _public_globe(path: Path) -> bool:
     rel = path.relative_to(PROJECT_ROOT).as_posix()
     return rel.startswith("arelis/earth/") or rel in {
         "tests/test_earth.py",
-        "tests/test_earth_goto.py",
         "tests/test_egress.py",
         "scripts/shot_reality_polish.py",
         "docs/earth.md",

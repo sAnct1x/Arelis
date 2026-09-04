@@ -12,9 +12,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Ruff used to sit inside the 8-way test matrix. One unsorted import then
-  # failed eight jobs, pytest never ran, and the inbox saw eight mails. This
-  # job is the only place ruff runs. The matrices wait on it.
+  # Ruff used to sit inside the pytest matrix. One unsorted import then
+  # failed every cell, pytest never ran, and the inbox saw a mail per cell.
+  # This job is the only place ruff runs. The matrices wait on it.
   lint:
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -31,18 +31,20 @@ jobs:
       - name: Ruff
         run: python -m ruff check .
 
-  # 3.11 is the floor requires-python claims, so it is tested to keep the claim
-  # honest. 3.14 is the interpreter the Windows installer ships, so a failure there
-  # is a failure in the artefact people are handed rather than in a version somebody
-  # might happen to have; it is not optional and must not be dropped to save minutes.
+  # Two cells, not eight. 3.11 on Ubuntu is the floor requires-python claims.
+  # 3.14 on Windows is the interpreter the installer ships. The middle
+  # versions were minutes, not coverage of a claim.
   test:
     needs: lint
     timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-latest]
-        python-version: ["3.11", "3.12", "3.13", "3.14"]
+        include:
+          - os: windows-latest
+            python-version: "3.14"
+          - os: ubuntu-latest
+            python-version: "3.11"
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -67,7 +69,7 @@ jobs:
       - name: Pytest
         run: python -m pytest -q --tb=short --junitxml=pytest-results.xml
 
-      # One file instead of eight identical "exit code 1" mails with no body.
+      # One file instead of a mail per cell with no body.
       - name: Upload pytest results
         if: failure()
         uses: actions/upload-artifact@v4
@@ -113,8 +115,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-latest]
-        python-version: ["3.11", "3.12", "3.13", "3.14"]
+        include:
+          - os: windows-latest
+            python-version: "3.14"
+          - os: ubuntu-latest
+            python-version: "3.11"
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4

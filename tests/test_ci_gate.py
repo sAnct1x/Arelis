@@ -1,10 +1,11 @@
-"""Pins that keep CI from becoming eight ruff emails and a six-hour hang.
+"""Pins that keep CI from becoming a mail-per-cell hang.
 
 The workflow is the product. A solar-lab commit that failed ruff used to fail
-the 8-way test matrix, skip pytest, and leave the previous run on GitHub's
+every pytest cell, skip pytest, and leave the previous run on GitHub's
 six-hour wall. These tests read the workflow file so putting ruff back inside
-the matrix, dropping the job timeout, or importing windll at module level
-fails on a laptop too, not only after push.
+the matrix, widening it past the two claimed interpreters, dropping the job
+timeout, or importing windll at module level fails on a laptop too, not only
+after push.
 """
 
 from __future__ import annotations
@@ -27,7 +28,7 @@ _FORBIDDEN_MODULES = frozenset(
 
 
 def test_ci_runs_ruff_once_before_the_matrix() -> None:
-    """One lint job. The 8-way pytest matrix waits on it. Ruff is not a step there."""
+    """One lint job. The pytest matrix waits on it. Ruff is not a step there."""
     text = CI_YML.read_text(encoding="utf-8")
     assert re.search(r"(?m)^  lint:", text), "CI lost the lint job"
     assert re.search(r"(?m)^    needs: lint", text), "test/installed must wait on lint"
@@ -44,10 +45,24 @@ def test_ci_cancels_leftover_runs_and_cannot_sit_six_hours() -> None:
     assert re.search(r"(?m)^    timeout-minutes: 5", text), "lint/lock need a ceiling"
 
 
+def test_ci_matrix_is_the_two_claimed_interpreters() -> None:
+    """Windows 3.14 is what we ship. Ubuntu 3.11 is the requires-python floor."""
+    text = CI_YML.read_text(encoding="utf-8")
+    test_block = text.split("\n  test:", 1)[1].split("\n  lock:", 1)[0]
+    installed_block = text.split("\n  installed:", 1)[1]
+    for block in (test_block, installed_block):
+        assert "3.12" not in block
+        assert "3.13" not in block
+        assert '"3.14"' in block
+        assert '"3.11"' in block
+        assert "windows-latest" in block
+        assert "ubuntu-latest" in block
+
+
 def test_ci_ruff_pin_matches_pyproject() -> None:
     workflow = CI_YML.read_text(encoding="utf-8")
     pyproject = PYPROJECT.read_text(encoding="utf-8")
-    wf_match = re.search(r'ruff==(\d+\.\d+\.\d+)', workflow)
+    wf_match = re.search(r"ruff==(\d+\.\d+\.\d+)", workflow)
     py_match = re.search(r'"ruff==(\d+\.\d+\.\d+)"', pyproject)
     assert wf_match and py_match, "ruff pin missing from ci.yml or pyproject.toml"
     assert wf_match.group(1) == py_match.group(1), (
