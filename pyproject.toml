@@ -224,6 +224,8 @@ ignore = [
 # Telegraph policy is one line per tool on purpose; wrapping it hides the
 # keywords tests lock.
 "arelis/core/compact_prompt.py" = ["E501"]
+# Live board turns are one prompt per line so the 163-id list stays scannable.
+"arelis/eval/live_fifty.py" = ["E501"]
 # IAU / dipole / body-frame sketches use L, R, Rp as the paper does. Renaming
 # them to satisfy N806 would make the code disagree with every citation.
 "arelis/physics/**" = ["N806"]

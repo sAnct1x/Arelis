@@ -13,6 +13,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from arelis.attachments import (
+    overlay_text_from_ask,
     parse_attachments_from_turn,
     split_attachments_turn,
     wants_image_edit,
@@ -49,7 +50,19 @@ from arelis.core.email_complete import (
     looks_like_scheduled_send,
 )
 from arelis.core.events import Event, EventType
-from arelis.core.image_refs import fill_vision_args, image_force_call_notice
+from arelis.core.image_refs import (
+    fill_image_edit_args,
+    fill_image_gen_args,
+    fill_vision_args,
+    image_force_call_notice,
+    latest_generated_image_path,
+)
+from arelis.core.intent_catalog import (
+    EARTH_STATUS,
+    SOLAR_STATUS,
+    earth_status_action,
+    solar_status_action,
+)
 from arelis.core.look import next_look_call
 from arelis.core.preflight import (
     draft_browser_args,
@@ -390,11 +403,15 @@ async def try_image(loop: Any, ctx: TurnContext, r: Any) -> str:
             thinking="image ask ready; asking for a real image call",
             gate="image_force",
         )
+    ask = split_attachments_turn(r.text)[1] or r.text
+    history = getattr(getattr(loop, "memory", None), "messages", None)
+    inj_image: dict[str, Any] = {"prompt": ask.strip()[:300]}
+    inj_image = fill_image_gen_args(inj_image, history=history, user_text=ask)
     return await _inject(
         loop,
         r,
         "image",
-        {"prompt": r.text.strip()[:300]},
+        inj_image,
         thinking="inject  image from intent",
     )
 
@@ -414,18 +431,45 @@ async def try_image_edit(loop: Any, ctx: TurnContext, r: Any) -> str:
     ask = split_attachments_turn(r.text)[1] or r.text
     rows = parse_attachments_from_turn(r.text)
     path = str(rows[0].get("path") or "") if rows else ""
-    if not path:
-        return STOP
-    inj_edit: dict[str, Any] = {"path": path}
+    history = getattr(getattr(loop, "memory", None), "messages", None)
+    inj_edit: dict[str, Any] = {"path": path} if path else {}
     if re.search(r"(?i)youtube|\bthumbnail\b", ask):
         inj_edit["preset"] = "youtube_thumbnail"
     if re.search(r"(?i)vibrant|vibrance|saturat", ask):
         inj_edit["vibrance"] = 1.3
+    if re.search(r"(?i)grayscale|greyscale|black[\s-]?and[\s-]?white|\bb\s*&\s*w\b", ask):
+        inj_edit["grayscale"] = True
+    if re.search(r"(?i)\b(?:flip|mirror)\b", ask):
+        inj_edit["flip"] = (
+            "vertical" if re.search(r"(?i)vertical|upside", ask) else "horizontal"
+        )
+    rot = re.search(r"(?i)rotate(?:\s+(?:it|this|that))?\s+(\d{1,3})", ask)
+    if rot:
+        inj_edit["rotate"] = int(rot.group(1))
+    elif re.search(r"(?i)upside[\s-]?down", ask):
+        inj_edit["rotate"] = 180
+    elif re.search(r"(?i)rotate\s+(?:left|ccw|counter)", ask):
+        inj_edit["rotate"] = 270
+    elif re.search(r"(?i)\brotate\b", ask):
+        inj_edit["rotate"] = 90
+    if re.search(r"(?i)\bblur", ask):
+        inj_edit["blur"] = 4.0
     size = re.search(r"(?i)(\d{2,5})\s*(?:x|\u00d7|by)\s*(\d{2,5})", ask)
     if size:
         inj_edit["width"] = int(size.group(1))
         inj_edit["height"] = int(size.group(2))
         inj_edit.pop("preset", None)
+    overlay = overlay_text_from_ask(ask)
+    if overlay:
+        inj_edit["text"] = overlay
+        inj_edit["text_align"] = "center"
+    inj_edit = fill_image_edit_args(inj_edit, history=history, user_text=ask)
+    if not str(inj_edit.get("path") or "").strip():
+        fallback = latest_generated_image_path(history)
+        if fallback:
+            inj_edit["path"] = fallback
+    if not str(inj_edit.get("path") or "").strip():
+        return STOP
     return await _inject(loop, r, "image_edit", inj_edit, thinking="inject  image_edit from intent")
 
 
@@ -667,12 +711,46 @@ async def try_contacts(loop: Any, ctx: TurnContext, r: Any) -> str:
     )
 
 
+async def try_solar_status(loop: Any, ctx: TurnContext, r: Any) -> str:
+    if not (
+        SOLAR_STATUS.matches(r.text)
+        and "solar" in r.tool_names
+        and "solar" not in loop.tools_used
+    ):
+        return SKIP
+    return await _inject(
+        loop,
+        r,
+        "solar",
+        {"action": solar_status_action(r.text)},
+        thinking="inject  solar from status/dump ask",
+    )
+
+
+async def try_earth_status(loop: Any, ctx: TurnContext, r: Any) -> str:
+    if not (
+        EARTH_STATUS.matches(r.text)
+        and "earth" in r.tool_names
+        and "earth" not in loop.tools_used
+    ):
+        return SKIP
+    return await _inject(
+        loop,
+        r,
+        "earth",
+        {"action": earth_status_action(r.text)},
+        thinking="inject  earth from status/dump ask",
+    )
+
+
 async def try_browser(loop: Any, ctx: TurnContext, r: Any) -> str:
     if not (
         ("browser" in loop._expected_tools or looks_like_browser_or_url(r.text))
         and not looks_like_calendar_open(r.text)
         and not looks_like_calendar_close(r.text)
         and not match_tile_intent(r.text)
+        and not SOLAR_STATUS.matches(r.text)
+        and not EARTH_STATUS.matches(r.text)
         and "browser" not in loop.tools_used
         and "browser" in r.tool_names
     ):
@@ -743,6 +821,8 @@ INJECT_STEPS: tuple[StepFn, ...] = (
     try_goals,
     try_memory,
     try_contacts,
+    try_solar_status,
+    try_earth_status,
     try_browser,
     try_browser_signin,
     try_rooms,

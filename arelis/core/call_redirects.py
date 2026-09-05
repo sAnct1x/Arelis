@@ -35,6 +35,14 @@ from arelis.core.email_complete import (
     looks_like_scheduled_send,
 )
 from arelis.core.events import Event, EventType
+from arelis.core.intent_catalog import (
+    EARTH_STATUS,
+    RUN_SCRIPT,
+    SOLAR_STATUS,
+    earth_status_action,
+    run_script_path,
+    solar_status_action,
+)
 from arelis.core.preflight import draft_browser_args
 from arelis.core.sms_complete import draft_send_sms_args, looks_like_browser_or_url
 from arelis.core.tile_complete import match_tile_intent, tile_tool_args
@@ -96,6 +104,58 @@ async def redirect_browser_to_agenda(
     return ("run", "agenda", {"action": "open"})
 
 
+async def redirect_browser_to_solar(
+    loop: Any, ctx: TurnContext, r: Any, name: str, args: dict[str, Any], drop_wander: Any
+) -> tuple[Any, ...] | None:
+    if not (name == "browser" and SOLAR_STATUS.matches(r.text) and "solar" in r.tool_names):
+        return None
+    inj = {"action": solar_status_action(r.text)}
+    notice = (
+        "Blocked: this turn expects the solar lab, "
+        f"not {name}. Call solar with action={inj['action']}."
+    )
+    await _think(loop, "redirect  browser → solar")
+    r.messages.append(loop._tool_message(name, notice))
+    return ("run", "solar", inj)
+
+
+async def redirect_browser_to_earth(
+    loop: Any, ctx: TurnContext, r: Any, name: str, args: dict[str, Any], drop_wander: Any
+) -> tuple[Any, ...] | None:
+    if not (name == "browser" and EARTH_STATUS.matches(r.text) and "earth" in r.tool_names):
+        return None
+    inj = {"action": earth_status_action(r.text)}
+    notice = (
+        "Blocked: this turn expects the Earth zone, "
+        f"not {name}. Call earth with action={inj['action']}."
+    )
+    await _think(loop, "redirect  browser → earth")
+    r.messages.append(loop._tool_message(name, notice))
+    return ("run", "earth", inj)
+
+
+async def redirect_python_to_run_script(
+    loop: Any, ctx: TurnContext, r: Any, name: str, args: dict[str, Any], drop_wander: Any
+) -> tuple[Any, ...] | None:
+    if not (
+        name == "python"
+        and RUN_SCRIPT.matches(r.text)
+        and "run_script" in r.tool_names
+        and "run_script" not in loop.tools_used
+    ):
+        return None
+    path = run_script_path(r.text)
+    if not path:
+        return None
+    notice = (
+        "Blocked: they named a .py to run. "
+        f"Call run_script with path={path}, not the python cell."
+    )
+    await _think(loop, "redirect  python → run_script")
+    r.messages.append(loop._tool_message(name, notice))
+    return ("run", "run_script", {"path": path})
+
+
 async def redirect_browser_to_tile(
     loop: Any, ctx: TurnContext, r: Any, name: str, args: dict[str, Any], drop_wander: Any
 ) -> tuple[Any, ...] | None:
@@ -126,6 +186,8 @@ async def redirect_browser_wander(
         and not looks_like_calendar_open(r.text)
         and not looks_like_calendar_close(r.text)
         and not match_tile_intent(r.text)
+        and not SOLAR_STATUS.matches(r.text)
+        and not EARTH_STATUS.matches(r.text)
         and "browser" not in loop.tools_used
         and "browser" in r.tool_names
     ):
@@ -185,9 +247,6 @@ async def redirect_sms(
             )
             or (
                 name == "contacts"
-                and sms_draft is not None
-                and sms_draft.complete
-                and not sms_draft.missing
                 and not ctx.sms_failed
             )
         )
@@ -205,11 +264,15 @@ async def redirect_sms(
     r.messages.append(loop._tool_message(name, notice))
     drop_wander(*_SMS_WANDER)
     if sms_draft is not None and sms_draft.complete and "send_sms" in r.tool_names:
+        from arelis.core.turn_goal import sms_body_serves_goal
+
         inj = draft_send_sms_args(sms_draft, already_sent=r.sms_sent)
-        await _think(loop, "inject  send_sms from draft")
-        if loop._timer is not None:
-            loop._timer.mark("exactness", gate="sms_redirect", action="inject")
-        return ("run", "send_sms", inj)
+        if sms_body_serves_goal(str(inj.get("body") or "")):
+            await _think(loop, "inject  send_sms from draft")
+            if loop._timer is not None:
+                loop._timer.mark("exactness", gate="sms_redirect", action="inject")
+            return ("run", "send_sms", inj)
+        await _think(loop, "goal unlock  sms body is not for the recipient")
     r.messages.append(
         {
             "role": "user",
@@ -340,7 +403,10 @@ async def redirect_agenda(
 REDIRECT_STEPS: tuple[RedirectFn, ...] = (
     redirect_weather,
     redirect_browser_to_agenda,
+    redirect_browser_to_solar,
+    redirect_browser_to_earth,
     redirect_browser_to_tile,
+    redirect_python_to_run_script,
     redirect_browser_wander,
     redirect_local_store,
     redirect_sms,

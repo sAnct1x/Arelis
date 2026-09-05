@@ -54,6 +54,7 @@ class ConversationTurn:
     expect_answer_contains: tuple[str, ...] = ()
     forbid_claim_if_no_tool: tuple[str, ...] = ()
     allow_no_tools: bool = False
+    new_chat: bool = False
     # Scripted model rounds for offline mode (ignored when live).
     script: list[list[tuple[str, Any]]] = field(default_factory=list)
     notes: str = ""
@@ -360,7 +361,7 @@ def _score_turn(
     final_text: str,
 ) -> tuple[bool, list[str]]:
     reasons: list[str] = []
-    if turn.expect_tools:
+    if turn.expect_tools and not (turn.allow_no_tools and not tools_called):
         if turn.expect_tools_any:
             if not any(t in tools_called for t in turn.expect_tools):
                 reasons.append(

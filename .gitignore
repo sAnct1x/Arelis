@@ -20,6 +20,10 @@ htmlcov/
 .tmp-reality-walk/
 .tmp-reality-walk-live/
 .tmp-reality-marks/
+.tmp-earth-*/
+_tmp_*/
+_tmp_*.py
+.worktrees/
 
 # Local / secrets
 .env

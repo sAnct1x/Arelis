@@ -692,12 +692,135 @@ def _parse_iso_date(raw: Any, *, field: str) -> date:
         raise ValueError(f"Invalid {field} {text!r}; use YYYY-MM-DD.") from exc
 
 
+_MONTHS = {
+    "january": 1,
+    "february": 2,
+    "march": 3,
+    "april": 4,
+    "may": 5,
+    "june": 6,
+    "july": 7,
+    "august": 8,
+    "september": 9,
+    "october": 10,
+    "november": 11,
+    "december": 12,
+    "jan": 1,
+    "feb": 2,
+    "mar": 3,
+    "apr": 4,
+    "jun": 6,
+    "jul": 7,
+    "aug": 8,
+    "sep": 9,
+    "sept": 9,
+    "oct": 10,
+    "nov": 11,
+    "dec": 12,
+}
+_WEEKDAYS = (
+    "monday|tuesday|wednesday|thursday|friday|saturday|sunday|"
+    "mon|tue|wed|thu|fri|sat|sun"
+)
+_NAMED_DT = re.compile(
+    rf"(?ix)(?:(?:{_WEEKDAYS})\s+)?"
+    r"(?P<month>january|february|march|april|may|june|july|august|"
+    r"september|october|november|december|jan|feb|mar|apr|jun|jul|"
+    r"aug|sep|sept|oct|nov|dec)\s+"
+    r"(?P<day>\d{1,2}),?\s+(?P<year>\d{4})"
+    r"(?:\s+at)?\s+(?P<hour>\d{1,2})(?::(?P<minute>\d{2}))?"
+    r"(?:\s*(?P<ampm>am|pm))?"
+)
+_RELATIVE_DT = re.compile(
+    r"(?ix)\b(?P<when>today|tomorrow)\b(?:\s+at)?\s+"
+    r"(?P<hour>\d{1,2})(?::(?P<minute>\d{2}))?(?:\s*(?P<ampm>am|pm))?"
+)
+_ISO_SPACE_DT = re.compile(
+    r"(?ix)(?P<year>\d{4})-(?P<month>\d{2})-(?P<day>\d{2})[ T]"
+    r"(?P<hour>\d{1,2}):(?P<minute>\d{2})(?::(?P<second>\d{2}))?"
+    r"(?:\s*(?P<ampm>am|pm))?"
+)
+
+
+def _hour_24(hour: int, ampm: str) -> int:
+    stamp = (ampm or "").strip().lower()
+    if stamp == "am":
+        return 0 if hour == 12 else hour
+    if stamp == "pm":
+        return hour if hour == 12 else hour + 12
+    return hour
+
+
+def _from_parts(
+    year: int,
+    month: int,
+    day: int,
+    hour: int,
+    minute: int,
+    second: int = 0,
+    ampm: str = "",
+) -> datetime:
+    return datetime(
+        year,
+        month,
+        day,
+        _hour_24(hour, ampm),
+        minute,
+        second,
+        tzinfo=_local_now().tzinfo,
+    )
+
+
+def _parse_natural_dt(text: str) -> datetime | None:
+    """Best-effort wall-clock parse when the model skips ISO."""
+    raw = (text or "").strip()
+    named = _NAMED_DT.search(raw)
+    if named:
+        month = _MONTHS[named.group("month").lower()]
+        return _from_parts(
+            int(named.group("year")),
+            month,
+            int(named.group("day")),
+            int(named.group("hour")),
+            int(named.group("minute") or 0),
+            ampm=named.group("ampm") or "",
+        )
+    spaced = _ISO_SPACE_DT.fullmatch(raw)
+    if spaced:
+        return _from_parts(
+            int(spaced.group("year")),
+            int(spaced.group("month")),
+            int(spaced.group("day")),
+            int(spaced.group("hour")),
+            int(spaced.group("minute")),
+            int(spaced.group("second") or 0),
+            ampm=spaced.group("ampm") or "",
+        )
+    relative = _RELATIVE_DT.search(raw)
+    if relative:
+        now = _local_now()
+        day = now.date()
+        if relative.group("when").lower() == "tomorrow":
+            day = day + timedelta(days=1)
+        return _from_parts(
+            day.year,
+            day.month,
+            day.day,
+            int(relative.group("hour")),
+            int(relative.group("minute") or 0),
+            ampm=relative.group("ampm") or "",
+        )
+    return None
+
+
 def _parse_dt(raw: Any, *, field: str) -> datetime:
     """Parse ISO date/datetime; naive clock times are local, never UTC.
 
     Models often emit `2026-08-09T23:00:00` meaning 11pm on the user's wall
     clock. Treating that as UTC (old Google path) shifted Eastern events to
     19:00 and helped produce the S11 duplicates at the wrong hour.
+    Natural phrases ("Monday September 7, 2026 at 10:15 AM", "tomorrow 3pm")
+    used to fail create and then refuse with a calendar-reading warrant.
     """
     text = str(raw or "").strip()
     if not text:
@@ -710,8 +833,11 @@ def _parse_dt(raw: Any, *, field: str) -> datetime:
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=_local_now().tzinfo)
         return dt
-    except ValueError as exc:
-        raise ValueError(f"Invalid {field} {text!r}; use ISO date/datetime.") from exc
+    except ValueError:
+        parsed = _parse_natural_dt(text)
+        if parsed is not None:
+            return parsed
+        raise ValueError(f"Invalid {field} {text!r}; use ISO date/datetime.") from None
 
 
 def _same_event(a_summary: str, a_start: datetime, b: Any, *, skew_s: float = 60.0) -> bool:
@@ -723,7 +849,11 @@ def _same_event(a_summary: str, a_start: datetime, b: Any, *, skew_s: float = 60
     if not isinstance(other_start, datetime):
         return False
     left = a_start if a_start.tzinfo else a_start.replace(tzinfo=_local_now().tzinfo)
-    right = other_start if other_start.tzinfo else other_start.replace(tzinfo=_local_now().tzinfo)
+    right = (
+        other_start
+        if other_start.tzinfo
+        else other_start.replace(tzinfo=_local_now().tzinfo)
+    )
     try:
         return abs((left - right).total_seconds()) <= skew_s
     except Exception:

@@ -13,9 +13,10 @@ import json
 from typing import Any
 
 # World changes mid-turn, or another gate already owns the repeat.
+# Browser snapshot / click stay free — the page can change. open / navigate
+# of the same URL is a loop (the solid-state research turn opened QS 5×).
 _SKIP_TOOLS = frozenset(
     {
-        "browser",
         "camera",
         "vision",
         "image",
@@ -54,6 +55,10 @@ def same_call_key(name: str, args: dict[str, Any] | None) -> str | None:
     payload = args or {}
     if n == "workspace":
         return _workspace_key(payload)
+    if n == "research_report":
+        return _research_report_key(payload)
+    if n == "browser":
+        return _browser_nav_key(payload)
     return _generic_key(n, payload)
 
 
@@ -97,10 +102,83 @@ def same_call_notice(name: str, args: dict[str, Any]) -> str:
                 f"Already read {shown} this turn; not reading it again. "
                 "Open a different file, or answer from that text."
             )
+    if name == "research_report":
+        return (
+            "Already ran research_report on that query this turn; not "
+            "researching it again. Answer from the report you have, or "
+            "change the question."
+        )
+    if name == "browser":
+        action = str(args.get("action") or "").strip().lower()
+        if action == "wait":
+            return (
+                "Already waited for that URL/text this turn; not waiting "
+                "again. The tab is already there. Stop. Tell the user "
+                "what they see."
+            )
+        return (
+            "Already opened that URL this turn; not opening it again. "
+            "The tab is already there. Stop. Tell the user what they "
+            "see (signed in, or login ready). Do not navigate again, "
+            "and do not search."
+        )
     return (
         f"Already ran {name} with those arguments this turn; not calling it "
         "again. Answer from the prior result, or change the arguments."
     )
+
+
+def same_call_finish_line(name: str, last_out: str) -> str:
+    """User-facing line when a second identical call is blocked.
+
+    The prior successful output is the answer. Shipping a skip sentence
+    instead is what made calculator turns say "I already have that result".
+    """
+    text = (last_out or "").strip()
+    if text:
+        if len(text) > 800:
+            cut = text[:800]
+            nl = cut.rfind("\n")
+            text = cut[:nl] if nl > 200 else cut
+        return text
+    if (name or "").strip() == "browser":
+        return "I already have that result. The tab is open."
+    return "I already have that result this turn."
+
+
+def is_browser_nav_call(name: str, args: dict[str, Any] | None) -> bool:
+    """True for open/navigate — the calls the same-URL fuse owns."""
+    if (name or "").strip() != "browser":
+        return False
+    action = str((args or {}).get("action") or "").strip().lower()
+    return action in {"open", "navigate"}
+
+
+def _browser_nav_key(args: dict[str, Any]) -> str | None:
+    """Same open/navigate URL or wait needle is a loop. Snapshot stays free."""
+    action = str(args.get("action") or "").strip().lower()
+    if action == "wait":
+        url = str(args.get("url") or args.get("target") or "").strip().casefold()
+        text = " ".join(str(args.get("text") or "").split()).casefold()
+        heading = " ".join(str(args.get("heading") or "").split()).casefold()
+        if not (url or text or heading):
+            return None
+        return f"browser|wait|{url}|{text}|{heading}"
+    if action not in {"open", "navigate"}:
+        return None
+    url = str(args.get("url") or "").strip().casefold()
+    if not url:
+        return None
+    url = url.split("#", 1)[0].rstrip("/")
+    return f"browser|go|{url}"
+
+
+def _research_report_key(args: dict[str, Any]) -> str:
+    """Same question is a loop even if max_sources / recency change."""
+    query = " ".join(str(args.get("query") or "").split()).casefold()
+    if not query:
+        return _generic_key("research_report", args)
+    return f"research_report|{query}"
 
 
 def _workspace_key(args: dict[str, Any]) -> str | None:

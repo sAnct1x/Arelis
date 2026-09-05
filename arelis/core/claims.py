@@ -45,6 +45,28 @@ _PICTURE_SIZE = re.compile(
     r")\b"
 )
 
+# ISO datetimes and clock faces are not subtraction. `2026-09-06T15:00:00`
+# used to match `_ARITH_PAIR` as `2026-09`, then a successful agenda create
+# was overwritten with "this needs a calculator result".
+_ISO_DT = re.compile(
+    r"\b(?:\d{4}-\d{2}-\d{2})(?:T\d{2}:\d{2}(?::\d{2})?(?:[+-]\d{2}:\d{2})?)?"
+)
+_CLOCK = re.compile(r"\b\d{1,2}:\d{2}(?::\d{2})?\b")
+
+# "1960-2026" is a span, not subtraction. "what is 17-3" still matches
+# the what-is pattern below and stays math.
+_ARITH_PAIR = re.compile(
+    r"\b(?:\d+(?:\.\d+)?)\s*"
+    r"(?:\+|plus|-|minus|times|\*|\u00d7|/|divided\s+by)\s*"
+    r"(?:\d+(?:\.\d+)?)\b",
+    re.I,
+)
+_YEAR_RANGE = re.compile(r"\b(?:1\d{3}|20\d{2})\s*[-–—]\s*(?:1\d{3}|20\d{2})\b")
+_PEDAGOGICAL_DERIVE = re.compile(r"(?i)\bderiv(?:e|ation|ing)\b")
+_REPORT_FILE_ASK = re.compile(
+    r"(?i)\b(research\s+report|write\s+a\s+report|multi-?source|pdf|docx)\b"
+)
+
 _MATH_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(
         r"\b(?:what\s+is|what's|calculate|compute|how\s+much\s+is|"
@@ -53,12 +75,7 @@ _MATH_PATTERNS: tuple[re.Pattern[str], ...] = (
         re.I | re.S,
     ),
     re.compile(r"\b\d+(?:\.\d+)?\s*%\s+of\s+\d+", re.I),
-    re.compile(
-        r"\b(?:\d+(?:\.\d+)?)\s*"
-        r"(?:\+|plus|-|minus|times|\*|\u00d7|/|divided\s+by)\s*"
-        r"(?:\d+(?:\.\d+)?)\b",
-        re.I,
-    ),
+    _ARITH_PAIR,
     _SPACED_TIMES,
     re.compile(
         r"\b(?:square\s+root|sqrt|factorial|mod(?:ulo)?)\b.{0,30}\d",
@@ -467,9 +484,21 @@ def detect_diagnostics_ask(text: str) -> bool:
     return DIAGNOSTICS.matches(text)
 
 
+_HORIZONS_BODY = re.compile(
+    r"(?i)\b(mercury|venus|earth|mars|jupiter|saturn|uranus|neptune|"
+    r"pluto|moon|sun|ceres)\b"
+)
+
+
 def draft_catalog_args(text: str) -> dict[str, str]:
-    """catalog(action=arxiv) from 'find me a paper on …'."""
+    """catalog action from the words — Horizons when they named it."""
     raw = " ".join((text or "").split()).strip()
+    if re.search(r"(?i)\b(?:jpl\s+)?horizons\b|\bephemeris\b", raw):
+        hit = _HORIZONS_BODY.search(raw)
+        target = (hit.group(1) if hit else "Mars").title()
+        if target == "Moon":
+            target = "301"
+        return {"action": "horizons", "target": target, "table": "vectors"}
     query = raw
     match = _PAPER_QUERY.search(raw)
     if match:
@@ -517,7 +546,8 @@ def detect_math_ask(text: str) -> bool:
         return False
     if _SYMBOLIC_MATH.search(lowered):
         return False
-    hits = [p for p in _MATH_PATTERNS if p.search(lowered)]
+    cleaned = _CLOCK.sub(" ", _ISO_DT.sub(" ", lowered))
+    hits = [p for p in _MATH_PATTERNS if p.search(cleaned)]
     if not hits:
         return False
     # When "N x N" is the only arithmetic shape present and the sentence is
@@ -525,6 +555,8 @@ def detect_math_ask(text: str) -> bool:
     # purpose: "what is 17 x 19" still forces the calculator, because that has no
     # picture in it.
     if hits == [_SPACED_TIMES] and _PICTURE_SIZE.search(lowered):
+        return False
+    if hits == [_ARITH_PAIR] and _YEAR_RANGE.search(lowered):
         return False
     return True
 
@@ -540,7 +572,11 @@ def detect_inbox_ask(text: str) -> bool:
 
     if looks_like_mailbox_mutate(raw):
         return True
-    return exactness_match("inbox", raw)
+    if exactness_match("inbox", raw):
+        return True
+    from arelis.core.intent_catalog import INBOX
+
+    return INBOX.matches(raw)
 
 
 def detect_inbound_sms_ask(text: str) -> bool:
@@ -744,6 +780,13 @@ def detect_exactness_need(text: str) -> ExactnessNeed:
     # that sentence instead of a forecast.
     if needs_web and needs_weather:
         needs_web = False
+    # Inbox / calendar / chores are not news. "summarize the latest messages"
+    # must not pick up a page warrant and then refuse after inbox already ran.
+    needs_inbox = detect_inbox_ask(text)
+    needs_agenda = detect_agenda_ask(text)
+    needs_tasks = detect_tasks_ask(text)
+    if needs_web and (needs_inbox or needs_agenda or needs_tasks):
+        needs_web = False
     if needs_web:
         kinds.append("web")
     if needs_weather:
@@ -751,7 +794,6 @@ def detect_exactness_need(text: str) -> ExactnessNeed:
     needs_recall = exactness_match("recall", text)
     if needs_recall:
         kinds.append("recall")
-    needs_inbox = detect_inbox_ask(text)
     if needs_inbox:
         kinds.append("inbox")
     needs_inbound = detect_inbound_sms_ask(text)
@@ -760,13 +802,11 @@ def detect_exactness_need(text: str) -> ExactnessNeed:
     needs_doc = detect_doc_ask(text)
     if needs_doc:
         kinds.append("doc")
-    needs_agenda = detect_agenda_ask(text)
     if needs_agenda:
         kinds.append("agenda")
     needs_git = detect_git_ask(text)
     if needs_git:
         kinds.append("git")
-    needs_tasks = detect_tasks_ask(text)
     if needs_tasks:
         kinds.append("tasks")
     needs_goals = detect_goals_ask(text)
@@ -806,16 +846,30 @@ def detect_exactness_need(text: str) -> ExactnessNeed:
 
 
 def apply_research_web_need(
-    need: ExactnessNeed, *, research_mode: bool
+    need: ExactnessNeed, *, research_mode: bool, text: str = ""
 ) -> ExactnessNeed:
     """Research role adds a page warrant — except weather, which is Open-Meteo.
 
     Jobs used to default to role=research. That stamped ``web`` onto a forecast
     prompt, so the 9am mail was a page-warrant refusal instead of a reading.
+    A derivation on the research chip is still algebra, not a page hunt.
     """
     if not research_mode or need.needs_web_evidence:
         return need
-    if need.needs_weather:
+    if need.needs_weather or need.needs_cas or need.needs_calculator:
+        return need
+    # Sticky research after a report must not stamp a page warrant on
+    # inbox / calendar / tasks. Those have their own tools.
+    if (
+        need.needs_inbox
+        or need.needs_agenda
+        or need.needs_tasks
+        or need.needs_inbound_sms
+        or need.needs_goals
+    ):
+        return need
+    raw = text or ""
+    if _PEDAGOGICAL_DERIVE.search(raw) and not _REPORT_FILE_ASK.search(raw):
         return need
     kinds = list(need.kinds)
     if "web" not in kinds:

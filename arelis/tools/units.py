@@ -11,12 +11,15 @@ from arelis.science.constants import format_constant, lookup_constant
 from arelis.tools.base import ToolResult
 
 _UREG = UnitRegistry()
+# Pint treats "90 degF" as 90 * degF, which is illegal for offset units
+# unless this flag is on. Spoken temperature asks need it.
+_UREG.autoconvert_offset_to_baseunit = True
 _ACTIONS = frozenset({"convert", "constant"})
 _FRAME_WORDS = ("cmb frame", "rest frame", "comoving", "peculiar velocity")
-# Pint reads "5 ft 8 in" as a product (length²). A height is a sum.
+# Pint reads "5 ft 8 in" / "6 foot 2" as a product (length²). A height is a sum.
 _HEIGHT = re.compile(
-    r"(?i)(?P<feet>\d+(?:\.\d+)?)\s*(?:ft|feet|foot)\s+"
-    r"(?P<inches>\d+(?:\.\d+)?)\s*(?:in|inch|inches)\b"
+    r"(?i)(?P<feet>\d+(?:\.\d+)?)\s*(?:ft|feet|foot|'|′)\s*"
+    r"(?P<inches>\d+(?:\.\d+)?)(?:\s*(?:in|inch|inches|\"|″))?\b"
 )
 
 
@@ -57,6 +60,8 @@ class UnitsTool:
 
     async def run(self, **kwargs: Any) -> ToolResult:
         action = str(kwargs.get("action") or "").strip().lower()
+        if not action and (kwargs.get("quantity") or kwargs.get("to")):
+            action = "convert"
         if action not in _ACTIONS:
             return ToolResult(
                 ok=False,
@@ -103,9 +108,23 @@ def _lookup(name: str) -> ToolResult:
     )
 
 
-def _convert(quantity: str, to_unit: str) -> ToolResult:
+_TO_SPLIT = re.compile(r"(?i)\s+(?:to|into)\s+")
+
+
+def _split_convert_args(quantity: str, to_unit: str) -> tuple[str, str]:
+    """Accept '90 degrees Fahrenheit to Celsius' in quantity when to is empty."""
     qty = (quantity or "").strip()
     dest = (to_unit or "").strip()
+    if dest or not qty:
+        return qty, dest
+    parts = _TO_SPLIT.split(qty, maxsplit=1)
+    if len(parts) == 2 and parts[0].strip() and parts[1].strip():
+        return parts[0].strip(), parts[1].strip()
+    return qty, dest
+
+
+def _convert(quantity: str, to_unit: str) -> ToolResult:
+    qty, dest = _split_convert_args(quantity, to_unit)
     if not qty or not dest:
         return ToolResult(
             ok=False,
@@ -126,7 +145,7 @@ def _convert(quantity: str, to_unit: str) -> ToolResult:
         )
     try:
         src = _UREG.Quantity(_normalize_quantity(qty))
-        out = src.to(dest)
+        out = src.to(_normalize_unit(dest))
     except UndefinedUnitError as exc:
         return ToolResult(
             ok=False,
@@ -171,6 +190,25 @@ def _convert(quantity: str, to_unit: str) -> ToolResult:
     )
 
 
+_TEMP_UNIT = (
+    (re.compile(r"(?i)\bdegrees?\s+fahrenheit\b"), "degF"),
+    (re.compile(r"(?i)\bdegrees?\s+celsius\b"), "degC"),
+    (re.compile(r"(?i)\bdegrees?\s+kelvin\b"), "kelvin"),
+    (re.compile(r"(?i)\bdeg\s*f\b"), "degF"),
+    (re.compile(r"(?i)\bdeg\s*c\b"), "degC"),
+    (re.compile(r"(?i)\bfahrenheit\b"), "degF"),
+    (re.compile(r"(?i)\bcelsius\b"), "degC"),
+)
+
+
+def _normalize_unit(text: str) -> str:
+    out = (text or "").strip()
+    for pattern, repl in _TEMP_UNIT:
+        out = pattern.sub(repl, out)
+    return out
+
+
 def _normalize_quantity(quantity: str) -> str:
     """Rewrite spoken heights so Pint adds feet and inches instead of multiplying."""
-    return _HEIGHT.sub(r"(\g<feet> * foot + \g<inches> * inch)", quantity)
+    rewritten = _HEIGHT.sub(r"(\g<feet> * foot + \g<inches> * inch)", quantity)
+    return _normalize_unit(rewritten)

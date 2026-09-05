@@ -63,6 +63,10 @@ def comms_bypasses_sticky(text: str) -> bool:
         return True
     if looks_like_compose_email(raw):
         return True
+    from arelis.core.intent_catalog import EARTH_STATUS, SOLAR_STATUS
+
+    if SOLAR_STATUS.matches(raw) or EARTH_STATUS.matches(raw):
+        return True
     return (
         looks_like_calendar_create(raw)
         or looks_like_calendar_delete(raw)

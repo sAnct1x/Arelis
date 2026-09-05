@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 from typing import Any
 
+from arelis.core.document_refs import resolve_drop_file
 from arelis.tools.base import ToolResult
-from arelis.workspace import WorkspaceRoots
+from arelis.workspace import ResolvedPath, WorkspaceRoots
 
 _MAX_OUTPUT_CHARS = 20_000
 _SUPPORTED = frozenset({".pdf"})
@@ -66,7 +68,18 @@ class DocExtractTool:
         self.max_chars = max(256, int(max_chars))
 
     def _resolve(self, path_str: str):
-        return self.workspace.resolve_read(path_str)
+        try:
+            return self.workspace.resolve_read(path_str)
+        except Exception as first:
+            drop = resolve_drop_file(path_str, suffixes={".pdf"})
+            if drop:
+                path = Path(drop)
+                return ResolvedPath(
+                    path=path,
+                    root_name="outputs",
+                    root=path.parent,
+                )
+            raise first
 
     async def run(self, **kwargs: Any) -> ToolResult:
         path_str = kwargs.get("path")

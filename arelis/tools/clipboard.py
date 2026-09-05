@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import time
 from collections.abc import Callable
 from typing import Any
@@ -10,22 +11,29 @@ from arelis.tools.base import ToolResult
 from arelis.tools.safety import redact_secrets
 
 _MAX_CHARS = 8000
+_READ_TIMEOUT_S = 4.0
+
+
+def _qt_clipboard_on_gui_thread() -> str | None:
+    """Qt clipboard only from the GUI thread. Worker-thread text() deadlocks."""
+    try:
+        from PySide6.QtCore import QThread
+        from PySide6.QtWidgets import QApplication
+
+        app = QApplication.instance()
+        if app is None or QThread.currentThread() is not app.thread():
+            return None
+        return app.clipboard().text() or ""
+    except Exception:
+        return None
 
 
 def read_clipboard_text() -> str:
     """Best-effort plain-text clipboard read for the current platform."""
-    # Prefer Qt when a GUI app already owns the clipboard (desktop UI).
-    try:
-        from PySide6.QtWidgets import QApplication
-
-        app = QApplication.instance()
-        if app is not None:
-            text = app.clipboard().text() or ""
-            if text:
-                return text
-    except Exception:
-        pass
-    # Windows headless / CLI: CF_UNICODETEXT. restype on GlobalLock must be
+    qt = _qt_clipboard_on_gui_thread()
+    if qt:
+        return qt
+    # Windows: CF_UNICODETEXT. restype on GlobalLock must be
     # c_void_p or 64-bit Python truncates the pointer and wstring_at AVs.
     try:
         return _read_windows_clipboard()
@@ -57,7 +65,13 @@ def _read_windows_clipboard() -> str:
 
     if not user32.IsClipboardFormatAvailable(cf_unicode):
         return ""
-    if not user32.OpenClipboard(None):
+    opened = False
+    for _ in range(10):
+        if user32.OpenClipboard(None):
+            opened = True
+            break
+        time.sleep(0.05)
+    if not opened:
         raise OSError(f"OpenClipboard failed ({ctypes.get_last_error()})")
     try:
         handle = user32.GetClipboardData(cf_unicode)
@@ -168,7 +182,17 @@ class ClipboardTool:
             limit = self.max_chars
         limit = max(1, min(_MAX_CHARS, limit))
         try:
-            raw = self._reader() or ""
+            raw = await asyncio.wait_for(
+                asyncio.to_thread(self._reader),
+                timeout=_READ_TIMEOUT_S,
+            )
+            raw = raw or ""
+        except TimeoutError:
+            return ToolResult(
+                ok=False,
+                output="Clipboard read timed out. Nothing was pasted into chat.",
+                data={"fail_class": "fail:timeout"},
+            )
         except Exception as exc:
             return ToolResult(
                 ok=False,

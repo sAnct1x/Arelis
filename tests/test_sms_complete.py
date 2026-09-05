@@ -46,6 +46,37 @@ def test_parse_text_brian_with_body() -> None:
     assert "Running 10 minutes late" in draft.body
 
 
+def test_parse_text_a_raw_number_and_tell_him() -> None:
+    """A number the user typed is the recipient. Letter-only `to` hid send_sms."""
+    draft = parse_sms_utterance(
+        "chillin, chillin, i want you to text 5551112222 and tell him hes late"
+    )
+    assert draft is not None
+    assert draft.complete
+    assert "5551112222" in draft.to
+    assert "late" in draft.body.lower()
+    filled = fill_send_sms_args({}, draft)
+    assert filled["to"] == "5551112222"
+    assert "late" in filled["body"].lower()
+
+
+def test_send_sms_stays_visible_when_they_gave_a_number() -> None:
+    from arelis.core.preflight import detect_intents
+    from arelis.core.tool_subset import filter_tool_names
+
+    text = "i want you to text 5551112222 and tell him hey"
+    kinds = {h.kind for h in detect_intents(text)}
+    assert "sms_send" in kinds
+    visible = filter_tool_names(
+        {"send_sms", "inbound_sms", "contacts", "weather"},
+        role="fast",
+        text=text,
+        enabled=False,
+        skill_subset=False,
+    )
+    assert "send_sms" in visible
+
+
 def test_parse_send_a_text_message_to_wife() -> None:
     draft = parse_sms_utterance("Send a text message to my wife")
     assert draft is not None
@@ -106,6 +137,48 @@ def test_sms_body_strips_i_want_the_text_message_to() -> None:
     assert draft.body == "i love you"
 
 
+def test_unknown_name_with_body_asks_for_a_number_not_a_contact() -> None:
+    draft = complete_sms_draft(
+        "text Jordan and tell him the table is ready",
+        contacts=_book(),
+    )
+    assert draft is not None
+    assert not draft.complete
+    assert "Jordan" in draft.missing
+    from arelis.core.sms_complete import sms_preflight_nudge
+
+    nudge = sms_preflight_nudge(draft)
+    assert "number" in nudge.lower()
+    assert "do not require" in nudge.lower()
+
+
+def test_a_typed_number_after_an_unknown_name_completes_the_send() -> None:
+    history = [
+        ChatMessage(role="user", content="text Jordan and tell him the table is ready"),
+        ChatMessage(role="assistant", content="What's Jordan's number?"),
+    ]
+    draft = complete_sms_draft(
+        "5551112222",
+        history=history,
+        contacts=_book(),
+    )
+    assert draft is not None
+    assert draft.complete
+    assert draft.tool_to == "5551112222"
+    assert "table is ready" in draft.body
+
+
+def test_two_raw_numbers_are_a_complete_multi_send() -> None:
+    draft = complete_sms_draft(
+        "text 5551112222 and 5551113333 that I am on the way",
+        contacts=_book(),
+    )
+    assert draft is not None
+    assert draft.complete
+    assert not draft.missing
+    assert set(draft.resolved_aliases) == {"5551112222", "5551113333"}
+
+
 def test_multi_recipient_incomplete_when_contact_missing() -> None:
     book = _book(wife={"name": "Robbie", "aliases": ("wife",)})
     draft = complete_sms_draft(
@@ -133,7 +206,7 @@ def test_tell_him_body_peels_from_recipient() -> None:
     assert draft is not None
     assert draft.complete
     assert draft.tool_to == "brightly"
-    assert draft.body.lower() == "i love him"
+    assert draft.body.lower() == "i love you"
 
 
 def test_sam_brightley_does_not_resolve_to_me() -> None:
@@ -225,6 +298,17 @@ def test_text_me_later_is_not_an_sms_draft() -> None:
 def test_write_a_text_file_is_not_sms() -> None:
     assert parse_sms_utterance("write a text file named note.txt") is None
     assert complete_sms_draft("write a temp file with hi") is None
+
+
+def test_read_any_text_in_picture_is_not_sms() -> None:
+    for spoken in (
+        "read any text in that last picture",
+        "read the text in this screenshot",
+        "what text is in that image",
+        "any text in the last picture",
+    ):
+        assert parse_sms_utterance(spoken) is None, spoken
+        assert complete_sms_draft(spoken) is None, spoken
 
 
 def test_remember_forget_and_tasks_do_not_become_sms_body() -> None:
@@ -627,6 +711,10 @@ def test_greeting_does_not_revive_prior_sms_draft() -> None:
     assert looks_like_stale_sms_skip("how are you today?")
     assert not sms_intent_this_turn("how are you today?")
     assert sms_intent_this_turn("Text wife: grocery run going?")
+    assert sms_intent_this_turn(
+        "chillin, chillin, i want you to text 5551112222 and tell him hey"
+    )
+    assert sms_intent_this_turn("text 555-111-2222 and tell him hey")
     history = [
         ChatMessage(role="user", content="Text wife: Hey, how's the grocery run going?"),
         ChatMessage(role="assistant", content="Okay — I did not send that."),
@@ -710,9 +798,33 @@ def test_telling_her_is_sms_body() -> None:
     draft = parse_sms_utterance(spoken)
     assert draft is not None
     assert "wife" in draft.to.lower()
-    assert "love" in draft.body.lower()
+    assert draft.body.lower() == "i love you"
     done = complete_sms_draft(spoken, contacts=book)
     assert done is not None and done.complete
+    assert done.body.lower() == "i love you"
+
+
+def test_tell_her_i_love_her_is_i_love_you() -> None:
+    """Third-person 'tell her I love her' is what the daughter should hear."""
+    book = _book(baby={"name": "Piper Hale", "aliases": ("daughter", "baby", "piper")})
+    spoken = "text my daughter and tell her i love her"
+    draft = parse_sms_utterance(spoken)
+    assert draft is not None
+    assert "daughter" in draft.to.lower()
+    assert draft.body.lower() == "i love you"
+    done = complete_sms_draft(spoken, contacts=book)
+    assert done is not None and done.complete
+    assert done.tool_to == "baby"
+    assert done.body == "i love you"
+    filled = fill_send_sms_args({"to": "baby", "body": "i love her"}, done, contacts=book)
+    assert filled["body"] == "i love you"
+    # Possessive: do not flip "her cooking" into "you cooking".
+    cooking = parse_sms_utterance("text my daughter and tell her I love her cooking")
+    assert cooking is not None
+    assert cooking.body.lower() == "i love her cooking"
+    saying = parse_sms_utterance("Send a text to my wife saying that I love her")
+    assert saying is not None
+    assert saying.body.lower() == "i love you"
 
 
 def test_voice_preamble_text_wife_and_say() -> None:
@@ -776,3 +888,23 @@ def test_markdown_text_fence_apart_is_not_sms() -> None:
     assert parse_sms_utterance(blob) is None
     assert not sms_intent_this_turn(blob)
     assert parse_sms_utterance("Text Brian: Running 10 minutes late") is not None
+
+
+def test_add_text_overlay_on_a_picture_is_not_sms() -> None:
+    """'add text right in the middle that says Arelis' used to inject send_sms."""
+    from arelis.core.sms_complete import (
+        looks_like_image_edit,
+        looks_like_stale_sms_skip,
+        sms_intent_this_turn,
+    )
+
+    spoken = (
+        "I want you to now edit the picture you just created, and I want you "
+        "to add text right in the middle that says Arelis, centered perfectly"
+    )
+    assert looks_like_image_edit(spoken)
+    assert looks_like_stale_sms_skip(spoken)
+    assert parse_sms_utterance(spoken) is None
+    assert not sms_intent_this_turn(spoken)
+    assert parse_sms_utterance("Text Brian: Running 10 minutes late") is not None
+    assert parse_sms_utterance("add text message to my wife saying hello") is not None

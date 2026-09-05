@@ -2,13 +2,21 @@
 
 from __future__ import annotations
 
-from arelis.core.claims import detect_exactness_need, detect_inbox_ask
+from arelis.core.claims import (
+    apply_research_web_need,
+    detect_exactness_need,
+    detect_inbox_ask,
+    draft_catalog_args,
+)
 from arelis.core.intent_catalog import (
     COMPOSE_EMAIL,
     DIAGNOSTICS,
+    EARTH_STATUS,
     INBOX,
     RUN_SCRIPT,
     SMS_SEND,
+    SOLAR_BODY,
+    SOLAR_STATUS,
     WATCH,
     WEATHER,
     exactness_match,
@@ -38,6 +46,51 @@ _EVERYDAY = {
     "recall",
     "memory",
 }
+
+
+_BATTERY_RESEARCH = """
+Research Prompt:
+As of September 2026, provide a rigorous, evidence-based assessment of
+solid-state lithium batteries for electric vehicles.
+Extract operating temperature range, cycle life, and energy density.
+Provide a concise comparative table and a short hype vs. reality verdict.
+"""
+
+
+def test_battery_research_is_not_weather() -> None:
+    from arelis.core.intent_catalog import weather_intent_matches
+    from arelis.core.preflight import detect_intents
+    from arelis.core.tool_subset import is_deep_dive_ask
+
+    assert "temperature" in _BATTERY_RESEARCH.lower()
+    assert not weather_intent_matches(_BATTERY_RESEARCH)
+    assert not exactness_match("weather", _BATTERY_RESEARCH)
+    assert is_deep_dive_ask(_BATTERY_RESEARCH)
+    kinds = [h.kind for h in detect_intents(_BATTERY_RESEARCH)]
+    assert "research" in kinds
+    assert "weather" not in kinds
+    assert not detect_exactness_need(_BATTERY_RESEARCH).needs_weather
+
+
+def test_lab_temperature_in_a_derivation_is_not_weather() -> None:
+    from arelis.core.intent_catalog import weather_intent_matches
+
+    ask = (
+        "Coating Brownian thermal noise on fused silica at temperature $T$. "
+        "T = 293 K, lambda = 1064 nm. Derive the SQL."
+    )
+    assert "temperature" in ask.lower()
+    assert not weather_intent_matches(ask)
+    assert "weather" not in [h.kind for h in detect_intents(ask)]
+
+
+def test_how_hot_is_still_weather() -> None:
+    from arelis.core.intent_catalog import weather_intent_matches
+
+    ask = "What's the temperature today?"
+    assert weather_intent_matches(ask)
+    assert exactness_match("weather", ask)
+    assert any(h.kind == "weather" for h in detect_intents(ask))
 
 
 def test_weather_catalog_matches_preflight_and_exactness() -> None:
@@ -133,6 +186,27 @@ def test_research_extras_add_inbox_on_deep_dive() -> None:
     )
     assert "inbox" in extra
     assert "send_email" in extra
+
+
+def test_solar_body_is_one_source_among_others() -> None:
+    assert SOLAR_BODY.matches("how big is Mars, like the radius")
+    assert SOLAR_BODY.matches("what's the gravity on Jupiter")
+    assert SOLAR_BODY.matches("where is Saturn")
+    assert not SOLAR_BODY.matches("what's the weather")
+    assert "solar" in SOLAR_BODY.schema_tools
+    assert "catalog" in SOLAR_BODY.schema_tools
+
+
+def test_solar_and_earth_status_are_not_browser() -> None:
+    assert SOLAR_STATUS.matches("what's the solar system status")
+    assert SOLAR_STATUS.matches("dump the solar system state")
+    assert not SOLAR_STATUS.matches("directions to the Empire State Building")
+    assert EARTH_STATUS.matches("what's the earth status")
+    assert EARTH_STATUS.matches("dump the earth state")
+    assert not EARTH_STATUS.matches("how big is Earth")
+    args = draft_catalog_args("ask Horizons where Mars is today")
+    assert args["action"] == "horizons"
+    assert args["target"] == "Mars"
 
 
 def test_diagnostics_catalog_is_phrase_only() -> None:
@@ -276,3 +350,39 @@ def test_source_inspect_catalog_and_path_map() -> None:
     nudge = inspect_preflight_nudge("what's in policy.py?")
     assert "arelis/tools/policy.py" in nudge
     assert "workspace(action=read)" in nudge
+
+
+def test_inbox_latest_is_not_a_page_warrant() -> None:
+    ask = "What's in my inbox? Summarize the latest few messages."
+    need = detect_exactness_need(ask)
+    assert need.needs_inbox
+    assert not need.needs_web_evidence
+    sticky = apply_research_web_need(need, research_mode=True, text=ask)
+    assert sticky.needs_inbox
+    assert not sticky.needs_web_evidence
+
+
+def test_unread_email_subjects_is_inbox_not_web() -> None:
+    ask = "Do I have any unread email? List only the subjects."
+    need = detect_exactness_need(ask)
+    assert need.needs_inbox
+    assert not need.needs_calculator
+    assert not need.needs_web_evidence
+    sticky = apply_research_web_need(need, research_mode=True, text=ask)
+    assert sticky.needs_inbox
+    assert not sticky.needs_web_evidence
+
+
+def test_iso_calendar_create_is_not_math() -> None:
+    from arelis.core.claims import detect_math_ask
+
+    ask = (
+        "Create a calendar event titled Arelis stay BRD-014135. "
+        "Use agenda action=create with start=2026-09-06T15:00:00 and "
+        "end=2026-09-06T15:30:00 (tomorrow 3:00–3:30 PM)."
+    )
+    assert not detect_math_ask(ask)
+    need = detect_exactness_need(ask)
+    assert not need.needs_calculator
+    assert detect_math_ask("What is 12.5% of 640?")
+    assert detect_math_ask("what is 17-3")

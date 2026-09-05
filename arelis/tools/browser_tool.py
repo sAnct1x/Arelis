@@ -38,6 +38,14 @@ _ACTIONS = (
     "forward",
     "reload",
     "find",
+    "download",
+    "upload",
+    "pdf",
+    "hover",
+    "dblclick",
+    "right_click",
+    "drag",
+    "watch",
 )
 
 
@@ -59,10 +67,24 @@ class BrowserTool:
         "reserve (OpenTable / Resy / Google — fills party/date/time; you click Book), "
         "click(ref) or click(text='Sign in') or click(nth=1) for the first "
         "result (glows first), type(text=…, into='search') or type(ref), "
-        "scroll, press(key), select(ref or into, text=option), wait(seconds), "
-        "back, forward, reload, find(text) lists matches, tabs (select=N / "
-        "tab=new|close, optional url), "
+        "type(who=Mom, into=email|phone|name|work_phone) fills that "
+        "contacts.yaml field (no street address), "
+        "scroll, press(key), select(ref or into, text=option), "
+        "wait(seconds) or wait(url=/home) / wait(text=…) / wait(heading=…) "
+        "(poll the tab, cap 8s, then snapshot), "
+        "back, forward, reload, find(text) lists matches, "
+        "tabs (no args lists index|title|url; select=Gmail or select=0; "
+        "tab=new|close — close is the current tab only), "
         "screenshot (PNG under outputs/images/ — then vision to describe), "
+        "download (ref of the save link → outputs/downloads/), "
+        "upload (path under workspace roots or outputs/, confirm; "
+        "type=file is refused on type), "
+        "pdf (this tab → outputs/documents/), "
+        "hover / dblclick / right_click / drag on a snapshot ref "
+        "(glow beat; walls still apply). x,y only after screenshot "
+        "then vision this turn — not computer-use by default. "
+        "watch (poll title/url/text while Arelis is open; Drive says "
+        "Watching; Stop cancels; notify on hit), "
         "relaunch (restarts HER window only; optional url opens after). "
         "You plan the drive: search, click the first result, read, go back. "
         "Prefer open when they only asked to pull up a site. Prefer read "
@@ -91,7 +113,9 @@ class BrowserTool:
                 "description": (
                     "open / navigate / snapshot / read / maps / search / "
                     "reserve / click / type / scroll / press / select / wait / "
-                    "back / forward / reload / find / tabs / screenshot / relaunch"
+                    "back / forward / reload / find / tabs / screenshot / "
+                    "download / upload / pdf / hover / dblclick / "
+                    "right_click / drag / watch / relaunch"
                 ),
             },
             "url": {
@@ -120,16 +144,30 @@ class BrowserTool:
                 "type": "string",
                 "description": (
                     "type/select: field label (search, email, party). "
-                    "Empty type prefers the search box."
+                    "Empty type prefers the search box. "
+                    "With who=: name / phone / email / work_phone."
                 ),
+            },
+            "who": {
+                "type": "string",
+                "description": (
+                    "type: contact in contacts.yaml. Fills name, phone, "
+                    "email, or work_phone into that field. No street address."
+                ),
+            },
+            "heading": {
+                "type": "string",
+                "description": "wait: visible h1 / title needle to poll for",
             },
             "nth": {
                 "type": "integer",
                 "description": "click/find: 1-based result (1 = first)",
             },
             "select": {
-                "type": "integer",
-                "description": "Tab index for action=tabs",
+                "description": (
+                    "tabs: 0-based index or title substring. "
+                    "Close is the current tab only — not a title."
+                ),
             },
             "tab": {
                 "type": "string",
@@ -166,7 +204,10 @@ class BrowserTool:
             },
             "seconds": {
                 "type": "number",
-                "description": "wait: 0.2-8 seconds",
+                "description": (
+                    "wait: cap 0.2-8s. Default 1s to sleep, 8s when "
+                    "url/text/heading is set"
+                ),
             },
             "destination": {
                 "type": "string",
@@ -219,6 +260,37 @@ class BrowserTool:
                 "type": "string",
                 "description": "reserve: special requests to type if a notes field exists",
             },
+            "path": {
+                "type": "string",
+                "description": (
+                    "upload: file under workspace roots or outputs/. "
+                    "download/pdf choose their own dest."
+                ),
+            },
+            "x": {
+                "type": "number",
+                "description": (
+                    "Pixel X. Only after screenshot then vision this turn."
+                ),
+            },
+            "y": {
+                "type": "number",
+                "description": (
+                    "Pixel Y. Only after screenshot then vision this turn."
+                ),
+            },
+            "to": {
+                "type": "string",
+                "description": "drag: destination snapshot ref",
+            },
+            "to_x": {
+                "type": "number",
+                "description": "drag: destination pixel X (with x,y)",
+            },
+            "to_y": {
+                "type": "number",
+                "description": "drag: destination pixel Y (with x,y)",
+            },
         },
         "required": ["action"],
     }
@@ -229,12 +301,16 @@ class BrowserTool:
         *,
         aliases: dict[str, str] | None = None,
         event_sink: Any | None = None,
+        workspace: Any | None = None,
     ) -> None:
         self.session = session
         self.aliases = dict(aliases or {})
         # Optional callable(kind: str, **payload) for Thinking telemetry.
         self._event_sink = event_sink
+        self.workspace = workspace
         self._revived = False
+        self._playwright_missing = False
+        self.pixel_ok = False
 
     def _emit(self, kind: str, **payload: Any) -> None:
         if self._event_sink is None:
@@ -335,8 +411,15 @@ class BrowserTool:
             ensured = await self._ensure(browser, private)
             if not ensured.ok:
                 return ensured
-            select = kwargs.get("select")
-            sel = int(select) if select is not None and str(select) != "" else None
+            raw_select = kwargs.get("select")
+            if raw_select is None or str(raw_select).strip() == "":
+                sel: int | str | None = None
+            elif isinstance(raw_select, bool):
+                sel = None
+            elif isinstance(raw_select, int):
+                sel = raw_select
+            else:
+                sel = str(raw_select).strip()
             tab_op = str(kwargs.get("tab") or kwargs.get("op") or "").strip().lower()
             tab_url = str(kwargs.get("url") or kwargs.get("target") or "").strip()
             result = await self.session.tabs(select=sel, op=tab_op, url=tab_url)
@@ -379,11 +462,30 @@ class BrowserTool:
             ref = str(kwargs.get("ref") or "").strip()
             text = str(kwargs.get("text") or "")
             into = str(kwargs.get("into") or kwargs.get("target") or "").strip()
+            who = str(kwargs.get("who") or "").strip()
             if ref and not _looks_like_ref(ref) and not into:
                 into, ref = ref, ""
-            if text == "" and "text" not in kwargs:
+            fill_data: dict[str, Any] = {}
+            if who:
+                from arelis.browser.fill import fill_from_who
+
+                filled, fill_data = fill_from_who(who, into=into)
+                if fill_data.get("error"):
+                    return ToolResult(
+                        ok=False,
+                        output=str(fill_data["error"]),
+                        data=fill_data,
+                    )
+                text = filled
+            elif text == "" and "text" not in kwargs:
                 return ToolResult(ok=False, output="type needs text.")
             result = await self.session.type_text(ref, text, into=into)
+            if result.ok and fill_data:
+                data = dict(result.data or {})
+                data.update(
+                    {k: v for k, v in fill_data.items() if k != "error"}
+                )
+                result.data = data
             self._emit("browser_type", ref=ref or into or "field", ok=result.ok)
             return _to_tool(result)
 
@@ -469,13 +571,39 @@ class BrowserTool:
             ensured = await self._ensure(browser, private)
             if not ensured.ok:
                 return ensured
+            want_url = str(kwargs.get("url") or kwargs.get("target") or "").strip()
+            want_text = str(kwargs.get("text") or "").strip()
+            want_heading = str(kwargs.get("heading") or "").strip()
+            from arelis.browser.wait_for import has_wait_needle
+
+            has = has_wait_needle(
+                url=want_url, text=want_text, heading=want_heading
+            )
             try:
-                seconds = float(kwargs.get("seconds") or 1.0)
+                seconds = float(
+                    kwargs.get("seconds")
+                    if kwargs.get("seconds") not in (None, "")
+                    else (8.0 if has else 1.0)
+                )
             except (TypeError, ValueError):
-                seconds = 1.0
-            result = await self.session.wait(seconds)
-            self._emit("browser_wait", ok=result.ok)
-            return _to_tool(result)
+                seconds = 8.0 if has else 1.0
+            result = await self.session.wait(
+                seconds, url=want_url, text=want_text, heading=want_heading
+            )
+            self._emit(
+                "browser_wait",
+                ok=result.ok,
+                hit=bool((result.data or {}).get("hit")),
+            )
+            if not result.ok or not has:
+                return _to_tool(result)
+            snap = await self.session.snapshot()
+            parts = [result.output]
+            if snap.ok:
+                parts.append(snap.output)
+            data = dict(result.data or {})
+            data["snapshot"] = bool(snap.ok)
+            return ToolResult(ok=True, output="\n\n".join(parts), data=data)
 
         if action == "back":
             ensured = await self._ensure(browser, private)
@@ -512,6 +640,143 @@ class BrowserTool:
                 nth = 0
             result = await self.session.find(text, nth=nth)
             self._emit("browser_find", text=text, ok=result.ok)
+            return _to_tool(result)
+
+        if action == "download":
+            ensured = await self._ensure(browser, private)
+            if not ensured.ok:
+                return ensured
+            from arelis.browser.files import downloads_dir, safe_filename
+
+            ref = str(kwargs.get("ref") or "").strip()
+            text = str(kwargs.get("text") or "").strip()
+            try:
+                nth = int(kwargs.get("nth") or 0)
+            except (TypeError, ValueError):
+                nth = 0
+            stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+            dest = downloads_dir() / safe_filename(
+                text or ref or "download",
+                fallback=f"browser_{stamp}_{uuid4().hex[:8]}",
+            )
+            result = await self.session.download(
+                str(dest), ref=ref, text=text, nth=nth
+            )
+            self._emit("browser_download", ok=result.ok, path=str(dest))
+            return _to_tool_file(result)
+
+        if action == "upload":
+            ensured = await self._ensure(browser, private)
+            if not ensured.ok:
+                return ensured
+            from arelis.browser.files import resolve_upload_path
+
+            raw_path = str(kwargs.get("path") or kwargs.get("url") or "").strip()
+            allowed, err = resolve_upload_path(
+                raw_path, workspace=self.workspace
+            )
+            if allowed is None:
+                return ToolResult(
+                    ok=False,
+                    output=err,
+                    data={"code": "UPLOAD_PATH"},
+                )
+            ref = str(kwargs.get("ref") or "").strip()
+            into = str(kwargs.get("into") or kwargs.get("text") or "").strip()
+            if ref and not _looks_like_ref(ref) and not into:
+                into, ref = ref, ""
+            result = await self.session.upload(
+                ref, str(allowed), into=into
+            )
+            self._emit("browser_upload", ok=result.ok, path=str(allowed))
+            return _to_tool(result)
+
+        if action == "pdf":
+            ensured = await self._ensure(browser, private)
+            if not ensured.ok:
+                return ensured
+            from arelis.browser.files import documents_dir, safe_filename
+
+            stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+            dest = documents_dir() / safe_filename(
+                str(kwargs.get("text") or "tab"),
+                fallback=f"browser_{stamp}_{uuid4().hex[:8]}",
+                suffix=".pdf",
+            )
+            result = await self.session.pdf(str(dest))
+            self._emit("browser_pdf", ok=result.ok, path=str(dest))
+            return _to_tool_file(result)
+
+        if action in {"hover", "dblclick", "right_click", "drag"}:
+            ensured = await self._ensure(browser, private)
+            if not ensured.ok:
+                return ensured
+            from arelis.browser.pixels import parse_to_xy, parse_xy, xy_refused
+
+            x, y = parse_xy(kwargs)
+            if (x is not None or y is not None) and not self.pixel_ok:
+                return ToolResult(
+                    ok=False,
+                    output=xy_refused(),
+                    data={"code": "PIXEL_GATE"},
+                )
+            ref = str(kwargs.get("ref") or "").strip()
+            text = str(kwargs.get("text") or "").strip()
+            try:
+                nth = int(kwargs.get("nth") or 0)
+            except (TypeError, ValueError):
+                nth = 0
+            if action == "hover":
+                result = await self.session.hover(
+                    ref, text=text, nth=nth, x=x, y=y
+                )
+            elif action == "dblclick":
+                result = await self.session.dblclick(
+                    ref, text=text, nth=nth, x=x, y=y
+                )
+            elif action == "right_click":
+                result = await self.session.right_click(
+                    ref, text=text, nth=nth, x=x, y=y
+                )
+            else:
+                to_x, to_y = parse_to_xy(kwargs)
+                result = await self.session.drag(
+                    ref,
+                    to=str(kwargs.get("to") or "").strip(),
+                    text=text,
+                    nth=nth,
+                    x=x,
+                    y=y,
+                    to_x=to_x,
+                    to_y=to_y,
+                )
+            self._emit(f"browser_{action}", ref=ref or "xy", ok=result.ok)
+            return _to_tool(result)
+
+        if action == "watch":
+            ensured = await self._ensure(browser, private)
+            if not ensured.ok:
+                return ensured
+            from arelis.browser.wait_for import has_wait_needle
+
+            want_url = str(kwargs.get("url") or kwargs.get("target") or "").strip()
+            want_text = str(kwargs.get("text") or "").strip()
+            want_heading = str(kwargs.get("heading") or "").strip()
+            if not has_wait_needle(
+                url=want_url, text=want_text, heading=want_heading
+            ):
+                return ToolResult(
+                    ok=False,
+                    output="watch needs url, text, or heading to poll for.",
+                )
+            result = await self.session.watch(
+                url=want_url, text=want_text, heading=want_heading
+            )
+            self._emit(
+                "browser_watch",
+                ok=result.ok,
+                hit=bool((result.data or {}).get("hit")),
+            )
             return _to_tool(result)
 
         if action == "search":
@@ -733,6 +998,25 @@ class BrowserTool:
             ensured = await self._ensure(browser, private)
             if not ensured.ok:
                 code = str((ensured.data or {}).get("code") or "")
+                if action == "open" and code in {
+                    "NO_PLAYWRIGHT",
+                    "CDP_TIMEOUT",
+                    "CDP_DEAD",
+                }:
+                    opened = await self.session.open_url_os(url, browser)
+                    if opened.ok:
+                        data = dict(opened.data or {})
+                        data["mode"] = str(data.get("mode") or "os_open")
+                        data["code"] = code
+                        extra = (
+                            " Opened in her window without page control "
+                            f"({code}). Read/click/screenshot need Playwright."
+                        )
+                        return ToolResult(
+                            ok=True,
+                            output=(opened.output or "").rstrip() + extra,
+                            data=data,
+                        )
                 if code != "PROFILE_LOCKED":
                     return ensured
                 # navigate needs CDP — relaunch once, then continue.
@@ -798,6 +1082,14 @@ class BrowserTool:
             data["snapshot"] = False
         if sign_in:
             data["intro"] = sign_in
+        landed = str(data.get("url") or "")
+        from arelis.browser.walls import login_redirected_signed_in, nav_landed_note
+
+        if login_redirected_signed_in(url, landed):
+            data["signed_in"] = True
+            note = nav_landed_note(url, landed)
+            if note and note not in "\n\n".join(parts):
+                parts.append(note)
         return ToolResult(ok=True, output="\n\n".join(parts), data=data)
 
     async def _revive_once(
@@ -827,6 +1119,17 @@ class BrowserTool:
         return bool(relaunched.ok)
 
     async def _ensure(self, browser: str, private: bool) -> ToolResult:
+        if self._playwright_missing:
+            return ToolResult(
+                ok=False,
+                output=(
+                    "Playwright is not installed, so this session cannot "
+                    "drive or read the page. Open still works via the OS. "
+                    "Install: pip install -e \".[browser]\" && playwright "
+                    "install chromium firefox"
+                ),
+                data={"code": "NO_PLAYWRIGHT"},
+            )
         ensured = await self.session.ensure(browser, private=private, relaunch=False)
         mode = str((ensured.data or {}).get("mode") or "")
         if ensured.ok:
@@ -838,7 +1141,10 @@ class BrowserTool:
                 else "browser_connect"
             )
             self._emit(kind, browser=self.session.last_browser or browser, mode=mode)
-        return _to_tool(ensured)
+        tool = _to_tool(ensured)
+        if not tool.ok and str((tool.data or {}).get("code") or "") == "NO_PLAYWRIGHT":
+            self._playwright_missing = True
+        return tool
 
 
 def _looks_like_ref(raw: str) -> bool:
@@ -852,3 +1158,17 @@ def _to_tool(result: Any) -> ToolResult:
         output=str(result.output),
         data=dict(result.data or {}),
     )
+
+
+def _to_tool_file(result: Any) -> ToolResult:
+    tool = _to_tool(result)
+    if not tool.ok:
+        return tool
+    raw = str((tool.data or {}).get("abs_path") or (tool.data or {}).get("path") or "")
+    if raw:
+        short = _project_rel(raw)
+        tool.data["path"] = short
+        tool.data["abs_path"] = raw
+        if short not in tool.output:
+            tool.output = f"{tool.output}\nSaved: {short}"
+    return tool

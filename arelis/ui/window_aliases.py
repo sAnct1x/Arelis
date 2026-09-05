@@ -46,6 +46,7 @@ from arelis.ui.world_host import (
     toggle_world,
     touch_solar,
     try_physics_verb,
+    try_tile_speech,
 )
 
 
@@ -85,6 +86,9 @@ class WindowAliases:
 
     def _try_physics_verb(self, text: str) -> bool:
         return try_physics_verb(self, text)
+
+    def _try_tile_speech(self, text: str) -> bool:
+        return try_tile_speech(self, text)
 
     def _apply_physics_verb(
         self,

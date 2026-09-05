@@ -94,7 +94,7 @@ _TRAVEL_THERE = re.compile(
     r"\s*[.!]?\s*$"
 )
 _TRAVEL_TO = re.compile(
-    r"(?i)^\s*(?:take\s+me\s+to|go\s+to|fly\s+to|fly\s+me\s+to)\s+"
+    r"(?i)^\s*(?:take\s+me\s+to|go\s+to|fly\s+to|fly\s+me\s+to|travel\s+to)\s+"
     r"(?P<body>.+?)\s*[.!]?\s*$"
 )
 _GOTO_PLACE = re.compile(
@@ -149,6 +149,62 @@ _OVERLAY_TURN = re.compile(
     r"(?i)^\s*(?:turn|switch)\s+(?:the\s+)?(?:"
     + _OVERLAY_UNION
     + r")\s+(?P<state>on|off)\s*[.!]?\s*$"
+)
+
+# Earth chips — same shape as overlays, so "show me the planes" is not a place.
+_EARTH_LAYER_ALIASES: tuple[tuple[str, str], ...] = (
+    ("flights", r"planes?|flights?"),
+    ("satellites", r"satellites?|sats?"),
+    ("iss", r"(?:the\s+)?iss"),
+    ("tiles", r"streets?|roads?"),
+    ("buildings", r"buildings?"),
+    ("live", r"live(?:\s+feeds?)?"),
+    ("drones", r"drones?"),
+    ("vessels", r"vessels?|ships?"),
+    ("weather", r"weather\s+layer|weather\s+radar"),
+    ("cameras", r"cameras?"),
+    ("traffic", r"traffic"),
+    ("fires", r"fires?"),
+    ("quakes", r"quakes?|earthquakes?"),
+)
+_EARTH_LAYER_UNION = "|".join(
+    f"(?P<el_{name}>{pat})" for name, pat in _EARTH_LAYER_ALIASES
+)
+_EARTH_LAYER_ON = re.compile(
+    r"(?i)^\s*(?:show(?:\s+me)?|display|enable|turn\s+on|switch\s+on)\s+"
+    r"(?:the\s+)?(?:"
+    + _EARTH_LAYER_UNION
+    + r")\s*[.!]?\s*$"
+)
+_EARTH_LAYER_OFF = re.compile(
+    r"(?i)^\s*(?:hide|disable|turn\s+off|switch\s+off)\s+(?:the\s+)?"
+    r"(?:"
+    + _EARTH_LAYER_UNION
+    + r")\s*[.!]?\s*$"
+)
+_EARTH_LAYER_TURN = re.compile(
+    r"(?i)^\s*(?:turn|switch)\s+(?:the\s+)?(?:"
+    + _EARTH_LAYER_UNION
+    + r")\s+(?P<state>on|off)\s*[.!]?\s*$"
+)
+
+_LOOK_SPACE = re.compile(
+    r"(?i)^\s*(?:zoom\s+out(?:\s+to\s+space)?|pull\s+back(?:\s+to\s+space)?|"
+    r"show\s+me\s+the\s+whole\s+planet|from\s+space)\s*[.!]?\s*$"
+)
+_LOOK_APPROACH = re.compile(
+    r"(?i)^\s*(?:come\s+in\s+from\s+space|approaching)\s*[.!]?\s*$"
+)
+_LOOK_NEAR = re.compile(
+    r"(?i)^\s*(?:get\s+closer(?:\s+to\s+the\s+ground)?|near\s+the\s+ground|"
+    r"come\s+down\s+some)\s*[.!]?\s*$"
+)
+_LOOK_CITY = re.compile(
+    r"(?i)^\s*(?:drop\s+into\s+the\s+city|over\s+the\s+city|city\s+level)\s*[.!]?\s*$"
+)
+_LOOK_STREET = re.compile(
+    r"(?i)^\s*(?:(?:take\s+me\s+)?down\s+to\s+(?:the\s+)?streets?|"
+    r"street\s+level)\s*[.!]?\s*$"
 )
 
 _TOY = frozenset({"heavier", "lighter", "freeze", "unfreeze", "undo"})
@@ -354,6 +410,54 @@ def match_earth_place(text: str) -> str | None:
     return found.name
 
 
+def _earth_layer_flag(match: re.Match[str]) -> str:
+    for name, _pat in _EARTH_LAYER_ALIASES:
+        if match.group(f"el_{name}"):
+            return name
+    return ""
+
+
+def match_earth_layer(text: str) -> tuple[str, bool] | None:
+    """Earth chip id and on/off, or None."""
+    raw = (text or "").strip()
+    if not raw:
+        return None
+    hit = _EARTH_LAYER_TURN.match(raw)
+    if hit:
+        flag = _earth_layer_flag(hit)
+        if flag:
+            return flag, hit.group("state").casefold() == "on"
+    hit = _EARTH_LAYER_ON.match(raw)
+    if hit:
+        flag = _earth_layer_flag(hit)
+        if flag:
+            return flag, True
+    hit = _EARTH_LAYER_OFF.match(raw)
+    if hit:
+        flag = _earth_layer_flag(hit)
+        if flag:
+            return flag, False
+    return None
+
+
+def match_earth_look(text: str) -> str | None:
+    """Altitude band from a zoom ask, or None."""
+    raw = (text or "").strip()
+    if not raw:
+        return None
+    if _LOOK_SPACE.match(raw):
+        return "space"
+    if _LOOK_APPROACH.match(raw):
+        return "approach"
+    if _LOOK_NEAR.match(raw):
+        return "near"
+    if _LOOK_CITY.match(raw):
+        return "city"
+    if _LOOK_STREET.match(raw):
+        return "street"
+    return None
+
+
 def classify_physics_act(
     text: str,
     *,
@@ -376,6 +480,13 @@ def classify_physics_act(
         return PhysicsAct(verb="leave_earth")
     if _RIDE_ISS.match(raw):
         return PhysicsAct(verb="ride_iss")
+    layer = match_earth_layer(text)
+    if layer:
+        flag, on = layer
+        return PhysicsAct(verb="earth_layer", flag=flag, on=on)
+    look = match_earth_look(text)
+    if look:
+        return PhysicsAct(verb="earth_look", name=look)
     body = match_travel(text, names=names)
     if body is not None:
         return PhysicsAct(verb="travel", name=body)

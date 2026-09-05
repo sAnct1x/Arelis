@@ -7,12 +7,47 @@ is set to CameraPanel.snapshot_blocking. Otherwise reuse a fresh camera_*.jpg
 
 from __future__ import annotations
 
+import asyncio
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from arelis.core.image_refs import CAMERA_FRESH_S, latest_camera_image_file
-from arelis.paths import display_path
+from arelis.paths import display_path, outputs_dir
 from arelis.tools.base import ToolResult
+
+
+def _grab_webcam_still() -> Path | None:
+    """One frame from the default webcam when the dock is not open."""
+    try:
+        import cv2
+    except ImportError:
+        return None
+    cap = None
+    try:
+        cap = cv2.VideoCapture(0)
+        try:
+            cap.set(cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, 4000)
+            cap.set(cv2.CAP_PROP_READ_TIMEOUT_MSEC, 4000)
+        except Exception:
+            pass
+        if not cap.isOpened():
+            return None
+        ok, bgr = cap.read()
+        if not ok or bgr is None:
+            return None
+        out_dir = outputs_dir() / "images"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+        dest = out_dir / f"camera_{stamp}.jpg"
+        if not cv2.imwrite(str(dest), bgr):
+            return None
+        return dest
+    except Exception:
+        return None
+    finally:
+        if cap is not None:
+            cap.release()
 
 
 class CameraTool:
@@ -78,6 +113,18 @@ class CameraTool:
                     f"(under {int(CAMERA_FRESH_S)}s). Call vision with path={fresh}."
                 ),
                 data={"path": fresh},
+            )
+
+        grabbed = await asyncio.to_thread(_grab_webcam_still)
+        if grabbed:
+            rel = self._rel_path(grabbed)
+            return ToolResult(
+                ok=True,
+                output=(
+                    f"Saved camera frame to {rel} (direct webcam, dock was "
+                    f"closed). Call vision with path={rel}."
+                ),
+                data={"path": rel},
             )
 
         return ToolResult(

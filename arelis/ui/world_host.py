@@ -142,16 +142,81 @@ def hide_and_reset_world(window) -> None:
         window.act_world.setChecked(False)
 
 
+_SPEECH_OPENS_PLATE = frozenset(
+    {
+        "lab",
+        "goto_earth",
+        "enter_earth",
+        "leave_earth",
+        "travel",
+        "inspect_body",
+        "reset_view",
+        "overlay",
+        "earth_layer",
+        "earth_look",
+        "ride_iss",
+    }
+)
+
+
 def try_physics_verb(window, text: str) -> bool:
-    """Closed lexicon in this room. True when it must not start a turn."""
+    """Closed lexicon. True when it must not start a turn."""
     act = classify_physics_act(text, names=speech_body_names())
     if not act:
         return False
     in_reality = window.conversation.room.room_id == PHYSICS_ROOM_ID
-    if not in_reality and act.verb != "goto_earth":
+    plate = getattr(window, "world_window", None)
+    plate_up = bool(plate is not None and not plate.isHidden())
+    if not in_reality and act.verb not in _SPEECH_OPENS_PLATE and not plate_up:
         return False
     apply_physics_act(window, act)
+    _speak_closed(window, _physics_closed_line(act))
     return True
+
+
+def try_tile_speech(window, text: str) -> bool:
+    """View-menu tiles from the composer. Reality already went through verbs."""
+    from arelis.core.tile_complete import match_tile_intent, world_page_for
+
+    hit = match_tile_intent(text)
+    if not hit:
+        return False
+    action, name = hit
+    if not name:
+        return False
+    page = world_page_for(text) if name == "world" else ""
+    apply_tile(window, name, show=(action == "open"), page=page)
+    verb = "Opened" if action == "open" else "Closed"
+    _speak_closed(window, f"{verb} the {name} tile.")
+    return True
+
+
+def _physics_closed_line(act: PhysicsAct) -> str:
+    verb = str(getattr(act, "verb", "") or "")
+    name = str(getattr(act, "name", "") or "")
+    if verb == "enter":
+        return "Entered Earth."
+    if verb == "leave":
+        return "Left Earth."
+    if verb == "lab":
+        return "Opened the solar lab." if getattr(act, "on", True) else "Closed the solar lab."
+    if verb == "travel" and name:
+        return f"Traveling to {name}."
+    if name:
+        return f"Done: {verb} {name}."
+    return f"Done: {verb}."
+
+
+def _speak_closed(window, text: str) -> None:
+    """Write a closed-verb line so leftover chat from a prior turn is not reused."""
+    chat = getattr(window, "chat", None)
+    if chat is None or not text:
+        return
+    try:
+        chat.begin_assistant()
+        chat.finish_assistant(text)
+    except Exception:
+        pass
 
 
 def apply_physics_verb(
@@ -250,7 +315,7 @@ def apply_physics_act(window, act: PhysicsAct) -> None:
         if system is not None and system.nbody.find("Earth") is not None:
             system.lock = "Earth"
             system.pending_inspect = "Earth"
-            system.pending_travel = "Earth"
+            system.pending_enter_earth = True
         window.thinking.append(note, kind="status")
         touch_solar(window)
         return
@@ -267,6 +332,9 @@ def apply_physics_act(window, act: PhysicsAct) -> None:
         except OSError:
             pass
         window.thinking.append(zone.leave(), kind="status")
+        system = get_system()
+        if system is not None:
+            system.pending_enter_earth = False
         touch_solar(window)
         return
     if verb == "goto_earth":
@@ -297,14 +365,10 @@ def apply_physics_act(window, act: PhysicsAct) -> None:
             zone.enter()
         zone.request_goto(hit)
         system = get_system()
-        on_earth = False
-        if hasattr(window, "world_window"):
-            on_earth = getattr(window.world_window.solar, "_earth_cam", None) is not None
         if system is not None and system.nbody.find("Earth") is not None:
             system.lock = "Earth"
             system.pending_inspect = "Earth"
-            if not on_earth:
-                system.pending_travel = "Earth"
+            system.pending_enter_earth = True
         window.thinking.append(f"flying to {hit.name}", kind="status")
         touch_solar(window)
         return
@@ -320,11 +384,95 @@ def apply_physics_act(window, act: PhysicsAct) -> None:
         if system is not None:
             system.lock = "Earth"
             system.pending_inspect = "Earth"
-            system.pending_travel = "Earth"
+            system.pending_enter_earth = True
         window.thinking.append(
             f"riding {hit.label}" if hit else "ISS not in the store",
             kind="status",
         )
+        touch_solar(window)
+        return
+    if verb == "earth_layer":
+        apply_tile(window, "world", show=True, page="solar")
+        from arelis.earth.runtime import require_earth
+
+        zone = require_earth()
+        if not zone.active:
+            zone.enter()
+        key = (act.flag or "").strip().lower()
+        on = act.on
+        if key == "tiles":
+            zone.tiles = bool(on) if on is not None else (not zone.tiles)
+            val = zone.tiles
+        elif key == "buildings":
+            zone.buildings = bool(on) if on is not None else (not zone.buildings)
+            val = zone.buildings
+        elif key == "live":
+            zone.live = bool(on) if on is not None else (not zone.live)
+            val = zone.live
+        else:
+            val = zone.set_layer(key, on if isinstance(on, bool) else None)
+        window.thinking.append(
+            f"{key}={'on' if val else 'off'}" if val is not None else f"unknown layer {key}",
+            kind="status",
+        )
+        panel = getattr(getattr(window, "world_window", None), "solar", None)
+        if panel is not None:
+            try:
+                panel._sync_earth_globe(force=True)
+            except Exception:
+                pass
+            panel.update()
+        touch_solar(window)
+        return
+    if verb == "earth_look":
+        apply_tile(window, "world", show=True, page="solar")
+        from arelis.earth.frames import EarthCam, apply_earth_cam, earth_spin_jd, lla_to_ecef
+        from arelis.earth.lod import view_from_eye
+        from arelis.earth.runtime import require_earth
+        from arelis.physics.runtime import get_system as _get_system
+
+        alts = {
+            "space": 3_000_000.0,
+            "approach": 800_000.0,
+            "near": 80_000.0,
+            "city": 8_000.0,
+            "street": 350.0,
+        }
+        alt = alts.get((act.name or "").strip().lower())
+        if alt is None:
+            window.thinking.append("unknown look", kind="status")
+            return
+        zone = require_earth()
+        if not zone.active:
+            zone.enter()
+        view = getattr(zone, "last_view", None)
+        lat = float(getattr(view, "lat", 0.0) or 0.0) if view is not None else 0.0
+        lon = float(getattr(view, "lon", 0.0) or 0.0) if view is not None else 0.0
+        if not (lat or lon):
+            from arelis.earth.gazetteer import resolve_place
+
+            hit = resolve_place("Tokyo")
+            if hit is not None:
+                lat, lon = float(hit.lat), float(hit.lon)
+        panel = getattr(getattr(window, "world_window", None), "solar", None)
+        system = _get_system()
+        earth = None if system is None else system.nbody.find("Earth")
+        if panel is not None and system is not None and earth is not None:
+            jd = earth_spin_jd(system.epoch_jd, system.t)
+            eye = lla_to_ecef(lat, lon, alt)
+            look = lla_to_ecef(lat, lon, 0.0)
+            north = lla_to_ecef(min(89.0, lat + 0.25), lon, alt)
+            up = (north[0] - eye[0], north[1] - eye[1], north[2] - eye[2])
+            panel._earth_cam = EarthCam(eye=eye, look=look, up=up)
+            panel._globe_hpr = (0.0, -90.0)
+            apply_earth_cam(panel.cam, (earth.x, earth.y, earth.z), jd, panel._earth_cam)
+            zone.note_view(view_from_eye(eye, px_r=800.0, locked=True, look_ecef=look))
+            try:
+                panel._sync_earth_globe(force=True)
+            except Exception:
+                pass
+            panel.update()
+        window.thinking.append(f"look {act.name} at {alt:.0f} m", kind="status")
         touch_solar(window)
         return
     if is_time_verb(verb):

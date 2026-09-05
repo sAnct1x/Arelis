@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from arelis.physics.constants import AU_M, BODIES, GM_SUN
+from arelis.physics.constants import AU_M, BODIES, BODY_BY_NAME, G_SI, GM_SUN
 from arelis.physics.engine import rebound_available
 from arelis.physics.hohmann import hohmann
 from arelis.physics.horizons import VectorState
@@ -78,6 +78,7 @@ class SolarTool:
                     "epoch",
                     "travel",
                     "dump",
+                    "body",
                 ],
                 "description": "What to do",
             },
@@ -95,7 +96,7 @@ class SolarTool:
             },
             "name": {
                 "type": "string",
-                "description": "Body name for lock, impulse, probe parent",
+                "description": "Body name for lock, impulse, probe parent, or body",
             },
             "dvx": {"type": "number", "description": "Impulse Δvx m/s"},
             "dvy": {"type": "number", "description": "Impulse Δvy m/s"},
@@ -142,7 +143,9 @@ class SolarTool:
             return await self._fetch_maps()
         if action == "load":
             return await self._load(kwargs)
-        if not world_stage_allowed() and action not in {"status"}:
+        if action == "body":
+            return self._body(str(kwargs.get("name") or ""))
+        if not world_stage_allowed() and action not in {"status", "body"}:
             return ToolResult(
                 ok=False,
                 output=(
@@ -571,6 +574,71 @@ class SolarTool:
                 "still": False,
             },
         )
+
+    def _body(self, raw_name: str) -> ToolResult:
+        """IAU/DE440 catalog plus live IAS15 when the lab is loaded."""
+        from arelis.spatial.verbs import resolve_body, speech_body_names
+
+        system = get_system()
+        asked = (raw_name or "").strip()
+        if not asked and system is not None:
+            asked = str(system.lock or "")
+        name = resolve_body(asked, speech_body_names()) if asked else None
+        if not name:
+            name = asked.title() if asked else ""
+        spec = BODY_BY_NAME.get(name or "")
+        live = None if system is None else system.nbody.find(name or "")
+        if spec is None and live is None:
+            return ToolResult(
+                ok=False,
+                output=(
+                    f"No body named {asked or name!r} in the lab catalog. "
+                    "catalog Horizons can still look it up."
+                ),
+                data={"fail_class": "fail:name", "name": asked},
+            )
+        radius = float(live.radius if live is not None else spec.radius)
+        gm = float(spec.gm if spec is not None else (live.mass * G_SI if live else 0.0))
+        g_surf = (gm / (radius * radius)) if radius > 0.0 and gm > 0.0 else None
+        lines = [
+            f"{name} from the Reality lab catalog "
+            f"(IAU mean radius, DE440 / IAU 2015 GM)."
+        ]
+        lines.append(f"radius {radius / 1000.0:.1f} km")
+        if gm:
+            lines.append(f"GM {gm:.6e} m^3/s^2")
+        if g_surf is not None:
+            lines.append(f"surface g {g_surf:.3f} m/s^2 (GM / R^2)")
+        data: dict[str, Any] = {
+            "name": name,
+            "radius_m": radius,
+            "gm": gm,
+            "surface_g_m_s2": g_surf,
+            "loaded": system is not None,
+            "live": live is not None,
+            "source": "lab",
+        }
+        if live is not None and system is not None:
+            hud = system.hud_for_body(live)
+            a_au = hud.get("a_au")
+            if isinstance(a_au, (int, float)):
+                lines.append(f"heliocentric a {float(a_au):.6f} AU (live IAS15)")
+                data["a_au"] = float(a_au)
+            period = hud.get("period_day")
+            if isinstance(period, (int, float)):
+                lines.append(f"period {float(period):.3f} days (osculating)")
+                data["period_day"] = float(period)
+            lines.append(
+                f"integrator={hud.get('integrator')}  "
+                f"t={hud.get('t_s')} s  counterfactual={hud.get('counterfactual')}"
+            )
+            data.update({k: hud[k] for k in ("e", "i_deg", "epoch_tdb") if k in hud})
+        elif system is None:
+            lines.append(
+                "Lab not loaded — those are catalog figures, not a live position. "
+                "Load Reality or call catalog Horizons for where it is this minute."
+            )
+        return ToolResult(ok=True, output="\n".join(lines), data=data)
 
     def _status(self, system: SolarSystem | None) -> ToolResult:
         if system is None:

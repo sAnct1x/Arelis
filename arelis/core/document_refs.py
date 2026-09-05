@@ -210,6 +210,47 @@ def _latest_named_file(
     return ""
 
 
+def resolve_drop_file(
+    path_str: str = "",
+    *,
+    suffixes: frozenset[str] | set[str] | None = None,
+    needle: str = "",
+) -> str:
+    """Newest matching file under outputs/documents (what document writes).
+
+    Workspace roots often exclude the drop tray, so analyze / doc_extract
+    must be able to find a basename or token she wrote there.
+    """
+    drop = outputs_dir() / "documents"
+    wanted = {s.lower() for s in (suffixes or _DOC_SUFFIXES)}
+    raw = (path_str or "").strip()
+    name = Path(raw).name if raw else ""
+    hint = (needle or Path(raw).stem or "").strip().lower()
+    try:
+        if not drop.is_dir():
+            return ""
+        files = [
+            p
+            for p in drop.iterdir()
+            if p.is_file() and p.suffix.lower() in wanted
+        ]
+    except OSError:
+        return ""
+    if name:
+        exact = drop / name
+        if exact.is_file():
+            return str(exact.resolve())
+        files = [p for p in files if p.name.lower() == name.lower()] or files
+    if hint:
+        hits = [p for p in files if hint in p.stem.lower() or p.stem.lower() in hint]
+        if hits:
+            files = hits
+    if not files:
+        return ""
+    newest = max(files, key=lambda p: p.stat().st_mtime)
+    return str(newest.resolve())
+
+
 def latest_document_path(
     history: list[Any] | None = None,
     receipts: list[Any] | None = None,
@@ -327,6 +368,15 @@ def fill_doc_extract_args(
     if not mentions_recent_document(user_text or ""):
         return out
     last = latest_document_path(history, receipts)
-    if last and Path(last).suffix.lower() == ".pdf":
-        out["path"] = last
+    drop = resolve_drop_file(suffixes={".pdf"})
+    chosen = ""
+    if drop and last:
+        try:
+            chosen = drop if Path(drop).stat().st_mtime >= Path(last).stat().st_mtime else last
+        except OSError:
+            chosen = drop
+    else:
+        chosen = drop or last
+    if chosen and Path(chosen).suffix.lower() == ".pdf":
+        out["path"] = chosen
     return out

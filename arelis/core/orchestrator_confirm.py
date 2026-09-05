@@ -9,8 +9,8 @@ from typing import Any
 
 from arelis.core.events import Event, EventType
 from arelis.core.untrusted import confirm_note_after_external
-from arelis.tools.base import NEVER_BATCH
 from arelis.tools.confirm_copy import confirm_headline
+from arelis.tools.policy import batch_ok, persist_label, persist_ok
 from arelis.tools.safety import redact_secrets
 
 # Absolute paths typed in chat that may need a session read grant.
@@ -63,6 +63,10 @@ def comms_bypasses_sticky(text: str) -> bool:
     if parse_sms_utterance(raw) is not None:
         return True
     if looks_like_compose_email(raw):
+        return True
+    from arelis.core.intent_catalog import EARTH_STATUS, SOLAR_STATUS
+
+    if SOLAR_STATUS.matches(raw) or EARTH_STATUS.matches(raw):
         return True
     return (
         looks_like_calendar_create(raw)
@@ -121,7 +125,9 @@ class OrchestratorConfirm:
                     # the thinking dock and the CLI, which want one line.
                     "detail": self.tools.describe_call(tool, args),
                     "note": self._confirm_note(tool),
-                    "batch_ok": tool not in NEVER_BATCH,
+                    "batch_ok": batch_ok(tool, args),
+                    "persist_ok": persist_ok(tool, args),
+                    "persist_label": persist_label(tool, args),
                 },
             )
         )

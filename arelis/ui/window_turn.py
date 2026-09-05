@@ -22,6 +22,7 @@ from arelis.ui.sms_host import flush_held_inbound
 from arelis.ui.status_copy import THINKING_STATUS, WARMING_STATUS
 from arelis.ui.theme import (
     GLASS,
+    SHELL,
     active_theme,
 )
 from arelis.ui.voice_host import stop_speech
@@ -34,10 +35,10 @@ _BUSY_WATCHDOG_MS = 8000
 _THINK_PULSE_MS = 600
 _VOICE_HOTKEY_ECHO_S = 0.12
 
-_PANEL_OUTER = 12
-_PANEL_HALF = 6
-_PANEL_TOP = 12
-_PANEL_BOTTOM = 14
+_PANEL_OUTER = SHELL["outer"]
+_PANEL_HALF = SHELL["half"]
+_PANEL_TOP = SHELL["top"]
+_PANEL_BOTTOM = SHELL["bottom"]
 
 
 
@@ -112,6 +113,8 @@ class WindowTurn:
     def _on_submit(self, text: str, role: str, attachments: list | None = None) -> None:
         note_engagement(self)
         if not attachments and self._try_physics_verb(text):
+            return
+        if not attachments and self._try_tile_speech(text):
             return
         attachments = list(attachments or [])
         self._current_role = role
@@ -196,6 +199,9 @@ class WindowTurn:
         # something the user has already abandoned.
         stop_speech(self)
         self.thinking.append("stop requested", kind="status")
+        from arelis.browser.live import cancel as cancel_watch
+
+        cancel_watch()
         self._drive_session = False
         self.conversation.set_drive(False)
         if not self._force_quit and not self._disposed:
@@ -267,12 +273,12 @@ class WindowTurn:
                 self.loop,
             )
         # Restored / core-parked cards have no live waiter — Allow must send here.
-        if restoring and decision in {"allow", "allow_turn"} and stored is not None:
+        if restoring and decision in {"allow", "allow_turn", "allow_always"} and stored is not None:
             asyncio.run_coroutine_threadsafe(
                 self._execute_restored_confirm(stored),
                 self.loop,
             )
-        elif restoring and decision not in {"allow", "allow_turn"}:
+        elif restoring and decision not in {"allow", "allow_turn", "allow_always"}:
             self.thinking.append("pending send skipped", kind="status")
         self._later(0, self._show_next_pending_confirm)
 
@@ -310,7 +316,12 @@ class WindowTurn:
         if not busy:
             self._busy_watchdog.stop()
             self._clear_model_loading()
-            if self._drive_session:
+            from arelis.browser.live import is_watching
+
+            if is_watching():
+                self._drive_session = True
+                self.conversation.set_drive(True, "Watching")
+            elif self._drive_session:
                 if not self.conversation.drive.is_paused():
                     self.conversation.set_drive_status("page stays")
             else:

@@ -191,6 +191,10 @@ _INBOX_EXACT = (
         re.I,
     ),
     re.compile(r"\bin\s+box\b", re.I),
+    re.compile(
+        r"(?i)\b(?:do\s+i\s+have|any|have\s+i\s+got)\s+"
+        r"(?:any\s+)?unread\s+(?:mail|email|e-?mail|messages?)\b"
+    ),
 )
 
 _DEEP_DIVE = re.compile(
@@ -201,6 +205,10 @@ _DEEP_DIVE = re.compile(
     r"deep\s+research|"
     r"write\s+a\s+report|"
     r"research\s+report|"
+    r"research\s+prompt|"
+    r"evidence[- ]based|"
+    r"hype\s+vs\.?\s+reality|"
+    r"comparative\s+table|"
     r"multi\s*-?\s*source|"
     r"thorough\s+research|"
     r"in\s*-?\s*depth\s+(?:research|look|analysis|report)|"
@@ -211,10 +219,28 @@ _DEEP_DIVE = re.compile(
 _DEEP_DIVE_EXACT = (
     re.compile(r"\b(?:investigate|deep\s*-?\s*dive)\b", re.I),
     re.compile(r"\b(?:deeply\s+research|deep\s+research)\b", re.I),
-    re.compile(r"\b(?:write\s+a\s+report|research\s+report)\b", re.I),
+    re.compile(r"\b(?:write\s+a\s+report|research\s+report|research\s+prompt)\b", re.I),
+    re.compile(r"\b(?:evidence[- ]based|hype\s+vs\.?\s+reality|comparative\s+table)\b", re.I),
     re.compile(r"\b(?:multi\s*-?\s*source|thorough\s+research)\b", re.I),
     re.compile(r"\bin\s*-?\s*depth\s+(?:research|look|analysis|report)\b", re.I),
     re.compile(r"\b(?:cite\s+sources|survey\s+the)\b", re.I),
+)
+
+# Battery / device specs say "temperature" without asking for a forecast.
+_WEATHER_SPEC_VETO = re.compile(
+    r"(?i)\b("
+    r"operating\s+temperature|"
+    r"temperature\s+(?:range|window|limit|limits|stability|coefficient)|"
+    r"room[- ]temperature|"
+    r"(?:high|low|elevated|ambient)[- ]temperature|"
+    r"cell\s+temperature|"
+    r"junction\s+temperature|"
+    r"melting\s+temperature|"
+    r"at\s+temperature|"
+    r"thermal\s+noise|"
+    r"kelvin"
+    r")\b|"
+    r"\b\d+(?:\.\d+)?\s*K\b"
 )
 
 _DEADLINE_PACK = re.compile(
@@ -737,6 +763,7 @@ _CATALOG_MENTION = (
     re.compile(r"(?i)\bpreprints?\b"),
     re.compile(r"(?i)\bjpl\s+horizons\b"),
     re.compile(r"(?i)\bephemeris\b"),
+    re.compile(r"(?i)\bask\s+horizons\b"),
     re.compile(
         r"(?i)\bwhere is (?:mercury|venus|mars|jupiter|saturn|uranus|"
         r"neptune|pluto|the moon)\b.{0,24}\b(tonight|today|now)\b"
@@ -752,6 +779,92 @@ _CATALOG_MENTION = (
     re.compile(r"(?i)\bpapers on\b"),
     re.compile(r"(?i)\bsearch arxiv\b"),
 )
+
+_SOLAR_BODY_NAMES = (
+    r"mercury|venus|earth|mars|jupiter|saturn|uranus|neptune|pluto|"
+    r"the\s+moon|moon|the\s+sun|sun|ceres|vesta|pallas|hygiea|"
+    r"phobos|deimos|io|europa|ganymede|callisto|titan|enceladus|"
+    r"mimas|tethys|dione|rhea|iapetus|triton"
+)
+
+_SOLAR_BODY_ASK = (
+    re.compile(rf"(?i)\bhow big is (?:{_SOLAR_BODY_NAMES})\b"),
+    re.compile(rf"(?i)\b(?:radius|diameter)\s+of (?:{_SOLAR_BODY_NAMES})\b"),
+    re.compile(rf"(?i)\b(?:{_SOLAR_BODY_NAMES})\b.{{0,28}}\b(?:radius|diameter)\b"),
+    re.compile(rf"(?i)\b(?:gravity|surface gravity)\s+on (?:{_SOLAR_BODY_NAMES})\b"),
+    re.compile(rf"(?i)\b(?:{_SOLAR_BODY_NAMES})\b.{{0,20}}\bgravity\b"),
+    re.compile(rf"(?i)\bhow massive is (?:{_SOLAR_BODY_NAMES})\b"),
+    re.compile(rf"(?i)\bmass of (?:{_SOLAR_BODY_NAMES})\b"),
+    re.compile(rf"(?i)\bwhere is (?:{_SOLAR_BODY_NAMES})\b"),
+    re.compile(rf"(?i)\bhow far (?:away )?is (?:{_SOLAR_BODY_NAMES})\b"),
+    re.compile(rf"(?i)\b(?:{_SOLAR_BODY_NAMES})\b.{{0,20}}\b(?:how far|how big)\b"),
+)
+
+SOLAR_BODY = IntentSpec(
+    kind="solar",
+    patterns=_SOLAR_BODY_ASK,
+    expected_tools=("solar", "catalog", "units"),
+    nudge=(
+        "Intent preflight: a planet/moon fact. Reality's solar lab can "
+        "answer it (solar action=body) from the live IAS15 state and the "
+        "IAU/DE440 numbers the sim uses. catalog Horizons and units "
+        "constants are also fine. Do not recite GM or radius from memory."
+    ),
+    schema_tools=frozenset({"solar", "catalog"}),
+    auto_hint=True,
+    research_extra=True,
+)
+
+_SOLAR_STATUS_ASK = (
+    re.compile(r"(?i)\bsolar system status\b"),
+    re.compile(r"(?i)\bdump the solar(?: system)?(?: state| status)?\b"),
+    re.compile(r"(?i)\bsolar system state\b"),
+)
+_EARTH_STATUS_ASK = (
+    re.compile(r"(?i)\bearth status\b"),
+    re.compile(r"(?i)\bdump the earth(?: state| status)?\b"),
+    re.compile(r"(?i)\bearth state\b"),
+)
+
+SOLAR_STATUS = IntentSpec(
+    kind="solar_status",
+    patterns=_SOLAR_STATUS_ASK,
+    expected_tools=("solar",),
+    nudge=(
+        "Intent preflight: they asked for the solar lab HUD or a dump. "
+        "Call solar with action=status (or dump if they said dump). "
+        "Do not open the browser. Do not reuse a prior maps/drive turn."
+    ),
+    schema_tools=frozenset({"solar"}),
+    auto_hint=True,
+)
+
+EARTH_STATUS = IntentSpec(
+    kind="earth_status",
+    patterns=_EARTH_STATUS_ASK,
+    expected_tools=("earth",),
+    nudge=(
+        "Intent preflight: they asked for Earth-zone status or a dump. "
+        "Call earth with action=status (or dump if they said dump). "
+        "Do not call solar. Do not open the browser."
+    ),
+    schema_tools=frozenset({"earth"}),
+    auto_hint=True,
+)
+
+
+def solar_status_action(text: str) -> str:
+    return "dump" if re.search(r"(?i)\bdump\b", text or "") else "status"
+
+
+def earth_status_action(text: str) -> str:
+    return "dump" if re.search(r"(?i)\bdump\b", text or "") else "status"
+
+
+def run_script_path(text: str) -> str:
+    """Named .py in a run/execute ask, or empty."""
+    match = _RUN_SCRIPT_FILE.search(text or "")
+    return str(match.group("path") or "").strip() if match else ""
 
 SCIENCE_CATALOG = IntentSpec(
     kind="catalog",
@@ -1100,6 +1213,9 @@ CATALOG: tuple[IntentSpec, ...] = (
     DOCUMENT,
     DOCS,
     PLOT,
+    SOLAR_BODY,
+    SOLAR_STATUS,
+    EARTH_STATUS,
     SCIENCE_CATALOG,
     DIAGNOSTICS,
     RUN_SCRIPT,
@@ -1133,6 +1249,16 @@ def exactness_match(kind: str, text: str) -> bool:
         return False
     raw = text or ""
     return any(p.search(raw) for p in item.exactness)
+
+
+def weather_intent_matches(text: str) -> bool:
+    """True for a forecast ask, not a device spec that mentions temperature."""
+    raw = text or ""
+    if exactness_match("weather", raw):
+        return True
+    if not WEATHER.matches(raw):
+        return False
+    return not _WEATHER_SPEC_VETO.search(raw)
 
 
 def research_extras_for_text(text: str) -> set[str]:

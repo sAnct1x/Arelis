@@ -82,7 +82,9 @@ __all__ = [
     "draft_browser_args",
     "draft_rooms_create_args",
     "draft_signin_click_args",
+    "login_check_hop_args",
     "looks_like_browser_click_signin",
+    "looks_like_browser_open_ask",
     "looks_like_room_create",
     "preflight_system_message",
     "rewrite_browser_action",
@@ -114,6 +116,15 @@ _BROWSER = re.compile(
     r"(?:in|with|using)\s+(?:chrome|edge|firefox)|"
     r"firefox\s+private|"
     r"private\s+browsing"
+    r")\b"
+)
+
+# Work after the tab loads — not just "go to x.com / login if needed".
+_OPEN_ASK_MORE_WORK = re.compile(
+    r"(?i)\b("
+    r"add\s+\S.+\s+to\s+(?:(?:the|my)\s+)?(?:cart|bag)|"
+    r"and\s+(?:then\s+)?(?:add|search|click|buy|play|find|type|book|order)|"
+    r"then\s+(?:add|search|click|buy|play|find|type|book|order)"
     r")\b"
 )
 
@@ -168,6 +179,14 @@ _BROWSER_REAL_ACTIONS = frozenset(
         "forward",
         "reload",
         "find",
+        "download",
+        "upload",
+        "pdf",
+        "hover",
+        "dblclick",
+        "right_click",
+        "drag",
+        "watch",
     }
 )
 
@@ -278,6 +297,29 @@ def looks_like_browser_click_signin(text: str) -> bool:
     return bool(BROWSER_CLICK_SIGNIN.search(raw) or BARE_SIGNIN.match(raw))
 
 
+def looks_like_browser_open_ask(text: str) -> bool:
+    """True when opening the site (or handing over on login) finishes the ask.
+
+    Cart / search / play-first / maps / reserve / read still need more
+    clicks after the tab loads.
+    """
+    raw = text or ""
+    if not raw.strip():
+        return False
+    if (
+        BROWSER_CART.search(raw)
+        or BROWSER_SEARCH.search(raw)
+        or BROWSER_FIRST.search(raw)
+        or BROWSER_MAPS.search(raw)
+        or BROWSER_RESERVE.search(raw)
+        or BROWSER_READ.search(raw)
+        or _BROWSER_SCREENSHOT.search(raw)
+        or _OPEN_ASK_MORE_WORK.search(raw)
+    ):
+        return False
+    return user_asked_for_browser(raw) or looks_like_browser_or_url(raw)
+
+
 def user_asked_for_browser(text: str) -> bool:
     """True when this utterance is already a grant to drive her window.
 
@@ -329,6 +371,19 @@ def draft_signin_click_args(snapshot: str) -> dict[str, str] | None:
     if not ref:
         return None
     return {"action": "click", "ref": ref}
+
+
+def login_check_hop_args(snapshot: str, landed_url: str = "") -> dict[str, str]:
+    """One click or /login navigate to put them on the sign-in form."""
+    click = draft_signin_click_args(snapshot)
+    if click:
+        return click
+    from arelis.browser.walls import site_login_url
+
+    target = site_login_url(landed_url)
+    if target:
+        return {"action": "navigate", "url": target}
+    return {"action": "click", "text": "Sign in"}
 
 
 def rewrite_browser_action(action: str) -> str | None:
@@ -443,8 +498,16 @@ def detect_intents(
     hints: list[IntentHint] = []
 
     for item in AUTO_HINTS:
+        if item.kind == "weather":
+            from arelis.core.intent_catalog import weather_intent_matches
+
+            if weather_intent_matches(raw):
+                hints.append(item.to_hint())
+            continue
         if item.matches(raw):
             hints.append(item.to_hint())
+    if any(h.kind == "research" for h in hints):
+        hints = [h for h in hints if h.kind != "weather"]
 
     # Catalog owns the matcher and the nudge template. Stamp the mapped path.
     if any(h.kind == "inspect" for h in hints):
@@ -465,6 +528,13 @@ def detect_intents(
         from arelis.core.email_complete import looks_like_compose_email
 
         if not looks_like_compose_email(raw) and not corrects_a_path(raw):
+            from arelis.core.document_refs import latest_document_path, resolve_drop_file
+
+            table_path = latest_document_path(history) or resolve_drop_file(
+                raw,
+                suffixes={".csv", ".tsv", ".tab", ".xlsx", ".xls", ".json"},
+            )
+            path_bit = f" Use path={table_path}." if table_path else ""
             hints.append(
                 IntentHint(
                     kind="analyze",
@@ -473,7 +543,9 @@ def detect_intents(
                         "Intent preflight: this message refers to a local table "
                         "(csv/xlsx/tsv or a path-like file). Call the analyze tool "
                         "with the path (action=summary unless they asked for head "
-                        "or describe). Do not invent row counts or column stats, "
+                        "or describe)."
+                        f"{path_bit} The shared drop tray is outputs/documents/. "
+                        "Do not invent row counts or column stats, "
                         "and do not ask permission in chat."
                     ),
                 )
@@ -496,7 +568,9 @@ def detect_intents(
                     "Intent preflight: this message asks about the contents of a "
                     "document. Call doc_extract now with the path. Do not call "
                     "analyze — that reads spreadsheets only — and do not quote the "
-                    "document before the tool returns. Allow still applies — do "
+                    "document before the tool returns. Prefer the newest PDF in "
+                    "outputs/documents/ that you wrote this session, not an older "
+                    "file from another chat. Allow still applies — do "
                     "not ask permission in chat."
                 ),
             )
@@ -729,8 +803,14 @@ def detect_intents(
                 expected_tools=("image_edit",),
                 nudge=(
                     "Intent preflight: this message asks to change an existing "
-                    "picture (size, crop, or strength). Call image_edit with "
-                    "the staged path. Do not call image — that generates a new "
+                    "picture (size, crop, strength, or a text overlay). Call "
+                    "image_edit with the staged path or the latest "
+                    "outputs/images/ file if they said 'the picture you just "
+                    "created'. For 'add text … that says X' pass text=X — that "
+                    "is not send_sms. Crop the left/right half or crop to the "
+                    "center is crop=left/right/center. Upscale / make it bigger "
+                    "/ 2x is scale=2. Do not call the calculator for a "
+                    "resolution. Do not call image — that generates a new "
                     "picture from a prompt. Do not call vision. Allow still "
                     "applies — do not ask permission in chat."
                 ),
@@ -742,11 +822,18 @@ def detect_intents(
                 kind="image_gen",
                 expected_tools=("image",),
                 nudge=(
-                    "Intent preflight: this message asks to generate or redraw "
+                    "Intent preflight: this message asks to generate or restyle "
                     "an image via ComfyUI. Call the image tool with a clear "
                     "prompt (include happier / less sad / cute if they asked). "
-                    "Do not web_search for stock photos. Do not claim you cannot "
-                    "generate images. Do not invent a file path. Allow still "
+                    "For 'make this look like' / 'in the style of' pass path= "
+                    "the existing file (or the latest outputs/images/ file) and "
+                    "a style. Four versions / variations is n=4. Cut-out / "
+                    "remove the background is remove_background=true + path. "
+                    "Extend the canvas / outpaint / uncrop is outpaint=all + "
+                    "path. Change the left/right/top/bottom/center of the "
+                    "picture is mask_region= + path. Do not web_search for "
+                    "stock photos. Do not claim you cannot generate images. "
+                    "Do not invent a file path for a new picture. Allow still "
                     "applies — do not ask permission in chat."
                 ),
             )

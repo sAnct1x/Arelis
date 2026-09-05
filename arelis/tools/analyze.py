@@ -4,8 +4,9 @@ import asyncio
 from pathlib import Path
 from typing import Any
 
+from arelis.core.document_refs import resolve_drop_file
 from arelis.tools.base import ToolResult
-from arelis.workspace import WorkspaceRoots
+from arelis.workspace import ResolvedPath, WorkspaceRoots
 
 # Guard rails against a single call swamping the model's context or the loop.
 # A table can legitimately have millions of rows; a chat answer cannot.
@@ -65,7 +66,21 @@ class AnalyzeTool:
         self.roots = [r.path for r in self.workspace.roots]
 
     def _resolve(self, path_str: str):
-        return self.workspace.resolve_read(path_str)
+        try:
+            return self.workspace.resolve_read(path_str)
+        except Exception as first:
+            drop = resolve_drop_file(
+                path_str,
+                suffixes={".csv", ".tsv", ".tab", ".xlsx", ".xls", ".json"},
+            )
+            if drop:
+                path = Path(drop)
+                return ResolvedPath(
+                    path=path,
+                    root_name="outputs",
+                    root=path.parent,
+                )
+            raise first
 
     def _load(self, path: Path) -> Any:
         """Read a table, capped at _MAX_ROWS_READ.

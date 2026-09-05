@@ -42,7 +42,11 @@ _SMS_SEND = re.compile(
     r"text"
     r")\s+"
     r"(?:to\s+)?"
-    r"(?P<to>(?:my\s+)?[A-Za-z][A-Za-z0-9_.\-]{0,40}"
+    # Digits first: "text 5551112222 and tell him …" used to miss because
+    # `to` required a letter, so send_sms was hidden and the model invented it.
+    r"(?P<to>\+?(?:1[\s.\-]?)?(?:\(?\d{3}\)?[\s.\-]*)\d{3}[\s.\-]*\d{4}"
+    r"(?:\s*(?:and|&|,)\s*\+?(?:1[\s.\-]?)?(?:\(?\d{3}\)?[\s.\-]*)\d{3}[\s.\-]*\d{4}){0,4}"
+    r"|(?:my\s+)?[A-Za-z][A-Za-z0-9_.\-]{0,40}"
     r"(?:\s+(?:and|&|,)\s+(?:my\s+)?[A-Za-z][A-Za-z0-9_.\-]{0,40}){0,4}"
     r"(?:\s+(?!that\b|saying\b|and\b|&\b|to\b|tell|just\b)[A-Za-z][A-Za-z0-9_.\-]{0,40}){0,3})"
     r"(?:\s*(?::|that|saying|,|"
@@ -74,6 +78,27 @@ _HAVE_IT_SAY = re.compile(
     r"(?is)\s+(?:and\s+)?have\s+it\s+say\s+(.+)$"
 )
 
+# "text in that last picture" / "text this screenshot" — prepositions, not people.
+_SMS_TO_STOPWORDS = frozenset(
+    {
+        "in",
+        "the",
+        "this",
+        "that",
+        "any",
+        "a",
+        "an",
+        "your",
+        "last",
+        "picture",
+        "image",
+        "photo",
+        "screenshot",
+        "file",
+        "it",
+    }
+)
+
 # "open x.com" / "OpenX.com" / bare URLs must never become an SMS body.
 _BROWSER_OR_URL = re.compile(
     r"(?i)^\s*(?:"
@@ -99,6 +124,17 @@ _BODY_WRAPPER = re.compile(
     r"make\s+it\s+say|"
     r"just\s+say"
     r")\s+[.:,\-]?\s*"
+)
+
+# "tell her I love her" is reported speech. The recipient should read "I love you".
+# Possessives stay put: "I love her cooking" is not this pattern.
+_ADDRESSEE_OBJECT = re.compile(
+    r"(?i)^(?:that\s+)?(?P<head>i|we)\s+(?:just\s+)?"
+    r"(?P<verb>love|miss|need|adore)\s+"
+    r"(?:her|him|them)"
+    r"(?P<tail>(?:\s+(?:so\s+much|very\s+much|too|always|forever|dearly|a\s+lot))?)"
+    r"(?P<punct>\s*[.!]*)"
+    r"$"
 )
 
 _SKIP_TO = frozenset(
@@ -149,6 +185,14 @@ _FS_TO_BLOCK = frozenset(
         "apart",
         "sympy",
         "python",
+        # Overlay / layout words: "add text right in the middle that says…"
+        "middle",
+        "center",
+        "centre",
+        "picture",
+        "image",
+        "photo",
+        "screenshot",
     }
 )
 
@@ -255,10 +299,12 @@ _GREETING = re.compile(
 # Also blocks "text to image" from parsing as send_sms(to="image").
 _IMAGE_GEN = re.compile(
     r"(?i)("
-    r"\b(?:generate|create|make|draw|render)\s+"
+    r"\b(?:generate|create|make|draw|paint|render|illustrate)\s+"
     r"(?:(?:an?\s+|the\s+|this\s+|me\s+(?:an?\s+)?)?"
     r"(?:new\s+|another\s+|second\s+|different\s+|happier\s+|cute\s+)*)?"
     r"(?:image|picture|photo|png|illustration)\b|"
+    r"\b(?:draw|paint|illustrate)\s+me\b|"
+    r"\ba\s+picture\s+of\b|"
     r"\b(?:new|another)\s+(?:image|picture|photo)\b|"
     r"\btext[\s\-]?to[\s\-]?image\b|"
     r"\bcomfy(?:ui)?\b|"
@@ -287,6 +333,17 @@ _MATH_ASK = re.compile(
 _EXPLICIT_SMS_VERB = re.compile(
     r"(?i)^\s*(?:text|sms|txt|send\s+(?:a\s+)?(?:text|sms|message)|"
     r"senatic'?s?|semantic'?s?|message\s+to)\b"
+)
+
+# Buried under chitchat: "chillin, i want you to text 555…"
+_WANT_YOU_TO_TEXT = re.compile(
+    r"(?i)\b(?:i\s+want\s+you\s+to|can\s+you|could\s+you|please)\s+"
+    r"(?:text|sms|txt|send\s+(?:a\s+)?(?:text|sms|message))\b"
+)
+
+_TEXT_A_NUMBER = re.compile(
+    r"(?i)\b(?:text|sms|txt|send\s+(?:a\s+)?(?:text|sms|message))\s+"
+    r"(?:to\s+)?\+?(?:1[\s.\-]?)?(?:\(?\d{3}\)?[\s.\-]*)\d{3}[\s.\-]*\d{4}\b"
 )
 
 _ASKED_FOR_BODY = re.compile(
@@ -341,18 +398,20 @@ class SmsDraft:
 
     @property
     def complete(self) -> bool:
-        """Ready to send when body is set; multi-recipient needs every alias."""
+        """Ready to send when body is set and every recipient has an address.
+
+        An address is a book alias *or* a number they typed. Missing names
+        are not a gate — they mean ask for the number, not 'add them first'.
+        """
         if not self.body.strip():
             return False
         names = self.all_tos
         if not names:
             return False
-        # Single recipient: allow unresolved names (send_sms resolves at send time).
-        if len(names) == 1:
-            return True
-        # Multi: every name must be in contacts before we force/send any of them.
         if self.missing:
             return False
+        if len(names) == 1:
+            return True
         return len(self.resolved_aliases) == len(names)
 
     @property
@@ -390,8 +449,29 @@ def _soften_caps(text: str) -> str:
     return raw[0].upper() + raw[1:].lower()
 
 
+def looks_like_phone_number(value: str) -> bool:
+    """True for a number someone would actually dial, not a short code or '2'."""
+    from arelis.contacts import normalize_phone, to_e164
+
+    raw = (value or "").strip()
+    if not raw:
+        return False
+    return bool(to_e164(raw) and len(normalize_phone(raw)) >= 10)
+
+
 def _clean_to(raw: str) -> str:
     return (raw or "").strip().rstrip(".,!;:")
+
+
+def _address_the_recipient(text: str) -> str:
+    """Flip a bound third-person object so the text reads as to them."""
+    match = _ADDRESSEE_OBJECT.match((text or "").strip())
+    if not match:
+        return text
+    return (
+        f"{match.group('head')} {match.group('verb')} you"
+        f"{match.group('tail')}{match.group('punct')}"
+    )
 
 
 def _clean_body(raw: str) -> str:
@@ -405,7 +485,7 @@ def _clean_body(raw: str) -> str:
     # Strip wrapping quotes the user typed around the message.
     if len(text) >= 2 and text[0] == text[-1] and text[0] in {"'", '"'}:
         text = text[1:-1].strip()
-    return text
+    return _address_the_recipient(text)
 
 
 def _split_recipients(raw: str) -> list[str]:
@@ -528,6 +608,9 @@ def _bind_recipients(
     aliases: list[str] = []
     missing: list[str] = []
     for name in names:
+        if looks_like_phone_number(name):
+            aliases.append(name)
+            continue
         alias = resolve_sms_alias(name, book)
         aliases.append(alias)
         if not alias:
@@ -602,6 +685,9 @@ _LOOK_OR_FILE = re.compile(
     r"ocr this|"
     r"describe (?:the|this|that) (?:image|file|diagram|picture|photo)|"
     r"what(?:'s| is) in (?:this|the|that) (?:image|screenshot|photo|picture|pic)|"
+    r"read any text|"
+    r"what text|"
+    r"text in (?:this|the|that)|"
     r"what in this|"
     r"what's in this|"
     r"summarize (?:the|this|that) file|"
@@ -642,6 +728,8 @@ def sms_intent_this_turn(text: str) -> bool:
         return False
     if _EXPLICIT_SMS_VERB.match(raw) or _SMS_VERB.match(raw):
         return True
+    if _WANT_YOU_TO_TEXT.search(raw) or _TEXT_A_NUMBER.search(raw):
+        return True
     return parse_sms_utterance(raw) is not None
 
 
@@ -671,6 +759,7 @@ def looks_like_stale_sms_skip(
         or looks_like_contacts_followup(text, history)
         or looks_like_workspace_write(text)
         or looks_like_image_gen(text)
+        or looks_like_image_edit(text)
         or looks_like_describe_followup(text)
         or looks_like_browser_or_url(text)
         or looks_like_look_or_file(text)
@@ -682,14 +771,37 @@ def looks_like_closing_chitchat(text: str) -> bool:
     return bool(_CLOSING_CHITCHAT.match((text or "").strip()))
 
 
-def looks_like_image_gen(text: str) -> bool:
-    """True when the utterance is Comfy/image generate, not an SMS body."""
+def looks_like_image_edit(text: str) -> bool:
+    """True when the utterance is resize / overlay / adjust, not an SMS body."""
     raw = text or ""
     from arelis.attachments import split_attachments_turn, wants_image_edit
 
     _block, ask = split_attachments_turn(raw)
+    return wants_image_edit(ask or raw)
+
+
+def looks_like_image_gen(text: str) -> bool:
+    """True when the utterance is Comfy/image generate, not an SMS body."""
+    raw = text or ""
+    from arelis.attachments import (
+        split_attachments_turn,
+        wants_image_edit,
+        wants_image_restyle,
+        wants_image_surgical,
+        wants_image_variations,
+        wants_same_seed,
+    )
+
+    _block, ask = split_attachments_turn(raw)
     check = ask or raw
-    # Edit phrasing ("make this more vibrant") must not count as generate.
+    # Restyle / surgical / variations / same-seed are still Comfy. Pixel edits are not.
+    if (
+        wants_image_restyle(check)
+        or wants_image_surgical(check)
+        or wants_image_variations(check)
+        or wants_same_seed(check)
+    ):
+        return True
     if wants_image_edit(check):
         return False
     return bool(_IMAGE_GEN.search(check))
@@ -738,8 +850,15 @@ def parse_sms_utterance(text: str) -> SmsDraft | None:
     raw = _strip_code_fences(raw).strip()
     if not raw:
         return None
+    # OCR / "read any text in that last picture" is never a send, even when
+    # the word "text" sits next to a preposition the send regex treats as `to`.
+    if looks_like_look_or_file(raw):
+        return None
     # File-write phrasing that happens to contain "text" must not become SMS.
     if looks_like_workspace_write(raw) and not _EXPLICIT_SMS_VERB.match(raw):
+        return None
+    # Overlay / resize: "add text right in the middle that says Arelis".
+    if looks_like_image_edit(raw) and not _EXPLICIT_SMS_VERB.match(raw):
         return None
     # OCR / "read the text in this screenshot" / text-file — not a send.
     from arelis.core.skills import sms_negative_hit
@@ -800,6 +919,9 @@ def parse_sms_utterance(text: str) -> SmsDraft | None:
     if not names:
         return None
     primary = names[0]
+    # "text in that picture" parsed to="in". Those are never people.
+    if primary.lower() in _SMS_TO_STOPWORDS:
+        return None
     return SmsDraft(
         to=primary,
         body=body,
@@ -908,9 +1030,38 @@ def complete_sms_draft(
                     continue
                 break
 
+    # A bare number after "text Alex …" fills the address. Contacts stay optional.
+    if current is None and looks_like_phone_number(user_text):
+        number = user_text.strip()
+        for role, content in reversed(pairs[:-1]):
+            if role != "user":
+                continue
+            prior = parse_sms_utterance(content)
+            if prior and prior.all_tos and prior.body:
+                prior_done = _finalize_draft(
+                    names=list(prior.all_tos),
+                    body=prior.body,
+                    source="history",
+                    book=book,
+                )
+                if prior_done.missing:
+                    names = [
+                        number if name in prior_done.missing else name
+                        for name in prior_done.all_tos
+                    ]
+                    return _finalize_draft(
+                        names=names,
+                        body=prior.body,
+                        source="history",
+                        book=book,
+                    )
+            break
+
     # Case B: current text is NOT an SMS verb — treat as body after a pending ask.
     if current is None and user_text.strip() and not _SMS_VERB.match(user_text):
         if _SEND_CONFIRM.match(user_text or ""):
+            return None
+        if looks_like_phone_number(user_text):
             return None
         # Goals / tasks / memory / contacts / file-write / image-gen /
         # calendar / open-URL / analyze turns must not steal a pending SMS.
@@ -1035,7 +1186,10 @@ def fill_send_sms_args(
     next_to = next_unsent(candidates, already_sent, draft.tool_to)
 
     if draft.complete and draft.body:
-        out["body"] = draft.body
+        from arelis.core.turn_goal import sms_body_serves_goal
+
+        if sms_body_serves_goal(draft.body):
+            out["body"] = draft.body
         if next_to:
             # Preserve a model `to` that is still one of the intended recipients.
             model_to = str(out.get("to") or "").strip()
@@ -1052,7 +1206,10 @@ def fill_send_sms_args(
                 out["to"] = next_to
         return out
     if not str(out.get("body") or "").strip() and draft.body:
-        out["body"] = draft.body
+        from arelis.core.turn_goal import sms_body_serves_goal
+
+        if sms_body_serves_goal(draft.body):
+            out["body"] = draft.body
     to = str(out.get("to") or "").strip()
     if not to:
         out["to"] = next_to
@@ -1065,13 +1222,14 @@ def fill_send_sms_args(
 
 def sms_preflight_nudge(draft: SmsDraft) -> str:
     """System nudge with concrete args (still requires Allow)."""
-    if len(draft.all_tos) > 1 and draft.missing:
+    if draft.missing:
         miss = ", ".join(draft.missing)
         return (
-            "Intent preflight: the user wants to text multiple people, but these "
-            f"names are not in contacts.yaml: {miss}. "
-            "Ask for the missing number(s) or call contacts(action=add) first. "
-            "Do not send to only the resolved recipients until every name is known."
+            "Intent preflight: the user wants to text "
+            f"{miss}, but there is no number yet. Ask for the number, then "
+            "call send_sms with that number and the body they already gave. "
+            "Contacts are a nickname hint, not a gate — do not require "
+            "contacts(action=add) before sending. Do not invent a number."
         )
     tos = ", ".join(draft.resolved_aliases) or draft.tool_to
     if draft.complete:
@@ -1100,11 +1258,12 @@ def sms_force_call_notice(
     draft: SmsDraft, *, already_sent: set[str] | None = None
 ) -> str:
     """User-role nudge when the model tried to finish without calling send_sms."""
-    if len(draft.all_tos) > 1 and draft.missing:
+    if draft.missing:
         miss = ", ".join(draft.missing)
         return (
-            f"Do not send yet — contacts missing for: {miss}. "
-            "Resolve every recipient first."
+            f"Do not send yet — need a number for: {miss}. "
+            "Ask for it, then call send_sms. Do not invent a number. "
+            "Saving them in contacts is optional."
         )
     remaining = remaining_labels(draft.resolved_aliases, already_sent)
     target = remaining[0] if remaining else draft.tool_to

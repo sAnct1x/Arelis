@@ -218,28 +218,36 @@ SKILL_CARDS: dict[str, SkillCard] = {
             "screenshot text",
             "text in this",
             "text in the",
+            "text in that",
+            "read any text",
+            "any text in",
             "txt file",
             ".txt",
             "read this to me",
             "read this label",
             "what's written",
             "what does this say",
+            "edit the picture",
+            "edit this image",
+            "edit the image",
+            "add text right",
+            "add text in the",
+            "add text on the",
+            "in the middle that says",
+            "overlay text",
         ),
         requires_tool="send_sms",
         body="""
 ### SMS and contacts
-- Phone numbers and SMS contact aliases are never guessed. A system line lists
-  the real aliases from data/contacts.yaml — use only those with send_sms.
-  "my wife" is fine; the tool strips a leading "my" when matching. Texts go
-  out through the user's own phone. When the user has named who to text and
-  what to say (even across the last few turns), call send_sms immediately with
-  to and body filled in. Do not re-ask for the body they already gave. Calling
-  the tool is what opens the confirm card; chatting about the message does not
-  send anything. If the person is not in the contacts list, say they are
-  missing and offer contacts(action=add) after you have a short id and phone —
-  never invent a number, and never loop asking for the message text again.
-  Use contacts(action=list|get) to look people up; action=update / remove for
-  changes.
+- Contacts are a nickname book, not a gate. "my wife" resolves from
+  data/contacts.yaml (a leading "my" is stripped). A number they just typed
+  is enough — call send_sms with that number. Never invent a number. If they
+  named someone who is not in the book and gave no number, ask for the number
+  once, then send; do not require contacts(action=add) first. Saving a
+  nickname later is optional. When who and what to say are known (even across
+  the last few turns), call send_sms immediately. Do not re-ask for a body
+  they already gave. The confirm card is Allow; chatting about the message
+  does not send. inbound_sms sees everyone who texted, not only the book.
 - When the user asks whether someone texted, texted back, what a reply said,
   or for recent inbound SMS ("did X text", "what did they reply"), call
   inbound_sms before claiming anything. Never invent a reply body. Never
@@ -620,7 +628,8 @@ SKILL_CARDS: dict[str, SkillCard] = {
 - When they ask to create, make, write, generate, export, or save a PDF,
   Word doc, Excel sheet, CSV, markdown, or text file, call document with
   format, title, and the full body. Spreadsheets need rows (JSON lists or
-  CSV) or a markdown table.
+  CSV) or a markdown table. Copy cas latex: into $$ $$; the file writer
+  flattens TeX to unicode so the PDF/Word/CSV/markdown opens clean.
 - In a room with a folder, the file lands in that project's documents/
   directory. Otherwise it lands under outputs/documents/. Tell them the
   path. Do not paste the document into chat. Allow is required.
@@ -811,6 +820,8 @@ SKILL_CARDS: dict[str, SkillCard] = {
   pause/faster, and open/close Reality or the toy are closed verbs —
   do not call solar or tile for those. For an unnamed body, solar
   action=travel or lock. Travel flies the camera; inspect/lock does not.
+  Radius, mass, gravity, or where a body is: solar action=body reads the
+  live lab. catalog Horizons and units constants are also valid sources.
 - Earth is a zone inside that lab, not a new room and not a titled product.
   Travel to Earth, or say enter Earth, or call earth action=enter. leave Earth
   returns to heliocentric. The `earth` tool reads the zone: status, layer,
@@ -829,7 +840,9 @@ SKILL_CARDS: dict[str, SkillCard] = {
   writes outputs/physics/earth. Closed verbs: enter Earth, leave Earth, ride
   ISS — do not call earth for those.
 - Papers already on disk use doc_extract. Do not invent citations.
-- Walk the derivation; let cas check the algebra. Do not stamp homework.
+- Walk the derivation in chat. Let cas check the algebra. Do not stamp
+  homework. Do not call document (md or pdf) unless they asked for a
+  file, a PDF, or something they can attach.
 - After cas returns, copy the latex: line into $$ … $$. Do not rewrite
   the closed form. Chat flattens TeX; garbled log/frac is a rewrite, not
   a CAS miss. For a function of x only, n=2 is ∫∫ f(x) dx dx. A region
@@ -916,9 +929,11 @@ SKILL_CARDS: dict[str, SkillCard] = {
 - To refresh a private ICS subscription into the local file, call
   agenda(action=sync, provider=ics) — Allow required; needs calendar.ics_url
   in secrets. Do not invent a URL.
-- To add a Google or Outlook event, call agenda with action=create and
-  provider=google|outlook. That opens an Allow card — do not claim the event
-  changed until the tool succeeds.
+- To add an event, call agenda with action=create, a short title, and
+  start. Omit provider unless they named Google or Outlook. The event
+  lands on the local tile first; it syncs to the cloud when that
+  calendar is connected. That opens an Allow card — do not claim the
+  event changed until the tool succeeds.
 - To change or remove an event, call agenda with action=update|delete, the
   title (and time if known), and keep=0 to remove every matching copy. The
   tool finds the id. Only pass keep=1 when they asked to delete extra
@@ -1072,20 +1087,51 @@ SKILL_CARDS: dict[str, SkillCard] = {
             "another image",
             "comfy",
             "text to image",
+            "in the style of",
+            "make this look like",
+            "watercolor",
+            "restyle",
+            "four versions",
+            "four variations",
+            "another four",
+            "n=4",
+            "remove the background",
+            "cut out the background",
+            "outpaint",
+            "extend the canvas",
+            "uncrop",
+            "left of the picture",
+            "right of the picture",
+            "top of the picture",
+            "bottom of the picture",
+            "center of the picture",
+            "top of the image",
+            "bottom of the photo",
         ),
         requires_tool="image",
         body="""
 ### Image generation
 - Call the image tool to generate pixels via ComfyUI. It starts ComfyUI when
   auto-start is configured. Do not invent shell commands like `comfyui`.
+- Pass a real prompt. Optional: aspect (square / landscape / portrait / 16:9 /
+  9:16), style (photoreal, illustration, anime, watercolor, oil, sketch,
+  cinematic), n=1–4, width+height, seed. Do not invent a file path for a new
+  picture. "Four versions" / "four variations" / "another four" is n=4.
 - When they ask for a new / happier / less-sad version, call image again with
   an updated prompt. Do not web_search stock photos or claim you cannot generate.
+- "Make this look like a watercolor" / "in the style of" / restyle an existing
+  file: call image with path= that file (or the latest outputs/images/ file)
+  and a prompt that names the look. That is img2img, not image_edit.
+- Cut out / remove the background: image with remove_background=true and path=.
+  Extend the canvas / outpaint / uncrop: outpaint=all and path=. Change or
+  remove the left/right/top/bottom/center of the picture: mask_region= and
+  path=. Those are Comfy, not image_edit.
 - After one successful image this turn, stop — do not call image again.
 - To describe or answer questions about an existing local image/screenshot,
   use vision — not image.
-- To resize, crop, or adjust an image that already exists, use image_edit.
-  image cannot modify a file: it only makes a new picture from a prompt, so
-  using it for "resize this" returns something the user did not send.
+- To resize, crop, rotate, overlay text, or adjust an image that already exists,
+  use image_edit. image cannot do an exact resize: it only invents pixels from
+  a prompt. Do not call send_sms for "add text" on a picture.
 """.strip(),
     ),
     "image_edit": SkillCard(
@@ -1099,6 +1145,12 @@ SKILL_CARDS: dict[str, SkillCard] = {
             "resize the image",
             "crop this",
             "crop it",
+            "crop the left",
+            "crop the right",
+            "crop to the center",
+            "upscale this",
+            "make it bigger",
+            "2x",
             "youtube thumbnail",
             "thumbnail size",
             "make it brighter",
@@ -1109,19 +1161,48 @@ SKILL_CARDS: dict[str, SkillCard] = {
             "aspect ratio",
             "16:9",
             "resize and",
+            "edit the picture",
+            "edit this image",
+            "add text right",
+            "add text in the",
+            "put text on",
+            "overlay text",
+            "centered perfectly",
+            "rotate this",
+            "flip it",
+            "black and white",
+            "grayscale",
+            "blur this",
         ),
         negative_hints=(
             # Window geometry and layout talk, which is not a picture.
             "resize the window",
             "resize the panel",
             "resize the dock",
+            # Generative restyle is the image tool (img2img), not Pillow.
+            "in the style of",
+            "make this look like",
+            "watercolor",
+            "restyle",
+            # Surgical Comfy work — not a pixel crop/scale.
+            "remove the background",
+            "cut out the background",
+            "outpaint",
+            "uncrop",
+            "extend the canvas",
         ),
         requires_tool="image_edit",
         body="""
 ### Editing an image that already exists
 - Call image_edit with the path and what was asked for: width+height or
-  preset=youtube_thumbnail, and vibrance/contrast/brightness/sharpness where
-  1.0 is unchanged and 1.3 is noticeably more.
+  preset=youtube_thumbnail, vibrance/contrast/brightness/sharpness where
+  1.0 is unchanged and 1.3 is noticeably more, rotate=90, flip=horizontal,
+  grayscale=true, blur=4, crop=left/right/center, scale=2, and text= for
+  an overlay. "Crop the left half" is crop=left. "Upscale this" / "make
+  it bigger" / 2x is scale=2. Do not call the calculator for a resolution.
+- "Add text in the middle that says Arelis" is image_edit(text=Arelis),
+  never send_sms. If they gave no path, use the latest outputs/images/ file
+  from the image you just generated ("the picture you just created").
 - "More vibrant" with no number means vibrance=1.3. "A lot more" means 1.5.
   Do not ask which number they meant; make the ordinary choice and say what you
   used, so they can ask for more or less.
@@ -1130,8 +1211,11 @@ SKILL_CARDS: dict[str, SkillCard] = {
 - It writes a new file and never touches the original. One call is enough:
   after it succeeds, say what changed and stop. Do not call vision to check
   your own work.
-- image_edit changes a file; image generates a new picture from a prompt;
-  vision looks at one. Resizing is image_edit, never image.
+- image_edit is exact pixel work. "Make this look like a watercolor" /
+  restyle / in the style of is the image tool with path=, not this one.
+- image_edit changes a file; image generates or restyles via ComfyUI;
+  vision looks at one. Resizing and text overlays are image_edit, never image
+  and never send_sms.
 """.strip(),
     ),
     "vision": SkillCard(
@@ -1155,6 +1239,8 @@ SKILL_CARDS: dict[str, SkillCard] = {
             "webcam",
             "is this still good",
             "identify this",
+            "who is this",
+            "who is that",
             "what am i looking at",
         ),
         requires_tool="vision",
@@ -1169,10 +1255,14 @@ SKILL_CARDS: dict[str, SkillCard] = {
   if present; otherwise call camera(action=snapshot) while the camera dock is
   open, then vision on the saved path. If capture fails, tell them to open
   View → camera and use Ask Arelis. Never invent pixel contents.
-- Point-and-Ask: one still, one Allow, then stop. Identify and freshness use
-  vision. Read/translate use ocr first. Do not send, open a URL, or remember
-  from the frame. Faces: say "a person" — do not name who. Freshness: visible
-  signs only, never a safe/unsafe verdict.
+- Point-and-Ask (live camera): one still, one Allow, then stop. Identify and
+  freshness use vision. Read/translate use ocr first. Do not send, open a URL,
+  or remember from the frame. Faces on the camera: say "a person" — do not
+  name who. Freshness: visible signs only, never a safe/unsafe verdict.
+- Pasted photo + "who is this": this is not the camera rule. If they look
+  like a public figure, name them and say the visible features that identify
+  them. If you are not sure, describe distinctive features (clothes, setting,
+  text in frame) and web_search — do not invent a private person's name.
 - For the open browser tab: browser(action=read) for compact text. Use
   screenshot then vision only if they asked to see pixels — do not invent
   what the page looks like.
@@ -1212,6 +1302,11 @@ SKILL_CARDS: dict[str, SkillCard] = {
             "book a table",
             "opentable",
             "resy",
+            "watch this tab",
+            "watch for",
+            "download this",
+            "save as pdf",
+            "upload a file",
         ),
         requires_tool="browser",
         body="""
@@ -1219,21 +1314,41 @@ SKILL_CARDS: dict[str, SkillCard] = {
 - When the user wants a site opened, call browser(action=open, url or alias
   like youtube). That shows the URL in Arelis' Chrome (data/browser-profile),
   not their daily browser. Leave browser=default unless they name Firefox/Edge.
+  After the tab is on that site, stop. Login check: if they are already
+  in, say so and stop. If not, open login once and stop — they type the
+  password. Do not keep opening the same URL.
 - You drive the window. Plan the errand: open or search, click, type,
   read, go back. Do not wait for them to hand you refs.
 - Click: text='Sign in', or nth=1 for the first result, or a snapshot ref.
+  hover / dblclick / right_click / drag use the same refs and glow.
+  x,y only after screenshot then vision this turn. Prefer refs.
   Type: type(text='…', into='search') — empty into uses the search box.
+  type(who=Mom, into=email|phone|name|work_phone) fills that field from
+  contacts.yaml. No street address. No memory scrape.
   Find lists matches. Never type passwords/OTP.
-- Sign in / Log in on the page she is on: click(text='Sign in'). There is
-  no goto_sign_in action. Username they give goes in a non-secret field.
-  Never type a password or OTP — that is their turn.
+- Sign in / Log in on the page she is on: click(text='Sign in') to open the
+  form, then stop. There is no goto_sign_in action. Do not keep clicking
+  Continue with phone / Google / Apple unless they asked for that provider.
+  Username they give goes in a non-secret field. Never type a password or
+  OTP — that is their mouse. If they start clicking, freeze.
 - Wrong page: back. Other way: forward. Stale page: reload.
-  New tab: tabs with tab=new (optional url). Close: tab=close.
+  After a redirect, wait(url=/home) or wait(text=…) — do not open the
+  same URL again. Wait polls the tab (max 8s) then snapshots.
+  Live watch while Arelis is open: watch(url=/home) or watch(text=…).
+  Drive says Watching. Stop cancels. A hit notifies. Not a scheduled job.
+  New tab: tabs with tab=new (optional url). Close: tab=close
+  (current tab only — never close by title). List places: tabs with
+  no args (index|title|url). Switch: select=Gmail or select=0.
+  No bookmarks.
 - To read the tab she is on: browser(action=read). That is compact text of the
   open page, not scrape / web_fetch. Do not invent page contents.
 - To see pixels: browser(action=screenshot) then vision(path=…) with the Saved
   path. screenshot/navigate may need relaunch if CDP is down — prefer open
   when they only asked to pull up a site.
+- Save a file from the page: download(ref=…). Tab as PDF: pdf. Both land
+  under outputs/ and raise FILE_READY. Upload a local file with
+  upload(path=…, ref=…) — path must be under workspace roots or outputs/
+  (Allow). Never type into type=file.
 - Do not invent shell/taskkill commands.
 - Directions: browser(action=maps, destination=the place). Opens Google Maps
   in her window and returns a phone link. If they asked to text it, send_sms
@@ -1241,6 +1356,7 @@ SKILL_CARDS: dict[str, SkillCard] = {
 - Search in her window: browser(action=search, query=…, site=youtube|google|amazon).
   That returns a short results list. click(nth=1) plays/opens the first.
   Add to cart / Add to bag is fine. Never click Checkout / Pay / Buy now.
+  On a pay wall she reads once, says a short checkout receipt, and stops.
 - Reservations: browser(action=reserve, place=…, date=YYYY-MM-DD, time=7pm,
   party=2, site=opentable|resy|google). That opens the search with party/date/time
   filled in the URL. Snapshot and type remaining non-secret fields. Never click
