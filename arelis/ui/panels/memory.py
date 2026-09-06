@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from arelis.ui.theme import SPACE, box
+from arelis.ui.theme import SPACE, space_box
 
 
 class ActiveFactsPanel(QWidget):
@@ -31,7 +31,7 @@ class ActiveFactsPanel(QWidget):
         self._facts: list[dict[str, object]] = []
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(*box("inset", "plate", "inset", "inset"))
+        layout.setContentsMargins(*space_box("inset", "plate", "inset", "inset"))
         layout.setSpacing(SPACE["gap"])
 
         hint = QLabel(

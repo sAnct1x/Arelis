@@ -41,7 +41,7 @@ from arelis.ui.foreground import process_owns_foreground
 from arelis.ui.glass import GlassFrame, advance_rim_pulse, seal_tool_window
 from arelis.ui.icons import window_close_icon, window_minimize_icon
 from arelis.ui.sms_store import cap_messages, load_threads, save_threads
-from arelis.ui.theme import GLASS, METRICS, SPACE, box
+from arelis.ui.theme import GLASS, METRICS, SPACE, space_box
 from arelis.ui.window_resize import enable_win32_resize_frame, handle_native_resize
 
 MAX_TILES = 8
@@ -323,7 +323,7 @@ class SmsChatWindow(QWidget):
         outer.addWidget(self._plate)
 
         root = QVBoxLayout(self._plate)
-        root.setContentsMargins(*box("plate", "inset"))
+        root.setContentsMargins(*space_box("plate", "inset"))
         root.setSpacing(SPACE["gap"])
 
         head = QHBoxLayout()

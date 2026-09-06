@@ -20,7 +20,7 @@ from arelis.ui.icons import (
     window_minimize_icon,
 )
 from arelis.ui.panels.calendar import CHROME_TILE_SIZE, CalendarPanel
-from arelis.ui.theme import GLASS, METRICS, SPACE, box
+from arelis.ui.theme import GLASS, METRICS, SPACE, space_box
 from arelis.ui.window_resize import (
     cursor_for_hit,
     enable_win32_resize_frame,
@@ -81,7 +81,7 @@ class CalendarWindow(QWidget):
         outer.addWidget(plate)
 
         root = QVBoxLayout(plate)
-        root.setContentsMargins(*box("plate", "inset"))
+        root.setContentsMargins(*space_box("plate", "inset"))
         root.setSpacing(SPACE["gap"])
 
         head = QHBoxLayout()

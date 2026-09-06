@@ -28,6 +28,17 @@ _SKIP_FILES = {
 }
 
 
+def test_padding_helper_is_not_named_box() -> None:
+    """`box` is a QWidget local on half the plates. The helper lost twice."""
+    import arelis.ui.theme as theme
+    import arelis.ui.theme_tokens as tokens
+
+    assert hasattr(theme, "space_box")
+    assert hasattr(tokens, "space_box")
+    assert not hasattr(theme, "box")
+    assert not hasattr(tokens, "box")
+
+
 def test_space_is_six_named_steps() -> None:
     assert SPACE == {
         "hair": 2,
@@ -64,7 +75,7 @@ def test_layout_calls_stay_on_the_scale() -> None:
         rel = path.relative_to(_UI.parent).as_posix()
         for call in _CALL.finditer(text):
             args = call.group(1)
-            if any(name in args for name in ("SPACE", "SHELL", "box(", "control_pad_y")):
+            if any(name in args for name in ("SPACE", "SHELL", "space_box(", "control_pad_y")):
                 continue
             for raw in _INT.findall(args):
                 px = int(raw)

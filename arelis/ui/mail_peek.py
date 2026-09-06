@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
 
 from arelis.ui.glass import GlassFrame, seal_tool_window
 from arelis.ui.icons import window_close_icon
-from arelis.ui.theme import GLASS, METRICS, SPACE, box
+from arelis.ui.theme import GLASS, METRICS, SPACE, space_box
 from arelis.ui.window_resize import enable_win32_resize_frame, handle_native_resize
 
 
@@ -62,7 +62,7 @@ class MailPeekWindow(QWidget):
         )
         outer.addWidget(plate)
         root = QVBoxLayout(plate)
-        root.setContentsMargins(*box("plate", "inset"))
+        root.setContentsMargins(*space_box("plate", "inset"))
         root.setSpacing(SPACE["gap"])
 
         head = QHBoxLayout()

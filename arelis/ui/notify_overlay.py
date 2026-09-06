@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
 
 from arelis.notify.center import Notice
 from arelis.ui.glass import GlassFrame
-from arelis.ui.theme import GLASS, box
+from arelis.ui.theme import GLASS, space_box
 
 _NARROW_STAGE = 720
 _PILL_AIR = 6
@@ -80,7 +80,7 @@ class NotifyOverlay(QWidget):
         self.card.setFixedWidth(280)
         self.card.hide()
         card_l = QVBoxLayout(self.card)
-        card_l.setContentsMargins(*box("inset"))
+        card_l.setContentsMargins(*space_box("inset"))
         card_l.setSpacing(8)
 
         self.card_title = QLabel("")

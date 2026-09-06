@@ -47,7 +47,7 @@ from arelis.ui.scale import (
     scale_from_config,
     scale_preset_label,
 )
-from arelis.ui.theme import GLASS, SPACE, box, polish_combo_popup
+from arelis.ui.theme import GLASS, SPACE, polish_combo_popup, space_box
 
 
 class SettingsDialog(QDialog):
@@ -117,7 +117,7 @@ class SettingsDialog(QDialog):
         outer.addWidget(panel)
 
         root = QVBoxLayout(panel)
-        root.setContentsMargins(*box("plate", "inset"))
+        root.setContentsMargins(*space_box("plate", "inset"))
         root.setSpacing(SPACE["inset"])
 
         head = QHBoxLayout()
@@ -157,7 +157,7 @@ class SettingsDialog(QDialog):
         audio = QWidget()
         audio.setObjectName("SettingsTabBody")
         audio_form = QFormLayout(audio)
-        audio_form.setContentsMargins(*box("inset", "plate", "inset", "inset"))
+        audio_form.setContentsMargins(*space_box("inset", "plate", "inset", "inset"))
         audio_form.setSpacing(SPACE["inset"])
         audio_form.setFieldGrowthPolicy(
             QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow
@@ -235,7 +235,7 @@ class SettingsDialog(QDialog):
         window = QWidget()
         window.setObjectName("SettingsTabBody")
         win_form = QFormLayout(window)
-        win_form.setContentsMargins(*box("inset", "plate", "inset", "inset"))
+        win_form.setContentsMargins(*space_box("inset", "plate", "inset", "inset"))
         win_form.setSpacing(SPACE["inset"])
         win_form.setFieldGrowthPolicy(
             QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow
@@ -315,7 +315,7 @@ class SettingsDialog(QDialog):
         allow_tab = QWidget()
         allow_tab.setObjectName("SettingsTabBody")
         allow_l = QVBoxLayout(allow_tab)
-        allow_l.setContentsMargins(*box("inset", "plate", "inset", "inset"))
+        allow_l.setContentsMargins(*space_box("inset", "plate", "inset", "inset"))
         allow_l.setSpacing(SPACE["inset"])
         agent = config.get("agent") or {}
 
@@ -413,7 +413,7 @@ class SettingsDialog(QDialog):
         notify = QWidget()
         notify.setObjectName("SettingsTabBody")
         notify_l = QVBoxLayout(notify)
-        notify_l.setContentsMargins(*box("plate", "plate", "plate", "inset"))
+        notify_l.setContentsMargins(*space_box("plate", "plate", "plate", "inset"))
         notify_l.setSpacing(SPACE["gap"])
 
         notices_h = QLabel("Notices")
@@ -565,7 +565,7 @@ class SettingsDialog(QDialog):
         roots_tab = QWidget()
         roots_tab.setObjectName("SettingsTabBody")
         roots_l = QVBoxLayout(roots_tab)
-        roots_l.setContentsMargins(*box("inset", "plate", "inset", "inset"))
+        roots_l.setContentsMargins(*space_box("inset", "plate", "inset", "inset"))
         roots_l.setSpacing(SPACE["gap"])
         roots_hint = QLabel(
             "Folders Arelis may read and write. Default is this repo only. "

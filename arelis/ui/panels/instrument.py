@@ -12,7 +12,7 @@ from arelis.ui.dock_surface import (
     end_drag_undock,
 )
 from arelis.ui.glass import GlassFrame
-from arelis.ui.theme import GLASS, SPACE, box
+from arelis.ui.theme import GLASS, SPACE, space_box
 
 # How far the pointer must travel on the header before a docked panel pops out.
 _UNDOCK_DRAG_PX = 24
@@ -40,7 +40,7 @@ class InstrumentPanel(GlassFrame):
         )
         self._title = title
         self._layout = QVBoxLayout(self)
-        self._layout.setContentsMargins(*box("inset", "gap"))
+        self._layout.setContentsMargins(*space_box("inset", "gap"))
         self._layout.setSpacing(SPACE["gap"])
 
         self._float_chrome = FloatingDockTitleBar(title, self)
@@ -91,7 +91,7 @@ class InstrumentPanel(GlassFrame):
         if floating:
             self._layout.setContentsMargins(0, 0, 0, 0)
             self._layout.setSpacing(0)
-            self._body_host.layout().setContentsMargins(*box("inset", "gap"))
+            self._body_host.layout().setContentsMargins(*space_box("inset", "gap"))
             self._float_chrome.set_title(self._title)
             self._float_chrome.show()
             self._docked_head.hide()
@@ -99,7 +99,7 @@ class InstrumentPanel(GlassFrame):
             if dock is not None:
                 self._float_chrome.sync_window_state(dock)
         else:
-            self._layout.setContentsMargins(*box("inset", "gap"))
+            self._layout.setContentsMargins(*space_box("inset", "gap"))
             self._layout.setSpacing(SPACE["gap"])
             self._body_host.layout().setContentsMargins(0, 0, 0, 0)
             self._float_chrome.hide()

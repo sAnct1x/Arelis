@@ -62,7 +62,7 @@ from arelis.ui.image_rail import (
 from arelis.ui.image_rail import (
     sidecar_tooltip as _sidecar_tooltip,
 )
-from arelis.ui.theme import METRICS, SPACE, box, polish_combo_popup
+from arelis.ui.theme import METRICS, SPACE, polish_combo_popup, space_box
 
 # Cap browse listing the same way the workspace tool caps directory list.
 _MAX_BROWSE_ENTRIES = 500
@@ -222,7 +222,7 @@ class WorkspacePanel(QWidget):
         self._loaded_label = ""
         self._dirty = False
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(*box("micro", "hair", "micro", "gap"))
+        layout.setContentsMargins(*space_box("micro", "hair", "micro", "gap"))
         layout.setSpacing(SPACE["gap"])
 
         path_row = QHBoxLayout()
@@ -317,7 +317,7 @@ class WorkspacePanel(QWidget):
         self.empty_face.setObjectName("DeskEmptyFace")
         self.empty_face.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         empty_l = QVBoxLayout(self.empty_face)
-        empty_l.setContentsMargins(*box("stage", "plate"))
+        empty_l.setContentsMargins(*space_box("stage", "plate"))
         empty_l.setSpacing(SPACE["gap"])
         empty_l.addStretch(1)
         self.empty_title = QLabel("Desk")

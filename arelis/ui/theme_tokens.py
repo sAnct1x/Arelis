@@ -200,7 +200,7 @@ SHELL = {
 # the stylesheet, which used to say 13px while app_font() said 10pt.
 FONT_PX = 13
 
-# Keys box() accepts beyond SPACE (flush is the absence of space).
+# Keys space_box() accepts beyond SPACE (flush is the absence of space).
 _BOX = {"flush": 0, **SPACE}
 
 
@@ -213,9 +213,10 @@ def control_pad_y() -> int:
     return max(SPACE["hair"], (METRICS["row"] - FONT_PX - 2) // 2)
 
 
-def box(*steps: str) -> tuple[int, int, int, int]:
+def space_box(*steps: str) -> tuple[int, int, int, int]:
     """Qt contents margins (left, top, right, bottom) from SPACE keys.
 
+    Named this way because `box` is a Qt widget local in half the plates.
     One key = all sides. Two = x, y. Four = l, t, r, b.
     """
     vals = [_BOX[step] for step in steps]
@@ -225,7 +226,7 @@ def box(*steps: str) -> tuple[int, int, int, int]:
         return (vals[0], vals[1], vals[0], vals[1])
     if len(vals) == 4:
         return (vals[0], vals[1], vals[2], vals[3])
-    raise ValueError(f"box() takes 1, 2, or 4 steps, got {len(steps)}")
+    raise ValueError(f"space_box() takes 1, 2, or 4 steps, got {len(steps)}")
 
 
 def space_allowed() -> frozenset[int]:

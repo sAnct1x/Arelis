@@ -23,7 +23,7 @@ from arelis.ui.icons import (
 )
 from arelis.ui.panels.solar import SolarPanel
 from arelis.ui.panels.world import WorldPanel
-from arelis.ui.theme import GLASS, METRICS, SPACE, box
+from arelis.ui.theme import GLASS, METRICS, SPACE, space_box
 from arelis.ui.window_resize import (
     cursor_for_hit,
     enable_win32_resize_frame,
@@ -199,7 +199,7 @@ class WorldWindow(QWidget):
         outer.addWidget(plate)
 
         root = QVBoxLayout(plate)
-        root.setContentsMargins(*box("plate", "gap", "gap", "inset"))
+        root.setContentsMargins(*space_box("plate", "gap", "gap", "inset"))
         root.setSpacing(SPACE["gap"])
 
         head = QHBoxLayout()

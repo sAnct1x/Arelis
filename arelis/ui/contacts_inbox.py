@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
 from arelis.ui.glass import GlassFrame, advance_rim_pulse, seal_tool_window
 from arelis.ui.icons import window_close_icon
 from arelis.ui.panels.contacts import ContactsPanel
-from arelis.ui.theme import GLASS, SPACE, box
+from arelis.ui.theme import GLASS, SPACE, space_box
 from arelis.ui.window_resize import (
     cursor_for_hit,
     enable_win32_resize_frame,
@@ -62,7 +62,7 @@ class ContactsInboxWindow(QWidget):
         outer.addWidget(plate)
 
         root = QVBoxLayout(plate)
-        root.setContentsMargins(*box("plate", "inset"))
+        root.setContentsMargins(*space_box("plate", "inset"))
         root.setSpacing(SPACE["gap"])
 
         head = QHBoxLayout()

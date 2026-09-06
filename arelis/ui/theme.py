@@ -25,10 +25,10 @@ from arelis.ui.theme_tokens import (
     THEME_IDS,
     TYPE,
     active_theme,
-    box,
     control_pad_y,
     resolve_theme_id,
     space_allowed,
+    space_box,
     theme_from_config,
 )
 
@@ -51,7 +51,6 @@ __all__ = [
     "active_theme",
     "app_font",
     "apply_theme",
-    "box",
     "color",
     "control_pad_y",
     "dock_tab_bar_qss",
@@ -60,6 +59,7 @@ __all__ = [
     "qt_font_directory",
     "resolve_theme_id",
     "space_allowed",
+    "space_box",
     "stylesheet",
     "theme_from_config",
 ]

@@ -17,7 +17,7 @@ from arelis.ui.icons import (
     window_maximize_icon,
     window_minimize_icon,
 )
-from arelis.ui.theme import SPACE, box, control_pad_y
+from arelis.ui.theme import SPACE, control_pad_y, space_box
 
 
 def _chrome_btn(obj: str, icon, slot, *, tooltip: str = "") -> QPushButton:
@@ -51,7 +51,7 @@ class TitleBar(QWidget):
         self._hands_wanted = False
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(*box("plate", "flush", "gap", "flush"))
+        layout.setContentsMargins(*space_box("plate", "flush", "gap", "flush"))
         layout.setSpacing(SPACE["micro"])
 
         self._span_left = QWidget()
@@ -291,7 +291,7 @@ class FloatingDockTitleBar(QWidget):
         self._drag_pos: QPoint | None = None
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(*box("plate", "flush", "gap", "flush"))
+        layout.setContentsMargins(*space_box("plate", "flush", "gap", "flush"))
         layout.setSpacing(SPACE["gap"])
 
         self.title = QLabel(title)

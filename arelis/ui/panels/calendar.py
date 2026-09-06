@@ -42,7 +42,7 @@ from arelis.calendar.models import CachedEvent
 from arelis.calendar.store import CalendarStore
 from arelis.jobs.store import DAY_NAMES, Job, load_jobs
 from arelis.memory.store import MemoryStore
-from arelis.ui.theme import METRICS, SPACE, box, color
+from arelis.ui.theme import METRICS, SPACE, color, space_box
 
 CHROME_TILE_SIZE = (1100, 800)
 _HOUR_START = 6
@@ -517,7 +517,7 @@ class EventSheet(QWidget):
         self._provider = ""
         self._calendar_id = ""
         root = QVBoxLayout(self)
-        root.setContentsMargins(*box("gap"))
+        root.setContentsMargins(*space_box("gap"))
         root.setSpacing(SPACE["gap"])
 
         self.heading = QLabel("new event")
@@ -674,7 +674,7 @@ class TasksPage(QWidget):
         super().__init__(parent)
         self.setObjectName("CalendarTasksPage")
         root = QVBoxLayout(self)
-        root.setContentsMargins(*box("gap"))
+        root.setContentsMargins(*space_box("gap"))
         root.setSpacing(SPACE["gap"])
 
         add = QHBoxLayout()
@@ -730,7 +730,7 @@ class TasksPage(QWidget):
             widget = QWidget()
             widget.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
             line = QHBoxLayout(widget)
-            line.setContentsMargins(*box("gap", "micro"))
+            line.setContentsMargins(*space_box("gap", "micro"))
             line.setSpacing(SPACE["gap"])
             check = QCheckBox()
             tid = int(row["id"])
@@ -789,7 +789,7 @@ class JobsPage(QWidget):
         self._filling = False
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(*box("gap"))
+        root.setContentsMargins(*space_box("gap"))
         root.setSpacing(SPACE["gap"])
 
         hint = QLabel(
@@ -1038,7 +1038,7 @@ class CalendarPanel(QWidget):
         calendar_page = QWidget()
         calendar_page.setObjectName("CalendarTabBody")
         cal_layout = QVBoxLayout(calendar_page)
-        cal_layout.setContentsMargins(*box("gap"))
+        cal_layout.setContentsMargins(*space_box("gap"))
         cal_layout.setSpacing(SPACE["gap"])
 
         bar = QHBoxLayout()

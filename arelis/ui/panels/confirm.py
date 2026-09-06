@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
 )
 
 from arelis.tools.confirm_copy import confirm_headline
-from arelis.ui.theme import SPACE, box
+from arelis.ui.theme import SPACE, space_box
 
 # Enough to read a short email in full without the card taking over the window.
 _DETAIL_MAX_HEIGHT = 220
@@ -31,7 +31,7 @@ class ConfirmCard(QWidget):
         self._confirm_id = ""
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(*box("gap"))
+        layout.setContentsMargins(*space_box("gap"))
         layout.setSpacing(SPACE["gap"])
 
         self.summary = QLabel("confirm tool")

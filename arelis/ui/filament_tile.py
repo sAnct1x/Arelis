@@ -24,7 +24,7 @@ from PySide6.QtWidgets import (
 )
 
 from arelis.config import merge_local_config
-from arelis.ui.theme import SPACE, box
+from arelis.ui.theme import SPACE, space_box
 
 DEFAULT_OPACITY = 0.80
 _MIN = 0.15
@@ -72,7 +72,7 @@ def add_opacity_action(
     """Live slider. The plate updates as the thumb moves."""
     host = QWidget()
     lay = QVBoxLayout(host)
-    lay.setContentsMargins(*box("inset", "gap"))
+    lay.setContentsMargins(*space_box("inset", "gap"))
     lay.setSpacing(SPACE["gap"])
     label = QLabel("translucency")
     label.setObjectName("FilamentFloat")

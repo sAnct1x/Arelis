@@ -13,7 +13,7 @@ from arelis.ui.panels.calendar import (
     leftover_label,
     sync_chip_mark,
 )
-from arelis.ui.theme import METRICS, SPACE, box
+from arelis.ui.theme import METRICS, SPACE, space_box
 
 
 def _ev(day: date, *, summary: str = "Dentist", hour: int = 10) -> CachedEvent:
@@ -159,7 +159,7 @@ def test_task_rows_leave_air_around_remove(qt_app) -> None:
         page.show()
         qt_app.processEvents()
         margins = page.layout().contentsMargins()
-        assert (margins.left(), margins.top(), margins.right(), margins.bottom()) == box(
+        assert (margins.left(), margins.top(), margins.right(), margins.bottom()) == space_box(
             "gap"
         )
         assert page.list.spacing() == SPACE["gap"]
@@ -167,7 +167,7 @@ def test_task_rows_leave_air_around_remove(qt_app) -> None:
         widget = page.list.itemWidget(item)
         assert widget is not None
         row = widget.layout().contentsMargins()
-        assert (row.left(), row.top(), row.right(), row.bottom()) == box("gap", "micro")
+        assert (row.left(), row.top(), row.right(), row.bottom()) == space_box("gap", "micro")
         assert item.sizeHint().height() >= METRICS["row"] + SPACE["micro"] * 2
         first = page.list.visualItemRect(item)
         second = page.list.visualItemRect(page.list.item(1))
