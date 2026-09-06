@@ -26,6 +26,7 @@ import html
 import re
 
 from arelis.mathtext import flatten_for_render
+from arelis.mathtext import flatten_latex as flatten_latex
 from arelis.ui.theme import COLORS, FONTS, SPACE
 
 # Only schemes worth making clickable. Anything else renders as plain text, so a

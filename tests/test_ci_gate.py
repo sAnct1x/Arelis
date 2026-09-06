@@ -61,7 +61,8 @@ def test_mypy_is_pinned_in_dev_and_is_not_a_ci_gate() -> None:
 
     A floating extra would make today's baseline meaningless tomorrow. A
     failing mypy job would block work that is not a type-fix. The types
-    job reports; continue-on-error keeps it off the merge gate.
+    job reports. `|| true` keeps the check green; continue-on-error is
+    the leftover belt.
     """
     pyproject = PYPROJECT.read_text(encoding="utf-8")
     workflow = CI_YML.read_text(encoding="utf-8")
@@ -77,6 +78,7 @@ def test_mypy_is_pinned_in_dev_and_is_not_a_ci_gate() -> None:
     types_block = types_block.split("\n  test:", 1)[0]
     assert "continue-on-error: true" in types_block
     assert "python -m mypy" in types_block
+    assert "|| true" in types_block
     test_block = workflow.split("\n  test:", 1)[1].split("\n  lock:", 1)[0]
     installed_block = workflow.split("\n  installed:", 1)[1]
     assert "mypy" not in test_block.lower()
