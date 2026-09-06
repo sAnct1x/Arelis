@@ -706,8 +706,16 @@ def test_hud_glass_does_not_forward_events() -> None:
     assert "photorealAltM || 80000" not in js
     assert "function flySeconds" in js
     assert "function flyTo" in js
+    assert "emitCamera(true)" in js
+    assert "moveEnd.addEventListener" in js
     assert "function hoseKey" in js
     assert "keyStruck" in js
+    assert "function pickedMarkId" in js
+    assert "LEFT_DOUBLE_CLICK" in js
+    assert "minimumZoomDistance = 200" in js
+    assert "function labelDepth" in js
+    assert "POSITIVE_INFINITY" not in js.split("function labelDepth")[1].split("function lookHit")[0]
+    assert "function wantLabel" in js
     assert "findOpen" in js
     assert "lastEmit = 0" in js
     assert "keyStruck" in host

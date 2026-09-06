@@ -5,11 +5,53 @@ from __future__ import annotations
 from typing import Any
 
 from PySide6.QtCore import QRect, Qt
-from PySide6.QtGui import QPainter, QPen
+from PySide6.QtGui import QColor, QPainter, QPen
 
 from arelis.earth.copy import band_phrase, coach_line, live_chip_label
+from arelis.earth.entity import LAYER_IDS
 from arelis.earth.key_paste import missing_picture_keys, save_earth_key
 from arelis.ui.theme import color
+
+CHIP_ICON_PAD = 18
+CHIP_ICON_KINDS = frozenset(LAYER_IDS)
+
+
+def chip_icon_pad(kind: str) -> int:
+    """Layer chips leave a seat for the mark. Band / Live / Grid stay text."""
+    return CHIP_ICON_PAD if kind in CHIP_ICON_KINDS else 0
+
+
+def paint_layer_chip(
+    painter: QPainter,
+    rect: QRect,
+    kind: str,
+    label: str,
+    *,
+    on: bool,
+    ink: QColor,
+) -> None:
+    """Sodium chip with the same mark that sits on the globe."""
+    painter.setPen(QPen(color("edge_hot") if on else color("edge"), 1))
+    painter.setBrush(_wash("accent", 150) if on else _wash("glass_fill", 36))
+    painter.drawRoundedRect(rect, 4, 4)
+    from arelis.ui.earth_marks import paint_mark
+
+    paint_mark(
+        painter,
+        float(rect.left() + 11),
+        float(rect.center().y()) + 0.5,
+        kind,
+        band="city",
+        size=14,
+        ink=ink,
+    )
+    painter.setPen(color("text"))
+    painter.drawText(
+        rect.adjusted(20, 0, -4, 0),
+        int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
+        label,
+    )
+
 
 _CHIP_H = 22
 _GAP = 4
@@ -17,14 +59,21 @@ _PAD = 8
 
 
 MARK_HINTS: tuple[tuple[str, str], ...] = (
-    ("chevron", "plane"),
-    ("hull", "ship"),
-    ("box + panels", "satellite"),
-    ("ring", "ISS"),
-    ("square", "camera"),
-    ("ember", "fire"),
-    ("triangle", "weather"),
-    ("open circle", "quake"),
+    ("plane", "flights"),
+    ("fighter", "military"),
+    ("quadcopter", "drone"),
+    ("ship", "vessel"),
+    ("sat + panels", "satellite"),
+    ("truss + wings", "ISS"),
+    ("camera", "camera"),
+    ("person", "people"),
+    ("dish", "radar"),
+    ("burst", "quake"),
+    ("flame", "fire"),
+    ("cloud", "weather"),
+    ("antenna", "radio"),
+    ("car", "traffic"),
+    ("pin", "site"),
     ("slash", "stale"),
     ("dashed ring", "coasting"),
 )
@@ -171,21 +220,51 @@ def cancel_paste(panel: Any) -> None:
     panel.update()
 
 
+def _cam_alt_m(panel: Any) -> float | None:
+    """Geodetic height of the dest / mirror cam. None if the eye is missing."""
+    pose = getattr(panel, "_earth_cam", None)
+    eye = getattr(pose, "eye", None)
+    if not isinstance(eye, tuple) or len(eye) < 3:
+        return None
+    try:
+        from arelis.earth.frames import ecef_to_geodetic
+
+        alt = float(ecef_to_geodetic(*eye)[2])
+    except Exception:
+        return None
+    return alt if alt > 0.0 else None
+
+
+def _positive_m(value: Any) -> float | None:
+    try:
+        meters = float(value)
+    except (TypeError, ValueError):
+        return None
+    return meters if meters > 0.0 else None
+
+
 def nav_range_m(panel: Any) -> float | None:
-    """Look-ray to the ellipsoid, else camera height. None until Cesium speaks."""
-    nadir = getattr(panel, "_earth_nadir_m", None)
-    try:
-        if nadir is not None and float(nadir) > 0.0:
-            return float(nadir)
-    except (TypeError, ValueError):
-        pass
-    agl = getattr(panel, "_earth_agl_m", None)
-    try:
-        if agl is not None and float(agl) > 0.0:
-            return float(agl)
-    except (TypeError, ValueError):
-        pass
-    return None
+    """Look-ray to the ellipsoid, else camera height. None until we have one.
+
+    Find sets ``_earth_cam`` to the dest immediately so chips can follow.
+    The Cesium look-ray can stay at Travel standoff (~46 000 km) until the
+    fly emits. A ray that is still space while the dest cam is in the
+    city is stale — use the dest height until Cesium speaks.
+    """
+    nadir = _positive_m(getattr(panel, "_earth_nadir_m", None))
+    agl = _positive_m(getattr(panel, "_earth_agl_m", None))
+    cam = _cam_alt_m(panel)
+    if cam is not None:
+        stale = max(cam * 4.0, cam + 80_000.0)
+        if nadir is not None and nadir > stale:
+            nadir = None
+        if agl is not None and agl > stale:
+            agl = None
+    if nadir is not None:
+        return nadir
+    if agl is not None:
+        return agl
+    return cam
 
 
 def paint_nav(panel: Any, painter: QPainter) -> None:

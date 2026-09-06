@@ -116,185 +116,230 @@ def _line(
     painter.drawLine(QPointF(x0, y0), QPointF(x1, y1))
 
 
-def _airframe(painter: QPainter, r: float, *, twin_tail: bool, detail: int) -> None:
-    """Chevron airframe at every band so a plane still reads at city size."""
-    tri = QPolygonF(
+def _draw_flights(painter: QPainter, r: float, detail: int) -> None:
+    """Top-down airliner: nose, swept wings, tailplane. Not a chevron."""
+    del detail
+    fuselage = QPolygonF(
         [
-            QPointF(0.0, -r * 0.86),
-            QPointF(r * 0.68, r * 0.52),
-            QPointF(0.0, r * 0.28),
-            QPointF(-r * 0.68, r * 0.52),
+            QPointF(0.0, -r * 0.94),
+            QPointF(r * 0.11, -r * 0.62),
+            QPointF(r * 0.10, r * 0.46),
+            QPointF(r * 0.06, r * 0.86),
+            QPointF(-r * 0.06, r * 0.86),
+            QPointF(-r * 0.10, r * 0.46),
+            QPointF(-r * 0.11, -r * 0.62),
         ]
     )
-    painter.drawPolygon(tri)
-    if detail >= 1:
-        _line(painter, -r * 0.42, r * 0.08, r * 0.42, r * 0.08)
-    if twin_tail:
-        _line(painter, -r * 0.24, r * 0.36, -r * 0.24, r * 0.82)
-        _line(painter, r * 0.24, r * 0.36, r * 0.24, r * 0.82)
-    elif detail >= 2:
-        _line(painter, 0.0, r * 0.32, 0.0, r * 0.72)
-
-
-def _draw_flights(painter: QPainter, r: float, detail: int) -> None:
-    _airframe(painter, r, twin_tail=False, detail=detail)
+    painter.drawPolygon(fuselage)
+    wings = QPolygonF(
+        [
+            QPointF(-r * 0.96, r * 0.10),
+            QPointF(-r * 0.14, -r * 0.16),
+            QPointF(r * 0.14, -r * 0.16),
+            QPointF(r * 0.96, r * 0.10),
+            QPointF(r * 0.86, r * 0.26),
+            QPointF(r * 0.12, r * 0.06),
+            QPointF(-r * 0.12, r * 0.06),
+            QPointF(-r * 0.86, r * 0.26),
+        ]
+    )
+    painter.drawPolygon(wings)
+    tail = QPolygonF(
+        [
+            QPointF(-r * 0.38, r * 0.58),
+            QPointF(0.0, r * 0.46),
+            QPointF(r * 0.38, r * 0.58),
+            QPointF(r * 0.32, r * 0.72),
+            QPointF(0.0, r * 0.62),
+            QPointF(-r * 0.32, r * 0.72),
+        ]
+    )
+    painter.drawPolygon(tail)
 
 
 def _draw_military(painter: QPainter, r: float, detail: int) -> None:
-    _airframe(painter, r, twin_tail=True, detail=detail)
+    """Delta fighter, twin fins — not the airliner."""
+    del detail
+    delta = QPolygonF(
+        [
+            QPointF(0.0, -r * 0.94),
+            QPointF(r * 0.90, r * 0.52),
+            QPointF(r * 0.20, r * 0.22),
+            QPointF(r * 0.30, r * 0.82),
+            QPointF(0.0, r * 0.50),
+            QPointF(-r * 0.30, r * 0.82),
+            QPointF(-r * 0.20, r * 0.22),
+            QPointF(-r * 0.90, r * 0.52),
+        ]
+    )
+    painter.drawPolygon(delta)
 
 
 def _draw_drones(painter: QPainter, r: float, detail: int) -> None:
-    box = QRectF(-r * 0.72, -r * 0.72, r * 1.44, r * 1.44)
-    painter.drawRect(box)
-    if detail <= 0:
-        _line(painter, 0.0, -r * 0.28, 0.0, r * 0.28)
-        return
-    inner = r * 0.42
-    painter.drawPolyline(
-        QPolygonF(
-            [
-                QPointF(-inner * 0.55, inner * 0.35),
-                QPointF(0.0, -inner * 0.70),
-                QPointF(inner * 0.55, inner * 0.35),
-            ]
-        )
-    )
+    """Quadcopter: body plus four rotor arms."""
+    del detail
+    for sx, sy in ((-1.0, -1.0), (1.0, -1.0), (-1.0, 1.0), (1.0, 1.0)):
+        _line(painter, 0.0, 0.0, sx * r * 0.58, sy * r * 0.58)
+        painter.drawEllipse(QPointF(sx * r * 0.58, sy * r * 0.58), r * 0.22, r * 0.22)
+    painter.drawRoundedRect(QRectF(-r * 0.22, -r * 0.22, r * 0.44, r * 0.44), 2.0, 2.0)
 
 
 def _draw_vessels(painter: QPainter, r: float, detail: int) -> None:
+    """Top-down ship: pointed bow, transom, cabin. Rotates with heading."""
     hull = QPolygonF(
         [
-            QPointF(0.0, -r * 0.78),
-            QPointF(r * 0.48, -r * 0.08),
-            QPointF(r * 0.40, r * 0.62),
-            QPointF(-r * 0.40, r * 0.62),
-            QPointF(-r * 0.48, -r * 0.08),
+            QPointF(0.0, -r * 0.92),
+            QPointF(r * 0.36, -r * 0.22),
+            QPointF(r * 0.42, r * 0.58),
+            QPointF(r * 0.22, r * 0.86),
+            QPointF(-r * 0.22, r * 0.86),
+            QPointF(-r * 0.42, r * 0.58),
+            QPointF(-r * 0.36, -r * 0.22),
         ]
     )
     painter.drawPolygon(hull)
+    painter.drawRect(QRectF(-r * 0.18, -r * 0.04, r * 0.36, r * 0.40))
     if detail >= 2:
-        _line(painter, 0.0, r * 0.66, 0.0, r * 0.92)
+        _line(painter, 0.0, r * 0.36, 0.0, -r * 0.16)
         if detail >= 3:
-            _line(painter, -r * 0.16, r * 0.80, r * 0.16, r * 0.80)
+            _line(painter, 0.0, -r * 0.16, r * 0.22, 0.02)
 
 
 def _draw_satellites(painter: QPainter, r: float, detail: int, ink: QColor) -> None:
-    body = QRectF(-r * 0.34, -r * 0.38, r * 0.68, r * 0.76)
-    if detail <= 2:
-        fill = QColor(ink)
-        _fill(painter, fill)
-        painter.drawRoundedRect(body, 2, 2)
-        _stroke(painter, ink, width=2.6)
-    else:
-        painter.drawRect(body)
-    _line(painter, -r * 0.92, 0.0, -r * 0.36, 0.0)
-    _line(painter, r * 0.36, 0.0, r * 0.92, 0.0)
+    """Box bus, two solar wings, a small dish. The default sat."""
+    body = QRectF(-r * 0.22, -r * 0.26, r * 0.44, r * 0.52)
+    fill = QColor(ink)
+    _fill(painter, fill)
+    painter.drawRoundedRect(body, 1.6, 1.6)
+    _stroke(painter, ink)
+    painter.drawRect(QRectF(-r * 0.96, -r * 0.20, r * 0.68, r * 0.40))
+    painter.drawRect(QRectF(r * 0.28, -r * 0.20, r * 0.68, r * 0.40))
     if detail >= 2:
-        _line(painter, -r * 0.92, -r * 0.20, -r * 0.92, r * 0.20)
-        _line(painter, r * 0.92, -r * 0.20, r * 0.92, r * 0.20)
+        _line(painter, -r * 0.62, -r * 0.20, -r * 0.62, r * 0.20)
+        _line(painter, r * 0.62, -r * 0.20, r * 0.62, r * 0.20)
+        _line(painter, 0.0, -r * 0.26, 0.0, -r * 0.48)
+        painter.drawArc(QRectF(-r * 0.18, -r * 0.66, r * 0.36, r * 0.28), 0, 180 * 16)
 
 
 def _draw_iss(painter: QPainter, r: float, ink: QColor) -> None:
-    ring = QColor(ink)
-    _fill(painter, ring)
-    painter.drawEllipse(QPointF(0.0, 0.0), r * 0.58, r * 0.58)
-    hole = QColor(ink)
-    hole.setAlpha(max(40, ink.alpha() - 80))
-    _fill(painter, hole)
-    painter.drawEllipse(QPointF(0.0, 0.0), r * 0.22, r * 0.22)
-    _stroke(painter, ink, width=2.6)
-    painter.drawEllipse(QPointF(0.0, 0.0), r * 0.58, r * 0.58)
-    _line(painter, -r * 0.96, 0.0, -r * 0.60, 0.0)
-    _line(painter, r * 0.60, 0.0, r * 0.96, 0.0)
-    _line(painter, -r * 0.82, -r * 0.18, -r * 0.82, r * 0.18)
-    _line(painter, r * 0.82, -r * 0.18, r * 0.82, r * 0.18)
+    """Truss and four solar wings — the station, not a ring."""
+    del ink
+    _line(painter, -r * 0.96, 0.0, r * 0.96, 0.0)
+    painter.drawRect(QRectF(-r * 0.16, -r * 0.14, r * 0.32, r * 0.28))
+    for sx in (-1.0, 1.0):
+        x = sx * r * 0.36 if sx > 0 else -r * 0.90
+        painter.drawRect(QRectF(x, -r * 0.46, r * 0.54, r * 0.28))
+        painter.drawRect(QRectF(x, r * 0.16, r * 0.54, r * 0.28))
 
 
 def _draw_cameras(painter: QPainter, r: float, ink: QColor, *, look: bool) -> None:
-    box = QRectF(-r * 0.48, -r * 0.48, r * 0.96, r * 0.96)
+    """Camera body, lens, viewfinder. Filled lens when a look is open."""
+    painter.drawRoundedRect(QRectF(-r * 0.64, -r * 0.20, r * 1.28, r * 0.74), 2.2, 2.2)
+    painter.drawRect(QRectF(-r * 0.18, -r * 0.50, r * 0.36, r * 0.30))
     if look:
         fill = QColor(ink)
-        painter.setBrush(fill)
-    painter.drawRect(box)
+        _fill(painter, fill)
+    painter.drawEllipse(QPointF(0.0, r * 0.16), r * 0.26, r * 0.26)
+    _stroke(painter, ink)
     painter.setBrush(Qt.BrushStyle.NoBrush)
+    painter.drawEllipse(QPointF(r * 0.40, -r * 0.04), r * 0.08, r * 0.08)
 
 
 def _draw_people(painter: QPainter, r: float, ink: QColor) -> None:
+    """Head and shoulders. Not two nested rings."""
     fill = QColor(ink)
     _fill(painter, fill)
-    painter.drawEllipse(QPointF(0.0, 0.0), r * 0.28, r * 0.28)
+    painter.drawEllipse(QPointF(0.0, -r * 0.44), r * 0.26, r * 0.26)
     _stroke(painter, ink)
-    painter.drawEllipse(QPointF(0.0, 0.0), r * 0.72, r * 0.72)
+    shoulders = QPainterPath()
+    shoulders.moveTo(-r * 0.64, r * 0.82)
+    shoulders.quadTo(-r * 0.58, r * 0.08, 0.0, r * 0.04)
+    shoulders.quadTo(r * 0.58, r * 0.08, r * 0.64, r * 0.82)
+    painter.drawPath(shoulders)
 
 
 def _draw_radar(painter: QPainter, r: float) -> None:
-    diamond = QPolygonF(
-        [
-            QPointF(0.0, -r * 0.78),
-            QPointF(r * 0.72, 0.0),
-            QPointF(0.0, r * 0.78),
-            QPointF(-r * 0.72, 0.0),
-        ]
-    )
-    painter.drawPolygon(diamond)
+    """Dish on a stem — a sweep, not a diamond."""
+    _line(painter, 0.0, r * 0.86, 0.0, r * 0.04)
+    _line(painter, -r * 0.24, r * 0.86, r * 0.24, r * 0.86)
+    painter.drawArc(QRectF(-r * 0.72, -r * 0.78, r * 1.44, r * 1.20), 20 * 16, 140 * 16)
+    painter.drawArc(QRectF(-r * 0.46, -r * 0.52, r * 0.92, r * 0.80), 28 * 16, 124 * 16)
+    _line(painter, 0.0, r * 0.04, r * 0.52, -r * 0.36)
 
 
 def _draw_quakes(painter: QPainter, r: float, detail: int, mag: float | None) -> None:
+    """Four-point burst sized by magnitude. Not a sun-ring."""
     m = 4.0 if mag is None else max(1.0, min(9.0, float(mag)))
-    rad = r * (0.42 + 0.06 * m)
-    painter.drawEllipse(QPointF(0.0, 0.0), rad, rad)
+    rad = r * (0.52 + 0.05 * m)
+    star = QPolygonF(
+        [
+            QPointF(0.0, -rad),
+            QPointF(rad * 0.20, -rad * 0.20),
+            QPointF(rad, 0.0),
+            QPointF(rad * 0.20, rad * 0.20),
+            QPointF(0.0, rad),
+            QPointF(-rad * 0.20, rad * 0.20),
+            QPointF(-rad, 0.0),
+            QPointF(-rad * 0.20, -rad * 0.20),
+        ]
+    )
+    painter.drawPolygon(star)
     if detail >= 3:
-        painter.drawEllipse(QPointF(0.0, 0.0), rad * 0.55, rad * 0.55)
+        painter.drawEllipse(QPointF(0.0, 0.0), rad * 0.16, rad * 0.16)
 
 
 def _draw_fires(painter: QPainter, r: float, ink: QColor) -> None:
-    """Ember: teardrop, readable down to 8px. Not a speck."""
+    """Flame, readable down to 8px. Not a speck."""
     path = QPainterPath()
-    path.moveTo(0.0, -r * 0.86)
-    path.quadTo(-r * 0.78, -r * 0.08, -r * 0.52, r * 0.38)
-    path.quadTo(-r * 0.18, r * 0.86, 0.0, r * 0.70)
-    path.quadTo(r * 0.18, r * 0.86, r * 0.52, r * 0.38)
-    path.quadTo(r * 0.78, -r * 0.08, 0.0, -r * 0.86)
+    path.moveTo(0.0, -r * 0.90)
+    path.quadTo(-r * 0.72, -r * 0.16, -r * 0.50, r * 0.36)
+    path.quadTo(-r * 0.16, r * 0.90, 0.0, r * 0.68)
+    path.quadTo(r * 0.16, r * 0.90, r * 0.50, r * 0.36)
+    path.quadTo(r * 0.72, -r * 0.16, 0.0, -r * 0.90)
     painter.drawPath(path)
     core = QColor(ink)
     _fill(painter, core)
-    painter.drawEllipse(QPointF(0.0, r * 0.28), r * 0.16, r * 0.16)
+    painter.drawEllipse(QPointF(0.0, r * 0.26), r * 0.16, r * 0.18)
     _stroke(painter, ink)
 
 
 def _draw_weather(painter: QPainter, r: float, detail: int) -> None:
-    tri = QPolygonF(
-        [
-            QPointF(0.0, -r * 0.72),
-            QPointF(r * 0.70, r * 0.52),
-            QPointF(-r * 0.70, r * 0.52),
-        ]
-    )
-    painter.drawPolygon(tri)
-    if detail >= 3:
-        _line(painter, 0.0, r * 0.56, 0.0, r * 0.86)
+    """Cloud, plus rain ticks when there is room."""
+    painter.drawEllipse(QPointF(-r * 0.28, r * 0.04), r * 0.36, r * 0.28)
+    painter.drawEllipse(QPointF(r * 0.24, r * 0.08), r * 0.32, r * 0.26)
+    painter.drawEllipse(QPointF(0.0, -r * 0.18), r * 0.40, r * 0.30)
+    if detail >= 2:
+        for x in (-0.30, 0.0, 0.30):
+            _line(painter, r * x, r * 0.38, r * x - r * 0.08, r * 0.70)
 
 
 def _draw_radio(painter: QPainter, r: float, detail: int) -> None:
-    _line(painter, 0.0, -r * 0.86, 0.0, r * 0.82)
-    _line(painter, -r * 0.58, -r * 0.42, r * 0.58, -r * 0.42)
+    """Mast with radiating arcs."""
+    _line(painter, 0.0, r * 0.88, 0.0, -r * 0.18)
+    painter.drawEllipse(QPointF(0.0, -r * 0.28), r * 0.10, r * 0.10)
+    painter.drawArc(QRectF(-r * 0.38, -r * 0.64, r * 0.76, r * 0.72), 40 * 16, 100 * 16)
     if detail >= 2:
-        _line(painter, -r * 0.36, -r * 0.08, r * 0.36, -r * 0.08)
+        painter.drawArc(QRectF(-r * 0.60, -r * 0.86, r * 1.20, r * 1.16), 40 * 16, 100 * 16)
 
 
 def _draw_traffic(painter: QPainter, r: float) -> None:
-    _line(painter, -r * 0.88, 0.0, r * 0.88, 0.0)
-    _line(painter, 0.0, -r * 0.22, 0.0, r * 0.22)
-    _line(painter, r * 0.52, -r * 0.18, r * 0.88, 0.0)
-    _line(painter, r * 0.52, r * 0.18, r * 0.88, 0.0)
+    """Car from above: body, glass, wheels."""
+    painter.drawRoundedRect(QRectF(-r * 0.36, -r * 0.74, r * 0.72, r * 1.46), 3.0, 3.0)
+    painter.drawRect(QRectF(-r * 0.24, -r * 0.40, r * 0.48, r * 0.24))
+    painter.drawRect(QRectF(-r * 0.22, r * 0.10, r * 0.44, r * 0.20))
+    for sx, sy in ((-0.46, -0.36), (0.46, -0.36), (-0.46, 0.38), (0.46, 0.38)):
+        painter.drawEllipse(QPointF(r * sx, r * sy), r * 0.10, r * 0.16)
 
 
 def _draw_sites(painter: QPainter, r: float) -> None:
-    _line(painter, -r * 0.58, 0.0, -r * 0.12, 0.0)
-    _line(painter, r * 0.12, 0.0, r * 0.58, 0.0)
-    _line(painter, 0.0, -r * 0.58, 0.0, -r * 0.12)
-    _line(painter, 0.0, r * 0.12, 0.0, r * 0.58)
+    """Map pin. Not a plus / crosshair."""
+    pin = QPainterPath()
+    pin.moveTo(0.0, r * 0.90)
+    pin.quadTo(-r * 0.70, r * 0.12, -r * 0.40, -r * 0.28)
+    pin.arcTo(QRectF(-r * 0.40, -r * 0.88, r * 0.80, r * 0.80), 180, -180)
+    pin.quadTo(r * 0.70, r * 0.12, 0.0, r * 0.90)
+    painter.drawPath(pin)
+    painter.drawEllipse(QPointF(0.0, -r * 0.46), r * 0.18, r * 0.18)
 
 
 def _draw_stale(painter: QPainter, r: float) -> None:

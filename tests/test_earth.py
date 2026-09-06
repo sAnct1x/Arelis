@@ -2620,6 +2620,173 @@ def test_heading_of_reads_track_heading_and_cog() -> None:
     assert heading_of(SimpleNamespace(meta={})) is None
 
 
+def test_marks_read_as_their_kind(qt_app) -> None:
+    """Boats, cameras, and quakes are not a ring / square / chevron."""
+    import hashlib
+
+    from PySide6.QtCore import Qt
+    from PySide6.QtGui import QColor, QImage, QPainter, QPen
+
+    from arelis.ui.earth_marks import mark_digest, mark_image
+
+    def digest_of(draw) -> str:
+        img = QImage(64, 64, QImage.Format.Format_ARGB32)
+        img.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(img)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.setPen(QPen(QColor("#ff7a22"), 2.0))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        draw(painter)
+        painter.end()
+        return hashlib.sha256(bytes(img.constBits())).hexdigest()
+
+    ring = digest_of(
+        lambda p: p.drawEllipse(20, 20, 24, 24)
+    )
+    square = digest_of(lambda p: p.drawRect(18, 18, 28, 28))
+    assert mark_digest("quakes", band="city") != ring
+    assert mark_digest("cameras", band="city") != square
+    assert mark_digest("vessels", band="city") != mark_digest("flights", band="city")
+    assert mark_digest("satellites", band="city") != mark_digest("iss", band="city")
+    boat = mark_image("vessels", band="city", size=22)
+    plane = mark_image("flights", band="city", size=22)
+    cam = mark_image("cameras", band="city", size=22)
+    assert _opaque_pixels(boat) > 40
+    assert _opaque_pixels(plane) > 40
+    assert _opaque_pixels(cam) > 40
+
+
+def test_city_visible_drops_far_quakes() -> None:
+    from arelis.earth.entity import Entity
+    from arelis.earth.lod import look_bbox
+
+    earth = EarthRuntime()
+    earth.enter(unix=1.0)
+    earth.layers["quakes"] = True
+    ohio = lla_to_ecef(40.0, -83.0, 0.0)
+    far = lla_to_ecef(-30.63, 106.20, 0.0)
+    earth.store.upsert(
+        Entity(
+            id="quake:ohio",
+            cls="quake",
+            layer="quakes",
+            label="M3.6",
+            x=ohio[0],
+            y=ohio[1],
+            z=ohio[2],
+            freshness="live",
+            meta={"lat": 40.0, "lon": -83.0, "mag": 3.6},
+        )
+    )
+    earth.store.upsert(
+        Entity(
+            id="quake:far",
+            cls="quake",
+            layer="quakes",
+            label="M6.5",
+            x=far[0],
+            y=far[1],
+            z=far[2],
+            freshness="live",
+            meta={"lat": -30.63, "lon": 106.20, "mag": 6.5},
+        )
+    )
+    earth.last_view = EarthView(
+        "city",
+        alt_m=2300.0,
+        lat=39.96,
+        lon=-83.00,
+        bbox=look_bbox(39.96, -83.00, "city"),
+    )
+    ids = {e.id for e in earth.visible()}
+    assert "quake:ohio" in ids
+    assert "quake:far" not in ids
+
+
+def test_globe_ride_stays_off_ground_marks() -> None:
+    from arelis.ui.panels.solar_earth import (
+        CITY_LOOK_ALT_M,
+        earth_entity_look_alt_m,
+        globe_ride_layer,
+    )
+
+    assert globe_ride_layer("cameras") is True
+    assert globe_ride_layer("flights") is True
+    assert globe_ride_layer("quakes") is False
+    assert globe_ride_layer("sites") is False
+    assert globe_ride_layer("vessels") is True
+    assert earth_entity_look_alt_m("quakes") == CITY_LOOK_ALT_M
+    assert earth_entity_look_alt_m("cameras") == 1_200.0
+
+
+def test_layer_chips_leave_room_for_the_mark(qt_app) -> None:
+    from PySide6.QtGui import QFont, QFontMetrics
+
+    from arelis.ui.earth_chrome import CHIP_ICON_PAD, chip_icon_pad
+    from arelis.ui.earth_overlay import layout_earth_chips
+
+    assert chip_icon_pad("flights") == CHIP_ICON_PAD
+    assert chip_icon_pad("live") == 0
+    fm = QFontMetrics(QFont("Segoe UI", 10))
+    hits, box = layout_earth_chips(fm, 16, 80, 440)
+    kinds = {kind: rect for kind, rect in hits}
+    assert "flights" in kinds
+    assert kinds["flights"].width() > fm.horizontalAdvance("Flights") + 16
+    assert not box.isEmpty()
+
+
+def test_earth_dblclick_on_globe_flies_to_quake(
+    qt_app, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from PySide6.QtCore import QEvent, QPointF, Qt
+    from PySide6.QtGui import QMouseEvent
+
+    from arelis.earth.entity import Entity
+    from arelis.ui.panels.solar import SolarPanel
+
+    _mute_live(monkeypatch)
+    earth = EarthRuntime()
+    earth.enter(unix=1.0)
+    set_earth(earth)
+    ecef = lla_to_ecef(40.0, -83.0, 0.0)
+    hit = Entity(
+        id="quake:ohio",
+        cls="quake",
+        layer="quakes",
+        label="M3.6",
+        x=ecef[0],
+        y=ecef[1],
+        z=ecef[2],
+        freshness="live",
+        meta={"lat": 40.0, "lon": -83.0},
+    )
+    earth.store.upsert(hit)
+    panel = SolarPanel()
+    panel.resize(640, 480)
+    flew: list[str] = []
+    monkeypatch.setattr(panel, "_earth_globe_live", lambda: True)
+    monkeypatch.setattr(panel, "_chrome_covers", lambda *_a: False)
+    monkeypatch.setattr(
+        panel, "_fly_to_earth_entity", lambda ent: flew.append(ent.id)
+    )
+    monkeypatch.setattr("arelis.ui.panels.solar.get_system", lambda: object())
+    monkeypatch.setattr("arelis.ui.panels.solar.hit_entity", lambda *_a, **_k: hit)
+    pos = QPointF(200, 200)
+    event = QMouseEvent(
+        QEvent.Type.MouseButtonDblClick,
+        pos,
+        pos,
+        Qt.MouseButton.LeftButton,
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier,
+    )
+    panel.mouseDoubleClickEvent(event)
+    assert flew == ["quake:ohio"]
+    assert earth.ride_id == ""
+    assert earth.track_id == "quake:ohio"
+    panel.hide()
+
+
 def _opaque_pixels(img) -> int:
     n = 0
     for y in range(img.height()):

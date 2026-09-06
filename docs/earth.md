@@ -19,6 +19,12 @@ invent coverage that isn't there — completeness is treated as the
 anti-beacon here, meaning we'd rather leave a region visibly sparse
 than quietly thin it out to hide a gap.
 
+The 2026-08 concept thread (zone not title, labeled sim, live
+replaces, holes stay holes) is closed. This page and `feeds.FEEDS`
+are the contract. Stretch 1–8 of that year spine are in the tree.
+Later / out rows stay listed below — they are refusals, not leftover
+build. Do not reopen that chat to decide a host.
+
 ## What it actually is
 
 A zone layered onto the existing Earth globe, inside Reality.
@@ -93,13 +99,12 @@ Every marker on the map speaks the same visual language as the rest
 of Reality — one shared factory (`arelis/ui/earth_marks.py`) handles
 Qt, Cesium billboards, the inspect card, and the solar-system roster
 alike. Aircraft and ship hulls carry their heading right in the glyph
-itself (a chevron or hull shape, with the nose pointing along the
-track). Satellites read as a body with panels; radio sources as a
-mast; fires as an ember shape. The ISS keeps its distinctive
-ring-plus-arrays look, cameras get a square, drones a box, people a
-double ring, radar a diamond, earthquakes an open circle sized by
-magnitude, weather a triangle, traffic a flow bar, and incident sites
-an open plus sign. Tracks that are being dead-reckoned (rather than
+itself (a plane or ship silhouette, nose along the
+track). Satellites read as a bus with solar wings; radio as a
+mast with arcs; fires as a flame. The ISS is a truss with four
+arrays, cameras a body-and-lens, drones a quadcopter, people a
+head and shoulders, radar a dish, earthquakes a burst sized by
+magnitude, weather a cloud, traffic a car, and sites a map pin. Tracks that are being dead-reckoned (rather than
 freshly reported) get a dashed ring; stale tracks get a slash through
 them. Solar-system bodies — stars, planets, moons, asteroids, probes,
 Lagrange points — use that same stroke family and theme color, not
@@ -153,10 +158,11 @@ FDSN (magnitude 2+, depth included when published), and GeoNet NZ.
 
 Every entity carries a freshness indicator. Enter Earth takes one
 published snapshot for the current band (and one more the first time
-you drop into a closer band), then air and ships coast from the last
-fix — no one-hertz poll. Leave clears the store; re-enter refetches.
-The Live chip is “keep pulling while you stay” (TTL and look-box
-walk). Pytest never hits the network. If a feed fails, that layer
+you drop into a closer band), then turns Live on so air and ships
+refresh on TTL while tracks coast — no one-hertz poll. Leave clears
+the store and Live; re-enter refetches. The Live chip is “keep
+pulling while you stay” (TTL and look-box walk). You can turn it
+off; then the last published fix coasts. Pytest never hits the network. If a feed fails, that layer
 stays simulated rather than going blank. Aircraft and ships with a
 known velocity are tagged dead-reckoned after 90 seconds without an
 update, then stale after 15 minutes. Satellites stay at their last

@@ -117,8 +117,10 @@ def layout_earth_chips(
             band = z.last_view.band
     except Exception:
         band = ""
+    from arelis.ui.earth_chrome import chip_icon_pad
+
     for kind, label in earth_chip_items(band):
-        w = fm.horizontalAdvance(label) + 16
+        w = fm.horizontalAdvance(label) + 16 + chip_icon_pad(kind)
         if x > inner_left and x + w > inner_right:
             x = inner_left
             y += _CHIP_H + _CHIP_GAP

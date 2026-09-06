@@ -53,7 +53,8 @@ def _grain(alt_m: float) -> str:
 def cache_key(lat: float, lon: float, band: str, *, alt_m: float = 0.0) -> str:
     return (
         f"{band}_{_grain(alt_m)}_"
-        f"{round(float(lat), 2):.2f}_{round(float(lon), 2):.2f}"
+        f"{round(float(lat) * 20.0) / 20.0:.2f}_"
+        f"{round(float(lon) * 20.0) / 20.0:.2f}"
     )
 
 

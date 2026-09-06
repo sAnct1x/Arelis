@@ -480,7 +480,9 @@ def paint_earth_toggles(panel, painter: QPainter) -> None:
     band = zone.last_view.band if zone.last_view is not None else ""
     labels = dict(earth_chip_items(band))
     panel._paint_plate(painter, box, radius=6)
-    from arelis.ui.earth_chrome import paint_band_type, paint_live_chip
+    from arelis.earth.entity import LAYER_IDS
+    from arelis.ui.earth_chrome import paint_band_type, paint_layer_chip, paint_live_chip
+    from arelis.ui.earth_overlay import _ink
 
     for kind, rect in hits:
         if kind == "band":
@@ -498,6 +500,16 @@ def paint_earth_toggles(panel, painter: QPainter) -> None:
             if kind == "buildings"
             else bool(zone.layers.get(kind, False))
         )
+        if kind in LAYER_IDS:
+            paint_layer_chip(
+                painter,
+                rect,
+                kind,
+                labels.get(kind, kind),
+                on=on,
+                ink=_ink(kind, freshness="live"),
+            )
+            continue
         panel._paint_chip(painter, rect, labels.get(kind, kind), on=on)
     y = box.bottom() + 6
     left = box.left()
@@ -1404,10 +1416,10 @@ def paint_tools(panel, painter: QPainter) -> None:
         painter.drawEllipse(QPoint(x0 + i * gap, cy), 2, 2)
     if not panel._tools_open:
         return
-    panel = panel._tools_rect()
+    box = panel._tools_rect()
     painter.setBrush(_wash("glass_fill", 236))
     painter.setPen(QPen(color("edge"), 1))
-    painter.drawRoundedRect(panel, 6, 6)
+    painter.drawRoundedRect(box, 6, 6)
     captions = {
         kind: (label, hint)
         for kind, label, hint in (*SOLAR_OVERLAY, *SOLAR_SPAWN)

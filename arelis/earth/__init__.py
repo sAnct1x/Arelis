@@ -5,6 +5,9 @@ to any body. Enter appears after you arrive at Earth — the zone
 door. Closer bands reveal more.
 Leave Earth returns to heliocentric. Breadcrumb for the next agent:
 
+- Concept closed (2026-09-05): the 2026-08 zone plan is this package.
+  Archive that chat. Do not name the zone. Room id stays physics.
+  Source of truth: docs/earth.md + feeds.FEEDS.
 - Now: feeds.FEEDS is 109 shipped / 25 keyed / 3 later / 4 out.
   Distance-gated live (`lod.py`): space=sats, approach keeps sats and
   opens planes, near adds boats, city opens ground catalogs. Streets
@@ -63,7 +66,7 @@ Leave Earth returns to heliocentric. Breadcrumb for the next agent:
   HUD, no leftover solar frame). Qt overlay (`earth_overlay.py`) is
   HUD + fallback disc. City look is 8 km AGL (city band). Do not
   delete the WebEngine host.
-- Canvases: earth-hub, earth-layers, earth-runtime, earth-build.
+- Canvas close-out: reality-vs-concept (concept chat archived).
   Plate polish: arelis/earth/copy.py, goto.py, key_paste.py,
   arelis/ui/earth_find.py, earth_chrome.py. Status is a sentence.
   Find is on the plate. Say take me to Tokyo or a street address.

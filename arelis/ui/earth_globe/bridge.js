@@ -135,6 +135,26 @@
     c.inertiaSpin = 0;
     c.inertiaTranslate = 0.3;
     c.inertiaZoom = 0.3;
+    c.minimumZoomDistance = 200;
+  }
+
+  function pickedMarkId(click) {
+    if (!viewer || !click) return "";
+    var picked = viewer.scene.pick(click.position);
+    if (!Cesium.defined(picked) || !picked.id || !picked.id.id) return "";
+    var id = String(picked.id.id);
+    if (id === "arelis:ground-pin"
+        || id.indexOf("place:") === 0 || id.indexOf("bldg:") === 0
+        || id.indexOf("road:") === 0 || id.indexOf(":mark-overlay") >= 0) {
+      return "";
+    }
+    return id;
+  }
+
+  function markCarto(entity) {
+    if (!entity || !entity.position) return undefined;
+    var cart = entity.position.getValue(Cesium.JulianDate.now());
+    return cart ? Cesium.Cartographic.fromCartesian(cart) : undefined;
   }
 
   function applyNudge(payload) {
@@ -345,7 +365,6 @@
       viewer.imageryLayers.remove(osmLayer);
       osmLayer = null;
     }
-    syncPhotoreal(currentAlt());
     viewer.scene.requestRender();
   }
 
@@ -548,8 +567,15 @@
   function wantLabel(row) {
     if (!row || !row.label) return false;
     if (row.hot || row.layer === "iss") return true;
-    if (row.layer === "satellites") return row.band !== "space";
+    if (row.layer === "satellites") return false;
     return row.band === "city";
+  }
+
+  function labelDepth(row) {
+    if (row.layer === "satellites" || row.layer === "iss") {
+      return orbitalDepth(row);
+    }
+    return 0;
   }
 
   function lookHit(pt) {
@@ -710,7 +736,7 @@
             style: Cesium.LabelStyle.FILL_AND_OUTLINE,
             pixelOffset: new Cesium.Cartesian2(12, -12),
             show: wantLabel(row),
-            disableDepthTestDistance: Number.POSITIVE_INFINITY
+            disableDepthTestDistance: labelDepth(row)
           }
         });
         entities[row.id] = ent;
@@ -720,6 +746,7 @@
         if (ent.label) {
           ent.label.text = row.label || "";
           ent.label.show = wantLabel(row);
+          ent.label.disableDepthTestDistance = labelDepth(row);
         }
       }
       var oid = row.id + ":mark-overlay";
@@ -813,7 +840,12 @@
         roll: 0
       },
       duration: flySeconds(fromAlt, pose.alt, dlat, dlon),
-      easingFunction: Cesium.EasingFunction.QUADRATIC_IN_OUT
+      easingFunction: Cesium.EasingFunction.QUADRATIC_IN_OUT,
+      complete: function () {
+        pushing = false;
+        lastEmit = 0;
+        emitCamera(true);
+      }
     });
   }
 
@@ -832,17 +864,20 @@
     } catch (err) {}
   }
 
-  function emitCamera() {
-    if (!viewer || pushing || !bridge) return;
+  function emitCamera(force) {
+    if (!viewer || !bridge) return;
+    if (!force && pushing) return;
     var now = Date.now();
-    if (now - lastEmit < 120) return;
+    if (!force && now - lastEmit < 120) return;
     lastEmit = now;
     var carto = viewer.camera.positionCartographic;
     if (!carto) return;
     var alt = carto.height;
     viewer.scene.fog.enabled = alt < 400000;
     dressLighting(alt);
-    syncPhotoreal(alt);
+    if (wantPhotoreal(alt) !== !!tileset) {
+      syncPhotoreal(alt);
+    }
     bridge.cameraMoved(JSON.stringify({
       lat: Cesium.Math.toDegrees(carto.latitude),
       lon: Cesium.Math.toDegrees(carto.longitude),
@@ -901,16 +936,30 @@
       window.addEventListener("keyup", function (ev) {
         hoseKey(ev, false);
       }, true);
+      viewer.screenSpaceEventHandler.removeInputAction(
+        Cesium.ScreenSpaceEventType.LEFT_DOUBLE_CLICK
+      );
       viewer.screenSpaceEventHandler.setInputAction(function (click) {
-        var picked = viewer.scene.pick(click.position);
-        if (Cesium.defined(picked) && picked.id && picked.id.id && bridge) {
-          var id = String(picked.id.id);
-          if (id !== "arelis:ground-pin"
-              && id.indexOf("place:") !== 0 && id.indexOf("bldg:") !== 0
-              && id.indexOf("road:") !== 0 && id.indexOf(":mark-overlay") < 0) {
-            bridge.picked(id);
-            return;
+        var id = pickedMarkId(click);
+        if (id && bridge) {
+          var picked = viewer.scene.pick(click.position);
+          var carto = picked && picked.id ? markCarto(picked.id) : undefined;
+          if (carto) {
+            flyTo({
+              lat: Cesium.Math.toDegrees(carto.latitude),
+              lon: Cesium.Math.toDegrees(carto.longitude),
+              alt_m: 8000
+            });
           }
+          if (bridge.picked) bridge.picked(id);
+          return;
+        }
+      }, Cesium.ScreenSpaceEventType.LEFT_DOUBLE_CLICK);
+      viewer.screenSpaceEventHandler.setInputAction(function (click) {
+        var id = pickedMarkId(click);
+        if (id && bridge) {
+          bridge.picked(id);
+          return;
         }
         if (!bridge || !bridge.groundPicked) return;
         var ray = viewer.camera.getPickRay(click.position);
@@ -938,6 +987,10 @@
         }));
       }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
       viewer.camera.changed.addEventListener(emitCamera);
+      viewer.camera.moveEnd.addEventListener(function () {
+        lastEmit = 0;
+        emitCamera(true);
+      });
       applyStack(stack);
       if (bridge) bridge.ready(lastKind || stack.kind);
       lastEmit = 0;

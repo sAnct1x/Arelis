@@ -12,6 +12,7 @@ from arelis.earth.entity import Entity
 from arelis.earth.lod import (
     EarthView,
     adapters_due,
+    filter_to_view,
     ground_buildings_on,
     ground_streets_on,
     look_shifted,
@@ -226,7 +227,9 @@ class EarthRuntime:
             self.buildings = False
         if view is None:
             return
-        if self.tiles:
+        if self.tiles and (
+            (now_s and not was_s) or look_shifted(prev, view)
+        ):
             try:
                 from arelis.earth.roads import roads_for_view
 
@@ -294,7 +297,8 @@ class EarthRuntime:
             and e.layer in wanted
             and self._paint_contact(e)
         ]
-        return tuple(organize(hits, self.last_view))
+        view = self.last_view
+        return tuple(organize(filter_to_view(hits, view), view))
 
     def _paint_contact(self, entity: Entity) -> bool:
         """Drawn air/sea wait for a published fix. Pytest keeps the sim sky."""

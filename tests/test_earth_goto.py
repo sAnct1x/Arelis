@@ -239,3 +239,12 @@ def test_nav_range_waits_for_cesium() -> None:
     assert nav_range_m(SimpleNamespace(_earth_agl_m=None, _earth_nadir_m=0)) is None
     assert nav_range_m(SimpleNamespace(_earth_agl_m=2400.0, _earth_nadir_m=None)) == 2400.0
     assert nav_range_m(SimpleNamespace(_earth_agl_m=2400.0, _earth_nadir_m=1800.0)) == 1800.0
+    from arelis.earth.frames import lla_to_ecef
+
+    dest = SimpleNamespace(eye=lla_to_ecef(39.29, -76.61, 8_000.0))
+    stale = SimpleNamespace(
+        _earth_agl_m=46_567_000.0,
+        _earth_nadir_m=46_567_000.0,
+        _earth_cam=dest,
+    )
+    assert nav_range_m(stale) == pytest.approx(8_000.0, rel=0.05)

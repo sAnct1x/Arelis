@@ -689,10 +689,12 @@ def paint_saturn_rings(panel, painter: QPainter, body: BodyView) -> None:
 
 
 def paint_heliocentric_orbits(panel, painter: QPainter, system: SolarSystem) -> None:
-    """Osculating ellipses. Not trails, not a radius cheat."""
+    """Osculating ellipses. Not trails, not a radius cheat.
+
+    Placeholder IC still draws the rings — the HUD already says they are
+    not Horizons. Hiding them at 40 AU left a field of names.
+    """
     inspect = panel._inspect
-    if system.is_placeholder_ic() and not inspect:
-        return
     close = panel._close_globe()
     for body in system.views():
         if body.tracer or body.name == "Sun":
@@ -702,8 +704,6 @@ def paint_heliocentric_orbits(panel, painter: QPainter, system: SolarSystem) -> 
         if body.kind not in {"planet", "asteroid", "moon"}:
             continue
         if close and body.parent != inspect:
-            continue
-        if system.is_placeholder_ic() and body.name != inspect and body.parent != inspect:
             continue
         r, v, mu, _about, origin = system.about(body)
         el = osculating(r, v, mu)

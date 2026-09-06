@@ -509,6 +509,12 @@ def test_f_does_not_spawn_a_craft(qt_app) -> None:
 
 
 def test_tools_tray_is_a_readable_list(qt_app) -> None:
+    from PySide6.QtGui import QImage, QPainter
+
+    from arelis.physics.demo import circular_system
+    from arelis.physics.engine import rebound_available
+    from arelis.physics.scene import SolarSystem
+
     panel = SolarPanel()
     panel.resize(640, 480)
     panel._tools_open = True
@@ -517,6 +523,48 @@ def test_tools_tray_is_a_readable_list(qt_app) -> None:
     assert SOLAR_SPAWN[0][0] == "probe"
     assert "craft" not in {kind for kind, _label, _hint in SOLAR_SPAWN}
     assert "maps" not in {kind for kind, _label, _hint in SOLAR_SPAWN}
+    kinds = [kind for kind, _rect in panel._chip_rects()]
+    assert "gravity" in kinds and "probe" in kinds
+    if rebound_available():
+        set_system(
+            SolarSystem.from_states(
+                circular_system(),
+                tracers=0,
+                epoch_tdb="Placeholder orbits, not Horizons.",
+            )
+        )
+        frame = QImage(640, 480, QImage.Format.Format_ARGB32)
+        painter = QPainter(frame)
+        panel._paint_tools(painter)
+        painter.end()
+    panel.hide()
+
+
+def test_placeholder_orbits_paint_at_overview(qt_app) -> None:
+    from PySide6.QtGui import QImage, QPainter
+
+    from arelis.physics.demo import circular_system
+    from arelis.physics.engine import rebound_available
+    from arelis.physics.scene import SolarSystem
+    from arelis.ui.panels.solar_paint import paint_heliocentric_orbits
+
+    if not rebound_available():
+        pytest.skip("REBOUND is not installed")
+    system = SolarSystem.from_states(
+        circular_system(),
+        tracers=0,
+        epoch_tdb="Placeholder orbits, not Horizons.",
+    )
+    assert system.is_placeholder_ic() is True
+    set_system(system)
+    panel = SolarPanel()
+    panel.resize(960, 720)
+    panel._inspect = None
+    panel._begin_view(system)
+    frame = QImage(960, 720, QImage.Format.Format_ARGB32)
+    painter = QPainter(frame)
+    paint_heliocentric_orbits(panel, painter, system)
+    painter.end()
     panel.hide()
 
 

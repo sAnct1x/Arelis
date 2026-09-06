@@ -899,13 +899,20 @@ class SolarPanel(SolarEarthMixin, QWidget):
             if self._chrome_covers(int(px), int(py)):
                 event.accept()
                 return
+            globe = self._earth_globe_live()
             system = get_system()
             if system is not None:
                 hit = hit_entity(self, system, px, py)
                 if hit is not None:
-                    self._select_earth_entity(hit, ride=True)
+                    ride = (not globe) or hit.layer == "cameras"
+                    self._select_earth_entity(hit, ride=ride)
+                    if globe and not ride:
+                        self._fly_to_earth_entity(hit)
                     event.accept()
                     return
+            if globe:
+                event.accept()
+                return
             name = self._body_at(px, py)
             if name:
                 self._travel_to(name)

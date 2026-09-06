@@ -36,6 +36,25 @@ def earth_zoom_factor(delta: float) -> float:
 CITY_LOOK_ALT_M = 8_000.0
 # Street address: a few blocks, names readable. Above the 200 m camera floor.
 STREET_LOOK_ALT_M = 350.0
+# Ride sits on cameras and moving contacts. Ground pins fly-to instead.
+GLOBE_RIDE_LAYERS = frozenset(
+    {"cameras", "flights", "drones", "military", "vessels", "iss"}
+)
+
+
+def globe_ride_layer(layer: str) -> bool:
+    return str(layer or "") in GLOBE_RIDE_LAYERS
+
+
+def earth_entity_look_alt_m(layer: str) -> float:
+    """Nadir height after a ground-mark click. Stay out of the ellipsoid."""
+    if layer in {"cameras", "traffic", "people"}:
+        return 1_200.0
+    if layer in {"flights", "drones", "military"}:
+        return 12_000.0
+    if layer in {"iss", "satellites"}:
+        return 80_000.0
+    return CITY_LOOK_ALT_M
 
 
 def earth_goto_alt_m(kind: str) -> float:
@@ -107,6 +126,20 @@ class SolarEarthMixin:
         self._open_earth_look(hit)
         self.update()
 
+    def _fly_to_earth_entity(self, ent) -> None:
+        """Nadir fly to a pin. Do not sit 200 m on a quake."""
+        from arelis.earth.frames import nadir_cam
+        from arelis.earth.lod import entity_lla
+
+        pair = entity_lla(ent)
+        if pair is None:
+            return
+        alt = earth_entity_look_alt_m(getattr(ent, "layer", ""))
+        self._earth_cam = nadir_cam(pair[0], pair[1], alt)
+        self._earth_agl_m = float(alt)
+        self._earth_nadir_m = None
+        self._fly_globe_to(pair[0], pair[1], alt)
+
     def _select_earth_place(self, geo: dict) -> None:
         from arelis.earth.frames import EarthCam, nadir_cam
         from arelis.earth.runtime import get_earth
@@ -127,6 +160,8 @@ class SolarEarthMixin:
         self._earth_cam = dest if self._earth_globe_live() else start
         if self._fly_globe_to(float(geo["lat"]), float(geo["lon"]), alt):
             self._earth_fly = None
+            self._earth_agl_m = float(alt)
+            self._earth_nadir_m = None
             self.update()
             return
         self._earth_fly = {"start": start, "end": dest, "t": 0.0, "dur": 1.2}
@@ -180,6 +215,8 @@ class SolarEarthMixin:
         self._earth_fly = None
         self._earth_id = None
         self._place = None
+        self._globe_aimed = None
+        self._globe_rode = None
         self._earth_agl_m = None
         self._earth_mpp = None
         self._earth_nadir_m = None
@@ -936,6 +973,13 @@ class SolarEarthMixin:
         if ent is None:
             return
         if self._earth_globe_live():
+            if not globe_ride_layer(getattr(ent, "layer", "")):
+                if getattr(self, "_globe_rode", None) != ent.id:
+                    self._fly_to_earth_entity(ent)
+                    self._globe_rode = ent.id
+                    zone.stop_ride()
+                    zone.track(ent.id)
+                return
             self._globe_follow_ride(ent)
             return
         pose = None
@@ -966,7 +1010,10 @@ class SolarEarthMixin:
         if ent is None:
             return
         if self._earth_globe_live():
-            self._globe_aim_track(ent)
+            tid = zone.track_id
+            if tid and tid != getattr(self, "_globe_aimed", None):
+                self._globe_aim_track(ent)
+                self._globe_aimed = tid
             return
         pose = self._earth_cam
         if pose is None:

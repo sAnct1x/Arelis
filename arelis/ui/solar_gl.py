@@ -26,6 +26,7 @@ from PySide6.QtGui import (
     QOpenGLFunctions,
     QSurfaceFormat,
     QVector3D,
+    QVector4D,
 )
 from PySide6.QtOpenGL import (
     QOpenGLBuffer,
@@ -1411,22 +1412,25 @@ class SolarSpaceView(QOpenGLFunctions):
         )
 
     def _planet_fills_view(self, panel, bodies, eye, fz) -> bool:
-        """True when the inspect globe owns the frame — hide the distant Sun speck."""
-        name = getattr(panel, "_inspect", None)
+        """True when a globe owns the frame — hide the distant Sun speck."""
+        prefer = getattr(panel, "_inspect", None)
         if getattr(panel, "_earth_zone_on", lambda: False)():
-            name = "Earth"
-        if not name or name == "Sun":
-            return False
-        body = next((row for row in bodies if row.name == name), None)
-        if body is None:
-            return False
-        depth = abs(self._cam_z(body, eye, fz))
-        if depth < 1.0:
-            return False
+            prefer = "Earth"
         from arelis.physics.star_look import angular_px
 
-        px = angular_px(body.radius, depth, self._fb_h, panel._fov_y())
-        return px >= 48.0
+        ordered = list(bodies)
+        if prefer:
+            ordered.sort(key=lambda row: 0 if row.name == prefer else 1)
+        for body in ordered:
+            if body.name == "Sun" or body.kind not in {"planet", "moon", "asteroid"}:
+                continue
+            depth = abs(self._cam_z(body, eye, fz))
+            if depth < 1.0:
+                continue
+            px = angular_px(body.radius, depth, self._fb_h, panel._fov_y())
+            if px >= 48.0:
+                return True
+        return False
 
     def _draw_stars(self, view: QMatrix4x4, proj: QMatrix4x4) -> None:
         if self._prog_star is None or self._star_vao is None:
@@ -1459,10 +1463,13 @@ class SolarSpaceView(QOpenGLFunctions):
             return
         depth = max(self._cam_z(body, eye, fz), 1.0)
         true_px = panel._true_px(body.radius, depth)
+        draw_px = panel._screen_radius(body, depth)
         inspect = body.name == panel._inspect
-        if body.name != "Sun" and not inspect and true_px < _SKIP_PX:
+        if body.name != "Sun" and not inspect and draw_px < _SKIP_PX:
             return
         r = body.radius
+        if body.name != "Sun" and true_px > 0.0 and draw_px > true_px:
+            r = body.radius * (draw_px / true_px)
         rel = QVector3D(body.x - eye[0], body.y - eye[1], body.z - eye[2])
         model = self._body_model(body, system, rel, r)
         mvp = proj * view * model
@@ -1718,7 +1725,14 @@ class SolarSpaceView(QOpenGLFunctions):
             extent = min(extent, 0.96)
         aspect = float(self._fb_h) / max(float(self._fb_w), 1.0)
         clip = proj * view
-        ndc = clip.map(sun_p)
+        clip_v = clip.map(QVector4D(sun_p.x(), sun_p.y(), sun_p.z(), 1.0))
+        if clip_v.w() <= 1e-6:
+            return
+        ndc = QVector3D(
+            clip_v.x() / clip_v.w(),
+            clip_v.y() / clip_v.w(),
+            clip_v.z() / clip_v.w(),
+        )
         self.glDisable(_GL_CULL_FACE)
         self.glDisable(_GL_DEPTH_TEST)
         self.glDepthMask(_GL_FALSE)
@@ -1842,8 +1856,6 @@ class SolarSpaceView(QOpenGLFunctions):
             if host is not None:
                 depth = max(self._cam_z(host, eye, fz), 1.0)
                 close = self._panel._true_px(host.radius, depth) >= 48.0
-        if system.is_placeholder_ic() and not inspect:
-            return []
         return [
             b
             for b in views
@@ -1852,11 +1864,6 @@ class SolarSpaceView(QOpenGLFunctions):
             and b.kind in {"planet", "asteroid", "moon"}
             and (b.kind != "moon" or b.name == inspect or (close and b.parent == inspect))
             and not (close and b.parent != inspect)
-            and (
-                not system.is_placeholder_ic()
-                or b.name == inspect
-                or (close and b.parent == inspect)
-            )
         ]
 
     def _rebuild_orbits(self, system, drawn) -> None:
