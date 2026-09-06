@@ -275,9 +275,9 @@ login. Out stays out (sat-AIS, unowned cameras, face index, VIN).
 
 ## 0.2.7
 
-The live board 0.2.6 left open. OCR does not fire SMS, a dropped
-file is readable, and a failed drive does not latch the next ask.
-A new chapter is a new chat. Full notes: [v0.2.7](releases/v0.2.7.md).
+The rest of the house after 0.2.6. Pictures, the desk, mail,
+texts, calendar, and she does the thing you asked. Earth on a
+checkout. Full notes: [v0.2.7](releases/v0.2.7.md).
 
 ## 0.2.6
 
