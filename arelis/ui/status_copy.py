@@ -74,9 +74,15 @@ _ERRANDS: dict[str, str] = {
     "vision": "looking at the image",
     "weather": "checking the weather",
     "web_search": "searching the web",
+    "web_fetch": "fetching the data",
     "workspace": "reading the file",
     "earth": "looking at Earth",
     "solar": "looking at Reality",
+    "catalog": "checking the catalog",
+    "plot": "drawing the chart",
+    "rooms": "looking at rooms",
+    "tile": "opening a panel",
+    "units": "converting units",
 }
 
 # A few tools do more than one thing, and the difference is worth a word. Keyed by
@@ -126,6 +132,27 @@ _BY_ACTION: dict[str, dict[str, str]] = {
         "coverage": "checking Earth coverage",
         "layer": "toggling an Earth layer",
         "status": "looking at Earth",
+    },
+    "rooms": {
+        "list": "looking at rooms",
+        "get": "opening the room",
+        "create": "making a room",
+        "update": "updating the room",
+        "forget": "forgetting the room",
+    },
+    "tile": {
+        "open": "opening a panel",
+        "close": "hiding a panel",
+    },
+    "catalog": {
+        "arxiv": "searching arXiv",
+        "horizons": "asking Horizons",
+        "apod": "getting the astronomy picture",
+        "ads": "searching NASA ADS",
+    },
+    "units": {
+        "convert": "converting units",
+        "constant": "looking up a constant",
     },
 }
 

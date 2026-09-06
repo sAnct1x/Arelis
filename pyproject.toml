@@ -236,9 +236,11 @@ ignore = [
 "arelis/earth/polish_score.py" = ["E501"]
 "arelis/tools/image_polish.py" = ["E501"]
 
-# Permissive on purpose. This is a baseline counter, not a gate. CI does not
-# run mypy yet. `ignore_missing_imports` covers PySide6 / optional extras
-# (voice, spatial, astro) that a `pip install -e ".[dev]"` tree may lack.
+# Permissive on purpose. This is a baseline counter, not a gate. CI runs
+# mypy as a report job and exits 0 (`|| true`); a failing count must not
+# block work that is not a type-fix. `ignore_missing_imports` covers
+# PySide6 / optional extras (voice, spatial, astro) that a
+# `pip install -e ".[dev]"` tree may lack.
 # Do not add --strict here; leaf modules get tightened one directory at a time.
 [tool.mypy]
 python_version = "3.11"

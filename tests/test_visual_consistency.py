@@ -615,3 +615,16 @@ def test_python_files_get_quiet_highlight(qt_app, tmp_path) -> None:
         assert not panel._highlight._on
     finally:
         panel.deleteLater()
+
+
+def test_every_named_tool_has_an_errand() -> None:
+    """A missing line here is 'using catalog' on the glass while she works."""
+    from arelis.core.compact_prompt import _SHORT_DESC
+    from arelis.ui.status_copy import tool_errand
+
+    missing = [
+        name
+        for name in _SHORT_DESC
+        if tool_errand(name) == f"using {name}"
+    ]
+    assert not missing, f"no glass errand for {missing}"

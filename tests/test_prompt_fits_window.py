@@ -89,6 +89,30 @@ def test_static_prompt_stays_under_the_compact_ceiling(parts: dict[str, int]) ->
     )
 
 
+def test_skinny_schemas_do_not_ship_empty_properties() -> None:
+    """A description-only field used to survive as ``{}`` after the strip."""
+    from arelis.core.compact_prompt import skinny_parameters
+
+    assert skinny_parameters(
+        {
+            "type": "object",
+            "properties": {
+                "keep": {"type": "string", "description": "stays"},
+                "hole": {"description": "tabs: index or title"},
+            },
+        }
+    ) == {
+        "type": "object",
+        "properties": {"keep": {"type": "string"}},
+    }
+
+    config = load_config()
+    for tool in build_tool_registry(config).ollama_tools():
+        props = (tool.get("function") or {}).get("parameters", {}).get("properties") or {}
+        empty = [name for name, spec in props.items() if spec == {}]
+        assert not empty, f"{tool['function']['name']} shipped empty properties: {empty}"
+
+
 def test_the_policy_is_the_smaller_half_of_the_prompt(parts: dict[str, int]) -> None:
     """A sanity bound on prose.
 

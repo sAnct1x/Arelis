@@ -57,7 +57,9 @@ class FirstRunDialog(GlassDialog):
         self.add_text(
             "This folder will be created if it does not exist yet. Your "
             "settings, contacts and conversation history are kept separately, "
-            "outside it.",
+            "outside it.\n\n"
+            "Continue, or close this window, accepts this folder. That is "
+            "a decision, not a skip.",
             role="DialogNote",
         )
 

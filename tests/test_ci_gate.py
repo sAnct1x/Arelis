@@ -106,6 +106,18 @@ def test_pytest_has_a_per_test_timeout() -> None:
     assert re.search(r"(?m)^timeout = \d+", text)
 
 
+def test_linux_does_not_construct_the_webengine_host_unless_asked() -> None:
+    """EarthGlobeHost on headless Linux can sit through the thread timeout.
+
+    Deleting this skip to 'get the test back' is how a runner waits six hours.
+    Windows still constructs the host. Opt in on Linux with ARELIS_GLOBE_HOST_TEST.
+    """
+    text = (ROOT / "tests" / "test_globe_stack.py").read_text(encoding="utf-8")
+    assert "ARELIS_GLOBE_HOST_TEST" in text
+    assert "EarthGlobeHost can hang headless Linux" in text
+    assert "test_pytest_constructs_webengine_host" in text
+
+
 def test_no_windows_only_import_at_module_level() -> None:
     """Linux ctypes has no windll. Collection must not die on import."""
     offenders: list[str] = []

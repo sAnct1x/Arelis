@@ -164,6 +164,7 @@ class BrowserTool:
                 "description": "click/find: 1-based result (1 = first)",
             },
             "select": {
+                "type": "string",
                 "description": (
                     "tabs: 0-based index or title substring. "
                     "Close is the current tab only — not a title."

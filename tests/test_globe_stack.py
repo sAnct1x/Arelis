@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import os
+import sys
+
 import pytest
 
 from arelis.earth.globe_stack import (
@@ -465,6 +468,11 @@ def test_earth_hud_is_the_same_sodium_chrome(qt_app) -> None:
     panel.hide()
 
 
+@pytest.mark.timeout(20)
+@pytest.mark.skipif(
+    sys.platform != "win32" and not os.environ.get("ARELIS_GLOBE_HOST_TEST"),
+    reason="EarthGlobeHost can hang headless Linux past pytest-timeout's thread method",
+)
 def test_pytest_constructs_webengine_host(qt_app) -> None:
     if not webengine_available():
         pytest.skip("Qt WebEngine is not installed")

@@ -27,7 +27,10 @@ to send it somewhere.
 There's no sign-up, no analytics, and no crash reports being phoned
 home. Logs live on your disk. Your conversations, contacts, and memory
 are just ordinary files — you can open them, edit them, or delete them
-whenever you want.
+whenever you want. Mail, the phone token, and calendar live in
+`data/secrets.yaml` the same way: plaintext on this machine, gitignored,
+and overridable by environment variables so the file never has to exist.
+The example to copy is in the table below.
 
 She only touches the network when you've asked her to: for a search,
 the weather, mail, a calendar you've connected, or your own phone. The

@@ -209,6 +209,10 @@ class ImageEditTool:
                 ),
             },
             "crop_box": {
+                "type": "array",
+                "items": {"type": "integer"},
+                "minItems": 4,
+                "maxItems": 4,
                 "description": (
                     "Pixel rectangle on the source: left, top, right, bottom. "
                     "An object or four numbers. Must be a valid rectangle inside "

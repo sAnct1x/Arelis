@@ -95,10 +95,21 @@ def skinny_description(name: str, fallback: str = "") -> str:
 
 
 def skinny_parameters(schema: dict[str, Any] | None) -> dict[str, Any]:
-    """Keep types, enums, required, property names. Drop description essays."""
+    """Keep types, enums, required, property names. Drop description essays.
+
+    A property that was only an essay becomes ``{}`` after the strip, which
+    is worse than omitting it — the model sees a named hole with no type.
+    Drop those. Give the field a type in the source schema if it should stay.
+    """
     if not isinstance(schema, dict):
         return {"type": "object", "properties": {}}
-    return _strip_descriptions(schema)
+    stripped = _strip_descriptions(schema)
+    props = stripped.get("properties") if isinstance(stripped, dict) else None
+    if isinstance(props, dict):
+        stripped["properties"] = {
+            key: value for key, value in props.items() if value != {}
+        }
+    return stripped
 
 
 def skinny_ollama_tool(

@@ -6,7 +6,7 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QKeyEvent
-from PySide6.QtWidgets import QDialog
+from PySide6.QtWidgets import QDialog, QLabel
 
 from arelis.ui.dialog import ConfirmDialog, GlassDialog
 from arelis.ui.first_run import FirstRunDialog
@@ -70,5 +70,10 @@ def test_first_run_is_the_same_glass_as_everything_else(qt_app, tmp_path: Path) 
         assert str(tmp_path / "Arelis") in dialog._path_label.text()
         assert dialog._path_label.objectName() == "DialogPath"
         assert dialog.root == tmp_path / "Arelis"
+        notes = " ".join(
+            w.text() for w in dialog.findChildren(QLabel) if w.text()
+        ).lower()
+        assert "close this window" in notes
+        assert "accepts this folder" in notes
     finally:
         dialog.deleteLater()
