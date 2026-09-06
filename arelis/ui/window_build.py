@@ -6,6 +6,7 @@ Mixin on ArelisWindow. Same HWND. Not a second QMainWindow.
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any
 
 from PySide6.QtCore import QRect, Qt, QTimer
@@ -85,6 +86,7 @@ from arelis.ui.stage import StageBackground
 from arelis.ui.surface_report import log_report
 from arelis.ui.theme import (
     GLASS,
+    SHELL,
     apply_theme,
     stylesheet,
     theme_from_config,
@@ -101,10 +103,10 @@ _BUSY_WATCHDOG_MS = 8000
 _THINK_PULSE_MS = 600
 _VOICE_HOTKEY_ECHO_S = 0.12
 
-_PANEL_OUTER = 12
-_PANEL_HALF = 6
-_PANEL_TOP = 12
-_PANEL_BOTTOM = 14
+_PANEL_OUTER = SHELL["outer"]
+_PANEL_HALF = SHELL["half"]
+_PANEL_TOP = SHELL["top"]
+_PANEL_BOTTOM = SHELL["bottom"]
 
 
 def _hide_dock_title(dock: QDockWidget) -> None:
@@ -251,7 +253,9 @@ class WindowBuild:
         self.contacts = ContactsPanel()
         self.notifications = NotificationsPanel()
         self.notify_center = NotificationCenter(config)
-        self.sms_chats = SmsChatRegistry(self)
+        self.sms_chats = SmsChatRegistry(
+            self, persist=not os.environ.get("PYTEST_CURRENT_TEST")
+        )
         self.camera = CameraPanel()
         self.spatial = SpatialHands(self)
         self.spatial.hint.connect(self.camera._set_hint)

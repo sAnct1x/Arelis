@@ -455,11 +455,11 @@ async def enter_room(
         return
 
     if orch.rooms.active is None and store.session_id:
-        parked = store.session_id
-        if fresh and not store._session_has_messages(parked):
-            store.delete_session(parked)
-        else:
-            orch._general_session = parked
+        # The seat they were on this load — including an empty new chat.
+        # Fresh launch used to delete that shell so History did not show
+        # two "new chat" rows; /leave then fell through to a random filled
+        # general thread. Keep the shell so leave can sit back down.
+        orch._general_session = store.session_id
 
     rows: list[dict[str, Any]] = []
     summary = ""
@@ -508,7 +508,11 @@ async def enter_room(
 
 
 async def leave_room(orch: Any) -> None:
-    """Back to the general conversation, and the thread it was on."""
+    """Back to the general conversation you were on this load.
+
+    That includes an empty new chat. A missing park sits on a new empty
+    shell rather than a random filled thread from History.
+    """
     room = orch.rooms.active
     if room is None:
         await orch._say("No room is open.")
@@ -526,14 +530,14 @@ async def leave_room(orch: Any) -> None:
     orch._room_setup = None
     rows: list[dict[str, Any]] = []
     summary = ""
-    target = orch._general_session or store.latest_session_id(
-        room_id="", require_messages=True
-    )
+    target = orch._general_session
     if target and store.open_session(target):
         rows = store.get_messages(target)
         summary = store.get_summary(target)
     else:
-        target = store.start_session()
+        # No parked seat this load (or they deleted it). Sit on an empty
+        # general shell — never a random filled thread from History.
+        target = store.start_or_reuse_empty_session(room_id="")
     orch.memory.hydrate(rows, summary=summary)
     orch._general_session = ""
 

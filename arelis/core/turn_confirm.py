@@ -14,11 +14,64 @@ from arelis.core.loop_helpers import _SKIP_NOTICE, _tool_fail_fingerprint
 from arelis.core.preflight import user_asked_for_browser
 from arelis.core.turn_context import TurnContext
 from arelis.tools.base import confirm_args_blocked
-from arelis.tools.policy import confirm_toggles_for_call
+from arelis.tools.policy import (
+    confirm_toggles_for_call,
+    persist_confirm_off,
+)
 
 SKIP = "skip"
 STOP = "stop"
 RUN = "run"
+
+
+def _clip_confirm_reason(text: str, limit: int = 160) -> str:
+    """Thinking / tool-fail copy must not echo an 8k document body."""
+    clipped = " ".join(str(text).split())
+    if len(clipped) > limit:
+        return clipped[: limit - 1] + "…"
+    return clipped
+
+
+async def _emit_skip_repeat_fail(
+    loop: Any,
+    name: str,
+    call_fp: str,
+    *,
+    messages: list[dict[str, Any]],
+    tool_names: set[str],
+) -> tuple[str, str, str]:
+    notice = (
+        f"[fail:other] Already failed twice with the same "
+        f"{name} arguments this turn; not asking Allow again. "
+        "Change the args or stop."
+    )
+    await loop.bus.publish(
+        Event(
+            EventType.THINKING,
+            {"text": f"phase=confirm skip_repeat_fail  {name}"},
+        )
+    )
+    messages.append(loop._tool_message(name, notice))
+    loop._trace.append(f"{name} skip_repeat_fail")
+    # Do not rebuild ollama_tools. Changing the schema array
+    # busts the prefix cache and the next round pays ~50s to
+    # re-read the persona. fail_counts already drops the call.
+    stop_msg = (
+        f"Stop calling `{name}` with those same arguments — it "
+        "already failed twice this turn."
+    )
+    if (
+        "weather" in loop._expected_tools
+        and "weather" in tool_names
+        and "weather" not in loop.tools_used
+    ):
+        stop_msg += " Call the weather tool for the forecast instead."
+    else:
+        stop_msg += " Use a different tool or answer from what you have."
+    messages.append({"role": "user", "content": stop_msg})
+    if loop._timer is not None:
+        loop._timer.mark("skip_repeat_fail", tool=name, action="drop_tool")
+    return SKIP, "", call_fp
 
 
 async def confirm_call(
@@ -39,59 +92,43 @@ async def confirm_call(
     Returns ``(action, summary, call_fp)``. ``action`` is ``skip`` (next
     call), ``stop`` (break the call loop), or ``run`` (execute).
     """
+    call_fp = _tool_fail_fingerprint(name, args)
     blocked = confirm_args_blocked(name, args)
     if blocked:
+        fail_counts[call_fp] = fail_counts.get(call_fp, 0) + 1
+        clipped = _clip_confirm_reason(blocked)
         await loop.bus.publish(
             Event(
                 EventType.THINKING,
-                {"text": f"phase=confirm blocked  {blocked}"},
+                {"text": f"phase=confirm blocked  {clipped}"},
             )
         )
-        messages.append(loop._tool_message(name, f"[fail:other] {blocked}"))
-        loop._trace.append(f"{name} blocked: {blocked}")
-        return SKIP, "", ""
-
-    call_fp = _tool_fail_fingerprint(name, args)
-    if fail_counts.get(call_fp, 0) >= 2:
-        notice = (
-            f"[fail:other] Already failed twice with the same "
-            f"{name} arguments this turn; not asking Allow again. "
-            "Change the args or stop."
-        )
-        await loop.bus.publish(
-            Event(
-                EventType.THINKING,
-                {"text": f"phase=confirm skip_repeat_fail  {name}"},
-            )
-        )
-        messages.append(loop._tool_message(name, notice))
-        loop._trace.append(f"{name} skip_repeat_fail")
-        # Do not rebuild ollama_tools. Changing the schema array
-        # busts the prefix cache and the next round pays ~50s to
-        # re-read the persona. fail_counts already drops the call.
-        stop_msg = (
-            f"Stop calling `{name}` with those same arguments — it "
-            "already failed twice this turn."
-        )
-        if (
-            "weather" in loop._expected_tools
-            and "weather" in tool_names
-            and "weather" not in loop.tools_used
-        ):
-            stop_msg += (
-                " Call the weather tool for the forecast instead."
-            )
-        else:
-            stop_msg += (
-                " Use a different tool or answer from what you have."
-            )
-        messages.append({"role": "user", "content": stop_msg})
-        if loop._timer is not None:
-            loop._timer.mark(
-                "skip_repeat_fail", tool=name, action="drop_tool"
+        messages.append(loop._tool_message(name, f"[fail:other] {clipped}"))
+        loop._trace.append(f"{name} blocked: {clipped}")
+        if fail_counts[call_fp] >= 2:
+            return await _emit_skip_repeat_fail(
+                loop,
+                name,
+                call_fp,
+                messages=messages,
+                tool_names=tool_names,
             )
         return SKIP, "", call_fp
 
+    if fail_counts.get(call_fp, 0) >= 2:
+        return await _emit_skip_repeat_fail(
+            loop,
+            name,
+            call_fp,
+            messages=messages,
+            tool_names=tool_names,
+        )
+
+    asked = name in loop._expected_tools
+    if name == "browser" and user_asked_for_browser(text):
+        asked = True
+    if loop._look is not None and name in {"ocr", "vision"}:
+        asked = True
     needs = loop.tools.needs_confirm(
         name,
         args,
@@ -109,15 +146,9 @@ async def confirm_call(
             confirm_run=loop.confirm_run,
             allow_writes_this_turn=ctx.allow_writes_this_turn,
         ),
+        asked=asked,
+        ask_is_grant=bool(getattr(loop, "ask_is_grant", True)),
     )
-    if name == "browser" and user_asked_for_browser(text):
-        needs = False
-    if (
-        loop._look is not None
-        and name in {"ocr", "vision"}
-        and loop._look.grant_minted
-    ):
-        needs = False
     if (
         loop._look is not None
         and name in {"ocr", "vision"}
@@ -174,6 +205,9 @@ async def confirm_call(
                 },
             )
         )
+        if decision == "allow_always":
+            persist_confirm_off(loop, name, args)
+            decision = "allow"
         if decision == "allow_turn":
             ctx.allow_writes_this_turn = True
             decision = "allow"

@@ -18,7 +18,8 @@ def test_notification_rows_include_time_and_body(qt_app) -> None:
     assert "Wife" in text
     assert "21:14" in text
     assert "On my way home" in text
-    assert "●" in text
+    assert "●" not in text
+    assert "○" not in text
     assert "\n" in text
 
 
@@ -86,7 +87,7 @@ def test_research_job_double_click_requests_open(qt_app) -> None:
     panel.deleteLater()
 
 
-def test_sms_row_click_requests_chat(qt_app) -> None:
+def test_sms_row_click_activates_the_notice(qt_app) -> None:
     from arelis.notify.center import new_notice
 
     panel = NotificationsPanel()
@@ -98,10 +99,68 @@ def test_sms_row_click_requests_chat(qt_app) -> None:
     )
     panel.set_notices([notice])
     opened: list[str] = []
-    panel.chat_requested.connect(opened.append)
+    chats: list[str] = []
+    panel.notice_activated.connect(opened.append)
+    panel.chat_requested.connect(chats.append)
     panel._on_item(panel.list.item(0))
     assert opened == [notice.id]
+    assert chats == []
+    assert "●" not in panel.list.item(0).text()
     panel.deleteLater()
+
+
+def test_snooze_choices_cover_short_and_tomorrow() -> None:
+    from arelis.ui.notify_overlay import SNOOZE_CHOICES
+
+    minutes = [hold for _, hold in SNOOZE_CHOICES]
+    assert minutes == [5, 15, 60, 24 * 60]
+
+
+def test_snooze_minutes_reach_the_center(qt_app, monkeypatch) -> None:
+    from datetime import datetime, timedelta
+
+    from arelis.notify.center import NotificationCenter, new_notice
+    from arelis.ui import notify_host
+
+    notice = new_notice(kind="sms", title="Robin", body="later")
+    center = NotificationCenter()
+    center.add(notice)
+    window = type("W", (), {"notify_center": center})()
+    monkeypatch.setattr(notify_host, "sync_notify_surface", lambda _w: None)
+    now = datetime.now().astimezone()
+    notify_host.on_notice_snooze(window, notice.id, 60)
+    assert not any(
+        n.id == notice.id
+        for n in center.visible_items(now=now + timedelta(minutes=30))
+    )
+    later = [
+        n
+        for n in center.visible_items(now=now + timedelta(minutes=61))
+        if n.id == notice.id
+    ]
+    assert later
+
+
+def test_mail_peek_reply_prefixes_subject(qt_app) -> None:
+    from arelis.ui.mail_peek import MailPeekWindow
+
+    peek = MailPeekWindow(
+        sender="Robin <robin@example.com>",
+        subject="Thursday",
+        body="Are we still on?",
+        reply_to="robin@example.com",
+    )
+    sent: list[tuple[str, str, str]] = []
+    peek.reply_requested.connect(lambda to, subj, body: sent.append((to, subj, body)))
+    try:
+        assert peek.body.toPlainText() == "Are we still on?"
+        peek.reply_edit.setText("yes")
+        peek._reply()
+        assert sent == [("robin@example.com", "Re: Thursday", "yes")]
+        assert peek.reply_edit.text() == ""
+    finally:
+        peek.close()
+        peek.deleteLater()
 
 
 def test_notify_overlay_pill_and_extra(qt_app) -> None:
@@ -215,6 +274,7 @@ def test_notify_pill_sits_above_the_room_strip(qt_app) -> None:
     from arelis.notify.center import new_notice
     from arelis.spatial import PHYSICS_ROOM_ID
     from arelis.ui.panels.conversation import ConversationStage
+    from arelis.ui.theme import SPACE
 
     stage = ConversationStage()
     try:
@@ -254,7 +314,7 @@ def test_notify_pill_sits_above_the_room_strip(qt_app) -> None:
 
         stage.room.set_room("")
         qt_app.processEvents()
-        assert stage.layout().contentsMargins().top() == 14
+        assert stage.layout().contentsMargins().top() == SPACE["inset"]
     finally:
         stage.hide()
         stage.deleteLater()

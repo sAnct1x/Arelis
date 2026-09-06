@@ -173,6 +173,9 @@ def apply_dock_chrome(dock: QDockWidget, floating: bool | None = None) -> None:
                 dock.show()
                 dock.raise_()
             enable_win32_resize_frame(dock)
+            from arelis.ui.foreground import bind_click_to_front
+
+            bind_click_to_front(dock)
         else:
             dock.setMinimumWidth(DOCKED_MIN_WIDTH)
             name = (dock.objectName() or "").lower()

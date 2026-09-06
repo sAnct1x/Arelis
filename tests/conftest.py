@@ -44,6 +44,35 @@ def pytest_sessionfinish(session, exitstatus):
     shutil.rmtree(_TESTS_DATA_ROOT, ignore_errors=True)
 
 
+# Isolate only the Earth-zone split (and the pre-split giant). Do not apply
+# to the older siblings test_earth_fetchers / _goto / _polish — they never
+# used this fixture.
+_EARTH_ISOLATE_SKIP = frozenset({
+    "test_earth_fetchers.py",
+    "test_earth_goto.py",
+    "test_earth_polish.py",
+})
+
+
+def _earth_isolate_applies(filename: str) -> bool:
+    if filename == "test_earth.py":
+        return True
+    return filename.startswith("test_earth_") and filename not in _EARTH_ISOLATE_SKIP
+
+
+@pytest.fixture(autouse=True)
+def _isolate_earth(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch):
+    """Earth zone tests must not read the developer's contacts/secrets cameras."""
+    path = getattr(request.node, "path", None)
+    name = Path(str(path)).name if path is not None else ""
+    if not _earth_isolate_applies(name):
+        yield
+        return
+    from tests.earth_helpers import isolate_earth
+
+    yield from isolate_earth(monkeypatch)
+
+
 @pytest.fixture(scope="session")
 def qt_app():
     """One offscreen QApplication for the widget tests.

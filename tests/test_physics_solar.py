@@ -602,6 +602,10 @@ def test_circular_catalog_demo_has_planets_and_moons() -> None:
     )
     assert "not Horizons" in tagged.ic_caption()
     assert "Horizons IC" not in tagged.ic_caption()
+    assert tagged.is_placeholder_ic() is True
+    loaded = SolarSystem.from_states(states, tracers=0, epoch_tdb="JPL Horizons VECTORS")
+    loaded.epoch_jd = 2_460_000.0
+    assert loaded.is_placeholder_ic() is False
     two = SolarSystem.from_states(sun_and_planet(), tracers=0)
     assert "not Horizons" in two.ic_caption()
 

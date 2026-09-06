@@ -27,6 +27,18 @@ class GemmaEngine {
         synchronized(lock) { unloadUnsafe() }
     }
 
+    /** Drop the in-flight Gemma thread. The weights stay loaded. */
+    fun resetTalk() {
+        synchronized(lock) {
+            try {
+                conversation?.close()
+            } catch (_: Exception) {
+            }
+            conversation = null
+            loadedSystem = ""
+        }
+    }
+
     private fun unloadUnsafe() {
         try {
             conversation?.close()

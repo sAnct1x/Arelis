@@ -27,7 +27,7 @@ _SHORT_DESC: dict[str, str] = {
     "git_info": "git status / log / diff in the workspace",
     "goals": "long-lived goals. action=list|add|done|drop",
     "image": "generate an image. confirm first",
-    "image_edit": "edit a local image. confirm first",
+    "image_edit": "edit a local image or overlay text. confirm first",
     "inbound_sms": "recent inbound texts. do not invent replies",
     "inbox": "Gmail list/search/trash/archive. never claim delete without a tool",
     "memory": "remember / forget durable facts. memory tool",
@@ -42,7 +42,7 @@ _SHORT_DESC: dict[str, str] = {
     "scrape": "readable page text. Prefer scrape for news/docs",
     "send_email": "send mail. confirm card. never invent sent",
     "send_sms": "text via the user's phone. confirm card",
-    "solar": "Reality sim. flag / time / load. not a web search",
+    "solar": "Reality sim. body/status/load. live lab is one source",
     "tasks": "short list. action=list|add|done|drop",
     "tile": "View menu. action=open|close name=thinking|history|chat|…",
     "units": "unit convert",
@@ -64,7 +64,7 @@ browser: her Chrome; no password/OTP; stop captcha|Pay; click text|ref|nth. no g
 web: web_search first; never guess a url; never answer from a snippet alone; never pass the title as url (copy the URL: value); Prefer scrape for pages; web_fetch for apis. After scrape, talk; do not paste the page.
 weather: call the weather tool; not search; not scrape; place=name; two cities = two calls.
 location: user_location; do not web-guess.
-sms: call send_sms immediately when to+body are known; do not re-ask for the body; inbound_sms for "did they text"; contacts for the book.
+sms: call send_sms immediately when to+body are known (nickname or any number they typed); do not re-ask for the body. contacts are hints, not a gate. inbound_sms sees everyone.
 email: inbox list/search/trash/archive; send_email to send; never claim you deleted mail.
 workspace: workspace read/write/list; inspect source with workspace; writes confirm. Code assess: list one folder then fanout-read; do not list the repo root. Same list/read this turn is a loop — open a new path or answer. Outside roots: stop; do not list parents; Allow the path or Settings → roots.
 attach: image→vision|ocr; pdf→doc_extract; csv→analyze; text→workspace. never invent file contents.

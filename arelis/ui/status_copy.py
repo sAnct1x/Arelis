@@ -24,6 +24,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from arelis.tools.image_copy import image_edit_errand, image_errand
+
 # The bare waiting state: a turn is running and no tool has been named yet.
 THINKING_STATUS = "✦ thinking…"
 
@@ -55,7 +57,8 @@ _ERRANDS: dict[str, str] = {
     "document": "writing the file",
     "git_info": "checking the repo",
     "goals": "checking your goals",
-    "image": "generating an image",
+    "image": "making a picture",
+    "image_edit": "editing the picture",
     "inbound_sms": "checking your texts",
     "inbox": "checking your email",
     "memory": "remembering that",
@@ -136,6 +139,10 @@ def tool_errand(tool: str, args: dict[str, Any] | None = None) -> str:
         raw = str((args or {}).get("path") or "").strip().replace("\\", "/")
         leaf = raw.rsplit("/", 1)[-1] if raw else ""
         return f"running {leaf}" if leaf else "running a program"
+    if name == "image":
+        return image_errand(args)
+    if name == "image_edit":
+        return image_edit_errand(args)
     action = str((args or {}).get("action") or "").strip().lower()
     errand = _BY_ACTION.get(name, {}).get(action) or _ERRANDS.get(name)
     return errand or f"using {name}"

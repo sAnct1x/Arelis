@@ -19,6 +19,7 @@ from arelis.core.agent_loop import (
     _HIDE_WANDER_FOR,
     _MAX_TOOL_NUDGES,
     _WRITE_AFTER_PAGE_NOTICE,
+    _WRITE_AFTER_THINK_NOTICE,
     _hide_daily_wander,
     _is_ollama_object_400,
     _native_tool_call,
@@ -58,6 +59,11 @@ from arelis.core.tool_subset import (
 )
 from arelis.core.turn_context import TurnContext
 from arelis.core.turn_dispatch import dispatch_calls
+from arelis.core.turn_goal import (
+    goal_miss_reply,
+    goal_unlock_notice,
+    receipt_serves_goal,
+)
 from arelis.llm.errors import classify_ollama_failure, is_vram_failure
 
 
@@ -294,6 +300,53 @@ async def apply_no_call_path(
                             )
                         )
                         return False
+                    if not receipt_serves_goal(
+                        ctx.goal, ctx.last_ok_tool_name, ctx.last_ok_tool_out
+                    ):
+                        if (
+                            not ctx.goal_unlock_used
+                            and ctx.nudges < _MAX_TOOL_NUDGES
+                        ):
+                            ctx.goal_unlock_used = True
+                            ctx.nudges += 1
+                            await loop._retract()
+                            messages.append(
+                                {"role": "assistant", "content": content}
+                            )
+                            messages.append(
+                                {
+                                    "role": "user",
+                                    "content": goal_unlock_notice(ctx.goal),
+                                }
+                            )
+                            await loop.bus.publish(
+                                Event(
+                                    EventType.THINKING,
+                                    {
+                                        "text": (
+                                            "goal unlock; last receipt "
+                                            "does not finish the turn"
+                                        )
+                                    },
+                                )
+                            )
+                            return False
+                        await loop.bus.publish(
+                            Event(
+                                EventType.THINKING,
+                                {
+                                    "text": (
+                                        "goal miss; not shipping that receipt"
+                                    )
+                                },
+                            )
+                        )
+                        await loop._finish(
+                            goal_miss_reply(ctx.goal),
+                            sources,
+                            streamed="",
+                        )
+                        return True
                     await loop.bus.publish(
                         Event(
                             EventType.THINKING,
@@ -310,6 +363,43 @@ async def apply_no_call_path(
                         streamed="",
                     )
                     return True
+                # Thinking ate the reply (LIGO / long proofs). Ask for the
+                # chat line once. Skip when a daily inject still owes a
+                # tool — weather/SMS/agenda must not become an essay.
+                leftover = set(getattr(loop, "_expected_tools", ()) or ()) - {
+                    "cas",
+                    "python",
+                    "calculator",
+                    "units",
+                    "plot",
+                }
+                if (
+                    not leftover
+                    and not ctx.think_write_nudge_used
+                    and ctx.nudges < _MAX_TOOL_NUDGES
+                    and getattr(loop, "_last_round_thinking", False)
+                ):
+                    ctx.think_write_nudge_used = True
+                    ctx.nudges += 1
+                    await loop._retract()
+                    messages.append({"role": "assistant", "content": content})
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": _WRITE_AFTER_THINK_NOTICE,
+                        }
+                    )
+                    await loop.bus.publish(
+                        Event(
+                            EventType.THINKING,
+                            {
+                                "text": (
+                                    "empty after think; asking for a write-up"
+                                )
+                            },
+                        )
+                    )
+                    return False
                 if ollama_tools and loop.json_fallback:
                     # First round still blank with no tools yet? JSON fallback.
                     await loop._retract()

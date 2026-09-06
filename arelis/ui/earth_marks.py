@@ -24,15 +24,15 @@ from PySide6.QtGui import (
 from arelis.earth.entity import LAYER_IDS
 from arelis.ui.theme import color
 
-STROKE = 1.25
+STROKE = 2.0
 BANDS: tuple[str, ...] = ("space", "approach", "near", "city")
 BAND_PX: dict[str, int] = {
-    "space": 10,
-    "approach": 14,
-    "near": 18,
-    "city": 22,
+    "space": 40,
+    "approach": 28,
+    "near": 24,
+    "city": 24,
 }
-ATLAS_PX = 32
+ATLAS_PX = 64
 
 HEADING_KINDS = frozenset({"flights", "military", "drones", "vessels"})
 SOLAR_KINDS: tuple[str, ...] = (
@@ -84,12 +84,12 @@ def mark_size(band: str) -> int:
 
 
 def _detail(band: str) -> int:
-    return {"space": 0, "approach": 1, "near": 2, "city": 3}.get(band, 3)
+    return {"space": 2, "approach": 2, "near": 3, "city": 3}.get(band, 3)
 
 
-def _pen(ink: QColor, *, dashed: bool = False) -> QPen:
+def _pen(ink: QColor, *, dashed: bool = False, width: float | None = None) -> QPen:
     pen = QPen(ink)
-    pen.setWidthF(STROKE)
+    pen.setWidthF(STROKE if width is None else float(width))
     pen.setCapStyle(Qt.PenCapStyle.RoundCap)
     pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
     if dashed:
@@ -98,8 +98,10 @@ def _pen(ink: QColor, *, dashed: bool = False) -> QPen:
     return pen
 
 
-def _stroke(painter: QPainter, ink: QColor, *, dashed: bool = False) -> None:
-    painter.setPen(_pen(ink, dashed=dashed))
+def _stroke(
+    painter: QPainter, ink: QColor, *, dashed: bool = False, width: float | None = None
+) -> None:
+    painter.setPen(_pen(ink, dashed=dashed, width=width))
     painter.setBrush(Qt.BrushStyle.NoBrush)
 
 
@@ -177,26 +179,36 @@ def _draw_vessels(painter: QPainter, r: float, detail: int) -> None:
             _line(painter, -r * 0.16, r * 0.80, r * 0.16, r * 0.80)
 
 
-def _draw_satellites(painter: QPainter, r: float, detail: int) -> None:
-    body = QRectF(-r * 0.26, -r * 0.30, r * 0.52, r * 0.60)
-    painter.drawRect(body)
-    _line(painter, -r * 0.88, 0.0, -r * 0.30, 0.0)
-    _line(painter, r * 0.30, 0.0, r * 0.88, 0.0)
+def _draw_satellites(painter: QPainter, r: float, detail: int, ink: QColor) -> None:
+    body = QRectF(-r * 0.34, -r * 0.38, r * 0.68, r * 0.76)
+    if detail <= 2:
+        fill = QColor(ink)
+        _fill(painter, fill)
+        painter.drawRoundedRect(body, 2, 2)
+        _stroke(painter, ink, width=2.6)
+    else:
+        painter.drawRect(body)
+    _line(painter, -r * 0.92, 0.0, -r * 0.36, 0.0)
+    _line(painter, r * 0.36, 0.0, r * 0.92, 0.0)
     if detail >= 2:
-        _line(painter, -r * 0.88, -r * 0.16, -r * 0.88, r * 0.16)
-        _line(painter, r * 0.88, -r * 0.16, r * 0.88, r * 0.16)
+        _line(painter, -r * 0.92, -r * 0.20, -r * 0.92, r * 0.20)
+        _line(painter, r * 0.92, -r * 0.20, r * 0.92, r * 0.20)
 
 
 def _draw_iss(painter: QPainter, r: float, ink: QColor) -> None:
-    painter.drawEllipse(QPointF(0.0, 0.0), r * 0.52, r * 0.52)
-    core = QColor(ink)
-    _fill(painter, core)
-    painter.drawEllipse(QPointF(0.0, 0.0), r * 0.16, r * 0.16)
-    _stroke(painter, ink)
-    _line(painter, -r * 0.92, 0.0, -r * 0.56, 0.0)
-    _line(painter, r * 0.56, 0.0, r * 0.92, 0.0)
-    _line(painter, -r * 0.78, -r * 0.14, -r * 0.78, r * 0.14)
-    _line(painter, r * 0.78, -r * 0.14, r * 0.78, r * 0.14)
+    ring = QColor(ink)
+    _fill(painter, ring)
+    painter.drawEllipse(QPointF(0.0, 0.0), r * 0.58, r * 0.58)
+    hole = QColor(ink)
+    hole.setAlpha(max(40, ink.alpha() - 80))
+    _fill(painter, hole)
+    painter.drawEllipse(QPointF(0.0, 0.0), r * 0.22, r * 0.22)
+    _stroke(painter, ink, width=2.6)
+    painter.drawEllipse(QPointF(0.0, 0.0), r * 0.58, r * 0.58)
+    _line(painter, -r * 0.96, 0.0, -r * 0.60, 0.0)
+    _line(painter, r * 0.60, 0.0, r * 0.96, 0.0)
+    _line(painter, -r * 0.82, -r * 0.18, -r * 0.82, r * 0.18)
+    _line(painter, r * 0.82, -r * 0.18, r * 0.82, r * 0.18)
 
 
 def _draw_cameras(painter: QPainter, r: float, ink: QColor, *, look: bool) -> None:
@@ -369,7 +381,7 @@ _DRAWERS = {
     "military": lambda p, r, d, **_: _draw_military(p, r, d),
     "drones": lambda p, r, d, **_: _draw_drones(p, r, d),
     "vessels": lambda p, r, d, **_: _draw_vessels(p, r, d),
-    "satellites": lambda p, r, d, **_: _draw_satellites(p, r, d),
+    "satellites": lambda p, r, d, ink, **_: _draw_satellites(p, r, d, ink),
     "iss": lambda p, r, d, ink, **_: _draw_iss(p, r, ink),
     "cameras": lambda p, r, d, ink, look, **_: _draw_cameras(p, r, ink, look=look),
     "people": lambda p, r, d, ink, **_: _draw_people(p, r, ink),

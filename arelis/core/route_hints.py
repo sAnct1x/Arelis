@@ -38,7 +38,6 @@ RESEARCH_HINTS: list[re.Pattern[str]] = [
         r"in\s*-?\s*depth\s+(?:research|look|analysis|report)|"
         r"investigate|"
         r"hypothesis|"
-        r"derive|"
         r"astrophys|interferom|spectrum|"
         r"research\s+report|"
         r"cite\s+sources"

@@ -144,6 +144,36 @@ def test_make_ring_lies_in_ecliptic_xy() -> None:
     assert radii.max() <= 2.28
 
 
+def test_earth_gl_cache_ignores_spin_micro_moves() -> None:
+    from arelis.ui.solar_gl import earth_gl_cache_key
+
+    base = dict(
+        width=800,
+        height=600,
+        look=(0.0, 0.0, 0.0),
+        up=(0.0, 0.0, 1.0),
+        paused=False,
+        fov_y=50.0,
+        inspect="Earth",
+    )
+    a = earth_gl_cache_key(eye=(1_000_000.0, 0.0, 0.0), t=1.2, **base)
+    near = earth_gl_cache_key(eye=(1_000_040.0, 0.0, 0.0), t=1.2, **base)
+    far = earth_gl_cache_key(eye=(1_000_200.0, 0.0, 0.0), t=1.2, **base)
+    later = earth_gl_cache_key(eye=(1_000_000.0, 0.0, 0.0), t=1.8, **base)
+    next_s = earth_gl_cache_key(eye=(1_000_000.0, 0.0, 0.0), t=2.1, **base)
+    hour = earth_gl_cache_key(
+        eye=(1_000_000.0, 0.0, 0.0), t=29.0, t_step=30.0, **base
+    )
+    hour_near = earth_gl_cache_key(
+        eye=(1_000_000.0, 0.0, 0.0), t=1.2, t_step=30.0, **base
+    )
+    assert a == near
+    assert a != far
+    assert a == later
+    assert a != next_s
+    assert hour == hour_near
+
+
 def test_framebuffer_size_caps_readback() -> None:
     from arelis.ui.solar_gl import _FB_CLOSE
 

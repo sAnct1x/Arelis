@@ -19,7 +19,10 @@ class GlassDockWidget(QDockWidget):
     def showEvent(self, event) -> None:
         super().showEvent(event)
         if self.isFloating():
+            from arelis.ui.foreground import bind_click_to_front
+
             enable_win32_resize_frame(self)
+            bind_click_to_front(self)
             self.setMouseTracking(True)
 
     def changeEvent(self, event) -> None:

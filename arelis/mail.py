@@ -105,6 +105,49 @@ def load_account(path: Path | None = None) -> MailAccount | None:
     )
 
 
+def save_account(
+    *,
+    address: str,
+    app_password: str = "",
+    default_recipient: str = "",
+    path: Path | None = None,
+) -> MailAccount | None:
+    """Write the mail block without clobbering other secrets. Never logs the password."""
+    path = path or SECRETS_PATH
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        raw = yaml.safe_load(path.read_text(encoding="utf-8")) if path.is_file() else {}
+    except (OSError, yaml.YAMLError):
+        raw = {}
+    if not isinstance(raw, dict):
+        raw = {}
+    block = raw.get("email")
+    if not isinstance(block, dict):
+        block = {}
+    addr = (address or "").strip()
+    if addr:
+        block["address"] = addr
+    rec = (default_recipient or "").strip()
+    if rec:
+        block["default_recipient"] = rec
+    secret = "".join((app_password or "").split())
+    if secret:
+        block["app_password"] = secret
+    raw["email"] = block
+    path.write_text(
+        yaml.safe_dump(raw, sort_keys=False, allow_unicode=True),
+        encoding="utf-8",
+    )
+    return load_account(path)
+
+
+def reply_address(raw_from: str) -> str:
+    text = (raw_from or "").strip()
+    if "<" in text and ">" in text:
+        return text.split("<", 1)[1].split(">", 1)[0].strip()
+    return text
+
+
 def valid_address(value: str) -> bool:
     return bool(_ADDRESS.match(value.strip()))
 

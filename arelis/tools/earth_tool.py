@@ -2,8 +2,8 @@
 
 Enter/leave reparents knowledge, not the whole UI. Entities are ECEF.
 The plate still paints ECLIPJ2000. dump writes a cited JSONL under
-outputs/physics/earth. Simulated layers stay labeled simulated. Live
-public and keyed feeds are opt-in (action=live). Logging into a camera
+outputs/physics/earth. Enter snapshots published feeds then coasts.
+Live keeps pulling (action=live). Logging into a camera
 you do not own is not a layer.
 """
 
@@ -28,7 +28,8 @@ class EarthTool:
         "leave returns to solar. "
         "status reads the HUD. track/ride lock a contact id from status. "
         "layer toggles a named layer. search finds a label. dump writes a "
-        "cited JSONL under outputs/physics/earth. live=on is distance-gated "
+        "cited JSONL under outputs/physics/earth. enter snapshots then coasts; "
+        "re-enter refetches. live=on keeps pulling, distance-gated "
         "(space=sats, approach=local planes, near=boats+planes, city=toggled "
         "layers in the look box). City-scale pulls USGS, OpenSky "
         "(every squawk + UAV), adsb.lol military, AISStream, Digitraffic AIS, "
@@ -97,6 +98,15 @@ class EarthTool:
             pass
         if action == "enter":
             note = earth.enter()
+            try:
+                from arelis.physics.runtime import get_system
+
+                system = get_system()
+            except Exception:
+                system = None
+            if system is not None:
+                system.pending_inspect = "Earth"
+                system.pending_enter_earth = True
             return ToolResult(
                 ok=True,
                 output=note + ". " + earth.status_line(),
@@ -115,6 +125,14 @@ class EarthTool:
                 except OSError:
                     path = None
             note = earth.leave()
+            try:
+                from arelis.physics.runtime import get_system
+
+                system = get_system()
+            except Exception:
+                system = None
+            if system is not None:
+                system.pending_enter_earth = False
             extra = f" Dumped {path}." if path is not None else ""
             return ToolResult(
                 ok=True,
@@ -162,7 +180,7 @@ class EarthTool:
             earth.live = bool(on) if isinstance(on, bool) else (not earth.live)
             if earth.active and earth.live:
                 earth._merge_live()
-            mode = "live" if earth.live else "simulated"
+            mode = "live" if earth.live else "coasting"
             return ToolResult(
                 ok=True,
                 output=f"Earth feeds {mode}.",
@@ -240,7 +258,7 @@ class EarthTool:
             if system is not None and system.nbody.find("Earth") is not None:
                 system.lock = "Earth"
                 system.pending_inspect = "Earth"
-                system.pending_travel = "Earth"
+                system.pending_enter_earth = True
             return ToolResult(
                 ok=True,
                 output=f"Flying to {hit.name}.",

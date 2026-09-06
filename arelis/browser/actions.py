@@ -8,6 +8,7 @@ import os
 import re
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Protocol
 
 from arelis.browser.hold import cooperative_wait
@@ -48,6 +49,9 @@ class ElementInfo:
         if self.name.lower() in {"password", "passwd", "otp", "totp"}:
             return True
         return False
+
+    def is_file_field(self) -> bool:
+        return self.type.lower() == "file"
 
     def line(self) -> str:
         bits = [f"[{self.ref}]", self.tag]
@@ -94,12 +98,47 @@ class BrowserDriver(Protocol):
 
     async def click(self, ref: str) -> ActionResult: ...
 
+    async def hover(
+        self,
+        ref: str = "",
+        *,
+        x: float | None = None,
+        y: float | None = None,
+    ) -> ActionResult: ...
+
+    async def dblclick(
+        self,
+        ref: str = "",
+        *,
+        x: float | None = None,
+        y: float | None = None,
+    ) -> ActionResult: ...
+
+    async def right_click(
+        self,
+        ref: str = "",
+        *,
+        x: float | None = None,
+        y: float | None = None,
+    ) -> ActionResult: ...
+
+    async def drag(
+        self,
+        ref: str = "",
+        *,
+        to: str = "",
+        x: float | None = None,
+        y: float | None = None,
+        to_x: float | None = None,
+        to_y: float | None = None,
+    ) -> ActionResult: ...
+
     async def type_text(self, ref: str, text: str) -> ActionResult: ...
 
     async def tabs(
         self,
         *,
-        select: int | None = None,
+        select: int | str | None = None,
         op: str = "",
         url: str = "",
     ) -> ActionResult: ...
@@ -120,7 +159,28 @@ class BrowserDriver(Protocol):
 
     async def select_option(self, ref: str, value: str) -> ActionResult: ...
 
-    async def wait(self, seconds: float) -> ActionResult: ...
+    async def wait(
+        self,
+        seconds: float = 1.0,
+        *,
+        url: str = "",
+        text: str = "",
+        heading: str = "",
+    ) -> ActionResult: ...
+
+    async def watch(
+        self,
+        *,
+        url: str = "",
+        text: str = "",
+        heading: str = "",
+    ) -> ActionResult: ...
+
+    async def download(self, path: str, *, ref: str = "") -> ActionResult: ...
+
+    async def upload(self, ref: str, path: str) -> ActionResult: ...
+
+    async def pdf(self, path: str) -> ActionResult: ...
 
     async def back(self) -> ActionResult: ...
 
@@ -165,6 +225,33 @@ def _same_open_url(current: str, wanted: str) -> bool:
 
 # Glow beat before click. Tests set this to 0.
 GLOW_S = 0.4
+
+# Count trusted pointerdowns so a user grab mid-drive is not our own click.
+_HANDS_JS = """
+(() => {
+  if (window.__arelisHands) return;
+  window.__arelisHands = true;
+  window.__arelisPtrCount = 0;
+  window.addEventListener(
+    'pointerdown',
+    () => { window.__arelisPtrCount = (window.__arelisPtrCount || 0) + 1; },
+    true
+  );
+})();
+"""
+_PTR_COUNT_JS = "() => window.__arelisPtrCount || 0"
+
+_CDP_DEAD_TIPS = (
+    "target closed",
+    "target crashed",
+    "connection closed",
+    "browser has been closed",
+    "browser closed",
+    "disconnected",
+    "protocol error",
+    "websocket",
+    "cdp",
+)
 SETTLE_S = 4.0
 SETTLE_POLL_S = 0.2
 
@@ -278,6 +365,35 @@ async def _glow_ref(page: Any, ref: str) -> bool:
     return bool(ok)
 
 
+async def _glow_xy(page: Any, x: float, y: float) -> bool:
+    """Dot the pixel target in-page, then wait a beat."""
+    try:
+        ok = await page.evaluate(
+            """([x, y]) => {
+              let mark = document.getElementById('arelis-xy-glow');
+              if (!mark) {
+                mark = document.createElement('div');
+                mark.id = 'arelis-xy-glow';
+                mark.style.cssText = (
+                  'position:fixed;width:16px;height:16px;margin:-8px 0 0 -8px;'
+                  + 'border:2px solid #5ad4ff;border-radius:50%;'
+                  + 'pointer-events:none;z-index:' + (0x7fffffff) + ';'
+                );
+                document.documentElement.appendChild(mark);
+              }
+              mark.style.left = x + 'px';
+              mark.style.top = y + 'px';
+              return true;
+            }""",
+            [float(x), float(y)],
+        )
+    except Exception:
+        ok = False
+    if GLOW_S > 0:
+        await cooperative_wait(GLOW_S)
+    return bool(ok)
+
+
 async def _page_heading(page: Any) -> str:
     try:
         text = await page.evaluate(
@@ -289,24 +405,29 @@ async def _page_heading(page: Any) -> str:
     return str(text or "").strip()
 
 
+def _is_cdp_dead(exc: BaseException) -> bool:
+    lowered = (str(exc).strip() or type(exc).__name__).lower()
+    return any(tip in lowered for tip in _CDP_DEAD_TIPS)
+
+
+def _hands_result(*, url: str = "", extra: str = "") -> ActionResult:
+    from arelis.browser.walls import Wall, attach_wall, wall_message
+
+    note = extra or "You have the mouse."
+    return attach_wall(
+        ActionResult(
+            ok=True,
+            output=note,
+            data={"url": url, "label": "you"},
+        ),
+        Wall("hands", "operator", wall_message("hands")),
+    )
+
+
 def _playwright_fail(exc: BaseException) -> ActionResult:
     """Map a mid-turn Playwright/CDP crash to a stable tool result (not a turn kill)."""
     msg = str(exc).strip() or type(exc).__name__
-    lowered = msg.lower()
-    dead = any(
-        tip in lowered
-        for tip in (
-            "target closed",
-            "target crashed",
-            "connection closed",
-            "browser has been closed",
-            "browser closed",
-            "disconnected",
-            "protocol error",
-            "websocket",
-            "cdp",
-        )
-    )
+    dead = _is_cdp_dead(exc)
     code = "CDP_DEAD" if dead else "BROWSER_ERROR"
     tip = (
         "Call browser(action=relaunch, url=…) after Allow, or close extra Chrome "
@@ -409,6 +530,44 @@ class FakeDriver:
                 role="button",
                 text="Sign in to like videos, comment, and subscribe",
             ),
+            "e7": ElementInfo(
+                ref="e7",
+                tag="input",
+                role="textbox",
+                type="email",
+                name="email",
+                text="Email",
+            ),
+            "e8": ElementInfo(
+                ref="e8",
+                tag="input",
+                role="textbox",
+                type="tel",
+                name="phone",
+                text="Phone",
+            ),
+            "e9": ElementInfo(
+                ref="e9",
+                tag="input",
+                role="textbox",
+                type="text",
+                name="name",
+                text="Name",
+            ),
+            "e10": ElementInfo(
+                ref="e10",
+                tag="input",
+                type="file",
+                name="file",
+                text="Choose file",
+            ),
+            "e12": ElementInfo(
+                ref="e12",
+                tag="a",
+                role="link",
+                text="Download report",
+                href="https://example.com/report.csv",
+            ),
         }
         # Optional extra signals for tests: {"recaptcha": True} etc.
         self.simulate_wall: dict[str, Any] = {}
@@ -418,6 +577,12 @@ class FakeDriver:
         self.waited: list[float] = []
         self.settled: list[float] = []
         self.glowed: list[str] = []
+        self.hovered: list[str] = []
+        self.dblclicked: list[str] = []
+        self.right_clicked: list[str] = []
+        self.dragged: list[tuple[str, str]] = []
+        self.downloaded: list[str] = []
+        self.uploaded: list[tuple[str, str]] = []
         self._tabs: list[dict[str, str]] = [
             {"index": "0", "title": "New Tab", "url": "about:blank"},
         ]
@@ -430,6 +595,13 @@ class FakeDriver:
         self.fail_until_relaunch = False
         self.heading = ""
         self.page_text = "Home\nSearch\nArelis test page. Welcome to the fake tab."
+        # Test hook: requested URL → landed URL (login bounce, etc.).
+        self.redirects: dict[str, str] = {}
+        # Test hook: first wait-for applies this URL (SPA bounce after paint).
+        self.pending_wait_url: str = ""
+        # Test hook: operator grabbed the page between steps.
+        self.user_took_over = False
+        self.watch_stop = False
 
     async def ensure(
         self,
@@ -507,20 +679,27 @@ class FakeDriver:
             return dead
         if not self.connected:
             return ActionResult(ok=False, output="Browser not connected.")
+        from arelis.browser.walls import nav_landed_note
+
         self._push_history()
-        self.url = url
-        self.title = url
+        landed = self.redirects.get(url) or self.redirects.get(url.rstrip("/")) or url
+        self.url = landed
+        self.title = landed
         self.heading = ""
-        self.page_text = f"Opened page at {url}."
+        self.page_text = f"Opened page at {landed}."
         self._tabs[self._active] = {
             "index": str(self._active),
             "title": self.title,
-            "url": url,
+            "url": landed,
         }
+        output = f"Opened {landed}"
+        note = nav_landed_note(url, landed)
+        if note:
+            output = f"{output}\n\n{note}"
         return ActionResult(
             ok=True,
-            output=f"Opened {url}",
-            data={"url": url, "title": self.title},
+            output=output,
+            data={"url": landed, "title": self.title, "requested_url": url},
         )
 
     async def navigate(self, url: str) -> ActionResult:
@@ -621,6 +800,9 @@ class FakeDriver:
                 wall,
                 ok=False,
             )
+        if self.user_took_over:
+            self.user_took_over = False
+            return _hands_result(url=self.url)
         self.glowed.append(ref)
         self.clicked.append(ref)
         if info.href:
@@ -633,10 +815,139 @@ class FakeDriver:
             data={"ref": ref, "url": self.url, "label": info.text},
         )
 
+    def _pointer_target(
+        self, ref: str, *, x: float | None = None, y: float | None = None
+    ) -> tuple[str, ActionResult | None]:
+        if x is not None and y is not None:
+            key = f"xy:{int(x)},{int(y)}"
+            return key, None
+        info = self._elements.get(ref)
+        if info is None:
+            return "", ActionResult(
+                ok=False, output=f"Unknown ref {ref!r}. Call snapshot."
+            )
+        return ref, None
+
+    async def hover(
+        self,
+        ref: str = "",
+        *,
+        x: float | None = None,
+        y: float | None = None,
+    ) -> ActionResult:
+        if not self.connected:
+            return ActionResult(ok=False, output="Browser not connected.")
+        key, err = self._pointer_target(ref, x=x, y=y)
+        if err:
+            return err
+        self.glowed.append(key)
+        self.hovered.append(key)
+        return ActionResult(
+            ok=True,
+            output=f"Hovered [{key}]",
+            data={"ref": ref, "x": x, "y": y, "glowed": True, "url": self.url},
+        )
+
+    async def dblclick(
+        self,
+        ref: str = "",
+        *,
+        x: float | None = None,
+        y: float | None = None,
+    ) -> ActionResult:
+        if not self.connected:
+            return ActionResult(ok=False, output="Browser not connected.")
+        key, err = self._pointer_target(ref, x=x, y=y)
+        if err:
+            return err
+        info = self._elements.get(ref)
+        if info is not None:
+            from arelis.browser.walls import attach_wall, detect_wall
+
+            wall = detect_wall(click_label=info.text or info.name)
+            if wall is not None and wall.kind == "pay":
+                return attach_wall(
+                    ActionResult(
+                        ok=False,
+                        output=f"Stopped before [{ref}] {info.text or info.tag}.",
+                        data={"ref": ref, "label": info.text, "url": self.url},
+                    ),
+                    wall,
+                    ok=False,
+                )
+        self.glowed.append(key)
+        self.dblclicked.append(key)
+        return ActionResult(
+            ok=True,
+            output=f"Double-clicked [{key}]",
+            data={"ref": ref, "x": x, "y": y, "glowed": True, "url": self.url},
+        )
+
+    async def right_click(
+        self,
+        ref: str = "",
+        *,
+        x: float | None = None,
+        y: float | None = None,
+    ) -> ActionResult:
+        if not self.connected:
+            return ActionResult(ok=False, output="Browser not connected.")
+        key, err = self._pointer_target(ref, x=x, y=y)
+        if err:
+            return err
+        self.glowed.append(key)
+        self.right_clicked.append(key)
+        return ActionResult(
+            ok=True,
+            output=f"Right-clicked [{key}]",
+            data={"ref": ref, "x": x, "y": y, "glowed": True, "url": self.url},
+        )
+
+    async def drag(
+        self,
+        ref: str = "",
+        *,
+        to: str = "",
+        x: float | None = None,
+        y: float | None = None,
+        to_x: float | None = None,
+        to_y: float | None = None,
+    ) -> ActionResult:
+        if not self.connected:
+            return ActionResult(ok=False, output="Browser not connected.")
+        src, err = self._pointer_target(ref, x=x, y=y)
+        if err:
+            return err
+        dest, dest_err = self._pointer_target(to, x=to_x, y=to_y)
+        if dest_err:
+            return dest_err
+        self.glowed.append(src)
+        self.dragged.append((src, dest))
+        return ActionResult(
+            ok=True,
+            output=f"Dragged [{src}] to [{dest}]",
+            data={
+                "ref": ref,
+                "to": to,
+                "x": x,
+                "y": y,
+                "to_x": to_x,
+                "to_y": to_y,
+                "glowed": True,
+                "url": self.url,
+            },
+        )
+
     async def type_text(self, ref: str, text: str) -> ActionResult:
         info = self._elements.get(ref)
         if info is None:
             return ActionResult(ok=False, output=f"Unknown ref {ref!r}. Call snapshot.")
+        if info.is_file_field():
+            return ActionResult(
+                ok=False,
+                output="type=file is refused. Use browser(action=upload, path=…).",
+                data={"code": "FILE_INPUT", "ref": ref},
+            )
         if info.is_secret_field():
             return ActionResult(
                 ok=False,
@@ -664,11 +975,24 @@ class FakeDriver:
     async def tabs(
         self,
         *,
-        select: int | None = None,
+        select: int | str | None = None,
         op: str = "",
         url: str = "",
     ) -> ActionResult:
+        from arelis.browser.places import format_tab_list, parse_tab_select, pick_tab
+
         kind = (op or "").strip().lower()
+        idx, title_needle = parse_tab_select(select)
+        if kind == "close" and title_needle:
+            return ActionResult(
+                ok=False,
+                output=(
+                    "Close is the current tab only. "
+                    "Select the tab first, then tabs with tab=close. "
+                    "No close-by-title."
+                ),
+                data={"code": "CLOSE_BY_TITLE"},
+            )
         if kind == "new":
             self._sync_active_tab()
             self._active = len(self._tabs)
@@ -710,27 +1034,28 @@ class FakeDriver:
                 output=f"Closed a tab. Now {self._active}: {self.title}",
                 data={"tabs": list(self._tabs), "active": self._active},
             )
-        if select is not None:
-            if select < 0 or select >= len(self._tabs):
-                return ActionResult(ok=False, output=f"No tab index {select}.")
+        if idx is not None or title_needle:
+            chosen, err = pick_tab(self._tabs, index=idx, title=title_needle)
+            if err or chosen is None:
+                return ActionResult(ok=False, output=err or "No tab.")
             self._sync_active_tab()
-            self._active = select
-            tab = self._tabs[select]
+            self._active = chosen
+            tab = self._tabs[chosen]
             self.url = tab["url"]
             self.title = tab["title"]
             return ActionResult(
                 ok=True,
-                output=f"Selected tab {select}: {tab['title']}",
-                data={"tabs": self._tabs, "active": select},
+                output=f"Selected tab {chosen}: {tab['title']}",
+                data={
+                    "tabs": list(self._tabs),
+                    "active": chosen,
+                    "url": self.url,
+                    "title": self.title,
+                },
             )
-        lines = [
-            f"{t['index']}: {t['title']} — {t['url']}"
-            + (" (active)" if i == self._active else "")
-            for i, t in enumerate(self._tabs)
-        ]
         return ActionResult(
             ok=True,
-            output="Tabs:\n" + "\n".join(lines),
+            output=format_tab_list(self._tabs, active=self._active),
             data={"tabs": list(self._tabs), "active": self._active},
         )
 
@@ -791,11 +1116,167 @@ class FakeDriver:
         self.selected.append((ref, value))
         return ActionResult(ok=True, output=f"Selected {value!r} on [{ref}].")
 
-    async def wait(self, seconds: float) -> ActionResult:
+    async def wait(
+        self,
+        seconds: float = 1.0,
+        *,
+        url: str = "",
+        text: str = "",
+        heading: str = "",
+    ) -> ActionResult:
         if not self.connected:
             return ActionResult(ok=False, output="Browser not connected.")
-        self.waited.append(float(seconds))
-        return ActionResult(ok=True, output=f"Waited {seconds:.1f}s.")
+        from arelis.browser.wait_for import (
+            clamp_wait_seconds,
+            has_wait_needle,
+            page_needles_hit,
+            wait_output,
+        )
+
+        has = has_wait_needle(url=url, text=text, heading=heading)
+        delay = clamp_wait_seconds(seconds, has_needle=has)
+        self.waited.append(delay)
+        if has and self.pending_wait_url:
+            landed = self.pending_wait_url
+            self.pending_wait_url = ""
+            self.url = landed
+            self.title = landed
+            self.page_text = f"Opened page at {landed}."
+            self._tabs[self._active] = {
+                "index": str(self._active),
+                "title": self.title,
+                "url": landed,
+            }
+        hit = page_needles_hit(
+            landed_url=self.url,
+            title=self.title,
+            heading=self.heading,
+            page_text=self.page_text,
+            want_url=url,
+            want_text=text,
+            want_heading=heading,
+        )
+        output, data = wait_output(
+            hit=hit if has else True,
+            seconds=delay,
+            landed_url=self.url,
+            want_url=url,
+            want_text=text,
+            want_heading=heading,
+        )
+        data["title"] = self.title
+        return ActionResult(ok=True, output=output, data=data)
+
+    async def watch(
+        self,
+        *,
+        url: str = "",
+        text: str = "",
+        heading: str = "",
+    ) -> ActionResult:
+        if not self.connected:
+            return ActionResult(ok=False, output="Browser not connected.")
+        from arelis.browser.wait_for import has_wait_needle, page_needles_hit
+
+        if not has_wait_needle(url=url, text=text, heading=heading):
+            return ActionResult(
+                ok=False,
+                output="watch needs url, text, or heading to poll for.",
+            )
+        if self.watch_stop:
+            return ActionResult(
+                ok=True,
+                output="Watch cancelled.",
+                data={"hit": False, "cancelled": True, "url": self.url},
+            )
+        if self.pending_wait_url:
+            landed = self.pending_wait_url
+            self.pending_wait_url = ""
+            self.url = landed
+            self.title = landed
+            self.page_text = f"Opened page at {landed}."
+        hit = page_needles_hit(
+            landed_url=self.url,
+            title=self.title,
+            heading=self.heading,
+            page_text=self.page_text,
+            want_url=url,
+            want_text=text,
+            want_heading=heading,
+        )
+        if hit:
+            return ActionResult(
+                ok=True,
+                output=f"Watch hit — {self.url}",
+                data={
+                    "hit": True,
+                    "watch_hit": True,
+                    "url": self.url,
+                    "title": self.title,
+                },
+            )
+        return ActionResult(
+            ok=True,
+            output=f"Watch still waiting — {self.url}",
+            data={"hit": False, "url": self.url, "title": self.title},
+        )
+
+    async def download(self, path: str, *, ref: str = "") -> ActionResult:
+        if not self.connected:
+            return ActionResult(ok=False, output="Browser not connected.")
+        if ref and ref not in self._elements:
+            return ActionResult(ok=False, output=f"Unknown ref {ref!r}. Call snapshot.")
+        if ref:
+            self.glowed.append(ref)
+            self.clicked.append(ref)
+        from arelis.browser.files import file_ready_payload
+
+        body = f"fake download from {self.url}\n".encode()
+        abs_path = await asyncio.to_thread(_write_bytes_sync, path, body)
+        self.downloaded.append(abs_path)
+        data = file_ready_payload(Path(abs_path), kind="download")
+        data["ref"] = ref
+        data["url"] = self.url
+        return ActionResult(
+            ok=True,
+            output=f"Downloaded {Path(abs_path).name}",
+            data=data,
+        )
+
+    async def upload(self, ref: str, path: str) -> ActionResult:
+        if not self.connected:
+            return ActionResult(ok=False, output="Browser not connected.")
+        info = self._elements.get(ref)
+        if info is None:
+            return ActionResult(ok=False, output=f"Unknown ref {ref!r}. Call snapshot.")
+        if not info.is_file_field():
+            return ActionResult(
+                ok=False,
+                output=f"[{ref}] is not a file input. Snapshot and upload to type=file.",
+                data={"code": "NOT_FILE", "ref": ref},
+            )
+        self.glowed.append(ref)
+        self.uploaded.append((ref, path))
+        info.text = Path(path).name
+        return ActionResult(
+            ok=True,
+            output=f"Uploaded {Path(path).name} to [{ref}]",
+            data={"ref": ref, "path": path, "name": Path(path).name},
+        )
+
+    async def pdf(self, path: str) -> ActionResult:
+        if not self.connected:
+            return ActionResult(ok=False, output="Browser not connected.")
+        from arelis.browser.files import fake_pdf_bytes, file_ready_payload
+
+        abs_path = await asyncio.to_thread(_write_bytes_sync, path, fake_pdf_bytes())
+        data = file_ready_payload(Path(abs_path), kind="pdf", title=self.title)
+        data["url"] = self.url
+        return ActionResult(
+            ok=True,
+            output=f"Saved tab PDF {Path(abs_path).name}",
+            data=data,
+        )
 
     async def back(self) -> ActionResult:
         if not self.connected:
@@ -865,6 +1346,7 @@ class PlaywrightDriver:
         self._browser_name = "chrome"
         self._private = False
         self._mode = ""
+        self._ptr_seen = 0
 
     async def ensure(
         self,
@@ -999,6 +1481,7 @@ class PlaywrightDriver:
         )
         pages = self._context.pages
         self._page = pages[0] if pages else await self._context.new_page()
+        await self._install_hands()
         self._mode = "firefox_private" if private else "firefox"
         return ActionResult(
             ok=True,
@@ -1019,6 +1502,7 @@ class PlaywrightDriver:
             # launch-mode connect used to snap back to the front tab (Gmail).
             if self._page is None:
                 self._page = await self._pick_page()
+            await self._install_hands()
             self._mode = mode
             await self._apply_placement()
             return ActionResult(
@@ -1037,6 +1521,7 @@ class PlaywrightDriver:
         contexts = self._browser.contexts
         self._context = contexts[0] if contexts else await self._browser.new_context()
         self._page = await self._pick_page()
+        await self._install_hands()
         self._mode = mode
         await self._apply_placement()
         return ActionResult(
@@ -1158,6 +1643,51 @@ class PlaywrightDriver:
             )
         return None
 
+    async def _install_hands(self) -> None:
+        """Listen for operator pointerdowns across navigations."""
+        ctx = self._context
+        page = self._page
+        if ctx is not None:
+            try:
+                await ctx.add_init_script(_HANDS_JS)
+            except Exception:
+                log.debug("hands init script skipped", exc_info=True)
+        if page is not None:
+            try:
+                await page.evaluate(_HANDS_JS)
+            except Exception:
+                log.debug("hands inject skipped", exc_info=True)
+        self._ptr_seen = 0
+
+    async def _ptr_count(self) -> int:
+        if self._page is None:
+            return self._ptr_seen
+        try:
+            raw = await self._page.evaluate(_PTR_COUNT_JS)
+        except Exception:
+            return self._ptr_seen
+        try:
+            return int(raw or 0)
+        except (TypeError, ValueError):
+            return self._ptr_seen
+
+    async def _consume_hands(self) -> ActionResult | None:
+        count = await self._ptr_count()
+        if count <= self._ptr_seen:
+            return None
+        self._ptr_seen = count
+        url = ""
+        try:
+            url = str(self._page.url) if self._page is not None else ""
+        except Exception:
+            url = ""
+        return _hands_result(url=url)
+
+    def _fail_keep_or_drop(self, exc: BaseException) -> ActionResult:
+        if _is_cdp_dead(exc):
+            self._page = None
+        return _playwright_fail(exc)
+
     async def open_url_os(self, url: str, browser: str = "chrome") -> ActionResult:
         from arelis.browser import launch as launch_mod
 
@@ -1181,18 +1711,31 @@ class PlaywrightDriver:
             if not _same_open_url(current, url):
                 await page.goto(url, wait_until="domcontentloaded")
                 await self.settle()
+            await self._poll_leave_login(url)
             await self._apply_placement()
             title = await page.title()
             heading = await _page_heading(page)
-            bits = [f"Opened {page.url}"]
+            landed = str(page.url or url)
+            from arelis.browser.walls import nav_landed_note
+
+            bits = [f"Opened {landed}"]
             if title:
                 bits.append(f"title: {title}")
             if heading:
                 bits.append(f"heading: {heading}")
+            output = "\n".join(bits)
+            note = nav_landed_note(url, landed)
+            if note:
+                output = f"{output}\n\n{note}"
             return ActionResult(
                 ok=True,
-                output="\n".join(bits),
-                data={"url": page.url, "title": title, "heading": heading},
+                output=output,
+                data={
+                    "url": landed,
+                    "title": title,
+                    "heading": heading,
+                    "requested_url": url,
+                },
             )
         except Exception as exc:
             self._page = None
@@ -1206,12 +1749,20 @@ class PlaywrightDriver:
         try:
             await self._page.goto(url, wait_until="domcontentloaded")
             await self.settle()
+            await self._poll_leave_login(url)
             await self._apply_placement()
             title = await self._page.title()
+            landed = str(self._page.url or url)
+            from arelis.browser.walls import nav_landed_note
+
+            output = f"Navigated to {landed}"
+            note = nav_landed_note(url, landed)
+            if note:
+                output = f"{output}\n\n{note}"
             return ActionResult(
                 ok=True,
-                output=f"Navigated to {url}",
-                data={"url": self._page.url, "title": title},
+                output=output,
+                data={"url": landed, "title": title, "requested_url": url},
             )
         except Exception as exc:
             self._page = None
@@ -1412,10 +1963,25 @@ class PlaywrightDriver:
                 wall,
                 ok=False,
             )
+        hands = await self._consume_hands()
+        if hands is not None:
+            return hands
         try:
             await _glow_ref(self._page, ref)
+            hands = await self._consume_hands()
+            if hands is not None:
+                return hands
+            before = await self._ptr_count()
             loc = self._page.locator(f'[data-arelis-ref="{ref}"]')
             await loc.first.click(timeout=10_000)
+            after = await self._ptr_count()
+            if after > before + 1:
+                self._ptr_seen = after
+                return _hands_result(
+                    url=str(self._page.url or ""),
+                    extra="You have the mouse. I stopped clicking.",
+                )
+            self._ptr_seen = after
             try:
                 await self._page.wait_for_load_state(
                     "domcontentloaded", timeout=4_000
@@ -1433,9 +1999,151 @@ class PlaywrightDriver:
                     "label": info.text,
                 },
             )
+        except Exception as extra_exc:
+            try:
+                now = await self._ptr_count()
+            except Exception:
+                now = self._ptr_seen
+            if now > self._ptr_seen:
+                self._ptr_seen = now
+                url = ""
+                try:
+                    url = str(self._page.url or "") if self._page is not None else ""
+                except Exception:
+                    url = ""
+                return _hands_result(
+                    url=url,
+                    extra="You have the mouse. I stopped clicking.",
+                )
+            return self._fail_keep_or_drop(extra_exc)
+
+    async def hover(
+        self,
+        ref: str = "",
+        *,
+        x: float | None = None,
+        y: float | None = None,
+    ) -> ActionResult:
+        return await self._pointer("hover", ref=ref, x=x, y=y)
+
+    async def dblclick(
+        self,
+        ref: str = "",
+        *,
+        x: float | None = None,
+        y: float | None = None,
+    ) -> ActionResult:
+        return await self._pointer("dblclick", ref=ref, x=x, y=y)
+
+    async def right_click(
+        self,
+        ref: str = "",
+        *,
+        x: float | None = None,
+        y: float | None = None,
+    ) -> ActionResult:
+        return await self._pointer("right_click", ref=ref, x=x, y=y)
+
+    async def drag(
+        self,
+        ref: str = "",
+        *,
+        to: str = "",
+        x: float | None = None,
+        y: float | None = None,
+        to_x: float | None = None,
+        to_y: float | None = None,
+    ) -> ActionResult:
+        return await self._pointer(
+            "drag", ref=ref, x=x, y=y, to=to, to_x=to_x, to_y=to_y
+        )
+
+    async def _pointer(
+        self,
+        verb: str,
+        *,
+        ref: str = "",
+        x: float | None = None,
+        y: float | None = None,
+        to: str = "",
+        to_x: float | None = None,
+        to_y: float | None = None,
+    ) -> ActionResult:
+        err = await self._require_page()
+        if err:
+            return err
+        assert self._page is not None
+        use_xy = x is not None and y is not None
+        info = None
+        if not use_xy:
+            if not ref or ref not in self._refs:
+                return ActionResult(
+                    ok=False,
+                    output=f"Unknown ref {ref!r}. Call snapshot first.",
+                )
+            info = self._refs[ref]
+            from arelis.browser.walls import attach_wall, detect_wall
+
+            wall = detect_wall(click_label=info.text or info.name)
+            if wall is not None and wall.kind == "pay" and verb != "hover":
+                return attach_wall(
+                    ActionResult(
+                        ok=False,
+                        output=f"Stopped before [{ref}] {info.text or info.tag}.",
+                        data={"ref": ref, "label": info.text, "url": self._page.url},
+                    ),
+                    wall,
+                    ok=False,
+                )
+        try:
+            if use_xy:
+                await _glow_xy(self._page, float(x), float(y))
+                if verb == "hover":
+                    await self._page.mouse.move(float(x), float(y))
+                elif verb == "dblclick":
+                    await self._page.mouse.dblclick(float(x), float(y))
+                elif verb == "right_click":
+                    await self._page.mouse.click(
+                        float(x), float(y), button="right"
+                    )
+                elif verb == "drag":
+                    if to_x is None or to_y is None:
+                        return ActionResult(
+                            ok=False,
+                            output="drag with x,y needs to_x and to_y.",
+                        )
+                    await self._page.mouse.move(float(x), float(y))
+                    await self._page.mouse.down()
+                    await self._page.mouse.move(float(to_x), float(to_y))
+                    await self._page.mouse.up()
+            else:
+                await _glow_ref(self._page, ref)
+                loc = self._page.locator(f'[data-arelis-ref="{ref}"]')
+                if verb == "hover":
+                    await loc.first.hover(timeout=10_000)
+                elif verb == "dblclick":
+                    await loc.first.dblclick(timeout=10_000)
+                elif verb == "right_click":
+                    await loc.first.click(timeout=10_000, button="right")
+                elif verb == "drag":
+                    dest = self._page.locator(f'[data-arelis-ref="{to}"]')
+                    await loc.first.drag_to(dest.first, timeout=10_000)
+            label = (info.text if info is not None else "") or ref or "pixels"
+            return ActionResult(
+                ok=True,
+                output=f"{verb} [{ref or 'xy'}] {label}".strip(),
+                data={
+                    "ref": ref,
+                    "to": to,
+                    "x": x,
+                    "y": y,
+                    "glowed": True,
+                    "url": self._page.url,
+                    "label": label,
+                },
+            )
         except Exception as exc:
-            self._page = None
-            return _playwright_fail(exc)
+            return self._fail_keep_or_drop(exc)
 
     async def type_text(self, ref: str, text: str) -> ActionResult:
         err = await self._require_page()
@@ -1448,6 +2156,12 @@ class PlaywrightDriver:
                 ok=False,
                 output=f"Unknown ref {ref!r}. Call snapshot first.",
             )
+        if info.is_file_field():
+            return ActionResult(
+                ok=False,
+                output="type=file is refused. Use browser(action=upload, path=…).",
+                data={"code": "FILE_INPUT", "ref": ref},
+            )
         if info.is_secret_field():
             return ActionResult(
                 ok=False,
@@ -1457,31 +2171,57 @@ class PlaywrightDriver:
                 ),
                 data={"code": "SECRET_FIELD", "ref": ref},
             )
+        hands = await self._consume_hands()
+        if hands is not None:
+            return hands
         try:
             loc = self._page.locator(f'[data-arelis-ref="{ref}"]')
             await loc.first.fill(text, timeout=10_000)
+            self._ptr_seen = await self._ptr_count()
             return ActionResult(
                 ok=True,
                 output=f"Typed into [{ref}]",
                 data={"ref": ref, "length": len(text)},
             )
-        except Exception as exc:
-            self._page = None
-            return _playwright_fail(exc)
+        except Exception as extra_exc:
+            try:
+                now = await self._ptr_count()
+            except Exception:
+                now = self._ptr_seen
+            if now > self._ptr_seen:
+                self._ptr_seen = now
+                return _hands_result(
+                    url=str(getattr(self._page, "url", "") or ""),
+                    extra="You have the mouse. I stopped typing.",
+                )
+            return self._fail_keep_or_drop(extra_exc)
 
     async def tabs(
         self,
         *,
-        select: int | None = None,
+        select: int | str | None = None,
         op: str = "",
         url: str = "",
     ) -> ActionResult:
+        from arelis.browser.places import format_tab_list, parse_tab_select, pick_tab
+
         err = await self._require_page()
         if err:
             return err
         assert self._context is not None
         try:
             kind = (op or "").strip().lower()
+            idx, title_needle = parse_tab_select(select)
+            if kind == "close" and title_needle:
+                return ActionResult(
+                    ok=False,
+                    output=(
+                        "Close is the current tab only. "
+                        "Select the tab first, then tabs with tab=close. "
+                        "No close-by-title."
+                    ),
+                    data={"code": "CLOSE_BY_TITLE"},
+                )
             if kind == "new":
                 page = await self._context.new_page()
                 self._page = page
@@ -1507,10 +2247,10 @@ class PlaywrightDriver:
                         output="Closed the last tab — blank tab stays.",
                         data={"url": current.url, "title": await current.title()},
                     )
-                idx = pages.index(current) if current in pages else 0
+                close_i = pages.index(current) if current in pages else 0
                 await current.close()
                 remain = list(self._context.pages)
-                self._page = remain[min(idx, len(remain) - 1)]
+                self._page = remain[min(close_i, len(remain) - 1)]
                 await self._page.bring_to_front()
                 title = await self._page.title()
                 return ActionResult(
@@ -1518,33 +2258,41 @@ class PlaywrightDriver:
                     output=f"Closed a tab. Now: {title}",
                     data={"url": self._page.url, "title": title},
                 )
-            pages = self._context.pages
-            if select is not None:
-                if select < 0 or select >= len(pages):
-                    return ActionResult(ok=False, output=f"No tab index {select}.")
-                self._page = pages[select]
+            rows: list[dict[str, Any]] = []
+            for i, page in enumerate(self._context.pages):
+                try:
+                    title = await page.title()
+                    href = page.url
+                except Exception:
+                    title, href = "?", "?"
+                rows.append(
+                    {
+                        "index": i,
+                        "title": title,
+                        "url": href,
+                        "active": page == self._page,
+                    }
+                )
+            if idx is not None or title_needle:
+                chosen, pick_err = pick_tab(rows, index=idx, title=title_needle)
+                if pick_err or chosen is None:
+                    return ActionResult(ok=False, output=pick_err or "No tab.")
+                pages = list(self._context.pages)
+                self._page = pages[chosen]
                 await self._page.bring_to_front()
                 title = await self._page.title()
                 return ActionResult(
                     ok=True,
-                    output=f"Selected tab {select}: {title}",
-                    data={"active": select, "url": self._page.url, "title": title},
+                    output=f"Selected tab {chosen}: {title}",
+                    data={
+                        "active": chosen,
+                        "url": self._page.url,
+                        "title": title,
+                    },
                 )
-            rows: list[dict[str, Any]] = []
-            lines: list[str] = []
-            for i, page in enumerate(pages):
-                try:
-                    title = await page.title()
-                    url = page.url
-                except Exception:
-                    title, url = "?", "?"
-                active = page == self._page
-                rows.append({"index": i, "title": title, "url": url, "active": active})
-                mark = " (active)" if active else ""
-                lines.append(f"{i}: {title} — {url}{mark}")
             return ActionResult(
                 ok=True,
-                output="Tabs:\n" + "\n".join(lines),
+                output=format_tab_list(rows),
                 data={"tabs": rows},
             )
         except Exception as exc:
@@ -1678,13 +2426,263 @@ class PlaywrightDriver:
                 self._page = None
                 return _playwright_fail(exc)
 
-    async def wait(self, seconds: float) -> ActionResult:
+    async def wait(
+        self,
+        seconds: float = 1.0,
+        *,
+        url: str = "",
+        text: str = "",
+        heading: str = "",
+    ) -> ActionResult:
         err = await self._require_page()
         if err:
             return err
-        delay = max(0.2, min(float(seconds), 8.0))
-        await cooperative_wait(delay)
-        return ActionResult(ok=True, output=f"Waited {delay:.1f}s.")
+        from arelis.browser.wait_for import (
+            WAIT_POLL_S,
+            clamp_wait_seconds,
+            has_wait_needle,
+            page_needles_hit,
+            wait_output,
+        )
+
+        has = has_wait_needle(url=url, text=text, heading=heading)
+        delay = clamp_wait_seconds(seconds, has_needle=has)
+        if not has:
+            await cooperative_wait(delay)
+            landed = str(self._page.url or "") if self._page is not None else ""
+            output, data = wait_output(
+                hit=True, seconds=delay, landed_url=landed
+            )
+            return ActionResult(ok=True, output=output, data=data)
+        deadline = time.monotonic() + delay
+        signals: dict[str, str] = {}
+        hit = False
+        while True:
+            signals = await self._page_needles()
+            hit = page_needles_hit(
+                landed_url=signals.get("url") or "",
+                title=signals.get("title") or "",
+                heading=signals.get("heading") or "",
+                page_text=signals.get("text") or "",
+                want_url=url,
+                want_text=text,
+                want_heading=heading,
+            )
+            if hit:
+                break
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            await cooperative_wait(min(WAIT_POLL_S, remaining))
+        output, data = wait_output(
+            hit=hit,
+            seconds=delay,
+            landed_url=signals.get("url") or "",
+            want_url=url,
+            want_text=text,
+            want_heading=heading,
+        )
+        data["title"] = signals.get("title") or ""
+        return ActionResult(ok=True, output=output, data=data)
+
+    async def watch(
+        self,
+        *,
+        url: str = "",
+        text: str = "",
+        heading: str = "",
+    ) -> ActionResult:
+        err = await self._require_page()
+        if err:
+            return err
+        from arelis.browser.wait_for import has_wait_needle, page_needles_hit
+
+        if not has_wait_needle(url=url, text=text, heading=heading):
+            return ActionResult(
+                ok=False,
+                output="watch needs url, text, or heading to poll for.",
+            )
+        if getattr(self, "watch_stop", False):
+            return ActionResult(
+                ok=True,
+                output="Watch cancelled.",
+                data={
+                    "hit": False,
+                    "cancelled": True,
+                    "url": str(self._page.url or "") if self._page is not None else "",
+                },
+            )
+        signals = await self._page_needles()
+        hit = page_needles_hit(
+            landed_url=signals.get("url") or "",
+            title=signals.get("title") or "",
+            heading=signals.get("heading") or "",
+            page_text=signals.get("text") or "",
+            want_url=url,
+            want_text=text,
+            want_heading=heading,
+        )
+        landed = signals.get("url") or ""
+        if hit:
+            return ActionResult(
+                ok=True,
+                output=f"Watch hit — {landed}",
+                data={
+                    "hit": True,
+                    "watch_hit": True,
+                    "url": landed,
+                    "title": signals.get("title") or "",
+                },
+            )
+        return ActionResult(
+            ok=True,
+            output=f"Watch still waiting — {landed}",
+            data={
+                "hit": False,
+                "url": landed,
+                "title": signals.get("title") or "",
+            },
+        )
+
+    async def download(self, path: str, *, ref: str = "") -> ActionResult:
+        err = await self._require_page()
+        if err:
+            return err
+        assert self._page is not None
+        from arelis.browser.files import file_ready_payload
+
+        await asyncio.to_thread(_ensure_parent_dir, path)
+        try:
+            if ref:
+                info = self._refs.get(ref)
+                if info is None:
+                    return ActionResult(
+                        ok=False,
+                        output=f"Unknown ref {ref!r}. Call snapshot first.",
+                    )
+                await _glow_ref(self._page, ref)
+                async with self._page.expect_download(timeout=15_000) as pending:
+                    loc = self._page.locator(f'[data-arelis-ref="{ref}"]')
+                    await loc.first.click(timeout=10_000)
+                item = await pending.value
+            else:
+                return ActionResult(
+                    ok=False,
+                    output="download needs ref (the link or button that saves a file).",
+                )
+            suggested = str(item.suggested_filename or Path(path).name)
+            await item.save_as(path)
+            abs_path = await asyncio.to_thread(os.path.abspath, path)
+            data = file_ready_payload(Path(abs_path), kind="download", title=suggested)
+            data["ref"] = ref
+            data["url"] = str(self._page.url or "")
+            return ActionResult(
+                ok=True,
+                output=f"Downloaded {Path(abs_path).name}",
+                data=data,
+            )
+        except Exception as exc:
+            return self._fail_keep_or_drop(exc)
+
+    async def upload(self, ref: str, path: str) -> ActionResult:
+        err = await self._require_page()
+        if err:
+            return err
+        assert self._page is not None
+        info = self._refs.get(ref)
+        if info is None:
+            return ActionResult(
+                ok=False,
+                output=f"Unknown ref {ref!r}. Call snapshot first.",
+            )
+        if info.is_file_field() is False and str(info.type or "").lower() != "file":
+            return ActionResult(
+                ok=False,
+                output=f"[{ref}] is not a file input. Snapshot and upload to type=file.",
+                data={"code": "NOT_FILE", "ref": ref},
+            )
+        try:
+            await _glow_ref(self._page, ref)
+            loc = self._page.locator(f'[data-arelis-ref="{ref}"]')
+            await loc.first.set_input_files(path, timeout=10_000)
+            return ActionResult(
+                ok=True,
+                output=f"Uploaded {Path(path).name} to [{ref}]",
+                data={"ref": ref, "path": path, "name": Path(path).name},
+            )
+        except Exception as exc:
+            return self._fail_keep_or_drop(exc)
+
+    async def pdf(self, path: str) -> ActionResult:
+        err = await self._require_page()
+        if err:
+            return err
+        assert self._page is not None
+        from arelis.browser.files import file_ready_payload
+
+        await asyncio.to_thread(_ensure_parent_dir, path)
+        try:
+            await self._page.pdf(path=path)
+            abs_path = await asyncio.to_thread(os.path.abspath, path)
+            title = ""
+            try:
+                title = await self._page.title()
+            except Exception:
+                title = ""
+            data = file_ready_payload(Path(abs_path), kind="pdf", title=title)
+            data["url"] = str(self._page.url or "")
+            return ActionResult(
+                ok=True,
+                output=f"Saved tab PDF {Path(abs_path).name}",
+                data=data,
+            )
+        except Exception as exc:
+            return self._fail_keep_or_drop(exc)
+
+    async def _page_needles(self) -> dict[str, str]:
+        if self._page is None:
+            return {}
+        try:
+            raw = await self._page.evaluate(
+                """() => {
+  const heading = ((document.querySelector('h1') || {}).innerText || '')
+    .trim().slice(0, 120);
+  const text = ((document.body && document.body.innerText) || '')
+    .slice(0, 2500);
+  return {
+    url: location.href,
+    title: document.title || '',
+    heading,
+    text,
+  };
+}"""
+            )
+        except Exception:
+            return {"url": str(self._page.url or "")}
+        if not isinstance(raw, dict):
+            return {"url": str(self._page.url or "")}
+        return {
+            "url": str(raw.get("url") or self._page.url or ""),
+            "title": str(raw.get("title") or ""),
+            "heading": str(raw.get("heading") or ""),
+            "text": str(raw.get("text") or ""),
+        }
+
+    async def _poll_leave_login(self, requested: str) -> None:
+        """SPA bounce after a login URL still paints as /login for a beat."""
+        from arelis.browser.wait_for import NAV_LOGIN_POLL_S, WAIT_POLL_S
+        from arelis.browser.walls import is_login_url
+
+        if self._page is None or not is_login_url(requested):
+            return
+        if not is_login_url(str(self._page.url or "")):
+            return
+        deadline = time.monotonic() + NAV_LOGIN_POLL_S
+        while is_login_url(str(self._page.url or "")):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return
+            await cooperative_wait(min(WAIT_POLL_S, remaining))
 
     async def settle(self, *, timeout_s: float = SETTLE_S) -> ActionResult:
         """Wait until a result-like link exists, or the cap. Not networkidle."""

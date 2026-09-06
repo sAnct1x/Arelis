@@ -47,7 +47,7 @@ from arelis.ui.scale import (
     scale_from_config,
     scale_preset_label,
 )
-from arelis.ui.theme import GLASS, polish_combo_popup
+from arelis.ui.theme import GLASS, SPACE, box, polish_combo_popup
 
 
 class SettingsDialog(QDialog):
@@ -86,6 +86,7 @@ class SettingsDialog(QDialog):
             | Qt.WindowType.Window
         )
         seal_tool_window(self, round_corners=True)
+        self._settings_config = config
         self._on_test_mic = on_test_mic
         self._on_test_speak = on_test_speak
         self._on_reset_layout = on_reset_layout
@@ -116,8 +117,8 @@ class SettingsDialog(QDialog):
         outer.addWidget(panel)
 
         root = QVBoxLayout(panel)
-        root.setContentsMargins(18, 14, 18, 14)
-        root.setSpacing(12)
+        root.setContentsMargins(*box("plate", "inset"))
+        root.setSpacing(SPACE["inset"])
 
         head = QHBoxLayout()
         head.setContentsMargins(0, 0, 0, 0)
@@ -156,8 +157,8 @@ class SettingsDialog(QDialog):
         audio = QWidget()
         audio.setObjectName("SettingsTabBody")
         audio_form = QFormLayout(audio)
-        audio_form.setContentsMargins(14, 16, 14, 12)
-        audio_form.setSpacing(12)
+        audio_form.setContentsMargins(*box("inset", "plate", "inset", "inset"))
+        audio_form.setSpacing(SPACE["inset"])
         audio_form.setFieldGrowthPolicy(
             QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow
         )
@@ -195,20 +196,18 @@ class SettingsDialog(QDialog):
         vol_row.addWidget(self.volume_slider, stretch=1)
         vol_row.addWidget(self.volume_label)
 
-        # These three read as live switches and are not: the voice service picks
-        # the flags up once, when it is built. Saying so on the control beats
-        # saying so afterwards, which is a report of something already gone
-        # wrong rather than a warning.
-        _restart_note = "takes effect after a restart"
+        _live_note = "Applies when you click Apply."
         self.voice_enabled = QCheckBox("Voice features")
         self.voice_enabled.setChecked(bool(voice.get("enabled", True)))
-        self.voice_enabled.setToolTip(f"Turning voice on or off {_restart_note}.")
+        self.voice_enabled.setToolTip(
+            f"{_live_note} First-time hardware still needs a restart."
+        )
         self.stt_enabled = QCheckBox("Listen (speech to text)")
         self.stt_enabled.setChecked(bool(stt.get("enabled", True)))
-        self.stt_enabled.setToolTip(f"Turning listening on or off {_restart_note}.")
+        self.stt_enabled.setToolTip(_live_note)
         self.tts_enabled = QCheckBox("Speak (text to speech)")
         self.tts_enabled.setChecked(bool(tts.get("enabled", True)))
-        self.tts_enabled.setToolTip(f"Turning speech on or off {_restart_note}.")
+        self.tts_enabled.setToolTip(_live_note)
 
         test_row = QHBoxLayout()
         self.test_mic_btn = QPushButton("Test mic")
@@ -236,8 +235,8 @@ class SettingsDialog(QDialog):
         window = QWidget()
         window.setObjectName("SettingsTabBody")
         win_form = QFormLayout(window)
-        win_form.setContentsMargins(14, 16, 14, 12)
-        win_form.setSpacing(12)
+        win_form.setContentsMargins(*box("inset", "plate", "inset", "inset"))
+        win_form.setSpacing(SPACE["inset"])
         win_form.setFieldGrowthPolicy(
             QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow
         )
@@ -316,49 +315,97 @@ class SettingsDialog(QDialog):
         allow_tab = QWidget()
         allow_tab.setObjectName("SettingsTabBody")
         allow_l = QVBoxLayout(allow_tab)
-        allow_l.setContentsMargins(14, 16, 14, 12)
-        allow_l.setSpacing(12)
-        allow_blurb = QLabel(
-            "She pauses on these unless you already asked. A drive you typed "
-            "or said is the grant — her window just moves. Mail and texts "
-            "still show the exact message. Conversation mode: say allow or deny."
-        )
-        allow_blurb.setObjectName("SettingsHint")
-        allow_blurb.setWordWrap(True)
-        allow_l.addWidget(allow_blurb)
+        allow_l.setContentsMargins(*box("inset", "plate", "inset", "inset"))
+        allow_l.setSpacing(SPACE["inset"])
         agent = config.get("agent") or {}
+
+        def _allow_hint(text: str) -> QLabel:
+            lab = QLabel(text)
+            lab.setObjectName("SettingsHint")
+            lab.setWordWrap(True)
+            lab.setSizePolicy(
+                QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum
+            )
+            return lab
+
+        def _allow_section(title: str) -> QLabel:
+            lab = QLabel(title)
+            lab.setObjectName("SettingsSection")
+            return lab
+
+        self.ask_is_grant = QCheckBox("the ask is the grant")
+        self.ask_is_grant.setChecked(bool(agent.get("ask_is_grant", True)))
+        self._allow_grant_blurb = _allow_hint("")
+        allow_l.addWidget(self.ask_is_grant)
+        allow_l.addWidget(self._allow_grant_blurb)
+
+        self._allow_ask_all = QPushButton("ask me everything")
+        self._allow_ask_all.setObjectName("SettingsField")
+        self._allow_ask_all.setToolTip(
+            "Every checked class shows Allow, even a job you named."
+        )
+        self._allow_ask_all.clicked.connect(self._preset_allow_everything)
+        self._allow_trust_local = QPushButton("never ask about local work")
+        self._allow_trust_local.setObjectName("SettingsField")
+        self._allow_trust_local.setToolTip(
+            "Never pause for files, pictures, her window, or seeing. "
+            "Mail and programs still can."
+        )
+        self._allow_trust_local.clicked.connect(self._preset_allow_trust_local)
+        preset_row = QHBoxLayout()
+        preset_row.addWidget(self._allow_ask_all)
+        preset_row.addWidget(self._allow_trust_local)
+        preset_row.addStretch(1)
+        allow_l.addLayout(preset_row)
+
+        self._allow_local_h = _allow_section("On her own")
+        self._allow_local_blurb = _allow_hint("")
+        allow_l.addWidget(self._allow_local_h)
+        allow_l.addWidget(self._allow_local_blurb)
         self.confirm_writes = QCheckBox("files, memory, calendar, rooms")
         self.confirm_writes.setChecked(bool(agent.get("confirm_writes", True)))
+        self.confirm_writes.setToolTip(
+            "Save, remember, calendar, rooms. Deletes still pause when this is on."
+        )
         self.confirm_image = QCheckBox("pictures")
         self.confirm_image.setChecked(bool(agent.get("confirm_image", True)))
+        self.confirm_image.setToolTip("Pictures she makes.")
         self.confirm_browser = QCheckBox("her window, when she offers it")
         self.confirm_browser.setChecked(bool(agent.get("confirm_browser", True)))
+        self.confirm_browser.setToolTip(
+            "When she offers her window. Pay still pauses when this is on."
+        )
         self.confirm_vision = QCheckBox("seeing images and the screen")
         self.confirm_vision.setChecked(bool(agent.get("confirm_vision", True)))
-        self.confirm_send = QCheckBox("mail and texts")
-        self.confirm_send.setChecked(bool(agent.get("confirm_send", True)))
-        self.confirm_run = QCheckBox("programs in the project")
-        self.confirm_run.setChecked(bool(agent.get("confirm_run", True)))
-        for box in (
+        self.confirm_vision.setToolTip("Looking at an image or the screen.")
+        for gate in (
             self.confirm_writes,
             self.confirm_image,
             self.confirm_browser,
             self.confirm_vision,
-            self.confirm_send,
-            self.confirm_run,
         ):
-            allow_l.addWidget(box)
-        preset_row = QHBoxLayout()
-        ask_all = QPushButton("ask me everything")
-        ask_all.setObjectName("SettingsField")
-        ask_all.clicked.connect(self._preset_allow_everything)
-        trust_local = QPushButton("don't ask about files, pictures, or her window")
-        trust_local.setObjectName("SettingsField")
-        trust_local.clicked.connect(self._preset_allow_trust_local)
-        preset_row.addWidget(ask_all)
-        preset_row.addWidget(trust_local)
-        preset_row.addStretch(1)
-        allow_l.addLayout(preset_row)
+            allow_l.addWidget(gate)
+
+        self._allow_always_h = _allow_section("Even when you named it")
+        self._allow_always_blurb = _allow_hint(
+            "Naming the job is never enough. Uncheck to never ask."
+        )
+        allow_l.addWidget(self._allow_always_h)
+        allow_l.addWidget(self._allow_always_blurb)
+        self.confirm_send = QCheckBox("mail and texts")
+        self.confirm_send.setChecked(bool(agent.get("confirm_send", True)))
+        self.confirm_send.setToolTip(
+            "Each mail or text still needs Allow when this is on."
+        )
+        self.confirm_run = QCheckBox("programs in the project")
+        self.confirm_run.setChecked(bool(agent.get("confirm_run", True)))
+        self.confirm_run.setToolTip(
+            "Running a project program still needs Allow when this is on."
+        )
+        allow_l.addWidget(self.confirm_send)
+        allow_l.addWidget(self.confirm_run)
+        self.ask_is_grant.toggled.connect(self._sync_allow_copy)
+        self._sync_allow_copy()
         allow_l.addStretch(1)
         tabs.addTab(allow_tab, "allow")
 
@@ -366,8 +413,8 @@ class SettingsDialog(QDialog):
         notify = QWidget()
         notify.setObjectName("SettingsTabBody")
         notify_l = QVBoxLayout(notify)
-        notify_l.setContentsMargins(16, 16, 16, 12)
-        notify_l.setSpacing(10)
+        notify_l.setContentsMargins(*box("plate", "plate", "plate", "inset"))
+        notify_l.setSpacing(SPACE["gap"])
 
         notices_h = QLabel("Notices")
         notices_h.setObjectName("SettingsSection")
@@ -468,9 +515,47 @@ class SettingsDialog(QDialog):
         pair_btns.addWidget(refresh_qr)
         pair_btns.addWidget(copy_url)
         pair_btns.addWidget(copy_pair)
+        self.make_token_btn = QPushButton("Create phone token")
+        self.make_token_btn.setToolTip(
+            "Writes a token so the phone can pair — no secrets.yaml edit."
+        )
+        self.make_token_btn.clicked.connect(self._create_ingest_token)
+        pair_btns.addWidget(self.make_token_btn)
         pair_btns.addStretch(1)
         notify_l.addLayout(pair_btns)
         notify_l.addWidget(self.pair_status)
+
+        mail_h = QLabel("Mail")
+        mail_h.setObjectName("SettingsSection")
+        mail_blurb = QLabel(
+            "Gmail app password. Jobs and 'email me' use this. The password "
+            "is never shown again after Apply."
+        )
+        mail_blurb.setObjectName("SettingsHint")
+        mail_blurb.setWordWrap(True)
+        notify_l.addWidget(mail_h)
+        notify_l.addWidget(mail_blurb)
+        self.mail_address = QLineEdit()
+        self.mail_address.setObjectName("SettingsField")
+        self.mail_address.setPlaceholderText("you@example.com")
+        self.mail_password = QLineEdit()
+        self.mail_password.setObjectName("SettingsField")
+        self.mail_password.setEchoMode(QLineEdit.EchoMode.Password)
+        self.mail_password.setPlaceholderText("app password")
+        try:
+            from arelis.mail import load_account
+
+            account = load_account()
+        except Exception:
+            account = None
+        if account is not None:
+            self.mail_address.setText(account.address)
+            self.mail_password.setPlaceholderText("saved — type to replace")
+        mail_form = QFormLayout()
+        mail_form.addRow("Address", self.mail_address)
+        mail_form.addRow("App password", self.mail_password)
+        notify_l.addLayout(mail_form)
+
         notify_l.addStretch(1)
         tabs.addTab(notify, "notify")
         self._pairing_text = ""
@@ -480,8 +565,8 @@ class SettingsDialog(QDialog):
         roots_tab = QWidget()
         roots_tab.setObjectName("SettingsTabBody")
         roots_l = QVBoxLayout(roots_tab)
-        roots_l.setContentsMargins(14, 16, 14, 12)
-        roots_l.setSpacing(10)
+        roots_l.setContentsMargins(*box("inset", "plate", "inset", "inset"))
+        roots_l.setSpacing(SPACE["gap"])
         roots_hint = QLabel(
             "Folders Arelis may read and write. Default is this repo only. "
             "Add another project when you actually work on it — workspace dock "
@@ -638,6 +723,17 @@ class SettingsDialog(QDialog):
         urls, _ = self._notify_urls(config)
         return urls or "(no listen address)"
 
+    def _create_ingest_token(self) -> None:
+        from arelis.sms_ingest import ensure_ingest_token
+
+        try:
+            ensure_ingest_token()
+        except Exception as exc:
+            self.pair_status.setText(f"Could not create a token: {exc}")
+            return
+        self._refresh_pairing_qr(self._settings_config, rotate=False)
+        self.pair_status.setText("Phone token ready. Scan the code with the Arelis app.")
+
     def _copy_notify_url(self, config: dict[str, Any]) -> None:
         _, primary = self._notify_urls(config)
         if not primary:
@@ -669,7 +765,7 @@ class SettingsDialog(QDialog):
             self.pair_qr.clear()
             self.pair_qr.setFixedSize(0, 0)
             self.pair_status.setText(
-                "Set sms.ingest_token in data/secrets.yaml, then open this tab again."
+                "No phone token yet. Click Create phone token."
             )
             return
         _, primary = self._notify_urls(config)
@@ -855,6 +951,35 @@ class SettingsDialog(QDialog):
         self.root_read_only.setChecked(False)
         self.test_status.setText(f"Removed root `{removed.get('name')}`.")
 
+    def _sync_allow_copy(self) -> None:
+        """Headings follow the grant so the page describes the live gate."""
+        grant = self.ask_is_grant.isChecked()
+        if grant:
+            self.ask_is_grant.setToolTip(
+                "When on, a job you already named does not open Allow — "
+                "except mail, texts, deletes, Pay, and programs."
+            )
+            self._allow_grant_blurb.setText(
+                "A job you named skips Allow for pictures, files, seeing, "
+                "and her window. Mail, texts, deletes, Pay, and programs "
+                "still pause."
+            )
+            self._allow_local_h.setText("On her own")
+            self._allow_local_blurb.setText(
+                "Pause if she does this without you naming it. Uncheck to never ask."
+            )
+        else:
+            self.ask_is_grant.setToolTip(
+                "Off: every checked class shows Allow, even a job you named."
+            )
+            self._allow_grant_blurb.setText(
+                "Every checked class shows Allow, even a job you named."
+            )
+            self._allow_local_h.setText("Pause every time")
+            self._allow_local_blurb.setText(
+                "A checked class always shows Allow. Uncheck to never ask."
+            )
+
     def _preset_allow_everything(self) -> None:
         self.confirm_writes.setChecked(True)
         self.confirm_image.setChecked(True)
@@ -862,6 +987,8 @@ class SettingsDialog(QDialog):
         self.confirm_vision.setChecked(True)
         self.confirm_send.setChecked(True)
         self.confirm_run.setChecked(True)
+        self.ask_is_grant.setChecked(False)
+        self._sync_allow_copy()
 
     def _preset_allow_trust_local(self) -> None:
         self.confirm_writes.setChecked(False)
@@ -870,6 +997,8 @@ class SettingsDialog(QDialog):
         self.confirm_vision.setChecked(False)
         self.confirm_send.setChecked(True)
         self.confirm_run.setChecked(True)
+        self.ask_is_grant.setChecked(True)
+        self._sync_allow_copy()
 
     def values(self) -> dict[str, Any]:
         return {
@@ -909,6 +1038,10 @@ class SettingsDialog(QDialog):
                     }
                 }
             },
+            "mail": {
+                "address": self.mail_address.text().strip(),
+                "app_password": self.mail_password.text().strip(),
+            },
             "agent": {
                 "confirm_writes": self.confirm_writes.isChecked(),
                 "confirm_image": self.confirm_image.isChecked(),
@@ -916,6 +1049,7 @@ class SettingsDialog(QDialog):
                 "confirm_vision": self.confirm_vision.isChecked(),
                 "confirm_send": self.confirm_send.isChecked(),
                 "confirm_run": self.confirm_run.isChecked(),
+                "ask_is_grant": self.ask_is_grant.isChecked(),
             },
         }
 

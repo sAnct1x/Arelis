@@ -361,6 +361,7 @@ _SKIP_TO = frozenset(
         "the",
         "that",
         "this",
+        "it",
         "image",
         "photo",
         "picture",
@@ -370,6 +371,18 @@ _SKIP_TO = frozenset(
         "attachment",
     }
 )
+
+# "email it to me" / model to="it to me" — pronoun, not a recipient name.
+_IT_TO_PREFIX = re.compile(r"(?i)^it(?:\s+to)?\s+(?P<who>.+)$")
+
+
+def strip_it_to_recipient(raw: str) -> str:
+    """'it to me' / 'it to ada@x.com' → the real recipient."""
+    text = (raw or "").strip()
+    match = _IT_TO_PREFIX.match(text)
+    if match:
+        return (match.group("who") or "").strip()
+    return text
 
 _SELF_TO = frozenset({"me", "myself"})
 
@@ -928,6 +941,7 @@ def parse_email_utterance(text: str) -> EmailDraft | None:
     named = addrs[0] if addrs else ""
     if named:
         to = named
+    to = strip_it_to_recipient(to)
     first = to.split()[0].lower() if to else ""
     if not to or first in _SKIP_TO:
         # "Email that image to addr…" without a media match above — recover the
@@ -1503,9 +1517,11 @@ def fill_send_email_args(
     show the message that will actually send. For two named inboxes, `to` is
     the next address not already sent this turn.
     """
-    if draft is None:
-        return dict(args)
     out = dict(args)
+    if out.get("to"):
+        out["to"] = strip_it_to_recipient(str(out.get("to") or ""))
+    if draft is None:
+        return out
     remaining = email_remaining(draft, already_sent)
     next_to = remaining[0] if remaining else draft.tool_to
     if next_to and not valid_address(repair_email_address(next_to)):

@@ -96,7 +96,7 @@ def _under_own_roots(raw: str) -> Path | None:
     return None
 
 
-def resolve_image(workspace: WorkspaceRoots, path_str: str) -> Path:
+def resolve_image(workspace: WorkspaceRoots | None, path_str: str) -> Path:
     """An existing local image file, or an exception naming why not.
 
     Raises ValueError for a missing or non-image path, PermissionError for one
@@ -108,10 +108,11 @@ def resolve_image(workspace: WorkspaceRoots, path_str: str) -> Path:
         raise ValueError("Missing path")
 
     found: Path | None = None
-    try:
-        found = workspace.resolve_read(raw).path
-    except (ValueError, PermissionError, FileNotFoundError):
-        found = None
+    if workspace is not None:
+        try:
+            found = workspace.resolve_read(raw).path
+        except (ValueError, PermissionError, FileNotFoundError):
+            found = None
 
     # A workspace hit that does not exist is not better than a drops hit that
     # does: the model routinely passes `data/drops/...`, which is relative to

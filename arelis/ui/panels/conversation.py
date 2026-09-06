@@ -48,7 +48,7 @@ from arelis.ui.panels.confirm import ConfirmCard
 from arelis.ui.panels.drive import DriveStrip
 from arelis.ui.panels.room import RoomStrip
 from arelis.ui.stage import paint_corner_ticks
-from arelis.ui.theme import METRICS, active_theme, polish_combo_popup
+from arelis.ui.theme import METRICS, SPACE, active_theme, box, polish_combo_popup
 from arelis.ui.void_idle import OrbitCanvas
 
 
@@ -144,7 +144,7 @@ class _ComposerLineEdit(QPlainTextEdit):
         self.ensureCursorVisible()
 
 
-_STAGE_MARGIN_TOP = 14
+_STAGE_MARGIN_TOP = SPACE["inset"]
 
 
 class ConversationStage(GlassFrame):
@@ -178,8 +178,8 @@ class ConversationStage(GlassFrame):
         self.setAcceptDrops(True)
         layout = QVBoxLayout(self)
         # Gutter so corner ticks sit outside fast / send / chat labels.
-        layout.setContentsMargins(22, _STAGE_MARGIN_TOP, 22, 16)
-        layout.setSpacing(8)
+        layout.setContentsMargins(*box("stage", "inset", "stage", "plate"))
+        layout.setSpacing(SPACE["gap"])
 
         # Above the transcript: whose conversation this is. Hidden in general.
         self.room = RoomStrip()
@@ -214,8 +214,8 @@ class ConversationStage(GlassFrame):
         self._composer = composer
         row = QHBoxLayout(composer)
         self._composer_row = row
-        row.setContentsMargins(2, 4, 2, 2)
-        row.setSpacing(8)
+        row.setContentsMargins(*box("hair", "micro", "hair", "hair"))
+        row.setSpacing(SPACE["gap"])
 
         self.role = QComboBox()
         self.role.setObjectName("RoleSelect")
@@ -1084,6 +1084,8 @@ class ConversationStage(GlassFrame):
         detail: str = "",
         note: str = "",
         batch_ok: bool = True,
+        persist_ok: bool = False,
+        persist_label: str = "",
         headline: str = "",
     ) -> None:
         from arelis.ui.theme import active_theme
@@ -1098,6 +1100,8 @@ class ConversationStage(GlassFrame):
                 detail=detail,
                 note=note,
                 batch_ok=batch_ok,
+                persist_ok=persist_ok,
+                persist_label=persist_label,
                 headline=headline,
             )
         self._sync_composer_buttons()

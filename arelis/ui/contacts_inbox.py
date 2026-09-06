@@ -15,7 +15,14 @@ from PySide6.QtWidgets import (
 from arelis.ui.glass import GlassFrame, advance_rim_pulse, seal_tool_window
 from arelis.ui.icons import window_close_icon
 from arelis.ui.panels.contacts import ContactsPanel
-from arelis.ui.theme import GLASS
+from arelis.ui.theme import GLASS, SPACE, box
+from arelis.ui.window_resize import (
+    cursor_for_hit,
+    enable_win32_resize_frame,
+    handle_native_resize,
+    hit_test_resize,
+    try_system_resize,
+)
 
 
 class ContactsInboxWindow(QWidget):
@@ -55,8 +62,8 @@ class ContactsInboxWindow(QWidget):
         outer.addWidget(plate)
 
         root = QVBoxLayout(plate)
-        root.setContentsMargins(16, 12, 16, 14)
-        root.setSpacing(10)
+        root.setContentsMargins(*box("plate", "inset"))
+        root.setSpacing(SPACE["gap"])
 
         head = QHBoxLayout()
         head.setContentsMargins(0, 0, 0, 0)
@@ -84,8 +91,37 @@ class ContactsInboxWindow(QWidget):
 
     def showEvent(self, event) -> None:  # type: ignore[override]
         super().showEvent(event)
+        enable_win32_resize_frame(self)
+        self.setMouseTracking(True)
         self.panel.show_list()
         self._rim_pulse.start()
+
+    def changeEvent(self, event) -> None:  # type: ignore[override]
+        super().changeEvent(event)
+        if event.type() == QEvent.Type.WindowStateChange:
+            if not (self.isMaximized() or self.isFullScreen()):
+                enable_win32_resize_frame(self)
+
+    def nativeEvent(self, eventType, message):
+        handled = handle_native_resize(self, eventType, message)
+        if handled is not None:
+            return handled
+        return super().nativeEvent(eventType, message)
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            if try_system_resize(self, event.globalPosition().toPoint()):
+                event.accept()
+                return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event) -> None:
+        shape = cursor_for_hit(hit_test_resize(self))
+        if shape is not None:
+            self.setCursor(shape)
+        else:
+            self.unsetCursor()
+        super().mouseMoveEvent(event)
 
     def hideEvent(self, event) -> None:  # type: ignore[override]
         self._rim_pulse.stop()

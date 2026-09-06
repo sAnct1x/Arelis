@@ -42,12 +42,25 @@ from arelis.calendar.models import CachedEvent
 from arelis.calendar.store import CalendarStore
 from arelis.jobs.store import DAY_NAMES, Job, load_jobs
 from arelis.memory.store import MemoryStore
-from arelis.ui.theme import METRICS, color
+from arelis.ui.theme import METRICS, SPACE, box, color
 
 CHROME_TILE_SIZE = (1100, 800)
 _HOUR_START = 6
 _HOUR_END = 22
 _VIEWS = ("month", "week", "day", "agenda")
+MONTH_EVENT_CAP = 3
+
+
+def leftover_label(count: int) -> str:
+    return f"+{count} more"
+
+
+def sync_chip_mark(sync_state: str) -> str:
+    if sync_state == "pending":
+        return " · queued"
+    if sync_state == "failed":
+        return " · failed"
+    return ""
 
 
 def _c(name: str) -> QColor:
@@ -129,8 +142,8 @@ class CalendarMonthView(QWidget):
             rect = QRect(
                 int(grid.x() + c * cw),
                 int(grid.y() + r * ch),
-                int(cw) - 1,
-                int(ch) - 1,
+                int(cw) - SPACE["hair"],
+                int(ch) - SPACE["hair"],
             )
             self._hits.append(_Hit(rect, "cell", day))
             in_month = day.month == self._anchor.month
@@ -142,7 +155,13 @@ class CalendarMonthView(QWidget):
                 p.setBrush(Qt.BrushStyle.NoBrush)
                 p.drawRoundedRect(rect.adjusted(2, 2, -2, -2), 6, 6)
 
-            num = QRect(rect.x() + 6, rect.y() + 4, rect.width() - 12, 16)
+            inset = SPACE["gap"]
+            num = QRect(
+                rect.x() + inset,
+                rect.y() + SPACE["micro"],
+                rect.width() - inset * 2,
+                16,
+            )
             p.setPen(_c("text") if in_month else _c("dim"))
             font = p.font()
             font.setPixelSize(12)
@@ -153,22 +172,38 @@ class CalendarMonthView(QWidget):
                 str(day.day),
             )
 
-            y = rect.y() + 22
-            for ev in events_on_day(self._events, day)[:4]:
-                chip = QRect(rect.x() + 5, y, rect.width() - 10, 16)
-                if chip.bottom() > rect.bottom() - 4:
+            y = num.bottom() + SPACE["hair"]
+            day_events = events_on_day(self._events, day)
+            shown = day_events[:MONTH_EVENT_CAP]
+            for ev in shown:
+                chip = QRect(rect.x() + inset, y, rect.width() - inset * 2, 16)
+                if chip.bottom() > rect.bottom() - SPACE["hair"]:
                     break
-                self._paint_chip(p, chip, format_event_time(ev), ev.summary, all_day=ev.all_day)
+                self._paint_chip(
+                    p,
+                    chip,
+                    format_event_time(ev),
+                    ev.summary,
+                    all_day=ev.all_day,
+                    sync_state=ev.sync_state,
+                )
                 self._hits.append(_Hit(chip, "event", ev))
-                y += 18
+                y += 16 + SPACE["hair"]
+            leftover = len(day_events) - len(shown)
+            if leftover > 0:
+                chip = QRect(rect.x() + inset, y, rect.width() - inset * 2, 14)
+                if chip.bottom() <= rect.bottom() - SPACE["hair"]:
+                    self._paint_chip(p, chip, "", leftover_label(leftover))
+                    self._hits.append(_Hit(chip, "more", day))
+                    y += 14 + SPACE["hair"]
             for task in tasks_due_on_day(self._tasks, day)[:2]:
-                chip = QRect(rect.x() + 5, y, rect.width() - 10, 14)
-                if chip.bottom() > rect.bottom() - 4:
+                chip = QRect(rect.x() + inset, y, rect.width() - inset * 2, 14)
+                if chip.bottom() > rect.bottom() - SPACE["hair"]:
                     break
                 title = str(task.get("title") or "task")
                 self._paint_chip(p, chip, "due", title, task=True)
                 self._hits.append(_Hit(chip, "task", task))
-                y += 16
+                y += 14 + SPACE["hair"]
         p.end()
 
     def _paint_chip(
@@ -180,20 +215,27 @@ class CalendarMonthView(QWidget):
         *,
         all_day: bool = False,
         task: bool = False,
+        sync_state: str = "",
     ) -> None:
         path = QPainterPath()
         path.addRoundedRect(QRectF(rect), 4, 4)
         fill = _c("card_fill") if not all_day else _c("raised")
         if task:
             fill = _c("chip")
+        if sync_state == "failed":
+            fill = _c("chip")
         p.fillPath(path, fill)
-        p.setPen(QPen(_c("hairline_mid" if task else "edge"), 1))
+        if sync_state == "pending":
+            p.setPen(QPen(_c("accent"), 1))
+        else:
+            p.setPen(QPen(_c("hairline_mid" if task else "edge"), 1))
         p.drawPath(path)
         p.setPen(_c("text_dim") if task else _c("accent2"))
         font = p.font()
         font.setPixelSize(10)
         p.setFont(font)
-        label = f"{when}  {title}" if when else title
+        mark = sync_chip_mark(sync_state)
+        label = f"{when}  {title}{mark}" if when else f"{title}{mark}"
         p.drawText(
             rect.adjusted(5, 0, -4, 0),
             Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
@@ -214,7 +256,7 @@ class CalendarMonthView(QWidget):
             if hit.kind == "task":
                 self.task_clicked.emit(hit.payload)
                 return
-            if hit.kind == "cell":
+            if hit.kind in {"cell", "more"}:
                 self.cell_clicked.emit(hit.payload)
                 return
 
@@ -475,8 +517,8 @@ class EventSheet(QWidget):
         self._provider = ""
         self._calendar_id = ""
         root = QVBoxLayout(self)
-        root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(10)
+        root.setContentsMargins(*box("gap"))
+        root.setSpacing(SPACE["gap"])
 
         self.heading = QLabel("new event")
         self.heading.setObjectName("InstrumentTitle")
@@ -484,8 +526,8 @@ class EventSheet(QWidget):
 
         form = QFormLayout()
         form.setContentsMargins(0, 0, 0, 0)
-        form.setHorizontalSpacing(10)
-        form.setVerticalSpacing(8)
+        form.setHorizontalSpacing(SPACE["gap"])
+        form.setVerticalSpacing(SPACE["gap"])
 
         self.title_edit = QLineEdit()
         self.title_edit.setObjectName("InstrumentSearch")
@@ -499,7 +541,7 @@ class EventSheet(QWidget):
 
         self.date_edit = QDateEdit()
         self.date_edit.setObjectName("CalendarDate")
-        self.date_edit.setCalendarPopup(False)
+        self.date_edit.setCalendarPopup(True)
         self.date_edit.setDisplayFormat("yyyy-MM-dd")
         self.date_edit.setFixedHeight(METRICS["row"])
         form.addRow("date", self.date_edit)
@@ -522,16 +564,16 @@ class EventSheet(QWidget):
         self.location_edit.setFixedHeight(METRICS["row"])
         form.addRow("place", self.location_edit)
 
-        self.notes_edit = QLineEdit()
-        self.notes_edit.setObjectName("InstrumentSearch")
+        self.notes_edit = QPlainTextEdit()
+        self.notes_edit.setObjectName("CalendarNotes")
         self.notes_edit.setPlaceholderText("optional notes")
-        self.notes_edit.setFixedHeight(METRICS["row"])
+        self.notes_edit.setFixedHeight(METRICS["row"] * 3)
         form.addRow("notes", self.notes_edit)
         root.addLayout(form)
         root.addStretch(1)
 
         row = QHBoxLayout()
-        row.setSpacing(6)
+        row.setSpacing(SPACE["gap"])
         self.delete_btn = _row_button("delete", tooltip="remove this event")
         self.delete_btn.setObjectName("CalendarDelete")
         self.delete_btn.clicked.connect(self._on_delete)
@@ -552,7 +594,7 @@ class EventSheet(QWidget):
         self.heading.setText("new event")
         self.title_edit.setText("")
         self.location_edit.setText("")
-        self.notes_edit.setText("")
+        self.notes_edit.setPlainText("")
         self.all_day.setChecked(hour is None)
         self.date_edit.setDate(QDate(day.year, day.month, day.day))
         start = QTime(9 if hour is None else hour, 0)
@@ -569,7 +611,7 @@ class EventSheet(QWidget):
         self.heading.setText("edit event")
         self.title_edit.setText(ev.summary)
         self.location_edit.setText(ev.location or "")
-        self.notes_edit.setText(ev.description or "")
+        self.notes_edit.setPlainText(ev.description or "")
         self.all_day.setChecked(ev.all_day)
         local = ev.starts_at.astimezone() if ev.starts_at.tzinfo else ev.starts_at
         self.date_edit.setDate(QDate(local.year, local.month, local.day))
@@ -614,7 +656,7 @@ class EventSheet(QWidget):
                 "ends_at": ends,
                 "all_day": all_day,
                 "location": self.location_edit.text().strip(),
-                "description": self.notes_edit.text().strip(),
+                "description": self.notes_edit.toPlainText().strip(),
             }
         )
 
@@ -632,11 +674,12 @@ class TasksPage(QWidget):
         super().__init__(parent)
         self.setObjectName("CalendarTasksPage")
         root = QVBoxLayout(self)
-        root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(8)
+        root.setContentsMargins(*box("gap"))
+        root.setSpacing(SPACE["gap"])
 
         add = QHBoxLayout()
-        add.setSpacing(6)
+        add.setContentsMargins(0, 0, 0, 0)
+        add.setSpacing(SPACE["gap"])
         self.title_edit = QLineEdit()
         self.title_edit.setObjectName("InstrumentSearch")
         self.title_edit.setPlaceholderText("new task")
@@ -646,7 +689,7 @@ class TasksPage(QWidget):
         self.due_edit.setObjectName("InstrumentSearch")
         self.due_edit.setPlaceholderText("due YYYY-MM-DD")
         self.due_edit.setFixedHeight(METRICS["row"])
-        self.due_edit.setMaximumWidth(140)
+        self.due_edit.setMaximumWidth(160)
         self.add_btn = _row_button("add")
         self.add_btn.clicked.connect(self._on_add)
         add.addWidget(self.title_edit, stretch=1)
@@ -660,6 +703,9 @@ class TasksPage(QWidget):
 
         self.list = QListWidget()
         self.list.setObjectName("CalendarTaskList")
+        self.list.setSpacing(SPACE["gap"])
+        self.list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.list.setVerticalScrollMode(QListWidget.ScrollMode.ScrollPerPixel)
         root.addWidget(self.list, stretch=1)
         self._tasks: list[dict[str, Any]] = []
 
@@ -684,31 +730,39 @@ class TasksPage(QWidget):
             widget = QWidget()
             widget.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
             line = QHBoxLayout(widget)
-            line.setContentsMargins(4, 2, 4, 2)
-            line.setSpacing(8)
-            box = QCheckBox()
+            line.setContentsMargins(*box("gap", "micro"))
+            line.setSpacing(SPACE["gap"])
+            check = QCheckBox()
             tid = int(row["id"])
-            box.blockSignals(True)
-            box.setChecked(str(row.get("status")) == "done")
-            box.blockSignals(False)
-            box.toggled.connect(
+            check.blockSignals(True)
+            check.setChecked(str(row.get("status")) == "done")
+            check.blockSignals(False)
+            check.toggled.connect(
                 lambda checked, task_id=tid: self.status_requested.emit(
                     task_id, "done" if checked else "open"
                 )
             )
             title = QLabel(str(row.get("title") or ""))
             title.setObjectName("CalendarTaskTitle")
+            title.setMinimumWidth(0)
             due = parse_task_due(row.get("due"))
             due_l = QLabel(due.isoformat() if due else "")
             due_l.setObjectName("InstrumentHint")
+            due_l.setContentsMargins(0, 0, SPACE["micro"], 0)
             remove = _row_button("remove")
+            remove.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
             remove.clicked.connect(lambda _=False, task_id=tid: self.remove_requested.emit(task_id))
-            line.addWidget(box)
+            line.addWidget(check)
             line.addWidget(title, stretch=1)
-            line.addWidget(due_l)
+            if due:
+                line.addWidget(due_l)
             line.addWidget(remove)
             item = QListWidgetItem()
-            item.setSizeHint(widget.sizeHint().expandedTo(QSize(100, METRICS["row"] + 8)))
+            item.setSizeHint(
+                widget.sizeHint().expandedTo(
+                    QSize(100, METRICS["row"] + SPACE["micro"] * 2)
+                )
+            )
             self.list.addItem(item)
             self.list.setItemWidget(item, widget)
 
@@ -735,8 +789,8 @@ class JobsPage(QWidget):
         self._filling = False
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(8)
+        root.setContentsMargins(*box("gap"))
+        root.setSpacing(SPACE["gap"])
 
         hint = QLabel(
             "Arelis jobs. They run on this PC even if the window is closed, "
@@ -748,11 +802,13 @@ class JobsPage(QWidget):
 
         self.list = QListWidget()
         self.list.setObjectName("CalendarJobList")
+        self.list.setSpacing(SPACE["micro"])
+        self.list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.list.currentRowChanged.connect(self._on_row)
         root.addWidget(self.list, stretch=1)
 
         actions = QHBoxLayout()
-        actions.setSpacing(6)
+        actions.setSpacing(SPACE["gap"])
         self.new_btn = _row_button("new")
         self.new_btn.clicked.connect(self._on_new)
         self.save_btn = _row_button("save")
@@ -771,7 +827,7 @@ class JobsPage(QWidget):
 
         form = QFormLayout()
         form.setContentsMargins(0, 0, 0, 0)
-        form.setSpacing(6)
+        form.setSpacing(SPACE["gap"])
         self.name_edit = QLineEdit()
         self.name_edit.setObjectName("InstrumentSearch")
         self.name_edit.setPlaceholderText("name")
@@ -786,7 +842,7 @@ class JobsPage(QWidget):
         self.days_edit.setFixedHeight(METRICS["row"])
         when = QHBoxLayout()
         when.setContentsMargins(0, 0, 0, 0)
-        when.setSpacing(6)
+        when.setSpacing(SPACE["gap"])
         when.addWidget(self.time_edit)
         when.addWidget(self.days_edit)
         when_wrap = QWidget()
@@ -801,7 +857,7 @@ class JobsPage(QWidget):
         self.month_edit.setFixedHeight(METRICS["row"])
         extra = QHBoxLayout()
         extra.setContentsMargins(0, 0, 0, 0)
-        extra.setSpacing(6)
+        extra.setSpacing(SPACE["gap"])
         extra.addWidget(self.date_edit)
         extra.addWidget(self.month_edit)
         extra_wrap = QWidget()
@@ -953,6 +1009,7 @@ class CalendarPanel(QWidget):
     update_requested = Signal(dict)
     delete_requested = Signal(str)
     sync_requested = Signal()
+    auth_requested = Signal()
     task_add_requested = Signal(str, str)
     task_status_requested = Signal(int, str)
     task_remove_requested = Signal(int)
@@ -971,7 +1028,7 @@ class CalendarPanel(QWidget):
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(8)
+        root.setSpacing(SPACE["gap"])
 
         self.tabs = QTabWidget()
         self.tabs.setObjectName("CalendarTabs")
@@ -981,11 +1038,11 @@ class CalendarPanel(QWidget):
         calendar_page = QWidget()
         calendar_page.setObjectName("CalendarTabBody")
         cal_layout = QVBoxLayout(calendar_page)
-        cal_layout.setContentsMargins(0, 8, 0, 0)
-        cal_layout.setSpacing(8)
+        cal_layout.setContentsMargins(*box("gap"))
+        cal_layout.setSpacing(SPACE["gap"])
 
         bar = QHBoxLayout()
-        bar.setSpacing(6)
+        bar.setSpacing(SPACE["gap"])
         self.prev_btn = _row_button("prev")
         self.today_btn = _row_button("today")
         self.next_btn = _row_button("next")
@@ -1011,6 +1068,10 @@ class CalendarPanel(QWidget):
             self._view_btns[name] = btn
             bar.addWidget(btn)
 
+        self.sign_in_btn = _row_button(
+            "sign in", tooltip="Open Google in the browser to connect or refresh"
+        )
+        self.sign_in_btn.clicked.connect(self.auth_requested.emit)
         self.sync_btn = _row_button("sync", tooltip="pull from Google")
         self.sync_btn.clicked.connect(self.sync_requested.emit)
         self.new_btn = _row_button("new")
@@ -1018,6 +1079,7 @@ class CalendarPanel(QWidget):
         self.status = QLabel("")
         self.status.setObjectName("InstrumentHint")
         bar.addWidget(self.status)
+        bar.addWidget(self.sign_in_btn)
         bar.addWidget(self.sync_btn)
         bar.addWidget(self.new_btn)
         cal_layout.addLayout(bar)
@@ -1073,6 +1135,10 @@ class CalendarPanel(QWidget):
         self.status.style().unpolish(self.status)
         self.status.style().polish(self.status)
 
+    def set_sign_in_busy(self, busy: bool) -> None:
+        self.sign_in_btn.setEnabled(not busy)
+        self.sign_in_btn.setText("signing in…" if busy else "sign in")
+
     def reload(self) -> None:
         start, end = self._window()
         store = CalendarStore()
@@ -1101,9 +1167,45 @@ class CalendarPanel(QWidget):
         except Exception:
             jobs = []
         self.jobs_page.set_jobs(jobs, select_id=select_id)
+        try:
+            from arelis.mail import load_account
+
+            if load_account() is None:
+                self.jobs_page.set_note(
+                    "Jobs that email you need mail in Settings → notify."
+                )
+        except Exception:
+            pass
 
     def show_jobs_tab(self) -> None:
         self.tabs.setCurrentWidget(self.jobs_page)
+
+    def show_tasks_tab(self) -> None:
+        self.tabs.setCurrentWidget(self.tasks_page)
+
+    def show_day(self, day: date) -> None:
+        """Jump the calendar tab to that day (notification click)."""
+        self.tabs.setCurrentIndex(0)
+        self._close_sheet()
+        self._anchor = day
+        self._set_view("day")
+
+    def show_event(self, event_id: str) -> bool:
+        """Open the event sheet when that id is already on the tile."""
+        key = (event_id or "").strip()
+        if not key:
+            return False
+        ev = next(
+            (item for item in self._events if item.id == key or item.raw_id == key),
+            None,
+        )
+        if ev is None:
+            return False
+        self.tabs.setCurrentIndex(0)
+        self._anchor = ev.starts_at.date()
+        self.reload()
+        self._open_event(ev)
+        return True
 
     def set_events(self, events: list[CachedEvent]) -> None:
         """Test hook: skip the cache and paint these events."""

@@ -13,6 +13,68 @@ Notes for the tree you have now. The 0.2.6 installer is this tree
 without the 3D plate. Reality's room still ships. Earth and the
 true-scale globe stay on a source checkout.
 
+**Allow.** Named local work is the grant — pictures, files, seeing, her
+window. Mail, texts, deletes, Pay, and programs still show the card.
+Settings splits that mode from the class boxes: uncheck a class to never
+ask. Don't ask again turns that class off. Ask me everything puts every
+card back.
+
+**Images.** Generation is Comfy: aspect (square / 16:9 / portrait),
+style (photoreal, watercolor, anime, oil, sketch, cinematic), `n=4`
+for four versions, and img2img when she is handed a file — "make this
+look like a watercolor" passes `path=` on `image`, it does not invent
+a new scene. Cut-out, outpaint, and "change the left of the picture"
+stay on `image` (`remove_background`, `outpaint=all`, `mask_region=`).
+Pixel-exact work stays on `image_edit`: resize, `crop=left/right/center`,
+`scale=2` upscale, rotate, flip, grayscale, blur, vibrance, and "add
+text in the middle that says Arelis" (that last one is still an
+overlay in the desk face, not an SMS to "right in the middle").
+The Workspace picture well names the file and prompt, the rail is
+square thumbs with the open one ringed, and left / right walk it. A pasted photo plus
+"who is this?" may name a public figure; the live camera still will
+not name who is in the room.
+
+**Workspace.** The desk does not pop open empty on every research
+start. A PDF or research report she just wrote lands on the desk and
+opens the tile then. Opening a file no longer leaves a vacant brown
+column beside the page.
+
+**Notifications.** The inbox is an unread pile — no read/unread dots.
+Click a row (or the live pill) and the thing opens: a text becomes
+the chat tile, a finished job opens the file, a calendar lead opens
+the day, a task opens the tasks tab, mail opens a reader you can
+reply from. Snooze is 5 / 15 / 60 minutes or tomorrow. Clear still
+empties the rest. A phone re-index no longer dumps last week's texts
+as new.
+
+**Texts.** Chat tiles keep the thread across a restart. Bubbles show
+a time. Send writes the buffer once; a failure marks that bubble with
+retry. Minimize goes to the taskbar. Contacts have a Text action.
+
+**Mail.** Settings → notify takes the Gmail address and app password
+and can mint the phone token. No secrets.yaml edit. Jobs that email
+you say so when mail is missing.
+
+**Calendar.** She can create events locally without Google. A dead
+refresh token writes the event locally, then the calendar tile opens
+Google in the browser so you can sign in again — no terminal command.
+Pending events push after that and show **queued** or **failed** on
+the chip. The same title and time is one Google event — a retry or
+a rewritten list/today call does not insert a second copy. A month cell with more than three events shows **+N more**.
+The event sheet uses a date popup and a notes textarea. A standing
+auth miss is a **sign in** chip, not a modal.
+
+**Turns.** Each ask gets a one-line goal after the regex layer. A
+temperature spec is not weather; a complete SMS draft that still says
+"I love her" is not sent; a Bloomberg captcha is not the research
+report. The last tool receipt has to serve that goal or the turn
+unlocks and tries again. A derivation stays in chat on the fast chip
+(not a 32-round research loop, not an automatic md→pdf). Year ranges
+like 1960-2026 are not subtraction. The same research query does not
+run twice because `max_sources` changed. `email it to me` is you, not
+a contact named "it". A successful send no longer dies on a leftover
+calculator gate.
+
 **Watch.** The house now watches the doors it opened: LAN ingest is
 rate-limited and locks a client after repeated bad tokens; outbound
 catalog / web calls have a burst budget (Earth live skips a refresh
@@ -28,11 +90,14 @@ Search waits for result links, then returns a short list; `click(nth=1)`
 opens the first. Type into a field by its label (`into="search"`).
 `find`, new/close tab, back / forward / reload. The Drive strip says
 what she is about to click. **Stop**, **pause**, and **go** work from
-the strip or out loud, on sodium and filament. If something else is
-already on port 9222, she will not attach to it — but an empty process
-scan does not abandon a window she already attached. Mid-turn CDP death
-relaunches her Chrome once. Housekeep still prunes Cache / GPU only;
-Cookies and Login Data stay.
+the strip or out loud, on sodium and filament. Sign-in on X / Twitter
+(onboarding / `mode=login`) is your turn — she does not keep clicking
+Continue with phone. If you grab the mouse in her window she freezes
+instead of fighting you; a click timeout no longer drops the tab. If
+something else is already on port 9222, she will not attach to it —
+but an empty process scan does not abandon a window she already
+attached. Mid-turn CDP death relaunches her Chrome once. Housekeep
+still prunes Cache / GPU only; Cookies and Login Data stay.
 
 **Turns.** The full tool schema array rides every turn so Ollama can
 reuse the prefix. Descriptions are one line and param essays are
@@ -125,35 +190,47 @@ mail. Already in the installer; the page is new. [jobs.md](jobs.md).
 
 **Reality.** The permanent room (slash id `physics`). Source checkout
 only for the plate: Ctrl+8 / View → Reality, true-scale solar
-(`.[astro]`) and hands (`.[spatial]`). Not in the installer. Reality
-cannot be forgotten. Travel to Earth (or say enter Earth) lights the
-Earth zone — an observer of whatever is broadcasting or published.
-Earth is a zone, not a second room.
+(`.[astro]`) and hands (`.[spatial]`). Not in the installer. A
+Kepler bootstrap is labeled placeholder until Horizons VECTORS land;
+orbit beads chase only the inspected body, not the whole 40 AU field.
+Reality
+cannot be forgotten. Travel to is a solar-lab warp to any body.
+Enter appears after you arrive at Earth — the zone door in the
+same window. Closer bands reveal more. Earth is a zone, not a
+second room.
 
-Now: `arelis/earth/feeds.py` is **108 shipped / 25 keyed / 3 later / 4 out**.
+Now: `arelis/earth/feeds.py` is **109 shipped / 25 keyed / 3 later / 4 out**.
 Live is distance-gated (`arelis/earth/lod.py`): from space only
 satellites are fetched; closer in, local planes; closer still, boats
 and planes and no satellite refresh; at city scale every toggled
 layer, still boxed to the look area so we do not hammer every 511
 from orbit. Earth layer chips start off except satellites and ISS; the bar
 only lists what the current band can show. Distance is a sentence
-(from space / in the city), not a toggle. Live reads **Live off**
-until you click it. Slash finds a city. Say take me to Tokyo —
+(from space / in the city), not a toggle. Enter turns Live on so
+air and sea refresh on TTL while tracks coast. Slash finds a city
+or a street address; Enter flies there. Orbital marks are the full
+catalog, not a nadir patch. Say take me to Tokyo —
 or Japan, Illinois, Africa, the UK, home — typed or spoken.
 Click a country or city
-to fall toward it. Enter Earth jumps the clock to now and opens the
-Cesium globe (WebEngine, astro extra) for the planet only — Arelis
-keeps the starfield and the sodium HUD. Solar GL parks for that
-stay so Chromium and the offscreen context do not share a current
-context (that abort closed the plate). NASA GIBS is the ground if no
-Google key is pasted; Photorealistic 3D cities light up close-in when
+to fall toward it. Enter Earth jumps the clock to now. The camera is an observer
+(`arelis.physics.observe`): physics stays true; the plate commits
+when accumulated motion crosses half a pixel — every body, orbit
+and IAU spin. Travel standoff does not show Earth spin. Earth zone is Cesium;
+solar lab is native GL; never both live. Enter Earth destroys the
+offscreen context, then mounts Cesium in a child process when the
+solar lab used GPU — not `QWebEngineView` in the same process as the
+share group, and not `--disable-gpu`. Leave Earth kills the child
+(or the in-process view), then recreates solar GL. Native NASA disc
+is fallback only. The Cesium plate is opaque (no leftover solar
+frame through the night side); sodium HUD stays in Qt. NASA GIBS is the ground if no
+Google key is pasted; Photorealistic 3D cities light up below 8 km when
 `earth.google_maps_key` is set. Natural Earth country lines paint on
 the Qt disc so landfall still reads if Cesium is down. The GL Earth
 map shares that frame — Greenwich is the texture center, not the seam.
 The Earth
 software sphere can grow once you have fallen in so the NASA albedo
 still reads; optional `earth_8192.jpg` (Blue Marble shallow topo) is
-preferred when present; optional Streets (OSM) go to z15 at city band;
+preferred when present; Streets is a named-road overlay on the planet (not the OSM carto drawing), with a compass and a distance meter (look-ray to the surface once Cesium has spoken, click for a pin; map scale only closer in); Cesium pins are WGS84 from ECEF;
 optional building footprints are a city-band chip, look-pin boxed,
 and the same outlines ride Cesium when WebEngine is up.
 Viewsheds say No terrain. Collision stays no mesh, no DEM. OpenSky uses a bbox
@@ -172,14 +249,14 @@ roadworks + events, INGV / GEOFON / IRIS / NRCAN / GeoNet station
 text, MoDOT cameras, Quebec construction and road conditions, and
 Fintraffic / Lithuania / Quebec road-weather stations. Individual
 cars stay a labeled hole.
-Live merge runs adapters in parallel. Air and ships coast as
-dead-reckoned, then stale. Each Earth layer and solar body kind has
+Enter Earth locks the plate to now when the lab can, takes one
+published snapshot, then coasts. Leave clears; re-enter refetches.
+Live keeps pulling on TTL / look walk — not a one-hertz poll.
+Air and ships coast as dead-reckoned, then stale. Each Earth layer and solar body kind has
 its own sodium mark (`arelis/ui/earth_marks.py`) — Qt overlay, Cesium
 billboards, inspect card, and solar roster share the same drawn paths.
 Heading is the nose of the air/sea mark. A photoreal miss does not
-kill the globe. Enter Earth waits one tick and drops the solar GL
-context so Cesium can take one — a live offscreen context was
-aborting the process on the first globe. Overlay paints freshness
+kill the globe. Overlay paints freshness
 and an inspect card with source. Completeness is the anti-beacon —
 do not thin a region. Mid-ocean VHF is deaf; we do not buy sat-AIS.
 Starlink is a sample, not a painted shell. Individual cars stay a
@@ -240,6 +317,8 @@ and the Earth zone are still checkout-only. Full notes:
 - **Documents.** PDF, Word, spreadsheet, or a markdown note — a real
   file. Open / show in folder. In a room: that room's `documents`
   folder. In orbit: `outputs/documents/`. Chat is not the document.
+  TeX in the body (`$$`, `\( \)`, `\frac`) becomes unicode math in
+  every format, including the chat bubble and the desk markdown preview.
 - **Charts.** Same open / show chip. Room `plots` folder, or
   `outputs/plots/` in orbit. `path=` is a table (CSV). The PNG name
   is `out=`. A graph of position over time is python then plot, not
@@ -253,7 +332,7 @@ and the Earth zone are still checkout-only. Full notes:
   the mailbox.
 - **Calendar tile.** Ctrl+7 still opens the local calendar. Chat will not
   pretend Google is connected until you connect it.
-- **Phone.** One sideloaded app. Scan the QR on the same Wi-Fi. Same
-  conversation as the desktop. If the PC is away, Gemma on the phone
-  (install after pair, ~2.6 GB). Those words copy in when the house is
-  back.
+- **Phone.** One sideloaded app. Scan the QR on the same Wi-Fi. First
+  open of the day is a new chat (orbit), like glass; yesterday stays
+  in **chats**. If the PC is away, Gemma on the phone (install after
+  pair, ~2.6 GB). Those words copy in when the house is back.

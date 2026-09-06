@@ -1,6 +1,6 @@
 """Walk the live Earth globe and dump screen grabs.
 
-Cesium is skipped under pytest. This script is the eyes: chooser, solar,
+Pytest may construct Cesium. This script is the live eyes: chooser, solar,
 enter Earth, bands, wheel, leave. Writes PNGs to .tmp-reality-walk-live/
 """
 
@@ -18,16 +18,11 @@ if str(ROOT) not in sys.path:
 if "--city-cluster" not in sys.argv:
     os.environ["ARELIS_SOLAR_GL"] = "1"
 
-try:
-    from PySide6.QtWebEngineWidgets import QWebEngineView  # noqa: F401
-except Exception as exc:
-    print(f"webengine import failed: {exc}", flush=True)
-
 from PySide6.QtCore import QEvent, QPoint, QPointF, Qt, QTimer
 from PySide6.QtGui import QKeyEvent, QWheelEvent
 from PySide6.QtWidgets import QApplication
 
-DEST = ROOT / ".tmp-reality-marks"
+DEST = ROOT / ".tmp-reality-walk-live"
 
 
 def _pump(app: QApplication, ms: int = 50) -> None:
@@ -39,19 +34,31 @@ def _pump(app: QApplication, ms: int = 50) -> None:
 
 
 def _grab_screen(app: QApplication, window, name: str) -> Path:
+    """Composite Cesium under the Qt HUD. Do not grabWindow — that steals the desktop."""
+    from PySide6.QtGui import QImage, QPainter
+
     DEST.mkdir(parents=True, exist_ok=True)
     top = window.window()
     top.show()
     top.raise_()
     top.activateWindow()
     app.processEvents()
-    screen = top.screen() or app.primaryScreen()
-    pix = screen.grabWindow(int(top.winId()))
     dest = DEST / name
-    pix.save(str(dest), "PNG")
-    widget = window.grab()
-    widget.save(str(DEST / f"w-{name}"), "PNG")
-    print(f"wrote {dest}  {pix.width()}x{pix.height()}", flush=True)
+    size = window.size()
+    img = QImage(size, QImage.Format.Format_ARGB32)
+    img.fill(0xFF000000)
+    host = getattr(window, "_globe_host", None)
+    painter = QPainter(img)
+    view = getattr(host, "_view", None) if host is not None else None
+    if view is not None and host.isVisible():
+        globe = view.grab()
+        painter.drawPixmap(0, 0, globe)
+        globe.save(str(DEST / f"c-{name}"), "PNG")
+    painter.end()
+    window.render(img)
+    img.save(str(dest), "PNG")
+    window.grab().save(str(DEST / f"w-{name}"), "PNG")
+    print(f"wrote {dest}  {img.width()}x{img.height()}", flush=True)
     return dest
 
 
@@ -270,6 +277,7 @@ def _place_nadir(panel, lat: float, lon: float, alt_m: float) -> None:
     north = lla_to_ecef(min(89.0, lat + 0.25), lon, alt_m)
     up = (north[0] - eye[0], north[1] - eye[1], north[2] - eye[2])
     panel._earth_cam = EarthCam(eye=eye, look=look, up=up)
+    panel._globe_hpr = None
     apply_earth_cam(panel.cam, (earth.x, earth.y, earth.z), jd, panel._earth_cam)
     if panel._earth_globe_live():
         panel._push_globe_camera()
@@ -370,8 +378,7 @@ def city_cluster_main() -> int:
     _pump(app, 200)
 
     solar._set_inspect("Earth")
-    solar._travel_to("Earth")
-    solar._finish_travel()
+    solar._enter_earth_zone()
     _pump(app, 200)
 
     zone = get_earth()
@@ -423,10 +430,8 @@ def city_cluster_main() -> int:
 
 def main() -> int:
     from arelis.earth.runtime import get_earth, set_earth
-    from arelis.physics.demo import circular_system
     from arelis.physics.engine import rebound_available
     from arelis.physics.runtime import get_system, set_system
-    from arelis.physics.scene import SolarSystem
     from arelis.ui.earth_globe_host import webengine_available
     from arelis.ui.panels.solar import SolarPanel
     from arelis.ui.solar_gl import prepare_desktop_gl
@@ -440,17 +445,16 @@ def main() -> int:
     prepare_desktop_gl(os.environ)
     configure_native_windows()
     QApplication.setAttribute(Qt.ApplicationAttribute.AA_UseDesktopOpenGL, True)
-    QApplication.setAttribute(Qt.ApplicationAttribute.AA_ShareOpenGLContexts, True)
     app = QApplication.instance() or QApplication([])
     app.setFont(app_font(load_fonts()))
     print(f"webengine_available={webengine_available()}", flush=True)
     _write_atlas(app)
+    _write_city_atlas(app)
 
     set_system(None)
     set_earth(None)
-    set_system(SolarSystem.from_states(circular_system(), tracers=0))
-
     solar = SolarPanel()
+    solar._ensure_ic()
     solar.resize(1280, 800)
     solar.show()
     solar.raise_()
@@ -469,8 +473,7 @@ def main() -> int:
         _grab_screen(app, solar, "02b-solar-lagrange.png")
         system.show_lagrange = False
 
-    solar._travel_to("Earth")
-    solar._finish_travel()
+    solar._enter_earth_zone()
     _pump(app, 200)
 
     host = solar._globe_host
@@ -482,8 +485,21 @@ def main() -> int:
         if host is not None and (host.ready or host.failed):
             break
         host = solar._globe_host
-    _pump(app, 800)
+    if solar._earth_cam is None:
+        solar._remember_earth_eye()
+    solar._push_globe_camera()
+    _pump(app, 1600)
     _grab_screen(app, solar, "06-earth-space.png")
+    system = get_system()
+    if system is not None:
+        print(
+            f"clock wall_lock={system.wall_lock} rate={system.rate} "
+            f"paused={system.paused} epoch={system.ic_caption()!r}",
+            flush=True,
+        )
+        from arelis.ui.panels.solar_hud import hud_status_lines
+
+        print("hud " + " | ".join(hud_status_lines(solar, system)), flush=True)
     hud = solar._earth_hud
     print(
         f"globe host={host is not None} ready={getattr(host, 'ready', None)} "
@@ -500,7 +516,7 @@ def main() -> int:
     }
     for name, alt in alts.items():
         _place_nadir(solar, 39.78, -89.65, alt)
-        _pump(app, 600)
+        _pump(app, 1200)
         _grab_screen(app, solar, f"07-{name}.png")
 
     zone = get_earth()
@@ -546,6 +562,32 @@ def main() -> int:
             f"band={getattr(zone.last_view, 'band', None)}",
             flush=True,
         )
+        from arelis.ui.earth_find import apply_goto, open_find, type_find
+
+        open_find(solar)
+        type_find(solar, "Tokyo")
+        _pump(app, 200)
+        _grab_screen(app, solar, "13-find-tokyo.png")
+        hits = list(getattr(solar, "_earth_find_hits", []) or [])
+        print(
+            "find tokyo hits="
+            + str(
+                [
+                    (
+                        str(getattr(h, "name", "")).encode("ascii", "replace").decode(),
+                        getattr(h, "kind", None),
+                    )
+                    for h in hits[:3]
+                ]
+            ),
+            flush=True,
+        )
+        apply_goto(solar)
+        deadline = time.perf_counter() + 3.0
+        while solar._earth_fly is not None and time.perf_counter() < deadline:
+            _pump(app, 80)
+        _pump(app, 1600)
+        _grab_screen(app, solar, "14-tokyo.png")
 
     pos = QPointF(solar.width() * 0.55, solar.height() * 0.45)
     solar.wheelEvent(

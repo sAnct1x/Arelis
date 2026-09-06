@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
 )
 
 from arelis.tools.confirm_copy import confirm_headline
+from arelis.ui.theme import SPACE, box
 
 # Enough to read a short email in full without the card taking over the window.
 _DETAIL_MAX_HEIGHT = 220
@@ -30,8 +31,8 @@ class ConfirmCard(QWidget):
         self._confirm_id = ""
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 8, 10, 8)
-        layout.setSpacing(6)
+        layout.setContentsMargins(*box("gap"))
+        layout.setSpacing(SPACE["gap"])
 
         self.summary = QLabel("confirm tool")
         self.summary.setObjectName("ConfirmSummary")
@@ -54,6 +55,9 @@ class ConfirmCard(QWidget):
 
         self.allow_turn = QCheckBox("rest of this ask")
         self.allow_turn.setObjectName("ConfirmAllowTurn")
+        self.allow_always = QCheckBox("don't ask again")
+        self.allow_always.setObjectName("ConfirmAllowAlways")
+        self.allow_always.hide()
 
         row = QHBoxLayout()
         row.setSpacing(8)
@@ -71,6 +75,7 @@ class ConfirmCard(QWidget):
         layout.addWidget(self.detail)
         layout.addWidget(self.note)
         layout.addWidget(self.allow_turn)
+        layout.addWidget(self.allow_always)
         layout.addLayout(row)
 
         self.allow_btn.clicked.connect(self._allow)
@@ -86,6 +91,8 @@ class ConfirmCard(QWidget):
         detail: str = "",
         note: str = "",
         batch_ok: bool = True,
+        persist_ok: bool = False,
+        persist_label: str = "",
         headline: str = "",
     ) -> None:
         self._confirm_id = confirm_id
@@ -109,6 +116,11 @@ class ConfirmCard(QWidget):
         self.allow_turn.setVisible(batch_ok)
         self.allow_turn.setText("rest of this ask")
         self.allow_turn.setToolTip("further steps in this reply, not forever")
+        self.allow_always.setChecked(False)
+        label = (persist_label or "").strip() or "don't ask again"
+        self.allow_always.setText(label)
+        self.allow_always.setToolTip("turn off this Allow gate in Settings")
+        self.allow_always.setVisible(persist_ok)
         self.show()
         self.allow_btn.setFocus()
 
@@ -117,6 +129,11 @@ class ConfirmCard(QWidget):
         self._confirm_id = confirm_id
         if headline:
             self.summary.setText(headline)
+        # Sodium persist / rest-of-ask ticks must not ride a spoken yes.
+        self.allow_turn.setChecked(False)
+        self.allow_turn.hide()
+        self.allow_always.setChecked(False)
+        self.allow_always.hide()
         self.hide()
 
     def dismiss(self) -> None:
@@ -129,10 +146,12 @@ class ConfirmCard(QWidget):
             return
         # isVisible() guards the batch flag as well as the tick: a hidden
         # checkbox must never report True, whatever it was left holding.
+        persist = self.allow_always.isVisible() and self.allow_always.isChecked()
         batch = self.allow_turn.isVisible() and self.allow_turn.isChecked()
         confirm_id = self._confirm_id
         self.dismiss()
-        self.decided.emit(confirm_id, "allow", batch)
+        decision = "allow_always" if persist else "allow"
+        self.decided.emit(confirm_id, decision, batch and not persist)
 
     def _skip(self) -> None:
         if not self._confirm_id:

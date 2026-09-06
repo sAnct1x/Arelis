@@ -100,8 +100,82 @@ def test_voice_grant_only_pauses_on_delete() -> None:
         assert not evaluate_confirm(
             "browser", {"action": "open", "url": "youtube"}, risk="side_effect"
         )
+        assert evaluate_confirm("run_script", {"path": "x.py"}, risk="side_effect")
+        assert not evaluate_confirm(
+            "image", {"prompt": "x"}, asked=True, risk="side_effect"
+        )
+        # Settings Allow boxes off (the filament default): voice is still
+        # the grant. ask-is-grant / wander / ask-me-everything do not
+        # reopen cards here. Only delete, Pay, and run_script pause.
+        off = dict(
+            confirm_writes=False,
+            confirm_image=False,
+            confirm_send=False,
+            confirm_browser=False,
+            confirm_vision=False,
+            confirm_run=False,
+            asked=False,
+            ask_is_grant=False,
+        )
+        assert not evaluate_confirm(
+            "image", {"prompt": "x"}, risk="side_effect", **off
+        )
+        assert not evaluate_confirm("send_sms", {}, risk="side_effect", **off)
+        assert not evaluate_confirm(
+            "workspace", {"action": "write"}, risk="read", **off
+        )
+        assert not evaluate_confirm(
+            "browser", {"action": "open", "url": "youtube"}, risk="side_effect", **off
+        )
+        assert not evaluate_confirm(
+            "vision", {"path": "x.png"}, risk="side_effect", **off
+        )
+        assert evaluate_confirm(
+            "workspace", {"action": "delete"}, risk="read", **off
+        )
+        assert evaluate_confirm("run_script", {"path": "x.py"}, risk="side_effect", **off)
+        assert evaluate_confirm("inbox", {"action": "trash"}, **off)
+        assert evaluate_confirm(
+            "browser",
+            {"action": "click", "text": "Pay now"},
+            risk="side_effect",
+            **off,
+        )
     finally:
         set_confirm_mode("card")
+
+
+def test_filament_confirm_arms_without_a_card(arelis_window) -> None:
+    from arelis.ui.settings_host import apply_window_theme
+
+    window = arelis_window()
+    apply_window_theme(window, "filament", persist=False)
+    try:
+        stage = window.conversation
+        stage.ask_confirm(
+            "c1",
+            "workspace",
+            "workspace()",
+            headline="delete note.txt",
+            batch_ok=True,
+            persist_ok=True,
+            persist_label="don't ask again about files",
+        )
+        assert stage.confirm_open()
+        assert stage.confirm.isHidden()
+        assert not stage.confirm.allow_always.isVisible()
+        assert not stage.confirm.allow_turn.isVisible()
+        assert stage.confirm.allow_always.isChecked() is False
+        decided: list[tuple[str, bool]] = []
+        stage.confirm.decided.connect(
+            lambda _id, decision, batch: decided.append((decision, batch))
+        )
+        stage.input.setText("yes")
+        stage._submit()
+        assert decided == [("allow", False)]
+        assert not stage.confirm_open()
+    finally:
+        apply_window_theme(window, "sodium", persist=False)
 
 
 def test_filament_field_paints(qt_app) -> None:

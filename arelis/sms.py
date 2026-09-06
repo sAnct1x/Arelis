@@ -57,8 +57,8 @@ def resolve_operator_sms_target(
 ) -> ResolvedSms | str:
     """Resolve a human-typed tile send. Digits are enough; a nickname is optional.
 
-    The agent path still uses resolve_sms_target and refuses unknown names.
-    The operator already opened this room, so a raw number is a valid address.
+    The agent path uses resolve_sms_target: nicknames need the book,
+    digits the user typed do not.
     """
     from arelis.contacts import load_contacts, normalize_phone, to_e164
 
@@ -108,16 +108,39 @@ async def send_operator_sms(
 
 
 def resolve_sms_target(to: str, contacts: dict[str, Contact]) -> ResolvedSms | str:
-    """Return a ResolvedSms, or an error string the tool can show the model."""
-    from arelis.contacts import list_aliases, resolve_contact
+    """Return a ResolvedSms, or an error string the tool can show the model.
+
+    A nickname still has to be in the book. A number the user just typed is
+    an address — the operator path already treated digits that way. Inventing
+    a number is a model problem; refusing a number they handed over hid
+    send_sms and she told them she could not text.
+    """
+    from arelis.contacts import list_aliases, normalize_phone, resolve_contact, to_e164
 
     contact = resolve_contact(to, contacts)
     if contact is None:
+        e164 = to_e164(to)
+        digits = normalize_phone(to)
+        if e164 and len(digits) >= 10:
+            contact = next(
+                (
+                    item
+                    for item in contacts.values()
+                    if item.digits == digits or item.e164 == e164
+                ),
+                None,
+            )
+            return ResolvedSms(
+                contact=contact,
+                label=contact.display_name if contact else to.strip(),
+                phone_display=(contact.phone if contact else "") or to.strip(),
+                phone_e164=e164,
+            )
         aliases = ", ".join(list_aliases(contacts)) or "(none)"
         return (
-            f"Unknown contact {to!r}. Ask the user for their number and save "
-            f"them with contacts(action=add), or add them by hand in "
-            f"data/contacts.yaml. Known aliases: {aliases}."
+            f"No number for {to!r}. Ask the user for the number, then call "
+            f"send_sms with that number. Saving a nickname in contacts is "
+            f"optional. Known aliases: {aliases}."
         )
 
     number = contact.e164

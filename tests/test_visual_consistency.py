@@ -346,6 +346,19 @@ def test_one_corner_radius(qt_app) -> None:
         line.deleteLater()
 
 
+def test_workspace_desk_hint_omits_reality(qt_app) -> None:
+    """Reality is a zone. Workspace chrome names the project, not the plate."""
+    panel = WorkspacePanel()
+    try:
+        panel.set_projects(["arelis"], "arelis")
+        panel.set_desk_context(room_id="physics", room_name="Reality")
+        assert panel.desk_hint.text() == "arelis · papers"
+        panel.set_desk_context(room_id="survey", room_name="survey")
+        assert panel.desk_hint.text() == "survey · arelis"
+    finally:
+        panel.deleteLater()
+
+
 def test_workspace_actions_are_icon_only(qt_app) -> None:
     """Words live in the tooltip; the row is glyphs."""
     panel = WorkspacePanel()

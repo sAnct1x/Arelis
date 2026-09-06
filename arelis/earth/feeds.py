@@ -234,6 +234,14 @@ FEEDS: tuple[FeedSpec, ...] = (
         host="tile.openstreetmap.org",
     ),
     FeedSpec(
+        "osm-nominatim",
+        "sites",
+        "shipped",
+        "Nominatim address search when Find / take-me-to is a street (ODbL)",
+        "User typed or spoke an address. 1 req/s. Not a contact geocode.",
+        host="nominatim.openstreetmap.org",
+    ),
+    FeedSpec(
         "fi-traffic",
         "traffic",
         "shipped",

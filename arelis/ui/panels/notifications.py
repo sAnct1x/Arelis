@@ -17,12 +17,12 @@ from PySide6.QtWidgets import (
 
 from arelis.notify.center import Notice
 
-_HINT_LIVE = "while Arelis is open — texts, calendar, mail, jobs"
+_HINT_LIVE = "click a row to open it"
 _HINT_CAUGHT_UP = "caught up"
 
 
 class NotificationsPanel(QWidget):
-    """Grouped inbox rows with unread tracking for the View-menu badge."""
+    """Pending notices. The badge is how many are still here — no read pile."""
 
     unread_changed = Signal(int)
     opened = Signal()
@@ -106,7 +106,8 @@ class NotificationsPanel(QWidget):
             {
                 "id": n.id,
                 "from": n.title,
-                "body": n.body,
+                "body": n.preview(),
+                "full_body": n.body,
                 "time": n.pill_label(),
                 "kind": n.kind,
                 "unread": n.unread,
@@ -144,19 +145,8 @@ class NotificationsPanel(QWidget):
         mid = str(item.data(Qt.ItemDataRole.UserRole) or "")
         if not mid:
             return
-        changed = False
-        for entry in self._items:
-            if str(entry.get("id")) == mid and entry.get("unread"):
-                entry["unread"] = False
-                changed = True
         self.show_notice(mid)
-        if changed:
-            self._unread = sum(1 for e in self._items if e.get("unread"))
-            self._rebuild()
-            self.unread_changed.emit(self._unread)
         self.notice_activated.emit(mid)
-        if self._kind_for(mid) == "sms":
-            self.chat_requested.emit(mid)
 
     def _kind_for(self, notice_id: str) -> str:
         for entry in self._items:
@@ -218,23 +208,17 @@ class NotificationsPanel(QWidget):
             from_label = str(entry.get("from") or "").strip() or "unknown"
             body = str(entry.get("body") or "").replace("\n", " ").strip()
             time_text = str(entry.get("time") or "").strip()
-            unread = bool(entry.get("unread"))
-            mark = "●" if unread else "○"
-            head = f"{mark}  {from_label}"
             preview = body or "(no body)"
             if time_text and time_text != from_label:
-                item_text = f"{head}\n{time_text}  ·  {preview}"
+                item_text = f"{from_label}\n{time_text}  ·  {preview}"
             else:
-                item_text = f"{head}\n{preview}"
+                item_text = f"{from_label}\n{preview}"
             item = QListWidgetItem(item_text)
             item.setData(Qt.ItemDataRole.UserRole, str(entry.get("id") or ""))
-            tip = str(entry.get("body") or "")
+            tip = str(entry.get("full_body") or entry.get("body") or "")
             if time_text:
                 tip = f"{time_text}\n{tip}".strip()
             item.setToolTip(tip)
-            font = item.font()
-            font.setBold(unread)
-            item.setFont(font)
             item.setSizeHint(self._row_size(item_text))
             self.list.addItem(item)
         if self._open_id:

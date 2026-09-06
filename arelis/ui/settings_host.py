@@ -80,6 +80,20 @@ def apply_settings(window, values: dict[str, Any]) -> None:
     if agent_patch:
         deep_merge(window.config.setdefault("agent", {}), agent_patch)
         merge_local_config({"agent": dict(agent_patch)})
+        orch = getattr(window, "orchestrator", None)
+        loop = getattr(orch, "_agent_loop", None) if orch is not None else None
+        if loop is not None:
+            for key in (
+                "confirm_writes",
+                "confirm_image",
+                "confirm_send",
+                "confirm_browser",
+                "confirm_vision",
+                "confirm_run",
+                "ask_is_grant",
+            ):
+                if key in agent_patch:
+                    setattr(loop, key, bool(agent_patch[key]))
         window._schedule_readiness_probe()
 
     workspace_patch = values.get("workspace") or {}
@@ -128,14 +142,30 @@ def apply_settings(window, values: dict[str, Any]) -> None:
             "Restart Arelis to load voice hardware after enabling Voice.",
             kind="status",
         )
+    mail_patch = values.get("mail") or {}
+    if mail_patch.get("address") or mail_patch.get("app_password"):
+        from arelis.mail import save_account
+
+        save_account(
+            address=str(mail_patch.get("address") or ""),
+            app_password=str(mail_patch.get("app_password") or ""),
+        )
+
     if window.voice is not None:
         stt_on = bool((window.config.get("voice") or {}).get("stt", {}).get("enabled", True))
         tts_on = bool((window.config.get("voice") or {}).get("tts", {}).get("enabled", True))
+        # Compare against the service that is already wired. Mutating the
+        # flags first made wanted == live and hid the restart line.
+        listen_live = bool(getattr(window.voice, "stt_enabled", False))
+        speak_live = bool(getattr(window.voice, "tts_enabled", False))
+        window.voice.enabled = master
+        window.voice.stt_enabled = master and stt_on
+        window.voice.tts_enabled = master and tts_on
         for notice in voice_restart_notices(
             listen_wanted=master and stt_on,
-            listen_live=bool(window.voice.stt_enabled),
+            listen_live=listen_live,
             speak_wanted=master and tts_on,
-            speak_live=bool(window.voice.tts_enabled),
+            speak_live=speak_live,
         ):
             window.thinking.append(notice, kind="status")
         if not master or not stt_on:

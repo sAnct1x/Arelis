@@ -99,6 +99,7 @@ class SolarSystem:
     # Spoken solar lock/travel: the Qt panel consumes these on the next frame.
     pending_inspect: str | None = None
     pending_travel: str | None = None
+    pending_enter_earth: bool = False
     pending_reset: bool = False
     _present: list[
         tuple[str, float, float, float, float, float, float, float, float]
@@ -350,6 +351,14 @@ class SolarSystem:
         if self.epoch_tdb:
             return self.epoch_tdb
         return "unspecified IC, not Horizons"
+
+    def is_placeholder_ic(self) -> bool:
+        """Kepler bootstrap or a clock that cannot lock to UTC now."""
+        if self.counterfactual:
+            return True
+        if "not Horizons" in str(self.epoch_tdb or ""):
+            return True
+        return self.epoch_jd <= 1.0e6
 
     def hud_for_body(self, body: BodyView) -> dict[str, float | str | bool | None]:
         """Kepler + vis-viva about the catalog parent (Sun if the body is a planet).

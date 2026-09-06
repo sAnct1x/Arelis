@@ -18,6 +18,24 @@ fun pocketThreadTitle(lines: List<TalkLine>): String {
 fun sameSeat(focusId: String, houseChatId: String): Boolean =
     focusId.isNotBlank() && houseChatId == focusId
 
+/** Local calendar day, `YYYY-MM-DD`. Empty when the clock is unusable. */
+fun talkDayStamp(epochMillis: Long, zoneId: String = java.time.ZoneId.systemDefault().id): String {
+    if (epochMillis <= 0L) return ""
+    return runCatching {
+        java.time.Instant.ofEpochMilli(epochMillis)
+            .atZone(java.time.ZoneId.of(zoneId))
+            .toLocalDate()
+            .toString()
+    }.getOrDefault("")
+}
+
+/** First open of a new local day starts orbit, like glass cold launch. */
+fun shouldOpenFreshChat(lastDay: String, today: String): Boolean {
+    val day = today.trim()
+    if (day.isEmpty()) return false
+    return lastDay.trim() != day
+}
+
 data class VoiceDraft(
     val mode: String = "off",
     val anchor: String = "",

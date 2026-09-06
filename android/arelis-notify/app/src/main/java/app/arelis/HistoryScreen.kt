@@ -54,7 +54,7 @@ fun HistoryScreen(
             if (onPhone) {
                 "The house is away. New chat starts on this phone. It copies back when Arelis is up."
             } else {
-                "Same conversations as the PC. A new chat starts on both."
+                "First open of the day is a new chat — orbit, like the PC. Yesterday stays in this list."
             },
             color = Campfire.dim,
             fontSize = 13.sp,

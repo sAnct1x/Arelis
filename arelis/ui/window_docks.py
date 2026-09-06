@@ -12,14 +12,14 @@ from PySide6.QtWidgets import QDockWidget, QTabBar, QWidget
 
 from arelis.ui.dock_surface import apply_dock_chrome, chrome_applying
 from arelis.ui.filament_tile import flush_tile_geom
-from arelis.ui.theme import active_theme
+from arelis.ui.theme import SHELL, active_theme
 
 # Copied from app.py so this module never imports ArelisWindow (cycle).
 # Each neighbor contributes _PANEL_HALF so the visible gap is 2 * HALF = OUTER.
-_PANEL_OUTER = 12
-_PANEL_HALF = 6
-_PANEL_TOP = 12
-_PANEL_BOTTOM = 14
+_PANEL_OUTER = SHELL["outer"]
+_PANEL_HALF = SHELL["half"]
+_PANEL_TOP = SHELL["top"]
+_PANEL_BOTTOM = SHELL["bottom"]
 
 
 def _set_shell_margins(shell: QWidget | None, margins: tuple[int, int, int, int]) -> None:
@@ -122,6 +122,20 @@ def toggle_workspace(window, checked: bool) -> None:
     from arelis.ui.idle_host import note_engagement
 
     note_engagement(window)
+    if not checked and window.workspace.has_unsaved_changes():
+        from arelis.ui.dialog import confirm
+
+        if not confirm(
+            window,
+            "Unsaved changes",
+            "Close the workspace and discard unsaved changes in "
+            f"{window.workspace.loaded_label()}?",
+            confirm_text="Discard",
+            cancel_text="Keep open",
+            destructive=True,
+        ):
+            window.act_workspace.setChecked(True)
+            return
     window.work_dock.setVisible(checked)
     if checked:
         window._animate_dock(window.work_dock)
@@ -150,6 +164,9 @@ def toggle_notifications(window, checked: bool) -> None:
         on_notify_poll(window)
         window.notify_inbox.show()
         window.notify_inbox.raise_()
+        from arelis.ui.foreground import claim_foreground
+
+        claim_foreground(window.notify_inbox)
         window.notifications.opened.emit()
         if active_theme() == "filament":
             window._filament_dress_tile(window.notify_inbox, "notify")

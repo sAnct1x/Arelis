@@ -64,7 +64,7 @@ class GlobeStack:
             "gibs": GIBS_XYZ,
             "osm": OSM_XYZ,
             "google3d": GOOGLE_3D,
-            "photorealAltM": "80000",
+            "photorealAltM": "8000",
             "credits": " · ".join(self.credits()),
         }
 

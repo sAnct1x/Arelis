@@ -65,20 +65,35 @@ Override per call: `browser=edge`, `browser=firefox`, `private=true`
 `browser` actions: `open`, `navigate`, `snapshot`, `read`, `maps`,
 `search`, `reserve`, `click`, `type`, `scroll`, `press`, `select`,
 `wait`, `back`, `forward`, `reload`, `find`, `tabs`, `screenshot`,
-`relaunch`.
+`download`, `upload`, `pdf`, `hover`, `dblclick`, `right_click`,
+`drag`, `watch`, `relaunch`.
 
 - Aliases: `youtube`, `gmail`, `github`, … (see `tools.browser.aliases`).
 - You tell her the errand. She plans the clicks. Refs are optional.
 - `click(text="Sign in")` or `click(nth=1)` for the first result.
   `type(text="…", into="search")` — empty `into` uses the search box.
+  `type(who=Mom, into=email)` fills name / phone / email / work_phone
+  from `contacts.yaml`. No street address. No memory scrape.
   `find` lists matches without clicking. Password and OTP fields are refused.
 - Snapshot ranks visible controls (light DOM, one shadow root, same-origin
   iframes). `focus=results` (what search returns)
   is a short result list, not the footer.
 - `click` glows the target in-page (not your mouse), waits a beat, then
   clicks. The Drive strip says the label, not `e3`.
-- `back` / `forward` / `reload`. `tabs` with `tab=new` (optional url) or
-  `tab=close`. The window stays.
+  `hover` / `dblclick` / `right_click` / `drag` use the same glow on a
+  snapshot ref. `x,y` only after `screenshot` then `vision` this turn —
+  not computer-use by default. Walls still apply.
+- `wait(seconds)` sleeps. `wait(url=/home)` / `wait(text=…)` /
+  `wait(heading=…)` polls the tab (max 8s) then snapshots. No CSS
+  selectors. A login URL that bounces to `/home` is a receipt, not
+  another navigate.
+- `watch(url=/home)` / `watch(text=…)` polls while Arelis is open.
+  The Drive strip says **Watching**. Stop cancels. A hit notifies.
+  Unattended jobs do not get the browser.
+- `back` / `forward` / `reload`. `tabs` with no args lists
+  `index|title|url`. `select=Gmail` (title substring) or `select=0`.
+  `tab=new` (optional url) or `tab=close` (current tab only — not by
+  title). No bookmarks. The window stays.
 - `open` reuses the current tab and returns a short receipt.
 - `read` returns compact visible text of the tab she is on. That is not
   scrape. The body is framed as untrusted data.
@@ -98,6 +113,10 @@ Override per call: `browser=edge`, `browser=firefox`, `private=true`
 - `screenshot` writes a PNG under `outputs/images/browser_….png`.
   Describe pixels with `vision` in a separate call. Optional
   `full_page=true`.
+- `download` clicks a snapshot ref and saves under `outputs/downloads/`.
+  `pdf` prints the tab to `outputs/documents/`. Both raise FILE_READY.
+  `upload` takes a path under workspace roots or `outputs/` (Allow).
+  `type=file` stays refused — use upload.
 
 A drive you typed or said is the grant. If she offers the window, that
 still pauses. `agent.confirm_browser` (default true) is that offer gate.
@@ -125,5 +144,9 @@ See `tools.browser` and `agent.confirm_browser` in
 
 She does not solve captchas, type passwords, or click Book / Pay / Order.
 When she sees one of those walls she freezes, the Drive strip says
-**your turn**, and the page stays. Captcha / sign-in: she continues when
-the wall is gone (or you hit Go). Pay: you click the last button.
+**your turn**, and the page stays. X / Twitter login and onboarding
+count as sign-in. If you take the mouse in her Chrome, she freezes
+instead of clicking over you. Captcha / sign-in: she continues when
+the wall is gone (or you hit Go). Pay: she reads the tab once, posts
+a short checkout receipt, and finishes — you click Pay. No second
+Allow card.

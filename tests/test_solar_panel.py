@@ -122,6 +122,30 @@ def test_open_solar_populates_then_fetches_horizons_once(
     set_system(None)
 
 
+def test_hud_shows_horizons_fetch_on_placeholder(qt_app) -> None:
+    from arelis.physics.demo import circular_system
+    from arelis.physics.engine import rebound_available
+    from arelis.physics.scene import SolarSystem
+    from arelis.ui.panels.solar_hud import hud_status_lines
+
+    if not rebound_available():
+        pytest.skip("REBOUND is not installed")
+    set_system(
+        SolarSystem.from_states(
+            circular_system(),
+            tracers=0,
+            epoch_tdb="Placeholder orbits, not Horizons. Waiting on JPL.",
+        )
+    )
+    panel = SolarPanel()
+    panel._load_pending = True
+    panel._load_progress = "JPL Horizons Earth  5/33"
+    lines = hud_status_lines(panel, get_system())
+    assert any("Earth" in line and "Horizons" in line for line in lines)
+    panel.hide()
+    set_system(None)
+
+
 def test_empty_caption_hides_http_dump(qt_app) -> None:
     set_system(None)
     panel = SolarPanel()
@@ -160,6 +184,7 @@ def test_horizons_fail_populates_kepler_bootstrap(
     assert system.nbody.find("Earth") is not None
     assert "not Horizons" in system.ic_caption()
     assert not panel._load_pending
+    assert "busy" in (panel._maps_note or "").lower()
     panel.hide()
     set_system(None)
 
@@ -326,6 +351,40 @@ def test_click_inspects_without_traveling(qt_app) -> None:
     panel._finish_travel()
     dist = ((panel.cam.x - earth.x) ** 2 + (panel.cam.y - earth.y) ** 2 + (panel.cam.z - earth.z) ** 2) ** 0.5
     assert dist >= earth.radius * 2.5
+    panel.hide()
+    set_system(None)
+
+
+def test_second_click_on_a_body_travels(qt_app) -> None:
+    from arelis.physics.demo import sun_and_planet
+    from arelis.physics.engine import rebound_available
+    from arelis.physics.scene import SolarSystem
+
+    if not rebound_available():
+        pytest.skip("REBOUND is not installed")
+    set_system(SolarSystem.from_states(sun_and_planet(), tracers=0))
+    panel = SolarPanel()
+    panel.resize(640, 480)
+    panel.show()
+    qt_app.processEvents()
+    system = get_system()
+    assert system is not None
+    panel._begin_view(system)
+    earth = system.nbody.find("Earth")
+    assert earth is not None
+    proj = panel._proj((earth.x, earth.y, earth.z))
+    assert proj is not None
+    sx, sy, _d = proj
+    eye0 = (panel.cam.x, panel.cam.y, panel.cam.z)
+    panel.mousePressEvent(_mouse(QEvent.Type.MouseButtonPress, sx, sy, grab=True))
+    panel.mouseReleaseEvent(_mouse(QEvent.Type.MouseButtonRelease, sx, sy, grab=False))
+    assert panel._inspect == "Earth"
+    assert (panel.cam.x, panel.cam.y, panel.cam.z) == eye0
+    panel._inspect_at(sx, sy)
+    panel._finish_travel()
+    assert (panel.cam.x, panel.cam.y, panel.cam.z) != eye0
+    assert panel._earth_at_door is True
+    assert not panel._inspect_enter_rect().isEmpty()
     panel.hide()
     set_system(None)
 
@@ -930,13 +989,56 @@ def test_inspect_card_is_always_expanded(qt_app) -> None:
     assert "GM" in blob
     assert "Hill" in blob
     assert "camera warp" in blob.lower()
+    assert "travel to earth first" in blob.lower()
     assert panel._inspect_rect().width() >= 440
-    assert panel._inspect_travel_rect().width() > 200
+    assert panel._inspect_enter_rect().isEmpty()
     panel._set_inspect("Ceres")
     rock = " ".join(panel._inspect_lines(system))
     assert "potato" in rock
+    assert panel._inspect_enter_rect().isEmpty()
+    assert panel._inspect_travel_rect().width() > 200
     panel.hide()
     set_system(None)
+
+
+def test_inspect_enter_chip_is_earth_only(qt_app) -> None:
+    from arelis.earth.runtime import get_earth, set_earth
+    from arelis.physics.demo import circular_system
+    from arelis.physics.engine import rebound_available
+    from arelis.physics.scene import SolarSystem
+
+    if not rebound_available():
+        pytest.skip("REBOUND is not installed")
+    set_earth(None)
+    set_system(SolarSystem.from_states(circular_system(), tracers=0))
+    panel = SolarPanel()
+    panel.resize(960, 720)
+    panel.show()
+    qt_app.processEvents()
+    panel._set_inspect("Mars")
+    panel.update()
+    qt_app.processEvents()
+    assert panel._inspect_enter_rect().isEmpty()
+    panel._set_inspect("Earth")
+    panel.update()
+    qt_app.processEvents()
+    assert panel._inspect_enter_rect().isEmpty()
+    panel._travel_to("Earth")
+    panel._finish_travel()
+    panel.update()
+    qt_app.processEvents()
+    enter = panel._inspect_enter_rect()
+    assert not enter.isEmpty()
+    panel.mousePressEvent(
+        _mouse(QEvent.Type.MouseButtonPress, enter.center().x(), enter.center().y(), grab=True)
+    )
+    zone = get_earth()
+    assert zone is not None and zone.active
+    assert panel._inspect_enter_rect().isEmpty()
+    panel.reset_view()
+    panel.hide()
+    set_system(None)
+    set_earth(None)
 
 
 def test_overlay_tray_toggles_without_closing(qt_app) -> None:

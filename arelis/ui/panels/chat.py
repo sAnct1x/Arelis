@@ -23,7 +23,7 @@ from arelis.core.document_refs import files_in_turn
 from arelis.local_open import open_local_file, reveal_local_file
 from arelis.ui.attach_bar import ATTACH_TILE
 from arelis.ui.markdown import render_markdown
-from arelis.ui.theme import COLORS
+from arelis.ui.theme import COLORS, SPACE
 from arelis.ui.void_idle import OrbitIdle
 
 
@@ -48,7 +48,8 @@ def _assistant_label() -> str:
 def _assistant_open() -> str:
     return (
         '<div style="margin:0 18% 8px 0;">'
-        f'<div style="background:{_ink("bubble_wash")};padding:8px 12px;'
+        f'<div style="background:{_ink("bubble_wash")};'
+        f'padding:{SPACE["gap"]}px {SPACE["inset"]}px;'
         f'border-radius:8px;color:{_ink("text")};">'
     )
 
@@ -236,7 +237,9 @@ class ChatPanel(QWidget):
         body = max(10, min(24, round(14 * self._text_scale)))
         # Inner pad only. The parked orbit uses layout contentsMargins, because
         # Qt rich-text tables ignore stylesheet padding-right.
-        self.view.setStyleSheet(f"font-size: {body}px; padding-right: 16px;")
+        self.view.setStyleSheet(
+            f"font-size: {body}px; padding-right: {SPACE['plate']}px;"
+        )
 
     def _ensure_view(self) -> None:
         if not self._has_messages:
@@ -390,7 +393,8 @@ class ChatPanel(QWidget):
         desk_href = f"arelis-file://local/?t={desk_token}"
         return (
             f'<div style="margin:2px 18% 12px 0;">'
-            f'<div style="background:{_ink("bubble_wash")};padding:8px 12px;border-radius:8px;'
+            f'<div style="background:{_ink("bubble_wash")};'
+            f'padding:{SPACE["gap"]}px {SPACE["inset"]}px;border-radius:8px;'
             f'display:inline-block;color:{_ink("text")};">'
             f'<div style="color:{_ink("text")};font-size:13px;margin-bottom:4px;">'
             f"{_esc(name)}</div>"
@@ -465,7 +469,7 @@ class ChatPanel(QWidget):
         self.view.setTextCursor(cursor)
         self._acts_pos = None
 
-    def show_progress(self, text: str = "✦ Generating image…") -> None:
+    def show_progress(self, text: str = "✦ making a picture…") -> None:
         """Shimmering status gate while a long tool (e.g. Comfy) runs."""
         self._ensure_view()
         self.progress.setText(text)
@@ -768,7 +772,8 @@ def _user_bubble_html(
         f'<div style="color:{_ink("text_dim")};font-size:11px;'
         f'letter-spacing:0.08em;margin:0 2px 3px 0;" '
         f'align="right">you</div>'
-        f'<div style="background:{_ink("bubble_wash")};padding:8px 12px;'
+        f'<div style="background:{_ink("bubble_wash")};'
+        f'padding:{SPACE["gap"]}px {SPACE["inset"]}px;'
         f'border-radius:8px;color:{_ink("text_dim")};text-align:left;">'
         f"{inner}</div>"
         "</td></tr></table>"

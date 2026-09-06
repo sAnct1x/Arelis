@@ -17,11 +17,17 @@ from PySide6.QtWidgets import (
 
 from arelis.notify.center import Notice
 from arelis.ui.glass import GlassFrame
-from arelis.ui.theme import GLASS
+from arelis.ui.theme import GLASS, box
 
 _NARROW_STAGE = 720
 _PILL_AIR = 6
 _PILL_GAP = 6
+SNOOZE_CHOICES = (
+    ("5 minutes", 5),
+    ("15 minutes", 15),
+    ("1 hour", 60),
+    ("tomorrow", 24 * 60),
+)
 
 
 class NotifyOverlay(QWidget):
@@ -29,7 +35,7 @@ class NotifyOverlay(QWidget):
 
     pill_clicked = Signal()
     dismiss_requested = Signal(str)
-    snooze_requested = Signal(str)
+    snooze_requested = Signal(str, int)
     reply_requested = Signal(str)
     open_requested = Signal(str)
     artifact_requested = Signal(str, str)
@@ -74,7 +80,7 @@ class NotifyOverlay(QWidget):
         self.card.setFixedWidth(280)
         self.card.hide()
         card_l = QVBoxLayout(self.card)
-        card_l.setContentsMargins(14, 12, 14, 12)
+        card_l.setContentsMargins(*box("inset"))
         card_l.setSpacing(8)
 
         self.card_title = QLabel("")
@@ -147,9 +153,9 @@ class NotifyOverlay(QWidget):
         bodies = notice.data.get("bodies") or []
         if isinstance(bodies, list) and len(bodies) > 1:
             preview = "\n".join(str(b) for b in bodies[-3:] if str(b).strip())
-            self.card_body.setText(preview or notice.body)
+            self.card_body.setText(preview or notice.preview())
         else:
-            self.card_body.setText(notice.body)
+            self.card_body.setText(notice.preview())
         kind = notice.kind
         self.reply_btn.setVisible(kind == "sms")
         self.snooze_btn.setVisible(kind in {"sms", "calendar", "email", "task"})
@@ -301,8 +307,23 @@ class NotifyOverlay(QWidget):
         self.collapse()
 
     def _on_snooze(self) -> None:
-        if self._notice is not None:
-            self.snooze_requested.emit(self._notice.id)
+        if self._notice is None:
+            return
+        menu = QMenu(self)
+        actions = []
+        for label, minutes in SNOOZE_CHOICES:
+            act = QAction(label, menu)
+            act.setData(minutes)
+            menu.addAction(act)
+            actions.append(act)
+        chosen = menu.exec(self.snooze_btn.mapToGlobal(self.snooze_btn.rect().bottomLeft()))
+        if chosen is None:
+            return
+        try:
+            hold = int(chosen.data())
+        except (TypeError, ValueError):
+            hold = 15
+        self.snooze_requested.emit(self._notice.id, hold)
         self.collapse()
 
     def _on_reply(self) -> None:

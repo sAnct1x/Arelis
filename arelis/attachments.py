@@ -102,6 +102,7 @@ def detect_kind(path: Path | str) -> str:
 
 
 # User asked to read glyphs in an image (not merely describe it).
+# "add text in this image" is an overlay, not OCR — wants_image_edit wins first.
 _IMAGE_TEXT_ASK = re.compile(
     r"(?i)\b("
     r"ocr|"
@@ -117,30 +118,194 @@ _IMAGE_TEXT_ASK = re.compile(
 # this the routing block told her to call vision, which can only look, and she
 # spent the turn hunting for a tool that would do it -- ending on the image
 # generator, which produced a different picture at the requested size.
+# Overlay phrasing ("add text right in the middle that says Arelis") used to
+# parse as send_sms(to="right in the middle") because of the bare "text" verb.
+# Pixel-exact work on a file that already exists. "Turn this into a watercolor"
+# is generative restyle (image + path), not this — only named product sizes
+# and arithmetic on pixels count here.
 _IMAGE_EDIT_ASK = re.compile(
     r"(?i)\b("
     r"resize|resized|resizing|"
     r"re-?scale|scale\s+(?:it|this|that|the\s+image)|"
     r"crop|cropped|"
+    r"rotate|rotated|upside[\s-]?down|"
+    r"flip|flipped|mirror|"
+    r"grayscale|greyscale|black[\s-]?and[\s-]?white|\bb\s*&\s*w\b|"
+    r"blur|blurred|"
+    r"invert|inverted|"
     r"vibrant|vibrance|saturate|saturation|"
     r"brighten|brighter|darken|darker|"
     r"contrast|sharpen|sharper|"
     r"thumbnail|"
-    r"(?:make|convert|turn)\s+(?:it|this|that)\s+into\s+a\s+\w+|"
+    r"upscale|upscaled|upscaling|"
+    r"enlarge|enlarged|"
+    r"(?:make|blow)\s+(?:it|this|that)\s+(?:up|bigger|larger)|"
+    r"scale\s*=\s*2|"
+    r"\b2x\b|"
+    r"twice\s+(?:as\s+)?(?:big|large)|"
+    r"twice\s+the\s+size|"
+    r"(?:make|convert|turn)\s+(?:it|this|that)\s+into\s+(?:an?\s+)?"
+    r"(?:youtube\s+|instagram\s+|tiktok\s+)?"
+    r"(?:thumbnail|banner|wallpaper|icon|avatar|story)|"
     r"aspect\s+ratio|"
-    r"\d{2,5}\s*(?:x|\u00d7|by)\s*\d{2,5}"
+    r"\d{2,5}\s*(?:x|\u00d7|by)\s*\d{2,5}|"
+    r"edit\s+(?:the\s+|this\s+|that\s+)?(?:picture|image|photo|png)"
+    r"(?:\s+you\s+just\s+(?:created|generated|made))?|"
+    r"(?:add|put|overlay|write)\s+(?:the\s+)?"
+    r"(?:text|caption|title|watermark)(?!\s+message)\s+"
+    r"(?:right\s+)?"
+    r"(?:in\s+the\s+(?:middle|center|centre)|on\s+(?:to\s+)?"
+    r"(?:the\s+)?(?:image|picture|photo|png)|that\s+says|onto)|"
+    r"(?:add|put)\s+(?:a\s+)?(?:caption|title|watermark)\s+on|"
+    r"text\s+(?:right\s+)?in\s+the\s+(?:middle|center|centre)"
     r")\b"
+)
+
+# Generative change of an existing picture: needs Comfy img2img, not Pillow.
+_IMAGE_RESTYLE_ASK = re.compile(
+    r"(?i)\b("
+    r"in\s+the\s+style\s+of|"
+    r"restyle|re-?style|"
+    r"re-?imagine|reimagine|"
+    r"re-?draw|redraw|"
+    r"img2img|"
+    r"(?:watercolor|watercolour)\s+restyle|"
+    r"(?:look|looks)\s+like\s+(?:an?\s+)?"
+    r"(?:watercolor|watercolour|oil\s+painting|painting|sketch|"
+    r"anime|cartoon|comic|photograph|photoreal|cinematic|illustration)|"
+    r"make\s+(?:it|this|that|the\s+(?:picture|image|photo|png)"
+    r"(?:\s+you\s+just\s+(?:created|generated|made))?)\s+look\s+like|"
+    r"give\s+(?:it|this|that)\s+a\s+"
+    r"(?:watercolor|watercolour|oil|anime|sketch|painted)\s+look|"
+    r"(?:as|into)\s+a\s+(?:watercolor|watercolour|oil\s+painting|"
+    r"painting|sketch|anime|cartoon|comic|photograph)|"
+    r"(?:make|convert|turn)\s+(?:it|this|that)\s+into\s+(?:an?\s+)?"
+    r"(?:watercolor|watercolour|oil(?:\s+painting)?|painting|sketch|"
+    r"anime|cartoon|comic|photograph)"
+    r")\b"
+)
+
+# Comfy surgical work on a file that already exists. Pixel crop/scale is
+# image_edit — this is rembg, outpaint, or a generative region inpaint.
+_IMAGE_SURGICAL_ASK = re.compile(
+    r"(?i)\b("
+    r"(?:remove|cut\s+out|erase|knock\s+out)\s+(?:the\s+)?background|"
+    r"background\s+(?:remov(?:al|e)|cut.?out)|"
+    r"outpaint|uncrop|"
+    r"extend\s+(?:the\s+)?(?:canvas|image|picture|photo|png)|"
+    r"(?:remove|change|replace|inpaint)\s+(?:the\s+)?"
+    r"(?:left|right|top|bottom|center|centre)\s+"
+    r"(?:of\s+(?:the\s+)?(?:picture|image|photo|png|shot)|"
+    r"side|region|area|part|half)"
+    r")\b"
+)
+
+# Batch generate. "another four" / "n=4" / "four versions".
+_IMAGE_VARIATIONS_ASK = re.compile(
+    r"(?i)\b("
+    r"(?:four|4)\s+(?:versions?|variations?|variants?)|"
+    r"another\s+(?:four|4)(?:\s+(?:versions?|variations?|variants?))?|"
+    r"n\s*=\s*[1-4]"
+    r")\b"
+)
+
+# Reproduce the last generate with the seed in its sidecar.
+_IMAGE_SAME_SEED = re.compile(
+    r"(?i)\b("
+    r"same\s+seed|"
+    r"reproduce(?:\s+that\s+(?:image|picture))?|"
+    r"(?:do|make|generate|draw|render)\s+(?:it|that|this)\s+again|"
+    r"again\s+with\s+(?:the\s+)?same\s+seed|"
+    r"rerun\s+that\s+(?:image|picture)"
+    r")\b"
+)
+
+# Pasted-photo identity, not camera Point-and-Ask and not "who are you".
+_PERSON_IDENTIFY = re.compile(
+    r"(?i)\b("
+    r"who\s+is\s+(?:this|that|he|she|they)|"
+    r"who(?:'s|\s+is)\s+(?:in|on)\s+(?:this|the)\s+(?:photo|picture|image)|"
+    r"identify\s+(?:this|that)\s+(?:person|man|woman|people)|"
+    r"name\s+(?:this|that)\s+(?:person|man|woman)"
+    r")\b"
+)
+
+# "add text … that says Arelis, centered perfectly"
+_OVERLAY_SAYS = re.compile(
+    r"(?is)\b(?:add|put|overlay|write)\s+(?:the\s+)?"
+    r"(?:text|caption|title|watermark)\b.{0,120}?"
+    r"(?:that\s+)?(?:says|saying|reading)\s+"
+    r"""['"]?(?P<text>.+?)['"]?"""
+    r"(?=\s*,?\s*(?:centered|centred|perfectly|"
+    r"(?:right\s+)?in\s+the\s+(?:middle|center|centre))|[.!]?\s*$)"
+)
+_OVERLAY_QUOTED = re.compile(
+    r"(?i)\b(?:add|put|overlay|write)\s+(?:the\s+)?"
+    r"(?:text\s+)?"
+    r"""['"](?P<text>[^'"]+)['"]"""
+)
+_OVERLAY_TRAIL = re.compile(
+    r"(?i)\s*,?\s*(?:centered|centred|perfectly|"
+    r"(?:right\s+)?in\s+the\s+(?:middle|center|centre)).*$"
 )
 
 
 def wants_image_text(user_text: str = "") -> bool:
     """True when the user asked to read text *in* an image (OCR), not describe it."""
-    return bool(_IMAGE_TEXT_ASK.search(user_text or ""))
+    raw = user_text or ""
+    # Overlay ("add text in this image that says …") is image_edit, not OCR.
+    if wants_image_edit(raw):
+        return False
+    return bool(_IMAGE_TEXT_ASK.search(raw))
+
+
+def wants_image_restyle(user_text: str = "") -> bool:
+    """True when the ask is a generative restyle of a picture that already exists."""
+    return bool(_IMAGE_RESTYLE_ASK.search(user_text or ""))
+
+
+def wants_image_surgical(user_text: str = "") -> bool:
+    """True for rembg / outpaint / region inpaint — Comfy, not Pillow crop."""
+    return bool(_IMAGE_SURGICAL_ASK.search(user_text or ""))
+
+
+def wants_image_variations(user_text: str = "") -> bool:
+    """True for four versions / variations / n=4 — image with n, not a crop."""
+    return bool(_IMAGE_VARIATIONS_ASK.search(user_text or ""))
+
+
+def wants_same_seed(user_text: str = "") -> bool:
+    """True when they want the last generate reproduced, not a new roll."""
+    return bool(_IMAGE_SAME_SEED.search(user_text or ""))
 
 
 def wants_image_edit(user_text: str = "") -> bool:
-    """True when the ask is to change the picture: size, crop, or strength."""
-    return bool(_IMAGE_EDIT_ASK.search(user_text or ""))
+    """True when the ask is to change the picture: size, crop, overlay, or strength."""
+    raw = user_text or ""
+    if wants_image_restyle(raw) or wants_image_surgical(raw):
+        return False
+    return bool(_IMAGE_EDIT_ASK.search(raw))
+
+
+def wants_person_identify(user_text: str = "") -> bool:
+    """True for a pasted-photo 'who is this?' — not camera Point-and-Ask."""
+    return bool(_PERSON_IDENTIFY.search(user_text or ""))
+
+
+def overlay_text_from_ask(user_text: str = "") -> str:
+    """Glyphs to stamp on a picture, or '' when the ask is not an overlay."""
+    raw = (user_text or "").strip()
+    if not raw:
+        return ""
+    for pat in (_OVERLAY_SAYS, _OVERLAY_QUOTED):
+        hit = pat.search(raw)
+        if not hit:
+            continue
+        text = (hit.group("text") or "").strip().strip("\"'")
+        text = _OVERLAY_TRAIL.sub("", text).strip(" ,.")
+        if text:
+            return text[:80]
+    return ""
 
 
 def route_tool(kind: str, user_text: str = "") -> str:
@@ -151,12 +316,18 @@ def route_tool(kind: str, user_text: str = "") -> str:
     if looks_like_compose_email(user_text):
         return "send_email"
     if kind == "image":
-        if wants_image_text(user_text):
-            return "ocr"
-        # Editing beats describing: "make this more vibrant" is an instruction
-        # about the file, and answering it with a description is a non-answer.
+        # Overlay / resize beats OCR: "add text in this image" is not a read.
+        # Restyle is Comfy img2img (image + path), not Pillow.
+        if (
+            wants_image_restyle(user_text)
+            or wants_image_surgical(user_text)
+            or wants_image_variations(user_text)
+        ):
+            return "image"
         if wants_image_edit(user_text):
             return "image_edit"
+        if wants_image_text(user_text):
+            return "ocr"
         return "vision"
     if kind == "pdf":
         return "doc_extract"
@@ -624,23 +795,41 @@ def format_attachments_block(
         # "analyze" is named here for the same reason doc_extract is: the user
         # says "analyze this picture", and the tool wearing that name reads
         # spreadsheets. Without the line the ask lands on a pandas reader.
-        if wants_image_text(user_text):
+        if (
+            wants_image_restyle(user_text)
+            or wants_image_surgical(user_text)
+            or wants_image_variations(user_text)
+        ):
             rules.append(
-                "Images: call ocr(action=text, path=…). "
-                "Do not call doc_extract (PDF-only) or analyze (tables only) "
-                "on images, whatever verb the user used."
+                "Images: call image with path= the staged path above. "
+                "Restyle: prompt the look (watercolor, anime, …) — img2img. "
+                "Four versions / variations: n=4. Cut-out: "
+                "remove_background=true. Outpaint/uncrop/extend the canvas: "
+                "outpaint=all. Change the left/right/top/bottom/center: "
+                "mask_region=. Do not call image_edit; Pillow cannot paint "
+                "or cut a background. Do not call vision. Do not web_search "
+                "for stock photos."
             )
         elif wants_image_edit(user_text):
             # The three wrong tools are named because all three were tried on
             # this exact ask before image_edit existed.
             rules.append(
                 "Images: call image_edit with the exact staged path above and the "
-                "size and adjustments asked for (e.g. preset=youtube_thumbnail or "
-                "width=1280 height=720, vibrance=1.3). It writes a new file and "
-                "leaves the original alone. Do not call image — that generates a "
-                "different picture from a text prompt and cannot modify this file. "
-                "Do not call vision, which can only look at it. Do not call the "
-                "calculator for the pixel dimensions."
+                "size, adjustments, or text overlay asked for (e.g. "
+                "preset=youtube_thumbnail or width=1280 height=720, vibrance=1.3, "
+                "crop=left/right/center, scale=2, or text=Arelis). It writes a "
+                "new file and leaves the original alone. Do not call image — "
+                "that generates a different picture from a text prompt and "
+                "cannot modify this file. Do not call vision, which can only "
+                "look at it. Do not call send_sms — 'add text' on a picture is "
+                "an overlay, not a message. Do not call the calculator for "
+                "the pixel dimensions."
+            )
+        elif wants_image_text(user_text):
+            rules.append(
+                "Images: call ocr(action=text, path=…). "
+                "Do not call doc_extract (PDF-only) or analyze (tables only) "
+                "on images, whatever verb the user used."
             )
         else:
             rules.append(

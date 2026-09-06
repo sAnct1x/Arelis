@@ -115,6 +115,6 @@ async def sync_calendars(
         summary["ok"] = False
         summary["errors"].append(
             "No authorized calendar providers. "
-            "See docs/calendar-oauth.md and run arelis --auth-calendar …"
+            "No authorized calendar. Sign in on the calendar tile."
         )
     return summary

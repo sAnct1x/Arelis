@@ -11,8 +11,11 @@ with you.
 
 On a cold launch: if you were inside a room when you left, you're
 back in it — on a new empty chat. Last night's thread stays in
-History. If you'd left with `/leave`, you land in orbit. Two unused
-"new chat" rows do not fight; the empty one in that room is reused.
+History. If you'd left with `/leave`, you land in orbit. `/leave`
+puts you back on the general conversation you were sitting in this
+load, including an empty new chat. It does not jump to some other
+thread in History. Two unused "new chat" rows do not fight; the
+empty one in that room is reused.
 
 ## What a room actually carries
 

@@ -18,6 +18,7 @@ from PIL import Image, ImageDraw, ImageFont
 from arelis.config import load_config, load_persona
 from arelis.contacts import load_contacts, resolve_contact
 from arelis.eval.conversation import ConversationSession, ConversationTurn
+from arelis.eval.live_pass_memory import bind_live_pass_store
 from arelis.llm import build_router
 from arelis.mail import load_account, owner_inbox
 from arelis.memory import MemoryStore
@@ -190,7 +191,7 @@ async def main() -> int:
 
     cfg = load_config()
     router = build_router(cfg)
-    store = MemoryStore()
+    store = bind_live_pass_store(MemoryStore())
     provider = router.provider
     reg = build_tool_registry(
         cfg,

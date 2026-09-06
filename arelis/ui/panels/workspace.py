@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import QSize, Qt, Signal
-from PySide6.QtGui import QIcon, QPixmap
+from PySide6.QtGui import QIcon, QKeyEvent, QPixmap
 from PySide6.QtWidgets import (
     QComboBox,
     QFileDialog,
@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QMenu,
     QPlainTextEdit,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
     QSplitter,
     QStackedWidget,
@@ -26,6 +27,8 @@ from PySide6.QtWidgets import (
 )
 
 from arelis.desk import Artifact, infer_kind, is_image_kind, is_text_kind
+from arelis.mathtext import flatten_latex
+from arelis.rooms import PHYSICS_DISPLAY_NAME, PHYSICS_ROOM_ID
 from arelis.ui.code_highlight import QuietPythonHighlighter
 from arelis.ui.icons import (
     browse_file_icon,
@@ -39,7 +42,27 @@ from arelis.ui.icons import (
     note_keep_icon,
     refresh_icon,
 )
-from arelis.ui.theme import METRICS, polish_combo_popup
+from arelis.ui.image_rail import (
+    CAPTION_NAME,
+    DESK_EMPTY_PICTURES,
+    STRIP_NAME,
+    THUMB_NAME,
+    WELL_NAME,
+    load_fail_line,
+    load_fitted_pixmap,
+    load_square_thumb,
+    sidecar_caption,
+)
+from arelis.ui.image_rail import (
+    THUMB_LONG as _THUMB_LONG,
+)
+from arelis.ui.image_rail import (
+    recent_output_images as _recent_output_images,
+)
+from arelis.ui.image_rail import (
+    sidecar_tooltip as _sidecar_tooltip,
+)
+from arelis.ui.theme import METRICS, SPACE, box, polish_combo_popup
 
 # Cap browse listing the same way the workspace tool caps directory list.
 _MAX_BROWSE_ENTRIES = 500
@@ -188,6 +211,8 @@ class WorkspacePanel(QWidget):
         self._desk_items: list[Artifact] = []
         self._preview_md = False
         self._image_mode = False
+        self._hero_path = ""
+        self._image_paths: list[Path] = []
         self._browse_cwd = Path(".")
         # What the editor held when the file was last loaded or saved. Dirty is
         # derived from it rather than latched, so setPlainText() firing
@@ -197,8 +222,8 @@ class WorkspacePanel(QWidget):
         self._loaded_label = ""
         self._dirty = False
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(4, 2, 4, 6)
-        layout.setSpacing(10)
+        layout.setContentsMargins(*box("micro", "hair", "micro", "gap"))
+        layout.setSpacing(SPACE["gap"])
 
         path_row = QHBoxLayout()
         path_row.setContentsMargins(0, 0, 0, 0)
@@ -292,8 +317,8 @@ class WorkspacePanel(QWidget):
         self.empty_face.setObjectName("DeskEmptyFace")
         self.empty_face.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         empty_l = QVBoxLayout(self.empty_face)
-        empty_l.setContentsMargins(32, 20, 32, 28)
-        empty_l.setSpacing(10)
+        empty_l.setContentsMargins(*box("stage", "plate"))
+        empty_l.setSpacing(SPACE["gap"])
         empty_l.addStretch(1)
         self.empty_title = QLabel("Desk")
         self.empty_title.setObjectName("DeskEmptyTitle")
@@ -301,6 +326,7 @@ class WorkspacePanel(QWidget):
         self.desk_empty = QLabel(
             "Nothing on the desk yet.\n"
             "Files she writes and notes you keep land here.\n"
+            f"{DESK_EMPTY_PICTURES}\n"
             "Say keep this: and what to write down, or press the note mark."
         )
         self.desk_empty.setObjectName("DeskEmpty")
@@ -309,7 +335,6 @@ class WorkspacePanel(QWidget):
         empty_l.addWidget(self.empty_title)
         empty_l.addWidget(self.desk_empty)
         empty_l.addStretch(2)
-        layout.addWidget(self.empty_face, stretch=1)
 
         self.split = QSplitter(Qt.Orientation.Horizontal)
 
@@ -424,9 +449,63 @@ class WorkspacePanel(QWidget):
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
         )
         self.image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.image_label.setObjectName("WorkspaceImageWell")
+        self.image_label.setObjectName(WELL_NAME)
         self.image_label.hide()
         right_layout.addWidget(self.image_label)
+
+        caption_row = QHBoxLayout()
+        caption_row.setContentsMargins(0, 0, 0, 0)
+        caption_row.setSpacing(SPACE["gap"])
+        self.image_open_btn = QPushButton("open")
+        self.image_open_btn.setObjectName("InstrumentAction")
+        self.image_open_btn.setFixedHeight(METRICS["row"])
+        self.image_open_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.image_open_btn.setToolTip("Open in the usual app")
+        self.image_open_btn.clicked.connect(self._open_loaded_outside)
+        self.image_open_btn.hide()
+        self.image_caption = QLabel("")
+        self.image_caption.setObjectName(CAPTION_NAME)
+        self.image_caption.setWordWrap(True)
+        self.image_caption.setAlignment(
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+        )
+        self.image_caption.hide()
+        caption_row.addWidget(self.image_open_btn)
+        caption_row.addWidget(self.image_caption, stretch=1)
+        right_layout.addLayout(caption_row)
+
+        self.image_strip = QScrollArea()
+        self.image_strip.setObjectName(STRIP_NAME)
+        self.image_strip.setWidgetResizable(False)
+        self.image_strip.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded
+        )
+        self.image_strip.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+        self.image_strip.setFrameShape(QScrollArea.Shape.NoFrame)
+        self.image_strip.setAlignment(
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+        )
+        self.image_strip.setFixedHeight(_THUMB_LONG + SPACE["inset"])
+        self.image_strip.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
+        self.image_strip.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.image_strip.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self._image_strip_host = QWidget()
+        self._image_strip_host.setAttribute(
+            Qt.WidgetAttribute.WA_TranslucentBackground, True
+        )
+        self._image_strip_row = QHBoxLayout(self._image_strip_host)
+        self._image_strip_row.setContentsMargins(0, 0, 0, 0)
+        self._image_strip_row.setSpacing(SPACE["gap"])
+        self._image_strip_row.setAlignment(
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+        )
+        self.image_strip.setWidget(self._image_strip_host)
+        self.image_strip.hide()
+        right_layout.addWidget(self.image_strip)
 
         self.split.addWidget(left)
         self.split.addWidget(mid)
@@ -434,12 +513,15 @@ class WorkspacePanel(QWidget):
         self.split.setStretchFactor(0, 0)
         self.split.setStretchFactor(1, 1)
         self.split.setStretchFactor(2, 0)
-        self.split.setCollapsible(0, False)
+        self.split.setCollapsible(0, True)
         self.split.setCollapsible(1, True)
         self.split.setCollapsible(2, True)
         self.split.setSizes([240, 720, 0])
-        self.split.hide()
-        layout.addWidget(self.split, stretch=1)
+        self.face_stack = QStackedWidget()
+        self.face_stack.setObjectName("WorkspaceFace")
+        self.face_stack.addWidget(self.empty_face)
+        self.face_stack.addWidget(self.split)
+        layout.addWidget(self.face_stack, stretch=1)
 
         self.output = QPlainTextEdit()
         self.output.setObjectName("OutputView")
@@ -456,6 +538,7 @@ class WorkspacePanel(QWidget):
         self.open_btn.clicked.connect(self._on_open)
         self.save_btn.clicked.connect(self._on_save)
         self.editor.textChanged.connect(self._sync_dirty)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.show_desk()
         self._sync_chrome()
 
@@ -790,25 +873,70 @@ class WorkspacePanel(QWidget):
         self.output.show()
 
     def show_image(self, path: str) -> None:
-        pix = QPixmap(path)
+        target = Path(path)
+        self._hero_path = str(target)
+        self._loaded_abs = str(target)
+        self._loaded_label = target.name
         self._set_image_mode(True)
         self.image_label.show()
-        self.path_edit.setText(str(path))
+        self.path_edit.setText(str(target))
+        tip = _sidecar_tooltip(target)
+        self.image_label.setToolTip(tip)
+        self.image_caption.setText(sidecar_caption(target))
+        self.image_caption.setToolTip(tip)
+        self.image_caption.show()
+        self.image_open_btn.show()
+        pix = self._fitted_hero(target)
         if pix.isNull():
-            self.image_label.setText(f"could not load\n{path}")
+            self.image_label.setPixmap(QPixmap())
+            self.image_label.setText(load_fail_line(target))
+            self._refresh_image_strip(str(target))
             return
-        # Fill the available pane — image is the product of this dock.
+        self.image_label.setText("")
+        self.image_label.setPixmap(pix)
+        self._refresh_image_strip(str(target))
+        self.setFocus(Qt.FocusReason.OtherFocusReason)
+
+    def _fitted_hero(self, path: Path | str) -> QPixmap:
         target_w = max(self.image_label.width(), self.width() // 2, 420)
         target_h = max(self.image_label.height(), 280)
-        self.image_label.setPixmap(
-            pix.scaled(
-                target_w,
-                target_h,
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation,
+        return load_fitted_pixmap(path, target_w, target_h)
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        if not self._image_mode or not self._hero_path:
+            return
+        pix = self._fitted_hero(self._hero_path)
+        if not pix.isNull():
+            self.image_label.setText("")
+            self.image_label.setPixmap(pix)
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:
+        if self._image_mode and event.key() in (
+            Qt.Key.Key_Left,
+            Qt.Key.Key_Right,
+        ):
+            delta = 1 if event.key() == Qt.Key.Key_Right else -1
+            if self._step_image(delta):
+                event.accept()
+                return
+        super().keyPressEvent(event)
+
+    def _step_image(self, delta: int) -> bool:
+        if not self._image_paths:
+            return False
+        current = Path(self._hero_path) if self._hero_path else None
+        try:
+            index = next(
+                i
+                for i, path in enumerate(self._image_paths)
+                if current is not None and path.resolve() == current.resolve()
             )
-        )
-        self.image_label.setToolTip(str(Path(path)))
+        except (StopIteration, OSError):
+            index = 0
+        nxt = self._image_paths[(index + delta) % len(self._image_paths)]
+        self.show_image(str(nxt))
+        return True
 
     def _set_image_mode(self, on: bool) -> None:
         """Image takes the right well; the editor yields. Status stays a strip."""
@@ -819,11 +947,19 @@ class WorkspacePanel(QWidget):
             self.edit_btn.hide()
             self.open_outside_btn.hide()
             self.image_label.show()
+            self.image_caption.show()
+            self.image_open_btn.show()
             self.split.setCollapsible(1, True)
             self.split.setCollapsible(2, False)
         else:
             self.editor_stack.show()
             self.image_label.hide()
+            self.image_caption.hide()
+            self.image_open_btn.hide()
+            self.image_strip.hide()
+            self._hero_path = ""
+            self._image_paths = []
+            self._clear_image_strip()
             self.split.setCollapsible(1, True)
             self.split.setCollapsible(2, True)
             self._sync_chrome()
@@ -832,6 +968,70 @@ class WorkspacePanel(QWidget):
         else:
             self.output.hide()
         self._sync_face()
+
+    def _clear_image_strip(self) -> None:
+        row = self._image_strip_row
+        while row.count():
+            item = row.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.hide()
+                widget.setParent(None)
+                widget.deleteLater()
+
+    def _fit_image_strip(self) -> None:
+        thumbs: list[QWidget] = []
+        for i in range(self._image_strip_row.count()):
+            widget = self._image_strip_row.itemAt(i).widget()
+            if widget is not None:
+                thumbs.append(widget)
+        gap = self._image_strip_row.spacing()
+        width = sum(thumb.width() for thumb in thumbs)
+        if thumbs:
+            width += gap * (len(thumbs) - 1)
+        self._image_strip_host.setFixedSize(max(width, 1), _THUMB_LONG)
+
+    def _make_strip_thumb(self, path: Path, *, current: bool) -> QToolButton:
+        btn = QToolButton()
+        btn.setObjectName(THUMB_NAME)
+        btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn.setAutoRaise(False)
+        btn.setCheckable(True)
+        btn.setChecked(current)
+        btn.setFocusPolicy(Qt.FocusPolicy.TabFocus)
+        btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+        btn.setToolTip(_sidecar_tooltip(path))
+        btn.setAccessibleName(path.name)
+        btn.setFixedSize(_THUMB_LONG, _THUMB_LONG)
+        pix = load_square_thumb(path, _THUMB_LONG)
+        if pix.isNull():
+            btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+            btn.setText(path.name)
+        else:
+            btn.setIcon(QIcon(pix))
+            btn.setIconSize(QSize(_THUMB_LONG, _THUMB_LONG))
+        target = str(path)
+        btn.clicked.connect(lambda _checked=False, p=target: self.show_image(p))
+        return btn
+
+    def _refresh_image_strip(self, path: str) -> None:
+        images = _recent_output_images(Path(path).parent)
+        self._image_paths = images
+        self._clear_image_strip()
+        if not images:
+            self.image_strip.hide()
+            return
+        current = Path(path)
+        for image in images:
+            try:
+                is_current = image.resolve() == current.resolve()
+            except OSError:
+                is_current = image.name == current.name
+            self._image_strip_row.addWidget(
+                self._make_strip_thumb(image, current=is_current)
+            )
+        self._fit_image_strip()
+        self.image_strip.show()
 
     def set_desk_context(self, *, room_id: str = "", room_name: str = "") -> None:
         self._room_id = room_id
@@ -911,18 +1111,21 @@ class WorkspacePanel(QWidget):
     def _sync_face(self) -> None:
         """Empty desk is one face. The editor only exists when there is a file."""
         idle = self._desk_idle()
-        self.empty_face.setVisible(idle)
-        self.split.setVisible(not idle)
+        self.face_stack.setCurrentWidget(self.empty_face if idle else self.split)
         if idle:
             return
+        left = self.split.widget(0)
         mid = self.split.widget(1)
         right = self.split.widget(2)
+        show_left = self._mode == "files" or bool(self._desk_items)
+        if left is not None:
+            left.setVisible(show_left)
         if self._image_mode:
             if mid is not None:
                 mid.hide()
             if right is not None:
                 right.show()
-            self.split.setSizes([180, 0, 620])
+            self.split.setSizes([180 if show_left else 0, 0, 620])
             return
         if right is not None:
             right.hide()
@@ -930,12 +1133,20 @@ class WorkspacePanel(QWidget):
         if mid is not None:
             mid.setVisible(has_file)
         if has_file:
-            self.split.setSizes([240, 720, 0])
+            self.split.setSizes([240 if show_left else 0, 720, 0])
         else:
-            self.split.setSizes([1, 0, 0])
+            self.split.setSizes([240 if show_left else 1, 0, 0])
 
     def _sync_desk_hint(self) -> None:
         room = (self._room_name or "").strip()
+        room_id = (self._room_id or "").strip()
+        # Reality is a zone, not a papers room. The combo already names
+        # the project; do not stamp the physics plate onto this chrome.
+        if (
+            room_id == PHYSICS_ROOM_ID
+            or room.casefold() == PHYSICS_DISPLAY_NAME.casefold()
+        ):
+            room = ""
         project = self.project_combo.currentText() or self._root_name
         if room and project:
             self.desk_hint.setText(f"{room} · {project}")
@@ -988,10 +1199,11 @@ class WorkspacePanel(QWidget):
         self._sync_chrome()
 
     def _set_preview_text(self, content: str) -> None:
+        shown = flatten_latex(content)
         try:
-            self.preview.setMarkdown(content)
+            self.preview.setMarkdown(shown)
         except Exception:
-            self.preview.setPlainText(content)
+            self.preview.setPlainText(shown)
 
     def _show_preview(self, on: bool) -> None:
         self._preview_md = on

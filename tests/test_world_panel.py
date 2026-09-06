@@ -319,7 +319,11 @@ def test_spoken_lab_verbs_skip_the_chooser(arelis_window, qt_app, monkeypatch, t
         system = get_system()
         assert system is not None
         assert system.pending_travel == "Earth"
+        assert system.pending_enter_earth is False
         system.pending_travel = None
+        assert window._try_physics_verb("enter Earth") is True
+        assert system.pending_enter_earth is True
+        system.pending_enter_earth = False
         assert window._try_physics_verb("take me to Tokyo") is True
         from arelis.earth.runtime import get_earth
 
@@ -328,6 +332,8 @@ def test_spoken_lab_verbs_skip_the_chooser(arelis_window, qt_app, monkeypatch, t
         dest = zone.take_goto()
         assert dest is not None
         assert dest["name"] == "Tokyo"
+        assert system.pending_enter_earth is True
+        system.pending_enter_earth = False
         assert window._try_physics_verb("show the magnetosphere") is True
         assert system.overlay.show_magnetic is True
         assert window._try_physics_verb("hide the orbits") is True
@@ -341,6 +347,10 @@ def test_spoken_lab_verbs_skip_the_chooser(arelis_window, qt_app, monkeypatch, t
         assert window._try_physics_verb("increase speed") is True
         assert window._try_physics_verb("close the solar lab") is True
         assert window.world_window.isHidden()
+        assert window._try_tile_speech("open thinking") is True
+        assert window.act_thinking.isChecked()
+        assert window._try_tile_speech("close thinking") is True
+        assert not window.act_thinking.isChecked()
     finally:
         window.world_window.hide()
         set_system(None)

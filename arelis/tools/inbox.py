@@ -383,6 +383,7 @@ class InboxTool:
                 "id": uid,
                 "from": sender,
                 "subject": subject,
+                "body": truncated,
                 "attachments": attachments,
             },
         )

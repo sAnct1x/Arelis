@@ -106,6 +106,13 @@ is it in Tokyo" still needs an actual tool call. Anything that comes
 back genuinely unmatched still fails open rather than silently
 refusing.
 
+A one-line **turn goal** (`arelis/core/turn_goal.py`) is derived after
+preflight. It can drop an expected tool that contradicts the ask
+(weather on a battery paper), refuse to inject an SMS body the
+recipient should not read, and refuse to finish on a receipt that
+does not serve the goal (a captcha is not a research report). The
+regex layer still picks the first tool; the goal is the unlock.
+
 Every launch after the first pins the chat model, then seeds
 Ollama's prefix cache (`arelis/llm/startup.py`) with the persona, the
 telegraph policy, and the skinny tool schema array — about 5,500
@@ -134,7 +141,7 @@ started.
 | Presence | `arelis/presence/` | Core process, tray, IPC |
 | Voice | `arelis/voice/` | Listening and speaking; `prepare.py` is the first-open fetch — [voice-wake.md](voice-wake.md) |
 | Spatial | `arelis/spatial/` | World engine, grants, hand-tracking takes. Pose input is not a chat turn |
-| Earth | `arelis/earth/` | Earth view on Reality's globe — 108 shipped / 25 keyed / 3 coming later / 4 left out. Marks come from `arelis/ui/earth_marks.py`. See [earth.md](earth.md) |
+| Earth | `arelis/earth/` | Earth view on Reality's globe — 109 shipped / 25 keyed / 3 coming later / 4 left out. Marks come from `arelis/ui/earth_marks.py`. See [earth.md](earth.md) |
 | Physics | `arelis/physics/` | Reality's solar system — Horizons initial conditions, REBOUND, IAU attitude |
 | Calendar | `arelis/calendar/` | Google / Outlook OAuth — see [calendar-oauth.md](calendar-oauth.md) |
 | Memory | `arelis/memory/` | SQLite archive plus recall |
@@ -241,15 +248,15 @@ connected. Until then, if you ask, she'll just tell you she can't.
 | `document` | PDF, Word, Excel, CSV, markdown. Room → `documents/` inside the project; outside a room → `outputs/documents/` | Yes |
 | `catalog` | arXiv, Horizons; APOD / ADS once you add a free key | No |
 | `solar` | Reality's N-body sim (Horizons VECTORS + REBOUND IAS15). Source checkout only. Approach and orbit views, inspect-only fly camera, IAU spheres. No landing | Yes |
-| `earth` | The Earth view inside Reality. Inventory lives in `feeds.py` (108 shipped / 25 keyed / 3 coming later / 4 left out). Source checkout only — see [earth.md](earth.md) | No |
+| `earth` | The Earth view inside Reality. Inventory lives in `feeds.py` (109 shipped / 25 keyed / 3 coming later / 4 left out). Source checkout only — see [earth.md](earth.md) | No |
 | `clipboard` / `ocr` / `vision` / `camera` | Paste, read screen text, look at an image, use the webcam | Yes (the still capture itself is free; actually looking at it pauses) |
 | `memory` / `recall` / `tasks` / `goals` | Remembering things, chores, "what needs my attention" | Mutates: yes |
 | `inbox` / `send_email` / `schedule` | Mail and timed jobs | Sending: yes. Creating a job: yes. Listing the inbox is free; trash / archive / move / flag actions: yes |
 | `send_sms` / `inbound_sms` | Texting out / listing what's come in | Sending: yes |
 | `agenda` | Calendar | Writes: yes |
 | `weather` / `user_location` | Forecast / where she thinks you are | No |
-| `image` | New picture, via a local ComfyUI instance | Yes |
-| `image_edit` | Resize and recolor an existing file | Yes |
+| `image` | New picture or img2img restyle, via a local ComfyUI instance | Yes |
+| `image_edit` | Resize, rotate, recolor, overlay an existing file (Pillow) | Yes |
 | `rooms` | Named project spaces | Creating / changing: yes |
 | `contacts` | People available for texting | Mutates: yes |
 

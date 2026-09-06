@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from arelis.browser.actions import (
@@ -34,6 +35,11 @@ class BrowserSession:
         self.last_mode: str = ""
         self.last_browser: str = ""
         self._click_misses = 0
+        self._watch_task: asyncio.Task[None] | None = None
+        self._watch_done: asyncio.Event = asyncio.Event()
+        self._watch_done.set()
+        self._watch_result: ActionResult | None = None
+        self._watch_id = 0
 
     @classmethod
     def fake(cls, **kwargs: Any) -> BrowserSession:
@@ -178,6 +184,78 @@ class BrowserSession:
         label = str((result.data or {}).get("label") or "")
         return await self._with_wall(result, click_label=label)
 
+    async def hover(
+        self,
+        ref: str = "",
+        *,
+        text: str = "",
+        nth: int = 0,
+        x: float | None = None,
+        y: float | None = None,
+    ) -> ActionResult:
+        if x is not None and y is not None:
+            return await self._with_wall(await self._driver.hover(x=x, y=y))
+        resolved, err = await self._resolve(ref=ref, text=text, nth=nth, kind="click")
+        if err is not None:
+            return err
+        return await self._with_wall(await self._driver.hover(resolved))
+
+    async def dblclick(
+        self,
+        ref: str = "",
+        *,
+        text: str = "",
+        nth: int = 0,
+        x: float | None = None,
+        y: float | None = None,
+    ) -> ActionResult:
+        if x is not None and y is not None:
+            return await self._with_wall(await self._driver.dblclick(x=x, y=y))
+        resolved, err = await self._resolve(ref=ref, text=text, nth=nth, kind="click")
+        if err is not None:
+            return err
+        return await self._with_wall(await self._driver.dblclick(resolved))
+
+    async def right_click(
+        self,
+        ref: str = "",
+        *,
+        text: str = "",
+        nth: int = 0,
+        x: float | None = None,
+        y: float | None = None,
+    ) -> ActionResult:
+        if x is not None and y is not None:
+            return await self._with_wall(await self._driver.right_click(x=x, y=y))
+        resolved, err = await self._resolve(ref=ref, text=text, nth=nth, kind="click")
+        if err is not None:
+            return err
+        return await self._with_wall(await self._driver.right_click(resolved))
+
+    async def drag(
+        self,
+        ref: str = "",
+        *,
+        to: str = "",
+        text: str = "",
+        nth: int = 0,
+        x: float | None = None,
+        y: float | None = None,
+        to_x: float | None = None,
+        to_y: float | None = None,
+    ) -> ActionResult:
+        if x is not None and y is not None:
+            return await self._with_wall(
+                await self._driver.drag(x=x, y=y, to_x=to_x, to_y=to_y)
+            )
+        resolved, err = await self._resolve(ref=ref, text=text, nth=nth, kind="click")
+        if err is not None:
+            return err
+        dest, dest_err = await self._resolve(ref=to, text="", nth=0, kind="click")
+        if dest_err is not None:
+            return dest_err
+        return await self._with_wall(await self._driver.drag(resolved, to=dest))
+
     async def type_text(
         self, ref: str, text: str, *, into: str = ""
     ) -> ActionResult:
@@ -203,7 +281,7 @@ class BrowserSession:
     async def tabs(
         self,
         *,
-        select: int | None = None,
+        select: int | str | None = None,
         op: str = "",
         url: str = "",
     ) -> ActionResult:
@@ -238,8 +316,171 @@ class BrowserSession:
             return err
         return await self._driver.select_option(resolved, value)
 
-    async def wait(self, seconds: float) -> ActionResult:
-        return await self._driver.wait(seconds)
+    async def wait(
+        self,
+        seconds: float = 1.0,
+        *,
+        url: str = "",
+        text: str = "",
+        heading: str = "",
+    ) -> ActionResult:
+        return await self._with_wall(
+            await self._driver.wait(
+                seconds, url=url, text=text, heading=heading
+            )
+        )
+
+    def cancel_watch(self) -> None:
+        from arelis.browser.live import mark_watching
+
+        self._watch_id += 1
+        driver = self._driver
+        if hasattr(driver, "watch_stop"):
+            driver.watch_stop = True
+        task = self._watch_task
+        self._watch_task = None
+        if task is not None and not task.done():
+            task.cancel()
+        mark_watching(False)
+        self._watch_result = ActionResult(
+            ok=True,
+            output="Watch cancelled.",
+            data={"hit": False, "cancelled": True},
+        )
+        if not self._watch_done.is_set():
+            self._watch_done.set()
+
+    async def await_watch(self, timeout_s: float = 2.0) -> ActionResult | None:
+        """Test helper — wait until the live watch hits, cancels, or times out."""
+        if self._watch_done.is_set():
+            return self._watch_result
+        try:
+            await asyncio.wait_for(self._watch_done.wait(), timeout=timeout_s)
+        except TimeoutError:
+            return None
+        return self._watch_result
+
+    async def watch(
+        self,
+        *,
+        url: str = "",
+        text: str = "",
+        heading: str = "",
+    ) -> ActionResult:
+        """Arm a live watch. Returns immediately unless the tab already matches."""
+        from arelis.browser.live import (
+            bind_session,
+            mark_watching,
+            watching_output,
+        )
+        from arelis.browser.wait_for import has_wait_needle
+
+        if not has_wait_needle(url=url, text=text, heading=heading):
+            return ActionResult(
+                ok=False,
+                output="watch needs url, text, or heading to poll for.",
+            )
+        self.cancel_watch()
+        if hasattr(self._driver, "watch_stop"):
+            self._driver.watch_stop = False
+        from arelis.browser.hold import set_paused
+
+        set_paused(False)
+        bind_session(self)
+        first = await self._driver.watch(url=url, text=text, heading=heading)
+        if not first.ok or (first.data or {}).get("hit") or (first.data or {}).get(
+            "cancelled"
+        ):
+            mark_watching(False)
+            self._watch_result = first
+            return first
+        self._watch_result = None
+        self._watch_done = asyncio.Event()
+        watch_id = self._watch_id
+        mark_watching(True)
+        self._watch_task = asyncio.create_task(
+            self._watch_loop(watch_id, url=url, text=text, heading=heading),
+            name="arelis-tab-watch",
+        )
+        return ActionResult(
+            ok=True,
+            output=watching_output(url=url, text=text, heading=heading),
+            data={
+                "watching": True,
+                "hit": False,
+                "url": str((first.data or {}).get("url") or ""),
+            },
+        )
+
+    async def _watch_loop(
+        self, watch_id: int, *, url: str, text: str, heading: str
+    ) -> None:
+        from arelis.browser.hold import cooperative_wait
+        from arelis.browser.live import emit_hit, mark_watching
+        from arelis.browser.wait_for import WATCH_POLL_S
+
+        try:
+            while not getattr(self._driver, "watch_stop", False):
+                await cooperative_wait(WATCH_POLL_S)
+                if watch_id != self._watch_id:
+                    return
+                if getattr(self._driver, "watch_stop", False):
+                    break
+                tick = await self._driver.watch(url=url, text=text, heading=heading)
+                if watch_id != self._watch_id:
+                    return
+                if (tick.data or {}).get("cancelled"):
+                    self._watch_result = tick
+                    return
+                if (tick.data or {}).get("hit"):
+                    self._watch_result = tick
+                    emit_hit(dict(tick.data or {}, output=tick.output))
+                    return
+        except asyncio.CancelledError:
+            if watch_id == self._watch_id:
+                self._watch_result = ActionResult(
+                    ok=True,
+                    output="Watch cancelled.",
+                    data={"hit": False, "cancelled": True},
+                )
+            raise
+        finally:
+            if watch_id == self._watch_id:
+                mark_watching(False)
+                if self._watch_result is None:
+                    self._watch_result = ActionResult(
+                        ok=True,
+                        output="Watch cancelled.",
+                        data={"hit": False, "cancelled": True},
+                    )
+                self._watch_done.set()
+                self._watch_task = None
+
+    async def download(
+        self, path: str, *, ref: str = "", text: str = "", nth: int = 0
+    ) -> ActionResult:
+        resolved, err = await self._resolve(
+            ref=ref, text=text, nth=nth, kind="click"
+        )
+        if err is not None:
+            return err
+        return await self._driver.download(path, ref=resolved)
+
+    async def upload(self, ref: str, path: str, *, into: str = "") -> ActionResult:
+        resolved, err = await self._resolve(
+            ref=ref, text=into or ref, nth=0, kind="type"
+        )
+        if err is not None:
+            # File inputs are not typeable — resolve by click label / ref.
+            resolved, err = await self._resolve(
+                ref=ref, text=into, nth=0, kind="click"
+            )
+        if err is not None:
+            return err
+        return await self._driver.upload(resolved, path)
+
+    async def pdf(self, path: str) -> ActionResult:
+        return await self._driver.pdf(path)
 
     async def settle(self, *, timeout_s: float = 4.0) -> ActionResult:
         settler = getattr(self._driver, "settle", None)

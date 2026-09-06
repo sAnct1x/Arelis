@@ -43,6 +43,7 @@ from arelis.setup.engine import (
 from arelis.setup.hardware import HardwareSnapshot, probe_hardware
 from arelis.setup.state import needs_model_setup, record_model_choice
 from arelis.ui.dialog import GlassDialog
+from arelis.ui.theme import SPACE
 
 
 class _ProbeWorker(QThread):
@@ -159,7 +160,7 @@ class ModelSetupDialog(GlassDialog):
         self._rec = QWidget()
         rec_l = QVBoxLayout(self._rec)
         rec_l.setContentsMargins(0, 4, 0, 4)
-        rec_l.setSpacing(10)
+        rec_l.setSpacing(SPACE["gap"])
         self._rec_title = QLabel("")
         self._rec_title.setObjectName("DialogHeading")
         self._rec_title.setWordWrap(True)
@@ -235,7 +236,7 @@ class ModelSetupDialog(GlassDialog):
         self._tour = QWidget()
         tour_l = QVBoxLayout(self._tour)
         tour_l.setContentsMargins(0, 8, 0, 8)
-        tour_l.setSpacing(10)
+        tour_l.setSpacing(SPACE["gap"])
         t1 = QLabel("She's ready")
         t1.setObjectName("DialogHeading")
         t2 = QLabel(

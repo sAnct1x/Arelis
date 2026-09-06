@@ -12,9 +12,10 @@ class InboundSmsTool(Tool):
     name = "inbound_sms"
     description = (
         "List recent inbound texts that arrived while Arelis was open "
-        "(Google Messages notifications and SMSGate fallback). Use this when "
-        "the user asks whether someone texted back, what they said, or for "
-        "recent SMS — do not web_search social media for private replies."
+        "(Google Messages notifications and SMSGate fallback). Everyone who "
+        "texted, not only people in contacts. Use this when the user asks "
+        "whether someone texted back, what they said, or for recent SMS — "
+        "do not web_search social media for private replies."
     )
     risk = "read"
     parameters_schema = {

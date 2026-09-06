@@ -1,12 +1,17 @@
 """Distance-gated Earth live. Do not slam every adapter from space.
 
-Bands follow the inspect altitude (when the eye rides ECEF) or the
-globe's pixel radius (when it is still a disc in the solar lab):
+Bands follow the inspect altitude when the eye rides ECEF (`locked`).
+Disc pixel radius is only for the unlocked solar-lab approach.
+Travel parks at ~8 Earth radii — altitude stays **space** so ISS and
+sats remain. Do not band a locked city eye from leftover disc px.
+The observer budget lives in `arelis.physics.observe`: physics stays
+true; the plate commits when accumulated screen motion crosses
+`NOTICE_PX`. Distance and elapsed sim time both count.
 
 - space: satellites only
-- approach: local planes
-- near: boats and planes; no satellite refresh
-- city: every layer that is toggled on
+- approach: sats stay; local planes open
+- near: boats and military join; still no streets
+- city: ground catalogs. Streets / names wait on altitude, not the band door.
 
 Look-area bbox is what OpenSky and post-filters use. Layer chips still
 win: a dark chip is not fetched.
@@ -18,7 +23,9 @@ import math
 from dataclasses import dataclass
 
 from arelis.earth.entity import LAYER_IDS, Entity
-from arelis.earth.frames import ecef_to_geodetic, ecef_to_lla
+from arelis.earth.frames import MEAN_R, ecef_to_geodetic
+from arelis.physics.attitude import spin_omega_rad_s
+from arelis.physics.observe import clock_step_s, due, spin_px_s, time_to_notice
 
 BANDS = ("space", "approach", "near", "city")
 
@@ -27,10 +34,24 @@ _SPACE_ALT_M = 2_500_000.0
 _APPROACH_ALT_M = 400_000.0
 _NEAR_ALT_M = 40_000.0
 
+# City band can open at 40 km. Road lines, names, and footprints wait
+# until a person could actually read them.
+ROAD_ALT_M = 12_000.0
+STREET_NAME_ALT_M = 3_500.0
+BUILDING_ALT_M = 4_000.0
+
 # Disc size when the eye is still inertial (whole-Earth in frame).
 _SPACE_PX = 72.0
 _APPROACH_PX = 220.0
 _NEAR_PX = 520.0
+
+# Sidereal spin and a circular-orbit sketch. Visibility, not IERS.
+_EARTH_OMEGA = spin_omega_rad_s("Earth")
+_V_EQ_M_S = _EARTH_OMEGA * MEAN_R
+_V_ORB_M_S = 29_780.0
+_TICK_S = 0.02
+_ISS_ALT_M = 400_000.0
+_ISS_M_S = 7_660.0
 
 # Half-width of the look box, degrees. Wider farther out.
 _BBOX_HALF: dict[str, float] = {
@@ -153,22 +174,23 @@ ADAPTER_BANDS: dict[str, frozenset[str]] = {
 
 PAINT_LAYERS: dict[str, frozenset[str]] = {
     "space": frozenset({"iss", "satellites"}),
-    "approach": frozenset({"flights", "drones"}),
-    "near": frozenset({"flights", "drones", "military", "vessels"}),
+    "approach": frozenset({"iss", "satellites", "flights", "drones"}),
+    "near": frozenset(
+        {"iss", "satellites", "flights", "drones", "military", "vessels"}
+    ),
     "city": frozenset(LAYER_IDS),
 }
 
 # Chips that earn a seat at this band. The rest stay off the bar.
 CHIP_LAYERS: dict[str, tuple[str, ...]] = {
     "space": ("satellites", "iss"),
-    "approach": ("flights", "drones"),
-    "near": ("flights", "drones", "military", "vessels"),
+    "approach": ("satellites", "iss", "flights", "drones"),
+    "near": ("satellites", "iss", "flights", "drones", "military", "vessels"),
 }
 
-# After bbox filter, keep the nearest N so the plate stays readable.
+# After bbox filter, keep the nearest N so a city dump does not bury the plate.
+# Orbital layers are not in this map — full catalog, no look-box cap.
 LAYER_CAP: dict[str, int] = {
-    "satellites": 220,
-    "iss": 4,
     "flights": 400,
     "drones": 80,
     "military": 80,
@@ -263,6 +285,92 @@ def band_from_view(*, alt_m: float | None, px_r: float, locked: bool) -> str:
     return "city"
 
 
+def ground_slip_px_s(*, alt_m: float, px_r: float) -> float:
+    """Equator crawl in px/s if the ECEF lock is frozen (inertial eye)."""
+    h = max(float(alt_m), 1.0)
+    pr = max(float(px_r), 0.0)
+    px_per_rad = pr * (MEAN_R + h) / MEAN_R
+    return (_V_EQ_M_S / h) * px_per_rad
+
+
+def terminator_px_s(px_r: float) -> float:
+    """Day/night line on the disc. 15°/hour — invisible at Travel standoff."""
+    return spin_px_s(px_r, _EARTH_OMEGA)
+
+
+def disc_orbit_px_s(px_r: float) -> float:
+    """Whole-disc slide if the eye does not follow Earth's heliocentric path."""
+    return _V_ORB_M_S * max(float(px_r), 0.0) / MEAN_R
+
+
+def leo_mark_px_s(*, alt_m: float, px_r: float) -> float:
+    """ISS-class mark crawl from this eye. Faster when the range is short."""
+    range_m = max(abs(float(alt_m) - _ISS_ALT_M), 50_000.0)
+    pr = max(float(px_r), 0.0)
+    px_per_rad = pr * (MEAN_R + max(float(alt_m), 1.0)) / MEAN_R
+    return (_ISS_M_S / range_m) * px_per_rad
+
+
+def earth_idle_px_s(*, alt_m: float, px_r: float) -> float:
+    """Worst on-screen rate a still observer could notice at this pose."""
+    return max(
+        ground_slip_px_s(alt_m=alt_m, px_r=px_r),
+        disc_orbit_px_s(px_r),
+        terminator_px_s(px_r),
+        leo_mark_px_s(alt_m=alt_m, px_r=px_r),
+    )
+
+
+def lock_due(*, alt_m: float, px_r: float, dt_s: float) -> bool:
+    """Re-apply the ECEF eye when accumulated slip or planet-leave is visible."""
+    alt = max(float(alt_m), 1.0)
+    if float(dt_s) * _V_ORB_M_S >= 0.45 * alt:
+        return True
+    visual = max(
+        ground_slip_px_s(alt_m=alt, px_r=px_r),
+        disc_orbit_px_s(px_r),
+    )
+    return due(px_s=visual, dt_s=dt_s)
+
+
+def lock_period_s(*, alt_m: float, px_r: float) -> float:
+    """How long `_hold_earth_eye` can sleep. 0 = every tick.
+
+    Derived from the accumulator — same math as `lock_due`. Travel
+    standoff: spin is ~0.02 px/s; disc orbit is the tighter budget.
+    City: ground slip is tens of px/s — hold every frame.
+    """
+    alt = max(float(alt_m), 1.0)
+    leave = 0.45 * alt / _V_ORB_M_S
+    visual = min(
+        time_to_notice(ground_slip_px_s(alt_m=alt, px_r=px_r)),
+        time_to_notice(disc_orbit_px_s(px_r)),
+    )
+    period = min(leave, visual)
+    if period < _TICK_S:
+        return 0.0
+    return min(1.0, period)
+
+
+def overlay_idle_s(*, alt_m: float, px_r: float) -> float:
+    """Repaint period while the locked eye is still. Prefer `due` + sim dt."""
+    hold = lock_period_s(alt_m=alt_m, px_r=px_r)
+    if hold <= 0.0:
+        return 0.05
+    return min(1.0, max(0.25, hold))
+
+
+def earth_idle_due(*, alt_m: float, px_r: float, dt_s: float) -> bool:
+    """True when a still Earth view has accumulated a noticeable crawl."""
+    return due(px_s=earth_idle_px_s(alt_m=alt_m, px_r=px_r), dt_s=dt_s)
+
+
+def gl_clock_step_s(*, alt_m: float, px_r: float) -> float:
+    """Bin `system.t` in the Earth FBO key. Lighting spin is 15°/hour."""
+    del alt_m
+    return clock_step_s(terminator_px_s(px_r))
+
+
 def look_bbox(lat: float, lon: float, band: str) -> LookBBox | None:
     half = _BBOX_HALF.get(band)
     if half is None:
@@ -302,6 +410,15 @@ def view_from_eye(
 
 def paint_layers(band: str) -> frozenset[str]:
     return PAINT_LAYERS.get(band, PAINT_LAYERS["city"])
+
+
+def ground_streets_on(*, band: str, alt_m: float) -> bool:
+    """Highway overlay — city band and close enough to read a road."""
+    return band == "city" and float(alt_m) <= ROAD_ALT_M
+
+
+def ground_buildings_on(*, band: str, alt_m: float) -> bool:
+    return band == "city" and float(alt_m) <= BUILDING_ALT_M
 
 
 def chip_layers(band: str) -> tuple[str, ...] | None:
@@ -361,15 +478,28 @@ def in_bbox(lat: float, lon: float, box: LookBBox) -> bool:
 
 
 def entity_lla(entity: Entity) -> tuple[float, float] | None:
-    meta = entity.meta or {}
-    lat, lon = meta.get("lat"), meta.get("lon")
-    try:
-        if lat is not None and lon is not None:
-            return float(lat), float(lon)
-    except (TypeError, ValueError):
-        pass
-    lat, lon, _alt = ecef_to_lla(entity.x, entity.y, entity.z)
-    return lat, lon
+    """Published lat/lon when fresh; else WGS84 from the ECEF store.
+
+    Stale and dead-reckoned meta can be a spherical sketch. Orbital
+    layers always use the store — Cesium is a WGS84 ellipsoid.
+    """
+    fresh = str(entity.freshness or "")
+    store_first = entity.layer in {"satellites", "iss"} or fresh in {
+        "stale",
+        "dead-reckoned",
+    }
+    if not store_first:
+        meta = entity.meta or {}
+        lat, lon = meta.get("lat"), meta.get("lon")
+        try:
+            if lat is not None and lon is not None:
+                return float(lat), float(lon)
+        except (TypeError, ValueError):
+            pass
+    if abs(entity.x) + abs(entity.y) + abs(entity.z) > 1.0:
+        lat, lon, _alt = ecef_to_geodetic(entity.x, entity.y, entity.z)
+        return lat, lon
+    return None
 
 
 def filter_to_view(entities: list[Entity], view: EarthView | None) -> list[Entity]:
@@ -405,6 +535,9 @@ def organize(entities: list[Entity], view: EarthView | None) -> list[Entity]:
     used: dict[str, int] = {}
     out: list[Entity] = []
     for entity in ranked:
+        if entity.layer in _NO_BBOX:
+            out.append(entity)
+            continue
         cap = LAYER_CAP.get(entity.layer)
         if cap is not None and used.get(entity.layer, 0) >= cap:
             continue

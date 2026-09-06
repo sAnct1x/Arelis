@@ -123,6 +123,22 @@ class TalkRulesTest {
     }
 
     @Test
+    fun firstOpenOfANewDayStartsOrbit() {
+        assertTrue(shouldOpenFreshChat("", "2026-09-05"))
+        assertTrue(shouldOpenFreshChat("2026-09-04", "2026-09-05"))
+        assertFalse(shouldOpenFreshChat("2026-09-05", "2026-09-05"))
+        assertFalse(shouldOpenFreshChat("2026-09-05", ""))
+        assertEquals(
+            "2026-09-05",
+            talkDayStamp(1_788_624_000_000L, "America/New_York"),
+        )
+        assertEquals(
+            "2026-09-06",
+            talkDayStamp(1_788_669_000_000L, "America/New_York"),
+        )
+    }
+
+    @Test
     fun englishIsFirstThenAlphabetical() {
         assertEquals("en", TalkLanguage.all.first().code)
         assertEquals(

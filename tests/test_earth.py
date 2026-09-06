@@ -10,6 +10,7 @@ import pytest
 
 from arelis.earth.dump import dump_state
 from arelis.earth.frames import ecef_to_ecliptic, ecef_to_lla, lla_to_ecef
+from arelis.earth.lod import EarthView
 from arelis.earth.runtime import EarthRuntime, get_earth, set_earth
 from arelis.earth.simulate import CAMERAS, ISS_NORAD, ISS_PERIOD_S, iss_entity, populate
 from arelis.earth.store import EntityStore
@@ -134,7 +135,62 @@ def test_enter_leave_and_dump(tmp_path: Path) -> None:
     assert "viewshed_ecef" not in text
     earth.leave()
     assert not earth.active
+    assert earth.live is False
     assert len(earth.store) == 0
+
+
+def test_pytest_enter_stays_coast() -> None:
+    earth = EarthRuntime()
+    earth.enter()
+    assert earth.live is False
+    assert earth.active is True
+
+
+def test_leave_clears_live() -> None:
+    earth = EarthRuntime()
+    earth.enter(unix=1.0)
+    earth.live = True
+    earth.leave()
+    assert earth.live is False
+    assert earth.active is False
+
+
+def test_real_door_enter_turns_live_on(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("arelis.earth.runtime._in_pytest", lambda: False)
+    monkeypatch.setattr(EarthRuntime, "_kick_snapshot", lambda self, **_k: None)
+    monkeypatch.setattr(EarthRuntime, "_merge_live", lambda self: None)
+    monkeypatch.setattr(EarthRuntime, "_lock_wall_clock", lambda self: None)
+    earth = EarthRuntime()
+    note = earth.enter()
+    assert earth.live is True
+    assert "live" in note.casefold()
+    earth.leave()
+    assert earth.live is False
+    assert earth.active is False
+
+
+def test_closer_band_reveals_more_layers() -> None:
+    earth = EarthRuntime()
+    earth.enter(unix=1.0)
+    assert earth.layers["flights"] is False
+    assert earth.layers["vessels"] is False
+    assert earth.layers["cameras"] is False
+    earth.note_view(EarthView("approach", alt_m=800_000.0, lat=0.0, lon=0.0))
+    assert earth.layers["flights"] is True
+    assert earth.layers["vessels"] is False
+    earth.note_view(EarthView("near", alt_m=20_000.0, lat=0.0, lon=0.0))
+    assert earth.layers["vessels"] is True
+    assert earth.tiles is False
+    earth.note_view(EarthView("city", alt_m=20_000.0, lat=35.6, lon=139.7))
+    assert earth.layers["cameras"] is True
+    assert earth.tiles is False
+    assert earth.buildings is False
+    earth.note_view(EarthView("city", alt_m=4_000.0, lat=35.6, lon=139.7))
+    assert earth.tiles is True
+    assert earth.buildings is True
+    earth.note_view(EarthView("near", alt_m=20_000.0, lat=0.0, lon=0.0))
+    assert earth.tiles is False
+    assert earth.buildings is False
 
 
 def test_layer_toggle_hides() -> None:
@@ -200,6 +256,9 @@ def test_enter_earth_is_a_closed_verb() -> None:
     assert classify_physics_act("leave Earth").verb == "leave_earth"
     assert classify_physics_act("ride the ISS").verb == "ride_iss"
     assert classify_physics_act("take me to Earth", names=("Earth",)).verb == "travel"
+    assert classify_physics_act("travel to Earth", names=("Earth",)).verb == "travel"
+    mars = classify_physics_act("enter Mars", names=("Earth", "Mars"))
+    assert mars is None or mars.verb != "enter_earth"
     tokyo = classify_physics_act("take me to Tokyo", names=("Earth",))
     assert tokyo is not None
     assert tokyo.verb == "goto_earth"
@@ -1055,6 +1114,7 @@ def test_shipped_feed_hosts_are_pinned() -> None:
         spec.id == "sentinel1-asf" and spec.status == "shipped" for spec in FEEDS
     )
     assert any(spec.id == "eonet" and spec.status == "shipped" for spec in FEEDS)
+    assert any(spec.id == "osm-nominatim" and spec.status == "shipped" for spec in FEEDS)
     for host in shipped_hosts():
         assert any(
             pin == host or pin.endswith("." + host) or host.endswith("." + pin)
@@ -2232,8 +2292,8 @@ def test_osm_tile_math_is_stable() -> None:
     from arelis.earth.tiles import latlon_to_tile, tile_corners, zoom_for_disc
 
     assert zoom_for_disc(100.0) == 3
-    assert zoom_for_disc(600.0, "near") == 14
-    assert zoom_for_disc(700.0, "city") == 15
+    assert zoom_for_disc(600.0, "near") == 16
+    assert zoom_for_disc(700.0, "city") == 19
     z, x, y = latlon_to_tile(51.5, -0.12, 8)
     assert z == 8
     corners = tile_corners(z, x, y)
@@ -2268,6 +2328,33 @@ def test_buildings_rings_from_overpass_fixture() -> None:
     assert rings[0][0] == (40.70, -74.00)
 
 
+def test_roads_from_overpass_fixture() -> None:
+    from arelis.earth.roads import roads_for_view, ways_from_overpass
+
+    ways = ways_from_overpass(
+        {
+            "elements": [
+                {
+                    "type": "way",
+                    "tags": {"highway": "primary", "name": "Pennsylvania Avenue"},
+                    "geometry": [
+                        {"lat": 38.89, "lon": -77.03},
+                        {"lat": 38.90, "lon": -77.04},
+                    ],
+                },
+                {"type": "node", "lat": 38.89, "lon": -77.03},
+            ]
+        }
+    )
+    assert len(ways) == 1
+    assert ways[0]["name"] == "Pennsylvania Avenue"
+    assert ways[0]["kind"] == "primary"
+    assert roads_for_view(38.89, -77.03, "space") == []
+    assert roads_for_view(38.89, -77.03, "approach") == []
+    assert roads_for_view(38.89, -77.03, "near") == []
+    assert roads_for_view(38.89, -77.03, "city", alt_m=20_000.0) == []
+
+
 def test_lod_gates_planes_boats_and_cameras() -> None:
     from arelis.earth.lod import adapter_allowed, chip_layers, paint_layers
 
@@ -2283,11 +2370,15 @@ def test_lod_gates_planes_boats_and_cameras() -> None:
     ) is False
     assert adapter_allowed("opensky", "city", {"flights": True}) is True
     assert "flights" in paint_layers("approach")
+    assert "satellites" in paint_layers("approach")
     assert "cameras" not in paint_layers("approach")
     assert "vessels" in paint_layers("near")
+    assert "satellites" in paint_layers("near")
     assert "cameras" not in paint_layers("near")
     assert "cameras" in paint_layers("city")
     assert chip_layers("space") == ("satellites", "iss")
+    assert "flights" in (chip_layers("approach") or ())
+    assert "satellites" in (chip_layers("approach") or ())
     assert chip_layers("city") is None
     from arelis.earth.lod import adapters_due
 
@@ -2360,7 +2451,7 @@ def test_sync_earth_view_notes_band_without_qt_paint(qt_app) -> None:
     set_system(None)
 
 
-def test_travel_to_earth_locks_the_eye(qt_app) -> None:
+def test_travel_to_earth_does_not_enter_the_zone(qt_app) -> None:
     from arelis.physics.demo import sun_and_planet
     from arelis.physics.engine import rebound_available
     from arelis.physics.runtime import set_system
@@ -2374,14 +2465,19 @@ def test_travel_to_earth_locks_the_eye(qt_app) -> None:
     panel.resize(640, 480)
     panel._travel_to("Earth")
     panel._finish_travel()
-    assert get_earth() is not None
-    assert get_earth().active
-    assert panel._earth_cam is not None
+    zone = get_earth()
+    assert zone is None or not zone.active
+    assert panel._earth_cam is None
+    assert panel._inspect == "Earth"
+    panel._enter_earth_zone()
+    entered = get_earth()
+    assert entered is not None and entered.active
     panel.reset_view()
     assert panel._earth_cam is None
     assert get_earth() is None or not get_earth().active
     panel.hide()
     set_system(None)
+    set_earth(None)
 
 
 def test_earth_marks_are_unique_and_drawn(qt_app) -> None:
@@ -2412,7 +2508,7 @@ def test_earth_marks_are_unique_and_drawn(qt_app) -> None:
         seen[kind] = digest
         img = mark_image(kind, band="city")
         assert not img.isNull()
-        assert img.width() == 32
+        assert img.width() == 64
     for kind in SOLAR_KINDS + OVERLAY_KINDS:
         digest = mark_digest(kind, band="city")
         assert digest not in seen.values(), kind

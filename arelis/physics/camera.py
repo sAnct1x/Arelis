@@ -98,13 +98,14 @@ class FlyCamera:
         if dyaw == 0.0 and dpitch == 0.0:
             return
         right, up, fwd = self.basis()
-        # Signs match the old yaw+= / pitch+= convention: drag left, arrow up.
+        # look_basis is forward × up (east-right). Positive yaw looks left
+        # of that right; positive pitch looks up. Drag left, arrow up.
         if dyaw != 0.0:
-            fwd = _rodrigues(fwd, up, -dyaw)
-            right = _rodrigues(right, up, -dyaw)
+            fwd = _rodrigues(fwd, up, dyaw)
+            right = _rodrigues(right, up, dyaw)
         if dpitch != 0.0:
-            fwd = _rodrigues(fwd, right, -dpitch)
-            up = _rodrigues(up, right, -dpitch)
+            fwd = _rodrigues(fwd, right, dpitch)
+            up = _rodrigues(up, right, dpitch)
         fwd = _unit3(fwd)
         # Keep up orthonormal to forward so a tumble over the pole does not snap.
         d = fwd[0] * up[0] + fwd[1] * up[1] + fwd[2] * up[2]
@@ -285,7 +286,11 @@ def look_basis(
     target: tuple[float, float, float],
     up: tuple[float, float, float] = WORLD_UP,
 ) -> tuple[tuple[float, float, float], tuple[float, float, float], tuple[float, float, float]]:
-    """Orthonormal camera axes: right, up, forward. Hint may leave world-up."""
+    """Orthonormal camera axes: right, up, forward. Hint may leave world-up.
+
+    Screen-right is forward × up so a nadir, north-up Earth has east on
+    the right.
+    """
     f = (
         target[0] - eye[0],
         target[1] - eye[1],
@@ -295,25 +300,29 @@ def look_basis(
     fz = (f[0] / fl, f[1] / fl, f[2] / fl)
     ul = math.sqrt(up[0] * up[0] + up[1] * up[1] + up[2] * up[2]) or 1.0
     hint = (up[0] / ul, up[1] / ul, up[2] / ul)
+    # forward × up = screen-right. The other cross (up × forward) is
+    # orthonormal and right-handed, but it puts west on the right — a
+    # nadir Earth then reads as a mirrored atlas (east on the left).
     fx = (
-        hint[1] * fz[2] - hint[2] * fz[1],
-        hint[2] * fz[0] - hint[0] * fz[2],
-        hint[0] * fz[1] - hint[1] * fz[0],
+        fz[1] * hint[2] - fz[2] * hint[1],
+        fz[2] * hint[0] - fz[0] * hint[2],
+        fz[0] * hint[1] - fz[1] * hint[0],
     )
     xl = math.sqrt(fx[0] * fx[0] + fx[1] * fx[1] + fx[2] * fx[2])
     if xl < 1e-8:
         alt = (0.0, 1.0, 0.0) if abs(hint[2]) > 0.7 else WORLD_UP
         fx = (
-            alt[1] * fz[2] - alt[2] * fz[1],
-            alt[2] * fz[0] - alt[0] * fz[2],
-            alt[0] * fz[1] - alt[1] * fz[0],
+            fz[1] * alt[2] - fz[2] * alt[1],
+            fz[2] * alt[0] - fz[0] * alt[2],
+            fz[0] * alt[1] - fz[1] * alt[0],
         )
         xl = math.sqrt(fx[0] * fx[0] + fx[1] * fx[1] + fx[2] * fx[2]) or 1.0
     fx = (fx[0] / xl, fx[1] / xl, fx[2] / xl)
+    # right × forward so up stays north after the east-right cross above.
     fy = (
-        fz[1] * fx[2] - fz[2] * fx[1],
-        fz[2] * fx[0] - fz[0] * fx[2],
-        fz[0] * fx[1] - fz[1] * fx[0],
+        fx[1] * fz[2] - fx[2] * fz[1],
+        fx[2] * fz[0] - fx[0] * fz[2],
+        fx[0] * fz[1] - fx[1] * fz[0],
     )
     return fx, fy, fz
 

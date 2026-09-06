@@ -189,16 +189,16 @@ def open_file(window, path: str) -> None:
         return
     label = hit.qualified(multi=len(window.workspace_roots) > 1)
     if window.workspace.has_unsaved_changes():
-        # Opening a file replaces the buffer, so an open on top of unsaved
-        # edits is a discard. It stays possible — it is what the operator
-        # clicked — but it says so once first, since the edits are about to
-        # be gone with no undo behind them.
-        if window._workspace_discard_armed != str(hit.path):
-            window._workspace_discard_armed = str(hit.path)
-            window.chat.add_system(
-                f"Unsaved changes in {window.workspace.loaded_label()}. "
-                f"Save them first, or press open again to discard them and load {label}."
-            )
+        from arelis.ui.dialog import confirm
+
+        if not confirm(
+            window,
+            "Unsaved changes",
+            f"Discard unsaved changes in {window.workspace.loaded_label()} and open {label}?",
+            confirm_text="Discard",
+            cancel_text="Keep editing",
+            destructive=True,
+        ):
             return
     window._workspace_discard_armed = ""
     window.workspace.set_file(
@@ -237,16 +237,16 @@ def save_file(window, path: str, content: str) -> None:
         return
     label = hit.qualified(multi=len(window.workspace_roots) > 1)
     if disk_moved_under_editor(window, hit.path, content):
-        # The other half of the clobber: she edited the file after it was
-        # opened, so this save carries a buffer that predates her work and
-        # would drop it. Overwriting is allowed, once it is a decision.
-        if window._workspace_overwrite_armed != str(hit.path):
-            window._workspace_overwrite_armed = str(hit.path)
-            window.chat.add_system(
-                f"{label} changed on disk after you opened it — saving now would "
-                "overwrite that version. Press save again to overwrite it, or open "
-                "the file again to load what is on disk."
-            )
+        from arelis.ui.dialog import confirm
+
+        if not confirm(
+            window,
+            "File changed on disk",
+            f"{label} changed after you opened it. Overwrite the disk version?",
+            confirm_text="Overwrite",
+            cancel_text="Cancel",
+            destructive=True,
+        ):
             return
     window._workspace_overwrite_armed = ""
     try:
@@ -314,7 +314,7 @@ def record_artifact(
         label=label,
         kind=kind,
         source=source,
-        root_name=root_name,
+        root_name=root_name or str(window.workspace_roots.active or ""),
         room_id=room_id,
         pin=pin,
     )

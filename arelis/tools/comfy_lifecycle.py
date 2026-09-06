@@ -28,6 +28,47 @@ _log_handle: object | None = None
 # Windows STATUS_ACCESS_VIOLATION (unsigned and signed forms).
 _ACCESS_VIOLATION = frozenset({3221225477, -1073741819})
 
+# Common portable / Documents / Desktop roots. Look here only — never walk a drive.
+_COMFY_BATS = ("run_directml.bat", "run_nvidia_gpu.bat", "run_amd_gpu.bat")
+
+
+def default_comfy_roots() -> list[Path]:
+    home = Path.home()
+    local = os.environ.get("LOCALAPPDATA", "")
+    return [
+        home / "ComfyUI",
+        home / "Documents" / "ComfyUI",
+        home / "Documents" / "ComfyUI_windows_portable",
+        home / "Desktop" / "ComfyUI",
+        Path("C:/ComfyUI"),
+        Path("C:/ComfyUI_windows_portable"),
+        Path(local) / "Programs" / "ComfyUI",
+    ]
+
+
+def _is_comfy_root(root: Path) -> bool:
+    """True when this folder itself is a Comfy install (no recursion)."""
+    try:
+        if (root / "main.py").is_file():
+            return True
+        if (root / "ComfyUI" / "main.py").is_file():
+            return True
+        return any((root / bat).is_file() for bat in _COMFY_BATS)
+    except OSError:
+        return False
+
+
+def discover_comfy(roots: list[Path] | None = None) -> Path | None:
+    """First common Comfy root that exists. No recursive scan."""
+    for raw in roots if roots is not None else default_comfy_roots():
+        try:
+            root = Path(raw).expanduser()
+            if _is_comfy_root(root):
+                return root
+        except OSError:
+            continue
+    return None
+
 
 def comfy_is_healthy(base_url: str, *, timeout_s: float = 2.0) -> bool:
     """True when /system_stats answers. Sync; call from a worker thread if needed."""
@@ -452,7 +493,17 @@ async def ensure_comfy_running(
     cancel_comfy_idle()
     if await comfy_is_healthy_async(comfy_url):
         return None
-    if not auto_start:
+
+    cwd = (launch_cwd or "").strip()
+    start = bool(auto_start)
+    # Empty launch_cwd: a found install is the grant, even when config auto_start is false.
+    if not cwd:
+        found = discover_comfy()
+        if found is not None:
+            cwd = str(found)
+            start = True
+
+    if not start:
         return (
             f"ComfyUI is not reachable at {comfy_url}. "
             "Start it, or set tools.image.auto_start and tools.image.launch_cwd."
@@ -460,7 +511,7 @@ async def ensure_comfy_running(
 
     resolved = resolve_launch(
         launch_command=launch_command,
-        launch_cwd=launch_cwd,
+        launch_cwd=cwd,
         comfy_url=comfy_url,
     )
     if resolved is None:

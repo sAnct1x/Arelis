@@ -169,13 +169,28 @@ def test_settings_allow_tab(qt_app) -> None:
         assert dlg.tabs.tabText(dlg.tabs.currentIndex()) == "allow"
         assert dlg.confirm_browser.isChecked() is False
         assert dlg.confirm_send.isChecked() is True
+        assert dlg.ask_is_grant.isChecked() is True
+        assert dlg.ask_is_grant.text() == "the ask is the grant"
+        assert dlg._allow_local_h.text() == "On her own"
+        assert dlg._allow_always_h.text() == "Even when you named it"
+        assert "job you named" in dlg._allow_grant_blurb.text()
+        assert dlg._allow_ask_all.text() == "ask me everything"
+        assert dlg._allow_trust_local.text() == "never ask about local work"
+        dlg.ask_is_grant.setChecked(False)
+        assert dlg._allow_local_h.text() == "Pause every time"
+        assert "even a job you named" in dlg._allow_grant_blurb.text()
         dlg._preset_allow_trust_local()
         values = dlg.values()["agent"]
         assert values["confirm_writes"] is False
         assert values["confirm_send"] is True
         assert values["confirm_run"] is True
+        assert values["ask_is_grant"] is True
+        assert dlg._allow_local_h.text() == "On her own"
         dlg._preset_allow_everything()
-        assert dlg.values()["agent"]["confirm_browser"] is True
+        everything = dlg.values()["agent"]
+        assert everything["confirm_browser"] is True
+        assert everything["ask_is_grant"] is False
+        assert dlg._allow_local_h.text() == "Pause every time"
     finally:
         dlg.close()
 
@@ -346,6 +361,15 @@ def test_settings_has_no_theme_tab(qt_app) -> None:
         assert "theme" not in labels
         assert not hasattr(dlg, "theme_combo")
         assert "theme" not in dlg.values().get("ui", {})
+        assert dlg.mail_address.placeholderText()
+        assert dlg.mail_password.echoMode() != 0
+        assert dlg.make_token_btn.text() == "Create phone token"
+        assert "Apply" in dlg.stt_enabled.toolTip()
+        assert "Apply" in dlg.tts_enabled.toolTip()
+        assert "restart" not in dlg.stt_enabled.toolTip().lower()
+        values = dlg.values()
+        assert "address" in values["mail"]
+        assert "app_password" in values["mail"]
     finally:
         dlg.close()
 

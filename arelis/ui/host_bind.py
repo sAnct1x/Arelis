@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from arelis.ui.calendar_host import (
+    kick_calendar_auth,
     kick_calendar_sync,
     on_calendar_create,
     on_calendar_delete,
@@ -180,7 +181,9 @@ def bind_window_hosts(window) -> None:
 
     overlay = window.conversation.notify_overlay
     overlay.dismiss_requested.connect(lambda nid: on_notice_dismiss(window, nid))
-    overlay.snooze_requested.connect(lambda nid: on_notice_snooze(window, nid))
+    overlay.snooze_requested.connect(
+        lambda nid, mins=15: on_notice_snooze(window, nid, mins)
+    )
     overlay.reply_requested.connect(lambda nid: on_notice_reply(window, nid))
     overlay.open_requested.connect(lambda nid: on_notice_open(window, nid))
     overlay.artifact_requested.connect(
@@ -217,6 +220,7 @@ def bind_window_hosts(window) -> None:
         lambda event_id: on_calendar_delete(window, event_id)
     )
     window.calendar.sync_requested.connect(lambda: kick_calendar_sync(window))
+    window.calendar.auth_requested.connect(lambda: kick_calendar_auth(window))
     window.calendar.task_add_requested.connect(
         lambda title, due: on_calendar_task_add(window, title, due)
     )
@@ -234,6 +238,11 @@ def bind_window_hosts(window) -> None:
     )
     window.calendar.job_run_requested.connect(
         lambda job_id: on_calendar_job_run(window, job_id)
+    )
+    window.contacts.chat_requested.connect(
+        lambda alias, phone, title: window.sms_chats.open(
+            alias=alias, phone=phone, title=title
+        )
     )
 
 

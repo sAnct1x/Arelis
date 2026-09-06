@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from datetime import UTC, datetime
 from typing import Any
@@ -9,7 +10,7 @@ from urllib.parse import quote
 
 import httpx
 
-from arelis.calendar.models import CachedEvent
+from arelis.calendar.models import CachedEvent, event_slot_key
 from arelis.calendar.secrets import GoogleCalendarCreds
 
 log = logging.getLogger(__name__)
@@ -35,7 +36,7 @@ class GoogleCalendarClient:
             return self._access
         if not self.creds.refresh_token:
             raise RuntimeError(
-                "Google Calendar not authorized. Run: arelis --auth-calendar google"
+                "Google Calendar not authorized. Sign in on the calendar tile."
             )
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.post(
@@ -51,7 +52,7 @@ class GoogleCalendarClient:
             log.warning("Google token refresh failed: %s", resp.text[:300])
             raise RuntimeError(
                 f"Google token refresh failed ({resp.status_code}). "
-                "Re-run: arelis --auth-calendar google"
+                "Sign in on the calendar tile."
             )
         data = resp.json()
         self._access = str(data.get("access_token") or "")
@@ -117,6 +118,13 @@ class GoogleCalendarClient:
             location=location,
             description=description,
         )
+        event_id = stable_google_event_id(
+            summary=summary,
+            starts_at=starts_at,
+            all_day=all_day,
+            calendar_id=cal,
+        )
+        body["id"] = event_id
         url = f"{GOOGLE_CAL_BASE}/calendars/{quote(cal, safe='')}/events"
         async with httpx.AsyncClient(timeout=45.0) as client:
             resp = await client.post(
@@ -127,6 +135,25 @@ class GoogleCalendarClient:
                     "Content-Type": "application/json",
                 },
             )
+        if resp.status_code == 409:
+            existing = await self.get_event(event_id, calendar_id=cal)
+            if existing is not None:
+                return existing
+            ev = CachedEvent(
+                id=f"google:{event_id}",
+                provider="google",
+                calendar_id=cal,
+                summary=summary,
+                starts_at=starts_at,
+                ends_at=ends_at,
+                all_day=all_day,
+                location=location,
+                description=description,
+                raw_id=event_id,
+                sync_state="synced",
+            )
+            log.info("Google create 409 for %s; reusing id without a second insert", event_id)
+            return ev
         if resp.status_code >= 400:
             raise RuntimeError(
                 f"Google create failed ({resp.status_code}): {resp.text[:240]}"
@@ -135,6 +162,31 @@ class GoogleCalendarClient:
         if ev is None:
             raise RuntimeError("Google create returned an unreadable event")
         return ev
+
+    async def get_event(
+        self,
+        event_id: str,
+        *,
+        calendar_id: str | None = None,
+    ) -> CachedEvent | None:
+        token = await self.access_token()
+        cal = calendar_id or self.creds.calendar_id or "primary"
+        url = (
+            f"{GOOGLE_CAL_BASE}/calendars/{quote(cal, safe='')}/events/"
+            f"{quote(event_id, safe='')}"
+        )
+        async with httpx.AsyncClient(timeout=45.0) as client:
+            resp = await client.get(
+                url,
+                headers={"Authorization": f"Bearer {token}"},
+            )
+        if resp.status_code == 404:
+            return None
+        if resp.status_code >= 400:
+            raise RuntimeError(
+                f"Google get event failed ({resp.status_code}): {resp.text[:240]}"
+            )
+        return _parse_google_event(resp.json(), calendar_id=cal)
 
     async def update_event(
         self,
@@ -260,6 +312,24 @@ def extra_google_calendar_ids(
         extra.append(cid)
         skip.add(cid)
     return extra
+
+
+def stable_google_event_id(
+    *,
+    summary: str,
+    starts_at: datetime,
+    all_day: bool = False,
+    calendar_id: str = "primary",
+) -> str:
+    """Client-chosen Google event id. Same title+slot → same id (409 on retry).
+
+    Google only accepts base32hex (0-9, a-v). SHA-1 hex is a subset of that.
+    """
+    cal = (calendar_id or "primary").strip().lower() or "primary"
+    if cal == "primary":
+        cal = "primary"
+    raw = f"{cal}|{summary.strip().casefold()}|{event_slot_key(starts_at, all_day=all_day)}"
+    return hashlib.sha1(raw.encode("utf-8")).hexdigest()
 
 
 def _rfc3339(dt: datetime) -> str:

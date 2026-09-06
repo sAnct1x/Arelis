@@ -174,9 +174,69 @@ METRICS = {
     "icon": 24,
 }
 
+# Space. Same rule as METRICS: few named steps, not a sitting's taste.
+# 6 / 10 / 14 / 18 / 22 is how plates drifted — each edit picked a number
+# that looked fine in isolation. New padding is one of these, or it is
+# control_pad_y() (derived from row height + type, not chosen).
+SPACE = {
+    "hair": 2,  # list rows, optical nudge against a 1px stroke
+    "micro": 4,  # chrome siblings, chip inset
+    "gap": 8,  # default between controls / sections
+    "inset": 12,  # panel body, form, dock gutter
+    "plate": 16,  # float window / dialog pad
+    "stage": 24,  # empty states, shortcuts, stage breath
+}
+
+# Dock gutters. Neighbors each contribute half so the visible gap is inset.
+# bottom used to be 14 — the extra 2px was a sitting, not a step.
+SHELL = {
+    "outer": SPACE["inset"],
+    "half": SPACE["inset"] // 2,
+    "top": SPACE["inset"],
+    "bottom": SPACE["inset"],
+}
+
 # One number for body type, shared by the QFont the application is given and by
 # the stylesheet, which used to say 13px while app_font() said 10pt.
 FONT_PX = 13
+
+# Keys box() accepts beyond SPACE (flush is the absence of space).
+_BOX = {"flush": 0, **SPACE}
+
+
+def control_pad_y() -> int:
+    """Vertical pad that fits FONT_PX inside METRICS.row behind a 1px border.
+
+    (28 - 13 - 2) // 2 = 6. That 6 is not a taste. A sitting that writes
+    5px is guessing the same number and missing.
+    """
+    return max(SPACE["hair"], (METRICS["row"] - FONT_PX - 2) // 2)
+
+
+def box(*steps: str) -> tuple[int, int, int, int]:
+    """Qt contents margins (left, top, right, bottom) from SPACE keys.
+
+    One key = all sides. Two = x, y. Four = l, t, r, b.
+    """
+    vals = [_BOX[step] for step in steps]
+    if len(vals) == 1:
+        return (vals[0], vals[0], vals[0], vals[0])
+    if len(vals) == 2:
+        return (vals[0], vals[1], vals[0], vals[1])
+    if len(vals) == 4:
+        return (vals[0], vals[1], vals[2], vals[3])
+    raise ValueError(f"box() takes 1, 2, or 4 steps, got {len(steps)}")
+
+
+def space_allowed() -> frozenset[int]:
+    """Integers a padding / margin / spacing call may use.
+
+    0 is flush. 1 is a stroke, not a step. 6 is control_pad_y(). half is
+    the dock gutter that makes two neighbors add up to inset.
+    """
+    return frozenset(
+        {0, 1, control_pad_y(), SHELL["half"]} | set(SPACE.values())
+    )
 
 FONTS = {
     "display": '"IBM Plex Sans", "Segoe UI Semibold", "Segoe UI", sans-serif',

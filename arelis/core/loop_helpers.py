@@ -345,9 +345,8 @@ def _answer_has_quote_span(text: str) -> bool:
 
 
 _EMPTY_REPLY_NOTICE = (
-    "The model returned an empty reply. That usually means the context was "
-    "exhausted or the model was unloaded mid-turn. Try a narrower ask, or check "
-    "that Ollama is still running."
+    "I thought through it and never wrote the answer — an empty reply, not a "
+    "crash or an unload. Say continue, or ask a smaller piece."
 )
 
 _ROUND_LIMIT_NOTICE = "I hit the tool-step limit before finishing. Try a narrower ask."

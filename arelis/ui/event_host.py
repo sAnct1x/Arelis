@@ -32,6 +32,8 @@ SPEECH_WATCHDOG_MS = 45000
 
 def _browser_drive_done(data: dict[str, Any]) -> str:
     """Past-tense Drive line from a browser tool result. Empty keeps the about-to copy."""
+    if data.get("watching"):
+        return ""
     if data.get("label") or data.get("ref"):
         return format_drive_done("click", data=data)
     if data.get("query") and data.get("search_url"):
@@ -41,6 +43,24 @@ def _browser_drive_done(data: dict[str, Any]) -> str:
     if data.get("url") and not data.get("snapshot"):
         return format_drive_done("open", data=data)
     return ""
+
+
+def _watch_hit_ui(window: Any, line: str, *, url: str = "") -> None:
+    """Notify + chat + Drive after a live watch hits. Same path for tool or STATUS."""
+    window.chat.add_system(line)
+    from arelis.notify.center import new_notice
+    from arelis.ui.notify_host import sync_notify_surface
+
+    window.notify_center.add(
+        new_notice(
+            kind="job",
+            title="Watch hit",
+            body=line,
+            data={"url": url},
+        )
+    )
+    sync_notify_surface(window)
+    window.conversation.set_drive_status("Watching — hit")
 
 
 def parse_role_set_message(message: str) -> str | None:
@@ -249,6 +269,9 @@ def dispatch_event(window: Any, event: Event) -> None:
         refresh_history(window)
         if sid:
             window.history.set_active(sid)
+        from arelis.browser.live import cancel as cancel_watch
+
+        cancel_watch()
         window._drive_session = False
         window.conversation.set_drive(False)
         if p.get("new"):
@@ -297,6 +320,9 @@ def dispatch_event(window: Any, event: Event) -> None:
         window._reveal_dock(window.think_dock, window.act_thinking)
     elif t == EventType.STATUS:
         msg = p.get("message", "")
+        if p.get("image_progress"):
+            window.chat.show_progress(str(msg))
+            return
         window.thinking.append(msg, kind="status")
         # Inbound listen/token belongs in thinking, not chat. A system
         # line here used to mark the thread as started and hide the orbit
@@ -316,6 +342,12 @@ def dispatch_event(window: Any, event: Event) -> None:
         # it should stop claiming the model is still loading.
         if str(msg) == WARMUP_READY and window._turn_busy:
             window.chat.show_progress(THINKING_STATUS)
+        if p.get("watch_hit"):
+            _watch_hit_ui(
+                window,
+                str(p.get("output") or msg or "Watch hit."),
+                url=str(p.get("url") or ""),
+            )
         window._schedule_readiness_probe()
     elif t == EventType.MODEL_SWITCH:
         window._current_model = p.get("to") or window._current_model
@@ -335,6 +367,8 @@ def dispatch_event(window: Any, event: Event) -> None:
             detail=str(p.get("detail") or ""),
             note=str(p.get("note") or ""),
             batch_ok=bool(p.get("batch_ok", True)),
+            persist_ok=bool(p.get("persist_ok", False)),
+            persist_label=str(p.get("persist_label") or ""),
             headline=str(p.get("headline") or ""),
         )
         window._set_confirm_pending(True)
@@ -343,13 +377,13 @@ def dispatch_event(window: Any, event: Event) -> None:
         if window._turn_busy:
             window.chat.show_progress(WAITING_STATUS)
         window.conversation.set_turn_visible(True)
-        from arelis.tools.policy import action_is_destructive
+        from arelis.tools.policy import always_pause
         from arelis.ui.theme import active_theme
 
         if active_theme() == "filament":
             headline = str(p.get("headline") or p.get("summary") or "is that alright")
             args = p.get("args") if isinstance(p.get("args"), dict) else {}
-            if action_is_destructive(str(p.get("tool") or ""), args):
+            if always_pause(str(p.get("tool") or ""), args):
                 spoken = f"{headline}. say yes or no."
             else:
                 spoken = headline
@@ -386,16 +420,6 @@ def dispatch_event(window: Any, event: Event) -> None:
         window.chat.show_progress(tool_status_line(str(tool or ""), args))
         window.conversation.set_turn_visible(True)
         window._reveal_dock(window.think_dock, window.act_thinking)
-        # File / image work surfaces the workspace band (Pass C).
-        if str(tool or "") in {
-            "workspace",
-            "analyze",
-            "image",
-            "research_report",
-            "doc_extract",
-            "ocr",
-        }:
-            window._reveal_dock(window.work_dock, window.act_workspace)
         # The shimmer is set for every tool now, so image needs no special
         # case beyond its own Thinking line.
         if str(tool or "") in {"image", "research_report"}:
@@ -450,6 +474,12 @@ def dispatch_event(window: Any, event: Event) -> None:
                         break
                 window.chat.add_system(note or "Your turn — the page stays.")
                 window.thinking.append(f"your turn  {kind or code}", kind="status")
+            elif data.get("watch_hit"):
+                _watch_hit_ui(
+                    window,
+                    str(p.get("output") or "Watch hit."),
+                    url=str(data.get("url") or ""),
+                )
             else:
                 done = _browser_drive_done(data)
                 if done:
@@ -600,12 +630,17 @@ def dispatch_event(window: Any, event: Event) -> None:
             window.chat.add_file_card(name or Path(abs_path).name, abs_path)
         if abs_path:
             kind = str(p.get("kind") or "")
+            source = str(p.get("source") or "")
+            if kind == "note":
+                source = "keep"
+            elif not source:
+                source = "document"
             record_artifact(
                 window,
                 abs_path,
                 label=name or Path(abs_path).name,
                 kind=kind,
-                source="keep" if kind == "note" else "",
+                source=source,
             )
             if p.get("show_card", True) or kind == "note":
                 window.workspace.show_desk()

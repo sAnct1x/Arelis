@@ -5,10 +5,11 @@ scan the QR once, talk. SMS and RCS grants are optional (Settings →
 Texts in the app). Google Messages stays your messenger. This is not a
 Play Store build.
 
-When the PC is reachable, chat is the same live session as the desktop.
-Allow / Deny for sends she already does on the PC. **files** opens the
-current room or workspace. **chats** is the PC history plus a new
-conversation; switching on the phone switches the desktop too. Allow on
+When the PC is reachable, the first open of the local day is a new chat
+— empty orbit, same as glass cold launch. Yesterday stays under
+**chats**. Opening a thread later that day keeps it. Allow / Deny for
+sends she already does on the PC. **files** opens the current room or
+workspace. **chats** is the PC history plus a new conversation. Allow on
 the phone is the same card as the PC — one press on either side settles
 it.
 
@@ -136,20 +137,22 @@ on the phone and retry when the PC is back. A 429 is "slow down", not
 | Updates in a thread missing | Rebuild / reinstall companion. Check log for `published=false` |
 | Core running, empty window | UI not IPC-attached |
 | SMS radio never sees RCS | Expected. Keep Google Messages plus notification access |
-| Picture shows as a Photo chip | Rebuild/sideload the companion. Google Messages often posts no bytes. |
+| Picture shows as a Photo chip | Rebuild/sideload companion 0.3.2+. Google Messages often posts no bytes; the listener now also reads MessagingStyle image URIs, not the contact avatar. |
 | Picture never arrives after APK update | Pairing token still matches. Restart Arelis on the PC |
 
 ## Inbound pictures
 
-The desktop tile shows a picture when the phone actually sent bytes. If it
-only sent the word Photo, you get a chip, not a blank bubble.
+The desktop tile shows a picture when the phone actually sent bytes, and
+turns `http(s)` / `www.` URLs into tappable links. If it only sent the
+word Photo, you get a chip, not a blank bubble. A tap on the picture
+opens it in the OS viewer.
 
 Companion POST `/inbound/sms` may include:
 
 | Field | What it is |
 |---|---|
-| `body` / `text` | Caption. `"Photo"` with no bytes → chip |
-| `image_jpeg` | Base64 JPEG from the notification extras (max ~400 KB on the phone, 1 MB on the PC) |
+| `body` / `text` | Caption. `"Photo"` with no bytes → chip. Links stay in this string. |
+| `image_jpeg` | Base64 JPEG from EXTRA_PICTURE, EXTRA_PICTURE_ICON, or MessagingStyle image URIs (max ~400 KB on the phone, 1 MB on the PC). Contact avatars are not used. |
 | `media_url` | `http(s)` image URL. `file://` is refused |
 
 Sideload a new companion APK or those extras never leave the phone. SMSGate

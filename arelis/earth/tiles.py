@@ -32,7 +32,7 @@ GIBS_BLUE = (
 )
 _UA = f"Arelis/{__version__} (+{__source_url__})"
 _TIMEOUT = 8.0
-_MAX_ZOOM = 15
+_MAX_ZOOM = 19
 _GIBS_MAX_ZOOM = 8
 _MIN_ZOOM = 3
 _CACHE = {
@@ -58,9 +58,9 @@ def want_ground(px_r: float, band: str = "") -> bool:
 def zoom_for_disc(px_r: float, band: str = "") -> int:
     """Street tiles when you have fallen toward land. Coarse from farther out."""
     if band == "city":
-        return min(_MAX_ZOOM, 15)
+        return min(_MAX_ZOOM, 19)
     if band == "near":
-        return min(_MAX_ZOOM, 14)
+        return min(_MAX_ZOOM, 16)
     if px_r < 160.0:
         return _MIN_ZOOM
     if px_r < 280.0:

@@ -247,11 +247,12 @@ see [jobs.md](docs/jobs.md).
 
 Work inside rooms and folders you've approved. Search the web and read
 real pages. Drive her own browser. Track facts, goals, and tasks. Read
-text out of images (OCR), look at pictures, and resize images on disk.
-Generate images if you've got ComfyUI set up (it doesn't start
-automatically). Listen and speak. Run scheduled jobs that email you a
-digest. Handle closed-form math, unit conversions, short Python
-snippets, charts, and documents.
+text out of images (OCR), look at pictures, and edit images on disk
+(resize, rotate, overlay, restyle). Generate or restyle images if
+you've got ComfyUI set up (it doesn't start automatically). Listen
+and speak. Run scheduled jobs that email you a digest. Handle
+closed-form math, unit conversions, short Python snippets, charts,
+and documents.
 
 Mail, calendar, and texting through your Android phone all work once
 you've connected them. She can also produce a PDF, Word document,

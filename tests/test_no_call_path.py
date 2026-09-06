@@ -208,6 +208,60 @@ async def test_scrape_after_search_asks_for_a_page() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.asyncio
+async def test_dispatch_same_browser_url_finishes_an_open_ask() -> None:
+    from arelis.core.same_call import record_same_call
+    from arelis.core.turn_goal import derive_turn_goal
+
+    loop = _FakeLoop()
+    args = {"action": "navigate", "url": "https://x.com/login"}
+    r = _scratch(
+        text="go to x.com and take me to the login page if not signed in",
+        calls=[("browser", args)],
+        tool_calls=[],
+        content="",
+        streamed="",
+        tool_names={"browser"},
+    )
+    ctx = _ctx(text="go to x.com and take me to the login page if not signed in")
+    ctx.tool_names = {"browser"}
+    ctx.goal = derive_turn_goal(ctx.text, kinds=["browser"])
+    record_same_call(ctx.same_ok, "browser", args)
+    assert await dispatch_calls(loop, ctx, r, 2) is True
+    assert loop.finished is not None
+    assert "signed in" in str(loop.finished[0]).lower()
+    assert "browser same call blocked" in loop._trace
+
+
+@pytest.mark.asyncio
+async def test_dispatch_second_same_call_skip_finishes() -> None:
+    from arelis.core.same_call import record_same_call, same_call_key
+
+    loop = _FakeLoop()
+    args = {"action": "list", "path": "."}
+    r = _scratch(
+        calls=[("workspace", args)],
+        tool_calls=[],
+        content="",
+        streamed="",
+        tool_names={"workspace"},
+    )
+    ctx = _ctx()
+    ctx.tool_names = {"workspace"}
+    r.tool_names = {"workspace"}
+    record_same_call(ctx.same_ok, "workspace", args)
+    key = same_call_key("workspace", args)
+    assert key
+    ctx.same_skip_keys.add(key)
+    ctx.last_ok_tool_out = "listed 3 files"
+    ctx.last_ok_tool_name = "workspace"
+    assert await dispatch_calls(loop, ctx, r, 3) is True
+    assert loop.finished is not None
+    assert "listed 3 files" in str(loop.finished[0])
+    assert "already have that result" not in str(loop.finished[0]).lower()
+
+
+@pytest.mark.asyncio
 async def test_dispatch_unknown_tool_does_not_end_the_turn() -> None:
     loop = _FakeLoop()
     r = _scratch(

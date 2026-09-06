@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QSize, Qt
+from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QFormLayout,
@@ -29,10 +29,13 @@ from arelis.contacts import (
     upsert_contact_record,
 )
 from arelis.ui.dialog import confirm, notice
+from arelis.ui.theme import SPACE
 
 
 class ContactsPanel(QWidget):
     """List of people, then a card. Nothing is written until Save.
+
+    chat_requested(alias, phone, title) opens that person's SMS tile.
 
     Every widget here is a plain child of the glass plate: no
     ``WA_OpaquePaintEvent``, no ``WA_TranslucentBackground``, no runtime
@@ -43,6 +46,8 @@ class ContactsPanel(QWidget):
     in the backing store and survived even a window drag. Colour comes from
     the stylesheet alone (``theme.py``, ``#Contacts*``).
     """
+
+    chat_requested = Signal(str, str, str)
 
     def __init__(self, parent=None, *, path: Path | None = None) -> None:
         super().__init__(parent)
@@ -145,8 +150,8 @@ class ContactsPanel(QWidget):
         form_host.setObjectName("ContactsFormHost")
         form = QFormLayout(form_host)
         form.setContentsMargins(0, 0, 4, 0)
-        form.setHorizontalSpacing(10)
-        form.setVerticalSpacing(8)
+        form.setHorizontalSpacing(SPACE["gap"])
+        form.setVerticalSpacing(SPACE["gap"])
         form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
 
         self.name_edit = self._field("name")
@@ -176,7 +181,15 @@ class ContactsPanel(QWidget):
         self.save_btn.setFixedHeight(28)
         self.save_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.save_btn.clicked.connect(self.save_card)
+        self.text_btn = QPushButton("text")
+        self.text_btn.setObjectName("InstrumentAction")
+        self.text_btn.setFixedHeight(28)
+        self.text_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.text_btn.setToolTip("Open a chat with this number")
+        self.text_btn.clicked.connect(self._text_current)
+        self.text_btn.setEnabled(False)
         actions.addWidget(self.save_btn)
+        actions.addWidget(self.text_btn)
         actions.addStretch(1)
         layout.addLayout(actions)
 
@@ -231,6 +244,7 @@ class ContactsPanel(QWidget):
             self.email_edit.clear()
             self.notes_edit.clear()
             self.delete_btn.setEnabled(False)
+            self.text_btn.setEnabled(False)
         else:
             self._editing_alias = contact.alias
             self.card_heading.setText(contact.display_name)
@@ -243,6 +257,7 @@ class ContactsPanel(QWidget):
             self.email_edit.setText(contact.email)
             self.notes_edit.setText(contact.notes)
             self.delete_btn.setEnabled(True)
+            self.text_btn.setEnabled(bool(contact.phone.strip()))
         self._refresh_card_hint()
         self._show_stack(1)
         self.name_edit.setFocus()
@@ -299,6 +314,7 @@ class ContactsPanel(QWidget):
             self.handle_edit.setText(result.alias)
         self.card_heading.setText(result.display_name)
         self.card_hint.setText("Saved.")
+        self.text_btn.setEnabled(bool(result.phone.strip()))
         # Stay on the card; the list is rebuilt on the way back in show_list().
         return True
 
@@ -350,14 +366,35 @@ class ContactsPanel(QWidget):
         label = contact.display_name if contact else alias
         menu = QMenu(self)
         open_act = QAction("Open", menu)
+        text_act = QAction("Text", menu)
         remove_act = QAction("Remove…", menu)
         menu.addAction(open_act)
+        if contact is not None and contact.phone.strip():
+            menu.addAction(text_act)
         menu.addAction(remove_act)
         chosen = menu.exec(self.list.mapToGlobal(pos))
         if chosen is open_act:
             self.open_contact(alias)
+        elif chosen is text_act and contact is not None:
+            self._emit_chat(contact)
         elif chosen is remove_act:
             self._remove_alias(alias, label)
+
+    def _text_current(self) -> None:
+        alias = self._editing_alias
+        contact = self._book.get(alias)
+        if contact is None:
+            return
+        self._emit_chat(contact)
+
+    def _emit_chat(self, contact) -> None:
+        phone = (contact.phone or "").strip()
+        if not phone:
+            self.card_hint.setText("Add a mobile number before texting.")
+            return
+        self.chat_requested.emit(
+            contact.alias, phone, contact.display_name
+        )
 
     def _confirm_remove(self) -> None:
         alias = self._editing_alias

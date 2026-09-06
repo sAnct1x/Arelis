@@ -4,7 +4,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from arelis.attachments import format_attachments_block, wants_image_edit
+from arelis.attachments import (
+    format_attachments_block,
+    route_tool,
+    wants_image_edit,
+    wants_image_restyle,
+    wants_image_surgical,
+    wants_image_variations,
+)
 from arelis.core.agent_loop import (
     should_offer_tools,
     should_redirect_wander_to_sms,
@@ -13,6 +20,8 @@ from arelis.core.agent_loop import (
 from arelis.core.claims import detect_exactness_need, detect_vision_ask
 from arelis.core.image_refs import (
     CAMERA_FRESH_S,
+    fill_image_edit_args,
+    fill_image_gen_args,
     fill_vision_args,
     latest_camera_image_file,
     latest_generated_image_path,
@@ -381,6 +390,20 @@ def test_what_in_this_with_image_is_not_sms() -> None:
     assert "send_sms" not in tools
 
 
+def test_hide_contacts_on_sms_keeps_lookup() -> None:
+    from arelis.core.agent_loop import _hide_daily_wander
+
+    visible = {"send_sms", "contacts", "weather", "browser", "web_search"}
+    sms = _hide_daily_wander(visible, {"send_sms"})
+    assert "send_sms" in sms
+    assert "contacts" not in sms
+    assert "browser" not in sms
+    lookup = _hide_daily_wander(visible, {"contacts"})
+    assert "contacts" in lookup
+    agenda = _hide_daily_wander(visible | {"agenda"}, {"agenda"})
+    assert "contacts" in agenda
+
+
 def test_vision_does_not_redirect_to_sms_when_sms_is_stale_expected() -> None:
     """Calling vision while a leftover SMS expected-set exists must not rewrite."""
     assert not should_redirect_wander_to_sms("vision", {"send_sms"})
@@ -452,3 +475,292 @@ def test_fill_vision_args_uses_paste_not_generated() -> None:
     tools = {t for h in hints for t in h.expected_tools}
     assert "vision" in tools
     assert "send_sms" not in tools
+
+
+def test_add_text_overlay_expects_image_edit_not_sms() -> None:
+    """The jellyfish follow-up: overlay glyphs, do not inject send_sms."""
+    ask = (
+        "I want you to now edit the picture you just created, and I want you "
+        "to add text right in the middle that says Arelis, centered perfectly"
+    )
+    assert wants_image_edit(ask)
+    history = [
+        {
+            "role": "assistant",
+            "content": (
+                "Image ready — open in Workspace "
+                "(C:\\Users\\origi\\Documents\\Arelis\\outputs\\images\\arelis_00021_.png)."
+            ),
+            "note": "",
+        }
+    ]
+    filled = fill_image_edit_args({}, history=history, user_text=ask)
+    path = str(filled.get("path") or "").replace("\\", "/")
+    assert "arelis_00021_.png" in path
+    assert filled.get("text") == "Arelis"
+    assert filled.get("text_align") == "center"
+    hints = detect_intents(ask, history=history)
+    tools = {t for h in hints for t in h.expected_tools}
+    kinds = [h.kind for h in hints]
+    assert "image_edit" in tools
+    assert "sms_send" not in kinds
+    assert "send_sms" not in tools
+
+
+def test_watercolor_restyle_is_image_not_pillow() -> None:
+    ask = "make this look like a watercolor"
+    assert wants_image_restyle(ask)
+    assert not wants_image_edit(ask)
+    assert looks_like_image_gen(ask)
+    assert route_tool("image", ask) == "image"
+    hints = detect_intents(ask)
+    tools = {t for h in hints for t in h.expected_tools}
+    assert "image" in tools
+    assert "image_edit" not in tools
+    ids = select_skill_ids(
+        ask,
+        available_tools={"image", "image_edit", "vision", "web_search"},
+    )
+    assert "image" in ids
+    assert "image_edit" not in ids
+
+
+def test_turn_into_thumbnail_stays_image_edit() -> None:
+    ask = "turn this into a YouTube thumbnail"
+    assert wants_image_edit(ask)
+    assert not wants_image_restyle(ask)
+    assert not looks_like_image_gen(ask)
+    assert route_tool("image", ask) == "image_edit"
+
+
+def test_rotate_this_is_image_edit() -> None:
+    ask = "rotate this 90 degrees"
+    assert wants_image_edit(ask)
+    assert not looks_like_image_gen(ask)
+    hints = detect_intents(ask)
+    tools = {t for h in hints for t in h.expected_tools}
+    assert "image_edit" in tools
+
+
+def test_draw_me_matches_image_gen() -> None:
+    assert looks_like_image_gen("draw me a picture of a red fox")
+
+
+def test_fill_image_gen_args_picks_style_and_last_file() -> None:
+    ask = "make the picture you just created look like a watercolor"
+    history = [
+        {
+            "role": "assistant",
+            "content": "saved to outputs/images/arelis_00021_.png",
+            "note": "",
+        }
+    ]
+    filled = fill_image_gen_args({}, history=history, user_text=ask)
+    assert filled.get("style") == "watercolor"
+    assert filled.get("denoise") == 0.55
+    path = str(filled.get("path") or "").replace("\\", "/")
+    assert "arelis_00021_.png" in path
+
+
+def _last_image_history() -> list[dict]:
+    return [
+        {
+            "role": "assistant",
+            "content": "saved to outputs/images/arelis_00021_.png",
+            "note": "",
+        }
+    ]
+
+
+def _assert_routes_image(ask: str, *, gen: bool = True) -> None:
+    assert route_tool("image", ask) == "image"
+    assert looks_like_image_gen(ask) is gen
+    hints = detect_intents(ask)
+    tools = {t for h in hints for t in h.expected_tools}
+    assert "image" in tools
+    assert "image_edit" not in tools
+    assert "send_sms" not in tools
+    assert "calculator" not in tools
+    ids = select_skill_ids(
+        ask,
+        available_tools={"image", "image_edit", "vision", "web_search", "calculator"},
+    )
+    assert "image" in ids
+    assert "image_edit" not in ids
+
+
+def _assert_routes_image_edit(ask: str) -> None:
+    assert wants_image_edit(ask)
+    assert not wants_image_restyle(ask)
+    assert not wants_image_surgical(ask)
+    assert not looks_like_image_gen(ask)
+    assert route_tool("image", ask) == "image_edit"
+    hints = detect_intents(ask)
+    tools = {t for h in hints for t in h.expected_tools}
+    assert "image_edit" in tools
+    assert "image" not in tools
+    assert "send_sms" not in tools
+    assert "calculator" not in tools
+    ids = select_skill_ids(
+        ask,
+        available_tools={"image", "image_edit", "vision", "web_search", "calculator"},
+    )
+    assert "image_edit" in ids
+    assert "image" not in ids
+
+
+def test_four_versions_is_image_n4() -> None:
+    for ask in (
+        "four versions of a red fox",
+        "give me four variations",
+        "another four",
+        "n=4 of a spiral galaxy",
+    ):
+        assert wants_image_variations(ask), ask
+        assert not wants_image_edit(ask), ask
+        _assert_routes_image(ask)
+        filled = fill_image_gen_args({}, user_text=ask)
+        assert filled.get("n") == 4, ask
+
+
+def test_watercolor_style_of_still_restyle() -> None:
+    ask = "in the style of a watercolor"
+    assert wants_image_restyle(ask)
+    assert not wants_image_edit(ask)
+    _assert_routes_image(ask)
+    filled = fill_image_gen_args({}, history=_last_image_history(), user_text=ask)
+    assert filled.get("style") == "watercolor"
+    assert filled.get("denoise") == 0.55
+
+
+def test_remove_background_is_image_surgical() -> None:
+    for ask in (
+        "remove the background",
+        "cut out the background",
+    ):
+        assert wants_image_surgical(ask), ask
+        assert not wants_image_edit(ask), ask
+        assert looks_like_image_gen(ask), ask
+        _assert_routes_image(ask)
+        filled = fill_image_gen_args(
+            {}, history=_last_image_history(), user_text=ask
+        )
+        assert filled.get("remove_background") is True, ask
+        path = str(filled.get("path") or "").replace("\\", "/")
+        assert "arelis_00021_.png" in path, ask
+
+
+def test_outpaint_uncrop_is_image_surgical() -> None:
+    for ask in (
+        "extend the canvas",
+        "outpaint this",
+        "uncrop the picture",
+    ):
+        assert wants_image_surgical(ask), ask
+        assert not wants_image_edit(ask), ask
+        _assert_routes_image(ask)
+        filled = fill_image_gen_args(
+            {}, history=_last_image_history(), user_text=ask
+        )
+        assert filled.get("outpaint") == "all", ask
+        path = str(filled.get("path") or "").replace("\\", "/")
+        assert "arelis_00021_.png" in path, ask
+
+
+def test_mask_region_is_image_surgical() -> None:
+    cases = (
+        ("remove the left of the picture", "left"),
+        ("change the right of the picture", "right"),
+        ("change the top of the image", "top"),
+        ("remove the bottom of the photo", "bottom"),
+        ("change the center of the picture", "center"),
+    )
+    for ask, region in cases:
+        assert wants_image_surgical(ask), ask
+        assert not wants_image_edit(ask), ask
+        assert not wants_image_restyle(ask), ask
+        _assert_routes_image(ask)
+        filled = fill_image_gen_args(
+            {}, history=_last_image_history(), user_text=ask
+        )
+        assert filled.get("mask_region") == region, ask
+        path = str(filled.get("path") or "").replace("\\", "/")
+        assert "arelis_00021_.png" in path, ask
+
+
+def test_upscale_is_image_edit_scale_2() -> None:
+    for ask in (
+        "upscale this",
+        "make it bigger",
+        "make this 2x",
+    ):
+        _assert_routes_image_edit(ask)
+        filled = fill_image_edit_args(
+            {}, history=_last_image_history(), user_text=ask
+        )
+        assert filled.get("scale") == 2, ask
+        path = str(filled.get("path") or "").replace("\\", "/")
+        assert "arelis_00021_.png" in path, ask
+
+
+def test_crop_half_is_image_edit_not_restyle() -> None:
+    cases = (
+        ("crop the left half", "left"),
+        ("crop the right half", "right"),
+        ("crop to the center", "center"),
+    )
+    for ask, crop in cases:
+        _assert_routes_image_edit(ask)
+        filled = fill_image_edit_args(
+            {}, history=_last_image_history(), user_text=ask
+        )
+        assert filled.get("crop") == crop, ask
+        path = str(filled.get("path") or "").replace("\\", "/")
+        assert "arelis_00021_.png" in path, ask
+
+
+def test_same_seed_again_reuses_sidecar(tmp_path, monkeypatch) -> None:
+    ask = "do that again"
+    assert looks_like_image_gen(ask)
+    monkeypatch.setenv("ARELIS_DATA_DIR", str(tmp_path))
+    folder = tmp_path / "outputs" / "images"
+    folder.mkdir(parents=True)
+    png = folder / "arelis_00021_.png"
+    png.write_bytes(b"\x89PNG")
+    from arelis.tools.image_meta import write_sidecar
+
+    write_sidecar(
+        png,
+        prompt="a red fox",
+        negative="blurry",
+        seed=99,
+        checkpoint="demo.safetensors",
+        width=768,
+        height=768,
+        style="cinematic",
+        mode="txt2img",
+        source="",
+        denoise=1.0,
+        n=1,
+    )
+    filled = fill_image_gen_args(
+        {"prompt": ask},
+        history=_last_image_history(),
+        user_text=ask,
+    )
+    assert filled.get("seed") == 99
+    assert filled.get("prompt") == "a red fox"
+    assert filled.get("style") == "cinematic"
+
+
+def test_pixel_ops_stay_image_edit() -> None:
+    for ask in (
+        "rotate this 90 degrees",
+        "flip it horizontally",
+        "make this grayscale",
+        "blur this a little",
+        "make this more vibrant",
+        "turn this into a YouTube thumbnail",
+        "add text right in the middle that says Arelis",
+    ):
+        _assert_routes_image_edit(ask)

@@ -8,7 +8,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-AXES = ("intuitiveness", "visual", "friendly")
+AXES = (
+    "intuitiveness",
+    "visual",
+    "friendly",
+    "accuracy",
+    "performance",
+    "logic",
+)
 
 
 @dataclass(frozen=True)
@@ -41,6 +48,23 @@ CHECKS: tuple[Check, ...] = (
     Check("enter-human", "friendly", "Enter note is Watching Earth, not ECEF"),
     Check("verbs-stay", "friendly", "enter Earth / leave Earth still closed verbs"),
     Check("failures-keep-sim", "friendly", "Live failure still keeps simulation"),
+    Check("east-right-nadir", "accuracy", "Nadir north-up puts Florida right of California"),
+    Check("clock-honest", "accuracy", "1× is locked-to-now or labeled at epoch"),
+    Check("horizons-or-labeled-kepler", "accuracy", "Kepler bootstrap is not called realtime"),
+    Check("band-from-alt-when-locked", "accuracy", "Locked eye bands from altitude, not disc px"),
+    Check("inspect-reaches-city", "accuracy", "Inspect floor is below the city-band altitude"),
+    Check("ecef-lock-holds-continents", "accuracy", "EarthCam rides ECEF so land stays put"),
+    Check("earth-uses-gpu-cesium", "performance", "Enter Earth parks solar GL and mounts Cesium"),
+    Check("no-disable-gpu-without-share", "performance", "No --disable-gpu after the share group is gone"),
+    Check("solar-idle-skips-readback", "performance", "Unchanged solar view key skips FBO readback"),
+    Check("tile-budget-capped", "performance", "GIBS max zoom and look-box tile radius stay capped"),
+    Check("one-planet-painter", "logic", "Cesium live skips Qt paint_earth tiles and places"),
+    Check("live-off-fetches-nothing", "logic", "Live off does not TTL-poll; Enter snapshots then coasts"),
+    Check("leave-destroys-webengine", "logic", "Leave Earth drops the QWebEngineView"),
+    Check("wheel-is-zoom-on-earth", "logic", "Wheel on Earth is radial zoom, not solar cruise"),
+    Check("field-is-distance-to-earth", "intuitiveness", "Field line is distance to Earth, not leftover cam.distance"),
+    Check("wasd-walk-near-ground", "intuitiveness", "WASD near the ground is walk speed"),
+    Check("streets-chip-shows-streets", "friendly", "Streets chip is the OSM drape, not GIBS"),
 )
 
 

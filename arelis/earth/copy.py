@@ -49,10 +49,29 @@ def band_phrase(band: str) -> str:
     return BAND_PHRASE.get(band, "on Earth")
 
 
+_PUBLISHED = frozenset(
+    {"live", "delayed", "interpolated", "dead-reckoned", "stale"}
+)
+
+
 def live_chip_label(*, on: bool, busy: bool = False) -> str:
     if busy:
         return "Live …"
     return "Live on" if on else "Live off"
+
+
+def has_published(zone: Any) -> bool:
+    """A feed replaced at least one layer. Those tracks coast, they are not sim."""
+    store = getattr(zone, "store", None)
+    if store is None or not hasattr(store, "all"):
+        return False
+    try:
+        for entity in store.all():
+            if getattr(entity, "freshness", "") in _PUBLISHED:
+                return True
+    except Exception:
+        return False
+    return False
 
 
 def status_sentence(zone: Any) -> str:
@@ -66,6 +85,11 @@ def status_sentence(zone: Any) -> str:
     where = band_phrase(band)
     if zone.live:
         line = f"Watching Earth {where} — live published feeds."
+    elif has_published(zone):
+        line = (
+            f"Watching Earth {where} — last published fix, then coasting. "
+            "Live keeps pulling."
+        )
     else:
         line = f"Watching Earth {where} — simulated. Click Live for published feeds."
     ride = str(getattr(zone, "ride_id", "") or "")
@@ -77,8 +101,13 @@ def status_sentence(zone: Any) -> str:
     return line
 
 
-def enter_note(*, live: bool, n: int) -> str:
-    mode = "live published feeds" if live else "simulated"
+def enter_note(*, live: bool, n: int, snapshot: bool = False) -> str:
+    if live:
+        mode = "live published feeds"
+    elif snapshot:
+        mode = "last published fix, then coast"
+    else:
+        mode = "simulated"
     return f"Watching Earth — {mode}. {n} contacts ready."
 
 
@@ -111,7 +140,9 @@ def coach_line(zone: Any) -> str | None:
     if zone is None or not zone.active:
         return None
     if not zone.live:
-        return "Click Live to see published planes, ships, and weather."
+        if has_published(zone):
+            return None
+        return "Find a city, or say take me to one."
     deaf = deaf_line(zone)
     if deaf:
         return deaf

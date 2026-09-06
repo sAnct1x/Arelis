@@ -15,6 +15,7 @@ import androidx.core.content.ContextCompat
 data class GrantState(
     val restrictedHint: Boolean,
     val sms: Boolean,
+    val people: Boolean,
     val notifications: Boolean,
     val battery: Boolean,
     val camera: Boolean,
@@ -23,6 +24,10 @@ data class GrantState(
 fun grantState(context: Context): GrantState {
     val sms = ContextCompat.checkSelfPermission(context, Manifest.permission.SEND_SMS) ==
         PackageManager.PERMISSION_GRANTED
+    val readSms = ContextCompat.checkSelfPermission(context, Manifest.permission.READ_SMS) ==
+        PackageManager.PERMISSION_GRANTED
+    val readContacts = ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CONTACTS) ==
+        PackageManager.PERMISSION_GRANTED
     val notifications = isNotificationListenerEnabled(context)
     val battery = isBatteryUnrestricted(context)
     val camera = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) ==
@@ -30,6 +35,7 @@ fun grantState(context: Context): GrantState {
     return GrantState(
         restrictedHint = !sms || !notifications,
         sms = sms,
+        people = readSms && readContacts,
         notifications = notifications,
         battery = battery,
         camera = camera,

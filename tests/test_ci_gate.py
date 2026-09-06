@@ -83,19 +83,19 @@ def test_mypy_is_pinned_in_dev_and_is_not_a_ci_gate() -> None:
     assert "mypy" not in installed_block.lower()
 
 
-def test_coverage_report_is_informational() -> None:
-    """Earth/spatial coverage is a number in CI, not a failing threshold."""
-    pyproject = PYPROJECT.read_text(encoding="utf-8")
-    workflow = CI_YML.read_text(encoding="utf-8")
-    assert "pytest-cov" in pyproject
-    assert re.search(r"(?m)^  coverage:", workflow)
-    cov_block = workflow.split("\n  coverage:", 1)[1].split("\n  test:", 1)[0]
-    assert "continue-on-error: true" in cov_block
-    assert "--cov=arelis.earth" in cov_block
-    assert "--cov=arelis.spatial" in cov_block
-    assert "--cov-fail-under" not in workflow
-    test_block = workflow.split("\n  test:", 1)[1].split("\n  lock:", 1)[0]
-    assert "--cov" not in test_block
+def test_ci_matrix_is_the_two_claimed_interpreters() -> None:
+    """Windows 3.14 is what we ship. Ubuntu 3.11 is the requires-python floor."""
+    text = CI_YML.read_text(encoding="utf-8")
+    test_block = text.split("\n  test:", 1)[1].split("\n  lock:", 1)[0]
+    installed_block = text.split("\n  installed:", 1)[1]
+    for block in (test_block, installed_block):
+        assert "3.12" not in block
+        assert "3.13" not in block
+        assert '"3.14"' in block
+        assert '"3.11"' in block
+        assert "windows-latest" in block
+        assert "ubuntu-latest" in block
+    assert not re.search(r"(?m)^  coverage:", text)
 
 
 def test_pytest_has_a_per_test_timeout() -> None:

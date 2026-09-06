@@ -1,21 +1,38 @@
 """Earth zone: nested knowledge on Reality's Earth globe.
 
-A zone inside Reality, not a room. Travel to Earth, or say enter Earth.
+A zone inside Reality, not a room. Travel to is a solar-lab warp
+to any body. Enter appears after you arrive at Earth — the zone
+door. Closer bands reveal more.
 Leave Earth returns to heliocentric. Breadcrumb for the next agent:
 
-- Now: feeds.FEEDS is 108 shipped / 25 keyed / 3 later / 4 out.
-  Distance-gated live (`lod.py`): space=sats, approach=local planes,
-  near=boats+planes, city=toggled layers. Natural Earth fill + borders
-  for landfall. Adaptive Earth disc. GIBS mosaic when close. Cesium
-  globe on enter (WebEngine). Optional OSM streets + building
-  footprints (Cesium outlines at city; Qt fallback paints them too).
-  Overlay paints freshness, heading, inspect card.
+- Now: feeds.FEEDS is 109 shipped / 25 keyed / 3 later / 4 out.
+  Distance-gated live (`lod.py`): space=sats, approach keeps sats and
+  opens planes, near adds boats, city opens ground catalogs. Streets
+  wait on altitude. Observer budget
+  (`physics.observe`): the camera is not a body. Physics stays true;
+  the plate commits at half a pixel of accumulated screen motion —
+  every solar body, orbit and IAU spin. Overnight and a closer zoom
+  are the same math. Travel standoff does not show Earth spin.
+  Natural Earth fill + borders for landfall. Adaptive Earth disc.
+  GIBS mosaic when close. Earth zone is Cesium after solar GL is
+  destroyed — a child process when the solar lab used GPU, because
+  park() cannot kill the Qt share group. Native NASA disc is fallback
+  only (no WebEngine, Cesium boot fail). Pytest without GPU solar
+  stays in-process. Never both live. Named road overlay only when close
+  (Overpass, on GIBS / photoreal — not the OSM carto drawing),
+  Find types and flies (gazetteer, then Nominatim force=True).
+  Cesium pins are WGS84 from the ECEF store. Distance meter waits
+  on the Cesium look-ray; map scale only closer in.
+  Building footprints at city. Overlay paints freshness,
+  heading, inspect card, Earth trail on track/ride.
   Reality telemetry: logs/reality.log + reality.jsonl (always on).
   Docs: docs/earth.md (now vs next).
 - Frames: store is ECEF metres; plate paints ECLIPJ2000 via frames.ecef_to_ecliptic.
   Near Earth the inspect eye is also ECEF (`EarthCam`). Leave / reset drops it.
-- Honesty: simulated layers stay labeled simulated. live=on pulls
-  shipped adapters. Failures keep sim. Mid-ocean VHF is deaf; a packet
+- Honesty: Enter takes one published snapshot (wall clock when the
+  lab can lock), then live TTL for air/sea while tracks coast.
+  Leave clears; re-enter refetches. Failures keep sim.
+  Simulated layers stay labeled simulated. Mid-ocean VHF is deaf; a packet
   a keyed feed sent is painted. We do not buy sat-AIS. Sentinel-1
   ocean frames and GFW unmatched SAR are not hull names. Individual
   cars are a labeled hole. Completeness is the anti-beacon.
@@ -41,13 +58,16 @@ Leave Earth returns to heliocentric. Breadcrumb for the next agent:
 - Tool: arelis.tools.earth_tool.EarthTool  (always schemaed; stage-gated).
 - Verbs: enter Earth / leave Earth / take me to <place> skip the 9B.
 - Dump: outputs/physics/earth/<utc>/manifest.json + state.jsonl
-- Visual: Qt overlay (`earth_overlay.py`) plus Cesium plate
-  (`earth_globe_host.py`) on enter. Do not delete the WebEngine host.
+- Visual: Cesium (`earth_globe_host.py` / `earth_globe_proc.py`) is
+  the Earth-zone planet. The plate is opaque (no child winId on the
+  HUD, no leftover solar frame). Qt overlay (`earth_overlay.py`) is
+  HUD + fallback disc. City look is 8 km AGL (city band). Do not
+  delete the WebEngine host.
 - Canvases: earth-hub, earth-layers, earth-runtime, earth-build.
   Plate polish: arelis/earth/copy.py, goto.py, key_paste.py,
   arelis/ui/earth_find.py, earth_chrome.py. Status is a sentence.
-  Find is on the plate. Say take me to Tokyo (typed or spoken).
-  Band is type. Live off / Live on.
+  Find is on the plate. Say take me to Tokyo or a street address.
+  Band is type. Enter turns Live on.
 
 Live adapters replace a layer; they do not invent coverage.
 """

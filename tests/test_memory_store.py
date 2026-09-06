@@ -306,13 +306,48 @@ def test_a_cold_launch_cannot_prune_a_rooms_empty_thread(tmp_path: Path) -> None
     store.close()
 
 
-def test_cancelled_user_turn_is_omitted_from_the_prompt() -> None:
-    """2.4: stop keeps the bubble, but the next turn must not continue that ask."""
+def test_cancelled_user_turn_is_marked_stopped_in_the_prompt() -> None:
+    """Stop keeps the bubble. The next turn can see it existed, marked dead.
+
+    Hiding it entirely made a cancelled homework dump vanish: she then
+    claimed the derivation was not in the session while it was still on
+    screen.
+    """
     memory = SessionMemory()
     memory.add("user", "Write me five paragraphs about the history of optics")
     memory.mark_last_user_cancelled()
     memory.add("user", "what is an if else loop?")
     prompt = " ".join(m["content"] for m in memory.as_ollama())
-    assert "five paragraphs" not in prompt
+    assert "Stopped" in prompt
+    assert "five paragraphs" in prompt
     assert "if else" in prompt
+    assert memory.as_ollama()[-1]["content"] == "what is an if else loop?"
     assert memory.messages[0].content.startswith("Write me")
+
+
+def test_cancelled_send_is_redacted_in_the_prompt() -> None:
+    memory = SessionMemory()
+    memory.add("user", "text 5555550123 and tell him hes a bitch")
+    memory.mark_last_user_cancelled()
+    memory.add("user", "what is 17 times 19?")
+    prompt = " ".join(m["content"] for m in memory.as_ollama())
+    assert "5555550123" not in prompt
+    assert "bitch" not in prompt
+    assert "Stopped a send" in prompt
+    assert "17 times 19" in prompt
+
+
+def test_cancelled_derivation_stays_findable_in_the_prompt() -> None:
+    memory = SessionMemory()
+    memory.add(
+        "user",
+        "Copy and paste the exact text below directly into your model:"
+        "Derive the SQL of a Fabry-Perot-Michelson interferometer at 10 Hz.",
+    )
+    memory.mark_last_user_cancelled()
+    memory.add("user", "what broke you there? because you couldn't open the workspace?")
+    prompt = " ".join(m["content"] for m in memory.as_ollama())
+    assert "interferometer" in prompt
+    assert "Stopped" in prompt
+    assert "what broke" in prompt
+    assert "5555550123" not in prompt

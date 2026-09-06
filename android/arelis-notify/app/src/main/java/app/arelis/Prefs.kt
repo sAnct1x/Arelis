@@ -80,6 +80,11 @@ class Prefs(context: Context) {
         get() = sp.getString(KEY_FOCUS, "")?.trim().orEmpty()
         set(value) = sp.edit().putString(KEY_FOCUS, value.trim()).apply()
 
+    /** Local calendar day this phone last sat in a talk seat (`YYYY-MM-DD`). */
+    var lastTalkDay: String
+        get() = sp.getString(KEY_TALK_DAY, "")?.trim().orEmpty()
+        set(value) = sp.edit().putString(KEY_TALK_DAY, value.trim()).apply()
+
     /** Short code: en, zh, fr, ja, ko, es. English is the default. */
     var talkLanguage: String
         get() = TalkLanguage.normalize(sp.getString(KEY_LANG, TalkLanguage.DEFAULT).orEmpty())
@@ -101,6 +106,7 @@ class Prefs(context: Context) {
         private const val KEY_GEMMA_LATER = "gemma_later"
         private const val KEY_GEMMA_WAIT = "gemma_wait_wifi"
         private const val KEY_FOCUS = "focus_chat"
+        private const val KEY_TALK_DAY = "last_talk_day"
         private const val KEY_LANG = "talk_language"
     }
 }

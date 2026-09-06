@@ -20,6 +20,8 @@ fun HoseScreen(
     onBack: () -> Unit,
     onOpenRestricted: () -> Unit,
     onGrantSms: () -> Unit,
+    onGrantPeople: () -> Unit,
+    onSharePeople: () -> Unit,
     onOpenNotifications: () -> Unit,
     onOpenBattery: () -> Unit,
 ) {
@@ -48,6 +50,17 @@ fun HoseScreen(
                 body = "So she can send from this SIM after Allow on the phone or PC.",
                 onClick = onGrantSms,
             )
+            StepRow(
+                done = grants.people,
+                title = "people you text",
+                body = "Read your threads and names so the PC book gets the people you actually message — not the whole address book.",
+                onClick = onGrantPeople,
+            )
+            if (grants.people) {
+                Spacer(Modifier.height(4.dp))
+                GhostLink("share frequent people with the PC", onSharePeople)
+                Spacer(Modifier.height(12.dp))
+            }
             StepRow(
                 done = grants.notifications,
                 title = "notification access",

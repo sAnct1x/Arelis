@@ -24,6 +24,8 @@ from PySide6.QtWidgets import QApplication, QWidget
 WM_NCHITTEST = 0x0084
 WM_NCCALCSIZE = 0x0083
 WM_GETMINMAXINFO = 0x0024
+WM_MOUSEACTIVATE = 0x0021
+MA_ACTIVATE = 1
 
 # What WM_NCCALCSIZE hands back when wParam is TRUE.
 #
@@ -498,7 +500,7 @@ def handle_native_resize(
     *,
     border: int = _BORDER,
 ) -> tuple[bool, int] | None:
-    """Handle WM_NCCALCSIZE / WM_NCHITTEST for frameless resize.
+    """Handle WM_NCCALCSIZE / WM_NCHITTEST / WM_MOUSEACTIVATE.
 
     Returns (True, result) when handled, else None so the caller can fall
     through to super().
@@ -510,6 +512,15 @@ def handle_native_resize(
     msg = _msg_from_message(message)
     if msg is None:
         return None
+
+    if msg.message == WM_MOUSEACTIVATE:
+        # Qt.Tool / owned floats otherwise return MA_NOACTIVATE, so a click
+        # on a tile behind another app never brings Arelis forward.
+        from arelis.ui.foreground import claim_foreground, process_owns_foreground
+
+        if not process_owns_foreground() or not widget.isActiveWindow():
+            claim_foreground(widget)
+        return True, MA_ACTIVATE
 
     if msg.message == WM_GETMINMAXINFO and msg.lParam:
         from ctypes import Structure, c_long

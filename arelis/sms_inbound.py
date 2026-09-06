@@ -44,6 +44,10 @@ STATUS_COOLDOWN_S = 60.0
 CHAT_BODY_CHARS = 120
 # How far back each poll asks the phone to re-index into GET /inbox.
 REFRESH_LOOKBACK = timedelta(hours=2)
+# Companion / SMSGate dumps older than this are a sync, not a new text.
+ANNOUNCE_STALE_S = 30 * 60
+# One poll that suddenly has more than this many "new" rows is a re-index.
+ANNOUNCE_BURST = 8
 # Types that are normal "someone texted you" rows (skip DATA_SMS).
 INBOUND_TYPES = frozenset({"SMS", "MMS", "MMS_DOWNLOADED"})
 
@@ -177,6 +181,8 @@ class SeenMessageStore:
     def __init__(self, path: Path | None = None) -> None:
         self.path = path or SEEN_PATH
         self._seen: set[str] = set()
+        self._order: list[str] = []
+        self._fps: dict[str, float] = {}
         self._seeded = False
         self._load()
 
@@ -187,6 +193,16 @@ class SeenMessageStore:
     def has(self, message_id: str) -> bool:
         return bool(message_id) and message_id in self._seen
 
+    def has_fingerprint(self, fingerprint: str, *, now: float | None = None) -> bool:
+        key = (fingerprint or "").strip()
+        if not key:
+            return False
+        stamp = self._fps.get(key)
+        if stamp is None:
+            return False
+        present = time.time() if now is None else now
+        return (present - stamp) < REFRESH_LOOKBACK.total_seconds()
+
     def mark(self, message_ids: list[str]) -> None:
         changed = False
         for mid in message_ids:
@@ -194,10 +210,19 @@ class SeenMessageStore:
             if not mid or mid in self._seen:
                 continue
             self._seen.add(mid)
+            self._order.append(mid)
             changed = True
         if changed:
             self._trim()
             self._save()
+
+    def mark_fingerprint(self, fingerprint: str, *, now: float | None = None) -> None:
+        key = (fingerprint or "").strip()
+        if not key:
+            return
+        self._fps[key] = time.time() if now is None else now
+        self._trim_fingerprints()
+        self._save()
 
     def mark_seeded(self, message_ids: list[str]) -> None:
         """Absorb the current inbox without treating it as newly arrived.
@@ -210,13 +235,21 @@ class SeenMessageStore:
             self._save()
 
     def _trim(self) -> None:
-        if len(self._seen) <= MAX_SEEN_IDS:
-            return
-        # Ids are opaque; drop an arbitrary excess. Polls only care about
-        # recent ids still in the inbox window.
-        overflow = len(self._seen) - MAX_SEEN_IDS
-        for mid in list(self._seen)[:overflow]:
+        while len(self._order) > MAX_SEEN_IDS:
+            old = self._order.pop(0)
+            self._seen.discard(old)
+        extra = self._seen - set(self._order)
+        for mid in extra:
             self._seen.discard(mid)
+
+    def _trim_fingerprints(self, *, now: float | None = None) -> None:
+        present = time.time() if now is None else now
+        window = REFRESH_LOOKBACK.total_seconds()
+        self._fps = {
+            key: stamp
+            for key, stamp in self._fps.items()
+            if (present - stamp) < window
+        }
 
     def _load(self) -> None:
         try:
@@ -230,16 +263,76 @@ class SeenMessageStore:
             return
         ids = raw.get("seen_ids") or []
         if isinstance(ids, list):
-            self._seen = {str(i) for i in ids if str(i).strip()}
+            self._order = [str(i) for i in ids if str(i).strip()]
+            self._seen = set(self._order)
         self._seeded = bool(raw.get("seeded"))
+        fps = raw.get("fingerprints") or {}
+        if isinstance(fps, dict):
+            for key, stamp in fps.items():
+                try:
+                    self._fps[str(key)] = float(stamp)
+                except (TypeError, ValueError):
+                    continue
+            self._trim_fingerprints()
 
     def _save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._trim_fingerprints()
         payload = {
             "seeded": self._seeded,
-            "seen_ids": sorted(self._seen)[-MAX_SEEN_IDS:],
+            "seen_ids": list(self._order)[-MAX_SEEN_IDS:],
+            "fingerprints": dict(self._fps),
         }
         self.path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+
+def inbound_age_s(msg: InboundSms, *, now: datetime | None = None) -> float | None:
+    """Seconds since the phone stamped the row. None when the stamp is missing."""
+    raw = (msg.time or "").strip()
+    if not raw:
+        return None
+    try:
+        stamp = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    present = now or datetime.now(stamp.tzinfo or UTC)
+    if stamp.tzinfo is None and present.tzinfo is not None:
+        stamp = stamp.replace(tzinfo=present.tzinfo)
+    elif stamp.tzinfo is not None and present.tzinfo is None:
+        present = present.replace(tzinfo=stamp.tzinfo)
+    return max(0.0, (present - stamp).total_seconds())
+
+
+def inbound_is_stale(
+    msg: InboundSms,
+    *,
+    now: datetime | None = None,
+    stale_s: float = ANNOUNCE_STALE_S,
+) -> bool:
+    age = inbound_age_s(msg, now=now)
+    return age is not None and age >= stale_s
+
+
+def split_fresh_inbound(
+    messages: list[InboundSms],
+    *,
+    now: datetime | None = None,
+    stale_s: float = ANNOUNCE_STALE_S,
+    burst: int = ANNOUNCE_BURST,
+) -> tuple[list[InboundSms], list[InboundSms]]:
+    """Split a poll into (announce, swallow). Old dumps and huge bursts stay quiet."""
+    announce: list[InboundSms] = []
+    swallow: list[InboundSms] = []
+    for msg in messages:
+        if inbound_is_stale(msg, now=now, stale_s=stale_s):
+            swallow.append(msg)
+        else:
+            announce.append(msg)
+    if len(announce) > burst:
+        announce.sort(key=lambda m: m.time or "")
+        swallow.extend(announce[:-burst])
+        announce = announce[-burst:]
+    return announce, swallow
 
 
 def _message_type(row: dict[str, Any]) -> str:
@@ -526,24 +619,29 @@ class InboundSmsWatcher:
             if self.seen.has(msg.id):
                 continue
             fresh.append(msg)
+        announce, swallow = split_fresh_inbound(fresh)
+        if swallow:
+            self.seen.mark([m.id for m in swallow])
         # Newest last so chat order matches arrival when several arrive in one poll.
-        fresh.sort(key=lambda m: m.time or "")
+        announce.sort(key=lambda m: m.time or "")
         from arelis.sms_media import (
             already_published_recent,
             inbound_fingerprint,
             remember_published,
         )
-        for msg in fresh:
+        for msg in announce:
             msg = hydrate_inbound_media(msg)
             fp = inbound_fingerprint(
                 sender=msg.sender,
                 body=msg.body,
                 media=msg.media_path or msg.media_url or msg.media_kind,
             )
-            if already_published_recent(fp):
+            if already_published_recent(fp) or self.seen.has_fingerprint(fp):
                 self.seen.mark([msg.id])
+                self.seen.mark_fingerprint(fp)
                 continue
             self.seen.mark([msg.id])
+            self.seen.mark_fingerprint(fp)
             remember_published(fp)
             payload = msg.as_payload()
             payload["source"] = "smsgate"
@@ -558,7 +656,7 @@ class InboundSmsWatcher:
                 )
             await self.bus.publish(Event(EventType.SMS_RECEIVED, payload))
         self._hard_down_announced = False
-        return fresh
+        return announce
 
     async def _run(self) -> None:
         while not self._stop.is_set():

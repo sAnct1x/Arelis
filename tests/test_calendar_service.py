@@ -36,7 +36,14 @@ class _FakeClient:
 
     async def create_event(self, **kwargs):
         self.created.append(kwargs)
-        return _event("new", summary=str(kwargs.get("summary") or "New"))
+        start = kwargs.get("starts_at")
+        if not isinstance(start, datetime):
+            start = datetime(2026, 8, 19, 15, 0, tzinfo=UTC)
+        ev = _event("new", summary=str(kwargs.get("summary") or "New"))
+        ev.starts_at = start
+        ev.ends_at = kwargs.get("ends_at") or (start + timedelta(hours=1))
+        ev.all_day = bool(kwargs.get("all_day"))
+        return ev
 
     async def update_event(self, event_id: str, **kwargs):
         self.updated.append((event_id, kwargs))
@@ -44,6 +51,72 @@ class _FakeClient:
 
     async def delete_event(self, event_id: str, calendar_id: str | None = None) -> None:
         self.deleted.append(event_id)
+
+
+@pytest.mark.asyncio
+async def test_second_create_of_same_slot_does_not_post(tmp_path: Path) -> None:
+    store = CalendarStore(tmp_path / "cal.db")
+    fake = _FakeClient()
+    svc = CalendarService({}, store=store, client_factory=lambda _p: fake)
+    start = datetime(2026, 9, 8, 10, 0, tzinfo=UTC)
+    first = await svc.create(summary="Dentist", starts_at=start, provider="google")
+    second = await svc.create(summary="dentist", starts_at=start, provider="google")
+    assert len(fake.created) == 1
+    assert first.id == second.id
+    store.close()
+
+
+@pytest.mark.asyncio
+async def test_push_pending_does_not_clone_existing_google_row(tmp_path: Path) -> None:
+    store = CalendarStore(tmp_path / "cal.db")
+    start = datetime(2026, 9, 8, 10, 0, tzinfo=UTC)
+    store.put(
+        CachedEvent(
+            id="local:pending1",
+            provider="local",
+            calendar_id="local",
+            summary="Dentist",
+            starts_at=start,
+            ends_at=start + timedelta(hours=1),
+            all_day=False,
+            raw_id="pending1",
+            sync_state="pending",
+        )
+    )
+    store.put(
+        CachedEvent(
+            id="google:already",
+            provider="google",
+            calendar_id="primary",
+            summary="Dentist",
+            starts_at=start,
+            ends_at=start + timedelta(hours=1),
+            all_day=False,
+            raw_id="already",
+            sync_state="synced",
+        )
+    )
+    fake = _FakeClient()
+    svc = CalendarService({}, store=store, client_factory=lambda _p: fake)
+    pushed = await svc.push_pending()
+    assert fake.created == []
+    assert pushed["pushed"] == 1
+    assert store.get("local:pending1") is None
+    store.close()
+
+
+def test_stable_google_id_and_fingerprint_collapse_formats() -> None:
+    from arelis.calendar.google_client import stable_google_event_id
+    from arelis.calendar.models import create_fingerprint
+
+    naive = datetime(2026, 9, 8, 10, 0)
+    offset = datetime(2026, 9, 8, 10, 0, tzinfo=datetime.now().astimezone().tzinfo)
+    assert stable_google_event_id(
+        summary="Dentist", starts_at=naive
+    ) == stable_google_event_id(summary="dentist", starts_at=offset)
+    assert create_fingerprint("google", "Dentist", naive.isoformat()) == (
+        create_fingerprint("google", "dentist", offset.isoformat())
+    )
 
 
 @pytest.mark.asyncio
@@ -89,6 +162,52 @@ async def test_update_and_delete(tmp_path: Path) -> None:
     await svc.delete("google:abc", provider="google")
     assert fake.deleted == ["abc"]
     assert store.get("google:abc") is None
+    store.close()
+
+
+@pytest.mark.asyncio
+async def test_google_token_failure_saves_locally(tmp_path: Path) -> None:
+    store = CalendarStore(tmp_path / "cal.db")
+
+    class _DeadGoogle:
+        async def create_event(self, **kwargs):
+            raise RuntimeError(
+                "Google token refresh failed (400). "
+                "Sign in on the calendar tile."
+            )
+
+    svc = CalendarService({}, store=store, client_factory=lambda _p: _DeadGoogle())
+    ev = await svc.create(
+        summary="Homework due",
+        starts_at=datetime(2026, 9, 8, 9, 0, tzinfo=UTC),
+        provider="google",
+    )
+    assert ev.provider == "local"
+    assert ev.sync_state == "pending"
+    assert store.get(ev.id) is not None
+    store.close()
+
+
+@pytest.mark.asyncio
+async def test_create_lands_locally_then_pushes(tmp_path: Path) -> None:
+    store = CalendarStore(tmp_path / "cal.db")
+    fake = _FakeClient()
+    svc = CalendarService({}, store=store)
+    ev = await svc.create(
+        summary="Homework due",
+        starts_at=datetime(2026, 9, 8, 9, 0, tzinfo=UTC),
+        provider="local",
+    )
+    assert ev.provider == "local"
+    assert ev.sync_state == "pending"
+    assert store.get(ev.id) is not None
+    assert not fake.created
+
+    cloud = CalendarService({}, store=store, client_factory=lambda _p: fake)
+    pushed = await cloud.push_pending()
+    assert pushed["pushed"] == 1
+    assert fake.created
+    assert store.list_pending() == []
     store.close()
 
 

@@ -114,6 +114,7 @@ ALLOWED: dict[str, str] = {
     "tie.digitraffic.fi": "Earth-zone Fintraffic road cameras and traffic messages, only when earth action=live",
     "static.data.gov.hk": "Earth-zone Hong Kong TD camera locations, only when earth action=live; no stills",
     "tile.openstreetmap.org": "Earth-zone optional OSM raster tiles, only when Streets is on",
+    "nominatim.openstreetmap.org": "Earth-zone address search when Find / take-me-to is a street",
     "id.barentswatch.no": "Earth-zone BarentsWatch OAuth token, only when earth action=live and a free AIS client is set",
     "live.ais.barentswatch.no": "Earth-zone BarentsWatch AIS, only when earth action=live and a free AIS client is set",
     "gateway.api.globalfishingwatch.org": "Earth-zone GFW unmatched SAR, only when earth action=live and a token is set",

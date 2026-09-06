@@ -169,3 +169,153 @@ def cancel_paste(panel: Any) -> None:
     panel._earth_paste_field = ""
     panel._earth_paste_buf = ""
     panel.update()
+
+
+def nav_range_m(panel: Any) -> float | None:
+    """Look-ray to the ellipsoid, else camera height. None until Cesium speaks."""
+    nadir = getattr(panel, "_earth_nadir_m", None)
+    try:
+        if nadir is not None and float(nadir) > 0.0:
+            return float(nadir)
+    except (TypeError, ValueError):
+        pass
+    agl = getattr(panel, "_earth_agl_m", None)
+    try:
+        if agl is not None and float(agl) > 0.0:
+            return float(agl)
+    except (TypeError, ValueError):
+        pass
+    return None
+
+
+def paint_nav(panel: Any, painter: QPainter) -> None:
+    """Compass + distance meter. Bottom-right, over Cesium, not the solar field."""
+    from arelis.earth.runtime import get_earth
+    from arelis.earth.scale import (
+        format_distance,
+        format_surface,
+        scale_bar,
+        scale_from_mpp,
+        show_map_scale,
+    )
+
+    zone = get_earth()
+    if zone is None or not zone.active:
+        panel._earth_compass_box = QRect()
+        panel._earth_scale_box = QRect()
+        panel._earth_range_box = QRect()
+        return
+    size = 64
+    margin = 24
+    compass = QRect(
+        panel.width() - margin - size,
+        panel.height() - margin - size,
+        size,
+        size,
+    )
+    heading = 0.0
+    hpr = getattr(panel, "_globe_hpr", None)
+    if hpr:
+        try:
+            heading = float(hpr[0])
+        except (TypeError, ValueError, IndexError):
+            heading = 0.0
+    painter.save()
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+    painter.setPen(QPen(color("edge"), 1))
+    painter.setBrush(_wash("glass_fill", 210))
+    painter.drawEllipse(compass)
+    painter.translate(compass.center())
+    painter.rotate(-heading)
+    painter.setPen(QPen(color("accent"), 2))
+    painter.drawLine(0, 10, 0, -(size // 2) + 8)
+    painter.setPen(color("text"))
+    painter.drawText(
+        QRect(-12, -(size // 2) + 2, 24, 14),
+        int(Qt.AlignmentFlag.AlignCenter),
+        "N",
+    )
+    painter.restore()
+    panel._earth_compass_box = QRect(compass)
+
+    surface = nav_range_m(panel)
+    if surface is None:
+        panel._earth_scale_box = QRect()
+        panel._earth_range_box = QRect()
+        return
+    alt = getattr(panel, "_earth_agl_m", None)
+    try:
+        alt = float(alt) if alt is not None else surface
+    except (TypeError, ValueError):
+        alt = surface
+    mpp = getattr(panel, "_earth_mpp", None)
+    try:
+        mpp_f = float(mpp) if mpp is not None else None
+    except (TypeError, ValueError):
+        mpp_f = None
+    if mpp_f is not None and mpp_f <= 0.0:
+        mpp_f = None
+    want_bar = show_map_scale(alt_m=alt, mpp=mpp_f)
+    bar_px = 0
+    label = ""
+    if want_bar:
+        if mpp_f is not None:
+            _nice, bar_px, label = scale_from_mpp(mpp_f)
+        else:
+            _nice, bar_px, label = scale_bar(alt, float(max(panel.width(), 1)))
+    font = painter.font()
+    font.setPixelSize(15)
+    painter.setFont(font)
+    fm = painter.fontMetrics()
+    lines = [format_surface(surface)]
+    pin = getattr(panel, "_earth_pin", None)
+    if isinstance(pin, dict) and pin.get("slant_m") is not None:
+        try:
+            lines.append(f"{format_distance(float(pin['slant_m']))} to pin")
+        except (TypeError, ValueError):
+            pass
+    row_w = max((fm.horizontalAdvance(line) for line in lines), default=80)
+    bar_w = max(bar_px + 20, row_w + 20, fm.horizontalAdvance(label) + 20)
+    line_h = fm.height() + 2
+    plate_h = 12 + line_h * len(lines) + (22 if want_bar else 0)
+    plate = QRect(
+        panel.width() - margin - bar_w,
+        compass.top() - plate_h - 10,
+        bar_w,
+        plate_h,
+    )
+    painter.setPen(QPen(color("edge"), 1))
+    painter.setBrush(_wash("glass_fill", 230))
+    painter.drawRoundedRect(plate, 6, 6)
+    y = plate.top() + 6
+    painter.setPen(color("text"))
+    for i, line in enumerate(lines):
+        painter.setPen(color("text") if i == 0 else color("text_dim"))
+        painter.drawText(
+            QRect(plate.left() + 8, y, plate.width() - 16, line_h),
+            int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter),
+            line,
+        )
+        y += line_h
+    if want_bar:
+        painter.setPen(QPen(color("text"), 2))
+        left = plate.left() + 10
+        by = plate.bottom() - 10
+        painter.drawLine(left, by, left + bar_px, by)
+        painter.drawLine(left, by - 4, left, by + 4)
+        painter.drawLine(left + bar_px, by - 4, left + bar_px, by + 4)
+        painter.setPen(color("text_dim"))
+        painter.drawText(
+            QRect(left + bar_px + 8, plate.bottom() - 20, plate.width() - bar_px - 20, 16),
+            int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter),
+            label,
+        )
+    panel._earth_scale_box = QRect(plate)
+    panel._earth_range_box = QRect(plate)
+
+
+def hit_nav(panel: Any, px: float, py: float) -> str | None:
+    box = getattr(panel, "_earth_compass_box", QRect())
+    if box is not None and not box.isEmpty() and box.contains(int(px), int(py)):
+        return "north"
+    return None

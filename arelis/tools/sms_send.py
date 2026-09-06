@@ -22,13 +22,13 @@ class SendSmsTool:
 
     name = "send_sms"
     description = (
-        "Send a text message (SMS) to a named contact from data/contacts.yaml. "
-        "Pass to as any of their nicknames (wife, me, myself, my phone, mom, "
-        "…). The text goes out through the user's own Android phone, so it "
-        "arrives from their number and replies come back to that phone. Never "
-        "invent a phone number or alias — if the contact is missing, ask the "
-        "user for the number and add them first. The user sees and approves "
-        "every message before it goes."
+        "Send a text message (SMS) from the user's own Android phone. "
+        "Pass to as a contact nickname (wife, me, myself, mom, …) or any "
+        "phone number the user just gave. Contacts are optional hints. "
+        "Never invent a number. If they named someone with no number yet, "
+        "ask for the number and call this tool — do not require adding them "
+        "to the book first. The user sees and approves every message before "
+        "it goes."
     )
     risk = "side_effect"
     parameters_schema: dict[str, Any] = {
@@ -37,8 +37,8 @@ class SendSmsTool:
             "to": {
                 "type": "string",
                 "description": (
-                    "Any nickname for the contact: wife, me, myself, my phone, "
-                    "mom, brother, … from data/contacts.yaml."
+                    "Contact nickname (wife, me, mom, …) or a phone number "
+                    "the user just typed. Never invent a number."
                 ),
             },
             "body": {

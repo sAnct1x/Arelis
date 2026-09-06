@@ -17,6 +17,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+from arelis.mathtext import display_math_plain, flatten_latex
 from arelis.paths import display_path, ensure, outputs_dir
 from arelis.rooms import RoomStore
 from arelis.tools.base import ToolResult
@@ -74,6 +75,10 @@ def _plain(text: str) -> str:
     return _MD_BOLD.sub(r"\1", (text or "").replace("\r\n", "\n"))
 
 
+def _clean(text: str) -> str:
+    return flatten_latex(_plain(text)).strip()
+
+
 def _markdown_table(body: str) -> list[list[str]]:
     rows: list[list[str]] = []
     for line in (body or "").splitlines():
@@ -84,7 +89,7 @@ def _markdown_table(body: str) -> list[list[str]]:
         if cells and all(_TABLE_RULE.fullmatch(c or "") for c in cells):
             continue
         if cells:
-            rows.append(cells[:_MAX_COLS])
+            rows.append([_clean(c) for c in cells[:_MAX_COLS]])
         if len(rows) >= _MAX_ROWS:
             break
     return rows
@@ -107,6 +112,10 @@ def _blocks(body: str) -> list[tuple[str, Any]]:
         lines = [ln.rstrip() for ln in chunk.split("\n") if ln.strip() != ""]
         if not lines:
             continue
+        math = display_math_plain("\n".join(lines))
+        if math:
+            out.append(("math", math))
+            continue
         table = _table_chunk(lines)
         if table:
             out.append(("table", table))
@@ -114,15 +123,15 @@ def _blocks(body: str) -> list[tuple[str, Any]]:
         first = _MD_HEADING.match(lines[0])
         if first and len(lines) == 1:
             level = min(len(first.group(1)), 3)
-            out.append((f"h{level}", first.group(2).strip()))
+            out.append((f"h{level}", _clean(first.group(2))))
             continue
         bullets = [_MD_BULLET.match(ln) for ln in lines]
         if all(bullets):
             for match in bullets:
                 assert match is not None
-                out.append(("li", match.group(1).strip()))
+                out.append(("li", _clean(match.group(1))))
             continue
-        out.append(("p", "\n".join(lines)))
+        out.append(("p", _clean("\n".join(lines))))
     return out
 
 
@@ -137,14 +146,16 @@ def _parse_rows(raw: str, *, body: str) -> list[list[str]]:
             rows: list[list[str]] = []
             for item in parsed[:_MAX_ROWS]:
                 if isinstance(item, list):
-                    rows.append([str(c) for c in item[:_MAX_COLS]])
+                    rows.append([_clean(str(c)) for c in item[:_MAX_COLS]])
                 else:
-                    rows.append([str(item)])
+                    rows.append([_clean(str(item))])
             return rows
         reader = csv.reader(io.StringIO(text))
-        return [row[:_MAX_COLS] for row in reader if any(c.strip() for c in row)][
-            :_MAX_ROWS
-        ]
+        return [
+            [_clean(c) for c in row[:_MAX_COLS]]
+            for row in reader
+            if any(c.strip() for c in row)
+        ][:_MAX_ROWS]
     table = _markdown_table(body)
     if table:
         return table
@@ -153,13 +164,15 @@ def _parse_rows(raw: str, *, body: str) -> list[list[str]]:
         return []
     if any("," in ln or "\t" in ln for ln in lines[:3]):
         reader = csv.reader(io.StringIO("\n".join(lines)))
-        return [row[:_MAX_COLS] for row in reader if any(c.strip() for c in row)][
-            :_MAX_ROWS
-        ]
-    return [[ln] for ln in lines[:_MAX_ROWS]]
+        return [
+            [_clean(c) for c in row[:_MAX_COLS]]
+            for row in reader
+            if any(c.strip() for c in row)
+        ][:_MAX_ROWS]
+    return [[_clean(ln)] for ln in lines[:_MAX_ROWS]]
 
 
-def _dejavu_paths() -> tuple[str, str]:
+def _dejavu_paths() -> tuple[str, str, str | None]:
     from matplotlib import font_manager
 
     regular = Path(
@@ -172,14 +185,23 @@ def _dejavu_paths() -> tuple[str, str]:
             font_manager.FontProperties(family="DejaVu Sans", weight="bold")
         )
     )
+    italic = Path(
+        font_manager.findfont(
+            font_manager.FontProperties(family="DejaVu Sans", style="italic")
+        )
+    )
     sibling = regular.with_name("DejaVuSans-Bold.ttf")
     if sibling.is_file():
         bold = sibling
+    oblique = regular.with_name("DejaVuSans-Oblique.ttf")
+    if oblique.is_file():
+        italic = oblique
     if not regular.is_file():
         raise FileNotFoundError("DejaVu Sans is required to write a PDF.")
     if not bold.is_file():
         bold = regular
-    return str(regular), str(bold)
+    italic_path = str(italic) if italic.is_file() else None
+    return str(regular), str(bold), italic_path
 
 
 def _pdf_table(pdf: Any, rows: list[list[str]]) -> None:
@@ -221,17 +243,19 @@ def _pdf_table(pdf: Any, rows: list[list[str]]) -> None:
 def _write_pdf(dest: Path, title: str, body: str) -> None:
     from fpdf import FPDF
 
-    regular, bold = _dejavu_paths()
+    regular, bold, italic = _dejavu_paths()
     pdf = FPDF(format="letter", unit="mm")
     pdf.set_auto_page_break(auto=True, margin=22)
     pdf.add_font("DejaVu", fname=regular)
     pdf.add_font("DejaVu", style="B", fname=bold)
+    if italic:
+        pdf.add_font("DejaVu", style="I", fname=italic)
     pdf.add_page()
-    heading = (title or "").strip() or dest.stem.replace("-", " ")
+    heading = _clean(title) or dest.stem.replace("-", " ")
     pdf.set_font("DejaVu", "B", 18)
     pdf.multi_cell(0, 9, heading, new_x="LMARGIN", new_y="NEXT")
     pdf.ln(4)
-    blocks = _blocks(body) or [("p", body.strip() or heading)]
+    blocks = _blocks(body) or [("p", _clean(body) or heading)]
     for kind, payload in blocks:
         if kind == "table":
             pdf.set_font("DejaVu", "", 10)
@@ -239,6 +263,12 @@ def _write_pdf(dest: Path, title: str, body: str) -> None:
             continue
         text = str(payload or "")
         if not text:
+            continue
+        if kind == "math":
+            pdf.ln(2)
+            pdf.set_font("DejaVu", "I" if italic else "", 12)
+            pdf.multi_cell(0, 7, text, align="C", new_x="LMARGIN", new_y="NEXT")
+            pdf.ln(2)
             continue
         if kind == "h1":
             pdf.set_font("DejaVu", "B", 14)
@@ -266,12 +296,13 @@ def _write_pdf(dest: Path, title: str, body: str) -> None:
 
 def _write_docx(dest: Path, title: str, body: str) -> None:
     from docx import Document
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
     from docx.shared import Pt
 
     doc = Document()
-    heading = (title or "").strip() or dest.stem.replace("-", " ")
+    heading = _clean(title) or dest.stem.replace("-", " ")
     doc.add_heading(heading, level=0)
-    blocks = _blocks(body) or [("p", body.strip() or heading)]
+    blocks = _blocks(body) or [("p", _clean(body) or heading)]
     for kind, payload in blocks:
         if kind == "table":
             rows = payload
@@ -287,6 +318,13 @@ def _write_docx(dest: Path, title: str, body: str) -> None:
             continue
         text = str(payload or "")
         if not text:
+            continue
+        if kind == "math":
+            para = doc.add_paragraph()
+            para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            run = para.add_run(text)
+            run.italic = True
+            run.font.size = Pt(13)
             continue
         if kind == "h1":
             doc.add_heading(text, level=1)
@@ -337,7 +375,9 @@ class DocumentTool:
         "that project's documents/ directory. Otherwise it lands under "
         "outputs/documents/. Use when they ask to create, make, write, generate, "
         "export, or save a document or spreadsheet. Pass format plus the full "
-        "body (markdown is fine). For tables pass rows as JSON arrays or CSV "
+        "body (markdown and TeX math are fine — formulas are written as "
+        "unicode so PDF, Word, CSV, and markdown all read clean). For tables "
+        "pass rows as JSON arrays or CSV "
         "text. Set replace=true to overwrite the same name (fix / update / "
         "export that). from_path reads an existing .md/.txt/.csv instead of "
         "retyping the body. Do not dump the document into chat. Do not call "
@@ -359,7 +399,9 @@ class DocumentTool:
             "body": {
                 "type": "string",
                 "description": (
-                    "Full document text. Markdown headings, bullets, and tables are fine."
+                    "Full document text. Markdown headings, bullets, tables, "
+                    "and TeX math ($$, \\( \\), \\frac) are fine — math is "
+                    "written as unicode so the file opens clean."
                 ),
             },
             "rows": {
@@ -552,14 +594,16 @@ class DocumentTool:
             elif fmt == "csv":
                 _write_csv(dest, rows)
             elif fmt == "md":
+                clean_title = _clean(title)
+                clean_body = flatten_latex(body).strip()
                 heading = (
-                    f"# {title}\n\n"
-                    if title and not body.lstrip().startswith("#")
+                    f"# {clean_title}\n\n"
+                    if clean_title and not clean_body.lstrip().startswith("#")
                     else ""
                 )
-                dest.write_text(heading + body.strip() + "\n", encoding="utf-8")
+                dest.write_text(heading + clean_body + "\n", encoding="utf-8")
             else:
-                dest.write_text(body.strip() + "\n", encoding="utf-8")
+                dest.write_text(flatten_latex(body).strip() + "\n", encoding="utf-8")
         except Exception as exc:
             return ToolResult(ok=False, output=f"Could not write {fmt}: {exc}")
 

@@ -1,16 +1,19 @@
 # Earth zone
 
 The Earth zone is a zone inside Reality — not a room of its own, and
-not a product name. Travel to Earth, or just say **enter Earth**, and
-you become an observer of whatever's already being broadcast or
-published out there.
+not a product name. Click any body to inspect it; click it again
+(or right-click, or **Travel to**) to warp there. Earth is the same
+warp — you stay in the solar lab until you arrive. **Enter** then
+appears on Earth only: the zone door. It loads the globe and the
+catalogs in the same window. Scroll or WASD closer and more turns
+on (space → approach → near → city), like a game LOD.
 
 This page is both the inventory and the legal line for what's
 included. The globe itself only runs on a source checkout
 (`world_stage_allowed`), inside Reality, with
 `pip install -e ".[astro]"` installed.
 
-Inventory currently stands at `arelis/earth/feeds.py`: **108 shipped**,
+Inventory currently stands at `arelis/earth/feeds.py`: **109 shipped**,
 **25 keyed**, **3 later**, **4 out**. Adapters are meant to replace a layer, not
 invent coverage that isn't there — completeness is treated as the
 anti-beacon here, meaning we'd rather leave a region visibly sparse
@@ -19,6 +22,8 @@ than quietly thin it out to hide a gap.
 ## What it actually is
 
 A zone layered onto the existing Earth globe, inside Reality.
+The sodium HUD persists — Find, Live, Leave, inspect, compass, scale. Not a second UI.
+The starfield is Cesium's skybox once solar GL is parked.
 Internally, storage is in ECEF meters, while the rest of Reality still
 runs on ECLIPJ2000 — `arelis/earth/frames.py` handles the handoff
 between the two, including local ENU coordinates for street-level
@@ -34,11 +39,11 @@ travel elsewhere, or call `earth action=leave` (which writes a receipt
 when it happens). Clicking a contact opens an inspect card — label,
 kind in English, freshness, source, citation. Below the HUD sits a
 read-only distance line (**from space** / **approaching** / **near
-the ground** / **in the city**), then **Live off** / **Live on**,
+the ground** / **in the city**), then **Live on** (Enter starts
+published + coast; air and sea refresh on TTL),
 **Grid**, **Streets**, **Buildings**, and every catalog layer
-including People. Live starts off on purpose; the coach line says
-to click it. Slash or the find field jumps to a city, country, state,
-continent, or contact. Saying **take me to Tokyo** (or Japan,
+including People. Slash or the find field + Enter flies to a city,
+country, state, continent, address, or contact. Saying **take me to Tokyo** (or Japan,
 California, Africa, the UK, home) is a closed verb — typed or
 spoken, no model turn. Chat still works throughout all of this;
 it's just never required.
@@ -65,15 +70,22 @@ imagery becomes the actual land surface. State lines only appear as
 part of the near/city-band detail (approach band keeps them
 constrained to the look box). The GL globe itself uses the same
 GMST-plus-obliquity frame as the overlay layers, with NASA's texture
-referencing u=0.5 at Greenwich.
+referencing u=0.5 at Greenwich. Screen-right is east when you look
+nadir with north up — `look_basis` is `forward × up`, not the other
+cross. The inspect eye may fall to 1.2 km AGL so city / streets /
+buildings can actually open; Karman stays the catalog stop.
 
 The Earth disc can grow past the usual 384px software-sphere size
 once you've fallen in close. NASA GIBS imagery drapes in
-automatically as you get near. **Streets** is opt-in OSM data (zoom
-14 at near band, zoom 15 at city band). **Buildings** is opt-in
-Overpass footprint data, available only at city band — outlines only,
-no individual house labels. **Grid** shows latitude, longitude, and
-altitude.
+automatically as you get near. **Streets** waits until city and about
+12 km AGL — highway lines then, names only below ~3.5 km. The overlay
+stays until you zoom out; it is not rebuilt on every camera tick.
+Not a swap to the OSM carto drawing. The distance meter is the ray
+to the globe under the look (`to surface`) once Cesium has spoken —
+it does not invent a standoff. Pins use WGS84 from the ECEF store.
+Click the ground for a pin range. The map scale bar only appears closer in. **Buildings** is opt-in Overpass footprints
+below ~4 km — outlines only, no individual house labels. **Grid**
+shows latitude, longitude, and altitude.
 
 ## Glyphs stay consistent
 
@@ -118,7 +130,7 @@ view.
 | Every camera | TfL, Caltrans, NYC, SG LTA, Fintraffic, HK TD, CARS 511 (ON, MB, NS, AB, SK, FL, NY, CO, IA, MN, GA), ODOT TripCheck, SHA/NDDOT, ALGO, DelDOT, NZTA, Quebec 511, and OSM worldwide. These show as pins; official stills or streams play on click, when the publisher's own JSON includes them. The URL itself isn't stored on the pin. |
 | Continents / countries / states | Natural Earth 110m border lines on the globe (cached in ECEF). Fill color only shows while the globe is small — not a live feed. |
 | Ground imagery | NASA GIBS Blue Marble mosaic when you're close — a published mosaic, not a live satellite pass. |
-| Street-level tiles | Optional OSM raster tiles when the Streets chip is on (ODbL-licensed, cached), at zoom 14 near / 15 city, boxed to the look area. |
+| Street-level tiles | Named highway overlays on GIBS / photoreal when Streets is on (Overpass, ODbL). OSM carto is not the planet. |
 | 3D cities | Google Photorealistic 3D Tiles, when `earth.google_maps_key` is set — covered cities only. |
 | City blocks | Optional Overpass building footprints when Buildings is on, at city band, within roughly a 0.04° fabric box. Outlines only — individual houses stay unlabeled. |
 | Every satellite | CelesTrak's GNSS / weather / visual / science / comm catalogs, plus Starlink/OneWeb/Planet samples — not a painted orbital shell of everything up there. |
@@ -139,15 +151,16 @@ FDSN (magnitude 2+, depth included when published), and GeoNet NZ.
 
 ## Being honest about freshness
 
-Every entity carries a freshness indicator. By default, what you're
-seeing is a simulated version of moving layers plus reconstructed
-static pins. Calling `earth action=live` switches on the actual
-shipped feeds from `arelis/earth/feeds.py` — and if any of those
-fail, it just falls back to the simulation rather than showing
-nothing. Live aircraft and ships with a known velocity get
-dead-reckoned (extrapolated forward) after 90 seconds without an
-update, then marked stale after 15 minutes. Satellites just stay at
-their last SGP4-propagated position until the next poll comes in.
+Every entity carries a freshness indicator. Enter Earth takes one
+published snapshot for the current band (and one more the first time
+you drop into a closer band), then air and ships coast from the last
+fix — no one-hertz poll. Leave clears the store; re-enter refetches.
+The Live chip is “keep pulling while you stay” (TTL and look-box
+walk). Pytest never hits the network. If a feed fails, that layer
+stays simulated rather than going blank. Aircraft and ships with a
+known velocity are tagged dead-reckoned after 90 seconds without an
+update, then stale after 15 minutes. Satellites stay at their last
+SGP4-propagated position until the next snapshot.
 
 Viewsheds shown are pose priors, not verified line-of-sight — the
 inspect card is upfront that there's **No terrain** behind them.
@@ -230,39 +243,60 @@ of it gets stored on the entity.
 
 ## The globe itself
 
-Entering Earth hands the planet rendering over to Cesium (via
-WebEngine, source checkout with `.[astro]` only). Arelis still paints
-the starfield and the HUD on top. The HUD is masked to just the
-chrome elements, so scrolling and dragging pass through to the globe
-underneath correctly. Contacts rendered in Cesium are billboards
-drawn from that same shared mark factory — not generic teardrop map
-pins. The very first thing painted is NASA GIBS imagery, so the
-globe is never left black while things load. Streets show up via the
-Streets chip (OSM data). Building outlines get pushed into Cesium at
-city band when that chip is enabled — outlines only, no house
-labels, no extrusion into 3D volumes. Photorealistic 3D cities only
-load once you've actually fallen in close, and only if
-`earth.google_maps_key` is set — and a failure to load photoreal
-data is never allowed to crash the globe entirely. Without a Cesium
-ion token, terrain just renders as a plain ellipsoid rather than
-actual hills. The inspect card always tells you which rendering
-stack is currently active, and attribution credits stay visible on
-screen. The Qt-based NASA imagery ball is the fallback whenever
-WebEngine is unavailable or Cesium fails to load — and it's also
-what every other planet in the solar system still uses. No
-action-movie overlay, no landing capability. Tests that only check
-image luminosity aren't treated as proof that a city actually
-rendered correctly.
+**Earth zone is one Cesium globe. Solar lab (heliocentric) is native
+GL. Never both live.**
+
+Enter Earth: destroy the offscreen solar context (`park()` deletes
+it). `park()` cannot kill `QOpenGLContext.globalShareContext()` —
+`AA_ShareOpenGLContexts` is an application attribute, so the daily
+driver spawns Cesium in a child process (`earth_globe_proc`) instead
+of constructing `QWebEngineView` next to that share group. Do
+**not** add `--disable-gpu` unless a share group is still present
+and Cesium is in-process. Cesium is the only planet painter. The
+Cesium plate is an opaque HWND — same rule as the main glass: no
+`winId()` on HUD chrome, no translucent WebGL, no leftover solar
+frame under the night side. Qt paints black under the plate plus
+sodium HUD glass (`EarthHudGlass`). No second `paint_earth`
+city/tile path while Cesium is live. Leave Earth / travel away /
+reset: kill the Cesium child (or delete the in-process WebEngine
+view), then recreate solar GL.
+
+The native NASA disc is **fallback** when WebEngine is missing
+(software globes, Cesium boot fail). One fallback, not a second
+product. Pytest without GPU solar stays in-process; pytest may still
+construct WebEngine. Do not special-case `PYTEST_CURRENT_TEST` to
+skip the globe. Do not delete `earth_globe/`, the host, or
+`choose_stack`. A photoreal miss must not set `host.failed`. Do not
+bring back `--disable-gpu` as the product path.
+
+The camera is an observer (`arelis.physics.observe`). Physics keeps
+running. The plate commits when accumulated screen motion crosses
+half a pixel — every body, orbit and IAU spin. Travel standoff does
+not show Earth spin; overnight or a closer eye is the same math.
+Nadir is north-up, east-right. The locked inspect floor is 1.2 km
+AGL so the city band is reachable.
+
+Cesium owns space (opaque black + atmosphere). Sodium HUD stays in
+Qt. NASA GIBS
+(z8 cap) is the Cesium imagery stack when no Google / ion key is
+pasted (`choose_stack`). Building outlines are a city-band chip,
+look-pin boxed. Photorealistic 3D cities light up close-in (below
+8 km AGL) when `earth.google_maps_key` is set. Streets draws named
+roads on that planet — it does not replace it with a carto map.
+Find / take-me-to a city parks at 8 km; a street address parks at
+350 m. The HUD keeps a compass (click for north) and a metre /
+kilometre scale. No action-movie overlay, no landing, no mesh, no
+DEM. Tests that only check image luminosity are not proof a city
+rendered.
 
 ## What's coming next
 
-More no-key 511 / WZDx / ArcGIS / camera inventories, expanding
-worldwide. More official still-image CDNs added to the look
-allowlist, wherever a catalog already publishes them. VIIRS data
-only if Mines opens up the FINAL dataset without requiring a login.
-We won't be purchasing satellite-AIS data. We won't thin out a
-region just to hide an individual house. Individual cars remain, and
-will stay, a clearly labeled gap in coverage.
+The out-of-process Cesium host is written. No new 511 / camera
+hosts until a shareable view receipt is the way people keep a look.
+More official still-image CDNs may join the look allowlist where a
+catalog already publishes them. VIIRS only if Mines opens FINAL
+without a login. We will not buy sat-AIS. We will not thin a region.
+Individual cars stay a labeled hole.
 
 ## Files
 
@@ -276,9 +310,12 @@ will stay, a clearly labeled gap in coverage.
 | `arelis/earth/owned.py` | Owned-camera face boxes, in local ENU coordinates |
 | `arelis/earth/look.py` | Click-time look-from / listen caching; URLs are never attached to entities |
 | `arelis/earth/tiles.py` | GIBS plus OSM raster tile cache |
+| `arelis/earth/geocode.py` | Nominatim street-address search for Find / take-me-to |
+| `arelis/earth/roads.py` | Overpass highway overlay — names on the planet, not a carto swap |
 | `arelis/earth/globe_stack.py` | Which imagery layers this particular copy is allowed to show |
 | `arelis/ui/earth_globe/` | The Cesium page itself (rendering engine only, no HUD overlay) |
-| `arelis/ui/earth_globe_host.py` | Qt WebEngine host, QWebChannel bridge, and the mark atlas |
+| `arelis/ui/earth_globe_host.py` | Qt host / OOP proxy, QWebChannel bridge, and the mark atlas |
+| `arelis/ui/earth_globe_proc.py` | Cesium child process — Chromium only, no solar GL |
 | `arelis/ui/earth_marks.py` | The shared mark-drawing code — used by Qt, Cesium, the inspect card, and the roster |
 | `arelis/earth/tides.py` | CO-OPS plus IOC sea-level gauge data |
 | `arelis/earth/argo.py` | Argo float last-fix sampling |
@@ -290,7 +327,8 @@ will stay, a clearly labeled gap in coverage.
 
 You'll need a source checkout (`world_stage_allowed`), inside
 Reality, with the solar system already loaded, and
-`pip install -e ".[astro]"` installed. Then travel to Earth, say
-**enter Earth**, or **take me to Tokyo**. The Live layer is turned
+`pip install -e ".[astro]"` installed. Travel to Earth, then click
+**Enter** (or say **enter Earth**). **Take me to Tokyo** still opens
+the zone at a city. Live published feeds stay on the Live chip. The Live layer is turned
 on via its chip, the `earth action=live` call, or just by asking
 in chat — it's not locked to one specific phrase.

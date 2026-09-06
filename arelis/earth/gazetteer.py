@@ -339,4 +339,10 @@ def resolve_place(query: str, zone: Any = None) -> GotoHit | None:
     if len(names) == 1:
         prefixed.sort(key=lambda h: _KIND_RANK.get(h.kind, 9))
         return prefixed[0]
+    from arelis.earth.geocode import looks_like_address, search_address
+
+    if looks_like_address(query) or (len(q) >= 8 and any(ch.isdigit() for ch in q)):
+        found = search_address(query, limit=1)
+        if found:
+            return found[0]
     return None

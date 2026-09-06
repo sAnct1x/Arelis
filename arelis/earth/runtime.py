@@ -12,6 +12,8 @@ from arelis.earth.entity import Entity
 from arelis.earth.lod import (
     EarthView,
     adapters_due,
+    ground_buildings_on,
+    ground_streets_on,
     look_shifted,
     organize,
     paint_layers,
@@ -21,6 +23,7 @@ from arelis.earth.store import EntityStore
 from arelis.spatial.grant import world_stage_allowed
 
 _EARTH: EarthRuntime | None = None
+_COAST_LAYERS = frozenset({"flights", "drones", "military", "vessels"})
 
 
 def default_layers() -> dict[str, bool]:
@@ -50,9 +53,13 @@ class EarthRuntime:
 
     def enter(self, *, unix: float | None = None) -> str:
         now = float(unix if unix is not None else time.time())
+        self._lock_wall_clock()
         if self.active:
             refresh_moving(self.store, now)
             self.last_tick_unix = now
+            self._kick_snapshot(refetch=True)
+            if unix is None and not _in_pytest():
+                self.live = True
             self.note = "already in Earth"
             try:
                 from arelis.physics.telemetry import emit
@@ -76,11 +83,19 @@ class EarthRuntime:
             pass
         if self.live:
             self._merge_live()
+        else:
+            self._kick_snapshot()
+        if unix is None and not _in_pytest():
+            self.live = True
         self.last_tick_unix = now
         n = len(self.store)
         from arelis.earth.copy import enter_note
 
-        self.note = enter_note(live=self.live, n=n)
+        self.note = enter_note(
+            live=self.live,
+            n=n,
+            snapshot=not self.live and not _in_pytest(),
+        )
         try:
             from arelis.physics.telemetry import emit
 
@@ -94,9 +109,12 @@ class EarthRuntime:
             self.note = "already solar"
             return self.note
         self.active = False
+        self.live = False
         self.track_id = ""
         self.ride_id = ""
         self.pending_goto = None
+        self.tiles = False
+        self.buildings = False
         self.last_view = None
         self.last_live_view = None
         self.last_fetch_unix.clear()
@@ -105,6 +123,12 @@ class EarthRuntime:
             from arelis.earth.look import forget
 
             forget()
+        except Exception:
+            pass
+        try:
+            from arelis.earth.trails import forget as forget_trails
+
+            forget_trails()
         except Exception:
             pass
         from arelis.earth.copy import leave_note
@@ -144,6 +168,7 @@ class EarthRuntime:
             return
         dt = now - self.last_tick_unix if self.last_tick_unix else 0.0
         refresh_moving(self.store, now, dt=dt)
+        self._note_trails()
         if now - self.last_local_unix >= 8.0:
             self._merge_local()
             self.last_local_unix = now
@@ -162,7 +187,7 @@ class EarthRuntime:
             emit("earth_layer", layer=key, on=val, live=self.live)
         except Exception:
             pass
-        if val and self.live:
+        if val:
             from arelis.earth.lod import ADAPTER_LAYERS
 
             for adapter, needed in ADAPTER_LAYERS.items():
@@ -170,10 +195,64 @@ class EarthRuntime:
                     self.last_fetch_unix.pop(adapter, None)
         return val
 
+    def _reveal_band(self, band: str) -> None:
+        """Closer bands turn more on. Chips can still hide a layer after that."""
+        wanted = paint_layers(band)
+        for layer in wanted:
+            self.layers[layer] = True
+
+    def _sync_ground_detail(self, prev: EarthView | None) -> None:
+        """Streets and footprints follow altitude. Zooming out drops them."""
+        view = self.last_view
+        now_s = view is not None and ground_streets_on(
+            band=view.band, alt_m=view.alt_m
+        )
+        was_s = prev is not None and ground_streets_on(
+            band=prev.band, alt_m=prev.alt_m
+        )
+        now_b = view is not None and ground_buildings_on(
+            band=view.band, alt_m=view.alt_m
+        )
+        was_b = prev is not None and ground_buildings_on(
+            band=prev.band, alt_m=prev.alt_m
+        )
+        if now_s and not was_s:
+            self.tiles = True
+        elif not now_s:
+            self.tiles = False
+        if now_b and not was_b:
+            self.buildings = True
+        elif not now_b:
+            self.buildings = False
+        if view is None:
+            return
+        if self.tiles:
+            try:
+                from arelis.earth.roads import roads_for_view
+
+                roads_for_view(view.lat, view.lon, view.band, alt_m=view.alt_m)
+            except Exception:
+                pass
+        if self.buildings:
+            try:
+                from arelis.earth.buildings import footprints_for_view
+                from arelis.earth.tiles import tiles_for_view, zoom_for_ground
+
+                tiles_for_view(
+                    view.lat,
+                    view.lon,
+                    zoom_for_ground(view.px_r, view.band),
+                    source="osm",
+                )
+                footprints_for_view(view.lat, view.lon, view.band)
+            except Exception:
+                pass
+
     def note_view(self, view: EarthView) -> None:
         prev = self.last_view
         self.last_view = view
         if prev is None or prev.band != view.band:
+            self._reveal_band(view.band)
             try:
                 from arelis.physics.telemetry import emit
 
@@ -189,6 +268,19 @@ class EarthRuntime:
                 )
             except Exception:
                 pass
+            if view.band in {"approach", "near", "city"}:
+                try:
+                    from arelis.earth.tiles import tiles_for_view, zoom_for_ground
+
+                    tiles_for_view(
+                        view.lat,
+                        view.lon,
+                        zoom_for_ground(view.px_r, view.band),
+                        source="gibs",
+                    )
+                except Exception:
+                    pass
+        self._sync_ground_detail(prev)
 
     def visible(self) -> tuple[Entity, ...]:
         if not self.active:
@@ -198,18 +290,67 @@ class EarthRuntime:
         hits = [
             e
             for e in self.store.all()
-            if self.layers.get(e.layer, False) and e.layer in wanted
+            if self.layers.get(e.layer, False)
+            and e.layer in wanted
+            and self._paint_contact(e)
         ]
         return tuple(organize(hits, self.last_view))
+
+    def _paint_contact(self, entity: Entity) -> bool:
+        """Drawn air/sea wait for a published fix. Pytest keeps the sim sky."""
+        if entity.freshness != "simulated":
+            return True
+        if entity.layer not in _COAST_LAYERS:
+            return True
+        return _in_pytest()
 
     def get(self, entity_id: str) -> Entity | None:
         return self.store.get(entity_id)
 
+    def unlock(self) -> None:
+        """Drop track, ride, and the Earth trail for that id."""
+        was = self.ride_id or self.track_id
+        self.stop_ride()
+        self.track_id = ""
+        if was:
+            try:
+                from arelis.earth.trails import forget
+
+                forget(was)
+            except Exception:
+                pass
+
+    def _note_trails(self) -> None:
+        hot = self.ride_id or self.track_id
+        if not hot:
+            return
+        try:
+            from arelis.earth.trails import forget, note
+        except Exception:
+            return
+        ent = self.store.get(hot)
+        if ent is None:
+            forget(hot)
+            return
+        note(hot, (ent.x, ent.y, ent.z))
+
     def track(self, entity_id: str) -> Entity | None:
-        hit = self.store.get(entity_id)
-        if hit is None:
-            self.track_id = ""
+        key = (entity_id or "").strip()
+        if not key:
+            self.unlock()
             return None
+        hit = self.store.get(key)
+        prev = self.track_id
+        if hit is None:
+            self.unlock()
+            return None
+        if prev and prev != hit.id:
+            try:
+                from arelis.earth.trails import forget
+
+                forget(prev)
+            except Exception:
+                pass
         self.track_id = hit.id
         try:
             from arelis.physics.telemetry import emit
@@ -305,22 +446,68 @@ class EarthRuntime:
             self.last_fetch_unix[key] = now
         self.last_live_view = view
 
-    def _maybe_refresh_live(self, now: float) -> None:
-        """Re-poll when the band changes or the look pin walks. Not from pytest."""
-        if not self.live or not self.active or self._live_busy:
+    def _lock_wall_clock(self) -> None:
+        """Earth is now. Counterfactual / placeholder ICs cannot lock — leave them."""
+        if _in_pytest():
             return
-        if os.environ.get("PYTEST_CURRENT_TEST"):
+        try:
+            from arelis.physics.runtime import get_system
+
+            system = get_system()
+        except Exception:
+            return
+        if system is None:
+            return
+        try:
+            system.go_realtime()
+        except Exception:
+            pass
+
+    def _kick_snapshot(self, *, refetch: bool = False) -> None:
+        """One published pull. Coast until leave or a new band. Live keeps polling."""
+        if _in_pytest() or self._live_busy:
+            return
+        if refetch:
+            self.last_fetch_unix.clear()
+        self._start_live_merge(moved=False)
+
+    def _coast_due(self, view: EarthView) -> tuple[str, ...]:
+        """Adapters this band has never fetched. TTL does not pull again."""
+        from arelis.earth.lod import ADAPTER_BANDS, adapter_allowed
+
+        return tuple(
+            key
+            for key in ADAPTER_BANDS
+            if adapter_allowed(key, view.band, self.layers)
+            and key not in self.last_fetch_unix
+        )
+
+    def _maybe_refresh_live(self, now: float) -> None:
+        """Live polls on TTL / look walk. Coast mode fetches a band once."""
+        if not self.active or self._live_busy:
+            return
+        if _in_pytest():
             return
         view = self.last_view
         if view is None:
             return
-        moved = look_shifted(self.last_live_view, view)
-        if moved and view.band != "space":
-            for key in ("opensky", "adsb", "ais"):
-                self.last_fetch_unix.pop(key, None)
-        due = adapters_due(view.band, self.last_fetch_unix, now, self.layers)
+        moved = False
+        if self.live:
+            moved = look_shifted(self.last_live_view, view)
+            if moved and view.band != "space":
+                for key in ("opensky", "adsb", "ais"):
+                    self.last_fetch_unix.pop(key, None)
+            due = adapters_due(view.band, self.last_fetch_unix, now, self.layers)
+        else:
+            due = self._coast_due(view)
         if not due:
             return
+        self._start_live_merge(moved=moved, due=due)
+
+    def _start_live_merge(
+        self, *, moved: bool, due: tuple[str, ...] | None = None
+    ) -> None:
+        view = self.last_view or EarthView(band="space")
         self._live_busy = True
         try:
             from arelis.physics.telemetry import emit
@@ -329,8 +516,9 @@ class EarthRuntime:
                 "earth_refresh",
                 band=view.band,
                 moved=moved,
-                n=len(due),
-                adapters=list(due),
+                n=len(due or ()),
+                adapters=list(due or ()),
+                live=self.live,
             )
         except Exception:
             pass
@@ -342,6 +530,10 @@ class EarthRuntime:
                 self._live_busy = False
 
         threading.Thread(target=work, daemon=True, name="earth-live").start()
+
+
+def _in_pytest() -> bool:
+    return bool(os.environ.get("PYTEST_CURRENT_TEST"))
 
 
 def get_earth() -> EarthRuntime | None:

@@ -44,6 +44,25 @@ def gmst_rad(jd: float) -> float:
     return math.radians(deg)
 
 
+def spin_omega_rad_s(name: str) -> float:
+    """Sidereal spin the observer can see on a mapped globe. 0 if no model.
+
+    Earth is GMST. The Moon is Earth-facing — the map does not crawl vs
+    the Earth–Moon line (libration is ignored). IAU W bodies use Wdot.
+    Asteroids stay 0; the HUD already says the map is not body-fixed.
+    """
+    if name == "Earth":
+        return 7.292115e-5
+    if name == "Sun":
+        return math.radians(SUN_WDOT_DEG_PER_DAY) / 86400.0
+    if name == "Moon":
+        return 0.0
+    spec = IAU_W.get(name)
+    if spec is None:
+        return 0.0
+    return abs(math.radians(spec.wdot_deg_per_day)) / 86400.0
+
+
 def spin_jd(epoch_jd: float, t_s: float) -> float:
     """TDB Julian day for W. J2000 until a Horizons epoch exists."""
     if float(epoch_jd) > 0.0:

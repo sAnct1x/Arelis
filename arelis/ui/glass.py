@@ -285,6 +285,9 @@ def seal_tool_window(
     pal = widget.palette()
     pal.setColor(widget.backgroundRole(), QColor(*PLATE["seal"]))
     widget.setPalette(pal)
+    from arelis.ui.foreground import bind_click_to_front
+
+    bind_click_to_front(widget)
     if round_corners:
         r = float(GLASS.get("radius", 12.0) if radius is None else radius)
         filt = _RoundMaskFilter(r, widget)

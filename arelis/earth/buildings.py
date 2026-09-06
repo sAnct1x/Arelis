@@ -36,7 +36,13 @@ _FABRIC_HALF = 0.04
 _CACHE = state_dir() / "earth" / "buildings"
 _inflight: set[str] = set()
 _lock = threading.Lock()
+_generation = 0
 _rings: dict[str, tuple[float, list[list[tuple[float, float]]]]] = {}
+
+
+def building_generation() -> int:
+    """Bumps when a footprint cache lands so the plate can wake."""
+    return _generation
 
 
 def fabric_bbox(lat: float, lon: float) -> tuple[float, float, float, float]:
@@ -174,6 +180,9 @@ def _fetch_one(key: str, lat: float, lon: float) -> None:
             encoding="utf-8",
         )
         _rings[key] = (now, rings)
+        global _generation
+        with _lock:
+            _generation += 1
         try:
             from arelis.physics.telemetry import emit
 
@@ -220,6 +229,7 @@ def _post(url: str, pin: str, query: str) -> dict[str, Any] | None:
 
 def _cache_dir_for_tests(path: Path) -> None:
     """Test hook. Do not use from adapters."""
-    global _CACHE
+    global _CACHE, _generation
     _CACHE = path
     _rings.clear()
+    _generation = 0

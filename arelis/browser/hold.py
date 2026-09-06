@@ -112,6 +112,8 @@ def format_drive_status(action: str, args: dict[str, Any] | None = None) -> str:
         return "checking tabs…"
     if act == "relaunch":
         return "restarting her Chrome…"
+    if act == "watch":
+        return "Watching"
     return "driving…"
 
 
@@ -146,4 +148,6 @@ def format_drive_done(
         return "read this tab"
     if act == "snapshot":
         return "read the page"
+    if act == "watch":
+        return "Watching — hit" if data.get("watch_hit") else ""
     return ""

@@ -190,6 +190,8 @@ def mail_notices(rows: list[dict[str, Any]], *, remember) -> list:
                     "pill": f"{name} · mail",
                     "uid": uid,
                     "alias": row.get("contact_alias") or "",
+                    "from": row.get("from") or "",
+                    "subject": subject,
                 },
             )
         )

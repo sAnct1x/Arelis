@@ -3,8 +3,9 @@
 Model answers are markdown. The chat bubble used to insert them as plain text,
 so "**Sources:**" reached the screen with its asterisks showing and a fenced
 code block arrived as a row of backticks. This renders the subset that actually
-turns up in model output: headings, lists, tables, code, quotes, rules, and the
-usual inline marks.
+turns up in model output: headings, lists, tables, code, quotes, rules, TeX
+math, and the usual inline marks. Math goes through ``flatten_latex`` so a
+CAS ``latex:`` line reads as unicode here and in every file she writes.
 
 Two rules shape the implementation.
 
@@ -24,7 +25,8 @@ from __future__ import annotations
 import html
 import re
 
-from arelis.ui.theme import COLORS, FONTS
+from arelis.mathtext import flatten_for_render
+from arelis.ui.theme import COLORS, FONTS, SPACE
 
 # Only schemes worth making clickable. Anything else renders as plain text, so a
 # link a model invented cannot become a live handler for some other protocol.
@@ -60,7 +62,8 @@ def _mono() -> str:
 def _style_pre() -> str:
     return (
         f"background-color:{COLORS['code_fill']}; font-family:{_mono()}; "
-        f"font-size:12px; color:{COLORS['text']}; margin:6px 0 6px 0;"
+        f"font-size:12px; color:{COLORS['text']}; "
+        f"margin:{SPACE['gap']}px 0 {SPACE['gap']}px 0;"
     )
 
 
@@ -74,14 +77,15 @@ def _style_code() -> str:
 def _style_quote() -> str:
     return (
         f"border-left:2px solid {COLORS['accent']}; color:{COLORS['text_dim']}; "
-        "margin:6px 0 6px 4px; padding-left:8px;"
+        f"margin:{SPACE['gap']}px 0 {SPACE['gap']}px {SPACE['micro']}px; "
+        f"padding-left:{SPACE['gap']}px;"
     )
 
 
 def _style_rule() -> str:
     return (
         f"border:none; border-top:1px solid {COLORS['edge_soft']}; "
-        "margin:8px 0 8px 0;"
+        f"margin:{SPACE['gap']}px 0 {SPACE['gap']}px 0;"
     )
 
 
@@ -109,108 +113,33 @@ _TABLE_ATTRS = 'border="0" cellspacing="0" cellpadding="6"'
 _HEADING_SIZES = {1: 17, 2: 15, 3: 14, 4: 13, 5: 13, 6: 13}
 
 
-_LATEX_BLOCK = re.compile(r"\\\[(.+?)\\\]", re.S)
-_LATEX_INLINE = re.compile(r"\\\((.+?)\\\)")
-_LATEX_DOLLARS_BLOCK = re.compile(r"\$\$(.+?)\$\$", re.S)
-# Only pair $…$ when it looks like math, so "$5 and $\log x$" keeps the price.
-_LATEX_DOLLARS_INLINE = re.compile(
-    r"(?<!\$)\$(?![\d\s$])([^$\n]+)\$(?!\$)"
-)
-_LATEX_FRAC = re.compile(r"\\frac\{([^{}]+)\}\{([^{}]+)\}")
-_LATEX_SUP = {
-    "0": "⁰",
-    "1": "¹",
-    "2": "²",
-    "3": "³",
-    "4": "⁴",
-    "5": "⁵",
-    "6": "⁶",
-    "7": "⁷",
-    "8": "⁸",
-    "9": "⁹",
-}
-# Named TeX that must stay readable. A bare \\[A-Za-z]+ wipe used to delete
-# \\log, so 25x\\log(x-3) rendered as 25x(x-3).
-_LATEX_WORDS = (
-    (r"\iiint", "∭"),
-    (r"\iint", "∬"),
-    (r"\int", "∫"),
-    (r"\sum", "Σ"),
-    (r"\prod", "Π"),
-    (r"\partial", "∂"),
-    (r"\infty", "∞"),
-    (r"\cdot", "·"),
-    (r"\times", "×"),
-    (r"\pm", "±"),
-    (r"\leq", "≤"),
-    (r"\geq", "≥"),
-    (r"\neq", "≠"),
-    (r"\approx", "≈"),
-    (r"\pi", "π"),
-    (r"\ln", "ln"),
-    (r"\log", "log"),
-    (r"\sin", "sin"),
-    (r"\cos", "cos"),
-    (r"\tan", "tan"),
-    (r"\exp", "exp"),
-    (r"\sqrt", "√"),
-    (r"\left", ""),
-    (r"\right", ""),
-    (r"\mathrm", ""),
-    (r"\operatorname", ""),
-    (r"\,", " "),
-    (r"\;", " "),
-    (r"\!", ""),
-    (r"\ ", " "),
-)
+_MATH_TOKEN = re.compile(r"^\[\[ARELIS_MATH_(\d+)\]\]$")
 
 
-def flatten_latex(text: str) -> str:
-    """Turn TeX delimiters into readable chat text without dropping operators."""
-
-    def _plain(src: str) -> str:
-        s = (src or "").strip()
-        s = _LATEX_FRAC.sub(r"(\1)/(\2)", s)
-        for cmd, repl in _LATEX_WORDS:
-            s = s.replace(cmd, repl)
-        s = re.sub(r"\\([A-Za-z]+)", r"\1", s)
-        s = re.sub(
-            r"\^\{?(\d+)\}?",
-            lambda m: (
-                "".join(_LATEX_SUP.get(ch, "^" + ch) for ch in m.group(1))
-                if m.group(1).isdigit()
-                else "^" + m.group(1)
-            ),
-            s,
-        )
-        return re.sub(r"[{}]", "", s).strip()
-
-    def _looks_like_math(src: str) -> bool:
-        return bool(re.search(r"[\\^_{]|\\[A-Za-z]", src))
-
-    text = _LATEX_DOLLARS_BLOCK.sub(lambda m: "\n" + _plain(m.group(1)) + "\n", text)
-    text = _LATEX_BLOCK.sub(lambda m: "\n" + _plain(m.group(1)) + "\n", text)
-    text = _LATEX_INLINE.sub(lambda m: _plain(m.group(1)), text)
-
-    def _dollar(match: re.Match[str]) -> str:
-        inner = match.group(1)
-        if not _looks_like_math(inner):
-            return match.group(0)
-        return _plain(inner)
-
-    return _LATEX_DOLLARS_INLINE.sub(_dollar, text)
+def _style_math() -> str:
+    return (
+        f"text-align:center; font-style:italic; color:{COLORS['text']}; "
+        f"margin:{SPACE['gap']}px 0 {SPACE['gap']}px 0;"
+    )
 
 
 def render_markdown(text: str) -> str:
     """Render markdown as Qt rich text. Always returns escaped, safe HTML."""
     if not text:
         return ""
-    text = flatten_latex(text)
+    text, slots = flatten_for_render(text)
     lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
     out: list[str] = []
     i = 0
     while i < len(lines):
         line = lines[i]
+        math = _MATH_TOKEN.match(line.strip())
+        if math:
+            idx = int(math.group(1))
+            body = slots[idx] if 0 <= idx < len(slots) else line.strip()
+            out.append(f'<p style="{_style_math()}">{_escape(body)}</p>')
+            i += 1
+            continue
 
         if _FENCE.match(line):
             i, block = _take_code_block(lines, i)
@@ -342,6 +271,7 @@ def _starts_block(lines: list[str], i: int) -> bool:
     line = lines[i]
     return bool(
         _FENCE.match(line)
+        or _MATH_TOKEN.match(line.strip())
         or _RULE.match(line)
         or _HEADING.match(line)
         or _QUOTE.match(line)
@@ -385,7 +315,8 @@ def _take_list(lines: list[str], i: int) -> tuple[int, str]:
         # Qt's default <ul>/<ol> left margin hangs outside the chat bubble and
         # sits left of the "arelis" label — keep markers inside the glass.
         list_style = (
-            'style="margin:4px 0 4px 0; padding-left:18px; margin-left:0;"'
+            f'style="margin:{SPACE["micro"]}px 0 {SPACE["micro"]}px 0; '
+            f'padding-left:{SPACE["plate"]}px; margin-left:0;"'
         )
         if not kinds or indent > indents[-1]:
             kinds.append(kind)

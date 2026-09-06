@@ -75,10 +75,16 @@ class SendEmailTool:
         if not body and attach_raw:
             body = f"Please see the attached file ({Path(attach_raw).name})."
 
-        from arelis.core.email_complete import repair_email_address
+        from arelis.core.email_complete import (
+            _SELF_TO,
+            repair_email_address,
+            strip_it_to_recipient,
+        )
 
-        requested = repair_email_address(str(kwargs.get("to") or ""))
-        if requested:
+        requested = repair_email_address(
+            strip_it_to_recipient(str(kwargs.get("to") or ""))
+        )
+        if requested and requested.lower() not in _SELF_TO:
             to = requested
         else:
             to = self.account.recipient("")

@@ -12,7 +12,7 @@ import random
 from collections.abc import Iterable
 
 from arelis.earth.entity import Coverage, Entity
-from arelis.earth.frames import MEAN_R, WGS84_A, ecef_to_lla, lla_to_ecef
+from arelis.earth.frames import MEAN_R, WGS84_A, ecef_to_geodetic, lla_to_ecef
 from arelis.earth.store import EntityStore
 from arelis.earth.viewshed import attach_viewshed
 
@@ -680,7 +680,7 @@ def advance_live(store: EntityStore, unix: float, dt: float) -> None:
         e.x += e.vx * move
         e.y += e.vy * move
         e.z += e.vz * move
-        lat, lon, _alt = ecef_to_lla(e.x, e.y, e.z)
+        lat, lon, _alt = ecef_to_geodetic(e.x, e.y, e.z)
         e.meta = {**e.meta, "lat": lat, "lon": lon}
 
 

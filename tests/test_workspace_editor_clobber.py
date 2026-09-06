@@ -118,13 +118,17 @@ def test_typing_then_undoing_by_hand_clears_the_dirty_state(panel) -> None:
     assert not panel.has_unsaved_changes()
 
 
-def test_opening_over_unsaved_edits_warns_once_then_obeys(window, tmp_path: Path) -> None:
+def test_opening_over_unsaved_edits_warns_once_then_obeys(
+    window, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The operator's own discard: allowed, but not on the first click.
 
     Opening is the one replacement the operator explicitly asked for, so refusing
     outright would be wrong. Doing it silently is still a data-loss bug, because
     from the outside a click on `open` looks like navigation, not deletion.
     """
+    answers = iter([False, True])
+    monkeypatch.setattr("arelis.ui.dialog.confirm", lambda *a, **k: next(answers))
     (tmp_path / "a.txt").write_text("first file", encoding="utf-8")
     (tmp_path / "b.txt").write_text("second file", encoding="utf-8")
     window._open_file("a.txt")
@@ -133,7 +137,6 @@ def test_opening_over_unsaved_edits_warns_once_then_obeys(window, tmp_path: Path
     window._open_file("b.txt")
 
     assert window.workspace.editor.toPlainText() == "unsaved work"
-    assert "Unsaved changes" in window.said[-1]
 
     window._open_file("b.txt")
 
@@ -141,13 +144,10 @@ def test_opening_over_unsaved_edits_warns_once_then_obeys(window, tmp_path: Path
 
 
 def test_the_open_warning_does_not_carry_to_a_different_file(
-    window, tmp_path: Path
+    window, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Arming is per target, or the second warning gets skipped by accident.
-
-    Confirming a discard into b.txt must not leave c.txt pre-approved, since the
-    operator answered a question about b.txt.
-    """
+    """Cancel on b.txt must not open c.txt without asking again."""
+    monkeypatch.setattr("arelis.ui.dialog.confirm", lambda *a, **k: False)
     (tmp_path / "a.txt").write_text("first file", encoding="utf-8")
     (tmp_path / "b.txt").write_text("second file", encoding="utf-8")
     (tmp_path / "c.txt").write_text("third file", encoding="utf-8")
@@ -158,11 +158,10 @@ def test_the_open_warning_does_not_carry_to_a_different_file(
     window._open_file("c.txt")
 
     assert window.workspace.editor.toPlainText() == "unsaved work"
-    assert "Unsaved changes" in window.said[-1]
 
 
 def test_saving_over_a_file_she_changed_warns_once_then_obeys(
-    window, tmp_path: Path
+    window, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The clobber running the other way, which is the easier one to miss.
 
@@ -170,6 +169,8 @@ def test_saving_over_a_file_she_changed_warns_once_then_obeys(
     revert of her work — and the operator pressing `save` has no way to know the
     file moved underneath them.
     """
+    answers = iter([False, True])
+    monkeypatch.setattr("arelis.ui.dialog.confirm", lambda *a, **k: next(answers))
     target = tmp_path / "notes.txt"
     target.write_text("original", encoding="utf-8")
     window._open_file("notes.txt")
@@ -178,7 +179,6 @@ def test_saving_over_a_file_she_changed_warns_once_then_obeys(
     window._save_file("notes.txt", "original")
 
     assert target.read_text(encoding="utf-8") == "arelis wrote this"
-    assert "changed on disk" in window.said[-1]
 
     window._save_file("notes.txt", "original")
 
@@ -209,3 +209,18 @@ def test_saving_a_new_file_is_not_treated_as_stale(window, tmp_path: Path) -> No
 
     assert (tmp_path / "fresh.txt").read_text(encoding="utf-8") == "brand new"
     assert not any("changed on disk" in line for line in window.said)
+
+
+def test_closing_workspace_with_unsaved_edits_asks(
+    window, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("arelis.ui.dialog.confirm", lambda *a, **k: False)
+    (tmp_path / "notes.txt").write_text("original", encoding="utf-8")
+    window._toggle_workspace(True)
+    window._open_file("notes.txt")
+    window.workspace.editor.setPlainText("unsaved work")
+
+    window._toggle_workspace(False)
+
+    assert window.act_workspace.isChecked()
+    assert window.workspace.editor.toPlainText() == "unsaved work"

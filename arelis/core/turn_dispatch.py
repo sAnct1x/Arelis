@@ -7,6 +7,8 @@ import time
 from types import SimpleNamespace
 from typing import Any
 
+from arelis.attachments import wants_person_identify
+from arelis.browser.walls import is_login_url
 from arelis.contacts import web_search_targets_known_contact
 from arelis.core.agenda_complete import (
     fill_agenda_args,
@@ -24,10 +26,20 @@ from arelis.core.email_complete import (
     fill_send_email_args,
 )
 from arelis.core.events import Event, EventType
-from arelis.core.image_refs import fill_vision_args
-from arelis.core.look import look_call_blocked, vision_question
+from arelis.core.image_refs import (
+    fill_image_edit_args,
+    fill_image_gen_args,
+    fill_vision_args,
+)
+from arelis.core.look import PASTED_IDENTIFY_QUESTION, look_call_blocked, vision_question
+from arelis.core.preflight import looks_like_browser_click_signin
 from arelis.core.read_fanout import should_fanout_reads
-from arelis.core.same_call import already_ran_same_call
+from arelis.core.same_call import (
+    already_ran_same_call,
+    is_browser_nav_call,
+    same_call_finish_line,
+    same_call_key,
+)
 from arelis.core.sms_complete import (
     fill_send_sms_args,
 )
@@ -37,6 +49,7 @@ from arelis.core.tool_subset import web_read_caps
 from arelis.core.turn_confirm import RUN, STOP, confirm_call
 from arelis.core.turn_context import TurnContext
 from arelis.core.turn_execute import execute_call
+from arelis.core.turn_goal import LOGIN_READY_REPLY, browser_open_done_reply
 from arelis.tools.inbox import INBOX_PEEK_ACTIONS, fill_inbox_args
 from arelis.tools.weather import (
     fill_weather_args,
@@ -400,10 +413,12 @@ async def dispatch_calls(
                         history=loop.memory.messages,
                     )
                 if str(args.get("action") or "").strip().lower() == "create":
-                    create_fp = (
-                        f"{str(args.get('provider') or '').strip().lower()}|"
-                        f"{str(args.get('summary') or '').strip().casefold()}|"
-                        f"{str(args.get('start') or '').strip()}"
+                    from arelis.calendar.models import create_fingerprint
+
+                    create_fp = create_fingerprint(
+                        args.get("provider"),
+                        args.get("summary"),
+                        args.get("start"),
                     )
                     if create_fp in agenda_created:
                         notice = (
@@ -418,6 +433,19 @@ async def dispatch_calls(
                         loop._trace.append(f"{name} duplicate create blocked")
                         continue
 
+            if name == "image_edit":
+                args = fill_image_edit_args(
+                    args,
+                    history=loop.memory.messages,
+                    user_text=text,
+                )
+            if name == "image":
+                args = fill_image_gen_args(
+                    args,
+                    history=loop.memory.messages,
+                    user_text=text,
+                )
+
             if name == "vision":
                 args = fill_vision_args(
                     args,
@@ -430,6 +458,10 @@ async def dispatch_calls(
                     )
                     if loop._look.path and not str(args.get("path") or "").strip():
                         args["path"] = loop._look.path
+                elif wants_person_identify(text):
+                    asked = str(args.get("question") or "").strip()
+                    if not asked or asked.lower().startswith("describe"):
+                        args["question"] = PASTED_IDENTIFY_QUESTION
 
             if name == "inbox":
                 inbox = loop.tools.get("inbox")
@@ -618,6 +650,22 @@ async def dispatch_calls(
                 )
                 messages.append(loop._tool_message(name, same_notice))
                 loop._trace.append(f"{name} same call blocked")
+                key = same_call_key(name, args)
+                repeat = bool(key and key in ctx.same_skip_keys)
+                if key:
+                    ctx.same_skip_keys.add(key)
+                stop_open = is_browser_nav_call(name, args) and (
+                    ctx.goal.kind == "browser" or looks_like_browser_click_signin(text)
+                )
+                if repeat or stop_open:
+                    if stop_open and is_login_url(ctx.last_browser_url):
+                        line = LOGIN_READY_REPLY
+                    elif stop_open:
+                        line = browser_open_done_reply(text)
+                    else:
+                        line = same_call_finish_line(name, ctx.last_ok_tool_out)
+                    await loop._finish(line, sources, streamed="")
+                    return True
                 continue
 
             action, summary, call_fp = await confirm_call(

@@ -165,3 +165,23 @@ def test_new_card_placeholders_are_not_people(qt_app, tmp_path) -> None:
             assert "@" not in text
     finally:
         panel.deleteLater()
+
+
+def test_contacts_text_opens_a_chat(qt_app, tmp_path) -> None:
+    path = tmp_path / "contacts.yaml"
+    panel = ContactsPanel(path=path)
+    asked: list[tuple[str, str, str]] = []
+    panel.chat_requested.connect(lambda alias, phone, title: asked.append((alias, phone, title)))
+    try:
+        panel.open_new()
+        panel.name_edit.setText("Alex Carter")
+        panel.title_edit.setText("Coach")
+        panel.phone_edit.setText("5551112222")
+        assert panel.save_card()
+        assert panel.text_btn.isEnabled()
+        panel.text_btn.click()
+        assert asked
+        assert asked[0][0] == "coach"
+        assert "5551112222" in asked[0][1]
+    finally:
+        panel.deleteLater()

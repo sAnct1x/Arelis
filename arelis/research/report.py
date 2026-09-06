@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
+from arelis.mathtext import flatten_latex
 from arelis.paths import outputs_dir, user_data_dir
 
 _SLUG = re.compile(r"[^a-z0-9]+")
@@ -148,5 +149,5 @@ def save_report(
             if not candidate.exists():
                 path = candidate
                 break
-    path.write_text(markdown, encoding="utf-8")
+    path.write_text(flatten_latex(markdown), encoding="utf-8")
     return path

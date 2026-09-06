@@ -151,6 +151,12 @@ def _hide_daily_wander(visible: set[str], expected: set[str]) -> set[str]:
         hide.update(_SMS_WANDER)
         if "weather" not in expected:
             hide.add("weather")
+    # Nickname + body is enough for send_sms. Offering contacts on that
+    # turn is how every Qwen 3.5 size on this card burned a round looking
+    # up "wife" instead of sending. A contacts *ask* still has contacts
+    # in expected and keeps the tool.
+    if "send_sms" in expected and "contacts" not in expected:
+        hide.add("contacts")
     # A look/edit turn must still see those tools even if SMS leaked in.
     if expected & _SEE_NO_SMS_REDIRECT:
         hide -= set(_SEE_NO_SMS_REDIRECT)
@@ -242,6 +248,11 @@ _WRITE_AFTER_PAGE_NOTICE = (
     "You already have tool results. Write the answer in your own words now. "
     "Do not paste the page or the search list. Do not scrape a URL that just "
     "failed. If a page would not load, say so and work from what you have."
+)
+
+_WRITE_AFTER_THINK_NOTICE = (
+    "Your reasoning is done. Write the answer in chat now, in your own words. "
+    "Do not keep outlining. Do not call a tool unless the ask still needs one."
 )
 
 _JS_SHELL_BROWSER_NOTICE = (
@@ -489,6 +500,7 @@ class AgentLoop:
         self.confirm_browser = bool(agent.get("confirm_browser", True))
         self.confirm_vision = bool(agent.get("confirm_vision", True))
         self.confirm_run = bool(agent.get("confirm_run", True))
+        self.ask_is_grant = bool(agent.get("ask_is_grant", True))
         run_tool = self.tools.get("run_script")
         if run_tool is not None:
             run_tool.is_cancelled = is_cancelled
@@ -510,6 +522,9 @@ class AgentLoop:
         self._timer: TurnTimer | None = None
         self._look: LookTurn | None = None
         self._turn_source = "chat"
+        from arelis.browser.live import set_hit_sink
+
+        set_hit_sink(self._on_watch_hit)
 
     async def run(
         self,
@@ -1108,6 +1123,7 @@ class AgentLoop:
         live = _LiveAnswer()
         content_parts: list[str] = []
         tool_calls: list[dict[str, Any]] = []
+        self._last_round_thinking = False
         model = self.router.model_for(role)
         # Hold paint on a real tool round so exactness nudges do not retract
         # a half-streamed answer (H5 / R13). Schemas can still ride a chitchat
@@ -1165,6 +1181,7 @@ class AgentLoop:
             if kind == "thinking":
                 chunk = str(payload)
                 if chunk:
+                    self._last_round_thinking = True
                     await self.bus.publish(
                         Event(EventType.THINKING, {"text": chunk, "stream": True})
                     )
@@ -1404,6 +1421,22 @@ class AgentLoop:
             await asyncio.sleep(0.8)
         raise _StoppedError
 
+    def _on_watch_hit(self, data: dict[str, Any]) -> None:
+        """Background watch hit — STATUS so Drive / notify update after the turn."""
+        line = str(data.get("output") or "Watch hit.")
+        self.bus.publish_nowait(
+            Event(
+                EventType.STATUS,
+                {
+                    "message": line,
+                    "watch_hit": True,
+                    "url": str(data.get("url") or ""),
+                    "title": str(data.get("title") or ""),
+                    "output": line,
+                },
+            )
+        )
+
     async def _cancel_notice(self) -> None:
         """End a stopped turn, keeping whatever was already written.
 
@@ -1414,6 +1447,11 @@ class AgentLoop:
         """
         if self.terminal_sent:
             return
+        browser = self.tools.get("browser")
+        session = getattr(browser, "session", None)
+        cancel = getattr(session, "cancel_watch", None)
+        if callable(cancel):
+            cancel()
         self.terminal_sent = True
         partial = self._painted.strip()
         self._painted = ""

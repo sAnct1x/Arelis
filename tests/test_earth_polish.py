@@ -17,6 +17,7 @@ from arelis.earth.copy import (
     live_chip_label,
     status_sentence,
 )
+from arelis.earth.entity import Entity
 from arelis.earth.frames import lla_to_ecef
 from arelis.earth.goto import suggest
 from arelis.earth.key_paste import missing_picture_keys, save_earth_key
@@ -75,6 +76,7 @@ def test_status_is_a_sentence_without_ecef() -> None:
 def test_enter_note_is_human() -> None:
     assert "ECEF" not in enter_note(live=False, n=12)
     assert "simulated" in enter_note(live=False, n=12)
+    assert "coast" in enter_note(live=False, n=12, snapshot=True)
     assert "live published" in enter_note(live=True, n=12)
     earth = EarthRuntime()
     note = earth.enter(unix=1.0)
@@ -89,10 +91,19 @@ def test_band_phrase_is_distance_not_a_toggle() -> None:
     items = dict(earth_chip_items("space"))
     assert items["band"] == "from space"
     assert items["live"] == "Live off"
+    earth = EarthRuntime()
+    earth.enter(unix=1.0)
+    earth.live = True
+    set_earth(earth)
+    assert dict(earth_chip_items("space"))["live"] == "Live on"
     assert "satellites" in items
     city = dict(earth_chip_items("city"))
     assert city["band"] == "in the city"
     assert "people" in city
+    near = dict(earth_chip_items("near"))
+    assert "tiles" not in near
+    assert "flights" in near
+    assert "satellites" in near
 
 
 def test_live_chip_label() -> None:
@@ -101,10 +112,32 @@ def test_live_chip_label() -> None:
     assert live_chip_label(on=True, busy=True) == "Live …"
 
 
+def test_status_names_a_coast_after_snapshot() -> None:
+    earth = EarthRuntime()
+    earth.enter(unix=1.0)
+    earth.store.upsert(
+        Entity(
+            id="icao:coast",
+            cls="aircraft",
+            layer="flights",
+            label="Coast",
+            x=0.0,
+            y=0.0,
+            z=0.0,
+            freshness="live",
+            source="OpenSky",
+        )
+    )
+    line = status_sentence(earth)
+    assert "coast" in line.lower()
+    assert "Click Live" not in line
+    assert coach_line(earth) is None
+
+
 def test_coach_and_deaf_copy() -> None:
     earth = EarthRuntime()
     earth.enter(unix=1.0)
-    assert "Click Live" in (coach_line(earth) or "")
+    assert "Find a city" in (coach_line(earth) or "")
     earth.live = True
     earth.last_view = EarthView(
         "near",
@@ -171,6 +204,33 @@ def test_inspect_caption_is_english() -> None:
     assert inspect_kind_line("vessels", "simulated") == "ship · drawn, not a live feed"
 
 
+def test_orbital_marks_are_not_nadir_capped() -> None:
+    from arelis.earth.lod import organize
+
+    near = Entity(
+        id="sat:near",
+        cls="satellite",
+        layer="satellites",
+        label="near",
+        x=1.0,
+        y=0.0,
+        z=0.0,
+        meta={"lat": 40.0, "lon": -90.0, "alt": 500_000.0},
+    )
+    far = Entity(
+        id="sat:far",
+        cls="satellite",
+        layer="satellites",
+        label="far",
+        x=1.0,
+        y=0.0,
+        z=0.0,
+        meta={"lat": -40.0, "lon": 90.0, "alt": 500_000.0},
+    )
+    kept = {e.id for e in organize([near, far], EarthView("space", lat=40.0, lon=-90.0))}
+    assert kept == {"sat:near", "sat:far"}
+
+
 def test_mark_hints_and_closed_verbs() -> None:
     names = " ".join(f"{k} {h}" for k, h in MARK_HINTS)
     assert "plane" in names
@@ -205,10 +265,21 @@ def test_plate_find_and_live_click(qt_app, monkeypatch: pytest.MonkeyPatch) -> N
     )
     assert earth.live is True
     open_find(panel)
-    type_find(panel, "Tokyo")
+    assert panel._earth_find_hits == []
+    letter = QKeyEvent(
+        QEvent.Type.KeyPress, Qt.Key.Key_T, Qt.KeyboardModifier.NoModifier, ""
+    )
+    assert panel._earth_key_event(letter) is True
+    assert panel._earth_find_q.lower().startswith("t")
+    type_find(panel, "okyo")
     assert any(h.name == "Tokyo" for h in panel._earth_find_hits)
     assert apply_goto(panel)
     assert panel._place is not None
+    assert panel._place["name"] == "Tokyo"
+    open_find(panel)
+    panel._earth_find_hits = []
+    panel._earth_find_q = "Tokyo"
+    assert apply_goto(panel)
     assert panel._place["name"] == "Tokyo"
     slash = QKeyEvent(
         QEvent.Type.KeyPress, Qt.Key.Key_Slash, Qt.KeyboardModifier.NoModifier, "/"
@@ -217,7 +288,39 @@ def test_plate_find_and_live_click(qt_app, monkeypatch: pytest.MonkeyPatch) -> N
     assert panel._earth_key_event(slash) is True
     assert panel._earth_find_on is True
     assert "/ find" in KEY_HINT_EARTH
+    assert "arrows look" in KEY_HINT_EARTH
+    assert "Enter flies" in KEY_HINT_EARTH
+    assert "click Live" not in KEY_HINT_EARTH
+    assert int(Qt.Key.Key_Return) == 16777220
+    assert int(Qt.Key.Key_Enter) == 16777221
+    assert int(Qt.Key.Key_Backspace) == 16777219
+    assert panel._roster_rect().isEmpty()
     panel.hide()
+
+
+def test_open_find_hoses_cesium(qt_app) -> None:
+    from arelis.ui.earth_find import close_find, open_find
+
+    class _Host:
+        def __init__(self) -> None:
+            self.seen: list[bool] = []
+
+        def push_find(self, on: bool) -> None:
+            self.seen.append(bool(on))
+
+    class _Panel:
+        def __init__(self) -> None:
+            self._globe_host = _Host()
+            self._earth_hud = None
+
+        def update(self) -> None:
+            return None
+
+    panel = _Panel()
+    open_find(panel)
+    assert panel._globe_host.seen == [True]
+    close_find(panel)
+    assert panel._globe_host.seen == [True, False]
 
 
 def test_polish_rubric_is_complete() -> None:
@@ -226,4 +329,14 @@ def test_polish_rubric_is_complete() -> None:
     assert scores["intuitiveness"] == 10.0
     assert scores["visual"] == 10.0
     assert scores["friendly"] == 10.0
-    assert {c.axis for c in CHECKS} == {"intuitiveness", "visual", "friendly"}
+    assert scores["accuracy"] == 10.0
+    assert scores["performance"] == 10.0
+    assert scores["logic"] == 10.0
+    assert {c.axis for c in CHECKS} == {
+        "intuitiveness",
+        "visual",
+        "friendly",
+        "accuracy",
+        "performance",
+        "logic",
+    }

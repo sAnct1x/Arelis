@@ -47,7 +47,7 @@ class MainActivity : ComponentActivity() {
     private var pairFromSettings by mutableStateOf(false)
     private var headline by mutableStateOf("waiting to pair.")
     private var grants by mutableStateOf(
-        GrantState(restrictedHint = true, sms = false, notifications = false, battery = false, camera = false),
+        GrantState(restrictedHint = true, sms = false, people = false, notifications = false, battery = false, camera = false),
     )
     private var paste by mutableStateOf("")
     private var busy by mutableStateOf(false)
@@ -88,6 +88,8 @@ class MainActivity : ComponentActivity() {
     private var personaCache = ""
     private var lastHouse = false
     private var captureFile: File? = null
+    /** Mint a house thread instead of sitting on yesterday's (or the PC's) seat. */
+    private var wantFreshSeat = false
 
     private val scanLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
@@ -98,6 +100,10 @@ class MainActivity : ComponentActivity() {
 
     private val smsPermission = registerForActivityResult(
         ActivityResultContracts.RequestPermission(),
+    ) { refresh() }
+
+    private val peoplePermission = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions(),
     ) { refresh() }
 
     private val notifyPermission = registerForActivityResult(
@@ -148,10 +154,12 @@ class MainActivity : ComponentActivity() {
         prefs = Prefs(this)
         talkQueue = TalkQueue(this)
         pocket = PocketThread(this)
-        val restored = pocket.lines()
-        if (restored.isNotEmpty()) {
-            bubbles = restored.mapIndexed { i, line ->
-                ChatBubble(id = "p$i", role = line.role, text = line.text)
+        if (!maybeOpenFreshDay()) {
+            val restored = pocket.lines()
+            if (restored.isNotEmpty()) {
+                bubbles = restored.mapIndexed { i, line ->
+                    ChatBubble(id = "p$i", role = line.role, text = line.text)
+                }
             }
         }
         gemmaInstall = GemmaInstall(
@@ -216,6 +224,15 @@ class MainActivity : ComponentActivity() {
                         onBack = { stepBack() },
                         onOpenRestricted = { openAppDetails(this) },
                         onGrantSms = { smsPermission.launch(Manifest.permission.SEND_SMS) },
+                        onGrantPeople = {
+                            peoplePermission.launch(
+                                arrayOf(
+                                    Manifest.permission.READ_CONTACTS,
+                                    Manifest.permission.READ_SMS,
+                                ),
+                            )
+                        },
+                        onSharePeople = { shareFrequentPeople() },
                         onOpenNotifications = { openNotificationAccess(this) },
                         onOpenBattery = { openBatterySettings(this) },
                     )
@@ -302,6 +319,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        maybeOpenFreshDay()
         refresh()
         startPoll()
         maybeStartWaitedGemma()
@@ -358,6 +376,15 @@ class MainActivity : ComponentActivity() {
 
     private fun adoptFocus() {
         val c = client() ?: return
+        if (wantFreshSeat) {
+            val minted = runCatching { c.switchChat("new") }.getOrNull() ?: return
+            val id = minted.optJSONObject("chat")?.optString("id").orEmpty()
+            if (id.isBlank()) return
+            prefs.focusChat = id
+            markTalkDay()
+            wantFreshSeat = false
+            return
+        }
         val listed = runCatching { c.listChats() }.getOrNull()
         val chats = mutableListOf<ChatHint>()
         val arr = listed?.optJSONArray("chats")
@@ -435,7 +462,7 @@ class MainActivity : ComponentActivity() {
                         }
                         allow = if (next != null && next.id == dismissedConfirmId) null else next
                     }
-                    if (transcript != null && !busy) {
+                    if (transcript != null && !busy && !wantFreshSeat) {
                         val next = parseBubbles(transcript)
                         if (next.isNotEmpty() || talkQueue.isEmpty()) {
                             bubbles = next
@@ -1065,6 +1092,28 @@ class MainActivity : ComponentActivity() {
         )
     }
 
+    private fun talkToday(): String = talkDayStamp(System.currentTimeMillis())
+
+    private fun markTalkDay() {
+        val today = talkToday()
+        if (today.isNotBlank()) prefs.lastTalkDay = today
+    }
+
+    /** True when this open should land on orbit instead of yesterday's thread. */
+    private fun maybeOpenFreshDay(): Boolean {
+        if (!prefs.paired) return false
+        if (busy) return false
+        if (!shouldOpenFreshChat(prefs.lastTalkDay, talkToday())) return false
+        beginFreshDay()
+        return true
+    }
+
+    private fun beginFreshDay() {
+        markTalkDay()
+        wantFreshSeat = true
+        startPocketChat()
+    }
+
     private fun startPocketChat() {
         chatBusy = false
         chatError = ""
@@ -1075,6 +1124,8 @@ class MainActivity : ComponentActivity() {
         bubbles = emptyList()
         allow = null
         draft = ""
+        gemma.resetTalk()
+        markTalkDay()
         screen = "talk"
     }
 
@@ -1157,6 +1208,8 @@ class MainActivity : ComponentActivity() {
                         roomName = place?.optString("name").orEmpty()
                         roomId = place?.optString("id").orEmpty()
                     }
+                    wantFreshSeat = false
+                    markTalkDay()
                     allow = null
                     screen = "talk"
                 }
@@ -1214,6 +1267,43 @@ class MainActivity : ComponentActivity() {
                 main.post { glancePreview = bytes }
             } catch (exc: Exception) {
                 main.post { error = exc.message ?: "Could not fetch that file." }
+            }
+        }
+    }
+
+    private fun shareFrequentPeople() {
+        if (!prefs.paired) {
+            Toast.makeText(this, "Pair this phone first.", Toast.LENGTH_LONG).show()
+            return
+        }
+        io.execute {
+            try {
+                val people = loadFrequentPeople(this)
+                if (people.isEmpty()) {
+                    main.post {
+                        Toast.makeText(
+                            this,
+                            "No frequent threads yet. Grant people you text, then try again.",
+                            Toast.LENGTH_LONG,
+                        ).show()
+                    }
+                    return@execute
+                }
+                val body = client()?.postFrequentPeople(peopleToJson(people))
+                    ?: throw IllegalStateException("not paired")
+                val added = org.json.JSONObject(body.ifBlank { "{}" }).optJSONArray("added")?.length() ?: 0
+                val updated = org.json.JSONObject(body.ifBlank { "{}" }).optJSONArray("updated")?.length() ?: 0
+                main.post {
+                    Toast.makeText(
+                        this,
+                        "Shared ${people.size}. Added $added, updated $updated.",
+                        Toast.LENGTH_LONG,
+                    ).show()
+                }
+            } catch (exc: Exception) {
+                main.post {
+                    Toast.makeText(this, exc.message ?: "Could not share people.", Toast.LENGTH_LONG).show()
+                }
             }
         }
     }

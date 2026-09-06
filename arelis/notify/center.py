@@ -89,6 +89,44 @@ class Notice:
             return extra
         return self.title
 
+    def preview(self, *, max_chars: int = 120) -> str:
+        """One sentence: who / what / when. Full body stays on the tooltip."""
+        return notice_preview(self, max_chars=max_chars)
+
+
+NoticeAction = Literal["chat", "artifact", "calendar", "tasks", "email", "allow", "none"]
+
+
+@dataclass(frozen=True)
+class NoticeOpen:
+    """Where a click should go. Dismiss only after that surface actually opens."""
+
+    action: NoticeAction
+    dismiss: bool
+
+
+def notice_open(notice: Notice) -> NoticeOpen:
+    """Unread pile only: a click opens the thing, or the row stays until clear."""
+    kind = notice.kind
+    data = notice.data or {}
+    if kind == "sms":
+        return NoticeOpen("chat", True)
+    if kind == "job":
+        path = str(data.get("path") or "").strip()
+        running = not data.get("done") and not data.get("failed")
+        if path:
+            return NoticeOpen("artifact", not running and not notice.sticky)
+        return NoticeOpen("none", False)
+    if kind == "calendar":
+        return NoticeOpen("calendar", True)
+    if kind == "task":
+        return NoticeOpen("tasks", True)
+    if kind == "email":
+        return NoticeOpen("email", True)
+    if kind == "allow":
+        return NoticeOpen("allow", False)
+    return NoticeOpen("none", False)
+
 
 class NotificationCenter:
     """In-process inbox for the open UI session."""
@@ -247,12 +285,16 @@ class NotificationCenter:
         name = (tool or "job").strip() or "job"
         key = f"job:{name}"
         if failed:
-            body = (output or f"{name} failed.").strip()
+            body = _first_sentence(output) or f"{name} failed."
             pill = f"{name} · failed"
             sticky = True
             unread = True
         elif done:
-            body = (output or f"{name} finished.").strip()
+            leaf = _leaf_name(path)
+            if leaf:
+                body = f"{name} finished · {leaf}"
+            else:
+                body = _first_sentence(output) or f"{name} finished."
             pill = f"{name} · ready"
             sticky = False
             unread = True
@@ -445,6 +487,55 @@ def calendar_lead_notices(
                     )
                 )
     return out
+
+
+def notice_preview(notice: Notice, *, max_chars: int = 120) -> str:
+    """Compact who / what / when line for tiles and the overlay card."""
+    title = (notice.title or "").strip()
+    body = _first_sentence(notice.body, max_chars=max_chars)
+    kind = notice.kind
+    when = ""
+    if kind == "calendar":
+        stamp = str((notice.data or {}).get("starts_at") or "").strip()
+        if "T" in stamp:
+            when = stamp.split("T", 1)[1][:5]
+        if body:
+            return body
+        return f"{title} at {when}".strip() if when else title
+    if kind == "sms":
+        who = title or "text"
+        return f"{who} · {body}" if body else who
+    if kind == "email":
+        who = title or "mail"
+        return f"{who} · {body}" if body else who
+    if kind == "job":
+        return body or title
+    if kind == "task":
+        return body or title
+    if kind == "allow":
+        return body or title
+    if body and title and body.casefold() != title.casefold():
+        return f"{title} · {body}"
+    return body or title
+
+
+def _first_sentence(text: str, *, max_chars: int = 120) -> str:
+    raw = " ".join((text or "").split())
+    if not raw:
+        return ""
+    for sep in (". ", "? ", "! "):
+        idx = raw.find(sep)
+        if 0 < idx <= max_chars:
+            return raw[: idx + 1].strip()
+    if len(raw) <= max_chars:
+        return raw
+    cut = raw[:max_chars].rsplit(" ", 1)[0]
+    return (cut or raw[:max_chars]).rstrip(".,;:") + "…"
+
+
+def _leaf_name(path: str) -> str:
+    raw = (path or "").replace("\\", "/").rstrip("/")
+    return raw.rsplit("/", 1)[-1] if raw else ""
 
 
 def new_notice(

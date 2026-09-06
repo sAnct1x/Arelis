@@ -97,6 +97,41 @@ def load_ingest_token(path: Path | None = None) -> str | None:
     return token or None
 
 
+def save_ingest_token(token: str, *, path: Path | None = None) -> str:
+    """Write sms.ingest_token without clobbering the rest of secrets.yaml."""
+    value = (token or "").strip()
+    if not value:
+        raise ValueError("ingest token is empty")
+    path = path or SECRETS_PATH
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        raw = yaml.safe_load(path.read_text(encoding="utf-8")) if path.is_file() else {}
+    except (OSError, yaml.YAMLError):
+        raw = {}
+    if not isinstance(raw, dict):
+        raw = {}
+    block = raw.get("sms")
+    if not isinstance(block, dict):
+        block = {}
+    block["ingest_token"] = value
+    raw["sms"] = block
+    path.write_text(
+        yaml.safe_dump(raw, sort_keys=False, allow_unicode=True),
+        encoding="utf-8",
+    )
+    return value
+
+
+def ensure_ingest_token(*, path: Path | None = None) -> str:
+    """Return the existing token, or mint one and save it."""
+    existing = load_ingest_token(path)
+    if existing:
+        return existing
+    import secrets
+
+    return save_ingest_token(secrets.token_urlsafe(24), path=path)
+
+
 class RecentInboundLog:
     """Ring buffer of announced inbound texts for the inbound_sms tool."""
 
@@ -217,6 +252,7 @@ async def publish_inbound(
     source: str = "notification",
 ) -> bool:
     """Deduplicate, record, publish. Returns True when a new event was published."""
+    from arelis.sms_inbound import inbound_is_stale
     from arelis.sms_media import (
         already_published_recent,
         inbound_fingerprint,
@@ -231,10 +267,12 @@ async def publish_inbound(
         body=msg.body,
         media=msg.media_path or msg.media_url or msg.media_kind,
     )
-    if already_published_recent(fp):
+    if inbound_is_stale(msg) or already_published_recent(fp) or seen.has_fingerprint(fp):
         seen.mark([msg.id])
+        seen.mark_fingerprint(fp)
         return False
     seen.mark([msg.id])
+    seen.mark_fingerprint(fp)
     remember_published(fp)
     payload = msg.as_payload()
     payload["source"] = source
@@ -518,6 +556,7 @@ class InboundIngestServer:
                 if path in {
                     "/inbound/sms",
                     "/inbound/message",
+                    "/inbound/contacts",
                     "/inbound/pair",
                     "/mobile/turn",
                     "/mobile/confirm",
@@ -550,6 +589,26 @@ class InboundIngestServer:
                             body.get("listen_url"),
                         )
                     self._reply(code, body)
+                    return
+                if path == "/inbound/contacts":
+                    from arelis.contacts import merge_phone_people
+
+                    people = data.get("people")
+                    if not isinstance(people, list):
+                        self._reply(400, {"ok": False, "error": "expected people list"})
+                        return
+                    try:
+                        result = merge_phone_people(people)
+                    except Exception as exc:
+                        log.exception("phone people merge failed")
+                        self._reply(500, {"ok": False, "error": str(exc)})
+                        return
+                    log.info(
+                        "Phone people merged added=%s updated=%s",
+                        len(result.get("added") or []),
+                        len(result.get("updated") or []),
+                    )
+                    self._reply(200, result)
                     return
                 if path.startswith("/mobile/"):
                     self._handle_mobile_post(path, data)

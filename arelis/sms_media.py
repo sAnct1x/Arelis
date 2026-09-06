@@ -31,7 +31,8 @@ _PHOTO_BODIES = frozenset(
         "sent an image",
     }
 )
-_URL_RE = re.compile(r"https?://[^\s<>\"']+", re.IGNORECASE)
+_URL_RE = re.compile(r"(?:https?://|www\.)[^\s<>\"']+", re.IGNORECASE)
+_URL_TRAIL = ".,;:)>\"'"
 _recent_fps: deque[tuple[str, float]] = deque(maxlen=200)
 
 
@@ -51,9 +52,17 @@ def looks_like_photo_body(body: str) -> bool:
     return text.startswith("photo") and len(text) < 24
 
 
+def href_for_url(url: str) -> str:
+    """Turn www.example.com into https://www.example.com. Leave http(s) as-is."""
+    raw = (url or "").strip()
+    if raw.lower().startswith("www."):
+        return "https://" + raw
+    return raw
+
+
 def allowed_open_url(url: str) -> bool:
     """http(s) only. file:// and javascript: never become an anchor."""
-    raw = (url or "").strip()
+    raw = href_for_url(url)
     parsed = urlparse(raw)
     scheme = (parsed.scheme or "").lower()
     if scheme not in {"http", "https"}:
@@ -64,15 +73,19 @@ def allowed_open_url(url: str) -> bool:
 
 
 def looks_like_image_url(url: str) -> bool:
-    path = (urlparse(url).path or "").lower()
+    path = (urlparse(href_for_url(url)).path or "").lower()
     return Path(path).suffix in IMAGE_SUFFIXES
+
+
+def _trim_url(raw: str) -> str:
+    return (raw or "").rstrip(_URL_TRAIL)
 
 
 def iter_http_urls(text: str) -> list[str]:
     found: list[str] = []
     for match in _URL_RE.finditer(text or ""):
-        url = match.group(0).rstrip(".,;:)")
-        if url not in found:
+        url = _trim_url(match.group(0))
+        if url and url not in found:
             found.append(url)
     return found
 
@@ -84,11 +97,12 @@ def sms_body_html(text: str) -> str:
     last = 0
     for match in _URL_RE.finditer(raw):
         parts.append(html.escape(raw[last : match.start()]))
-        url = match.group(0).rstrip(".,;:)")
+        url = _trim_url(match.group(0))
         trailing = match.group(0)[len(url) :]
         if allowed_open_url(url):
-            href = html.escape(url, quote=True)
-            parts.append(f'<a href="{href}">{href}</a>')
+            href = html.escape(href_for_url(url), quote=True)
+            label = html.escape(url)
+            parts.append(f'<a href="{href}">{label}</a>')
         else:
             parts.append(html.escape(url))
         parts.append(html.escape(trailing))
@@ -99,6 +113,15 @@ def sms_body_html(text: str) -> str:
 
 def body_needs_rich_text(text: str) -> bool:
     return any(allowed_open_url(url) for url in iter_http_urls(text or ""))
+
+
+def body_is_only_image_url(text: str) -> bool:
+    """True when the whole body is one image URL we can show as a picture."""
+    urls = iter_http_urls(text)
+    if len(urls) != 1 or not looks_like_image_url(urls[0]):
+        return False
+    stripped = _trim_url((text or "").strip())
+    return stripped in {urls[0], href_for_url(urls[0])}
 
 
 def inbox_media_url(row: dict[str, Any]) -> str:
@@ -218,6 +241,7 @@ def fetch_image_url(
     client: Any | None = None,
 ) -> Path | None:
     """Download an image. Public https by default; SMSGate LAN may pass allow_private."""
+    url = href_for_url(url)
     if not allowed_open_url(url):
         return None
     if not allow_private:

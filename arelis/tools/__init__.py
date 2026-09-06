@@ -3,7 +3,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from arelis.calendar.secrets import calendar_connected
 from arelis.llm.ollama import OllamaProvider
 from arelis.llm.router import ModelRouter
 from arelis.location import build_location
@@ -266,21 +265,17 @@ def build_tool_registry(
             # A job the runner cannot email is a job that does nothing.
             if allow_send and tools_cfg.get("schedule", {}).get("enabled", True):
                 registry.register(ScheduleTool())
-    # Agenda: Google/Outlook (+ ICS fallback). Writes need Allow; unattended
-    # jobs do not get this tool (attended=False).
+    # Agenda: local cache always, Google/Outlook when connected. Writes need
+    # Allow; unattended jobs do not get this tool (attended=False).
     #
     # tools.briefing.enabled is still read here. The briefing tool is gone, but
     # that key also stands for "keep the calendar side of the briefing working",
     # and a user who disabled the calendar while leaving briefings on still wants
     # the agenda the digest is built from.
     cal_cfg = tools_cfg.get("calendar") or {}
-    if (
-        attended
-        and (
-            cal_cfg.get("enabled", True)
-            or tools_cfg.get("briefing", {}).get("enabled", True)
-        )
-        and calendar_connected()
+    if attended and (
+        cal_cfg.get("enabled", True)
+        or tools_cfg.get("briefing", {}).get("enabled", True)
     ):
         registry.register(AgendaTool(config))
     # Clipboard read needs a person for the Allow card (privacy).
@@ -371,6 +366,14 @@ def build_tool_registry(
                 launch_command=str(image_cfg.get("launch_command") or ""),
                 launch_cwd=launch_cwd,
                 startup_timeout_s=float(image_cfg.get("startup_timeout_s", 120)),
+                workspace=workspace,
+                checkpoint=str(image_cfg.get("checkpoint") or ""),
+                default_width=int(image_cfg.get("default_width") or 768),
+                default_height=int(image_cfg.get("default_height") or 768),
+                steps=int(image_cfg.get("steps") or 25),
+                cfg=float(image_cfg.get("cfg") or 7.0),
+                sampler=str(image_cfg.get("sampler") or "euler"),
+                default_n=int(image_cfg.get("n") or 1),
             )
         )
     # Deterministic pixel work: no model, no GPU, no network. Registered even
@@ -432,7 +435,9 @@ def build_tool_registry(
             max_snapshot_chars=int(browser_cfg.get("max_snapshot_chars") or 6000),
             max_read_chars=int(browser_cfg.get("max_read_chars") or 3500),
         )
-        registry.register(BrowserTool(session, aliases=aliases))
+        registry.register(
+            BrowserTool(session, aliases=aliases, workspace=workspace)
+        )
     # View-menu tiles. Attended only — there is no window in a job.
     if attended:
         registry.register(TileTool())

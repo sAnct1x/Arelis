@@ -15,6 +15,7 @@ from typing import Any
 
 from arelis.core.claims import ExactnessNeed
 from arelis.core.evidence import EvidenceLedger
+from arelis.core.turn_goal import NONE, TurnGoal
 from arelis.llm.router import ModelRole
 
 
@@ -67,6 +68,7 @@ class TurnContext:
 
     scrape_nudge_used: bool = False
     page_write_nudge_used: bool = False
+    think_write_nudge_used: bool = False
     js_shell_nudge_used: bool = False
     js_shell_url: str = ""
     plan_progress_used: bool = False
@@ -93,7 +95,12 @@ class TurnContext:
     inbox_mutated_ok: bool = False
     inbox_empty_ok: bool = False
     last_browser_snapshot: str = ""
+    last_browser_url: str = ""
     browser_clicked: bool = False
+    browser_login_hop: bool = False
+    browser_screenshot_ok: bool = False
+    vision_ok: bool = False
+    same_skip_keys: set[str] = field(default_factory=set)
     skip_finish_text: str = ""
     agenda_create_ok: bool = False
     evidence_nudge_used: bool = False
@@ -111,11 +118,15 @@ class TurnContext:
     web_search_ok: set[str] = field(default_factory=set)
     page_ok: set[str] = field(default_factory=set)
     same_ok: set[str] = field(default_factory=set)
+    goal: TurnGoal = NONE
+    goal_unlock_used: bool = False
 
     def is_send_path(self, expected_tools: set[str]) -> bool:
         """True when finishing on a compose/send turn must not die on web warrants."""
         return bool(
-            (self.sms_draft is not None and self.sms_draft.complete)
+            self.email_sent_ok
+            or bool(self.sms_sent)
+            or (self.sms_draft is not None and self.sms_draft.complete)
             or (self.email_draft is not None and self.email_draft.complete)
             or "send_sms" in expected_tools
             or "send_email" in expected_tools

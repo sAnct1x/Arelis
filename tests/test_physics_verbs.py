@@ -101,6 +101,29 @@ def test_travel_and_overlay_phrases() -> None:
     assert classify_physics_act("open Reality").verb == "lab"
     assert classify_physics_act("open Reality").page == ""
     assert classify_physics_act("open thinking") is None
+    planes = classify_physics_act("show me the planes")
+    assert planes is not None
+    assert planes.verb == "earth_layer"
+    assert planes.flag == "flights"
+    assert planes.on is True
+    streets = classify_physics_act("turn streets on")
+    assert streets is not None
+    assert streets.flag == "tiles"
+    assert streets.on is True
+    hide = classify_physics_act("hide the planes")
+    assert hide is not None
+    assert hide.flag == "flights"
+    assert hide.on is False
+    look = classify_physics_act("zoom out to space")
+    assert look is not None
+    assert look.verb == "earth_look"
+    assert look.name == "space"
+    assert classify_physics_act("drop into the city").name == "city"
+    assert classify_physics_act("take me down to the streets").name == "street"
+    # Place asks still win over a random noun.
+    tokyo = classify_physics_act("take me to Tokyo")
+    assert tokyo is not None
+    assert tokyo.verb == "goto_earth"
 
 
 def test_take_me_to_a_place_is_closed() -> None:

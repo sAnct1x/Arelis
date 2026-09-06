@@ -41,6 +41,8 @@ def test_impulse_needs_allow() -> None:
     assert not registry.needs_confirm("solar", {"action": "craft"})
     assert not registry.needs_confirm("solar", {"action": "travel", "name": "Earth"})
     assert not registry.needs_confirm("solar", {"action": "lock", "name": "Earth"})
+    assert not registry.needs_confirm("solar", {"action": "body", "name": "Mars"})
+    assert "body" in SolarTool.parameters_schema["properties"]["action"]["enum"]
     assert "load_demo" not in SolarTool.parameters_schema["properties"]["action"]["enum"]
 
 
@@ -359,3 +361,38 @@ async def test_toggle_gravity_and_rejects_unknown_flag() -> None:
     system.apply_overlay("gravity", on=False)
     assert system.overlay.show_gravity is False
     set_system(None)
+
+
+@pytest.mark.asyncio
+async def test_body_reads_lab_catalog_without_a_system() -> None:
+    from arelis.physics.runtime import set_system
+
+    set_system(None)
+    tool = SolarTool()
+    mars = await tool.run(action="body", name="Mars")
+    assert mars.ok, mars.output
+    assert "3389.5 km" in mars.output
+    assert "surface g" in mars.output
+    jup = await tool.run(action="body", name="Jupiter")
+    assert jup.ok, jup.output
+    assert float(jup.data["surface_g_m_s2"]) > 20.0
+
+
+@pytest.mark.asyncio
+async def test_body_adds_live_state_when_lab_is_loaded() -> None:
+    from arelis.physics.demo import sun_and_planet
+    from arelis.physics.engine import rebound_available
+    from arelis.physics.runtime import set_system
+    from arelis.physics.scene import SolarSystem
+
+    if not rebound_available():
+        pytest.skip("REBOUND is not installed")
+    set_system(SolarSystem.from_states(sun_and_planet(), tracers=0))
+    try:
+        tool = SolarTool()
+        earth = await tool.run(action="body", name="Earth")
+        assert earth.ok, earth.output
+        assert earth.data.get("live") is True
+        assert "IAS15" in earth.output or "a " in earth.output
+    finally:
+        set_system(None)

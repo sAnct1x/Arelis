@@ -21,10 +21,16 @@ from arelis.tools.policy import (
 )
 from arelis.tools.safety import redact_secrets
 
-# Placeholder / empty-write args must never reach an Allow card (U7).
+# Template tokens the model uses when it has not filled a real value (U7).
+# Do not match raw "<...>" — that flags comparison text ("<30 Hz ... >30 Hz")
+# and real HTML as placeholders. The 9B then re-emits the same write until
+# max_rounds (a 7-minute homework dump with no answer).
+_PLACEHOLDER_TOKEN = (
+    r"user_phone_number|your_phone|phone_number_here|"
+    r"your_email|user_email|email_here|TODO|TBD|xxx+"
+)
 _PLACEHOLDER_ARG = re.compile(
-    r"(?i)<[^>]*>|\buser_phone_number\b|\byour_phone\b|\bphone_number_here\b|"
-    r"\bTODO\b|\bTBD\b|\bxxx+\b"
+    rf"(?i)<(?:{_PLACEHOLDER_TOKEN})>|\b(?:{_PLACEHOLDER_TOKEN})\b"
 )
 
 
@@ -40,7 +46,10 @@ def confirm_args_blocked(name: str, args: dict[str, Any] | None) -> str | None:
         if not text:
             continue
         if _PLACEHOLDER_ARG.search(text):
-            return f"Placeholder argument {key}={text!r} — fill a real value first."
+            return (
+                f"Placeholder argument {key}={_short(text)!r} "
+                "— fill a real value first."
+            )
     if tool == "workspace" and action == "write":
         content = str(args.get("content") or "")
         if not content.strip():
@@ -148,6 +157,8 @@ class ToolRegistry:
         confirm_browser: bool = True,
         confirm_vision: bool = True,
         confirm_run: bool = True,
+        asked: bool = False,
+        ask_is_grant: bool = True,
     ) -> bool:
         """Decide whether this specific call must go through the confirm card.
 
@@ -176,6 +187,8 @@ class ToolRegistry:
             confirm_browser=confirm_browser,
             confirm_vision=confirm_vision,
             confirm_run=confirm_run,
+            asked=asked,
+            ask_is_grant=ask_is_grant,
         )
 
     def summarize_call(self, name: str, args: dict[str, Any]) -> str:

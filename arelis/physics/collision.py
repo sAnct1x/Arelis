@@ -27,6 +27,24 @@ ATMOSPHERE_M: dict[str, tuple[float, str]] = {
 }
 
 
+# Inspect camera only. Spacecraft / N-body still use stop_radius_m (Karman).
+# City band opens below 40 km AGL; Karman (100 km) made streets unreachable.
+EARTH_INSPECT_MIN_AGL_M = 1_200.0
+
+
+def inspect_stop_m(name: str) -> tuple[float, str]:
+    """Closest the free inspect eye may sit, from body centre."""
+    spec = BODY_BY_NAME.get(name)
+    if spec is None:
+        return 0.0, "unknown body"
+    if name == "Earth":
+        return spec.radius + EARTH_INSPECT_MIN_AGL_M, (
+            "Inspect floor 1.2 km AGL so city / streets / buildings can open. "
+            "Karman stays the catalog stop."
+        )
+    return stop_radius_m(name)
+
+
 def stop_radius_m(name: str) -> tuple[float, str]:
     """Hard stop distance from body centre, plus a one-line citation."""
     spec = BODY_BY_NAME.get(name)

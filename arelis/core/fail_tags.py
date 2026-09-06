@@ -13,7 +13,15 @@ from arelis.core.evidence import classify_fetch_failure, classify_search_failure
 
 _FAIL_TAG = re.compile(r"\[fail:[a-z0-9_]+\]", re.IGNORECASE)
 _REPLAN_TOOLS = frozenset(
-    {"scrape", "web_search", "web_fetch", "send_email", "send_sms", "image"}
+    {
+        "scrape",
+        "web_search",
+        "web_fetch",
+        "research_report",
+        "send_email",
+        "send_sms",
+        "image",
+    }
 )
 _SEND_TOOLS = frozenset({"send_email", "send_sms"})
 
@@ -60,6 +68,13 @@ def tool_fail_replan_notice(
     else:
         tag = "[fail:other]"
 
+    if tool == "research_report":
+        return (
+            f"Tool replan: research_report failed ({tag}). "
+            "Call web_search with a shorter query, then scrape 3–6 distinct "
+            "http(s) URLs. Do not open the same browser URL again. "
+            "Do not invent citations."
+        )
     if tool == "web_search":
         return (
             f"Tool replan: web_search failed ({tag}). "

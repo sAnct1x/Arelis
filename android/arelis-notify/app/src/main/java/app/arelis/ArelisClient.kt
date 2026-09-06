@@ -140,6 +140,19 @@ class ArelisClient(
         return text
     }
 
+    fun postFrequentPeople(people: JSONObject): String {
+        val req = Request.Builder()
+            .url("$baseUrl/inbound/contacts")
+            .header("X-Arelis-Token", token)
+            .header("Content-Type", "application/json")
+            .post(people.toString().toRequestBody(JSON))
+            .build()
+        val (code, bytes, _) = unary(req)
+        val text = String(bytes, Charsets.UTF_8)
+        if (code !in 200..299) throw IllegalStateException("HTTP $code: $text")
+        return text
+    }
+
     fun status(focusChat: String = ""): JSONObject {
         val url = if (focusChat.isBlank()) {
             "$baseUrl/mobile/status"
@@ -394,6 +407,7 @@ class ArelisClient(
                 "/inbound/ping",
                 "/inbound/health",
                 "/inbound/sms",
+                "/inbound/contacts",
                 "/inbound/pair",
                 "/inbound",
                 "/mobile/status",

@@ -175,7 +175,7 @@ def test_legacy_carrier_fields_are_ignored(tmp_path) -> None:
 def test_resolve_sms_target_unknown_alias() -> None:
     err = resolve_sms_target("wife", {})
     assert isinstance(err, str)
-    assert "Unknown contact" in err
+    assert "No number" in err
 
 
 def test_resolve_sms_target_ok() -> None:
@@ -193,8 +193,15 @@ def test_operator_target_accepts_digits_without_a_contact() -> None:
 
 
 def test_agent_target_still_refuses_unknown_names() -> None:
-    err = resolve_sms_target("5551112222", {})
+    err = resolve_sms_target("xyzzy", {})
     assert isinstance(err, str)
+    assert "No number" in err
+
+
+def test_agent_target_accepts_a_number_the_user_typed() -> None:
+    resolved = resolve_sms_target("5551112222", {})
+    assert not isinstance(resolved, str)
+    assert resolved.phone_e164 == "+15551112222"
 
 
 @pytest.mark.asyncio
@@ -599,6 +606,42 @@ contacts:
     assert "wife" in line
     assert "send_sms" not in line
     assert "send_email" not in line
+
+
+def test_merge_phone_people_adds_and_does_not_clobber(tmp_path) -> None:
+    from arelis.contacts import load_contacts, merge_phone_people
+
+    path = _contacts_file(
+        tmp_path,
+        """
+contacts:
+  wife:
+    name: Robin
+    phone: "5551112222"
+  me:
+    name: Sam
+    phone: "5550000000"
+""",
+    )
+    result = merge_phone_people(
+        [
+            {"name": "Robin Hale", "phone": "5551112222"},
+            {"name": "Sam", "phone": "5550000000"},
+            {"name": "Jordan Lee", "phone": "5551113333"},
+            {"name": "short", "phone": "911"},
+        ],
+        path=path,
+    )
+    book = load_contacts(path)
+    assert "wife" in book
+    assert book["wife"].name == "Robin"
+    assert "robin hale" in book["wife"].aliases
+    assert book["me"].name == "Sam"
+    assert "jordan" in book
+    assert book["jordan"].digits == "5551113333"
+    assert "jordan" in result["added"]
+    assert "wife" in result["updated"]
+    assert "me" not in result["added"] + result["updated"]
 
 
 def test_tool_policy_tells_model_to_call_send_sms_not_reask() -> None:

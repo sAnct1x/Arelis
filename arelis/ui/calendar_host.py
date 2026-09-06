@@ -41,6 +41,7 @@ def run_calendar(window, coro, *, ok_status: str = "google · just now") -> None
                 detail=plain_reason(exc),
                 warning=True,
             )
+            _offer_calendar_sign_in(window, str(exc))
             return
         window.calendar.reload()
         window.calendar.set_status(ok_status)
@@ -57,8 +58,14 @@ def kick_calendar_sync(window) -> None:
         return
     from arelis.calendar.secrets import load_calendar_secrets
 
-    if not load_calendar_secrets().any_authorized():
-        window.calendar.set_status("authorize google")
+    secrets = load_calendar_secrets()
+    if not secrets.any_authorized():
+        if secrets.google and secrets.google.configured:
+            window.calendar.set_status("sign in")
+        elif secrets.outlook and secrets.outlook.configured:
+            window.calendar.set_status("sign in")
+        else:
+            window.calendar.set_status("local")
         return
     if not window.loop.is_running():
         return
@@ -84,6 +91,7 @@ def kick_calendar_sync(window) -> None:
                     "calendar_tile",
                     f"Calendar sync stopped: {plain_reason(exc)}",
                 )
+                _offer_calendar_sign_in(window, str(exc))
                 return
             from arelis.ui.notify_host import report_poll_state
 
@@ -101,15 +109,10 @@ def kick_calendar_sync(window) -> None:
             else:
                 err = "; ".join(summary.get("errors") or []) or "sync failed"
                 window.calendar.set_status("sync failed", failed=True)
-                from arelis.ui.dialog import notice
+                from arelis.ui.notify_host import report_poll_state
 
-                notice(
-                    window,
-                    "calendar",
-                    "Could not refresh the calendar.",
-                    detail=err,
-                    warning=True,
-                )
+                report_poll_state(window, "calendar_tile", err)
+                _offer_calendar_sign_in(window, err)
         finally:
             window._calendar_sync_inflight = False
             timer = getattr(window, "_calendar_sync_watchdog", None)
@@ -120,6 +123,88 @@ def kick_calendar_sync(window) -> None:
                     pass
 
     fut.add_done_callback(lambda _f: window._ui_call.emit(done))
+
+
+def _offer_calendar_sign_in(window, detail: str) -> None:
+    from arelis.calendar.auth import is_reauth_error
+
+    if not is_reauth_error(detail):
+        return
+    if getattr(window, "_calendar_auth_offered", False):
+        return
+    window._calendar_auth_offered = True
+    kick_calendar_auth(window)
+
+
+def kick_calendar_auth(window, provider: str = "") -> None:
+    """Open the browser consent page. Everyday path when Google's token dies."""
+    if window._force_quit or window._disposed:
+        return
+    if getattr(window, "_calendar_auth_inflight", False):
+        return
+    from arelis.calendar.secrets import load_calendar_secrets
+
+    secrets = load_calendar_secrets()
+    name = (provider or "").strip().lower()
+    if not name:
+        if secrets.google and secrets.google.configured:
+            name = "google"
+        elif secrets.outlook and secrets.outlook.configured:
+            name = "outlook"
+        else:
+            window.calendar.set_status("calendar not set up", failed=True)
+            return
+    window._calendar_auth_inflight = True
+    window.calendar.set_sign_in_busy(True)
+    window.calendar.set_status("sign in…")
+    if not window.loop.is_running():
+        window._calendar_auth_inflight = False
+        window.calendar.set_sign_in_busy(False)
+        window.calendar.set_status("sign in failed", failed=True)
+        return
+
+    from arelis.calendar.auth import authorize_calendar
+
+    fut = asyncio.run_coroutine_threadsafe(
+        asyncio.to_thread(authorize_calendar, name),
+        window.loop,
+    )
+
+    def done() -> None:
+        try:
+            if getattr(window, "_disposed", False) or getattr(window, "_force_quit", False):
+                return
+            try:
+                result = fut.result()
+            except Exception as exc:
+                window.calendar.set_status("sign in failed", failed=True)
+                from arelis.ui.notify_host import report_poll_state
+
+                report_poll_state(
+                    window,
+                    "calendar_tile",
+                    f"Calendar sign-in stopped: {plain_reason(exc)}",
+                )
+                return
+            if result.ok:
+                window._calendar_auth_offered = False
+                window.calendar.set_status("signed in")
+                kick_calendar_sync(window)
+                return
+            window.calendar.set_status("sign in failed", failed=True)
+            from arelis.ui.notify_host import report_poll_state
+
+            report_poll_state(
+                window,
+                "calendar_tile",
+                result.error or "Calendar sign-in did not finish.",
+            )
+        finally:
+            window._calendar_auth_inflight = False
+            window.calendar.set_sign_in_busy(False)
+
+    fut.add_done_callback(lambda _f: window._ui_call.emit(done))
+
 
 def on_calendar_sync_watchdog(window) -> None:
     if window._force_quit or window._disposed:
@@ -169,19 +254,25 @@ def on_calendar_update(window, payload: dict[str, Any]) -> None:
 def on_calendar_delete(window, event_id: str) -> None:
     from arelis.ui.dialog import confirm
 
-    if not confirm(
-        window,
-        "delete event",
-        "Remove this from Google Calendar?",
-        confirm_text="Delete",
-        destructive=True,
-    ):
-        return
     ev = None
     try:
         ev = calendar_service(window).get(event_id)
     except Exception:
         ev = None
+    cloud = ev.provider if ev and ev.provider in {"google", "outlook"} else ""
+    prompt = (
+        f"Remove this from {cloud} Calendar?"
+        if cloud
+        else "Remove this local event?"
+    )
+    if not confirm(
+        window,
+        "delete event",
+        prompt,
+        confirm_text="Delete",
+        destructive=True,
+    ):
+        return
     run_calendar(
         window,
         calendar_service(window).delete(
@@ -322,6 +413,7 @@ def bind_calendar(window) -> None:
     window.calendar.update_requested.connect(lambda payload: on_calendar_update(window, payload))
     window.calendar.delete_requested.connect(lambda event_id: on_calendar_delete(window, event_id))
     window.calendar.sync_requested.connect(lambda: kick_calendar_sync(window))
+    window.calendar.auth_requested.connect(lambda: kick_calendar_auth(window))
     window.calendar.task_add_requested.connect(
         lambda title, due: on_calendar_task_add(window, title, due)
     )

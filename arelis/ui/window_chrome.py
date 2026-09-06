@@ -43,6 +43,7 @@ from arelis.ui.shortcuts import ShortcutsSheet
 from arelis.ui.stage import paint_atmosphere
 from arelis.ui.theme import (
     GLASS,
+    SHELL,
     THEME_CHOICES,
     active_theme,
     theme_from_config,
@@ -65,10 +66,10 @@ _BUSY_WATCHDOG_MS = 8000
 _THINK_PULSE_MS = 600
 _VOICE_HOTKEY_ECHO_S = 0.12
 
-_PANEL_OUTER = 12
-_PANEL_HALF = 6
-_PANEL_TOP = 12
-_PANEL_BOTTOM = 14
+_PANEL_OUTER = SHELL["outer"]
+_PANEL_HALF = SHELL["half"]
+_PANEL_TOP = SHELL["top"]
+_PANEL_BOTTOM = SHELL["bottom"]
 
 
 

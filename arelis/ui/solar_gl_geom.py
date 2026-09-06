@@ -46,6 +46,7 @@ def uniform_is_int(value: object) -> bool:
     return type(value) is int
 
 _GL_CCW = 0x0901
+_GL_CW = 0x0900
 _FOV_Y = 0.70
 _FAR_M = 4.0e14
 _FB_CAP = 2560
@@ -79,9 +80,9 @@ def projection(fb_w: int, fb_h: int, *, fov_y: float | None = None) -> QMatrix4x
     return proj
 
 
-# view_from_basis has determinant -1 and projection() adds another reflection,
-# so front faces come back round to counter-clockwise.
-FRONT_FACE = _GL_CCW
+# look_basis is now east-right (forward × up). That extra X reflection,
+# plus the clip-Y flip in projection(), leaves front faces clockwise.
+FRONT_FACE = _GL_CW
 
 
 def glow_extent_px(sun_px: float, fb_h: int) -> float:
@@ -98,9 +99,9 @@ def view_from_basis(
 ) -> QMatrix4x4:
     """Eye-space matching Camera.project.
 
-    Rows fx, fy, -fz have det -1, so winding is reversed here and again by the
-    clip-Y flip in projection(). FRONT_FACE carries the net result. Qt lookAt
-    would keep winding and mirror X against the overlay.
+    look_basis is east-right. Rows fx, fy, -fz plus the clip-Y flip in
+    projection() set FRONT_FACE. Do not swap in Qt lookAt — that pair
+    disagrees with the overlay on X.
     """
     return QMatrix4x4(
         fx[0],

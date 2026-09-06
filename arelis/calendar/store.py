@@ -26,7 +26,8 @@ CREATE TABLE IF NOT EXISTS events (
     description TEXT,
     etag TEXT,
     raw_id TEXT NOT NULL,
-    updated_at TEXT NOT NULL
+    updated_at TEXT NOT NULL,
+    sync_state TEXT NOT NULL DEFAULT 'synced'
 );
 CREATE INDEX IF NOT EXISTS idx_events_starts ON events(starts_at);
 CREATE INDEX IF NOT EXISTS idx_events_provider ON events(provider);
@@ -40,7 +41,15 @@ class CalendarStore:
         self._conn = sqlite3.connect(str(self.path))
         self._conn.row_factory = sqlite3.Row
         self._conn.executescript(_SCHEMA)
+        self._migrate()
         self._conn.commit()
+
+    def _migrate(self) -> None:
+        cols = {str(row[1]) for row in self._conn.execute("PRAGMA table_info(events)")}
+        if "sync_state" not in cols:
+            self._conn.execute(
+                "ALTER TABLE events ADD COLUMN sync_state TEXT NOT NULL DEFAULT 'synced'"
+            )
 
     def close(self) -> None:
         self._conn.close()
@@ -70,23 +79,11 @@ class CalendarStore:
                 """
                 INSERT OR REPLACE INTO events (
                     id, provider, calendar_id, summary, starts_at, ends_at,
-                    all_day, location, description, etag, raw_id, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    all_day, location, description, etag, raw_id, updated_at,
+                    sync_state
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (
-                    ev.id,
-                    ev.provider,
-                    ev.calendar_id,
-                    ev.summary,
-                    ev.starts_at.isoformat(),
-                    ev.ends_at.isoformat() if ev.ends_at else None,
-                    1 if ev.all_day else 0,
-                    ev.location,
-                    ev.description,
-                    ev.etag,
-                    ev.raw_id or ev.id,
-                    now,
-                ),
+                _event_row(ev, now, sync_state="synced"),
             )
         self._conn.commit()
         return len(events)
@@ -98,23 +95,31 @@ class CalendarStore:
             """
             INSERT OR REPLACE INTO events (
                 id, provider, calendar_id, summary, starts_at, ends_at,
-                all_day, location, description, etag, raw_id, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                all_day, location, description, etag, raw_id, updated_at,
+                sync_state
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (
-                ev.id,
-                ev.provider,
-                ev.calendar_id,
-                ev.summary,
-                ev.starts_at.isoformat(),
-                ev.ends_at.isoformat() if ev.ends_at else None,
-                1 if ev.all_day else 0,
-                ev.location,
-                ev.description,
-                ev.etag,
-                ev.raw_id or ev.id,
-                now,
-            ),
+            _event_row(ev, now),
+        )
+        self._conn.commit()
+
+    def list_pending(self) -> list[CachedEvent]:
+        rows = self._conn.execute(
+            """
+            SELECT * FROM events
+            WHERE sync_state IN ('pending', 'failed')
+            ORDER BY starts_at ASC
+            """
+        ).fetchall()
+        return [_row_to_event(r) for r in rows]
+
+    def mark_sync_state(self, event_id: str, state: str) -> None:
+        self._conn.execute(
+            """
+            UPDATE events SET sync_state = ?
+            WHERE id = ? OR raw_id = ?
+            """,
+            (state, event_id, event_id),
         )
         self._conn.commit()
 
@@ -165,8 +170,29 @@ class CalendarStore:
         self._conn.commit()
 
 
+def _event_row(
+    ev: CachedEvent, now: str, *, sync_state: str | None = None
+) -> tuple[Any, ...]:
+    return (
+        ev.id,
+        ev.provider,
+        ev.calendar_id,
+        ev.summary,
+        ev.starts_at.isoformat(),
+        ev.ends_at.isoformat() if ev.ends_at else None,
+        1 if ev.all_day else 0,
+        ev.location,
+        ev.description,
+        ev.etag,
+        ev.raw_id or ev.id,
+        now,
+        sync_state if sync_state is not None else (ev.sync_state or "synced"),
+    )
+
+
 def _row_to_event(row: sqlite3.Row) -> CachedEvent:
     ends = row["ends_at"]
+    keys = set(row.keys())
     return CachedEvent(
         id=row["id"],
         provider=row["provider"],
@@ -179,4 +205,5 @@ def _row_to_event(row: sqlite3.Row) -> CachedEvent:
         description=row["description"] or "",
         etag=row["etag"] or "",
         raw_id=row["raw_id"] or row["id"],
+        sync_state=str(row["sync_state"] or "synced") if "sync_state" in keys else "synced",
     )

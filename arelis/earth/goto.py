@@ -80,11 +80,12 @@ def suggest(query: str, zone: Any = None, *, limit: int = 8) -> list[GotoHit]:
             prefix = 3
         kind_order = {
             "home": 0,
-            "continent": 1,
-            "country": 2,
-            "state": 3,
-            "city": 4,
-        }.get(hit.kind, 5)
+            "address": 1,
+            "continent": 2,
+            "country": 3,
+            "state": 4,
+            "city": 5,
+        }.get(hit.kind, 6)
         return (prefix, kind_order, hit.name)
 
     return sorted(hits, key=rank)[:limit]

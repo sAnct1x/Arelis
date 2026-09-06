@@ -69,9 +69,9 @@ _CHIP_SHORT: dict[str, str] = {
     "satellites": "Sats",
     "quakes": "Quakes",
 }
-_CHIP_H = 22
-_CHIP_GAP = 4
-_CHIP_PAD = 8
+_CHIP_H = 24
+_CHIP_GAP = 6
+_CHIP_PAD = 12
 
 
 def earth_chip_items(band: str = "") -> tuple[tuple[str, str], ...]:
@@ -80,9 +80,15 @@ def earth_chip_items(band: str = "") -> tuple[tuple[str, str], ...]:
     from arelis.earth.copy import band_phrase, live_chip_label
 
     label = band_phrase(band) if band else "on Earth"
-    items = [("band", label), ("live", live_chip_label(on=False))]
+    live_on = False
+    try:
+        z = get_earth()
+        live_on = z is not None and bool(getattr(z, "live", False))
+    except Exception:
+        live_on = False
+    items = [("band", label), ("live", live_chip_label(on=live_on))]
     items.append(("grid", "Grid"))
-    if band in {"near", "city", ""}:
+    if band in {"city", ""}:
         items.append(("tiles", "Streets"))
     if band in {"city", ""}:
         items.append(("buildings", "Buildings"))
@@ -211,7 +217,6 @@ def sync_earth_view(panel: Any, system: SolarSystem) -> EarthView | None:
     px_r = panel._true_px(globe.radius, disc[2]) if disc is not None else 0.0
     view = _view_from_panel(panel, system, globe, px_r)
     earth.note_view(view)
-    earth.tick()
     return view
 
 
@@ -233,6 +238,10 @@ def _paint_borders(
     )
 
     if disc is None:
+        return
+    # Albedo / GIBS already read land once the disc fills the plate.
+    # Country rings at Travel standoff were hundreds of projections a frame.
+    if view.band == "space" and view.px_r >= 140.0:
         return
     jd = earth_jd(system)
     origin = (globe.x, globe.y, globe.z)
@@ -469,12 +478,15 @@ def paint_earth(painter: QPainter, panel: Any, system: SolarSystem) -> None:
         _paint_borders(painter, panel, system, globe, disc, view)
     if px_r >= 140.0:
         _paint_places(painter, panel, system, globe, disc, view)
-    if earth.tiles and (px_r > 160.0 or view.band in {"near", "city"}):
+    if earth.tiles and view.band == "city":
         _paint_ground_tiles(
             painter, panel, system, globe, disc, px_r, view, source="osm"
         )
     if earth.buildings and view.band == "city":
         _paint_buildings(painter, panel, system, globe, disc, view)
+    if earth.grid and disc is not None:
+        _paint_lonlat_grid(painter, panel, system, globe, disc, view)
+    _paint_earth_trail(painter, panel, system, globe, disc, earth)
     visible = earth.visible()
     wanted = paint_layers(view.band)
     track = earth.track_id
@@ -775,6 +787,14 @@ def _screen_heading(
     return math.degrees(math.atan2(proj[0] - ix, iy - proj[1]))
 
 
+def _place_in_bbox(lat: float, lon: float, box: LookBBox) -> bool:
+    if lat < box.south or lat > box.north:
+        return False
+    if box.wraps():
+        return lon >= box.west or lon <= box.east
+    return box.west <= lon <= box.east
+
+
 def _paint_places(
     painter: QPainter,
     panel: Any,
@@ -787,15 +807,30 @@ def _paint_places(
 
     if disc is None:
         return
-    found = places_dense() if view.band in {"near", "city"} else places()
+    # Disc size, not band: Travel parks at space altitude with a near-sized disc.
+    dense = view.band in {"approach", "near", "city"} or view.px_r >= 140.0
+    found = list(places_dense() if dense else places())
     if not found:
         return
+    box = view.bbox
+    if box is not None:
+        found = [row for row in found if _place_in_bbox(row[1], row[2], box)]
     jd = earth_jd(system)
     origin = (globe.x, globe.y, globe.z)
     radius = globe.radius
     selected = getattr(panel, "_place", None)
     sel_name = selected.get("name") if isinstance(selected, dict) else ""
-    cap = 12 if view.band == "space" else 24 if view.band == "approach" else 48
+    cap = 24 if view.band == "space" else 56 if view.band == "approach" else 80
+    try:
+        from arelis.earth.gazetteer import home_hit
+
+        home = home_hit()
+    except Exception:
+        home = None
+    if home is not None:
+        found = [(home.name or "home", home.lat, home.lon), *found]
+        if not sel_name:
+            sel_name = home.name or "home"
     ranked = sorted(
         found,
         key=lambda row: (row[1] - view.lat) ** 2
@@ -859,11 +894,14 @@ def _paint_ground_tiles(
     jd = earth_jd(system)
     if source == "gibs":
         zoom = zoom_for_ground(px_r, view.band)
-        radius = 1 if zoom >= 6 else 2
+        radius = 2 if view.band in {"near", "city"} else 1
         opacity = 0.92
     else:
         zoom = zoom_for_disc(px_r, view.band)
-        radius = 1 if px_r < 520.0 or zoom >= 14 else 2
+        if view.band in {"near", "city"} or zoom >= 13:
+            radius = 2
+        else:
+            radius = 1 if px_r < 520.0 else 2
         opacity = 0.70
     drew = False
     for tile in tiles_for_view(
@@ -885,9 +923,6 @@ def _paint_ground_tiles(
             world = ecef_to_ecliptic((globe.x, globe.y, globe.z), ecef_c, jd)
             proj = panel._proj(world)
             if proj is None or proj[2] <= 0:
-                screen = []
-                break
-            if _occulted(proj[0], proj[1], proj[2], disc, globe.radius, panel):
                 screen = []
                 break
             screen.append(QPointF(proj[0], proj[1]))
@@ -913,6 +948,70 @@ def _paint_ground_tiles(
         painter.setOpacity(1.0)
         drew = True
     return drew
+
+
+def _paint_earth_trail(
+    painter: QPainter,
+    panel: Any,
+    system: SolarSystem,
+    globe: Any,
+    disc: tuple[float, float, float] | None,
+    earth: Any,
+) -> None:
+    from arelis.earth.trails import points
+
+    hot = earth.ride_id or earth.track_id
+    if not hot or disc is None:
+        return
+    pts = points(hot)
+    if len(pts) < 2:
+        return
+    jd = earth_jd(system)
+    origin = (globe.x, globe.y, globe.z)
+    screen: list[QPointF] = []
+    for ecef in pts:
+        world = ecef_to_ecliptic(origin, ecef, jd)
+        proj = panel._proj(world)
+        if proj is None or proj[2] <= 0:
+            continue
+        if _occulted(proj[0], proj[1], proj[2], disc, globe.radius, panel):
+            continue
+        screen.append(QPointF(proj[0], proj[1]))
+    if len(screen) < 2:
+        return
+    ink = QColor(color("amber"))
+    ink.setAlpha(160)
+    painter.setPen(QPen(ink, 2))
+    painter.setBrush(Qt.BrushStyle.NoBrush)
+    painter.drawPolyline(QPolygonF(screen))
+
+
+def _paint_lonlat_grid(
+    painter: QPainter,
+    panel: Any,
+    system: SolarSystem,
+    globe: Any,
+    disc: tuple[float, float, float],
+    view: EarthView,
+) -> None:
+    """Meridians and parallels on the native disc. Grid chip, not Cesium."""
+    if view.px_r < 80.0:
+        return
+    jd = earth_jd(system)
+    origin = (globe.x, globe.y, globe.z)
+    rings: list[list[tuple[float, float, float]]] = []
+    step = 30 if view.band in {"space", "approach"} else 20
+    for lon in range(-180, 180, step):
+        rings.append(
+            [lla_to_ecef(float(lat), float(lon), 0.0) for lat in range(-75, 76, 15)]
+        )
+    for lat in range(-60, 61, step):
+        rings.append(
+            [lla_to_ecef(float(lat), float(lon), 0.0) for lon in range(-180, 181, 15)]
+        )
+    ink = QColor(color("dim"))
+    ink.setAlpha(90)
+    _stroke_rings(painter, panel, origin, jd, disc, globe.radius, rings, 1, ink, width=1)
 
 
 def _paint_buildings(

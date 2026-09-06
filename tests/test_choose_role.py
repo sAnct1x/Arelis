@@ -86,6 +86,15 @@ def test_default_role() -> None:
     assert reason == "default"
 
 
+def test_derive_stays_on_fast() -> None:
+    """A homework derivation is not a 32-round research loop."""
+    role, reason = _orch().classify_role(
+        "derive the equation for F=ma. show me how it was derived to begin with."
+    )
+    assert role == "fast"
+    assert reason != "research_hint"
+
+
 def test_weather_is_tool_loop() -> None:
     role, reason = _orch().classify_role("what's the weather today")
     assert role == "fast"

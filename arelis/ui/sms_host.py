@@ -52,6 +52,7 @@ def on_sms_received(window, payload: dict[str, Any]) -> None:
         title=title,
         media_path=msg.media_path,
         media_kind=msg.media_kind,
+        sent_at=msg.time,
     )
     window._alert_if_background()
     _window, state = window.sms_chats.room_state(
@@ -96,12 +97,9 @@ def maybe_voice_sms(window, messages: list[InboundSms]) -> None:
         return
     if window.notify_center.mode("sms") != "voice":
         return
-    known = [m for m in messages if m.contact_alias or m.contact_name]
-    if not known:
-        return
     if window.voice is None or not window.voice.speak_enabled:
         return
-    cue = format_held_inbound_voice_cue(known)
+    cue = format_held_inbound_voice_cue(messages)
     if not cue:
         return
     from arelis.ui.voice_host import arm_speech
@@ -132,35 +130,37 @@ def on_sms_tile_shown(window, alias: str, phone: str) -> None:
     marked = False
     for key in keys:
         notice = window.notify_center.find_group(key)
-        if notice is not None and notice.unread:
-            window.notify_center.mark_read(notice.id)
+        if notice is not None:
+            window.notify_center.dismiss(notice.id)
             marked = True
     if marked:
         _sync_notify(window)
 
 
-def open_sms_chat(window, notice_id: str) -> None:
+def open_sms_chat(window, notice_id: str) -> bool:
     notice = window.notify_center.find(notice_id)
     if notice is None or notice.kind != "sms":
-        return
+        return False
     alias = str(notice.data.get("alias") or "").strip()
     phone = str(notice.data.get("from") or "").strip()
-    window = window.sms_chats.open(
+    chat = window.sms_chats.open(
         alias=alias,
         phone=phone,
         sender=phone,
         title=notice.title,
         seed=seed_bodies(notice),
     )
-    if window is None:
-        window.thinking.append(
-            "No number on that text — cannot open a chat.",
-            kind="status",
-        )
-        return
-    if notice.unread:
-        window.notify_center.mark_read(notice.id)
-        _sync_notify(window)
+    if chat is None:
+        thinking = getattr(window, "thinking", None)
+        if thinking is not None:
+            thinking.append(
+                "No number on that text — cannot open a chat.",
+                kind="status",
+            )
+        return False
+    window.notify_center.dismiss(notice.id)
+    _sync_notify(window)
+    return True
 
 
 def on_sms_tile_send(window, key: str, body: str, alias: str, phone: str) -> None:
@@ -208,8 +208,7 @@ def sms_send_resolved(window, future, key: str) -> None:
 
 
 def on_sms_send_finished(window, key: str, ok: bool, error: str) -> None:
-    if not ok:
-        window.sms_chats.system(key, error or "Send failed.")
+    window.sms_chats.mark_last_out(key, ok=ok, error=error or "")
 
 
 def push_mobile_notice(window, kind: str, title: str, body: str) -> None:

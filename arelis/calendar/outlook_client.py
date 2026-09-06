@@ -28,7 +28,7 @@ class OutlookCalendarClient:
             return self._access
         if not self.creds.refresh_token:
             raise RuntimeError(
-                "Outlook not authorized. Run: arelis --auth-calendar outlook"
+                "Outlook not authorized. Sign in on the calendar tile."
             )
         try:
             import msal
@@ -50,7 +50,7 @@ class OutlookCalendarClient:
             log.warning("Outlook token refresh failed: %s", err)
             raise RuntimeError(
                 f"Outlook token refresh failed: {err}. "
-                "Re-run: arelis --auth-calendar outlook"
+                "Sign in on the calendar tile."
             )
         self._access = str(result["access_token"])
         return self._access

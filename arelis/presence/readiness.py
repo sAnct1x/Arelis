@@ -524,7 +524,7 @@ async def _image_chip(config: dict[str, Any]) -> ReadinessChip:
             "image tool disabled in config.",
         )
     url = str(image_cfg.get("comfy_url") or "http://127.0.0.1:8188").strip()
-    from arelis.tools.comfy_lifecycle import comfy_is_healthy_async
+    from arelis.tools.comfy_lifecycle import comfy_is_healthy_async, discover_comfy
 
     if await comfy_is_healthy_async(url, timeout_s=1.5):
         return ReadinessChip(
@@ -533,15 +533,20 @@ async def _image_chip(config: dict[str, Any]) -> ReadinessChip:
             ChipLevel.OK,
             f"ComfyUI answering at {url}.",
         )
-    auto = bool(image_cfg.get("auto_start", False)) and bool(
-        str(image_cfg.get("launch_cwd") or "").strip()
-    )
-    if auto:
+    launch_cwd = str(image_cfg.get("launch_cwd") or "").strip()
+    found = ""
+    if launch_cwd and bool(image_cfg.get("auto_start", False)):
+        found = launch_cwd
+    elif not launch_cwd:
+        discovered = discover_comfy()
+        if discovered is not None:
+            found = str(discovered)
+    if found:
         return ReadinessChip(
             "image",
             "Image",
             ChipLevel.WARN,
-            f"ComfyUI not running at {url}; the first image starts it.",
+            f"first image starts Comfy at {found}",
         )
     return ReadinessChip(
         "image",

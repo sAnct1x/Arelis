@@ -1,11 +1,22 @@
 from __future__ import annotations
 
-from arelis.ui.theme_tokens import COLORS, FONT_PX, FONTS, GLASS, METRICS, TYPE
+from arelis.ui.theme_tokens import (
+    COLORS,
+    FONT_PX,
+    FONTS,
+    GLASS,
+    METRICS,
+    SPACE,
+    TYPE,
+    control_pad_y,
+)
 
 
 def dock_tab_bar_qss() -> str:
     """Opaque ember tabs. Translucent QSS on a Windows QTabBar shows grey through."""
     c = COLORS
+    s = SPACE
+    pad_y = control_pad_y()
     return f"""
     QTabBar {{
         background: transparent;
@@ -15,8 +26,8 @@ def dock_tab_bar_qss() -> str:
         color: {c['text_dim']};
         border: 1px solid {c['edge']};
         border-radius: 8px;
-        padding: 6px 16px;
-        margin-right: 4px;
+        padding: {pad_y}px {s['plate']}px;
+        margin-right: {s['micro']}px;
         min-width: 52px;
         font-size: 12px;
         letter-spacing: {TYPE['track_mid']};
@@ -39,6 +50,8 @@ def stylesheet() -> str:
     f = FONTS
     m = METRICS
     t = TYPE
+    s = SPACE
+    pad_y = control_pad_y()
     return f"""
     QMainWindow {{
         background: transparent;
@@ -94,7 +107,7 @@ def stylesheet() -> str:
         letter-spacing: {t['track_wide']};
         background: transparent;
         border: none;
-        padding: 0 8px 0 0;
+        padding: 0 {s['gap']}px 0 0;
     }}
     #ChromeTitle:hover {{
         color: {c['accent']};
@@ -105,7 +118,7 @@ def stylesheet() -> str:
         background: transparent;
         border: none;
         border-radius: 6px;
-        padding: 4px 10px;
+        padding: {s['micro']}px {s['gap']}px;
         color: {c['text_dim']};
         font-size: 12px;
     }}
@@ -117,7 +130,7 @@ def stylesheet() -> str:
         background: transparent;
         border: none;
         border-radius: 6px;
-        padding: 2px 8px;
+        padding: {s['hair']}px {s['gap']}px;
         color: {c['text_dim']};
         font-family: {f['mono']};
         font-size: 11px;
@@ -143,7 +156,7 @@ def stylesheet() -> str:
         font-weight: 400;
         letter-spacing: {t['track_heading']};
         background: transparent;
-        padding: 2px 0;
+        padding: {s['hair']}px 0;
     }}
     #SettingsClose, #SettingsMinimize {{
         background: transparent;
@@ -176,7 +189,7 @@ def stylesheet() -> str:
     #SettingsNotifyUrl {{
         color: {c['text']};
         font-family: {f['mono']};
-        padding: 10px 12px;
+        padding: {s['inset']}px {s['inset']}px;
         background: {c['well_soft']};
         border: 1px solid {c['edge_warm']};
         border-radius: 10px;
@@ -190,13 +203,13 @@ def stylesheet() -> str:
         font-size: 13px;
         font-weight: 600;
         background: transparent;
-        padding-top: 6px;
+        padding-top: {pad_y}px;
     }}
     #SettingsFieldLabel {{
         color: {c['text']};
         font-size: 13px;
         background: transparent;
-        padding-right: 8px;
+        padding-right: {s['gap']}px;
     }}
     #SettingsTabs {{
         background: transparent;
@@ -207,7 +220,7 @@ def stylesheet() -> str:
         border-radius: {int(GLASS['radius'])}px;
         background: {c['panel_fill']};
         top: 8px;
-        padding: 8px;
+        padding: {s['gap']}px;
     }}
     #SettingsTabBody {{
         background: {c['panel_fill']};
@@ -221,7 +234,7 @@ def stylesheet() -> str:
         border: 1px solid {c['edge']};
         border-radius: 8px;
         color: {c['text_dim']};
-        padding: 6px 14px;
+        padding: {pad_y}px {s['plate']}px;
         margin-right: 6px;
         min-width: 52px;
     }}
@@ -244,11 +257,11 @@ def stylesheet() -> str:
         border-radius: 8px;
         color: {c['text']};
         outline: none;
-        padding: 4px;
+        padding: {s['micro']}px;
     }}
     #SettingsList::item {{
         color: {c['text']};
-        padding: 6px 8px;
+        padding: {pad_y}px {s['gap']}px;
         border-radius: 6px;
     }}
     #SettingsList::item:selected {{
@@ -275,7 +288,7 @@ def stylesheet() -> str:
     }}
     #SettingsButtons QPushButton {{
         min-width: 72px;
-        padding: 6px 16px;
+        padding: {pad_y}px {s['plate']}px;
         background-color: {c['raised']};
         color: {c['text']};
         border: 1px solid {c['edge_strong']};
@@ -342,7 +355,7 @@ def stylesheet() -> str:
         background-color: transparent;
         border: none;
         border-radius: 0;
-        padding: 1px 8px;
+        padding: 1px {s['gap']}px;
         color: {c['dim']};
         font-size: 10px;
         font-family: {f['mono']};
@@ -372,7 +385,7 @@ def stylesheet() -> str:
         background-color: {c['chip']};
         border: 1px solid {c['edge_soft']};
         border-radius: 9px;
-        padding: 1px 10px;
+        padding: 1px {s['gap']}px;
         min-height: 18px;
         color: {c['warn']};
         font-size: 10px;
@@ -391,7 +404,7 @@ def stylesheet() -> str:
         background-color: {c['chip_solid']};
         border: 1px solid {c['edge_mid']};
         border-radius: 10px;
-        padding: 4px 12px;
+        padding: {s['micro']}px {s['inset']}px;
         color: {c['accent']};
         font-size: 11px;
         font-family: {f['mono']};
@@ -486,7 +499,7 @@ def stylesheet() -> str:
         font-family: {f['mono']};
         letter-spacing: {t['track_wide']};
         background: transparent;
-        padding-bottom: 4px;
+        padding-bottom: {s['micro']}px;
     }}
     #ShortcutsChord {{
         color: {c['accent2']};
@@ -505,13 +518,13 @@ def stylesheet() -> str:
         font-size: 10px;
         font-family: {f['mono']};
         background: transparent;
-        padding-top: 10px;
+        padding-top: {s['inset']}px;
     }}
     #ReadinessSystems {{
         background-color: transparent;
         border: none;
         border-radius: 0;
-        padding: 1px 8px;
+        padding: 1px {s['gap']}px;
         color: {c['dim']};
         font-size: 10px;
         font-family: {f['mono']};
@@ -546,12 +559,12 @@ def stylesheet() -> str:
         background-color: {c['menu_fill']};
         border: 1px solid {c['edge']};
         border-radius: 10px;
-        padding: 4px;
+        padding: {s['micro']}px;
         color: {c['text']};
         font-size: 12px;
     }}
     #ReadinessSystemsMenu::item {{
-        padding: 4px 10px;
+        padding: {s['micro']}px {s['gap']}px;
         border-radius: 0;
         background: transparent;
         color: {c['text_dim']};
@@ -569,7 +582,7 @@ def stylesheet() -> str:
         font-family: {f['mono']};
         letter-spacing: {t['track_idle']};
         background: transparent;
-        padding: 4px 10px 2px 10px;
+        padding: {s['micro']}px {s['gap']}px {s['hair']}px {s['gap']}px;
     }}
     /* Contacts is a hole in the glass on both pages — the people list and the
        card read as one layer of the plate, same as the notifications inbox.
@@ -589,7 +602,7 @@ def stylesheet() -> str:
         background: transparent;
         border: none;
         outline: none;
-        padding: 2px 0;
+        padding: {s['hair']}px 0;
         color: {c['text']};
         font-size: 12px;
         font-family: {f['body']};
@@ -602,13 +615,13 @@ def stylesheet() -> str:
         border: none;
         outline: none;
         border-radius: 10px;
-        padding: 8px 10px;
+        padding: {s['gap']}px {s['inset']}px;
         margin: 1px 0;
         color: {c['text']};
     }}
     #FactsList::item, #ActiveFactsList::item {{
         /* Long facts wrap inside the dock instead of clipping mid-word. */
-        padding: 8px 10px;
+        padding: {s['gap']}px {s['inset']}px;
     }}
     #BrowseList::item:hover, #HistoryList::item:hover, #FactsList::item:hover,
     #ActiveFactsList::item:hover, #DeskList::item:hover,
@@ -639,7 +652,7 @@ def stylesheet() -> str:
         font-weight: 400;
         letter-spacing: {t['track_mid']};
         background: transparent;
-        padding: 0 0 2px 2px;
+        padding: 0 0 {s['hair']}px {s['hair']}px;
     }}
     #CalendarTabs {{
         background: transparent;
@@ -648,7 +661,7 @@ def stylesheet() -> str:
     #CalendarTabs::pane {{
         border: none;
         background: transparent;
-        top: 6px;
+        top: {s['gap']}px;
         padding: 0;
     }}
     #CalendarTabBody, #CalendarTasksPage, #CalendarJobsPage, #CalendarEventSheet {{
@@ -663,8 +676,9 @@ def stylesheet() -> str:
         border: 1px solid {c['edge']};
         border-radius: 8px;
         color: {c['text_dim']};
-        padding: 6px 14px;
-        margin-right: 6px;
+        padding: {pad_y}px {s['plate']}px;
+        margin-right: {s['gap']}px;
+        margin-bottom: {s['micro']}px;
         min-width: 52px;
     }}
     #CalendarTabs QTabBar::tab:hover {{
@@ -683,14 +697,14 @@ def stylesheet() -> str:
         font-family: {f['display']};
         letter-spacing: 0.04em;
         background: transparent;
-        padding: 0 8px;
+        padding: 0 {s['gap']}px;
     }}
     #CalendarDate, #CalendarTime {{
         background-color: {c['well']};
         border: 1px solid {c['edge']};
         border-radius: 8px;
         color: {c['text']};
-        padding: 2px 8px;
+        padding: {s['hair']}px {s['gap']}px;
         font-size: 12px;
         font-family: {f['body']};
         min-height: {m['row'] - 8}px;
@@ -705,11 +719,18 @@ def stylesheet() -> str:
         border-radius: 8px;
         color: {c['text']};
         outline: none;
-        padding: 4px;
+        padding: {s['inset']}px;
     }}
-    #CalendarAgendaList::item, #CalendarTaskList::item, #CalendarJobList::item {{
+    #CalendarAgendaList::item, #CalendarJobList::item {{
         color: {c['text']};
-        padding: 6px 8px;
+        padding: {pad_y}px {s['gap']}px;
+        border-radius: 6px;
+    }}
+    /* Custom row widgets own their pad. QSS item padding here clips
+       the remove button into the next row. */
+    #CalendarTaskList::item {{
+        color: {c['text']};
+        padding: 0;
         border-radius: 6px;
     }}
     #CalendarAgendaList::item:selected,
@@ -733,7 +754,7 @@ def stylesheet() -> str:
         border: 1px solid {c['edge']};
         border-radius: 8px;
         color: {c['text']};
-        padding: 6px 8px;
+        padding: {pad_y}px {s['gap']}px;
         font-size: {FONT_PX}px;
         font-family: {f['body']};
     }}
@@ -756,7 +777,7 @@ def stylesheet() -> str:
         font-size: 12px;
         font-family: {f['body']};
         background: transparent;
-        padding: 0 0 2px 2px;
+        padding: 0 0 {s['hair']}px {s['hair']}px;
         border: none;
     }}
     #HistoryEmpty {{
@@ -764,7 +785,7 @@ def stylesheet() -> str:
         font-size: 12px;
         font-family: {f['body']};
         background: transparent;
-        padding: 28px 12px 12px 12px;
+        padding: {s['stage']}px {s['inset']}px {s['inset']}px {s['inset']}px;
         border: none;
     }}
     #DeskEmpty {{
@@ -772,7 +793,7 @@ def stylesheet() -> str:
         font-size: 13px;
         font-family: {f['body']};
         background: transparent;
-        padding: 0 8px;
+        padding: 0 {s['gap']}px;
         border: none;
     }}
     #DeskEmptyFace {{
@@ -785,14 +806,14 @@ def stylesheet() -> str:
         font-family: {f['display']};
         background: transparent;
         border: none;
-        padding: 0 0 2px 0;
+        padding: 0 0 {s['hair']}px 0;
     }}
     #DeskHint {{
         color: {c['dim']};
         font-size: 12px;
         font-family: {f['body']};
         background: transparent;
-        padding: 0 4px;
+        padding: 0 {s['micro']}px;
         border: none;
     }}
     #DeskPreview {{
@@ -801,7 +822,7 @@ def stylesheet() -> str:
         background-color: transparent;
         border: none;
         color: {c['text']};
-        padding: 8px 2px;
+        padding: {s['gap']}px {s['hair']}px;
     }}
     #SmsChatScroll, #SmsChatThread {{
         background: {c['panel_fill']};
@@ -813,7 +834,7 @@ def stylesheet() -> str:
         background: {c['raised']};
         border: 1px solid {c['edge']};
         border-radius: 10px;
-        padding: 8px 10px;
+        padding: {s['gap']}px {s['inset']}px;
     }}
     #SmsBubbleOut {{
         color: {c['accent2']};
@@ -821,14 +842,14 @@ def stylesheet() -> str:
         background: {c['raised_warm']};
         border: 1px solid {c['edge_mid']};
         border-radius: 10px;
-        padding: 8px 10px;
+        padding: {s['gap']}px {s['inset']}px;
     }}
     #SmsBubbleSys {{
         color: {c['text_dim']};
         font-size: 12px;
         background: transparent;
         border: none;
-        padding: 4px 2px;
+        padding: {s['micro']}px {s['hair']}px;
     }}
     #SmsBubbleIn QLabel, #SmsBubbleOut QLabel {{
         background: transparent;
@@ -836,7 +857,7 @@ def stylesheet() -> str:
         color: inherit;
         padding: 0;
     }}
-    #SmsBubbleIn a, #SmsBubbleOut a {{
+    #SmsBubbleIn a, #SmsBubbleOut a, #SmsBubbleBody a {{
         color: {c['accent']};
         text-decoration: underline;
     }}
@@ -846,7 +867,7 @@ def stylesheet() -> str:
         background: {c['card_fill']};
         border: 1px solid {c['edge']};
         border-radius: 10px;
-        padding: 4px 10px;
+        padding: {s['micro']}px {s['gap']}px;
     }}
     #SmsBubbleImage {{
         background: transparent;
@@ -860,13 +881,13 @@ def stylesheet() -> str:
         background: {c['raised']};
         border: 1px solid {c['edge_mid']};
         border-radius: 8px;
-        padding: 10px 12px;
+        padding: {s['inset']}px {s['inset']}px;
     }}
     #InstrumentSearch {{
         background-color: {c['well']};
         border: 1px solid {c['edge']};
         border-radius: 8px;
-        padding: 5px 8px;
+        padding: {pad_y}px {s['gap']}px;
         color: {c['text']};
         font-size: 12px;
         font-family: {f['body']};
@@ -884,7 +905,7 @@ def stylesheet() -> str:
         background-color: {c['well']};
         border: 1px solid {c['edge']};
         border-radius: 8px;
-        padding: 2px 22px 2px 8px;
+        padding: {s['hair']}px {m['icon'] - 2}px {s['hair']}px {s['gap']}px;
         color: {c['text']};
         font-size: 12px;
         font-family: {f['body']};
@@ -914,7 +935,7 @@ def stylesheet() -> str:
         background-color: {c['button_fill']};
         border: 1px solid {c['edge_mid']};
         border-radius: 8px;
-        padding: 0px 10px;
+        padding: 0 {s['gap']}px;
         color: {c['accent2']};
         font-size: 11px;
         font-family: {f['mono']};
@@ -941,7 +962,7 @@ def stylesheet() -> str:
         background-color: {c['button_fill']};
         border: 1px solid {c['edge_mid']};
         border-radius: 8px;
-        padding: 0px;
+        padding: 0;
         color: {c['accent2']};
         min-width: {m['row'] - 2}px;
         max-width: {m['row'] - 2}px;
@@ -964,7 +985,7 @@ def stylesheet() -> str:
     QDockWidget::title {{
         background: transparent;
         border: none;
-        padding: 0px;
+        padding: 0;
         margin: 0px;
         height: 0px;
     }}
@@ -985,7 +1006,7 @@ def stylesheet() -> str:
         color: {c['text_dim']};
         border: 1px solid {c['edge']};
         border-radius: 8px;
-        padding: 5px 14px;
+        padding: {pad_y}px {s['plate']}px;
         font-size: 11px;
         letter-spacing: {t['track_mid']};
         margin-right: 4px;
@@ -1004,14 +1025,14 @@ def stylesheet() -> str:
         background-color: transparent;
         border: none;
         border-radius: 10px;
-        padding: 10px;
+        padding: {s['inset']}px;
         selection-background-color: {c['selection']};
         font-family: {f['body']};
     }}
     #ChatView {{
         background-color: transparent;
         border: none;
-        padding: 12px 28px 16px 18px;
+        padding: {s['inset']}px {s['stage']}px {s['plate']}px {s['plate']}px;
         font-size: 15px;
         font-weight: {t['body_weight']};
         color: {c['text']};
@@ -1023,14 +1044,14 @@ def stylesheet() -> str:
         font-weight: {t['body_weight']};
         background-color: transparent;
         border: none;
-        padding: 4px 2px;
+        padding: {s['micro']}px {s['hair']}px;
     }}
     #ThinkingFooter {{
         color: {c['dim']};
         font-family: {f['body']};
         font-size: 11px;
         background: transparent;
-        padding: 0 2px 4px 2px;
+        padding: 0 {s['hair']}px {s['micro']}px {s['hair']}px;
         border: none;
     }}
     #Editor {{
@@ -1040,7 +1061,7 @@ def stylesheet() -> str:
         border: none;
         border-radius: 0;
         color: {c['text']};
-        padding: 8px 2px;
+        padding: {s['gap']}px {s['hair']}px;
     }}
     #OutputView {{
         font-family: {f['mono']};
@@ -1050,18 +1071,62 @@ def stylesheet() -> str:
         border-top: 1px solid {c['hairline_faint']};
         border-radius: 0;
         color: {c['text_dim']};
-        padding: 6px 2px;
+        padding: {pad_y}px {s['hair']}px;
     }}
     #WorkspaceImageWell {{
-        border: none;
-        border-radius: 0;
+        border: 1px solid {c['hairline']};
+        border-radius: 8px;
         color: {c['text_dim']};
+        background: {c['inset']};
+        padding: {s['micro']}px;
+    }}
+    #WorkspaceImageCaption {{
+        color: {c['text_dim']};
+        font-size: 12px;
+        font-family: {f['body']};
         background: transparent;
+        border: none;
+        padding: 0;
+    }}
+    #WorkspaceImageStrip {{
+        background: transparent;
+        border: none;
+    }}
+    #WorkspaceImageStrip QScrollBar:horizontal {{
+        background: transparent;
+        height: 4px;
+        margin: 0;
+        border: none;
+    }}
+    #WorkspaceImageStrip QScrollBar::handle:horizontal {{
+        background: {c['rim']};
+        min-width: 24px;
+        border-radius: 2px;
+    }}
+    #WorkspaceImageStrip QScrollBar::add-line:horizontal,
+    #WorkspaceImageStrip QScrollBar::sub-line:horizontal {{
+        width: 0;
+        height: 0;
+        background: transparent;
+    }}
+    #WorkspaceImageThumb {{
+        border: 1px solid {c['hairline_faint']};
+        border-radius: 6px;
+        background: {c['sunk']};
+        padding: 0;
+    }}
+    #WorkspaceImageThumb:hover {{
+        border-color: {c['edge']};
+        background: {c['hover_soft']};
+    }}
+    #WorkspaceImageThumb:checked {{
+        border: 2px solid {c['edge_hot']};
+        background: {c['sunk']};
     }}
     #ComposerInput {{
         background-color: transparent;
         border: none;
-        padding: 6px 4px;
+        padding: {pad_y}px {s['micro']}px;
         border-radius: 0;
         color: {c['text']};
         font-size: 16px;
@@ -1092,7 +1157,7 @@ def stylesheet() -> str:
         font-family: {f['body']};
         font-weight: {t['body_weight']};
         letter-spacing: {t['track_mid']};
-        padding: 2px 6px;
+        padding: {s['hair']}px {pad_y}px;
     }}
     #FilamentFloat:hover {{
         color: {c['accent2']};
@@ -1109,7 +1174,7 @@ def stylesheet() -> str:
         background-color: {c['well']};
         border: 1px solid {c['edge']};
         border-radius: 8px;
-        padding: 5px 10px;
+        padding: {pad_y}px {s['gap']}px;
         color: {c['text']};
         selection-background-color: {c['selection']};
     }}
@@ -1120,7 +1185,7 @@ def stylesheet() -> str:
         background-color: {c['raised']};
         border: 1px solid {c['edge']};
         border-radius: 8px;
-        padding: 4px 12px;
+        padding: {s['micro']}px {s['inset']}px;
         color: {c['text']};
         font-size: 11px;
         font-family: {f['mono']};
@@ -1138,7 +1203,7 @@ def stylesheet() -> str:
         background: transparent;
         border: none;
         border-radius: 0;
-        padding: 3px;
+        padding: {s['micro']}px;
     }}
     #SendButton:hover, #AttachButton:hover,
     #MicButton:hover, #ConversationButton:hover {{
@@ -1160,7 +1225,7 @@ def stylesheet() -> str:
         background: transparent;
         border: 1px solid {c['danger_edge_soft']};
         border-radius: 8px;
-        padding: 2px 10px;
+        padding: {s['hair']}px {s['gap']}px;
         color: {c['danger']};
         font-family: {f['mono']};
         font-size: 11px;
@@ -1186,7 +1251,7 @@ def stylesheet() -> str:
         background: transparent;
         border: none;
         border-radius: 0;
-        padding: 2px 6px;
+        padding: {s['hair']}px {pad_y}px;
         color: {c['dim']};
         font-family: {f['body']};
         font-size: 12px;
@@ -1208,7 +1273,7 @@ def stylesheet() -> str:
         background: {c['bg2']};
         border: 1px solid {c['edge_mid']};
         border-radius: 10px;
-        padding: 10px 18px;
+        padding: {s['inset']}px {s['plate']}px;
         color: {c['text']};
         font-family: {f['mono']};
         font-size: 14px;
@@ -1242,7 +1307,7 @@ def stylesheet() -> str:
         background: transparent;
         border: 1px solid {c['edge_mid']};
         border-radius: 8px;
-        padding: 2px 10px;
+        padding: {s['hair']}px {s['gap']}px;
         color: {c['hint']};
         font-family: {f['mono']};
         font-size: 11px;
@@ -1256,7 +1321,7 @@ def stylesheet() -> str:
         background: transparent;
         border: 1px solid {c['edge_strong']};
         border-radius: 8px;
-        padding: 2px 10px;
+        padding: {s['hair']}px {s['gap']}px;
         color: {c['accent']};
         font-family: {f['mono']};
         font-size: 11px;
@@ -1283,14 +1348,14 @@ def stylesheet() -> str:
         background-color: {c['inset']};
         border: 1px solid {c['edge']};
         border-radius: 8px;
-        padding: 6px;
+        padding: {pad_y}px;
     }}
     #ConfirmNote {{
         color: {c['danger']};
         font-size: 11px;
         background: transparent;
     }}
-    #ConfirmAllowTurn {{
+    #ConfirmAllowTurn, #ConfirmAllowAlways {{
         color: {c['text_dim']};
         font-size: 11px;
         spacing: 6px;
@@ -1341,7 +1406,7 @@ def stylesheet() -> str:
         color: {c['text']};
     }}
     QMenu::item {{
-        padding: 6px 14px;
+        padding: {pad_y}px {s['plate']}px;
         border-radius: 6px;
         min-height: 22px;
     }}
@@ -1354,7 +1419,7 @@ def stylesheet() -> str:
         background-color: transparent;
         border: none;
         border-radius: 0;
-        padding: 0px 18px 0px 8px;
+        padding: 0 {s['plate']}px 0 {s['gap']}px;
         color: {c['dim']};
         font-family: {f['mono']};
         font-size: 11px;
@@ -1362,7 +1427,7 @@ def stylesheet() -> str:
     #RoleSelect {{
         min-width: 78px;
         max-width: 96px;
-        padding: 0px 14px 0px 8px;
+        padding: 0 {s['plate']}px 0 {s['gap']}px;
     }}
     QComboBox::drop-down {{
         border: none;
@@ -1382,10 +1447,10 @@ def stylesheet() -> str:
         border: 1px solid {c['edge']};
         border-radius: 8px;
         outline: none;
-        padding: 4px;
+        padding: {s['micro']}px;
     }}
     QComboBox QAbstractItemView::item {{
-        padding: 6px 10px;
+        padding: {pad_y}px {s['gap']}px;
         min-height: 22px;
         border-radius: 6px;
         color: {c['text']};
@@ -1451,7 +1516,7 @@ def stylesheet() -> str:
         background-color: {c['menu_fill']};
         border: 1px solid {c['edge']};
         border-radius: 10px;
-        padding: 4px;
+        padding: {s['micro']}px;
         color: {c['text']};
     }}
     QMenu::item:selected {{
@@ -1467,7 +1532,7 @@ def stylesheet() -> str:
         background-color: {c['bg2']};
         color: {c['text']};
         border: 1px solid {c['edge']};
-        padding: 6px 8px;
+        padding: {pad_y}px {s['gap']}px;
     }}
     /* Composer attachment rail. Tiles paint themselves; QSS must not plate
        them with card_fill — that read as a full-width grey slab on Windows. */
@@ -1535,7 +1600,7 @@ def stylesheet() -> str:
         border: none;
         border-bottom: 1px solid {c['hairline_faint']};
         font-size: {FONT_PX}px;
-        padding: 10px 8px 8px 8px;
+        padding: {s['inset']}px {s['gap']}px {s['gap']}px {s['gap']}px;
         letter-spacing: 0.04em;
         text-decoration: none;
     }}
@@ -1552,7 +1617,7 @@ def stylesheet() -> str:
         font-weight: 400;
         letter-spacing: {t['track_heading']};
         background: transparent;
-        padding: 2px 0;
+        padding: {s['hair']}px 0;
     }}
     #DialogBody {{
         color: {c['text']};
@@ -1576,7 +1641,7 @@ def stylesheet() -> str:
         background: {c['well_soft']};
         border: 1px solid {c['edge_warm']};
         border-radius: 8px;
-        padding: 10px 12px;
+        padding: {s['inset']}px {s['inset']}px;
     }}
     #DialogProgress {{
         background: {c['inset']};
@@ -1594,7 +1659,7 @@ def stylesheet() -> str:
         color: {c['text']};
         font-size: {FONT_PX}px;
         spacing: 10px;
-        padding: 4px 0;
+        padding: {s['micro']}px 0;
         background: transparent;
     }}
     #SetupChoice::indicator {{
@@ -1613,7 +1678,7 @@ def stylesheet() -> str:
         color: {c['text']};
         border: 1px solid {c['edge']};
         border-radius: 8px;
-        padding: 6px 18px;
+        padding: {pad_y}px {s['plate']}px;
         font-size: {FONT_PX}px;
     }}
     #DialogButton:hover, #DialogPrimary:hover {{

@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from arelis.tools.image_copy import image_confirm_headline, image_edit_confirm_headline
 from arelis.tools.safety import redact_secrets
 
 
@@ -68,9 +69,9 @@ def confirm_headline(tool: str, args: dict[str, Any] | None = None) -> str:
         }
         return verbs.get(action, "change memory")
     if name == "image":
-        return "make a picture"
+        return image_confirm_headline(args)
     if name == "image_edit":
-        return "edit this picture"
+        return image_edit_confirm_headline(args)
     if name == "plot":
         leaf = Path(str(args.get("out") or "").replace("\\", "/")).name
         return f"write {leaf}" if leaf else "write a plot"

@@ -4,6 +4,7 @@ import android.app.Notification
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import android.util.Log
+import androidx.core.app.NotificationCompat
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
@@ -31,14 +32,22 @@ class MessagesNotifyService : NotificationListenerService() {
 
         val extras = sbn.notification.extras
         val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString()?.trim().orEmpty()
-        var text = sequenceOf(
-            extras.getCharSequence(Notification.EXTRA_BIG_TEXT),
-            extras.getCharSequence(Notification.EXTRA_TEXT),
-            extras.getCharSequence(Notification.EXTRA_SUB_TEXT),
-        ).mapNotNull { it?.toString()?.trim() }
-            .firstOrNull { it.isNotEmpty() }
-            .orEmpty()
-        val imageJpeg = NotifyPicture.jpegBase64(extras)
+        val styleText = runCatching {
+            NotificationCompat.MessagingStyle
+                .extractMessagingStyleFromNotification(sbn.notification)
+                ?.messages
+                ?.lastOrNull()
+                ?.text
+                ?.toString()
+                .orEmpty()
+        }.getOrDefault("")
+        var text = NotifyCopy.pickBody(
+            styleText = styleText,
+            extraText = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString().orEmpty(),
+            bigText = extras.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString().orEmpty(),
+            subText = extras.getCharSequence(Notification.EXTRA_SUB_TEXT)?.toString().orEmpty(),
+        )
+        val imageJpeg = NotifyPicture.jpegBase64(sbn.notification, this)
 
         if (title.isEmpty() && text.isEmpty() && imageJpeg == null) return
         if (text.isEmpty() && imageJpeg != null) text = "Photo"

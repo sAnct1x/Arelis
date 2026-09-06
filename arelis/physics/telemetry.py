@@ -150,12 +150,12 @@ def _sanitize(key: str, value: Any) -> Any:
         )
     ):
         return "-"
-    if name in {"lat", "lon"}:
+    if name in {"lat", "lon", "pin_lat", "pin_lon"}:
         try:
             return round(float(value), 2)
         except (TypeError, ValueError):
             return value
-    if name in {"alt_m", "alt"}:
+    if name in {"alt_m", "alt", "agl_m", "slant_m", "nadir_m", "mpp"}:
         try:
             return round(float(value), 0)
         except (TypeError, ValueError):

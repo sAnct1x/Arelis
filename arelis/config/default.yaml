@@ -110,6 +110,9 @@ agent:
   # Run a project .py (run_script). Separate from file writes so trusting
   # notes does not auto-run programs. Filament still pauses on voice.
   confirm_run: true
+  # The typed ask is the grant for local work. Send / pay / delete / run_script
+  # still pause. Settings → Allow "ask me everything" turns this off.
+  ask_is_grant: true
   json_fallback: true      # allow the JSON tool protocol when native calling fails
   block_private_urls: true # refuse loopback, private, and link-local targets
   # Per-turn latency to logs/turns.log (and a one-line "timing …" in Thinking).
@@ -343,7 +346,8 @@ tools:
     # an SMSGate block, send_sms is not registered at all. Independent of
     # email. Same confirm gate as send_email.
     #
-    # Named people live in data/contacts.yaml (see data/contacts.example.yaml).
+    # Contacts.yaml is a nickname book (wife, mom), not a whitelist.
+    # A raw number they typed is enough to send or open a thread.
     enabled: true
     # A guard on how much the model can put on somebody's phone in one message,
     # not a protocol limit: the handset splits a long text into segments and the
@@ -534,18 +538,30 @@ tools:
     # trying to launch a program that is not there.
     #
     # When true, a missing ComfyUI server is started for you (needs launch_cwd).
+    # Discovery of a common Comfy folder also starts it; that is not this flag.
     auto_start: false
     # Folder that contains ComfyUI's main.py or a Windows portable root
-    # (run_amd_gpu.bat / python_embeded). Required for auto-start.
+    # (run_amd_gpu.bat / python_embeded). Empty = look at the common roots.
     launch_cwd: ""
+    # Variations per call (1–4). Sequential jobs, different seeds.
+    n: 1
     # Empty = silent python + main.py (venv_directml when run_directml.bat
     # exists beside launch_cwd; else python_embeded). Do not use python_embeded
     # with --directml on AMD — that AV-crashes in torch.cuda.is_available().
     launch_command: ""
     startup_timeout_s: 180
-  # Resize, crop and adjust an image that already exists (Pillow, in-process).
-  # No model and no GPU: these have exactly right answers. Always writes a new
-  # file into outputs/images/ and never modifies the source.
+    # Empty = pick an SDXL checkpoint if Comfy has one, else the first listed,
+    # else v1-5-pruned-emaonly.safetensors. Set to a filename Comfy already has.
+    checkpoint: ""
+    default_width: 768
+    default_height: 768
+    steps: 25
+    cfg: 7.0
+    sampler: euler
+  # Resize, crop, rotate and adjust an image that already exists (Pillow,
+  # in-process). No model and no GPU: these have exactly right answers. Always
+  # writes a new file into outputs/images/ and never modifies the source.
+  # Generative restyle ("make this a watercolor") is tools.image with path=.
   image_edit:
     enabled: true
   # See one image (VL). Attended turns only; unload chat → VL → rewarm fast.

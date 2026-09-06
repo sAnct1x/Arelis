@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
 )
 
 from arelis import __license__, __source_url__, __version__
+from arelis.ui.theme import SPACE, box
 
 # (group, chord, what it does). Grouped in the order a person meets them:
 # talking first, because that is what this app is for.
@@ -93,8 +94,8 @@ class ShortcutsSheet(QDialog):
         self.setModal(False)
 
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(28, 24, 28, 24)
-        outer.setSpacing(18)
+        outer.setContentsMargins(*box("stage"))
+        outer.setSpacing(SPACE["plate"])
 
         title = QLabel("shortcuts")
         title.setObjectName("ShortcutsTitle")
@@ -104,8 +105,8 @@ class ShortcutsSheet(QDialog):
             block = QWidget(self)
             grid = QGridLayout(block)
             grid.setContentsMargins(0, 0, 0, 0)
-            grid.setHorizontalSpacing(20)
-            grid.setVerticalSpacing(6)
+            grid.setHorizontalSpacing(SPACE["stage"])
+            grid.setVerticalSpacing(SPACE["gap"])
 
             heading = QLabel(group.upper())
             heading.setObjectName("ShortcutsGroup")

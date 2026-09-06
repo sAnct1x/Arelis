@@ -17,7 +17,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QResizeEvent
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QSizePolicy, QToolButton, QWidget
 
-from arelis.ui.theme import METRICS
+from arelis.ui.theme import METRICS, SPACE
 from arelis.ui.world_host import should_offer_world
 
 
@@ -65,7 +65,7 @@ class RoomStrip(QWidget):
 
         row = QHBoxLayout(self)
         row.setContentsMargins(0, 0, 0, 0)
-        row.setSpacing(10)
+        row.setSpacing(SPACE["gap"])
 
         self.name = QLabel("")
         self.name.setObjectName("RoomName")

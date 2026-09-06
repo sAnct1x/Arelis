@@ -1273,7 +1273,7 @@ class FilamentChatWindow(QWidget):
         )
         from arelis.ui.glass import GlassFrame, seal_tool_window
         from arelis.ui.icons import window_close_icon
-        from arelis.ui.theme import GLASS, METRICS
+        from arelis.ui.theme import GLASS, METRICS, SPACE, box
 
         seal_tool_window(self, round_corners=True)
         self.setMouseTracking(True)
@@ -1292,8 +1292,8 @@ class FilamentChatWindow(QWidget):
         )
         outer.addWidget(plate)
         root = QVBoxLayout(plate)
-        root.setContentsMargins(14, 8, 10, 12)
-        root.setSpacing(8)
+        root.setContentsMargins(*box("inset", "gap"))
+        root.setSpacing(SPACE["gap"])
         head = QHBoxLayout()
         title = QLabel("chat")
         title.setObjectName("SettingsHeading")

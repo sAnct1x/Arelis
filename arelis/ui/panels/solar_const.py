@@ -15,6 +15,7 @@ from arelis.physics.constants import (
     AU_M,
 )
 from arelis.physics.maps import load_rgb
+from arelis.physics.observe import NOTICE_PX
 from arelis.physics.scene import BodyView
 from arelis.ui.theme import color
 
@@ -27,7 +28,7 @@ _Basis = tuple[
 _FILL = 0.0  # night is vacuum. Pick uses the disc alpha, not a fake fill.
 _GLOBE_MAX = 384  # software sphere; approach, not landing
 _EARTH_GLOBE_MAX = 768  # Earth zone only. Still a drape, not a DEM.
-_IDLE_PX = 0.35  # redraw once the fastest body has moved this far on screen
+_IDLE_PX = NOTICE_PX  # observer floor — physics is not paused below this
 _CLOSE_GLOBE_PX = 48.0  # hide heliocentric orbits once a globe fills the view
 SOLAR_OVERLAY: tuple[tuple[str, str, str], ...] = (
     ("gravity", "G  Gravity", "Newtonian wells + Hill. Sketch, not GR."),
@@ -45,12 +46,12 @@ SOLAR_SPAWN: tuple[tuple[str, str, str], ...] = (
 )
 HELP_HOTKEYS: tuple[str, ...] = (
     "WASD/QE fly  wheel dolly  click inspect  right/dblclick travel  "
-    "Home/R reset  Enter travel  / find on Earth",
+    "Home/R reset  Return travel  / find on Earth",
     "Space pause  1–4 [ ] rate  \\ warp  O orbits  L Lagrange  T trails  "
     "` graphs",
     "G gravity  M magnetic  P wind  ; grid  H this plate  "
     "⋯ Gravity/Magnetic/Wind/Grid + spawn. Spoken flags match. "
-    "Travel to Earth enters the Earth zone. No F.",
+    "Travel to is any body. Enter appears after you arrive at Earth. No F.",
 )
 # Collapsed plate: dim hints plus one real Keys control. H expands KEY_LEGEND.
 # Tokens here must match HELP_HOTKEYS.
@@ -61,7 +62,7 @@ KEY_STRIP: tuple[tuple[str, str], ...] = (
     ("H", "keys"),
 )
 KEY_HINT = "WASD fly · Space pause · click inspect"
-KEY_HINT_EARTH = "WASD fly · / find · click Live"
+KEY_HINT_EARTH = "WASD fly · arrows look · / find · Enter flies"
 KEY_LEGEND: tuple[tuple[str, tuple[tuple[str, str], ...]], ...] = (
     (
         "Move",
@@ -87,7 +88,7 @@ KEY_LEGEND: tuple[tuple[str, tuple[tuple[str, str], ...]], ...] = (
         "Look",
         (
             ("click", "inspect"),
-            ("Enter", "travel"),
+            ("Return", "travel"),
             ("right / dbl", "travel"),
             ("O", "orbits"),
             ("L", "Lagrange"),

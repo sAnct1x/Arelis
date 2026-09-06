@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (
 
 from arelis.ui.glass import Hairline
 from arelis.ui.stage import BLOOM_X, BLOOM_Y
-from arelis.ui.theme import FILAMENT, active_theme, color
+from arelis.ui.theme import FILAMENT, SPACE, active_theme, color
 
 _GHOST_WIDTH = 220
 
@@ -290,7 +290,7 @@ class OrbitIdle(QWidget):
         self._ghosts.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Maximum)
         self._ghost_layout = QVBoxLayout(self._ghosts)
         self._ghost_layout.setContentsMargins(0, 0, 0, 0)
-        self._ghost_layout.setSpacing(20)
+        self._ghost_layout.setSpacing(SPACE["stage"])
 
         self._center = QWidget(self)
         self._center.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
@@ -307,7 +307,7 @@ class OrbitIdle(QWidget):
         # room is left for the ghosts and the readout on either side.
         self.listen_word.setWordWrap(True)
         self.listen_word.setMaximumWidth(300)
-        col.addSpacing(28)
+        col.addSpacing(SPACE["stage"])
         col.addWidget(self.listen_word)
         self.prompt_host = QWidget()
         self.prompt_host.setObjectName("VoidPromptHost")
@@ -327,13 +327,13 @@ class OrbitIdle(QWidget):
         col.addSpacing(8)
         col.addWidget(self.prompt_host, alignment=Qt.AlignmentFlag.AlignHCenter)
         self.idle_hairline = Hairline(width=280)
-        col.addSpacing(18)
+        col.addSpacing(SPACE["plate"])
         col.addWidget(self.idle_hairline, alignment=Qt.AlignmentFlag.AlignHCenter)
         self.voice_host = QWidget()
         self.voice_host.setObjectName("VoidVoiceHost")
         self.voice_host.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         voice_l = QHBoxLayout(self.voice_host)
-        voice_l.setContentsMargins(0, 10, 0, 0)
+        voice_l.setContentsMargins(0, SPACE["gap"], 0, 0)
         voice_l.setSpacing(8)
         voice_l.setAlignment(Qt.AlignmentFlag.AlignHCenter)
         self.voice_host.hide()

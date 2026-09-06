@@ -189,7 +189,7 @@ def _calendar_missing_message(config: dict[str, Any]) -> str:
     raw_path = str(briefing_cfg.get("calendar_path") or "data/calendar.ics").strip()
     return (
         "No calendar data. Authorize Google/Outlook "
-        "(`arelis --auth-calendar …`) or copy `data/calendar.example.ics` to "
+        "(sign in on the calendar tile) or copy `data/calendar.example.ics` to "
         f"`{raw_path}`."
     )
 

@@ -17,7 +17,8 @@ def test_sms_intent_with_body() -> None:
     assert any(h.kind == "sms_send" for h in hints)
     sms = next(h for h in hints if h.kind == "sms_send")
     assert "brian" in sms.nudge.lower()
-    assert "Running 10 minutes late" in sms.nudge
+    assert "send_sms" in sms.nudge
+    assert "number" in sms.nudge.lower()
 
 
 def test_no_false_sms_on_text_me_later() -> None:
@@ -383,6 +384,16 @@ def test_tasks_and_goal_delete_intents() -> None:
     assert signin_ref_from_snapshot(snap) == "e11"
     assert draft_signin_click_args(snap) == {"action": "click", "ref": "e11"}
     assert signin_ref_from_snapshot("elements:\n[e1] a 'Home'\n") is None
+
+    from arelis.core.preflight import looks_like_browser_open_ask
+
+    assert looks_like_browser_open_ask(
+        "go to x.com and take me to the login page if it does not "
+        "automatically sign me in."
+    )
+    assert not looks_like_browser_open_ask(
+        "go to amazon.com and add batteries to cart"
+    )
 
 
 def _expected(text: str) -> set[str]:

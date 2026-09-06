@@ -2,10 +2,10 @@
 
 Explicit exception to local-first: Arelis may hold **calendar** refresh
 tokens so she can read and write Google Calendar and Outlook. Models
-stay local. Writes always wait for allow / deny. Until Google, Outlook,
-or an ICS URL is connected, the agenda tool is not offered and chat
-will say she cannot use the calendar. Ctrl+7 still opens the local
-tile.
+stay local. Writes always wait for allow / deny. She can create events
+on the local tile before anything is connected. Connecting or
+re-authorizing Google / Outlook pushes those pending events in the
+background — no second ask. Ctrl+7 opens the local tile either way.
 
 `data/secrets.yaml` is under your records folder:
 `%LOCALAPPDATA%\Arelis\data` installed, or `data\` in the repository
@@ -22,26 +22,15 @@ from source.
    secret.
 5. Paste into `data/secrets.yaml` under `calendar.google.client_id` /
    `client_secret`.
-6. Sign in from a terminal.
+6. Open the calendar tile (Ctrl+7) and press **sign in**. Arelis
+   opens Google in the browser. Allow access. The refresh token is
+   written into `secrets.yaml`.
 
-Installed:
-
-```powershell
-& "$env:LOCALAPPDATA\Programs\Arelis\Scripts\arelis.cmd" --auth-calendar google
-```
-
-From a source checkout:
-
-```powershell
-cd C:\Users\you\Documents\Arelis
-.\.venv\Scripts\arelis.exe --auth-calendar google
-```
-
-7. Allow access. `refresh_token` is written into `secrets.yaml`.
-
-While the OAuth app is in **Testing**, Google may expire refresh tokens
-after about seven days. Add yourself as a test user, or publish the app
-when you trust the scopes.
+While the OAuth app is in **Testing**, Google expires refresh tokens
+after about seven days of light use. That is expected. The next sync
+or create opens the sign-in again from the tile — do not run a
+terminal command. Publish the Cloud app when you trust the scopes if
+you want tokens that last.
 
 ## Outlook / Microsoft (personal account)
 
@@ -75,9 +64,8 @@ calendar:
     refresh_token: ""
 ```
 
-10. Run `--auth-calendar outlook` the same way as the Google step
-    (installed `arelis.cmd`, or `.\.venv\Scripts\arelis.exe` from a
-    checkout).
+10. Open the calendar tile and press **sign in** (Outlook if Google
+    is not configured).
 
 Sign in with the same personal Microsoft account that owns the Outlook
 calendar.

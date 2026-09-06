@@ -1,14 +1,56 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from arelis.core.context import DEFAULT_CHARS_PER_TOKEN, estimate_tokens
 
+# Stop/Esc used to hide the whole user turn from the next prompt. That kept a
+# cancelled "text my wife" from becoming the next SMS body, but it also erased
+# a cancelled homework dump — she then said the derivation was not in the
+# session while it was still on screen. Sends stay redacted; other asks stay
+# visible and marked stopped.
+_STOPPED_NOTE = (
+    "[Stopped. Visible in chat. Do not resume unless they clearly ask to continue.]"
+)
+_STOPPED_SEND_NOTE = (
+    "[Stopped a send. Do not send it. They cancelled that message.]"
+)
+_PHONE_IN_ASK = re.compile(r"(?:\+?1[-.\s]*)?\b\d{3}[-.\s]*\d{3}[-.\s]*\d{4}\b")
+_SEND_ASK_START = re.compile(
+    r"(?i)^\s*(?:please\s+)?(?:text|sms|imessage|email|mail)\s+"
+)
+_SEND_ASK_VERB = re.compile(
+    r"(?i)\bsend\s+(?:an?\s+)?(?:text|sms|email|mail|message)\b"
+)
+
 # Argument names worth recording in a trace line, most specific first.
 _TRACE_KEYS = ("path", "url", "prompt", "query")
 _MAX_TRACE_TARGET = 80
 _MAX_TRACE_NOTE = 400
+_STOPPED_PREVIEW = 1200
+
+
+def _cancelled_was_send(text: str) -> bool:
+    raw = text or ""
+    if _PHONE_IN_ASK.search(raw):
+        return True
+    if _SEND_ASK_START.search(raw):
+        return True
+    return bool(_SEND_ASK_VERB.search(raw))
+
+
+def _stopped_prompt_content(text: str) -> str:
+    raw = (text or "").strip()
+    if not raw:
+        return ""
+    if _cancelled_was_send(raw):
+        return _STOPPED_SEND_NOTE
+    preview = " ".join(raw.split())
+    if len(preview) > _STOPPED_PREVIEW:
+        preview = preview[: _STOPPED_PREVIEW - 1] + "…"
+    return f"{_STOPPED_NOTE}\n{preview}"
 
 
 class MemorySink(Protocol):
@@ -32,7 +74,8 @@ class ChatMessage:
     # Context-only suffix, never shown in the chat. Used for the tool trace: the
     # model needs to know a file was written, the user already watched it happen.
     note: str = ""
-    # Stop/Esc: keep the bubble in History, hide it from the next model prompt.
+    # Stop/Esc: keep the bubble in History. The next prompt sees a stopped
+    # stub (sends redacted) so a cancelled ask can still be referred to.
     cancelled: bool = False
 
 
@@ -105,7 +148,7 @@ class SessionMemory:
             self.sink.on_message(role, content, note)
 
     def mark_last_user_cancelled(self) -> None:
-        """Tag the latest user turn as dead for the next prompt, keep the bubble."""
+        """Tag the latest user turn stopped. Bubble stays; prompt gets a stub."""
         for message in reversed(self.messages):
             if message.role == "user":
                 message.cancelled = True
@@ -130,6 +173,9 @@ class SessionMemory:
             if m.role == "notice":
                 continue
             if m.cancelled:
+                content = _stopped_prompt_content(m.content)
+                if content:
+                    out.append({"role": m.role, "content": content})
                 continue
             content = m.content
             if include_notes and m.note:

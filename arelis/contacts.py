@@ -477,9 +477,10 @@ def contacts_prompt_line(path: Path | None = None) -> str:
             "read that tool's phone line — do not reuse another alias's email. "
         )
     text += (
-        "If they name someone who is not listed, say so and offer to add them "
-        "with the contacts tool (need a short id and phone; email optional). "
-        "Never invent a phone number or email address."
+        "These aliases are hints. A number they typed is enough to text. "
+        "If they name someone who is not listed and gave no number, ask for "
+        "the number — saving a nickname is optional. Never invent a phone "
+        "number or email address."
     )
     if len(text) > _MAX_CONTACTS_PROMPT_CHARS:
         text = text[: _MAX_CONTACTS_PROMPT_CHARS - 1].rstrip() + "…"
@@ -526,6 +527,109 @@ def find_alias_owner(
         if key in contact.keys:
             return contact
     return None
+
+
+def find_contact_by_phone(
+    phone: str, contacts: dict[str, Contact]
+) -> Contact | None:
+    """Match a live number to a card. Empty phone matches nobody."""
+    digits = normalize_phone(phone)
+    e164 = to_e164(phone)
+    if not digits:
+        return None
+    for contact in contacts.values():
+        if contact.digits and contact.digits == digits:
+            return contact
+        if e164 and contact.e164 and contact.e164 == e164:
+            return contact
+    return None
+
+
+def _unique_alias(stem: str, book: dict[str, Contact]) -> str:
+    base = suggest_alias(name=stem) or "person"
+    if base not in book and find_alias_owner(base, book) is None:
+        return base
+    n = 2
+    while True:
+        cand = f"{base}{n}"
+        if cand not in book and find_alias_owner(cand, book) is None:
+            return cand
+        n += 1
+
+
+def merge_phone_people(
+    rows: list[Any],
+    *,
+    path: Path | None = None,
+    limit: int = 25,
+) -> dict[str, Any]:
+    """Fold frequent phone people into the book. Never clobber a hand-set card.
+
+    Match by number. New people get a slug from their display name. Existing
+    cards keep their alias and number; an empty name can be filled. ``me`` is
+    left alone. The phone is allowed to send a short list, not the whole book.
+    """
+    path = path or CONTACTS_PATH
+    book = load_all_contacts(path)
+    added: list[str] = []
+    updated: list[str] = []
+    skipped = 0
+    seen_digits: set[str] = set()
+    for raw in rows[: max(1, int(limit))]:
+        if not isinstance(raw, dict):
+            skipped += 1
+            continue
+        phone = str(raw.get("phone") or raw.get("number") or "").strip()
+        name = str(raw.get("name") or "").strip()
+        digits = normalize_phone(phone)
+        if len(digits) < 10:
+            skipped += 1
+            continue
+        if digits in seen_digits:
+            continue
+        seen_digits.add(digits)
+        existing = find_contact_by_phone(phone, book)
+        if existing is not None:
+            if existing.alias == "me":
+                continue
+            new_name = existing.name or name
+            extra = list(existing.aliases)
+            label = _norm_key(name)
+            if label and label != _norm_key(existing.alias) and label not in existing.keys:
+                extra.append(label)
+            if new_name == existing.name and tuple(extra) == existing.aliases:
+                continue
+            book[existing.alias] = Contact(
+                alias=existing.alias,
+                name=new_name,
+                phone=existing.phone or phone,
+                digits=existing.digits or digits,
+                email=existing.email,
+                aliases=tuple(extra),
+                title=existing.title,
+                work_phone=existing.work_phone,
+                notes=existing.notes,
+            )
+            updated.append(existing.alias)
+            continue
+        key = _unique_alias(name or digits[-4:], book)
+        book[key] = Contact(
+            alias=key,
+            name=name,
+            phone=to_e164(phone) or phone,
+            digits=digits,
+            aliases=(),
+        )
+        added.append(key)
+    if added or updated:
+        save_contacts(book, path)
+    return {
+        "ok": True,
+        "added": added,
+        "updated": updated,
+        "skipped": skipped,
+        "count": len(added) + len(updated),
+    }
 
 
 def suggest_alias(*, handle: str = "", title: str = "", name: str = "") -> str:

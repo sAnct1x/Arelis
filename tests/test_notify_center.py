@@ -7,10 +7,13 @@ from types import SimpleNamespace
 
 from arelis.contacts import Contact, match_mail_sender
 from arelis.notify.center import (
+    NoticeOpen,
     NotificationCenter,
     calendar_lead_notices,
     load_channels,
     new_notice,
+    notice_open,
+    notice_preview,
 )
 from arelis.notify.sources import due_task_notices
 
@@ -178,6 +181,34 @@ def test_done_research_job_keeps_the_artifact_path() -> None:
     assert "ready" in done.data["pill"]
 
 
+def test_notice_open_routes_by_kind() -> None:
+    sms = new_notice(kind="sms", title="Robin", body="hi")
+    assert notice_open(sms) == NoticeOpen("chat", True)
+    job = new_notice(
+        kind="job",
+        title="research_report",
+        body="ready",
+        data={"path": "C:/tmp/r.md", "done": True},
+    )
+    assert notice_open(job) == NoticeOpen("artifact", True)
+    running = new_notice(
+        kind="job",
+        title="image",
+        body="running",
+        sticky=True,
+        data={"done": False, "failed": False},
+    )
+    assert notice_open(running) == NoticeOpen("none", False)
+    cal = new_notice(kind="calendar", title="standup", body="in 5")
+    assert notice_open(cal) == NoticeOpen("calendar", True)
+    task = new_notice(kind="task", title="milk", body="due")
+    assert notice_open(task) == NoticeOpen("tasks", True)
+    mail = new_notice(kind="email", title="Robin", body="hello")
+    assert notice_open(mail) == NoticeOpen("email", True)
+    allow = new_notice(kind="allow", title="Allow", body="send", sticky=True)
+    assert notice_open(allow) == NoticeOpen("allow", False)
+
+
 def test_job_elapsed_pill() -> None:
     center = NotificationCenter()
     live = center.upsert_job("image", elapsed_s=42)
@@ -207,6 +238,22 @@ def test_due_tasks_once() -> None:
     assert {n.title for n in first} == {"milk", "overdue"}
     again = due_task_notices(rows, today=today, remember=remember)
     assert again == []
+
+
+def test_job_done_preview_is_one_line() -> None:
+    center = NotificationCenter()
+    notice = center.upsert_job(
+        "research_report",
+        done=True,
+        output="A" * 800,
+        path="outputs/research/2026-09-03-grey-alien.md",
+    )
+    assert notice is not None
+    assert "grey-alien.md" in notice.body
+    assert len(notice.body) < 80
+    assert "grey-alien.md" in notice_preview(notice)
+    sms = new_notice(kind="sms", title="Robin", body="i love you baby")
+    assert notice_preview(sms) == "Robin · i love you baby"
 
 
 def test_match_mail_sender_address_only() -> None:

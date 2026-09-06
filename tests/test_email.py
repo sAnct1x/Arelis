@@ -13,6 +13,8 @@ from arelis.mail import (
     explain_smtp_error,
     load_account,
     markdown_to_html,
+    reply_address,
+    save_account,
     valid_address,
 )
 from arelis.tools.base import NEVER_BATCH, ToolRegistry, capability_class, confirm_args_blocked
@@ -75,6 +77,30 @@ def test_the_environment_wins_over_the_file(tmp_path, monkeypatch) -> None:
 def test_a_corrupt_file_does_not_raise(tmp_path) -> None:
     path = _secrets(tmp_path, "email: [this is not a mapping\n")
     assert load_account(path) is None
+
+
+def test_save_account_does_not_clobber_other_secrets(tmp_path, monkeypatch) -> None:
+    monkeypatch.delenv(PASSWORD_ENV, raising=False)
+    path = _secrets(
+        tmp_path,
+        "sms:\n  ingest_token: keep-me\nemail:\n  address: old@example.com\n",
+    )
+    account = save_account(
+        address="new@example.com",
+        app_password="abcd efgh ijkl mnop",
+        path=path,
+    )
+    assert account is not None
+    assert account.address == "new@example.com"
+    assert account.password == "abcdefghijklmnop"
+    raw = path.read_text(encoding="utf-8")
+    assert "keep-me" in raw
+    assert "old@example.com" not in raw
+
+
+def test_reply_address_strips_display_name() -> None:
+    assert reply_address("Robin <robin@example.com>") == "robin@example.com"
+    assert reply_address("robin@example.com") == "robin@example.com"
 
 
 def test_recipient_uses_inbox_not_smtp_from(monkeypatch) -> None:

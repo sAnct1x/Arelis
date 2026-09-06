@@ -520,6 +520,112 @@ def prepare_desktop_gl(env: MutableMapping[str, str]) -> None:
     trace(f"prepare_desktop_gl QT_OPENGL={env.get('QT_OPENGL')}")
 
 
+def earth_gl_cache_key(
+    *,
+    width: int,
+    height: int,
+    eye: tuple[float, float, float],
+    look: tuple[float, float, float],
+    up: tuple[float, float, float],
+    t: float,
+    paused: bool,
+    fov_y: float,
+    inspect: str,
+    extras: tuple = (),
+    t_step: float = 1.0,
+) -> tuple:
+    """FBO key while the ECEF eye is still.
+
+    `_hold_earth_eye` rewrites ecliptic cam for Earth spin. Rounding
+    that xyz busts the cache and forces a 2560 px readback. Bin ECEF
+    at 100 m. Clock step comes from `gl_clock_step_s` — at Travel
+    standoff the terminator is ~0.02 px/s, so the second does not matter.
+    """
+
+    def _bin(p: tuple[float, float, float], step: float = 100.0) -> tuple[int, int, int]:
+        return (
+            round(p[0] / step),
+            round(p[1] / step),
+            round(p[2] / step),
+        )
+
+    if paused or t_step >= 3600.0:
+        sim_t = 0
+    else:
+        step = max(1.0, float(t_step))
+        sim_t = int(float(t) // step)
+    return (
+        int(width),
+        int(height),
+        *_bin(eye),
+        *_bin(look),
+        round(up[0] * 1000.0),
+        round(up[1] * 1000.0),
+        round(up[2] * 1000.0),
+        sim_t,
+        inspect or "",
+        round(float(fov_y), 4),
+        *extras,
+    )
+
+
+def solar_gl_clock_step(panel: object, system: object) -> float:
+    """Finest t-bin the observer needs across every body in frame.
+
+    Orbit and IAU spin share `NOTICE_PX`. Overview dots can sit an hour.
+    A 200 px Jupiter notices its 10-hour day in tens of seconds.
+    """
+    from arelis.physics.attitude import spin_omega_rad_s
+    from arelis.physics.observe import clock_step_s, orbit_px_s, spin_px_s
+    from arelis.physics.star_look import angular_px
+
+    if system is None:
+        return 3600.0
+    cam = getattr(panel, "cam", None)
+    if cam is None:
+        return 3600.0
+    height = int(getattr(panel, "height", lambda: 720)())
+    fov = float(panel._fov_y()) if hasattr(panel, "_fov_y") else 0.6
+    scale = height / 1.4
+    worst = 0.0
+    for p in system.nbody.particles:
+        if getattr(p, "tracer", False):
+            continue
+        dx = p.x - cam.x
+        dy = p.y - cam.y
+        dz = p.z - cam.z
+        depth = math.sqrt(dx * dx + dy * dy + dz * dz)
+        speed = math.sqrt(p.vx * p.vx + p.vy * p.vy + p.vz * p.vz)
+        px_r = angular_px(p.radius, depth, height, fov)
+        worst = max(
+            worst,
+            orbit_px_s(speed_m_s=speed, depth_m=depth, scale=scale),
+            spin_px_s(px_r, spin_omega_rad_s(p.name)),
+        )
+    return clock_step_s(worst)
+
+
+def _earth_lock_scale(
+    panel: object, eye: tuple[float, float, float]
+) -> tuple[float, float]:
+    """Altitude + disc px for the visibility budget. Last view wins."""
+    try:
+        from arelis.earth.runtime import get_earth
+
+        zone = get_earth()
+        view = getattr(zone, "last_view", None) if zone is not None else None
+        if view is not None and float(getattr(view, "px_r", 0.0) or 0.0) > 0.0:
+            return float(view.alt_m), float(view.px_r)
+    except Exception:
+        pass
+    try:
+        from arelis.earth.frames import ecef_to_geodetic
+
+        return float(ecef_to_geodetic(*eye)[2]), 200.0
+    except Exception:
+        return 50_000_000.0, 200.0
+
+
 _ATMO: dict[str, tuple[tuple[float, float, float], float, float]] = {
     # color, radius scale, gain. Thin scattering shell, not a climate model.
     "Earth": ((0.32, 0.55, 1.0), 1.016, 0.40),
@@ -807,6 +913,13 @@ class SolarSpaceView(QOpenGLFunctions):
         vao.release()
 
     def invalidate_maps(self) -> None:
+        if getattr(self, "_parked", False) or self._ctx is None:
+            textures = getattr(self, "_textures", None)
+            if isinstance(textures, dict):
+                textures.clear()
+            self._frame = None
+            self._frame_key = None
+            return
         if self._ctx is not None and self._surface is not None:
             self._ctx.makeCurrent(self._surface)
         for tex in self._textures.values():
@@ -879,19 +992,59 @@ class SolarSpaceView(QOpenGLFunctions):
         panel = self._panel
         system = get_system()
         cam = panel.cam
-        t = 0.0 if system is None or system.paused else round(float(system.t), 2)
+        if system is None or system.paused:
+            t = 0.0
+        else:
+            step = solar_gl_clock_step(panel, system)
+            t = int(float(system.t) // step) * step
         osc = bool(system is not None and system.show_osculating)
+        beads = (
+            osc
+            and system is not None
+            and not system.paused
+            and bool(panel._inspect)
+        )
+        mag = bool(system is not None and system.overlay.show_magnetic)
         if system is None:
             live = 0
-        elif osc:
+        elif beads:
             live = int(time.perf_counter() * 6)
-        elif system.paused:
+        elif system.paused and mag:
             live = int(time.perf_counter() * 3)
         else:
             live = 0
         gyr = 0.0 if system is None else round(float(system.future_gyr), 3)
         grav = bool(system is not None and system.overlay.show_gravity)
         mag = bool(system is not None and system.overlay.show_magnetic)
+        extras = (gyr, osc, grav, mag)
+        pose = getattr(panel, "_earth_cam", None)
+        eye = getattr(pose, "eye", None) if pose is not None else None
+        look = getattr(pose, "look", None) if pose is not None else None
+        up = getattr(pose, "up", None) if pose is not None else None
+        if (
+            isinstance(eye, tuple)
+            and len(eye) >= 3
+            and isinstance(look, tuple)
+            and len(look) >= 3
+            and isinstance(up, tuple)
+            and len(up) >= 3
+        ):
+            from arelis.earth.lod import gl_clock_step_s
+
+            alt_m, px_r = _earth_lock_scale(panel, eye)
+            return earth_gl_cache_key(
+                width=width,
+                height=height,
+                eye=(float(eye[0]), float(eye[1]), float(eye[2])),
+                look=(float(look[0]), float(look[1]), float(look[2])),
+                up=(float(up[0]), float(up[1]), float(up[2])),
+                t=0.0 if system is None else float(system.t),
+                paused=system is None or bool(system.paused),
+                fov_y=panel._fov_y(),
+                inspect=panel._inspect or "",
+                extras=extras,
+                t_step=gl_clock_step_s(alt_m=alt_m, px_r=px_r),
+            )
         return (
             int(width),
             int(height),
@@ -979,9 +1132,13 @@ class SolarSpaceView(QOpenGLFunctions):
                     if not b.tracer and b.kind not in {"probe", "lagrange"}
                 ]
                 bodies.sort(key=lambda b: -self._cam_z(b, eye, fz))
+                skip_sun = self._planet_fills_view(panel, bodies, eye, fz)
                 for body in bodies:
+                    if skip_sun and body.name == "Sun":
+                        continue
                     self._draw_body(panel, body, system, eye, sun_p, view, proj, fz)
-                self._draw_glow(system, eye, sun_p, view, proj, fy, fx)
+                if not skip_sun:
+                    self._draw_glow(system, eye, sun_p, view, proj, fy, fx)
                 self._draw_loops(system, eye, sun_p, view, proj)
                 if system.show_osculating:
                     self._draw_orbits(system, views, eye, fz, view, proj)
@@ -1046,15 +1203,156 @@ class SolarSpaceView(QOpenGLFunctions):
             pass
 
     def park(self) -> None:
-        """Stay off the shared GL context while Chromium owns Earth."""
+        """Destroy the offscreen context for the Earth stay.
+
+        doneCurrent is not enough. Chromium still aborts if a desktop-GL
+        member remains in the Qt share group — Travel to Earth died on
+        the first QWebEngineView after a park-only handoff.
+        """
+        if getattr(self, "_parked", False) and getattr(self, "_ctx", None) is None:
+            return
+        ctx = getattr(self, "_ctx", None)
+        surface = getattr(self, "_surface", None)
+        needs_current = bool(getattr(self, "_textures", None)) or getattr(
+            self, "_fbo", None
+        ) is not None or getattr(self, "_white", None) is not None
+        if (
+            needs_current
+            and ctx is not None
+            and surface is not None
+            and hasattr(ctx, "makeCurrent")
+        ):
+            try:
+                ctx.makeCurrent(surface)
+            except Exception:
+                pass
+        self._forget_gl_objects()
         self.release_current()
         self._parked = True
-        trace("solar GL parked for Earth")
+        self.gl_ok = False
+        self._ctx = None
+        if hasattr(self, "_surface"):
+            self._surface = None
+        if ctx is not None:
+            self._destroy_share_member(ctx)
+        if surface is not None and hasattr(surface, "destroy"):
+            try:
+                surface.destroy()
+            except Exception:
+                pass
+        try:
+            shared = QOpenGLContext.globalShareContext()
+            trace(f"solar GL parked for Earth share_live={shared is not None}")
+        except Exception:
+            trace("solar GL parked for Earth share_live=?")
 
     def unpark(self) -> None:
         self._parked = False
         self._frame_key = None
+        if getattr(self, "_ctx", None) is None and getattr(self, "_panel", None) is not None:
+            self.realize()
         trace("solar GL unparked")
+
+    def _forget_gl_objects(self) -> None:
+        """Drop GPU wrappers so they cannot touch a context we are about to delete."""
+        textures = getattr(self, "_textures", None)
+        if isinstance(textures, dict):
+            for tex in list(textures.values()):
+                destroy = getattr(tex, "destroy", None)
+                if callable(destroy):
+                    try:
+                        destroy()
+                    except Exception:
+                        pass
+            textures.clear()
+        for name in (
+            "_white",
+            "_fbo",
+            "_prog_body",
+            "_prog_star",
+            "_prog_atmo",
+            "_prog_glow",
+            "_prog_line",
+            "_prog_bead",
+            "_sphere_vao",
+            "_lod_vao",
+            "_star_vao",
+            "_glow_vao",
+            "_ring_vao",
+            "_orbit_buf",
+            "_orbit_vao",
+            "_bead_buf",
+            "_bead_vao",
+            "_fill_buf",
+            "_fill_vao",
+            "_mag_buf",
+            "_mag_vao",
+            "_mag_ibo",
+            "_dip_buf",
+            "_dip_vao",
+            "_well_buf",
+            "_well_vao",
+            "_well_ibo",
+            "_tracer_buf",
+            "_tracer_vao",
+            "_loop_buf",
+            "_loop_vao",
+        ):
+            if hasattr(self, name):
+                setattr(self, name, None)
+        keep = getattr(self, "_keep", None)
+        if isinstance(keep, list):
+            keep.clear()
+        for name, value in (
+            ("_sphere_n", 0),
+            ("_lod_n", 0),
+            ("_star_n", 0),
+            ("_ring_n", 0),
+            ("_orbit_n", 0),
+            ("_orbit_cap", 0),
+            ("_bead_cap", 0),
+            ("_fill_cap", 0),
+            ("_mag_n", 0),
+            ("_mag_cap", 0),
+            ("_dip_cap", 0),
+            ("_well_n", 0),
+            ("_well_cap", 0),
+            ("_tracer_cap", 0),
+            ("_loop_cap", 0),
+            ("_orbit_key", None),
+            ("_mag_key", None),
+            ("_well_key", None),
+            ("_orbit_local", None),
+            ("_orbit_scratch", None),
+            ("_mag_local", None),
+            ("_mag_idx", None),
+            ("_dip_local", None),
+            ("_well_local", None),
+            ("_well_idx", None),
+            ("_orbit_built", -1.0e9),
+            ("_orbit_t", -1.0e9),
+            ("_logged_paint", False),
+        ):
+            if hasattr(self, name):
+                setattr(self, name, value)
+
+    def _destroy_share_member(self, ctx: object) -> None:
+        """Delete the C++ context now. deleteLater races the Cesium mount."""
+        try:
+            from shiboken6 import delete, isValid
+
+            if isValid(ctx):
+                delete(ctx)
+                trace("solar GL context destroyed")
+                return
+        except Exception:
+            pass
+        late = getattr(ctx, "deleteLater", None)
+        if callable(late):
+            try:
+                late()
+            except Exception:
+                pass
 
     def _unbind(self) -> None:
         for vao in (
@@ -1111,6 +1409,24 @@ class SolarSpaceView(QOpenGLFunctions):
             + (body.y - eye[1]) * fz[1]
             + (body.z - eye[2]) * fz[2]
         )
+
+    def _planet_fills_view(self, panel, bodies, eye, fz) -> bool:
+        """True when the inspect globe owns the frame — hide the distant Sun speck."""
+        name = getattr(panel, "_inspect", None)
+        if getattr(panel, "_earth_zone_on", lambda: False)():
+            name = "Earth"
+        if not name or name == "Sun":
+            return False
+        body = next((row for row in bodies if row.name == name), None)
+        if body is None:
+            return False
+        depth = abs(self._cam_z(body, eye, fz))
+        if depth < 1.0:
+            return False
+        from arelis.physics.star_look import angular_px
+
+        px = angular_px(body.radius, depth, self._fb_h, panel._fov_y())
+        return px >= 48.0
 
     def _draw_stars(self, view: QMatrix4x4, proj: QMatrix4x4) -> None:
         if self._prog_star is None or self._star_vao is None:
@@ -1518,7 +1834,7 @@ class SolarSpaceView(QOpenGLFunctions):
         self._loop_vao.release()
         self._prog_line.release()
 
-    def _orbit_drawn(self, views, eye, fz):
+    def _orbit_drawn(self, system, views, eye, fz):
         inspect = self._panel._inspect
         close = False
         if inspect:
@@ -1526,6 +1842,8 @@ class SolarSpaceView(QOpenGLFunctions):
             if host is not None:
                 depth = max(self._cam_z(host, eye, fz), 1.0)
                 close = self._panel._true_px(host.radius, depth) >= 48.0
+        if system.is_placeholder_ic() and not inspect:
+            return []
         return [
             b
             for b in views
@@ -1534,6 +1852,11 @@ class SolarSpaceView(QOpenGLFunctions):
             and b.kind in {"planet", "asteroid", "moon"}
             and (b.kind != "moon" or b.name == inspect or (close and b.parent == inspect))
             and not (close and b.parent != inspect)
+            and (
+                not system.is_placeholder_ic()
+                or b.name == inspect
+                or (close and b.parent == inspect)
+            )
         ]
 
     def _rebuild_orbits(self, system, drawn) -> None:
@@ -1569,7 +1892,7 @@ class SolarSpaceView(QOpenGLFunctions):
         if self._prog_line is None:
             return
         inspect = self._panel._inspect
-        drawn = self._orbit_drawn(views, eye, fz)
+        drawn = self._orbit_drawn(system, views, eye, fz)
         key = (inspect or "", tuple(b.name for b in drawn))
         now = time.perf_counter()
         moved = float(system.t) != self._orbit_t
@@ -1675,6 +1998,9 @@ class SolarSpaceView(QOpenGLFunctions):
     def _draw_orbit_beads(self, system, drawn, eye, view: QMatrix4x4, proj: QMatrix4x4) -> None:
         if self._prog_bead is None:
             return
+        inspect = self._panel._inspect
+        if not inspect:
+            return
         from arelis.physics.elements import (
             BEAD_LAP_S,
             bead_true_anomalies,
@@ -1683,8 +2009,12 @@ class SolarSpaceView(QOpenGLFunctions):
         )
 
         packed: list[float] = []
-        phase = (time.perf_counter() / BEAD_LAP_S) * 2.0 * math.pi
+        phase = 0.0
+        if not system.paused:
+            phase = (time.perf_counter() / BEAD_LAP_S) * 2.0 * math.pi
         for body in drawn:
+            if body.name != inspect and body.parent != inspect:
+                continue
             r, v, mu, _about, origin = system.about(body)
             el = osculating(r, v, mu)
             if el is None or el.e >= 0.95:

@@ -106,6 +106,9 @@ async def prepare_turn(
     # Per-turn state — must not leak across conversation turns (soak found
     # tools_used accumulating and poisoning vision/image duplicate gates).
     loop.tools_used = set()
+    browser = loop.tools.get("browser")
+    if browser is not None:
+        browser.pixel_ok = False
     loop._trace = []
     loop._painted = ""
     # Mutable so mid-turn escalate (W2) can retarget the hot model.
@@ -312,6 +315,29 @@ async def prepare_turn(
         visible = available
         loop._expected_tools.discard("weather")
         loop._expected_tools.discard("web_search")
+    from arelis.core.turn_goal import apply_goal_to_expected, derive_turn_goal
+
+    turn_goal = derive_turn_goal(
+        text,
+        role,
+        kinds=preflight_kinds,
+        sms_draft=sms_draft,
+        email_draft=email_draft,
+        research_mode=research_mode,
+    )
+    loop._expected_tools, dropped_for_goal = apply_goal_to_expected(
+        loop._expected_tools, turn_goal
+    )
+    if turn_goal.line:
+        system_messages.append(
+            {"role": "system", "content": f"Turn goal: {turn_goal.line}"}
+        )
+    if loop._timer is not None and (turn_goal.kind != "none" or dropped_for_goal):
+        loop._timer.mark(
+            "goal",
+            kind=turn_goal.kind,
+            dropped=",".join(dropped_for_goal) or "-",
+        )
     # The vision tool used to be hidden behind a keyword list, because
     # looking cost an unload, a cold VL load, and a re-warm. A multimodal
     # chat model sees at the window it is already loaded with (see
@@ -512,6 +538,7 @@ async def prepare_turn(
             1, int(agent_cfg.get("research_min_sources", 2))
         ),
         exact_need=exact_need,
+        goal=turn_goal,
     )
     # Containers stay aliased so each round can append without a ctx.
     # prefix on every line. Scalars that get rebound must go through ctx.
@@ -519,7 +546,7 @@ async def prepare_turn(
     # Research role / deep-dive needs web warrants for contingent claims,
     # except weather (Open-Meteo). Jobs used to default to research.
     exact_need = apply_research_web_need(
-        exact_need, research_mode=research_mode
+        exact_need, research_mode=research_mode, text=text
     )
     ctx.exact_need = exact_need
     # News / current-events turns should not end on search snippets alone.
@@ -607,6 +634,10 @@ async def prepare_turn(
         elif bool(agent_cfg.get("sms_force_call", True)) and bool(
             agent_cfg.get("sms_preinject", True)
         ):
-            ctx.sms_preinject = draft_send_sms_args(sms_draft)
+            from arelis.core.turn_goal import sms_body_serves_goal
+
+            inj = draft_send_sms_args(sms_draft)
+            if sms_body_serves_goal(str(inj.get("body") or "")):
+                ctx.sms_preinject = inj
 
     return ctx

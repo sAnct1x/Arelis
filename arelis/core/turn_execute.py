@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -13,6 +14,7 @@ from arelis.core.evidence import classify_fetch_failure
 from arelis.core.fail_tags import tool_fail_replan_notice
 from arelis.core.look import LOOKING_STATUS, format_see_record
 from arelis.core.memory import tool_trace_entry
+from arelis.core.preflight import login_check_hop_args
 from arelis.core.receipts import (
     action_receipt,
     append_action_ledger,
@@ -27,6 +29,7 @@ from arelis.core.sms_complete import (
 )
 from arelis.core.tool_results import PreparedToolOutput, prepare_tool_output
 from arelis.core.turn_context import TurnContext
+from arelis.core.turn_goal import NEED_LOGIN, browser_errand_done
 from arelis.core.untrusted import frame_external_tool_output
 from arelis.tools.inbox import INBOX_PEEK_ACTIONS, inbox_peek_was_empty
 from arelis.tools.safety import redact_secrets, truncate_tool_output
@@ -88,14 +91,26 @@ async def execute_call(
                 {"text": f"round {round_i}/{loop.max_rounds}  tool  {summary}"},
             )
         )
+        unbind_image = None
         if name == "image":
             ctx.image_attempted = True
-        if fanout_results is not None:
-            ms, result = fanout_results[call_i]
-        else:
-            t0 = time.perf_counter()
-            result = await loop.tools.call(name, **args)
-            ms = int((time.perf_counter() - t0) * 1000)
+            image_tool = loop.tools.get("image")
+            binder = getattr(image_tool, "set_progress", None)
+            if callable(binder):
+                from arelis.tools.image import schedule_image_progress
+
+                binder(lambda line: schedule_image_progress(loop.bus, line))
+                unbind_image = image_tool
+        try:
+            if fanout_results is not None:
+                ms, result = fanout_results[call_i]
+            else:
+                t0 = time.perf_counter()
+                result = await loop.tools.call(name, **args)
+                ms = int((time.perf_counter() - t0) * 1000)
+        finally:
+            if unbind_image is not None:
+                unbind_image.set_progress(None)
         if loop._timer is not None:
             loop._timer.tool_ms += ms
             loop._timer.tools.append(name)
@@ -151,10 +166,26 @@ async def execute_call(
                 ctx.inbox_empty_ok = True
             if name == "browser":
                 b_act = str(args.get("action") or "").strip().lower()
-                if b_act == "snapshot":
+                if b_act == "snapshot" or (
+                    b_act in {"open", "navigate"}
+                    and data_dict
+                    and data_dict.get("snapshot")
+                ):
                     ctx.last_browser_snapshot = str(result.output or "")
+                if data_dict:
+                    landed = str(data_dict.get("url") or "").strip()
+                    if landed:
+                        ctx.last_browser_url = landed
                 if b_act == "click":
                     ctx.browser_clicked = True
+                if b_act == "screenshot":
+                    ctx.browser_screenshot_ok = True
+            if name == "vision":
+                ctx.vision_ok = True
+            if ctx.browser_screenshot_ok and ctx.vision_ok:
+                browser = loop.tools.get("browser")
+                if browser is not None:
+                    browser.pixel_ok = True
             if name == "web_search":
                 q = str(args.get("query") or "").strip().casefold()
                 if q:
@@ -175,10 +206,14 @@ async def execute_call(
                 if sent_to:
                     ctx.email_sent.add(sent_to)
             if name == "agenda" and str(args.get("action") or "").lower() == "create":
+                from arelis.calendar.models import create_fingerprint
+
                 agenda_created.add(
-                    f"{str(args.get('provider') or '').strip().lower()}|"
-                    f"{str(args.get('summary') or '').strip().casefold()}|"
-                    f"{str(args.get('start') or '').strip()}"
+                    create_fingerprint(
+                        args.get("provider"),
+                        args.get("summary"),
+                        args.get("start"),
+                    )
                 )
                 ctx.agenda_create_ok = True
             if loop._look is not None:
@@ -424,8 +459,10 @@ async def execute_call(
                 },
             )
         )
+        wall_kind = ""
         if name == "browser" and data_dict:
             wall_code = str(data_dict.get("code") or "")
+            wall_kind = str(data_dict.get("wall") or "")
             if wall_code in {"YOUR_TURN", "SECRET_FIELD"}:
                 await loop.bus.publish(
                     Event(
@@ -433,15 +470,69 @@ async def execute_call(
                         {
                             "reason": "your_turn",
                             "kind": str(
-                                data_dict.get("wall")
+                                wall_kind
                                 or ("login" if wall_code == "SECRET_FIELD" else "")
                             ),
                         },
                     )
                 )
-                await loop._await_your_turn(
-                    str(data_dict.get("wall") or "")
+                if wall_kind == "pay":
+                    receipt = await _pay_checkout_receipt(loop, ctx, data_dict)
+                    await loop._finish(receipt, sources, streamed="")
+                    return True
+                errand = browser_errand_done(
+                    text,
+                    action=str(args.get("action") or ""),
+                    requested_url=str(args.get("url") or args.get("target") or ""),
+                    landed_url=str(data_dict.get("url") or ctx.last_browser_url),
+                    wall=wall_kind or "login",
+                    snapshot=str(result.output or ""),
+                    signed_in=bool(data_dict.get("signed_in")),
                 )
+                if errand.done:
+                    await loop.bus.publish(
+                        Event(
+                            EventType.THINKING,
+                            {"text": "browser errand done; stopping"},
+                        )
+                    )
+                    await loop._finish(errand.reply, sources, streamed="")
+                    return True
+                await loop._await_your_turn(wall_kind)
+                wall_kind = ""
+        if name == "browser" and result.ok:
+            b_act = str(args.get("action") or "").strip().lower()
+            errand = browser_errand_done(
+                text,
+                action=b_act,
+                requested_url=str(args.get("url") or args.get("target") or ""),
+                landed_url=str((data_dict or {}).get("url") or ctx.last_browser_url),
+                wall=wall_kind,
+                snapshot=str(result.output or ""),
+                signed_in=bool((data_dict or {}).get("signed_in")),
+            )
+            if errand.done:
+                await loop.bus.publish(
+                    Event(
+                        EventType.THINKING,
+                        {"text": "browser errand done; stopping"},
+                    )
+                )
+                await loop._finish(errand.reply, sources, streamed="")
+                return True
+            if errand.status == NEED_LOGIN and not ctx.browser_login_hop:
+                ended = await _login_check_hop(
+                    loop,
+                    ctx,
+                    text,
+                    snapshot=str(result.output or ""),
+                    landed_url=str(
+                        (data_dict or {}).get("url") or ctx.last_browser_url
+                    ),
+                    sources=sources,
+                )
+                if ended:
+                    return True
         await loop.bus.publish(
             Event(
                 EventType.THINKING,
@@ -480,6 +571,28 @@ async def execute_call(
             )
             return True
         if (
+            name == "browser"
+            and result.ok
+            and data_dict
+            and data_dict.get("file_ready")
+            and data_dict.get("abs_path")
+        ):
+            await loop.bus.publish(
+                Event(
+                    EventType.FILE_READY,
+                    {
+                        "path": str(data_dict.get("path") or ""),
+                        "abs_path": str(data_dict.get("abs_path") or ""),
+                        "format": str(data_dict.get("format") or ""),
+                        "title": str(data_dict.get("title") or ""),
+                        "kind": str(data_dict.get("kind") or "download"),
+                        "source": "browser",
+                        "show_card": True,
+                        "open": False,
+                    },
+                )
+            )
+        if (
             name in {"document", "plot"}
             and result.ok
             and data_dict
@@ -493,11 +606,36 @@ async def execute_call(
                         "abs_path": str(data_dict.get("abs_path") or ""),
                         "format": str(data_dict.get("format") or ""),
                         "title": str(data_dict.get("title") or ""),
+                        "kind": "document" if name == "document" else "plot",
+                        "source": name,
                         "show_card": True,
                         "open": False,
                     },
                 )
             )
+        if name == "research_report" and result.ok and data_dict:
+            raw_path = str(
+                data_dict.get("abs_path") or data_dict.get("path") or ""
+            ).strip()
+            if raw_path:
+                report = Path(raw_path)
+                abs_report = (
+                    str(report.resolve()) if report.exists() else str(report)
+                )
+                await loop.bus.publish(
+                    Event(
+                        EventType.FILE_READY,
+                        {
+                            "path": raw_path,
+                            "abs_path": abs_report,
+                            "title": report.stem.replace("-", " "),
+                            "kind": "research",
+                            "source": "document",
+                            "show_card": True,
+                            "open": False,
+                        },
+                    )
+                )
         if (
             name == "schedule"
             and result.ok
@@ -753,3 +891,107 @@ async def execute_call(
         r.tool_names = tool_names
         r.ollama_tools = ollama_tools
     return False
+
+
+async def _pay_checkout_receipt(
+    loop: Any,
+    ctx: TurnContext,
+    data_dict: dict[str, Any] | None,
+) -> str:
+    """Read the checkout tab once. No second tool call / Allow card."""
+    from arelis.browser.walls import checkout_receipt
+
+    data = data_dict or {}
+    title = str(data.get("title") or "")
+    url = str(data.get("url") or ctx.last_browser_url or "")
+    heading = ""
+    body = ""
+    tool = loop.tools.get("browser")
+    session = getattr(tool, "session", None)
+    reader = getattr(session, "read", None)
+    if callable(reader):
+        try:
+            read = await reader()
+        except Exception:
+            read = None
+        if read is not None and getattr(read, "ok", False):
+            got = read.data if isinstance(read.data, dict) else {}
+            title = str(got.get("title") or title)
+            url = str(got.get("url") or url)
+            heading = str(got.get("heading") or "")
+            body = str(read.output or "")
+    return checkout_receipt(url=url, title=title, heading=heading, body=body)
+
+
+async def _login_check_hop(
+    loop: Any,
+    ctx: TurnContext,
+    text: str,
+    *,
+    snapshot: str,
+    landed_url: str,
+    sources: list[tuple[str, str]],
+) -> bool:
+    """Open login once, then stop so they can type the password."""
+    from arelis.core.turn_goal import LOGIN_READY_REPLY
+
+    ctx.browser_login_hop = True
+    hop = login_check_hop_args(snapshot, landed_url)
+    await loop.bus.publish(
+        Event(EventType.THINKING, {"text": "login check; opening sign-in"})
+    )
+    await loop.bus.publish(Event(EventType.TOOL_START, {"tool": "browser", "args": hop}))
+    t0 = time.perf_counter()
+    result = await loop.tools.call("browser", **hop)
+    ms = int((time.perf_counter() - t0) * 1000)
+    if loop._timer is not None:
+        loop._timer.tool_ms += ms
+        loop._timer.tools.append("browser")
+    data = result.data if isinstance(result.data, dict) else {}
+    if result.ok:
+        record_same_call(ctx.same_ok, "browser", hop)
+        landed = str(data.get("url") or "").strip()
+        if landed:
+            ctx.last_browser_url = landed
+        ctx.last_browser_snapshot = str(result.output or "")
+        if str(hop.get("action") or "").strip().lower() == "click":
+            ctx.browser_clicked = True
+    await loop.bus.publish(
+        Event(
+            EventType.TOOL_RESULT,
+            {
+                "tool": "browser",
+                "ok": result.ok,
+                "output": str(result.output or ""),
+                "data": result.data,
+            },
+        )
+    )
+    wall = str(data.get("wall") or "")
+    if str(data.get("code") or "") in {"YOUR_TURN", "SECRET_FIELD"}:
+        await loop.bus.publish(
+            Event(
+                EventType.TURN_PAUSE,
+                {"reason": "your_turn", "kind": wall or "login"},
+            )
+        )
+    errand = browser_errand_done(
+        text,
+        action=str(hop.get("action") or ""),
+        requested_url=str(hop.get("url") or ""),
+        landed_url=str(data.get("url") or landed_url),
+        wall=wall,
+        snapshot=str(result.output or ""),
+        signed_in=bool(data.get("signed_in")),
+    )
+    if errand.done:
+        await loop._finish(errand.reply, sources, streamed="")
+        return True
+    await loop._finish(
+        LOGIN_READY_REPLY if result.ok else (
+            "I could not open the login page. The tab is still there."
+        ),
+        sources,
+        streamed="",
+    )
+    return True

@@ -9,6 +9,7 @@ from pathlib import Path
 
 from arelis.core.failure_copy import plain_reason
 from arelis.local_open import open_local_file, open_local_file_as, reveal_local_file
+from arelis.notify.center import notice_open
 from arelis.notify.sources import (
     due_task_notices,
     load_today_events,
@@ -48,12 +49,154 @@ def on_notify_mark_all_read(window) -> None:
     sync_notify_surface(window)
 
 
+def park_notify_inbox(window) -> None:
+    """Leave the pile once a click opened the real surface."""
+    inbox = getattr(window, "notify_inbox", None)
+    if inbox is None or inbox.isHidden():
+        return
+    inbox.close()
+
+
 def on_notice_activated(window, notice_id: str) -> None:
+    """Click opens the thing the notice is about. Clear drops the rest."""
     notice = window.notify_center.find(notice_id)
-    if notice is not None and notice.unread:
-        window.notify_center.mark_read(notice_id)
-        sync_notify_surface(window)
+    if notice is None:
+        return
     window.notifications.show_notice(notice_id)
+    plan = notice_open(notice)
+    opened = False
+    if plan.action == "chat":
+        from arelis.ui.sms_host import open_sms_chat
+
+        opened = open_sms_chat(window, notice_id)
+        if opened:
+            park_notify_inbox(window)
+            return
+        show_notify_inbox(window, notice_id)
+        return
+    elif plan.action == "artifact":
+        on_artifact_requested(window, notice_id, "open")
+        opened = True
+        park_notify_inbox(window)
+    elif plan.action == "calendar":
+        opened = reveal_calendar_notice(window, notice)
+        if opened:
+            park_notify_inbox(window)
+    elif plan.action == "tasks":
+        opened = reveal_calendar_notice(window, notice, tab="tasks")
+        if opened:
+            park_notify_inbox(window)
+    elif plan.action == "email":
+        opened = open_mail_notice(window, notice)
+        if opened:
+            park_notify_inbox(window)
+    elif plan.action == "allow":
+        opened = raise_allow_card(window)
+        if opened:
+            park_notify_inbox(window)
+    if plan.dismiss and opened and not notice.sticky:
+        window.notify_center.dismiss(notice_id)
+        sync_notify_surface(window)
+
+
+def reveal_calendar_notice(window, notice, *, tab: str = "calendar") -> bool:
+    window.act_calendar.setChecked(True)
+    window._toggle_calendar(True)
+    cal = window.calendar
+    if tab == "tasks":
+        cal.show_tasks_tab()
+        return True
+    event_id = str((notice.data or {}).get("event_id") or "")
+    if event_id and cal.show_event(event_id):
+        return True
+    raw = str((notice.data or {}).get("starts_at") or "")
+    if raw:
+        try:
+            stamp = datetime.fromisoformat(raw)
+            cal.show_day(stamp.date())
+        except ValueError:
+            pass
+    return True
+
+
+def open_mail_notice(window, notice) -> bool:
+    """Fetch the message and open a reader. Subject-only notices stay on the pile."""
+    uid = str((notice.data or {}).get("uid") or "").strip()
+    sender = str((notice.data or {}).get("from") or notice.title or "")
+    subject = str((notice.data or {}).get("subject") or notice.body or "")
+    body = ""
+    if uid:
+        body, sender, subject = _fetch_mail_body(window, uid, sender, subject)
+    if not body and not subject:
+        show_notify_inbox(window, notice.id)
+        return False
+    from arelis.mail import reply_address
+    from arelis.ui.mail_peek import MailPeekWindow
+
+    peek = MailPeekWindow(
+        sender=sender,
+        subject=subject,
+        body=body or subject,
+        reply_to=reply_address(sender),
+        parent=window,
+    )
+    peek.reply_requested.connect(
+        lambda to, subj, text, w=window, tile=peek: send_mail_reply(w, tile, to, subj, text)
+    )
+    window._mail_peek = peek
+    peek.show()
+    peek.raise_()
+    peek.activateWindow()
+    return True
+
+
+def _fetch_mail_body(window, uid: str, sender: str, subject: str) -> tuple[str, str, str]:
+    try:
+        from arelis.mail import load_account
+        from arelis.tools.inbox import InboxTool
+
+        account = load_account()
+        if account is None:
+            return "", sender, subject
+        email_cfg = ((window.config or {}).get("tools") or {}).get("email") or {}
+        tool = InboxTool(
+            account,
+            host=str(email_cfg.get("imap_host") or "imap.gmail.com"),
+            port=int(email_cfg.get("imap_port") or 993),
+            timeout_s=min(20.0, float(email_cfg.get("timeout_s") or 20)),
+        )
+        result = tool._run_sync("read", {"action": "read", "id": uid})
+    except Exception as exc:
+        return f"(could not load the message: {plain_reason(exc)})", sender, subject
+    data = result.data or {}
+    return (
+        str(data.get("body") or result.output or ""),
+        str(data.get("from") or sender),
+        str(data.get("subject") or subject),
+    )
+
+
+def send_mail_reply(window, tile, to: str, subject: str, body: str) -> None:
+    try:
+        from arelis.mail import Mailer, load_account
+
+        account = load_account()
+        if account is None:
+            tile.set_status("Mail is not set up. Add it in Settings → notify.")
+            return
+        Mailer(account).send(to=to, subject=subject, body=body)
+        tile.set_status("sent")
+    except Exception as exc:
+        tile.set_status(plain_reason(exc))
+
+
+def raise_allow_card(window) -> bool:
+    window.raise_()
+    window.activateWindow()
+    confirm = getattr(window.conversation, "confirm", None)
+    if confirm is not None:
+        confirm.show()
+    return True
 
 
 def sync_notify_surface(window) -> None:
@@ -93,10 +236,8 @@ def sync_notify_surface(window) -> None:
 
 
 def on_notify_pill_clicked(window) -> None:
-    head = window.notify_center.head()
-    if head is not None and not head.sticky:
-        window.notify_center.mark_read(head.id)
-    sync_notify_surface(window)
+    """The pill also emits open_requested; that path opens the thing."""
+    return
 
 
 def on_notify_chip_clicked(window) -> None:
@@ -111,18 +252,30 @@ def on_notice_dismiss(window, notice_id: str) -> None:
     sync_notify_surface(window)
 
 
-def on_notice_snooze(window, notice_id: str) -> None:
+def on_notice_snooze(window, notice_id: str, minutes: int = 15) -> None:
+    hold = max(1, int(minutes))
     window.notify_center.snooze(
-        notice_id, datetime.now().astimezone() + timedelta(minutes=15)
+        notice_id, datetime.now().astimezone() + timedelta(minutes=hold)
     )
     sync_notify_surface(window)
 
 
-def on_notice_open(window, notice_id: str) -> None:
+def show_notify_inbox(window, notice_id: str) -> None:
     window.act_notifications.setChecked(True)
     window._toggle_notifications(True)
     if notice_id:
         window.notifications.show_notice(notice_id)
+    from arelis.ui.foreground import claim_foreground
+
+    claim_foreground(window.notify_inbox)
+
+
+def on_notice_open(window, notice_id: str) -> None:
+    notice = window.notify_center.find(notice_id) if notice_id else None
+    if notice is None:
+        show_notify_inbox(window, notice_id)
+        return
+    on_notice_activated(window, notice_id)
 
 
 def begin_job(window, tool: str) -> None:
@@ -171,11 +324,28 @@ def on_artifact_requested(window, notice_id: str, how: str) -> None:
             reveal_local_file(target)
         elif how == "openas":
             open_local_file_as(target)
+        elif _open_workspace_artifact(window, raw):
+            return
         else:
             open_local_file(target)
     except OSError as exc:
         leaf = target.name or "that file"
         window.chat.add_system(f"I could not open {leaf}. {plain_reason(exc)}")
+
+
+def _open_workspace_artifact(window, raw: str) -> bool:
+    """Prefer the desk for text she wrote. Anything else uses the OS."""
+    roots = getattr(window, "workspace_roots", None)
+    if roots is None:
+        return False
+    try:
+        roots.resolve_read(raw)
+    except Exception:
+        return False
+    from arelis.ui.workspace_host import open_file
+
+    open_file(window, raw)
+    return True
 
 
 def on_job_tick(window) -> None:
@@ -293,7 +463,9 @@ def bind_notify(window) -> None:
     window.notify_inbox.closed.connect(lambda: on_notify_inbox_closed(window))
     overlay = window.conversation.notify_overlay
     overlay.dismiss_requested.connect(lambda nid: on_notice_dismiss(window, nid))
-    overlay.snooze_requested.connect(lambda nid: on_notice_snooze(window, nid))
+    overlay.snooze_requested.connect(
+        lambda nid, mins=15: on_notice_snooze(window, nid, mins)
+    )
     overlay.open_requested.connect(lambda nid: on_notice_open(window, nid))
     overlay.artifact_requested.connect(
         lambda nid, how: on_artifact_requested(window, nid, how)

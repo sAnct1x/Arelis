@@ -133,9 +133,12 @@ def paint_overlay(panel, painter: QPainter, *, software: bool, chrome_only: bool
     shots.sort(key=lambda row: row[0])
     panel._drawn_labels = []
     panel._cover = None
-    if panel._inspect:
+    cover_name = panel._inspect
+    if not cover_name and getattr(panel, "_earth_zone_on", lambda: False)():
+        cover_name = "Earth"
+    if cover_name:
         for _depth, body, proj in shots:
-            if body.name == panel._inspect and proj is not None:
+            if body.name == cover_name and proj is not None:
                 panel._cover = (
                     proj[0],
                     proj[1],
@@ -175,7 +178,7 @@ def paint_overlay(panel, painter: QPainter, *, software: bool, chrome_only: bool
         panel._paint_wind(painter, system)
     if not chrome_only and system.overlay.show_grid:
         panel._paint_grid(painter, system)
-    if software and not chrome_only and sun is not None:
+    if software and not chrome_only and sun is not None and not close_globe(panel):
         sp = panel._proj((sun.x, sun.y, sun.z))
         if sp is not None:
             panel._sun_limb(
@@ -191,10 +194,13 @@ def paint_overlay(panel, painter: QPainter, *, software: bool, chrome_only: bool
     panel._paint_hud(painter, system)
     panel._paint_earth_toggles(painter)
     panel._paint_earth_card(painter)
-    panel._paint_roster(painter, system)
+    zone_on = getattr(panel, "_earth_zone_on", lambda: False)()
+    if not zone_on:
+        panel._paint_roster(painter, system)
     panel._paint_inspect(painter, system)
-    panel._paint_speed(painter)
-    panel._paint_epoch(painter, system)
+    if not zone_on:
+        panel._paint_speed(painter)
+        panel._paint_epoch(painter, system)
     panel._paint_tools(painter)
     panel._paint_confirm(painter)
     try:
@@ -413,6 +419,8 @@ def chrome_rects(panel) -> list[QRect]:
         bool(getattr(panel, "_earth_find_box", QRect()).isEmpty()),
         bool(getattr(panel, "_earth_coach_box", QRect()).isEmpty()),
         bool(getattr(panel, "_earth_key_box", QRect()).isEmpty()),
+        bool(getattr(panel, "_earth_compass_box", QRect()).isEmpty()),
+        bool(getattr(panel, "_earth_scale_box", QRect()).isEmpty()),
         panel._earth_id or "",
         str(panel._confirm.get("kind") or "") if panel._confirm else "",
         id(system),
@@ -421,19 +429,28 @@ def chrome_rects(panel) -> list[QRect]:
     )
     if key == panel._chrome_key and panel._chrome_cache is not None:
         return panel._chrome_cache
-    boxes = [
-        panel._hud_plate_rect(),
-        panel._roster_rect(),
-        panel._speed_rect(),
-        panel._epoch_rect(),
-    ]
+    boxes = [panel._hud_plate_rect()]
+    if not getattr(panel, "_earth_zone_on", lambda: False)():
+        boxes.extend(
+            [
+                panel._roster_rect(),
+                panel._speed_rect(),
+                panel._epoch_rect(),
+            ]
+        )
     if not panel._keys_hit.isEmpty():
         boxes.append(panel._keys_hit)
     if panel._tools_open:
         boxes.append(panel._tools_rect())
     if not panel._earth_chip_box.isEmpty():
         boxes.append(QRect(panel._earth_chip_box))
-    for name in ("_earth_coach_box", "_earth_find_box", "_earth_key_box"):
+    for name in (
+        "_earth_coach_box",
+        "_earth_find_box",
+        "_earth_key_box",
+        "_earth_compass_box",
+        "_earth_scale_box",
+    ):
         extra = getattr(panel, name, QRect())
         if extra is not None and not extra.isEmpty():
             boxes.append(QRect(extra))
@@ -464,6 +481,8 @@ def label_body(
     if inspect:
         return
     if panel._on_globe(sx, sy):
+        return
+    if body.name == "Sun" and close_globe(panel):
         return
     want = px_r >= 6 or body.kind in {"star", "planet", "asteroid"}
     if not want:
@@ -512,8 +531,32 @@ def close_globe(panel) -> bool:
 
 def look_field_m(panel, system: SolarSystem) -> float:
     look = panel.cam.distance
-    if panel._inspect:
-        body = system.nbody.find(panel._inspect)
+    if getattr(panel, "_earth_zone_on", lambda: False)():
+        pose = getattr(panel, "_earth_cam", None)
+        eye = getattr(pose, "eye", None) if pose is not None else None
+        if isinstance(eye, tuple) and len(eye) >= 3:
+            from arelis.earth.frames import ecef_to_geodetic
+
+            _lat, _lon, alt = ecef_to_geodetic(*eye)
+            look = max(float(alt), 80.0)
+            return look * math.tan(0.35)
+        body = system.nbody.find("Earth")
+        if body is not None:
+            dist = math.hypot(
+                panel.cam.x - body.x,
+                panel.cam.y - body.y,
+                panel.cam.z - body.z,
+            )
+            radius = float(getattr(body, "radius", 0.0) or 0.0)
+            if radius <= 1.0:
+                from arelis.earth.frames import MEAN_R
+
+                radius = MEAN_R
+            look = max(80.0, dist - radius)
+            return look * math.tan(0.35)
+    name = panel._inspect
+    if name:
+        body = system.nbody.find(name)
         if body is not None:
             look = math.hypot(
                 panel.cam.x - body.x,
@@ -648,6 +691,8 @@ def paint_saturn_rings(panel, painter: QPainter, body: BodyView) -> None:
 def paint_heliocentric_orbits(panel, painter: QPainter, system: SolarSystem) -> None:
     """Osculating ellipses. Not trails, not a radius cheat."""
     inspect = panel._inspect
+    if system.is_placeholder_ic() and not inspect:
+        return
     close = panel._close_globe()
     for body in system.views():
         if body.tracer or body.name == "Sun":
@@ -657,6 +702,8 @@ def paint_heliocentric_orbits(panel, painter: QPainter, system: SolarSystem) -> 
         if body.kind not in {"planet", "asteroid", "moon"}:
             continue
         if close and body.parent != inspect:
+            continue
+        if system.is_placeholder_ic() and body.name != inspect and body.parent != inspect:
             continue
         r, v, mu, _about, origin = system.about(body)
         el = osculating(r, v, mu)
@@ -681,7 +728,12 @@ def paint_heliocentric_orbits(panel, painter: QPainter, system: SolarSystem) -> 
                 if a is None or b is None:
                     continue
                 painter.drawLine(a, b)
-        phase = (time.perf_counter() / BEAD_LAP_S) * 2.0 * math.pi
+        if not inspect or (body.name != inspect and body.parent != inspect):
+            continue
+        if system.paused:
+            phase = 0.0
+        else:
+            phase = (time.perf_counter() / BEAD_LAP_S) * 2.0 * math.pi
         for k, nu_b in enumerate(
             bead_true_anomalies(el.true_anomaly, phase=phase)
         ):

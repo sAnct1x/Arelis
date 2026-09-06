@@ -80,6 +80,24 @@ INBOX_WRITE_ACTIONS = frozenset({
 # Approved one at a time, never covered by "allow all this turn".
 NEVER_BATCH = frozenset({"send_email", "send_sms", "agenda", "external_read", "inbox"})
 
+# Asked does not skip these — you still see the exact payload.
+ALWAYS_PAUSE_TOOLS = frozenset(
+    {"send_email", "send_sms", "run_script", "external_read"}
+)
+
+_PERSIST_KEYS = {
+    "writes": "confirm_writes",
+    "image": "confirm_image",
+    "browser": "confirm_browser",
+    "vision": "confirm_vision",
+}
+_PERSIST_LABELS = {
+    "writes": "don't ask again about files",
+    "image": "don't ask again about pictures",
+    "browser": "don't ask again about her window",
+    "vision": "don't ask again about seeing",
+}
+
 ConfirmToggle = Literal["none", "send", "image", "browser", "vision", "writes", "run"]
 
 
@@ -145,6 +163,59 @@ def action_is_destructive(name: str, args: dict[str, Any] | None) -> bool:
     return (name or "").strip() == "browser" and _browser_is_pay(args)
 
 
+def always_pause(name: str, args: dict[str, Any] | None = None) -> bool:
+    """True when the ask is not enough — send, pay, delete, run, outside read."""
+    tool = (name or "").strip()
+    if tool in ALWAYS_PAUSE_TOOLS:
+        return True
+    if tool == "browser" and _action(args) == "upload":
+        return True
+    return action_is_destructive(name, args)
+
+
+def persist_ok(name: str, args: dict[str, Any] | None = None) -> bool:
+    """True when the card may offer don't-ask-again for this class."""
+    if always_pause(name, args):
+        return False
+    toggle = confirm_toggle(name, args)
+    return toggle in _PERSIST_KEYS
+
+
+def persist_label(name: str, args: dict[str, Any] | None = None) -> str:
+    """Checkbox copy for don't-ask-again, or empty when persist is hidden."""
+    if not persist_ok(name, args):
+        return ""
+    return _PERSIST_LABELS.get(confirm_toggle(name, args), "")
+
+
+def persist_confirm_off(
+    loop: Any,
+    name: str,
+    args: dict[str, Any] | None = None,
+) -> str:
+    """Flip that class's Settings toggle off for this process and on disk.
+
+    Returns the agent key written, or "" when this call cannot persist.
+    """
+    if not persist_ok(name, args):
+        return ""
+    key = _PERSIST_KEYS.get(confirm_toggle(name, args), "")
+    if not key:
+        return ""
+    if hasattr(loop, key):
+        setattr(loop, key, False)
+    cfg = getattr(loop, "config", None)
+    if isinstance(cfg, dict):
+        cfg.setdefault("agent", {})[key] = False
+    try:
+        from arelis.config import merge_local_config
+
+        merge_local_config({"agent": {key: False}})
+    except OSError:
+        pass
+    return key
+
+
 def action_is_write(name: str, args: dict[str, Any] | None) -> bool:
     """True when this call's action is in that tool's write set."""
     tool = (name or "").strip()
@@ -196,6 +267,8 @@ def confirm_toggle(
         return "none"
     if tool == "run_script":
         return "run"
+    if tool == "external_read":
+        return "writes"
     if tool == "clipboard":
         return "writes"
     if tool in {
@@ -228,6 +301,8 @@ def evaluate_confirm(
     confirm_browser: bool = True,
     confirm_vision: bool = True,
     confirm_run: bool = True,
+    asked: bool = False,
+    ask_is_grant: bool = True,
 ) -> bool:
     """Decide whether this call must go through the confirm card.
 
@@ -238,6 +313,9 @@ def evaluate_confirm(
     Voice mode (filament) skips the card: saying the ask is the grant.
     Destructive calls still pause so she can ask out loud. Running a
     project program is not ordinary — it pauses on voice too.
+
+    Sodium: the typed ask is the grant for local work unless ``ask_is_grant``
+    is off. Send, pay, delete, and ``run_script`` still pause when asked.
     """
     if _CONFIRM_MODE == "voice":
         if (name or "").strip() == "run_script":
@@ -245,18 +323,24 @@ def evaluate_confirm(
         return action_is_destructive(name, args)
     toggle = confirm_toggle(name, args, risk=risk)
     if toggle == "send":
-        return confirm_send
-    if toggle == "image":
-        return confirm_image
-    if toggle == "browser":
-        return confirm_browser
-    if toggle == "vision":
-        return confirm_vision
-    if toggle == "run":
-        return confirm_run
-    if toggle == "writes":
-        return confirm_writes
-    return False
+        gated = confirm_send
+    elif toggle == "image":
+        gated = confirm_image
+    elif toggle == "browser":
+        gated = confirm_browser
+    elif toggle == "vision":
+        gated = confirm_vision
+    elif toggle == "run":
+        gated = confirm_run
+    elif toggle == "writes":
+        gated = confirm_writes
+    else:
+        gated = False
+    if not gated:
+        return False
+    if asked and ask_is_grant and not always_pause(name, args):
+        return False
+    return True
 
 
 def evaluate_capability(
@@ -309,9 +393,11 @@ def evaluate_capability(
     return "READ"
 
 
-def batch_ok(name: str) -> bool:
+def batch_ok(name: str, args: dict[str, Any] | None = None) -> bool:
     """False when this tool must never ride along with 'rest of this ask'."""
-    return (name or "").strip() not in NEVER_BATCH
+    if (name or "").strip() in NEVER_BATCH:
+        return False
+    return not always_pause(name, args)
 
 
 def confirm_toggles_for_call(
@@ -503,7 +589,16 @@ def describe_call(
         if action == "select":
             lines.append("Picks a dropdown option (snapshot ref + option text).")
         if action == "wait":
-            lines.append("Pauses briefly so the page can settle (max 8s).")
+            if any(
+                str(args.get(key) or "").strip()
+                for key in ("url", "text", "heading", "target")
+            ):
+                lines.append(
+                    "Waits until the tab shows that URL or text (max 8s), "
+                    "then snapshots."
+                )
+            else:
+                lines.append("Pauses briefly so the page can settle (max 8s).")
         if action == "click":
             lines.append(
                 "Glows the target in her Chrome, waits a beat, then clicks. "

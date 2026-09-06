@@ -16,7 +16,7 @@ from arelis.briefing.calendar import (
     load_agenda,
     resolve_calendar_path,
 )
-from arelis.calendar.models import CachedEvent
+from arelis.calendar.models import CachedEvent, same_event_slot
 from arelis.calendar.secrets import load_calendar_secrets
 from arelis.calendar.service import CalendarService
 from arelis.calendar.store import CalendarStore
@@ -38,10 +38,12 @@ class AgendaTool:
     description = (
         "Calendar: open or close the Arelis calendar tile; list today's/"
         "tomorrow's events or a date range; sync from Google/Outlook; "
-        "create/update/delete events (writes need Allow). Never invent "
+        "create/update/delete events (writes need Allow). Local create "
+        "works without Google; connecting later pushes pending events "
+        "without another ask. Never invent "
         "meetings — list first and cite the tool (time, title, place, "
         "one-line notes). Never ask the user for a Google event id; delete "
-        "by title/time. provider=google|outlook|all|ics. action=open shows "
+        "by title/time. provider=google|outlook|local|all|ics. action=open shows "
         "the local tile; action=close hides it — do not use the browser "
         "calendar alias unless they asked for the website."
     )
@@ -81,8 +83,11 @@ class AgendaTool:
             },
             "provider": {
                 "type": "string",
-                "enum": ["all", "google", "outlook", "ics"],
-                "description": "Which source (default all for reads; required for writes).",
+                "enum": ["all", "google", "outlook", "local", "ics"],
+                "description": (
+                    "Which source (default all for reads; google/outlook when "
+                    "connected, else local for create)."
+                ),
             },
             "summary": {
                 "type": "string",
@@ -278,8 +283,8 @@ class AgendaTool:
             return ToolResult(
                 ok=True,
                 output=(
-                    "No events. Authorize Google/Outlook "
-                    "(`arelis --auth-calendar …`) or add data/calendar.ics.\n"
+                    "No events. Sign in on the calendar tile, "
+                    "or add data/calendar.ics.\n"
                     f"ICS path: {path}"
                 ),
                 data={
@@ -321,10 +326,10 @@ class AgendaTool:
 
     async def _create(self, kwargs: dict[str, Any]) -> ToolResult:
         provider = str(kwargs.get("provider") or "").strip().lower()
-        if provider not in {"google", "outlook"}:
+        if provider and provider not in {"google", "outlook", "local"}:
             return ToolResult(
                 ok=False,
-                output="create requires provider=google or provider=outlook.",
+                output="create requires provider=google, outlook, or local.",
             )
         summary = str(kwargs.get("summary") or "").strip()
         if not summary:
@@ -348,7 +353,9 @@ class AgendaTool:
         store = CalendarStore()
         try:
             day = starts_at.date()
-            cached = store.list_range(day, day, provider=provider)
+            cached = store.list_range(
+                day, day, provider=provider or None
+            )
             for hit in cached:
                 if _same_event(summary, starts_at, hit):
                     return ToolResult(
@@ -380,10 +387,15 @@ class AgendaTool:
             )
         except Exception as exc:
             return ToolResult(ok=False, output=f"create failed: {exc}")
+        where = ev.provider
+        extra = ""
+        if ev.provider == "local" or ev.sync_state == "pending":
+            extra = " It will sync to Google or Outlook when that calendar is connected."
         return ToolResult(
             ok=True,
             output=(
-                f"Created on {provider}: {ev.summary} @ {ev.starts_at.isoformat()}"
+                f"Created on {where}: {ev.summary} @ {ev.starts_at.isoformat()}."
+                f"{extra}"
             ),
             data={"event": ev.as_dict(), "action": "create"},
         )
@@ -393,10 +405,10 @@ class AgendaTool:
         if not event_id:
             return ToolResult(ok=False, output="update requires event_id.")
         provider, _raw_id = _split_id(event_id, kwargs.get("provider"))
-        if provider not in {"google", "outlook"}:
+        if provider not in {"google", "outlook", "local"}:
             return ToolResult(
                 ok=False,
-                output="Could not resolve provider; pass provider=google|outlook.",
+                output="Could not resolve provider; pass provider=google|outlook|local.",
             )
         starts_at = None
         ends_at = None
@@ -606,10 +618,10 @@ class AgendaTool:
         calendar_id: str | None = None,
     ) -> ToolResult:
         provider, raw_id = _split_id(event_id, provider_hint)
-        if provider not in {"google", "outlook"}:
+        if provider not in {"google", "outlook", "local"}:
             return ToolResult(
                 ok=False,
-                output="Could not resolve provider; pass provider=google|outlook.",
+                output="Could not resolve provider; pass provider=google|outlook|local.",
             )
         try:
             svc = CalendarService(self._config, client_factory=self._client)
@@ -842,19 +854,4 @@ def _parse_dt(raw: Any, *, field: str) -> datetime:
 
 def _same_event(a_summary: str, a_start: datetime, b: Any, *, skew_s: float = 60.0) -> bool:
     """True when cache row matches title + start within skew (idempotency)."""
-    other_sum = str(getattr(b, "summary", "") or "").strip().casefold()
-    if other_sum != a_summary.strip().casefold():
-        return False
-    other_start = getattr(b, "starts_at", None)
-    if not isinstance(other_start, datetime):
-        return False
-    left = a_start if a_start.tzinfo else a_start.replace(tzinfo=_local_now().tzinfo)
-    right = (
-        other_start
-        if other_start.tzinfo
-        else other_start.replace(tzinfo=_local_now().tzinfo)
-    )
-    try:
-        return abs((left - right).total_seconds()) <= skew_s
-    except Exception:
-        return False
+    return same_event_slot(a_summary, a_start, b, skew_s=skew_s)

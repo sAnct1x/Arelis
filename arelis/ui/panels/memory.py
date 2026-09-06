@@ -14,6 +14,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from arelis.ui.theme import SPACE, box
+
 
 class ActiveFactsPanel(QWidget):
     """List approved facts and forget ones that should stop being injected.
@@ -29,8 +31,8 @@ class ActiveFactsPanel(QWidget):
         self._facts: list[dict[str, object]] = []
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(14, 16, 14, 12)
-        layout.setSpacing(8)
+        layout.setContentsMargins(*box("inset", "plate", "inset", "inset"))
+        layout.setSpacing(SPACE["gap"])
 
         hint = QLabel(
             "Approved facts Arelis injects as durable knowledge. "

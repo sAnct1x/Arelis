@@ -125,6 +125,20 @@ def test_empty_after_tool_strips_agenda_instruction_footers() -> None:
     assert "No events" in chat
 
 
+def test_browser_bot_check_is_not_the_report() -> None:
+    from arelis.core.failure_copy import chat_followup_from_tool
+
+    raw = (
+        "Opened https://www.bloomberg.com/news/articles/2025-09-15/toyota\n"
+        "title: Bloomberg - Are you a robot?\n"
+        "heading: Bloomberg"
+    )
+    chat = chat_followup_from_tool("browser", raw)
+    assert "robot" not in chat.lower() or "not the report" in chat.lower()
+    assert "not the report" in chat.lower()
+    assert should_nudge_write_after_page("browser", raw)
+
+
 def test_long_scrape_nudges_a_write_short_fact_does_not() -> None:
     price = "NASDAQ:SPCX last $143.34"
     assert not should_nudge_write_after_page("scrape", price)

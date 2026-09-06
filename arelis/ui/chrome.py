@@ -17,6 +17,7 @@ from arelis.ui.icons import (
     window_maximize_icon,
     window_minimize_icon,
 )
+from arelis.ui.theme import SPACE, box, control_pad_y
 
 
 def _chrome_btn(obj: str, icon, slot, *, tooltip: str = "") -> QPushButton:
@@ -50,8 +51,8 @@ class TitleBar(QWidget):
         self._hands_wanted = False
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(18, 0, 10, 0)
-        layout.setSpacing(4)
+        layout.setContentsMargins(*box("plate", "flush", "gap", "flush"))
+        layout.setSpacing(SPACE["micro"])
 
         self._span_left = QWidget()
         self._span_left.setFixedWidth(0)
@@ -80,7 +81,7 @@ class TitleBar(QWidget):
         self.hands_btn.setToolTip("C920 hands. Camera tile is inspect-only.")
         self.hands_btn.setVisible(False)
         layout.addWidget(self.hands_btn)
-        layout.addSpacing(10)
+        layout.addSpacing(SPACE["gap"])
 
         self.view_btn = QToolButton()
         self.view_btn.setObjectName("ChromeViewBtn")
@@ -169,7 +170,12 @@ class TitleBar(QWidget):
         self.setFixedHeight(32 if slim else 40)
         lay = self.layout()
         if lay is not None:
-            lay.setContentsMargins(14 if slim else 18, 0, 6 if slim else 10, 0)
+            lay.setContentsMargins(
+                SPACE["inset"] if slim else SPACE["plate"],
+                0,
+                control_pad_y() if slim else SPACE["gap"],
+                0,
+            )
 
     def set_hands_visible(self, on: bool) -> None:
         self._hands_wanted = bool(on)
@@ -285,8 +291,8 @@ class FloatingDockTitleBar(QWidget):
         self._drag_pos: QPoint | None = None
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(16, 0, 10, 0)
-        layout.setSpacing(6)
+        layout.setContentsMargins(*box("plate", "flush", "gap", "flush"))
+        layout.setSpacing(SPACE["gap"])
 
         self.title = QLabel(title)
         self.title.setObjectName("FloatingDockTitle")

@@ -8,6 +8,8 @@ finally the calculator, forced in because "1280 x 720" reads as arithmetic.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from PIL import Image
 
@@ -160,6 +162,10 @@ async def test_a_call_that_changes_nothing_is_refused_with_the_options(tool, pro
     assert not result.ok
     assert "preset=youtube_thumbnail" in result.output
     assert "vibrance" in result.output
+    assert "crop=" in result.output
+    assert "scale=2" in result.output
+    assert "pad=" in result.output
+    assert "warmth=" in result.output
 
 
 @pytest.mark.asyncio
@@ -201,7 +207,7 @@ async def test_an_unknown_preset_lists_the_known_ones(tool, project) -> None:
     root, _data, _ws = project
     _write(root / "shot.png", (320, 240))
 
-    result = await tool.run(path="project:shot.png", preset="tiktok")
+    result = await tool.run(path="project:shot.png", preset="billboard")
 
     assert not result.ok
     for name in SIZE_PRESETS:
@@ -337,3 +343,175 @@ async def test_the_name_says_what_happened(project, tool) -> None:
     assert name.startswith("holiday-")
     assert "1280x720" in name
     assert "vibrant" in name
+
+
+@pytest.mark.asyncio
+async def test_centered_text_overlay_writes_a_new_file(project, tool) -> None:
+    """'Add text that says Arelis' is pixel work, not a new generate."""
+    root, _data, _ws = project
+    source = _write(root / "library.png", (640, 480), (20, 40, 80))
+
+    result = await tool.run(path="project:library.png", text="Arelis")
+
+    assert result.ok, result.output
+    assert "Arelis" in result.output
+    assert result.data["text"] == "Arelis"
+    assert result.data["text_align"] == "center"
+    assert result.data["abs_path"] != str(source)
+    assert "text" in Path(result.data["abs_path"]).name
+    with Image.open(result.data["abs_path"]) as out:
+        assert out.size == (640, 480)
+        # Overlay must actually change pixels — a no-op save is a lie.
+        with Image.open(source) as original:
+            assert out.tobytes() != original.tobytes()
+
+
+@pytest.mark.asyncio
+async def test_rotate_90_swaps_the_shape(project, tool) -> None:
+    root, _data, _ws = project
+    _write(root / "wide.png", (200, 100), (200, 40, 40))
+
+    result = await tool.run(path="project:wide.png", rotate=90)
+
+    assert result.ok, result.output
+    assert result.data["result_px"] == [100, 200]
+    assert "rotated" in result.output.lower()
+
+
+@pytest.mark.asyncio
+async def test_flip_horizontal_changes_pixels(project, tool) -> None:
+    root, _data, _ws = project
+    path = root / "arrow.png"
+    img = Image.new("RGB", (20, 10), (0, 0, 0))
+    img.putpixel((0, 0), (255, 0, 0))
+    img.save(path)
+
+    result = await tool.run(path="project:arrow.png", flip="horizontal")
+
+    assert result.ok, result.output
+    with Image.open(result.data["abs_path"]) as out:
+        rgb = out.convert("RGB")
+        assert rgb.getpixel((19, 0)) == (255, 0, 0)
+        assert rgb.getpixel((0, 0)) == (0, 0, 0)
+
+
+@pytest.mark.asyncio
+async def test_grayscale_drops_the_colour(project, tool) -> None:
+    root, _data, _ws = project
+    _write(root / "red.png", (32, 32), (220, 20, 20))
+
+    result = await tool.run(path="project:red.png", grayscale=True)
+
+    assert result.ok, result.output
+    with Image.open(result.data["abs_path"]) as out:
+        r, g, b = out.convert("RGB").getpixel((8, 8))
+        assert r == g == b
+
+
+@pytest.mark.asyncio
+async def test_tiktok_preset_is_a_story_shape(project, tool) -> None:
+    root, _data, _ws = project
+    _write(root / "shot.png", (1920, 1080))
+
+    result = await tool.run(path="project:shot.png", preset="tiktok")
+
+    assert result.ok, result.output
+    assert result.data["result_px"] == [1080, 1920]
+
+
+@pytest.mark.asyncio
+async def test_crop_left_halves_the_width(project, tool) -> None:
+    root, _data, _ws = project
+    _write(root / "wide.png", (200, 100), (10, 20, 30))
+
+    result = await tool.run(path="project:wide.png", crop="left")
+
+    assert result.ok, result.output
+    assert result.data["result_px"] == [100, 100]
+    assert "crop" in Path(result.data["abs_path"]).name
+
+
+@pytest.mark.asyncio
+async def test_crop_box_cuts_the_named_rectangle(project, tool) -> None:
+    root, _data, _ws = project
+    path = root / "grid.png"
+    img = Image.new("RGB", (40, 30), (0, 0, 0))
+    for x in range(5, 15):
+        for y in range(5, 20):
+            img.putpixel((x, y), (255, 0, 0))
+    img.save(path)
+
+    boxed = await tool.run(
+        path="project:grid.png",
+        crop_box={"left": 5, "top": 5, "right": 15, "bottom": 20},
+    )
+
+    assert boxed.ok, boxed.output
+    assert boxed.data["result_px"] == [10, 15]
+    with Image.open(boxed.data["abs_path"]) as out:
+        assert out.size == (10, 15)
+        assert out.convert("RGB").getpixel((0, 0)) == (255, 0, 0)
+        assert out.convert("RGB").getpixel((9, 14)) == (255, 0, 0)
+
+    listed = await tool.run(path="project:grid.png", crop_box=[5, 5, 15, 20])
+    assert listed.ok, listed.output
+    assert listed.data["result_px"] == [10, 15]
+
+
+@pytest.mark.asyncio
+async def test_scale_2_doubles_pixels(project, tool) -> None:
+    root, _data, _ws = project
+    _write(root / "tiny.png", (40, 30))
+
+    result = await tool.run(path="project:tiny.png", scale=2)
+
+    assert result.ok, result.output
+    assert result.data["result_px"] == [80, 60]
+    assert "scale2" in Path(result.data["abs_path"]).name
+
+
+@pytest.mark.asyncio
+async def test_pad_grows_the_canvas(project, tool) -> None:
+    root, _data, _ws = project
+    _write(root / "stamp.png", (20, 10), (200, 100, 50))
+
+    result = await tool.run(path="project:stamp.png", pad=8)
+
+    assert result.ok, result.output
+    assert result.data["result_px"] == [36, 26]
+    assert "pad" in Path(result.data["abs_path"]).name
+    with Image.open(result.data["abs_path"]) as out:
+        px = out.getpixel((0, 0))
+        assert px[0] == 0 and px[1] == 0 and px[2] == 0
+        inner = out.convert("RGB").getpixel((8, 8))
+        assert inner == (200, 100, 50)
+
+
+@pytest.mark.asyncio
+async def test_warmth_changes_pixels(project, tool) -> None:
+    root, _data, _ws = project
+    _write(root / "neutral.png", (16, 16), (120, 120, 120))
+
+    result = await tool.run(path="project:neutral.png", warmth=1.0)
+
+    assert result.ok, result.output
+    assert "warm" in Path(result.data["abs_path"]).name
+    with Image.open(result.data["abs_path"]) as out:
+        red, _green, blue = out.convert("RGB").getpixel((8, 8))
+        assert red > 120
+        assert blue < 120
+
+
+@pytest.mark.asyncio
+async def test_pixel_edits_leave_the_original_untouched(project, tool) -> None:
+    root, _data, _ws = project
+    source = _write(root / "keep.png", (80, 60), (90, 40, 20))
+    before = source.read_bytes()
+
+    result = await tool.run(
+        path="project:keep.png", crop="center", scale=2, pad=4, warmth=0.5
+    )
+
+    assert result.ok, result.output
+    assert source.read_bytes() == before
+    assert result.data["abs_path"] != str(source)

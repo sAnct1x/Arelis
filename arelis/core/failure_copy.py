@@ -60,9 +60,19 @@ _PAGE_META = re.compile(
     r"(?i)^(site|by|published|length|url|sources|#+\s*sources)\s*:"
 )
 _SEARCH_TITLE = re.compile(r"(?i)^\s*\d+\.\s*Title:\s*(.+)$")
-_PAGE_TOOLS = frozenset({"scrape", "web_fetch"})
+_PAGE_TOOLS = frozenset({"scrape", "web_fetch", "browser"})
 _SEARCH_TOOLS = frozenset({"web_search"})
-_PAGE_WRITE_TOOLS = frozenset({"scrape", "web_search", "web_fetch"})
+_PAGE_WRITE_TOOLS = frozenset({"scrape", "web_search", "web_fetch", "browser"})
+_BOT_WALL = re.compile(
+    r"(?i)\b("
+    r"are you a robot|"
+    r"captcha|"
+    r"access denied|"
+    r"sign in to continue|"
+    r"password-protected|"
+    r"verify you are human"
+    r")\b"
+)
 _PAGE_CHAT_CHARS = 420
 # Short fact lines (a price, a one-line hit) can ship as chat.
 # A scraped article or a SERP must not — ask the model to write first.
@@ -180,6 +190,8 @@ def should_nudge_write_after_page(tool: str, output: str) -> bool:
     if (tool or "").strip() not in _PAGE_WRITE_TOOLS:
         return False
     out = output or ""
+    if _BOT_WALL.search(out):
+        return True
     if "Site:" in out or out.lstrip().startswith("# "):
         return True
     return len(out) >= _PAGE_WRITE_NUDGE_CHARS
@@ -211,6 +223,12 @@ def chat_followup_from_tool(tool: str, output: str) -> str:
             return "No events in this window."
         return "The tool finished. The details are in Workspace."
     if name in _PAGE_TOOLS:
+        if _BOT_WALL.search(cleaned):
+            return (
+                "That page did not give a usable source (login, captcha, "
+                "or a bot check). I need another URL or a search — this "
+                "is not the report."
+            )
         return _page_talk(cleaned)
     if name in _SEARCH_TOOLS:
         return _search_talk(cleaned)

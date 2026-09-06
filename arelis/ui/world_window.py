@@ -23,7 +23,7 @@ from arelis.ui.icons import (
 )
 from arelis.ui.panels.solar import SolarPanel
 from arelis.ui.panels.world import WorldPanel
-from arelis.ui.theme import GLASS, METRICS
+from arelis.ui.theme import GLASS, METRICS, SPACE, box
 from arelis.ui.window_resize import (
     cursor_for_hit,
     enable_win32_resize_frame,
@@ -57,8 +57,13 @@ class WorldPause(QWidget):
         self.setObjectName("WorldPause")
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(40, 24, 40, 24)
-        layout.setSpacing(12)
+        layout.setContentsMargins(
+            SPACE["stage"] + SPACE["plate"],
+            SPACE["stage"],
+            SPACE["stage"] + SPACE["plate"],
+            SPACE["stage"],
+        )
+        layout.setSpacing(SPACE["inset"])
         layout.addStretch(1)
         title = QLabel("paused")
         title.setObjectName("SettingsHeading")
@@ -118,8 +123,13 @@ class WorldChooser(QWidget):
         super().__init__(parent)
         self.setObjectName("WorldChooser")
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(40, 24, 40, 24)
-        layout.setSpacing(12)
+        layout.setContentsMargins(
+            SPACE["stage"] + SPACE["plate"],
+            SPACE["stage"],
+            SPACE["stage"] + SPACE["plate"],
+            SPACE["stage"],
+        )
+        layout.setSpacing(SPACE["inset"])
         layout.addStretch(1)
         title = QLabel("Where to?")
         title.setObjectName("SettingsHeading")
@@ -189,8 +199,8 @@ class WorldWindow(QWidget):
         outer.addWidget(plate)
 
         root = QVBoxLayout(plate)
-        root.setContentsMargins(16, 8, 10, 14)
-        root.setSpacing(8)
+        root.setContentsMargins(*box("plate", "gap", "gap", "inset"))
+        root.setSpacing(SPACE["gap"])
 
         head = QHBoxLayout()
         self.heading = QLabel("Reality")
@@ -240,6 +250,13 @@ class WorldWindow(QWidget):
             self._escape()
             event.accept()
             return
+        if self.solar_active():
+            find_on = bool(getattr(self.solar, "_earth_find_on", False))
+            paste_on = bool(str(getattr(self.solar, "_earth_paste_field", "") or ""))
+            if find_on or paste_on:
+                self.solar.keyPressEvent(event)
+                if event.isAccepted():
+                    return
         super().keyPressEvent(event)
 
     def solar_active(self) -> bool:
@@ -258,6 +275,9 @@ class WorldWindow(QWidget):
 
     def show_chooser(self) -> None:
         self._end_solar_visit()
+        leave = getattr(self.solar, "_leave_earth_zone", None)
+        if callable(leave):
+            leave()
         self.pause.hide()
         self.solar.menu_up = False
         self.panel.menu_up = False

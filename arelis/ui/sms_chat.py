@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
-from typing import Literal
+from datetime import datetime
+from typing import Any, Literal
 
-from PySide6.QtCore import QEvent, QPoint, Qt, QTimer, Signal
-from PySide6.QtGui import QKeySequence, QMouseEvent, QPixmap, QShortcut
+from PySide6.QtCore import QEvent, QPoint, Qt, QTimer, QUrl, Signal
+from PySide6.QtGui import QDesktopServices, QKeySequence, QMouseEvent, QPixmap, QShortcut
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -21,9 +22,16 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from arelis.contacts import load_contacts, normalize_phone, resolve_contact, to_e164
+from arelis.contacts import (
+    load_contacts,
+    match_contact_label,
+    normalize_phone,
+    resolve_contact,
+    to_e164,
+)
 from arelis.notify.center import Notice
 from arelis.sms_media import (
+    body_is_only_image_url,
     body_needs_rich_text,
     iter_http_urls,
     looks_like_photo_body,
@@ -32,12 +40,16 @@ from arelis.sms_media import (
 from arelis.ui.foreground import process_owns_foreground
 from arelis.ui.glass import GlassFrame, advance_rim_pulse, seal_tool_window
 from arelis.ui.icons import window_close_icon, window_minimize_icon
-from arelis.ui.theme import GLASS, METRICS
+from arelis.ui.sms_store import cap_messages, load_threads, save_threads
+from arelis.ui.theme import GLASS, METRICS, SPACE, box
 from arelis.ui.window_resize import enable_win32_resize_frame, handle_native_resize
 
 MAX_TILES = 8
-MAX_IMAGE_WIDTH = 280
+MAX_IMAGE_WIDTH = 400
+TILE_WIDTH = 480
+TILE_HEIGHT = 640
 Direction = Literal["in", "out", "system"]
+SendStatus = Literal["sent", "pending", "failed"]
 RoomPresence = Literal["hidden", "visible", "focused"]
 ATTENTION_BREATH_S = 6.0
 
@@ -47,13 +59,67 @@ def room_owns_doorbell(state: str) -> bool:
     return state in {"visible", "focused"}
 
 
-@dataclass(frozen=True)
+@dataclass
 class SmsChatMessage:
     direction: Direction
     body: str
     t: float = field(default_factory=time.time)
     media_path: str = ""
     media_kind: str = ""
+    status: SendStatus = "sent"
+    error: str = ""
+
+    def as_row(self) -> dict[str, Any]:
+        return {
+            "direction": self.direction,
+            "body": self.body,
+            "t": self.t,
+            "media_path": self.media_path,
+            "media_kind": self.media_kind,
+            "status": self.status,
+            "error": self.error,
+        }
+
+    @classmethod
+    def from_row(cls, raw: dict[str, Any]) -> SmsChatMessage:
+        direction = str(raw.get("direction") or "in")
+        if direction not in {"in", "out", "system"}:
+            direction = "in"
+        status = str(raw.get("status") or "sent")
+        if status not in {"sent", "pending", "failed"}:
+            status = "sent"
+        try:
+            stamp = float(raw.get("t") or time.time())
+        except (TypeError, ValueError):
+            stamp = time.time()
+        return cls(
+            direction=direction,  # type: ignore[arg-type]
+            body=str(raw.get("body") or ""),
+            t=stamp,
+            media_path=str(raw.get("media_path") or ""),
+            media_kind=str(raw.get("media_kind") or ""),
+            status=status,  # type: ignore[arg-type]
+            error=str(raw.get("error") or ""),
+        )
+
+
+def format_bubble_time(stamp: float, *, now: datetime | None = None) -> str:
+    when = datetime.fromtimestamp(stamp)
+    present = now or datetime.now()
+    clock = when.strftime("%H:%M")
+    if when.date() == present.date():
+        return clock
+    return f"{when.strftime('%b')} {when.day} · {clock}"
+
+
+def parse_message_time(raw: str = "") -> float:
+    text = (raw or "").strip()
+    if text:
+        try:
+            return datetime.fromisoformat(text.replace("Z", "+00:00")).timestamp()
+        except ValueError:
+            pass
+    return time.time()
 
 
 def thread_keys(*, alias: str = "", phone: str = "", sender: str = "") -> tuple[str, ...]:
@@ -93,6 +159,8 @@ def bubble_plain_text(widget: QWidget | None) -> str:
         return str(widget.text() or "")
     bits: list[str] = []
     for label in widget.findChildren(QLabel):
+        if label.objectName() == "SmsBubbleTime":
+            continue
         text = str(label.text() or "").strip()
         if text:
             bits.append(text)
@@ -113,8 +181,14 @@ def _apply_bubble_chrome(widget: QWidget, direction: Direction) -> None:
         widget.setAlignment(align)
 
 
+def open_local_path(path: str) -> None:
+    """Open a saved inbound photo in the OS viewer."""
+    QDesktopServices.openUrl(QUrl.fromLocalFile(path))
+
+
 def _fill_body_label(label: QLabel, text: str) -> None:
     if body_needs_rich_text(text):
+        label.setObjectName(label.objectName() or "SmsBubbleBody")
         label.setTextFormat(Qt.TextFormat.RichText)
         label.setText(sms_body_html(text))
         label.setOpenExternalLinks(True)
@@ -123,6 +197,23 @@ def _fill_body_label(label: QLabel, text: str) -> None:
         label.setTextFormat(Qt.TextFormat.PlainText)
         label.setText(text)
         label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+
+
+class SmsImageLabel(QLabel):
+    """Inline photo. A click opens the file so you can pinch-zoom in the viewer."""
+
+    def __init__(self, path: str, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._path = path
+        self.setObjectName("SmsBubbleImage")
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setToolTip("Open picture")
+        self.setScaledContents(False)
+
+    def mouseReleaseEvent(self, event) -> None:  # type: ignore[override]
+        if event.button() == Qt.MouseButton.LeftButton and self._path:
+            open_local_path(self._path)
+        super().mouseReleaseEvent(event)
 
 
 def _photo_pixmap(path: str) -> QPixmap | None:
@@ -136,23 +227,43 @@ def _photo_pixmap(path: str) -> QPixmap | None:
     return pix
 
 
+def _looks_like_phone(value: str) -> bool:
+    """True when the string is a number, not a Messages title that happens to
+    contain a digit (\"Mom 2\", a group name, a leftover id)."""
+    raw = (value or "").strip()
+    if not raw:
+        return False
+    stripped = "".join(ch for ch in raw if ch not in " \t()+-.–—")
+    return bool(stripped) and stripped.isdigit()
+
+
 def chat_target(
     *,
     alias: str = "",
     phone: str = "",
     sender: str = "",
+    title: str = "",
     contacts: dict | None = None,
 ) -> tuple[str, str]:
-    """Return (alias, e164) when a tile can send; empty e164 means do not open."""
+    """Return (alias, e164) when a tile can send; empty e164 means do not open.
+
+    Google Messages notices often carry a name, not a number. Match the book
+    before giving up — the pill title is the same string the phone posted.
+    """
     alias = (alias or "").strip()
-    e164 = to_e164(phone or sender)
-    if e164:
-        return alias, e164
-    if alias:
-        book = contacts if contacts is not None else load_contacts()
-        contact = resolve_contact(alias, book)
+    raw_phone = (phone or sender or "").strip()
+    if _looks_like_phone(raw_phone):
+        e164 = to_e164(raw_phone)
+        if e164:
+            return alias, e164
+    book = contacts if contacts is not None else load_contacts()
+    for candidate in (alias, title, phone, sender):
+        text = (candidate or "").strip()
+        if not text:
+            continue
+        contact = resolve_contact(text, book) or match_contact_label(text, book)
         if contact is not None and contact.e164:
-            return alias, contact.e164
+            return contact.alias or alias, contact.e164
     return alias, ""
 
 
@@ -160,6 +271,7 @@ class SmsChatWindow(QWidget):
     """One frameless glass room for one phone number."""
 
     send_requested = Signal(str)
+    retry_requested = Signal(str)
     closed = Signal()
     hidden = Signal()
     shown = Signal()
@@ -183,12 +295,12 @@ class SmsChatWindow(QWidget):
         self._base_title = title or phone or alias or "chat"
         self.setObjectName("SmsChat")
         self.setWindowTitle(self._base_title)
-        self.resize(360, 480)
+        self.setMinimumSize(320, 360)
+        self.resize(TILE_WIDTH, TILE_HEIGHT)
         self.setWindowFlags(
-            Qt.WindowType.Tool
+            Qt.WindowType.Window
             | Qt.WindowType.FramelessWindowHint
             | Qt.WindowType.NoDropShadowWindowHint
-            | Qt.WindowType.Window
         )
         seal_tool_window(self, round_corners=True)
         self._drag_origin: QPoint | None = None
@@ -211,8 +323,8 @@ class SmsChatWindow(QWidget):
         outer.addWidget(self._plate)
 
         root = QVBoxLayout(self._plate)
-        root.setContentsMargins(16, 12, 16, 14)
-        root.setSpacing(10)
+        root.setContentsMargins(*box("plate", "inset"))
+        root.setSpacing(SPACE["gap"])
 
         head = QHBoxLayout()
         head.setContentsMargins(0, 0, 0, 0)
@@ -344,7 +456,7 @@ class SmsChatWindow(QWidget):
         super().closeEvent(event)
 
     def minimize(self) -> None:
-        self.hide()
+        self.showMinimized()
         self.hidden.emit()
 
     def badge(self) -> None:
@@ -366,7 +478,9 @@ class SmsChatWindow(QWidget):
             looks_like_photo_body(message.body) and not has_image
         )
         caption = (message.body or "").strip()
-        if has_chip and looks_like_photo_body(caption) and not iter_http_urls(caption):
+        if looks_like_photo_body(caption) and not iter_http_urls(caption):
+            caption = ""
+        elif has_image and body_is_only_image_url(caption):
             caption = ""
         if not has_image and not has_chip:
             label = QLabel()
@@ -374,19 +488,19 @@ class SmsChatWindow(QWidget):
             label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
             _fill_body_label(label, message.body)
             _apply_bubble_chrome(label, message.direction)
-            return label
+            return self._stamp_bubble(label, message)
 
         box = QWidget()
         _apply_bubble_chrome(box, message.direction)
         layout = QVBoxLayout(box)
-        layout.setContentsMargins(8, 8, 10, 8)
+        layout.setContentsMargins(
+            SPACE["gap"], SPACE["gap"], SPACE["gap"], SPACE["gap"]
+        )
         layout.setSpacing(6)
         pixmap = _photo_pixmap(message.media_path) if has_image else None
         if pixmap is not None:
-            image = QLabel()
-            image.setObjectName("SmsBubbleImage")
+            image = SmsImageLabel(message.media_path)
             image.setPixmap(pixmap)
-            image.setScaledContents(False)
             layout.addWidget(image)
         elif has_chip or has_image:
             chip = QLabel("Photo")
@@ -399,7 +513,42 @@ class SmsChatWindow(QWidget):
             _fill_body_label(label, caption)
             layout.addWidget(label)
         box.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
-        return box
+        return self._stamp_bubble(box, message)
+
+    def _stamp_bubble(self, inner: QWidget, message: SmsChatMessage) -> QWidget:
+        wrap = QWidget()
+        wrap.setObjectName("SmsBubbleStack")
+        layout = QVBoxLayout(wrap)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(2)
+        if message.direction == "out":
+            layout.setAlignment(Qt.AlignmentFlag.AlignRight)
+        elif message.direction == "system":
+            layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        else:
+            layout.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        layout.addWidget(inner)
+        meta = format_bubble_time(message.t)
+        if message.status == "pending":
+            meta = f"{meta} · sending"
+        elif message.status == "failed":
+            meta = f"{meta} · failed"
+            if message.error:
+                inner.setToolTip(message.error)
+        clock = QLabel(meta)
+        clock.setObjectName("SmsBubbleTime")
+        layout.addWidget(clock)
+        if message.status == "failed" and message.direction == "out":
+            retry = QPushButton("retry")
+            retry.setObjectName("InstrumentAction")
+            retry.setFixedHeight(24)
+            retry.setCursor(Qt.CursorShape.PointingHandCursor)
+            retry.clicked.connect(
+                lambda _=False, body=message.body: self.retry_requested.emit(body)
+            )
+            layout.addWidget(retry)
+        wrap.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+        return wrap
 
     def set_messages(self, messages: list[SmsChatMessage]) -> None:
         while self._thread.count():
@@ -415,7 +564,6 @@ class SmsChatWindow(QWidget):
         if not text:
             return
         self.input.clear()
-        self.append_message(SmsChatMessage(direction="out", body=text))
         self.send_requested.emit(text)
 
     def _last_bubble(self) -> QWidget | None:
@@ -469,16 +617,27 @@ class SmsChatWindow(QWidget):
 
 
 class SmsChatRegistry:
-    """Session-only rooms. Close forgets the window; the buffer lasts until quit."""
+    """Per-person rooms. Close forgets the window; the thread persists on disk."""
 
-    def __init__(self, host: QWidget) -> None:
+    def __init__(
+        self,
+        host: QWidget,
+        *,
+        persist: bool = False,
+        store_path=None,
+    ) -> None:
         self._host = host
         self._canon: dict[str, str] = {}
         self._buffers: dict[str, list[SmsChatMessage]] = {}
+        self._meta: dict[str, dict[str, str]] = {}
         self._windows: dict[str, SmsChatWindow] = {}
         self._order: list[str] = []
         self._send = None
         self._shown = None
+        self._persist_on = persist
+        self._store_path = store_path
+        if persist:
+            self._hydrate()
 
     def set_send_handler(self, handler) -> None:
         self._send = handler
@@ -539,8 +698,18 @@ class SmsChatRegistry:
         contacts: dict | None = None,
     ) -> SmsChatWindow | None:
         found_alias, e164 = chat_target(
-            alias=alias, phone=phone, sender=sender, contacts=contacts
+            alias=alias,
+            phone=phone,
+            sender=sender,
+            title=title,
+            contacts=contacts,
         )
+        if not e164:
+            key = self.resolve_key(
+                alias=found_alias or alias, phone=phone, sender=sender
+            )
+            stored = str((self._meta.get(key) or {}).get("phone") or "")
+            e164 = to_e164(stored)
         if not e164:
             return None
         key = self.resolve_key(alias=found_alias or alias, phone=e164, sender=sender)
@@ -576,8 +745,18 @@ class SmsChatRegistry:
                 k, body, a, p
             )
         )
+        window.retry_requested.connect(
+            lambda body, k=key, a=window.alias, p=window.phone: self._emit_send(
+                k, body, a, p, retry=True
+            )
+        )
         window.closed.connect(lambda k=key: self._forget_window(k))
         window.shown.connect(lambda w=window: self._emit_shown(w))
+        self._meta[key] = {
+            "alias": found_alias or alias,
+            "phone": e164,
+            "title": heading,
+        }
         self._windows[key] = window
         self._order.append(key)
         self._place(window)
@@ -595,6 +774,7 @@ class SmsChatRegistry:
         title: str = "",
         media_path: str = "",
         media_kind: str = "",
+        sent_at: str = "",
     ) -> None:
         text = (body or "").strip()
         if not text and not media_path and media_kind != "photo_chip":
@@ -605,10 +785,12 @@ class SmsChatRegistry:
         message = SmsChatMessage(
             direction="in",
             body=text,
+            t=parse_message_time(sent_at),
             media_path=media_path,
             media_kind=media_kind,
         )
         self._buffers.setdefault(key, []).append(message)
+        self._persist()
         window = self._windows.get(key)
         if window is not None:
             window.append_message(message)
@@ -635,17 +817,32 @@ class SmsChatRegistry:
                 SmsChatMessage(direction="out", body=text)
             ) if key else None
             return
-        message = SmsChatMessage(direction="out", body=text)
+        message = SmsChatMessage(direction="out", body=text, status="sent")
         self._buffers.setdefault(key, []).append(message)
+        self._persist()
         window = self._windows[key]
         window.append_message(message)
 
     def system(self, key: str, text: str) -> None:
         message = SmsChatMessage(direction="system", body=text)
         self._buffers.setdefault(key, []).append(message)
+        self._persist()
         window = self._windows.get(key)
         if window is not None:
             window.append_message(message)
+
+    def mark_last_out(self, key: str, *, ok: bool, error: str = "") -> None:
+        buf = self._buffers.get(key) or []
+        for message in reversed(buf):
+            if message.direction != "out":
+                continue
+            message.status = "sent" if ok else "failed"
+            message.error = error if not ok else ""
+            break
+        self._persist()
+        window = self._windows.get(key)
+        if window is not None:
+            window.set_messages(buf)
 
     def hide_all(self) -> None:
         for window in self._windows.values():
@@ -654,22 +851,85 @@ class SmsChatRegistry:
     def _seed(self, key: str, bodies: list[str]) -> None:
         buf = self._buffers.setdefault(key, [])
         have = {item.body for item in buf if item.direction == "in"}
+        changed = False
         for body in bodies:
             text = str(body).strip()
             if text and text not in have:
                 buf.append(SmsChatMessage(direction="in", body=text))
                 have.add(text)
+                changed = True
+        if changed:
+            self._persist()
 
     def _emit_shown(self, window: SmsChatWindow) -> None:
         if self._shown is not None:
             self._shown(window.alias, window.phone)
 
-    def _emit_send(self, key: str, body: str, alias: str, phone: str) -> None:
-        self._buffers.setdefault(key, []).append(
-            SmsChatMessage(direction="out", body=body)
-        )
+    def _emit_send(
+        self,
+        key: str,
+        body: str,
+        alias: str,
+        phone: str,
+        *,
+        retry: bool = False,
+    ) -> None:
+        text = (body or "").strip()
+        if not text:
+            return
+        buf = self._buffers.setdefault(key, [])
+        if retry:
+            for message in reversed(buf):
+                if message.direction == "out" and message.body == text:
+                    message.status = "pending"
+                    message.error = ""
+                    break
+            else:
+                buf.append(SmsChatMessage(direction="out", body=text, status="pending"))
+        else:
+            buf.append(SmsChatMessage(direction="out", body=text, status="pending"))
+        self._persist()
+        window = self._windows.get(key)
+        if window is not None:
+            window.set_messages(buf)
         if self._send is not None:
-            self._send(key, body, alias, phone)
+            self._send(key, text, alias, phone)
+
+    def _hydrate(self) -> None:
+        stored = load_threads(self._store_path)
+        for key, row in stored.items():
+            messages = [
+                SmsChatMessage.from_row(item)
+                for item in (row.get("messages") or [])
+                if isinstance(item, dict)
+            ]
+            if not messages:
+                continue
+            self._buffers[key] = messages
+            self._meta[key] = {
+                "alias": str(row.get("alias") or ""),
+                "phone": str(row.get("phone") or ""),
+                "title": str(row.get("title") or ""),
+            }
+            for ident in thread_keys(
+                alias=str(row.get("alias") or ""),
+                phone=str(row.get("phone") or ""),
+            ):
+                self._canon[ident] = key
+
+    def _persist(self) -> None:
+        if not self._persist_on:
+            return
+        payload: dict[str, dict[str, Any]] = {}
+        for key, messages in self._buffers.items():
+            meta = self._meta.get(key) or {}
+            payload[key] = {
+                "alias": meta.get("alias") or "",
+                "phone": meta.get("phone") or "",
+                "title": meta.get("title") or "",
+                "messages": cap_messages([item.as_row() for item in messages]),
+            }
+        save_threads(payload, self._store_path)
 
     def _forget_window(self, key: str) -> None:
         self._windows.pop(key, None)

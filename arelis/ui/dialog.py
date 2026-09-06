@@ -27,7 +27,7 @@ from PySide6.QtWidgets import (
 
 from arelis.ui.glass import GlassFrame, advance_rim_pulse, seal_tool_window
 from arelis.ui.icons import window_close_icon
-from arelis.ui.theme import GLASS, METRICS
+from arelis.ui.theme import GLASS, METRICS, SPACE, box
 
 _HEADING = "GlassDialogHeading"
 
@@ -78,12 +78,12 @@ class GlassDialog(QDialog):
         outer.addWidget(self.panel)
 
         root = QVBoxLayout(self.panel)
-        root.setContentsMargins(18, 14, 18, 14)
-        root.setSpacing(12)
+        root.setContentsMargins(*box("plate", "inset"))
+        root.setSpacing(SPACE["inset"])
 
         head = QHBoxLayout()
         head.setContentsMargins(0, 0, 0, 0)
-        head.setSpacing(8)
+        head.setSpacing(SPACE["gap"])
         title = QLabel(heading)
         title.setObjectName(_HEADING)
         title.setCursor(Qt.CursorShape.OpenHandCursor)
@@ -107,12 +107,12 @@ class GlassDialog(QDialog):
 
         self.body = QVBoxLayout()
         self.body.setContentsMargins(0, 0, 0, 0)
-        self.body.setSpacing(10)
+        self.body.setSpacing(SPACE["gap"])
         root.addLayout(self.body, stretch=1)
 
         self.footer = QHBoxLayout()
         self.footer.setContentsMargins(0, 0, 0, 0)
-        self.footer.setSpacing(8)
+        self.footer.setSpacing(SPACE["gap"])
         self.footer.addStretch(1)
         root.addLayout(self.footer)
 

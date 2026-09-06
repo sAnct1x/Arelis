@@ -16,7 +16,25 @@ _LOGIN_HOST = re.compile(
     r"(?i)(accounts\.google\.com|login\.microsoftonline|login\.live\.com|"
     r"appleid\.apple\.com|auth0\.com|okta\.com)"
 )
-_LOGIN_PATH = re.compile(r"(?i)/(sign[-_]?in|log[-_]?in|oauth|authorize)(/|$|\?)")
+_LOGIN_PATH = re.compile(
+    r"(?i)/("
+    r"sign[-_]?in|log[-_]?in|oauth|authorize|"
+    r"i/flow/(?:login|signup)|"
+    r"i/jf/onboarding"
+    r")(/|$|\?|#)"
+)
+_LOGIN_QUERY = re.compile(r"(?i)(?:^|&)mode=login(?:&|$)")
+_LOGIN_FRAGMENT = re.compile(r"(?i)(sign[-_]?in|log[-_]?in|signup)")
+_X_HOST = frozenset(
+    {
+        "x.com",
+        "www.x.com",
+        "mobile.x.com",
+        "twitter.com",
+        "www.twitter.com",
+        "mobile.twitter.com",
+    }
+)
 _PAY_PATH = re.compile(
     r"(?i)/(checkout|payment|payments|place-?order|billing)(/|$|\?)"
 )
@@ -58,6 +76,10 @@ _MESSAGES = {
     "stuck": (
         "Your turn — I cannot find the next control. The page stays."
     ),
+    "hands": (
+        "Your turn — you have the mouse. I will not click over you. "
+        "Hit Go when you want me to drive again."
+    ),
 }
 
 
@@ -71,8 +93,34 @@ def your_turn_status(kind: str) -> str:
         "login": "your turn — sign in",
         "pay": "your turn — you click Pay",
         "stuck": "your turn — I am stuck",
+        "hands": "your turn — you have the mouse",
     }
     return labels.get(kind, "your turn — page stays")
+
+
+def checkout_receipt(
+    *,
+    url: str = "",
+    title: str = "",
+    heading: str = "",
+    body: str = "",
+) -> str:
+    """Short chat line after a pay wall. She does not click Pay."""
+    lines = ["Checkout is up — your turn to click Pay."]
+    head = (heading or title or "").strip()
+    if head:
+        lines.append(head[:80])
+    if url:
+        lines.append(str(url).strip())
+    for raw in str(body or "").splitlines():
+        line = raw.strip()
+        if not line or line.lower().startswith(("title:", "url:", "heading:")):
+            continue
+        if line.casefold() == head.casefold():
+            continue
+        lines.append(line[:100])
+        break
+    return "\n".join(lines)
 
 
 def pay_cta_label(text: str) -> str | None:
@@ -82,6 +130,56 @@ def pay_cta_label(text: str) -> str | None:
     if _PAY_CTA.match(raw):
         return raw
     return None
+
+
+def is_login_url(url: str) -> bool:
+    """True when the URL itself is a sign-in / OAuth / X flow path."""
+    raw = str(url or "").strip()
+    if not raw:
+        return False
+    parsed = urlparse(raw)
+    host = (parsed.hostname or "").lower()
+    path = parsed.path or ""
+    return bool(
+        _LOGIN_HOST.search(host)
+        or _LOGIN_PATH.search(path)
+        or _LOGIN_QUERY.search(parsed.query or "")
+        or (host in _X_HOST and _LOGIN_FRAGMENT.search(parsed.fragment or ""))
+    )
+
+
+def site_login_url(url: str) -> str | None:
+    """Canonical login URL for a host we know, else None."""
+    host = (urlparse(str(url or "")).hostname or "").lower()
+    if host in _X_HOST:
+        return "https://x.com/login"
+    return None
+
+
+def login_redirected_signed_in(requested: str, landed: str) -> bool:
+    """True when a login URL bounced to a non-login page (already in)."""
+    want = str(requested or "").strip()
+    got = str(landed or "").strip()
+    if not want or not got:
+        return False
+    if not is_login_url(want) or is_login_url(got):
+        return False
+    scheme = (urlparse(got).scheme or "").lower()
+    return scheme in {"http", "https"}
+
+
+def nav_landed_note(requested: str, landed: str) -> str:
+    """Extra lines when the tab is not the URL we asked for."""
+    want = str(requested or "").strip()
+    got = str(landed or "").strip()
+    if not want or not got:
+        return ""
+    if want.split("#", 1)[0].rstrip("/") == got.split("#", 1)[0].rstrip("/"):
+        return ""
+    bits = [f"Requested {want}."]
+    if login_redirected_signed_in(want, got):
+        bits.append("Already signed in — that login URL redirected here. Stop.")
+    return "\n".join(bits)
 
 
 def detect_wall(
@@ -116,7 +214,7 @@ def detect_wall(
     if signals.get("card") or _PAY_HOST.search(host) or _PAY_PATH.search(path):
         return Wall("pay", "checkout", wall_message("pay"))
 
-    login_url = bool(_LOGIN_HOST.search(host) or _LOGIN_PATH.search(path))
+    login_url = is_login_url(url)
     login_copy = bool(_LOGIN_COPY.search(copy))
     if login_url or (
         (signals.get("password") or signals.get("otp")) and (login_url or login_copy)

@@ -1,4 +1,4 @@
-"""Spoken and typed Earth go-to. Gazetteer, not a web geocode."""
+"""Spoken and typed Earth go-to. Gazetteer first; addresses via Nominatim."""
 
 from __future__ import annotations
 
@@ -124,3 +124,118 @@ def test_pending_goto_flies_on_the_plate(qt_app, monkeypatch: pytest.MonkeyPatch
     assert panel._place is not None
     assert panel._place["name"] == "Tokyo"
     assert panel._earth_fly is not None
+
+
+def test_cesium_owns_the_city_fly(qt_app, monkeypatch: pytest.MonkeyPatch) -> None:
+    """One Cesium flyTo — not Python mixing ECEF and setView every tick."""
+    from arelis.earth.gazetteer import resolve_place
+    from arelis.ui.panels.solar import SolarPanel
+
+    monkeypatch.setattr("arelis.earth.runtime.EarthRuntime._merge_live", lambda self: None)
+    earth = EarthRuntime()
+    earth.enter(unix=1.0)
+    set_earth(earth)
+    hit = resolve_place("Tokyo")
+    assert hit is not None
+    flown: list[tuple[float, float, float]] = []
+
+    class Host:
+        failed = False
+
+        def isVisible(self) -> bool:
+            return True
+
+        def fly_to(self, lat: float, lon: float, alt_m: float) -> None:
+            flown.append((lat, lon, alt_m))
+
+    panel = SolarPanel()
+    panel.resize(960, 720)
+    panel._globe_host = Host()
+    panel._select_earth_place(hit.as_place())
+    assert panel._earth_fly is None
+    assert len(flown) == 1
+    assert flown[0][2] < 40_000.0
+
+
+def test_geocode_stays_offline_under_pytest(monkeypatch: pytest.MonkeyPatch) -> None:
+    from arelis.earth import geocode
+
+    geocode.clear_cache()
+    called: list[int] = []
+
+    def boom(*_a, **_k):
+        called.append(1)
+        raise AssertionError("Nominatim must not run in pytest")
+
+    monkeypatch.setattr(geocode.httpx, "get", boom)
+    assert geocode.search_address("1600 Pennsylvania Avenue") == []
+    assert called == []
+
+
+def test_looks_like_address_is_not_a_city_name() -> None:
+    from arelis.earth.geocode import looks_like_address
+
+    assert looks_like_address("1600 Pennsylvania Avenue")
+    assert looks_like_address("10 Downing Street, London")
+    assert looks_like_address("Main Street")
+    assert not looks_like_address("Tokyo")
+    assert not looks_like_address("to")
+    assert not looks_like_address("California")
+
+
+def test_resolve_place_uses_cached_address(monkeypatch: pytest.MonkeyPatch) -> None:
+    from arelis.earth import geocode
+    from arelis.earth.gazetteer import GotoHit, resolve_place
+
+    geocode.clear_cache()
+    hit = GotoHit(
+        "address",
+        "1600 Pennsylvania Avenue NW, Washington, DC",
+        38.8977,
+        -77.0365,
+    )
+    geocode.remember_hits("1600 Pennsylvania Avenue", [hit])
+    found = resolve_place("1600 Pennsylvania Avenue")
+    assert found is not None
+    assert found.kind == "address"
+    assert found.lat == pytest.approx(38.8977)
+    geocode.clear_cache()
+    monkeypatch.setattr(geocode, "search_address", lambda *a, **k: [])
+    assert resolve_place("1600 Pennsylvania Avenue") is None
+
+
+def test_scale_bar_reads_like_a_map() -> None:
+    from arelis.earth.scale import format_agl, format_distance, scale_bar
+
+    nice, bar_px, label = scale_bar(350.0, 1200.0)
+    assert nice <= 200.0
+    assert 24 <= bar_px <= 400
+    assert label.endswith("m")
+    assert format_distance(1000.0) == "1 km"
+    assert format_distance(200.0) == "200 m"
+    assert format_agl(2400.0) == "2.4 km AGL"
+    assert format_agl(350.0).endswith("AGL")
+    from arelis.earth.scale import format_surface, scale_from_mpp, show_map_scale
+    from arelis.ui.earth_marks import BAND_PX, mark_size
+
+    nice, bar_px, mpp_label = scale_from_mpp(25.0)
+    assert nice == 2000.0
+    assert 36 <= bar_px <= 160
+    assert mpp_label == "2 km"
+    assert format_surface(46_558_000.0) == "46558 km to surface"
+    assert show_map_scale(alt_m=46_558_000.0, mpp=15_000.0) is False
+    assert show_map_scale(alt_m=2_400.0, mpp=25.0) is True
+    assert mark_size("space") >= 36
+    assert BAND_PX["space"] >= 36
+
+
+def test_nav_range_waits_for_cesium() -> None:
+    from types import SimpleNamespace
+
+    from arelis.ui.earth_chrome import nav_range_m
+
+    empty = SimpleNamespace(_earth_agl_m=None, _earth_nadir_m=None)
+    assert nav_range_m(empty) is None
+    assert nav_range_m(SimpleNamespace(_earth_agl_m=None, _earth_nadir_m=0)) is None
+    assert nav_range_m(SimpleNamespace(_earth_agl_m=2400.0, _earth_nadir_m=None)) == 2400.0
+    assert nav_range_m(SimpleNamespace(_earth_agl_m=2400.0, _earth_nadir_m=1800.0)) == 1800.0

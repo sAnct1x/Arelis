@@ -6,8 +6,14 @@ from datetime import UTC, date, datetime, timedelta
 
 from arelis.calendar.layout import event_spans_day, month_cells, parse_task_due
 from arelis.calendar.models import CachedEvent
-from arelis.ui.panels.calendar import CalendarPanel
-from arelis.ui.theme import METRICS
+from arelis.ui.panels.calendar import (
+    CalendarPanel,
+    EventSheet,
+    TasksPage,
+    leftover_label,
+    sync_chip_mark,
+)
+from arelis.ui.theme import METRICS, SPACE, box
 
 
 def _ev(day: date, *, summary: str = "Dentist", hour: int = 10) -> CachedEvent:
@@ -51,6 +57,150 @@ def test_parse_task_due_iso() -> None:
     assert parse_task_due("Friday") is None
 
 
+def test_month_overflow_and_sync_marks() -> None:
+    assert leftover_label(2) == "+2 more"
+    assert sync_chip_mark("pending") == " · queued"
+    assert sync_chip_mark("failed") == " · failed"
+    assert sync_chip_mark("synced") == ""
+
+
+def test_month_grid_caps_events_and_shows_more(qt_app) -> None:
+    panel = CalendarPanel()
+    try:
+        day = date(2026, 8, 19)
+        panel._anchor = day
+        panel.month_view.set_anchor(day)
+        events = [
+            CachedEvent(
+                id=f"google:{i}",
+                provider="google",
+                calendar_id="primary",
+                summary=f"Slot {i}",
+                starts_at=datetime(2026, 8, 19, 8 + i, 0, tzinfo=UTC),
+                ends_at=datetime(2026, 8, 19, 9 + i, 0, tzinfo=UTC),
+                all_day=False,
+                raw_id=str(i),
+                sync_state="pending" if i == 0 else "synced",
+            )
+            for i in range(5)
+        ]
+        panel.set_events(events)
+        panel.month_view.resize(900, 640)
+        from PySide6.QtGui import QPaintEvent
+
+        panel.month_view.paintEvent(QPaintEvent(panel.month_view.rect()))
+        event_hits = [hit for hit in panel.month_view._hits if hit.kind == "event"]
+        more = [hit for hit in panel.month_view._hits if hit.kind == "more"]
+        assert len(event_hits) == 3
+        assert more
+        assert more[0].payload == day
+    finally:
+        panel.hide()
+        panel.deleteLater()
+
+
+def test_event_sheet_notes_are_a_textarea_with_a_date_popup(qt_app) -> None:
+    from PySide6.QtWidgets import QPlainTextEdit
+
+    sheet = EventSheet()
+    try:
+        assert isinstance(sheet.notes_edit, QPlainTextEdit)
+        assert sheet.date_edit.calendarPopup() is True
+        ev = CachedEvent(
+            id="local:1",
+            provider="google",
+            calendar_id="primary",
+            summary="Dentist",
+            starts_at=datetime(2026, 8, 19, 10, 0, tzinfo=UTC),
+            ends_at=datetime(2026, 8, 19, 11, 0, tzinfo=UTC),
+            all_day=False,
+            description="bring x-rays",
+            raw_id="1",
+        )
+        sheet.open_event(ev)
+        assert sheet.notes_edit.toPlainText() == "bring x-rays"
+        captured: list[dict] = []
+        sheet.save_requested.connect(captured.append)
+        sheet.notes_edit.setPlainText("bring x-rays\nand insurance")
+        sheet._on_save()
+        assert captured
+        assert captured[0]["description"] == "bring x-rays\nand insurance"
+    finally:
+        sheet.hide()
+        sheet.deleteLater()
+
+
+def test_jobs_tab_hints_when_mail_is_missing(qt_app, monkeypatch) -> None:
+    monkeypatch.setattr("arelis.mail.load_account", lambda: None)
+    panel = CalendarPanel()
+    try:
+        panel.reload_jobs()
+        assert "Settings → notify" in panel.jobs_page.last_label.text()
+    finally:
+        panel.hide()
+        panel.deleteLater()
+
+
+def test_task_rows_leave_air_around_remove(qt_app) -> None:
+    page = TasksPage()
+    try:
+        page.set_tasks(
+            [
+                {"id": 1, "title": "live-pass check", "status": "open"},
+                {
+                    "id": 2,
+                    "title": "live-pass check",
+                    "due": "2026-08-30",
+                    "status": "open",
+                },
+            ]
+        )
+        page.resize(720, 400)
+        page.show()
+        qt_app.processEvents()
+        margins = page.layout().contentsMargins()
+        assert (margins.left(), margins.top(), margins.right(), margins.bottom()) == box(
+            "gap"
+        )
+        assert page.list.spacing() == SPACE["gap"]
+        item = page.list.item(0)
+        widget = page.list.itemWidget(item)
+        assert widget is not None
+        row = widget.layout().contentsMargins()
+        assert (row.left(), row.top(), row.right(), row.bottom()) == box("gap", "micro")
+        assert item.sizeHint().height() >= METRICS["row"] + SPACE["micro"] * 2
+        first = page.list.visualItemRect(item)
+        second = page.list.visualItemRect(page.list.item(1))
+        assert second.top() >= first.bottom()
+    finally:
+        page.hide()
+        page.deleteLater()
+
+
+def test_month_chips_sit_below_the_date(qt_app) -> None:
+    panel = CalendarPanel()
+    try:
+        day = date(2026, 8, 19)
+        panel._anchor = day
+        panel.month_view.set_anchor(day)
+        panel.set_events([_ev(day, summary="Labor Day")])
+        panel.month_view.resize(900, 640)
+        from PySide6.QtGui import QPaintEvent
+
+        panel.month_view.paintEvent(QPaintEvent(panel.month_view.rect()))
+        cell = next(
+            hit
+            for hit in panel.month_view._hits
+            if hit.kind == "cell" and hit.payload == day
+        )
+        chip = next(hit for hit in panel.month_view._hits if hit.kind == "event")
+        assert chip.rect.top() >= cell.rect.top() + SPACE["micro"] + 16
+        assert chip.rect.left() >= cell.rect.left() + SPACE["gap"]
+    finally:
+        panel.hide()
+        panel.deleteLater()
+
+
 def test_calendar_furniture_is_one_height(qt_app) -> None:
     panel = CalendarPanel()
     try:
@@ -59,6 +209,7 @@ def test_calendar_furniture_is_one_height(qt_app) -> None:
             panel.prev_btn,
             panel.today_btn,
             panel.next_btn,
+            panel.sign_in_btn,
             panel.sync_btn,
             panel.new_btn,
             panel.tasks_page.add_btn,
@@ -225,6 +376,12 @@ def test_jobs_tab_lists_a_saved_job(qt_app, tmp_path, monkeypatch) -> None:
     panel = CalendarPanel()
     try:
         panel.reload_jobs()
+        panel.show_tasks_tab()
+        assert panel.tabs.currentWidget() is panel.tasks_page
+        panel.show_day(date(2026, 9, 8))
+        assert panel.tabs.currentIndex() == 0
+        assert panel._anchor == date(2026, 9, 8)
+        assert panel._view == "day"
         panel.show_jobs_tab()
         assert panel.tabs.currentWidget() is panel.jobs_page
         assert panel.tabs.widget(1) is panel.tasks_page

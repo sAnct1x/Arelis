@@ -120,6 +120,53 @@ def test_a_commanded_drive_is_the_grant() -> None:
     )
 
 
+def test_send_card_hides_persist_and_batch(qt_app) -> None:
+    from arelis.ui.panels.confirm import ConfirmCard
+
+    card = ConfirmCard()
+    try:
+        card.ask(
+            "c1",
+            "send_sms",
+            "send_sms(to=wife)",
+            detail="To: wife\n\nOn my way",
+            headline="text wife",
+            batch_ok=False,
+            persist_ok=False,
+        )
+        assert not card.allow_always.isVisible()
+        assert not card.allow_turn.isVisible()
+    finally:
+        card.deleteLater()
+
+
+def test_wander_image_offers_persist(qt_app) -> None:
+    from arelis.ui.panels.confirm import ConfirmCard
+
+    card = ConfirmCard()
+    decided: list[tuple[str, bool]] = []
+    try:
+        card.decided.connect(lambda _id, decision, batch: decided.append((decision, batch)))
+        card.ask(
+            "c1",
+            "image",
+            "image(prompt=jellyfish)",
+            headline="draw a jellyfish",
+            batch_ok=True,
+            persist_ok=True,
+            persist_label="don't ask again about pictures",
+        )
+        assert card.allow_always.isVisible()
+        assert card.allow_always.text() == "don't ask again about pictures"
+        assert card.allow_turn.isVisible()
+        card.allow_always.setChecked(True)
+        card.allow_turn.setChecked(True)
+        card._allow()
+        assert decided == [("allow_always", False)]
+    finally:
+        card.deleteLater()
+
+
 def test_card_says_deny_not_skip(qt_app) -> None:
     from arelis.ui.panels.confirm import ConfirmCard
 

@@ -501,6 +501,14 @@ def test_sent_email_does_not_turn_the_next_ask_into_a_body() -> None:
     assert "compose_email" not in [h.kind for h in hints]
 
 
+def test_email_it_to_me_is_self_not_a_name() -> None:
+    draft = parse_email_utterance("email it to me")
+    assert draft is not None
+    assert draft.to == "me"
+    filled = fill_send_email_args({"to": "it to me", "subject": "x", "body": "y"}, None)
+    assert filled["to"] == "me"
+
+
 def test_body_still_fills_when_she_just_asked() -> None:
     history = [
         ChatMessage(role="user", content="Email bob@example.com"),

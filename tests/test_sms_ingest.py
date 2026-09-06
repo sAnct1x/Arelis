@@ -13,10 +13,11 @@ import yaml
 from arelis.contacts import Contact, match_contact_label, normalize_phone
 from arelis.core.bus import EventBus
 from arelis.core.events import EventType
-from arelis.sms_inbound import SeenMessageStore
+from arelis.sms_inbound import InboundSms, SeenMessageStore
 from arelis.sms_ingest import (
     InboundIngestServer,
     RecentInboundLog,
+    ensure_ingest_token,
     format_ingest_listen_urls,
     load_ingest_token,
     parse_ingest_payload,
@@ -59,6 +60,19 @@ def test_load_ingest_token(tmp_path: Path, monkeypatch) -> None:
     assert load_ingest_token(path) == "secret-token"
     monkeypatch.setenv("ARELIS_INGEST_TOKEN", "from-env")
     assert load_ingest_token(path) == "from-env"
+
+
+def test_ensure_ingest_token_mints_once(tmp_path: Path, monkeypatch) -> None:
+    path = tmp_path / "secrets.yaml"
+    path.write_text(yaml.safe_dump({"email": {"address": "me@x.com"}}), encoding="utf-8")
+    monkeypatch.delenv("ARELIS_INGEST_TOKEN", raising=False)
+    first = ensure_ingest_token(path=path)
+    second = ensure_ingest_token(path=path)
+    assert first
+    assert first == second
+    raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+    assert raw["sms"]["ingest_token"] == first
+    assert raw["email"]["address"] == "me@x.com"
 
 
 def test_match_contact_label_strips_emoji() -> None:
@@ -109,6 +123,33 @@ def test_parse_ingest_photo_bytes(tmp_path: Path, monkeypatch) -> None:
     assert msg.media_kind == "image"
     assert msg.media_path
     assert Path(msg.media_path).is_file()
+
+
+async def test_publish_swallows_stale_companion_dump(tmp_path: Path) -> None:
+    bus = EventBus()
+    received: list[dict] = []
+
+    async def capture(event) -> None:
+        if event.type == EventType.SMS_RECEIVED:
+            received.append(dict(event.payload))
+
+    bus.subscribe(EventType.SMS_RECEIVED, capture)
+    task = asyncio.create_task(bus.run())
+    seen = SeenMessageStore(tmp_path / "seen.json")
+    old = InboundSms(
+        id="old-sync",
+        sender="+15550100",
+        body="from last month",
+        time="2020-01-01T00:00:00Z",
+    )
+    assert await publish_inbound(bus, old, seen=seen) is False
+    await asyncio.sleep(0.05)
+    assert received == []
+    assert seen.has("old-sync")
+    bus.stop()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
 
 
 async def test_publish_dedupes_same_body_different_ids(tmp_path: Path) -> None:
