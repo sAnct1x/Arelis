@@ -1,15 +1,15 @@
 # What's new
 
-The installer on GitHub is **0.2.6**.
+The installer on GitHub is **0.2.7**.
 
-Published: [v0.2.6](releases/v0.2.6.md).
-Older: [v0.2.5](releases/v0.2.5.md). [v0.2.4](releases/v0.2.4.md).
-[v0.2.3](releases/v0.2.3.md). [v0.2.2](releases/v0.2.2.md).
-[v0.2.1](releases/v0.2.1.md).
+Published: [v0.2.7](releases/v0.2.7.md).
+Older: [v0.2.6](releases/v0.2.6.md). [v0.2.5](releases/v0.2.5.md).
+[v0.2.4](releases/v0.2.4.md). [v0.2.3](releases/v0.2.3.md).
+[v0.2.2](releases/v0.2.2.md). [v0.2.1](releases/v0.2.1.md).
 
 ## This checkout
 
-Notes for the tree you have now. The 0.2.6 installer is this tree
+Notes for the tree you have now. The 0.2.7 installer is this tree
 without the 3D plate. Reality's room still ships. Earth and the
 true-scale globe stay on a source checkout.
 
@@ -272,6 +272,12 @@ login. Out stays out (sat-AIS, unowned cameras, face index, VIN).
 [earth.md](earth.md).
 
 **Mail.** There is no Mail tab. Credentials live in `data/secrets.yaml`.
+
+## 0.2.7
+
+The live board 0.2.6 left open. OCR does not fire SMS, a dropped
+file is readable, and a failed drive does not latch the next ask.
+A new chapter is a new chat. Full notes: [v0.2.7](releases/v0.2.7.md).
 
 ## 0.2.6
 
