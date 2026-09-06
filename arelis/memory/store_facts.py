@@ -5,7 +5,12 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
-from arelis.memory.store import _facts_loosely_match, _normalize_fact_key, _utc_now
+from arelis.memory.store import (
+    _facts_loosely_match,
+    _inserted_id,
+    _normalize_fact_key,
+    _utc_now,
+)
 
 if TYPE_CHECKING:
     from arelis.memory.store import MemoryStore
@@ -60,7 +65,7 @@ def add_fact(
         (cleaned, source, status, now, now, session_id, fact_key),
     )
     store._conn.commit()
-    return int(cur.lastrowid)
+    return _inserted_id(cur)
 
 def list_facts(
     store: MemoryStore, *, status: str | None = None, limit: int = 100
@@ -228,7 +233,7 @@ def set_preference(store: MemoryStore, key: str, value: str) -> int | None:
         (cleaned_key, cleaned_value, now),
     )
     store._conn.commit()
-    return int(cur.lastrowid)
+    return _inserted_id(cur)
 
 def get_preference(store: MemoryStore, key: str) -> str | None:
     cleaned_key = key.strip()
@@ -267,7 +272,7 @@ def add_decision(store: MemoryStore, project: str, text: str) -> int | None:
         (cleaned_project, cleaned_text, now, now),
     )
     store._conn.commit()
-    return int(cur.lastrowid)
+    return _inserted_id(cur)
 
 def list_decisions(
     store: MemoryStore, project: str, limit: int = 50
@@ -318,7 +323,7 @@ def add_episode(
         (cleaned, _utc_now(), sid, src, proj),
     )
     store._conn.commit()
-    return int(cur.lastrowid)
+    return _inserted_id(cur)
 
 def list_episodes(
     store: MemoryStore, *, limit: int = 20, project: str | None = None

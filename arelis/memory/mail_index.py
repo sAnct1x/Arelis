@@ -129,7 +129,8 @@ class MailIndexer:
             # readonly + BODY.PEEK: indexing must never set \Seen.
             conn.select("INBOX", readonly=True)
             since = _imap_since(self.retention_days)
-            status, data = conn.uid("SEARCH", None, "SINCE", since)
+            # charset=None is the IMAP SEARCH form; typeshed types uid as str.
+            status, data = conn.uid("SEARCH", None, "SINCE", since)  # type: ignore[arg-type]
             if status != "OK":
                 raise RuntimeError(f"IMAP SEARCH failed: {status}")
             uids = (data[0] or b"").split()

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from arelis.memory.store import _utc_now
+from arelis.memory.store import _inserted_id, _utc_now
 
 if TYPE_CHECKING:
     from arelis.memory.store import MemoryStore
@@ -38,7 +38,7 @@ def add_task(
         (cleaned, due_text, now, now, source_text, gid),
     )
     store._conn.commit()
-    return int(cur.lastrowid)
+    return _inserted_id(cur)
 
 def list_tasks(
     store: MemoryStore,
@@ -167,7 +167,7 @@ def add_goal(
         (cleaned, kind_text, horizon_text, notes_text, now, now, source_text),
     )
     store._conn.commit()
-    return int(cur.lastrowid)
+    return _inserted_id(cur)
 
 def list_goals(
     store: MemoryStore,
