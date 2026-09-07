@@ -630,6 +630,7 @@ def _feed_owns(store: EntityStore, *layers: str) -> bool:
 _DR_AFTER_S = 90.0
 _STALE_AFTER_S = 15.0 * 60.0
 _DR_LAYERS = frozenset({"flights", "drones", "military", "vessels"})
+_ORBIT_LAYERS = frozenset({"satellites", "iss"})
 
 
 def refresh_moving(
@@ -662,9 +663,29 @@ def refresh_moving(
 
 
 def advance_live(store: EntityStore, unix: float, dt: float) -> None:
-    """Coast feed-owned air/sea tracks. Sats stay at last SGP4 until the next poll."""
+    """Coast feed-owned tracks between polls.
+
+    Air and sea keep the last velocity from the first tick (interpolated),
+    then dead-reckoned after 90 s, then stale. Sats re-run SGP4 on the
+    stored GP lines — a 10-minute TLE poll must not park the shell.
+    """
     move = 0.0 if dt <= 0.0 or dt > 120.0 else dt
+    propagate = None
+    try:
+        from arelis.earth.tle import propagate_entity
+
+        propagate = propagate_entity
+    except Exception:
+        propagate = None
     for e in store.all():
+        if e.layer in _ORBIT_LAYERS:
+            if e.freshness not in _FEED_TAGS:
+                continue
+            if e.when_unix > 0.0 and 0.0 <= unix - e.when_unix < 0.8:
+                continue
+            if propagate is not None and propagate(e, unix):
+                continue
+            continue
         if e.layer not in _DR_LAYERS:
             continue
         if e.freshness not in _FEED_TAGS:
@@ -681,7 +702,7 @@ def advance_live(store: EntityStore, unix: float, dt: float) -> None:
         e.y += e.vy * move
         e.z += e.vz * move
         lat, lon, _alt = ecef_to_geodetic(e.x, e.y, e.z)
-        e.meta = {**e.meta, "lat": lat, "lon": lon}
+        e.meta = {**e.meta, "lat": lat, "lon": lon, "_pose_unix": unix}
 
 
 def entities(

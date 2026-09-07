@@ -71,7 +71,7 @@ _CHIP_SHORT: dict[str, str] = {
 }
 _CHIP_H = 24
 _CHIP_GAP = 6
-_CHIP_PAD = 12
+_CHIP_PAD = 4
 
 
 def earth_chip_items(band: str = "") -> tuple[tuple[str, str], ...]:
@@ -79,6 +79,8 @@ def earth_chip_items(band: str = "") -> tuple[tuple[str, str], ...]:
     from arelis.earth.catalog import LAYER_BY_ID, LAYERS
     from arelis.earth.copy import band_phrase, live_chip_label
 
+    if not band:
+        band = "space"
     label = band_phrase(band) if band else "on Earth"
     live_on = False
     try:
@@ -88,23 +90,40 @@ def earth_chip_items(band: str = "") -> tuple[tuple[str, str], ...]:
         live_on = False
     items = [("band", label), ("live", live_chip_label(on=live_on))]
     items.append(("grid", "Grid"))
-    if band in {"city", ""}:
+    if band == "city":
         items.append(("tiles", "Streets"))
-    if band in {"city", ""}:
-        items.append(("buildings", "Buildings"))
     wanted = chip_layers(band)
     specs = LAYERS if wanted is None else [LAYER_BY_ID[k] for k in wanted if k in LAYER_BY_ID]
     for spec in specs:
         items.append((spec.id, _CHIP_SHORT.get(spec.id, spec.title)))
+    items.append(("leave", "Leave"))
+    items.append(("find", "/ find"))
     return tuple(items)
+
+
+def _chip_width(fm: QFontMetrics, kind: str, label: str) -> int:
+    from arelis.ui.earth_chrome import chip_icon_pad
+
+    if kind == "live":
+        from arelis.earth.copy import live_chip_label
+
+        label = max(
+            (
+                live_chip_label(on=False),
+                live_chip_label(on=True),
+                live_chip_label(on=True, busy=True),
+            ),
+            key=fm.horizontalAdvance,
+        )
+    return fm.horizontalAdvance(label) + 20 + chip_icon_pad(kind)
 
 
 def layout_earth_chips(
     fm: QFontMetrics, left: int, top: int, width: int
 ) -> tuple[list[tuple[str, QRect]], QRect]:
-    """Wrap sodium chips under the HUD. Same plate width as status."""
+    """Wrap chips on one plate. Neighbors must not intersect."""
     inner_left = left + _CHIP_PAD
-    inner_right = left + width - _CHIP_PAD
+    inner_right = left + max(width, 80) - _CHIP_PAD
     x = inner_left
     y = top + _CHIP_PAD
     hits: list[tuple[str, QRect]] = []
@@ -117,17 +136,28 @@ def layout_earth_chips(
             band = z.last_view.band
     except Exception:
         band = ""
-    from arelis.ui.earth_chrome import chip_icon_pad
-
     for kind, label in earth_chip_items(band):
-        w = fm.horizontalAdvance(label) + 16 + chip_icon_pad(kind)
+        w = _chip_width(fm, kind, label)
+        if w > inner_right - inner_left:
+            w = inner_right - inner_left
         if x > inner_left and x + w > inner_right:
             x = inner_left
             y += _CHIP_H + _CHIP_GAP
         hits.append((kind, QRect(x, y, w, _CHIP_H)))
         x += w + _CHIP_GAP
-    bottom = y + _CHIP_H + _CHIP_PAD
-    return hits, QRect(left, top, width, max(_CHIP_H + 2 * _CHIP_PAD, bottom - top))
+    if not hits:
+        return [], QRect()
+    xs = [rect.left() for _k, rect in hits]
+    ys = [rect.top() for _k, rect in hits]
+    rs = [rect.right() for _k, rect in hits]
+    bs = [rect.bottom() for _k, rect in hits]
+    box = QRect(
+        min(xs) - _CHIP_PAD,
+        min(ys) - _CHIP_PAD,
+        max(rs) - min(xs) + 1 + 2 * _CHIP_PAD,
+        max(bs) - min(ys) + 1 + 2 * _CHIP_PAD,
+    )
+    return hits, box
 
 
 _INK_A: dict[str, int] = {
@@ -484,8 +514,6 @@ def paint_earth(painter: QPainter, panel: Any, system: SolarSystem) -> None:
         _paint_ground_tiles(
             painter, panel, system, globe, disc, px_r, view, source="osm"
         )
-    if earth.buildings and view.band == "city":
-        _paint_buildings(painter, panel, system, globe, disc, view)
     if earth.grid and disc is not None:
         _paint_lonlat_grid(painter, panel, system, globe, disc, view)
     _paint_earth_trail(painter, panel, system, globe, disc, earth)
@@ -493,8 +521,6 @@ def paint_earth(painter: QPainter, panel: Any, system: SolarSystem) -> None:
     wanted = paint_layers(view.band)
     track = earth.track_id
     ride = earth.ride_id
-    n_cam = sum(1 for e in visible if e.layer == "cameras")
-    label_cams = n_cam <= 12
     ordered = sorted(
         visible,
         key=lambda e: (e.layer == "iss", e.id in {track, ride}),
@@ -544,11 +570,10 @@ def paint_earth(painter: QPainter, panel: Any, system: SolarSystem) -> None:
             painter.setPen(QPen(halo, 1))
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawEllipse(QPoint(ix, iy), 9, 9)
-        show_cam = ent.layer == "cameras" and (hot or label_cams)
         show_people = ent.layer == "people"
-        if hot or ent.layer == "iss" or show_people or (
-            px_r > 160 and (ent.layer == "radio" or show_cam or ent.layer == "radar")
-        ):
+        named = hot and ent.layer not in {"radio", "cameras", "weather"}
+        radar = px_r > 160 and ent.layer == "radar"
+        if named or ent.layer == "iss" or show_people or radar:
             painter.setPen(color("text") if hot or ent.layer == "iss" else color("text_dim"))
             painter.drawText(ix + 8, iy - 4, ent.label)
 
@@ -757,6 +782,50 @@ def inspect_caption(entity: Entity) -> str:
     if look_line:
         lines.append(look_line)
     return "\n".join(lines)
+
+
+def inspect_card_text(entity: Entity, *, riding: bool = False) -> str:
+    """Short plate for a click. No legal cite — that ate the HUD."""
+    lat, lon, alt = ecef_to_lla(entity.x, entity.y, entity.z)
+    from arelis.earth.copy import group_phrase, inspect_kind_line
+
+    kind = inspect_kind_line(entity.layer, entity.freshness)
+    group = group_phrase(str((entity.meta or {}).get("group") or ""))
+    lines = [entity.label or entity.id]
+    if group and entity.layer in {"satellites", "iss"}:
+        lines.append(f"{group} · {kind}")
+    else:
+        lines.append(kind)
+    norad = (entity.meta or {}).get("norad")
+    if norad:
+        lines.append(f"NORAD {norad}")
+    bits: list[str] = []
+    if alt >= 1000.0:
+        bits.append(f"{alt / 1000.0:.0f} km up")
+    elif alt > 0.0:
+        bits.append(f"{alt:.0f} m up")
+    bits.append(f"{lat:.2f}°, {lon:.2f}°")
+    spd = entity.speed()
+    if spd >= 1000.0:
+        bits.append(f"{spd / 1000.0:.1f} km/s")
+    elif spd >= 0.5:
+        bits.append(f"{spd:.0f} m/s")
+    mag = (entity.meta or {}).get("mag")
+    if isinstance(mag, (int, float)):
+        bits.append(f"M{float(mag):.1f}")
+    if bits:
+        lines.append("  ".join(bits))
+    if entity.source:
+        lines.append(str(entity.source))
+    look_line = look_describe(entity.id, layer=entity.layer)
+    if look_line:
+        lines.append(look_line)
+    from arelis.earth.copy import ride_hint
+
+    hint = ride_hint(entity.layer, riding=riding)
+    if hint:
+        lines.append(hint)
+    return "\n".join(line for line in lines if line)
 
 
 def _screen_heading(

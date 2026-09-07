@@ -136,9 +136,9 @@ ADAPTER_LAYERS: dict[str, frozenset[str]] = {
 }
 
 ADAPTER_BANDS: dict[str, frozenset[str]] = {
-    "celestrak": frozenset({"space"}),
-    "spacetrack": frozenset({"space"}),
-    "tip": frozenset({"space"}),
+    "celestrak": frozenset({"space", "approach", "near", "city"}),
+    "spacetrack": frozenset({"space", "approach", "near", "city"}),
+    "tip": frozenset({"space", "approach", "near", "city"}),
     "opensky": frozenset({"approach", "near", "city"}),
     "adsb": frozenset({"near", "city"}),
     "ais": frozenset({"near", "city"}),
@@ -245,6 +245,13 @@ class LookBBox:
 
     def wraps(self) -> bool:
         return self.west > self.east
+
+    def contains(self, lat: float, lon: float) -> bool:
+        if not (self.south <= lat <= self.north):
+            return False
+        if self.wraps():
+            return lon >= self.west or lon <= self.east
+        return self.west <= lon <= self.east
 
     def split(self) -> tuple[LookBBox, ...]:
         """OpenSky cannot take west > east. Two boxes across the date line."""
@@ -422,10 +429,12 @@ def ground_buildings_on(*, band: str, alt_m: float) -> bool:
 
 
 def chip_layers(band: str) -> tuple[str, ...] | None:
-    """None means every catalog layer (city, or unknown)."""
-    if not band or band == "city":
+    """None means every catalog layer (city only). Unknown is space."""
+    if band == "city":
         return None
-    return CHIP_LAYERS.get(band)
+    if not band:
+        return CHIP_LAYERS["space"]
+    return CHIP_LAYERS.get(band, CHIP_LAYERS["space"])
 
 
 def adapter_allowed(

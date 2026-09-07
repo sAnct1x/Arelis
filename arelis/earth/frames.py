@@ -184,6 +184,22 @@ def enu_to_ecef(
     )
 
 
+def heading_from_ecef_vel(
+    lat_deg: float,
+    lon_deg: float,
+    vx: float,
+    vy: float,
+    vz: float,
+) -> float | None:
+    """Clockwise degrees from north from an ECEF velocity. None if parked."""
+    east, north, _up = enu_axes(lat_deg, lon_deg)
+    ve = east[0] * vx + east[1] * vy + east[2] * vz
+    vn = north[0] * vx + north[1] * vy + north[2] * vz
+    if ve * ve + vn * vn < 0.25:
+        return None
+    return (math.degrees(math.atan2(ve, vn)) + 360.0) % 360.0
+
+
 def ecef_vel_from_track(
     lat_deg: float,
     lon_deg: float,

@@ -34,7 +34,6 @@ from arelis.ui.panels.solar_const import (
     _HUD_MAX_W,
     _HUD_MIN_W,
     _KEYS_ROW,
-    _LEGEND_BLOCK,
     _LEGEND_ROW,
     KEY_HINT,
     KEY_HINT_EARTH,
@@ -73,7 +72,11 @@ def maps_alert(panel) -> str:
 def inspect_column_width(panel) -> int:
     if not panel._inspect:
         return 0
-    want = min(520, max(460, panel.width() // 3))
+    zone_on = bool(getattr(panel, "_earth_zone_on", lambda: False)())
+    if zone_on:
+        want = min(300, max(240, panel.width() // 5))
+    else:
+        want = min(520, max(460, panel.width() // 3))
     room = panel.width() - 28 - _HUD_LANE
     if room < 240:
         return max(200, panel.width() - _HUD_LANE - 28)
@@ -197,11 +200,14 @@ def legend_items(
     zone = get_earth()
     if zone is not None and zone.active:
         legend.append(("Earth marks", MARK_HINTS))
+    col_y = [legend_top] * max(cols, 1)
     for gi, (title, rows) in enumerate(legend):
-        cx = box_left + 10 + (gi % cols) * col_w
-        cy = legend_top + (gi // cols) * _LEGEND_BLOCK
+        col = gi % max(cols, 1)
+        cx = box_left + 10 + col * col_w
+        cy = col_y[col]
         items.append((cx, cy, title, rows, col_w))
-        bottom = max(bottom, cy + 32 + len(rows) * _LEGEND_ROW)
+        col_y[col] = cy + 32 + len(rows) * _LEGEND_ROW + 12
+        bottom = max(bottom, col_y[col])
     return items, bottom
 
 
@@ -329,11 +335,20 @@ def earth_chip_layout(panel) -> tuple[list[tuple[str, QRect]], QRect]:
     zone = get_earth()
     if zone is None or not zone.active:
         return [], QRect()
-    left = 16
-    width = max(180, min(int(panel._hud_plate_width()), 440))
-    return layout_earth_chips(
-        panel.fontMetrics(), left, panel._hud_bottom + 10, width
-    )
+    left = 8
+    top = 8
+    right = 16
+    if getattr(panel, "_earth_dock", None):
+        right = 348
+    inspect = getattr(panel, "_inspect", None)
+    if inspect:
+        try:
+            right = max(right, int(panel._inspect_column_width()) + 20)
+        except Exception:
+            right = max(right, 260)
+    width = max(280, int(panel.width()) - right)
+    fm = panel.fontMetrics()
+    return layout_earth_chips(fm, left, top, width)
 
 
 def earth_chip_at(panel, px: float, py: float) -> str | None:
@@ -351,6 +366,19 @@ def toggle_earth_chip(panel, kind: str) -> None:
     if zone is None or not zone.active:
         return
     if kind == "band":
+        return
+    if kind == "leave":
+        leave = getattr(panel, "_leave_earth_zone", None)
+        if callable(leave):
+            leave()
+        return
+    if kind == "find":
+        from arelis.ui.earth_find import close_find, open_find
+
+        if getattr(panel, "_earth_find_on", False):
+            close_find(panel)
+        else:
+            open_find(panel)
         return
     if kind == "live":
         zone.live = not zone.live
@@ -380,19 +408,21 @@ def toggle_earth_chip(panel, kind: str) -> None:
             _prefetch_earth_ground(zone, source="osm")
         panel.update()
         return
-    if kind == "buildings":
-        zone.buildings = not zone.buildings
-        try:
-            from arelis.physics.telemetry import emit
-
-            emit("earth_buildings", on=zone.buildings)
-        except Exception:
-            pass
-        if zone.buildings:
-            _prefetch_earth_buildings(zone)
-        panel.update()
-        return
     if zone.set_layer(kind) is None:
+        return
+    from arelis.ui.earth_dock import close_earth_dock, open_camera_list, open_radio_dock
+
+    if kind == "radio":
+        if zone.layers.get("radio"):
+            open_radio_dock(panel)
+        else:
+            close_earth_dock(panel)
+        return
+    if kind == "cameras":
+        if zone.layers.get("cameras"):
+            open_camera_list(panel)
+        else:
+            close_earth_dock(panel)
         return
     panel.update()
 
@@ -409,15 +439,6 @@ def _prefetch_earth_ground(zone, *, source: str) -> None:
         else zoom_for_disc(view.px_r, view.band)
     )
     tiles_for_view(view.lat, view.lon, zoom, source=source)  # type: ignore[arg-type]
-
-
-def _prefetch_earth_buildings(zone) -> None:
-    view = getattr(zone, "last_view", None)
-    if view is None:
-        return
-    from arelis.earth.buildings import footprints_for_view
-
-    footprints_for_view(view.lat, view.lon, view.band)
 
 
 def look_frame_height(*, plate_h: int, top: int, text_h: int, copy_h: int = 30) -> int:
@@ -457,6 +478,24 @@ def start_earth_live(panel) -> None:
     threading.Thread(target=work, daemon=True).start()
 
 
+def paint_earth_chrome(panel, painter: QPainter) -> None:
+    """Chips, find, and a contact card. Cesium owns the planet — no solar HUD."""
+    painter.setFont(panel.font())
+    panel._hud_box = QRect()
+    panel._hud_bottom = 8
+    panel._paint_earth_toggles(painter)
+    panel._paint_earth_card(painter)
+    from arelis.ui.earth_dock import paint_earth_dock
+
+    paint_earth_dock(panel, painter)
+    from arelis.ui.earth_chrome import paint_earth_say
+
+    paint_earth_say(panel, painter)
+    confirm = getattr(panel, "_paint_confirm", None)
+    if callable(confirm):
+        confirm(painter)
+
+
 def paint_earth_toggles(panel, painter: QPainter) -> None:
     from arelis.earth.runtime import get_earth
 
@@ -471,6 +510,14 @@ def paint_earth_toggles(panel, painter: QPainter) -> None:
     hits, box = panel._earth_chip_layout()
     panel._earth_chip_hits = hits
     panel._earth_chip_box = QRect(box)
+    if not box.isEmpty():
+        from arelis.ui.theme import color as _color
+
+        wash = _color("glass_fill")
+        wash.setAlpha(220)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(wash)
+        painter.drawRoundedRect(box, 8, 8)
     if box.isEmpty():
         panel._earth_coach_box = QRect()
         from arelis.ui.earth_chrome import paint_nav
@@ -479,7 +526,8 @@ def paint_earth_toggles(panel, painter: QPainter) -> None:
         return
     band = zone.last_view.band if zone.last_view is not None else ""
     labels = dict(earth_chip_items(band))
-    panel._paint_plate(painter, box, radius=6)
+    labels["leave"] = "Leave"
+    labels["find"] = "/ find"
     from arelis.earth.entity import LAYER_IDS
     from arelis.ui.earth_chrome import paint_band_type, paint_layer_chip, paint_live_chip
     from arelis.ui.earth_overlay import _ink
@@ -491,13 +539,19 @@ def paint_earth_toggles(panel, painter: QPainter) -> None:
         if kind == "live":
             paint_live_chip(panel, painter, rect, on=bool(zone.live))
             continue
+        if kind == "leave":
+            panel._paint_chip(painter, rect, "Leave", on=True)
+            continue
+        if kind == "find":
+            panel._paint_chip(
+                painter, rect, "/ find", on=bool(getattr(panel, "_earth_find_on", False))
+            )
+            continue
         on = (
             bool(getattr(zone, "grid", False))
             if kind == "grid"
             else zone.tiles
             if kind == "tiles"
-            else zone.buildings
-            if kind == "buildings"
             else bool(zone.layers.get(kind, False))
         )
         if kind in LAYER_IDS:
@@ -521,9 +575,17 @@ def paint_earth_toggles(panel, painter: QPainter) -> None:
     panel._earth_coach_box = QRect(coach)
     if not coach.isEmpty():
         y = coach.bottom() + 6
-    find_box = paint_find(panel, painter, left, y, width)
-    if not find_box.isEmpty():
-        y = find_box.bottom() + 4
+    if getattr(panel, "_earth_find_on", False):
+        find_box = paint_find(panel, painter, left, y, width)
+        if not find_box.isEmpty():
+            y = find_box.bottom() + 4
+    else:
+        from arelis.ui.earth_find import ensure_find
+
+        ensure_find(panel)
+        panel._earth_find_box = QRect()
+        panel._earth_find_field = QRect()
+        panel._earth_find_hit_rects = []
     key_box = paint_key_chips(panel, painter, left, y, width)
     if not key_box.isEmpty():
         y = key_box.bottom() + 4
@@ -557,20 +619,26 @@ def paint_earth_grid(panel, painter: QPainter, zone) -> None:
 
 
 def paint_earth_loading(panel, painter: QPainter, zone) -> None:
+    from arelis.earth.copy import loading_line
+
     host = getattr(panel, "_globe_host", None)
-    if getattr(panel, "_earth_agl_m", None) is not None:
-        return
-    if host is None or host.ready or host.failed:
-        if host is not None and host.failed and zone.active:
-            painter.setPen(color("warn"))
-            box = panel._earth_chip_box
-            if not box.isEmpty():
-                y = box.bottom() + 36
-                for name in ("_earth_key_box", "_earth_find_box"):
-                    extra = getattr(panel, name, QRect())
-                    if extra is not None and not extra.isEmpty():
-                        y = max(y, extra.bottom() + 8)
-                painter.drawText(box.left() + 4, y, "fancy map failed — NASA ball")
+    globe_ready = bool(
+        host is None
+        or getattr(host, "ready", False)
+        or getattr(host, "failed", False)
+    )
+    globe_failed = bool(host is not None and getattr(host, "failed", False) and zone.active)
+    busy = bool(
+        getattr(panel, "_earth_live_busy", False)
+        or getattr(zone, "_live_busy", False)
+    )
+    line = loading_line(
+        zone,
+        globe_ready=globe_ready and not globe_failed,
+        globe_failed=globe_failed,
+        busy=busy,
+    )
+    if not line:
         return
     box = panel._earth_chip_box
     if box.isEmpty():
@@ -580,20 +648,16 @@ def paint_earth_loading(panel, painter: QPainter, zone) -> None:
         extra = getattr(panel, name, QRect())
         if extra is not None and not extra.isEmpty():
             y = max(y, extra.bottom() + 8)
-    painter.setPen(color("text"))
-    painter.drawText(box.left() + 10, y, "falling in")
-    painter.setPen(color("text_dim"))
-    painter.drawText(
-        box.left() + 10,
-        y + 18,
-        "engine · tiles · contacts",
-    )
+    painter.setPen(color("warn") if globe_failed else color("text"))
+    painter.drawText(box.left() + 10, y, line)
+    if not globe_ready and not globe_failed:
+        painter.setPen(color("text_dim"))
+        painter.drawText(box.left() + 10, y + 18, "engine · tiles · contacts")
 
 
 def paint_earth_card(panel, painter: QPainter) -> None:
     """Inspect plate for an Earth-zone contact. Same sodium chrome as HUD."""
     from arelis.earth.runtime import get_earth
-    from arelis.ui.earth_overlay import inspect_caption
 
     zone = get_earth()
     place = getattr(panel, "_place", None)
@@ -607,14 +671,16 @@ def paint_earth_card(panel, painter: QPainter) -> None:
             panel._earth_card_box = QRect()
             panel._earth_copy_box = QRect()
             return
-        text = inspect_caption(hit)
+        from arelis.ui.earth_overlay import inspect_card_text
+
+        text = inspect_card_text(hit, riding=zone.ride_id == hit.id)
     elif isinstance(place, dict) and place.get("name"):
         kind = str(place.get("kind") or "place")
         text = (
             f"{place.get('name')}\n"
             f"{kind}  {float(place.get('lat') or 0):.2f}°, "
             f"{float(place.get('lon') or 0):.2f}°\n"
-            "click another pin · wheel closer"
+            "Esc or click empty sky to dismiss"
         )
     else:
         panel._earth_card_box = QRect()
@@ -624,43 +690,31 @@ def paint_earth_card(panel, painter: QPainter) -> None:
     if status:
         text = text + "\n" + status
     wrap = int(Qt.AlignmentFlag.AlignLeft | Qt.TextFlag.TextWordWrap)
-    plate_w = panel._hud_plate_width()
+    plate_w = 280
     inner = plate_w - 24
     fm = painter.fontMetrics()
     text_h = panel._wrapped_h(fm, text, inner) + 16
-    frame = getattr(panel, "_look_frame", None)
-    frame_w = inner
     copy_h = 30
-    top = panel._hud_bottom + 8
-    if not panel._earth_chip_box.isEmpty():
-        top = panel._earth_chip_box.bottom() + 8
-    for name in ("_earth_find_box", "_earth_key_box", "_earth_coach_box"):
-        extra = getattr(panel, name, QRect())
-        if extra is not None and not extra.isEmpty():
-            top = max(top, extra.bottom() + 8)
-    frame_h = 0
-    if frame is not None and hasattr(frame, "isNull") and not frame.isNull():
-        frame_h = look_frame_height(
-            plate_h=panel.height(), top=top, text_h=text_h, copy_h=copy_h
-        )
-    h = text_h + (frame_h + 8 if frame_h else 0) + copy_h
-    if top + h > panel.height() - 24:
-        extra = top + h - (panel.height() - 24)
-        if frame_h:
-            frame_h = max(0, frame_h - extra)
-            h = text_h + (frame_h + 8 if frame_h else 0) + copy_h
-        if top + h > panel.height() - 24:
-            panel._earth_card_box = QRect()
-            panel._earth_copy_box = QRect()
-            return
-    box = QRect(16, top, plate_w, h)
+    h = text_h + copy_h
+    xy = getattr(panel, "_earth_card_xy", None)
+    if isinstance(xy, tuple) and len(xy) >= 2:
+        left = int(xy[0]) + 18
+        top = int(xy[1]) - 12
+    else:
+        left = 16
+        top = panel._hud_bottom + 8
+        if not panel._earth_chip_box.isEmpty():
+            top = panel._earth_chip_box.bottom() + 8
+        for name in ("_earth_find_box", "_earth_key_box", "_earth_coach_box"):
+            extra = getattr(panel, name, QRect())
+            if extra is not None and not extra.isEmpty():
+                top = max(top, extra.bottom() + 8)
+    left = max(8, min(left, panel.width() - plate_w - 8))
+    top = max(8, min(top, panel.height() - h - 8))
+    box = QRect(left, top, plate_w, h)
     panel._earth_card_box = QRect(box)
     panel._paint_plate(painter, box, radius=6)
     y = box.top() + 6
-    if frame_h and frame is not None:
-        target = QRect(box.left() + 12, y, frame_w, frame_h)
-        painter.drawImage(target, frame)
-        y += frame_h + 4
     text_left = 14
     if panel._earth_id:
         from arelis.earth.look import has_look
@@ -761,8 +815,8 @@ def inspect_rect(panel) -> QRect:
         zone_on = live is not None and live.active
     except Exception:
         zone_on = False
-    floor = 148 if zone_on else 220
-    pad = 78 if zone_on else 64
+    floor = 96 if zone_on else 220
+    pad = 56 if zone_on else 64
     h = min(max(body_h + pad, floor), max(floor, panel.height() - top - 72))
     return QRect(panel.width() - w - 16, top, w, h)
 

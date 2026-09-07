@@ -109,23 +109,23 @@ def aisstream_key(path: Path | None = None) -> str:
     return str(block.get("aisstream_key") or "").strip()
 
 
-def fetch_ais() -> list[Entity] | None:
+def fetch_ais(bbox: Any = None) -> list[Entity] | None:
     """None = every source failed (keep sim). Empty list = heard nothing."""
-    stream = fetch_aisstream()
-    finland = fetch_digitraffic()
-    norway = fetch_barentswatch()
+    stream = fetch_aisstream(bbox=bbox)
+    finland = fetch_digitraffic() if _near_baltic(bbox) else []
+    norway = fetch_barentswatch() if _near_barents(bbox) else []
     if stream is None and finland is None and norway is None:
         return None
     return merge_vessels(stream or [], finland or [], norway or [])
 
 
-def fetch_aisstream() -> list[Entity] | None:
+def fetch_aisstream(bbox: Any = None) -> list[Entity] | None:
     """None = failed or no key. Empty list = heard nothing in the sample."""
     key = aisstream_key()
     if not key:
         return None
     try:
-        messages = _drain(key)
+        messages = _drain(key, bbox=bbox)
     except Exception:
         return None
     if messages is None:
@@ -420,7 +420,47 @@ def _get_json(url: str) -> Any:
         return None
 
 
-def _drain(key: str) -> list[dict[str, Any]] | None:
+def _looks_at(bbox: Any, south: float, west: float, north: float, east: float) -> bool:
+    """True when the look box can see this sea. No bbox = worldwide (tests)."""
+    if bbox is None:
+        return True
+    wraps = getattr(bbox, "wraps", None)
+    if callable(wraps) and wraps():
+        return True
+    try:
+        return not (
+            float(bbox.north) < south
+            or float(bbox.south) > north
+            or float(bbox.east) < west
+            or float(bbox.west) > east
+        )
+    except (TypeError, ValueError, AttributeError):
+        return True
+
+
+def _near_baltic(bbox: Any) -> bool:
+    return _looks_at(bbox, 54.0, 5.0, 71.0, 32.0)
+
+
+def _near_barents(bbox: Any) -> bool:
+    return _looks_at(bbox, 58.0, 0.0, 82.0, 42.0)
+
+
+def _subscribe_boxes(bbox: Any) -> list[list[list[float]]]:
+    if bbox is None:
+        return WORLD_BOX
+    try:
+        return [
+            [
+                [float(bbox.south), float(bbox.west)],
+                [float(bbox.north), float(bbox.east)],
+            ]
+        ]
+    except (TypeError, ValueError, AttributeError):
+        return WORLD_BOX
+
+
+def _drain(key: str, bbox: Any = None) -> list[dict[str, Any]] | None:
     parsed = urlparse(AISSTREAM_STREAM)
     host = (parsed.hostname or "").lower()
     if host != AISSTREAM_HOST or host not in _PINNED_HOSTS:
@@ -453,7 +493,7 @@ def _drain(key: str) -> list[dict[str, Any]] | None:
             return None
         subscribe = {
             "APIKey": key,
-            "BoundingBoxes": WORLD_BOX,
+            "BoundingBoxes": _subscribe_boxes(bbox),
             "FilterMessageTypes": sorted(_POSITION_TYPES),
         }
         _ws_send(sock, json.dumps(subscribe, separators=(",", ":")))

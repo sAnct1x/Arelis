@@ -54,6 +54,13 @@ def main(argv: list[str] | None = None) -> int:
     os.environ["ARELIS_SOLAR_GL"] = "0"
     os.environ.pop("QTWEBENGINE_CHROMIUM_FLAGS", None)
     os.environ.pop("QT_OPENGL", None)
+    # Embedded HWND looks occluded to Chromium. One frame, then a frozen still
+    # while cameraMoved keeps lying. Keep painting.
+    os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = (
+        "--disable-backgrounding-occluded-windows "
+        "--disable-renderer-backgrounding "
+        "--disable-features=CalculateNativeWinOcclusion"
+    )
     if sys.platform == "win32":
         os.environ["QT_QPA_PLATFORM"] = "windows"
 
@@ -80,11 +87,14 @@ def main(argv: list[str] | None = None) -> int:
     app = QApplication.instance() or QApplication([])
     host = EarthGlobeHost(process="in")
     host.setWindowFlags(
-        Qt.WindowType.FramelessWindowHint | Qt.WindowType.Tool
+        Qt.WindowType.FramelessWindowHint
+        | Qt.WindowType.Tool
+        | Qt.WindowType.WindowStaysOnTopHint
     )
     host.setAttribute(Qt.WidgetAttribute.WA_NativeWindow, True)
     seal_globe_plate(host)
     host.resize(960, 720)
+    host.move(-16000, -16000)
     host.show()
     app.processEvents()
     hwnd = int(host.winId())
@@ -107,6 +117,9 @@ def main(argv: list[str] | None = None) -> int:
     def on_picked(entity_id: str) -> None:
         send({"event": "picked", "id": entity_id})
 
+    def on_ridden(entity_id: str) -> None:
+        send({"event": "ridden", "id": entity_id})
+
     def on_camera(raw: str) -> None:
         send({"event": "camera", "raw": raw})
 
@@ -127,6 +140,7 @@ def main(argv: list[str] | None = None) -> int:
     host.bridge.hostReady.connect(on_ready)
     host.bridge.hostFailed.connect(on_failed)
     host.bridge.hostPicked.connect(on_picked)
+    host.bridge.hostRidden.connect(on_ridden)
     host.bridge.hostCamera.connect(on_camera)
     host.bridge.hostGround.connect(on_ground)
     host.bridge.hostTiles.connect(on_tiles)
@@ -173,6 +187,42 @@ def main(argv: list[str] | None = None) -> int:
                 msg.get("heading"),
                 msg.get("pitch"),
                 soft=bool(msg.get("soft")),
+                keep_ride=bool(msg.get("keepRide")),
+            )
+            return
+        if op == "release":
+            host.release_camera()
+            return
+        if op == "ride":
+            _note(f"ride {msg.get('id')}")
+            host.arm_ride(str(msg.get("id") or ""))
+            return
+        if op == "follow":
+            _note(
+                f"follow {msg.get('lat')} {msg.get('lon')} {msg.get('alt_m')}"
+            )
+            host.follow_lla(
+                float(msg["lat"]),
+                float(msg["lon"]),
+                float(msg["alt_m"]),
+                float(msg.get("heading") or 0.0),
+                float(msg.get("pitch") or -28.0),
+            )
+            send(
+                {
+                    "event": "camera",
+                    "raw": json.dumps(
+                        {
+                            "lat": float(msg["lat"]),
+                            "lon": float(msg["lon"]),
+                            "alt_m": float(msg["alt_m"]),
+                            "heading": float(msg.get("heading") or 0.0),
+                            "pitch": float(msg.get("pitch") or -28.0),
+                            "look_lat": float(msg["lat"]),
+                            "look_lon": float(msg["lon"]),
+                        }
+                    ),
+                }
             )
             return
         if op == "fly":
@@ -203,6 +253,16 @@ def main(argv: list[str] | None = None) -> int:
             return
         if op == "marks":
             host.push_marks()
+            return
+        if op == "place":
+            host.setGeometry(
+                int(msg.get("x") or 0),
+                int(msg.get("y") or 0),
+                max(int(msg.get("w") or 1), 1),
+                max(int(msg.get("h") or 1), 1),
+            )
+            host.show()
+            host.raise_()
             return
         if op == "resize":
             host.resize(max(int(msg.get("w") or 1), 1), max(int(msg.get("h") or 1), 1))

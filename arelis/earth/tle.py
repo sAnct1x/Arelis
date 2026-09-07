@@ -7,6 +7,7 @@ so the simulated ISS/shells stay. Needs the sgp4 extra (with .[astro]).
 from __future__ import annotations
 
 import math
+from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlparse
 
 import httpx
@@ -82,15 +83,20 @@ _CITE = (
 
 
 def fetch_celestrak(*, unix: float | None = None) -> list[Entity] | None:
-    """None = library missing or every fetch failed. Keep sim."""
+    """None = library missing or every fetch failed. Keep sim.
+
+    Groups fetch in parallel. Parse order stays ``_GROUPS`` so the
+    catalog is the same sample, just not a 30-deep serial queue.
+    """
     if not _sgp4_ready():
         return None
     now = unix if unix is not None else _now()
+    texts = _get_tle_groups([group for group, _budget in _GROUPS])
     out: list[Entity] = []
     seen: set[int] = set()
     any_ok = False
     for group, budget in _GROUPS:
-        text = _get_tle(group)
+        text = texts.get(group)
         if not text:
             continue
         any_ok = True
@@ -214,12 +220,39 @@ def _entity_from_lines(name: str, line1: str, line2: str, unix: float) -> Entity
         freshness="interpolated",
         confidence=0.7,
         cite=_CITE,
-        meta={"norad": norad, "name": name, "r_m": r},
+        meta={
+            "norad": norad,
+            "name": name,
+            "r_m": r,
+            "_tle1": line1,
+            "_tle2": line2,
+        },
         coverage=Coverage(
             "tle",
             "Public GP only. Classified objects are absent. TLE epoch hours stale.",
         ),
     )
+
+
+def propagate_entity(entity: Entity, unix: float) -> bool:
+    """Re-run SGP4 on the stored GP lines. False if this mark has none."""
+    meta = entity.meta or {}
+    line1 = str(meta.get("_tle1") or "")
+    line2 = str(meta.get("_tle2") or "")
+    if not line1.startswith("1 ") or not line2.startswith("2 "):
+        return False
+    nxt = _entity_from_lines(
+        str(meta.get("name") or entity.label), line1, line2, unix
+    )
+    if nxt is None:
+        return False
+    entity.x, entity.y, entity.z = nxt.x, nxt.y, nxt.z
+    entity.vx, entity.vy, entity.vz = nxt.vx, nxt.vy, nxt.vz
+    entity.when_unix = float(unix)
+    entity.meta = {**meta, "r_m": nxt.meta.get("r_m")}
+    if entity.freshness in {"live", "delayed"}:
+        entity.freshness = "interpolated"
+    return True
 
 
 def _norad_from_line(line1: str) -> int:
@@ -248,6 +281,23 @@ def _host_pinned(host: str | None) -> bool:
         return False
     name = host.lower()
     return name == CELESTRAK_HOST or name.endswith("." + CELESTRAK_HOST)
+
+
+def _get_tle_groups(groups: list[str]) -> dict[str, str | None]:
+    """One HTTPS GET per group, overlapped. Cap the pool so we stay polite."""
+    names = [str(group) for group in groups]
+    if not names:
+        return {}
+    workers = max(1, min(8, len(names)))
+    out: dict[str, str | None] = {}
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futs = {group: pool.submit(_get_tle, group) for group in names}
+        for group, fut in futs.items():
+            try:
+                out[group] = fut.result()
+            except Exception:
+                out[group] = None
+    return out
 
 
 def _get_tle(group: str) -> str | None:

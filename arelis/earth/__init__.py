@@ -2,7 +2,7 @@
 
 A zone inside Reality, not a room. Travel to is a solar-lab warp
 to any body. Enter appears after you arrive at Earth — the zone
-door. Closer bands reveal more.
+door. Closer bands *can* show more; chips stay yours.
 Leave Earth returns to heliocentric. Breadcrumb for the next agent:
 
 - Concept closed (2026-09-05): the 2026-08 zone plan is this package.
@@ -32,8 +32,11 @@ Leave Earth returns to heliocentric. Breadcrumb for the next agent:
   Docs: docs/earth.md (now vs next).
 - Frames: store is ECEF metres; plate paints ECLIPJ2000 via frames.ecef_to_ecliptic.
   Near Earth the inspect eye is also ECEF (`EarthCam`). Leave / reset drops it.
-- Honesty: Enter takes one published snapshot (wall clock when the
+-   Honesty: Enter takes one published snapshot (wall clock when the
   lab can lock), then live TTL for air/sea while tracks coast.
+  Sats re-run SGP4 between TLE polls. Air/sea pose time is `_pose_unix`
+  so Cesium does not double-coast. Cesium FOV matches the solar
+  eye. CelesTrak groups overlap.
   Leave clears; re-enter refetches. Failures keep sim.
   Simulated layers stay labeled simulated. Mid-ocean VHF is deaf; a packet
   a keyed feed sent is painted. We do not buy sat-AIS. Sentinel-1

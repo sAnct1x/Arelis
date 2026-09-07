@@ -5,6 +5,11 @@
 
   var viewer = null;
   var tileset = null;
+  var dayLayer = null;
+  var nightLayer = null;
+  var nearLayer = null;
+  var lastRideDest = null;
+  var photoSSETimer = 0;
   var osmLayer = null;
   var streetsOn = false;
   var roads = {};
@@ -21,8 +26,21 @@
   var lastEntityKey = "";
   var lastEmit = 0;
   var photorealAltM = 8000;
+  var EARTH_FOV_Y = 0.70;
+  var coastHold = false;
+  var coastWanted = false;
+  var zoomHold = false;
+  var goLock = false;
+  var goTimer = 0;
+  var flyGen = 0;
+  var rideId = "";
+  var pendingRide = "";
+  var rideEmitForce = false;
+  var coastTimer = 0;
   var atlas = {};
   var findOpen = false;
+  var selectedId = "";
+  var pending = {entities: null, places: null, roads: null, buildings: null, marks: null};
 
   function finite(n, fallback) {
     n = Number(n);
@@ -97,16 +115,71 @@
     dressLighting(currentAlt());
   }
 
+  function dressWorld(alt) {
+    /* One planet. Not a day slide, then a lights slide, then near. */
+    if (!viewer) return;
+    dressLighting(alt);
+    var wantPhoto = wantPhotoreal(alt);
+    if (wantPhoto !== !!(tileset && tileset.show)) {
+      syncPhotoreal(alt);
+    }
+  }
+
   function dressLighting(alt) {
     if (!viewer) return;
     var globe = viewer.scene.globe;
+    alt = finite(alt, 1e7);
+    // City photoreal stays unlit. Approach (50 km DC at 2am) still
+    // needs the terminator. Daytime never paints city lights.
+    if (alt <= 4e4) {
+      globe.enableLighting = false;
+      dressNightLayer(alt);
+      dressNearLayer(alt);
+      return;
+    }
     globe.enableLighting = true;
     if (globe.nightFadeOutDistance !== undefined) {
       globe.nightFadeOutDistance = 5.0e5;
       globe.nightFadeInDistance = 2.5e6;
-    } else if (finite(alt, 1e7) <= 400000) {
-      globe.enableLighting = false;
     }
+    dressNightLayer(alt);
+    dressNearLayer(alt);
+  }
+
+  function dressNearLayer(alt) {
+    if (!nearLayer) return;
+    nearLayer.show = finite(alt, 1e7) <= 2.5e6;
+  }
+
+  function dressNightLayer(alt) {
+    var night = finite(alt, 1e7) > 4e4;
+    if (nightLayer) {
+      /* Night side only. dayAlpha stays 0 — daytime is not lit cities. */
+      nightLayer.show = night;
+      if (nightLayer.nightAlpha !== undefined) {
+        nightLayer.nightAlpha = night ? 1 : 0;
+        nightLayer.dayAlpha = 0;
+      }
+    }
+    if (dayLayer && dayLayer.nightAlpha !== undefined) {
+      dayLayer.dayAlpha = 1;
+      dayLayer.nightAlpha = night ? 0.18 : 1;
+    }
+    if (nearLayer && nearLayer.nightAlpha !== undefined) {
+      nearLayer.dayAlpha = 1;
+      nearLayer.nightAlpha = 0;
+    }
+  }
+
+  function dressGlobeLod() {
+    if (!viewer || !viewer.scene || !viewer.scene.globe) return;
+    var globe = viewer.scene.globe;
+    globe.tileCacheSize = 1000;
+    globe.preloadAncestors = true;
+    globe.preloadSiblings = true;
+    /* Parent tiles first. A spray of children is the frame-by-frame crawl. */
+    globe.loadingDescendantLimit = goLock ? 4 : 24;
+    globe.maximumScreenSpaceError = goLock ? 3 : 1.6;
   }
 
   function dressSpace() {
@@ -116,8 +189,9 @@
     if (viewer.scene.moon) viewer.scene.moon.show = false;
     viewer.scene.skyAtmosphere.show = true;
     viewer.scene.fog.enabled = false;
+    viewer.scene.globe.depthTestAgainstTerrain = false;
     viewer.scene.backgroundColor = Cesium.Color.fromCssColorString("#040508");
-    viewer.scene.globe.baseColor = Cesium.Color.fromCssColorString("#0b1c2c");
+    viewer.scene.globe.baseColor = Cesium.Color.fromCssColorString("#0c1814");
     if (viewer.scene.globe.translucency) {
       viewer.scene.globe.translucency.enabled = false;
     }
@@ -214,33 +288,30 @@
         || ev.key === "ArrowUp" || ev.key === "ArrowDown"
         || ev.key === " " || (ev.key && ev.key.length === 1);
     }
-    var code = ev.code || "";
-    return ev.key === "/" || ev.key === "Enter"
-      || ev.key === "ArrowUp" || ev.key === "ArrowDown"
-      || ev.key === "ArrowLeft" || ev.key === "ArrowRight"
-      || code === "KeyW" || code === "KeyA" || code === "KeyS" || code === "KeyD"
-      || code === "KeyQ" || code === "KeyE";
+    return ev.key === "/" || ev.key === "Escape";
   }
 
   function hoseKey(ev, down) {
-    if (!bridge || !bridge.keyStruck || !shouldHose(ev)) return false;
+    if (!shouldHose(ev)) return false;
     ev.preventDefault();
     ev.stopPropagation();
-    bridge.keyStruck(JSON.stringify({
-      down: !!down,
-      key: qtKey(ev),
-      mod: jsMod(ev),
-      text: ev.key && ev.key.length === 1 ? ev.key : "",
-      auto: !!ev.repeat
-    }));
+    if (bridge && bridge.keyStruck) {
+      bridge.keyStruck(JSON.stringify({
+        down: !!down,
+        key: qtKey(ev),
+        mod: jsMod(ev),
+        text: ev.key && ev.key.length === 1 ? ev.key : "",
+        auto: !!ev.repeat
+      }));
+    }
     return true;
   }
 
   function updateCredits() {
     var credit = document.getElementById("credit");
     if (!credit) return;
-    var bits = ["NASA GIBS Blue Marble", "© OpenStreetMap"];
-    if (tileset) bits = ["Google", "Cesium"].concat(bits);
+    var bits = ["NASA GIBS Blue Marble", "NASA Black Marble", "© OpenStreetMap"];
+    if (tileset && tileset.show) bits = ["Google", "Cesium"].concat(bits);
     else if (lastKind === "ion") bits = ["Cesium ion"].concat(bits);
     credit.textContent = bits.join(" · ");
   }
@@ -252,35 +323,136 @@
   }
 
   function wantPhotoreal(alt) {
+    /* A hop stays on the finished mosaic. 3D is a city sit, not the flight. */
+    if (goLock) return false;
     return lastKind === "photoreal" && lastStack && lastStack.googleKey && alt < photorealAltM;
+  }
+
+  function gibsProvider(url, maxLevel) {
+    return new Cesium.UrlTemplateImageryProvider({
+      url: url,
+      tilingScheme: new Cesium.WebMercatorTilingScheme(),
+      maximumLevel: maxLevel || 8,
+      tileWidth: 256,
+      tileHeight: 256,
+      credit: "NASA GIBS"
+    });
+  }
+
+  function ensureGlobe() {
+    if (!viewer || !viewer.scene || !viewer.scene.globe) return;
+    viewer.scene.globe.show = true;
+    viewer.scene.globe.depthTestAgainstTerrain = false;
+    viewer.scene.fog.enabled = false;
+    dressGlobeLod();
+    if (viewer.imageryLayers && viewer.imageryLayers.length === 0 && lastStack && lastStack.gibs) {
+      applyImagery(lastStack);
+    }
+  }
+
+  function applyImagery(stack) {
+    if (!viewer || !stack) return;
+    viewer.imageryLayers.removeAll();
+    osmLayer = null;
+    dayLayer = viewer.imageryLayers.addImageryProvider(gibsProvider(stack.gibs, 8));
+    nearLayer = null;
+    if (stack.gibsNear) {
+      try {
+        nearLayer = viewer.imageryLayers.addImageryProvider(
+          gibsProvider(stack.gibsNear, 9)
+        );
+        if (nearLayer.nightAlpha !== undefined) {
+          nearLayer.dayAlpha = 1;
+          nearLayer.nightAlpha = 0;
+        }
+      } catch (err) {
+        nearLayer = null;
+      }
+    }
+    nightLayer = null;
+    if (stack.gibsNight) {
+      nightLayer = viewer.imageryLayers.addImageryProvider(gibsProvider(stack.gibsNight, 8));
+      if (nightLayer.nightAlpha !== undefined) {
+        nightLayer.dayAlpha = 0;
+        nightLayer.nightAlpha = 1;
+      }
+    }
+    dressNightLayer(currentAlt());
+    dressNearLayer(currentAlt());
+  }
+
+  function tunePhotoreal(set) {
+    /* Coarse mesh in the look cone first, then sharpen. Not a spray of
+       street tiles across the whole frustum while you are still flying. */
+    set.maximumScreenSpaceError = 28;
+    set.dynamicScreenSpaceError = true;
+    set.dynamicScreenSpaceErrorFactor = 24;
+    set.dynamicScreenSpaceErrorDensity = 2.0e-4;
+    set.foveatedScreenSpaceError = true;
+    set.foveatedConeSize = 0.35;
+    set.foveatedTimeDelay = 0.2;
+    set.foveatedMinimumScreenSpaceErrorRelaxation = 12;
+    set.preloadWhenHidden = false;
+    set.cullRequestsWhileMoving = true;
+    set.cullRequestsWhileMovingMultiplier = 80;
+    set.skipLevelOfDetail = true;
+    set.immediatelyLoadDesiredLevelOfDetail = false;
+    set.loadSiblings = false;
+    if (photoSSETimer) clearTimeout(photoSSETimer);
+    photoSSETimer = setTimeout(function () {
+      if (tileset === set && set.show) set.maximumScreenSpaceError = 16;
+    }, 1800);
+  }
+
+  function parkPhotoreal() {
+    if (!tileset) return;
+    tileset.show = false;
+    tileset.maximumScreenSpaceError = 1024;
+    tileset.preloadWhenHidden = false;
   }
 
   function syncPhotoreal(alt) {
     if (!viewer || !lastStack) return;
+    ensureGlobe();
     if (!wantPhotoreal(alt)) {
-      if (tileset) {
-        viewer.scene.primitives.remove(tileset);
-        tileset = null;
-        updateCredits();
-        viewer.scene.requestRender();
-      }
+      parkPhotoreal();
+      viewer.scene.globe.depthTestAgainstTerrain = false;
+      updateCredits();
+      viewer.scene.requestRender();
       return;
     }
-    if (tileset) return;
+    if (tileset) {
+      var was = tileset.show;
+      tileset.show = true;
+      if (!was) tunePhotoreal(tileset);
+      viewer.scene.globe.depthTestAgainstTerrain = false;
+      updateCredits();
+      viewer.scene.requestRender();
+      return;
+    }
     var url = lastStack.google3d + "?key=" + encodeURIComponent(lastStack.googleKey);
     Cesium.Cesium3DTileset.fromUrl(url).then(function (set) {
       if (!wantPhotoreal(currentAlt())) {
+        parkPhotoreal();
         return;
       }
-      if (tileset) viewer.scene.primitives.remove(tileset);
-      tileset = set;
+      if (tileset && tileset !== set) viewer.scene.primitives.remove(tileset);
+      /* Stream tiles as they land. Waiting for tilesLoaded hid the city
+         and left GIBS mush plus leftover road wires. */
+      tunePhotoreal(set);
+      set.show = true;
       viewer.scene.primitives.add(set);
+      tileset = set;
+      viewer.scene.globe.depthTestAgainstTerrain = false;
+      ensureGlobe();
       updateCredits();
       if (bridge) bridge.tilesReady(lastKind);
       viewer.scene.requestRender();
     }).catch(function () {
       tileset = null;
+      ensureGlobe();
       updateCredits();
+      viewer.scene.requestRender();
     });
   }
 
@@ -291,18 +463,13 @@
     if (stack.ionToken) {
       Cesium.Ion.defaultAccessToken = stack.ionToken;
     }
-    viewer.imageryLayers.removeAll();
-    osmLayer = null;
-    viewer.imageryLayers.addImageryProvider(new Cesium.UrlTemplateImageryProvider({
-      url: stack.gibs,
-      maximumLevel: 8,
-      credit: "NASA GIBS"
-    }));
+    applyImagery(stack);
     if (stack.kind === "ion" && stack.ionToken) {
       viewer.terrainProvider = Cesium.CesiumTerrainProvider.fromIonAssetId(1);
     } else {
       viewer.terrainProvider = new Cesium.EllipsoidTerrainProvider();
     }
+    dressGlobeLod();
     updateCredits();
     sunNow();
     dressSpace();
@@ -318,7 +485,7 @@
   }
 
   function setBuildings(rings) {
-    if (!viewer) return;
+    if (!viewer) { pending.buildings = rings; return; }
     var list = rings || [];
     var key = list.length + ":" + (list[0] ? list[0].length : 0) + ":" +
       (list[0] && list[0][0] ? list[0][0].join(",") : "");
@@ -348,7 +515,8 @@
           positions: Cesium.Cartesian3.fromDegreesArray(flat),
           width: 1.5,
           material: ink,
-          clampToGround: true
+          clampToGround: true,
+          disableDepthTestDistance: Number.POSITIVE_INFINITY
         }
       });
     });
@@ -377,10 +545,10 @@
   }
 
   function roadWidth(kind) {
-    if (kind === "motorway" || kind === "trunk") return 3.6;
-    if (kind === "primary") return 2.6;
-    if (kind === "secondary") return 2.0;
-    return 1.3;
+    if (kind === "motorway" || kind === "trunk") return 4.4;
+    if (kind === "primary") return 3.2;
+    if (kind === "secondary") return 2.4;
+    return 1.6;
   }
 
   function roadsKey(list) {
@@ -394,68 +562,88 @@
     return list.length + ":" + names.join("|");
   }
 
-  function setRoads(rows) {
+  function setRoads(_rows) {
     if (!viewer) return;
-    var list = rows || [];
-    if (!list.length) {
-      if (!streetsOn) {
-        clearRoads();
-        lastRoadsKey = "";
-      }
-      return;
-    }
-    var key = roadsKey(list);
-    if (key === lastRoadsKey) return;
-    lastRoadsKey = key;
+    /* Photoreal already is the streets. Overpass wires on a loading
+       globe are the yellow-lines-no-city lie. */
     clearRoads();
-    lastRoadsKey = key;
-    var ink = Cesium.Color.fromCssColorString("#f2e2b8").withAlpha(0.92);
-    list.forEach(function (row, i) {
-      if (!row || !row.pts || row.pts.length < 2) return;
-      var flat = [];
-      row.pts.forEach(function (pt) {
-        if (!pt || pt.length < 2) return;
-        var lon = finite(pt[1], NaN);
-        var lat = finite(pt[0], NaN);
-        if (!isFinite(lon) || !isFinite(lat) || Math.abs(lat) > 90) return;
-        flat.push(lon, lat);
-      });
-      if (flat.length < 4) return;
-      var id = "road:" + i;
-      var mid = Math.floor(row.pts.length / 2);
-      var named = row.name && (row.kind === "motorway" || row.kind === "trunk" ||
-        row.kind === "primary" || row.kind === "secondary");
-      var ent = {
-        id: id,
-        polyline: {
-          positions: Cesium.Cartesian3.fromDegreesArray(flat),
-          width: roadWidth(row.kind),
-          material: ink,
-          clampToGround: true,
-          distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0.0, 12000.0)
-        }
-      };
-      if (named && row.pts[mid]) {
-        ent.position = Cesium.Cartesian3.fromDegrees(
-          finite(row.pts[mid][1], 0),
-          finite(row.pts[mid][0], 0)
-        );
-        ent.label = {
-          text: String(row.name),
-          font: "13px sans-serif",
-          fillColor: Cesium.Color.WHITE,
-          outlineColor: Cesium.Color.BLACK,
-          outlineWidth: 3,
-          style: Cesium.LabelStyle.FILL_AND_OUTLINE,
-          verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
-          disableDepthTestDistance: Number.POSITIVE_INFINITY,
-          heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
-          pixelOffset: new Cesium.Cartesian2(0, -6),
-          distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0.0, 8000.0)
-        };
+    lastRoadsKey = "";
+  }
+
+  function bumpFly() {
+    flyGen += 1;
+    goLock = false;
+    rideId = "";
+    pendingRide = "";
+    lastRideDest = null;
+    clearGoTimer();
+  }
+
+  function releaseCameraLock() {
+    if (!viewer) return;
+    bumpFly();
+    try { viewer.camera.cancelFlight(); } catch (err) {}
+    viewer.trackedEntity = undefined;
+    viewer.selectedEntity = undefined;
+    var cam = viewer.camera;
+    var pos = Cesium.Cartesian3.clone(cam.positionWC);
+    var dir = Cesium.Cartesian3.clone(cam.directionWC);
+    var up = Cesium.Cartesian3.clone(cam.upWC);
+    cam.lookAtTransform(Cesium.Matrix4.IDENTITY);
+    cam.position = pos;
+    cam.direction = dir;
+    cam.up = up;
+    cam.right = Cesium.Cartesian3.cross(dir, up, new Cesium.Cartesian3());
+  }
+
+  function sitCamera(pose, heading, pitch) {
+    heading = heading == null ? 0 : heading;
+    pitch = pitch == null ? -90 : pitch;
+    viewer.camera.setView({
+      destination: Cesium.Cartesian3.fromDegrees(pose.lon, pose.lat, pose.alt),
+      orientation: {
+        heading: Cesium.Math.toRadians(heading),
+        pitch: Cesium.Math.toRadians(pitch),
+        roll: 0
       }
-      roads[id] = viewer.entities.add(ent);
     });
+    viewer.scene.fog.enabled = false;
+    dressLighting(pose.alt);
+    syncPhotoreal(pose.alt);
+    ensureGlobe();
+    viewer.scene.requestRender();
+    lastEmit = 0;
+    emitCamera(true);
+  }
+
+  function clearGoTimer() {
+    if (goTimer) {
+      clearTimeout(goTimer);
+      goTimer = 0;
+    }
+  }
+
+  function followLla(payload) {
+    if (!viewer || !payload) return;
+    var pose = saneLla(payload.lat, payload.lon, payload.alt_m);
+    if (!pose) return;
+    flyGen += 1;
+    goLock = false;
+    clearGoTimer();
+    try { viewer.camera.cancelFlight(); } catch (err) {}
+    try { viewer.trackedEntity = undefined; } catch (err) {}
+    var heading = finite(payload.heading, 0);
+    var pitch = payload.pitch == null ? -28 : finite(payload.pitch, -28);
+    viewer.camera.setView({
+      destination: Cesium.Cartesian3.fromDegrees(pose.lon, pose.lat, pose.alt),
+      orientation: {
+        heading: Cesium.Math.toRadians(heading),
+        pitch: Cesium.Math.toRadians(pitch),
+        roll: 0
+      }
+    });
+    lastEmit = 0;
+    emitCamera(true);
     viewer.scene.requestRender();
   }
 
@@ -464,28 +652,52 @@
     var pose = saneLla(payload.lat, payload.lon, payload.alt_m);
     if (!pose) return;
     var soft = !!payload.soft;
+    var keepRide = !!payload.keepRide;
+    var heading = finite(payload.heading, 0);
+    var pitch = payload.pitch == null ? -90 : finite(payload.pitch, -90);
+    if (goLock && !keepRide) return;
+    if (keepRide) {
+      goLock = false;
+      clearGoTimer();
+      try { viewer.camera.cancelFlight(); } catch (err) {}
+    }
+    if (!soft) {
+      clearGoTimer();
+      goLock = false;
+      if (!keepRide) releaseCameraLock();
+    } else if (!goLock || keepRide) {
+      /* ride follow while no hop is in the air */
+    } else {
+      return;
+    }
     var carto = viewer.camera.positionCartographic;
     if (carto) {
       var dlat = Math.abs(Cesium.Math.toDegrees(carto.latitude) - pose.lat);
       var dlon = Math.abs(Cesium.Math.toDegrees(carto.longitude) - pose.lon);
       var dalt = Math.abs(carto.height - pose.alt);
-      if (dlat < 1e-4 && dlon < 1e-4 && dalt < 80) return;
+      var dh = Math.abs(Cesium.Math.toDegrees(viewer.camera.heading) - heading);
+      var dp = Math.abs(Cesium.Math.toDegrees(viewer.camera.pitch) - pitch);
+      if (dlat < 1e-4 && dlon < 1e-4 && dalt < 80 && dh < 0.25 && dp < 0.25) {
+        lastEmit = 0;
+        emitCamera(true);
+        return;
+      }
     }
     if (!soft) pushing = true;
     var dest = Cesium.Cartesian3.fromDegrees(pose.lon, pose.lat, pose.alt);
-    var heading = finite(payload.heading, 0);
-    var pitch = payload.pitch == null ? -90 : finite(payload.pitch, -90);
+    var orient = {
+      heading: Cesium.Math.toRadians(heading),
+      pitch: Cesium.Math.toRadians(pitch),
+      roll: 0
+    };
     viewer.camera.setView({
       destination: dest,
-      orientation: {
-        heading: Cesium.Math.toRadians(heading),
-        pitch: Cesium.Math.toRadians(pitch),
-        roll: 0
-      }
+      orientation: orient
     });
-    viewer.scene.fog.enabled = pose.alt < 400000;
+    viewer.scene.fog.enabled = false;
     dressLighting(pose.alt);
     syncPhotoreal(pose.alt);
+    ensureGlobe();
     viewer.scene.requestRender();
     if (soft) {
       lastEmit = 0;
@@ -534,28 +746,36 @@
   }
 
   function orbitalDepth(row) {
-    var alt = finite(row && row.alt_m, 0);
-    if ((row.layer === "satellites" || row.layer === "iss") && alt > 10000) {
-      return 0;
+    var layer = row && row.layer;
+    if (
+      layer === "flights"
+      || layer === "military"
+      || layer === "drones"
+      || layer === "vessels"
+      || layer === "iss"
+      || layer === "satellites"
+    ) {
+      return Number.POSITIVE_INFINITY;
     }
-    return Number.POSITIVE_INFINITY;
+    return 0;
   }
 
   function flySeconds(fromAlt, toAlt, dlat, dlon) {
     var deg = Math.hypot(finite(dlat, 0), finite(dlon, 0));
     var km = Math.abs(finite(fromAlt, 0) - finite(toAlt, 0)) / 1000 + deg * 111;
-    return Math.min(9.0, Math.max(2.2, Math.log10(km + 25) * 2.15));
+    return Math.min(4.2, Math.max(1.1, Math.log10(km + 25) * 1.55));
   }
 
   var HEADING = {flights: 1, military: 1, drones: 1, vessels: 1};
+  var RIDE_LAYERS = {cameras: 1, flights: 1, drones: 1, military: 1, vessels: 1, iss: 1};
 
   function markSize(row) {
-    if (row.layer === "iss") return row.band === "space" ? 56 : 40;
-    if (row.layer === "satellites") return row.band === "space" ? 40 : 28;
-    if (row.band === "space") return 32;
-    if (row.band === "approach") return 26;
-    if (row.band === "near") return 22;
-    return 24;
+    if (row.layer === "iss") return row.hot ? 72 : 56;
+    if (row.layer === "satellites") return row.band === "space" ? 44 : 32;
+    if (row.band === "space") return 36;
+    if (row.band === "approach") return 32;
+    if (row.band === "near") return 34;
+    return 36;
   }
 
   function markImage(row) {
@@ -564,11 +784,227 @@
     return atlas[mark + ":" + band] || atlas[mark] || "";
   }
 
+  function cameraBand() {
+    var h = 2.5e7;
+    if (viewer && viewer.camera && viewer.camera.positionCartographic) {
+      h = viewer.camera.positionCartographic.height;
+    }
+    if (h >= 2.5e6) return "space";
+    if (h >= 4e5) return "approach";
+    if (h >= 4e4) return "near";
+    return "city";
+  }
+
   function wantLabel(row) {
-    if (!row || !row.label) return false;
-    if (row.hot || row.layer === "iss") return true;
+    if (!row) return false;
+    if (row.layer === "radio" || row.layer === "cameras" || row.layer === "weather") {
+      return false;
+    }
+    if (row.hot) return true;
+    if (!row.label) return false;
+    if (row.layer === "iss") {
+      var issBand = cameraBand();
+      return row.hot || issBand === "space" || issBand === "approach";
+    }
     if (row.layer === "satellites") return false;
-    return row.band === "city";
+    var band = cameraBand();
+    return band === "city";
+  }
+
+  function applyEarthFov() {
+    if (!viewer || !viewer.camera || !viewer.camera.frustum) return;
+    var fr = viewer.camera.frustum;
+    if (typeof fr.fov !== "number") return;
+    var w = viewer.canvas ? (viewer.canvas.clientWidth || 1) : 1;
+    var h = viewer.canvas ? (viewer.canvas.clientHeight || 1) : 1;
+    var aspect = w / Math.max(h, 1);
+    if (aspect > 1) {
+      fr.fov = 2 * Math.atan(Math.tan(EARTH_FOV_Y * 0.5) * aspect);
+    } else {
+      fr.fov = EARTH_FOV_Y;
+    }
+  }
+
+  function moving(row) {
+    if (!row || row.freshness === "stale") return false;
+    var vx = finite(row.vx, 0);
+    var vy = finite(row.vy, 0);
+    var vz = finite(row.vz, 0);
+    return (vx * vx + vy * vy + vz * vz) >= 0.25;
+  }
+
+  function farSide(row) {
+    if (!viewer || !row) return false;
+    var pos = coastFromRow(row);
+    var cam = viewer.camera.positionWC;
+    if (!pos || !cam) return false;
+    var u = Cesium.Cartesian3.normalize(pos, new Cesium.Cartesian3());
+    var c = Cesium.Cartesian3.normalize(cam, new Cesium.Cartesian3());
+    return Cesium.Cartesian3.dot(u, c) < 0.12;
+  }
+
+  function hideFarSide() {
+    Object.keys(entities).forEach(function (id) {
+      var ent = entities[id];
+      var row = ent && ent.arelisRow;
+      if (!ent || !row) return;
+      var hide = farSide(row);
+      if (ent.billboard) ent.billboard.show = !hide;
+      if (ent.label) ent.label.show = wantLabel(row) && !hide;
+    });
+  }
+
+  function bindRide(ent) {
+    if (!viewer || !ent) return;
+    try {
+      ent.viewFrom = new Cesium.Cartesian3(0, -140000, 70000);
+      viewer.trackedEntity = ent;
+    } catch (err) {}
+  }
+
+  function armRide(id) {
+    rideId = String(id || "");
+    lastRideDest = null;
+    zoomHold = false;
+    if (!viewer) return;
+    try { viewer.camera.cancelFlight(); } catch (err) {}
+    goLock = false;
+    clearGoTimer();
+    pendingRide = "";
+    if (!rideId) {
+      try { viewer.trackedEntity = undefined; } catch (err) {}
+      holdCoast(coastWanted);
+      viewer.scene.requestRender();
+      return;
+    }
+    coastWanted = true;
+    rideEmitForce = true;
+    /* A leftover hop goLock froze follow. Sit is ours — coast. */
+    var ent = entities[rideId];
+    if (ent) {
+      bindRide(ent);
+      followRide(ent);
+    }
+    holdCoast(true);
+    viewer.scene.requestRender();
+  }
+
+  function followRide(ent) {
+    var row = ent && ent.arelisRow;
+    if (!row) return;
+    var pos = coastFromRow(row);
+    var mag = Cesium.Cartesian3.magnitude(pos);
+    if (mag < 1) return;
+    var sit = row.layer === "iss" ? 80000 : 250;
+    var n = Cesium.Cartesian3.multiplyByScalar(
+      pos,
+      (mag + sit) / mag,
+      new Cesium.Cartesian3()
+    );
+    /* ISS is 7.7 km/s. 400 m skipped a 50 ms tick. */
+    var step = row.layer === "iss" ? 80 : 2500;
+    if (lastRideDest && Cesium.Cartesian3.distance(n, lastRideDest) < step) {
+      return;
+    }
+    lastRideDest = Cesium.Cartesian3.clone(n);
+    /* setView fires camera.changed. Mark it ours or holdZoom kills the timer. */
+    pushing = true;
+    viewer.camera.setView({
+      destination: n,
+      orientation: {
+        heading: Cesium.Math.toRadians(finite(row.heading_deg, 0)),
+        pitch: Cesium.Math.toRadians(row.layer === "iss" ? -28 : -12),
+        roll: 0
+      }
+    });
+    pushing = false;
+    emitCamera(true);
+    rideEmitForce = false;
+  }
+
+  function stepCoast() {
+    if (!viewer) return;
+    hideFarSide();
+    if (rideId) {
+      if (goLock) {
+        goLock = false;
+        try { viewer.camera.cancelFlight(); } catch (err) {}
+      }
+      var ent = entities[rideId];
+      if (ent) {
+        if (viewer.trackedEntity !== ent) bindRide(ent);
+        if (!viewer.trackedEntity) followRide(ent);
+      }
+      emitCamera(true);
+    }
+    viewer.scene.requestRender();
+  }
+
+  function holdCoast(on) {
+    if (!viewer || !viewer.scene) return;
+    var next = !!on && (!zoomHold || !!rideId);
+    if (next === coastHold && (!next || coastTimer)) {
+      viewer.scene.requestRenderMode = false;
+      return;
+    }
+    coastHold = next;
+    viewer.scene.requestRenderMode = false;
+    if (next) {
+      if (!coastTimer) {
+        coastTimer = setInterval(stepCoast, 50);
+      }
+    } else if (coastTimer) {
+      clearInterval(coastTimer);
+      coastTimer = 0;
+    }
+    viewer.scene.requestRender();
+  }
+
+  function holdZoom(on) {
+    if (on && (rideId || pushing)) return;
+    zoomHold = !!on;
+    if (zoomHold) holdCoast(false);
+    else holdCoast(coastWanted || !!rideId);
+  }
+
+  function coastFromRow(row) {
+    var x = finite(row.x, 0);
+    var y = finite(row.y, 0);
+    var z = finite(row.z, 0);
+    var vx = finite(row.vx, 0);
+    var vy = finite(row.vy, 0);
+    var vz = finite(row.vz, 0);
+    var when = finite(row.when_unix, 0);
+    var lat = finite(row.lat, 0);
+    var lon = finite(row.lon, 0);
+    var alt = clampMarkAlt(row.alt_m || 0);
+    if (!moving(row) || when <= 0 || (Math.abs(x) + Math.abs(y) + Math.abs(z) <= 1)) {
+      return Cesium.Cartesian3.fromDegrees(lon, lat, alt);
+    }
+    var dt = (Date.now() / 1000) - when;
+    if (dt < 0) dt = 0;
+    var cap = (row.layer === "iss" || row.layer === "satellites") ? 90 : 8;
+    if (dt > cap) dt = cap;
+    return new Cesium.Cartesian3(x + vx * dt, y + vy * dt, z + vz * dt);
+  }
+
+  function coastPosition(ent) {
+    return new Cesium.CallbackProperty(function () {
+      return coastFromRow(ent.arelisRow || {});
+    }, false);
+  }
+
+  function selectedWindowPos() {
+    if (!viewer || !selectedId) return null;
+    var ent = entities[selectedId];
+    var carto = markCarto(ent);
+    if (!carto) return null;
+    var cart = Cesium.Cartesian3.fromRadians(
+      carto.longitude, carto.latitude, carto.height || 0
+    );
+    var win = Cesium.SceneTransforms.wgs84ToWindowCoordinates(viewer.scene, cart);
+    if (!win || !isFinite(win.x) || !isFinite(win.y)) return null;
+    return { id: selectedId, x: win.x, y: win.y };
   }
 
   function labelDepth(row) {
@@ -661,7 +1097,8 @@
   function headingRad(row) {
     var deg = row.heading_deg;
     if (deg == null || deg === "") return 0;
-    return Cesium.Math.toRadians(Number(deg) || 0);
+    // Atlas nose is up (north). Cesium rotation is CCW; aviation is CW.
+    return Cesium.Math.toRadians(-(Number(deg) || 0));
   }
 
   function setMarks(map) {
@@ -669,9 +1106,38 @@
     lastEntityKey = "";
   }
 
+  function flushPending() {
+    if (pending.marks) {
+      var marks = pending.marks;
+      pending.marks = null;
+      setMarks(marks);
+    }
+    if (pending.entities) {
+      var rows = pending.entities;
+      pending.entities = null;
+      upsert(rows);
+    }
+    if (pending.places) {
+      var places = pending.places;
+      pending.places = null;
+      setPlaces(places);
+    }
+    if (pending.roads) {
+      var roads = pending.roads;
+      pending.roads = null;
+      setRoads(roads);
+    }
+    if (pending.buildings) {
+      var rings = pending.buildings;
+      pending.buildings = null;
+      setBuildings(rings);
+    }
+  }
+
   function dressBillboard(ent, row) {
     var img = markImage(row);
     var px = markSize(row);
+    if (row.hot) px = Math.round(px * 1.45);
     if (!ent.billboard) return;
     if (img) ent.billboard.image = img;
     ent.billboard.width = px;
@@ -684,37 +1150,48 @@
       ent.billboard.rotation = 0;
       ent.billboard.alignedAxis = Cesium.Cartesian3.ZERO;
     }
-    ent.billboard.color = Cesium.Color.WHITE;
-    if (row.freshness === "stale") {
-      ent.billboard.color = Cesium.Color.WHITE.withAlpha(0.45);
-    } else     if (row.freshness === "dead-reckoned") {
-      ent.billboard.color = Cesium.Color.WHITE.withAlpha(0.7);
+    var tint = ink(row.layer);
+    if (row.hot) {
+      ent.billboard.color = Cesium.Color.fromCssColorString("#ff7a22");
+    } else if (row.freshness === "stale") {
+      ent.billboard.color = tint.withAlpha(0.45);
+    } else if (row.freshness === "dead-reckoned") {
+      ent.billboard.color = tint.withAlpha(0.7);
+    } else {
+      ent.billboard.color = tint;
     }
     ent.billboard.disableDepthTestDistance = orbitalDepth(row);
   }
 
   function upsert(rows) {
-    if (!viewer || !rows) return;
+    if (!viewer) { pending.entities = rows; return; }
+    if (!rows) return;
     var key = rows.map(function (row) {
       return row.id + ":" + Math.round(row.lat * 100) + ":" + Math.round(row.lon * 100)
         + ":" + Math.round(row.alt_m || 0)
+        + ":" + Math.round(row.vx || 0) + ":" + Math.round(row.when_unix || 0)
         + ":" + (row.mark || row.layer) + ":" + (row.heading_deg || 0)
-        + ":" + (row.freshness || "") + ":" + (row.band || "");
+        + ":" + (row.freshness || "") + ":" + (row.band || "")
+        + ":" + (row.hot ? "1" : "0") + ":" + (row.ride ? "1" : "0");
     }).join("|");
     if (key === lastEntityKey) return;
     lastEntityKey = key;
     var keep = {};
+    var anyHot = false;
+    var anyMove = false;
+    var riding = "";
     rows.forEach(function (row) {
       if (!row || !row.id) return;
       var pose = saneMarkLla(row.lat, row.lon, row.alt_m || 0);
       if (!pose) return;
       keep[row.id] = true;
-      var pos = Cesium.Cartesian3.fromDegrees(pose.lon, pose.lat, pose.alt);
+      if (moving(row)) anyMove = true;
+      if (row.ride) riding = row.id;
       var ent = entities[row.id];
       if (!ent) {
         ent = viewer.entities.add({
           id: row.id,
-          position: pos,
+          position: Cesium.Cartesian3.fromDegrees(pose.lon, pose.lat, pose.alt),
           billboard: {
             image: markImage(row),
             width: markSize(row),
@@ -740,14 +1217,28 @@
           }
         });
         entities[row.id] = ent;
-      } else {
-        ent.position = pos;
+        ent.arelisRow = row;
+        ent.position = coastPosition(ent);
         dressBillboard(ent, row);
-        if (ent.label) {
-          ent.label.text = row.label || "";
-          ent.label.show = wantLabel(row);
-          ent.label.disableDepthTestDistance = labelDepth(row);
+      } else {
+        ent.arelisRow = row;
+        if (!ent.position || !ent.position.getValue) {
+          ent.position = coastPosition(ent);
         }
+        dressBillboard(ent, row);
+      }
+      if (ent.label) {
+        ent.label.text = row.label || "";
+        ent.label.show = wantLabel(row);
+        ent.label.disableDepthTestDistance = labelDepth(row);
+        ent.label.pixelOffset = row.hot
+          ? new Cesium.Cartesian2(16, -18)
+          : new Cesium.Cartesian2(12, -12);
+      }
+      ent.arelisLayer = row.layer || "";
+      if (row.hot) {
+        selectedId = row.id;
+        anyHot = true;
       }
       var oid = row.id + ":mark-overlay";
       var oimg = "";
@@ -759,7 +1250,7 @@
         if (!over) {
           over = viewer.entities.add({
             id: oid,
-            position: pos,
+            position: Cesium.Cartesian3.fromDegrees(pose.lon, pose.lat, pose.alt),
             billboard: {
               image: oimg,
               width: markSize(row) + 4,
@@ -772,8 +1263,10 @@
             }
           });
           entities[oid] = over;
+          over.arelisRow = row;
+          over.position = coastPosition(over);
         } else {
-          over.position = pos;
+          over.arelisRow = row;
           if (over.billboard) {
             over.billboard.image = oimg;
             over.billboard.rotation = HEADING[row.layer] ? headingRad(row) : 0;
@@ -788,6 +1281,12 @@
         keep[oid] = false;
       }
     });
+    if (!anyHot) selectedId = "";
+    if (riding) rideId = riding;
+    if (rideId && entities[rideId]) bindRide(entities[rideId]);
+    hideFarSide();
+    coastWanted = anyMove || !!rideId;
+    if (!zoomHold || rideId) holdCoast(coastWanted);
     Object.keys(entities).forEach(function (id) {
       if (!keep[id]) {
         viewer.entities.remove(entities[id]);
@@ -798,7 +1297,7 @@
   }
 
   function setPlaces(rows) {
-    if (!viewer) return;
+    if (!viewer) { pending.places = rows; return; }
     var key = (rows || []).map(function (row) { return row.name; }).join("|");
     if (key === lastPlacesKey) return;
     lastPlacesKey = key;
@@ -828,10 +1327,35 @@
     if (!viewer || !payload) return;
     var pose = saneLla(payload.lat, payload.lon, payload.alt_m || 8e3);
     if (!pose) return;
+    releaseCameraLock();
+    clearRoads();
+    lastRoadsKey = "";
+    var gen = ++flyGen;
+    goLock = true;
+    dressWorld(pose.alt);
+    viewer.scene.requestRenderMode = false;
     var cam = viewer.camera.positionCartographic;
     var fromAlt = cam ? cam.height : pose.alt;
     var dlat = cam ? Cesium.Math.toDegrees(cam.latitude) - pose.lat : 0;
     var dlon = cam ? Cesium.Math.toDegrees(cam.longitude) - pose.lon : 0;
+    var secs = flySeconds(fromAlt, pose.alt, dlat, dlon);
+    function finish() {
+      if (gen !== flyGen || !goLock) return;
+      goLock = false;
+      clearGoTimer();
+      /* Always sit. Skipping when rideId left the HWND on the enter still
+         while Python thought we were over Singapore. */
+      sitCamera(pose, 0, rideId ? -28 : -90);
+      dressGlobeLod();
+      if (pendingRide) {
+        rideId = pendingRide;
+        pendingRide = "";
+        lastRideDest = null;
+        holdCoast(true);
+        if (entities[rideId]) followRide(entities[rideId]);
+      }
+      viewer.scene.requestRenderMode = false;
+    }
     viewer.camera.flyTo({
       destination: Cesium.Cartesian3.fromDegrees(pose.lon, pose.lat, pose.alt),
       orientation: {
@@ -839,46 +1363,40 @@
         pitch: Cesium.Math.toRadians(-90),
         roll: 0
       },
-      duration: flySeconds(fromAlt, pose.alt, dlat, dlon),
+      duration: secs,
       easingFunction: Cesium.EasingFunction.QUADRATIC_IN_OUT,
-      complete: function () {
-        pushing = false;
-        lastEmit = 0;
-        emitCamera(true);
+      complete: finish,
+      cancel: function () {
+        if (gen === flyGen) {
+          goLock = false;
+          clearGoTimer();
+        }
       }
     });
+    viewer.scene.requestRender();
+    goTimer = setTimeout(finish, Math.round(secs * 1000) + 900);
   }
 
   function recoverRender() {
+    /* A WebGL hiccup used to sit the camera at 20 Mm. Every hop and
+       the ISS ride looked like they never started. Leave the eye. */
     if (!viewer) return;
-    try {
-      viewer.camera.setView({
-        destination: Cesium.Cartesian3.fromDegrees(0, 20, 2.0e7),
-        orientation: {
-          heading: 0,
-          pitch: Cesium.Math.toRadians(-90),
-          roll: 0
-        }
-      });
-      viewer.scene.requestRender();
-    } catch (err) {}
+    try { viewer.scene.requestRender(); } catch (err) {}
   }
 
   function emitCamera(force) {
     if (!viewer || !bridge) return;
     if (!force && pushing) return;
     var now = Date.now();
-    if (!force && now - lastEmit < 120) return;
+    if (!force && now - lastEmit < 280) return;
     lastEmit = now;
     var carto = viewer.camera.positionCartographic;
     if (!carto) return;
     var alt = carto.height;
-    viewer.scene.fog.enabled = alt < 400000;
-    dressLighting(alt);
-    if (wantPhotoreal(alt) !== !!tileset) {
-      syncPhotoreal(alt);
-    }
-    bridge.cameraMoved(JSON.stringify({
+    applyEarthFov();
+    viewer.scene.fog.enabled = false;
+    if (!goLock) dressWorld(alt);
+    var payload = {
       lat: Cesium.Math.toDegrees(carto.latitude),
       lon: Cesium.Math.toDegrees(carto.longitude),
       alt_m: alt,
@@ -886,7 +1404,20 @@
       pitch: Cesium.Math.toDegrees(viewer.camera.pitch),
       mpp: metersPerPixel(),
       nadir_m: lookRange()
-    }));
+    };
+    var ground = lookHit(canvasMid());
+    if (Cesium.defined(ground)) {
+      var g = Cesium.Cartographic.fromCartesian(ground);
+      payload.look_lat = Cesium.Math.toDegrees(g.latitude);
+      payload.look_lon = Cesium.Math.toDegrees(g.longitude);
+    }
+    var hot = selectedWindowPos();
+    if (hot) {
+      payload.hot_id = hot.id;
+      payload.hot_x = hot.x;
+      payload.hot_y = hot.y;
+    }
+    bridge.cameraMoved(JSON.stringify(payload));
   }
 
   function makeViewer(alpha) {
@@ -904,7 +1435,7 @@
       selectionIndicator: false,
       baseLayer: false,
       creditContainer: document.createElement("div"),
-      requestRenderMode: true,
+      requestRenderMode: false,
       maximumRenderTimeChange: Infinity,
       terrainProvider: new Cesium.EllipsoidTerrainProvider()
     };
@@ -920,7 +1451,13 @@
     loadCss(stack.cesiumCss);
     return loadScript(stack.cesiumJs).then(function () {
       viewer = makeViewer(false);
+      window.viewer = viewer;
       dressSpace();
+      applyEarthFov();
+      window.addEventListener("resize", function () {
+        applyEarthFov();
+        if (viewer) viewer.scene.requestRender();
+      });
       if (viewer.cesiumWidget) {
         viewer.cesiumWidget.showErrorPanel = function (title, message, error) {
           console.error("cesium render", title, message, error);
@@ -943,13 +1480,20 @@
         var id = pickedMarkId(click);
         if (id && bridge) {
           var picked = viewer.scene.pick(click.position);
-          var carto = picked && picked.id ? markCarto(picked.id) : undefined;
-          if (carto) {
-            flyTo({
-              lat: Cesium.Math.toDegrees(carto.latitude),
-              lon: Cesium.Math.toDegrees(carto.longitude),
-              alt_m: 8000
-            });
+          var layer = picked && picked.id ? String(picked.id.arelisLayer || "") : "";
+          if (RIDE_LAYERS[layer] && bridge.ridden) {
+            bridge.ridden(id);
+            return;
+          }
+          if (layer && !RIDE_LAYERS[layer] && layer !== "satellites") {
+            var carto = picked && picked.id ? markCarto(picked.id) : undefined;
+            if (carto) {
+              flyTo({
+                lat: Cesium.Math.toDegrees(carto.latitude),
+                lon: Cesium.Math.toDegrees(carto.longitude),
+                alt_m: 8000
+              });
+            }
           }
           if (bridge.picked) bridge.picked(id);
           return;
@@ -958,9 +1502,13 @@
       viewer.screenSpaceEventHandler.setInputAction(function (click) {
         var id = pickedMarkId(click);
         if (id && bridge) {
-          bridge.picked(id);
+          selectedId = id;
+          if (bridge.picked) bridge.picked(id);
+          lastEmit = 0;
+          emitCamera(true);
           return;
         }
+        selectedId = "";
         if (!bridge || !bridge.groundPicked) return;
         var ray = viewer.camera.getPickRay(click.position);
         var cart = ray ? viewer.scene.globe.pick(ray, viewer.scene) : undefined;
@@ -970,7 +1518,10 @@
             viewer.scene.globe.ellipsoid
           );
         }
-        if (!Cesium.defined(cart)) return;
+        if (!Cesium.defined(cart)) {
+          bridge.groundPicked(JSON.stringify({ sky: true }));
+          return;
+        }
         var carto = Cesium.Cartographic.fromCartesian(cart);
         var cam = viewer.camera.positionCartographic;
         var slant = Cesium.Cartesian3.distance(viewer.camera.positionWC, cart);
@@ -986,8 +1537,13 @@
           agl_m: cam ? cam.height : 0
         }));
       }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
-      viewer.camera.changed.addEventListener(emitCamera);
+      viewer.camera.changed.addEventListener(function () {
+        if (!pushing && !rideId) holdZoom(true);
+        emitCamera();
+      });
       viewer.camera.moveEnd.addEventListener(function () {
+        holdZoom(false);
+        if (coastWanted || rideId) holdCoast(true);
         lastEmit = 0;
         emitCamera(true);
       });
@@ -995,6 +1551,7 @@
       if (bridge) bridge.ready(lastKind || stack.kind);
       lastEmit = 0;
       emitCamera();
+      flushPending();
     });
   }
 
@@ -1011,6 +1568,22 @@
     obj.setCameraJson.connect(function (raw) {
       setCamera(JSON.parse(raw));
     });
+    if (obj.releaseCamera) {
+      obj.releaseCamera.connect(function () {
+        releaseCameraLock();
+        if (viewer) viewer.scene.requestRender();
+      });
+    }
+    if (obj.armRide) {
+      obj.armRide.connect(function (id) {
+        armRide(id);
+      });
+    }
+    if (obj.followJson) {
+      obj.followJson.connect(function (raw) {
+        followLla(JSON.parse(raw));
+      });
+    }
     if (obj.nudgeJson) {
       obj.nudgeJson.connect(function (raw) {
         applyNudge(JSON.parse(raw));
@@ -1059,6 +1632,9 @@
     }
     obj.hello();
   }
+
+  window.arelisFollowLla = followLla;
+  window.arelisArmRide = armRide;
 
   if (typeof qt !== "undefined" && qt.webChannelTransport) {
     new QWebChannel(qt.webChannelTransport, function (channel) {

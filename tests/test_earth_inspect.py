@@ -283,6 +283,7 @@ def test_one_planet_painter_skips_qt_tiles_when_cesium_live() -> None:
     live = src.split("if getattr(panel, \"_earth_globe_live\"", 1)[1]
     branch, rest = live.split("else:", 1)
     assert "sync_earth_view" in branch
+    assert "if not chrome_only" in branch
     assert "paint_earth" not in branch
     assert "paint_earth" in rest.split("panel._paint_hud", 1)[0]
 

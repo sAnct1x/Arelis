@@ -205,8 +205,9 @@ def test_resolve_place_uses_cached_address(monkeypatch: pytest.MonkeyPatch) -> N
 
 
 def test_scale_bar_reads_like_a_map() -> None:
-    from arelis.earth.scale import format_agl, format_distance, scale_bar
+    from arelis.earth.scale import EARTH_FOV_Y, format_agl, format_distance, scale_bar
 
+    assert EARTH_FOV_Y == 0.70
     nice, bar_px, label = scale_bar(350.0, 1200.0)
     assert nice <= 200.0
     assert 24 <= bar_px <= 400
@@ -248,3 +249,16 @@ def test_nav_range_waits_for_cesium() -> None:
         _earth_cam=dest,
     )
     assert nav_range_m(stale) == pytest.approx(8_000.0, rel=0.05)
+    globe = SimpleNamespace(
+        _earth_agl_m=46_567_000.0,
+        _earth_nadir_m=46_567_000.0,
+        _earth_cam=dest,
+        _earth_globe_live=lambda: True,
+    )
+    assert nav_range_m(globe) == pytest.approx(46_567_000.0, rel=0.05)
+    sit = SimpleNamespace(
+        _earth_agl_m=4_000.0,
+        _earth_nadir_m=2_000.0,
+        _earth_globe_live=lambda: True,
+    )
+    assert nav_range_m(sit) == 4_000.0

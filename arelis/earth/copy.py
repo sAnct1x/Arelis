@@ -44,6 +44,48 @@ LAYER_PHRASE: dict[str, str] = {
     "people": "person",
 }
 
+GROUP_PHRASE: dict[str, str] = {
+    "stations": "space station",
+    "gps-ops": "GPS",
+    "galileo": "Galileo",
+    "glonass": "GLONASS",
+    "beidou": "BeiDou",
+    "weather": "weather sat",
+    "noaa": "NOAA",
+    "goes": "GOES",
+    "visual": "bright sat",
+    "geo": "geostationary",
+    "science": "science",
+    "resource": "earth resource",
+    "sarsat": "SARSAT",
+    "dmc": "DMC",
+    "tdrss": "TDRSS",
+    "amateur": "amateur radio",
+    "cubesat": "CubeSat",
+    "oneweb": "OneWeb",
+    "iridium-NEXT": "Iridium NEXT",
+    "planet": "Planet",
+    "spire": "Spire",
+    "last-30-days": "new launch",
+    "starlink": "Starlink",
+    "education": "education",
+    "engineering": "engineering",
+    "military": "public military",
+    "intelsat": "Intelsat",
+    "ses": "SES",
+    "orbcomm": "Orbcomm",
+    "globalstar": "Globalstar",
+    "iridium": "Iridium",
+    "other-comm": "communications",
+}
+
+
+def group_phrase(group: str) -> str:
+    key = str(group or "").strip()
+    if not key:
+        return ""
+    return GROUP_PHRASE.get(key, key.replace("-", " "))
+
 
 def band_phrase(band: str) -> str:
     return BAND_PHRASE.get(band, "on Earth")
@@ -54,10 +96,57 @@ _PUBLISHED = frozenset(
 )
 
 
+# ISS rides on a click. Double-click rides the rest. Ground pins fly-to.
+RIDE_LAYERS = frozenset(
+    {"cameras", "flights", "drones", "military", "vessels", "iss"}
+)
+
+
+def can_ride(layer: str) -> bool:
+    return str(layer or "") in RIDE_LAYERS
+
+
+def ride_hint(layer: str, *, riding: bool = False) -> str:
+    if not can_ride(layer):
+        return ""
+    if riding:
+        return "Esc or click empty sky to hop off"
+    if str(layer or "") == "iss":
+        return "click to ride · Esc to leave it"
+    return "double-click to ride · Esc to leave it"
+
+
 def live_chip_label(*, on: bool, busy: bool = False) -> str:
     if busy:
         return "Live …"
     return "Live on" if on else "Live off"
+
+
+def loading_line(
+    zone: Any,
+    *,
+    globe_ready: bool = True,
+    globe_failed: bool = False,
+    busy: bool = False,
+) -> str | None:
+    """Quiet status while the plate is still coming up. Empty once it is."""
+    if globe_failed:
+        return "fancy map failed — NASA ball"
+    if not globe_ready:
+        return "falling in"
+    if not busy:
+        return None
+    band = ""
+    view = getattr(zone, "last_view", None) if zone is not None else None
+    if view is not None:
+        band = str(getattr(view, "band", "") or "")
+    if band in {"", "space"}:
+        return "fetching satellites"
+    if band == "approach":
+        return "fetching flights"
+    if band == "near":
+        return "fetching ships"
+    return "refreshing live"
 
 
 def has_published(zone: Any) -> bool:
@@ -83,9 +172,15 @@ def status_sentence(zone: Any) -> str:
     if view is not None:
         band = str(getattr(view, "band", "") or "")
     where = band_phrase(band)
-    if zone.live:
+    published = has_published(zone)
+    busy = bool(getattr(zone, "_live_busy", False))
+    if busy and not published:
+        line = f"Watching Earth {where} — fetching published feeds."
+    elif zone.live and published:
         line = f"Watching Earth {where} — live published feeds."
-    elif has_published(zone):
+    elif zone.live:
+        line = f"Watching Earth {where} — live, simulated until feeds return."
+    elif published:
         line = (
             f"Watching Earth {where} — last published fix, then coasting. "
             "Live keeps pulling."
@@ -135,6 +230,50 @@ def deaf_line(zone: Any) -> str | None:
     return "No public feed in this view. Sparse is a hole, not a miss."
 
 
+def layer_hole_line(zone: Any) -> str | None:
+    """A chip is on and this look has nothing public for it."""
+    if zone is None or not zone.active or not zone.live:
+        return None
+    layers = getattr(zone, "layers", None) or {}
+    fetched = getattr(zone, "last_fetch_unix", None) or {}
+    inflight = getattr(zone, "_live_inflight", None) or set()
+    visible = list(zone.visible()) if hasattr(zone, "visible") else []
+    have = {getattr(ent, "layer", "") for ent in visible}
+    if layers.get("cameras"):
+        if "cameras" in inflight or "shodan" in inflight:
+            return None
+        if "cameras" not in fetched and "shodan" not in fetched:
+            return None
+        if "cameras" not in have:
+            return (
+                "No published cameras in this look. OSM webcams and keyed "
+                "511 only — not every phone on Wi-Fi."
+            )
+    if layers.get("traffic"):
+        if "traffic" in inflight or "traffic" not in fetched:
+            return None
+        if "traffic" not in have:
+            return "No published road incidents here. Traffic is closures, not every car."
+    if layers.get("sites"):
+        site_keys = (
+            "launches",
+            "eonet",
+            "airports",
+            "tip",
+            "volcanoes",
+            "gdacs",
+            "argo",
+            "fdsn",
+        )
+        if any(key in inflight for key in site_keys):
+            return None
+        if not any(key in fetched for key in site_keys):
+            return None
+        if "sites" not in have:
+            return "No published sites in this look. Airports and pads when the catalog has them."
+    return None
+
+
 def coach_line(zone: Any) -> str | None:
     """The one next action. Empty once they are live and the box has contacts."""
     if zone is None or not zone.active:
@@ -142,7 +281,10 @@ def coach_line(zone: Any) -> str | None:
     if not zone.live:
         if has_published(zone):
             return None
-        return "Find a city, or say take me to one."
+        return "Find a city, or say take me to one. Double-click ISS to ride."
+    hole = layer_hole_line(zone)
+    if hole:
+        return hole
     deaf = deaf_line(zone)
     if deaf:
         return deaf

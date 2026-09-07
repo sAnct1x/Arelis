@@ -169,28 +169,31 @@ def test_real_door_enter_turns_live_on(monkeypatch: pytest.MonkeyPatch) -> None:
     assert earth.active is False
 
 
-def test_closer_band_reveals_more_layers() -> None:
+def test_closer_band_does_not_flip_layer_chips() -> None:
     earth = EarthRuntime()
     earth.enter(unix=1.0)
     assert earth.layers["flights"] is False
     assert earth.layers["vessels"] is False
     assert earth.layers["cameras"] is False
     earth.note_view(EarthView("approach", alt_m=800_000.0, lat=0.0, lon=0.0))
-    assert earth.layers["flights"] is True
+    assert earth.layers["flights"] is False
     assert earth.layers["vessels"] is False
     earth.note_view(EarthView("near", alt_m=20_000.0, lat=0.0, lon=0.0))
-    assert earth.layers["vessels"] is True
+    assert earth.layers["vessels"] is False
     assert earth.tiles is False
     earth.note_view(EarthView("city", alt_m=20_000.0, lat=35.6, lon=139.7))
-    assert earth.layers["cameras"] is True
+    assert earth.layers["cameras"] is False
     assert earth.tiles is False
     assert earth.buildings is False
     earth.note_view(EarthView("city", alt_m=4_000.0, lat=35.6, lon=139.7))
     assert earth.tiles is True
-    assert earth.buildings is True
+    assert earth.buildings is False
     earth.note_view(EarthView("near", alt_m=20_000.0, lat=0.0, lon=0.0))
     assert earth.tiles is False
     assert earth.buildings is False
+    earth.leave()
+    assert earth.layers["satellites"] is True
+    assert earth.layers["cameras"] is False
 
 
 def test_layer_toggle_hides() -> None:
@@ -503,6 +506,24 @@ def test_ais_without_key_still_uses_digitraffic(
     ships = ais_mod.fetch_ais()
     assert ships is not None
     assert {e.id for e in ships} == {"mmsi:230000001"}
+
+
+def test_ais_skips_baltic_when_look_is_ohio(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from arelis.earth import ais as ais_mod
+    from arelis.earth.lod import LookBBox
+
+    monkeypatch.setattr(ais_mod, "aisstream_key", lambda path=None: "")
+
+    def _boom(*_a, **_k):
+        raise AssertionError("Baltic AIS is not a Columbus feed")
+
+    monkeypatch.setattr(ais_mod, "fetch_digitraffic", _boom)
+    monkeypatch.setattr(ais_mod, "fetch_barentswatch", _boom)
+    monkeypatch.setattr(ais_mod, "fetch_aisstream", lambda bbox=None: [])
+    ships = ais_mod.fetch_ais(bbox=LookBBox(38.8, -84.2, 41.2, -81.8))
+    assert ships == []
 
 
 def test_digitraffic_geojson_keeps_helsinki_and_names() -> None:
@@ -1136,7 +1157,7 @@ def test_earth_docs_inventory_matches_feeds() -> None:
     assert f"**{counts['out']} out**" in earth
     assert "No terrain" in earth
     assert "**Streets**" in earth
-    assert "**Buildings**" in earth
+    assert "**Buildings**" not in earth
 
 
 def test_merge_live_stubs_every_fetcher() -> None:
@@ -1484,10 +1505,15 @@ def test_earth_chip_items_cover_live_and_every_layer() -> None:
     from arelis.earth.entity import LAYER_IDS
     from arelis.ui.earth_overlay import earth_chip_items
 
-    kinds = [kind for kind, _label in earth_chip_items()]
-    assert kinds[:5] == ["band", "live", "grid", "tiles", "buildings"]
-    assert tuple(kinds[5:]) == tuple(LAYER_IDS)
+    kinds = [kind for kind, _label in earth_chip_items("city")]
+    assert kinds[:4] == ["band", "live", "grid", "tiles"]
+    assert tuple(kinds[4:-2]) == tuple(LAYER_IDS)
+    assert kinds[-2:] == ["leave", "find"]
     assert "people" in kinds
+    idle = [kind for kind, _label in earth_chip_items()]
+    assert "tiles" not in idle
+    assert "traffic" not in idle
+    assert "satellites" in idle
     space = [kind for kind, _label in earth_chip_items("space")]
     assert space[:3] == ["band", "live", "grid"]
     assert "tiles" not in space
@@ -1508,6 +1534,7 @@ def test_earth_chips_toggle_live_and_layers(
     _mute_live(monkeypatch)
     earth = EarthRuntime()
     earth.enter(unix=1.0)
+    earth.note_view(EarthView("city", alt_m=20_000.0, lat=40.0, lon=-83.0))
     set_earth(earth)
     panel = SolarPanel()
     panel.resize(640, 480)
@@ -1519,6 +1546,8 @@ def test_earth_chips_toggle_live_and_layers(
     assert "tiles" in kinds
     assert "flights" in kinds
     assert "traffic" in kinds
+    assert earth.layers["flights"] is False
+    assert earth.layers["traffic"] is False
     assert not box.isEmpty()
     assert earth.layers["flights"] is False
     panel._toggle_earth_chip("flights")
@@ -1815,6 +1844,8 @@ def test_dead_reckon_coasts_then_goes_stale() -> None:
     assert mid is not None
     assert mid.freshness == "delayed"
     assert mid.x == pytest.approx(pos[0] + 1000.0)
+    assert mid.when_unix == 1_000.0
+    assert mid.meta.get("_pose_unix") == pytest.approx(1_010.0)
     advance_live(store, 1_100.0, 10.0)
     aged = store.get("icao:abc123")
     assert aged is not None
@@ -1823,6 +1854,45 @@ def test_dead_reckon_coasts_then_goes_stale() -> None:
     dead = store.get("icao:abc123")
     assert dead is not None
     assert dead.freshness == "stale"
+
+
+def test_advance_live_reruns_sgp4_between_tle_polls() -> None:
+    pytest.importorskip("sgp4")
+    from datetime import UTC, datetime, timedelta
+
+    from arelis.earth.simulate import advance_live
+    from arelis.earth.tle import entities_from_tle_text
+
+    epoch = datetime(2008, 1, 1, tzinfo=UTC) + timedelta(days=263.51782528)
+    t0 = epoch.timestamp()
+    ships = entities_from_tle_text(_ISS_TLE, unix=t0)
+    assert ships
+    store = EntityStore()
+    store.upsert(ships[0])
+    first = store.get("norad:25544")
+    assert first is not None
+    assert first.meta.get("_tle1", "").startswith("1 ")
+    assert "_tle1" not in first.to_row()["meta"]
+    x0, y0, z0 = first.x, first.y, first.z
+    advance_live(store, t0 + 90.0, 90.0)
+    moved = store.get("norad:25544")
+    assert moved is not None
+    assert moved.freshness == "interpolated"
+    drift = ((moved.x - x0) ** 2 + (moved.y - y0) ** 2 + (moved.z - z0) ** 2) ** 0.5
+    assert drift > 50_000.0
+    r = (moved.x**2 + moved.y**2 + moved.z**2) ** 0.5
+    assert 6.6e6 < r < 6.9e6
+
+
+def test_celestrak_groups_fetch_in_parallel() -> None:
+    from pathlib import Path
+
+    src = (
+        Path(__file__).resolve().parents[1] / "arelis" / "earth" / "tle.py"
+    ).read_text(encoding="utf-8")
+    assert "ThreadPoolExecutor" in src
+    assert "def _get_tle_groups" in src
+    assert "max_workers" in src
 
 
 def test_refresh_without_dt_does_not_stale_untimestamped_live() -> None:
@@ -1875,6 +1945,17 @@ def test_osm_boxes_are_denser_than_continents() -> None:
     from arelis.earth.osm import _BOXES
 
     assert len(_BOXES) >= 40
+
+
+def test_osm_look_box_queries_the_city_not_every_continent() -> None:
+    from arelis.earth.lod import LookBBox
+    from arelis.earth.osm import _BOXES, _boxes_for_view
+
+    look = LookBBox(39.0, -84.0, 41.0, -82.0)
+    hits = _boxes_for_view(look)
+    assert hits == ((39.0, -84.0, 41.0, -82.0),)
+    assert hits[0] not in _BOXES
+    assert _boxes_for_view(None) == _BOXES
 
 
 def test_celestrak_samples_mega_constellations() -> None:
@@ -2364,7 +2445,7 @@ def test_lod_gates_planes_boats_and_cameras() -> None:
     assert adapter_allowed("ais", "near") is True
     assert adapter_allowed("cameras", "near") is False
     assert adapter_allowed("cameras", "city") is True
-    assert adapter_allowed("celestrak", "city") is False
+    assert adapter_allowed("celestrak", "city") is True
     assert adapter_allowed(
         "opensky", "city", {"flights": False, "drones": False}
     ) is False
@@ -2484,6 +2565,7 @@ def test_earth_marks_are_unique_and_drawn(qt_app) -> None:
     from arelis.earth.entity import LAYER_IDS
     from arelis.ui.earth_marks import (
         ALL_KINDS,
+        ATLAS_PX,
         OVERLAY_KINDS,
         SOLAR_KINDS,
         mark_digest,
@@ -2508,7 +2590,7 @@ def test_earth_marks_are_unique_and_drawn(qt_app) -> None:
         seen[kind] = digest
         img = mark_image(kind, band="city")
         assert not img.isNull()
-        assert img.width() == 64
+        assert img.width() == ATLAS_PX
     for kind in SOLAR_KINDS + OVERLAY_KINDS:
         digest = mark_digest(kind, band="city")
         assert digest not in seen.values(), kind
@@ -2618,6 +2700,48 @@ def test_heading_of_reads_track_heading_and_cog() -> None:
     assert heading_of(SimpleNamespace(meta={"heading_deg": 45})) == 45.0
     assert heading_of(SimpleNamespace(meta={"cog_deg": 180})) == 180.0
     assert heading_of(SimpleNamespace(meta={})) is None
+    from arelis.earth.frames import ecef_vel_from_track, heading_from_ecef_vel, lla_to_ecef
+
+    vx, vy, vz = ecef_vel_from_track(40.0, -83.0, 80.0, 90.0)
+    assert heading_from_ecef_vel(40.0, -83.0, vx, vy, vz) == pytest.approx(90.0, abs=0.5)
+    pos = lla_to_ecef(40.0, -83.0, 8000.0)
+    eastbound = SimpleNamespace(
+        meta={"lat": 40.0, "lon": -83.0},
+        x=pos[0],
+        y=pos[1],
+        z=pos[2],
+        vx=vx,
+        vy=vy,
+        vz=vz,
+    )
+    assert heading_of(eastbound) == pytest.approx(90.0, abs=0.5)
+
+
+def test_camera_merge_keeps_look_box_first() -> None:
+    from arelis.earth.cameras_fetch import _prefer_look_pins
+    from arelis.earth.entity import Coverage, Entity
+    from arelis.earth.lod import LookBBox
+
+    def pin(eid: str, lat: float, lon: float) -> Entity:
+        return Entity(
+            id=eid,
+            cls="camera",
+            layer="cameras",
+            label=eid,
+            x=0.0,
+            y=0.0,
+            z=0.0,
+            meta={"lat": lat, "lon": lon},
+            coverage=Coverage("pin", "test"),
+        )
+
+    box = LookBBox(39.0, -84.0, 41.0, -82.0)
+    kept = _prefer_look_pins(
+        [pin("nyc", 40.7, -74.0), pin("cmh", 39.96, -83.0)],
+        box,
+        1,
+    )
+    assert [row.id for row in kept] == ["cmh"]
 
 
 def test_marks_read_as_their_kind(qt_app) -> None:
@@ -2715,6 +2839,8 @@ def test_globe_ride_stays_off_ground_marks() -> None:
     assert globe_ride_layer("quakes") is False
     assert globe_ride_layer("sites") is False
     assert globe_ride_layer("vessels") is True
+    assert globe_ride_layer("iss") is True
+    assert globe_ride_layer("satellites") is False
     assert earth_entity_look_alt_m("quakes") == CITY_LOOK_ALT_M
     assert earth_entity_look_alt_m("cameras") == 1_200.0
 
@@ -2725,6 +2851,10 @@ def test_layer_chips_leave_room_for_the_mark(qt_app) -> None:
     from arelis.ui.earth_chrome import CHIP_ICON_PAD, chip_icon_pad
     from arelis.ui.earth_overlay import layout_earth_chips
 
+    earth = EarthRuntime()
+    earth.active = True
+    earth.note_view(EarthView("city", alt_m=20_000.0, lat=40.0, lon=-83.0))
+    set_earth(earth)
     assert chip_icon_pad("flights") == CHIP_ICON_PAD
     assert chip_icon_pad("live") == 0
     fm = QFontMetrics(QFont("Segoe UI", 10))
@@ -2733,6 +2863,15 @@ def test_layer_chips_leave_room_for_the_mark(qt_app) -> None:
     assert "flights" in kinds
     assert kinds["flights"].width() > fm.horizontalAdvance("Flights") + 16
     assert not box.isEmpty()
+    rects = [rect for _kind, rect in hits]
+    for i, a in enumerate(rects):
+        for b in rects[i + 1 :]:
+            assert not a.intersects(b), f"{hits[i][0]} overlaps"
+    chrome = Path("arelis/ui/earth_chrome.py").read_text(encoding="utf-8")
+    assert '_wash("glass_fill", 36)' not in chrome
+    assert '_wash("accent", 230)' in chrome
+    assert '_wash("glass_fill", 220)' in chrome
+    set_earth(None)
 
 
 def test_earth_dblclick_on_globe_flies_to_quake(

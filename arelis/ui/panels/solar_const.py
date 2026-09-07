@@ -62,7 +62,7 @@ KEY_STRIP: tuple[tuple[str, str], ...] = (
     ("H", "keys"),
 )
 KEY_HINT = "WASD fly · Space pause · click inspect"
-KEY_HINT_EARTH = "WASD fly · arrows look · / find · Enter flies"
+KEY_HINT_EARTH = "drag look · wheel zoom · / find · double-click ride"
 KEY_LEGEND: tuple[tuple[str, tuple[tuple[str, str], ...]], ...] = (
     (
         "Move",

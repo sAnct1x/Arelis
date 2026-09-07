@@ -105,11 +105,45 @@ _CITE = (
 )
 
 
-def fetch_osm_webcams() -> list[Entity] | None:
+def _box_hits(
+    box: tuple[float, float, float, float], bbox: Any
+) -> bool:
+    south, west, north, east = box
+    try:
+        return not (
+            float(bbox.north) < south
+            or float(bbox.south) > north
+            or float(bbox.east) < west
+            or float(bbox.west) > east
+        )
+    except (TypeError, ValueError, AttributeError):
+        return True
+
+
+def _boxes_for_view(bbox: Any) -> tuple[tuple[float, float, float, float], ...]:
+    """Look-area Overpass boxes. The worldwide inventory stays in `_BOXES`.
+
+    A city look must query that fabric, not the whole continent box that
+    merely intersects it — Overpass times out and Columbus goes empty.
+    """
+    if bbox is None:
+        return _BOXES
+    try:
+        south = float(bbox.south)
+        west = float(bbox.west)
+        north = float(bbox.north)
+        east = float(bbox.east)
+    except (TypeError, ValueError, AttributeError):
+        return _BOXES
+    return ((south, west, north, east),)
+
+
+def fetch_osm_webcams(bbox: Any = None) -> list[Entity] | None:
     chunks: list[dict[str, Any]] = []
     any_ok = False
+    boxes = _boxes_for_view(bbox)
     with ThreadPoolExecutor(max_workers=6) as pool:
-        futs = [pool.submit(_query_box, box) for box in _BOXES]
+        futs = [pool.submit(_query_box, box) for box in boxes]
         for fut in as_completed(futs):
             payload = fut.result()
             if payload is None:

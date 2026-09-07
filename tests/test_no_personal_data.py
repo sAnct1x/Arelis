@@ -361,7 +361,12 @@ def _public_globe(path: Path) -> bool:
         "scripts/walk_earth_lod.py",
         "scripts/walk_earth_streets.py",
         "scripts/walk_earth_globe.py",
+        "scripts/walk_earth_field.py",
         "tests/test_earth_inspect.py",
+        "tests/test_earth_field.py",
+        "tests/test_earth_polish.py",
+        "tests/test_globe_stack.py",
+        "arelis/ui/earth_globe/bridge.js",
         "docs/earth.md",
         "data/secrets.example.yaml",
         # Public US gazetteer: "Baltimore, OH" vs "baltimore ohio".

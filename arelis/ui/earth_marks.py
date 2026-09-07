@@ -27,12 +27,13 @@ from arelis.ui.theme import color
 STROKE = 2.0
 BANDS: tuple[str, ...] = ("space", "approach", "near", "city")
 BAND_PX: dict[str, int] = {
-    "space": 40,
-    "approach": 28,
-    "near": 24,
-    "city": 24,
+    "space": 44,
+    "approach": 32,
+    "near": 34,
+    "city": 36,
 }
-ATLAS_PX = 64
+ATLAS_PX = 80
+FILL_ALPHA = 204
 
 HEADING_KINDS = frozenset({"flights", "military", "drones", "vessels"})
 SOLAR_KINDS: tuple[str, ...] = (
@@ -69,7 +70,28 @@ def heading_of(entity: Any) -> float | None:
             return float(raw)
         except (TypeError, ValueError):
             continue
-    return None
+    vx = float(getattr(entity, "vx", 0.0) or 0.0)
+    vy = float(getattr(entity, "vy", 0.0) or 0.0)
+    vz = float(getattr(entity, "vz", 0.0) or 0.0)
+    if vx * vx + vy * vy + vz * vz < 0.25:
+        return None
+    try:
+        lat = float(meta.get("lat"))
+        lon = float(meta.get("lon"))
+    except (TypeError, ValueError):
+        try:
+            from arelis.earth.frames import ecef_to_geodetic
+
+            lat, lon, _alt = ecef_to_geodetic(
+                float(getattr(entity, "x", 0.0) or 0.0),
+                float(getattr(entity, "y", 0.0) or 0.0),
+                float(getattr(entity, "z", 0.0) or 0.0),
+            )
+        except Exception:
+            return None
+    from arelis.earth.frames import heading_from_ecef_vel
+
+    return heading_from_ecef_vel(lat, lon, vx, vy, vz)
 
 
 def ink_for_kind(kind: str, *, alpha: int = 220) -> QColor:
@@ -101,13 +123,19 @@ def _pen(ink: QColor, *, dashed: bool = False, width: float | None = None) -> QP
 def _stroke(
     painter: QPainter, ink: QColor, *, dashed: bool = False, width: float | None = None
 ) -> None:
+    """Keep the fill. Outline-only marks disappear on Earth."""
     painter.setPen(_pen(ink, dashed=dashed, width=width))
-    painter.setBrush(Qt.BrushStyle.NoBrush)
 
 
 def _fill(painter: QPainter, ink: QColor) -> None:
-    painter.setPen(Qt.PenStyle.NoPen)
-    painter.setBrush(ink)
+    wash = QColor(ink)
+    wash.setAlpha(FILL_ALPHA)
+    painter.setBrush(wash)
+
+
+def _body(painter: QPainter, ink: QColor) -> None:
+    _fill(painter, ink)
+    painter.setPen(_pen(ink))
 
 
 def _line(
@@ -176,10 +204,12 @@ def _draw_military(painter: QPainter, r: float, detail: int) -> None:
 
 
 def _draw_drones(painter: QPainter, r: float, detail: int) -> None:
-    """Quadcopter: body plus four rotor arms."""
+    """Quadcopter: body plus four rotors. No long X at chip size."""
     del detail
+    compact = r < 9.0
     for sx, sy in ((-1.0, -1.0), (1.0, -1.0), (-1.0, 1.0), (1.0, 1.0)):
-        _line(painter, 0.0, 0.0, sx * r * 0.58, sy * r * 0.58)
+        if not compact:
+            _line(painter, 0.0, 0.0, sx * r * 0.58, sy * r * 0.58)
         painter.drawEllipse(QPointF(sx * r * 0.58, sy * r * 0.58), r * 0.22, r * 0.22)
     painter.drawRoundedRect(QRectF(-r * 0.22, -r * 0.22, r * 0.44, r * 0.44), 2.0, 2.0)
 
@@ -474,7 +504,7 @@ def paint_mark(
     painter.translate(QPointF(cx, cy))
     if kind in HEADING_KINDS and heading_deg is not None:
         painter.rotate(float(heading_deg))
-    _stroke(painter, ink)
+    _body(painter, ink)
     drawer = _DRAWERS.get(kind)
     if drawer is not None:
         drawer(painter, r, detail, ink=ink, look=look, mag=mag)

@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import math
 
-# Cesium default frustum fov is π/3 (vertical).
-_FOV_RAD = math.pi / 3.0
+# Same vertical FOV as the solar-lab inspect eye (`SolarPanel._fov_y`).
+# Cesium's stock frustum is π/3 — that made Enter look like a different camera.
+EARTH_FOV_Y = 0.70
+_FOV_RAD = EARTH_FOV_Y
 
 
 def ground_width_m(alt_m: float, *, fov_rad: float = _FOV_RAD) -> float:
@@ -30,7 +32,7 @@ def format_agl(meters: float) -> str:
 
 
 def format_surface(meters: float) -> str:
-    """Ray from the eye to the globe. What the distance meter reads."""
+    """Camera height when Cesium owns the eye. What the distance meter reads."""
     return f"{format_distance(meters)} to surface"
 
 

@@ -46,19 +46,29 @@ def _hose_find(panel: Any, on: bool) -> None:
             pass
 
 
-def _hold_keys(panel: Any, on: bool) -> None:
-    """Cesium keeps HWND focus. Grab the keyboard while Find is open."""
-    _hose_find(panel, on)
+def hold_globe_keys(panel: Any, on: bool) -> None:
+    """Grab keys only while Find is open. Cesium owns drag and wheel."""
     hud = getattr(panel, "_earth_hud", None)
     target = hud if hud is not None else panel
+    grab = getattr(target, "grabKeyboard", None)
+    release = getattr(target, "releaseKeyboard", None)
     try:
         if on:
-            target.grabKeyboard()
-            target.setFocus(Qt.FocusReason.OtherFocusReason)
-        else:
-            target.releaseKeyboard()
+            if callable(grab):
+                grab()
+            focus = getattr(target, "setFocus", None)
+            if callable(focus):
+                focus(Qt.FocusReason.OtherFocusReason)
+        elif callable(release):
+            release()
     except Exception:
         pass
+
+
+def _hold_keys(panel: Any, on: bool) -> None:
+    """Find grabs keys. Closing Find returns drag/wheel to Cesium."""
+    _hose_find(panel, on)
+    hold_globe_keys(panel, on)
 
 
 def typed_text(event: QKeyEvent) -> str:
@@ -100,7 +110,8 @@ def close_find(panel: Any) -> None:
     panel._earth_find_q = ""
     panel._earth_find_hits = []
     panel._earth_find_ix = 0
-    _hold_keys(panel, False)
+    _hose_find(panel, False)
+    hold_globe_keys(panel, False)
     panel.update()
 
 
@@ -301,6 +312,8 @@ def apply_goto(panel: Any, index: int | None = None) -> bool:
         ent = zone.get(hit.entity_id) if zone is not None else None
         if ent is not None:
             panel._select_earth_entity(ent, ride=ent.layer == "cameras")
+            if ent.layer != "cameras":
+                panel._fly_to_earth_entity(ent)
             return True
     panel._select_earth_place(hit.as_place())
     return True

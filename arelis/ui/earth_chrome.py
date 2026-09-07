@@ -12,7 +12,7 @@ from arelis.earth.entity import LAYER_IDS
 from arelis.earth.key_paste import missing_picture_keys, save_earth_key
 from arelis.ui.theme import color
 
-CHIP_ICON_PAD = 18
+CHIP_ICON_PAD = 22
 CHIP_ICON_KINDS = frozenset(LAYER_IDS)
 
 
@@ -32,7 +32,7 @@ def paint_layer_chip(
 ) -> None:
     """Sodium chip with the same mark that sits on the globe."""
     painter.setPen(QPen(color("edge_hot") if on else color("edge"), 1))
-    painter.setBrush(_wash("accent", 150) if on else _wash("glass_fill", 36))
+    painter.setBrush(_wash("accent", 230) if on else _wash("glass_fill", 220))
     painter.drawRoundedRect(rect, 4, 4)
     from arelis.ui.earth_marks import paint_mark
 
@@ -42,12 +42,12 @@ def paint_layer_chip(
         float(rect.center().y()) + 0.5,
         kind,
         band="city",
-        size=14,
+        size=16,
         ink=ink,
     )
     painter.setPen(color("text"))
     painter.drawText(
-        rect.adjusted(20, 0, -4, 0),
+        rect.adjusted(22, 0, -8, 0),
         int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
         label,
     )
@@ -92,10 +92,16 @@ def paint_band_type(painter: QPainter, rect: QRect, band: str) -> None:
 
 
 def paint_live_chip(panel: Any, painter: QPainter, rect: QRect, *, on: bool) -> None:
-    busy = bool(getattr(panel, "_earth_live_busy", False))
+    from arelis.earth.runtime import get_earth
+
+    zone = get_earth()
+    busy = bool(
+        getattr(panel, "_earth_live_busy", False)
+        or (zone is not None and getattr(zone, "_live_busy", False))
+    )
     label = live_chip_label(on=on, busy=busy)
     painter.setPen(QPen(color("edge_hot") if on else color("warn"), 1))
-    painter.setBrush(_wash("accent", 160) if on else Qt.BrushStyle.NoBrush)
+    painter.setBrush(_wash("accent", 230) if on else _wash("glass_fill", 220))
     painter.drawRoundedRect(rect, 4, 4)
     painter.setPen(color("text"))
     painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, label)
@@ -105,6 +111,66 @@ def _wash(name: str, alpha: int):
     tint = color(name)
     tint.setAlpha(max(0, min(255, int(alpha))))
     return tint
+
+
+def set_earth_say(panel: Any, title: str, line: str = "") -> None:
+    panel._earth_say = (str(title or "").strip(), str(line or "").strip())
+    panel.update()
+
+
+def paint_earth_say(panel: Any, painter: QPainter) -> QRect:
+    """One title a stranger can read. The window chrome is not the demo."""
+    pair = getattr(panel, "_earth_say", None)
+    if not isinstance(pair, tuple) or not pair or not str(pair[0] or "").strip():
+        panel._earth_say_box = QRect()
+        return QRect()
+    title = str(pair[0]).strip()
+    line = str(pair[1]).strip() if len(pair) > 1 else ""
+    width = min(760, max(280, int(panel.width()) - 24))
+    left = 12
+    title_font = painter.font()
+    title_font.setPixelSize(22)
+    title_font.setBold(True)
+    line_font = painter.font()
+    line_font.setPixelSize(14)
+    painter.setFont(title_font)
+    title_h = max(28, painter.fontMetrics().height() + 4)
+    line_h = 0
+    if line:
+        painter.setFont(line_font)
+        wrap = int(Qt.AlignmentFlag.AlignLeft | Qt.TextFlag.TextWordWrap)
+        line_h = painter.fontMetrics().boundingRect(
+            QRect(0, 0, width - 28, 80), wrap, line
+        ).height() + 4
+    h = 16 + title_h + line_h + 8
+    nav = getattr(panel, "_earth_compass_box", QRect())
+    bottom = int(panel.height()) - 16
+    if nav is not None and not nav.isEmpty():
+        bottom = min(bottom, nav.top() - 12)
+    scale = getattr(panel, "_earth_scale_box", QRect())
+    if scale is not None and not scale.isEmpty():
+        bottom = min(bottom, scale.top() - 12)
+    top = max(12, bottom - h)
+    box = QRect(left, top, width, h)
+    painter.setPen(QPen(color("edge"), 1))
+    painter.setBrush(_wash("glass_fill", 235))
+    painter.drawRoundedRect(box, 8, 8)
+    y = box.top() + 10
+    painter.setFont(title_font)
+    painter.setPen(color("text"))
+    painter.drawText(QRect(box.left() + 14, y, width - 28, title_h), title)
+    if line:
+        y += title_h
+        painter.setFont(line_font)
+        painter.setPen(color("text_dim"))
+        painter.drawText(
+            QRect(box.left() + 14, y, width - 28, line_h),
+            int(Qt.AlignmentFlag.AlignLeft | Qt.TextFlag.TextWordWrap),
+            line,
+        )
+    painter.setFont(panel.font())
+    panel._earth_say_box = QRect(box)
+    return box
 
 
 def paint_coach(painter: QPainter, left: int, top: int, width: int, zone: Any) -> QRect:
@@ -155,7 +221,7 @@ def paint_key_chips(panel: Any, painter: QPainter, left: int, top: int, width: i
     for field, rect, _prompt in hits:
         on = field == paste
         painter.setPen(QPen(color("edge_hot") if on else color("edge"), 1))
-        painter.setBrush(_wash("accent", 90 if on else 28))
+        painter.setBrush(_wash("accent", 220 if on else 200))
         painter.drawRoundedRect(rect, 4, 4)
         painter.setPen(color("text"))
         painter.drawText(
@@ -243,16 +309,27 @@ def _positive_m(value: Any) -> float | None:
     return meters if meters > 0.0 else None
 
 
+def _globe_owns_eye(panel: Any) -> bool:
+    fn = getattr(panel, "_earth_globe_live", None)
+    if not callable(fn):
+        return False
+    try:
+        return bool(fn())
+    except Exception:
+        return False
+
+
 def nav_range_m(panel: Any) -> float | None:
     """Look-ray to the ellipsoid, else camera height. None until we have one.
 
-    Find sets ``_earth_cam`` to the dest immediately so chips can follow.
-    The Cesium look-ray can stay at Travel standoff (~46 000 km) until the
-    fly emits. A ray that is still space while the dest cam is in the
-    city is stale — use the dest height until Cesium speaks.
+    When Cesium is live the HUD follows its emit only. Find must not write
+    the dest height as if the fly already landed.
     """
     nadir = _positive_m(getattr(panel, "_earth_nadir_m", None))
     agl = _positive_m(getattr(panel, "_earth_agl_m", None))
+    if _globe_owns_eye(panel):
+        # Camera height. Look-ray slant was 2 km over a 4 km sit.
+        return agl if agl is not None else nadir
     cam = _cam_alt_m(panel)
     if cam is not None:
         stale = max(cam * 4.0, cam + 80_000.0)

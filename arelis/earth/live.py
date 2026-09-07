@@ -173,13 +173,28 @@ def _jobs(
         if key == "opensky" and view is not None and view.bbox is not None:
             box = view.bbox
             jobs[key] = lambda b=box: fetch_opensky(bbox=b)
+        elif key == "ais" and view is not None and view.bbox is not None:
+            box = view.bbox
+            jobs[key] = lambda b=box: fetch_ais(bbox=b)
+        elif key == "cameras" and view is not None and view.bbox is not None:
+            box = view.bbox
+            jobs[key] = lambda b=box: fetch_cameras(bbox=b)
+        elif key == "shodan" and view is not None and view.bbox is not None:
+            box = view.bbox
+            jobs[key] = lambda b=box: fetch_shodan(bbox=b)
         else:
             jobs[key] = fn
     return jobs
 
 
 def _kept(entities: list[Entity] | None, view: EarthView | None) -> list[Entity]:
+    """Look-box air/sea. Next city's OpenSky/AIS replaces these."""
     return organize(filter_to_view(list(entities or []), view), view)
+
+
+def _capped(entities: list[Entity] | None, view: EarthView | None) -> list[Entity]:
+    """Keep the fetch. visible() is the look-box filter."""
+    return organize(list(entities or []), view)
 
 
 def _apply_live(
@@ -189,7 +204,7 @@ def _apply_live(
     view: EarthView | None,
 ) -> None:
     if {"usgs", "emsc", "geonet"} & ran:
-        quakes = _kept(
+        quakes = _capped(
             (got.get("usgs") or [])
             + (got.get("emsc") or [])
             + (got.get("geonet") or []),
@@ -231,7 +246,7 @@ def _apply_live(
             if rest:
                 _replace_layer(store, "satellites", rest)
     if {"radio", "aprs", "satnogs"} & ran:
-        radio = _kept(
+        radio = _capped(
             (got.get("radio") or [])
             + (got.get("aprs") or [])
             + (got.get("satnogs") or []),
@@ -240,7 +255,7 @@ def _apply_live(
         if radio:
             _replace_layer(store, "radio", radio)
     if {"cameras", "shodan"} & ran:
-        pins = _kept((got.get("cameras") or []) + (got.get("shodan") or []), view)
+        pins = _capped((got.get("cameras") or []) + (got.get("shodan") or []), view)
         if pins:
             _replace_layer(store, "cameras", pins)
     weather_keys = {
@@ -255,7 +270,7 @@ def _apply_live(
         "rwis",
     }
     if weather_keys & ran:
-        weather = _kept(
+        weather = _capped(
             (got.get("weather") or [])
             + (got.get("nws") or [])
             + (got.get("swpc") or [])
@@ -270,7 +285,7 @@ def _apply_live(
         if weather:
             _replace_layer(store, "weather", weather)
     if "firms" in ran:
-        fires = _kept(got.get("firms"), view)
+        fires = _capped(got.get("firms"), view)
         if fires:
             _replace_layer(store, "fires", fires)
     site_keys = (
@@ -288,10 +303,10 @@ def _apply_live(
         for k in site_keys:
             if k in ran:
                 sites.extend(got.get(k) or [])
-        for e in _kept(sites, view):
+        for e in _capped(sites, view):
             store.upsert(e)
     if "traffic" in ran:
-        incidents = _kept(got.get("traffic"), view)
+        incidents = _capped(got.get("traffic"), view)
         if incidents:
             _replace_layer(store, "traffic", incidents)
 

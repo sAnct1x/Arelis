@@ -7,7 +7,8 @@ into the HTML on disk.
 When the solar lab used GPU, Cesium is a child process
 (`earth_globe_proc`). This process must not construct QWebEngineView
 next to a desktop share group. Sodium HUD stays here. The HUD glass
-is masked to chrome so wheel and drag reach Cesium.
+is a translucent Tool overlay, masked to chrome so wheel and drag
+reach Cesium. The Cesium plate itself stays opaque.
 """
 
 from __future__ import annotations
@@ -193,30 +194,16 @@ def _close_win_job(handle: int | None) -> None:
 
 
 def chrome_mask(panel: QWidget) -> QRegion:
-    """Hit/paint region for the sodium HUD. Empty space belongs to Cesium."""
+    """Hit region for painted chips only. Empty space belongs to Cesium."""
     region = QRegion()
-    boxes = []
     try:
         boxes = list(panel._chrome_rects())
     except Exception:
         boxes = []
-    extra = (
-        getattr(panel, "_hud_box", QRect()),
-        getattr(panel, "_earth_chip_box", QRect()),
-        getattr(panel, "_earth_card_box", QRect()),
-        getattr(panel, "_earth_find_box", QRect()),
-        getattr(panel, "_earth_coach_box", QRect()),
-        getattr(panel, "_earth_key_box", QRect()),
-        getattr(panel, "_earth_compass_box", QRect()),
-        getattr(panel, "_earth_scale_box", QRect()),
-        getattr(panel, "_earth_range_box", QRect()),
-    )
-    for box in list(boxes) + list(extra):
+    for box in boxes:
         if box is None or box.isEmpty():
             continue
-        region = region.united(QRect(box).adjusted(-6, -6, 6, 6))
-    if region.isEmpty():
-        region = QRegion(QRect(8, 6, 300, 240))
+        region = region.united(QRect(box).adjusted(-2, -2, 2, 2))
     return region
 
 
@@ -288,6 +275,11 @@ class EarthHudGlass(QWidget):
     Cesium is a foreign HWND. A child of the solar plate paints *under*
     it (AA_DontCreateNativeWidgetSiblings). This is a Tool window of the
     Reality frame, masked to chrome, so Find / Leave / Live stay.
+
+    Translucent on purpose: an opaque glass plus a Source fill of
+    ``(0, 0, 0, 0)`` is a black plate on Windows. The Cesium host
+    (``seal_globe_plate``) stays opaque — that layered-window rule is
+    for native children, not this overlay.
     """
 
     def __init__(self, panel: QWidget) -> None:
@@ -295,9 +287,11 @@ class EarthHudGlass(QWidget):
         super().__init__(None if owner is panel else owner)
         self._panel = panel
         self.setWindowFlags(
-            Qt.WindowType.FramelessWindowHint | Qt.WindowType.Tool
+            Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.Tool
+            | Qt.WindowType.WindowStaysOnTopHint
         )
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground, True)
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
         self.setAutoFillBackground(False)
@@ -316,26 +310,28 @@ class EarthHudGlass(QWidget):
                 QEvent.Type.Resize,
                 QEvent.Type.WindowStateChange,
             ):
-                stack_chrome_over_globe(
-                    self, getattr(self._panel, "_globe_host", None)
-                )
+                host = getattr(self._panel, "_globe_host", None)
+                pin = getattr(host, "pin_child", None)
+                if callable(pin):
+                    pin()
+                stack_chrome_over_globe(self, host)
         return False
 
     def paintEvent(self, _event) -> None:
-        from arelis.physics.runtime import get_system
-        from arelis.ui.panels.solar_paint import paint_overlay
+        from arelis.ui.panels.solar_hud import paint_earth_chrome
 
-        system = get_system()
-        if system is None:
-            return
         painter = QPainter(self)
         painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
         painter.fillRect(self.rect(), QColor(0, 0, 0, 0))
         painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        paint_overlay(self._panel, painter, software=False, chrome_only=True)
-        self.setMask(chrome_mask(self._panel))
-        stack_chrome_over_globe(self, getattr(self._panel, "_globe_host", None))
+        painter.setFont(self._panel.font())
+        paint_earth_chrome(self._panel, painter)
+        after = chrome_mask(self._panel)
+        if after.isEmpty():
+            self.clearMask()
+        elif after != self.mask():
+            self.setMask(after)
 
     def _forward_mouse(self, event: QMouseEvent) -> None:
         gp = event.globalPosition()
@@ -394,7 +390,11 @@ def stack_chrome_over_globe(hud: QWidget | None, host: QWidget | None) -> None:
         else:
             origin = panel.mapToGlobal(QPoint(0, 0))
         hud.setGeometry(QRect(origin, panel.size()))
-        hud.setMask(chrome_mask(panel))
+        mask = chrome_mask(panel)
+        if mask.isEmpty():
+            hud.clearMask()
+        else:
+            hud.setMask(mask)
     if host is not None:
         host.lower()
     hud.raise_()
@@ -403,6 +403,7 @@ def stack_chrome_over_globe(hud: QWidget | None, host: QWidget | None) -> None:
 class GlobeBridge(QObject):
     start = Signal(str)
     setCameraJson = Signal(str)
+    releaseCamera = Signal()
     nudgeJson = Signal(str)
     lookJson = Signal(str)
     aimJson = Signal(str)
@@ -415,10 +416,13 @@ class GlobeBridge(QObject):
     roadsJson = Signal(str)
     marksJson = Signal(str)
     findOpen = Signal(bool)
+    armRide = Signal(str)
+    followJson = Signal(str)
 
     hostReady = Signal(str)
     hostFailed = Signal(str)
     hostPicked = Signal(str)
+    hostRidden = Signal(str)
     hostCamera = Signal(str)
     hostGround = Signal(str)
     hostTiles = Signal(str)
@@ -439,6 +443,10 @@ class GlobeBridge(QObject):
     @Slot(str)
     def picked(self, entity_id: str) -> None:
         self.hostPicked.emit(entity_id)
+
+    @Slot(str)
+    def ridden(self, entity_id: str) -> None:
+        self.hostRidden.emit(entity_id)
 
     @Slot(str)
     def cameraMoved(self, raw: str) -> None:
@@ -535,6 +543,8 @@ class EarthGlobeHost(QWidget):
         self._own_process = False
         self._closing = False
         self._hwnd = 0
+        self._last_entities = None
+        self._last_buildings = None
         self.bridge = GlobeBridge(self)
         self.bridge.hostReady.connect(self._on_ready)
         self.bridge.hostFailed.connect(self._on_failed)
@@ -560,7 +570,7 @@ class EarthGlobeHost(QWidget):
             self.kind = "native"
             return
         from PySide6.QtWebChannel import QWebChannel
-        from PySide6.QtWebEngineCore import QWebEngineSettings
+        from PySide6.QtWebEngineCore import QWebEngineProfile, QWebEngineSettings
         from PySide6.QtWebEngineWidgets import QWebEngineView
 
         from arelis.ui.solar_gl import trace
@@ -578,7 +588,9 @@ class EarthGlobeHost(QWidget):
         seal_globe_plate(self._view)
         self._view.page().setBackgroundColor(_SPACE)
         try:
-            self._view.page().profile().setHttpUserAgent(globe_http_user_agent())
+            prof = self._view.page().profile()
+            prof.setHttpUserAgent(globe_http_user_agent())
+            prof.setHttpCacheType(QWebEngineProfile.HttpCacheType.NoCache)
         except Exception:
             pass
         settings = self._view.settings()
@@ -605,7 +617,10 @@ class EarthGlobeHost(QWidget):
         channel.registerObject("bridge", self.bridge)
         self._view.page().setWebChannel(channel)
         index = GLOBE_DIR / "index.html"
-        self._view.setUrl(QUrl.fromLocalFile(str(index)))
+        url = QUrl.fromLocalFile(str(index))
+        stamp = str(int((GLOBE_DIR / "bridge.js").stat().st_mtime))
+        url.setQuery(f"v={stamp}")
+        self._view.setUrl(url)
         self._view.setGeometry(self.rect())
 
     def _start_remote(self) -> None:
@@ -705,6 +720,9 @@ class EarthGlobeHost(QWidget):
         if event == "picked":
             self.bridge.hostPicked.emit(str(msg.get("id") or ""))
             return
+        if event == "ridden":
+            self.bridge.hostRidden.emit(str(msg.get("id") or ""))
+            return
         if event == "camera":
             self.bridge.hostCamera.emit(str(msg.get("raw") or ""))
             return
@@ -757,27 +775,40 @@ class EarthGlobeHost(QWidget):
         deliver_globe_key(self.parent(), event)
 
     def _embed_hwnd(self, hwnd: int) -> None:
-        if self._view is not None or hwnd <= 0:
-            return
-        from PySide6.QtGui import QWindow
+        """Remember the child. Do not swallow it with createWindowContainer.
 
+        DWM keeps the first blit of a foreign HWND. The HUD hopped to
+        Singapore while the plate stayed the ISS still. The child is a
+        real window that follows this plate.
+        """
+        if hwnd <= 0:
+            return
         from arelis.ui.solar_gl import trace
 
         self._hwnd = hwnd
-        try:
-            foreign = QWindow.fromWinId(hwnd)
-            self._foreign = foreign
-            container = QWidget.createWindowContainer(foreign, self)
-            seal_globe_plate(container)
-            container.setGeometry(self.rect())
-            container.show()
-            self._view = container
-            trace(f"earth globe: embedded hwnd={hwnd}")
-        except Exception:
-            trace("earth globe: embed hwnd failed")
-            self.failed = True
-            self.kind = "native"
-            self.bridge.hostFailed.emit("cesium")
+        self._foreign = None
+        self._view = None
+        trace(f"earth globe: child hwnd={hwnd} (not embedded)")
+        self.pin_child()
+
+    def pin_child(self) -> None:
+        """Park the Cesium window on this plate in screen space."""
+        if not self._own_process or self._hwnd <= 0:
+            return
+        top = self.mapToGlobal(QPoint(0, 0))
+        self._write_remote(
+            {
+                "op": "place",
+                "x": int(top.x()),
+                "y": int(top.y()),
+                "w": max(self.width(), 1),
+                "h": max(self.height(), 1),
+            }
+        )
+        panel = self.parentWidget()
+        hud = getattr(panel, "_earth_hud", None) if panel is not None else None
+        if hud is not None:
+            stack_chrome_over_globe(hud, self)
 
     def _write_remote(self, payload: dict[str, Any]) -> None:
         sock = self._sock
@@ -850,10 +881,11 @@ class EarthGlobeHost(QWidget):
         super().resizeEvent(event)
         if self._view is not None:
             self._view.setGeometry(self.rect())
-        if self._own_process:
-            self._write_remote(
-                {"op": "resize", "w": max(self.width(), 1), "h": max(self.height(), 1)}
-            )
+        self.pin_child()
+
+    def moveEvent(self, event) -> None:
+        super().moveEvent(event)
+        self.pin_child()
 
     def _on_ready(self, kind: str) -> None:
         self.ready = True
@@ -896,6 +928,7 @@ class EarthGlobeHost(QWidget):
         pitch: float | None = None,
         *,
         soft: bool = False,
+        keep_ride: bool = False,
     ) -> None:
         payload: dict[str, float] = {
             "lat": max(-90.0, min(90.0, float(lat))),
@@ -908,11 +941,76 @@ class EarthGlobeHost(QWidget):
             payload["pitch"] = pitch
         if soft:
             payload["soft"] = 1.0
+        if keep_ride:
+            payload["keepRide"] = 1.0
         if self._own_process:
             remote = {"op": "camera", **payload}
             self._write_remote(remote)
             return
         self.bridge.setCameraJson.emit(json.dumps(payload))
+
+    def release_camera(self) -> None:
+        """Drop Cesium track / leftover lookAt so the next hop can land."""
+        if self._own_process:
+            self._write_remote({"op": "release"})
+            return
+        self.bridge.releaseCamera.emit()
+
+    def _eval_js(self, src: str) -> None:
+        view = self._view
+        if view is None:
+            return
+        try:
+            view.page().runJavaScript(src)
+        except Exception:
+            pass
+
+    def arm_ride(self, entity_id: str) -> None:
+        """Start JS follow. Do not go through upsert debounce or release."""
+        eid = str(entity_id or "")
+        if self._own_process:
+            self._write_remote({"op": "ride", "id": eid})
+            return
+        self.bridge.armRide.emit(eid)
+        self._eval_js(f"window.arelisArmRide && window.arelisArmRide({json.dumps(eid)})")
+
+    def follow_lla(
+        self,
+        lat: float,
+        lon: float,
+        alt_m: float,
+        heading: float,
+        pitch: float,
+    ) -> None:
+        """Sit on a moving contact. Ignores a leftover hop goLock."""
+        payload = {
+            "lat": max(-90.0, min(90.0, float(lat))),
+            "lon": float(lon),
+            "alt_m": max(200.0, min(8.0e7, float(alt_m))),
+            "heading": float(heading),
+            "pitch": float(pitch),
+        }
+        raw = json.dumps(payload)
+        if self._own_process:
+            self._write_remote({"op": "follow", **payload})
+            return
+        self.bridge.followJson.emit(raw)
+        self._eval_js(
+            "(function(){"
+            f"var p={raw};"
+            "if(window.arelisFollowLla){window.arelisFollowLla(p);return;}"
+            "var v=window.viewer;"
+            "if(!v||typeof Cesium==='undefined')return;"
+            "try{v.camera.cancelFlight();}catch(e){}"
+            "v.camera.setView({"
+            "destination:Cesium.Cartesian3.fromDegrees(p.lon,p.lat,p.alt_m),"
+            "orientation:{"
+            "heading:Cesium.Math.toRadians(p.heading||0),"
+            "pitch:Cesium.Math.toRadians(p.pitch==null?-28:p.pitch),"
+            "roll:0}});"
+            "v.scene.requestRender();"
+            "})()"
+        )
 
     def push_nudge(self, fwd: float, right: float, up: float) -> None:
         payload = {"fwd": float(fwd), "right": float(right), "up": float(up)}
@@ -956,6 +1054,10 @@ class EarthGlobeHost(QWidget):
         self.bridge.marksJson.emit(json.dumps(atlas_data_uris()))
 
     def push_entities(self, rows: list[dict[str, Any]]) -> None:
+        key = _entity_push_key(rows)
+        if key == self._last_entities:
+            return
+        self._last_entities = key
         if self._own_process:
             self._write_remote({"op": "entities", "rows": rows})
             return
@@ -985,10 +1087,7 @@ class EarthGlobeHost(QWidget):
             self._write_remote({"op": "streets", "on": bool(on)})
         else:
             self.bridge.showStreets.emit(bool(on))
-        if on:
-            self.push_roads()
-        else:
-            self.push_roads([])
+        self.push_roads([])
 
     def push_roads(self, rows: list[dict[str, Any]] | None = None) -> None:
         payload = road_rows() if rows is None else rows
@@ -999,10 +1098,66 @@ class EarthGlobeHost(QWidget):
 
     def push_buildings(self, rings: list[list[list[float]]] | None = None) -> None:
         payload = building_rows() if rings is None else rings
+        key = (len(payload), payload[0][0] if payload and payload[0] else None)
+        if key == self._last_buildings:
+            return
+        self._last_buildings = key
         if self._own_process:
             self._write_remote({"op": "buildings", "rings": payload})
             return
         self.bridge.buildingsJson.emit(json.dumps(payload))
+
+
+# City eye looks at the street. The store still holds the catalog.
+_CITY_ORBIT_MARKS = 0
+_APPROACH_ORBIT_MARKS = 16
+
+
+def _entity_push_key(rows: list[dict[str, Any]]) -> tuple[Any, ...]:
+    return tuple(
+        (
+            row.get("id"),
+            round(float(row.get("lat") or 0.0), 3),
+            round(float(row.get("lon") or 0.0), 3),
+            int(row.get("alt_m") or 0),
+            int(float(row.get("vx") or 0.0)),
+            int(float(row.get("vy") or 0.0)),
+            int(float(row.get("vz") or 0.0)),
+            int(float(row.get("when_unix") or 0.0)),
+            row.get("freshness") or "",
+            bool(row.get("hot")),
+            bool(row.get("ride")),
+            row.get("card") or "",
+        )
+        for row in rows
+    )
+
+
+def pick_orbit_marks(
+    rows: list[dict[str, Any]],
+    *,
+    cap: int = _CITY_ORBIT_MARKS,
+    keep_ids: set[str] | None = None,
+) -> list[dict[str, Any]]:
+    """Tracked marks always. City/near keep no sat swarm — only a hot ISS."""
+    held = keep_ids or set()
+    orbit = [row for row in rows if row.get("layer") in {"satellites", "iss"}]
+    ground = [row for row in rows if row.get("layer") not in {"satellites", "iss"}]
+    iss = [
+        row
+        for row in orbit
+        if row.get("layer") == "iss"
+        and (row.get("hot") or str(row.get("id") or "") in held)
+    ]
+    sats = [row for row in orbit if row.get("layer") == "satellites"]
+    pinned = [
+        row
+        for row in sats
+        if row.get("hot") or str(row.get("id") or "") in held
+    ]
+    pinned_ids = {str(row.get("id") or "") for row in pinned}
+    rest = [row for row in sats if str(row.get("id") or "") not in pinned_ids]
+    return ground + iss + pinned + rest[: max(0, cap - len(pinned))]
 
 
 def entity_rows() -> list[dict[str, Any]]:
@@ -1014,6 +1169,7 @@ def entity_rows() -> list[dict[str, Any]]:
     ride = zone.ride_id
     band = zone.last_view.band if zone.last_view is not None else "space"
     from arelis.earth.frames import ecef_to_geodetic
+    from arelis.ui.earth_overlay import inspect_card_text
 
     for ent in zone.visible():
         if ent.layer == "people":
@@ -1042,6 +1198,11 @@ def entity_rows() -> list[dict[str, Any]]:
             elif alt <= 0.0:
                 alt = max(0.0, geo_alt)
         heading = heading_of(ent)
+        hot = ent.id in {track, ride}
+        try:
+            pose_at = float((ent.meta or {}).get("_pose_unix") or ent.when_unix or 0.0)
+        except (TypeError, ValueError):
+            pose_at = float(ent.when_unix or 0.0)
         out.append(
             {
                 "id": ent.id,
@@ -1054,10 +1215,25 @@ def entity_rows() -> list[dict[str, Any]]:
                 "band": band,
                 "heading_deg": heading,
                 "freshness": ent.freshness,
-                "hot": ent.id in {track, ride},
+                "hot": hot,
+                "ride": bool(ride) and ent.id == ride,
+                "group": str((ent.meta or {}).get("group") or ""),
+                "card": inspect_card_text(ent) if hot else "",
+                "x": ent.x,
+                "y": ent.y,
+                "z": ent.z,
+                "vx": ent.vx,
+                "vy": ent.vy,
+                "vz": ent.vz,
+                "when_unix": pose_at,
             }
         )
-    return out
+    held = {track, ride} - {""}
+    if band == "space":
+        return out
+    if band == "approach":
+        return pick_orbit_marks(out, keep_ids=held, cap=_APPROACH_ORBIT_MARKS)
+    return pick_orbit_marks(out, keep_ids=held, cap=_CITY_ORBIT_MARKS)
 
 
 def place_rows(band: str, lat: float, lon: float) -> list[dict[str, Any]]:
@@ -1089,14 +1265,5 @@ def road_rows() -> list[dict[str, Any]]:
 
 
 def building_rows() -> list[list[list[float]]]:
-    """City-band footprints for Cesium. Empty when the chip is off."""
-    from arelis.earth.buildings import footprints_for_view
-
-    zone = get_earth()
-    if zone is None or not zone.active or not zone.buildings:
-        return []
-    view = zone.last_view
-    if view is None or view.band != "city":
-        return []
-    rings = footprints_for_view(view.lat, view.lon, view.band)
-    return [[[float(lat), float(lon)] for lat, lon in ring] for ring in rings]
+    """Footprints are gone. Cesium already is the city."""
+    return []

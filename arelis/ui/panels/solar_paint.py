@@ -186,11 +186,28 @@ def paint_overlay(panel, painter: QPainter, *, software: bool, chrome_only: bool
             )
     panel._paint_free_markers(painter, system)
     if getattr(panel, "_earth_globe_live", lambda: False)():
-        from arelis.ui.earth_overlay import sync_earth_view
+        if not chrome_only:
+            from arelis.ui.earth_overlay import sync_earth_view
 
-        sync_earth_view(panel, system)
+            sync_earth_view(panel, system)
     else:
         paint_earth(painter, panel, system)
+    if getattr(panel, "_earth_zone_on", lambda: False)() and (
+        chrome_only or getattr(panel, "_earth_globe_live", lambda: False)()
+    ):
+        globe = getattr(panel, "_earth_globe_live", lambda: False)()
+        hud = getattr(panel, "_earth_hud", None)
+        if globe and hud is not None and not chrome_only:
+            from arelis.ui.panels.solar_hud import earth_chip_layout
+
+            hits, box = earth_chip_layout(panel)
+            panel._earth_chip_hits = hits
+            panel._earth_chip_box = QRect(box)
+            return
+        from arelis.ui.panels.solar_hud import paint_earth_chrome
+
+        paint_earth_chrome(panel, painter)
+        return
     panel._paint_hud(painter, system)
     panel._paint_earth_toggles(painter)
     panel._paint_earth_card(painter)
@@ -406,6 +423,12 @@ def chrome_rects(panel) -> list[QRect]:
     re-sort the roster and re-derive the inspect tile for each probe.
     """
     system = get_system()
+    def _box_key(name: str) -> tuple:
+        box = getattr(panel, name, QRect())
+        if box is None or box.isEmpty():
+            return ()
+        return tuple(box.getRect())
+
     key = (
         panel.width(),
         panel.height(),
@@ -414,13 +437,21 @@ def chrome_rects(panel) -> list[QRect]:
         panel._roster_scroll,
         panel._help,
         panel._tools_open,
-        bool(panel._earth_chip_box.isEmpty()),
-        bool(getattr(panel, "_earth_card_box", QRect()).isEmpty()),
-        bool(getattr(panel, "_earth_find_box", QRect()).isEmpty()),
-        bool(getattr(panel, "_earth_coach_box", QRect()).isEmpty()),
-        bool(getattr(panel, "_earth_key_box", QRect()).isEmpty()),
-        bool(getattr(panel, "_earth_compass_box", QRect()).isEmpty()),
-        bool(getattr(panel, "_earth_scale_box", QRect()).isEmpty()),
+        _box_key("_hud_box"),
+        _box_key("_keys_hit"),
+        _box_key("_earth_chip_box"),
+        _box_key("_earth_card_box"),
+        _box_key("_earth_dock_box"),
+        _box_key("_earth_find_box"),
+        _box_key("_earth_coach_box"),
+        _box_key("_earth_key_box"),
+        _box_key("_earth_compass_box"),
+        _box_key("_earth_scale_box"),
+        _box_key("_earth_say_box"),
+        tuple(
+            (str(kind), tuple(rect.getRect()))
+            for kind, rect in getattr(panel, "_earth_chip_hits", []) or []
+        ),
         panel._earth_id or "",
         str(panel._confirm.get("kind") or "") if panel._confirm else "",
         id(system),
@@ -429,15 +460,62 @@ def chrome_rects(panel) -> list[QRect]:
     )
     if key == panel._chrome_key and panel._chrome_cache is not None:
         return panel._chrome_cache
+    zone_on = bool(getattr(panel, "_earth_zone_on", lambda: False)())
+    boxes: list[QRect] = []
+    if zone_on:
+        chip = getattr(panel, "_earth_chip_box", QRect())
+        if chip is None or chip.isEmpty():
+            hits = getattr(panel, "_earth_chip_hits", []) or []
+            if hits:
+                xs = [rect.left() for _k, rect in hits]
+                ys = [rect.top() for _k, rect in hits]
+                rs = [rect.right() for _k, rect in hits]
+                bs = [rect.bottom() for _k, rect in hits]
+                chip = QRect(min(xs), min(ys), max(rs) - min(xs) + 1, max(bs) - min(ys) + 1)
+        left = QRect()
+        for extra in (
+            chip,
+            getattr(panel, "_earth_coach_box", QRect()),
+            getattr(panel, "_earth_find_box", QRect()),
+            getattr(panel, "_earth_key_box", QRect()),
+            getattr(panel, "_earth_card_box", QRect()),
+        ):
+            if extra is not None and not extra.isEmpty():
+                left = extra if left.isEmpty() else left.united(extra)
+        if left.isEmpty():
+            left = QRect(0, 0, min(int(panel.width()) - 24, 840), 114)
+        else:
+            left = left.adjusted(-12, -12, 16, 36)
+            left.setLeft(0)
+            left.setTop(0)
+        boxes.append(left)
+        for name in (
+            "_earth_coach_box",
+            "_earth_find_box",
+            "_earth_key_box",
+            "_earth_compass_box",
+            "_earth_scale_box",
+            "_earth_card_box",
+            "_earth_dock_box",
+            "_earth_say_box",
+        ):
+            extra = getattr(panel, name, QRect())
+            if extra is not None and not extra.isEmpty():
+                boxes.append(QRect(extra).adjusted(-8, -8, 8, 8))
+        confirm = panel._confirm_rect()
+        if not confirm.isEmpty():
+            boxes.append(confirm)
+        panel._chrome_key = key
+        panel._chrome_cache = boxes
+        return boxes
     boxes = [panel._hud_plate_rect()]
-    if not getattr(panel, "_earth_zone_on", lambda: False)():
-        boxes.extend(
-            [
-                panel._roster_rect(),
-                panel._speed_rect(),
-                panel._epoch_rect(),
-            ]
-        )
+    boxes.extend(
+        [
+            panel._roster_rect(),
+            panel._speed_rect(),
+            panel._epoch_rect(),
+        ]
+    )
     if not panel._keys_hit.isEmpty():
         boxes.append(panel._keys_hit)
     if panel._tools_open:
@@ -457,6 +535,9 @@ def chrome_rects(panel) -> list[QRect]:
     card = getattr(panel, "_earth_card_box", QRect())
     if not card.isEmpty():
         boxes.append(QRect(card))
+    dock = getattr(panel, "_earth_dock_box", QRect())
+    if dock is not None and not dock.isEmpty():
+        boxes.append(QRect(dock))
     for box in (panel._inspect_rect(), panel._confirm_rect()):
         if not box.isEmpty():
             boxes.append(box)

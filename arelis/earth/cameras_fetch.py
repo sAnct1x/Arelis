@@ -285,13 +285,23 @@ _DIR_HEADING: dict[str, float] = {
 }
 
 
-def _osm_webcams():
+def _osm_webcams(bbox: Any = None):
     from arelis.earth import cameras as cam
 
-    return cam.fetch_osm_webcams()
+    try:
+        return cam.fetch_osm_webcams(bbox=bbox)
+    except TypeError:
+        return cam.fetch_osm_webcams()
 
 
-def fetch_cameras() -> list[Entity] | None:
+def _run_osm(bbox: Any = None):
+    try:
+        return _osm_webcams(bbox)
+    except TypeError:
+        return _osm_webcams()
+
+
+def fetch_cameras(bbox: Any = None) -> list[Entity] | None:
     chunks: list[list[Entity] | None] = []
     with ThreadPoolExecutor(max_workers=16) as pool:
         futs = [
@@ -315,7 +325,7 @@ def fetch_cameras() -> list[Entity] | None:
             pool.submit(_fetch_ohgo_cameras),
             pool.submit(_fetch_keyed_cars_cameras),
             pool.submit(_fetch_modot_cameras),
-            pool.submit(_osm_webcams),
+            pool.submit(_run_osm, bbox),
         ]
         for fut in as_completed(futs):
             chunks.append(fut.result())
@@ -329,17 +339,40 @@ def fetch_cameras() -> list[Entity] | None:
                 continue
             seen.add(entity.id)
             pins.append(entity)
-            if len(pins) >= _CAP:
-                return pins
     if not pins:
         return None
     for extra in _bundled_without_live(seen) + load_owned():
         if extra.id not in seen:
             pins.append(extra)
             seen.add(extra.id)
-        if len(pins) >= _CAP:
-            break
-    return pins[:_CAP]
+    return _prefer_look_pins(pins, bbox, _CAP)
+
+
+def _prefer_look_pins(
+    pins: list[Entity], bbox: Any, cap: int
+) -> list[Entity]:
+    """Keep look-box pins first so a worldwide dump cannot starve OSM."""
+    if bbox is None or not pins:
+        return pins[:cap]
+    local: list[Entity] = []
+    far: list[Entity] = []
+    contains = getattr(bbox, "contains", None)
+    for entity in pins:
+        meta = entity.meta or {}
+        try:
+            lat = float(meta.get("lat"))
+            lon = float(meta.get("lon"))
+        except (TypeError, ValueError):
+            far.append(entity)
+            continue
+        hit = False
+        if callable(contains):
+            try:
+                hit = bool(contains(lat, lon))
+            except (TypeError, ValueError):
+                hit = False
+        (local if hit else far).append(entity)
+    return (local + far)[:cap]
 
 
 def load_owned(path: Path | None = None) -> list[Entity]:

@@ -994,6 +994,23 @@ def test_inspect_tile_is_wide_enough_for_albedo(qt_app) -> None:
     panel.hide()
 
 
+def test_earth_zone_inspect_stays_off_the_globe(qt_app) -> None:
+    from arelis.earth.runtime import EarthRuntime, set_earth
+
+    set_earth(None)
+    earth = EarthRuntime()
+    earth.active = True
+    set_earth(earth)
+    panel = SolarPanel()
+    panel.resize(960, 720)
+    panel._inspect = "Earth"
+    box = panel._inspect_rect()
+    assert 200 <= box.width() <= 320
+    assert box.height() <= 220
+    panel.hide()
+    set_earth(None)
+
+
 def test_roster_nests_moons_under_planets(qt_app) -> None:
     from arelis.physics.demo import circular_system
     from arelis.physics.engine import rebound_available

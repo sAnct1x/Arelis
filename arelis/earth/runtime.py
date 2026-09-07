@@ -1,4 +1,29 @@
-"""Process-wide Earth zone. The plate and the earth tool share it."""
+"""Process-wide Earth zone. The plate and the earth tool share it.
+
+How Earth is supposed to work (keep this true):
+
+- **Enter** loads the store (sim + snapshot) and turns **Live** on.
+  Default chips: satellites + ISS. Everything else is off until you
+  click it. Leave resets those flags.
+- **Band** (space → approach → near → city) is a *filter*: it decides
+  what *can* paint and which chips sit on the bar. It does not flip
+  layer switches. Zooming in used to call ``_reveal_band`` and turn
+  every city layer on — that is gone.
+- **Streets** follow altitude in the city band. Buildings is gone —
+  Cesium already is the city.
+- **Live** fetches only for layers that are on *and* allowed in this
+  band. CelesTrak keeps running after you leave space so sats stay.
+  City catalogs (cameras, traffic, sites) start while TLE is still
+  in flight — one adapter does not hold the others.
+- **Click a mark**: track + card. No camera snap. Double-click ISS /
+  air / sea / a camera to ride. Click empty sky: dismiss. Drag /
+  wheel fly the globe. First Enter is a framed nadir, not the
+  leftover solar glance.
+- **Motion**: air/sea coast on the last velocity between polls. Sats
+  re-run SGP4 on the stored GP lines every tick. Cesium coasts ECEF
+  between Python pushes and holds a continuous render only while
+  something is moving. Vertical FOV matches the solar lab (0.70 rad).
+"""
 
 from __future__ import annotations
 
@@ -13,7 +38,6 @@ from arelis.earth.lod import (
     EarthView,
     adapters_due,
     filter_to_view,
-    ground_buildings_on,
     ground_streets_on,
     look_shifted,
     organize,
@@ -25,6 +49,35 @@ from arelis.spatial.grant import world_stage_allowed
 
 _EARTH: EarthRuntime | None = None
 _COAST_LAYERS = frozenset({"flights", "drones", "military", "vessels"})
+
+# Look-box fetches. Walking the city must not keep last city's TTL.
+LOOK_BOX_ADAPTERS = frozenset(
+    {
+        "opensky",
+        "adsb",
+        "ais",
+        "cameras",
+        "shodan",
+        "traffic",
+        "radio",
+        "aprs",
+        "satnogs",
+        "weather",
+        "nws",
+        "metar",
+        "waqi",
+        "openaq",
+        "ndbc",
+        "tides",
+        "rwis",
+        "firms",
+    }
+)
+
+
+def drop_look_box_fetches(last_fetch: dict[str, float]) -> None:
+    for key in LOOK_BOX_ADAPTERS:
+        last_fetch.pop(key, None)
 
 
 def default_layers() -> dict[str, bool]:
@@ -49,6 +102,9 @@ class EarthRuntime:
     last_live_view: EarthView | None = None
     last_fetch_unix: dict[str, float] = field(default_factory=dict)
     _live_busy: bool = False
+    _live_inflight: set[str] = field(default_factory=set)
+    _live_queue: list[tuple[str, ...]] = field(default_factory=list)
+    _live_lock: threading.Lock = field(default_factory=threading.Lock)
     note: str = ""
     pending_goto: dict | None = None
 
@@ -73,6 +129,10 @@ class EarthRuntime:
         self.entered_unix = now
         self.track_id = ""
         self.ride_id = ""
+        self.layers = default_layers()
+        self.grid = False
+        self.tiles = False
+        self.buildings = False
         populate(self.store, now)
         self._merge_local()
         self.last_local_unix = now
@@ -116,9 +176,15 @@ class EarthRuntime:
         self.pending_goto = None
         self.tiles = False
         self.buildings = False
+        self.grid = False
+        self.layers = default_layers()
         self.last_view = None
         self.last_live_view = None
         self.last_fetch_unix.clear()
+        with self._live_lock:
+            self._live_inflight.clear()
+            self._live_queue.clear()
+            self._live_busy = False
         self.store.clear()
         try:
             from arelis.earth.look import forget
@@ -196,12 +262,6 @@ class EarthRuntime:
                     self.last_fetch_unix.pop(adapter, None)
         return val
 
-    def _reveal_band(self, band: str) -> None:
-        """Closer bands turn more on. Chips can still hide a layer after that."""
-        wanted = paint_layers(band)
-        for layer in wanted:
-            self.layers[layer] = True
-
     def _sync_ground_detail(self, prev: EarthView | None) -> None:
         """Streets and footprints follow altitude. Zooming out drops them."""
         view = self.last_view
@@ -211,20 +271,11 @@ class EarthRuntime:
         was_s = prev is not None and ground_streets_on(
             band=prev.band, alt_m=prev.alt_m
         )
-        now_b = view is not None and ground_buildings_on(
-            band=view.band, alt_m=view.alt_m
-        )
-        was_b = prev is not None and ground_buildings_on(
-            band=prev.band, alt_m=prev.alt_m
-        )
         if now_s and not was_s:
             self.tiles = True
         elif not now_s:
             self.tiles = False
-        if now_b and not was_b:
-            self.buildings = True
-        elif not now_b:
-            self.buildings = False
+        self.buildings = False
         if view is None:
             return
         if self.tiles and (
@@ -236,26 +287,11 @@ class EarthRuntime:
                 roads_for_view(view.lat, view.lon, view.band, alt_m=view.alt_m)
             except Exception:
                 pass
-        if self.buildings:
-            try:
-                from arelis.earth.buildings import footprints_for_view
-                from arelis.earth.tiles import tiles_for_view, zoom_for_ground
-
-                tiles_for_view(
-                    view.lat,
-                    view.lon,
-                    zoom_for_ground(view.px_r, view.band),
-                    source="osm",
-                )
-                footprints_for_view(view.lat, view.lon, view.band)
-            except Exception:
-                pass
 
     def note_view(self, view: EarthView) -> None:
         prev = self.last_view
         self.last_view = view
         if prev is None or prev.band != view.band:
-            self._reveal_band(view.band)
             try:
                 from arelis.physics.telemetry import emit
 
@@ -439,7 +475,10 @@ class EarthRuntime:
             return
         view = self.last_view or EarthView(band="space")
         now = time.time()
-        only = adapters_due(view.band, self.last_fetch_unix, now, self.layers)
+        with self._live_lock:
+            only = self._live_queue.pop(0) if self._live_queue else None
+        if only is None:
+            only = adapters_due(view.band, self.last_fetch_unix, now, self.layers)
         if not only:
             return
         try:
@@ -469,7 +508,7 @@ class EarthRuntime:
 
     def _kick_snapshot(self, *, refetch: bool = False) -> None:
         """One published pull. Coast until leave or a new band. Live keeps polling."""
-        if _in_pytest() or self._live_busy:
+        if _in_pytest():
             return
         if refetch:
             self.last_fetch_unix.clear()
@@ -487,8 +526,12 @@ class EarthRuntime:
         )
 
     def _maybe_refresh_live(self, now: float) -> None:
-        """Live polls on TTL / look walk. Coast mode fetches a band once."""
-        if not self.active or self._live_busy:
+        """Live polls on TTL / look walk. Coast mode fetches a band once.
+
+        City catalogs do not wait for CelesTrak. Adapters already in
+        flight stay skipped; the rest start.
+        """
+        if not self.active:
             return
         if _in_pytest():
             return
@@ -499,8 +542,7 @@ class EarthRuntime:
         if self.live:
             moved = look_shifted(self.last_live_view, view)
             if moved and view.band != "space":
-                for key in ("opensky", "adsb", "ais"):
-                    self.last_fetch_unix.pop(key, None)
+                drop_look_box_fetches(self.last_fetch_unix)
             due = adapters_due(view.band, self.last_fetch_unix, now, self.layers)
         else:
             due = self._coast_due(view)
@@ -512,7 +554,20 @@ class EarthRuntime:
         self, *, moved: bool, due: tuple[str, ...] | None = None
     ) -> None:
         view = self.last_view or EarthView(band="space")
-        self._live_busy = True
+        if due is None:
+            now = time.time()
+            due = (
+                adapters_due(view.band, self.last_fetch_unix, now, self.layers)
+                if self.live
+                else self._coast_due(view)
+            )
+        with self._live_lock:
+            due = tuple(key for key in due if key not in self._live_inflight)
+            if not due:
+                return
+            self._live_inflight.update(due)
+            self._live_queue.append(due)
+            self._live_busy = True
         try:
             from arelis.physics.telemetry import emit
 
@@ -520,8 +575,8 @@ class EarthRuntime:
                 "earth_refresh",
                 band=view.band,
                 moved=moved,
-                n=len(due or ()),
-                adapters=list(due or ()),
+                n=len(due),
+                adapters=list(due),
                 live=self.live,
             )
         except Exception:
@@ -531,7 +586,11 @@ class EarthRuntime:
             try:
                 self._merge_live()
             finally:
-                self._live_busy = False
+                with self._live_lock:
+                    self._live_inflight.difference_update(due)
+                    if due in self._live_queue:
+                        self._live_queue.remove(due)
+                    self._live_busy = bool(self._live_inflight)
 
         threading.Thread(target=work, daemon=True, name="earth-live").start()
 

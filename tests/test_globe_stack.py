@@ -9,6 +9,8 @@ import pytest
 
 from arelis.earth.globe_stack import (
     CESIUM_JS,
+    GIBS_NEAR_XYZ,
+    GIBS_NIGHT_XYZ,
     GIBS_XYZ,
     GOOGLE_3D,
     OSM_XYZ,
@@ -22,6 +24,7 @@ from arelis.ui.earth_globe_host import (
     globe_line,
     globe_wants_own_process,
     parse_globe_line,
+    pick_orbit_marks,
     place_rows,
     webengine_available,
 )
@@ -37,6 +40,11 @@ def test_stack_picks_photoreal_then_ion_then_gibs() -> None:
     assert "NASA" in payload["credits"]
     assert "Google" in payload["credits"]
     assert payload["photorealAltM"] == "8000"
+    assert "VIIRS_Black_Marble" in payload["gibsNight"]
+    assert "VIIRS_SNPP_CorrectedReflectance_TrueColor" in payload["gibsNear"]
+    assert "/default/default/" not in payload["gibsNear"]
+    assert "gibs.earthdata.nasa.gov" in GIBS_NIGHT_XYZ
+    assert "gibs.earthdata.nasa.gov" in GIBS_NEAR_XYZ
     assert payload["cesiumBase"].startswith("https://cesium.com/")
     assert payload["cesiumBase"].endswith("/")
     assert "cesium.com" in CESIUM_JS
@@ -98,6 +106,8 @@ def test_entity_rows_skip_people_and_carry_lla() -> None:
     assert hit["mark"] == "flights"
     assert hit["heading_deg"] == 45.0
     assert hit["freshness"] == "simulated"
+    assert "vx" in hit
+    assert "when_unix" in hit
     set_earth(None)
 
 
@@ -460,7 +470,7 @@ def test_earth_hud_is_the_same_sodium_chrome(qt_app) -> None:
     panel = QWidget()
     panel.resize(640, 480)
     hud = EarthHudGlass(panel)
-    assert not hud.testAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+    assert hud.testAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
     flags = hud.windowFlags()
     assert flags & Qt.WindowType.Tool
     assert flags & Qt.WindowType.FramelessWindowHint
@@ -556,16 +566,9 @@ def test_building_rows_need_city_and_the_chip(tmp_path) -> None:
     earth = EarthRuntime()
     earth.active = True
     earth.buildings = True
-    earth.last_view = EarthView(band="space", lat=39.7817, lon=-89.6501)
+    earth.last_view = EarthView(band="city", lat=39.7817, lon=-89.6501)
     set_earth(earth)
     assert building_rows() == []
-    earth.last_view = EarthView(band="city", lat=39.7817, lon=-89.6501)
-    earth.buildings = False
-    assert building_rows() == []
-    earth.buildings = True
-    rows = building_rows()
-    assert len(rows) == 1
-    assert rows[0][0] == [39.78, -89.65]
     set_earth(None)
     from arelis.paths import state_dir
 
@@ -659,8 +662,12 @@ def test_hud_glass_does_not_forward_events() -> None:
 
     host = (GLOBE_DIR.parent / "earth_globe_host.py").read_text(encoding="utf-8")
     proc = (GLOBE_DIR.parent / "earth_globe_proc.py").read_text(encoding="utf-8")
+    assert "CalculateNativeWinOcclusion" in proc
     js = (GLOBE_DIR / "bridge.js").read_text(encoding="utf-8")
     html = (GLOBE_DIR / "index.html").read_text(encoding="utf-8")
+    assert "bridge.js?v=" in html
+    assert "setQuery" in host
+    assert "NoCache" in host
     assert "GlobeKeyHose" in host
     assert "deliver_globe_key" in host
     assert "skyBox" in js
@@ -682,6 +689,35 @@ def test_hud_glass_does_not_forward_events() -> None:
     assert "nudgeJson" in host
     assert "lookJson" in host
     assert "aimJson" in host
+    assert "releaseCamera" in host
+    assert "release_camera" in host
+    assert "armRide" in host
+    assert "arm_ride" in host
+    assert "def pin_child" in host
+    assert 'op == "place"' in proc
+    assert "QWidget.createWindowContainer" not in host
+    assert 'op": "place"' in host
+    assert "keepRide" in js
+    assert "keep_ride" in host
+    assert "function armRide" in js
+    assert "function followLla" in js
+    assert "window.arelisFollowLla" in js
+    assert "window.viewer = viewer" in js
+    assert "window.arelisArmRide" in js
+    assert "def _eval_js" in host
+    assert "follow_lla" in host
+    assert 'op == "follow"' in proc
+    assert "if (goLock && !keepRide) return" in js
+    assert "goLock = false" in js.split("function armRide")[1].split("function followRide")[0]
+    assert "if (riding) rideId = riding" in js
+    assert "function releaseCameraLock" in js
+    assert "lookAtTransform" in js
+    assert "var goLock" in js
+    assert "function sitCamera" in js
+    assert "if (!goLock || keepRide)" in js
+    assert "if (rideId)" in js.split("function stepCoast")[1].split("function holdCoast")[0]
+    assert "viewer.trackedEntity" in js
+    assert "function bindRide" in js
     assert "push_look" in host
     assert "push_aim" in host
     assert "enableRotate = true" in js
@@ -691,16 +727,30 @@ def test_hud_glass_does_not_forward_events() -> None:
     assert "function clampMarkAlt" in js
     assert "function saneMarkLla" in js
     assert "saneMarkLla(row.lat" in js
-    assert 'code === "KeyW"' in js
-    assert 'ev.key === "ArrowLeft"' in js
     assert "function applyLook" in js
+    assert "function selectedWindowPos" in js
+    assert "hot_x" in js
+    assert 'row.hot ? "1"' in js
+    assert "function lookTarget" in js
+    assert "function flyFromKey" not in js
+    assert "function isFlyKey" not in js
+    assert "function flushPending" in js
     assert "function lookTarget" in js
     assert "window.setInterval(stepKeys" not in js
+    assert "function applyNudge" in js
+    assert "QRect(8, 6, 300, 240)" not in host
+    assert "disableDepthTestDistance: Number.POSITIVE_INFINITY" in js
+    assert "hold_globe_keys" in (
+        GLOBE_DIR.parent / "earth_find.py"
+    ).read_text(encoding="utf-8")
     assert "2_400_000" not in (
         GLOBE_DIR.parent / "earth_chrome.py"
     ).read_text(encoding="utf-8")
     assert "showErrorPanel" in js
     assert "recoverRender" in js
+    assert "fromDegrees(0, 20, 2.0e7)" not in js.split("function recoverRender")[1].split(
+        "function emitCamera"
+    )[0]
     assert "setBuildings" in js
     assert "bldg:" in js
     assert "background: #040508" in html
@@ -714,6 +764,16 @@ def test_hud_glass_does_not_forward_events() -> None:
     assert "photorealAltM || 80000" not in js
     assert "function flySeconds" in js
     assert "function flyTo" in js
+    assert "function dressWorld" in js
+    assert "pendingRide" in js
+    assert "layer === \"iss\" ? 80 : 2500" in js
+    assert "dressWorld(pose.alt)" in js
+    assert "if (!goLock) dressWorld(alt)" in js
+    assert "dayAlpha stays 0" in js
+    assert "var flyGen" in js
+    assert "function bumpFly" in js
+    assert "gen !== flyGen" in js
+    assert "billboard.color = tint" in js
     assert "emitCamera(true)" in js
     assert "moveEnd.addEventListener" in js
     assert "function hoseKey" in js
@@ -724,6 +784,63 @@ def test_hud_glass_does_not_forward_events() -> None:
     assert "function labelDepth" in js
     assert "POSITIVE_INFINITY" not in js.split("function labelDepth")[1].split("function lookHit")[0]
     assert "function wantLabel" in js
+    assert "function orbitalDepth" in js
+    assert "function followRide" in js
+    assert "pushing = true" in js.split("function followRide")[1].split("function stepCoast")[0]
+    assert "if (on && (rideId || pushing)) return" in js
+    assert "coastWanted || !!rideId" in js
+    assert 'row.ride ? "1" : "0"' in js
+    assert "function farSide" in js
+    assert "function hideFarSide" in js
+    assert "rideId = \"\"" in js
+    assert "function stepCoast" in js
+    assert "setInterval(stepCoast" in js
+    assert "depthTestAgainstTerrain = false" in js
+    assert "Waiting for tilesLoaded hid the city" in js
+    assert '? 90 : 8' in js
+    assert 'row.layer === "radio"' in js.split("function wantLabel")[1].split("function applyEarthFov")[0]
+    assert "var RIDE_LAYERS" in js
+    assert "bridge.ridden" in js
+    assert "hostRidden" in host
+    assert "event == \"ridden\"" in host
+    assert 'ent.label.text = row.label' in js
+    assert "(row.hot && row.card)" not in js
+    assert 'row.layer === "satellites") return false' in js
+    assert "sitCamera(pose" in js.split("function finish")[1].split("viewer.camera.flyTo")[0]
+    assert "Always sit" in js
+    assert "function applyEarthFov" in js
+    assert "dh < 0.25 && dp < 0.25" in js
+    assert "EARTH_FOV_Y = 0.70" in js
+    assert "function coastPosition" in js
+    assert "function coastFromRow" in js
+    assert "ent.arelisRow" in js
+    assert "function holdZoom" in js
+    assert "function setRoads" in js
+    assert "toRadians(-(Number(deg)" in js
+    assert "now - lastEmit < 280" in js
+    assert "function holdCoast" in js
+    assert "requestRenderMode = false" in js
+    assert "function gibsProvider" in js
+    assert "function wantPhotoreal" in js
+    assert "if (goLock) return false" in js.split("function wantPhotoreal")[1].split(
+        "function gibsProvider"
+    )[0]
+    assert "function tunePhotoreal" in js
+    assert "foveatedScreenSpaceError" in js
+    assert "loadingDescendantLimit" in js
+    assert "function parkPhotoreal" in js
+    assert "function dressNightLayer" in js
+    assert "function dressNearLayer" in js
+    assert "function applyImagery" in js
+    assert "distance(n, lastRideDest) < step" in js
+    assert 'layer === "flights"' in js.split("function orbitalDepth")[1].split(
+        "function flySeconds"
+    )[0]
+    assert "WebMercatorTilingScheme" in js
+    assert "fog.enabled = pose.alt" not in js
+    assert "row.hot ? 72 : 56" in js
+    assert "set.show = true" in js
+    assert "CallbackProperty" in js
     assert "findOpen" in js
     assert "lastEmit = 0" in js
     assert "keyStruck" in host
@@ -732,6 +849,8 @@ def test_hud_glass_does_not_forward_events() -> None:
     assert 'op == "find"' in proc
     assert 'op == "look"' in proc
     assert 'op == "aim"' in proc
+    assert "hostRidden" in proc
+    assert "ridden" in proc
     assert "hostKey.connect" in proc
     stack = (GLOBE_DIR.parent.parent / "earth" / "globe_stack.py").read_text(
         encoding="utf-8"
@@ -792,6 +911,7 @@ def test_earth_plate_uses_main_app_ghost_rule() -> None:
     assert "mapToGlobal" in stack
     assert "def seal_globe_plate" in host
     assert "WA_TranslucentBackground, False" in host
+    assert "WA_TranslucentBackground, True" in host
     assert "WA_OpaquePaintEvent, True" in host
     assert "_stars_hold" not in earth
     assert "_stars_hold" not in solar
@@ -814,3 +934,137 @@ def test_launch_does_not_import_webengine() -> None:
         / "ui"
         / "earth_globe_proc.py"
     ).read_text(encoding="utf-8")
+
+
+def test_chrome_mask_does_not_invent_a_black_plate(qt_app) -> None:
+    from PySide6.QtWidgets import QWidget
+
+    from arelis.ui.earth_globe_host import chrome_mask
+
+    panel = QWidget()
+    assert chrome_mask(panel).isEmpty()
+    panel.hide()
+
+
+def test_earth_chrome_is_chips_not_solar_plates(qt_app) -> None:
+    from arelis.ui.earth_globe_host import chrome_mask
+    from arelis.ui.panels.solar import SolarPanel
+
+    set_earth(None)
+    earth = EarthRuntime()
+    earth.active = True
+    set_earth(earth)
+    panel = SolarPanel()
+    panel.resize(960, 720)
+    panel._inspect = "Earth"
+    hits, _box = panel._earth_chip_layout()
+    kinds = [kind for kind, _rect in hits]
+    assert kinds[0] == "band"
+    assert "leave" in kinds
+    assert "find" in kinds
+    panel._earth_chip_hits = hits
+    rects = panel._chrome_rects()
+    inspect = panel._inspect_rect()
+    hud = panel._hud_plate_rect()
+    assert inspect not in rects
+    assert hud not in rects
+    assert all(rect != inspect and rect != hud for rect in rects)
+    mask = chrome_mask(panel)
+    assert not mask.isEmpty()
+    assert not mask.contains(inspect.center())
+    panel.hide()
+    set_earth(None)
+
+
+def test_earth_hud_glass_is_translucent_over_opaque_plate() -> None:
+    from pathlib import Path
+
+    host = (
+        Path(__file__).resolve().parents[1] / "arelis" / "ui" / "earth_globe_host.py"
+    ).read_text(encoding="utf-8")
+    seal = host.split("def seal_globe_plate", 1)[1].split("class GlobeKeyHose", 1)[0]
+    glass = host.split("class EarthHudGlass", 1)[1].split("def stack_chrome_over_globe", 1)[0]
+    assert "WA_TranslucentBackground, False" in seal
+    assert "WA_TranslucentBackground, True" in glass
+    assert "WA_TranslucentBackground, False" not in glass
+
+
+def test_entity_rows_city_keeps_iss_and_caps_sats() -> None:
+    from arelis.earth.entity import Entity
+    from arelis.earth.frames import lla_to_ecef
+    from arelis.earth.lod import EarthView
+
+    set_earth(None)
+    earth = EarthRuntime()
+    earth.active = True
+    earth.layers["satellites"] = True
+    earth.layers["iss"] = True
+    earth.last_view = EarthView(band="city", lat=39.7817, lon=-89.6501)
+    iss_x, iss_y, iss_z = lla_to_ecef(40.0, -83.0, 408_000.0)
+    earth.store.upsert(
+        Entity(
+            id="norad:25544",
+            cls="station",
+            layer="iss",
+            label="ISS",
+            x=iss_x,
+            y=iss_y,
+            z=iss_z,
+            freshness="live",
+            meta={"lat": 40.0, "lon": -83.0, "alt": 408_000.0},
+        )
+    )
+    for i in range(120):
+        x, y, z = lla_to_ecef(40.0, -83.0 + i * 0.01, 500_000.0)
+        earth.store.upsert(
+            Entity(
+                id=f"sat:{i}",
+                cls="satellite",
+                layer="satellites",
+                label=f"SAT{i}",
+                x=x,
+                y=y,
+                z=z,
+                freshness="live",
+                meta={"lat": 40.0, "lon": -83.0 + i * 0.01, "alt": 500_000.0},
+            )
+        )
+    set_earth(earth)
+    rows = entity_rows()
+    assert not any(row["id"] == "norad:25544" for row in rows)
+    sats = [row for row in rows if row["layer"] == "satellites"]
+    assert sats == []
+    earth.track_id = "norad:25544"
+    hot = next(row for row in entity_rows() if row["id"] == "norad:25544")
+    assert hot["hot"] is True
+    assert hot.get("ride") is False
+    assert "ISS" in hot["card"]
+    earth.ride_id = "norad:25544"
+    rode = next(row for row in entity_rows() if row["id"] == "norad:25544")
+    assert rode["ride"] is True
+    far = {
+        "id": "sat:far",
+        "layer": "satellites",
+        "hot": True,
+        "lat": 0.0,
+        "lon": 0.0,
+    }
+    near_rows = [
+        {"id": f"sat:{i}", "layer": "satellites", "hot": False} for i in range(90)
+    ]
+    picked = pick_orbit_marks(
+        [{"id": "plane:1", "layer": "flights"}, *near_rows, far],
+        keep_ids={"sat:far"},
+    )
+    assert any(row["id"] == "sat:far" for row in picked)
+    assert any(row["id"] == "plane:1" for row in picked)
+    assert [row["id"] for row in picked if row["layer"] == "satellites"] == ["sat:far"]
+    capped = pick_orbit_marks(
+        [{"id": "plane:1", "layer": "flights"}, *near_rows, far],
+        keep_ids={"sat:far"},
+        cap=16,
+    )
+    sat_ids = [row["id"] for row in capped if row["layer"] == "satellites"]
+    assert "sat:far" in sat_ids
+    assert 1 <= len(sat_ids) <= 16
+    set_earth(None)

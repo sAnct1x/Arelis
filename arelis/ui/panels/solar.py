@@ -210,11 +210,15 @@ class SolarPanel(SolarEarthMixin, QWidget):
         self._inspect: str | None = None
         self._earth_at_door = False
         self._earth_id: str | None = None
+        self._earth_card_xy: tuple[float, float] | None = None
         self._earth_cam = None
         self._earth_fly = None
         self._place: dict | None = None
         self._earth_card_box = QRect()
         self._earth_copy_box = QRect()
+        self._earth_dock = None
+        self._earth_dock_box = QRect()
+        self._earth_dock_hits: list[tuple[str, QRect]] = []
         self._look_session = None
         self._look_frame = None
         self._look_status = ""
@@ -238,6 +242,8 @@ class SolarPanel(SolarEarthMixin, QWidget):
         self._earth_compass_box = QRect()
         self._earth_scale_box = QRect()
         self._earth_coach_box = QRect()
+        self._earth_say = None
+        self._earth_say_box = QRect()
         self._earth_key_hits = []
         self._earth_key_box = QRect()
         self._earth_paste_field = ""
@@ -491,6 +497,18 @@ class SolarPanel(SolarEarthMixin, QWidget):
         dt = self._frame_dt()
         ingested = self._ingest_background()
         system = get_system()
+        from arelis.earth.runtime import get_earth
+
+        zone = get_earth()
+        if zone is not None and zone.active:
+            try:
+                zone.tick()
+            except Exception:
+                pass
+            if self._earth_globe_live():
+                if zone.ride_id:
+                    self._follow_earth_ride(system)
+                self._sync_earth_globe()
         if system is not None and not self.menu_up:
             if system.pending_inspect:
                 self._set_inspect(system.pending_inspect)
@@ -526,14 +544,6 @@ class SolarPanel(SolarEarthMixin, QWidget):
             if not system.paused:
                 system.tick(dt)
             self._hold_earth_eye(system)
-        from arelis.earth.runtime import get_earth
-
-        zone = get_earth()
-        if zone is not None and zone.active:
-            try:
-                zone.tick()
-            except Exception:
-                pass
         if ingested or self._view_dirty(system):
             self.update()
 
@@ -663,6 +673,10 @@ class SolarPanel(SolarEarthMixin, QWidget):
         return int(key) in self._keys
 
     def _fly_camera(self, dt: float) -> None:
+        if self._earth_globe_live():
+            v = self._fly_v
+            v[0] = v[1] = v[2] = 0.0
+            return
         fwd = (1.0 if self._held(Qt.Key.Key_W) else 0.0) - (
             1.0 if self._held(Qt.Key.Key_S) else 0.0
         )
@@ -780,6 +794,12 @@ class SolarPanel(SolarEarthMixin, QWidget):
                 and copy_box.contains(int(px), int(py))
             ):
                 self._copy_earth_view()
+                return
+            from arelis.ui.earth_dock import handle_earth_dock, hit_earth_dock
+
+            dock_hit = hit_earth_dock(self, px, py)
+            if dock_hit:
+                handle_earth_dock(self, dock_hit)
                 return
             earth_kind = self._earth_chip_at(px, py)
             if earth_kind:
@@ -904,7 +924,9 @@ class SolarPanel(SolarEarthMixin, QWidget):
             if system is not None:
                 hit = hit_entity(self, system, px, py)
                 if hit is not None:
-                    ride = (not globe) or hit.layer == "cameras"
+                    from arelis.earth.copy import can_ride
+
+                    ride = (not globe) or can_ride(hit.layer)
                     self._select_earth_entity(hit, ride=ride)
                     if globe and not ride:
                         self._fly_to_earth_entity(hit)
@@ -936,6 +958,9 @@ class SolarPanel(SolarEarthMixin, QWidget):
             if self._confirm is not None:
                 self._confirm = None
                 self.update()
+                event.accept()
+                return
+            if self._hop_off_earth_contact():
                 event.accept()
                 return
             win = self.window()
@@ -1141,7 +1166,7 @@ class SolarPanel(SolarEarthMixin, QWidget):
             hit = hit_entity(self, system, px, py)
             if hit is not None:
                 self._place = None
-                self._select_earth_entity(hit, ride=hit.layer == "cameras")
+                self._select_earth_entity(hit, ride=hit.layer in {"cameras", "iss"})
                 return
             from arelis.earth.runtime import get_earth
 
@@ -1705,6 +1730,8 @@ class SolarPanel(SolarEarthMixin, QWidget):
 
     def _toggle_earth_chip(self, kind: str) -> None:
         toggle_earth_chip(self, kind)
+        if kind in {"leave", "find", "band"}:
+            return
         if not self._earth_globe_live():
             return
         from arelis.earth.runtime import get_earth
@@ -1714,8 +1741,6 @@ class SolarPanel(SolarEarthMixin, QWidget):
             return
         if kind == "tiles":
             self._globe_host.push_streets(bool(zone.tiles))
-        elif kind == "buildings":
-            self._globe_host.push_buildings()
 
     def _start_earth_live(self) -> None:
         return start_earth_live(self)

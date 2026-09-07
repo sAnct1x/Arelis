@@ -14,6 +14,7 @@ from arelis.earth.copy import (
     deaf_line,
     enter_note,
     inspect_kind_line,
+    layer_hole_line,
     live_chip_label,
     status_sentence,
 )
@@ -69,8 +70,25 @@ def test_status_is_a_sentence_without_ecef() -> None:
     earth.live = True
     line = status_sentence(earth)
     assert "in the city" in line
-    assert "live published feeds" in line
+    assert "until feeds return" in line
     assert "Click Live" not in line
+    earth.store.upsert(
+        Entity(
+            id="icao:pub",
+            cls="aircraft",
+            layer="flights",
+            label="PUB",
+            x=0.0,
+            y=0.0,
+            z=0.0,
+            freshness="live",
+            source="OpenSky",
+        )
+    )
+    assert "live published feeds" in status_sentence(earth)
+    earth._live_busy = True
+    earth.store.clear()
+    assert "fetching published feeds" in status_sentence(earth)
 
 
 def test_enter_note_is_human() -> None:
@@ -110,6 +128,24 @@ def test_live_chip_label() -> None:
     assert live_chip_label(on=False) == "Live off"
     assert live_chip_label(on=True) == "Live on"
     assert live_chip_label(on=True, busy=True) == "Live …"
+    from arelis.earth.copy import loading_line, ride_hint
+    from arelis.earth.lod import EarthView
+
+    assert ride_hint("iss") == "click to ride · Esc to leave it"
+    assert ride_hint("iss", riding=True) == "Esc or click empty sky to hop off"
+    assert ride_hint("satellites") == ""
+    earth = EarthRuntime()
+    earth.last_view = EarthView("space")
+    assert loading_line(earth, busy=True) == "fetching satellites"
+    assert loading_line(earth, globe_ready=False) == "falling in"
+    assert loading_line(earth, globe_failed=True) == "fancy map failed — NASA ball"
+    from arelis.ui.panels.solar_earth import SPACE_ENTER_ALT_M, earth_enter_lla
+
+    lat, _lon, alt = earth_enter_lla(None)
+    assert alt == SPACE_ENTER_ALT_M
+    assert lat == 20.0
+    earth.last_view = EarthView("space", lat=40.0, lon=-83.0)
+    assert earth_enter_lla(earth) == (40.0, -83.0, SPACE_ENTER_ALT_M)
 
 
 def test_status_names_a_coast_after_snapshot() -> None:
@@ -151,6 +187,28 @@ def test_coach_and_deaf_copy() -> None:
     assert "deaf" in (deaf_line(earth) or "").lower() or "hole" in (
         deaf_line(earth) or ""
     ).lower()
+
+
+def test_camera_chip_on_empty_look_is_a_hole() -> None:
+    earth = EarthRuntime()
+    earth.enter(unix=1.0)
+    earth.live = True
+    earth.layers["cameras"] = True
+    earth.last_view = EarthView(
+        "city",
+        alt_m=2500.0,
+        lat=39.7817,
+        lon=-89.6501,
+        bbox=LookBBox(39.0, -84.0, 41.0, -82.0),
+    )
+    for ent in list(earth.store.all()):
+        if ent.layer == "cameras":
+            earth.store.remove(ent.id)
+    earth.last_fetch_unix["cameras"] = 1.0
+    line = layer_hole_line(earth) or ""
+    assert "camera" in line.lower()
+    assert "phone" in line.lower()
+    assert "phone" in (coach_line(earth) or "").lower()
 
 
 def test_find_matches_tokyo_and_iss() -> None:
@@ -204,6 +262,69 @@ def test_inspect_caption_is_english() -> None:
     assert inspect_kind_line("vessels", "simulated") == "ship · drawn, not a live feed"
 
 
+def test_inspect_card_skips_the_legal_cite() -> None:
+    from arelis.earth.entity import Coverage, Entity
+    from arelis.ui.earth_overlay import inspect_card_text
+
+    cite = (
+        "CelesTrak GP TLE + SGP4. TEME→ECEF via GMST. "
+        "Classified objects are absent."
+    )
+    pos = lla_to_ecef(40.0, -83.0, 550_000.0)
+    text = inspect_card_text(
+        Entity(
+            id="norad:12345",
+            cls="satellite",
+            layer="satellites",
+            label="STARLINK-1234",
+            x=pos[0],
+            y=pos[1],
+            z=pos[2],
+            vx=7600.0,
+            source="CelesTrak GP",
+            freshness="interpolated",
+            cite=cite,
+            meta={"norad": 12345, "group": "starlink"},
+            coverage=Coverage("tle", "Public GP only. Classified objects are absent."),
+        )
+    )
+    assert "STARLINK-1234" in text
+    assert "Starlink" in text
+    assert "NORAD 12345" in text
+    assert "km up" in text
+    assert "CelesTrak GP" in text
+    assert "double-click to ride" not in text
+    assert "TEME" not in text
+    assert "Classified" not in text
+    iss_text = inspect_card_text(
+        Entity(
+            id="norad:25544",
+            cls="station",
+            layer="iss",
+            label="ISS",
+            x=pos[0],
+            y=pos[1],
+            z=pos[2],
+            freshness="interpolated",
+        )
+    )
+    assert "click to ride" in iss_text
+    assert "hop off" in inspect_card_text(
+        Entity(
+            id="norad:25544",
+            cls="station",
+            layer="iss",
+            label="ISS",
+            x=pos[0],
+            y=pos[1],
+            z=pos[2],
+            freshness="interpolated",
+        ),
+        riding=True,
+    )
+    assert cite not in text
+
+
 def test_orbital_marks_are_not_nadir_capped() -> None:
     from arelis.earth.lod import organize
 
@@ -247,6 +368,7 @@ def test_plate_find_and_live_click(qt_app, monkeypatch: pytest.MonkeyPatch) -> N
     monkeypatch.setattr("arelis.earth.runtime.EarthRuntime._merge_live", lambda self: None)
     earth = EarthRuntime()
     earth.enter(unix=1.0)
+    earth.note_view(EarthView("city", alt_m=4_000.0, lat=40.0, lon=-83.0))
     set_earth(earth)
     panel = SolarPanel()
     panel.resize(960, 720)
@@ -288,8 +410,10 @@ def test_plate_find_and_live_click(qt_app, monkeypatch: pytest.MonkeyPatch) -> N
     assert panel._earth_key_event(slash) is True
     assert panel._earth_find_on is True
     assert "/ find" in KEY_HINT_EARTH
-    assert "arrows look" in KEY_HINT_EARTH
-    assert "Enter flies" in KEY_HINT_EARTH
+    assert "drag look" in KEY_HINT_EARTH
+    assert "wheel zoom" in KEY_HINT_EARTH
+    assert "double-click" in KEY_HINT_EARTH
+    assert "WASD" not in KEY_HINT_EARTH
     assert "click Live" not in KEY_HINT_EARTH
     assert int(Qt.Key.Key_Return) == 16777220
     assert int(Qt.Key.Key_Enter) == 16777221
@@ -321,6 +445,24 @@ def test_open_find_hoses_cesium(qt_app) -> None:
     assert panel._globe_host.seen == [True]
     close_find(panel)
     assert panel._globe_host.seen == [True, False]
+    from arelis.ui.earth_find import hold_globe_keys
+
+    grabbed: list[bool] = []
+
+    class _Hud:
+        def grabKeyboard(self) -> None:
+            grabbed.append(True)
+
+        def releaseKeyboard(self) -> None:
+            grabbed.append(False)
+
+        def setFocus(self, *_a, **_k) -> None:
+            return None
+
+    panel._earth_hud = _Hud()
+    hold_globe_keys(panel, True)
+    close_find(panel)
+    assert grabbed == [True, False]
 
 
 def test_polish_rubric_is_complete() -> None:

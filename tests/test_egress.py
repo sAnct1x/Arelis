@@ -167,7 +167,7 @@ ALLOWED: dict[str, str] = {
     "cesium.com": "Earth-zone Cesium JS/CSS for the WebEngine globe, source checkout + astro extra",
     "ion.cesium.com": "Earth-zone Cesium ion terrain, only when earth.cesium_ion_token is set",
     "api.cesium.com": "Earth-zone Cesium ion API, only when an ion token is set",
-    "gibs.earthdata.nasa.gov": "Earth-zone NASA GIBS Blue Marble mosaic when close",
+    "gibs.earthdata.nasa.gov": "Earth-zone NASA GIBS Blue Marble + VIIRS true-color + Black Marble",
     "tile.googleapis.com": "Earth-zone Google Photorealistic 3D Tiles, only when earth.google_maps_key is set",
     "jamcams.tfl.gov.uk": "Earth-zone TfL JamCam stills, click look-from only; URL never stored on the pin",
     "images.data.gov.sg": "Earth-zone Singapore LTA stills, click look-from only",

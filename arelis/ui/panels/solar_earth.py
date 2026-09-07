@@ -13,6 +13,7 @@ import time
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication
 
+from arelis.earth.copy import RIDE_LAYERS, can_ride
 from arelis.physics.camera import CameraWarp
 from arelis.physics.collision import inspect_stop_m
 from arelis.physics.runtime import get_system
@@ -36,14 +37,28 @@ def earth_zoom_factor(delta: float) -> float:
 CITY_LOOK_ALT_M = 8_000.0
 # Street address: a few blocks, names readable. Above the 200 m camera floor.
 STREET_LOOK_ALT_M = 350.0
+# First Enter: whole Earth, nadir, north-up. Not the leftover solar glance.
+SPACE_ENTER_ALT_M = 20_000_000.0
 # Ride sits on cameras and moving contacts. Ground pins fly-to instead.
-GLOBE_RIDE_LAYERS = frozenset(
-    {"cameras", "flights", "drones", "military", "vessels", "iss"}
-)
+GLOBE_RIDE_LAYERS = RIDE_LAYERS
 
 
 def globe_ride_layer(layer: str) -> bool:
-    return str(layer or "") in GLOBE_RIDE_LAYERS
+    return can_ride(layer)
+
+
+def earth_enter_lla(zone=None) -> tuple[float, float, float]:
+    """Space-band nadir for the first Cesium pose. Earth fills the frame."""
+    view = getattr(zone, "last_view", None) if zone is not None else None
+    if view is not None:
+        try:
+            lat = float(view.lat)
+            lon = float(view.lon)
+            if abs(lat) <= 90.0:
+                return lat, lon, SPACE_ENTER_ALT_M
+        except (TypeError, ValueError):
+            pass
+    return 20.0, 0.0, SPACE_ENTER_ALT_M
 
 
 def earth_entity_look_alt_m(layer: str) -> float:
@@ -123,52 +138,140 @@ class SolarEarthMixin:
             else:
                 zone.stop_ride()
                 zone.track(hit.id)
-        self._open_earth_look(hit)
+        if ride:
+            self._globe_rode = None
+        if hit.layer == "cameras":
+            from arelis.ui.earth_dock import open_camera_dock
+
+            open_camera_dock(self, hit.id, mode="peek")
+            self._open_earth_look(hit)
+        elif hit.layer == "radio":
+            from arelis.ui.earth_dock import open_radio_dock
+
+            open_radio_dock(self, tune_id=hit.id)
+        else:
+            from arelis.ui.earth_dock import close_earth_dock
+
+            close_earth_dock(self)
+        if self._earth_globe_live():
+            host = self._globe_host
+            if host is not None and not getattr(host, "failed", False):
+                from arelis.ui.earth_globe_host import entity_rows
+
+                if ride:
+                    here = getattr(self, "_cesium_lla", None)
+                    sat = False
+                    if isinstance(here, tuple) and len(here) >= 3:
+                        try:
+                            sat = 80_000.0 <= float(here[2]) <= 900_000.0
+                        except (TypeError, ValueError):
+                            sat = False
+                    if not sat:
+                        self._fly_ride_sit(hit)
+                    if hasattr(host, "arm_ride"):
+                        host.arm_ride(hit.id)
+                elif hasattr(host, "arm_ride"):
+                    host.arm_ride("")
+                host.push_entities(entity_rows())
+        from arelis.ui.earth_chrome import set_earth_say
+
+        label = str(hit.label or hit.id)
+        if ride:
+            set_earth_say(
+                self,
+                f"Riding {label}",
+                "You should be moving with it. The ground streams. Esc hops off.",
+            )
+        elif hit.layer == "cameras":
+            set_earth_say(
+                self,
+                label,
+                "Publisher still on the right. View enlarges it.",
+            )
+        else:
+            set_earth_say(self, label, "This mark. Double-click rides it.")
         self.update()
 
     def _fly_to_earth_entity(self, ent) -> None:
         """Nadir fly to a pin. Do not sit 200 m on a quake."""
-        from arelis.earth.frames import nadir_cam
         from arelis.earth.lod import entity_lla
 
         pair = entity_lla(ent)
         if pair is None:
             return
         alt = earth_entity_look_alt_m(getattr(ent, "layer", ""))
-        self._earth_cam = nadir_cam(pair[0], pair[1], alt)
-        self._earth_agl_m = float(alt)
-        self._earth_nadir_m = None
-        self._fly_globe_to(pair[0], pair[1], alt)
+        self._go_earth_lla(pair[0], pair[1], alt, leave=False)
+
+    def _go_earth_lla(
+        self, lat: float, lon: float, alt_m: float, *, leave: bool = True
+    ) -> bool:
+        """Fly here. A place hop drops the old contact. Dest is not the eye."""
+        if leave:
+            from arelis.earth.runtime import get_earth
+
+            zone = get_earth()
+            if zone is not None:
+                zone.unlock()
+            self._earth_id = None
+            self._earth_card_xy = None
+            self._close_earth_look()
+            from arelis.ui.earth_dock import close_earth_dock
+
+            close_earth_dock(self)
+        self._earth_fly = None
+        host = self._globe_host
+        if host is not None and hasattr(host, "arm_ride"):
+            host.arm_ride("")
+        if host is not None and hasattr(host, "release_camera"):
+            host.release_camera()
+        if self._fly_globe_to(lat, lon, alt_m):
+            self.update()
+            return True
+        return False
 
     def _select_earth_place(self, geo: dict) -> None:
         from arelis.earth.frames import EarthCam, nadir_cam
         from arelis.earth.runtime import get_earth
 
-        self._earth_id = None
         self._close_earth_look()
         self._place = geo
         self._globe_hpr = None
         zone = get_earth()
         if zone is not None:
             zone.unlock()
+        self._earth_id = None
+        self._earth_card_xy = None
+        self._globe_aimed = None
+        self._earth_pin = None
+        kind = str(geo.get("kind") or "earth")
+        try:
+            alt = float(geo["alt_m"])
+        except (KeyError, TypeError, ValueError):
+            alt = earth_goto_alt_m(kind)
+        lat, lon = float(geo["lat"]), float(geo["lon"])
+        from arelis.ui.earth_chrome import set_earth_say
+
+        name = str(geo.get("name") or geo.get("kind") or "Earth")
+        km = alt / 1000.0
+        how = f"{km:,.0f} km up" if km >= 100 else f"{km:.1f} km up"
+        set_earth_say(self, name, f"Flying here · {how}. Watch the planet.")
+        if self._go_earth_lla(lat, lon, alt):
+            return
+        zone = get_earth()
+        if zone is not None:
+            zone.unlock()
         if self._earth_cam is None:
             self._remember_earth_eye()
-        kind = str(geo.get("kind") or "earth")
-        alt = earth_goto_alt_m(kind)
-        dest = nadir_cam(float(geo["lat"]), float(geo["lon"]), alt)
+        dest = nadir_cam(lat, lon, alt)
         start = self._earth_cam if isinstance(self._earth_cam, EarthCam) else dest
-        self._earth_cam = dest if self._earth_globe_live() else start
-        if self._fly_globe_to(float(geo["lat"]), float(geo["lon"]), alt):
-            self._earth_fly = None
-            self._earth_agl_m = float(alt)
-            self._earth_nadir_m = None
-            self.update()
-            return
         self._earth_fly = {"start": start, "end": dest, "t": 0.0, "dur": 1.2}
         self._earth_cam = start
         self.update()
 
     def _step_earth_fly(self, dt: float) -> None:
+        if self._earth_globe_live():
+            self._earth_fly = None
+            return
         flight = self._earth_fly
         if not isinstance(flight, dict):
             return
@@ -201,8 +304,6 @@ class SolarEarthMixin:
         if t >= 1.0:
             self._earth_cam = end
             self._earth_fly = None
-        if self._earth_globe_live():
-            return
 
     def _leave_earth_zone(self) -> None:
         from arelis.earth.runtime import get_earth
@@ -224,7 +325,16 @@ class SolarEarthMixin:
         self._streets_on = None
         self._roads_gen = None
         self._globe_did_ready = False
+        self._globe_ride_push = 0.0
+        self._globe_data_push = 0.0
+        self._globe_bldg_gen = None
+        self._globe_cam_push = 0.0
+        self._earth_live_busy = False
+        self._cesium_off = False
         self._close_earth_look()
+        from arelis.ui.earth_dock import close_earth_dock
+
+        close_earth_dock(self)
         self._leave_earth_globe()
         self._globe_hpr = None
         self.update()
@@ -313,6 +423,8 @@ class SolarEarthMixin:
                     gl.unpark()
                 return
             host.bridge.hostPicked.connect(self._on_globe_pick)
+            if hasattr(host.bridge, "hostRidden"):
+                host.bridge.hostRidden.connect(self._on_globe_ridden)
             host.bridge.hostCamera.connect(self._on_globe_camera)
             host.bridge.hostGround.connect(self._on_globe_ground)
             host.bridge.hostReady.connect(lambda _k: self._on_globe_ready())
@@ -337,29 +449,21 @@ class SolarEarthMixin:
             self._earth_hud.raise_()
         self._layout_earth_globe()
         if host is not None and not host.failed:
-            view = getattr(self, "_earth_cam", None)
             zone = None
             try:
-                from arelis.earth.frames import ecef_to_geodetic
                 from arelis.earth.runtime import get_earth
 
                 zone = get_earth()
-                if (
-                    view is not None
-                    and not self._globe_flight_live()
-                    and getattr(self, "_earth_agl_m", None) is None
-                ):
-                    lat, lon, alt = ecef_to_geodetic(*view.eye)
-                    host.push_camera(lat, lon, max(alt, 200.0))
             except Exception:
-                pass
+                zone = None
+            if getattr(self, "_globe_did_ready", False) and not self._globe_flight_live():
+                self._push_globe_camera()
             host.push_entities(entity_rows())
             if zone is not None and zone.last_view is not None:
                 host.push_places(
                     place_rows(zone.last_view.band, zone.last_view.lat, zone.last_view.lon)
                 )
                 self._push_streets_if_changed(zone)
-                host.push_buildings()
         self.update()
 
     def _park_space_for_earth(self) -> None:
@@ -413,15 +517,17 @@ class SolarEarthMixin:
         _retire(host)
 
     def _leave_earth_globe(self) -> None:
-        from arelis.ui.earth_find import close_find
+        from arelis.ui.earth_find import close_find, hold_globe_keys
 
         close_find(self)
+        hold_globe_keys(self, False)
         self._globe_mounting = False
         self._globe_hpr = None
         self._globe_fly_until = 0.0
         self._globe_did_ready = False
         self._streets_on = None
         self._roads_gen = None
+        self._roads_view_key = None
         self._drop_earth_webengine()
         gl = getattr(self, "_gl", None)
         if gl is not None and hasattr(gl, "unpark"):
@@ -430,6 +536,9 @@ class SolarEarthMixin:
     def _layout_earth_globe(self) -> None:
         if self._globe_host is not None:
             self._globe_host.setGeometry(self.rect())
+            pin = getattr(self._globe_host, "pin_child", None)
+            if callable(pin):
+                pin()
         if self._earth_hud is not None:
             host = self._globe_host
             if host is not None and not host.failed and host.isVisible():
@@ -439,6 +548,24 @@ class SolarEarthMixin:
                 stack_chrome_over_globe(self._earth_hud, host)
             else:
                 self._earth_hud.hide()
+
+    def _frame_earth_enter(self) -> None:
+        """Nadir, north-up, whole Earth. Do not inherit the solar glance."""
+        from arelis.earth.frames import nadir_cam
+        from arelis.earth.runtime import get_earth
+
+        zone = get_earth()
+        if zone is not None and getattr(zone, "ride_id", ""):
+            return
+        lat, lon, alt = earth_enter_lla(zone)
+        self._globe_hpr = (0.0, -90.0)
+        host = self._globe_host
+        if host is not None and not host.failed and host.isVisible():
+            host.push_camera(lat, lon, alt, 0.0, -90.0)
+            return
+        self._earth_cam = nadir_cam(lat, lon, alt)
+        self._earth_agl_m = float(alt)
+        self._earth_nadir_m = None
 
     def _on_globe_ready(self) -> None:
         self._layout_earth_globe()
@@ -457,7 +584,8 @@ class SolarEarthMixin:
                 self._sync_earth_globe(force=True, camera=False)
                 self.update()
                 return
-        self._sync_earth_globe(force=True)
+        self._frame_earth_enter()
+        self._sync_earth_globe(force=True, camera=True)
         self.update()
 
     def _on_globe_tiles(self, kind: str) -> None:
@@ -473,6 +601,40 @@ class SolarEarthMixin:
         self._leave_earth_globe()
         self.update()
 
+    def _clear_earth_pick(self) -> None:
+        from arelis.earth.runtime import get_earth
+
+        zone = get_earth()
+        if zone is not None:
+            zone.unlock()
+        self._earth_id = None
+        self._place = None
+        self._earth_card_xy = None
+        self._globe_aimed = None
+        self._close_earth_look()
+        from arelis.ui.earth_dock import close_earth_dock
+
+        close_earth_dock(self)
+        host = self._globe_host
+        if host is not None and hasattr(host, "release_camera"):
+            host.release_camera()
+        if self._earth_globe_live():
+            self._sync_earth_globe(force=True)
+
+    def _hop_off_earth_contact(self) -> bool:
+        """Esc or empty sky. Drop track and ride. Eye stays put."""
+        from arelis.earth.runtime import get_earth
+
+        zone = get_earth()
+        held = bool(getattr(self, "_earth_id", None) or getattr(self, "_place", None))
+        if zone is not None:
+            held = held or bool(zone.track_id or zone.ride_id)
+        if not held:
+            return False
+        self._clear_earth_pick()
+        self.update()
+        return True
+
     def _on_globe_pick(self, entity_id: str) -> None:
         from arelis.earth.runtime import get_earth
 
@@ -482,10 +644,22 @@ class SolarEarthMixin:
         hit = zone.get(entity_id)
         if hit is None:
             return
-        self._earth_id = hit.id
-        zone.track(hit.id)
-        self._open_earth_look(hit)
-        self.update()
+        self._select_earth_entity(hit, ride=hit.layer == "iss")
+
+    def _on_globe_ridden(self, entity_id: str) -> None:
+        from arelis.earth.runtime import get_earth
+
+        zone = get_earth()
+        if zone is None:
+            return
+        hit = zone.get(entity_id)
+        if hit is None:
+            return
+        if globe_ride_layer(hit.layer):
+            self._select_earth_entity(hit, ride=True)
+            return
+        self._select_earth_entity(hit, ride=False)
+        self._fly_to_earth_entity(hit)
 
     def _on_globe_camera(self, raw: str) -> None:
         try:
@@ -498,6 +672,16 @@ class SolarEarthMixin:
         except (KeyError, TypeError, ValueError, json.JSONDecodeError):
             return
         self._earth_agl_m = alt
+        self._cesium_lla = (lat, lon, alt)
+        self._cesium_lla_at = time.perf_counter()
+        try:
+            look_lat = float(payload["look_lat"])
+            look_lon = float(payload["look_lon"])
+        except (KeyError, TypeError, ValueError):
+            look_lat = look_lon = None
+        self._cesium_look = (
+            (look_lat, look_lon) if look_lat is not None else None
+        )
         try:
             mpp = float(payload.get("mpp") or 0.0)
         except (TypeError, ValueError):
@@ -509,7 +693,20 @@ class SolarEarthMixin:
             nadir = 0.0
         self._earth_nadir_m = nadir if nadir > 0.0 else None
         self._globe_hpr = (heading, pitch)
-        if self._earth_fly is not None:
+        try:
+            hx = float(payload.get("hot_x"))
+            hy = float(payload.get("hot_y"))
+            hid = str(payload.get("hot_id") or "")
+        except (TypeError, ValueError):
+            hx = hy = None
+            hid = ""
+        if hid and hid == (self._earth_id or "") and hx is not None:
+            self._earth_card_xy = (hx, hy)
+        else:
+            self._earth_card_xy = None
+        if self._earth_globe_live():
+            self._earth_fly = None
+        elif self._earth_fly is not None:
             if self._globe_flight_live():
                 self.update()
                 return
@@ -546,15 +743,22 @@ class SolarEarthMixin:
     def _on_globe_ground(self, raw: str) -> None:
         try:
             payload = json.loads(raw)
+        except json.JSONDecodeError:
+            return
+        if payload.get("sky"):
+            self._hop_off_earth_contact()
+            return
+        try:
             lat = float(payload["lat"])
             lon = float(payload["lon"])
             slant = float(payload.get("slant_m") or 0.0)
             agl = float(payload.get("agl_m") or 0.0)
-        except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+        except (KeyError, TypeError, ValueError):
             return
         self._earth_pin = {"lat": lat, "lon": lon, "slant_m": slant}
         if agl > 0.0:
             self._earth_agl_m = agl
+        self._clear_earth_pick()
         try:
             from arelis.physics.telemetry import emit
 
@@ -580,7 +784,7 @@ class SolarEarthMixin:
         if not self._earth_globe_live():
             return False
         host.fly_to(lat, lon, alt_m)
-        self._globe_fly_until = time.perf_counter() + 10.0
+        self._globe_fly_until = time.perf_counter() + 12.0
         return True
 
     def _face_earth_north(self) -> None:
@@ -590,17 +794,26 @@ class SolarEarthMixin:
             pitch = float(self._globe_hpr[1])
         self._globe_hpr = (0.0, pitch)
         host = self._globe_host
-        pose = self._earth_cam
-        if host is None or host.failed or not host.isVisible() or pose is None:
+        if host is None or host.failed or not host.isVisible():
             self.update()
             return
-        from arelis.earth.frames import ecef_to_geodetic
+        lla = getattr(self, "_cesium_lla", None)
+        if isinstance(lla, tuple) and len(lla) >= 3:
+            lat, lon, alt = float(lla[0]), float(lla[1]), float(lla[2])
+        else:
+            pose = self._earth_cam
+            if pose is None:
+                self.update()
+                return
+            from arelis.earth.frames import ecef_to_geodetic
 
-        lat, lon, alt = ecef_to_geodetic(*pose.eye)
+            lat, lon, alt = ecef_to_geodetic(*pose.eye)
         host.push_camera(lat, lon, max(alt, 200.0), 0.0, pitch)
         self.update()
 
     def _push_globe_camera(self) -> None:
+        if self._earth_globe_live():
+            return
         host = self._globe_host
         pose = self._earth_cam
         if host is None or host.failed or not host.isVisible() or pose is None:
@@ -621,16 +834,25 @@ class SolarEarthMixin:
         host = self._globe_host
         if host is None or host.failed:
             return
-        from arelis.earth.roads import road_generation
+        from arelis.earth.roads import cache_key, road_generation
 
         want = bool(zone.tiles)
         gen = road_generation()
-        if want == getattr(self, "_streets_on", None) and gen == getattr(
-            self, "_roads_gen", None
+        view = zone.last_view
+        look = (
+            cache_key(view.lat, view.lon, view.band, alt_m=view.alt_m)
+            if view is not None
+            else None
+        )
+        if (
+            want == getattr(self, "_streets_on", None)
+            and gen == getattr(self, "_roads_gen", None)
+            and look == getattr(self, "_roads_view_key", None)
         ):
             return
         self._streets_on = want
         self._roads_gen = gen
+        self._roads_view_key = look
         host.push_streets(want)
         try:
             from arelis.physics.telemetry import emit
@@ -651,7 +873,11 @@ class SolarEarthMixin:
         if host is None or host.failed or not host.isVisible():
             return
         now = time.perf_counter()
-        if (camera or force) and not self._globe_flight_live():
+        if (
+            (camera or force)
+            and not self._globe_flight_live()
+            and not self._earth_globe_live()
+        ):
             self._push_globe_camera()
         from arelis.earth.runtime import get_earth
         from arelis.ui.earth_globe_host import entity_rows, place_rows
@@ -659,7 +885,7 @@ class SolarEarthMixin:
         zone = get_earth()
         if zone is not None:
             self._push_streets_if_changed(zone)
-        if not force and now - self._globe_data_push < 1.0:
+        if not force and now - self._globe_data_push < 0.35:
             return
         self._globe_data_push = now
         host.push_entities(entity_rows())
@@ -667,7 +893,6 @@ class SolarEarthMixin:
             host.push_places(
                 place_rows(zone.last_view.band, zone.last_view.lat, zone.last_view.lon)
             )
-            host.push_buildings()
 
     def _open_earth_look(self, hit) -> None:
         from arelis.earth.look import resolve
@@ -694,15 +919,22 @@ class SolarEarthMixin:
 
     def _on_look_frame(self, image) -> None:
         self._look_frame = image
+        self._chrome_key = None
+        self._chrome_cache = None
         self.update()
+        hud = getattr(self, "_earth_hud", None)
+        if hud is not None:
+            hud.update()
 
     def _on_look_status(self, text: str) -> None:
         self._look_status = str(text or "")
         self.update()
 
     def _fov_y(self) -> float:
+        from arelis.earth.scale import EARTH_FOV_Y
+
         punch = 0.0 if self._warp is None else 0.18 * self._warp.speed01
-        return 0.70 + punch
+        return EARTH_FOV_Y + punch
 
     def _travel_to(self, name: str) -> None:
         """Fly the inspect eye to ~8× IAU radius. Accel, cruise, slow. Not a burn."""
@@ -776,6 +1008,7 @@ class SolarEarthMixin:
         if self._inspect != "Earth":
             self._inspect = "Earth"
         self._remember_earth_eye()
+        self._frame_earth_enter()
         self._enter_earth_globe()
         self._apply_pending_earth_goto()
         self.update()
@@ -939,7 +1172,7 @@ class SolarEarthMixin:
 
         live = system if system is not None else _live()
         zone = get_earth()
-        if self._earth_globe_live() and self._earth_cam is not None:
+        if self._earth_globe_live():
             return
         had = self._earth_cam is not None
         if live is None or zone is None or not zone.active:
@@ -963,7 +1196,7 @@ class SolarEarthMixin:
         if not had:
             _emit_earth_lock(True)
 
-    def _follow_earth_ride(self, system: SolarSystem) -> None:
+    def _follow_earth_ride(self, system: SolarSystem | None) -> None:
         from arelis.earth.runtime import get_earth
 
         zone = get_earth()
@@ -981,6 +1214,8 @@ class SolarEarthMixin:
                     zone.track(ent.id)
                 return
             self._globe_follow_ride(ent)
+            return
+        if system is None:
             return
         pose = None
         if ent.layer == "cameras":
@@ -1010,10 +1245,6 @@ class SolarEarthMixin:
         if ent is None:
             return
         if self._earth_globe_live():
-            tid = zone.track_id
-            if tid and tid != getattr(self, "_globe_aimed", None):
-                self._globe_aim_track(ent)
-                self._globe_aimed = tid
             return
         pose = self._earth_cam
         if pose is None:
@@ -1033,6 +1264,27 @@ class SolarEarthMixin:
             self._earth_cam,
         )
 
+    def _fly_ride_sit(self, ent) -> None:
+        """Leave 20 Mm the same way a place hop does — a fly, not a snap."""
+        from arelis.earth.frames import MEAN_R, ecef_to_geodetic
+
+        host = self._globe_host
+        if host is None:
+            return
+        try:
+            lat, lon, alt = ecef_to_geodetic(ent.x, ent.y, ent.z)
+        except Exception:
+            self._globe_follow_ride(ent)
+            return
+        if getattr(ent, "layer", "") == "iss":
+            sit = 80_000.0
+        else:
+            sit = max(40.0, min(250.0, 0.00002 * (abs(alt) + MEAN_R)))
+        if not self._go_earth_lla(lat, lon, max(200.0, alt + sit), leave=False):
+            self._globe_follow_ride(ent)
+            return
+        self._globe_rode = ent.id
+
     def _globe_follow_ride(self, ent) -> None:
         """Sit on the contact in Cesium. Do not spin the parked solar cam."""
         from arelis.earth.frames import MEAN_R, ecef_to_geodetic
@@ -1041,21 +1293,40 @@ class SolarEarthMixin:
         host = self._globe_host
         if host is None:
             return
+        now = time.perf_counter()
+        last = float(getattr(self, "_globe_ride_push", 0.0) or 0.0)
+        gap = 0.7 if getattr(ent, "layer", "") == "iss" else 0.35
+        if now - last < gap:
+            return
+        self._globe_ride_push = now
         try:
             lat, lon, alt = ecef_to_geodetic(ent.x, ent.y, ent.z)
         except Exception:
             return
-        sit = max(40.0, min(250.0, 0.00002 * (abs(alt) + MEAN_R)))
         heading = heading_of(ent)
         speed = math.hypot(float(ent.vx), float(ent.vy), float(ent.vz))
-        pitch = -12.0 if speed >= 0.5 else -90.0
+        if getattr(ent, "layer", "") == "iss":
+            sit = 80_000.0
+            pitch = -28.0
+        else:
+            sit = max(40.0, min(250.0, 0.00002 * (abs(alt) + MEAN_R)))
+            pitch = -12.0 if speed >= 0.5 else -90.0
+        first = getattr(self, "_globe_rode", None) != ent.id
+        if first:
+            self._globe_rode = ent.id
+        dest_alt = max(200.0, alt + sit)
+        yaw = heading if heading is not None else 0.0
+        if hasattr(host, "follow_lla"):
+            host.follow_lla(lat, lon, dest_alt, yaw, pitch)
+            return
         host.push_camera(
             lat,
             lon,
-            max(200.0, alt + sit),
-            heading if heading is not None else 0.0,
+            dest_alt,
+            yaw,
             pitch,
-            soft=True,
+            soft=not first,
+            keep_ride=True,
         )
 
     def _globe_aim_track(self, ent) -> None:

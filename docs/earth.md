@@ -5,8 +5,9 @@ not a product name. Click any body to inspect it; click it again
 (or right-click, or **Travel to**) to warp there. Earth is the same
 warp — you stay in the solar lab until you arrive. **Enter** then
 appears on Earth only: the zone door. It loads the globe and the
-catalogs in the same window. Scroll or WASD closer and more turns
-on (space → approach → near → city), like a game LOD.
+catalogs in the same window. Scroll or drag closer and more *can*
+appear (space → approach → near → city). Chips stay as you set
+them — closer does not flip every layer on. Sats and ISS start on.
 
 This page is both the inventory and the legal line for what's
 included. The globe itself only runs on a source checkout
@@ -40,14 +41,20 @@ traveling to another body, or resetting the view all drop you back to
 a heliocentric view. Same HUD throughout — no second visual theme.
 
 To enter: travel to Earth (once the warp finishes), say **enter
-Earth**, or call `earth action=enter`. To leave: say **leave Earth**,
+Earth**, or call `earth action=enter`. Enter frames the whole Earth
+nadir — not the leftover solar-lab glance. To leave: say **leave Earth**,
 travel elsewhere, or call `earth action=leave` (which writes a receipt
 when it happens). Clicking a contact opens an inspect card — label,
-kind in English, freshness, source, citation. Below the HUD sits a
+kind in English, freshness, source. Radio and cameras keep their names
+in a right-side tile on the same HUD — not a text swarm on the globe.
+Click a camera for a peek still; View enlarges the publisher look; More
+is public facts only. Click the ISS to ride along;
+double-click a plane, a ship, or a camera. Esc or click empty sky
+to hop off. Below the HUD sits a
 read-only distance line (**from space** / **approaching** / **near
 the ground** / **in the city**), then **Live on** (Enter starts
 published + coast; air and sea refresh on TTL),
-**Grid**, **Streets**, **Buildings**, and every catalog layer
+**Grid**, **Streets**, and every catalog layer
 including People. Slash or the find field + Enter flies to a city,
 country, state, continent, address, or contact. Saying **take me to Tokyo** (or Japan,
 California, Africa, the UK, home) is a closed verb — typed or
@@ -82,15 +89,26 @@ cross. The inspect eye may fall to 1.2 km AGL so city / streets /
 buildings can actually open; Karman stays the catalog stop.
 
 The Earth disc can grow past the usual 384px software-sphere size
-once you've fallen in close. NASA GIBS imagery drapes in
-automatically as you get near. **Streets** waits until city and about
-12 km AGL — highway lines then, names only below ~3.5 km. The overlay
+once you've fallen in close. The globe is solid — contacts on the far
+side stay behind it. ISS coasts in Cesium, it is not a parked still.
+NASA GIBS Blue Marble (Web Mercator Level 8) drapes
+from space. Closer in, daily VIIRS true-color (Level 9) sits under
+photoreal so a 50 km sit is not a 500 m/px smear, and a city gap is
+not a navy hole. Fog stays off. From space the night side is NASA Black Marble
+city lights — the dark half of the same globe, not a sticker that
+pops in at the end of a hop. Daytime never paints those lights. A hop
+dresses the destination once and freezes the stack while you fly;
+Google photoreal only starts after you are in the city, and only
+inside the look cone. **Streets** waits until city and about
+12 km AGL — highway lines then, names only below ~3.5 km (motorway
+and trunk, a dozen at most, so they do not pile up). The overlay
 stays until you zoom out; it is not rebuilt on every camera tick.
-Not a swap to the OSM carto drawing. The distance meter is the ray
-to the globe under the look (`to surface`) once Cesium has spoken —
-it does not invent a standoff. Pins use WGS84 from the ECEF store.
-Click the ground for a pin range. The map scale bar only appears closer in. **Buildings** is opt-in Overpass footprints
-below ~4 km — outlines only, no individual house labels. **Grid**
+Wheel zoom pauses coast-render so the globe does not hitch. Click a
+plane updates the hot mark; it does not rebuild every CallbackProperty.
+Not a swap to the OSM carto drawing. The distance meter is camera
+height (`to surface`) once Cesium has spoken — look-ray slant was
+reading 2 km over a 4 km sit. It does not invent a standoff. Pins use WGS84 from the ECEF store.
+Click the ground for a pin range. The map scale bar only appears closer in. **Grid**
 shows latitude, longitude, and altitude.
 
 ## Glyphs stay consistent
@@ -117,9 +135,10 @@ What shows up on the globe is only what a receiver or operator has
 already chosen to publish. This isn't meant to be a US-centric map,
 either — NYC, for instance, is represented by one municipal catalog
 among many. `merge_live` only runs the adapters that the current band
-and enabled chips allow, in parallel, then filters and caps
-everything down to the current look box before applying it to the
-view.
+and enabled chips allow, in parallel, then caps the fetch. The plate
+filters to the current look box. Walking that box invalidates air,
+sea, cameras, radio, weather, traffic, and fires so the next city
+is not last city's pins.
 
 | What you might want | What you actually get |
 |---|---|
@@ -134,9 +153,9 @@ view.
 | Every car | A genuine gap. We use 511 / WZDx / Open511 / official ArcGIS catalogs, not individual VINs. |
 | Every camera | TfL, Caltrans, NYC, SG LTA, Fintraffic, HK TD, CARS 511 (ON, MB, NS, AB, SK, FL, NY, CO, IA, MN, GA), ODOT TripCheck, SHA/NDDOT, ALGO, DelDOT, NZTA, Quebec 511, and OSM worldwide. These show as pins; official stills or streams play on click, when the publisher's own JSON includes them. The URL itself isn't stored on the pin. |
 | Continents / countries / states | Natural Earth 110m border lines on the globe (cached in ECEF). Fill color only shows while the globe is small — not a live feed. |
-| Ground imagery | NASA GIBS Blue Marble mosaic when you're close — a published mosaic, not a live satellite pass. |
+| Ground imagery | NASA GIBS Blue Marble from space. Daily VIIRS true-color closer in. From space and at night in approach, NASA Black Marble city lights. A published mosaic, not a live pass. |
 | Street-level tiles | Named highway overlays on GIBS / photoreal when Streets is on (Overpass, ODbL). OSM carto is not the planet. |
-| 3D cities | Google Photorealistic 3D Tiles, when `earth.google_maps_key` is set — covered cities only. |
+| 3D cities | Google Photorealistic 3D Tiles after you land below ~8 km, when `earth.google_maps_key` is set — covered cities only. The hop itself stays on the mosaic. |
 | City blocks | Optional Overpass building footprints when Buildings is on, at city band, within roughly a 0.04° fabric box. Outlines only — individual houses stay unlabeled. |
 | Every satellite | CelesTrak's GNSS / weather / visual / science / comm catalogs, plus Starlink/OneWeb/Planet samples — not a painted orbital shell of everything up there. |
 | Military | adsb.lol's public squawk data only — aircraft that stay silent simply stay absent from the map. |
@@ -164,9 +183,15 @@ the store and Live; re-enter refetches. The Live chip is “keep
 pulling while you stay” (TTL and look-box walk). You can turn it
 off; then the last published fix coasts. Pytest never hits the network. If a feed fails, that layer
 stays simulated rather than going blank. Aircraft and ships with a
-known velocity are tagged dead-reckoned after 90 seconds without an
-update, then stale after 15 minutes. Satellites stay at their last
-SGP4-propagated position until the next snapshot.
+known velocity are tagged interpolated from the first coast tick,
+dead-reckoned after 90 seconds without an update, then stale after
+15 minutes. Satellites re-run SGP4 on the stored GP lines every
+tick — a 10-minute CelesTrak poll is a refresh, not a freeze.
+Cesium coasts the last ECEF velocity between Python pushes and only
+leaves idle-render when something is moving. Vertical FOV matches
+the solar-lab eye (0.70 rad), not Cesium's stock 60°. CelesTrak
+groups fetch in parallel. Sat names wait until near/city so the
+space shell stays dots; ISS and a tracked mark stay labeled.
 
 Viewsheds shown are pose priors, not verified line-of-sight — the
 inspect card is upfront that there's **No terrain** behind them.
@@ -258,11 +283,13 @@ it). `park()` cannot kill `QOpenGLContext.globalShareContext()` —
 driver spawns Cesium in a child process (`earth_globe_proc`) instead
 of constructing `QWebEngineView` next to that share group. Do
 **not** add `--disable-gpu` unless a share group is still present
-and Cesium is in-process. Cesium is the only planet painter. The
-Cesium plate is an opaque HWND — same rule as the main glass: no
-`winId()` on HUD chrome, no translucent WebGL, no leftover solar
-frame under the night side. Qt paints black under the plate plus
-sodium HUD glass (`EarthHudGlass`). No second `paint_earth`
+and Cesium is in-process. Cesium is the only planet painter. The child is a top-level Tool
+window pinned onto the plate (`place`). Do not swallow it with
+`createWindowContainer` — DWM keeps the first blit and the HUD hops
+while the planet stays put. The plate is opaque. No `winId()` on
+HUD chrome, no translucent WebGL, no leftover solar frame under the
+night side. Qt paints space under the plate plus sodium HUD glass
+(`EarthHudGlass`). No second `paint_earth`
 city/tile path while Cesium is live. Leave Earth / travel away /
 reset: kill the Cesium child (or delete the in-process WebEngine
 view), then recreate solar GL.
@@ -282,7 +309,10 @@ not show Earth spin; overnight or a closer eye is the same math.
 Nadir is north-up, east-right. The locked inspect floor is 1.2 km
 AGL so the city band is reachable.
 
-Cesium owns space (opaque black + atmosphere). Sodium HUD stays in
+Cesium owns space (opaque black + atmosphere) and the eye. Find,
+Enter, and a hop send one fly; the HUD, chips, and ``_earth_cam``
+follow the Cesium emit. They do not write the dest as if it landed.
+Sodium HUD stays in
 Qt. NASA GIBS
 (z8 cap) is the Cesium imagery stack when no Google / ion key is
 pasted (`choose_stack`). Building outlines are a city-band chip,

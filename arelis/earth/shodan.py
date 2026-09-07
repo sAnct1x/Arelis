@@ -54,11 +54,11 @@ def shodan_key(path: Path | None = None) -> str:
     return str(block.get("shodan_key") or "").strip()
 
 
-def fetch_shodan() -> list[Entity] | None:
+def fetch_shodan(bbox: Any = None) -> list[Entity] | None:
     key = shodan_key()
     if not key:
         return None
-    payload = _get_search(key)
+    payload = _get_search(key, bbox=bbox)
     if payload is None:
         return None
     return entities_from_matches(payload)
@@ -152,14 +152,25 @@ def _host_pinned(host: str | None) -> bool:
     return name == SHODAN_HOST or name.endswith("." + SHODAN_HOST)
 
 
-def _get_search(key: str) -> dict[str, Any] | None:
+def _look_query(bbox: Any) -> str:
+    if bbox is None:
+        return _QUERY
+    try:
+        lat = (float(bbox.south) + float(bbox.north)) / 2.0
+        lon = (float(bbox.west) + float(bbox.east)) / 2.0
+    except (TypeError, ValueError, AttributeError):
+        return _QUERY
+    return f"{_QUERY} geo:{lat:.3f},{lon:.3f},80"
+
+
+def _get_search(key: str, bbox: Any = None) -> dict[str, Any] | None:
     if not _host_pinned(urlparse(SHODAN_SEARCH).hostname):
         return None
     try:
         with httpx.Client(timeout=_TIMEOUT, follow_redirects=True) as client:
             resp = client.get(
                 SHODAN_SEARCH,
-                params={"key": key, "query": _QUERY},
+                params={"key": key, "query": _look_query(bbox)},
                 headers={"User-Agent": "ArelisEarth/0.2"},
             )
             resp.raise_for_status()

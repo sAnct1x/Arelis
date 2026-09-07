@@ -10,6 +10,7 @@ Hosts are string literals so tests/test_egress.py can pin them.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date, timedelta
 
 from arelis.earth.secrets import earth_secret
 
@@ -27,7 +28,26 @@ GIBS_XYZ = (
     "BlueMarble_NextGeneration/default/GoogleMapsCompatible_Level8/"
     "{z}/{y}/{x}.jpeg"
 )
+GIBS_NIGHT_XYZ = (
+    "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/"
+    "VIIRS_Black_Marble/default/default/GoogleMapsCompatible_Level8/"
+    "{z}/{y}/{x}.png"
+)
 OSM_XYZ = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+
+
+def gibs_near_xyz(*, day: date | None = None) -> str:
+    """Daily VIIRS true-color. Time is required; default/default 404s."""
+    when = day or (date.today() - timedelta(days=2))
+    return (
+        "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/"
+        "VIIRS_SNPP_CorrectedReflectance_TrueColor/default/"
+        f"{when.isoformat()}/GoogleMapsCompatible_Level9/"
+        "{z}/{y}/{x}.jpg"
+    )
+
+
+GIBS_NEAR_XYZ = gibs_near_xyz()
 GOOGLE_3D = "https://tile.googleapis.com/v1/3dtiles/root.json"
 
 
@@ -45,7 +65,12 @@ class GlobeStack:
         }.get(self.kind, self.kind)
 
     def credits(self) -> tuple[str, ...]:
-        bits = ["NASA GIBS Blue Marble", "© OpenStreetMap"]
+        bits = [
+            "NASA GIBS Blue Marble",
+            "NASA VIIRS",
+            "NASA Black Marble",
+            "© OpenStreetMap",
+        ]
         if self.kind == "photoreal":
             bits = ["Google", "Cesium", *bits]
         elif self.kind == "ion":
@@ -62,6 +87,8 @@ class GlobeStack:
             "cesiumCss": CESIUM_CSS,
             "cesiumBase": CESIUM_JS[: CESIUM_JS.rfind("/") + 1],
             "gibs": GIBS_XYZ,
+            "gibsNight": GIBS_NIGHT_XYZ,
+            "gibsNear": gibs_near_xyz(),
             "osm": OSM_XYZ,
             "google3d": GOOGLE_3D,
             "photorealAltM": "8000",
