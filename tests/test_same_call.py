@@ -7,8 +7,10 @@ from arelis.core.same_call import (
     normalize_workspace_path,
     record_same_call,
     same_call_finish_line,
+    same_call_finishes_turn,
     same_call_key,
     same_call_notice,
+    same_call_strips_tools,
 )
 
 
@@ -202,3 +204,12 @@ def test_same_call_finish_line_ships_the_prior_result() -> None:
     assert same_call_finish_line("calculator", "840 * 0.175 = 147") == "840 * 0.175 = 147"
     assert "already have that result" in same_call_finish_line("calculator", "").lower()
     assert "tab is open" in same_call_finish_line("browser", "").lower()
+
+
+def test_same_call_cas_does_not_finish_the_turn() -> None:
+    assert same_call_finishes_turn("calculator")
+    assert not same_call_finishes_turn("cas")
+    assert not same_call_finishes_turn("python")
+    assert same_call_strips_tools("cas")
+    assert same_call_strips_tools("python")
+    assert not same_call_strips_tools("workspace")

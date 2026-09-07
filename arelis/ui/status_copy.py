@@ -44,6 +44,7 @@ _ERRANDS: dict[str, str] = {
     "agenda": "looking at your calendar",
     "analyze": "reading the table",
     "browser": "driving the browser",
+    "desktop": "using the desk",
     "calculator": "working that out",
     "cas": "working the algebra",
     "python": "running the numbers",
@@ -143,6 +144,19 @@ _BY_ACTION: dict[str, dict[str, str]] = {
     "tile": {
         "open": "opening a panel",
         "close": "hiding a panel",
+    },
+    "desktop": {
+        "open": "opening that app",
+        "windows": "looking at open windows",
+        "focus": "switching windows",
+        "snapshot": "reading the window",
+        "read": "reading the window",
+        "click": "clicking",
+        "type": "typing",
+        "press": "pressing a key",
+        "hotkey": "pressing a shortcut",
+        "screenshot": "capturing the screen",
+        "wait": "waiting",
     },
     "catalog": {
         "arxiv": "searching arXiv",

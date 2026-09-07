@@ -8,7 +8,8 @@ builtins, then runs the named action under a timeout.
 from __future__ import annotations
 
 import ast
-import concurrent.futures
+import asyncio
+import multiprocessing
 import re
 from typing import Any
 
@@ -16,7 +17,24 @@ from arelis.tools.base import ToolResult
 
 _MAX_CHARS = 500
 _TIMEOUT_S = 8.0
-_ACTIONS = frozenset({"integrate", "diff", "simplify", "solve", "dsolve"})
+_ACTIONS = frozenset(
+    {
+        "integrate",
+        "diff",
+        "simplify",
+        "solve",
+        "dsolve",
+        "limit",
+        "series",
+        "sum",
+        "gradient",
+        "directional",
+        "factor",
+        "expand",
+    }
+)
+# Only these can pin a core for minutes. Solve/diff stay in-process.
+_SPAWN_ACTIONS = frozenset({"integrate", "dsolve", "sum"})
 
 _BINOPS = (ast.Add, ast.Sub, ast.Mult, ast.Div, ast.FloorDiv, ast.Mod, ast.Pow)
 _UNARYOPS = (ast.UAdd, ast.USub)
@@ -79,8 +97,10 @@ def _ensure_sympy() -> None:
         "abs": sp.Abs,
         "pi": sp.pi,
         "E": sp.E,
+        "e": sp.E,
         "I": sp.I,
         "oo": sp.oo,
+        "inf": sp.oo,
         "Eq": sp.Eq,
         "diff": sp.diff,
         "Derivative": sp.Derivative,
@@ -94,6 +114,8 @@ def _ensure_sympy() -> None:
         "Max": sp.Max,
         "floor": sp.floor,
         "ceiling": sp.ceiling,
+        "factor": sp.factor,
+        "expand": sp.expand,
     }
 
 
@@ -121,13 +143,17 @@ class CasTool:
     name = "cas"
     description = (
         "Deterministic computer algebra (SymPy). Actions: integrate, diff, "
-        "simplify, solve, dsolve. Pass a plain expression like 'x**2 * sin(x)' "
-        "(use ** for powers). For solve, an equation is fine: "
-        "'-4*x + 7 = 15'. Result includes ascii, a unicode pretty form, and "
-        "a latex: line — quote that latex inside $$ $$; do not rewrite it. "
+        "simplify, solve, dsolve, limit, series, sum, gradient, directional, "
+        "factor, expand. "
+        "Pass a plain expression like 'x**2 * sin(x)' (use ** for powers). "
+        "For solve, an equation is fine: '-4*x + 7 = 15'. "
+        "gradient/directional take wrt='x,y,z', at='1,-1,2', dir='1,2,-2'. "
+        "Result includes ascii, a unicode pretty form, and a latex: line — "
+        "quote that latex inside $$ $$; do not rewrite it. "
         "This is the CAS — do not use calculator for integrals, derivatives, "
         "or symbolic algebra, and do not recite a closed form from memory. "
-        "If there is no closed form, say so."
+        "A timeout or an unevaluated Integral is not a proof none exists — "
+        "do not invent a decimal or claim there is no closed form."
     )
     risk = "read"
     parameters_schema: dict[str, Any] = {
@@ -135,7 +161,20 @@ class CasTool:
         "properties": {
             "action": {
                 "type": "string",
-                "enum": ["integrate", "diff", "simplify", "solve", "dsolve"],
+                "enum": [
+                    "integrate",
+                    "diff",
+                    "simplify",
+                    "solve",
+                    "dsolve",
+                    "limit",
+                    "series",
+                    "sum",
+                    "gradient",
+                    "directional",
+                    "factor",
+                    "expand",
+                ],
                 "description": "Algebra action (default integrate)",
             },
             "expr": {
@@ -147,7 +186,10 @@ class CasTool:
             },
             "wrt": {
                 "type": "string",
-                "description": "Variable to integrate or differentiate (default x)",
+                "description": (
+                    "Variable, or comma list for gradient/directional "
+                    "(default x, or x,y,z)"
+                ),
             },
             "symbol": {
                 "type": "string",
@@ -164,8 +206,21 @@ class CasTool:
             "n": {
                 "type": "integer",
                 "description": (
-                    "How many times to integrate the same variable "
-                    "(default 1; use 2 for a double integral dx dx)"
+                    "Order: diff n=100 is the 100th derivative; "
+                    "integrate n=2 is a double integral dx dx (max 4)"
+                ),
+            },
+            "at": {
+                "type": "string",
+                "description": (
+                    "Evaluate at this point (0, or 1,-1,2 for several vars)"
+                ),
+            },
+            "dir": {
+                "type": "string",
+                "description": (
+                    "Direction vector for directional, e.g. 1,2,-2. "
+                    "Normalized automatically."
                 ),
             },
         },
@@ -179,7 +234,9 @@ class CasTool:
                 ok=False,
                 output=(
                     f"Unknown action {action!r}. "
-                    "Use integrate, diff, simplify, solve, or dsolve."
+                    "Use integrate, diff, simplify, solve, dsolve, "
+                    "limit, series, sum, gradient, directional, "
+                    "factor, or expand."
                 ),
                 data={"fail_class": "fail:action"},
             )
@@ -194,6 +251,7 @@ class CasTool:
         symbol = str(kwargs.get("symbol") or "").strip() or None
         lo = str(kwargs.get("lo") or "").strip() or None
         hi = str(kwargs.get("hi") or "").strip() or None
+        at = str(kwargs.get("at") or "").strip() or None
         n: int | None = None
         n_raw = kwargs.get("n")
         if n_raw is not None and str(n_raw).strip() != "":
@@ -202,19 +260,47 @@ class CasTool:
             except (TypeError, ValueError):
                 return ToolResult(
                     ok=False,
-                    output="n must be an integer 1–4.",
+                    output="n must be an integer.",
                     data={"fail_class": "fail:args", "action": action, "expr": expr},
                 )
+            if action == "diff" and not (1 <= n <= 200):
+                return ToolResult(
+                    ok=False,
+                    output="n must be 1–200 for diff.",
+                    data={"fail_class": "fail:args", "action": action, "expr": expr},
+                )
+            if action == "integrate" and not (1 <= n <= 4):
+                return ToolResult(
+                    ok=False,
+                    output="n must be 1–4 for integrate.",
+                    data={"fail_class": "fail:args", "action": action, "expr": expr},
+                )
+            if action == "series" and not (1 <= n <= 20):
+                return ToolResult(
+                    ok=False,
+                    output="n must be 1–20 for series.",
+                    data={"fail_class": "fail:args", "action": action, "expr": expr},
+                )
+        direction = str(kwargs.get("dir") or "").strip() or None
         try:
-            result = _run_timed(
-                action, expr, wrt=wrt, symbol=symbol, lo=lo, hi=hi, n=n
+            result = await asyncio.to_thread(
+                _run_timed,
+                action,
+                expr,
+                wrt=wrt,
+                symbol=symbol,
+                lo=lo,
+                hi=hi,
+                n=n,
+                at=at,
+                direction=direction,
             )
         except TimeoutError:
             return ToolResult(
                 ok=False,
                 output=(
-                    "The CAS timed out. That usually means there is no cheap "
-                    "closed form — I will not guess one."
+                    "The CAS did not finish. That is not a proof there is no "
+                    "closed form. Do not invent a decimal or a formula."
                 ),
                 data={"fail_class": "fail:timeout", "action": action, "expr": expr},
             )
@@ -234,8 +320,8 @@ class CasTool:
             return ToolResult(
                 ok=False,
                 output=(
-                    "No closed form found. The CAS could not integrate or solve "
-                    "that symbolically — I will not invent one."
+                    "The CAS left this unevaluated. That is not a proof none "
+                    "exists — I will not invent a closed form or a decimal."
                 ),
                 data={
                     "fail_class": "fail:no_closed_form",
@@ -351,7 +437,36 @@ def _preprocess(expression: str) -> str:
         text = text.replace(glyph, power)
     text = text.replace("^", "**").replace("·", "*")
     text = _PAREN_DIGIT_POWER.sub(r")**\1", text)
+    text = _as_ode_primes(text)
     return _as_equation_expr(text)
+
+
+_ODE_PRIME3 = re.compile(r"\b([A-Za-z]\w*)'''")
+_ODE_PRIME2 = re.compile(r"\b([A-Za-z]\w*)''")
+_ODE_PRIME1 = re.compile(r"\b([A-Za-z]\w*)'(?![A-Za-z'])")
+
+
+def _as_ode_primes(text: str) -> str:
+    """y'' + y = 0 → Derivative(y(x), x, 2) + y(x) = 0 for dsolve."""
+    if "'" not in text:
+        return text
+    names: set[str] = set()
+
+    def _sub(pattern: re.Pattern[str], n: int, src: str) -> str:
+        def repl(match: re.Match[str]) -> str:
+            names.add(match.group(1))
+            if n == 1:
+                return f"Derivative({match.group(1)}(x), x)"
+            return f"Derivative({match.group(1)}(x), x, {n})"
+
+        return pattern.sub(repl, src)
+
+    out = _sub(_ODE_PRIME3, 3, text)
+    out = _sub(_ODE_PRIME2, 2, out)
+    out = _sub(_ODE_PRIME1, 1, out)
+    for name in names:
+        out = re.sub(rf"\b{re.escape(name)}\b(?!\s*\()", f"{name}(x)", out)
+    return out
 
 
 def _as_equation_expr(text: str) -> str:
@@ -433,15 +548,267 @@ def _run_timed(
     lo: str | None,
     hi: str | None,
     n: int | None,
+    at: str | None = None,
+    direction: str | None = None,
 ) -> _CasResult:
-    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-        future = pool.submit(
-            _compute, action, expr, wrt=wrt, symbol=symbol, lo=lo, hi=hi, n=n
+    """Run SymPy in a child we can kill.
+
+    A thread timeout cannot stop integrate(). The old pool then waited
+    for that thread on shutdown — glass froze, Stop did nothing, CPU
+    stayed at one core until SymPy finished or the process was killed.
+    Cheap solve/diff stay in this process so a quadratic is not a 2s spawn.
+    Definite integrals try numeric+identify first — full integrate() often
+    hunts the indefinite (dilogs) and never notices the bounds collapse.
+    """
+    if action == "integrate" and (lo is not None or hi is not None):
+        hit = _identify_definite(expr, wrt=wrt, lo=lo, hi=hi)
+        if hit is not None:
+            return hit
+    if action in _SPAWN_ACTIONS:
+        return _run_in_process(
+            _compute_to_queue,
+            action,
+            expr,
+            wrt,
+            symbol,
+            lo,
+            hi,
+            n,
+            timeout=_TIMEOUT_S,
         )
+    return _compute(
+        action,
+        expr,
+        wrt=wrt,
+        symbol=symbol,
+        lo=lo,
+        hi=hi,
+        n=n,
+        at=at,
+        direction=direction,
+    )
+
+
+def _run_in_process(target: Any, *args: Any, timeout: float = _TIMEOUT_S) -> _CasResult:
+    ctx = multiprocessing.get_context("spawn")
+    queue = ctx.Queue(maxsize=1)
+    proc = ctx.Process(target=target, args=(queue, *args), daemon=True)
+    try:
+        proc.start()
+        proc.join(timeout=max(0.1, float(timeout)))
+        if proc.is_alive():
+            proc.terminate()
+            proc.join(timeout=1.0)
+            if proc.is_alive():
+                proc.kill()
+                proc.join(timeout=0.5)
+            raise TimeoutError("cas timeout")
         try:
-            return future.result(timeout=_TIMEOUT_S)
-        except concurrent.futures.TimeoutError as exc:
-            raise TimeoutError("cas timeout") from exc
+            payload = queue.get(timeout=1.0)
+        except Exception as exc:
+            raise RuntimeError("CAS worker returned nothing") from exc
+    finally:
+        try:
+            queue.close()
+        except Exception:
+            pass
+        if proc.exitcode is not None:
+            try:
+                proc.close()
+            except Exception:
+                pass
+    kind = payload[0]
+    if kind == "err":
+        _name, message = payload[1], payload[2]
+        if _name == "ValueError":
+            raise ValueError(message)
+        raise RuntimeError(message)
+    _ok, ascii_text, latex, text, unevaluated = payload
+    return _CasResult(
+        text, ascii=ascii_text, latex=latex, unevaluated=bool(unevaluated)
+    )
+
+
+def _compute_to_queue(
+    queue: Any,
+    action: str,
+    expr: str,
+    wrt: str | None,
+    symbol: str | None,
+    lo: str | None,
+    hi: str | None,
+    n: int | None,
+) -> None:
+    try:
+        result = _compute(action, expr, wrt=wrt, symbol=symbol, lo=lo, hi=hi, n=n)
+        queue.put(("ok", result.ascii, result.latex, result.text, result.unevaluated))
+    except Exception as exc:
+        queue.put(("err", type(exc).__name__, str(exc)))
+
+
+def _identify_definite(
+    expr: str,
+    *,
+    wrt: str | None,
+    lo: str | None,
+    hi: str | None,
+) -> _CasResult | None:
+    """High-precision quadrature + nsimplify. None if it does not lock."""
+    try:
+        parsed = parse_cas_expr(expr)
+        var = parse_cas_expr(wrt or "x")
+        lower = parse_cas_expr(lo or "0")
+        upper = parse_cas_expr(hi or "1")
+    except Exception:
+        return None
+    hit = _identify_parsed_definite(parsed, var, lower, upper)
+    if hit is None:
+        return None
+    return _pack_result(hit)
+
+
+def _n_definite(func: Any, var: Any, lower: Any, upper: Any) -> Any:
+    """40-digit Integral; split 0→∞ when an endpoint blows up (ln x at 0)."""
+    try:
+        numeric = _collapse_erf(sp.N(sp.Integral(func, (var, lower, upper)), 40))
+    except Exception:
+        numeric = None
+    if numeric is not None and getattr(numeric, "is_finite", False):
+        return numeric
+    try:
+        if lower == 0 and upper == sp.oo:
+            left = _collapse_erf(
+                sp.N(sp.Integral(func, (var, sp.exp(-20), 1)), 40)
+            )
+            right = _collapse_erf(
+                sp.N(sp.Integral(func, (var, 1, sp.exp(20))), 40)
+            )
+            if (
+                left is not None
+                and right is not None
+                and getattr(left, "is_finite", False)
+                and getattr(right, "is_finite", False)
+            ):
+                return left + right
+    except Exception:
+        return None
+    return None
+
+
+def _identify_parsed_definite(func: Any, var: Any, lower: Any, upper: Any) -> Any:
+    """Return a closed form if a 40-digit numeric matches known constants."""
+    _ensure_sympy()
+    numeric = _n_definite(func, var, lower, upper)
+    if numeric is None or not getattr(numeric, "is_finite", False):
+        return None
+    try:
+        if abs(float(sp.N(sp.im(numeric)))) > 1e-18:
+            return None
+    except Exception:
+        return None
+    # Keep the 40-digit Float. complex() would drop to 53-bit and
+    # nsimplify then invents a huge rational.
+    target = sp.re(numeric) if numeric.is_real is False else numeric
+    constants = [
+        sp.pi,
+        sp.E,
+        sp.log(2),
+        sp.log(3),
+        sp.log(5),
+        sp.Catalan,
+        sp.sqrt(2),
+        sp.sqrt(3),
+        sp.GoldenRatio,
+    ]
+    try:
+        guess = sp.nsimplify(target, constants=constants, tolerance=1e-28)
+    except Exception:
+        return None
+    if guess is None or guess.has(sp.Float):
+        return None
+    if guess.is_rational:
+        try:
+            if abs(int(sp.numer(sp.together(guess)))) > 10**8:
+                return None
+        except Exception:
+            return None
+    try:
+        err = abs(complex(sp.N(guess - target, 25)))
+    except Exception:
+        return None
+    if err > 1e-25:
+        return None
+    return sp.simplify(guess)
+
+
+def _as_factorial(expr: Any) -> Any | None:
+    """-50! instead of a 65-digit blob (or that blob factored as odd*2^k)."""
+    try:
+        if not expr.is_number or not expr.is_integer:
+            return None
+        n = int(sp.Integer(expr))
+        sign = -1 if n < 0 else 1
+        absn = abs(n)
+        fact = 1
+        for k in range(1, 201):
+            fact *= k
+            if fact == absn:
+                term = sp.factorial(k, evaluate=False)
+                return term if sign > 0 else sp.Mul(-1, term, evaluate=False)
+            if fact > absn:
+                return None
+    except Exception:
+        return None
+    return None
+
+
+def _factor_pow2(expr: Any) -> Any:
+    """9900*2**98 instead of a 34-digit blob."""
+    try:
+        if not expr.is_number or not expr.is_integer:
+            return expr
+        n = sp.Integer(expr)
+        exp = 0
+        while n.is_even:
+            n = n // 2
+            exp += 1
+        if exp < 8:
+            return expr
+        return sp.Mul(n, sp.Pow(2, exp, evaluate=False), evaluate=False)
+    except Exception:
+        return expr
+
+
+def _as_exp(expr: Any) -> Any:
+    """E**u → exp(u) so diff does not emit log(E)."""
+    return expr.replace(
+        lambda e: bool(getattr(e, "is_Pow", False) and e.base == sp.E),
+        lambda e: sp.exp(e.exp),
+    )
+
+
+def _collapse_erf(expr: Any) -> Any:
+    """erf(∞)=1 so ∫ e^{-x²} dx over the line is √π, not √π·erf(∞)."""
+    try:
+        return expr.subs({sp.erf(sp.oo): 1, sp.erf(-sp.oo): -1})
+    except Exception:
+        return expr
+
+
+def _csv_exprs(raw: str) -> list[Any]:
+    parts = [p.strip() for p in (raw or "").split(",") if p.strip()]
+    if not parts:
+        raise ValueError("expected a comma-separated list")
+    return [parse_cas_expr(p) for p in parts]
+
+
+def _wrt_symbols(wrt: str | None, expr: Any) -> list[Any]:
+    if wrt and wrt.strip():
+        return _csv_exprs(wrt)
+    free = sorted(expr.free_symbols, key=str)
+    if not free:
+        raise ValueError("no symbols to differentiate")
+    return free
 
 
 def _compute(
@@ -453,13 +820,31 @@ def _compute(
     lo: str | None,
     hi: str | None,
     n: int | None = None,
+    at: str | None = None,
+    direction: str | None = None,
 ) -> _CasResult:
-    parsed = parse_cas_expr(expr)
+    parsed = _as_exp(parse_cas_expr(expr))
     if action == "simplify":
+        # The 9B writes factor(...) inside simplify. simplify() would
+        # expand that product back to the polynomial.
+        if expr.strip().lower().startswith("factor("):
+            return _pack_result(parsed)
         return _pack_result(sp.simplify(parsed))
+    if action == "factor":
+        return _pack_result(sp.factor(parsed))
+    if action == "expand":
+        return _pack_result(sp.expand(parsed))
     if action == "diff":
         var = parse_cas_expr(wrt or "x")
-        return _pack_result(sp.diff(parsed, var))
+        times = 1 if n is None else int(n)
+        if times < 1 or times > 200:
+            raise ValueError("n must be 1–200")
+        out = sp.simplify(sp.diff(parsed, var, times))
+        if at is not None:
+            out = sp.simplify(out.subs(var, parse_cas_expr(at)))
+            fact = _as_factorial(out)
+            out = fact if fact is not None else _factor_pow2(out)
+        return _pack_result(out)
     if action == "solve":
         unknown = parse_cas_expr(symbol or "x")
         solutions = sp.solve(parsed, unknown)
@@ -471,6 +856,51 @@ def _compute(
         if "dsolve" in text.lower() and "Eq" not in text:
             return _pack_result(solved, unevaluated=True)
         return _pack_result(solved)
+    if action == "limit":
+        var = parse_cas_expr(wrt or "x")
+        point = parse_cas_expr(at if at is not None else (hi or lo or "0"))
+        return _pack_result(sp.limit(parsed, var, point))
+    if action == "series":
+        var = parse_cas_expr(wrt or "x")
+        point = parse_cas_expr(at or "0")
+        times = 6 if n is None else int(n)
+        if times < 1 or times > 20:
+            raise ValueError("n must be 1–20")
+        out = parsed.series(var, point, times)
+        try:
+            out = out.removeO()
+        except Exception:
+            pass
+        return _pack_result(sp.simplify(out))
+    if action == "sum":
+        var = parse_cas_expr(wrt or symbol or "n")
+        lower = parse_cas_expr(lo or "1")
+        upper = parse_cas_expr(hi or "oo")
+        out = sp.summation(parsed, (var, lower, upper))
+        if out.has(sp.Sum):
+            return _pack_result(out, unevaluated=True)
+        return _pack_result(sp.simplify(out))
+    if action in {"gradient", "directional"}:
+        vars_ = _wrt_symbols(wrt, parsed)
+        grad = [sp.simplify(sp.diff(parsed, v)) for v in vars_]
+        if at is not None:
+            pts = _csv_exprs(at)
+            if len(pts) != len(vars_):
+                raise ValueError("at= needs one value per variable")
+            subs = dict(zip(vars_, pts, strict=True))
+            grad = [sp.simplify(g.subs(subs)) for g in grad]
+        if action == "gradient":
+            return _pack_result(sp.Matrix(grad))
+        vec = _csv_exprs(direction or "")
+        if len(vec) != len(vars_):
+            raise ValueError("dir= needs one component per variable")
+        mat = sp.Matrix(vec)
+        norm = sp.sqrt(sum(c**2 for c in mat))
+        if norm == 0:
+            raise ValueError("direction vector is zero")
+        unit = mat / norm
+        out = sp.simplify(sp.Matrix(grad).dot(unit))
+        return _pack_result(out)
     var = parse_cas_expr(wrt or "x")
     times = 1 if n is None else int(n)
     if times < 1 or times > 4:
@@ -480,7 +910,11 @@ def _compute(
             raise ValueError("definite integrals do not take n>1")
         lower = parse_cas_expr(lo or "0")
         upper = parse_cas_expr(hi or "1")
-        out = sp.integrate(parsed, (var, lower, upper))
+        identified = _identify_parsed_definite(parsed, var, lower, upper)
+        if identified is not None:
+            return _pack_result(identified)
+        out = _collapse_erf(sp.integrate(parsed, (var, lower, upper)))
+        out = sp.simplify(out)
     else:
         out = parsed
         for _ in range(times):

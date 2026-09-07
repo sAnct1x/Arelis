@@ -285,6 +285,11 @@ def test_the_card_shows_the_whole_email_not_eighty_characters() -> None:
     assert "bob@example.com" in detail
     assert "Thursday" in detail
     assert detail.endswith(body.strip())
+    attached = registry.describe_call(
+        "send_email",
+        {**args, "attach": "outputs/documents/notes.md"},
+    )
+    assert "Attach:  outputs/documents/notes.md" in attached
 
 
 def test_other_tools_keep_the_one_line_rendering() -> None:
@@ -639,6 +644,9 @@ def test_persona_forbids_narrating_side_effects_without_a_tool() -> None:
     text = Path("arelis/persona/arelis.md").read_text(encoding="utf-8")
     assert "Never claim you completed a side effect" in text
     assert "Casual in, casual out" in text
+    assert "They swear. That is normal" in text
+    assert "Do not sanitize their language" in text
+    assert "Great question" in text
     assert "Do not diagnose mood" in text
     assert "Do not paste the page" in text
     assert "Do not end with a menu" in text
@@ -703,3 +711,36 @@ def test_the_job_runner_gets_no_way_to_send(tmp_path, monkeypatch) -> None:
     # rewrite what you said in private conversations.
     assert "recall" not in unattended.names()
     assert "memory" not in unattended.names()
+
+
+def test_attach_path_refuses_an_arbitrary_absolute(tmp_path) -> None:
+    from arelis.core.email_complete import resolve_attach_path
+
+    secret = tmp_path / "secrets.yaml"
+    secret.write_text("password: hunter2\n", encoding="utf-8")
+    assert resolve_attach_path(str(secret)) == ""
+
+
+def test_attach_path_accepts_a_workspace_file(tmp_path) -> None:
+    from arelis.core.email_complete import resolve_attach_path
+    from arelis.workspace import WorkspaceRoots
+
+    note = tmp_path / "notes.md"
+    note.write_text("hi\n", encoding="utf-8")
+    ws = WorkspaceRoots.from_paths([str(tmp_path)])
+    assert resolve_attach_path("notes.md", workspace=ws) == str(note.resolve())
+
+
+def test_redact_secrets_covers_quoted_json_keys() -> None:
+    from arelis.tools.safety import redact_secrets
+
+    assert "[redacted]" in redact_secrets("password: hunter2")
+    assert "[redacted]" in redact_secrets('"password": "hunter2"')
+
+
+def test_loopback_ip_is_blocked_even_when_private_is_off() -> None:
+    from arelis.tools.safety import is_blocked_url
+
+    assert is_blocked_url("http://127.0.0.1:11434", block_private=False)
+    assert is_blocked_url("http://localhost:11434", block_private=False)
+    assert is_blocked_url("http://example.com", block_private=False) is None

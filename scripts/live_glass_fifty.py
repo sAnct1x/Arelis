@@ -80,7 +80,9 @@ def _tools_from_receipt(final: str) -> list[str]:
     found: list[str] = []
     for match in _RECEIPT_TOOL.finditer(final or ""):
         name = (match.group(1) or match.group(2) or "").strip().lower()
-        if name and name not in found:
+        if name in {"", "none", "null", "-"}:
+            continue
+        if name not in found:
             found.append(name)
     return found
 
@@ -137,13 +139,21 @@ class _Cap:
         with self.lock:
             self.tools: list[str] = []
             self.records: list[ToolCallRecord] = []
+            self.thinking: list[str] = []
             self.final = ""
             self.done = False
             self.error = ""
 
-    def snapshot(self) -> tuple[list[str], list[ToolCallRecord], str, bool, str]:
+    def snapshot(self) -> tuple[list[str], list[ToolCallRecord], list[str], str, bool, str]:
         with self.lock:
-            return list(self.tools), list(self.records), self.final, self.done, self.error
+            return (
+                list(self.tools),
+                list(self.records),
+                list(self.thinking),
+                self.final,
+                self.done,
+                self.error,
+            )
 
 
 def _bind_cap(bus: EventBus, cap: _Cap) -> None:
@@ -180,10 +190,17 @@ def _bind_cap(bus: EventBus, cap: _Cap) -> None:
             cap.error = str((event.payload or {}).get("message") or "error")
             cap.done = True
 
+    async def on_think(event: Event) -> None:
+        text = str((event.payload or {}).get("text") or "")
+        if text:
+            with cap.lock:
+                cap.thinking.append(text)
+
     bus.subscribe(EventType.TOOL_START, on_start)
     bus.subscribe(EventType.TOOL_RESULT, on_result)
     bus.subscribe(EventType.ASSISTANT_DONE, on_done)
     bus.subscribe(EventType.ERROR, on_err)
+    bus.subscribe(EventType.THINKING, on_think)
 
 
 def _click_allow(window: Any) -> bool:
@@ -530,6 +547,25 @@ def _write_report(out: Path, rows: list[dict[str, Any]], extra: list[dict[str, A
         lines.append(
             f"| {i} | `{row.get('id')}` | {mark} | {row.get('ms', 0)} | {tools} | {why} |"
         )
+    math_fails = [
+        r
+        for r in rows
+        if r.get("ok") is False and str(r.get("id") or "").startswith("M")
+    ]
+    if math_fails:
+        lines.extend(["", "## Math misses (thinking + gold)", ""])
+        for row in math_fails:
+            think = row.get("thinking") or []
+            tail = think[-8:] if isinstance(think, list) else [str(think)]
+            lines.append(f"### `{row.get('id')}`")
+            lines.append(f"- gold: {row.get('gold') or '—'}")
+            lines.append(f"- why: {_snip('; '.join(row.get('reasons') or []), 200)}")
+            lines.append(f"- final: {_snip(str(row.get('final') or ''), 300)}")
+            if tail:
+                lines.append("- thinking:")
+                for line in tail:
+                    lines.append(f"  - {_snip(str(line), 220)}")
+            lines.append("")
     if extra:
         lines.extend(["", "## Physical Reality / Earth", ""])
         for row in extra:
@@ -616,7 +652,7 @@ def _open_glass(config: dict[str, Any], cap: _Cap) -> tuple[Any, Any, Any, Any, 
     return app, window, seat, loop, thread
 
 
-def _wait_warmup(window: Any, app: Any, timeout_s: float = 180) -> None:
+def _wait_warmup(window: Any, app: Any, timeout_s: float = 300) -> None:
     t0 = time.monotonic()
     while time.monotonic() - t0 < timeout_s:
         pending = getattr(window.router, "warmup_pending", None)
@@ -654,7 +690,7 @@ def _run_turn(
     while time.monotonic() < deadline:
         if _click_allow(window):
             _pump(app, 80)
-        _tools, _records, _final, done, _error = cap.snapshot()
+        _tools, _records, _think, _final, done, _error = cap.snapshot()
         busy = bool(getattr(window, "_turn_busy", False))
         if done and not busy:
             break
@@ -662,7 +698,7 @@ def _run_turn(
             # Closed verb — no assistant-done.
             break
         _pump(app, 120)
-    tools, records, final, done, error = cap.snapshot()
+    tools, records, thinking, final, done, error = cap.snapshot()
     if not final:
         final = str(getattr(window.chat, "_last_assistant_body", "") or "")
     extra = _tools_from_receipt(final)
@@ -671,7 +707,7 @@ def _run_turn(
             tools.append(name)
     if not done and not turn.allow_no_tools:
         _cancel_hung(window, app)
-        tools, records, final2, done, error = cap.snapshot()
+        tools, records, thinking, final2, done, error = cap.snapshot()
         if final2:
             final = final2
     forbidden = [t for t in tools if t in FORBIDDEN_TOOLS]
@@ -701,6 +737,8 @@ def _run_turn(
         "tools": tools,
         "ms": ms,
         "final": _snip(final, 400),
+        "thinking": thinking,
+        "gold": getattr(turn, "notes", "") or "",
         "user": turn.user,
         "screenshot": shot.name,
     }
@@ -711,7 +749,18 @@ def main() -> int:
     parser.add_argument("--only", default="")
     parser.add_argument("--token", default="")
     parser.add_argument("--skip-physical", action="store_true")
+    parser.add_argument(
+        "--cleanup-only",
+        action="store_true",
+        help="Delete leftover F50 calendar / tasks / files. No glass.",
+    )
     args = parser.parse_args()
+    if args.cleanup_only:
+        from arelis.eval.board_cleanup import cleanup_board_token, format_cleanup
+
+        cleaned = cleanup_board_token(str(args.token or "").strip())
+        print(format_cleanup(cleaned), flush=True)
+        return 0
     token = str(args.token or "").strip() or _fresh_token()
 
     out = outputs_dir() / "live_fifty"
@@ -768,7 +817,11 @@ def main() -> int:
         turns = live_fifty_turns(token=token)
         if args.only:
             want = {x.strip() for x in args.only.split(",") if x.strip()}
-            turns = [t for t in turns if t.id in want]
+            turns = [
+                t
+                for t in turns
+                if t.id in want or any(t.id.startswith(w) for w in want)
+            ]
         for i, turn in enumerate(turns, 1):
             if turn.id in done_ids:
                 print(f"\n[{i}/{len(turns)}] {turn.id}  skip (breadcrumb)", flush=True)
@@ -822,6 +875,11 @@ def main() -> int:
             _pump(app, 600)
 
         _write_report(out, rows, extra, token)
+        from arelis.eval.board_cleanup import cleanup_board_token, format_cleanup
+
+        cleaned = cleanup_board_token(token)
+        print(f"  {format_cleanup(cleaned)}", flush=True)
+        _note(out, format_cleanup(cleaned))
         passed = sum(1 for r in rows if r.get("ok"))
         print()
         print(f"summary  {passed}/{len(rows)} chat  wrote {out / 'report.md'}", flush=True)

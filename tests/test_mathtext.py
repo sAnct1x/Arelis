@@ -85,6 +85,13 @@ def test_bare_integral_scripts_and_thin_space() -> None:
     assert "e⁻ˣ" in out or "e^{-x}" not in out
 
 
+def test_right_after_a_digit_is_tex_not_a_path() -> None:
+    out = flatten_latex(r"latex: \left[ -5,  2\right]")
+    assert r"\right" not in out
+    assert r"\left" not in out
+    assert "[ -5,  2]" in out
+
+
 def test_cas_sympy_latex_flattens() -> None:
     latex = r"\frac{x^{3}}{6} + 25 x \log{\left(x - 3 \right)} - 75 \log{\left(x - 3 \right)}"
     out = flatten_latex("$$" + latex + "$$")

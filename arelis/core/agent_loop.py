@@ -231,11 +231,11 @@ def _is_ollama_object_400(exc: BaseException) -> bool:
     return "http 400" in text or "closing '}'" in text
 
 
-def _tool_followup_fallback(out: str, tool: str = "") -> str:
+def _tool_followup_fallback(out: str, tool: str = "", ask: str = "") -> str:
     """Use the last successful tool output when the model cannot phrase it."""
     from arelis.core.failure_copy import chat_followup_from_tool
 
-    return chat_followup_from_tool(tool, out)
+    return chat_followup_from_tool(tool, out, ask=ask)
 
 # One extra round when the model tries to answer news from search snippets alone.
 _SCRAPE_AFTER_SEARCH_NOTICE = (
@@ -253,6 +253,13 @@ _WRITE_AFTER_PAGE_NOTICE = (
 _WRITE_AFTER_THINK_NOTICE = (
     "Your reasoning is done. Write the answer in chat now, in your own words. "
     "Do not keep outlining. Do not call a tool unless the ask still needs one."
+)
+
+_WRITE_AFTER_ALGEBRA_NOTICE = (
+    "You already have a tool result. Write the chat line now, in your own words. "
+    "If they have not given a problem, ask what they want — do not paste a "
+    "warmup. If they have, copy the latex: line into $$ $$ and walk the steps. "
+    "Do not call another tool unless the ask still needs one."
 )
 
 _JS_SHELL_BROWSER_NOTICE = (
@@ -498,6 +505,7 @@ class AgentLoop:
         self.confirm_image = bool(agent.get("confirm_image", True))
         self.confirm_send = bool(agent.get("confirm_send", True))
         self.confirm_browser = bool(agent.get("confirm_browser", True))
+        self.confirm_desktop = bool(agent.get("confirm_desktop", True))
         self.confirm_vision = bool(agent.get("confirm_vision", True))
         self.confirm_run = bool(agent.get("confirm_run", True))
         self.ask_is_grant = bool(agent.get("ask_is_grant", True))
@@ -522,6 +530,14 @@ class AgentLoop:
         self._timer: TurnTimer | None = None
         self._look: LookTurn | None = None
         self._turn_source = "chat"
+        self._receipts: list[dict[str, Any]] = []
+        self._expected_tools: set[str] = set()
+        self._turn_role: ModelRole | None = None
+        self._escalated = False
+        self._turn_num_ctx: int | None = None
+        self._last_round_thinking = False
+        self._fail_replan_used = False
+        self._active_plan = None
         from arelis.browser.live import set_hit_sink
 
         set_hit_sink(self._on_watch_hit)
@@ -557,6 +573,10 @@ class AgentLoop:
                 await self.bus.publish(Event(EventType.THINKING, {"text": blurb}))
             await self._cancel_notice()
             raise
+        finally:
+            from arelis.look_scratch import keep_look_files, sweep_look_scratch
+
+            sweep_look_scratch(keep=keep_look_files(text))
 
     async def _run(
         self,

@@ -680,7 +680,6 @@ SKILL_CARDS: dict[str, SkillCard] = {
             "compute",
             "percent",
             "percentage",
-            "math",
             "+",
             "times",
             "divide",
@@ -787,8 +786,16 @@ SKILL_CARDS: dict[str, SkillCard] = {
 - Arithmetic stays on calculator. Multi-step numerics (projectile range,
   time of flight, kinematics with named variables) call python — a real
   Python cell with math/sympy/numpy. Do not cram a script into calculator.
-- Closed forms (integrate, diff, simplify, solve, dsolve) call cas. Do not
-  recite an antiderivative from memory.
+- Closed forms (integrate, diff, simplify, solve, dsolve, limit, series,
+  sum, gradient, directional, factor, expand) call cas. diff takes n= for the order and
+  at= to evaluate (100th derivative at 0). gradient/directional take
+  wrt='x,y,z', at='1,-1,2', dir='1,2,-2' (dir is normalized). After a
+  cas result, write the chat line — do not call the same cas again. Do not
+  recite an antiderivative from memory. If they have not named an
+  expression, ask what they want. Do not invent a warmup quadratic.
+  A definite integral can be elementary even when the antiderivative is
+  not (dilogs that collapse on [0, 1]). Timeout or unevaluated is not
+  "no closed form exists" — do not invent a decimal.
 - Conversions and published constants call units. The tool result names the
   source year (CODATA / IAU / Planck). Do not present those as measured
   this turn.
@@ -1150,7 +1157,7 @@ SKILL_CARDS: dict[str, SkillCard] = {
             "crop to the center",
             "upscale this",
             "make it bigger",
-            "2x",
+            "make this 2x",
             "youtube thumbnail",
             "thumbnail size",
             "make it brighter",
@@ -1368,6 +1375,40 @@ SKILL_CARDS: dict[str, SkillCard] = {
   calendar browser alias. Use browser only if they named calendar.google.com
   or asked to open it in Chrome/the browser.
 - Firefox private only when they ask for Firefox private; default is system default.
+""".strip(),
+    ),
+    "desktop": SkillCard(
+        id="desktop",
+        hints=(
+            "open notepad",
+            "open calculator",
+            "open explorer",
+            "on my computer",
+            "on the desktop",
+            "use my computer",
+            "look at my monitor",
+            "look at the screen",
+            "look at my vertical monitor",
+            "do you see the paragraph",
+            "can you see problem",
+            "what's the second paragraph about",
+        ),
+        requires_tool="desktop",
+        body="""
+### Desktop control
+- When they ask to open or use a Windows app (Notepad, Calculator, Explorer),
+  call desktop(action=open, target=the app). Then type / press / click.
+  Do not invent a per-app tool. Do not call run_script or a shell.
+- Use browser for websites. Use desktop for native apps on this PC.
+- Never start cmd, PowerShell, regedit, or anything that wants Administrator.
+  Never type passwords. Stop on Pay / delete / Empty Recycle Bin / Uninstall.
+- Snapshot the focused window for named controls. x,y only after screenshot
+  then vision this turn.
+- To see a book, homework, or anything on a monitor:
+  desktop(action=screenshot, target=1|left|the window title, find=2.22).
+  The grab already reads the text. vision only for a diagram. Answer from
+  that text. Do not invent a missed problem number. Selecting/highlighting
+  in the other app is not required — quote what you read.
 """.strip(),
     ),
     "research": SkillCard(

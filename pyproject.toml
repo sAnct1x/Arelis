@@ -92,6 +92,11 @@ openwakeword = [
 browser = [
   "playwright>=1.40",
 ]
+# Windows UI Automation for desktop(action=snapshot). Phase 1 launch/type
+# works without it; snapshot/click-by-name need this extra.
+desktop = [
+  "comtypes>=1.4",
+]
 # Physics-room hand tracking. Optional: the rest of Arelis does not import
 # this at startup. pip install -e ".[spatial]" on the checkout that tests it.
 spatial = [
@@ -110,6 +115,7 @@ astro = [
 installer = [
   "arelis[voice]",
   "arelis[browser]",
+  "arelis[desktop]",
 ]
 dev = [
   # Exact, not a floor. A range meant CI installed whatever ruff shipped that

@@ -38,6 +38,7 @@ def default_comfy_roots() -> list[Path]:
     return [
         home / "ComfyUI",
         home / "Documents" / "ComfyUI",
+        home / "Documents" / "ComfyUI" / "ComfyUI_windows_portable",
         home / "Documents" / "ComfyUI_windows_portable",
         home / "Desktop" / "ComfyUI",
         Path("C:/ComfyUI"),

@@ -86,6 +86,10 @@ class EvidenceLedger:
         if name == "cas":
             span = str(data.get("result") or output or "")[:200]
             self.add(source="cas", kind="cas", span=span, ok=ok)
+            # Exact 1 from tan(π/4) is a computed value. Do not refuse
+            # the write-up because the ask also matched the calculator gate.
+            if ok:
+                self.add(source="cas", kind="calc", span=span, ok=True)
             return
         if name == "units":
             span = str(data.get("value") or output or "")[:300]

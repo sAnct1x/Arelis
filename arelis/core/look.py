@@ -260,9 +260,14 @@ def has_look_context(
     *,
     dock_live: bool = False,
     fresh_path: str | None = None,
+    history: list[Any] | None = None,
 ) -> bool:
     """True when this utterance is bound to a webcam still (not a file ask)."""
     raw = text or ""
+    from arelis.core.preflight import looks_like_desktop_look
+
+    if looks_like_desktop_look(raw, history=history):
+        return False
     if mentions_camera_look(raw):
         return True
     if camera_path_in_text(raw):
@@ -277,10 +282,13 @@ def classify_look(
     *,
     dock_live: bool = False,
     fresh_path: str | None = None,
+    history: list[Any] | None = None,
 ) -> LookIntent | None:
     """Speech-act for a Point-and-Ask turn, or None if this is not a look."""
     raw = text or ""
-    if not has_look_context(raw, dock_live=dock_live, fresh_path=fresh_path):
+    if not has_look_context(
+        raw, dock_live=dock_live, fresh_path=fresh_path, history=history
+    ):
         return None
     lowered = raw.lower()
     path = camera_path_in_text(raw)

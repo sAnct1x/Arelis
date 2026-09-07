@@ -88,6 +88,7 @@ def apply_settings(window, values: dict[str, Any]) -> None:
                 "confirm_image",
                 "confirm_send",
                 "confirm_browser",
+                "confirm_desktop",
                 "confirm_vision",
                 "confirm_run",
                 "ask_is_grant",

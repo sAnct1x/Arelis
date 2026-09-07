@@ -91,7 +91,8 @@ _SYMBOLIC_MATH = re.compile(
     r"d/dx|partial\s+derivative|"
     r"limit\s+as|symbolic|"
     r"\bode\b|differential\s+equation|"
-    r"closed\s+form"
+    r"closed\s+form|"
+    r"factor|expand"
     r")\b"
 )
 
@@ -116,6 +117,10 @@ _CAS_FORCE = (
     re.compile(r"(?i)\bclosed\s+form\b"),
     re.compile(r"(?i)\bcheck\s+the\s+algebra\b"),
     re.compile(r"(?i)\bsymbolic\s+(?:algebra|integral|derivative)\b"),
+    re.compile(r"(?i)\bfactor\s+[a-zA-Z(]"),
+    re.compile(r"(?i)\bexpand\s+[a-zA-Z(]"),
+    re.compile(r"(?i)\bsimplify\s+[a-zA-Z(]"),
+    re.compile(r"(?i)\b(?:arcsin|arccos|arctan|asin|acos|atan)\b"),
 )
 
 _UNIT_NAMES = (
@@ -204,6 +209,9 @@ _TEMP_SCALE = re.compile(
     r"(?i)\btemperature\s+in\s+(?:kelvin|celsius|fahrenheit|rankine)\b"
 )
 _PROOF_ASK = re.compile(r"(?i)\bproof\b")
+_PARITY_ASK = re.compile(
+    r"(?i)\beven,\s*odd(?:,\s*or\s*neither)?\b|\b(?:even|odd)\s+function\b"
+)
 # PDF / local-doc quote asks — narrow; avoid "what is a PDF?" definitional hits.
 _DOC_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(
@@ -275,7 +283,7 @@ _AGENDA_PATTERNS: tuple[re.Pattern[str], ...] = (
 _GIT_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(
         r"\b(?:what(?:'s|\s+is)|show(?:\s+me)?|check|get)\s+"
-        r"(?:the\s+)?(?:git\s+)?(?:status|diff|log)\b",
+        r"(?:the\s+)?(?:git\s+(?:status|diff|log)|(?:status|diff))\b",
         re.I,
     ),
     re.compile(
@@ -543,6 +551,8 @@ def detect_math_ask(text: str) -> bool:
     if not lowered:
         return False
     if _PROOF_ASK.search(lowered):
+        return False
+    if _PARITY_ASK.search(lowered):
         return False
     if _SYMBOLIC_MATH.search(lowered):
         return False
@@ -1245,15 +1255,15 @@ def unsupported_exactness_reply(
     if "symbolic" in kinds:
         if cas_failed:
             detail = (cas_detail or "").lower()
-            if "closed form" in detail or "no closed" in detail:
+            if "closed form" in detail or "no closed" in detail or "unevaluated" in detail:
                 return (
-                    "No closed form — the CAS could not find one, and I will "
-                    "not invent it."
+                    "The CAS did not produce a closed form this turn. "
+                    "That is not a proof none exists, and I will not invent one."
                 )
-            if "timeout" in detail:
+            if "timeout" in detail or "did not finish" in detail:
                 return (
-                    "The CAS timed out on that expression. I will not guess a "
-                    "closed form."
+                    "The CAS did not finish. That is not a proof there is no "
+                    "closed form, and I will not invent one."
                 )
             return (
                 "The CAS couldn't evaluate that. I will not recite a symbolic "

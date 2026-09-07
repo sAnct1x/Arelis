@@ -721,6 +721,48 @@ class ImageTool:
                             )
                         ),
                     )
+                    oom = any(
+                        needle in (wait_error or "").lower()
+                        for needle in (
+                            "memory",
+                            "allocate tensor",
+                            "out of memory",
+                            "oom",
+                        )
+                    )
+                    if (
+                        (wait_error or not image_file)
+                        and oom
+                        and mode not in {"inpaint", "outpaint", "img2img"}
+                        and max(width, height) > 512
+                    ):
+                        width, height = clamp_size(512, 512)
+                        workflow = txt2img_workflow(
+                            prompt=prompt,
+                            negative=negative,
+                            width=width,
+                            height=height,
+                            seed=job_seed,
+                            checkpoint=checkpoint,
+                            steps=steps,
+                            cfg=cfg,
+                            sampler=self.sampler,
+                        )
+                        prompt_id, queue_error = await queue_workflow(
+                            client, self.comfy_url, workflow, uuid.uuid4().hex
+                        )
+                        if not queue_error:
+                            last_prompt_id = prompt_id or last_prompt_id
+                            image_file, wait_error = await wait_for_image(
+                                client,
+                                self.comfy_url,
+                                prompt_id or "",
+                                on_progress=lambda step, total, i=index: self._note(
+                                    image_progress_line(
+                                        index=i + 1, n=n, step=step, total=total
+                                    )
+                                ),
+                            )
                     if wait_error or not image_file:
                         return ToolResult(
                             ok=False,

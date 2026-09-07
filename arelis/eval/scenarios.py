@@ -1558,6 +1558,40 @@ SCENARIOS: list[Scenario] = [
         ],
     ),
     Scenario(
+        id="desktop_look_then_ocr",
+        user="do you see problem 2.22 on my right monitor?",
+        expect_tools=("desktop",),
+        expect_args={"action": "screenshot"},
+        forbid_claim_if_no_tool=("i can see", "the page shows", "problem 2.22 is"),
+        offline_only=True,
+        failure_class="incomplete_fulfillment",
+        category="desktop",
+        notes="Desk look: screenshot grabs and reads. Not browser, not webcam.",
+        script=[
+            [
+                (
+                    "tool_calls",
+                    [
+                        _tool_call(
+                            "desktop",
+                            {
+                                "action": "screenshot",
+                                "target": "right",
+                                "find": "2.22",
+                            },
+                        )
+                    ],
+                )
+            ],
+            [
+                (
+                    "token",
+                    "From the still: problem 2.22 is on the page. I will not invent the rest.",
+                )
+            ],
+        ],
+    ),
+    Scenario(
         id="goals_add_oneshot",
         user="Add a goal: ship the goals wave this month",
         expect_tools=("goals",),

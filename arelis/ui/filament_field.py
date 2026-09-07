@@ -687,7 +687,7 @@ class FilamentField:
         return self._radial(name, rect, pad * 0.62)
 
     def hit_float(self, pos: QPoint, rect: QRect) -> str | None:
-        """Which tile bead is under the point. Same motion as the title."""
+        """Which tile bead or name-chip is under the point."""
         best: str | None = None
         best_d = 1e9
         for name, _t, _pad in FLOATS:
@@ -699,6 +699,14 @@ class FilamentField:
             if dist < reach and dist < best_d:
                 best = name
                 best_d = dist
+            if name in self._open:
+                continue
+            title = self.title_point(name, rect)
+            title_reach = 36.0 if name in FREE_FLOATS else 32.0
+            tdist = math.hypot(pos.x() - title.x(), pos.y() - title.y())
+            if tdist < title_reach and tdist < best_d:
+                best = name
+                best_d = tdist
         return best
 
     def title_point(self, name: str, rect: QRect) -> QPointF:

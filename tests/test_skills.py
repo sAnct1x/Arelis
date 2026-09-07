@@ -178,6 +178,17 @@ def test_analyze_card_in_catalog() -> None:
     assert SKILL_CARDS["analyze"].requires_tool == "analyze"
 
 
+def test_hard_math_tonight_is_not_a_calculator_turn() -> None:
+    """'math' as a hint made a setup line look like compute — schemas,
+    hold_paint, and a warmup quadratic she was never asked for."""
+    ids = select_skill_ids(
+        "alright we are going to try some hard math tonight",
+        available_tools={"cas", "units", "calculator", "python", "send_sms"},
+    )
+    assert "calculator" not in ids
+    assert "science" not in ids
+
+
 def test_science_card_in_catalog() -> None:
     assert "science" in SKILL_CARDS
     assert SKILL_CARDS["science"].requires_tool == "cas"

@@ -99,11 +99,15 @@ def test_skinny_schemas_do_not_ship_empty_properties() -> None:
             "properties": {
                 "keep": {"type": "string", "description": "stays"},
                 "hole": {"description": "tabs: index or title"},
+                "description": {"type": "string", "description": "event notes"},
             },
         }
     ) == {
         "type": "object",
-        "properties": {"keep": {"type": "string"}},
+        "properties": {
+            "keep": {"type": "string"},
+            "description": {"type": "string"},
+        },
     }
 
     config = load_config()

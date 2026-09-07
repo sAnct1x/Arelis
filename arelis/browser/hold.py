@@ -81,6 +81,13 @@ def format_drive_status(action: str, args: dict[str, Any] | None = None) -> str:
     if act == "press":
         key = str(args.get("key") or "").strip() or "key"
         return f"pressing {key}…"
+    if act == "hotkey":
+        combo = str(args.get("keys") or args.get("key") or "").strip() or "keys"
+        return f"pressing {combo}…"
+    if act == "windows":
+        return "listing windows…"
+    if act == "focus":
+        return f"switching to {host}…" if host else "switching windows…"
     if act == "select":
         return f"selecting on {ref}…" if ref else "selecting…"
     if act == "wait":

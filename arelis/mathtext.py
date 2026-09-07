@@ -271,7 +271,8 @@ _TEX_CMDS = (
     )
 )
 # A letter, digit, dot, or colon before \ is a path (C:\input, folder\log).
-_PATH_BEFORE = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.:")
+# Letters and drive punctuation, not digits — `2\right]` is TeX, not a path.
+_PATH_BEFORE = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz.:")
 _TEX_AFTER = frozenset("{[_^ \t\n,.;:!)]}") | {"("}
 
 

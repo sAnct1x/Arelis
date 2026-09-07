@@ -426,7 +426,7 @@ def dispatch_event(window: Any, event: Event) -> None:
             from arelis.ui.notify_host import begin_job
 
             begin_job(window, str(tool))
-        if str(tool or "") == "browser":
+        if str(tool or "") in {"browser", "desktop"}:
             action = str(args.get("action") or "")
             window._drive_session = True
             window.conversation.set_drive(True, format_drive_status(action, args))
@@ -458,7 +458,7 @@ def dispatch_event(window: Any, event: Event) -> None:
                 show=bool(data.get("open")) and not data.get("close"),
                 page=str(data.get("page") or ""),
             )
-        if p.get("tool") == "browser":
+        if p.get("tool") in {"browser", "desktop"}:
             if intro:
                 window.chat.add_system(intro)
             code = str(data.get("code") or "")
@@ -472,7 +472,12 @@ def dispatch_event(window: Any, event: Event) -> None:
                     if raw.strip().lower().startswith("your turn"):
                         note = raw.strip()
                         break
-                window.chat.add_system(note or "Your turn — the page stays.")
+                stay = (
+                    "Your turn — the window stays."
+                    if p.get("tool") == "desktop"
+                    else "Your turn — the page stays."
+                )
+                window.chat.add_system(note or stay)
                 window.thinking.append(f"your turn  {kind or code}", kind="status")
             elif data.get("watch_hit"):
                 _watch_hit_ui(

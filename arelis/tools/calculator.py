@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 import math
 import operator
+import re
 from typing import Any
 
 from arelis.tools.base import ToolResult
@@ -38,6 +39,8 @@ _SAFE_FUNCS: dict[str, Any] = {
     "tan": math.tan,
     "log": math.log,
     "log10": math.log10,
+    "ln": math.log,
+    "factorial": math.factorial,
     "exp": math.exp,
     "floor": math.floor,
     "ceil": math.ceil,
@@ -112,10 +115,13 @@ class CalculatorTool:
         )
 
 
+_BANG_FACT = re.compile(r"(?<![\w.])(\d+)\s*!")
+
+
 def evaluate_expression(expression: str) -> float | int:
     """Eval a whitelist AST. Raises ValueError on anything unsafe."""
     # People write 17^2. Python wants **. This tool has no bitwise XOR.
-    source = (expression or "").replace("^", "**")
+    source = _BANG_FACT.sub(r"factorial(\1)", (expression or "").replace("^", "**"))
     try:
         tree = ast.parse(source, mode="eval")
     except SyntaxError as exc:

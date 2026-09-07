@@ -7,6 +7,7 @@ extract cannot change nudge / inject / finish without a failing name.
 
 from __future__ import annotations
 
+import inspect
 from types import SimpleNamespace
 from typing import Any
 
@@ -64,7 +65,17 @@ class _FakeLoop:
     async def _retract(self) -> None:
         self.retracts += 1
 
-    async def _finish(self, text: str = "", sources: Any = None, streamed: str = "") -> None:
+    # Signature mirrors AgentLoop._finish exactly. A double that gives
+    # `sources` a default hides a caller that forgot to pass it: the real
+    # method raises TypeError while this file stays green.
+    async def _finish(
+        self,
+        text: str,
+        sources: Any,
+        *,
+        streamed: str = "",
+        fallback_text: str = "",
+    ) -> None:
         self.finished = (text, sources, streamed)
 
     async def _hold_if_paused(self) -> None:
@@ -262,6 +273,40 @@ async def test_dispatch_second_same_call_skip_finishes() -> None:
 
 
 @pytest.mark.asyncio
+async def test_dispatch_cas_same_call_strips_tools_for_a_writeup() -> None:
+    from arelis.core.same_call import record_same_call
+
+    loop = _FakeLoop()
+    args = {"action": "diff", "expr": "1/(x**2-1)", "n": 50, "at": "0"}
+    r = _scratch(
+        calls=[("cas", args)],
+        tool_calls=[],
+        content="",
+        streamed="",
+        tool_names={"cas"},
+        offer_tools=True,
+        messages=[],
+    )
+    ctx = _ctx()
+    ctx.tool_names = {"cas"}
+    ctx.offer_tools = True
+    ctx.last_ok_tool_out = "diff(...) =\n-factorial(50)"
+    ctx.last_ok_tool_name = "cas"
+    record_same_call(ctx.same_ok, "cas", args)
+    assert await dispatch_calls(loop, ctx, r, 2) is False
+    assert loop.finished is None
+    assert ctx.algebra_write_nudge_used is True
+    assert ctx.offer_tools is False
+    assert "cas same call blocked" in loop._trace
+    thinking = " ".join(str(e.payload.get("text") or "") for e in loop.bus.events)
+    assert "same-call algebra; asking for a write-up" in thinking
+    assert any(
+        m.get("role") == "user" and "Write the chat line" in str(m.get("content") or "")
+        for m in r.messages
+    )
+
+
+@pytest.mark.asyncio
 async def test_dispatch_unknown_tool_does_not_end_the_turn() -> None:
     loop = _FakeLoop()
     r = _scratch(
@@ -276,6 +321,63 @@ async def test_dispatch_unknown_tool_does_not_end_the_turn() -> None:
     assert await dispatch_calls(loop, ctx, r, 0) is False
     thinking = " ".join(str(e.payload.get("text") or "") for e in loop.bus.events)
     assert "reject" in thinking
+
+
+def test_fill_round_calls_bumps_weather_days() -> None:
+    from arelis.core.turn_dispatch import fill_round_calls
+
+    loop = _FakeLoop()
+    filled = fill_round_calls(
+        loop,
+        [
+            ("weather", {"place": "Austin"}),
+            ("weather", {"place": "Dallas"}),
+        ],
+        text="what's the weather tomorrow in Austin and Dallas",
+    )
+    assert filled[0][1].get("days") == 3
+    assert filled[1][1].get("days") == 3
+    assert filled[0][1].get("place") == "Austin"
+
+
+@pytest.mark.asyncio
+async def test_show_all_goals_does_not_inject_remove() -> None:
+    loop = _FakeLoop()
+    loop._expected_tools = {"goals"}
+    loop._receipts = [{"tool": "goals", "action": "goals.list", "ids": ["1", "2"]}]
+    r = _scratch(
+        text="show all my goals",
+        content="Sure.",
+        tool_names={"goals"},
+        available={"goals"},
+        visible={"goals"},
+        available_all={"goals"},
+    )
+    ctx = _ctx(text="show all my goals")
+    ctx.tool_names = {"goals"}
+    hit = await apply_no_call_path(loop, ctx, r, 0)
+    assert hit is None
+    assert r.calls
+    assert all(args.get("action") != "remove" for _name, args in r.calls)
+
+
+def test_fake_loop_finish_matches_the_real_signature() -> None:
+    """The double must never accept more than AgentLoop._finish does.
+
+    turn_round called _finish with the text alone and no sources. The real
+    method takes sources positionally and would have raised TypeError, but
+    this file's fake defaulted it to None, so the arity drift was invisible
+    to the one test module whose job is pinning that contract.
+    """
+    from arelis.core.agent_loop import AgentLoop
+
+    def shape(fn: Any) -> list[tuple[str, Any, bool]]:
+        return [
+            (p.name, p.kind, p.default is inspect.Parameter.empty)
+            for p in inspect.signature(fn).parameters.values()
+        ]
+
+    assert shape(_FakeLoop._finish) == shape(AgentLoop._finish)
 
 
 def test_dispatch_tables_are_named_and_ordered() -> None:

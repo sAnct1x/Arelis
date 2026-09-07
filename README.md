@@ -44,6 +44,11 @@ Mail and texts always show you the exact message before it goes out,
 and she won't send either while you're away. You can see (and edit)
 everything she's allowed to do without asking under Settings → Allow.
 
+That's **sodium**, the face she ships with. There's a second one under
+View → Themes — **filament (testing)** — where speaking the ask is the
+grant instead: sends go without a card, and only deletes, payments, and
+running a project script still stop to ask you.
+
 ## Installing
 
 You'll need Windows 10 or later, 64-bit.

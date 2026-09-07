@@ -307,6 +307,12 @@ def test_tasks_and_goal_delete_intents() -> None:
     assert youtube["action"] == "open"
     assert "youtube" in youtube["url"].lower()
     assert "x.com" not in youtube["url"].lower()
+    twitter = draft_browser_args("open twitter in your browser")
+    assert twitter["action"] == "open"
+    assert "x.com" in twitter["url"].lower()
+    spoken = draft_browser_args("take me to x dot com")
+    assert spoken["action"] == "open"
+    assert "x.com" in spoken["url"].lower()
     yt_hints = detect_intents("Open YouTube in your browser.")
     assert "browser" in {t for h in yt_hints for t in h.expected_tools}
     assert "web_search" not in {t for h in yt_hints for t in h.expected_tools}
@@ -520,3 +526,10 @@ def test_inspect_write_preflight_is_allow_not_a_read() -> None:
     assert write.expected_tools == ("workspace",)
     assert "Allow" in write.nudge
     assert "write" in write.nudge.lower() or "edit" in write.nudge.lower()
+
+
+def test_open_notepad_is_desktop_not_workspace_write() -> None:
+    hints = detect_intents("open notepad and write hello")
+    assert any(h.kind == "desktop" for h in hints)
+    assert not any(h.kind == "workspace_write" for h in hints)
+    assert not any(h.kind == "browser" for h in hints)

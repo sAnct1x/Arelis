@@ -110,6 +110,32 @@ def test_an_exception_with_no_message_still_says_something() -> None:
     assert plain_reason(RuntimeError()) == "RuntimeError"
 
 
+def test_unsolicited_cas_is_not_the_chat_line() -> None:
+    from arelis.core.failure_copy import chat_followup_from_tool
+
+    raw = "solve(x**2 + 3*x - 10 = 0) =\n[-5, 2]\n\nlatex: \\left[ -5,  2\\right]"
+    chat = chat_followup_from_tool(
+        "cas",
+        raw,
+        ask="alright we are going to try some hard math tonight",
+    )
+    assert "[-5, 2]" not in chat
+    assert "problem" in chat.lower()
+    posed = chat_followup_from_tool(
+        "cas",
+        raw,
+        ask="solve x^2 + 3x - 10 = 0",
+    )
+    assert "[-5, 2]" in posed
+    plot_line = chat_followup_from_tool(
+        "plot",
+        "Saved outputs/plots/pos.png (1024x768)",
+        ask="graph position over time",
+    )
+    assert "Ready when you are" not in plot_line
+    assert "pos.png" in plot_line
+
+
 def test_empty_after_tool_strips_agenda_instruction_footers() -> None:
     from arelis.core.failure_copy import chat_followup_from_tool
 

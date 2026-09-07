@@ -129,6 +129,29 @@ _TOPIC_MARKERS = re.compile(
     r"\b(?:of|for|about|that|which|with|from|when|how)\b",
     re.IGNORECASE,
 )
+# "open twitter in your browser" is a tab, not a room. Saying "room"
+# still gets you in: "open the twitter room".
+_BROWSER_SURFACE = re.compile(
+    r"(?i)\b(?:in\s+(?:your|the|my)\s+browser|your\s+browser|"
+    r"chrome|firefox|edge|https?://|www\.)\b"
+)
+_SITE_OPEN = frozenset(
+    {
+        "twitter",
+        "youtube",
+        "yt",
+        "gmail",
+        "github",
+        "google",
+        "reddit",
+        "x",
+        "x.com",
+        "maps",
+        "calendar",
+        "opentable",
+        "resy",
+    }
+)
 
 _LEAVE_INTENT = re.compile(
     r"""(?ix)
@@ -166,6 +189,8 @@ def looks_like_room_name(name: str) -> bool:
         return False
     if re.match(r"(?i)file\b", cleaned):
         return False
+    if re.search(r"(?i)\bbrowser\b", cleaned):
+        return False
     if any(mark in cleaned for mark in (".", "/", "\\")):
         return False
     return True
@@ -176,12 +201,18 @@ def match_enter_intent(text: str) -> str | None:
     found = _ENTER_INTENT.match(text or "")
     if found is None:
         return None
+    raw = text or ""
+    if _BROWSER_SURFACE.search(raw):
+        return None
     name = normalize_room_name(found.group("name"))
     if not name:
         return None
     if re.match(r"(?i)file\b", name) or any(mark in name for mark in (".", "/", "\\")):
         return None
     if _TOPIC_MARKERS.search(name):
+        return None
+    # Site aliases without the word "room" are browser tabs.
+    if name.lower() in _SITE_OPEN and not re.search(r"(?i)\broom\b", raw):
         return None
     # "open the workspace" is the View tile, not a room named Workspace.
     # Reality / world still enter the physics room (same words open the plate).

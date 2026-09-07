@@ -23,6 +23,7 @@ EVERYDAY_TOOLS: frozenset[str] = frozenset(RESEARCH_TOOL_ALLOWLIST) | {
     "camera",
     "ocr",
     "browser",
+    "desktop",
     "calculator",
     "cas",
     "units",

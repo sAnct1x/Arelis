@@ -1,4 +1,4 @@
-"""Rung 2: g, throw, place, bounce. No camera."""
+"""Rung 2: g, throw, place, bounce. Pinch is XY grab. Fist is rotate+Z."""
 
 from __future__ import annotations
 
@@ -17,9 +17,9 @@ def _plane(*bodies: Disc) -> WorldScene:
 
 def test_a_flick_releases_with_velocity() -> None:
     scene = _plane()
-    scene.apply_pointer(0.40, 0.50, True, t=1.00)
-    scene.apply_pointer(0.62, 0.50, True, t=1.10)
-    scene.apply_pointer(0.62, 0.50, False, t=1.10)
+    scene.apply_pointer(0.40, 0.50, True, t=1.00, who="Right", kind="pinch")
+    scene.apply_pointer(0.62, 0.50, True, t=1.10, who="Right", kind="pinch")
+    scene.apply_pointer(0.62, 0.50, False, t=1.10, who="Right", kind="open")
     assert not scene.disc.attached
     assert scene.disc.vx > STILL_SPEED
     assert scene.last_release_speed == scene.disc.vx
@@ -30,9 +30,9 @@ def test_a_flick_releases_with_velocity() -> None:
 
 def test_a_still_release_is_a_place() -> None:
     scene = _plane()
-    scene.apply_pointer(0.50, 0.50, True, t=2.00)
-    scene.apply_pointer(0.501, 0.500, True, t=2.10)
-    scene.apply_pointer(0.501, 0.500, False, t=2.10)
+    scene.apply_pointer(0.50, 0.50, True, t=2.00, who="Right", kind="pinch")
+    scene.apply_pointer(0.501, 0.500, True, t=2.10, who="Right", kind="pinch")
+    scene.apply_pointer(0.501, 0.500, False, t=2.10, who="Right", kind="open")
     assert scene.disc.vx == 0.0
     assert scene.disc.vy == 0.0
     assert scene.last_release_speed == 0.0
@@ -77,7 +77,7 @@ def test_a_throw_arcs_under_g() -> None:
 
 def test_held_disc_does_not_fall() -> None:
     scene = _plane()
-    scene.apply_pointer(0.50, 0.40, True, t=1.0, who="Right", kind="fist")
+    scene.apply_pointer(0.50, 0.40, True, t=1.0, who="Right", kind="pinch")
     y0 = scene.disc.y
     scene.step(0.20)
     assert scene.disc.attached
@@ -133,9 +133,9 @@ def test_energy_is_in_the_take_row() -> None:
 
 def test_reset_kills_the_throw() -> None:
     scene = _plane()
-    scene.apply_pointer(0.40, 0.50, True, t=0.0)
-    scene.apply_pointer(0.70, 0.50, True, t=0.10)
-    scene.apply_pointer(0.70, 0.50, False, t=0.10)
+    scene.apply_pointer(0.40, 0.50, True, t=0.0, who="Right", kind="pinch")
+    scene.apply_pointer(0.70, 0.50, True, t=0.10, who="Right", kind="pinch")
+    scene.apply_pointer(0.70, 0.50, False, t=0.10, who="Right", kind="open")
     scene.reset()
     assert scene.disc.vx == 0.0
     assert scene.disc.x == 0.5
@@ -146,7 +146,7 @@ def test_far_pinch_does_not_steal_a_coasting_disc() -> None:
     scene = _plane()
     scene.disc.x = 0.20
     scene.disc.vx = 1.0
-    scene.apply_pointer(0.90, 0.90, True, t=5.0)
+    scene.apply_pointer(0.90, 0.90, True, t=5.0, kind="pinch")
     assert not scene.disc.attached
     assert scene.disc.vx == 1.0
 
@@ -154,36 +154,36 @@ def test_far_pinch_does_not_steal_a_coasting_disc() -> None:
 def test_a_late_unpinch_still_throws_the_flick() -> None:
     """Unpinch used to wait so long the trail was a crawl, so the disc sat."""
     scene = _plane()
-    scene.apply_pointer(0.40, 0.50, True, t=1.00, who="Right")
-    scene.apply_pointer(0.70, 0.50, True, t=1.10, who="Right")
-    scene.apply_pointer(0.70, 0.50, True, t=1.35, who="Right")
-    scene.apply_pointer(0.70, 0.50, False, t=1.35, who="Right")
+    scene.apply_pointer(0.40, 0.50, True, t=1.00, who="Right", kind="pinch")
+    scene.apply_pointer(0.70, 0.50, True, t=1.10, who="Right", kind="pinch")
+    scene.apply_pointer(0.70, 0.50, True, t=1.35, who="Right", kind="pinch")
+    scene.apply_pointer(0.70, 0.50, False, t=1.35, who="Right", kind="open")
     assert not scene.disc.attached
     assert scene.disc.vx > STILL_SPEED
 
 
 def test_the_same_hand_cannot_regrab_the_throw() -> None:
     scene = _plane()
-    scene.apply_pointer(0.50, 0.50, True, t=1.00, who="Right")
-    scene.apply_pointer(0.70, 0.50, True, t=1.10, who="Right")
-    scene.apply_pointer(0.70, 0.50, False, t=1.10, who="Right")
+    scene.apply_pointer(0.50, 0.50, True, t=1.00, who="Right", kind="pinch")
+    scene.apply_pointer(0.70, 0.50, True, t=1.10, who="Right", kind="pinch")
+    scene.apply_pointer(0.70, 0.50, False, t=1.10, who="Right", kind="open")
     assert scene.disc.vx > 0
-    scene.apply_pointer(0.70, 0.50, True, t=1.18, who="Right")
+    scene.apply_pointer(0.70, 0.50, True, t=1.18, who="Right", kind="pinch")
     assert not scene.disc.attached
 
 
 def test_the_other_hand_cannot_steal_or_drop_the_disc() -> None:
     scene = _plane()
-    scene.apply_pointer(0.50, 0.50, True, t=1.0, who="Right")
+    scene.apply_pointer(0.50, 0.50, True, t=1.0, who="Right", kind="pinch")
     assert scene.disc.attached
     assert scene.disc.holder == "Right"
-    scene.apply_pointer(0.90, 0.90, True, t=1.1, who="Left")
+    scene.apply_pointer(0.90, 0.90, True, t=1.1, who="Left", kind="pinch")
     assert scene.disc.x == 0.50
     assert scene.disc.holder == "Right"
     assert not scene.disc.scaler
-    scene.apply_pointer(0.90, 0.90, False, t=1.2, who="Left")
+    scene.apply_pointer(0.90, 0.90, False, t=1.2, who="Left", kind="open")
     assert scene.disc.attached
-    scene.apply_pointer(0.55, 0.50, False, t=1.3, who="Right")
+    scene.apply_pointer(0.55, 0.50, False, t=1.3, who="Right", kind="open")
     assert not scene.disc.attached
 
 
@@ -343,34 +343,34 @@ def test_a_lost_scaler_frame_does_not_end_the_stretch() -> None:
 
 def test_a_still_hold_is_not_a_flick() -> None:
     scene = _plane()
-    scene.apply_pointer(0.50, 0.50, True, t=1.00, who="Right", kind="fist")
-    scene.apply_pointer(0.501, 0.500, True, t=1.10, who="Right", kind="fist")
+    scene.apply_pointer(0.50, 0.50, True, t=1.00, who="Right", kind="pinch")
+    scene.apply_pointer(0.501, 0.500, True, t=1.10, who="Right", kind="pinch")
     assert scene.disc.attached
     assert not scene.is_flicking()
 
 
 def test_a_sling_is_a_flick() -> None:
     scene = _plane()
-    scene.apply_pointer(0.40, 0.50, True, t=1.00, who="Right", kind="fist")
-    scene.apply_pointer(0.62, 0.50, True, t=1.10, who="Right", kind="fist")
+    scene.apply_pointer(0.40, 0.50, True, t=1.00, who="Right", kind="pinch")
+    scene.apply_pointer(0.62, 0.50, True, t=1.10, who="Right", kind="pinch")
     assert scene.is_flicking()
 
 
 def test_the_other_hand_can_catch_a_drop() -> None:
     scene = _plane()
-    scene.apply_pointer(0.50, 0.50, True, t=1.00, who="Right", kind="fist")
+    scene.apply_pointer(0.50, 0.50, True, t=1.00, who="Right", kind="pinch")
     scene.apply_pointer(0.50, 0.50, False, t=1.10, who="Right", kind="open")
     assert not scene.disc.attached
-    scene.apply_pointer(0.50, 0.50, True, t=1.12, who="Left", kind="fist")
+    scene.apply_pointer(0.50, 0.50, True, t=1.12, who="Left", kind="pinch")
     assert scene.disc.attached
     assert scene.disc.holder == "Left"
 
 
-def test_two_fists_hold_two_discs() -> None:
+def test_two_pinches_hold_two_discs() -> None:
     scene = _plane(Disc(), Disc(x=0.74, y=0.36))
     first, second = scene.bodies
-    scene.apply_pointer(first.x, first.y, True, t=1.0, who="Right", kind="fist")
-    scene.apply_pointer(second.x, second.y, True, t=1.0, who="Left", kind="fist")
+    scene.apply_pointer(first.x, first.y, True, t=1.0, who="Right", kind="pinch")
+    scene.apply_pointer(second.x, second.y, True, t=1.0, who="Left", kind="pinch")
     assert first.attached and first.holder == "Right"
     assert second.attached and second.holder == "Left"
     y0, y1 = first.y, second.y
@@ -383,21 +383,21 @@ def test_the_second_disc_grabs_before_the_first_is_touched() -> None:
     """Disc 0 used to be the miss fallback, so disc 1 felt unborn."""
     scene = _plane(Disc(), Disc(x=0.74, y=0.36))
     first, second = scene.bodies
-    scene.apply_pointer(second.x, second.y, True, t=1.0, who="Left", kind="fist")
+    scene.apply_pointer(second.x, second.y, True, t=1.0, who="Left", kind="pinch")
     assert second.attached and second.holder == "Left"
     assert not first.attached
 
 
 def test_a_miss_does_not_fall_through_to_the_first_disc() -> None:
     scene = _plane()
-    scene.apply_pointer(0.08, 0.08, True, t=1.0, who="Left", kind="fist")
+    scene.apply_pointer(0.08, 0.08, True, t=1.0, who="Left", kind="pinch")
     assert not any(body.attached for body in scene.bodies)
 
 
 def test_an_open_idle_hand_does_not_release_the_other_disc() -> None:
     scene = _plane(Disc(), Disc(x=0.74, y=0.36))
     first, second = scene.bodies
-    scene.apply_pointer(second.x, second.y, True, t=1.0, who="Left", kind="fist")
+    scene.apply_pointer(second.x, second.y, True, t=1.0, who="Left", kind="pinch")
     scene.apply_pointer(first.x, first.y, False, t=1.02, who="Right", kind="open")
     assert second.attached and second.holder == "Left"
     assert not first.attached
@@ -632,7 +632,7 @@ def test_a_spawned_triangle_is_grabbable() -> None:
     scene.set_gravity(False)
     tri = scene.spawn("triangle")
     assert tri is not None
-    scene.apply_pointer(tri.x, tri.y, True, t=1.0, who="Right", kind="fist")
+    scene.apply_pointer(tri.x, tri.y, True, t=1.0, who="Right", kind="pinch")
     assert tri.attached
 
 
@@ -699,7 +699,7 @@ def test_delete_last_body_leaves_the_box_empty() -> None:
     scene.selected = sphere
     assert scene.delete()
     assert scene.bodies == []
-    scene.apply_pointer(0.5, 0.5, True, t=1.0, who="Right", kind="fist")
+    scene.apply_pointer(0.5, 0.5, True, t=1.0, who="Right", kind="pinch")
     assert scene.bodies == []
     row = scene.to_log()
     assert row["bodies"] == []

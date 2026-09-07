@@ -111,8 +111,9 @@ Override per call: `browser=edge`, `browser=firefox`, `private=true`
   page stays. Go continues. Stop aborts the turn. The same words work
   out loud on both faces.
 - `screenshot` writes a PNG under `outputs/images/browser_….png`.
-  Describe pixels with `vision` in a separate call. Optional
-  `full_page=true`.
+  Describe pixels with `vision` in a separate call. The file is a
+  look still — deleted after vision, unless you asked to save it.
+  Optional `full_page=true`.
 - `download` clicks a snapshot ref and saves under `outputs/downloads/`.
   `pdf` prints the tab to `outputs/documents/`. Both raise FILE_READY.
   `upload` takes a path under workspace roots or `outputs/` (Allow).

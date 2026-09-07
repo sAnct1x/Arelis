@@ -94,6 +94,31 @@ def confirm_headline(tool: str, args: dict[str, Any] | None = None) -> str:
         if fmt:
             return f"{verb} a {fmt}"
         return f"{verb} a file"
+    if name == "desktop":
+        target = _who(args, "target", "ref", "into")
+        if action == "open":
+            return f"open {target}" if target else "open an app"
+        if action == "click":
+            return f"click {target}" if target else "click on the desk"
+        if action == "type":
+            return "type on the desk"
+        if action == "press":
+            key = _who(args, "key")
+            return f"press {key}" if key else "press a key"
+        if action == "hotkey":
+            keys = _who(args, "keys")
+            return f"press {keys}" if keys else "press a shortcut"
+        if action in {"snapshot", "read"}:
+            return f"read {target}" if target else "read the window"
+        if action == "screenshot":
+            return "capture the screen"
+        if action == "focus":
+            return f"switch to {target}" if target else "switch windows"
+        if action == "windows":
+            return "list open windows"
+        if action == "wait":
+            return "wait on the desk"
+        return f"{action} on the desk" if action else "use the desk"
     if name == "browser":
         target = _who(args, "url", "target", "query", "destination", "place")
         if action in {"open", "navigate"}:

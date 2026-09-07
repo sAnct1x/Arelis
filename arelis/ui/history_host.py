@@ -10,6 +10,7 @@ from PySide6.QtGui import QAction
 from PySide6.QtWidgets import QMenu
 
 from arelis.core.events import Event, EventType
+from arelis.memory.store_sessions import keep_history_row
 
 
 def show_rooms_menu(window, anchor) -> None:
@@ -81,6 +82,7 @@ def enter_room_from_menu(window, room_id: str) -> None:
 def refresh_history(window) -> None:
     if window.store is None:
         return
+    current = str(window.store.session_id or "")
     sessions = [
         {
             "id": str(row.get("id") or ""),
@@ -88,6 +90,7 @@ def refresh_history(window) -> None:
             "title": str(row.get("title") or ""),
         }
         for row in window.store.list_sessions(limit=100)
+        if keep_history_row(row, current_id=current)
     ]
     window.history.set_sessions(sessions)
     window.history.set_pending_facts(window.store.list_facts(status="pending", limit=50))

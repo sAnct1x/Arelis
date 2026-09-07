@@ -12,7 +12,17 @@ from arelis.tools.base import ToolRegistry, capability_class
 from arelis.tools.policy import confirm_toggles_for_call
 
 _REDIRECT_EXPECTED = frozenset({"weather", "send_sms", "send_email", "agenda"})
-_DUP_GATED = frozenset({"weather", "image", "vision", "send_sms", "send_email"})
+_DUP_GATED = frozenset(
+    {
+        "weather",
+        "image",
+        "vision",
+        "send_sms",
+        "send_email",
+        "scrape",
+        "web_fetch",
+    }
+)
 
 
 def _distinct_weather_places(
@@ -40,6 +50,7 @@ def should_fanout_reads(
     confirm_image: bool = True,
     confirm_send: bool = True,
     confirm_browser: bool = True,
+    confirm_desktop: bool = True,
     confirm_vision: bool = True,
     confirm_run: bool = True,
     allow_writes_this_turn: bool = False,
@@ -78,6 +89,7 @@ def should_fanout_reads(
                 confirm_image=confirm_image,
                 confirm_send=confirm_send,
                 confirm_browser=confirm_browser,
+                confirm_desktop=confirm_desktop,
                 confirm_vision=confirm_vision,
                 confirm_run=confirm_run,
                 allow_writes_this_turn=allow_writes_this_turn,

@@ -521,6 +521,9 @@ class BrowserTool:
             )
             tool = _to_tool(result)
             if tool.ok:
+                from arelis.look_scratch import note_look_scratch
+
+                note_look_scratch(str(tool.data.get("path") or path))
                 # Built under the outputs directory, so this shortens rather than
                 # falling back to an absolute path.
                 tool.data["path"] = _project_rel(str(tool.data.get("path") or path))

@@ -17,7 +17,9 @@ import httpx
 # Generation on a mid-range GPU is tens of seconds; SDXL can take longer.
 # Two minutes of one-second polls covers the common case without holding the
 # tool call open indefinitely.
-POLL_ATTEMPTS = 120
+# DirectML 25-step jobs here run ~3 minutes. 120s reported "not running"
+# while the GPU was still stepping.
+POLL_ATTEMPTS = 240
 POLL_INTERVAL_S = 1.0
 
 DEFAULT_CHECKPOINT = "v1-5-pruned-emaonly.safetensors"
@@ -357,6 +359,24 @@ async def queue_workflow(
     return prompt_id, ""
 
 
+def _history_error(entry: dict[str, Any]) -> str:
+    """Pull the real Comfy exception (OOM, missing node) out of history."""
+    messages = (entry.get("status") or {}).get("messages") or []
+    bits: list[str] = []
+    for item in messages:
+        if not isinstance(item, (list, tuple)) or len(item) < 2:
+            continue
+        payload = item[1]
+        if not isinstance(payload, dict):
+            continue
+        msg = str(
+            payload.get("exception_message") or payload.get("message") or ""
+        ).strip()
+        if msg and msg not in bits:
+            bits.append(msg)
+    return " ".join(bits)
+
+
 async def wait_for_image(
     client: httpx.AsyncClient,
     comfy_url: str,
@@ -392,7 +412,8 @@ async def wait_for_image(
                     return name, ""
         status = (entry.get("status") or {}).get("status_str")
         if status == "error":
-            return None, f"ComfyUI reported an error for job {prompt_id}."
+            detail = _history_error(entry)
+            return None, detail or f"ComfyUI reported an error for job {prompt_id}."
         await asyncio.sleep(interval_s)
     seconds = max(1, round(total * float(interval_s)))
     return None, (

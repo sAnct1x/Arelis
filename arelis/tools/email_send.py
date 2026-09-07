@@ -55,9 +55,15 @@ class SendEmailTool:
         "required": ["subject", "body"],
     }
 
-    def __init__(self, account: MailAccount, mailer: Mailer) -> None:
+    def __init__(
+        self,
+        account: MailAccount,
+        mailer: Mailer,
+        workspace: Any = None,
+    ) -> None:
         self.account = account
         self.mailer = mailer
+        self.workspace = workspace
 
     async def run(self, **kwargs: Any) -> ToolResult:
         subject = str(kwargs.get("subject") or "").strip()
@@ -107,14 +113,23 @@ class SendEmailTool:
 
             chunks = split_attach_args(attach_raw) or [attach_raw]
             for chunk in chunks:
-                resolved = resolve_attach_path(chunk)
-                path = Path(resolved) if resolved else Path(chunk)
+                resolved = resolve_attach_path(chunk, workspace=self.workspace)
+                if not resolved:
+                    return ToolResult(
+                        ok=False,
+                        output=(
+                            f"[fail:send_email] Attachment not allowed: {chunk}. "
+                            "Use a workspace file, a staged drop, or a Downloads "
+                            "basename. Do not claim the email was sent."
+                        ),
+                    )
+                path = Path(resolved)
                 if not path.is_file():
                     return ToolResult(
                         ok=False,
                         output=(
                             f"[fail:send_email] Attachment not found: {chunk}. "
-                            "Ask for an absolute path that exists on disk "
+                            "Ask for a workspace or Downloads file that exists "
                             "(or re-attach the file). Do not claim the email was sent."
                         ),
                     )

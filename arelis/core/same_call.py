@@ -128,6 +128,27 @@ def same_call_notice(name: str, args: dict[str, Any]) -> str:
     )
 
 
+_FINISH_ON_REPEAT = frozenset({"calculator", "weather", "browser", "agenda"})
+# A CAS dump is not chat. After one blocked repeat, take the schemas
+# away so the 9B writes instead of burning three more tool rounds.
+_STRIP_TOOLS_ON_REPEAT = frozenset(
+    {"cas", "calculator", "python", "units", "plot"}
+)
+
+
+def same_call_finishes_turn(name: str) -> bool:
+    """True when the prior receipt can stand as the chat line.
+
+    Calculator 2+2 can. A CAS blob cannot — they still owe the write-up.
+    """
+    return (name or "").strip() in _FINISH_ON_REPEAT
+
+
+def same_call_strips_tools(name: str) -> bool:
+    """True when a blocked repeat should drop tools so she writes next."""
+    return (name or "").strip() in _STRIP_TOOLS_ON_REPEAT
+
+
 def same_call_finish_line(name: str, last_out: str) -> str:
     """User-facing line when a second identical call is blocked.
 

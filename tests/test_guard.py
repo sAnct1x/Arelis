@@ -75,6 +75,21 @@ def test_snapshot_lists_bound_listeners() -> None:
     assert "Quiet" in watch.snapshot().detail
 
 
+def test_earth_zone_widens_egress_burst() -> None:
+    from arelis.earth.runtime import EarthRuntime, set_earth
+    from arelis.guard.watch import Watch
+
+    set_earth(EarthRuntime(active=True))
+    try:
+        watch = Watch()
+        watch.egress_burst = 2
+        for i in range(20):
+            assert watch.allow_egress(f"catalog{i}.example.org")
+        assert watch.egress_open()
+    finally:
+        set_earth(None)
+
+
 def test_disabled_watch_admits_everything() -> None:
     watch = Watch()
     watch.enabled = False

@@ -4,11 +4,12 @@ Each unused finger is a bone chain (MCP–PIP–DIP–tip). Curl is
 1 - chord/chain. A fist aimed at the C920 still folds; tip–MCP
 distance does not — that looks like an open finger pointing at you.
 
-Closed aperture + high curl = fist = grab. Closed + straight fingers
-= pinch. Stretch is two pinches held, not one hand, not pinch-release.
+Closed aperture + straight fingers = pinch. Still unpinch is a click;
+travel past click_travel is an XY grab. Closed + high curl = fist =
+rotate and Z (DepthBank), not the grab. Two pinches scale one body.
 
 A still wrist that "opens" is a camera lie (horizontal fist twist).
-A moving wrist that opens is a throw. Leave-fist uses that split.
+A moving wrist that opens is a flick. Leave-closed uses that split.
 """
 
 from __future__ import annotations
@@ -157,7 +158,7 @@ class HandTrack:
 
     @property
     def dragging(self) -> bool:
-        """Pinch is a click until the wrist travels. Fist grabs immediately."""
+        """Pinch is a click until the wrist travels. Fist is rotate+Z at once."""
         if self.state == "fist":
             return True
         if self.state == "pinch":

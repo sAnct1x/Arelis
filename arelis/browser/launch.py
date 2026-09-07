@@ -265,6 +265,77 @@ def _clamp_to_desk(
     return (x, y, w, h)
 
 
+def should_park_window(*, fresh_launch: bool, already_placed: bool) -> bool:
+    """True only for a Chrome we just started. Never after they move it."""
+    return bool(fresh_launch) and not bool(already_placed)
+
+
+def raise_arelis_chrome(*, restore: bool = True) -> bool:
+    """Put her Chrome above Arelis without taking the keyboard.
+
+    Launch leaves Chrome behind the glass. Clicks go through CDP and do
+    not need the window focused — they need to see it. HWND_TOP +
+    no-activate keeps the mic on Arelis.
+    """
+    if sys.platform != "win32":
+        return False
+    pids = set(_pids_using_arelis_profile())
+    if _last_arelis_proc is not None and _last_arelis_proc.poll() is None:
+        pids.add(int(_last_arelis_proc.pid))
+    if not pids:
+        return False
+    try:
+        import ctypes
+        from ctypes import wintypes
+    except ImportError:
+        return False
+
+    user32 = ctypes.windll.user32
+    found: list[int] = []
+
+    @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    def _each(hwnd: int, _lp: int) -> bool:
+        pid = wintypes.DWORD()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        if int(pid.value) not in pids:
+            return True
+        if user32.GetWindow(hwnd, 4):  # GW_OWNER — skip popups
+            return True
+        buf = ctypes.create_unicode_buffer(64)
+        user32.GetClassNameW(hwnd, buf, 64)
+        if buf.value != "Chrome_WidgetWin_1":
+            return True
+        if not user32.IsWindowVisible(hwnd) and not user32.IsIconic(hwnd):
+            return True
+        found.append(int(hwnd))
+        return True
+
+    user32.EnumWindows(_each, 0)
+    if not found:
+        return False
+
+    swp_nomove = 0x0002
+    swp_nosize = 0x0001
+    swp_noactivate = 0x0010
+    hwnd_top = 0
+    hwnd_topmost = -1
+    hwnd_notopmost = -2
+    sw_restore = 9
+    sw_shownoactivate = 4
+    flags = swp_nomove | swp_nosize | swp_noactivate
+    raised = False
+    for hwnd in found:
+        if restore and user32.IsIconic(hwnd):
+            user32.ShowWindow(hwnd, sw_restore)
+        else:
+            user32.ShowWindow(hwnd, sw_shownoactivate)
+        user32.SetWindowPos(hwnd, hwnd_topmost, 0, 0, 0, 0, flags)
+        user32.SetWindowPos(hwnd, hwnd_notopmost, 0, 0, 0, 0, flags)
+        user32.SetWindowPos(hwnd, hwnd_top, 0, 0, 0, 0, flags)
+        raised = True
+    return raised
+
+
 def window_placement() -> tuple[int, int, int, int]:
     """x, y, w, h — ~60% of one monitor, never maximized across the span.
 

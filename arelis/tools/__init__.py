@@ -24,6 +24,7 @@ from arelis.tools.catalog import CatalogTool
 from arelis.tools.clipboard import ClipboardTool
 from arelis.tools.code_workspace import CodeWorkspaceTool
 from arelis.tools.contacts_tool import ContactsTool
+from arelis.tools.desktop_tool import DesktopTool
 from arelis.tools.diagnostics import DiagnosticsTool
 from arelis.tools.doc_extract import DocExtractTool
 from arelis.tools.document import DocumentTool
@@ -82,7 +83,7 @@ def build_tool_registry(
 
     Two flags used to be one. ``allow_send`` is outbound mail and SMS (and
     schedule, which exists to deliver mail). ``attended`` is "a person is
-    here to read an Allow card": archive, vision, browser, solar, earth,
+    here to read an Allow card": archive, vision, browser, desktop, solar, earth,
     plot, document, clipboard, OCR, tile, research, agenda, contacts.
 
     When ``attended`` is omitted it follows ``allow_send``, so every existing
@@ -250,7 +251,7 @@ def build_tool_registry(
                 timeout_s=timeout,
             )
             if allow_send:
-                registry.register(SendEmailTool(account, mailer))
+                registry.register(SendEmailTool(account, mailer, workspace=workspace))
             inbox_tool = InboxTool(
                 account,
                 host=email_cfg.get("imap_host", "imap.gmail.com"),
@@ -438,6 +439,17 @@ def build_tool_registry(
         registry.register(
             BrowserTool(session, aliases=aliases, workspace=workspace)
         )
+    desktop_cfg = tools_cfg.get("desktop") or {}
+    if attended and desktop_cfg.get("enabled", True):
+        aliases_raw = desktop_cfg.get("aliases") or {}
+        aliases = {
+            str(k).strip().lower(): str(v).strip()
+            for k, v in aliases_raw.items()
+            if str(k).strip() and str(v).strip()
+        }
+        from arelis.desktop.session import DesktopSession
+
+        registry.register(DesktopTool(DesktopSession(aliases=aliases), aliases=aliases))
     # View-menu tiles. Attended only — there is no window in a job.
     if attended:
         registry.register(TileTool())

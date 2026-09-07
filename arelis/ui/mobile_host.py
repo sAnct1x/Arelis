@@ -7,6 +7,7 @@ import logging
 from pathlib import Path
 
 from arelis.attachments import display_session_title
+from arelis.memory.store_sessions import keep_history_row
 
 log = logging.getLogger(__name__)
 
@@ -101,6 +102,7 @@ def bind_mobile_hub(window) -> None:
         store = window.store
         if store is None:
             return []
+        current = str(store.session_id or "")
         return [
             {
                 "id": str(row.get("id") or ""),
@@ -109,6 +111,7 @@ def bind_mobile_hub(window) -> None:
                 "room_id": str(row.get("room_id") or ""),
             }
             for row in store.list_sessions(limit=80)
+            if keep_history_row(row, current_id=current)
         ]
 
     def current_chat() -> dict:

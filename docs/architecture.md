@@ -23,9 +23,11 @@ permission.
 
 Core and the UI talk to each other over a small loopback bridge, which
 is why inbound texts and "open the window" still work even when the
-window itself is closed. `--core` never runs the first-open setup
-wizards — it just uses whatever defaults exist until the window is
-actually opened.
+window itself is closed. The glass treats a core as present only when
+the core lock is held. Another window's ingest is not a core; if the
+core never answers, the glass binds `:8765` itself. `--core` never
+runs the first-open setup wizards — it just uses whatever defaults
+exist until the window is actually opened.
 
 The phone app is a LAN companion, not a second copy of Arelis. When
 your PC is reachable, chat on the phone is literally the same live
@@ -65,8 +67,11 @@ the first time you actually send a picture. More on all this in
    schemas are already sitting in the prompt from the launch seed, so
    she may go ahead and call tools.
 4. Risky actions pause for your input. A drive you already asked for
-   doesn't need to pause again — mail and texts always do, no
-   exceptions.
+   doesn't need to pause again. On **sodium** mail and texts always
+   pause, no exceptions. The **filament** desk is the one exception in
+   the app: there the spoken ask is the grant, so a send goes without a
+   card and only destructive calls — delete, forget, Pay, Checkout —
+   plus `run_script` stop and wait. See Themes below.
 5. Tool results flow back into the turn, and she answers based on
    what she actually got back — not what she expects to get back.
 
@@ -190,7 +195,7 @@ docks.
 | Title strip | Arelis branding, view menu, settings, window buttons |
 | Readiness | Ollama status and a house indicator. Mail / SMS / calendar only show up here once connected |
 | Chat stage | Empty-session view, the streaming answer, Sources, allow / deny cards. The last finished answer gets a **copy · again** option |
-| Drive strip | Stop / Pause / your-turn controls while her browser is actively driving |
+| Drive strip | Stop / Pause / your-turn controls while her browser or the desk is actively driving |
 | Thinking dock | The actual thinking paragraph. A tool errand shows as one line in that stream. Housekeeping info (model loaded, speech status) sits in a footer, not mixed into the reasoning |
 | Workspace dock | The desk: notes you kept and files she wrote, pinned first. Folders is the old tree. Markdown reads as a page. `keep this:` writes a note |
 | Camera dock | Webcam still image. View → Camera / Ctrl+5. Inside Reality: Track / Record |
@@ -199,7 +204,7 @@ docks.
 | Contacts | People you can text, under View → Contacts / Ctrl+6 |
 | Calendar | Local tile, Ctrl+7 — month / week / day / agenda views, plus tasks and jobs. Empty of any Google events until you authorize |
 | Settings | Audio / window / allow / notify / roots / memory. Mail and calendar credentials aren't a Settings tab at all — they live in `data/secrets.yaml` and are set up via [calendar-oauth.md](calendar-oauth.md) |
-| Themes | View → Themes. **sodium** is the shipped face. **filament (testing)** is a checkout experiment for a row of desks — three monitors is the intended layout; 1 and 2 still work. Saved to `data/config.local.yaml`. Filament is a desk presence: coil at first rest or away-idle, unwrapped once in use. Slim title bar, say “hey arelis”, and 1 / 2 / 3 stay on the primary desk. 1 / 2 / 3 are desk counts, not Windows monitor numbers; default is one primary desk. Text lives on the chat plate. The thinking title breathes while a turn is running. Each title has its own particle on the current (same motion as the word). Click the bead or the word. HWND stays opaque; tiles are floating resizable plates. The field paints a horizontal band and remasks only on span / resize, not every atmosphere tick. Dust stamps live in RAM; camera preview convert is a worker, not the HWND thread |
+| Themes | View → Themes. **sodium** is the shipped face. **filament (testing)** is a checkout experiment for a row of desks — three monitors is the intended layout; 1 and 2 still work. Saved to `data/config.local.yaml`. Confirms change with the face: sodium raises the Allow card, filament treats the spoken ask as the grant and only pauses on destructive calls (delete / forget / Pay / Checkout) and `run_script`. Switching theme switches that policy — a send that would have shown you a card on sodium does not on filament. Filament is a desk presence: coil at first rest or away-idle, unwrapped once in use. Slim title bar, say “hey arelis”, and 1 / 2 / 3 stay on the primary desk. 1 / 2 / 3 are desk counts, not Windows monitor numbers; default is one primary desk. Text lives on the chat plate. The thinking title breathes while a turn is running. Each title has its own particle on the current (same motion as the word). Click the bead or the word. HWND stays opaque; tiles are floating resizable plates. The field paints a horizontal band and remasks only on span / resize, not every atmosphere tick. Dust stamps live in RAM; camera preview convert is a worker, not the HWND thread |
 | Display | Same model as Chrome / VS Code / Office. Qt 6 per-monitor DPI: a 4K panel at 150% is ~2560×1440 logical, not a second 4K mode. First-launch size (1440×900) shrinks to the current work area so 1080p fits; 2K and 4K stay that size until you maximize. Restored geometry that landed on an unplugged monitor moves back. Settings → window → Interface scale is an optional zoom on top of the OS (`ui.scale`, default 1.0, needs a restart). Chat text size is just the transcript (Ctrl+= / − / 0). |
 | Reality | A floating 3D window. View → Reality / Ctrl+8. Only appears while the Reality room is active, and only on a source checkout (`world_stage_allowed`). Needs `pip install -e ".[spatial]"` for hand tracking and `.[astro]` for REBOUND — none of it ships in the installer. Default size 1280×800. The solar GPU path is `--solar-gl` / `ARELIS_SOLAR_GL=1` (an offscreen FBO). The Earth view renders the planet through Cesium, with Arelis handling stars and the HUD; contacts there use `earth_marks.py`. It's inspect-only — a WASD fly camera, with H reciting the live key bindings. There's no piloted chase-cam |
 
@@ -236,6 +241,7 @@ connected. Until then, if you ask, she'll just tell you she can't.
 | `scrape` / `web_fetch` | Read a page for her | No |
 | `research_report` | Multi-source write-up, saved under `outputs/research/` | No* |
 | `browser` | Drive her Chrome | Only when she offers it — a drive you asked for counts as the grant |
+| `desktop` | Drive your Windows session (open apps, type, click) | Only when she offers it — a desk ask you named is the grant. Deletes / Pay / UAC still pause |
 | `workspace` | Files in allowed roots | Writes: yes |
 | `analyze` / `doc_extract` / `git_info` | Tables, PDFs, git | No |
 | `calculator` | Arithmetic | No |
@@ -264,10 +270,12 @@ She can `workspace`-read her package to answer "how do you work"
 from the file. Installed copies get a read-only `source` root at
 the package.
 
-\* Writes a local file. Outbound mail and texts always need their own
-separate allow / deny prompt and are never batched together with
-other tools. `research_report` doesn't currently pop up an Allow card
-at all.
+\* Writes a local file. On sodium, outbound mail and texts always need
+their own separate allow / deny prompt. On neither face are they ever
+batched into "allow the rest of this ask" — that exemption is the same
+in both. On filament there is no card at all for a send: it rides the
+spoken grant like any other non-destructive call.
+`research_report` doesn't currently pop up an Allow card at all.
 
 ComfyUI is a separate app entirely — Arelis never starts it
 automatically at launch. `tools.image.auto_start` ships set to false;
@@ -280,6 +288,13 @@ to launch something that isn't there.
 `browser` moves her own Chrome instance under
 `data/browser-profile/` — it's never your everyday Chrome. See
 [browser-control.md](browser-control.md).
+
+`desktop` drives **your** Windows session — Notepad, Explorer, the
+apps already signed in. That is not a shell and not a raw `.exe`
+path. A look at a monitor or window is a screenshot that already
+reads the page (tiled when a named problem is missing on a huge
+still). Follow-ups about a paragraph or problem stay on the desk,
+not the webcam. See [desktop-control.md](desktop-control.md).
 
 ## Rooms
 
@@ -339,9 +354,12 @@ view and C920 hand tracking actually run. See [rooms.md](rooms.md).
   or `tool_cache` as papers to recall.
 - Launch runs `arelis.housekeep`: scrape cache, ledger, spoken-reply
   wavs, old drops, stale logs, `turns.jsonl`, Chromium cache trees,
-  and leftover `data/backups/memory-*.db`. Dated memory copies are
-  off. Secrets, `memory.db`, rooms, and config are not touched. A full
-  Chrome reset is `python -m arelis.housekeep --reset-browser`.
+  leftover look stills (`browser_` / `desktop_` / `ocr_screen_`
+  captures she took to see, plus old `camera_` stills), and leftover
+  `data/backups/memory-*.db`. Dated memory copies are off. Secrets,
+  `memory.db`, rooms, and config are not touched. A full Chrome reset
+  is `python -m arelis.housekeep --reset-browser`. Pictures she
+  generated stay.
 - CLI writes from a non-interactive session are denied unless you
   pass `--allow-write`.
 

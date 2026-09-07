@@ -12,6 +12,9 @@ from urllib.parse import urlparse
 # unreadable line, a false negative leaks a live credential into model context.
 _SECRET_PATTERNS = [
     re.compile(r"(?i)(api[_-]?key|secret|password|token|access[_-]?key)\s*[=:]\s*\S+"),
+    re.compile(
+        r"(?i)[\"'](api[_-]?key|secret|password|token|access[_-]?key)[\"']\s*:\s*[\"'][^\"']+[\"']"
+    ),
     re.compile(r"(?i)(sk|pk|ghp|gho|xox[baprs])-[A-Za-z0-9_\-]{16,}"),
     re.compile(r"(?i)-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]+?-----END [A-Z ]*PRIVATE KEY-----"),
 ]
@@ -56,15 +59,20 @@ def is_blocked_url(url: str, *, block_private: bool = True) -> str | None:
     # only thing reachable there is Arelis' own Ollama and ComfyUI ports.
     if host in _LOOPBACK_NAMES or host.endswith(".localhost"):
         return "Blocked local/loopback URL"
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        ip = None
+    if ip is not None and ip.is_loopback:
+        return f"Blocked loopback address: {host}"
     if not block_private:
         return None
-    try:
-        return _ip_reason(ipaddress.ip_address(host), host)
-    except ValueError:
-        # Not a literal IP. Catch the well-known metadata name here; anything
-        # else needs DNS, which happens in check_url_allowed.
-        if host == "metadata.google.internal" or host.endswith(".internal"):
-            return f"Blocked metadata host: {host}"
+    if ip is not None:
+        return _ip_reason(ip, host)
+    # Not a literal IP. Catch the well-known metadata name here; anything
+    # else needs DNS, which happens in check_url_allowed.
+    if host == "metadata.google.internal" or host.endswith(".internal"):
+        return f"Blocked metadata host: {host}"
     return None
 
 

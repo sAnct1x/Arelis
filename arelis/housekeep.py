@@ -1,7 +1,9 @@
 """Ceilings for records that are not her papers.
 
 Launch runs this once. Fat-tool writes prune the scrape cache on the way.
-Nothing here touches secrets, memory.db, rooms, or config. The browser
+Look stills she took to see a page or the desk are dropped after vision
+or OCR; leftovers are pruned here. Nothing here touches secrets, memory.db,
+rooms, or config. The browser
 profile is not wiped on launch — only its Cache / GPU / crash pads — so a
 sign-in survives. A full reset is ``python -m arelis.housekeep --reset-browser``.
 """
@@ -17,6 +19,7 @@ from pathlib import Path
 
 from arelis.core.receipts import prune_action_ledger
 from arelis.core.tool_results import prune_tool_cache
+from arelis.look_scratch import prune_look_scratch
 from arelis.memory.backup import prune_memory_backups
 from arelis.paths import logs_dir, outputs_dir, state_dir
 
@@ -219,6 +222,7 @@ def run_startup_housekeep() -> dict[str, int]:
         "logs": 0,
         "turns_jsonl": 0,
         "browser_cache": 0,
+        "look_scratch": 0,
     }
     steps = (
         ("tool_cache", prune_tool_cache),
@@ -229,6 +233,7 @@ def run_startup_housekeep() -> dict[str, int]:
         ("logs", prune_logs),
         ("turns_jsonl", prune_turns_jsonl),
         ("browser_cache", prune_browser_caches),
+        ("look_scratch", prune_look_scratch),
     )
     for key, fn in steps:
         try:

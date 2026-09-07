@@ -21,6 +21,7 @@ from arelis.rooms import (
     RoomStore,
     infer_kind,
     is_perma,
+    looks_like_room_name,
     match_enter_intent,
     match_leave_intent,
     match_list_rooms_intent,
@@ -365,6 +366,17 @@ def test_open_the_workspace_is_not_a_room() -> None:
     assert match_enter_intent("open Reality") == "Reality"
 
 
+def test_open_twitter_in_the_browser_is_not_a_room() -> None:
+    """A tab. Must not mint 'twitter-and-your-browser'."""
+    assert match_enter_intent("open twitter in your browser") is None
+    assert match_enter_intent("open Twitter in the browser") is None
+    assert match_enter_intent("open twitter") is None
+    assert match_enter_intent("go to youtube") is None
+    assert match_enter_intent("open the twitter room") == "twitter"
+    assert match_enter_intent("open Reality") == "Reality"
+    assert looks_like_room_name("twitter in your browser") is False
+
+
 def test_some_physics_is_the_physics_room(store: RoomStore) -> None:
     assert normalize_room_name("some physics") == "physics"
     assert match_enter_intent("let's work on some physics") == "physics"
@@ -436,6 +448,16 @@ def test_spoken_field_edits_are_closed() -> None:
     assert match_set_root_intent("work in Lab Notes", ["Lab Notes", "lab"]) == "Lab Notes"
     assert match_room_project("notes", ["lab", "notes"]) == "notes"
     assert match_room_project("nowhere", ["lab", "notes"]) is None
+
+
+def test_a_picture_ask_is_not_a_project_guess() -> None:
+    from arelis.core.orchestrator_rooms import _looks_like_project_guess
+
+    assert _looks_like_project_guess("notes")
+    assert _looks_like_project_guess("Lab Notes")
+    assert not _looks_like_project_guess("generate a picture of Saturn")
+    assert not _looks_like_project_guess("what's 9 squared")
+    assert not _looks_like_project_guess("remember that my coverage fruit is persimmon")
 
 
 def test_skip_setup_is_not_skip_this_question() -> None:

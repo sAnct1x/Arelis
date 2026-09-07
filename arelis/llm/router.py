@@ -285,6 +285,10 @@ class ModelRouter:
             if role in self.models
         }
         if keep and keep in heavy_models:
+            # Shipped overlay: fast == research is the same 9B. The 5 GiB
+            # gate is for a 14B cold load, not "research" as a role name.
+            if self.same_chat_weights("fast", "research"):
+                return
             already = False
             if callable(running_fn):
                 try:
@@ -593,49 +597,53 @@ class ModelRouter:
         merged = {**self.options_for(role), **(options or {})}
         first_wait = _HEAVY_FIRST_TOKEN_S if role in _HEAVY_ROLES else 0.0
         last_exc: BaseException | None = None
-        for attempt in range(_STREAM_RETRIES):
-            yielded = False
-            try:
-                async for kind, payload in self._stream_chat_chunks(
-                    model,
-                    messages,
-                    keep_alive=keep,
-                    options=merged or None,
-                    tools=tools,
-                    first_token_s=first_wait,
-                ):
-                    yielded = True
-                    yield (kind, payload)
-                if role in _HEAVY_ROLES:
-                    self.mark_sticky(role)
-                    self.reserve_vram_for_heavy = False
-                self._schedule_rewarm(role)
-                return
-            except RuntimeError as exc:
-                if role in _HEAVY_ROLES and is_vram_failure(exc):
-                    await self.recover_after_heavy_fail()
-                raise
-            except _RETRYABLE as exc:
-                last_exc = exc
-                if yielded or attempt + 1 >= _STREAM_RETRIES:
+        try:
+            for attempt in range(_STREAM_RETRIES):
+                yielded = False
+                try:
+                    async for kind, payload in self._stream_chat_chunks(
+                        model,
+                        messages,
+                        keep_alive=keep,
+                        options=merged or None,
+                        tools=tools,
+                        first_token_s=first_wait,
+                    ):
+                        yielded = True
+                        yield (kind, payload)
                     if role in _HEAVY_ROLES:
                         self.mark_sticky(role)
+                        self.reserve_vram_for_heavy = False
                     self._schedule_rewarm(role)
+                    return
+                except RuntimeError as exc:
+                    if role in _HEAVY_ROLES and is_vram_failure(exc):
+                        await self.recover_after_heavy_fail()
                     raise
-                delay = _STREAM_BACKOFF_S[min(attempt, len(_STREAM_BACKOFF_S) - 1)]
-                log.warning(
-                    "Ollama stream failed before first chunk (%s); retry %s/%s in %.1fs",
-                    exc,
-                    attempt + 1,
-                    _STREAM_RETRIES,
-                    delay,
-                )
-                await asyncio.sleep(delay)
-        if last_exc is not None:
-            if role in _HEAVY_ROLES:
-                self.mark_sticky(role)
+                except _RETRYABLE as exc:
+                    last_exc = exc
+                    if yielded or attempt + 1 >= _STREAM_RETRIES:
+                        if role in _HEAVY_ROLES:
+                            self.mark_sticky(role)
+                        self._schedule_rewarm(role)
+                        raise
+                    delay = _STREAM_BACKOFF_S[min(attempt, len(_STREAM_BACKOFF_S) - 1)]
+                    log.warning(
+                        "Ollama stream failed before first chunk (%s); retry %s/%s in %.1fs",
+                        exc,
+                        attempt + 1,
+                        _STREAM_RETRIES,
+                        delay,
+                    )
+                    await asyncio.sleep(delay)
+            if last_exc is not None:
+                if role in _HEAVY_ROLES:
+                    self.mark_sticky(role)
+                self._schedule_rewarm(role)
+                raise last_exc
+        except (asyncio.CancelledError, GeneratorExit):
             self._schedule_rewarm(role)
-            raise last_exc
+            raise
 
     async def close(self) -> None:
         self._cancel_rewarm()

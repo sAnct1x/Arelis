@@ -833,39 +833,44 @@ def valid_address_in_text(text: str) -> bool:
     return bool(m and valid_address(m.group(1)))
 
 
-def resolve_attach_path(raw: str) -> str:
-    """Turn a user/model attach string into an existing filesystem path, or ''."""
-    from pathlib import Path
-
+def resolve_attach_path(raw: str, *, workspace: Any = None) -> str:
+    """Resolve an attach string to an allowed existing file, or ''."""
     from arelis.paths import outputs_dir, state_dir, user_data_dir
 
     text = (raw or "").strip().strip('"').strip("'")
     if not text:
         return ""
+    if workspace is not None:
+        try:
+            hit = workspace.resolve_read(text)
+            if hit.path.is_file():
+                return str(hit.path)
+        except (OSError, ValueError, PermissionError):
+            pass
+
     root = user_data_dir()
-    candidates: list[Path] = [Path(text)]
+    allowed: list[Path] = []
     name = Path(text).name
     if name:
-        candidates.append(outputs_dir() / "documents" / name)
-        candidates.append(outputs_dir() / "plots" / name)
-    # Staged drops often show up as data/drops/… or a leading /drops/…
+        allowed.append(outputs_dir() / "documents" / name)
+        allowed.append(outputs_dir() / "plots" / name)
+        allowed.append(root / "data" / "drops" / name)
     cleaned = text.lstrip("/").replace("\\", "/")
     if cleaned.startswith("drops/"):
         cleaned = "data/" + cleaned
     if cleaned.startswith("data/drops/"):
-        candidates.append(root / cleaned)
-    candidates.append(root / text)
-    candidates.append(root / cleaned)
-    for cand in candidates:
+        allowed.append(root / cleaned)
+    for cand in allowed:
+        if cand is None:
+            continue
         try:
-            resolved = cand.expanduser()
-            if resolved.is_file():
-                return str(resolved.resolve())
+            resolved = cand.expanduser().resolve()
+            if resolved.is_file() and _attach_under_allowed(resolved, root):
+                return str(resolved)
         except OSError:
             continue
 
-    # Bare filename: prefer Downloads, then newest staged drop with that name.
-    name = Path(text).name
+    # Bare filename: Downloads, then newest staged drop with that name.
     if name and ("/" not in text.replace("\\", "/").rstrip(name) or text == name):
         for folder in (Path.home() / "Downloads", state_dir() / "drops"):
             try:
@@ -887,6 +892,23 @@ def resolve_attach_path(raw: str) -> str:
             except OSError:
                 continue
     return ""
+
+
+def _attach_under_allowed(path: Path, data_root: Path) -> bool:
+    from arelis.paths import outputs_dir, state_dir
+
+    for folder in (
+        outputs_dir() / "documents",
+        outputs_dir() / "plots",
+        data_root / "data" / "drops",
+        state_dir() / "drops",
+    ):
+        try:
+            path.relative_to(folder.resolve())
+            return True
+        except (ValueError, OSError):
+            continue
+    return False
 
 
 def parse_email_utterance(text: str) -> EmailDraft | None:

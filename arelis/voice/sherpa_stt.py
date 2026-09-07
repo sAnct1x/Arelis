@@ -103,6 +103,80 @@ def sherpa_files_present(model_dir: Path | None = None) -> bool:
     return find_transducer_files(root) is not None
 
 
+_HOTWORDS = (
+    "twitter",
+    "youtube",
+    "gmail",
+    "github",
+    "reddit",
+    "google",
+    "browser",
+    "arelis",
+    "x.com",
+    "x dot com",
+    "dot com",
+)
+
+
+def _hotwords_file(model_dir: Path) -> Path | None:
+    """Small bias list. Sites and her name — not a jargon dump Whisper would echo."""
+    try:
+        model_dir.mkdir(parents=True, exist_ok=True)
+        path = model_dir / "hotwords.txt"
+        path.write_text("\n".join(_HOTWORDS) + "\n", encoding="utf-8")
+        return path
+    except OSError:
+        return None
+
+
+def _build_recognizer(
+    sherpa_onnx: Any,
+    files: dict[str, Path],
+    *,
+    pack: str,
+    decoding_method: str,
+    max_active_paths: int,
+) -> Any:
+    """Beam + hotwords when this sherpa build supports them; else greedy."""
+    base: dict[str, Any] = {
+        "tokens": str(files["tokens"]),
+        "encoder": str(files["encoder"]),
+        "decoder": str(files["decoder"]),
+        "joiner": str(files["joiner"]),
+        "num_threads": 2,
+        "sample_rate": SAMPLE_RATE,
+        "feature_dim": 80,
+        "provider": "cpu",
+    }
+    if _KROKO_PACK in pack:
+        base["model_type"] = "zipformer2"
+    hot = _hotwords_file(Path(files["encoder"]).parent.parent)
+    attempts: list[dict[str, Any]] = []
+    beam = {
+        **base,
+        "decoding_method": decoding_method or "modified_beam_search",
+        "max_active_paths": max(2, max_active_paths),
+    }
+    if hot is not None:
+        attempts.append({**beam, "hotwords_file": str(hot), "hotwords_score": 1.5})
+    attempts.append(beam)
+    attempts.append({**base, "decoding_method": "greedy_search"})
+    last: Exception | None = None
+    for kwargs in attempts:
+        try:
+            return sherpa_onnx.OnlineRecognizer.from_transducer(**kwargs)
+        except TypeError as exc:
+            last = exc
+            kwargs.pop("model_type", None)
+            try:
+                return sherpa_onnx.OnlineRecognizer.from_transducer(**kwargs)
+            except TypeError as again:
+                last = again
+    if last is not None:
+        raise last
+    raise SherpaUnavailableError("Sherpa OnlineRecognizer.from_transducer failed")
+
+
 def sherpa_usable(stt_config: dict[str, Any] | None = None) -> bool:
     """True when Sherpa can run now or after a one-time download."""
     if not sherpa_package_available():
@@ -155,27 +229,18 @@ class SherpaSpeechToText:
         )
         import sherpa_onnx
 
-        kwargs: dict[str, Any] = {
-            "tokens": str(files["tokens"]),
-            "encoder": str(files["encoder"]),
-            "decoder": str(files["decoder"]),
-            "joiner": str(files["joiner"]),
-            "num_threads": 2,
-            "sample_rate": SAMPLE_RATE,
-            "feature_dim": 80,
-            "decoding_method": "greedy_search",
-            "provider": "cpu",
-        }
         pack = str(files.get("pack") or Path(files["encoder"]).parent.name)
-        if _KROKO_PACK in pack:
-            kwargs["model_type"] = "zipformer2"
-        try:
-            self._recognizer = sherpa_onnx.OnlineRecognizer.from_transducer(**kwargs)
-        except TypeError:
-            kwargs.pop("model_type", None)
-            self._recognizer = sherpa_onnx.OnlineRecognizer.from_transducer(**kwargs)
+        method = str(self.config.get("decoding_method") or "modified_beam_search")
+        paths = int(self.config.get("max_active_paths") or 4)
+        self._recognizer = _build_recognizer(
+            sherpa_onnx,
+            files,
+            pack=pack,
+            decoding_method=method,
+            max_active_paths=paths,
+        )
         self._pack = pack
-        log.info("Sherpa STT ready pack=%s", pack)
+        log.info("Sherpa STT ready pack=%s decode=%s", pack, method)
         return self._recognizer
 
     def begin_live(self, *, sample_rate: int = SAMPLE_RATE) -> LiveSherpaSession:

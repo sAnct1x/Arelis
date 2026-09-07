@@ -34,30 +34,22 @@ def mint_session(store: MemoryStore, *, room_id: str = "") -> str:
     return sid
 
 def start_glass_session(store: MemoryStore) -> str:
-    """Cold glass launch: new conversation. Last real thread stays in history.
+    """Cold glass launch: sit on the unused general shell, or mint one.
 
-    An unused empty shell from a short launch is pruned so History does
-    not fill with blank 'new' rows. Tray / un-minimize never call this.
+    Last night's real thread stays in History. An unused 'new chat' from
+    a short launch is reused — minting another is how three blank rows
+    stacked up. Extra unused general shells are pruned. Tray / un-minimize
+    never call this.
 
-    The shell is re-checked for messages before it is deleted. started_at
-    has one-second resolution, so two sessions opened inside the same
-    second are ordered arbitrarily, and these two queries can break that
-    tie differently — which would cascade-delete a real conversation.
+    Unused means no user turn yet. Assistant-only setup lines still read
+    as 'new chat' in History, so they must not count as a filled thread.
 
-    Both lookups are scoped to general conversations. A room's thread is
+    The prune is scoped to general conversations. A room's thread is
     durable by design and is never the leftover shell of a short launch,
     so it must not be reachable by this prune even when it happens to be
     the newest row in the table.
     """
-    leftover = store.latest_session_id(require_messages=False, room_id="")
-    filled = store.latest_session_id(require_messages=True, room_id="")
-    if (
-        leftover
-        and leftover != filled
-        and not store._session_has_messages(leftover)
-    ):
-        store.delete_session(leftover)
-    return store.start_session()
+    return start_or_reuse_empty_session(store, room_id="")
 
 
 def start_or_reuse_empty_session(store: MemoryStore, *, room_id: str) -> str:
@@ -66,17 +58,15 @@ def start_or_reuse_empty_session(store: MemoryStore, *, room_id: str) -> str:
     Cold launch used to start a general 'new chat' and then swap to the
     room's last filled thread — History showed both, and the old lecture
     was the one you landed in. Reuse the empty row so two 'new chat'
-    titles do not fight.
+    titles do not fight. Extra unused shells in this room are deleted.
     """
-    leftover = store.latest_session_id(require_messages=False, room_id=room_id)
-    filled = store.latest_session_id(require_messages=True, room_id=room_id)
-    if (
-        leftover
-        and leftover != filled
-        and not store._session_has_messages(leftover)
-    ):
-        store.open_session(leftover)
-        return leftover
+    unused = _unused_session_ids(store, room_id=room_id)
+    if unused:
+        keep = unused[0]
+        for sid in unused[1:]:
+            store.delete_session(sid)
+        store.open_session(keep)
+        return keep
     return store.start_session(room_id=room_id)
 
 def _session_has_messages(store: MemoryStore, session_id: str) -> bool:
@@ -85,6 +75,40 @@ def _session_has_messages(store: MemoryStore, session_id: str) -> bool:
         (session_id,),
     ).fetchone()
     return row is not None
+
+
+def _session_has_user_messages(store: MemoryStore, session_id: str) -> bool:
+    row = store._conn.execute(
+        "SELECT 1 FROM messages WHERE session_id = ? AND role = 'user' LIMIT 1",
+        (session_id,),
+    ).fetchone()
+    return row is not None
+
+
+def _unused_session_ids(store: MemoryStore, *, room_id: str) -> list[str]:
+    """Blank shells in this room, newest first. Unused = no user turn yet."""
+    rows = store._conn.execute(
+        """
+        SELECT s.id
+        FROM sessions s
+        WHERE s.room_id = ?
+          AND NOT EXISTS (
+              SELECT 1 FROM messages m
+              WHERE m.session_id = s.id AND m.role = 'user'
+          )
+        ORDER BY s.started_at DESC, s.rowid DESC
+        """,
+        (room_id,),
+    ).fetchall()
+    return [str(row["id"]) for row in rows]
+
+
+def keep_history_row(row: dict[str, Any], *, current_id: str = "") -> bool:
+    """Blank unused shells stay out of History except the one you are on."""
+    sid = str(row.get("id") or "")
+    if current_id and sid == current_id:
+        return True
+    return bool(row.get("has_user"))
 
 def open_session(store: MemoryStore, session_id: str) -> bool:
     """Point the sink at an existing session. False if it is not in the archive."""
@@ -206,20 +230,29 @@ def latest_session_id(
 def list_sessions(
     store: MemoryStore, *, limit: int = 50, room_id: str | None = None
 ) -> list[dict[str, Any]]:
-    where = "WHERE room_id = ?" if room_id is not None else ""
+    where = "WHERE s.room_id = ?" if room_id is not None else ""
     params: list[Any] = [room_id] if room_id is not None else []
     params.append(limit)
     rows = store._conn.execute(
         f"""
-        SELECT id, started_at, ended_at, title, room_id
-        FROM sessions
+        SELECT s.id, s.started_at, s.ended_at, s.title, s.room_id,
+               EXISTS (
+                   SELECT 1 FROM messages m
+                   WHERE m.session_id = s.id AND m.role = 'user'
+               ) AS has_user
+        FROM sessions s
         {where}
-        ORDER BY started_at DESC
+        ORDER BY s.started_at DESC, s.rowid DESC
         LIMIT ?
         """,
         params,
     ).fetchall()
-    return [dict(row) for row in rows]
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        item = dict(row)
+        item["has_user"] = bool(item.get("has_user"))
+        out.append(item)
+    return out
 
 def delete_session(store: MemoryStore, session_id: str) -> bool:
     """Remove a conversation and cascaded messages/summaries. True if deleted."""

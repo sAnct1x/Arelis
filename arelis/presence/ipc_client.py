@@ -199,6 +199,19 @@ class IpcClient:
                             port,
                         )
                         break
+                    # A glass activate listener speaks this protocol too, so a
+                    # second shortcut click can raise the window. It is not a
+                    # core. Attaching here would look like a live bridge and
+                    # the window would never bind ingest.
+                    ack_role = str(msg.get("role") or "core").strip().lower()
+                    if ack_role != "core":
+                        log.info(
+                            "IPC on %s:%s is a glass activate listener; "
+                            "not a core",
+                            self.host,
+                            port,
+                        )
+                        break
                     self._attached = True
                     attached_here = True
                     await self.bus.publish(

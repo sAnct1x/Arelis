@@ -11,7 +11,7 @@ from uuid import uuid4
 
 from arelis.core.events import Event, EventType
 from arelis.core.loop_helpers import _SKIP_NOTICE, _tool_fail_fingerprint
-from arelis.core.preflight import user_asked_for_browser
+from arelis.core.preflight import user_asked_for_browser, user_asked_for_desktop
 from arelis.core.turn_context import TurnContext
 from arelis.tools.base import confirm_args_blocked
 from arelis.tools.policy import (
@@ -127,6 +127,10 @@ async def confirm_call(
     asked = name in loop._expected_tools
     if name == "browser" and user_asked_for_browser(text):
         asked = True
+    if name == "desktop" and user_asked_for_desktop(
+        text, history=getattr(loop.memory, "messages", None)
+    ):
+        asked = True
     if loop._look is not None and name in {"ocr", "vision"}:
         asked = True
     needs = loop.tools.needs_confirm(
@@ -142,6 +146,7 @@ async def confirm_call(
             confirm_image=loop.confirm_image,
             confirm_send=loop.confirm_send,
             confirm_browser=loop.confirm_browser,
+            confirm_desktop=getattr(loop, "confirm_desktop", True),
             confirm_vision=loop.confirm_vision,
             confirm_run=loop.confirm_run,
             allow_writes_this_turn=ctx.allow_writes_this_turn,

@@ -56,6 +56,13 @@ _STUB_SCHEMAS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
             "seconds", "select", "site", "tab", "target", "text", "time", "url",
         ),
     ),
+    "desktop": (
+        ("action",),
+        (
+            "action", "amount", "direction", "find", "into", "key", "keys", "nth",
+            "ref", "seconds", "target", "text", "x", "y",
+        ),
+    ),
     "calculator": (("expression",), ("expression",)),
     "python": (("code",), ("code", "source", "script")),
     "cas": (
@@ -271,6 +278,42 @@ class _ResearchReportStub(_StubTool):
                 "path": path,
             },
         )
+
+
+class _DesktopStub(_StubTool):
+    """Offline desktop tool: open/type succeed without SendInput."""
+
+    async def run(self, **kwargs: Any) -> ToolResult:
+        self.calls.append(dict(kwargs))
+        action = str(kwargs.get("action") or "open").strip().lower()
+        target = str(kwargs.get("target") or "").strip() or "notepad"
+        if action == "open":
+            return ToolResult(
+                ok=True,
+                output=f"Opened {target}.",
+                data={"target": target},
+            )
+        if action == "windows":
+            return ToolResult(ok=True, output="1|Notepad", data={"count": 1})
+        if action == "monitors":
+            return ToolResult(
+                ok=True,
+                output="1|primary|1920x1080|only",
+                data={"count": 1},
+            )
+        if action == "screenshot":
+            path = "outputs/images/desktop_stub.png"
+            find = str(kwargs.get("find") or "").strip()
+            read = f"Read (whole page):\nstub text {find or 'on the page'}."
+            return ToolResult(
+                ok=True,
+                output=(
+                    f"Screenshot of primary monitor.\nSaved: {path}\n{read}\n"
+                    "Answer from that text. Call vision only for a diagram."
+                ),
+                data={"path": path, "target": target, "found": [find] if find else []},
+            )
+        return ToolResult(ok=True, output=f"desktop {action} ok")
 
 
 class _BrowserStub(_StubTool):
@@ -526,6 +569,7 @@ def foundation_registry() -> ToolRegistry:
     reg.register(_FatScrapeStub("scrape", risk="read"))
     reg.register(_ResearchReportStub("research_report", risk="read"))
     reg.register(_BrowserStub("browser", risk="side_effect"))
+    reg.register(_DesktopStub("desktop", risk="side_effect"))
     reg.register(_VisionStub("vision", risk="side_effect"))
     reg.register(_OcrStub("ocr", risk="side_effect"))
     reg.register(_CameraStub("camera", risk="side_effect"))

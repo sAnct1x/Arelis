@@ -41,6 +41,10 @@ def test_headlines_are_human() -> None:
     assert confirm_headline("run_script", {"path": "lab/measure_drift.py"}) == (
         "run measure_drift.py"
     )
+    assert confirm_headline("desktop", {"action": "open", "target": "notepad"}) == (
+        "open notepad"
+    )
+    assert confirm_headline("desktop", {"action": "click", "ref": "OK"}) == "click OK"
     assert "`" not in confirm_headline("send_email", {"to": "me", "subject": "Hi"})
 
 

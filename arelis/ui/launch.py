@@ -23,12 +23,12 @@ from arelis.mail import load_account
 from arelis.memory import DEFAULT_EMBED_MODEL, MemoryIndexer
 from arelis.paths import app_icon_path, logs_dir
 from arelis.presence.confirm_persist import ConfirmPersister
-from arelis.presence.inbound_runtime import InboundRuntime, attach_inbound
+from arelis.presence.glass_inbound import install_owned_inbound, start_orphan_watch
+from arelis.presence.inbound_runtime import InboundRuntime
 from arelis.presence.ipc_client import IpcClient
 from arelis.presence.ipc_server import IpcServer
 from arelis.presence.lock import external_core_available
 from arelis.ui.first_run import prompt_for_workspace_root
-from arelis.ui.mobile_host import bind_mobile_hub
 from arelis.ui.scale import configure_display_scale
 from arelis.ui.setup_wizard import prompt_for_model_setup
 from arelis.ui.theme import (
@@ -44,6 +44,47 @@ from arelis.voice import VoiceService
 from arelis.workspace import WorkspaceRoots
 
 log = logging.getLogger(__name__)
+
+
+def _start_activation_listener(
+    window: Any,
+    bus: EventBus,
+    loop: asyncio.AbstractEventLoop,
+    presence_cfg: dict[str, Any],
+) -> None:
+    """Second shortcut click raises this glass, even when a core owns ingest.
+
+    The listener speaks the same handshake as the core bridge, with seat=ui
+    so a scanning IpcClient will not mistake it for a live core.
+    """
+    if not bool(presence_cfg.get("ipc_enabled", True)):
+        return
+    try:
+        window.ipc_server = IpcServer(
+            bus,
+            host=str(presence_cfg.get("ipc_host") or "127.0.0.1"),
+            port=int(presence_cfg.get("ipc_port") or 8766),
+            on_open_ui=lambda _reason: QTimer.singleShot(
+                0, window._on_activation_request
+            ),
+            seat="ui",
+        )
+    except ValueError as exc:
+        log.warning("UI activation listener not started: %s", exc)
+        return
+
+    async def _serve_activation() -> None:
+        assert window.ipc_server is not None
+        try:
+            await window.ipc_server.start()
+        except OSError as exc:
+            # Not fatal: everything else about this launch works. The next
+            # double-click falls back to the tray icon.
+            log.warning("UI activation listener could not bind: %s", exc)
+            window.ipc_server = None
+
+    asyncio.run_coroutine_threadsafe(_serve_activation(), loop)
+
 
 def force_windows_qt_platform(env: MutableMapping[str, str]) -> None:
     """Insist on the real Windows Qt backend, whatever the environment says.
@@ -425,23 +466,27 @@ def run_ui(config: dict[str, Any] | None = None) -> int:
     # Inbound: by default the UI owns ingest. Close-to-tray keeps it alive when
     # the window hides; `arelis --core` can own ingest instead.
     presence_cfg = config.get("presence") or {}
-    use_external = bool(presence_cfg.get("use_external_core", False))
     spawn_attach = os.environ.get("ARELIS_ATTACH_CORE", "").strip().lower() in {
         "1",
         "true",
         "yes",
     }
-    # Attach when config asks, a core is already up, or core spawned us.
+    # Attach only when a detached --core holds the lock, or this process was
+    # spawned by one. Another window's ingest is not a core.
     core_up = external_core_available(config)
-    attach_core = use_external or core_up or spawn_attach
+    attach_now = core_up or spawn_attach
     close_to_tray = bool(presence_cfg.get("close_to_tray", True))
     persister = ConfirmPersister(bus, window._pending_store)
     persister.start()
-    if attach_core and (core_up or spawn_attach):
-        # Never bind :8765 when attaching (or when core is about to own it).
+    stay_hint = (
+        "close to tray keeps listening; Quit from the tray to stop"
+        if close_to_tray
+        else "Arelis must stay open"
+    )
+    window._orphan_ingest_stop = None
+    if attach_now:
         window.inbound_runtime = InboundRuntime(owned=False)
-        ipc_enabled = bool(presence_cfg.get("ipc_enabled", True))
-        if ipc_enabled:
+        if bool(presence_cfg.get("ipc_enabled", True)):
             try:
                 window.ipc_client = IpcClient(
                     bus,
@@ -478,69 +523,27 @@ def run_ui(config: dict[str, Any] | None = None) -> int:
                     EventType.STATUS,
                     {
                         "message": (
-                            "Detached Arelis core owns inbound notify. "
-                            "Pending send confirms restore from disk; live SMS/"
-                            "confirm events use the Core↔UI IPC bridge when attached."
+                            "Waiting on a detached Arelis core for inbound "
+                            "notify. If it does not answer, this window opens "
+                            "the phone door itself."
                         )
                     },
                 )
             ),
             loop,
         )
-    else:
-        hint = (
-            "close to tray keeps listening; Quit from the tray to stop"
-            if close_to_tray
-            else "Arelis must stay open"
-        )
-        runtime = attach_inbound(
+        window._orphan_ingest_stop = start_orphan_watch(
+            window,
             bus,
             loop,
             config,
-            owned=True,
-            stay_open_hint=hint,
+            hint=stay_hint,
         )
-        window.inbound_runtime = runtime
-        window.sms_ingest = runtime.ingest
-        window.sms_watcher = runtime.watcher
-        window.sms_auto_reply = runtime.auto_reply
-        bind_mobile_hub(window)
-        for message in runtime.status_messages:
-            asyncio.run_coroutine_threadsafe(
-                bus.publish(Event(EventType.STATUS, {"message": message})),
-                loop,
-            )
-        # With no core there is nothing on the bridge port, and a second launch
-        # asking to be shown was talking to nobody — which is the whole of why
-        # clicking the shortcut while tray-hidden did nothing. The UI answers for
-        # itself in that case, over the same protocol and the same fall-forward
-        # ports, so activate_existing_ui does not care which of the two replied.
-        if bool(presence_cfg.get("ipc_enabled", True)):
-            try:
-                window.ipc_server = IpcServer(
-                    bus,
-                    host=str(presence_cfg.get("ipc_host") or "127.0.0.1"),
-                    port=int(presence_cfg.get("ipc_port") or 8766),
-                    on_open_ui=lambda _reason: QTimer.singleShot(
-                        0, window._on_activation_request
-                    ),
-                )
-            except ValueError as exc:
-                log.warning("UI activation listener not started: %s", exc)
-            else:
-
-                async def _serve_activation() -> None:
-                    assert window.ipc_server is not None
-                    try:
-                        await window.ipc_server.start()
-                    except OSError as exc:
-                        # Not fatal and not worth a dialog: everything else about
-                        # this launch works, and the cost is that the next
-                        # double-click has to fall back to the tray icon.
-                        log.warning("UI activation listener could not bind: %s", exc)
-                        window.ipc_server = None
-
-                asyncio.run_coroutine_threadsafe(_serve_activation(), loop)
+    else:
+        install_owned_inbound(window, bus, loop, config, hint=stay_hint)
+    # Always: a second shortcut click has someone to talk to, whether a core
+    # owns ingest or this glass does.
+    _start_activation_listener(window, bus, loop, presence_cfg)
 
     window.setup_tray(app)
     parked = window._pending_store.list()
@@ -597,6 +600,9 @@ def run_ui(config: dict[str, Any] | None = None) -> int:
         drain_budget_s = 0.75 if force else 3.0
 
         async def shutdown() -> None:
+            stop_watch = getattr(window, "_orphan_ingest_stop", None)
+            if stop_watch is not None:
+                stop_watch.set()
             if window.ipc_client is not None:
                 await window.ipc_client.stop()
                 window.ipc_client = None

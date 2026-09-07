@@ -217,7 +217,8 @@ class TokenRatios:
             # Half-life of a couple of turns so one outlier does not stick.
             updated = 0.5 * previous + 0.5 * observed
         self._ratios[model] = updated
-        self._save()
+        if previous is None or abs(updated - previous) >= 0.05:
+            self._save()
         return updated
 
     def _load(self) -> None:

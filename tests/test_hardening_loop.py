@@ -84,6 +84,146 @@ async def test_empty_model_reply_still_explains_itself() -> None:
     assert "empty reply" in done.payload["text"].lower()
 
 
+class _CasStub:
+    name = "cas"
+    description = "stub"
+    risk = "read"
+    parameters_schema: dict[str, Any] = {"type": "object", "properties": {}}
+
+    async def run(self, **kwargs: Any) -> ToolResult:
+        del kwargs
+        return ToolResult(
+            ok=True,
+            output="solve(x^2 + 3*x - 10 = 0) =\n[-5, 2]",
+            data={"result": "[-5, 2]"},
+        )
+
+
+@pytest.mark.asyncio
+async def test_empty_after_unsolicited_cas_asks_for_a_writeup() -> None:
+    """A setup line plus a warmup quadratic used to become the chat bubble."""
+    bus = EventBus()
+    router = _ScriptedRouter(
+        [
+            [
+                (
+                    "tool_calls",
+                    [
+                        {
+                            "type": "function",
+                            "function": {
+                                "name": "cas",
+                                "arguments": {
+                                    "action": "solve",
+                                    "expr": "x^2 + 3*x - 10 = 0",
+                                },
+                            },
+                        }
+                    ],
+                )
+            ],
+            [
+                (
+                    "thinking",
+                    "Ask what kind of problem they want.",
+                ),
+                ("token", ""),
+            ],
+            [("token", "What kind of problem do you want to start with?")],
+        ]
+    )
+    tools = ToolRegistry()
+    tools.register(_CasStub())
+    cfg = _config()
+    cfg["agent"]["chat_fast_path"] = False
+    cfg["agent"]["max_rounds"] = 8
+    loop = AgentLoop(
+        bus,
+        router,  # type: ignore[arg-type]
+        tools,
+        SessionMemory(),
+        "persona",
+        cfg,
+        request_confirm=_deny,
+        is_cancelled=lambda: False,
+    )
+    events = await _collect(
+        bus,
+        loop.run("alright we are going to try some hard math tonight", "fast"),
+    )
+    thinking = " ".join(
+        str(e.payload.get("text") or "")
+        for e in events
+        if e.type == EventType.THINKING
+    )
+    assert "empty after algebra; asking for a write-up" in thinking
+    done = next(e for e in events if e.type == EventType.ASSISTANT_DONE)
+    assert "[-5, 2]" not in done.payload["text"]
+    assert "problem" in done.payload["text"].lower()
+
+
+@pytest.mark.asyncio
+async def test_cas_same_call_asks_for_a_writeup_not_three_retries() -> None:
+    """The 9B re-emits the same cas; schemas drop so she writes, not spins."""
+    cas_call = {
+        "type": "function",
+        "function": {
+            "name": "cas",
+            "arguments": {
+                "action": "diff",
+                "expr": "1/(x**2-1)",
+                "n": 50,
+                "at": "0",
+            },
+        },
+    }
+    bus = EventBus()
+    router = _ScriptedRouter(
+        [
+            [("tool_calls", [cas_call])],
+            [("tool_calls", [cas_call])],
+            [("tool_calls", [cas_call])],
+            [("token", "The 50th derivative at 0 is $-50!$.")],
+        ]
+    )
+    tools = ToolRegistry()
+    tools.register(_CasStub())
+    cfg = _config()
+    cfg["agent"]["chat_fast_path"] = False
+    cfg["agent"]["max_rounds"] = 8
+    loop = AgentLoop(
+        bus,
+        router,  # type: ignore[arg-type]
+        tools,
+        SessionMemory(),
+        "persona",
+        cfg,
+        request_confirm=_deny,
+        is_cancelled=lambda: False,
+    )
+    events = await _collect(
+        bus,
+        loop.run(
+            "Find the 50th derivative of 1/(x^2-1) at x=0",
+            "fast",
+        ),
+    )
+    starts = [
+        e
+        for e in events
+        if e.type == EventType.TOOL_START and e.payload.get("tool") == "cas"
+    ]
+    assert len(starts) == 1
+    thinking = " ".join(
+        str(e.payload.get("text") or "")
+        for e in events
+        if e.type == EventType.THINKING
+    )
+    assert "same-call algebra; asking for a write-up" in thinking
+    done = next(e for e in events if e.type == EventType.ASSISTANT_DONE)
+    assert "50" in done.payload["text"]
+
+
 @pytest.mark.asyncio
 async def test_empty_after_think_asks_for_a_write_up() -> None:
     """Qwen3.5 can spend the whole budget in thinking and leave chat empty."""

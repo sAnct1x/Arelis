@@ -403,9 +403,6 @@ def apply_physics_act(window, act: PhysicsAct) -> None:
         if key == "tiles":
             zone.tiles = bool(on) if on is not None else (not zone.tiles)
             val = zone.tiles
-        elif key == "buildings":
-            zone.buildings = bool(on) if on is not None else (not zone.buildings)
-            val = zone.buildings
         elif key == "live":
             zone.live = bool(on) if on is not None else (not zone.live)
             val = zone.live

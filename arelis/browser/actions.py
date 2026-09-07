@@ -1347,6 +1347,8 @@ class PlaywrightDriver:
         self._private = False
         self._mode = ""
         self._ptr_seen = 0
+        self._placed = False
+        self._fresh_launch = False
 
     async def ensure(
         self,
@@ -1411,6 +1413,8 @@ class PlaywrightDriver:
                     output=f"Launched {browser} but CDP did not come up on {self.cdp_url}.",
                     data={"code": "CDP_TIMEOUT"},
                 )
+            self._fresh_launch = True
+            self._placed = False
             return await self._attach_cdp(mode="relaunch")
 
         if launch_mod.cdp_is_up(self.cdp_url):
@@ -1457,6 +1461,8 @@ class PlaywrightDriver:
                 output=f"Launched {browser} but CDP did not come up on {self.cdp_url}.",
                 data={"code": "CDP_TIMEOUT"},
             )
+        self._fresh_launch = True
+        self._placed = False
         return await self._attach_cdp(mode="launch")
 
     async def _ensure_firefox(self, *, private: bool) -> ActionResult:
@@ -1504,7 +1510,7 @@ class PlaywrightDriver:
                 self._page = await self._pick_page()
             await self._install_hands()
             self._mode = mode
-            await self._apply_placement()
+            await self._present_window()
             return ActionResult(
                 ok=True,
                 output=f"Connected to {self._browser_name} ({mode}).",
@@ -1523,7 +1529,7 @@ class PlaywrightDriver:
         self._page = await self._pick_page()
         await self._install_hands()
         self._mode = mode
-        await self._apply_placement()
+        await self._present_window()
         return ActionResult(
             ok=True,
             output=f"Connected to {self._browser_name} ({mode}).",
@@ -1535,31 +1541,45 @@ class PlaywrightDriver:
             },
         )
 
-    async def _apply_placement(self) -> None:
-        """Park her Chrome on one desk. Launch flags are often ignored once Chrome exists."""
-        if self._page is None:
-            return
-        from arelis.browser.launch import window_placement
+    async def _present_window(self) -> None:
+        """Show her Chrome. Park only a window we just started.
 
-        x, y, w, h = window_placement()
-        try:
-            cdp = await self._page.context.new_cdp_session(self._page)
-            info = await cdp.send("Browser.getWindowForTarget")
-            await cdp.send(
-                "Browser.setWindowBounds",
-                {
-                    "windowId": info["windowId"],
-                    "bounds": {
-                        "left": x,
-                        "top": y,
-                        "width": w,
-                        "height": h,
-                        "windowState": "normal",
+        After that the operator owns size and place. Clicks are CDP — the
+        window does not need focus. It does need to be in front of Arelis
+        the first time it opens, not behind the glass.
+        """
+        from arelis.browser.launch import (
+            raise_arelis_chrome,
+            should_park_window,
+            window_placement,
+        )
+
+        park = should_park_window(
+            fresh_launch=self._fresh_launch, already_placed=self._placed
+        )
+        if park and self._page is not None:
+            x, y, w, h = window_placement()
+            try:
+                cdp = await self._page.context.new_cdp_session(self._page)
+                info = await cdp.send("Browser.getWindowForTarget")
+                await cdp.send(
+                    "Browser.setWindowBounds",
+                    {
+                        "windowId": info["windowId"],
+                        "bounds": {
+                            "left": x,
+                            "top": y,
+                            "width": w,
+                            "height": h,
+                            "windowState": "normal",
+                        },
                     },
-                },
-            )
-        except Exception:
-            log.debug("could not place Arelis Chrome window", exc_info=True)
+                )
+            except Exception:
+                log.debug("could not place Arelis Chrome window", exc_info=True)
+            self._placed = True
+            self._fresh_launch = False
+        raise_arelis_chrome(restore=True)
 
     async def _pick_page(self, *, prefer_url: str = "") -> Any:
         """Pick a page under the attached context.
@@ -1712,7 +1732,7 @@ class PlaywrightDriver:
                 await page.goto(url, wait_until="domcontentloaded")
                 await self.settle()
             await self._poll_leave_login(url)
-            await self._apply_placement()
+            await self._present_window()
             title = await page.title()
             heading = await _page_heading(page)
             landed = str(page.url or url)
@@ -1750,7 +1770,6 @@ class PlaywrightDriver:
             await self._page.goto(url, wait_until="domcontentloaded")
             await self.settle()
             await self._poll_leave_login(url)
-            await self._apply_placement()
             title = await self._page.title()
             landed = str(self._page.url or url)
             from arelis.browser.walls import nav_landed_note
@@ -2721,7 +2740,6 @@ class PlaywrightDriver:
         assert self._page is not None
         try:
             await self._page.go_back(wait_until="domcontentloaded")
-            await self._apply_placement()
             title = await self._page.title()
             return ActionResult(
                 ok=True,
@@ -2739,7 +2757,6 @@ class PlaywrightDriver:
         assert self._page is not None
         try:
             await self._page.go_forward(wait_until="domcontentloaded")
-            await self._apply_placement()
             title = await self._page.title()
             return ActionResult(
                 ok=True,

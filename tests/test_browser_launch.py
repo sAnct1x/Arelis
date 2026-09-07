@@ -28,6 +28,18 @@ def test_resolve_alias_youtube() -> None:
     assert url2 and url2.startswith("https://")
 
 
+def test_resolve_spoken_dot_com() -> None:
+    url, err = resolve_target("x dot com")
+    assert err is None
+    assert url and "x.com" in url
+    yt, yt_err = resolve_target("youtube dot com")
+    assert yt_err is None
+    assert yt and "youtube" in yt
+    other, other_err = resolve_target("example dot com")
+    assert other_err is None
+    assert other == "https://example.com"
+
+
 def test_resolve_rejects_non_http() -> None:
     url, err = resolve_target("file:///C:/secret.txt")
     assert url is None
@@ -130,6 +142,22 @@ def test_same_open_url_treats_slash_as_same() -> None:
         "https://www.youtube.com/results?search_query=interferometry",
         "https://www.youtube.com/results?search_query=interferometry",
     )
+
+
+def test_park_only_a_fresh_launch() -> None:
+    from arelis.browser.launch import should_park_window
+
+    assert should_park_window(fresh_launch=True, already_placed=False) is True
+    assert should_park_window(fresh_launch=True, already_placed=True) is False
+    assert should_park_window(fresh_launch=False, already_placed=False) is False
+
+
+def test_raise_without_chrome_is_quiet(monkeypatch) -> None:
+    from arelis.browser import launch as launch_mod
+
+    monkeypatch.setattr(launch_mod, "_pids_using_arelis_profile", lambda: [])
+    monkeypatch.setattr(launch_mod, "_last_arelis_proc", None)
+    assert launch_mod.raise_arelis_chrome() is False
 
 
 def test_window_placement_sits_beside_not_on_top() -> None:

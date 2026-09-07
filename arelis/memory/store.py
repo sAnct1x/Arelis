@@ -368,8 +368,10 @@ class MemoryStore:
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA foreign_keys=ON")
         # WAL lets the desktop app and a scheduled job open the file at once
-        # without one failing on a write lock held by the other.
+        # without one failing on a write lock held by the other. Default
+        # busy_timeout is 0 — a second writer then raises immediately.
         self._conn.execute("PRAGMA journal_mode=WAL")
+        self._conn.execute("PRAGMA busy_timeout = 5000")
         self._fts = self._probe_fts()
         self._migrate()
         self.session_id: str | None = None
@@ -492,25 +494,21 @@ class MemoryStore:
         return sessions.start_or_reuse_empty_session(self, room_id=room_id)
 
     def start_glass_session(self) -> str:
-        """Cold glass launch: new conversation. Last real thread stays in history.
+        """Cold glass launch: sit on the unused general shell, or mint one.
 
-        An unused empty shell from a short launch is pruned so History does
-        not fill with blank 'new' rows. Tray / un-minimize never call this.
+        Last night's real thread stays in History. An unused 'new chat' is
+        reused instead of minting another. Extra unused general shells are
+        pruned. Tray / un-minimize never call this.
 
-        The shell is re-checked for messages before it is deleted. started_at
-        has one-second resolution, so two sessions opened inside the same
-        second are ordered arbitrarily, and these two queries can break that
-        tie differently — which would cascade-delete a real conversation.
-
-        Both lookups are scoped to general conversations. A room's thread is
-        durable by design and is never the leftover shell of a short launch,
-        so it must not be reachable by this prune even when it happens to be
-        the newest row in the table.
+        Unused means no user turn yet. A room's thread is never touched.
         """
         return sessions.start_glass_session(self)
 
     def _session_has_messages(self, session_id: str) -> bool:
         return sessions._session_has_messages(self, session_id)
+
+    def _session_has_user_messages(self, session_id: str) -> bool:
+        return sessions._session_has_user_messages(self, session_id)
 
     def open_session(self, session_id: str) -> bool:
         """Point the sink at an existing session. False if it is not in the archive."""

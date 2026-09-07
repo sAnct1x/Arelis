@@ -268,6 +268,18 @@ class Watch:
                 return True
             return now >= self._mute_until
 
+    def _egress_burst_now(self) -> int:
+        """City live hits dozens of published hosts. 48/10s mutes the zone."""
+        try:
+            from arelis.earth.runtime import get_earth
+
+            zone = get_earth()
+            if zone is not None and zone.active:
+                return max(int(self.egress_burst), 240)
+        except Exception:
+            pass
+        return int(self.egress_burst)
+
     def allow_egress(self, host: str) -> bool:
         """Record a non-house HTTP call. False means the caller should stop."""
         if _is_house_host(host):
@@ -289,7 +301,7 @@ class Watch:
             bucket = self._egress_host[host]
             _prune(bucket, self.egress_window_s, now)
             over = (
-                len(self._egress) >= self.egress_burst
+                len(self._egress) >= self._egress_burst_now()
                 or len(self._egress_day) >= self.egress_daily
                 or len(bucket) >= self.per_host_burst
             )

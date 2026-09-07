@@ -143,16 +143,27 @@ class OrchestratorTurns:
 
         silent = bool(event.payload.get("silent"))
         if event.payload.get("new"):
-            session_id = store.start_session()
-            self.memory.hydrate([], summary="")
+            rooms = getattr(self, "rooms", None)
+            room_id = str(getattr(rooms, "active_id", "") or "") if rooms is not None else ""
+            session_id = store.start_or_reuse_empty_session(room_id=room_id)
+            rows = store.get_messages(session_id)
+            summary = store.get_summary(session_id)
+            self.memory.hydrate(rows, summary=summary)
             await self.bus.publish(
                 Event(
                     EventType.SESSION_LOADED,
                     {
                         "ok": True,
                         "session_id": session_id,
-                        "messages": [],
-                        "summary": "",
+                        "messages": [
+                            {
+                                "role": row["role"],
+                                "content": row["content"],
+                                "note": row.get("note") or "",
+                            }
+                            for row in rows
+                        ],
+                        "summary": summary,
                         "new": True,
                         "silent": silent,
                     },

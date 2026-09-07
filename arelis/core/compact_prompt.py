@@ -16,11 +16,12 @@ _SHORT_DESC: dict[str, str] = {
     "browser": "her Chrome. no passwords/OTP. stop captcha|Pay. click text|ref|nth",
     "calculator": "arithmetic. expression required",
     "camera": "webcam snapshot. inspect only",
-    "cas": "symbolic math. action=simplify|solve|diff|integrate|…",
+    "cas": "symbolic math. action=simplify|solve|diff|integrate|limit|series|sum|gradient|directional|factor|expand; n= order, at= point, dir= vector",
     "catalog": "pinned live feeds. action=list|get",
     "clipboard": "read / write OS clipboard",
     "contacts": "local address book. action=list|get|add|update|remove",
     "diagnostics": "local pytest / doctor. not a web search",
+    "desktop": "your Windows session. look=screenshot (grabs+reads). no shell. no raw exe. stop Pay|delete|UAC",
     "doc_extract": "text from pdf/docx/xlsx on disk",
     "document": "write md/pdf/csv under outputs",
     "earth": "Reality look / bands. not a web search",
@@ -61,6 +62,7 @@ COMPACT_TOOL_POLICY = """
 tools: call; don't invent results. Never ask "Would you like me to proceed / fetch / scrape / search / check?" when the ask is clear. Multi-part: keep calling until done. Fallback: {"tool":"<name>","args":{}} or {"final":"<answer>"}.
 confirm: writes/sends = card, not a chat ask. Never claim a side effect unless a tool this turn succeeded. Confirmation without a tool is a lie.
 browser: her Chrome; no password/OTP; stop captcha|Pay; click text|ref|nth. no goto_sign_in.
+desktop: your Windows session; look=screenshot (grabs+reads); no shell; no raw exe; no password; stop Pay|delete|UAC.
 web: web_search first; never guess a url; never answer from a snippet alone; never pass the title as url (copy the URL: value); Prefer scrape for pages; web_fetch for apis. After scrape, talk; do not paste the page.
 weather: call the weather tool; not search; not scrape; place=name; two cities = two calls.
 location: user_location; do not web-guess.
@@ -132,7 +134,7 @@ def _strip_descriptions(node: Any) -> Any:
         return {
             key: _strip_descriptions(value)
             for key, value in node.items()
-            if key != "description"
+            if key != "description" or isinstance(value, dict)
         }
     if isinstance(node, list):
         return [_strip_descriptions(item) for item in node]

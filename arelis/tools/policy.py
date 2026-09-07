@@ -89,16 +89,18 @@ _PERSIST_KEYS = {
     "writes": "confirm_writes",
     "image": "confirm_image",
     "browser": "confirm_browser",
+    "desktop": "confirm_desktop",
     "vision": "confirm_vision",
 }
 _PERSIST_LABELS = {
     "writes": "don't ask again about files",
     "image": "don't ask again about pictures",
     "browser": "don't ask again about her window",
+    "desktop": "don't ask again about the desk",
     "vision": "don't ask again about seeing",
 }
 
-ConfirmToggle = Literal["none", "send", "image", "browser", "vision", "writes", "run"]
+ConfirmToggle = Literal["none", "send", "image", "browser", "desktop", "vision", "writes", "run"]
 
 
 def _action(args: dict[str, Any] | None) -> str:
@@ -156,11 +158,33 @@ def _browser_is_pay(args: dict[str, Any] | None) -> bool:
     return pay_cta_label(label) is not None
 
 
+def _desktop_is_destructive(args: dict[str, Any] | None) -> bool:
+    """Delete / Pay / UAC on the desk — she stops."""
+    action = _action(args)
+    if action not in {"click", "press", "type", "hotkey"}:
+        return False
+    from arelis.desktop.walls import label_wall
+
+    raw = args or {}
+    label = str(
+        raw.get("text")
+        or raw.get("target")
+        or raw.get("key")
+        or raw.get("keys")
+        or ""
+    )
+    hit = label_wall(label)
+    return hit is not None and hit.kind in {"pay", "delete", "uac"}
+
+
 def action_is_destructive(name: str, args: dict[str, Any] | None) -> bool:
     """Pay, delete, forget. Writes, sends, and opening a page are not this."""
     if action_is_delete(name, args):
         return True
-    return (name or "").strip() == "browser" and _browser_is_pay(args)
+    tool = (name or "").strip()
+    if tool == "browser" and _browser_is_pay(args):
+        return True
+    return tool == "desktop" and _desktop_is_destructive(args)
 
 
 def always_pause(name: str, args: dict[str, Any] | None = None) -> bool:
@@ -257,6 +281,8 @@ def confirm_toggle(
         return "image"
     if tool == "browser":
         return "browser"
+    if tool == "desktop":
+        return "desktop"
     if tool == "vision":
         return "vision"
     if tool == "camera":
@@ -299,6 +325,7 @@ def evaluate_confirm(
     confirm_image: bool = True,
     confirm_send: bool = True,
     confirm_browser: bool = True,
+    confirm_desktop: bool = True,
     confirm_vision: bool = True,
     confirm_run: bool = True,
     asked: bool = False,
@@ -328,6 +355,8 @@ def evaluate_confirm(
         gated = confirm_image
     elif toggle == "browser":
         gated = confirm_browser
+    elif toggle == "desktop":
+        gated = confirm_desktop
     elif toggle == "vision":
         gated = confirm_vision
     elif toggle == "run":
@@ -365,6 +394,7 @@ def evaluate_capability(
         "image",
         "image_edit",
         "browser",
+        "desktop",
         "vision",
         "camera",
         "clipboard",
@@ -410,6 +440,7 @@ def confirm_toggles_for_call(
     confirm_vision: bool,
     allow_writes_this_turn: bool,
     confirm_run: bool = True,
+    confirm_desktop: bool = True,
 ) -> dict[str, bool]:
     """Turn-scoped toggles. 'Rest of this ask' does not cover mail/SMS/agenda."""
     return {
@@ -418,6 +449,7 @@ def confirm_toggles_for_call(
         "confirm_image": confirm_image and not allow_writes_this_turn,
         "confirm_send": confirm_send,
         "confirm_browser": confirm_browser and not allow_writes_this_turn,
+        "confirm_desktop": confirm_desktop and not allow_writes_this_turn,
         "confirm_vision": confirm_vision and not allow_writes_this_turn,
         "confirm_run": confirm_run,
     }
@@ -441,7 +473,11 @@ def describe_call(
         to = str(args.get("to") or "").strip() or "(you)"
         subject = str(args.get("subject") or "").strip() or "(no subject)"
         body = redact_secrets(str(args.get("body") or "")).strip()
-        return f"To:      {to}\nSubject: {subject}\n\n{body}"
+        attach = str(args.get("attach") or args.get("path") or "").strip()
+        lines = [f"To:      {to}", f"Subject: {subject}"]
+        if attach:
+            lines.append(f"Attach:  {attach}")
+        return "\n".join(lines) + f"\n\n{body}"
     if name == "send_sms":
         from arelis.sms import format_sms_confirm
 
@@ -680,6 +716,32 @@ def describe_call(
             lines.append(
                 "Opens OpenTable (or Resy / Google) with party/date/time "
                 "in the URL. You click Book / Reserve."
+            )
+        return "\n".join(lines)
+    if name == "desktop":
+        action = str(args.get("action") or "").strip().lower() or "?"
+        lines = [f"Desk {action}"]
+        for label, key in (
+            ("Target", "target"),
+            ("Ref", "ref"),
+            ("Text", "text"),
+            ("Into", "into"),
+            ("Key", "key"),
+            ("Keys", "keys"),
+        ):
+            value = str(args.get(key) or "").strip()
+            if value:
+                lines.append(f"{label}: {value}")
+        if action == "open":
+            lines.append(
+                "Opens or focuses that app on your Windows session. "
+                "Not a shell. Raw .exe paths are refused."
+            )
+        if action == "type":
+            lines.append("Types into the focused window. She does not type passwords.")
+        if action == "click":
+            lines.append(
+                "Clicks a named control, or x,y after screenshot then vision."
             )
         return "\n".join(lines)
     if name == "clipboard":

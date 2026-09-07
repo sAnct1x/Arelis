@@ -141,6 +141,22 @@ async def test_leave_after_fresh_enter_does_not_jump_to_an_old_chat(seat) -> Non
 
 
 @pytest.mark.asyncio
+async def test_fresh_enter_reuses_assistant_only_room_chat(seat) -> None:
+    orch, store = seat
+    store.start_session()
+    room = orch.rooms.get(PHYSICS_ROOM_ID)
+    assert room is not None
+    empty = store.start_session(room_id=room.id)
+    orch.memory.add("assistant", "What is this room for?")
+
+    await enter_room(orch, room, silent=True, fresh=True)
+    await orch.bus.drain()
+
+    assert store.session_id == empty
+    assert store.get_session(empty) is not None
+
+
+@pytest.mark.asyncio
 async def test_leave_without_a_parked_seat_does_not_pick_history(seat) -> None:
     orch, store = seat
     filled = store.start_session()

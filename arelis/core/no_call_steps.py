@@ -422,6 +422,7 @@ async def try_image_edit(loop: Any, ctx: TurnContext, r: Any) -> str:
         and "image_edit" in loop._expected_tools
         and "image_edit" not in loop.tools_used
         and "image_edit" in r.tool_names
+        and not (loop.tools_used & {"cas", "calculator", "python", "units"})
         and (
             wants_image_edit(split_attachments_turn(r.text)[1] or r.text)
             or "image_edit" in r.preflight_kinds
@@ -630,7 +631,11 @@ async def try_goals(loop: Any, ctx: TurnContext, r: Any) -> str:
     ):
         return SKIP
     ids = last_store_ids_from_context(loop.memory.messages, loop._receipts)
-    if re.search(r"(?i)\b(?:both|all)\b", r.text or "") and len(ids) > 1:
+    if (
+        re.search(r"(?i)\b(?:both|all)\b", r.text or "")
+        and len(ids) > 1
+        and re.search(r"(?i)\b(?:delete|remove|drop)\b", r.text or "")
+    ):
         calls = [("goals", {"action": "remove", "id": gid}) for gid in ids]
         return await _inject(
             loop,

@@ -37,12 +37,19 @@ class IntentSpec:
     research_extra: bool = False
     # Substrings that force the full tool registry (outbound / personal).
     surface_phrases: tuple[str, ...] = ()
+    # Don't / do not / never in the same clause vetoes the match. The
+    # four-character lookbehinds miss "don't ever run diagnostics".
+    veto_negation: bool = False
 
     def matches(self, text: str) -> bool:
         raw = text or ""
         if not raw.strip() or not self.patterns:
             return False
-        return any(p.search(raw) for p in self.patterns)
+        for pattern in self.patterns:
+            hit = pattern.search(raw)
+            if hit and (not self.veto_negation or _clause_not_negated(raw, hit.start())):
+                return True
+        return False
 
     def to_hint(self) -> IntentHint:
         return IntentHint(
@@ -50,6 +57,16 @@ class IntentSpec:
             expected_tools=self.expected_tools,
             nudge=self.nudge,
         )
+
+
+_CLAUSE_NEGATION = re.compile(r"(?i)\b(?:don't|dont|do\s+not|never)\b")
+
+
+def _clause_not_negated(text: str, match_start: int) -> bool:
+    """False when don't / do not / never appears in the clause before the hit."""
+    prefix = (text or "")[: max(0, match_start)]
+    clause = re.split(r"[.!?;\n]", prefix)[-1]
+    return not _CLAUSE_NEGATION.search(clause)
 
 
 # "Who are you" is identity, not a web lookup. Do not steal "who is this"
@@ -890,6 +907,7 @@ DIAGNOSTICS = IntentSpec(
     kind="diagnostics",
     patterns=(_DIAGNOSTICS_ASK,),
     expected_tools=("diagnostics",),
+    veto_negation=True,
     nudge=(
         "Intent preflight: they asked to run diagnostics. "
         "Call diagnostics now. Do not invent pass/fail counts from memory. "
@@ -933,6 +951,7 @@ RUN_SCRIPT = IntentSpec(
     kind="run_script",
     patterns=(_RUN_SCRIPT_FILE, _RUN_SCRIPT_BARE, _RUN_IT_AGAIN),
     expected_tools=("run_script",),
+    veto_negation=True,
     nudge=(
         "Intent preflight: they asked to run a project program. "
         "Call run_script with the .py they named. Not a shell. "
@@ -947,6 +966,7 @@ WATCH = IntentSpec(
     kind="watch",
     patterns=(_WATCH_ASK,),
     expected_tools=("watch",),
+    veto_negation=True,
     nudge=(
         "Intent preflight: they asked about the house watch (ports, inbound, "
         "outbound APIs). Call watch now. Report the snapshot. Do not invent a "

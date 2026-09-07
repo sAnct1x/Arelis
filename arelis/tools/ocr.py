@@ -189,22 +189,35 @@ class OcrTool:
                 ok=False,
                 output="Unknown action. Use text or screen.",
             )
+        captured: Path | None = None
         try:
             if action == "screen":
                 stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
                 dest = self.output_dir / f"ocr_screen_{stamp}.png"
                 path = await asyncio.to_thread(self._capturer, dest)
+                captured = path
+                from arelis.look_scratch import note_look_scratch
+
+                note_look_scratch(path)
             else:
                 path = self._resolve_image(str(kwargs.get("path") or ""))
             inspect = await asyncio.to_thread(self._inspect, path, lang)
             text = inspect.text
         except FileNotFoundError as exc:
+            if captured is not None:
+                from arelis.look_scratch import forget_look_scratch
+
+                forget_look_scratch(captured)
             return ToolResult(
                 ok=False,
                 output=f"[fail:empty] {exc}",
                 data={"fail_class": "fail:empty"},
             )
         except Exception as exc:
+            if captured is not None:
+                from arelis.look_scratch import forget_look_scratch
+
+                forget_look_scratch(captured)
             msg = str(exc)
             tag = "fail:other"
             if "not on PATH" in msg or ("tesseract" in msg.lower() and "not" in msg.lower()):
@@ -227,6 +240,10 @@ class OcrTool:
             "short_token_ratio": round(features.short_token_ratio, 3),
             "letter_ratio": round(features.letter_ratio, 3),
         }
+        from arelis.look_scratch import forget_look_scratch, is_look_scratch
+
+        if action == "screen" or is_look_scratch(path):
+            forget_look_scratch(path)
         if not cleaned:
             return ToolResult(
                 ok=True,

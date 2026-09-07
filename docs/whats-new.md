@@ -73,7 +73,16 @@ unlocks and tries again. A derivation stays in chat on the fast chip
 like 1960-2026 are not subtraction. The same research query does not
 run twice because `max_sources` changed. `email it to me` is you, not
 a contact named "it". A successful send no longer dies on a leftover
-calculator gate.
+calculator gate. A hard CAS integral runs in a child we can kill —
+it must not freeze the glass or ignore Stop. "Hard math tonight" is
+not a calculator turn and not a warmup quadratic. A definite integral
+    tries a high-precision numeric + identify before SymPy hunts a dilog
+    antiderivative; timeout is not "no closed form exists." A second
+    identical cas/python call this turn drops the schemas so she writes
+    instead of spinning three empty retries. gradient and directional
+    take a comma list (`wrt`, `at`, `dir`); the direction is normalized.
+    factor / expand are first-class actions (`x^3-8` is `(x-2)(x^2+2x+4)`),
+    not a calculator refuse.
 
 **Watch.** The house now watches the doors it opened: LAN ingest is
 rate-limited and locks a client after repeated bad tokens; outbound
@@ -82,9 +91,37 @@ when muted). **house ▾ → Watch.** Ask "are we safe?" and she reads
 that snapshot — she is not antivirus and does not scan the rest of
 the PC.
 
+**Phone door.** The glass attaches to a detached `--core` only when
+that core holds the lock — another window already listening on
+`:8765` is not a core. If the core never answers, this window opens
+the door itself. A second shortcut click still raises the glass
+that is already running.
+
+**Look stills.** A screenshot she took to see a page, the desk, or
+the screen is deleted after vision or OCR. Leftovers go on launch.
+Pictures she generated stay. Say save/keep if you want the capture.
+
+**Look at a monitor.** Ask her to look at a book, a problem, or
+something on the left / right / second / vertical display. She
+grabs that monitor or window, reads the text (tiled on a huge
+page), and answers. She does not have to highlight it in the
+other app. "What's on the screen" is the desk; "this page" /
+"this tab" is her Chrome. A follow-up about the next paragraph
+or problem stays on that look.
+
+**Desk.** `desktop` opens and drives apps on your Windows session —
+Notepad, Calculator, Explorer — the same Stop / Pause / Go strip as
+her Chrome. A typed or spoken ask is the grant; delete / Pay / UAC
+still pause. She does not get a shell, a raw `.exe` path, or System32
+as a folder to rummage. Web stays `browser`. See
+[desktop-control.md](desktop-control.md).
+
 **Browser.** Her Chrome (`data/browser-profile/`) is the window you
 watch — a normal window on one desk (~60% of that monitor), not the
-1 / 2 / 3 span. Tell her the errand — she plans the clicks. Snapshot ranks
+1 / 2 / 3 span. It opens in front of Arelis, then you move and resize
+it; she still drives it over CDP without the window focused. "Open
+twitter in your browser" is a tab, not a room.
+Tell her the errand — she plans the clicks. Snapshot ranks
 visible controls (including one shadow root and same-origin iframes).
 Search waits for result links, then returns a short list; `click(nth=1)`
 opens the first. Type into a field by its label (`into="search"`).
@@ -126,8 +163,9 @@ still runs. A larger context window does not raise the everyday cap
 window says **loading the model…**, not **thinking…**, until the seed
 is done.
 
-**Voice.** Conversation and dictate are Sherpa-ONNX (Kroko Zipformer).
-Speech out is Kokoro-82M `af_heart` on CPU (Piper fallback). End of
+**Voice.** Conversation and dictate are Sherpa-ONNX (Kroko Zipformer)
+with a small beam, not greedy first-token lock. Speech out is Kokoro-82M
+`af_heart` on CPU (Piper fallback). End of
 turn is Silero plus Smart Turn v3 when the ONNX is present. Headset
 barge-in is the next question. [voice-wake.md](voice-wake.md). Those
 weights are not in the setup `.exe`. First open fetches them with the
@@ -199,6 +237,15 @@ Enter appears after you arrive at Earth — the zone door in the
 same window. Closer bands reveal more. Earth is a zone, not a
 second room.
 
+Earth wheel zoom no longer fights hundreds of street-name labels;
+chips stay readable on imagery; planes point along track; a click
+does not freeze the globe. Cameras / traffic / sites fetch on their
+own thread so CelesTrak cannot stall Columbus, and OSM webcams query
+the look box instead of the whole continent. Shodan (keyed) searches
+that same look. An empty Cameras chip is a hole, not every phone on
+Wi-Fi. Walking the look box refetches those city catalogs, not only
+planes and ships — last city's pins do not occupy the next.
+
 Now: `arelis/earth/feeds.py` is **109 shipped / 25 keyed / 3 later / 4 out**.
 Live is distance-gated (`arelis/earth/lod.py`): from space only
 satellites are fetched; closer in, local planes; closer still, boats
@@ -212,7 +259,11 @@ or a street address; Enter flies there. Orbital marks are the full
 catalog, not a nadir patch. Say take me to Tokyo —
 or Japan, Illinois, Africa, the UK, home — typed or spoken.
 Click a country or city
-to fall toward it. Enter Earth jumps the clock to now. The camera is an observer
+to fall toward it. Click the ISS to ride along; Esc or empty sky hops off.
+City and near keep no sat swarm — only a hot station.
+Radio and cameras list in a right-side HUD tile; camera peek / View / More
+stay on that glass, not a second window.
+Enter Earth jumps the clock to now. The camera is an observer
 (`arelis.physics.observe`): physics stays true; the plate commits
 when accumulated motion crosses half a pixel — every body, orbit
 and IAU spin. Travel standoff does not show Earth spin. Earth zone is Cesium;
@@ -222,7 +273,8 @@ solar lab used GPU — not `QWebEngineView` in the same process as the
 share group, and not `--disable-gpu`. Leave Earth kills the child
 (or the in-process view), then recreates solar GL. Native NASA disc
 is fallback only. The Cesium plate is opaque (no leftover solar
-frame through the night side); sodium HUD stays in Qt. NASA GIBS is the ground if no
+frame through the night side); sodium HUD stays in Qt. NASA GIBS (Web Mercator
+Level 8, fog off) is the ground if no
 Google key is pasted; Photorealistic 3D cities light up below 8 km when
 `earth.google_maps_key` is set. Natural Earth country lines paint on
 the Qt disc so landfall still reads if Cesium is down. The GL Earth
@@ -230,7 +282,7 @@ map shares that frame — Greenwich is the texture center, not the seam.
 The Earth
 software sphere can grow once you have fallen in so the NASA albedo
 still reads; optional `earth_8192.jpg` (Blue Marble shallow topo) is
-preferred when present; Streets is a named-road overlay on the planet (not the OSM carto drawing), with a compass and a distance meter (look-ray to the surface once Cesium has spoken, click for a pin; map scale only closer in); Cesium pins are WGS84 from ECEF;
+preferred when present; Streets is a named-road overlay on the planet (not the OSM carto drawing), with a compass and a distance meter (Cesium emit only — Find does not write the dest as the current eye; click for a pin; map scale only closer in); Cesium pins are WGS84 from ECEF;
 optional building footprints are a city-band chip, look-pin boxed,
 and the same outlines ride Cesium when WebEngine is up.
 Viewsheds say No terrain. Collision stays no mesh, no DEM. OpenSky uses a bbox
@@ -252,7 +304,8 @@ cars stay a labeled hole.
 Enter Earth locks the plate to now when the lab can, takes one
 published snapshot, then coasts. Leave clears; re-enter refetches.
 Live keeps pulling on TTL / look walk — not a one-hertz poll.
-Air and ships coast as dead-reckoned, then stale. Each Earth layer and solar body kind has
+Air and ships coast as interpolated, then dead-reckoned, then stale.
+Sats keep SGP4 between TLE polls. Each Earth layer and solar body kind has
 its own sodium mark (`arelis/ui/earth_marks.py`) — Qt overlay, Cesium
 billboards, inspect card, and solar roster share the same drawn paths.
 Heading is the nose of the air/sea mark. A photoreal miss does not

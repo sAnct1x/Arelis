@@ -214,6 +214,11 @@ def test_diagnostics_catalog_is_phrase_only() -> None:
     assert DIAGNOSTICS.matches("hey arelis, run diagnostics")
     assert not DIAGNOSTICS.matches("run diagnostics on my car")
     assert not DIAGNOSTICS.matches("don't run diagnostics")
+    assert not DIAGNOSTICS.matches("don't ever run diagnostics")
+    assert not DIAGNOSTICS.matches("do not ever run diagnostics")
+    assert not any(
+        h.kind == "diagnostics" for h in detect_intents("don't ever run diagnostics")
+    )
     assert any(h.kind == "diagnostics" for h in detect_intents("run diagnostics"))
     assert not any(
         h.kind == "diagnostics" for h in detect_intents("run diagnostics on my car")
@@ -386,3 +391,19 @@ def test_iso_calendar_create_is_not_math() -> None:
     assert not need.needs_calculator
     assert detect_math_ask("What is 12.5% of 640?")
     assert detect_math_ask("what is 17-3")
+
+
+def test_log_base_10_is_math_not_git() -> None:
+    from arelis.core.claims import detect_cas_ask, detect_git_ask, detect_math_ask
+
+    ask = "what's log base 10 of 1000"
+    assert detect_math_ask(ask)
+    assert not detect_git_ask(ask)
+    need = detect_exactness_need(ask)
+    assert need.needs_calculator
+    assert not need.needs_git
+    assert detect_git_ask("what's the git status of this project")
+    assert detect_git_ask("show me the git log")
+    assert detect_cas_ask("factor x^3 - 8")
+    assert not detect_math_ask("factor x^3 - 8")
+    assert detect_exactness_need("factor x^3 - 8").needs_cas

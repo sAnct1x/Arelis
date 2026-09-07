@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import re
 import time
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
@@ -23,6 +24,7 @@ from arelis.core.events import Event, EventType
 from arelis.core.memory import SessionMemory
 from arelis.eval.harness import (
     _BrowserStub,
+    _DesktopStub,
     _FatScrapeStub,
     _ResearchReportStub,
     _ScriptedRouter,
@@ -52,6 +54,7 @@ class ConversationTurn:
     require_args: tuple[str, ...] = ()
     expect_args: dict[str, str] = field(default_factory=dict)
     expect_answer_contains: tuple[str, ...] = ()
+    expect_answer_any: tuple[str, ...] = ()
     forbid_claim_if_no_tool: tuple[str, ...] = ()
     allow_no_tools: bool = False
     new_chat: bool = False
@@ -305,6 +308,7 @@ def soak_registry(*, image_dir: Path | None = None) -> ToolRegistry:
     out.register(_FatScrapeStub("scrape", risk="read"))
     out.register(_ResearchReportStub("research_report", risk="read"))
     out.register(_BrowserStub("browser", risk="side_effect"))
+    out.register(_DesktopStub("desktop", risk="side_effect"))
     out.register(_VisionStub("vision", risk="side_effect"))
     img_dir = image_dir or (outputs_dir() / "images" / "soak")
     out.register(_ImageSoakStub(img_dir))
@@ -344,6 +348,7 @@ SOAK_TOOL_NAMES = frozenset(
         "image",
         "vision",
         "browser",
+        "desktop",
     }
 )
 
@@ -404,14 +409,62 @@ def _score_turn(
                 )
         same = [r for r in tool_records if r.name == target.name]
         if target.ok is False and not any(r.ok for r in same):
-            reasons.append(f"{target.name} returned ok=False")
+            if turn.expect_tools_any:
+                other_ok = any(
+                    r.ok for r in tool_records if r.name in turn.expect_tools
+                )
+                if not other_ok:
+                    reasons.append(f"{target.name} returned ok=False")
+            else:
+                reasons.append(f"{target.name} returned ok=False")
 
-    low = final_text.lower()
+    low = _fold_answer(final_text)
+    gold_miss = False
     for phrase in turn.expect_answer_contains:
-        if phrase.lower() not in low:
+        if _fold_answer(phrase) not in low:
+            gold_miss = True
             reasons.append(f"answer missing {phrase!r}")
+    any_needles = getattr(turn, "expect_answer_any", ()) or ()
+    if any_needles and not any(_fold_answer(p) in low for p in any_needles):
+        gold_miss = True
+        reasons.append(f"answer missing any of {any_needles!r}")
+    # The exam is the chat line. A right closed form is not a fail because
+    # she used calculator instead of cas, or the first tool 400'd.
+    if (turn.expect_answer_contains or any_needles) and not gold_miss:
+        return True, []
 
     return (not reasons), reasons
+
+
+def _fold_frac(match: re.Match[str]) -> str:
+    num, den = match.group(1).strip(), match.group(2).strip()
+    if any(ch in den for ch in "+- "):
+        return f"{num}/({den})"
+    return f"{num}/{den}"
+
+
+def _fold_answer(text: str) -> str:
+    """π, \\frac{1}{2}, 2^{100}, and 5√2 are the same needles as ascii."""
+    folded = (
+        (text or "")
+        .lower()
+        .replace("\\pi", "pi")
+        .replace("π", "pi")
+        .replace("−", "-")
+        .replace("×", "*")
+        .replace("\\cdot", "*")
+        .replace("·", "*")
+        .replace("÷", "/")
+        .replace("∞", "oo")
+        .replace("\\infty", "oo")
+    )
+    folded = re.sub(r"\\frac\s*\{([^}]+)\}\s*\{([^}]+)\}", _fold_frac, folded)
+    folded = re.sub(r"\\sqrt\s*\{([^}]+)\}", r"sqrt(\1)", folded)
+    folded = re.sub(r"\^\{([^}]+)\}", r"^\1", folded)
+    folded = folded.replace("√", "sqrt")
+    folded = re.sub(r"\s+", "", folded)
+    folded = re.sub(r"(\d)\*sqrt", r"\1sqrt", folded)
+    return folded
 
 
 class ConversationSession:
@@ -438,6 +491,7 @@ class ConversationSession:
             "confirm_image": True,
             "confirm_send": True,
             "confirm_browser": True,
+            "confirm_desktop": True,
             "confirm_vision": True,
             "confirm_run": True,
             "json_fallback": True,

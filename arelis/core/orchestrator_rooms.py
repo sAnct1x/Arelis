@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from arelis.core.events import Event, EventType
@@ -23,6 +24,22 @@ from arelis.rooms import (
     strip_setup_value,
 )
 from arelis.spatial import PHYSICS_ROOM_ID
+
+_ASK_HINT = re.compile(
+    r"(?i)\b(what(?:'s|s)?|how|show|draw|generate|write|add|put|convert|"
+    r"remember|forget|integrate|differentiate|solve|factor|weather|"
+    r"calendar|picture|image|task|goal|crop|scale)\b"
+)
+
+
+def _looks_like_project_guess(text: str) -> bool:
+    """True for a short folder guess, not a normal ask."""
+    raw = " ".join((text or "").split())
+    if not raw or any(ch in raw for ch in "?"):
+        return False
+    if _ASK_HINT.search(raw):
+        return False
+    return len(raw.split()) <= 3
 
 
 async def room_command(orch: Any, text: str) -> None:
@@ -228,6 +245,11 @@ async def take_setup_answer(orch: Any, text: str) -> bool:
     if step == "root":
         root = match_room_project(text, orch.workspace.names())
         if root is None:
+            # "draw a fox" is not a folder. Do not trap the rest of the night
+            # in the project picker.
+            if not _looks_like_project_guess(text):
+                await finish_room_setup(orch, skipped=True, user_text="")
+                return False
             names = orch.workspace.names()
             listed = ", ".join(f"`{item}`" for item in names) or "none yet"
             reply = (

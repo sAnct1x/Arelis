@@ -141,7 +141,8 @@ _IMAGE_EDIT_ASK = re.compile(
     r"enlarge|enlarged|"
     r"(?:make|blow)\s+(?:it|this|that)\s+(?:up|bigger|larger)|"
     r"scale\s*=\s*2|"
-    r"\b2x\b|"
+    r"(?:make|do|scale)\s+(?:it|this|that)\s+2x|"
+    r"\b2x\s+(?:bigger|larger|please)\b|"
     r"twice\s+(?:as\s+)?(?:big|large)|"
     r"twice\s+the\s+size|"
     r"(?:make|convert|turn)\s+(?:it|this|that)\s+into\s+(?:an?\s+)?"
@@ -283,6 +284,10 @@ def wants_image_edit(user_text: str = "") -> bool:
     """True when the ask is to change the picture: size, crop, overlay, or strength."""
     raw = user_text or ""
     if wants_image_restyle(raw) or wants_image_surgical(raw):
+        return False
+    from arelis.core.claims import detect_cas_ask
+
+    if detect_cas_ask(raw):
         return False
     return bool(_IMAGE_EDIT_ASK.search(raw))
 

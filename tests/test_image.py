@@ -176,6 +176,7 @@ def test_default_comfy_roots_are_the_documented_list() -> None:
     home = Path.home()
     assert home / "ComfyUI" in roots
     assert home / "Documents" / "ComfyUI" in roots
+    assert home / "Documents" / "ComfyUI" / "ComfyUI_windows_portable" in roots
     assert home / "Documents" / "ComfyUI_windows_portable" in roots
     assert home / "Desktop" / "ComfyUI" in roots
     assert Path("C:/ComfyUI") in roots
@@ -192,6 +193,49 @@ class _EmptyHistory:
                 return {}
 
         return _Resp()
+
+
+def test_wait_for_image_surfaces_oom_from_history() -> None:
+    from arelis.tools.comfy_client import wait_for_image
+
+    class _OomHistory:
+        async def get(self, url: str, **kwargs: Any) -> Any:
+            del url, kwargs
+
+            class _Resp:
+                def json(self) -> dict[str, Any]:
+                    return {
+                        "job-oom": {
+                            "status": {
+                                "status_str": "error",
+                                "messages": [
+                                    [
+                                        "execution_error",
+                                        {
+                                            "exception_message": (
+                                                "Could not allocate tensor. "
+                                                "There is not enough GPU video memory available!"
+                                            )
+                                        },
+                                    ]
+                                ],
+                            }
+                        }
+                    }
+
+            return _Resp()
+
+    name, err = asyncio.run(
+        wait_for_image(
+            _OomHistory(),  # type: ignore[arg-type]
+            "http://127.0.0.1:8188",
+            "job-oom",
+            attempts=2,
+            interval_s=0,
+        )
+    )
+    assert name is None
+    assert "memory" in err.lower()
 
 
 def test_wait_for_image_timeout_is_fail() -> None:

@@ -182,10 +182,18 @@ async def execute_call(
                     ctx.browser_screenshot_ok = True
             if name == "vision":
                 ctx.vision_ok = True
+            if name == "desktop":
+                d_act = str(args.get("action") or "").strip().lower()
+                if d_act == "screenshot":
+                    ctx.desktop_screenshot_ok = True
             if ctx.browser_screenshot_ok and ctx.vision_ok:
                 browser = loop.tools.get("browser")
                 if browser is not None:
                     browser.pixel_ok = True
+            if getattr(ctx, "desktop_screenshot_ok", False) and ctx.vision_ok:
+                desktop = loop.tools.get("desktop")
+                if desktop is not None:
+                    desktop.pixel_ok = True
             if name == "web_search":
                 q = str(args.get("query") or "").strip().casefold()
                 if q:

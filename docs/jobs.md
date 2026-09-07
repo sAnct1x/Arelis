@@ -32,7 +32,7 @@ recognizes it via the sentinel prompt `__arelis_briefing__`.
 There's nobody around to press **allow** on a scheduled run, so the
 job runner answers every confirmation card with skip — and it never
 even registers the tools that would need your input in the first
-place: sending mail or SMS, her browser, vision, camera, clipboard,
+place: sending mail or SMS, her browser, the desk, vision, camera, clipboard,
 OCR, plotting, documents, the 3D solar system, Earth, Reality, memory
 writes, contacts, rooms, research reports, or calendar writes.
 

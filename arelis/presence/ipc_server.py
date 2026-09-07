@@ -33,6 +33,7 @@ class IpcServer:
         port: int = 8766,
         on_shutdown: Any | None = None,
         on_open_ui: Any | None = None,
+        seat: str = "core",
     ) -> None:
         self.bus = bus
         self.host = assert_loopback_host(host)
@@ -42,6 +43,12 @@ class IpcServer:
         # pass open_ui on to whoever is attached; a UI hosting its own server is
         # the thing being asked for and has to answer for itself.
         self._on_open_ui = on_open_ui
+        # "core" is the live event bridge. "ui" is the glass activate listener
+        # so a second shortcut click can raise this window. A UI client that
+        # scans ports must not treat the latter as a core and skip binding
+        # ingest — hello_ack names the seat so they stay distinct.
+        cleaned = (seat or "core").strip().lower()
+        self.seat = cleaned if cleaned in {"core", "ui"} else "core"
         self._server: asyncio.Server | None = None
         self._clients: set[asyncio.StreamWriter] = set()
         self._attached = 0
@@ -89,7 +96,7 @@ class IpcServer:
             self.port = candidate
             self._server = server
             self.bus.subscribe(None, self._on_bus_event)
-            log.info("Core IPC listening on %s:%s", self.host, self.port)
+            log.info("IPC (%s) listening on %s:%s", self.seat, self.host, self.port)
             try:
                 from arelis.guard import Listener, get_watch
 
@@ -211,7 +218,7 @@ class IpcServer:
                             encode_line(
                                 {
                                     "op": "hello_ack",
-                                    "role": "core",
+                                    "role": self.seat,
                                     "version": int(msg.get("version") or 1),
                                     # Named so the UI can tell this core apart
                                     # from another account's on the same

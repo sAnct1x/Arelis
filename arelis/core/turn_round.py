@@ -18,6 +18,7 @@ from typing import Any
 from arelis.core.agent_loop import (
     _HIDE_WANDER_FOR,
     _MAX_TOOL_NUDGES,
+    _WRITE_AFTER_ALGEBRA_NOTICE,
     _WRITE_AFTER_PAGE_NOTICE,
     _WRITE_AFTER_THINK_NOTICE,
     _hide_daily_wander,
@@ -33,7 +34,10 @@ from arelis.core.email_complete import (
     rewrite_schedule_calls,
 )
 from arelis.core.events import Event, EventType
-from arelis.core.failure_copy import should_nudge_write_after_page
+from arelis.core.failure_copy import (
+    should_nudge_write_after_algebra,
+    should_nudge_write_after_page,
+)
 from arelis.core.json_tools import (
     extract_native_tool_calls,
     parse_fallback_payload,
@@ -300,6 +304,38 @@ async def apply_no_call_path(
                             )
                         )
                         return False
+                    if (
+                        not ctx.algebra_write_nudge_used
+                        and ctx.nudges < _MAX_TOOL_NUDGES
+                        and should_nudge_write_after_algebra(ctx.last_ok_tool_name)
+                    ):
+                        ctx.algebra_write_nudge_used = True
+                        ctx.nudges += 1
+                        offer_tools = False
+                        ollama_tools = []
+                        ctx.offer_tools = False
+                        ctx.ollama_tools = []
+                        ctx.tool_names.clear()
+                        tool_names = ctx.tool_names
+                        await loop._retract()
+                        messages.append({"role": "assistant", "content": content})
+                        messages.append(
+                            {
+                                "role": "user",
+                                "content": _WRITE_AFTER_ALGEBRA_NOTICE,
+                            }
+                        )
+                        await loop.bus.publish(
+                            Event(
+                                EventType.THINKING,
+                                {
+                                    "text": (
+                                        "empty after algebra; asking for a write-up"
+                                    )
+                                },
+                            )
+                        )
+                        return False
                     if not receipt_serves_goal(
                         ctx.goal, ctx.last_ok_tool_name, ctx.last_ok_tool_out
                     ):
@@ -358,7 +394,11 @@ async def apply_no_call_path(
                         )
                     )
                     await loop._finish(
-                        _tool_followup_fallback(ctx.last_ok_tool_out, ctx.last_ok_tool_name),
+                        _tool_followup_fallback(
+                            ctx.last_ok_tool_out,
+                            ctx.last_ok_tool_name,
+                            ask=ctx.text,
+                        ),
                         sources,
                         streamed="",
                     )
@@ -449,7 +489,9 @@ async def apply_no_call_path(
             if stripped_run_now and not calls:
                 await loop._finish(
                     "The job is already scheduled. It will run at the time "
-                    "you set — no need to fire it now."
+                    "you set — no need to fire it now.",
+                    sources,
+                    streamed="",
                 )
                 return True
 
@@ -641,6 +683,7 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
             or ctx.agenda_create_ok
             or bool(sms_sent)
             or ctx.page_write_nudge_used
+            or ctx.algebra_write_nudge_used
         ):
             offer_tools = False
             ollama_tools = []
@@ -748,7 +791,11 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
                         )
                     )
                     await loop._finish(
-                        _tool_followup_fallback(ctx.last_ok_tool_out, ctx.last_ok_tool_name),
+                        _tool_followup_fallback(
+                            ctx.last_ok_tool_out,
+                            ctx.last_ok_tool_name,
+                            ask=ctx.text,
+                        ),
                         sources,
                         streamed="",
                     )
@@ -766,7 +813,11 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
                         )
                     )
                     await loop._finish(
-                        _tool_followup_fallback(ctx.last_ok_tool_out, ctx.last_ok_tool_name),
+                        _tool_followup_fallback(
+                            ctx.last_ok_tool_out,
+                            ctx.last_ok_tool_name,
+                            ask=ctx.text,
+                        ),
                         sources,
                         streamed="",
                     )

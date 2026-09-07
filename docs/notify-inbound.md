@@ -74,10 +74,14 @@ dock footer, not chat.
 
 ### Core + UI
 
-If you run `arelis --core` (or attach to an external core), the window
-does not bind `:8765` itself. Inbound reaches chat only when the UI
-shows a live IPC bridge attached. Without that bridge, core still logs
-the SMS. Open the window to see it.
+If you run `arelis --core`, the window attaches and does not bind
+`:8765` itself — the core lock is what counts, not "something already
+answers on that port." A second Arelis window is not a core. If the
+core never handshakes, or it dies and stays gone, the glass opens the
+door itself. Inbound reaches chat when the UI shows a live IPC bridge
+or when this window owns ingest. Without a window, core still logs the
+SMS. Open the window to see it. A second shortcut click raises the
+glass that is already running, even while it is waiting on a core.
 
 ## Firewall
 

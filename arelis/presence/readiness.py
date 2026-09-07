@@ -212,6 +212,7 @@ def _confirm_chip(config: dict[str, Any]) -> ReadinessChip:
     flags = {
         "writes": bool(agent.get("confirm_writes", True)),
         "browser": bool(agent.get("confirm_browser", True)),
+        "desktop": bool(agent.get("confirm_desktop", True)),
         "vision": bool(agent.get("confirm_vision", True)),
         "send": bool(agent.get("confirm_send", True)),
         "image": bool(agent.get("confirm_image", True)),

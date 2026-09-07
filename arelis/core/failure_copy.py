@@ -63,6 +63,7 @@ _SEARCH_TITLE = re.compile(r"(?i)^\s*\d+\.\s*Title:\s*(.+)$")
 _PAGE_TOOLS = frozenset({"scrape", "web_fetch", "browser"})
 _SEARCH_TOOLS = frozenset({"web_search"})
 _PAGE_WRITE_TOOLS = frozenset({"scrape", "web_search", "web_fetch", "browser"})
+_ALGEBRA_WRITE_TOOLS = frozenset({"cas", "calculator", "python", "units", "plot"})
 _BOT_WALL = re.compile(
     r"(?i)\b("
     r"are you a robot|"
@@ -77,6 +78,22 @@ _PAGE_CHAT_CHARS = 420
 # Short fact lines (a price, a one-line hit) can ship as chat.
 # A scraped article or a SERP must not — ask the model to write first.
 _PAGE_WRITE_NUDGE_CHARS = 400
+# They typed an equation. "hard math tonight" is not that.
+_TYPED_EQUATION = re.compile(
+    r"(?i)[a-z][a-z0-9]*\s*(?:\*\*|\^|²|[+\-*/]).{0,48}="
+)
+
+
+def _algebra_was_asked(ask: str) -> bool:
+    from arelis.core.claims import detect_cas_ask, detect_math_ask, detect_units_ask
+
+    raw = ask or ""
+    return (
+        detect_cas_ask(raw)
+        or detect_math_ask(raw)
+        or detect_units_ask(raw)
+        or bool(_TYPED_EQUATION.search(raw))
+    )
 
 # Human copy for the tools whose failures reach the transcript, used when the raw
 # output turns out to be model-directed. Keyed by tool name.
@@ -197,7 +214,12 @@ def should_nudge_write_after_page(tool: str, output: str) -> bool:
     return len(out) >= _PAGE_WRITE_NUDGE_CHARS
 
 
-def chat_followup_from_tool(tool: str, output: str) -> str:
+def should_nudge_write_after_algebra(tool: str) -> bool:
+    """CAS / calc dumps are not a chat line. Ask for a sentence first."""
+    return (tool or "").strip() in _ALGEBRA_WRITE_TOOLS
+
+
+def chat_followup_from_tool(tool: str, output: str, *, ask: str = "") -> str:
     """Person-facing copy when the model leaves chat empty after a tool.
 
     The model still sees the raw tool result (including instruction footers).
@@ -205,6 +227,12 @@ def chat_followup_from_tool(tool: str, output: str) -> str:
     """
     body = (output or "").strip()
     name = (tool or "").strip()
+    if (
+        name in _ALGEBRA_WRITE_TOOLS
+        and name != "plot"
+        and not _algebra_was_asked(ask)
+    ):
+        return "Ready when you are. What problem do you want to start with?"
     if not body:
         return (
             "The tool finished, but I could not write a follow-up. "
@@ -298,6 +326,7 @@ __all__ = [
     "chat_followup_from_tool",
     "is_model_directed",
     "plain_reason",
+    "should_nudge_write_after_algebra",
     "should_nudge_write_after_page",
     "tool_failure_notice",
     "turn_failed_notice",

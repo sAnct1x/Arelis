@@ -21,7 +21,10 @@ log = logging.getLogger(__name__)
 
 
 def activate_existing_ui(config: dict[str, Any] | None = None) -> bool:
-    """Best-effort: hello + open_ui_request + bye on this user's core IPC port.
+    """Best-effort: hello + open_ui_request + bye on this user's IPC port.
+
+    The listener may be a detached core or this glass's activate seat. Both
+    name the instance; only a match counts.
 
     Returning True means "an already-running Arelis has been asked to show its
     window", and the caller exits on the strength of it. That makes a wrong True
@@ -30,8 +33,8 @@ def activate_existing_ui(config: dict[str, Any] | None = None) -> bool:
     user's window in the first user's session and then quietly exited. From the
     second user's side, double-clicking Arelis did nothing whatsoever.
 
-    So each candidate port is asked whose core it is, and only a matching answer
-    counts as activation.
+    So each candidate port is asked whose instance it is, and only a matching
+    answer counts as activation.
     """
     presence = (config or {}).get("presence") or {}
     if not bool(presence.get("ipc_enabled", True)):

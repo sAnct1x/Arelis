@@ -18,6 +18,7 @@ from arelis.core.agent_loop import (
     _BROWSER_WANDER,
     _MAX_THINKING_SNIPPET,
     _WEATHER_WANDER,
+    _WRITE_AFTER_ALGEBRA_NOTICE,
 )
 from arelis.core.call_redirects import apply_redirects
 from arelis.core.claims import lock_memory_forget_args
@@ -38,7 +39,9 @@ from arelis.core.same_call import (
     already_ran_same_call,
     is_browser_nav_call,
     same_call_finish_line,
+    same_call_finishes_turn,
     same_call_key,
+    same_call_strips_tools,
 )
 from arelis.core.sms_complete import (
     fill_send_sms_args,
@@ -55,6 +58,44 @@ from arelis.tools.weather import (
     fill_weather_args,
     weather_place_key,
 )
+
+
+def fill_round_calls(
+    loop: Any,
+    calls: list[tuple[str, dict[str, Any]]],
+    *,
+    text: str,
+) -> list[tuple[str, dict[str, Any]]]:
+    """Apply the same arg fills fanout would otherwise skip.
+
+    Fanout runs ``tools.call`` before the per-call loop. Weather days,
+    inbox ids, and extract paths have to be on the args *before* gather,
+    or the bookkeeping later reads a filled call against a raw result.
+    """
+    inbox = loop.tools.get("inbox") if loop is not None else None
+    hits = getattr(inbox, "last_hits", None) if inbox is not None else None
+    history = getattr(getattr(loop, "memory", None), "messages", None)
+    receipts = getattr(loop, "_receipts", None)
+    out: list[tuple[str, dict[str, Any]]] = []
+    for name, args in calls:
+        payload = dict(args or {})
+        if name == "weather":
+            payload = fill_weather_args(payload, text)
+        elif name == "inbox":
+            payload = fill_inbox_args(
+                payload,
+                user_text=text,
+                last_hits=hits if isinstance(hits, list) else None,
+            )
+        elif name == "doc_extract":
+            payload = fill_doc_extract_args(
+                payload,
+                user_text=text,
+                history=history,
+                receipts=receipts,
+            )
+        out.append((name, payload))
+    return out
 
 
 async def dispatch_calls(
@@ -136,6 +177,9 @@ async def dispatch_calls(
             assistant_msg["tool_calls"] = tool_calls
         messages.append(assistant_msg)
 
+        calls = fill_round_calls(loop, calls, text=text)
+        r.calls = calls
+
         fanout_results: dict[int, tuple[int, Any]] | None = None
         if (
             bool(agent_cfg.get("read_fanout", True))
@@ -148,6 +192,7 @@ async def dispatch_calls(
                 confirm_image=loop.confirm_image,
                 confirm_send=loop.confirm_send,
                 confirm_browser=loop.confirm_browser,
+                confirm_desktop=getattr(loop, "confirm_desktop", True),
                 confirm_vision=loop.confirm_vision,
                 confirm_run=loop.confirm_run,
                 allow_writes_this_turn=ctx.allow_writes_this_turn,
@@ -185,7 +230,7 @@ async def dispatch_calls(
 
         call_i = -1
 
-        def _drop_wander(*names: str, _offer_tools: bool = offer_tools) -> None:
+        def _drop_wander(*names: str) -> None:
             nonlocal available, visible, tool_names, ollama_tools
             hide = set(names)
             available = set(available) - hide
@@ -193,7 +238,7 @@ async def dispatch_calls(
             ctx.tool_names.clear()
             ctx.tool_names.update(visible)
             tool_names = ctx.tool_names
-            if _offer_tools:
+            if offer_tools:
                 ollama_tools = loop.tools.ollama_tools(visible)
 
         for name, args in calls:
@@ -654,6 +699,34 @@ async def dispatch_calls(
                 repeat = bool(key and key in ctx.same_skip_keys)
                 if key:
                     ctx.same_skip_keys.add(key)
+                # First blocked cas/python: take schemas away. The 9B
+                # otherwise re-emits the same call until the round cap.
+                if same_call_strips_tools(name):
+                    if not ctx.algebra_write_nudge_used:
+                        ctx.algebra_write_nudge_used = True
+                        messages.append(
+                            {
+                                "role": "user",
+                                "content": _WRITE_AFTER_ALGEBRA_NOTICE,
+                            }
+                        )
+                        await loop.bus.publish(
+                            Event(
+                                EventType.THINKING,
+                                {
+                                    "text": (
+                                        "same-call algebra; asking for a write-up"
+                                    )
+                                },
+                            )
+                        )
+                    offer_tools = False
+                    ollama_tools = []
+                    ctx.offer_tools = False
+                    ctx.ollama_tools = []
+                    ctx.tool_names.clear()
+                    tool_names = ctx.tool_names
+                    continue
                 stop_open = is_browser_nav_call(name, args) and (
                     ctx.goal.kind == "browser" or looks_like_browser_click_signin(text)
                 )
@@ -662,8 +735,10 @@ async def dispatch_calls(
                         line = LOGIN_READY_REPLY
                     elif stop_open:
                         line = browser_open_done_reply(text)
-                    else:
+                    elif same_call_finishes_turn(name) or repeat:
                         line = same_call_finish_line(name, ctx.last_ok_tool_out)
+                    else:
+                        continue
                     await loop._finish(line, sources, streamed="")
                     return True
                 continue

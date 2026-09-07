@@ -375,6 +375,11 @@ class SettingsDialog(QDialog):
         self.confirm_browser.setToolTip(
             "When she offers her window. Pay still pauses when this is on."
         )
+        self.confirm_desktop = QCheckBox("the desk, when she offers it")
+        self.confirm_desktop.setChecked(bool(agent.get("confirm_desktop", True)))
+        self.confirm_desktop.setToolTip(
+            "When she offers to drive your Windows session. Deletes still pause."
+        )
         self.confirm_vision = QCheckBox("seeing images and the screen")
         self.confirm_vision.setChecked(bool(agent.get("confirm_vision", True)))
         self.confirm_vision.setToolTip("Looking at an image or the screen.")
@@ -382,6 +387,7 @@ class SettingsDialog(QDialog):
             self.confirm_writes,
             self.confirm_image,
             self.confirm_browser,
+            self.confirm_desktop,
             self.confirm_vision,
         ):
             allow_l.addWidget(gate)
@@ -953,7 +959,23 @@ class SettingsDialog(QDialog):
 
     def _sync_allow_copy(self) -> None:
         """Headings follow the grant so the page describes the live gate."""
+        from arelis.ui.theme import active_theme
+
         grant = self.ask_is_grant.isChecked()
+        if active_theme() == "filament":
+            self.ask_is_grant.setToolTip(
+                "filament (testing): the spoken ask is the grant. "
+                "Mail and texts go. Deletes, Pay, and programs still pause."
+            )
+            self._allow_grant_blurb.setText(
+                "filament (testing): saying it is the grant. Mail and texts "
+                "go. Only deletes, Pay, and programs still pause."
+            )
+            self._allow_local_h.setText("On her own")
+            self._allow_local_blurb.setText(
+                "Pause if she does this without you naming it. Uncheck to never ask."
+            )
+            return
         if grant:
             self.ask_is_grant.setToolTip(
                 "When on, a job you already named does not open Allow — "
@@ -984,6 +1006,7 @@ class SettingsDialog(QDialog):
         self.confirm_writes.setChecked(True)
         self.confirm_image.setChecked(True)
         self.confirm_browser.setChecked(True)
+        self.confirm_desktop.setChecked(True)
         self.confirm_vision.setChecked(True)
         self.confirm_send.setChecked(True)
         self.confirm_run.setChecked(True)
@@ -994,6 +1017,7 @@ class SettingsDialog(QDialog):
         self.confirm_writes.setChecked(False)
         self.confirm_image.setChecked(False)
         self.confirm_browser.setChecked(False)
+        self.confirm_desktop.setChecked(False)
         self.confirm_vision.setChecked(False)
         self.confirm_send.setChecked(True)
         self.confirm_run.setChecked(True)
@@ -1046,6 +1070,7 @@ class SettingsDialog(QDialog):
                 "confirm_writes": self.confirm_writes.isChecked(),
                 "confirm_image": self.confirm_image.isChecked(),
                 "confirm_browser": self.confirm_browser.isChecked(),
+                "confirm_desktop": self.confirm_desktop.isChecked(),
                 "confirm_vision": self.confirm_vision.isChecked(),
                 "confirm_send": self.confirm_send.isChecked(),
                 "confirm_run": self.confirm_run.isChecked(),

@@ -7,6 +7,15 @@ from pathlib import Path
 
 from arelis.core.memory import SessionMemory
 from arelis.memory import MemoryStore
+from arelis.memory.store_sessions import keep_history_row
+
+
+def test_store_waits_on_a_second_writer(tmp_path: Path) -> None:
+    store = MemoryStore(tmp_path / "memory.db")
+    row = store._conn.execute("PRAGMA busy_timeout").fetchone()
+    store.close()
+    assert row is not None
+    assert int(row[0]) >= 5000
 
 
 def test_a_message_written_through_the_sink_can_be_read_back(tmp_path: Path) -> None:
@@ -22,6 +31,7 @@ def test_a_message_written_through_the_sink_can_be_read_back(tmp_path: Path) -> 
     assert messages[1]["note"].startswith("[tools used this turn:")
     sessions = store.list_sessions()
     assert sessions[0]["title"] == "I climb on weekends."
+    assert sessions[0]["has_user"] is True
     store.close()
 
 
@@ -198,7 +208,7 @@ def test_the_job_runner_builds_session_memory_with_no_sink() -> None:
         assert call.args == [], "job seat must use the bare SessionMemory() default"
 
 
-def test_glass_launch_starts_new_and_prunes_empty_shells(tmp_path: Path) -> None:
+def test_glass_launch_reuses_unused_and_prunes_empty_shells(tmp_path: Path) -> None:
     store = MemoryStore(tmp_path / "memory.db")
     filled = store.start_session()
     memory = SessionMemory(sink=store)
@@ -206,39 +216,42 @@ def test_glass_launch_starts_new_and_prunes_empty_shells(tmp_path: Path) -> None
     empty = store.start_session()
     assert store.latest_session_id(require_messages=False) == empty
     fresh = store.start_glass_session()
-    assert fresh != filled
-    assert fresh != empty
-    assert store.get_session(empty) is None
+    assert fresh == empty
+    assert store.get_session(empty) is not None
     assert store.get_session(filled) is not None
     assert store.get_messages(filled)[0]["content"] == "last night"
     store.close()
 
 
-def test_glass_launch_refuses_to_prune_a_shell_that_has_messages(
-    tmp_path: Path, monkeypatch
-) -> None:
-    """The prune deletes by ordering, so it has to re-check emptiness.
+def test_glass_launch_prunes_extra_unused_shells(tmp_path: Path) -> None:
+    store = MemoryStore(tmp_path / "memory.db")
+    filled = store.start_session()
+    memory = SessionMemory(sink=store)
+    memory.add("user", "last night")
+    first = store.start_session()
+    second = store.start_session()
+    third = store.start_session()
+    fresh = store.start_glass_session()
+    assert fresh == third
+    assert store.get_session(first) is None
+    assert store.get_session(second) is None
+    assert store.get_session(third) is not None
+    assert store.get_session(filled) is not None
+    store.close()
 
-    started_at is second-resolution and the leftover/filled lookups are two
-    different queries, so two conversations opened in the same second can be
-    ordered differently by each — at which point the newest-overall row is a
-    thread with messages and deleting it cascades the messages with it. The
-    disagreement is forced here rather than waited for.
-    """
+
+def test_glass_launch_never_deletes_a_thread_with_a_user_turn(tmp_path: Path) -> None:
     store = MemoryStore(tmp_path / "memory.db")
     older = store.start_session()
     memory = SessionMemory(sink=store)
     memory.add("user", "real thread")
     newer = store.start_session()
     memory.add("user", "also real")
-    monkeypatch.setattr(
-        store,
-        "latest_session_id",
-        lambda *, require_messages=True, room_id=None: newer if require_messages else older,
-    )
 
-    store.start_glass_session()
+    fresh = store.start_glass_session()
 
+    assert fresh != older
+    assert fresh != newer
     assert store.get_session(older) is not None
     assert store.get_messages(older)[0]["content"] == "real thread"
     assert store.get_session(newer) is not None
@@ -286,6 +299,31 @@ def test_reuse_empty_room_chat_does_not_mint_a_second(tmp_path: Path) -> None:
     store.close()
 
 
+def test_reuse_empty_room_chat_treats_assistant_only_as_unused(tmp_path: Path) -> None:
+    """Room setup writes assistant lines. History still says 'new chat'."""
+    store = MemoryStore(tmp_path / "memory.db")
+    filled = store.start_session(room_id="physics")
+    memory = SessionMemory(sink=store)
+    memory.add("user", "old lecture")
+    empty = store.start_session(room_id="physics")
+    memory.add("assistant", "What is this room for?")
+    again = store.start_or_reuse_empty_session(room_id="physics")
+    assert again == empty
+    assert store.get_session(filled) is not None
+    store.close()
+
+
+def test_reuse_empty_room_chat_prunes_extra_unused(tmp_path: Path) -> None:
+    store = MemoryStore(tmp_path / "memory.db")
+    first = store.start_session(room_id="physics")
+    second = store.start_session(room_id="physics")
+    again = store.start_or_reuse_empty_session(room_id="physics")
+    assert again == second
+    assert store.get_session(first) is None
+    assert store.get_session(second) is not None
+    store.close()
+
+
 def test_a_cold_launch_cannot_prune_a_rooms_empty_thread(tmp_path: Path) -> None:
     """A room's thread is durable by design, including before it has anything in it.
 
@@ -304,6 +342,14 @@ def test_a_cold_launch_cannot_prune_a_rooms_empty_thread(tmp_path: Path) -> None
 
     assert store.get_session(room_thread) is not None
     store.close()
+
+
+def test_history_hides_unused_shells_except_the_open_one() -> None:
+    unused = {"id": "a", "has_user": False}
+    used = {"id": "b", "has_user": True}
+    assert keep_history_row(unused, current_id="a") is True
+    assert keep_history_row(unused, current_id="b") is False
+    assert keep_history_row(used, current_id="a") is True
 
 
 def test_cancelled_user_turn_is_marked_stopped_in_the_prompt() -> None:

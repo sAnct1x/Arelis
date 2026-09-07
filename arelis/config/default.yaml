@@ -104,6 +104,9 @@ agent:
   # Pause when she *offers* her window. A drive you already typed or said is
   # the grant. rest of this ask covers further steps. Never batches with mail/SMS.
   confirm_browser: true
+  # Pause when she offers to drive your Windows session. A desk ask you
+  # already typed or said is the grant. Deletes / Pay / UAC still pause.
+  confirm_desktop: true
   # See one local image (VL). Separate from confirm_image so disabling Comfy
   # generation confirm does not disable vision. rest of this ask covers it.
   confirm_vision: true
@@ -412,6 +415,11 @@ tools:
       github: "https://github.com"
       calendar: "https://calendar.google.com"
       maps: "https://www.google.com/maps"
+  desktop:
+    # Drive the user's Windows session (open apps, type, click). Attended only.
+    # See docs/desktop-control.md. Never a shell. Raw .exe paths refused.
+    enabled: true
+    aliases: {}
   calendar:
     # Google Calendar API + Microsoft Graph (explicit OAuth exception).
     # Credentials in data/secrets.yaml → calendar.google / calendar.outlook.
@@ -553,8 +561,9 @@ tools:
     # Empty = pick an SDXL checkpoint if Comfy has one, else the first listed,
     # else v1-5-pruned-emaonly.safetensors. Set to a filename Comfy already has.
     checkpoint: ""
-    default_width: 768
-    default_height: 768
+    # 768 VAE-decode OOMs DirectML (~300MB tensor). 512 still fills the board.
+    default_width: 512
+    default_height: 512
     steps: 25
     cfg: 7.0
     sampler: euler
@@ -638,6 +647,11 @@ voice:
     backend: sherpa
     model_dir: "models/sherpa"
     allow_download: true
+    # Greedy locks the first token. A letter like "x" then becomes "ax"
+    # and the joiner completes a common English phrase. A small beam keeps
+    # the other hypothesis. Hotwords are site names she already knows.
+    decoding_method: modified_beam_search
+    max_active_paths: 4
     # tiny | base | small | medium | large-v3. Used only by the Whisper
     # fallback. base is the accuracy/latency knee on CPU.
     model_size: "base"
@@ -737,8 +751,9 @@ presence:
   # Close the window → stay in the OS tray (ingest keeps running). Tray menu
   # has Quit Arelis for a full stop. Set false for classic close-exits behavior.
   close_to_tray: true
-  # When true, if a core is already listening the UI will not bind :8765 again.
-  # UI also auto-attaches when a core is detected (or ARELIS_ATTACH_CORE=1).
+  # When a detached --core holds the lock, the UI attaches and does not bind
+  # :8765. Another window's ingest is not a core. If the core never answers,
+  # the glass opens the door itself. ARELIS_ATTACH_CORE=1 is spawn-from-core.
   use_external_core: false
   lock_path: "data/arelis-core.lock"
   ui_lock_path: "data/arelis-ui.lock"

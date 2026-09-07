@@ -46,6 +46,7 @@ import pytest
 
 from arelis import identity
 from arelis.core.bus import EventBus
+from arelis.presence.activate import activate_existing_ui
 from arelis.presence.inbound_runtime import attach_inbound
 from arelis.presence.ipc_client import IpcClient
 from arelis.presence.ipc_server import IpcServer
@@ -398,3 +399,115 @@ async def test_a_client_given_one_port_does_not_wander(
             task.cancel()
             with pytest.raises(asyncio.CancelledError):
                 await task
+
+
+async def test_the_bridge_skips_a_glass_activate_listener(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A UI hello_ack is not a core. Attaching would skip binding ingest."""
+    monkeypatch.setenv("ARELIS_DATA_DIR", str(tmp_path / "me"))
+    glass_bus = EventBus()
+    ui_bus = EventBus()
+    glass_task = asyncio.create_task(glass_bus.run())
+    ui_task = asyncio.create_task(ui_bus.run())
+    port = _free_port()
+    glass = IpcServer(glass_bus, host="127.0.0.1", port=port, seat="ui")
+    await glass.start()
+    ui = IpcClient(ui_bus, host="127.0.0.1", port=port, reconnect_s=0.05)
+    ui.start()
+    try:
+        for _ in range(16):
+            await asyncio.sleep(0.05)
+            assert not ui.attached, "attached to this window's activate listener"
+    finally:
+        await ui.stop()
+        await glass.stop()
+        glass_bus.stop()
+        ui_bus.stop()
+        for task in (glass_task, ui_task):
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+
+
+async def test_the_bridge_skips_the_glass_and_finds_its_core(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Search must walk past seat=ui and land on the real core."""
+    monkeypatch.setenv("ARELIS_DATA_DIR", str(tmp_path / "me"))
+    preferred = _free_port()
+    glass_bus = EventBus()
+    core_bus = EventBus()
+    ui_bus = EventBus()
+    tasks = [
+        asyncio.create_task(glass_bus.run()),
+        asyncio.create_task(core_bus.run()),
+        asyncio.create_task(ui_bus.run()),
+    ]
+    glass = IpcServer(glass_bus, host="127.0.0.1", port=preferred, seat="ui")
+    await glass.start()
+    assert glass.port == preferred
+    core = IpcServer(core_bus, host="127.0.0.1", port=preferred)
+    await core.start()
+    assert core.port != preferred
+    ui = IpcClient(
+        ui_bus,
+        host="127.0.0.1",
+        port=preferred,
+        reconnect_s=0.1,
+        search_ports=True,
+    )
+    ui.start()
+    try:
+        for _ in range(60):
+            if ui.attached:
+                break
+            await asyncio.sleep(0.05)
+        assert ui.attached, "client never walked past the glass listener to the core"
+    finally:
+        await ui.stop()
+        await core.stop()
+        await glass.stop()
+        glass_bus.stop()
+        core_bus.stop()
+        ui_bus.stop()
+        for task in tasks:
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+
+
+async def test_second_click_raises_a_glass_that_is_attaching(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Activate must succeed against seat=ui, or shortcut clicks do nothing."""
+    monkeypatch.setenv("ARELIS_DATA_DIR", str(tmp_path / "me"))
+    bus = EventBus()
+    bus_task = asyncio.create_task(bus.run())
+    raised = {"n": 0}
+    port = _free_port()
+    glass = IpcServer(
+        bus,
+        host="127.0.0.1",
+        port=port,
+        seat="ui",
+        on_open_ui=lambda _reason: raised.__setitem__("n", raised["n"] + 1),
+    )
+    await glass.start()
+    try:
+        ok = await asyncio.to_thread(
+            activate_existing_ui,
+            {"presence": {"ipc_host": "127.0.0.1", "ipc_port": port}},
+        )
+        assert ok
+        for _ in range(20):
+            if raised["n"]:
+                break
+            await asyncio.sleep(0.02)
+        assert raised["n"] >= 1
+    finally:
+        await glass.stop()
+        bus.stop()
+        bus_task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await bus_task

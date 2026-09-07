@@ -68,6 +68,7 @@ class TurnContext:
 
     scrape_nudge_used: bool = False
     page_write_nudge_used: bool = False
+    algebra_write_nudge_used: bool = False
     think_write_nudge_used: bool = False
     js_shell_nudge_used: bool = False
     js_shell_url: str = ""
@@ -99,6 +100,7 @@ class TurnContext:
     browser_clicked: bool = False
     browser_login_hop: bool = False
     browser_screenshot_ok: bool = False
+    desktop_screenshot_ok: bool = False
     vision_ok: bool = False
     same_skip_keys: set[str] = field(default_factory=set)
     skip_finish_text: str = ""

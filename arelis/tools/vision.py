@@ -196,6 +196,10 @@ class VisionTool:
 
         digest = hashlib.sha256(answer.encode("utf-8")).hexdigest()[:12]
         rel = display_path(path)
+        from arelis.look_scratch import forget_look_scratch, is_look_scratch
+
+        if is_look_scratch(path):
+            forget_look_scratch(path)
         return ToolResult(
             ok=True,
             output=answer,

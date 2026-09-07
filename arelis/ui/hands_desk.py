@@ -10,14 +10,16 @@ import math
 import time
 from dataclasses import dataclass, field
 
-from PySide6.QtCore import QEasingCurve, QPoint, QPropertyAnimation, QRect, Qt
+from PySide6.QtCore import QEasingCurve, QPoint, QPropertyAnimation, QRect, Qt, QUrl
 from PySide6.QtWidgets import (
+    QAbstractButton,
     QAbstractItemView,
     QAbstractScrollArea,
     QAbstractSlider,
     QApplication,
     QLineEdit,
     QPlainTextEdit,
+    QTextBrowser,
     QTextEdit,
     QWidget,
 )
@@ -61,7 +63,7 @@ def scroll_steps(dy_norm: float, page: int) -> int:
 
 
 def is_tile_chrome(tile: QWidget, global_pt: QPoint, *, rim: int = RIM) -> bool:
-    """Rim / title / empty glass. Not a list, input, or conversation viewport."""
+    """Rim / title / empty glass. Not a list, input, viewport, or a button."""
     local = tile.mapFromGlobal(global_pt)
     rect = tile.rect()
     if not rect.contains(local):
@@ -72,6 +74,7 @@ def is_tile_chrome(tile: QWidget, global_pt: QPoint, *, rim: int = RIM) -> bool:
         if isinstance(
             cur,
             (
+                QAbstractButton,
                 QAbstractScrollArea,
                 QAbstractItemView,
                 QLineEdit,
@@ -81,7 +84,13 @@ def is_tile_chrome(tile: QWidget, global_pt: QPoint, *, rim: int = RIM) -> bool:
         ):
             return False
         obj = str(cur.objectName() or "")
-        if obj in ("FilamentChatBody", "ChatLog", "HistoryList", "WorkspaceTree"):
+        if obj in (
+            "FilamentChatBody",
+            "ChatLog",
+            "HistoryList",
+            "WorkspaceTree",
+            "ChatProgress",
+        ):
             return False
         cur = cur.parentWidget()
     if child is None:
@@ -198,6 +207,7 @@ def glow_hits(window, apertures: list) -> None:
     st = _state(window)
     hot: set[str] = set()
     now_tiles: list[QWidget] = []
+    now_controls: list[QWidget] = []
     for thumb, index, _closed in apertures:
         mx = (float(thumb[0]) + float(index[0])) * 0.5
         my = (float(thumb[1]) + float(index[1])) * 0.5
@@ -212,6 +222,10 @@ def glow_hits(window, apertures: list) -> None:
             widget, name = found
             hot.add(name)
             now_tiles.append(widget)
+        control = _button_under(window.mapToGlobal(local))
+        if control is not None:
+            hot.add(str(control.objectName() or control.text() or "button"))
+            now_controls.append(control)
     if field is not None and hasattr(field, "set_hot"):
         field.set_hot(hot)
     for widget in st["hot_tiles"]:
@@ -220,6 +234,12 @@ def glow_hits(window, apertures: list) -> None:
     for widget in now_tiles:
         _set_tile_hot(widget, True)
     st["hot_tiles"] = now_tiles
+    for widget in st["hot_controls"]:
+        if widget not in now_controls:
+            _set_tile_hot(widget, False)
+    for widget in now_controls:
+        _set_tile_hot(widget, True)
+    st["hot_controls"] = now_controls
 
 
 def apply_verbs(window, apertures: list, reach: float) -> None:
@@ -283,13 +303,11 @@ def deliver_click(window, click: object, reach: float) -> None:
     px, py = span_pixel(nx, ny, window.width(), window.height())
     local = QPoint(px, py)
     global_pt = window.mapToGlobal(local)
-    hit_name = "miss"
     if active_theme() == "filament":
         field = getattr(window, "_filament", None)
         if field is not None and hasattr(field, "hit_float"):
             name = field.hit_float(local, window.rect())
             if name:
-                hit_name = name
                 floats = getattr(window, "_filament_floats", None)
                 if floats is not None:
                     floats.opened.emit(name)
@@ -297,15 +315,45 @@ def deliver_click(window, click: object, reach: float) -> None:
                 return
     app = QApplication.instance()
     widget = app.widgetAt(global_pt) if app is not None else None
-    if widget is not None:
-        obj = str(widget.objectName() or widget.__class__.__name__)
-        hit_name = obj
-        click_fn = getattr(widget, "click", None)
-        if callable(click_fn) and widget.isEnabled() and widget.isVisible():
-            click_fn()
-            hands_emit("click_hit", hit=obj, x=round(nx, 4), y=round(ny, 4))
-            return
+    hit_name, fired = fire_click(widget, global_pt)
+    if fired:
+        hands_emit("click_hit", hit=hit_name, x=round(nx, 4), y=round(ny, 4))
+        return
     hands_emit("click_miss", hit=hit_name, x=round(nx, 4), y=round(ny, 4))
+
+
+def fire_click(widget: QWidget | None, global_pt: QPoint) -> tuple[str, bool]:
+    """Mouse-equivalent press. Buttons, copy/again anchors, thinking line.
+
+    Empty glass / chrome plate has no click. That is a miss, not a drag.
+    """
+    if widget is None:
+        return "miss", False
+    cur = widget
+    while cur is not None:
+        obj = str(cur.objectName() or cur.__class__.__name__)
+        if isinstance(cur, QAbstractButton) and cur.isEnabled() and cur.isVisible():
+            cur.click()
+            return obj, True
+        if isinstance(cur, QTextBrowser) and cur.isEnabled() and cur.isVisible():
+            href = cur.anchorAt(cur.mapFromGlobal(global_pt))
+            if href:
+                url = QUrl(href)
+                cur.anchorClicked.emit(url)
+                name = (url.host() or url.path() or href).strip("/")
+                return name or obj, True
+        clicked = getattr(cur, "clicked", None)
+        if (
+            obj == "ChatProgress"
+            and clicked is not None
+            and hasattr(clicked, "emit")
+            and cur.isEnabled()
+            and cur.isVisible()
+        ):
+            clicked.emit()
+            return obj, True
+        cur = cur.parentWidget()
+    return str(widget.objectName() or widget.__class__.__name__ or "miss"), False
 
 
 def hwnd_under(window, global_pt: QPoint) -> QWidget:
@@ -373,11 +421,25 @@ def _state(window) -> dict:
         st = {
             "holds": {},
             "hot_tiles": [],
+            "hot_controls": [],
             "scroll_y": {},
             "armed": {},
         }
         window._hands_desk = st
+        return st
+    st.setdefault("hot_controls", [])
     return st
+
+
+def _button_under(global_pt: QPoint) -> QWidget | None:
+    app = QApplication.instance()
+    widget = app.widgetAt(global_pt) if app is not None else None
+    cur = widget
+    while cur is not None:
+        if isinstance(cur, QAbstractButton) and cur.isVisible():
+            return cur
+        cur = cur.parentWidget()
+    return None
 
 
 def _still_dragging(track: object | None) -> bool:
@@ -547,6 +609,9 @@ def _clear_all(window) -> None:
         for widget in st.get("hot_tiles") or []:
             _set_tile_hot(widget, False)
         st["hot_tiles"] = []
+        for widget in st.get("hot_controls") or []:
+            _set_tile_hot(widget, False)
+        st["hot_controls"] = []
         st["holds"] = {}
         st["armed"] = {}
         st["scroll_y"] = {}

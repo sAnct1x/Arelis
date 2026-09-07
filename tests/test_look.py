@@ -27,6 +27,42 @@ def test_bare_what_is_this_is_not_a_look() -> None:
     assert not has_look_context("what is this?")
 
 
+def test_monitor_book_is_not_a_webcam_look() -> None:
+    """A book on a display is the desk, even if the camera dock is live."""
+    text = "do you see problem 2.22 on my right monitor?"
+    assert not has_look_context(text, dock_live=True)
+    assert classify_look(text, dock_live=True) is None
+
+
+def test_webcam_phrases_stay_webcam_when_dock_live() -> None:
+    for text in (
+        "look at this",
+        "look at the camera",
+        "look at the desk camera",
+        "look at the room webcam",
+        "what do you see",
+        "what am I looking at",
+    ):
+        assert has_look_context(text, dock_live=True), text
+        assert classify_look(text, dock_live=True) is not None, text
+
+
+def test_desk_followup_is_not_webcam_even_when_dock_live() -> None:
+    prior = [
+        {"role": "user", "content": "look at the book on my right monitor"},
+        {"role": "assistant", "content": "I see a homework page."},
+    ]
+    for text in (
+        "now the third paragraph",
+        "and problem 2.23",
+        "what's the second paragraph about?",
+        "can you explain that",
+        "how do I solve this",
+    ):
+        assert not has_look_context(text, dock_live=True, history=prior), text
+        assert classify_look(text, dock_live=True, history=prior) is None, text
+
+
 def test_camera_phrase_defaults_identify() -> None:
     intent = classify_look("what do you see")
     assert intent is not None

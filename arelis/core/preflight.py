@@ -91,6 +91,7 @@ __all__ = [
     "rewrite_browser_calls",
     "signin_ref_from_snapshot",
     "user_asked_for_browser",
+    "user_asked_for_desktop",
 ]
 
 # Open/drive the user's real browser (not scrape-for-me).
@@ -129,15 +130,60 @@ _OPEN_ASK_MORE_WORK = re.compile(
 )
 
 # Screenshot the open page then describe via vision (two tools).
-# Page/tab text asks go to BROWSER_READ — pixels stay here.
+# Their monitors / a book on a display are desktop_look, not this.
 _BROWSER_SCREENSHOT = re.compile(
     r"(?i)\b("
     r"(?:take\s+a\s+|capture\s+(?:a\s+)?)?screenshot\s+(?:of\s+)?"
-    r"(?:this\s+)?(?:page|tab|site|browser|screen)|"
-    r"screenshot\s+(?:and\s+)?describe|"
-    r"describe\s+(?:what(?:'s|\s+is)\s+on\s+)?(?:the\s+|this\s+)?screen|"
-    r"what(?:'s|\s+is)\s+on\s+(?:the\s+|my\s+)?screen"
-    r")\b"
+    r"(?:this\s+)?(?:page|tab|site|browser)\b|"
+    r"screenshot\s+(?:and\s+)?describe\s+(?:this\s+)?(?:page|tab|site)"
+    r")"
+)
+
+# Look at a monitor or a window on the desk — not her Chrome, not the webcam.
+_DESK_SIDE = r"(?:left|right|other|second|2nd|vertical|top|bottom|upper|lower)"
+_DESK_ORD = (
+    r"(?:\d+(?:st|nd|rd|th)|first|second|third|fourth|fifth|"
+    r"sixth|seventh|eighth|ninth|tenth)"
+)
+_DESK_LOOK = re.compile(
+    r"(?i)\b("
+    r"look\s+at\s+(?:(?:the|my|this|that)\s+)?"
+    rf"(?:{_DESK_SIDE}\s+)?"
+    r"(?:screen|monitor|display|desk)\b|"
+    r"(?:on|at)\s+(?:my|the|this|that)\s+"
+    rf"(?:{_DESK_SIDE}\s+)?"
+    r"(?:screen|monitor|display)\b|"
+    r"what(?:'s|\s+is)\s+on\s+(?:my|the)\s+"
+    rf"(?:{_DESK_SIDE}\s+)?"
+    r"(?:screen|monitor|display)\b|"
+    r"describe\s+(?:what(?:'s|\s+is)\s+on\s+)?(?:the|my|this)\s+screen\b|"
+    r"what(?:'s|\s+is)\s+on\s+(?:the|my)\s+screen\b|"
+    r"do\s+you\s+see\s+(?:the\s+)?"
+    rf"(?:{_DESK_ORD}\s+paragraph|paragraph\s+\d+|"
+    r"problem|question\s+[\d.]+)|"
+    r"(?:can\s+you\s+)?(?:see|read|explain)\s+(?:the\s+)?"
+    rf"(?:{_DESK_ORD}\s+paragraph|problem\s+[\d.]+)|"
+    r"what(?:'s|\s+is)\s+(?:the|that)\s+"
+    rf"{_DESK_ORD}\s+paragraph\b|"
+    r"look\s+at\s+(?:this|that|the|my)\s+"
+    r"(?:book|textbook|pdf|homework|problem|worksheet)\b|"
+    r"(?:see|read)\s+(?:this|that|the)\s+"
+    r"(?:book|textbook|pdf|homework|problem)\b|"
+    r"on\s+(?:the|my)\s+(?:other\s+)?monitor\b"
+    r")"
+)
+
+# After a desk look: "now the third paragraph" / "and problem 2.23".
+_DESK_LOOK_FOLLOWUP = re.compile(
+    r"(?i)\b("
+    r"(?:now|and|also)\s+(?:the\s+)?"
+    rf"(?:{_DESK_ORD}\s+paragraph|paragraph\s+\d+|problem\s+[\d.]+)\b|"
+    r"solve\s+problem\s+[\d.]+\b|"
+    r"explain\s+(?:that|the|this)\s+paragraph\b|"
+    r"(?:can\s+you\s+)?explain\s+that\b|"
+    r"how\s+do\s+i\s+solve\s+this\b|"
+    r"what\s+about\s+that\b"
+    r")"
 )
 
 # Invented 7B actions that must become snapshot (then click Sign in by ref).
@@ -238,6 +284,7 @@ _URL_TOKEN = re.compile(
     r"(?i)\b("
     r"(?:https?://|www\.)\S+|"
     r"(?:[a-z0-9\-]+\.)+(?:com|org|net|io|dev|app|co)\b|"
+    r"(?:[a-z0-9\-]+)\s+dot\s+(?:com|org|net|io|dev|app|co)\b|"
     r"x\.com"
     r")\b"
 )
@@ -318,6 +365,95 @@ def looks_like_browser_open_ask(text: str) -> bool:
     ):
         return False
     return user_asked_for_browser(raw) or looks_like_browser_or_url(raw)
+
+
+_DESKTOP_APPS = (
+    r"notepad|calculator|calc|explorer|paint|mspaint|"
+    r"snipping\s+tool|spotify|discord|steam"
+)
+_DESKTOP = re.compile(
+    r"(?i)\b("
+    r"(?:open|launch|start|switch\s+to|focus|bring\s+up)\s+"
+    r"(?:(?:the|my|our)\s+)?(?:" + _DESKTOP_APPS + r")\b|"
+    r"(?:type|write)\s+.{0,48}\s+in\s+(?:(?:the|my)\s+)?notepad|"
+    r"open\s+notepad\s+and\s+(?:write|type)|"
+    r"on\s+(?:my|the)\s+(?:computer|desktop|pc)\b|"
+    r"use\s+(?:my|the)\s+(?:computer|desktop)\b"
+    r")"
+)
+
+
+def looks_like_desktop_ask(text: str) -> bool:
+    """True for 'open notepad' / 'use the computer' — not a browser URL."""
+    raw = text or ""
+    if not _DESKTOP.search(raw):
+        return False
+    if re.search(r"(?i)\bin\s+(?:your|the|my)\s+browser\b", raw):
+        return False
+    if _URL_TOKEN.search(raw):
+        return False
+    return True
+
+
+def _prior_desk_look(history: list[Any] | None) -> bool:
+    """True when a recent user turn already named a desk look."""
+    for item in reversed(history or []):
+        if hasattr(item, "role"):
+            role = str(getattr(item, "role", "") or "")
+            content = str(getattr(item, "content", "") or "")
+        elif isinstance(item, dict):
+            role = str(item.get("role") or "")
+            content = str(item.get("content") or "")
+        else:
+            continue
+        if role != "user":
+            continue
+        if _DESK_LOOK.search(content):
+            return True
+    return False
+
+
+def looks_like_desktop_look(
+    text: str, history: list[Any] | None = None
+) -> bool:
+    """True for 'look at my right monitor' / 'do you see problem 2.22'."""
+    raw = text or ""
+    matched = bool(_DESK_LOOK.search(raw))
+    if not matched and history and _DESK_LOOK_FOLLOWUP.search(raw):
+        matched = _prior_desk_look(history)
+    if not matched:
+        return False
+    # A camera noun is a camera look — "desk camera", "problem on the webcam".
+    # "look at this book" has no camera word and stays the desk.
+    if re.search(r"(?i)\b(?:cameras?|webcams?|cams?)\b", raw):
+        return False
+    from arelis.core.image_refs import mentions_camera_look
+
+    desk_named = bool(
+        re.search(
+            r"(?i)\b("
+            r"monitor|screen|display|desk|"
+            r"book|textbook|pdf|homework|worksheet|"
+            r"paragraph|problem\s+[\d.]+"
+            r")\b",
+            raw,
+        )
+    )
+    if mentions_camera_look(raw) and not desk_named:
+        return False
+    if re.search(r"(?i)\bin\s+(?:your|the|my)\s+browser\b", raw):
+        return False
+    if re.search(r"(?i)\b(?:this|the|that)\s+(?:page|tab|site)\b", raw):
+        return False
+    return True
+
+
+def user_asked_for_desktop(
+    text: str, history: list[Any] | None = None
+) -> bool:
+    return looks_like_desktop_ask(text) or looks_like_desktop_look(
+        text, history=history
+    )
 
 
 def user_asked_for_browser(text: str) -> bool:
@@ -475,6 +611,12 @@ def draft_browser_args(text: str) -> dict[str, str]:
             if alias in lowered:
                 url = href
                 break
+    if url and " dot " in url.lower():
+        from arelis.browser.aliases import resolve_target
+
+        resolved, err = resolve_target(url)
+        if resolved and not err:
+            url = resolved
     if url:
         return {"action": "open", "url": url}
     return {"action": "read"}
@@ -486,15 +628,29 @@ def _turn_ask(raw: str) -> str:
     return (ask or raw or "").strip() or (raw or "")
 
 
+_DETECT_CACHE: tuple[str, int, int, tuple[IntentHint, ...]] | None = None
+
+
 def detect_intents(
     text: str,
     *,
     history: list[Any] | None = None,
 ) -> list[IntentHint]:
     """Return zero or more high-confidence intent hints for this user turn."""
+    global _DETECT_CACHE
     raw = (text or "").strip()
     if not raw:
         return []
+    hist = history or []
+    cache_key = (raw, id(hist) if history is not None else 0, len(hist))
+    cached = _DETECT_CACHE
+    if (
+        cached is not None
+        and cached[0] == cache_key[0]
+        and cached[1] == cache_key[1]
+        and cached[2] == cache_key[2]
+    ):
+        return list(cached[3])
     hints: list[IntentHint] = []
 
     for item in AUTO_HINTS:
@@ -576,7 +732,28 @@ def detect_intents(
             )
         )
 
-    if _BROWSER_SCREENSHOT.search(raw):
+    if looks_like_desktop_look(raw, history=history):
+        from arelis.desktop.observe import look_needles
+
+        needles = look_needles(raw)
+        find_bit = f" find={needles[0]}." if needles else ""
+        hints.append(
+            IntentHint(
+                kind="desktop_look",
+                expected_tools=("desktop",),
+                nudge=(
+                    "Intent preflight: they want you to see something on a "
+                    "monitor or window on this PC — a book, a problem, a "
+                    "paragraph — not the webcam and not her Chrome. Call "
+                    "desktop(action=screenshot, target=1|left|the window "
+                    f"title).{find_bit} That grab already reads the text. "
+                    "Answer from it. Call vision only for a diagram. Do not "
+                    "invent the page. Allow still applies — do not ask "
+                    "permission in chat."
+                ),
+            )
+        )
+    elif _BROWSER_SCREENSHOT.search(raw):
         hints.append(
             IntentHint(
                 kind="browser_vision",
@@ -713,6 +890,22 @@ def detect_intents(
                 ),
             )
         )
+    elif looks_like_desktop_ask(raw):
+        hints.append(
+            IntentHint(
+                kind="desktop",
+                expected_tools=("desktop",),
+                nudge=(
+                    "Intent preflight: this message asks to use an app on "
+                    "the Windows session. Call desktop(action=open, "
+                    "target=notepad) — or the app they named — then type / "
+                    "click / press. Do not call browser for a native app. "
+                    "Do not call run_script or a shell. Never start cmd or "
+                    "PowerShell. Allow still applies — do not ask "
+                    "permission in chat."
+                ),
+            )
+        )
     elif _BROWSER.search(raw) and not looks_like_calendar_open(raw):
         hints.append(
             IntentHint(
@@ -732,7 +925,7 @@ def detect_intents(
         )
 
     cam = latest_camera_image_file(max_age_s=CAMERA_FRESH_S)
-    look = classify_look(raw, fresh_path=cam)
+    look = classify_look(raw, fresh_path=cam, history=history)
     if look:
         if look.path or cam:
             expected = (
@@ -839,7 +1032,11 @@ def detect_intents(
             )
         )
 
-    if looks_like_workspace_write(raw) and not _EXPLICIT_SMS_VERB.match(raw):
+    if (
+        looks_like_workspace_write(raw)
+        and not _EXPLICIT_SMS_VERB.match(raw)
+        and not looks_like_desktop_ask(raw)
+    ):
         hints.append(
             IntentHint(
                 kind="workspace_write",
@@ -1168,6 +1365,7 @@ def detect_intents(
             )
         )
 
+    _DETECT_CACHE = (cache_key[0], cache_key[1], cache_key[2], tuple(hints))
     return hints
 
 

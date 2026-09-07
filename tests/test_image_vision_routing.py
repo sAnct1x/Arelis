@@ -286,11 +286,14 @@ def test_latest_from_disk(tmp_path: Path, monkeypatch) -> None:
 
 def test_mentions_camera_look() -> None:
     assert mentions_camera_look("look at the camera")
+    assert mentions_camera_look("look at the desk camera")
+    assert mentions_camera_look("look at the room webcam")
     assert mentions_camera_look("What do you see?")
     assert mentions_camera_look("check the webcam feed")
     assert mentions_camera_look("Look at this. What is it?")
     assert not mentions_camera_look("describe the image you just generated")
     assert not mentions_camera_look("hello there")
+    assert not mentions_camera_look("look at the book")
 
 
 def test_latest_camera_image_file_age(tmp_path: Path) -> None:
@@ -686,6 +689,20 @@ def test_mask_region_is_image_surgical() -> None:
         assert filled.get("mask_region") == region, ask
         path = str(filled.get("path") or "").replace("\\", "/")
         assert "arelis_00021_.png" in path, ask
+
+
+def test_e_to_the_2x_is_not_an_upscale() -> None:
+    ask = "find the 100th derivative of f(x) = x^2 * e^(2x) evaluated at x = 0"
+    assert not wants_image_edit(ask)
+    from arelis.core.image_refs import scale_from_ask
+    from arelis.core.skills import select_skill_ids
+
+    assert scale_from_ask(ask) is None
+    ids = select_skill_ids(
+        ask,
+        available_tools={"cas", "image", "image_edit", "calculator"},
+    )
+    assert "image_edit" not in ids
 
 
 def test_upscale_is_image_edit_scale_2() -> None:

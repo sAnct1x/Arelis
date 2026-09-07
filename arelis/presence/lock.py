@@ -288,14 +288,16 @@ def find_my_ingest_port(config: dict[str, Any]) -> int | None:
 
 
 def external_core_available(config: dict[str, Any]) -> bool:
-    """Whether *this user's* detached core is already listening.
+    """Whether *this user's* detached ``--core`` holds the lock.
 
-    The identity requirement is the whole of the fix here. This decides whether
-    the UI attaches to an existing core instead of starting its own, and it used
-    to be satisfied by any reply on port 8765. On a machine with two accounts
-    logged in, the second user's UI therefore attached to the first user's core
-    and began receiving their texts and confirmation prompts.
+    Ingest answering is not enough. A sibling glass owns ``:8765`` the same
+    way a core does, and treating that as a core made the second window skip
+    the bind. When the first window left, ingest died and the remaining glass
+    sat in attach-forever. The lock is what ``arelis --core`` takes; another
+    window never does.
+
+    Identity still matters for *which* ingest the chip and the phone talk to
+    (``find_my_ingest_port``). That is a different question from "should this
+    window attach instead of binding".
     """
-    if find_my_ingest_port(config) is not None:
-        return True
     return lock_held_by_other(core_lock_path(config))

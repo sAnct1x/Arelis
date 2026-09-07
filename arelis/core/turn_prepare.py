@@ -109,6 +109,13 @@ async def prepare_turn(
     browser = loop.tools.get("browser")
     if browser is not None:
         browser.pixel_ok = False
+    desktop = loop.tools.get("desktop")
+    if desktop is not None:
+        desktop.pixel_ok = False
+    from arelis.look_scratch import clear_look_pending, hold_look_files, keep_look_files
+
+    clear_look_pending()
+    hold_look_files(keep_look_files(text))
     loop._trace = []
     loop._painted = ""
     # Mutable so mid-turn escalate (W2) can retarget the hot model.
@@ -121,7 +128,10 @@ async def prepare_turn(
     dock_live = callable(loop.config.get("_camera_capture"))
     fresh = latest_camera_image_file(max_age_s=CAMERA_FRESH_S)
     look_intent = classify_look(
-        text, dock_live=dock_live, fresh_path=fresh
+        text,
+        dock_live=dock_live,
+        fresh_path=fresh,
+        history=loop.memory.messages,
     )
     loop._look: LookTurn | None = None
     if look_intent is not None:
