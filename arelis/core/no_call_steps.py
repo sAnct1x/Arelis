@@ -132,9 +132,7 @@ async def _inject(
 ) -> str:
     r.calls = calls if calls is not None else [(name, args)]
     r.tool_calls = (
-        tool_calls
-        if tool_calls is not None
-        else [_native_tool_call(n, a) for n, a in r.calls]
+        tool_calls if tool_calls is not None else [_native_tool_call(n, a) for n, a in r.calls]
     )
     await loop._retract()
     await loop.bus.publish(Event(EventType.THINKING, {"text": thinking}))
@@ -148,11 +146,7 @@ async def try_sms(loop: Any, ctx: TurnContext, r: Any) -> str:
     sms_remaining: list[str] = []
     if sms_draft is not None and sms_draft.complete:
         sent_l = {s.lower() for s in r.sms_sent}
-        sms_remaining = [
-            a
-            for a in sms_draft.resolved_aliases
-            if a and a.lower() not in sent_l
-        ]
+        sms_remaining = [a for a in sms_draft.resolved_aliases if a and a.lower() not in sent_l]
         if not sms_remaining and not r.sms_sent and sms_draft.tool_to:
             sms_remaining = [sms_draft.tool_to]
     if not (
@@ -215,9 +209,7 @@ async def try_email(loop: Any, ctx: TurnContext, r: Any) -> str:
 
 async def try_inbox(loop: Any, ctx: TurnContext, r: Any) -> str:
     if not (
-        looks_like_mailbox_mutate(r.text)
-        and "inbox" in r.tool_names
-        and not ctx.inbox_mutated_ok
+        looks_like_mailbox_mutate(r.text) and "inbox" in r.tool_names and not ctx.inbox_mutated_ok
     ):
         return SKIP
     inbox = loop.tools.get("inbox")
@@ -343,18 +335,12 @@ async def try_agenda_open(loop: Any, ctx: TurnContext, r: Any) -> str:
 
 
 async def try_tile(loop: Any, ctx: TurnContext, r: Any) -> str:
-    if not (
-        match_tile_intent(r.text)
-        and "tile" in r.tool_names
-        and "tile" not in loop.tools_used
-    ):
+    if not (match_tile_intent(r.text) and "tile" in r.tool_names and "tile" not in loop.tools_used):
         return SKIP
     from arelis.tools.tile import TileTool
 
     hit = match_tile_intent(r.text)
-    calendar_uses_agenda = (
-        hit is not None and hit[1] == "calendar" and "agenda" in r.tool_names
-    )
+    calendar_uses_agenda = hit is not None and hit[1] == "calendar" and "agenda" in r.tool_names
     inj = None if calendar_uses_agenda else tile_tool_args(r.text, last_name=TileTool.last_name)
     if not inj:
         return STOP
@@ -447,9 +433,7 @@ async def try_image_edit(loop: Any, ctx: TurnContext, r: Any) -> str:
     if re.search(r"(?i)grayscale|greyscale|black[\s-]?and[\s-]?white|\bb\s*&\s*w\b", ask):
         inj_edit["grayscale"] = True
     if re.search(r"(?i)\b(?:flip|mirror)\b", ask):
-        inj_edit["flip"] = (
-            "vertical" if re.search(r"(?i)vertical|upside", ask) else "horizontal"
-        )
+        inj_edit["flip"] = "vertical" if re.search(r"(?i)vertical|upside", ask) else "horizontal"
     rot = re.search(r"(?i)rotate(?:\s+(?:it|this|that))?\s+(\d{1,3})", ask)
     if rot:
         inj_edit["rotate"] = int(rot.group(1))
@@ -664,11 +648,43 @@ async def try_goals(loop: Any, ctx: TurnContext, r: Any) -> str:
     )
 
 
+async def try_diagnostics(loop: Any, ctx: TurnContext, r: Any) -> str:
+    """ "The tests pass" is not something she is allowed to remember.
+
+    Found by generalising the document gate: `apply_force_gates` only nudges,
+    and every row in that table wants an inject behind it. This one is the
+    worst of them. A model that keeps answering in prose produced *"Yes, the
+    tests pass — the suite is green"* with **no tool call at all** — a claim the
+    user will act on, invented whole. That is the top complaint in the audit,
+    in one line.
+
+    The easiest inject in the file, too: `diagnostics` takes no meaningful
+    arguments (`suite` is an enum of one), so there is nothing to synthesise
+    and no way for the injected call to be subtly wrong. Running the suite is
+    also exactly what was asked for, so the cost is the cost of the answer.
+    """
+    if not (
+        bool(r.agent_cfg.get("diagnostics_force_call", True))
+        and (r.exact_need.needs_diagnostics or "diagnostics" in loop._expected_tools)
+        and "diagnostics" not in loop.tools_used
+        and "diagnostics" in r.tool_names
+    ):
+        return SKIP
+    return await _inject(
+        loop,
+        r,
+        "diagnostics",
+        {"suite": "all"},
+        thinking="inject  diagnostics; the suite has to actually run",
+        gate="diagnostics_force",
+    )
+
+
 _DOCUMENT_MIN_BODY = 120
 
 
 async def try_document(loop: Any, ctx: TurnContext, r: Any) -> str:
-    """"Create a pdf about X" has to end in a file, not a chat message.
+    """ "Create a pdf about X" has to end in a file, not a chat message.
 
     The `document` ForceGate in gates.py already covers this — and it only
     *nudges*. `apply_force_gates` appends the notice and retries, once, and a
@@ -707,7 +723,7 @@ async def try_document(loop: Any, ctx: TurnContext, r: Any) -> str:
 
 
 async def try_recall(loop: Any, ctx: TurnContext, r: Any) -> str:
-    """"What did I say about X" must reach the transcripts, not a shrug.
+    """ "What did I say about X" must reach the transcripts, not a shrug.
 
     Roadmap 4.0. The intent was already detected — the RECALL IntentSpec
     matches, preflight writes a nudge, and `recall` lands in `_expected_tools`
@@ -726,10 +742,7 @@ async def try_recall(loop: Any, ctx: TurnContext, r: Any) -> str:
     """
     if not (
         bool(r.agent_cfg.get("recall_force_call", True))
-        and (
-            "recall" in loop._expected_tools
-            or looks_like_recall_utterance(r.text)
-        )
+        and ("recall" in loop._expected_tools or looks_like_recall_utterance(r.text))
         and "recall" not in loop.tools_used
         and "recall" in r.tool_names
     ):
@@ -809,9 +822,7 @@ async def try_contacts(loop: Any, ctx: TurnContext, r: Any) -> str:
 
 async def try_solar_status(loop: Any, ctx: TurnContext, r: Any) -> str:
     if not (
-        SOLAR_STATUS.matches(r.text)
-        and "solar" in r.tool_names
-        and "solar" not in loop.tools_used
+        SOLAR_STATUS.matches(r.text) and "solar" in r.tool_names and "solar" not in loop.tools_used
     ):
         return SKIP
     return await _inject(
@@ -825,9 +836,7 @@ async def try_solar_status(loop: Any, ctx: TurnContext, r: Any) -> str:
 
 async def try_earth_status(loop: Any, ctx: TurnContext, r: Any) -> str:
     if not (
-        EARTH_STATUS.matches(r.text)
-        and "earth" in r.tool_names
-        and "earth" not in loop.tools_used
+        EARTH_STATUS.matches(r.text) and "earth" in r.tool_names and "earth" not in loop.tools_used
     ):
         return SKIP
     return await _inject(
@@ -964,6 +973,7 @@ INJECT_STEPS: tuple[StepFn, ...] = (
     try_tasks,
     try_goals,
     try_document,
+    try_diagnostics,
     try_recall,
     try_memory,
     try_contacts,
@@ -985,4 +995,3 @@ async def run_inject_steps(loop: Any, ctx: TurnContext, r: Any) -> str:
         if hit != SKIP:
             return hit
     return "none"
-

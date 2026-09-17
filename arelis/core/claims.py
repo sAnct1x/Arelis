@@ -48,9 +48,7 @@ _PICTURE_SIZE = re.compile(
 # ISO datetimes and clock faces are not subtraction. `2026-09-06T15:00:00`
 # used to match `_ARITH_PAIR` as `2026-09`, then a successful agenda create
 # was overwritten with "this needs a calculator result".
-_ISO_DT = re.compile(
-    r"\b(?:\d{4}-\d{2}-\d{2})(?:T\d{2}:\d{2}(?::\d{2})?(?:[+-]\d{2}:\d{2})?)?"
-)
+_ISO_DT = re.compile(r"\b(?:\d{4}-\d{2}-\d{2})(?:T\d{2}:\d{2}(?::\d{2})?(?:[+-]\d{2}:\d{2})?)?")
 _CLOCK = re.compile(r"\b\d{1,2}:\d{2}(?::\d{2})?\b")
 
 # "1960-2026" is a span, not subtraction. "what is 17-3" still matches
@@ -103,17 +101,13 @@ _CAS_FORCE = (
     re.compile(r"(?i)\bdouble\s+integral\b"),
     re.compile(r"(?i)\bantiderivative\b"),
     re.compile(r"(?i)\bwhat(?:'s|\s+is)\s+the\s+integral\b"),
-    re.compile(
-        r"(?i)\bintegrate\s+[a-zA-Z](?:\s|\*\*|\^|\(|$)"
-    ),
+    re.compile(r"(?i)\bintegrate\s+[a-zA-Z](?:\s|\*\*|\^|\(|$)"),
     re.compile(r"(?i)\bderivative\s+of\b"),
     re.compile(r"(?i)\bdifferentiate\b"),
     re.compile(r"(?i)\bd/dx\b"),
     re.compile(r"(?i)\bpartial\s+derivative\b"),
     re.compile(r"(?i)\b(solve\s+(this\s+|the\s+)?(ode|differential\s+equation))\b"),
-    re.compile(
-        r"(?i)\bsimplify\s+(?:this|the)\s+(?:expression|equation|algebra)\b"
-    ),
+    re.compile(r"(?i)\bsimplify\s+(?:this|the)\s+(?:expression|equation|algebra)\b"),
     re.compile(r"(?i)\bclosed\s+form\b"),
     re.compile(r"(?i)\bcheck\s+the\s+algebra\b"),
     re.compile(r"(?i)\bsymbolic\s+(?:algebra|integral|derivative)\b"),
@@ -129,9 +123,7 @@ _UNIT_NAMES = (
     r"eV|joules?|watts?|newtons?|parsecs?|\bau\b|nm|μm|um|"
     r"solar\s+masses?"
 )
-_FILE_CONVERT = re.compile(
-    r"(?i)\b(file|pdf|docx?|xlsx|csv|mp3|png|jpe?g|video|audio|txt)\b"
-)
+_FILE_CONVERT = re.compile(r"(?i)\b(file|pdf|docx?|xlsx|csv|mp3|png|jpe?g|video|audio|txt)\b")
 _UNITS_FORCE = (
     re.compile(
         rf"(?i)\bconvert\b.{{0,48}}\bto\s+(?:{_UNIT_NAMES})\b",
@@ -156,9 +148,7 @@ _CONSTANT_CONCEPT = re.compile(
     r"what\s+is\s+(?:a|an)\s+"
     r")\b"
 )
-_CMB_FRAME = re.compile(
-    r"(?i)\b(cmb\s+frame|rest\s+frame|comoving)\b"
-)
+_CMB_FRAME = re.compile(r"(?i)\b(cmb\s+frame|rest\s+frame|comoving)\b")
 _CONSTANT_FORCE = (
     re.compile(r"(?i)\bgravitational\s+constant\b"),
     re.compile(r"(?i)\bnewtonian\s+constant\b"),
@@ -205,13 +195,9 @@ _DEFINITIONAL_WEB = re.compile(
     r"(?i)\bwhat\s+is\s+(?:a|an)\s+"
     r"(?:news\s+)?(?:headline|article|research\s+report)\b"
 )
-_TEMP_SCALE = re.compile(
-    r"(?i)\btemperature\s+in\s+(?:kelvin|celsius|fahrenheit|rankine)\b"
-)
+_TEMP_SCALE = re.compile(r"(?i)\btemperature\s+in\s+(?:kelvin|celsius|fahrenheit|rankine)\b")
 _PROOF_ASK = re.compile(r"(?i)\bproof\b")
-_PARITY_ASK = re.compile(
-    r"(?i)\beven,\s*odd(?:,\s*or\s*neither)?\b|\b(?:even|odd)\s+function\b"
-)
+_PARITY_ASK = re.compile(r"(?i)\beven,\s*odd(?:,\s*or\s*neither)?\b|\b(?:even|odd)\s+function\b")
 # PDF / local-doc quote asks — narrow; avoid "what is a PDF?" definitional hits.
 _DOC_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(
@@ -387,7 +373,6 @@ _SEND_EMAIL_CLAIM = re.compile(
 )
 
 
-
 # Visual ask-shapes — need a vision warrant (not inventing screenshot contents).
 _VISION_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(
@@ -487,8 +472,26 @@ def detect_catalog_ask(text: str) -> bool:
     return SCIENCE_CATALOG.matches(text)
 
 
+# "How do I run the tests?" wants the command, not a suite run. Python has no
+# variable-length lookbehind, so this cannot live inside `_DIAGNOSTICS_ASK`, and
+# adding an exclusion field to IntentSpec to serve one row is not worth it. It
+# sits here rather than in the catalog on purpose: this function drives the
+# force gate and the inject — the expensive half — while the preflight nudge is
+# a request the model can decline, so a nudge on "how do I" costs nothing.
+_DIAGNOSTICS_HOWTO = re.compile(
+    r"(?i)\b(?:how\s+(?:do|can|would|should)\s+(?:i|you|we)|what\s+does)\b"
+)
+
+
 def detect_diagnostics_ask(text: str) -> bool:
-    """True only for the phrase 'run diagnostics', not 'on my car' / 'don't'."""
+    """True when they want the suite run, not the command explained.
+
+    Widened 2026-09-17: this matched the literal phrase "run diagnostics" and
+    nothing else, so "run the tests" / "run pytest" / "do the tests pass?"
+    armed nothing and the answer came from the model's imagination.
+    """
+    if _DIAGNOSTICS_HOWTO.search(text or ""):
+        return False
     return DIAGNOSTICS.matches(text)
 
 
@@ -539,9 +542,7 @@ def detect_units_ask(text: str) -> bool:
         if _CONSTANT_CONCEPT.search(raw):
             return any(p.search(raw) for p in _UNITS_FORCE)
         return True
-    if _FILE_CONVERT.search(raw) and not re.search(
-        rf"(?i)\b(?:{_UNIT_NAMES})\b", raw
-    ):
+    if _FILE_CONVERT.search(raw) and not re.search(rf"(?i)\b(?:{_UNIT_NAMES})\b", raw):
         return False
     return any(p.search(raw) for p in _UNITS_FORCE)
 
@@ -1024,9 +1025,7 @@ def last_store_ids_from_context(
             continue
         action = str(rec.get("action") or "")
         tool = str(rec.get("tool") or "")
-        if tool not in {"goals", "tasks"} and not action.startswith(
-            ("goals.", "tasks.")
-        ):
+        if tool not in {"goals", "tasks"} and not action.startswith(("goals.", "tasks.")):
             continue
         for item in rec.get("ids") or []:
             _add(str(item))
@@ -1065,9 +1064,10 @@ def local_store_inject_args(
         if re.search(r"(?i)\b(?:add|create)\s+(?:a\s+)?(?:task|to-?do)\b", raw):
             return {"action": "add", "title": titled or "untitled"}
         if re.search(r"(?i)\b(?:delete|remove)\b", raw):
-            nid = _last_store_id(raw, kind="task") or (
-                last_store_ids_from_context(history, receipts) or [""]
-            )[0]
+            nid = (
+                _last_store_id(raw, kind="task")
+                or (last_store_ids_from_context(history, receipts) or [""])[0]
+            )
             if nid:
                 return {"action": "remove", "id": nid}
         return {"action": "list"}
@@ -1075,21 +1075,18 @@ def local_store_inject_args(
         if re.search(r"(?i)\b(?:add|set|create)\s+(?:a\s+)?(?:goal|commitment)\b", raw):
             return {"action": "add", "title": titled or "untitled"}
         if re.search(r"(?i)\b(?:delete|remove|drop)\b", raw):
-            nid = _last_store_id(raw, kind="goal") or (
-                last_store_ids_from_context(history, receipts) or [""]
-            )[0]
+            nid = (
+                _last_store_id(raw, kind="goal")
+                or (last_store_ids_from_context(history, receipts) or [""])[0]
+            )
             if nid:
                 return {"action": "remove", "id": nid}
         return {"action": "list"}
     if tool == "memory":
         if re.search(r"(?i)\bforget\b", raw):
-            fact = re.sub(
-                r"(?i)^.*?\bforget\s+(?:that\s+)?", "", raw
-            ).strip().rstrip(".!")
+            fact = re.sub(r"(?i)^.*?\bforget\s+(?:that\s+)?", "", raw).strip().rstrip(".!")
             return {"action": "forget", "fact": fact or raw}
-        fact = re.sub(
-            r"(?i)^.*?\bremember\s+(?:that\s+)?", "", raw
-        ).strip().rstrip(".!")
+        fact = re.sub(r"(?i)^.*?\bremember\s+(?:that\s+)?", "", raw).strip().rstrip(".!")
         return {"action": "remember", "fact": fact or raw}
     if tool == "contacts":
         who = contact_who_from_text(raw)
@@ -1266,12 +1263,10 @@ def unsupported_exactness_reply(
                     "closed form, and I will not invent one."
                 )
             return (
-                "The CAS couldn't evaluate that. I will not recite a symbolic "
-                "result from memory."
+                "The CAS couldn't evaluate that. I will not recite a symbolic result from memory."
             )
         return (
-            "I don't know — this needs a CAS result and I don't have a "
-            "closed form from this turn."
+            "I don't know — this needs a CAS result and I don't have a closed form from this turn."
         )
     if "units" in kinds:
         if units_failed:
@@ -1291,20 +1286,14 @@ def unsupported_exactness_reply(
         )
     if "plot" in kinds:
         if plot_failed:
-            return (
-                "The plot tool couldn't draw that. I will not fake a chart "
-                "in text."
-            )
+            return "The plot tool couldn't draw that. I will not fake a chart in text."
         return (
             "I don't know — this needs a plot file from this turn, and I "
             "will not draw one in ASCII."
         )
     if "document" in kinds:
         if document_failed:
-            return (
-                "I couldn't write that file. I will not paste a fake document "
-                "into chat."
-            )
+            return "I couldn't write that file. I will not paste a fake document into chat."
         return (
             "I don't know — this needs a real file from this turn, and I "
             "will not pretend the chat is the document."
@@ -1312,28 +1301,21 @@ def unsupported_exactness_reply(
     if "catalog" in kinds:
         if catalog_failed:
             return (
-                "The catalog tool couldn't fetch that. I will not invent "
-                "a paper or an ephemeris."
+                "The catalog tool couldn't fetch that. I will not invent a paper or an ephemeris."
             )
         return (
             "I don't know — this needs an arXiv, Horizons, APOD, or ADS "
             "result this turn, and I will not invent one."
         )
     if "weather" in kinds:
-        return (
-            "I don't know — I don't have a weather tool reading for that, "
-            "so I won't guess."
-        )
+        return "I don't know — I don't have a weather tool reading for that, so I won't guess."
     if "web" in kinds:
         return (
             "I don't know — I don't have a retrieved page warrant for that "
             "claim, so I won't invent one."
         )
     if "recall" in kinds:
-        return (
-            "I don't know — that isn't in what I can recall from our "
-            "conversation right now."
-        )
+        return "I don't know — that isn't in what I can recall from our conversation right now."
     if "inbox" in kinds:
         return (
             "I don't know — I don't have an inbox reading for that, "
@@ -1351,8 +1333,7 @@ def unsupported_exactness_reply(
         )
     if "agenda" in kinds:
         return (
-            "I don't know — I don't have a calendar reading for that, "
-            "so I won't invent meetings."
+            "I don't know — I don't have a calendar reading for that, so I won't invent meetings."
         )
     if "git" in kinds:
         return (
@@ -1360,10 +1341,7 @@ def unsupported_exactness_reply(
             "so I won't invent branch or dirty state."
         )
     if "tasks" in kinds:
-        return (
-            "I don't know — I don't have a tasks reading for that, "
-            "so I won't invent to-dos."
-        )
+        return "I don't know — I don't have a tasks reading for that, so I won't invent to-dos."
     if "goals" in kinds:
         return (
             "I don't know — I don't have a goals reading for that, "

@@ -2020,6 +2020,25 @@ SCENARIOS: list[Scenario] = [
         ],
     ),
     Scenario(
+        id="a_test_result_is_never_asserted_from_memory",
+        user="run the tests and tell me if they pass",
+        expect_tools=("diagnostics",),
+        forbid_claim_if_no_tool=("they pass", "all passing", "tests pass"),
+        offline_only=True,
+        failure_class="unsupported_claim",
+        category="tool_select",
+        notes=(
+            "Generalising the document finding: does the diagnostics ForceGate "
+            "hold when the model simply keeps answering in prose? This is the "
+            "worst version of pain #1 — 'the tests pass' is a claim the user "
+            "will act on, and inventing it is worse than refusing."
+        ),
+        script=[
+            [("token", "Yes, the tests pass — the suite is green.")],
+            [("token", "They pass. Everything is green on my end.")],
+        ],
+    ),
+    Scenario(
         id="a_pdf_ask_ends_in_a_file",
         user="create a pdf about the dirac equation",
         # Both listed on purpose. The board requires the first call to be in

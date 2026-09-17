@@ -139,6 +139,11 @@ MUTATIONS: tuple[Mutation, ...] = (
         guards="no_call_steps document inject behind the gates.py nudge",
     ),
     Mutation(
+        name="diagnostics_force_call",
+        overrides={"diagnostics_force_call": False},
+        guards="no_call_steps diagnostics inject; stops an invented 'tests pass'",
+    ),
+    Mutation(
         name="inspect_force_call",
         overrides={"inspect_force_call": False},
         guards=(

@@ -320,9 +320,7 @@ _GOALS = re.compile(
 _AGENDA_MENTION = re.compile(
     r"(?i)\b(calendar|agenda|meeting|appoint(?:ment)?|schedule an event)\b"
 )
-_BRIEFING_MENTION = re.compile(
-    r"(?i)\b(briefing|morning summary|what'?s going on today)\b"
-)
+_BRIEFING_MENTION = re.compile(r"(?i)\b(briefing|morning summary|what'?s going on today)\b")
 _TASK_MENTION = re.compile(
     r"(?i)\b("
     r"todo|to-?do|task list|checklist|"
@@ -341,9 +339,7 @@ DOC_ASK = re.compile(
     r"what(?:'s|\s+is)\s+in|what\s+does|go\s+through)\s+"
     r"(?:(?:this|the|that|my|those|these)\s+)?(?:documents?|pdfs?)\b"
 )
-_INBOX_MENTION = re.compile(
-    r"(?i)\b(inbox|in\s+box|email|e-?mail|gmail|mail|emiles?|emil)\b"
-)
+_INBOX_MENTION = re.compile(r"(?i)\b(inbox|in\s+box|email|e-?mail|gmail|mail|emiles?|emil)\b")
 
 # "There is a table in this ask." Preflight nudges toward the analyze tool on it,
 # plan_nudge builds a plan from it, and the exactness gate refuses invented row
@@ -423,9 +419,7 @@ BROWSER_MAPS = re.compile(
     r")\b"
 )
 
-BROWSER_MAPS_SEND = re.compile(
-    r"(?i)\b(?:text|sms|send)\s+(?:me\s+)?(?:the\s+)?directions\b"
-)
+BROWSER_MAPS_SEND = re.compile(r"(?i)\b(?:text|sms|send)\s+(?:me\s+)?(?:the\s+)?directions\b")
 
 BROWSER_SEARCH = re.compile(
     r"(?i)\b("
@@ -901,6 +895,7 @@ def run_script_path(text: str) -> str:
     match = _RUN_SCRIPT_FILE.search(text or "")
     return str(match.group("path") or "").strip() if match else ""
 
+
 SCIENCE_CATALOG = IntentSpec(
     kind="catalog",
     patterns=_CATALOG_MENTION,
@@ -917,8 +912,24 @@ SCIENCE_CATALOG = IntentSpec(
 
 # Phrase-only. "run diagnostics on my car" and "don't run diagnostics" are not
 # a request to execute this checkout's pytest tree.
+# Nobody says "run diagnostics". This matched that phrase and nothing else, so
+# "run the tests", "run pytest" and "do the tests pass?" armed no rule anywhere
+# — same class as the day-planning gap in `_TASKS_UTTERANCE`: written for the
+# phrasing a developer types, not the one a person says.
+#
+# The trailing `(?!\s+on\b)` on both run-forms is doing real work: it keeps
+# "run diagnostics on my car" and "run the tests on the staging server" out,
+# because neither is a request to run *her* suite.
 _DIAGNOSTICS_ASK = re.compile(
-    r"(?i)(?<!n't )(?<!not )(?<!never )\brun\s+diagnostics\b(?!\s+on\b)"
+    r"(?i)(?<!n't )(?<!not )(?<!never )\b(?:"
+    r"run\s+diagnostics(?!\s+on\b)|"
+    r"run\s+(?:the\s+)?(?:unit\s+|full\s+)?tests?\b(?!\s+on\b)|"
+    r"run\s+(?:the\s+)?test\s+suite\b|"
+    r"run\s+pytest\b|"
+    r"do\s+(?:the\s+|all\s+(?:the\s+)?)?tests?\s+pass\b|"
+    r"are\s+(?:the\s+|all\s+(?:the\s+)?)?tests?\s+passing\b|"
+    r"is\s+the\s+(?:suite|build)\s+green\b"
+    r")"
 )
 
 DIAGNOSTICS = IntentSpec(
@@ -961,9 +972,7 @@ _RUN_SCRIPT_BARE = re.compile(
     r"(?:the|that|my)\s+(?:script|program)\b"
     r"(?!\s+now\b)(?!\s+job\b)"
 )
-_RUN_IT_AGAIN = re.compile(
-    r"(?i)(?<!n't )(?<!not )(?<!never )\brun\s+it\s+again\b"
-)
+_RUN_IT_AGAIN = re.compile(r"(?i)(?<!n't )(?<!not )(?<!never )\brun\s+it\s+again\b")
 
 RUN_SCRIPT = IntentSpec(
     kind="run_script",
@@ -1029,9 +1038,7 @@ _INSPECT_CONFIRM = re.compile(
 _INSPECT_DRIVE = re.compile(r"(?i)\bdrive\s+strip\b")
 # Filename alone is not an inspect ask ("email me policy.py"). Same verb as paths.
 _INSPECT_BARE_FILE_ASK = re.compile(
-    r"(?i)"
-    + _INSPECT_READ_VERB
-    + r"\b.{0,80}\b(?:"
+    r"(?i)" + _INSPECT_READ_VERB + r"\b.{0,80}\b(?:"
     r"policy\.py|"
     r"tool_subset(?:\.py)?|"
     r"orchestrator\.py|"
@@ -1042,20 +1049,12 @@ _HOW_YOU_WORK_PATH = "docs/architecture.md"
 _INSPECT_HOW_YOU_WORK = re.compile(
     r"(?i)(?:"
     r"how\s+do\s+you\s+work|"
-    r"how\s+you\s+work|"
-    + _INSPECT_READ_VERB
-    + r"\b.{0,40}\b(?:your|her)\s+(?:own\s+)?source\b"
+    r"how\s+you\s+work|" + _INSPECT_READ_VERB + r"\b.{0,40}\b(?:your|her)\s+(?:own\s+)?source\b"
     r")"
 )
-_INSPECT_EXPLICIT_PATH = re.compile(
-    r"(?i)\b((?:arelis|docs)[/\\][A-Za-z0-9_./\\-]+)"
-)
+_INSPECT_EXPLICIT_PATH = re.compile(r"(?i)\b((?:arelis|docs)[/\\][A-Za-z0-9_./\\-]+)")
 # Path mention alone is not an inspect ask ("email me docs/…"). Need a read verb.
-_INSPECT_PATH_ASK = re.compile(
-    r"(?i)"
-    + _INSPECT_READ_VERB
-    + r"\b.{0,80}\b(?:arelis|docs)[/\\]"
-)
+_INSPECT_PATH_ASK = re.compile(r"(?i)" + _INSPECT_READ_VERB + r"\b.{0,80}\b(?:arelis|docs)[/\\]")
 # "look at the files" / "how accurate is the space sim" — a crawl, not a named path.
 _INSPECT_CODEBASE = re.compile(
     r"(?i)(?:"
@@ -1214,9 +1213,7 @@ _INSPECT_NUDGE = (
 _INSPECT_PHYSICS_NUDGE = (
     "Intent preflight: they asked to assess the solar-system sim from source. "
     "Do not list the workspace root. "
-    "In one fanout, workspace(action=read) on "
-    + ", ".join(PHYSICS_INSPECT_FANOUT)
-    + ". "
+    "In one fanout, workspace(action=read) on " + ", ".join(PHYSICS_INSPECT_FANOUT) + ". "
     "Quote the integrator, GM/constant provenance, and IC source "
     "(Horizons VECTORS — bodies where they are now, not a homemade catalog). "
     "scene.py may truncate; horizons.py is the IC contract. "
