@@ -39,7 +39,7 @@ _SHORT_DESC: dict[str, str] = {
     "research_report": "multi-source writeup under outputs/research",
     "rooms": "list / go to a room. Reality is physics",
     "run_script": "run a project .py under workspace. not a shell; not diagnostics; not schedule run_now",
-    "schedule": "local jobs. action=list|create|run|delete",
+    "schedule": "local jobs. action=list|create|update|run|delete. move a time with update, not delete+create",
     "scrape": "readable page text. Prefer scrape for news/docs",
     "send_email": "send mail. confirm card. never invent sent",
     # Prescriptive on purpose. The first attempt at this line said "do not

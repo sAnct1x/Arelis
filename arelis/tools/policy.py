@@ -61,7 +61,9 @@ GOALS_WRITE_ACTIONS = frozenset({
 })
 MEMORY_WRITE_ACTIONS = frozenset({"remember", "forget", "prefer", "decide", "episode"})
 ROOMS_WRITE_ACTIONS = frozenset({"create", "update", "forget"})
-SCHEDULE_WRITE_ACTIONS = frozenset({"create", "create_briefing", "delete", "run_now"})
+SCHEDULE_WRITE_ACTIONS = frozenset(
+    {"create", "create_briefing", "update", "delete", "run_now"}
+)
 SOLAR_WRITE_ACTIONS = frozenset({
     "impulse",
     "add_probe",

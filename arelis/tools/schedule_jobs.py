@@ -210,7 +210,10 @@ class ScheduleTool:
         "Set up something to run automatically later and email the result: "
         "once at a future date and time, or repeating daily, on chosen "
         "weekdays, monthly, or every few hours. Use create_briefing for the "
-        "fixed morning briefing (weather, unread mail, open loops). Also "
+        "fixed morning briefing (weather, unread mail, open loops). Use "
+        "action=update with id plus whatever is changing to move a standing "
+        "job's time, days, or prompt — do not delete and recreate it, which "
+        "loses its id and run history. Also "
         "lists, deletes, and triggers saved jobs. Pass the user's own words "
         "for times and dates; this tool parses them, so never convert them "
         "yourself."
@@ -221,7 +224,14 @@ class ScheduleTool:
         "properties": {
             "action": {
                 "type": "string",
-                "enum": ["create", "create_briefing", "list", "delete", "run_now"],
+                "enum": [
+                    "create",
+                    "create_briefing",
+                    "list",
+                    "update",
+                    "delete",
+                    "run_now",
+                ],
             },
             "name": {
                 "type": "string",
@@ -282,6 +292,8 @@ class ScheduleTool:
             return self._create(kwargs)
         if action == "create_briefing":
             return self._create_briefing(kwargs)
+        if action == "update":
+            return self._update(kwargs)
         if action == "delete":
             return self._delete(str(kwargs.get("id") or ""))
         if action == "run_now":
@@ -351,6 +363,61 @@ class ScheduleTool:
 
         job.id = make_job_id(job.name, [j.id for j in existing])
         return _commit_job(job, created=True)
+
+    # Payload key -> Job attribute, for the fields whose names differ. The
+    # tool speaks the create vocabulary; the stored Job uses plurals.
+    _UPDATE_FIELDS = (
+        ("name", "name"),
+        ("prompt", "prompt"),
+        ("recipient", "recipient"),
+        ("role", "role"),
+        ("time", "times"),
+        ("days", "days"),
+        ("date", "date"),
+        ("day_of_month", "days_of_month"),
+        ("every", "every_minutes"),
+        ("enabled", "enabled"),
+    )
+
+    def _update(self, kwargs: dict[str, Any]) -> ToolResult:
+        """Change a standing job in place. Keeps the id and the run history.
+
+        Merges onto the stored job rather than rebuilding, because
+        build_job_from_fields requires a prompt and would otherwise reject
+        "just move it to 8am".
+        """
+        job_id = str(kwargs.get("id") or "").strip()
+        if not job_id:
+            return ToolResult(
+                ok=False,
+                output="schedule update needs an id. Use action='list' to see them.",
+            )
+        existing = get_job(job_id)
+        if existing is None:
+            return ToolResult(
+                ok=False,
+                output=(
+                    f"No scheduled job with id {job_id!r}. "
+                    "Use action='list' to see them."
+                ),
+            )
+
+        supplied = {
+            key for key, _attr in self._UPDATE_FIELDS if str(kwargs.get(key) or "").strip()
+        }
+        if not supplied:
+            return ToolResult(
+                ok=False,
+                output=(
+                    "schedule update needs something to change — a time, "
+                    "days, prompt, name, or recipient."
+                ),
+            )
+
+        payload: dict[str, Any] = {"id": existing.id}
+        for key, attr in self._UPDATE_FIELDS:
+            payload[key] = kwargs[key] if key in supplied else getattr(existing, attr)
+        return save_job_from_payload(payload)
 
     def _delete(self, job_id: str) -> ToolResult:
         job_id = job_id.strip()
