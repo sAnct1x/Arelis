@@ -9,8 +9,23 @@ from arelis.briefing.weather import (
     describe_weather_code,
     fetch_forecast,
     geocode_place,
+    resolve_place,
 )
 from arelis.tools.base import ToolResult
+
+
+def _int_arg(raw: Any, *, default: int, lo: int, hi: int) -> int:
+    """Clamped int from a model-supplied value. Never raises.
+
+    The 9B passes ``days="today"`` and ``hours="this afternoon"`` often enough
+    that a ValueError here would be a routine turn failure rather than an edge
+    case, so a bad value falls back to the default instead.
+    """
+    try:
+        value = int(raw) if raw not in (None, "") else default
+    except (TypeError, ValueError):
+        value = default
+    return max(lo, min(hi, value))
 
 
 class WeatherTool:
@@ -37,7 +52,10 @@ class WeatherTool:
         "Default is the user's profile location. For another city pass place "
         "(a name this tool geocodes — never coordinates). "
         "days is how many daily rows including today: 1 is today only, "
-        "tomorrow needs 2 or more, default 3. "
+        "tomorrow needs 2 or more, default 3, up to 16. "
+        "For a time of day ('will it rain at 3pm', 'this afternoon') pass "
+        "hours — a daily row only carries the day's maximum chance and cannot "
+        "say when. For 'yesterday' pass past_days. "
         "Do not scrape AccuWeather, weather.com, or invent Open-Meteo query strings."
     )
     risk = "read"
@@ -47,8 +65,22 @@ class WeatherTool:
             "days": {
                 "type": "integer",
                 "description": (
-                    "Daily rows including today (1-7). 1=today only. "
-                    "Tomorrow needs 2+. Default 3."
+                    "Daily rows including today (1-16). 1=today only. Tomorrow needs 2+. Default 3."
+                ),
+            },
+            "hours": {
+                "type": "integer",
+                "description": (
+                    "Hourly rows from now (1-48). Use this for 'will it rain "
+                    "at 3pm' or 'this afternoon' — a daily row only has the "
+                    "day's max chance and cannot say when. 0 (default) for none"
+                ),
+            },
+            "past_days": {
+                "type": "integer",
+                "description": (
+                    "Also include this many days before today (1-7). Use for "
+                    "'what was the weather yesterday'. 0 (default) for none"
                 ),
             },
             "place": {
@@ -77,16 +109,18 @@ class WeatherTool:
         lat: float | None = None
         lon: float | None = None
         place = ""
+        # What the same name also matched, so a wrong pick is correctable.
+        alternatives: tuple[str, ...] = ()
         if asked:
             place = asked
             try:
-                coords = await geocode_place(asked)
+                resolved = await resolve_place(asked)
             except Exception as exc:
                 return ToolResult(
                     ok=False,
                     output=f"[fail:weather] weather failed: {exc}",
                 )
-            if coords is None:
+            if resolved is None:
                 return ToolResult(
                     ok=False,
                     output=(
@@ -94,13 +128,14 @@ class WeatherTool:
                         "Name a real city; do not pass coordinates."
                     ),
                 )
-            lat, lon = coords
+            # The resolved label, not what they typed. "Springfield" matches
+            # thirty cities; echoing their own string back is what made a
+            # forecast for the wrong state impossible to notice.
+            place = resolved.label or asked
+            lat, lon = resolved.latitude, resolved.longitude
+            alternatives = resolved.alternatives
         else:
-            if (
-                snap is not None
-                and not snap.has_coordinates()
-                and callable(refresh)
-            ):
+            if snap is not None and not snap.has_coordinates() and callable(refresh):
                 try:
                     maybe = refresh()
                     if hasattr(maybe, "__await__"):
@@ -125,9 +160,7 @@ class WeatherTool:
                     lat, lon = coords
         if lat is None or lon is None:
             cause = (
-                f" The location refresh failed first: {refresh_failed}."
-                if refresh_failed
-                else ""
+                f" The location refresh failed first: {refresh_failed}." if refresh_failed else ""
             )
             return ToolResult(
                 ok=False,
@@ -146,9 +179,11 @@ class WeatherTool:
         except (TypeError, ValueError):
             # The 9B often passes days="today" instead of 1.
             days = 3
-        days = max(1, min(7, days))
+        days = max(1, min(16, days))
+        hours = _int_arg(kwargs.get("hours"), default=0, lo=0, hi=48)
+        past_days = _int_arg(kwargs.get("past_days"), default=0, lo=0, hi=7)
         try:
-            data = await fetch_forecast(lat, lon, days=days)
+            data = await fetch_forecast(lat, lon, days=days, hours=hours, past_days=past_days)
         except Exception as exc:
             return ToolResult(ok=False, output=f"weather failed: {exc}")
 
@@ -156,6 +191,15 @@ class WeatherTool:
         if place:
             lines.append(f"Place: {place}")
         lines.append(f"Coordinates: {lat:.4f}, {lon:.4f}")
+        if alternatives:
+            # Stated as a fact about the name, not a question. The forecast
+            # below is real and usually right; this exists so that when it is
+            # wrong, the user can see it and say which one they meant.
+            shown = "; ".join(alternatives[:3])
+            lines.append(
+                f"That name also matched: {shown}. "
+                f"Say which one if {place} is not the one you meant."
+            )
         current = data.get("current") or {}
         if current:
             code = describe_weather_code(current.get("weather_code"))
@@ -166,6 +210,20 @@ class WeatherTool:
                 f"{code or 'conditions unknown'}, "
                 f"precip {current.get('precipitation')}."
             )
+        hourly = data.get("hourly") or []
+        if hourly:
+            # Before the daily rows on purpose: when someone asks for hours,
+            # the hours are the answer and the daily summary is context.
+            lines.append("Hourly:")
+            for row in hourly:
+                stamp = str(row.get("time") or "")
+                clock = stamp.split("T")[-1][:5] or stamp
+                code = describe_weather_code(row.get("weather_code"))
+                lines.append(
+                    f"- {clock}: {row.get('temperature_2m')}°F, "
+                    f"{code or 'conditions unknown'}, "
+                    f"precip chance {row.get('precipitation_probability')}%."
+                )
         daily = data.get("daily") or []
         if daily:
             lines.append("Daily:")
@@ -180,7 +238,16 @@ class WeatherTool:
         return ToolResult(
             ok=True,
             output="\n".join(lines),
-            data={"latitude": lat, "longitude": lon, "daily": daily, "current": current},
+            data={
+                "latitude": lat,
+                "longitude": lon,
+                "place": place,
+                "ambiguous": bool(alternatives),
+                "alternatives": list(alternatives),
+                "hourly": hourly,
+                "daily": daily,
+                "current": current,
+            },
         )
 
 
@@ -384,9 +451,7 @@ def extract_weather_places(text: str) -> list[str]:
         out.append(candidate)
         if len(out) >= _MAX_WEATHER_PLACES:
             break
-    if re.search(
-        r"(?i)\b(?:here|home|outside|outdoors|near\s+me)\b", raw
-    ):
+    if re.search(r"(?i)\b(?:here|home|outside|outdoors|near\s+me)\b", raw):
         want_home = True
     if want_home and "" not in seen and len(out) < _MAX_WEATHER_PLACES:
         out.insert(0, "")
@@ -402,9 +467,7 @@ def weather_places_wanted(text: str) -> list[str]:
 def weather_places_missing(text: str, ok_keys: set[str]) -> list[str]:
     """Named (or home) places not yet covered by a successful weather call."""
     return [
-        place
-        for place in weather_places_wanted(text)
-        if weather_place_key(place) not in ok_keys
+        place for place in weather_places_wanted(text) if weather_place_key(place) not in ok_keys
     ]
 
 
@@ -440,4 +503,3 @@ def fill_weather_args(args: dict[str, Any] | None, text: str) -> dict[str, Any]:
     elif days < 1:
         out["days"] = int(drafted.get("days") or 3)
     return out
-
