@@ -3,6 +3,23 @@
 The pocket calculator is one expression. Physics is a few lines with names.
 This tool runs that cell: assignments, prints, math, sympy, numpy. It is not
 a general interpreter. os, subprocess, sockets, and files stay out.
+
+Three checks do that work, and the order they are written in is the order they
+were learned in. The import allowlist and the underscore rules came first and
+were never enough on their own: they inspect `Import`, `Attribute` and `Name`
+nodes, so anything spelled inside a *string* was invisible to all of them.
+`sympy.sympify` — `eval` with a friendlier name, and preloaded here, because
+symbolic maths is the point of the tool — read those strings quite happily.
+So there are now two more rules. A string literal may not contain `__`, and
+the names that mean "evaluate this text" or "touch the disk" may not be
+referenced at all, by any spelling. See `tests/test_python_exec.py`.
+
+The 10s limit is two layers, because a Python thread cannot be killed from
+outside. A line tracer raises inside the cell, which stops any loop written in
+Python; a `while True: pass` used to hang the assistant outright, forever, with
+the tool description still advertising a timeout. If the cell is wedged inside
+one long C call instead, no line event fires, so the future gives up two
+seconds later and abandons the thread rather than joining it.
 """
 
 from __future__ import annotations
@@ -10,6 +27,8 @@ from __future__ import annotations
 import ast
 import concurrent.futures
 import io
+import sys
+import time
 from typing import Any
 
 from arelis.tools.base import ToolResult
@@ -17,6 +36,10 @@ from arelis.tools.base import ToolResult
 _MAX_CHARS = 8_000
 _MAX_OUTPUT = 8_000
 _TIMEOUT_S = 10.0
+# How long past the tracer's own deadline the future waits before giving up on
+# the thread entirely. Only reached when the cell is stuck inside a single C
+# call, where no line event ever fires for the tracer to act on.
+_TIMEOUT_GRACE_S = 2.0
 
 _ALLOWED_IMPORTS = frozenset(
     {
@@ -84,6 +107,73 @@ _FORBIDDEN_CALLS = frozenset(
     }
 )
 
+# Attribute names that mean "evaluate this text" or "touch the disk", reachable
+# on modules the allowlist deliberately permits. The import allowlist cannot
+# help here: `sympy` is the whole point of the tool, and `sympy.sympify` is
+# `eval` with a friendly name — `sp.sympify("__import__('os').name")` returned
+# the platform string before this list existed.
+#
+# `compile` is absent on purpose: the bare builtin is already blocked as a Name,
+# and `re.compile` is an ordinary thing to write.
+_FORBIDDEN_ATTR_CALLS = frozenset(
+    {
+        # Text in, code out.
+        "sympify",
+        "parse_expr",
+        "parse_latex",
+        "lambdify",
+        "S",
+        "eval",
+        "exec",
+        "evalf_",
+        "preview",  # sympy: shells out to LaTeX and writes an image
+        "run",
+        "system",
+        "popen",
+        "spawn",
+        "check_output",
+        "check_call",
+        # An attribute named by a string sidesteps the dunder rule below even
+        # with it in place, because the name need not be a dunder to be useful.
+        "attrgetter",
+        "methodcaller",
+        # The disk. The module docstring promises files stay out; numpy and
+        # friends did not know that.
+        "save",
+        "savetxt",
+        "savez",
+        "savez_compressed",
+        "load",
+        "loadtxt",
+        "genfromtxt",
+        "fromfile",
+        "tofile",
+        "memmap",
+        "open",
+        "mkdir",
+        "makedirs",
+        "remove",
+        "unlink",
+        "rename",
+        "rmtree",
+    }
+)
+
+# Checking only the call form leaves two ways round it: `from sympy import
+# sympify` makes it a bare Name, and `f = s.sympify` makes the call site a name
+# the checker has never heard of. So the reference itself is refused, wherever
+# it appears — you cannot even hold one of these.
+#
+# `S` is the exception, and it earns it: `sympy.S("1+1")` sympifies, but
+# `sympy.S.Half` is an everyday singleton. Only the call form is refused.
+_ATTR_CALL_ONLY = frozenset({"S"})
+_FORBIDDEN_ATTRS_ANYWHERE = _FORBIDDEN_ATTR_CALLS - _ATTR_CALL_ONLY
+
+_ATTR_REFUSAL = (
+    "{name!r} is not allowed here — it evaluates text or touches the disk. "
+    "Compute with expressions, and use the workspace tool for files."
+)
+
 _MATH_TOP = (
     "sin",
     "cos",
@@ -113,7 +203,9 @@ class PythonTool:
         "a multi-step derivation. math is preloaded (sin, cos, radians, sqrt, "
         "pi). sympy is `sp`, numpy is `np` when installed. Assignments and "
         "print() work; the last expression is shown. Do not import os, "
-        "subprocess, or open files. Timeout 10s. Use calculator for a single "
+        "subprocess, or open files. sympify/lambdify/parse_expr are refused — "
+        "build expressions from sp.Symbol, not from strings. Timeout 10s. "
+        "Use calculator for a single "
         "arithmetic expression; use cas for one symbolic integrate/diff/solve; "
         "use this when you need a script (projectile range, quadratic time of "
         "flight, systems of equations). matplotlib is not allowed — print "
@@ -180,13 +272,51 @@ class PythonTool:
         )
 
 
+class _CellDeadline(BaseException):
+    """Raised inside the worker thread when the cell runs past its deadline.
+
+    A `BaseException` and not an `Exception` so that `try: ... except
+    Exception: pass` in the model's own code cannot swallow its own kill
+    switch. Nothing in the cell can name it: the sandbox refuses identifiers
+    that start with an underscore.
+    """
+
+
 def _run_timed(code: str) -> str:
-    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+    """Ten seconds, and this time it is true.
+
+    The previous version wrapped the pool in `with`, so on timeout
+    `__exit__` called `shutdown(wait=True)` and joined the runaway thread —
+    forever. `while True: pass` did not time out; it hung the agent, with the
+    tool description still promising "Timeout 10s".
+
+    Threads cannot be killed from outside, so there are two layers. The tracer
+    below raises inside the cell on the next bytecode line, which handles any
+    loop written in Python. If the cell is stuck inside one long C call
+    instead, the tracer never gets a line event, so the future's own timeout
+    fires two seconds later and we walk away from the thread without joining
+    it. That leaks a thread, which is bad; hanging the assistant is worse.
+    """
+    pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    try:
         future = pool.submit(_run_cell, code)
         try:
-            return future.result(timeout=_TIMEOUT_S)
+            return future.result(timeout=_TIMEOUT_S + _TIMEOUT_GRACE_S)
         except concurrent.futures.TimeoutError as exc:
             raise TimeoutError("python timeout") from exc
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
+
+
+def _trace_deadline(deadline: float) -> Any:
+    """A line tracer that stops the cell once the clock runs out."""
+
+    def _trace(frame: Any, event: str, arg: Any) -> Any:
+        if time.monotonic() > deadline:
+            raise _CellDeadline()
+        return _trace
+
+    return _trace
 
 
 def _run_cell(code: str) -> str:
@@ -206,25 +336,34 @@ def _run_cell(code: str) -> str:
 
     body = list(tree.body)
     last_value: Any = None
-    if body and isinstance(body[-1], ast.Expr):
-        last = body.pop()
-        if body:
-            exec(
-                compile(
-                    ast.Module(body=body, type_ignores=[]),
-                    "<python>",
-                    "exec",
-                ),
+    # The clock starts here rather than at the top of the function: importing
+    # sympy and numpy is the tool's own cost, not the model's, and on a cold
+    # process it can eat most of the budget on its own.
+    sys.settrace(_trace_deadline(time.monotonic() + _TIMEOUT_S))
+    try:
+        if body and isinstance(body[-1], ast.Expr):
+            last = body.pop()
+            if body:
+                exec(
+                    compile(
+                        ast.Module(body=body, type_ignores=[]),
+                        "<python>",
+                        "exec",
+                    ),
+                    namespace,
+                    namespace,
+                )
+            last_value = eval(
+                compile(ast.Expression(last.value), "<python>", "eval"),
                 namespace,
                 namespace,
             )
-        last_value = eval(
-            compile(ast.Expression(last.value), "<python>", "eval"),
-            namespace,
-            namespace,
-        )
-    else:
-        exec(compile(tree, "<python>", "exec"), namespace, namespace)
+        else:
+            exec(compile(tree, "<python>", "exec"), namespace, namespace)
+    except _CellDeadline as exc:
+        raise TimeoutError("python timeout") from exc
+    finally:
+        sys.settrace(None)
 
     out = buf.getvalue()
     if last_value is not None:
@@ -253,13 +392,49 @@ def _assert_safe(tree: ast.AST) -> None:
             for name in names:
                 if name not in _ALLOWED_IMPORTS:
                     raise ValueError(_import_refusal(name))
+            if isinstance(node, ast.ImportFrom):
+                for alias in node.names:
+                    if alias.name in _FORBIDDEN_ATTR_CALLS:
+                        raise ValueError(_ATTR_REFUSAL.format(name=alias.name))
         if isinstance(node, ast.Attribute) and str(node.attr).startswith("_"):
             raise ValueError("private attributes are not allowed")
         if isinstance(node, ast.Name) and node.id.startswith("_"):
             raise ValueError(f"name {node.id!r} is not allowed")
+        if isinstance(node, ast.Attribute):
+            if str(node.attr) in _FORBIDDEN_ATTRS_ANYWHERE:
+                raise ValueError(_ATTR_REFUSAL.format(name=node.attr))
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
             if node.func.id in _FORBIDDEN_CALLS:
                 raise ValueError(f"call {node.func.id!r} is not allowed")
+            if node.func.id in _FORBIDDEN_ATTR_CALLS:
+                raise ValueError(_ATTR_REFUSAL.format(name=node.func.id))
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+            if str(node.func.attr) in _ATTR_CALL_ONLY:
+                raise ValueError(_ATTR_REFUSAL.format(name=node.func.attr))
+        # A dunder spelled inside a string is invisible to the Attribute and
+        # Name rules above, which is how attrgetter('__class__') and
+        # sympify("__import__('os')") both got through. Blanket-refusing them
+        # is safe because a numerics cell has no legitimate use for one, and
+        # enumerating every function that takes an attribute name as text is a
+        # denylist that will always be shorter than the attack surface.
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            if "__" in node.value:
+                raise ValueError(
+                    "a string containing '__' is not allowed — that is how an "
+                    "attribute name gets smuggled past the checks"
+                )
+        # f-strings hold their literal halves in JoinedStr, not Constant.
+        if isinstance(node, ast.JoinedStr):
+            for piece in node.values:
+                if (
+                    isinstance(piece, ast.Constant)
+                    and isinstance(piece.value, str)
+                    and "__" in piece.value
+                ):
+                    raise ValueError(
+                        "a string containing '__' is not allowed — that is how "
+                        "an attribute name gets smuggled past the checks"
+                    )
         if isinstance(
             node,
             (
