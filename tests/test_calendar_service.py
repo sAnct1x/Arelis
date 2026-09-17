@@ -212,8 +212,33 @@ async def test_create_lands_locally_then_pushes(tmp_path: Path) -> None:
 
 
 def test_emit_nowait_is_silent_without_a_bus() -> None:
+    """Unbound is a no-op; bound still delivers.
+
+    Calling it and checking nothing blew up also passes if emit_nowait becomes
+    an empty function, which would silence every calendar event in the app. The
+    second half is what makes the first half mean anything.
+    """
     bind_app_bus(None)
     emit_nowait(Event(EventType.CALENDAR_CHANGED, {"action": "noop"}))
+
+    seen: list[Event] = []
+
+    class _Bus:
+        def emit_nowait(self, event: Event) -> None:
+            seen.append(event)
+
+        def publish_nowait(self, event: Event) -> None:
+            seen.append(event)
+
+    try:
+        bind_app_bus(_Bus())
+        emit_nowait(Event(EventType.CALENDAR_CHANGED, {"action": "created"}))
+        assert [e.payload.get("action") for e in seen] == ["created"], (
+            "a bound bus must receive the event — if this is empty, emit_nowait "
+            "is silent for everyone, not just when unbound"
+        )
+    finally:
+        bind_app_bus(None)
 
 
 @pytest.mark.asyncio

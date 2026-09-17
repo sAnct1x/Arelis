@@ -130,7 +130,10 @@ _STUB_SCHEMAS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
         ("action", "due", "goal_id", "id", "limit", "status", "title"),
     ),
     "user_location": ((), ("refresh",)),
-    "vision": (("path",), ("path", "question")),
+    # Nothing is required: `paths` (a page walk over an ink PDF) is an
+    # alternative to `path`, so demanding `path` would reject the multi-page
+    # call the document lane actually makes.
+    "vision": ((), ("path", "paths", "question")),
     "weather": ((), ("days", "place")),
     "web_fetch": (("url",), ("max_chars", "url")),
     "web_search": (("query",), ("max_results", "query", "recency")),
@@ -223,6 +226,16 @@ class _FatScrapeStub(_StubTool):
     async def run(self, **kwargs: Any) -> ToolResult:
         self.calls.append(dict(kwargs))
         url = str(kwargs.get("url") or "https://example.com/long").strip()
+        # A URL opting into the JS-shell failure, so the browser-after-js-shell
+        # nudge has something to react to offline. Real pages announce this by
+        # returning a near-empty body behind a script tag; the fail_class is
+        # what turn_execute actually keys on.
+        if "jsshell" in url:
+            return ToolResult(
+                ok=False,
+                output="That page renders client-side; there is no server HTML to read.",
+                data={"fail_class": "fail:js_shell", "url": url},
+            )
         lines: list[str] = [
             "# Long example article",
             "",
@@ -564,6 +577,9 @@ def foundation_registry() -> ToolRegistry:
         ("tasks", "write"),
         ("goals", "write"),
         ("user_location", "read"),
+        # Image generation: the force gate that covers it had no tool to aim at
+        # offline, so nothing could test it until 2026-09-17.
+        ("image", "write"),
     ):
         reg.register(_StubTool(name, risk=risk))
     reg.register(_FatScrapeStub("scrape", risk="read"))
@@ -640,7 +656,6 @@ async def run_scripted_scenario(
         "confirm_run": True,
         "ask_is_grant": False,
         "json_fallback": True,
-        "skill_cards": True,
         "intent_preflight": True,
         "lessons": True,
         "scrape_after_search": True,
@@ -652,8 +667,10 @@ async def run_scripted_scenario(
         "research_dual_hit": True,
         "research_max_rounds": 12,
         "research_min_sources": 2,
-        "research_tool_subset": True,
-        "skill_tool_subset": True,
+        # Match data/default.yaml. A board grading a configuration nobody runs
+        # is measuring a product that does not ship.
+        "research_tool_subset": False,
+        "skill_tool_subset": False,
         "read_fanout": True,
         "turn_telemetry": False,
     }
@@ -720,6 +737,10 @@ async def run_scripted_scenario(
             missing = [t for t in scenario.expect_tools if t not in tools_called]
             if missing:
                 reasons.append(f"missing tools: {missing}")
+
+    for banned in scenario.forbid_tools:
+        if banned in tools_called:
+            reasons.append(f"called forbidden tool {banned!r} (ran {tools_called})")
 
     for want in scenario.expect_confirm_tools:
         if want not in confirms:

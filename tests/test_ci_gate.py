@@ -100,6 +100,34 @@ def test_ci_matrix_is_the_two_claimed_interpreters() -> None:
     assert not re.search(r"(?m)^  coverage:", text)
 
 
+def test_ci_runs_the_eval_boards_as_a_gate() -> None:
+    """The boards ran nowhere for months; that is how they rotted.
+
+    Blocking rather than continue-on-error, and separate from the 2,000-test
+    matrix so a routing regression reads as "eval failed" instead of one red
+    dot among two thousand.
+    """
+    text = CI_YML.read_text(encoding="utf-8")
+    assert re.search(r"(?m)^  eval:", text), "CI lost the eval board job"
+    block = text.split("\n  eval:", 1)[1].split("\n  test:", 1)[0]
+    assert "continue-on-error" not in block, "the eval board must be a gate"
+    for path in (
+        "tests/test_eval_board.py",
+        "tests/test_eval_stub_schemas.py",
+        "tests/test_tool_schema_quality.py",
+    ):
+        assert path in block, f"eval job stopped running {path}"
+
+
+def test_guard_coverage_runs_on_a_schedule() -> None:
+    """mutate_guards is the proof the board can fail. Unrun, it proves nothing."""
+    path = ROOT / ".github" / "workflows" / "guard-coverage.yml"
+    assert path.exists(), "the weekly guard-coverage workflow is gone"
+    text = path.read_text(encoding="utf-8")
+    assert "schedule:" in text and "cron:" in text
+    assert "scripts/mutate_guards.py" in text
+
+
 def test_pytest_has_a_per_test_timeout() -> None:
     text = PYPROJECT.read_text(encoding="utf-8")
     assert "pytest-timeout" in text

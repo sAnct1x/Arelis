@@ -191,6 +191,10 @@ timeout_method = "thread"
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+# Vendored wheels are not ours to lint. `.tmp_pdfium/` alone accounted for
+# 1,964 of the 1,970 errors `ruff check .` reported, which made the bare
+# command useless as a signal and trained everyone to run it on subdirectories.
+extend-exclude = [".tmp_pdfium", ".mypy_cache", ".ruff_cache", "build", "dist"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "UP", "B", "ASYNC", "RUF"]

@@ -51,6 +51,37 @@ jobs:
         # continue-on-error used to leave a failed check on the commit.
         run: python -m mypy --no-pretty arelis || true
 
+  # The agent-behaviour boards, kept out of the 2,000-test matrix on purpose: a
+  # routing regression should read as "eval failed", not as one red dot among
+  # two thousand. Offline, no Ollama, a few seconds.
+  #
+  # Blocking, and that is new. These boards existed for months and ran nowhere,
+  # so nothing noticed that 35 of 68 scenarios handed the loop the tool call
+  # they then asserted was made. They were inverted first — see
+  # scripts/audit_eval_scenarios.py — and the proof that they can now fail is
+  # scripts/mutate_guards.py, which runs weekly rather than here.
+  eval:
+    needs: lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install Qt offscreen libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libxkbcommon-x11-0 libdbus-1-3
+      - name: Install package
+        run: python -m pip install -e ".[dev]"
+      - name: Eval boards
+        run: |
+          python -m pytest -q --tb=short \
+            tests/test_eval_board.py \
+            tests/test_eval_stub_schemas.py \
+            tests/test_tool_schema_quality.py
+
   # Two cells, not eight. 3.11 on Ubuntu is the floor requires-python claims.
   # 3.14 on Windows is the interpreter the installer ships.
   test:

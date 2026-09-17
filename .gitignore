@@ -97,3 +97,11 @@ win-installer/.cache/
 
 # One-off local patches. Not product.
 scripts/_patch_globe_*.py
+
+# Wheel unpacked beside the source so the PDF lane could be tried without
+# touching the environment. Ignored for the same reason it is excluded from
+# ruff: it is a redistributable, not our code.
+.tmp_pdfium/
+
+# Typechecker and audit scratch output. Regenerated on demand.
+mypy_out.txt
