@@ -260,6 +260,72 @@ async def test_a_plain_ask_requests_no_extras(
     assert seen["past_days"] == 0
 
 
+@pytest.mark.parametrize(
+    "ask,expected",
+    [
+        ("will it rain at 3pm", 12),
+        ("what's it doing at 3:30pm", 12),
+        ("is it going to rain this afternoon", 12),
+        ("will it be cold tonight", 12),
+        ("rain later today?", 12),
+        ("weather in the next few hours", 12),
+        ("will it rain in 2 hours", 12),
+        ("what's it like tomorrow morning", 36),
+        # Plain daily asks must not pay for hourly.
+        ("what's the weather", 0),
+        ("weather tomorrow", 0),
+        ("forecast for the week", 0),
+        ("will it rain on saturday", 0),
+    ],
+)
+def test_a_time_of_day_ask_requests_hours(ask: str, expected: int) -> None:
+    """Adding the parameter was only half the fix: the injected call is built
+    by draft_weather_args, not by the model, so the guard path needed to know."""
+    from arelis.tools.weather import weather_wants_hourly
+
+    assert weather_wants_hourly(ask) == expected
+
+
+@pytest.mark.parametrize(
+    "ask,expected",
+    [
+        ("what was the weather yesterday", 1),
+        ("how cold was it last night", 1),
+        ("did it rain overnight", 1),
+        ("was it raining this morning", 1),
+        ("what's the weather", 0),
+        ("will it rain tomorrow", 0),
+    ],
+)
+def test_a_backward_looking_ask_requests_past_days(ask: str, expected: int) -> None:
+    from arelis.tools.weather import weather_wants_past
+
+    assert weather_wants_past(ask) == expected
+
+
+def test_the_injected_call_carries_the_hours() -> None:
+    from arelis.tools.weather import draft_weather_args
+
+    args = draft_weather_args("will it rain at 3pm in Metropolis")
+
+    assert args["hours"] == 12
+    assert args["place"] == "Metropolis"
+
+
+def test_filling_only_widens_what_the_model_chose() -> None:
+    """A model that asked for 24 hours knows more than the regex does."""
+    from arelis.tools.weather import fill_weather_args
+
+    kept = fill_weather_args({"hours": 24}, "will it rain at 3pm")
+    assert kept["hours"] == 24
+
+    added = fill_weather_args({}, "will it rain at 3pm")
+    assert added["hours"] == 12
+
+    untouched = fill_weather_args({}, "what's the weather")
+    assert "hours" not in untouched
+
+
 def test_the_schema_offers_the_new_shape() -> None:
     props = WeatherTool.parameters_schema["properties"]
     assert "hours" in props

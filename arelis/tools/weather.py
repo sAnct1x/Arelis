@@ -477,12 +477,80 @@ def extract_weather_place(text: str) -> str:
     return places[0] if places else ""
 
 
+# A time of day, which a daily row cannot answer: its precipitation figure is
+# the maximum over the whole day, so a 60% Tuesday says nothing about 3pm.
+_WEATHER_HOURLY = re.compile(
+    r"(?i)(?:"
+    r"\bat\s+\d{1,2}(?::\d{2})?\s*(?:am|pm|o'?clock)|"
+    r"\b(?:by|around|about|after|before)\s+\d{1,2}\s*(?:am|pm)|"
+    r"\bthis\s+(?:morning|afternoon|evening)|"
+    r"\btonight\b|"
+    r"\blater\s+(?:today|on)\b|"
+    r"\bin\s+(?:an\s+hour|\d{1,2}\s+hours?)|"
+    r"\bnext\s+(?:few\s+)?hours?\b|"
+    r"\bhourly\b|"
+    r"\bby\s+the\s+hour\b|"
+    r"\brush\s+hour\b|"
+    r"\btime\s+of\s+day\b"
+    r")"
+)
+
+# Tomorrow plus a time of day needs to reach past midnight, so the window has
+# to be wider than "the rest of today".
+_WEATHER_HOURLY_TOMORROW = re.compile(
+    r"(?i)\btomorrow\s+(?:morning|afternoon|evening|night)\b|"
+    r"\b(?:morning|afternoon|evening|night)\s+tomorrow\b"
+)
+
+# Forecast rows start today, so none of these had any route at all.
+_WEATHER_PAST = re.compile(
+    r"(?i)(?:"
+    r"\byesterday\b|"
+    r"\blast\s+night\b|"
+    r"\bovernight\b|"
+    r"\bwhat\s+was\s+(?:the\s+)?(?:weather|it|the\s+temp\w*)|"
+    r"\bhow\s+(?:much\s+)?(?:rain|snow)\s+(?:did|fell)\b|"
+    r"\bwas\s+it\s+(?:rain\w*|snow\w*|hot|cold|warm|cool)\b"
+    r")"
+)
+
+_HOURS_TODAY = 12
+_HOURS_TOMORROW = 36
+
+
+def weather_wants_hourly(text: str) -> int:
+    """Hours of hourly detail this ask needs, or 0 when a daily row will do.
+
+    Roadmap follow-on to the hourly capability: adding the parameter is only
+    half the fix, because the injected call is built here, not by the model. A
+    turn that reaches weather through the force gate would otherwise still ask
+    for daily rows and answer "will it rain at three" from a daily maximum.
+    """
+    raw = text or ""
+    if _WEATHER_HOURLY_TOMORROW.search(raw):
+        return _HOURS_TOMORROW
+    if _WEATHER_HOURLY.search(raw):
+        return _HOURS_TODAY
+    return 0
+
+
+def weather_wants_past(text: str) -> int:
+    """Days of history this ask needs, or 0. Yesterday is as far as it guesses."""
+    return 1 if _WEATHER_PAST.search(text or "") else 0
+
+
 def draft_weather_args(text: str) -> dict[str, Any]:
     """Args for an injected weather call. days always covers tomorrow."""
     out: dict[str, Any] = {"days": 3}
     place = extract_weather_place(text)
     if place:
         out["place"] = place
+    hours = weather_wants_hourly(text)
+    if hours:
+        out["hours"] = hours
+    past = weather_wants_past(text)
+    if past:
+        out["past_days"] = past
     return out
 
 
@@ -502,4 +570,17 @@ def fill_weather_args(args: dict[str, Any] | None, text: str) -> dict[str, Any]:
         out["days"] = 3
     elif days < 1:
         out["days"] = int(drafted.get("days") or 3)
+    # Only ever widen. A model that already asked for hours knows better than
+    # this regex what it is looking at; the point here is the turn where it
+    # asked for none and the ask needed them.
+    for key in ("hours", "past_days"):
+        wanted = int(drafted.get(key) or 0)
+        if not wanted:
+            continue
+        try:
+            have = int(out.get(key) or 0)
+        except (TypeError, ValueError):
+            have = 0
+        if have < wanted:
+            out[key] = wanted
     return out
