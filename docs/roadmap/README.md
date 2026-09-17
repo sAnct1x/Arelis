@@ -349,6 +349,7 @@ Phase 0 on the right. **12 holes → 0.**
 | `lessons` | **HOLE** | *blind spot* | prompt-only; see below |
 | `recall_force_call` | *no guard* | 1 red | `recall_ask_does_not_end_in_a_shrug` |
 | `inspect_force_call` | *no guard* | 2 red | source ask: redirect + no-call |
+| `document_force_call` | *no guard* | 1 red | `a_pdf_ask_ends_in_a_file` |
 | *everything at once* | 45/68 | 46/79, 33 red | — |
 
 **The three remaining are blind spots, not holes, and the distinction is
@@ -404,8 +405,9 @@ nothing, so that arm of the experiment never happened.
 
 ### Sweep, 2026-09-17 — three more holes, and a way to stop finding them
 
-Coverage is now **18 covered, 0 holes, 3 blind spots** (the same three
-above). The board gained the `recall` and `inspect` guards it never had.
+Coverage is now **19 covered, 0 holes, 3 blind spots** (the same three
+above). The board gained the `recall`, `inspect` and `document` guards it
+never had.
 
 `inspect_force_call` was the largest of the three, and the wiring says why
 better than any description:
@@ -447,6 +449,32 @@ in `cd41d24`. Milder than `6203c8b`, where the tool was hidden nowhere
 *and* redirected nowhere and so failed silently, but the same drift from
 the same cause. The next time one side gains a tool and the other does
 not, it is a failing test name instead of a live misroute.
+
+**The `document` gate was real and unmeasured, which is its own category.**
+Worth separating from the holes above, because the roadmap had this filed as
+a redirect hole and it is not one. *"Create a pdf about the dirac equation"*
+fires the `document` intent correctly and arms `needs_document` on all six
+phrasings, and searching the web first is *legitimate* here — she needs
+content to put in the file — so blocking the search would have been the wrong
+fix. The gap only surfaced on writing the board's first `document` scenario,
+of which there were none: `apply_force_gates` only **nudges**. It appends the
+notice, retries once, and a nudge is a request the model can decline. Every
+other intent of this weight has an inject behind the nudge; this one had
+nothing, so declining cost nothing and the turn ended with the research in
+the chat log and no file. The tool's own description says *"do not dump the
+document into chat"*, which describes the failure it was losing to.
+
+`try_document` (`38f1651`) converts what she already wrote — the injected
+body is her prose **verbatim**, which is the whole safety argument: she
+produced the content and put it in the wrong container, so nothing is
+invented. A guessed document body would be worse than no document, hence a
+120-character floor rather than an inject on an empty answer; *"Sure, I'll
+put that together"* is not a document, and an empty answer is the nudge's
+job. Coverage is now **19 covered, 0 holes, 3 blind spots**.
+
+The general lesson matches the one at the top of Phase 4: check whether the
+guard exists before assuming the behaviour is unguarded, and check whether it
+*injects* or only *asks*. A nudge-only guard against a 9B is a suggestion.
 
 ### One thing the board gained
 
@@ -745,6 +773,7 @@ often smaller than the entry implies.
 | `schedule` could not be rescheduled; moving a time meant delete+recreate, losing `last_run` | `update` | `f4fbb53` |
 | `git_info` was read-only (**4.3**) | `stage` `commit` | `4043bcf` |
 | `inbox` named attachments and threw the bytes away, so any attachment task stopped a step short | `download` | `aa5029d` |
+| `clipboard` was advertised as read/write and had no action at all (**4.4**) | `write` | `e866aff` |
 
 Three of these were watched failing under **mutation**, not just watched
 passing:
@@ -824,10 +853,19 @@ rather than assumed.
   scope.** `branch` / `stash` / `blame` / `show` are still open, and are
   reads — take them when something needs them. Do not widen
   `_WRITE_ACTIONS`; a test fails on purpose if you do.
-- [ ] **4.4** `clipboard` is **read-only** but `compact_prompt.py:21`
-  tells the model it can "read / write". Either implement write or fix the
-  description — right now the model is being lied to, which is a routing
-  bug by construction.
+- [x] **4.4** `clipboard` was **read-only** while `compact_prompt.py:21`
+  told the model it could "read / write" — a routing bug by construction.
+  **Done `e866aff`, by implementing the write rather than retracting the
+  claim,** because the hard part was already there:
+  `_write_windows_clipboard` had been in the module the whole time under a
+  docstring reading *"used by tests and the live pass, not a tool action"*.
+  The most literal instance yet of the pattern at the top of this section.
+  Two things it had to get right. A write calls `EmptyClipboard`, so it
+  destroys what was copied — it stays behind Allow like the read, but for a
+  different reason (reading is a privacy question, writing is a loss
+  question), and an empty `text` is refused rather than executed. And the
+  Allow card now names the right action: it read *"read the clipboard"* for
+  both, which asks for the wrong consent and understates the cost.
 - [ ] **4.5** `calculator` takes one expression with no variables and no
   units (`tools/calculator.py:66-67`). Give it a variable scratchpad.
 - [ ] **4.6** `plot` does line, scatter, residuals only. Add histogram,
