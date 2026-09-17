@@ -878,6 +878,7 @@ often smaller than the entry implies.
 | `inbox` named attachments and threw the bytes away, so any attachment task stopped a step short | `download` | `aa5029d` |
 | `clipboard` was advertised as read/write and had no action at all (**4.4**) | `write` | `e866aff` |
 | `plot` could not draw a formula — only a table or numbers typed out by hand | `expr` `xmin` `xmax` | `7a9ac10` |
+| `workspace` had no recursive search, so a tree walk was the only route — and `same_call` blocks that (**4.2**) | `grep` `find` | `91386bf` |
 
 Three of these were watched failing under **mutation**, not just watched
 passing:
@@ -948,9 +949,20 @@ rather than assumed.
   **Done `9084748`.** No recursive delete — a non-empty directory is
   refused and says why. Emptying a tree is the one mistake with no undo,
   so the model does not get a verb for it.
-- [ ] **4.2** `workspace` has no recursive search. "Find where X is
-  defined" is impossible without listing every folder, which the same-call
-  guard then blocks. Add `action=grep` with a path glob.
+- [x] **4.2** `workspace` had no recursive search. "Find where X is
+  defined" was impossible without listing every folder, which the same-call
+  guard then blocks. **Done `91386bf`: `grep` (contents, returns
+  `path:line`) and `find` (names).** Worth keeping the framing from the
+  original entry, because it generalises: `same_call` was *correctly*
+  blocking a tree walk that looked like a stuck loop, so the guard layer was
+  fighting a missing capability rather than a misbehaving model. Where a
+  guard and a gap disagree, check whether the capability exists before
+  loosening the guard. Both guards here were watched failing under
+  mutation — `resolve_read` containment (a plain path join let `path="../.."`
+  read outside the roots) and the `os.walk` prune (without it `node_modules`
+  lands next to the real answer). Follow-on now unlocked:
+  `inspect_read_path` falls back to `docs/architecture.md` for an unmapped
+  source ask, and could grep instead.
 - [~] **4.3** `git_info` is read-only (`status`/`diff`/`log`). No commit,
   branch, stash, blame, or show. Add writes behind the confirm card.
   **Writes done `4043bcf`: `stage` + `commit`, and that is the final
