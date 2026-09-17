@@ -350,6 +350,7 @@ Phase 0 on the right. **12 holes → 0.**
 | `recall_force_call` | *no guard* | 1 red | `recall_ask_does_not_end_in_a_shrug` |
 | `inspect_force_call` | *no guard* | 2 red | source ask: redirect + no-call |
 | `document_force_call` | *no guard* | 1 red | `a_pdf_ask_ends_in_a_file` |
+| `diagnostics_force_call` | *no guard* | 1 red | `a_test_result_is_never_asserted_from_memory` |
 | *everything at once* | 45/68 | 46/79, 33 red | — |
 
 **The three remaining are blind spots, not holes, and the distinction is
@@ -405,9 +406,10 @@ nothing, so that arm of the experiment never happened.
 
 ### Sweep, 2026-09-17 — three more holes, and a way to stop finding them
 
-Coverage is now **19 covered, 0 holes, 3 blind spots** (the same three
-above). The board gained the `recall`, `inspect` and `document` guards it
-never had.
+Coverage reached **19 covered, 0 holes, 3 blind spots** here (the same three
+above), then **20** with `diagnostics` in the following section. The board
+gained the `recall`, `inspect`, `document` and `diagnostics` guards it never
+had.
 
 `inspect_force_call` was the largest of the three, and the wiring says why
 better than any description:
@@ -471,6 +473,107 @@ invented. A guessed document body would be worse than no document, hence a
 120-character floor rather than an inject on an empty answer; *"Sure, I'll
 put that together"* is not a document, and an empty answer is the nudge's
 job. Coverage is now **19 covered, 0 holes, 3 blind spots**.
+
+### The `ForceGate` table, swept — 2026-09-17
+
+The `document` finding raised a question worth more than the fix: if
+`apply_force_gates` only nudges, **which of the other rows also have nothing
+behind the nudge?** There are seven — `math`, `symbolic`, `units`, `plot`,
+`document`, `diagnostics`, `catalog` — and only `catalog` had an inject, and
+that one only fires when `content` is *empty*, which is the same blind spot
+`document` had. So the sweep was worth doing, and it found two more things of
+completely different kinds.
+
+**`diagnostics` was the worst thing found in this whole audit.** Scripting a
+model that keeps answering in prose produced:
+
+    "Yes, the tests pass — the suite is green."
+
+with **no tool call at all**. That is pain #1 in one line: not a refusal, not
+a slow answer, but a confident claim about the health of the codebase that
+the user will act on, invented whole. And it had two independent causes.
+
+The detector was the larger one. `_DIAGNOSTICS_ASK` matched the literal
+phrase `run diagnostics` and nothing else, so every one of
+
+    run the tests · run pytest · run the test suite · do the tests pass?
+
+armed **nothing anywhere** — no intent, no nudge, no `needs_diagnostics`, no
+`_expected_tools`. Nobody says "run diagnostics". This is the same bug class
+as the `_TASKS_UTTERANCE` day-planning gap (*"what do I have **to do**
+today"* needed the literal token `task`): a regex written for the phrasing a
+developer types rather than the one a person says. Both were found the same
+way — by writing down how the ask actually sounds — and that is now the
+cheapest audit move available for the rest of the intent catalog.
+
+Second, there was no inject behind the nudge, so declining it cost nothing.
+`try_diagnostics` (`19273c2`) is the easiest one in `no_call_steps.py`
+because the tool takes no meaningful arguments — `suite` is an enum of one —
+so there is nothing to synthesise and no way for the injected call to be
+subtly wrong. Running the suite is also exactly what was asked for.
+`detect_diagnostics_ask` vetoes *"how do I run the tests"*, which wants the
+command; that veto lives in `claims.py` rather than the catalog because
+Python has no variable-length lookbehind, and because this function drives
+the expensive half while the preflight nudge is declinable anyway.
+Coverage: **20 covered, 0 holes**.
+
+**`plot` was not a guard hole at all, and that is the more useful finding.**
+The board said *"plot the sine wave from 0 to 2pi"* ended with no tool call,
+which looked like the third missing inject in a row. Reading the schema
+first is what caught it:
+
+| source | shape |
+|---|---|
+| a table | `path` + `x` / `y` column names |
+| a tiny series | `xs` / `ys` as **literal comma-separated numbers** |
+| a formula | *(did not exist)* |
+
+…with the description ending *"This is not Python: do not pass code or
+matplotlib"*. So there was no argument shape that draws `sin(x)`. The only
+way to satisfy the single most obvious chart request there is was for the
+model to hand-type a few hundred sine values into `ys=` — wrong, and the
+exact invent-the-data failure the tool exists to prevent. No nudge can fix
+that, and an inject would have had to fabricate the numbers. The tool was
+too shallow to finish the job, which is pain #4, not pain #3. The
+`compact_prompt` line for `python` — *"print xs,ys then plot with out="* —
+records the two-tool dance that was the workaround.
+
+`expr` + `xmin` / `xmax` (`7a9ac10`) does it in one call. Two decisions worth
+keeping:
+
+- The evaluator **reuses `cas.parse_cas_expr`** instead of growing a second
+  expression parser. That is the hardened one: AST whitelist, then parse into
+  a locked namespace with empty builtins. Proven load-bearing by mutation —
+  swapping in bare `sympify` made `__import__("os").system(...)` *actually
+  execute*, so this field would have been remote code execution behind a
+  chart request if it had been written the obvious way. `plot` is reachable
+  from any turn.
+- Range endpoints take `2pi` and `pi/2`, because *"0 to 2pi"* is the ask and
+  demanding `6.283185` pushes the rounding onto the model, which is where
+  wrong numbers come from. The implicit-`*` insertion is scoped to the range
+  only — the expression body stays under exactly `cas`'s rules — and carries
+  two lookaheads so `1e3` does not become `e*3`.
+
+It also **adds the first test that runs `plot.run` at all.** Everything else
+in the suite touching `plot` checked copy, policy or intent routing; a tool
+whose entire job is writing a PNG had no test that it writes one, which is
+how a missing argument shape survived this long. Worth assuming the same is
+true elsewhere.
+
+**No scenario was added for `plot`, on purpose.** What is left to measure is
+*"the model now reaches for `expr`"*, and that is a prompt-only guard —
+`_ScriptedRouter` replays fixed rounds and never reads `messages`, so nothing
+that works by changing what the model is told can move the scripted board.
+`mutate_guards.py` already says this about `lessons` and the compact tool
+policy. `test_every_scenario_can_actually_run` correctly rejected the
+unscripted version ("a scenario nothing executes is a comment that looks like
+a test"), and weakening that guard to house this one would have been a bad
+trade.
+
+**`math` / `symbolic` / `units` are deliberately left nudge-only.** There a
+refusal is an acceptable outcome — *"I need to compute that"* is annoying but
+not wrong, unlike an invented number — and
+`constant_refuses_without_units` / `convert_forces_units` already measure it.
 
 The general lesson matches the one at the top of Phase 4: check whether the
 guard exists before assuming the behaviour is unguarded, and check whether it
@@ -774,6 +877,7 @@ often smaller than the entry implies.
 | `git_info` was read-only (**4.3**) | `stage` `commit` | `4043bcf` |
 | `inbox` named attachments and threw the bytes away, so any attachment task stopped a step short | `download` | `aa5029d` |
 | `clipboard` was advertised as read/write and had no action at all (**4.4**) | `write` | `e866aff` |
+| `plot` could not draw a formula — only a table or numbers typed out by hand | `expr` `xmin` `xmax` | `7a9ac10` |
 
 Three of these were watched failing under **mutation**, not just watched
 passing:
@@ -868,9 +972,15 @@ rather than assumed.
   both, which asks for the wrong consent and understates the cost.
 - [ ] **4.5** `calculator` takes one expression with no variables and no
   units (`tools/calculator.py:66-67`). Give it a variable scratchpad.
-- [ ] **4.6** `plot` does line, scatter, residuals only. Add histogram,
+- [~] **4.6** `plot` does line, scatter, residuals only. Add histogram,
   bar, and subplots — the three a homework or data question actually asks
-  for.
+  for. **A worse gap was found first and closed in `7a9ac10`:** there was
+  no way to plot a *formula* at all, only a table or numbers the model
+  typed out by hand, so `sin(x)` was unreachable. `expr` + `xmin` / `xmax`
+  now covers it, reusing `cas.parse_cas_expr` for the parse — see the
+  ForceGate sweep section for why bare `sympify` would have been RCE.
+  Histogram / bar / subplots are still open. Note when taking them that
+  `7a9ac10` added the **first** test that runs `plot.run` at all.
 - [ ] **4.7** `web_fetch` is GET-only with no headers, no POST, no auth
   (`tools/web.py:28-32`). Any real API integration is impossible.
 - [ ] **4.8** `analyze` does summary/head/describe. No filtering, no
