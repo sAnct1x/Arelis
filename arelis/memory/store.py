@@ -597,6 +597,16 @@ class MemoryStore:
         """Mark a task open or done. True when a row changed."""
         return tasks.set_task_status(self, task_id, status)
 
+    def update_task(
+        self,
+        task_id: int,
+        *,
+        title: str | None = None,
+        due: str | None = None,
+    ) -> bool:
+        """Edit a task's title and/or due in place. True when a row changed."""
+        return tasks.update_task(self, task_id, title=title, due=due)
+
     def set_task_goal(self, task_id: int, goal_id: int | None) -> bool:
         """Attach or detach a task from a goal. True when a row changed."""
         return tasks.set_task_goal(self, task_id, goal_id)

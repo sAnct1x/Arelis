@@ -60,6 +60,15 @@ CHOICE_CASES: tuple[ChoiceCase, ...] = (
     ),
     ChoiceCase("do I have any unread email?", ("inbox",)),
     ChoiceCase("remember that I climb on Tuesdays", ("memory",)),
+    ChoiceCase(
+        "what do you remember about me?",
+        ("memory",),
+        note=(
+            "memory action=list, added 2026-09-17. recall is the near miss and "
+            "the wrong answer: it searches transcripts, while a stored fact is "
+            "one that was deliberately lifted out of a transcript."
+        ),
+    ),
     ChoiceCase("keep this: the spare key is under the planter", ("workspace",)),
     ChoiceCase("what did I say about the Sherpa work last night?", ("recall",)),
     ChoiceCase("who is in my contacts?", ("contacts",)),

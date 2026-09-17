@@ -31,7 +31,7 @@ _SHORT_DESC: dict[str, str] = {
     "image_edit": "edit a local image or overlay text. confirm first",
     "inbound_sms": "recent inbound texts. do not invent replies",
     "inbox": "Gmail list/search/trash/archive. never claim delete without a tool",
-    "memory": "remember / forget durable facts. memory tool",
+    "memory": "durable facts / prefs. action=list to read them back, remember, forget",
     "ocr": "read text in an image",
     "plot": "chart PNG. xs/ys + out=name.png; or path=CSV + x/y cols. path is the table, not the picture",
     "python": "short numerics (numpy). no matplotlib. print xs,ys then plot with out=",
@@ -49,7 +49,7 @@ _SHORT_DESC: dict[str, str] = {
     # recoverable by a redirect, no tool means the text never sends.
     "send_sms": "text via the user's phone. confirm card. to= a nickname (wife, mom, me) or a number they gave, body= their words. contacts optional; never invent a number",
     "solar": "Reality sim. body/status/load. live lab is one source",
-    "tasks": "short list. action=list|add|done|drop",
+    "tasks": "short list. action=list|add|update|done|drop. fix a typo with update, not remove+add",
     "tile": "View menu. action=open|close name=thinking|history|chat|…",
     "units": "unit convert",
     "user_location": "user's saved place. not a web guess",
@@ -78,7 +78,7 @@ sms: call send_sms immediately when to+body are known (nickname or any number th
 email: inbox list/search/trash/archive; send_email to send; never claim you deleted mail.
 workspace: workspace read/write/list; inspect source with workspace; writes confirm. Code assess: list one folder then fanout-read; do not list the repo root. Same list/read this turn is a loop — open a new path or answer. Outside roots: stop; do not list parents; Allow the path or Settings → roots.
 attach: image→vision|ocr; pdf→doc_extract; csv→analyze; text→workspace. never invent file contents. never ask them to paste a PDF. ink pdf→one vision paths= (not 17 calls, not ocr).
-memory: recall before claiming you do not know; remember/forget via the memory tool.
+memory: recall before claiming you do not know; remember/forget via the memory tool. "what do you remember/know about me" = memory action=list, not recall.
 goals: goals. tasks: tasks. analyze: analyze. doc_extract: doc_extract. document: document. calculator: calculator. diagnostics: diagnostics. cas: cas. clipboard: clipboard. ocr: ocr.
 agenda: agenda (events). tile: tile (thinking|workspace|history|chat|…; filament chat = name=chat). rooms: rooms. schedule: schedule.
 image: image. image_edit: image_edit. vision: vision. research_report: research_report.

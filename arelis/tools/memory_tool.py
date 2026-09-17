@@ -20,8 +20,12 @@ from arelis.tools.base import ToolResult
 class MemoryTool:
     name = "memory"
     description = (
-        "Remember or forget a durable fact, store a preference, record a "
-        "project decision, or save a short episode summary. Use "
+        "Read back, remember, or forget a durable fact, store a preference, "
+        "record a project decision, or save a short episode summary. Use "
+        "action=list when they ask what you remember or know about them — "
+        "that reads the stored facts directly and needs no confirmation; "
+        "recall searches conversation transcripts, which is a different "
+        "question. Use "
         "action=remember ONLY when the user explicitly asks to remember "
         "something durable about them (e.g. 'remember that I climb') — never "
         "because you read a file or want to 'keep something in mind' for this "
@@ -37,13 +41,19 @@ class MemoryTool:
         "properties": {
             "action": {
                 "type": "string",
-                "enum": ["remember", "forget", "prefer", "decide", "episode"],
+                "enum": ["list", "remember", "forget", "prefer", "decide", "episode"],
                 "description": (
-                    "remember stores a fact (or preference/episode when type "
-                    "is set); prefer stores a key/value preference; decide "
-                    "records a project decision; episode stores a short "
-                    "moment summary; forget deactivates a matching active fact"
+                    "list reads back what is stored (facts, preferences, "
+                    "episodes; decisions need a project); remember stores a "
+                    "fact (or preference/episode when type is set); prefer "
+                    "stores a key/value preference; decide records a project "
+                    "decision; episode stores a short moment summary; forget "
+                    "deactivates a matching active fact"
                 ),
+            },
+            "limit": {
+                "type": "integer",
+                "description": "Max rows per kind for action=list (default 20).",
             },
             "fact": {
                 "type": "string",
@@ -55,10 +65,11 @@ class MemoryTool:
             },
             "type": {
                 "type": "string",
-                "enum": ["fact", "preference", "episode"],
+                "enum": ["fact", "preference", "episode", "decision"],
                 "description": (
                     "With action=remember: fact (default), preference "
-                    "(requires key + value/fact), or episode (summary/fact)"
+                    "(requires key + value/fact), or episode (summary/fact). "
+                    "With action=list: show only that kind; omit for all"
                 ),
             },
             "summary": {
@@ -99,6 +110,8 @@ class MemoryTool:
 
     async def run(self, **kwargs: Any) -> ToolResult:
         action = str(kwargs.get("action") or "remember").strip().lower()
+        if action == "list":
+            return self._list(kwargs)
         if action == "prefer":
             return self._prefer(kwargs)
         if action == "decide":
@@ -135,9 +148,73 @@ class MemoryTool:
         return ToolResult(
             ok=False,
             output=(
-                f"Unknown action {action!r}. Use remember, forget, prefer, "
-                "decide, or episode."
+                f"Unknown action {action!r}. Use list, remember, forget, "
+                "prefer, decide, or episode."
             ),
+        )
+
+    def _list(self, kwargs: dict[str, Any]) -> ToolResult:
+        """Read back what is stored. No confirm card — see MEMORY_WRITE_ACTIONS."""
+        try:
+            limit = int(kwargs.get("limit") or 20)
+        except (TypeError, ValueError):
+            limit = 20
+        limit = max(1, min(limit, 100))
+        wanted = str(kwargs.get("type") or "").strip().lower()
+        kinds = {wanted} if wanted else {"fact", "preference", "episode"}
+        project = str(kwargs.get("project") or "").strip()
+
+        lines: list[str] = []
+        counts: dict[str, int] = {}
+
+        if "fact" in kinds:
+            # Only active rows. forget deactivates rather than deletes, so
+            # listing every status would hand back things she was told to drop.
+            rows = self.store.list_facts(status="active", limit=limit)
+            counts["facts"] = len(rows)
+            if rows:
+                lines.append("Facts:")
+                lines += [f"  - {row['text']}" for row in rows]
+
+        if "preference" in kinds:
+            rows = self.store.list_preferences(limit=limit)
+            counts["preferences"] = len(rows)
+            if rows:
+                lines.append("Preferences:")
+                lines += [f"  - {row['key']}={row['value']}" for row in rows]
+
+        if "episode" in kinds:
+            rows = self.store.list_episodes(limit=limit)
+            counts["episodes"] = len(rows)
+            if rows:
+                lines.append("Episodes:")
+                lines += [f"  - {row['summary']}" for row in rows]
+
+        if "decision" in kinds:
+            if project:
+                rows = self.store.list_decisions(project, limit)
+                counts["decisions"] = len(rows)
+                if rows:
+                    lines.append(f"Decisions for {project}:")
+                    lines += [f"  - {row['text']}" for row in rows]
+            else:
+                # The store indexes decisions by project and has no
+                # all-projects query. Saying "none" here would be a wrong
+                # answer to a question that was never asked.
+                lines.append(
+                    "Decisions are filed per project — name one to list them."
+                )
+
+        if not lines:
+            return ToolResult(
+                ok=True,
+                output="Nothing stored in memory yet.",
+                data={"counts": counts},
+            )
+        return ToolResult(
+            ok=True,
+            output="\n".join(lines),
+            data={"counts": counts, "limit": limit},
         )
 
     def _remember(self, fact: str, *, key: str | None = None) -> ToolResult:

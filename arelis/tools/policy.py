@@ -45,7 +45,9 @@ CapabilityClass = Literal[
 WORKSPACE_WRITE_ACTIONS = frozenset({"write", "edit", "keep", "delete", "remove"})
 CONTACTS_WRITE_ACTIONS = frozenset({"add", "update", "remove"})
 AGENDA_WRITE_ACTIONS = frozenset({"create", "update", "delete"})
-TASKS_WRITE_ACTIONS = frozenset({"add", "done", "reopen", "remove", "attach", "detach"})
+TASKS_WRITE_ACTIONS = frozenset(
+    {"add", "update", "done", "reopen", "remove", "attach", "detach"}
+)
 GOALS_WRITE_ACTIONS = frozenset({
     "add",
     "update",

@@ -1,6 +1,6 @@
 """Local task list in memory.db.
 
-list is free. add/done/reopen/remove/attach/detach need approval when
+list is free. add/update/done/reopen/remove/attach/detach need approval when
 confirm_writes is on — same argument-dependent gate as contacts.
 """
 
@@ -13,7 +13,9 @@ from arelis.core.events import Event, EventType
 from arelis.memory.store import MemoryStore
 from arelis.tools.base import ToolResult
 
-WRITE_ACTIONS = frozenset({"add", "done", "reopen", "remove", "attach", "detach"})
+WRITE_ACTIONS = frozenset(
+    {"add", "update", "done", "reopen", "remove", "attach", "detach"}
+)
 
 
 def _notify_tasks(action: str, **extra: Any) -> None:
@@ -37,10 +39,13 @@ def _format_task(row: dict[str, Any]) -> str:
 class TasksTool:
     name = "tasks"
     description = (
-        "List, add, complete, reopen, remove, or link local to-dos (chores) "
-        "stored in memory.db. Use action=list for open tasks (or status=done|all; "
-        "optional goal_id to filter). action=add needs title (optional due, "
-        "goal_id). action=attach needs id + goal_id; action=detach needs id. "
+        "List, add, edit, complete, reopen, remove, or link local to-dos "
+        "(chores) stored in memory.db. Use action=list for open tasks (or "
+        "status=done|all; optional goal_id to filter). action=add needs title "
+        "(optional due, goal_id). action=update needs id plus a new title "
+        "and/or due — use it to fix a typo or move a date; do not remove and "
+        "re-add, which loses the id and the goal link. "
+        "action=attach needs id + goal_id; action=detach needs id. "
         "action=done|reopen|remove need id. For durable outcomes use goals; "
         "link chores to a goal with goal_id / attach. Writes are confirmed "
         "before they are saved."
@@ -55,6 +60,7 @@ class TasksTool:
                 "enum": [
                     "list",
                     "add",
+                    "update",
                     "done",
                     "reopen",
                     "remove",
@@ -62,21 +68,26 @@ class TasksTool:
                     "detach",
                 ],
                 "description": (
-                    "list open tasks (default), add, mark done, reopen, "
-                    "remove, attach to a goal, or detach from a goal"
+                    "list open tasks (default), add, update the title/due of "
+                    "an existing task, mark done, reopen, remove, attach to a "
+                    "goal, or detach from a goal"
                 ),
             },
             "title": {
                 "type": "string",
-                "description": "Task text for action=add",
+                "description": "Task text for action=add, or the new text for action=update",
             },
             "id": {
                 "type": "integer",
-                "description": "Task id for done/reopen/remove/attach/detach",
+                "description": "Task id for update/done/reopen/remove/attach/detach",
             },
             "due": {
                 "type": "string",
-                "description": "Optional due date/text for add (e.g. 2026-08-10)",
+                "description": (
+                    "Optional due date/text for add (e.g. 2026-08-10). For "
+                    "action=update, pass a new date to move it or an empty "
+                    "string to clear it; omit to leave it alone"
+                ),
             },
             "goal_id": {
                 "type": "integer",
@@ -106,6 +117,8 @@ class TasksTool:
             return self._list(kwargs)
         if action == "add":
             return self._add(kwargs)
+        if action == "update":
+            return self._update(kwargs)
         if action == "done":
             return self._set_status(kwargs, "done")
         if action == "reopen":
@@ -119,9 +132,48 @@ class TasksTool:
         return ToolResult(
             ok=False,
             output=(
-                "Unknown action. Use list, add, done, reopen, remove, "
+                "Unknown action. Use list, add, update, done, reopen, remove, "
                 "attach, or detach."
             ),
+        )
+
+    def _update(self, kwargs: dict[str, Any]) -> ToolResult:
+        """Edit title/due in place. Keeps the id, the goal link, and created_at."""
+        raw_id = kwargs.get("id")
+        if raw_id is None or str(raw_id).strip() == "":
+            return ToolResult(ok=False, output="tasks update needs an id.")
+        try:
+            task_id = int(raw_id)
+        except (TypeError, ValueError):
+            return ToolResult(ok=False, output=f"That is not a task id: {raw_id!r}")
+
+        # None means "leave it"; "" on due means "clear it". Distinguishing the
+        # two is why this reads kwargs directly instead of coercing to str.
+        title = kwargs.get("title")
+        due = kwargs.get("due")
+        if title is None and due is None:
+            return ToolResult(
+                ok=False,
+                output="tasks update needs a new title or due.",
+            )
+        if title is not None and not str(title).strip():
+            return ToolResult(ok=False, output="A task needs a title.")
+
+        if self.store.get_task(task_id) is None:
+            return ToolResult(ok=False, output=f"No task with id {task_id}.")
+        changed = self.store.update_task(
+            task_id,
+            title=None if title is None else str(title),
+            due=None if due is None else str(due),
+        )
+        if not changed:
+            return ToolResult(ok=False, output=f"Could not update task {task_id}.")
+        row = self.store.get_task(task_id)
+        _notify_tasks("update", id=task_id)
+        return ToolResult(
+            ok=True,
+            output=f"Updated: {_format_task(row or {})}",
+            data={"id": task_id, "task": row},
         )
 
     def _list(self, kwargs: dict[str, Any]) -> ToolResult:

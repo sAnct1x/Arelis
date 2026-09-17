@@ -108,6 +108,46 @@ def set_task_status(store: MemoryStore, task_id: int, status: str) -> bool:
     store._conn.commit()
     return cur.rowcount > 0
 
+def update_task(
+    store: MemoryStore,
+    task_id: int,
+    *,
+    title: str | None = None,
+    due: str | None = None,
+) -> bool:
+    """Edit a task's title and/or due in place. True when a row changed.
+
+    None means leave the column alone; an empty ``due`` clears it. Keeping the
+    row is the point — remove + add would issue a new id and drop the goal
+    link, which is what callers were doing before this existed.
+    """
+    tid = int(task_id)
+    if store.get_task(tid) is None:
+        return False
+    sets: list[str] = []
+    values: list[Any] = []
+    if title is not None:
+        cleaned = title.strip()
+        if not cleaned:
+            raise ValueError("task title cannot be blank")
+        sets.append("title = ?")
+        values.append(cleaned)
+    if due is not None:
+        sets.append("due = ?")
+        values.append(due.strip() or None)
+    if not sets:
+        return False
+    sets.append("updated_at = ?")
+    values.append(_utc_now())
+    values.append(tid)
+    cur = store._conn.execute(
+        # Column names are built here, never from caller input; values bind.
+        f"UPDATE tasks SET {', '.join(sets)} WHERE id = ?",
+        tuple(values),
+    )
+    store._conn.commit()
+    return cur.rowcount > 0
+
 def set_task_goal(store: MemoryStore, task_id: int, goal_id: int | None) -> bool:
     """Attach or detach a task from a goal. True when a row changed."""
     tid = int(task_id)
