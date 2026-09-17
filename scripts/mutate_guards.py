@@ -134,6 +134,11 @@ MUTATIONS: tuple[Mutation, ...] = (
         guards="no_call_steps recall inject (roadmap 4.0)",
     ),
     Mutation(
+        name="document_force_call",
+        overrides={"document_force_call": False},
+        guards="no_call_steps document inject behind the gates.py nudge",
+    ),
+    Mutation(
         name="inspect_force_call",
         overrides={"inspect_force_call": False},
         guards=(

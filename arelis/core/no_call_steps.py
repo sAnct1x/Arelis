@@ -89,6 +89,7 @@ from arelis.core.sms_complete import (
 )
 from arelis.core.tile_complete import match_tile_intent, tile_tool_args
 from arelis.core.turn_context import TurnContext
+from arelis.tools.document import draft_document_args
 from arelis.tools.inbox import draft_inbox_mutate_args
 from arelis.tools.weather import draft_weather_args, weather_places_missing
 
@@ -663,6 +664,48 @@ async def try_goals(loop: Any, ctx: TurnContext, r: Any) -> str:
     )
 
 
+_DOCUMENT_MIN_BODY = 120
+
+
+async def try_document(loop: Any, ctx: TurnContext, r: Any) -> str:
+    """"Create a pdf about X" has to end in a file, not a chat message.
+
+    The `document` ForceGate in gates.py already covers this — and it only
+    *nudges*. `apply_force_gates` appends the notice and retries, once, and a
+    nudge is a request the model can decline. Every other intent of this weight
+    has an inject behind the nudge; document had nothing, so declining cost
+    nothing and the turn ended with research in the chat log and no file. The
+    tool's own description says "do not dump the document into chat", which is
+    a good description of the failure it was losing to.
+
+    The body is her own prose, verbatim. That is the whole reason this is safe
+    to inject: she wrote the content, she just put it in the wrong container,
+    so converting it invents nothing. A guessed document body would be worse
+    than no document at all — hence the length floor below rather than a nudge
+    on an empty answer.
+    """
+    if not (
+        bool(r.agent_cfg.get("document_force_call", True))
+        and (r.exact_need.needs_document or "document" in loop._expected_tools)
+        and "document" not in loop.tools_used
+        and "document" in r.tool_names
+    ):
+        return SKIP
+    body = (r.content or "").strip()
+    if len(body) < _DOCUMENT_MIN_BODY:
+        # "Sure, I'll put that together" is not a document. Leave the turn to
+        # the force gate nudge, which is the right response to no content.
+        return SKIP
+    return await _inject(
+        loop,
+        r,
+        "document",
+        draft_document_args(r.text, body),
+        thinking="inject  document from the answer she typed instead",
+        gate="document_force",
+    )
+
+
 async def try_recall(loop: Any, ctx: TurnContext, r: Any) -> str:
     """"What did I say about X" must reach the transcripts, not a shrug.
 
@@ -920,6 +963,7 @@ INJECT_STEPS: tuple[StepFn, ...] = (
     try_catalog,
     try_tasks,
     try_goals,
+    try_document,
     try_recall,
     try_memory,
     try_contacts,

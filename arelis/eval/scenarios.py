@@ -2020,6 +2020,51 @@ SCENARIOS: list[Scenario] = [
         ],
     ),
     Scenario(
+        id="a_pdf_ask_ends_in_a_file",
+        user="create a pdf about the dirac equation",
+        # Both listed on purpose. The board requires the first call to be in
+        # this set and, with more than one, every one of them to appear — which
+        # is exactly the claim here: searching first is fine, finishing without
+        # the file is not.
+        expect_tools=("web_search", "document"),
+        forbid_claim_if_no_tool=("i've created", "here's your pdf", "saved"),
+        offline_only=True,
+        failure_class="incomplete_fulfillment",
+        category="tool_select",
+        notes=(
+            "The document ForceGate existed and no scenario measured it. "
+            "Searching first is legitimate — she needs content to put in the "
+            "file — so web_search is not forbidden. The failure is stopping "
+            "there: research delivered in chat, no file, and often a claim "
+            "that one was written."
+        ),
+        script=[
+            [
+                (
+                    "tool_calls",
+                    [_tool_call("web_search", {"query": "dirac equation"})],
+                )
+            ],
+            # Long on purpose: this is what the failure actually looks like. She
+            # writes the whole document into the chat log, which is why the
+            # backstop can convert it rather than having to invent it.
+            [
+                (
+                    "token",
+                    "# The Dirac Equation\n\n"
+                    "The Dirac equation is a relativistic wave equation "
+                    "formulated by Paul Dirac in 1928. It describes spin-1/2 "
+                    "particles such as electrons and predicts the existence of "
+                    "antimatter. Written in natural units it reads "
+                    "(iγ^μ ∂_μ − m)ψ = 0, where the gamma matrices satisfy the "
+                    "Clifford algebra. Its successes include the correct "
+                    "electron magnetic moment and the fine structure of "
+                    "hydrogen.",
+                )
+            ],
+        ],
+    ),
+    Scenario(
         id="source_ask_does_not_go_to_the_web",
         user="where is the Drive strip?",
         expect_tools=("workspace",),

@@ -367,6 +367,77 @@ def _contained(path: Path, folder: Path) -> bool:
         return False
 
 
+_FORMAT_WORDS: tuple[tuple[str, str], ...] = (
+    (r"\bpdf\b", "pdf"),
+    (r"\b(?:docx?|word\s+doc(?:ument)?|word)\b", "docx"),
+    (r"\b(?:xlsx?|excel|spreadsheet|workbook)\b", "xlsx"),
+    (r"\bcsv\b", "csv"),
+    (r"\b(?:markdown|\.md\b|\bmd)\b", "md"),
+    (r"\b(?:txt|plain\s+text|text\s+file)\b", "txt"),
+)
+# What the ask says before the subject starts. "create a pdf about X" -> X.
+_TITLE_LEAD = re.compile(
+    r"(?i)^.*?\b(?:about|on|titled|called|for|of)\s+",
+)
+_TITLE_NOISE = re.compile(
+    r"(?i)\b(?:please|for\s+me|as\s+a\s+\w+|in\s+\w+\s+format)\b"
+)
+_DOCUMENT_TITLE_CHARS = 80
+
+
+def document_format_from_ask(text: str) -> str:
+    """Which file type they asked for. PDF when they did not say.
+
+    PDF is the default because it is what "make me a document" means to almost
+    everyone, and because every other format here is named explicitly when it
+    is wanted ("as a csv", "a word doc").
+    """
+    raw = text or ""
+    for pattern, fmt in _FORMAT_WORDS:
+        if re.search(pattern, raw, re.I):
+            return fmt
+    return "pdf"
+
+
+def document_title_from_ask(text: str, *, fallback: str = "Document") -> str:
+    """The subject of the ask, for the title and the filename."""
+    raw = " ".join((text or "").split())
+    if not raw:
+        return fallback
+    title = _TITLE_LEAD.sub("", raw, count=1)
+    if title == raw:
+        # No "about X" to cut, so drop a leading verb phrase instead.
+        title = re.sub(
+            r"(?i)^\s*(?:please\s+)?(?:can\s+you\s+)?"
+            r"(?:create|make|write|generate|export|save|build|draft)\s+"
+            r"(?:me\s+)?(?:a|an|the)?\s*(?:pdf|docx?|xlsx?|csv|md|txt|"
+            r"document|report|file|spreadsheet)?\s*",
+            "",
+            raw,
+            count=1,
+        )
+    title = _TITLE_NOISE.sub("", title)
+    title = " ".join(title.split()).strip(" .,:;-—")
+    if not title:
+        return fallback
+    return title[:_DOCUMENT_TITLE_CHARS]
+
+
+def draft_document_args(text: str, body: str) -> dict[str, str]:
+    """Turn "the answer she typed into chat" into the file that was asked for.
+
+    Used when the document intent fired, the nudge was ignored, and she
+    delivered the content as prose anyway. The body is hers verbatim — nothing
+    here invents document content, because a made-up file is worse than no
+    file. All this decides is the container and the name.
+    """
+    return {
+        "format": document_format_from_ask(text),
+        "title": document_title_from_ask(text),
+        "body": body,
+    }
+
+
 class DocumentTool:
     name = "document"
     description = (
