@@ -40,6 +40,8 @@ from arelis.core.intent_catalog import (
     RUN_SCRIPT,
     SOLAR_STATUS,
     earth_status_action,
+    inspect_read_path,
+    looks_like_source_inspect,
     run_script_path,
     solar_status_action,
 )
@@ -50,6 +52,13 @@ from arelis.core.turn_context import TurnContext
 from arelis.tools.weather import draft_weather_args, weather_places_missing
 
 RedirectFn = Callable[..., Awaitable[tuple[Any, ...] | None]]
+
+# Everything that could answer "where is the Drive strip?" from outside the
+# checkout. `browser` is in here and not in `_BROWSER_WANDER` because on a
+# source ask the browser is just a slower search.
+_INSPECT_WANDER = frozenset(
+    {"web_search", "scrape", "web_fetch", "research_report", "browser"}
+)
 
 
 async def _think(loop: Any, text: str) -> None:
@@ -400,6 +409,54 @@ async def redirect_agenda(
     return ("skip",)
 
 
+async def redirect_inspect_wander(
+    loop: Any, ctx: TurnContext, r: Any, name: str, args: dict[str, Any], drop_wander: Any
+) -> tuple[Any, ...] | None:
+    """A question about her own source is not a question for the web.
+
+    `INSPECT.expected_tools` is `("workspace",)`, and `workspace` is in none of
+    the sets that make up `_HIDE_WANDER_FOR`. So preflight does its whole job
+    on "where is the Drive strip?" — fires the intent, maps the ask to a file,
+    writes a nudge naming it — and the search tools stay on the menu anyway.
+    Take one and she describes her own UI from whatever the web says about
+    "drive strip". `try_inspect` is the *no-call* floor and never sees this,
+    because a call was made.
+
+    A redirect rather than a new entry in `_HIDE_WANDER_FOR`:
+    `_hide_daily_wander` only sees expected tool *names*, so it cannot tell
+    this turn from "search the web for X and save it to notes.md", where
+    `workspace` is expected and the web call is right. Gating on the text is
+    what the other specific redirects in this table already do.
+
+    Requires a mapped path, for the same reason `try_inspect` does — injecting
+    a guessed path is just a different wrong answer.
+    """
+    if not (
+        name in _INSPECT_WANDER
+        and bool(r.agent_cfg.get("inspect_force_call", True))
+        and looks_like_source_inspect(r.text)
+        and "workspace" in r.tool_names
+        and "workspace" not in loop.tools_used
+    ):
+        return None
+    path = inspect_read_path(r.text)
+    if not path:
+        return None
+    notice = (
+        f"Blocked: this turn is about Arelis's own source, not the web. "
+        f"Read {path} with the workspace tool."
+    )
+    await _think(loop, f"redirect  {name} → workspace")
+    r.messages.append(loop._tool_message(name, notice))
+    # The whole set, not just this call: blocking web_search alone is how the
+    # next round ends up in scrape instead.
+    drop_wander(*_INSPECT_WANDER)
+    await _think(loop, "inject  workspace from inspect ask")
+    if loop._timer is not None:
+        loop._timer.mark("exactness", gate="inspect_redirect", action="inject")
+    return ("run", "workspace", {"action": "read", "path": path})
+
+
 REDIRECT_STEPS: tuple[RedirectFn, ...] = (
     redirect_weather,
     redirect_browser_to_agenda,
@@ -412,6 +469,10 @@ REDIRECT_STEPS: tuple[RedirectFn, ...] = (
     redirect_sms,
     redirect_email,
     redirect_agenda,
+    # Last, for the same reason try_inspect is last in INJECT_STEPS: "show me
+    # the Drive strip" is a tile ask and a source ask at once, and the tile
+    # redirect above has to keep winning it.
+    redirect_inspect_wander,
 )
 
 

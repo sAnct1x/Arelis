@@ -2020,6 +2020,44 @@ SCENARIOS: list[Scenario] = [
         ],
     ),
     Scenario(
+        id="source_ask_does_not_go_to_the_web",
+        user="where is the Drive strip?",
+        expect_tools=("workspace",),
+        forbid_tools=("web_search", "scrape", "web_fetch", "browser"),
+        offline_only=True,
+        failure_class="wrong_retrieval",
+        category="tool_select",
+        notes=(
+            "Guards inspect_force_call on the redirect side. INSPECT expects "
+            "workspace, which is in none of the sets making up "
+            "_HIDE_WANDER_FOR, so the search tools stayed on the menu and a "
+            "web call about her own UI ran for real. try_inspect is the "
+            "no-call floor and never sees this."
+        ),
+        script=[
+            [("tool_calls", [_tool_call("web_search", {"query": "Drive strip"})])],
+            [("token", "The Drive strip is a car audio accessory.")],
+        ],
+    ),
+    Scenario(
+        id="source_ask_is_not_answered_from_memory",
+        user="where is the Drive strip?",
+        expect_tools=("workspace",),
+        offline_only=True,
+        failure_class="unsupported_claim",
+        category="tool_select",
+        notes=(
+            "The other half of inspect_force_call: no call at all. Answering "
+            "about her own source from memory is the one claim she can always "
+            "check and never does. try_inspect nudges once, then injects."
+        ),
+        script=[
+            [("token", "It's in the UI somewhere, I think near the chat dock.")],
+            [("token", "I believe it lives in the panels folder.")],
+            [("token", "Somewhere under arelis/ui.")],
+        ],
+    ),
+    Scenario(
         id="recall_ask_does_not_end_in_a_shrug",
         user="What did I say about the Sherpa work last night?",
         expect_tools=("recall",),

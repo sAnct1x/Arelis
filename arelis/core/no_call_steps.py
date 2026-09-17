@@ -868,8 +868,10 @@ async def try_inspect(loop: Any, ctx: TurnContext, r: Any) -> str:
     strip" is the live example — it is a tile ask and a source ask at once, and
     try_tile should keep winning it.
 
-    Requires a mapped path. `inspect_read_path` returns None for a vague "read
-    your source", and injecting a guessed path would be its own wrong answer.
+    Requires a mapped path, because injecting a guessed one would be its own
+    wrong answer. In practice `inspect_read_path` almost always has one: a
+    vague "read your source" falls back to `docs/architecture.md` rather than
+    returning None, which is a better answer than any single module.
     """
     if not (
         bool(r.agent_cfg.get("inspect_force_call", True))

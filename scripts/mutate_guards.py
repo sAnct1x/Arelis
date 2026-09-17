@@ -134,6 +134,13 @@ MUTATIONS: tuple[Mutation, ...] = (
         guards="no_call_steps recall inject (roadmap 4.0)",
     ),
     Mutation(
+        name="inspect_force_call",
+        overrides={"inspect_force_call": False},
+        guards=(
+            "no_call_steps inspect floor + call_redirects.redirect_inspect_wander"
+        ),
+    ),
+    Mutation(
         name="scrape_after_search",
         overrides={"scrape_after_search": False},
         guards="no_call_finish — search must be followed by a read",
