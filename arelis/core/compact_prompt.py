@@ -42,7 +42,12 @@ _SHORT_DESC: dict[str, str] = {
     "schedule": "local jobs. action=list|create|run|delete",
     "scrape": "readable page text. Prefer scrape for news/docs",
     "send_email": "send mail. confirm card. never invent sent",
-    "send_sms": "text via the user's phone. confirm card",
+    # Prescriptive on purpose. The first attempt at this line said "do not
+    # look up contacts first", and she stopped calling contacts — and stopped
+    # calling send_sms too, answering in prose instead. A bare prohibition
+    # tells her what not to do and leaves nowhere to go; wrong tool is
+    # recoverable by a redirect, no tool means the text never sends.
+    "send_sms": "text via the user's phone. confirm card. to= a nickname (wife, mom, me) or a number they gave, body= their words. contacts optional; never invent a number",
     "solar": "Reality sim. body/status/load. live lab is one source",
     "tasks": "short list. action=list|add|done|drop",
     "tile": "View menu. action=open|close name=thinking|history|chat|…",
@@ -50,7 +55,10 @@ _SHORT_DESC: dict[str, str] = {
     "user_location": "user's saved place. not a web guess",
     "vision": "describe a local image",
     "watch": "house doors snapshot. not antivirus",
-    "weather": "forecast. call the weather tool. place=name, not coords",
+    # "defaults to their own place" earns its length: measured 7/13 runs
+    # calling user_location first, which weather can never use because it
+    # refuses coordinates. Only the arms carrying this sentence got it right.
+    "weather": "forecast. defaults to the user's own place — omit place for home, never look up their location first. place=city name, not coords",
     "web_fetch": "http(s) APIs / JSON. not pages",
     "web_search": "search first. never guess a url",
     "workspace": "read/write/list sandbox files. writes confirm",

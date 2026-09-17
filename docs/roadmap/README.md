@@ -22,7 +22,57 @@ Numbers in here were measured on this checkout, not estimated.
 
 ---
 
-## The thesis
+## The thesis — measured, and wrong
+
+> **Superseded 2026-09-17.** Everything in this section was written before
+> anything was measured. `scripts/measure_tool_choice.py` now exists and
+> the numbers contradict it. Read the verdict first; the argument below is
+> kept because it is a good example of how this codebase got the way it is,
+> and because deleting a wrong conclusion hides the fact that it was
+> reached confidently.
+
+### The verdict
+
+Thirteen runs against qwen3.5:9b on the 42-case tool-choice corpus, three
+seeds per config:
+
+| Config | Seeds 1, 2, 3 | Mean | Spread |
+|---|---|---:|---:|
+| `skinny`, unguarded | 33, 30, 32 | 31.7 | 3 |
+| `full` schema, unguarded | 34, 34, 34 | 34.0 | **0** |
+| `skinny` + preflight — **what ships** | 37, 39, 37 | **37.7** | 2 |
+| `full` + preflight | 40, 38, 38 | 38.7 | 2 |
+
+- **The guard rails are worth +6.0 and it replicates.** They are the most
+  effective thing in the codebase. The 12,700 lines are not a wound.
+- **Restoring every description is worth +1.0**, against a noise band of
+  ±2 measured by re-seeding a single arm. It is indistinguishable from
+  what ships, and costs **2.4× the prefill** (18,735 tokens vs 7,944) on
+  every turn, forever, on a 12 GB card.
+- Therefore **Phase 2 as written is cancelled.** Do not rewrite
+  `compact_prompt.py`.
+
+Two things survive. First, the `full` arm scored 34/34/34 — *zero* spread.
+A rich schema makes tool choice deterministic, which is the only real
+argument in its favour, and the determinism does not survive the preflight
+nudge. Second, per-case analysis shows the full schema reliably fixes
+exactly two cases — `weather` and `send_sms` — so those two descriptions
+are load-bearing even though the other 41 are not. That is a surgical
+edit measured in hundreds of tokens, not eleven thousand.
+
+What replaces Phase 2 is a **hole-by-hole sweep of the guard layer**,
+driven by this runner. The first hole is already fixed and pushed
+(`6203c8b`): `_WEATHER_WANDER` omitted `user_location`, so hiding the
+three search tools on a weather turn pushed the model onto the one tool
+nothing redirected. Four words in a frozenset.
+
+The methodological lesson is the one this repo keeps teaching. A year of
+sessions each patched the symptom in front of them because none could
+measure the cause. An audit reasoning from the same evidence reached the
+same kind of confident, wrong conclusion — and would have spent a week
+proving it.
+
+### The original argument, for the record
 
 Arelis describes 41 tools to a 9B model in a median of **43 characters
 each**, with **zero descriptions on any of its 292 parameters**, and then
@@ -405,7 +455,38 @@ cannot ship as-is.
 
 ---
 
-## Phase 2 — the schema experiment
+## Phase 2 — the schema experiment ~~(run it)~~ CANCELLED
+
+> **Closed 2026-09-17. The experiment ran and the answer was no.**
+>
+> With guard rails on, the unstripped schema is worth **+1.0 out of 42**
+> against a **±2** noise band, at **2.4× the prefill**. See "The verdict"
+> at the top of this file for the full table. The hypothesis below was
+> reasonable and it was wrong; keeping it is cheaper than pretending the
+> roadmap was right the first time.
+>
+> **What to do instead:** the two surgical edits the per-case analysis
+> justifies, then the guard-rail hole sweep.
+>
+> - `weather` and `send_sms` are the only two tools whose real description
+>   reliably changes the pick (missed 7/13 and 4/13, in `skinny` arms
+>   only). Their `_SHORT_DESC` lines now carry the one sentence each was
+>   dropping — "defaults to the user's own place" and "do not look up
+>   contacts first". Hundreds of tokens, not eleven thousand.
+> - Everything else in this phase is superseded by the hole sweep. Guards
+>   are worth +6.0; they just have gaps, and
+>   `scripts/measure_tool_choice.py` plus `scripts/analyze_tool_choice.py`
+>   are how you find them.
+>
+> **Read the per-case output, not the score.** Re-seeding one arm moved it
+> by two picks, which is the entire size of the effect this phase was
+> built to chase. `analyze_tool_choice.py` sorts by how many runs a case
+> fails and that is the number worth acting on — with one caveat it
+> learned the hard way: score *families*, not cases. Six workspace
+> introspection asks each failing 50-70% read as noise individually and
+> are obviously one defect together.
+
+The original hypothesis follows.
 
 Do not skip to Phase 3. This measurement decides how much of Phase 3
 there is.

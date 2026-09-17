@@ -361,6 +361,118 @@ async def test_show_all_goals_does_not_inject_remove() -> None:
     assert all(args.get("action") != "remove" for _name, args in r.calls)
 
 
+@pytest.mark.asyncio
+async def test_a_question_about_her_own_code_gets_a_workspace_read() -> None:
+    """She must not answer questions about her own behaviour from memory.
+
+    Measured 2026-09-17 with scripts/measure_tool_choice.py: six phrasings of
+    this ask ("how does confirm work", "what does tool_subset do?", "where is
+    the Drive strip?") fail 50-70% of runs, in every schema arm, usually by
+    calling no tool at all and answering in prose.
+
+    The intent is detected — `looks_like_source_inspect` matches all six, and
+    preflight already maps them to a file via `inspect_read_path`. What is
+    missing is the backstop. Every other intent of this weight has one in
+    no_call_steps.INJECT_STEPS; source-inspect had none, so ignoring the nudge
+    cost nothing and prose was the end of the turn.
+
+    Two stages, like every sibling step: ask once, then fill it in.
+    """
+    loop = _FakeLoop()
+    r = _scratch(
+        text="how does confirm work",
+        content="My confirm gate asks before writes.",
+        tool_names={"workspace"},
+        available={"workspace"},
+        visible={"workspace"},
+        available_all={"workspace"},
+    )
+    ctx = _ctx(text="how does confirm work")
+    ctx.tool_names = {"workspace"}
+
+    assert await apply_no_call_path(loop, ctx, r, 0) is False
+    assert ctx.inspect_nudge_used is True
+    assert not r.calls, "the first pass asks; it must not fabricate a call"
+    thinking = " ".join(str(e.payload.get("text") or "") for e in loop.bus.events)
+    assert "source ask" in thinking
+    # The nudge must name the file, not wave at the package.
+    nudge = " ".join(str(m.get("content") or "") for m in r.messages)
+    assert "arelis/tools/policy.py" in nudge
+
+    assert await apply_no_call_path(loop, ctx, r, 1) is None
+    assert r.calls, "she ignored the nudge and nothing forced the read"
+    name, args = r.calls[0]
+    assert name == "workspace"
+    assert args.get("action") == "read"
+    assert args.get("path") == "arelis/tools/policy.py"
+
+
+@pytest.mark.asyncio
+async def test_the_drive_strip_ask_reads_the_panel_source() -> None:
+    """Second phrasing, different mapped path, same backstop."""
+    loop = _FakeLoop()
+    r = _scratch(
+        text="where is the Drive strip?",
+        content="It lives on the conversation face.",
+        tool_names={"workspace"},
+        available={"workspace"},
+        visible={"workspace"},
+        available_all={"workspace"},
+    )
+    ctx = _ctx(text="where is the Drive strip?")
+    ctx.tool_names = {"workspace"}
+    ctx.inspect_nudge_used = True
+    await apply_no_call_path(loop, ctx, r, 1)
+    assert r.calls
+    assert r.calls[0][1].get("path") == "arelis/ui/panels/drive.py"
+
+
+@pytest.mark.asyncio
+async def test_a_vague_source_ask_is_left_alone() -> None:
+    """No mapped file means no injected path. A guessed path is a wrong answer."""
+    from arelis.core.intent_catalog import (
+        inspect_read_path,
+        looks_like_source_inspect,
+    )
+
+    text = "look through the code"
+    assert looks_like_source_inspect(text), "precondition: this is an inspect ask"
+    assert inspect_read_path(text) is None, "precondition: it maps to no file"
+
+    loop = _FakeLoop()
+    r = _scratch(
+        text=text,
+        content="Sure.",
+        tool_names={"workspace"},
+        available={"workspace"},
+        visible={"workspace"},
+        available_all={"workspace"},
+    )
+    ctx = _ctx(text=text)
+    ctx.tool_names = {"workspace"}
+    ctx.inspect_nudge_used = True
+    await apply_no_call_path(loop, ctx, r, 1)
+    assert not r.calls
+
+
+@pytest.mark.asyncio
+async def test_a_plain_chat_line_is_not_dragged_into_a_source_read() -> None:
+    """The backstop must not fire on anything that is not an inspect ask."""
+    loop = _FakeLoop()
+    r = _scratch(
+        text="thanks, that's great",
+        content="Any time.",
+        tool_names={"workspace"},
+        available={"workspace"},
+        visible={"workspace"},
+        available_all={"workspace"},
+    )
+    ctx = _ctx(text="thanks, that's great")
+    ctx.tool_names = {"workspace"}
+    await apply_no_call_path(loop, ctx, r, 0)
+    assert not r.calls
+
+
 def test_fake_loop_finish_matches_the_real_signature() -> None:
     """The double must never accept more than AgentLoop._finish does.
 

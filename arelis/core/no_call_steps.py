@@ -61,6 +61,9 @@ from arelis.core.intent_catalog import (
     EARTH_STATUS,
     SOLAR_STATUS,
     earth_status_action,
+    inspect_preflight_nudge,
+    inspect_read_path,
+    looks_like_source_inspect,
     solar_status_action,
 )
 from arelis.core.look import next_look_call
@@ -806,6 +809,52 @@ async def try_rooms(loop: Any, ctx: TurnContext, r: Any) -> str:
 
 
 # Order matches the original if/elif chain. Do not reorder without a test.
+async def try_inspect(loop: Any, ctx: TurnContext, r: Any) -> str:
+    """Answering about her own source from memory is the one case she cannot check.
+
+    Every other intent of this weight already has a step in this tuple. This
+    one did not, so preflight could detect the ask, map it to a file, and write
+    a nudge naming that file — and ignoring all of it ended the turn in prose.
+    Measured 2026-09-17: six phrasings failed 50-70% of runs that way.
+
+    Deliberately last in INJECT_STEPS. The failures are turns where no tool ran
+    at all, so this only has to cover the floor, and running last means an ask
+    that some other step recognises keeps its own handler. "show me the Drive
+    strip" is the live example — it is a tile ask and a source ask at once, and
+    try_tile should keep winning it.
+
+    Requires a mapped path. `inspect_read_path` returns None for a vague "read
+    your source", and injecting a guessed path would be its own wrong answer.
+    """
+    if not (
+        bool(r.agent_cfg.get("inspect_force_call", True))
+        and looks_like_source_inspect(r.text)
+        and "workspace" in r.tool_names
+        and "workspace" not in loop.tools_used
+    ):
+        return SKIP
+    path = inspect_read_path(r.text)
+    if not path:
+        return SKIP
+    if not ctx.inspect_nudge_used:
+        ctx.inspect_nudge_used = True
+        return await _nudge(
+            loop,
+            r,
+            notice=inspect_preflight_nudge(r.text),
+            thinking="source ask; asking her to read the file",
+            gate="inspect_force",
+        )
+    return await _inject(
+        loop,
+        r,
+        "workspace",
+        {"action": "read", "path": path},
+        thinking="inject  workspace from inspect ask",
+        gate="inspect_force",
+    )
+
+
 INJECT_STEPS: tuple[StepFn, ...] = (
     try_sms,
     try_email,
@@ -831,6 +880,9 @@ INJECT_STEPS: tuple[StepFn, ...] = (
     try_browser,
     try_browser_signin,
     try_rooms,
+    # Last on purpose — see the docstring. It is the floor under a turn no
+    # other step claimed, not a competitor to the steps above it.
+    try_inspect,
 )
 
 
