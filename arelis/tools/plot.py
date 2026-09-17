@@ -12,6 +12,7 @@ A room with a real project folder lands under that project's plots/.
 from __future__ import annotations
 
 import asyncio
+import math
 import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -87,8 +88,7 @@ def _parse_numbers(raw: str, *, name: str) -> np.ndarray:
         raise ValueError(f"Missing {name}.")
     if "…" in text or "..." in text:
         raise ValueError(
-            f"{name} is truncated. Pass every number, or a CSV via path=. "
-            "Do not use … or ..."
+            f"{name} is truncated. Pass every number, or a CSV via path=. Do not use … or ..."
         )
     parts = [p for p in _INLINE_SPLIT.split(text) if p]
     if len(parts) > _MAX_INLINE:
@@ -96,12 +96,106 @@ def _parse_numbers(raw: str, *, name: str) -> np.ndarray:
     try:
         values = np.array([float(p) for p in parts], dtype=float)
     except ValueError as exc:
-        raise ValueError(
-            f"{name} must be numbers separated by commas, not an expression."
-        ) from exc
+        raise ValueError(f"{name} must be numbers separated by commas, not an expression.") from exc
     if np.isnan(values).any():
         raise ValueError(f"{name} contained a non-number.")
     return values
+
+
+_MAX_SAMPLES = 5000
+_DEFAULT_SAMPLES = 400
+
+# "2pi" is not valid Python, and `parse_cas_expr` runs `ast.parse` before
+# SymPy's transformations — which do not include implicit multiplication — so it
+# fails on a decimal literal before SymPy ever sees it. Inserting the `*` is
+# safe because it cannot create a token that was not already there.
+#
+# Range endpoints only, deliberately. The expression body stays under exactly
+# the rules `cas` enforces, so `2*sin(x)` is written the same way in both tools;
+# this is only here because "0 to 2pi" is how the range gets spoken.
+#
+# The two lookaheads protect scientific notation: without them "1e3" becomes
+# "1*e3", which is Euler's number times an unbound symbol, not 1000.
+_IMPLICIT_TIMES = re.compile(r"(?<=\d)(?![eE]\d)(?![eE][+-]\d)(?=[a-zA-Z])")
+
+
+def plot_range_value(raw: str, *, name: str) -> float:
+    """A range endpoint, written the way the ask writes it: 2pi, pi/2, -1, 1e3.
+
+    Demanding 6.283185 for "0 to 2pi" would push the rounding onto the model,
+    which is where wrong numbers come from. Parsed through the same hardened
+    CAS front door as the expression itself, so "pi" costs nothing in safety.
+    """
+    text = str(raw).strip()
+    if not text:
+        raise ValueError(f"Missing {name}.")
+    text = _IMPLICIT_TIMES.sub("*", text)
+    from arelis.tools.cas import parse_cas_expr
+
+    try:
+        value = float(parse_cas_expr(text).evalf())
+    except ValueError:
+        raise
+    except Exception as exc:
+        raise ValueError(f"{name} is not a number: {text!r} ({exc})") from exc
+    if not math.isfinite(value):
+        raise ValueError(f"{name} must be finite, got {text!r}.")
+    return value
+
+
+def sample_expression(
+    expr: str,
+    *,
+    var: str = "x",
+    lo: float,
+    hi: float,
+    samples: int = _DEFAULT_SAMPLES,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Evaluate a one-variable expression across [lo, hi] into plottable arrays.
+
+    `parse_cas_expr` does the parsing on purpose — it whitelists an AST and then
+    parses into a locked namespace with empty builtins. Nothing here may reach
+    `eval` or bare `sympify`: this field is reachable from any turn, so a hole
+    in it is remote code execution behind a chart request.
+    """
+    from arelis.tools.cas import parse_cas_expr
+
+    np = _numpy()
+    text = str(expr or "").strip()
+    if not text:
+        raise ValueError("Missing expr.")
+    if not (math.isfinite(lo) and math.isfinite(hi)) or hi <= lo:
+        raise ValueError(f"Need xmin < xmax, got xmin={lo} and xmax={hi}.")
+    parsed = parse_cas_expr(text)
+
+    import sympy as sp
+
+    symbol = sp.Symbol(str(var or "x").strip() or "x")
+    free = {s for s in parsed.free_symbols if s.name != symbol.name}
+    if free:
+        names = ", ".join(sorted(s.name for s in free))
+        raise ValueError(
+            f"plot draws one variable against {symbol.name}; {names} "
+            f"{'is' if len(free) == 1 else 'are'} unbound. "
+            "Give a single-variable expression, or pass xs/ys."
+        )
+    count = max(2, min(int(samples or _DEFAULT_SAMPLES), _MAX_SAMPLES))
+    xs = np.linspace(lo, hi, count)
+    fn = sp.lambdify(symbol, parsed, modules=["numpy"])
+    with np.errstate(all="ignore"):
+        try:
+            raw = fn(xs)
+        except Exception as exc:
+            raise ValueError(f"Could not evaluate {text!r}: {exc}") from exc
+        # A constant expression lambdifies to a scalar, not an array.
+        ys = np.broadcast_to(np.asarray(raw, dtype=float), xs.shape).astype(float)
+        # Complex results (sqrt of a negative) are not plottable on a real axis;
+        # asarray(dtype=float) would raise, so they arrive here as nan instead.
+        ys = np.where(np.isfinite(ys), ys, np.nan)
+    mask = np.isfinite(ys)
+    if not mask.any():
+        raise ValueError(f"{text!r} has no finite values between {lo} and {hi} — check the range.")
+    return xs[mask], ys[mask]
 
 
 def _contained(path: Path, folder: Path) -> bool:
@@ -120,7 +214,9 @@ class PlotTool:
         "plots/ directory. Otherwise it lands under outputs/plots/. Actions: "
         "line, scatter, residuals. For a CSV/TSV/Excel file pass path plus x "
         "and y column names. For a tiny series pass xs and ys as "
-        "comma-separated numbers and out='name.png' for the file. path= is "
+        "comma-separated numbers and out='name.png' for the file. To draw a "
+        "formula (sin(x), x^2) pass expr with xmin and xmax — never type the "
+        "numbers out yourself. path= is "
         "the table, never the PNG — that name is out=. residuals fits a "
         "straight line (least squares) and plots data+fit plus residuals — "
         "do not invent a trend or draw an ASCII chart. This is not Python: "
@@ -150,6 +246,30 @@ class PlotTool:
             "y": {
                 "type": "string",
                 "description": "Column name for the vertical axis",
+            },
+            "expr": {
+                "type": "string",
+                "description": (
+                    "A one-variable formula to draw, e.g. sin(x) or x^2-3*x. "
+                    "Needs xmin and xmax. Use this instead of typing the "
+                    "numbers out yourself"
+                ),
+            },
+            "xmin": {
+                "type": "string",
+                "description": "Start of the range for expr. Accepts pi, 2pi, pi/2",
+            },
+            "xmax": {
+                "type": "string",
+                "description": "End of the range for expr. Accepts pi, 2pi, pi/2",
+            },
+            "samples": {
+                "type": "integer",
+                "description": "Points to evaluate for expr (default 400)",
+            },
+            "var": {
+                "type": "string",
+                "description": "Variable name in expr (default x)",
             },
             "xs": {
                 "type": "string",
@@ -264,9 +384,7 @@ class PlotTool:
         bits = [f"Wrote {shown} ({action}, {len(x)} points) in {where}."]
         if extra:
             bits.append(extra)
-        bits.append(
-            "Open that file — that chart is from this turn, not a picture I imagined."
-        )
+        bits.append("Open that file — that chart is from this turn, not a picture I imagined.")
         return ToolResult(
             ok=True,
             output=" ".join(bits),
@@ -280,9 +398,7 @@ class PlotTool:
             },
         )
 
-    def _series(
-        self, kwargs: dict[str, Any]
-    ) -> tuple[np.ndarray, np.ndarray, str, str, str]:
+    def _series(self, kwargs: dict[str, Any]) -> tuple[np.ndarray, np.ndarray, str, str, str]:
         path_str = str(kwargs.get("path") or "").strip()
         png_as_path = bool(path_str and _looks_like_chart_out(path_str))
         if png_as_path:
@@ -305,9 +421,7 @@ class PlotTool:
             y_name = str(kwargs.get("y") or "").strip()
             if not x_name or not y_name:
                 cols = ", ".join(str(c) for c in frame.columns[:12])
-                raise ValueError(
-                    f"path needs x and y column names. Columns: {cols}."
-                )
+                raise ValueError(f"path needs x and y column names. Columns: {cols}.")
             x = _column(frame, x_name)
             y = _column(frame, y_name)
             np = _numpy()
@@ -319,6 +433,17 @@ class PlotTool:
                 x, y = x[:_MAX_ROWS], y[:_MAX_ROWS]
             display = resolved.qualified(multi=len(self.workspace) > 1)
             return x, y, x_name, y_name, display
+        expr = str(kwargs.get("expr") or "").strip()
+        if expr:
+            lo = plot_range_value(kwargs.get("xmin", ""), name="xmin")
+            hi = plot_range_value(kwargs.get("xmax", ""), name="xmax")
+            var = str(kwargs.get("var") or "x").strip() or "x"
+            try:
+                samples = int(kwargs.get("samples") or _DEFAULT_SAMPLES)
+            except (TypeError, ValueError):
+                samples = _DEFAULT_SAMPLES
+            x, y = sample_expression(expr, var=var, lo=lo, hi=hi, samples=samples)
+            return x, y, var, expr, f"{expr} over [{lo:g}, {hi:g}]"
         xs = str(kwargs.get("xs") or "").strip()
         ys = str(kwargs.get("ys") or "").strip()
         if not xs or not ys:
@@ -355,9 +480,7 @@ class PlotTool:
         ensure(dest.parent)
         extra = ""
         if action == "residuals":
-            extra = _residuals_figure(
-                dest, x, y, title=title, xlabel=xlabel, ylabel=ylabel
-            )
+            extra = _residuals_figure(dest, x, y, title=title, xlabel=xlabel, ylabel=ylabel)
         else:
             figure_cls, canvas_cls = _figure()
             fig = figure_cls(figsize=(8.0, 5.0), dpi=120)
@@ -455,9 +578,7 @@ def _residuals_figure(
     fig.tight_layout()
     fig.savefig(dest)
     table = dest.with_suffix(".csv")
-    pd.DataFrame(
-        {"x": x, "y": y, "yhat": yhat, "residual": resid}
-    ).to_csv(table, index=False)
+    pd.DataFrame({"x": x, "y": y, "yhat": yhat, "residual": resid}).to_csv(table, index=False)
     shown = display_path(table)
     return (
         f"Least-squares line y = {slope:.6g} x + {intercept:.6g}; "

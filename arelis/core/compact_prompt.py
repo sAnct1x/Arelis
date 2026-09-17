@@ -33,7 +33,7 @@ _SHORT_DESC: dict[str, str] = {
     "inbox": "Gmail list/search/trash/archive. action=download saves attachments. never claim delete without a tool",
     "memory": "durable facts / prefs. action=list to read them back, remember, forget",
     "ocr": "read text in an image",
-    "plot": "chart PNG. xs/ys + out=name.png; or path=CSV + x/y cols. path is the table, not the picture",
+    "plot": "chart PNG. expr=sin(x)+xmin/xmax for a formula; xs/ys + out=name.png; or path=CSV + x/y cols. path is the table, not the picture",
     "python": "short numerics (numpy). no matplotlib. print xs,ys then plot with out=",
     "recall": "search memory before claiming you do not know",
     "research_report": "multi-source writeup under outputs/research",
