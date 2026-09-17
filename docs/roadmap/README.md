@@ -575,6 +575,81 @@ refusal is an acceptable outcome — *"I need to compute that"* is annoying but
 not wrong, unlike an invented number — and
 `constant_refuses_without_units` / `convert_forces_units` already measure it.
 
+### Weather, the pain reported by name — 2026-09-17
+
+*"Getting the weather for anywhere I want, whenever I want has been the
+craziest challenge, and it's the most available information."* Two separate
+bugs, and the first is **pain #1, not pain #4.**
+
+**Anywhere.** `geocode_place` asked Open-Meteo for `count=1` and returned a
+bare `(lat, lon)`, discarding the resolved name, region and country. The tool
+then printed:
+
+    Place: {asked}
+
+…the user's *own string*, echoed back. So *"weather in Springfield"* resolved
+to whichever Springfield ranked first out of the thirty-odd that exist, and the
+output read `Place: Springfield` either way. **No layer had any signal that
+the forecast was for the wrong one.** A wrong answer the user cannot see is
+strictly worse than a refusal, and this one arrives with four decimal places
+of false precision attached.
+
+The module docstring already had the exact fear written down — *"a confident
+forecast for somewhere the user is not"* — pointed at the wrong failure. It
+guarded against the **model** inventing coordinates while the **tool** quietly
+picked the wrong city. Worth remembering as a pattern: a comment describing a
+risk is not evidence the risk is handled, and the guard may be aimed one layer
+away from where the bug lives.
+
+`resolve_place` (`6c24b42`) keeps the label and reports it, and asks for
+several candidates instead of one — which is what makes ambiguity *detectable*,
+since `count=1` cannot tell "the only Springfield" from "the first of thirty".
+When the name matched more than one place the answer says so, once, as a fact
+rather than a question. An unambiguous name says nothing extra, because a
+disambiguation note on every forecast is noise that gets ignored.
+`geocode_place` stays as the narrow face of it for the briefing and profile
+paths, which have nowhere to show a label.
+
+**Whenever.** `days` was the only time argument, and it cannot answer either
+ordinary question:
+
+| ask | why `days` cannot |
+|---|---|
+| *"will it rain at three?"* | a daily row carries `precipitation_probability_max` — the maximum over the **whole day**, which says nothing about three o'clock |
+| *"what was it yesterday?"* | forecast rows start **today**; no parameter, no fallback, and nothing in the failure text to hint at one |
+
+Both were one query parameter away (`hourly=`, `past_days=`), the same shape as
+the rest of this section. `days` was also capped at 7 while the API serves 16,
+so "in two weeks" was unreachable for no reason.
+
+`hours` trims from *now* rather than from midnight — Open-Meteo returns whole
+days, and with `past_days` set the series starts yesterday, so without the trim
+"the next 6 hours" means "6 hours starting at 00:00". The cursor compares ISO
+strings rather than parsing dates, so a format change degrades to "start at the
+beginning" instead of raising mid-turn.
+
+**Adding the parameters was only half the fix, and this is the part worth
+carrying forward.** The injected call is built by `draft_weather_args`, not by
+the model, so a turn reaching `weather` through the force gate still asked for
+daily rows — then answered *"will it rain at three"* from a daily maximum. The
+same confident guess as before, with the fix sitting there unused.
+`weather_wants_hourly` (`6a9898b`) reads the markers people use and returns a
+window: 12 hours for today, 36 when the ask names tomorrow *and* a time of day,
+since that has to reach past midnight. `fill_weather_args` only ever **widens** —
+a model that asked for 24 hours knows more than the regex does. Plain daily
+asks pay nothing, which is pinned, because hourly roughly doubles the response.
+
+**`test_no_personal_data` caught this work twice, and both catches were
+right.** First a US state other than the declared fixture (the second
+Springfield), then the operator's own **country name**, spelled out in a
+docstring — 13 characters that are a field in their profile, and which this
+paragraph therefore also cannot write. Note for anyone writing weather fixtures:
+use the fixture place, keep coordinates to one decimal unless they are the
+sanctioned pair, and reach for a foreign city when a case needs somewhere to be
+wrong about. Also worth knowing: `_readable_tracked()` only scans **tracked**
+files, so a new test file looks clean until it is staged. Run the guard after
+`git add`, not before.
+
 The general lesson matches the one at the top of Phase 4: check whether the
 guard exists before assuming the behaviour is unguarded, and check whether it
 *injects* or only *asks*. A nudge-only guard against a 9B is a suggestion.
@@ -879,6 +954,7 @@ often smaller than the entry implies.
 | `clipboard` was advertised as read/write and had no action at all (**4.4**) | `write` | `e866aff` |
 | `plot` could not draw a formula — only a table or numbers typed out by hand | `expr` `xmin` `xmax` | `7a9ac10` |
 | `workspace` had no recursive search, so a tree walk was the only route — and `same_call` blocks that (**4.2**) | `grep` `find` | `91386bf` |
+| `weather` never said *which* place it forecast, and had no time of day and no past | resolved label, `hours`, `past_days` | `6c24b42` `6a9898b` |
 
 Three of these were watched failing under **mutation**, not just watched
 passing:
