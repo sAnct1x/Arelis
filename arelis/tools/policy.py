@@ -73,6 +73,10 @@ SOLAR_WRITE_ACTIONS = frozenset({
     "l4",
     "epoch",
 })
+# git_info is registered read because status/diff/log dominate. Staging and
+# committing are the only writes it has, and the only ones it will get: they
+# are additive and recoverable, which push/reset/clean/history-rewrite are not.
+GIT_WRITE_ACTIONS = frozenset({"stage", "commit"})
 INBOX_WRITE_ACTIONS = frozenset({
     "trash",
     "delete",
@@ -261,6 +265,7 @@ def action_is_write(name: str, args: dict[str, Any] | None) -> bool:
         "schedule": SCHEDULE_WRITE_ACTIONS,
         "solar": SOLAR_WRITE_ACTIONS,
         "inbox": INBOX_WRITE_ACTIONS,
+        "git_info": GIT_WRITE_ACTIONS,
     }
     writes = table.get(tool)
     if writes is None:

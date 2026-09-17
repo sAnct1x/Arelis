@@ -25,7 +25,7 @@ _SHORT_DESC: dict[str, str] = {
     "doc_extract": "text from a local PDF, including handwritten/scanned pages",
     "document": "write md/pdf/csv under outputs",
     "earth": "Reality look / bands. not a web search",
-    "git_info": "git status / log / diff in the workspace",
+    "git_info": "git status/log/diff, stage, commit (needs message). no push/reset/checkout",
     "goals": "long-lived goals. action=list|add|done|drop",
     "image": "generate an image. confirm first",
     "image_edit": "edit a local image or overlay text. confirm first",

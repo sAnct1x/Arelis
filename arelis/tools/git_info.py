@@ -1,7 +1,14 @@
-"""Read-only git status / diff / log under workspace roots.
+"""Git status / diff / log, plus stage and commit, under workspace roots.
 
-No shell tool: only a fixed allow-list of git subcommands. Never commit,
-push, reset, or otherwise mutate the repo.
+No shell tool: only a fixed allow-list of git subcommands, each invoked as an
+argv list so nothing in a commit message can become a second command.
+
+Reads are free. The only two writes are stage and commit, and they are the
+only two because they are additive and recoverable — the objects stay in the
+repo, and a bad commit can be amended, reverted or reset by hand afterwards.
+Push, reset, clean, checkout, rebase and anything that rewrites history are
+refused: none of them can be walked back from inside a chat turn, and a
+repository is the one thing in this app with no undo.
 """
 
 from __future__ import annotations
@@ -23,15 +30,23 @@ _MAX_LOG_N = 50
 _DEFAULT_LOG_N = 10
 _GIT_TIMEOUT_S = 15
 
-_ALLOWED_ACTIONS = frozenset({"status", "diff", "log"})
+_READ_ACTIONS = frozenset({"status", "diff", "log"})
+# Additive and recoverable. Everything else about a repo is not, so the
+# allow-list stays exactly this long.
+_WRITE_ACTIONS = frozenset({"stage", "commit"})
+_ALLOWED_ACTIONS = _READ_ACTIONS | _WRITE_ACTIONS
+
+_MAX_MESSAGE_CHARS = 2_000
 
 
 class GitInfoTool:
     name = "git_info"
     description = (
-        "Read-only git info for the active project (or a path under workspace). "
-        "Actions: status, diff, log. Use instead of inventing branch or dirty "
-        "state. Never commits, pushes, or resets."
+        "Git for the active project (or a path under workspace). "
+        "Actions: status, diff, log, stage, commit. Use instead of inventing "
+        "branch or dirty state. commit needs message and only commits what is "
+        "staged; stage takes an optional path. Never pushes, resets, cleans, "
+        "checks out, or rewrites history — say so rather than claiming you did."
     )
     risk = "read"
     parameters_schema: dict[str, Any] = {
@@ -39,8 +54,15 @@ class GitInfoTool:
         "properties": {
             "action": {
                 "type": "string",
-                "enum": ["status", "diff", "log"],
-                "description": "Git read action (default status)",
+                "enum": ["status", "diff", "log", "stage", "commit"],
+                "description": (
+                    "status, diff, log (default status), stage, or commit. "
+                    "push/reset/clean/checkout are not available"
+                ),
+            },
+            "message": {
+                "type": "string",
+                "description": "Commit message for action=commit. Required.",
             },
             "path": {
                 "type": "string",
@@ -76,8 +98,22 @@ class GitInfoTool:
                 ok=False,
                 output=(
                     f"Unknown or forbidden action: {action}. "
-                    "Allowed: status, diff, log (read-only)."
+                    "Allowed: status, diff, log, stage, commit. "
+                    "Pushing, resetting, cleaning, checking out and rewriting "
+                    "history are deliberately unavailable — tell the user to "
+                    "run it themselves rather than claiming you did."
                 ),
+            )
+        message = str(kwargs.get("message") or "").strip()
+        if action == "commit" and not message:
+            return ToolResult(
+                ok=False,
+                output="commit needs a message describing what changed.",
+            )
+        if len(message) > _MAX_MESSAGE_CHARS:
+            return ToolResult(
+                ok=False,
+                output=f"That commit message is over {_MAX_MESSAGE_CHARS} chars.",
             )
         path_str = kwargs.get("path")
         try:
@@ -97,6 +133,7 @@ class GitInfoTool:
             None if path_str is None else str(path_str),
             n,
             max_chars,
+            message,
         )
 
     def _run_sync(
@@ -105,6 +142,7 @@ class GitInfoTool:
         path_str: str | None,
         n: int,
         max_chars: int,
+        message: str = "",
     ) -> ToolResult:
         if shutil.which("git") is None:
             return ToolResult(ok=False, output="git is not installed or not on PATH.")
@@ -132,7 +170,68 @@ class GitInfoTool:
             return self._status(cwd, toplevel, max_chars)
         if action == "diff":
             return self._diff(cwd, toplevel, max_chars)
+        if action == "stage":
+            return self._stage(cwd, toplevel, path_str, max_chars)
+        if action == "commit":
+            return self._commit(cwd, toplevel, message, max_chars)
         return self._log(cwd, toplevel, n, max_chars)
+
+    def _stage(
+        self, cwd: Path, toplevel: Path, path_str: str | None, max_chars: int
+    ) -> ToolResult:
+        """git add. Scoped to a named path, or everything under cwd.
+
+        Deliberately not `git add -A` from the toplevel: cwd is already
+        contained by the workspace check above, so staging relative to it
+        cannot sweep in a sibling directory the user never mentioned.
+        """
+        target = "."
+        if path_str and str(path_str).strip():
+            resolved = self.workspace.resolve(str(path_str).strip())
+            target = str(resolved.path)
+        completed = self._git(cwd, "add", "--", target)
+        if completed.returncode != 0:
+            return self._git_fail(completed, "add")
+        after = self._git(cwd, "status", "--porcelain=v1")
+        staged = [
+            line
+            for line in (after.stdout or "").splitlines()
+            if line[:1] not in {" ", "?", ""}
+        ]
+        body = "\n".join(staged) if staged else "(nothing staged)"
+        return self._ok(
+            body, action="stage", cwd=cwd, toplevel=toplevel, max_chars=max_chars
+        )
+
+    def _commit(
+        self, cwd: Path, toplevel: Path, message: str, max_chars: int
+    ) -> ToolResult:
+        """git commit of whatever is already staged.
+
+        The message is passed as its own argv entry, so quotes, semicolons and
+        newlines in it are a commit subject and never a second command. No
+        --all: committing files the user did not stage is how an unrelated
+        work-in-progress ends up in someone's history.
+        """
+        completed = self._git(cwd, "commit", "-m", message)
+        if completed.returncode != 0:
+            detail = (completed.stdout or completed.stderr or "").strip()
+            if "nothing to commit" in detail.lower():
+                return ToolResult(
+                    ok=False,
+                    output=(
+                        "Nothing is staged, so there is nothing to commit. "
+                        "Stage something first with action=stage."
+                    ),
+                )
+            return self._git_fail(completed, "commit")
+        return self._ok(
+            (completed.stdout or "").strip() or "committed",
+            action="commit",
+            cwd=cwd,
+            toplevel=toplevel,
+            max_chars=max_chars,
+        )
 
     def _cwd_for(self, path_str: str | None) -> Path:
         if path_str is None or not str(path_str).strip():
