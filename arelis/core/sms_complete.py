@@ -233,6 +233,24 @@ _TASKS_UTTERANCE = re.compile(
     r")\b"
 )
 
+# How people actually ask, as opposed to how the pattern above was written.
+# `_TASKS_UTTERANCE` needs the literal token "task" / "todo" / "checklist",
+# so "what do I have **to do** today" — two words — fell through every branch
+# of it and reached no rule anywhere in preflight.
+#
+# Anchored at the start, and that is the whole safety argument. "text my wife
+# and tell her I have to do the shopping today" carries the same words in the
+# middle of an outbound message, and telling those two apart is exactly why
+# this regex lives in sms_complete.
+_TASKS_DAY_ASK = re.compile(
+    r"(?i)\A\s*(?:so[,\s]+|ok(?:ay)?[,\s]+|hey[,\s]+)?"
+    r"(?:"
+    r"what\s+do\s+i\s+(?:have|need)\s+to\s+do|"
+    r"anything\s+i\s+(?:have|need)\s+to\s+do|"
+    r"what(?:'s|\s+is)\s+on\s+my\s+plate"
+    r")\b"
+)
+
 _MEMORY_UTTERANCE = re.compile(
     r"(?i)\b("
     r"remember\s+that|"
@@ -631,7 +649,8 @@ def looks_like_goals_utterance(text: str) -> bool:
 
 def looks_like_tasks_utterance(text: str) -> bool:
     """True when the utterance is about to-dos, not an SMS body."""
-    return bool(_TASKS_UTTERANCE.search(text or ""))
+    raw = text or ""
+    return bool(_TASKS_UTTERANCE.search(raw) or _TASKS_DAY_ASK.search(raw))
 
 
 def looks_like_memory_utterance(text: str) -> bool:
