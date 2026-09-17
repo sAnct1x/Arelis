@@ -347,6 +347,8 @@ Phase 0 on the right. **12 holes → 0.**
 | `tool_subset` | covered | *blind spot* | shipped default is already off |
 | `research_dual_hit` | **HOLE** | *blind spot* | needs research mode |
 | `lessons` | **HOLE** | *blind spot* | prompt-only; see below |
+| `recall_force_call` | *no guard* | 1 red | `recall_ask_does_not_end_in_a_shrug` |
+| `inspect_force_call` | *no guard* | 2 red | source ask: redirect + no-call |
 | *everything at once* | 45/68 | 46/79, 33 red | — |
 
 **The three remaining are blind spots, not holes, and the distinction is
@@ -399,6 +401,52 @@ nothing, so that arm of the experiment never happened.
   you did not."* The real defence is stronger than the one the board was
   checking. The scenario now asserts that, using the new `forbid_tools`
   field.
+
+### Sweep, 2026-09-17 — three more holes, and a way to stop finding them
+
+Coverage is now **18 covered, 0 holes, 3 blind spots** (the same three
+above). The board gained the `recall` and `inspect` guards it never had.
+
+`inspect_force_call` was the largest of the three, and the wiring says why
+better than any description:
+
+    INSPECT.expected_tools == ("workspace",)
+    _HIDE_WANDER_FOR       == _DAILY_WANDER | _LOCAL_STORE | _SEE_TOOLS
+                              | {"browser"}
+
+`workspace` is in none of those. So on *"where is the Drive strip?"*
+preflight did its whole job — fired the intent, mapped the ask to
+`arelis/ui/panels/drive.py`, wrote a nudge naming that file — and
+`web_search`, `scrape`, `web_fetch` and `browser` all stayed on the menu
+anyway. Take one and she describes her own UI from whatever the web says
+about "drive strip". `try_inspect` could not help: it is the *no-call*
+floor and a call was made. Fixed in `dc672f5` as
+`redirect_inspect_wander`, registered last for the same reason
+`try_inspect` is last — *"show me the Drive strip"* is a tile ask and a
+source ask at once, and the tile redirect has to keep winning it.
+
+**Why not just add `workspace` to `_HIDE_WANDER_FOR`.** Worth recording,
+because it is the obvious move and it is wrong. `_hide_daily_wander` only
+sees expected tool *names*, so it cannot tell an inspect turn from *"search
+the web for X and save it to notes.md"* — a turn where `workspace` is
+expected and the web call is correct. Hiding there trades this bug for a
+worse one. Gating on the text is what every other specific redirect in
+that table already does, and that turn is now a test.
+
+**A general check came out of this, which matters more than any one fix.**
+`6203c8b` (the `user_location` / `_WEATHER_WANDER` hole) and this one are
+the same bug class: what is *offered* lives in `agent_loop`, what is
+*rewritten when called anyway* lives in `call_redirects`, and nothing made
+them agree. So `tests/test_wander_sets_agree.py` now compares them
+directly — and found a third instance on the first run.
+`redirect_local_store` rewrites `user_location` on a tasks / goals /
+memory / contacts turn, so it is known wander there, and
+`_hide_daily_wander` offered it regardless; the model could take it and
+the redirect then had to undo a round that never needed to happen. Fixed
+in `cd41d24`. Milder than `6203c8b`, where the tool was hidden nowhere
+*and* redirected nowhere and so failed silently, but the same drift from
+the same cause. The next time one side gains a tool and the other does
+not, it is a failing test name instead of a live misroute.
 
 ### One thing the board gained
 
@@ -696,8 +744,9 @@ often smaller than the entry implies.
 | `workspace` could not rearrange files (**4.1**) | `delete` `move` `rename` `copy` | `9084748` |
 | `schedule` could not be rescheduled; moving a time meant delete+recreate, losing `last_run` | `update` | `f4fbb53` |
 | `git_info` was read-only (**4.3**) | `stage` `commit` | `4043bcf` |
+| `inbox` named attachments and threw the bytes away, so any attachment task stopped a step short | `download` | `aa5029d` |
 
-Two of these were watched failing under **mutation**, not just watched
+Three of these were watched failing under **mutation**, not just watched
 passing:
 
 - Swapping `resolve(for_write=True)` for `resolve_read` in the workspace
@@ -705,6 +754,23 @@ passing:
   for *reading*. `test_a_read_grant_is_not_a_licence_to_delete` catches it.
 - Adding `push` and `reset` to `git_info._WRITE_ACTIONS` turns
   `test_the_dangerous_verbs_stay_refused` red on exactly those two.
+- Dropping the sanitising lines from `inbox.safe_attachment_name` turns 11
+  tests red, including the one asserting nothing landed outside the data
+  root.
+
+`inbox download` is worth a note because the download was the easy half. The
+filename is chosen by whoever sent the mail and arrives before anyone has
+decided to trust them, and `filename="../../../../.ssh/authorized_keys"` is a
+valid header — so it is treated as hostile text and never as a path. It is
+also gated `WRITE_LOCAL` rather than `WRITE_EXTERNAL`: it writes a file so it
+wants Allow, but it touches nothing on the server (BODY.PEEK, readonly select,
+so fetching a file still does not mark the mail read) and an unattended job
+must be able to save today's invoice. Three failure modes that would otherwise
+have reported success are also covered: two parts declaring the same filename
+no longer overwrite each other, a message with no attachments refuses instead
+of returning a cheerful empty download, and the size limit is checked across
+every part before anything is written so an oversized file cannot leave half a
+download behind.
 
 `git_info` is deliberately **stage + commit and nothing further** — that is
 the finished scope, not a first increment. Those two are additive and
@@ -716,23 +782,33 @@ get.
 Each new verb also joined the tool-choice corpus, so the path is measured
 rather than assumed.
 
-- [ ] **4.0** A recall ask that the model answers with a web search ends
-  in a refusal instead of a recall. Found 2026-09-17 while building the
-  board. `"What did I say about the Sherpa work last night?"` →
-  `web_search` gets hidden (recall is in `_HIDE_WANDER_FOR`), so the call
-  is dropped before dispatch, and nothing injects `recall` in its place.
-  The turn ends *"I don't know — that isn't in what I can recall from our
-  conversation right now."* Safe, and wrong: the tool was right there.
-  Note the two near-misses so the fix does not go the same way. Adding
-  `recall` to the target list in `call_redirects.redirect_local_store`
-  does nothing — that path never sees the call, because the wander tool is
-  already hidden by then. `local_store_inject_args` also has no `recall`
-  branch and would fall through to `{"action": "list"}`, which is not
-  recall's shape (`action=search|session` plus a `query`). The fix belongs
-  in `no_call_steps`, where the goals and tasks injects live. Cover it
-  with an inverted scenario, which will also close the gap where
-  `"What do I have to do today?"` matches **no** preflight rule at all
-  despite the tool-choice corpus expecting `tasks` for it.
+- [x] **4.0** A recall ask that the model answers with a web search ended
+  in a refusal instead of a recall. **Done `cc2d528`.** Both documented
+  near-misses were avoided: the fix went into `no_call_steps` beside the
+  goals and tasks injects, not into `redirect_local_store` (which never
+  sees the call) and not through `local_store_inject_args` (no `recall`
+  branch, wrong shape). The new part is `recall_query`, which strips the
+  trigger phrase, the addressee, the article and the time reference so the
+  tool gets `"Sherpa work"` rather than the whole sentence — searching for
+  `"what did i say about"` ranks nothing. An empty result is meaningful and
+  skips the inject: `"do you remember?"` names nothing to look for, and a
+  blank query is a tool error. `recall_force_call` is now measured, caught
+  by `recall_ask_does_not_end_in_a_shrug`.
+
+  The companion gap is closed too, in `eba6593`. `"What do I have to do
+  today?"` matched **no** rule anywhere — `detect_intents` returned `[]`
+  *and* `looks_like_tasks_utterance` was False — because `_TASKS_UTTERANCE`
+  requires the literal token "task", "todo" or "checklist", and "what do I
+  have **to do** today" is two words. Every phrasing a person actually uses
+  fell through a regex written for the phrasings a developer types; same
+  for "what do I need to do today", "anything I need to do today", "what's
+  on my plate". Fixed as a separate start-anchored pattern rather than by
+  widening the existing alternation, because that regex lives in
+  `sms_complete` to tell a to-do ask from an SMS body, and "text my wife
+  and tell her I have to do the shopping today" carries the same words
+  mid-sentence. Still deliberately unmatched: `"what's going on today?"`,
+  where the corpus accepts agenda, inbox or tasks — that is a fair
+  description of the ambiguity, so forcing one would be guessing.
 - [x] **4.1** `workspace` has **no delete, rename, or move**
   (`tools/code_workspace.py:35`) even though `tools/policy.py:45,127`
   already defines the confirm rules for delete. Finish the CRUD.
