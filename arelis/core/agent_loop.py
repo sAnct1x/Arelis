@@ -100,7 +100,17 @@ _LOCAL_STORE = frozenset({"memory", "tasks", "goals", "contacts", "recall"})
 _SEE_TOOLS = frozenset(
     {"vision", "ocr", "camera", "clipboard", "image", "image_edit", "git_info"}
 )
-_WEATHER_WANDER = frozenset({"web_search", "scrape", "web_fetch"})
+# user_location is here because weather resolves the user's place itself and
+# refuses coordinates outright (see WeatherTool's docstring). Asking where she
+# is first can only burn a round. Measured 2026-09-17: it was the model's most
+# common wrong pick on "what's the weather tomorrow", and hiding the three
+# search tools below is what pushed it there. _SMS_WANDER has always listed it.
+# Safe to hide: both call sites run _offer_expected straight after, so a turn
+# that genuinely wants the place ("where am I, and what's the weather") gets it
+# back.
+_WEATHER_WANDER = frozenset(
+    {"web_search", "scrape", "web_fetch", "user_location"}
+)
 _SMS_WANDER = frozenset(
     {
         "web_search",
