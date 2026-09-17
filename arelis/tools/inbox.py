@@ -1,8 +1,10 @@
 """IMAP mailbox: peek to read, Allow to change.
 
-Looking does not mark mail read (readonly select + BODY.PEEK). Attachments
-are named, never downloaded. Trash / archive / move / flags need Allow, and
-unattended jobs do not get those actions. Delivered mail cannot be rewritten.
+Looking does not mark mail read (readonly select + BODY.PEEK). `download`
+saves attachments under outputs/mail/ — the sender picks that filename, so
+see `safe_attachment_name` before touching that path. Trash / archive / move /
+flags need Allow, and unattended jobs do not get those actions. Delivered mail
+cannot be rewritten.
 """
 
 from __future__ import annotations
@@ -17,9 +19,12 @@ from datetime import datetime
 from email.header import decode_header, make_header
 from email.message import Message
 from email.utils import parsedate_to_datetime
+from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from arelis.mail import MailAccount
+from arelis.paths import display_path, outputs_dir
 from arelis.tools.base import ToolResult
 from arelis.tools.html_text import extract_text
 from arelis.tools.safety import redact_secrets
@@ -31,8 +36,11 @@ _ISO_DATE = re.compile(r"^(\d{4})-(\d{2})-(\d{2})$")
 _FROM_IN_ASK = re.compile(r"(?i)\bfrom\s+([A-Za-z0-9._%+\-@]+)")
 _UID_SPLIT = re.compile(r"[\s,;]+")
 
+# download is a read *of the mailbox* — BODY.PEEK on a readonly select, same
+# as read. It writes a local file, which policy.py gates as WRITE_LOCAL, but
+# it changes nothing on the server, so an unattended job may call it.
 INBOX_READ_ACTIONS = frozenset(
-    {"list", "search", "read", "summarize", "folders"}
+    {"list", "search", "read", "summarize", "folders", "download"}
 )
 # list / search / summarize. After an empty peek, a second call is the
 # "is it still empty?" loop. read and folders are not that loop.
@@ -65,7 +73,7 @@ class Headers:
 
 
 def _inbox_schema(*, mutate: bool) -> dict[str, Any]:
-    actions = ["list", "search", "read", "summarize", "folders"]
+    actions = ["list", "search", "read", "summarize", "folders", "download"]
     if mutate:
         actions.extend(
             [
@@ -86,6 +94,7 @@ def _inbox_schema(*, mutate: bool) -> dict[str, Any]:
                 "enum": actions,
                 "description": (
                     "list / search / read / summarize (peek-only), folders, "
+                    "download to save a message's attached files, "
                     "or with Allow: trash, archive, mark_read, mark_unread, "
                     "move, create_folder. delete is trash (Gmail Bin)."
                 ),
@@ -94,8 +103,15 @@ def _inbox_schema(*, mutate: bool) -> dict[str, Any]:
                 "type": "string",
                 "description": (
                     "Message id from list or search — the digits only, not the "
-                    "[brackets]. Required for read, trash, archive, mark_read, "
-                    "mark_unread, move. Comma-separated ok."
+                    "[brackets]. Required for read, download, trash, archive, "
+                    "mark_read, mark_unread, move. Comma-separated ok."
+                ),
+            },
+            "name": {
+                "type": "string",
+                "description": (
+                    "For download: one attachment's filename, exactly as read "
+                    "or list reported it. Omit to save all of them."
                 ),
             },
             "folder": {
@@ -139,7 +155,9 @@ def _inbox_description(*, mutate: bool) -> str:
         "finds them by sender, subject, or text, `read` opens one by its id, "
         "`summarize` returns a structured triage (subject/from/date/snippet) "
         "via BODY.PEEK only, and `folders` lists mailboxes/labels. Looking "
-        "does not mark mail read. Attachments are named, never downloaded. "
+        "does not mark mail read. `download` saves a message's attached files "
+        "under outputs/mail/ and returns their paths — use it before analyze, "
+        "doc_extract, or vision on something that arrived by mail. "
         "Delivered mail cannot be edited — send a new message instead."
     )
     if not mutate:
@@ -172,6 +190,7 @@ class InboxTool:
         timeout_s: float = 30.0,
         max_messages: int = 20,
         max_body_chars: int = 4000,
+        max_attachment_bytes: int = 25 * 1024 * 1024,
         allow_mutate: bool = True,
     ) -> None:
         self.account = account
@@ -180,6 +199,7 @@ class InboxTool:
         self.timeout_s = timeout_s
         self.max_messages = max_messages
         self.max_body_chars = max_body_chars
+        self.max_attachment_bytes = max_attachment_bytes
         self.allow_mutate = allow_mutate
         self.last_hits: list[dict[str, Any]] = []
         if not allow_mutate:
@@ -224,6 +244,12 @@ class InboxTool:
         with self._connect(writable=writable) as conn:
             if action == "read":
                 return self._read(conn, str(kwargs.get("id") or "").strip())
+            if action == "download":
+                return self._download(
+                    conn,
+                    str(kwargs.get("id") or "").strip(),
+                    str(kwargs.get("name") or "").strip(),
+                )
             if action == "folders":
                 return self._folders(conn)
             if action == "create_folder":
@@ -386,6 +412,84 @@ class InboxTool:
                 "body": truncated,
                 "attachments": attachments,
             },
+        )
+
+    def _fetch_message(
+        self, conn: imaplib.IMAP4_SSL, uid_raw: str
+    ) -> tuple[str, Message] | ToolResult:
+        """Shared by read and download: one peeked message, or the refusal."""
+        parsed = _parse_uids(uid_raw)
+        if not parsed:
+            return ToolResult(
+                ok=False,
+                output="Missing or malformed id. Use the number from list or search.",
+            )
+        uid = parsed[0]
+        status, data = conn.uid("FETCH", uid, "(BODY.PEEK[])")
+        if status != "OK" or not data or not isinstance(data[0], tuple):
+            return ToolResult(ok=False, output=f"No message with id {uid}.")
+        return uid, email.message_from_bytes(data[0][1])
+
+    def _download(
+        self, conn: imaplib.IMAP4_SSL, uid_raw: str, wanted: str
+    ) -> ToolResult:
+        """Save attachments under outputs/mail/<id>/.
+
+        The filename comes from the sender, so it goes through
+        `safe_attachment_name` before it touches the filesystem — see that
+        function for why that is not paranoia.
+        """
+        fetched = self._fetch_message(conn, uid_raw)
+        if isinstance(fetched, ToolResult):
+            return fetched
+        uid, message = fetched
+        parts = iter_attachments(message)
+        if not parts:
+            subject = _decode(message.get("Subject")) or "(no subject)"
+            return ToolResult(
+                ok=False,
+                output=f"Message {uid} ({subject}) has no attachments to download.",
+            )
+        if wanted:
+            match = wanted.strip().lower()
+            picked = [(n, b) for n, b in parts if n.strip().lower() == match]
+            if not picked:
+                names = ", ".join(n or "(unnamed)" for n, _ in parts) or "none"
+                return ToolResult(
+                    ok=False,
+                    output=(
+                        f"Message {uid} has no attachment called {wanted!r}. "
+                        f"Attached: {names}."
+                    ),
+                )
+            parts = picked
+        # Checked before anything is written, so an oversized file cannot leave
+        # a half-finished download behind.
+        for name, blob in parts:
+            if len(blob) > self.max_attachment_bytes:
+                return ToolResult(
+                    ok=False,
+                    output=(
+                        f"{name or '(unnamed)'} is too large to download "
+                        f"({len(blob):,} bytes; the limit is "
+                        f"{self.max_attachment_bytes:,}). Nothing was saved."
+                    ),
+                )
+        dest_dir = outputs_dir() / "mail" / safe_attachment_name(
+            uid, fallback="message"
+        )
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        saved: list[str] = []
+        for index, (name, blob) in enumerate(parts, start=1):
+            leaf = safe_attachment_name(name, fallback=f"attachment_{index}")
+            target = _free_path(dest_dir / leaf)
+            target.write_bytes(blob)
+            saved.append(display_path(target))
+        listing = "\n".join(f"  {p}" for p in saved)
+        return ToolResult(
+            ok=True,
+            output=f"Saved {len(saved)} attachment(s) from message {uid}:\n{listing}",
+            data={"id": uid, "saved": saved},
         )
 
     def _summarize(
@@ -652,6 +756,84 @@ def draft_inbox_mutate_args(
 # ------------------------------------------------------------------ helpers
 
 
+def _free_path(target: Path) -> Path:
+    """`scan.pdf`, then `scan-2.pdf`. Two files with one name is data loss.
+
+    Mail routinely carries several parts with the same declared name (phone
+    cameras and scanners both do it), and overwriting one with the other while
+    reporting success is the worst of the available outcomes.
+    """
+    if not target.exists():
+        return target
+    stem, suffix = target.stem, target.suffix
+    for n in range(2, 1000):
+        candidate = target.with_name(f"{stem}-{n}{suffix}")
+        if not candidate.exists():
+            return candidate
+    return target.with_name(f"{stem}-{uuid4().hex[:8]}{suffix}")
+
+
+def _is_attachment(part: Message) -> bool:
+    """One definition, used by both the namer and the downloader.
+
+    These were two copies of the same condition for about ten minutes, which
+    is how you end up listing a file you cannot fetch.
+    """
+    disposition = str(part.get("Content-Disposition") or "").lower()
+    return bool(part.get_filename() or "attachment" in disposition)
+
+
+def iter_attachments(message: Message) -> list[tuple[str, bytes]]:
+    """(declared name, decoded bytes) per attached part.
+
+    The name is exactly what the sender wrote, unsanitised, because the caller
+    has to match it against what the user asked for. Run it through
+    `safe_attachment_name` before it goes anywhere near the filesystem.
+    """
+    out: list[tuple[str, bytes]] = []
+    for part in message.walk():
+        if part.is_multipart() or not _is_attachment(part):
+            continue
+        payload = part.get_payload(decode=True)
+        if payload is None:
+            continue
+        out.append((_decode(part.get_filename()) or "", bytes(payload)))
+    return out
+
+
+_UNSAFE_NAME = re.compile(r"[^A-Za-z0-9._-]+")
+# Opening a file called NUL on Windows writes to a device rather than to disk,
+# and this is a Windows-only product.
+_WINDOWS_DEVICES = frozenset(
+    {"con", "prn", "aux", "nul"}
+    | {f"com{n}" for n in range(1, 10)}
+    | {f"lpt{n}" for n in range(1, 10)}
+)
+_NAME_CHARS = 120
+
+
+def safe_attachment_name(raw: str, *, fallback: str) -> str:
+    """Turn a sender-supplied filename into a leaf name that cannot be a path.
+
+    Every attachment name is a string chosen by whoever sent the mail, and it
+    arrives before anyone has decided to trust them.
+    `filename="../../../../.ssh/authorized_keys"` is a valid header, so this
+    treats the value as hostile text and never as a location: directory parts
+    dropped, separators and colons collapsed, leading dots stripped so nothing
+    can come back as `..` or a hidden file, device names defused, length
+    capped.
+    """
+    name = (raw or "").strip().replace("\\", "/")
+    name = name.rsplit("/", 1)[-1]
+    name = _UNSAFE_NAME.sub("_", name).strip("._")
+    if not name:
+        return fallback
+    name = name[:_NAME_CHARS]
+    if name.split(".")[0].lower() in _WINDOWS_DEVICES:
+        name = f"file_{name}"
+    return name or fallback
+
+
 def extract_body(message: Message) -> tuple[str, list[str]]:
     """Plain text if the sender provided it, otherwise the HTML reduced to text."""
     text_parts: list[str] = []
@@ -661,10 +843,8 @@ def extract_body(message: Message) -> tuple[str, list[str]]:
     for part in message.walk():
         if part.is_multipart():
             continue
-        filename = part.get_filename()
-        disposition = str(part.get("Content-Disposition") or "").lower()
-        if filename or "attachment" in disposition:
-            attachments.append(_decode(filename) or "(unnamed)")
+        if _is_attachment(part):
+            attachments.append(_decode(part.get_filename()) or "(unnamed)")
             continue
         payload = part.get_payload(decode=True)
         if not payload:

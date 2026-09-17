@@ -79,6 +79,15 @@ CHOICE_CASES: tuple[ChoiceCase, ...] = (
             "and delete was missing too."
         ),
     ),
+    ChoiceCase(
+        "save the attachment from that email",
+        ("inbox",),
+        note=(
+            "inbox action=download, added 2026-09-17. Attachments were named "
+            "and never fetched, so any task involving one stopped a step "
+            "short — there was no verb that could finish it."
+        ),
+    ),
     ChoiceCase("what did I say about the Sherpa work last night?", ("recall",)),
     ChoiceCase("who is in my contacts?", ("contacts",)),
     ChoiceCase("what's my wife's phone number?", ("contacts",)),

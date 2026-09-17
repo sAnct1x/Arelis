@@ -30,7 +30,7 @@ _SHORT_DESC: dict[str, str] = {
     "image": "generate an image. confirm first",
     "image_edit": "edit a local image or overlay text. confirm first",
     "inbound_sms": "recent inbound texts. do not invent replies",
-    "inbox": "Gmail list/search/trash/archive. never claim delete without a tool",
+    "inbox": "Gmail list/search/trash/archive. action=download saves attachments. never claim delete without a tool",
     "memory": "durable facts / prefs. action=list to read them back, remember, forget",
     "ocr": "read text in an image",
     "plot": "chart PNG. xs/ys + out=name.png; or path=CSV + x/y cols. path is the table, not the picture",

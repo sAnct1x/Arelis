@@ -86,6 +86,10 @@ INBOX_WRITE_ACTIONS = frozenset({
     "move",
     "create_folder",
 })
+# Saving an attachment writes a file, so it wants Allow, but it changes nothing
+# on the server. Calling it WRITE_EXTERNAL would be wrong twice: nothing leaves
+# the machine, and unattended jobs would be refused something safe for them.
+INBOX_LOCAL_WRITE_ACTIONS = frozenset({"download"})
 
 # Approved one at a time, never covered by "allow all this turn".
 NEVER_BATCH = frozenset({"send_email", "send_sms", "agenda", "external_read", "inbox"})
@@ -271,7 +275,7 @@ def action_is_write(name: str, args: dict[str, Any] | None) -> bool:
     if writes is None:
         return False
     if tool == "inbox":
-        return _inbox_action(args) in writes
+        return _inbox_action(args) in (writes | INBOX_LOCAL_WRITE_ACTIONS)
     if tool == "agenda" and action == "sync":
         provider = str((args or {}).get("provider") or "").strip().lower()
         return provider == "ics"
@@ -392,6 +396,8 @@ def evaluate_capability(
     if tool in {"send_email", "send_sms"}:
         return "WRITE_EXTERNAL"
     if tool == "inbox":
+        if _inbox_action(args) in INBOX_LOCAL_WRITE_ACTIONS:
+            return "WRITE_LOCAL"
         return "WRITE_EXTERNAL" if action_is_write(tool, args) else "READ"
     if tool == "agenda":
         if action in AGENDA_WRITE_ACTIONS:
