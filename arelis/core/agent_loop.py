@@ -176,8 +176,21 @@ def _hide_daily_wander(visible: set[str], expected: set[str]) -> set[str]:
     if "browser" in expected:
         hide.update(_BROWSER_WANDER)
     if expected & _LOCAL_STORE and "browser" not in expected:
+        # user_location is here for the same reason it is in _WEATHER_WANDER
+        # (see 6203c8b). call_redirects.redirect_local_store already rewrites
+        # it on a tasks / goals / memory / contacts turn, which means it is
+        # known wander there — offering it anyway just lets the model spend a
+        # round the redirect then has to undo. Where the user is standing has
+        # no bearing on what is in their own task list.
         hide.update(
-            {"browser", "scrape", "web_fetch", "weather", "web_search"}
+            {
+                "browser",
+                "scrape",
+                "web_fetch",
+                "weather",
+                "web_search",
+                "user_location",
+            }
         )
     # Calendar / memory / look / clipboard turns must not offer a leftover SMS.
     if "send_sms" not in expected and expected & (
