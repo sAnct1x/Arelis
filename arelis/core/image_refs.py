@@ -400,8 +400,19 @@ def fill_vision_args(
     fallback_path: str | None = None,
     user_text: str | None = None,
 ) -> dict[str, Any]:
-    """Fill missing vision path: this-turn paste, then camera, then last generate."""
+    """Fill missing vision path: this-turn paste, then camera, then last generate.
+
+    A walk already listing ``paths=`` (ink PDF pages) must not pick up the
+    last generated picture — that is how a BOARD fox became page 1 of 18.
+    """
     out = dict(args)
+    raw_paths = out.get("paths")
+    if isinstance(raw_paths, (list, tuple)) and any(
+        str(item).strip() for item in raw_paths
+    ):
+        return out
+    if isinstance(raw_paths, str) and raw_paths.strip():
+        return out
     if str(out.get("path") or "").strip():
         return out
     if fallback_path:

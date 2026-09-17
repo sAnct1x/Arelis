@@ -337,6 +337,10 @@ def build_tool_registry(
         registry.register(AnalyzeTool(workspace))
     doc_cfg = tools_cfg.get("doc_extract") or {}
     if doc_cfg.get("enabled", True):
+        # Do not look at pages inside this tool. A 17-page homework PDF
+        # plus the chat model already on the card is a silent multi-minute
+        # hang on "reading the document". Extract the JPEGs; the next
+        # round looks at a few pages on purpose.
         registry.register(
             DocExtractTool(
                 workspace,

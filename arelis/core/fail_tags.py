@@ -1,7 +1,8 @@
 """Fail-tag replan notices after perception or send tools miss.
 
-When scrape / web_search / web_fetch / send_email / send_sms / image fails with a
-``[fail:…]`` tag or an explicit ``ok=False``, return one short system nudge.
+When scrape / web_search / web_fetch / send_email / send_sms / image /
+doc_extract fails with a ``[fail:…]`` tag or an explicit ``ok=False``,
+return one short system nudge.
 Does not call tools or skip Allow.
 """
 
@@ -21,6 +22,7 @@ _REPLAN_TOOLS = frozenset(
         "send_email",
         "send_sms",
         "image",
+        "doc_extract",
     }
 )
 _SEND_TOOLS = frozenset({"send_email", "send_sms"})
@@ -97,6 +99,13 @@ def tool_fail_replan_notice(
             "tools do not exist or do not start ComfyUI. Do not fetch stock "
             "photos unless they asked for a description or a web search. "
             "They must start ComfyUI themselves (or set tools.image.auto_start)."
+        )
+    if tool == "doc_extract":
+        return (
+            f"Tool replan: doc_extract failed ({tag}). "
+            "If the output lists page images, call vision on those paths. "
+            "Do not ask them to paste. Do not call ocr on the PDF. "
+            "Do not invent PDF contents."
         )
     return (
         f"Tool replan: {tool} failed ({tag}). "

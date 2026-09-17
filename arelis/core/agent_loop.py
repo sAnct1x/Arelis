@@ -490,6 +490,8 @@ class AgentLoop:
     ) -> None:
         self.bus = bus
         self.router = router
+        if hasattr(router, "think_sink"):
+            router.think_sink = self._publish_think_stream
         self.tools = tools
         self.memory = memory
         self.persona = persona
@@ -512,6 +514,9 @@ class AgentLoop:
         run_tool = self.tools.get("run_script")
         if run_tool is not None:
             run_tool.is_cancelled = is_cancelled
+        vision_tool = self.tools.get("vision")
+        if vision_tool is not None:
+            vision_tool.is_cancelled = is_cancelled
         self.json_fallback = bool(agent.get("json_fallback", True))
         self.terminal_sent = False
         # Tools that have actually run this turn. The orchestrator reads this
@@ -1125,6 +1130,16 @@ class AgentLoop:
             opts["temperature"] = temp
         return opts or None
 
+    async def _publish_think_stream(self, chunk: str) -> None:
+        """Paint one native-thinking slice into the dock. Same as a text turn."""
+        text = str(chunk or "")
+        if not text:
+            return
+        self._last_round_thinking = True
+        await self.bus.publish(
+            Event(EventType.THINKING, {"text": text, "stream": True})
+        )
+
     async def _stream_round(
         self,
         role: ModelRole,
@@ -1199,12 +1214,7 @@ class AgentLoop:
             if self.is_paused():
                 await self._hold_if_paused()
             if kind == "thinking":
-                chunk = str(payload)
-                if chunk:
-                    self._last_round_thinking = True
-                    await self.bus.publish(
-                        Event(EventType.THINKING, {"text": chunk, "stream": True})
-                    )
+                await self._publish_think_stream(str(payload))
             elif kind == "token":
                 chunk = str(payload)
                 content_parts.append(chunk)

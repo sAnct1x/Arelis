@@ -22,7 +22,7 @@ _SHORT_DESC: dict[str, str] = {
     "contacts": "local address book. action=list|get|add|update|remove",
     "diagnostics": "local pytest / doctor. not a web search",
     "desktop": "your Windows session. look=screenshot (grabs+reads). no shell. no raw exe. stop Pay|delete|UAC",
-    "doc_extract": "text from pdf/docx/xlsx on disk",
+    "doc_extract": "text from a local PDF, including handwritten/scanned pages",
     "document": "write md/pdf/csv under outputs",
     "earth": "Reality look / bands. not a web search",
     "git_info": "git status / log / diff in the workspace",
@@ -69,7 +69,7 @@ location: user_location; do not web-guess.
 sms: call send_sms immediately when to+body are known (nickname or any number they typed); do not re-ask for the body. contacts are hints, not a gate. inbound_sms sees everyone.
 email: inbox list/search/trash/archive; send_email to send; never claim you deleted mail.
 workspace: workspace read/write/list; inspect source with workspace; writes confirm. Code assess: list one folder then fanout-read; do not list the repo root. Same list/read this turn is a loop — open a new path or answer. Outside roots: stop; do not list parents; Allow the path or Settings → roots.
-attach: image→vision|ocr; pdf→doc_extract; csv→analyze; text→workspace. never invent file contents.
+attach: image→vision|ocr; pdf→doc_extract; csv→analyze; text→workspace. never invent file contents. never ask them to paste a PDF. ink pdf→one vision paths= (not 17 calls, not ocr).
 memory: recall before claiming you do not know; remember/forget via the memory tool.
 goals: goals. tasks: tasks. analyze: analyze. doc_extract: doc_extract. document: document. calculator: calculator. diagnostics: diagnostics. cas: cas. clipboard: clipboard. ocr: ocr.
 agenda: agenda (events). tile: tile (thinking|workspace|history|chat|…; filament chat = name=chat). rooms: rooms. schedule: schedule.

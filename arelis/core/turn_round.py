@@ -69,6 +69,7 @@ from arelis.core.turn_goal import (
     receipt_serves_goal,
 )
 from arelis.llm.errors import classify_ollama_failure, is_vram_failure
+from arelis.tools.pdf_pages import ink_vision_walk
 
 
 def _round_scratch(
@@ -383,6 +384,30 @@ async def apply_no_call_path(
                             streamed="",
                         )
                         return True
+                    ink_owes_vision = bool(
+                        ctx.ink_page_images
+                        and "vision" not in loop.tools_used
+                    )
+                    if ink_owes_vision and "vision" in tool_names:
+                        pages = list(ctx.ink_page_images)
+                        calls = ink_vision_walk(pages)
+                        tool_calls = [
+                            _native_tool_call(n, a) for n, a in calls
+                        ]
+                        ctx.allow_writes_this_turn = True
+                        ctx.ink_vision_nudge_used = True
+                        await loop.bus.publish(
+                            Event(
+                                EventType.THINKING,
+                                {
+                                    "text": (
+                                        f"looking at pages 1-{len(pages)} of "
+                                        f"{len(pages)}, one at a time"
+                                    )
+                                },
+                            )
+                        )
+                        return None
                     await loop.bus.publish(
                         Event(
                             EventType.THINKING,
@@ -916,6 +941,46 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
             round_ms,
             role,
         ) = _pull_round(r)
+        if (
+            done is False
+            and ctx.ink_page_images
+            and "vision" not in loop.tools_used
+            and "vision" in tool_names
+        ):
+            pages = list(ctx.ink_page_images)
+            extra = ink_vision_walk(pages)
+            r.calls = extra
+            r.tool_calls = [_native_tool_call(n, a) for n, a in extra]
+            ctx.allow_writes_this_turn = True
+            ctx.ink_vision_nudge_used = True
+            await loop.bus.publish(
+                Event(
+                    EventType.THINKING,
+                    {
+                        "text": (
+                            f"looking at pages 1-{len(pages)} of "
+                            f"{len(pages)}, one at a time"
+                        )
+                    },
+                )
+            )
+            done = await dispatch_calls(loop, ctx, r, round_i)
+            (
+                available,
+                visible,
+                tool_names,
+                ollama_tools,
+                offer_tools,
+                research_mode,
+                sms_preinject,
+                exact_need,
+                calls,
+                tool_calls,
+                content,
+                streamed,
+                round_ms,
+                role,
+            ) = _pull_round(r)
         return done
     finally:
         ctx.role = loop._turn_role

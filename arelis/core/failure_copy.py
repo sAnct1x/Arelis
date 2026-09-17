@@ -260,6 +260,13 @@ def chat_followup_from_tool(tool: str, output: str, *, ask: str = "") -> str:
         return _page_talk(cleaned)
     if name in _SEARCH_TOOLS:
         return _search_talk(cleaned)
+    if name == "doc_extract" and (
+        "source: ink" in cleaned.lower() or "no text layer" in cleaned.lower()
+    ):
+        return (
+            "That PDF is handwritten or scanned — I still need to look at "
+            "the page images. Ask me again if I stopped on the path list."
+        )
     if len(cleaned) > 1600:
         cleaned = cleaned[:1597].rstrip() + "…"
     return cleaned

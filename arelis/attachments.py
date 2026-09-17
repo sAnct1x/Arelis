@@ -845,7 +845,9 @@ def format_attachments_block(
             )
     if "pdf" in kinds and not emailing:
         rules.append(
-            "PDFs: call doc_extract. Do not call analyze on a PDF (tables only)."
+            "PDFs: call doc_extract once. It reads handwritten pages itself. "
+            "Do not call vision on every page. Do not ask them to paste. "
+            "Do not call analyze on a PDF (tables only)."
         )
     if "data" in kinds and not emailing:
         rules.append("Tables (csv/xlsx/json): call analyze.")

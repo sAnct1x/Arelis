@@ -91,7 +91,7 @@ SKILL_TOOLS: dict[str, frozenset[str]] = {
     "goals": frozenset({"goals"}),
     "attention": frozenset({"tasks", "goals", "agenda"}),
     "analyze": frozenset({"analyze", "workspace"}),
-    "docs": frozenset({"doc_extract"}),
+    "docs": frozenset({"doc_extract", "vision", "ocr"}),
     "document": frozenset({"document"}),
     "attachments": frozenset(
         {"vision", "ocr", "image_edit", "doc_extract", "analyze", "workspace"}

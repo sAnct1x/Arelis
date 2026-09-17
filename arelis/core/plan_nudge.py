@@ -257,7 +257,8 @@ _PLAN_DOC = PlanSpec(
     id="docs",
     message=(
         "Plan: 1) Call doc_extract on the PDF/document path. "
-        "2) Quote or paraphrase only from the extracted text."
+        "2) Answer from that text (including source: look). "
+        "Do not call vision on every page. Do not ask them to paste."
     ),
     steps=("doc_extract",),
 )

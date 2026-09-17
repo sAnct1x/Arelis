@@ -152,6 +152,10 @@ async def execute_call(
             record_same_call(ctx.same_ok, name, args)
             ctx.last_ok_tool_out = str(result.output or "")
             ctx.last_ok_tool_name = name
+            if name == "doc_extract" and isinstance(data_dict, dict):
+                images = data_dict.get("page_images") or []
+                if str(data_dict.get("source") or "") == "ink" and images:
+                    ctx.ink_page_images = [str(p) for p in images]
             if name == "inbox" and str(args.get("action") or "").lower() in {
                 "trash",
                 "archive",

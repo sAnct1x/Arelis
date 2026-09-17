@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import logging
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 
 import httpx
@@ -133,6 +134,7 @@ class OllamaProvider:
         keep_alive: str | int | None = None,
         options: dict[str, Any] | None = None,
         tools: list[dict[str, Any]] | None = None,
+        think: bool | None = None,
     ) -> AsyncIterator[tuple[str, Any]]:
         """Yield (kind, payload): thinking/token strings, then tool_calls if any.
 
@@ -150,6 +152,8 @@ class OllamaProvider:
             payload["options"] = options
         if tools:
             payload["tools"] = tools
+        if think is not None:
+            payload["think"] = think
 
         accumulated_calls: list[dict[str, Any]] = []
         done_metrics: dict[str, Any] | None = None
@@ -219,40 +223,41 @@ class OllamaProvider:
         *,
         keep_alive: str | int = 0,
         options: dict[str, Any] | None = None,
+        on_thinking: Callable[[str], Awaitable[None] | None] | None = None,
+        think: bool | None = None,
     ) -> str:
-        """One-shot multimodal chat (VL). Returns assistant text; no tools.
+        """Multimodal chat (VL). Returns assistant text; no tools.
 
-        Images are raw base64 (no data: URL prefix). keep_alive defaults to 0 so
-        the VL model does not sit on a 12GB card next to chat.
+        Streams so native thinking reaches the dock while she looks — same
+        path as a text turn. Images are raw base64 (no data: URL prefix).
+        keep_alive defaults to 0 so a VL detour does not sit on a 12GB card
+        next to chat.
         """
         if not images_b64:
             raise ValueError("chat_with_images needs at least one image")
-        payload: dict[str, Any] = {
-            "model": model,
-            "messages": [
+        parts: list[str] = []
+        async for kind, payload in self.stream_chat(
+            model,
+            [
                 {
                     "role": "user",
                     "content": prompt or "Describe this image.",
                     "images": list(images_b64),
                 }
             ],
-            "stream": False,
-            "keep_alive": keep_alive,
-        }
-        if options:
-            payload["options"] = options
-        response = await self._client.post("/api/chat", json=payload)
-        if response.status_code >= 400:
-            detail = response.text.strip()[:400]
-            raise RuntimeError(
-                f"Ollama returned HTTP {response.status_code} for model `{model}`"
-                + (f": {detail}" if detail else "")
-            )
-        data = response.json()
-        if data.get("error"):
-            raise RuntimeError(f"Ollama error: {data['error']}")
-        msg = data.get("message") or {}
-        return str(msg.get("content") or "").strip()
+            keep_alive=keep_alive,
+            options=options,
+            think=think,
+        ):
+            if kind == "thinking":
+                chunk = str(payload or "")
+                if chunk and on_thinking is not None:
+                    maybe = on_thinking(chunk)
+                    if inspect.isawaitable(maybe):
+                        await maybe
+            elif kind == "token":
+                parts.append(str(payload or ""))
+        return "".join(parts).strip()
 
     async def embed(self, model: str, texts: list[str]) -> list[list[float]]:
         """Embed texts with /api/embed. Used for recall, not for chat turns.

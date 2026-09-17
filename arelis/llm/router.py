@@ -99,6 +99,9 @@ class ModelRouter:
         # that does not wait for it races the prefix seed and pays the
         # prefill twice — that is the minute-to-first-token on a cold boot.
         self._warmup_gate: asyncio.Event | None = None
+        # Agent loop binds this so a vision look paints thinking live.
+        # Pin / unload stay silent — those are not thoughts.
+        self.think_sink: Any | None = None
 
     def options_for(self, role: ModelRole) -> dict[str, Any]:
         """Base options with an optional per-role num_ctx override."""
@@ -427,6 +430,7 @@ class ModelRouter:
         *,
         model: str | None = None,
         num_ctx: int = 4096,
+        think: bool | None = None,
     ) -> str:
         """Answer about one image, on the chat model when it can see.
 
@@ -454,9 +458,11 @@ class ModelRouter:
                 images_b64,
                 keep_alive=self.default_keep_alive,
                 options=options,
+                on_thinking=self.think_sink if think is not False else None,
+                think=think,
             )
         return await self._run_vision_detour(
-            prompt, images_b64, model=model, num_ctx=num_ctx
+            prompt, images_b64, model=model, num_ctx=num_ctx, think=think
         )
 
     async def chat_sees_images(self) -> bool:
@@ -484,6 +490,7 @@ class ModelRouter:
         *,
         model: str | None = None,
         num_ctx: int = 4096,
+        think: bool | None = None,
     ) -> str:
         """Unload chat, run one VL shot, unload VL, schedule fast rewarm.
 
@@ -512,6 +519,8 @@ class ModelRouter:
                 images_b64,
                 keep_alive=0,
                 options=options,
+                on_thinking=self.think_sink if think is not False else None,
+                think=think,
             )
         finally:
             try:

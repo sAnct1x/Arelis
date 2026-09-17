@@ -25,7 +25,9 @@ from arelis.workspace import WorkspaceRoots
 log = logging.getLogger(__name__)
 
 _IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".tif", ".tiff", ".bmp"}
+_PDF_SUFFIXES = {".pdf"}
 _MAX_CHARS = 12_000
+_MAX_PDF_PAGES = 8
 
 
 def _tesseract_exe() -> str | None:
@@ -140,9 +142,10 @@ class OcrTool:
     name = "ocr"
     description = (
         "Extract text from a local image with CPU Tesseract (not the VL model). "
-        "action=text path=… for an existing screenshot/PNG; action=screen to "
-        "capture the primary display then OCR. Always Allow. Prefer vision when "
-        "you need a description rather than exact text."
+        "action=text path=… for an existing screenshot/PNG or a scanned PDF; "
+        "action=screen to capture the primary display then OCR. Always Allow. "
+        "Prefer vision when you need a description rather than exact text. "
+        "Handwritten PDFs: use doc_extract, then vision on the page images."
     )
     risk = "side_effect"
     parameters_schema: dict[str, Any] = {
@@ -201,6 +204,25 @@ class OcrTool:
                 note_look_scratch(path)
             else:
                 path = self._resolve_image(str(kwargs.get("path") or ""))
+                from arelis.tools.pdf_pages import is_ink_page_image
+
+                if is_ink_page_image(path):
+                    return ToolResult(
+                        ok=False,
+                        output=(
+                            "[fail:empty] This is a handwritten/ink page image. "
+                            "Tesseract will not read it. Call vision on this "
+                            "path (or paths=[...] for several pages). "
+                            "Do not ask them to paste."
+                        ),
+                        data={
+                            "fail_class": "fail:empty",
+                            "path": str(path),
+                            "source": "ink",
+                        },
+                    )
+                if path.suffix.lower() in _PDF_SUFFIXES:
+                    return await asyncio.to_thread(self._ocr_pdf, path, lang)
             inspect = await asyncio.to_thread(self._inspect, path, lang)
             text = inspect.text
         except FileNotFoundError as exc:
@@ -275,6 +297,51 @@ class OcrTool:
             },
         )
 
+    def _ocr_pdf(self, path: Path, lang: str) -> ToolResult:
+        """Rasterize a scanned PDF and OCR the first pages."""
+        from arelis.tools.pdf_pages import (
+            collect_page_images,
+            page_digest,
+            write_page_images,
+        )
+
+        pages = collect_page_images(path, 0, _MAX_PDF_PAGES - 1)
+        if not pages:
+            return ToolResult(
+                ok=False,
+                output=(
+                    f"[fail:empty] No page images in {path.name}. "
+                    "Call doc_extract on this PDF, then vision on any page "
+                    "images it writes. Do not ask them to paste."
+                ),
+                data={"fail_class": "fail:empty", "path": str(path)},
+            )
+        dest = self.output_dir / "pdf_pages" / f"{path.stem}_{page_digest(path)}"
+        written = write_page_images(pages, dest)
+        listing = "\n".join(
+            f"  {item.page}: {dest_path}"
+            for item, dest_path in zip(pages, written, strict=True)
+        )
+        # Tablet ink / homework scans have no text layer. Tesseract returns
+        # soup; last night she graded from that soup. Vision is the read.
+        return ToolResult(
+            ok=False,
+            output=(
+                f"[fail:empty] {path.name} is ink (no text layer). "
+                "OCR will not read handwriting. Call vision once with "
+                f"paths= on these page images. Do not ask them to paste.\n"
+                f"{listing}"
+            ),
+            data={
+                "fail_class": "fail:empty",
+                "path": str(path),
+                "chars": 0,
+                "empty": True,
+                "source": "ink",
+                "page_images": [str(p) for p in written],
+            },
+        )
+
     def _inspect(self, path: Path, lang: str) -> OcrInspect:
         if self._uses_default_runner:
             return run_tesseract_inspect(path, lang=lang)
@@ -302,9 +369,9 @@ class OcrTool:
                     f"Path not under workspace roots or outputs/images/: {raw}"
                 ) from exc
             path = candidate
-        if path.suffix.lower() not in _IMAGE_SUFFIXES:
+        if path.suffix.lower() not in _IMAGE_SUFFIXES | _PDF_SUFFIXES:
             raise FileNotFoundError(
-                f"Not an image file ({path.suffix or 'no suffix'}): {path.name}"
+                f"Not an image or PDF ({path.suffix or 'no suffix'}): {path.name}"
             )
         if not path.is_file():
             raise FileNotFoundError(f"Image not found: {path}")

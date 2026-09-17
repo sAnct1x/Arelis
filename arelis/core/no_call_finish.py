@@ -153,7 +153,34 @@ async def try_evidence(loop: Any, ctx: TurnContext, r: Any, round_i: int) -> str
     return NUDGE
 
 
+async def try_ink_vision(loop: Any, ctx: TurnContext, r: Any, round_i: int) -> str:
+    """Ink PDF extract is not an answer — vision the page images next."""
+    if not (
+        ctx.ink_page_images
+        and "vision" not in loop.tools_used
+        and "vision" in r.tool_names
+        and not answer_looks_like_refusal(r.content)
+    ):
+        return SKIP
+    from arelis.tools.pdf_pages import ink_vision_notice
+
+    if not ctx.ink_vision_nudge_used:
+        ctx.ink_vision_nudge_used = True
+        await loop._retract()
+        r.messages.append({"role": "assistant", "content": r.content})
+        r.messages.append(
+            {"role": "user", "content": ink_vision_notice(ctx.ink_page_images)}
+        )
+        await loop.bus.publish(
+            Event(EventType.THINKING, {"text": "plan_progress  ink-vision"})
+        )
+        return NUDGE
+    return SKIP
+
+
 async def try_file_answer(loop: Any, ctx: TurnContext, r: Any, round_i: int) -> str:
+    if ctx.ink_page_images and "vision" not in loop.tools_used:
+        return SKIP
     if not (
         not ctx.file_answer_nudge_used
         and (loop.tools_used & _FILE_ANSWER_TOOLS)
@@ -244,6 +271,7 @@ FINISH_STEPS: tuple[StepFn, ...] = (
     try_scrape_after_search,
     try_js_shell_browser,
     try_plan_progress,
+    try_ink_vision,
     try_force_gates,
     try_evidence,
     try_file_answer,

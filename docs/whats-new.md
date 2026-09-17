@@ -185,7 +185,8 @@ under each hand. `logs/hands.log` + `logs/hands.jsonl`. Rest, minimize,
 and leave-filament tear the camera down; the chip brings it back.
 
 **Glass.** One lowercase voice. Thinking is the essay — no `think` /
-`model` / `tool` prefixes — with housekeeping as a footer.
+`model` / `tool` prefixes — with housekeeping as a footer. Looking
+at a page streams that essay the same way a text turn does.
 A finished research notice keeps the markdown path: double-click opens
 it, right-click is Open / Open with… / Show in folder.
 Workspace is the desk — notes you kept and files she wrote, not an empty

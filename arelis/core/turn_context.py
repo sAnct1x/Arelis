@@ -109,6 +109,8 @@ class TurnContext:
     quote_nudge_used: bool = False
     dual_hit_nudge_used: bool = False
     file_answer_nudge_used: bool = False
+    ink_page_images: list[str] = field(default_factory=list)
+    ink_vision_nudge_used: bool = False
     browser_relaunch_nudge_used: bool = False
     sms_sent: set[str] = field(default_factory=set)
     sms_failed: bool = False

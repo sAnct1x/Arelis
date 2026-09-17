@@ -266,6 +266,23 @@ def test_fill_vision_args_from_history_path(tmp_path: Path) -> None:
     assert filled["path"] == "outputs/images/arelis_00008_.png"
 
 
+def test_fill_vision_args_does_not_prepend_generate_onto_ink_walk() -> None:
+    history = [
+        {
+            "role": "assistant",
+            "content": "saved to outputs/images/arelis_00028_-text-scale2-scale2.png",
+            "note": "",
+        }
+    ]
+    pages = [
+        r"C:\tmp\pdf_pages\hw\page_01.jpg",
+        r"C:\tmp\pdf_pages\hw\page_02.jpg",
+    ]
+    filled = fill_vision_args({"paths": pages}, history=history)
+    assert "path" not in filled
+    assert filled["paths"] == pages
+
+
 def test_latest_from_disk(tmp_path: Path, monkeypatch) -> None:
     images = tmp_path / "outputs" / "images"
     images.mkdir(parents=True)

@@ -141,8 +141,10 @@ is Kokoro-82M (`af_heart`), Piper Jenny as fallback. More in
 Qwen3.5 streams its native thinking one token per SSE frame. The
 thinking dock on screen just joins all of those into one wrapping
 paragraph for you to read — housekeeping details sit below it rather
-than cluttering the actual thought process. Worth noting that's purely
-a UI choice, not a second model running underneath.
+than cluttering the actual thought process. A vision look uses that
+same stream, so the dock is not blank while she reads a page. Worth
+noting that's purely a UI choice, not a second model running
+underneath.
 
 ## How graphics memory gets shared
 
