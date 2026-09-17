@@ -70,6 +70,15 @@ CHOICE_CASES: tuple[ChoiceCase, ...] = (
         ),
     ),
     ChoiceCase("keep this: the spare key is under the planter", ("workspace",)),
+    ChoiceCase(
+        "rename notes/draft.md to notes/final.md",
+        ("workspace",),
+        note=(
+            "workspace action=rename, added 2026-09-17. Before the verb "
+            "existed the only way through was read then write then delete, "
+            "and delete was missing too."
+        ),
+    ),
     ChoiceCase("what did I say about the Sherpa work last night?", ("recall",)),
     ChoiceCase("who is in my contacts?", ("contacts",)),
     ChoiceCase("what's my wife's phone number?", ("contacts",)),

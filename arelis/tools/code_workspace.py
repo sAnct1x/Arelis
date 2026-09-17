@@ -17,8 +17,11 @@ class CodeWorkspaceTool:
     name = "workspace"
     description = (
         "Sandboxed file ops under allowed roots. "
-        "Actions: list, read, write, edit, keep. "
+        "Actions: list, read, write, edit, delete, move, rename, copy, keep. "
         "Use list/read freely; write/edit change files. "
+        "Use delete to remove a file they asked you to remove, and "
+        "move/rename/copy with to= for the new path — do not read a file and "
+        "write it back under another name. "
         "Use keep when the user says keep this / put this on the desk "
         "/ jot this down — that writes a short note into notes/ on the "
         "active project. Do not use memory remember for a page they want "
@@ -32,12 +35,33 @@ class CodeWorkspaceTool:
         "properties": {
             "action": {
                 "type": "string",
-                "enum": ["list", "read", "write", "edit", "keep"],
+                "enum": [
+                    "list",
+                    "read",
+                    "write",
+                    "edit",
+                    "delete",
+                    "move",
+                    "rename",
+                    "copy",
+                    "keep",
+                ],
                 "description": "Workspace action",
             },
             "path": {
                 "type": "string",
-                "description": "Path relative to a root, or name:relative/path",
+                "description": (
+                    "Path relative to a root, or name:relative/path. The "
+                    "source for move/rename/copy"
+                ),
+            },
+            "to": {
+                "type": "string",
+                "description": (
+                    "Destination path for move/rename/copy. Must also be "
+                    "inside an allowed root; an existing file is never "
+                    "overwritten"
+                ),
             },
             "text": {
                 "type": "string",
@@ -126,6 +150,19 @@ class CodeWorkspaceTool:
                     self._edit, str(path_str), str(old), str(new)
                 )
 
+            if action in {"delete", "remove"}:
+                return await asyncio.to_thread(self._delete, str(path_str))
+            if action in {"move", "rename", "copy"}:
+                to = kwargs.get("to") or kwargs.get("dest") or kwargs.get("new_path")
+                if not to:
+                    return ToolResult(
+                        ok=False,
+                        output=f"{action} requires to (the new path).",
+                    )
+                return await asyncio.to_thread(
+                    self._relocate, str(path_str), str(to), copy=action == "copy"
+                )
+
             return ToolResult(ok=False, output=f"Unknown action: {action}")
         except PermissionError as exc:
             return ToolResult(
@@ -210,6 +247,83 @@ class CodeWorkspaceTool:
             ok=True,
             output=f"Edited {resolved.qualified(multi=len(self.workspace) > 1)}",
             data=self._path_data(resolved),
+        )
+
+    def _delete(self, path_str: str) -> ToolResult:
+        """Remove one file, or one already-empty directory.
+
+        for_write, not for_read: containment and read-only both apply, and an
+        external read grant must not become licence to delete the file it
+        opened. There is deliberately no recursive form — emptying a tree is
+        the single mistake with no undo, so the model is not given a verb for
+        it.
+        """
+        resolved = self.workspace.resolve(path_str, for_write=True)
+        path = resolved.path
+        label = resolved.qualified(multi=len(self.workspace) > 1)
+        if not path.exists():
+            return ToolResult(ok=False, output=f"Not found: {label}")
+        if path.is_dir():
+            if any(path.iterdir()):
+                return ToolResult(
+                    ok=False,
+                    output=(
+                        f"{label} is a directory and is not empty. Delete the "
+                        "files inside it first — there is no recursive delete."
+                    ),
+                )
+            path.rmdir()
+            return ToolResult(
+                ok=True,
+                output=f"Deleted empty directory {label}",
+                data=self._path_data(resolved),
+            )
+        path.unlink()
+        return ToolResult(
+            ok=True, output=f"Deleted {label}", data=self._path_data(resolved)
+        )
+
+    def _relocate(self, path_str: str, to_str: str, *, copy: bool) -> ToolResult:
+        """move / rename / copy. Both ends are contained; nothing is clobbered."""
+        import shutil
+
+        src = self.workspace.resolve(path_str, for_write=True)
+        # for_create so the destination need not exist yet, but it still has to
+        # land inside a writable root — containment on the source alone would
+        # let a move carry a file out of the sandbox.
+        dst = self.workspace.resolve(to_str, for_create=True)
+        multi = len(self.workspace) > 1
+        src_label = src.qualified(multi=multi)
+        dst_label = dst.qualified(multi=multi)
+        verb = "copy" if copy else "move"
+
+        if not src.path.exists():
+            return ToolResult(ok=False, output=f"Not found: {src_label}")
+        if dst.path.exists():
+            return ToolResult(
+                ok=False,
+                output=(
+                    f"{dst_label} already exists. Pick another name, or delete "
+                    f"it first — {verb} will not overwrite it."
+                ),
+            )
+        if copy and src.path.is_dir():
+            return ToolResult(
+                ok=False,
+                output=f"{src_label} is a directory; copy handles files only.",
+            )
+
+        dst.path.parent.mkdir(parents=True, exist_ok=True)
+        if copy:
+            shutil.copy2(src.path, dst.path)
+            word = "Copied"
+        else:
+            shutil.move(str(src.path), str(dst.path))
+            word = "Moved"
+        return ToolResult(
+            ok=True,
+            output=f"{word} {src_label} → {dst_label}",
+            data={**self._path_data(dst), "from": src_label},
         )
 
     def _keep(self, text: str, title: str) -> ToolResult:

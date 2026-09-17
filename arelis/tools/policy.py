@@ -42,7 +42,9 @@ CapabilityClass = Literal[
 
 # Actions that turn a reader into a writer. The tool is registered as "read"
 # because list/read is the common case; the gate looks at the action argument.
-WORKSPACE_WRITE_ACTIONS = frozenset({"write", "edit", "keep", "delete", "remove"})
+WORKSPACE_WRITE_ACTIONS = frozenset(
+    {"write", "edit", "keep", "delete", "remove", "move", "rename", "copy"}
+)
 CONTACTS_WRITE_ACTIONS = frozenset({"add", "update", "remove"})
 AGENDA_WRITE_ACTIONS = frozenset({"create", "update", "delete"})
 TASKS_WRITE_ACTIONS = frozenset(

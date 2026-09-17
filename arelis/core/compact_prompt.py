@@ -61,7 +61,7 @@ _SHORT_DESC: dict[str, str] = {
     "weather": "forecast. defaults to the user's own place — omit place for home, never look up their location first. place=city name, not coords",
     "web_fetch": "http(s) APIs / JSON. not pages",
     "web_search": "search first. never guess a url",
-    "workspace": "read/write/list sandbox files. writes confirm",
+    "workspace": "sandbox files: list/read/write/edit/delete/move/rename/copy. writes confirm",
 }
 
 
