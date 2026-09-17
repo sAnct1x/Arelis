@@ -762,6 +762,14 @@ def describe_call(
             )
         return "\n".join(lines)
     if name == "clipboard":
+        if str(args.get("action") or "").strip().lower() == "write":
+            text = str(args.get("text") or "")
+            lines = ["Replace the clipboard contents"]
+            if text:
+                preview = " ".join(text.split())[:120]
+                lines.append(f"Copy: {preview}")
+            lines.append("Whatever is currently copied will be lost.")
+            return "\n".join(lines)
         return (
             "Read system clipboard text\n"
             "May include passwords or private notes — only if you "

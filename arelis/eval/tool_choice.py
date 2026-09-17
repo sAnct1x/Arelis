@@ -80,6 +80,15 @@ CHOICE_CASES: tuple[ChoiceCase, ...] = (
         ),
     ),
     ChoiceCase(
+        "copy that to my clipboard",
+        ("clipboard",),
+        note=(
+            "clipboard action=write, added 2026-09-17. compact_prompt already "
+            "advertised 'read / write' while the schema had no action at all, "
+            "so this was a routing bug by construction."
+        ),
+    ),
+    ChoiceCase(
         "save the attachment from that email",
         ("inbox",),
         note=(

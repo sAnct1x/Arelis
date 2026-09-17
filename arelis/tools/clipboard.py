@@ -1,4 +1,9 @@
-"""Read the system clipboard text — Always behind Allow (privacy)."""
+"""Read or replace the system clipboard text — always behind Allow.
+
+Reading is a privacy question: the clipboard may hold a password. Writing is a
+loss question: it calls EmptyClipboard first, so it destroys whatever was
+copied. Both need the card.
+"""
 
 from __future__ import annotations
 
@@ -91,8 +96,33 @@ def _read_windows_clipboard() -> str:
         user32.CloseClipboard()
 
 
+def _qt_write_on_gui_thread(text: str) -> bool:
+    """Mirror of the read path: Qt clipboard only from the GUI thread."""
+    try:
+        from PySide6.QtCore import QThread
+        from PySide6.QtWidgets import QApplication
+
+        app = QApplication.instance()
+        if app is None or QThread.currentThread() is not app.thread():
+            return False
+        app.clipboard().setText(text)
+        return True
+    except Exception:
+        return False
+
+
+def write_clipboard_text(text: str) -> None:
+    """Put plain text on the clipboard, replacing what was there."""
+    if _qt_write_on_gui_thread(text):
+        return
+    try:
+        _write_windows_clipboard(text)
+    except Exception as exc:
+        raise RuntimeError(f"Clipboard unavailable: {exc}") from exc
+
+
 def _write_windows_clipboard(text: str) -> None:
-    """Seed CF_UNICODETEXT. Used by tests and the live pass, not a tool action."""
+    """Seed CF_UNICODETEXT. Reached through `write_clipboard_text`."""
     import ctypes
     from ctypes import wintypes
 
@@ -150,14 +180,27 @@ def _write_windows_clipboard(text: str) -> None:
 class ClipboardTool:
     name = "clipboard"
     description = (
-        "Read the current system clipboard as plain text. Always asks for Allow "
-        "first — clipboard may hold passwords or private notes. Use when the "
-        "user asks what is on the clipboard or to use pasted text."
+        "Read the system clipboard as plain text, or write text onto it. "
+        "Always asks for Allow first — reading may expose passwords or private "
+        "notes, and writing replaces whatever the user had copied. "
+        "action=read (default) for what is on the clipboard or to use pasted "
+        "text; action=write with text to copy something for them."
     )
     risk = "read"
     parameters_schema: dict[str, Any] = {
         "type": "object",
         "properties": {
+            "action": {
+                "type": "string",
+                "enum": ["read", "write"],
+                "description": (
+                    "read the clipboard (default), or write replaces it"
+                ),
+            },
+            "text": {
+                "type": "string",
+                "description": "The text to copy, for action=write",
+            },
             "max_chars": {
                 "type": "integer",
                 "description": f"Max characters to return (default {_MAX_CHARS})",
@@ -170,12 +213,59 @@ class ClipboardTool:
         self,
         *,
         reader: Callable[[], str] | None = None,
+        writer: Callable[[str], None] | None = None,
         max_chars: int = _MAX_CHARS,
     ) -> None:
         self._reader = reader or read_clipboard_text
+        self._writer = writer or write_clipboard_text
         self.max_chars = max(256, int(max_chars))
 
     async def run(self, **kwargs: Any) -> ToolResult:
+        action = str(kwargs.get("action") or "read").strip().lower()
+        if action == "write":
+            return await self._write(kwargs)
+        if action != "read":
+            return ToolResult(
+                ok=False,
+                output=f"Unknown action {action!r}. Use read or write.",
+            )
+        return await self._read(kwargs)
+
+    async def _write(self, kwargs: dict[str, Any]) -> ToolResult:
+        text = str(kwargs.get("text") or "")
+        if not text:
+            # Writing "" would call EmptyClipboard and wipe what they had,
+            # which is never what "copy this" meant.
+            return ToolResult(
+                ok=False,
+                output="write needs text. Nothing was put on the clipboard.",
+            )
+        try:
+            await asyncio.wait_for(
+                asyncio.to_thread(self._writer, text),
+                timeout=_READ_TIMEOUT_S,
+            )
+        except TimeoutError:
+            return ToolResult(
+                ok=False,
+                output="Clipboard write timed out. Nothing was copied.",
+                data={"fail_class": "fail:timeout"},
+            )
+        except Exception as exc:
+            return ToolResult(
+                ok=False,
+                output=f"[fail:other] Could not write clipboard: {exc}",
+                data={"fail_class": "fail:other"},
+            )
+        # Deliberately not echoed: they just said what it is, and a wall of it
+        # coming back is noise in the chat and tokens in the next prompt.
+        return ToolResult(
+            ok=True,
+            output=f"Copied {len(text)} characters to the clipboard.",
+            data={"chars": len(text), "action": "write"},
+        )
+
+    async def _read(self, kwargs: dict[str, Any]) -> ToolResult:
         try:
             limit = int(kwargs.get("max_chars") or self.max_chars)
         except (TypeError, ValueError):

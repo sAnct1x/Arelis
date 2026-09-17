@@ -147,7 +147,9 @@ def confirm_headline(tool: str, args: dict[str, Any] | None = None) -> str:
     if name == "ocr":
         return "read text on screen" if action == "screen" else "read this text"
     if name == "clipboard":
-        return "read the clipboard"
+        # A write asking for consent to "read the clipboard" is asking for the
+        # wrong thing: the cost here is losing what was copied, not exposing it.
+        return "replace the clipboard" if action == "write" else "read the clipboard"
     if name == "agenda":
         if action in {"create", "update"}:
             title = _who(args, "summary", "title")

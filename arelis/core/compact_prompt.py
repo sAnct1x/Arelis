@@ -18,7 +18,7 @@ _SHORT_DESC: dict[str, str] = {
     "camera": "webcam snapshot. inspect only",
     "cas": "symbolic math. action=simplify|solve|diff|integrate|limit|series|sum|gradient|directional|factor|expand; n= order, at= point, dir= vector",
     "catalog": "pinned live feeds. action=list|get",
-    "clipboard": "read / write OS clipboard",
+    "clipboard": "OS clipboard. action=read (default) | write with text=",
     "contacts": "local address book. action=list|get|add|update|remove",
     "diagnostics": "local pytest / doctor. not a web search",
     "desktop": "your Windows session. look=screenshot (grabs+reads). no shell. no raw exe. stop Pay|delete|UAC",
