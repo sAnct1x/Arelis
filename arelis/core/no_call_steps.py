@@ -63,7 +63,9 @@ from arelis.core.intent_catalog import (
     earth_status_action,
     inspect_preflight_nudge,
     inspect_read_path,
+    looks_like_recall_utterance,
     looks_like_source_inspect,
+    recall_query,
     solar_status_action,
 )
 from arelis.core.look import next_look_call
@@ -661,6 +663,49 @@ async def try_goals(loop: Any, ctx: TurnContext, r: Any) -> str:
     )
 
 
+async def try_recall(loop: Any, ctx: TurnContext, r: Any) -> str:
+    """"What did I say about X" must reach the transcripts, not a shrug.
+
+    Roadmap 4.0. The intent was already detected — the RECALL IntentSpec
+    matches, preflight writes a nudge, and `recall` lands in `_expected_tools`
+    — and nothing acted on it. If the model answered in prose, or reached for
+    `web_search` (which is hidden before dispatch on a recall turn, so it never
+    runs), the turn ended in *"I don't know"* with the right tool sitting
+    there unused.
+
+    Deliberately not a redirect. `call_redirects.redirect_local_store` never
+    sees the wrong call, because the wander tool is already hidden by the time
+    that path runs. This is the same shape as try_tasks and try_goals: a
+    no-call backstop, one stage, because preflight has already done the asking.
+
+    Not `local_store_inject_args` either — that has no recall branch and would
+    produce `{"action": "list"}`, which is not this tool's shape.
+    """
+    if not (
+        bool(r.agent_cfg.get("recall_force_call", True))
+        and (
+            "recall" in loop._expected_tools
+            or looks_like_recall_utterance(r.text)
+        )
+        and "recall" not in loop.tools_used
+        and "recall" in r.tool_names
+    ):
+        return SKIP
+    # Blank queries are a tool error, and "do you remember?" names nothing to
+    # go and find. Better to leave the turn alone than to inject a failure.
+    query = recall_query(r.text)
+    if not query:
+        return SKIP
+    return await _inject(
+        loop,
+        r,
+        "recall",
+        {"action": "search", "query": query},
+        thinking="inject  recall from intent",
+        gate="recall_force",
+    )
+
+
 async def try_memory(loop: Any, ctx: TurnContext, r: Any) -> str:
     if not (
         ("memory" in loop._expected_tools or looks_like_memory_utterance(r.text))
@@ -873,6 +918,7 @@ INJECT_STEPS: tuple[StepFn, ...] = (
     try_catalog,
     try_tasks,
     try_goals,
+    try_recall,
     try_memory,
     try_contacts,
     try_solar_status,

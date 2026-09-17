@@ -146,6 +146,24 @@ _RECALL_PRE = re.compile(
     r")\b"
 )
 
+# Everything between the trigger phrase and the search terms. "what did I
+# tell you about X" leaves a dangling "you" once the trigger is cut, and
+# "about" / "the" are in every transcript, so neither narrows anything.
+_RECALL_ADDRESSEE = re.compile(r"(?i)^\s*(?:you|me|us)\b\s*")
+_RECALL_LEAD = re.compile(r"(?i)^\s*(?:about|regarding|concerning|on)\b\s*")
+_RECALL_DETERMINER = re.compile(r"(?i)^\s*(?:the|a|an|my|our|that|this|some)\b\s*")
+# When it was said is not what was said. Leaving "last night" in the query
+# ranks every transcript that happens to contain those words.
+_RECALL_WHEN = re.compile(
+    r"(?i)\s*\b(?:"
+    r"last\s+(?:night|week|month|year|time)|"
+    r"yesterday|recently|earlier(?:\s+today)?|"
+    r"this\s+(?:morning|afternoon|evening)|"
+    r"the\s+other\s+(?:day|night)|"
+    r"a\s+(?:while|few\s+days|couple\s+(?:of\s+)?days)\s+ago"
+    r")\b\s*$"
+)
+
 _INBOUND_SMS_PRE = re.compile(
     r"(?i)\b("
     r"did\s+\w+\s+text|"
@@ -1094,6 +1112,39 @@ def looks_like_source_write(text: str) -> bool:
     """True for fix/edit/patch her confirm gate / policy.py / source. Write + Allow."""
     raw = text or ""
     return bool(raw.strip()) and bool(_SOURCE_WRITE.search(raw))
+
+
+def looks_like_recall_utterance(text: str) -> bool:
+    """True when they ask what was said before, not when they ask her to store something.
+
+    `_RECALL_PRE` requires "do you remember", so the imperative "remember that
+    I climb on Tuesdays" — a memory write — does not match here.
+    """
+    return bool(_RECALL_PRE.search(text or ""))
+
+
+def recall_query(text: str) -> str:
+    """The search terms inside a recall question, or "" when there are none.
+
+    Handing the recall tool the whole sentence searches for "what did i say
+    about", which appears in no transcript and ranks nothing. The trigger
+    phrase, the addressee, the article and the time reference all have to come
+    off before what is left is worth searching for.
+
+    An empty return is meaningful: "do you remember?" names nothing to look
+    for, and recall refuses a blank query, so the caller must not inject.
+    """
+    raw = (text or "").strip()
+    if not raw:
+        return ""
+    match = _RECALL_PRE.search(raw)
+    rest = raw[match.end() :] if match else raw
+    rest = rest.strip().strip("?.!,;:").strip()
+    rest = _RECALL_ADDRESSEE.sub("", rest, count=1)
+    rest = _RECALL_LEAD.sub("", rest, count=1)
+    rest = _RECALL_WHEN.sub("", rest, count=1)
+    rest = _RECALL_DETERMINER.sub("", rest, count=1)
+    return re.sub(r"\s+", " ", rest).strip().strip("?.!,;:").strip()
 
 
 def looks_like_source_inspect(text: str) -> bool:

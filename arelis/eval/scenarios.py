@@ -2020,6 +2020,25 @@ SCENARIOS: list[Scenario] = [
         ],
     ),
     Scenario(
+        id="recall_ask_does_not_end_in_a_shrug",
+        user="What did I say about the Sherpa work last night?",
+        expect_tools=("recall",),
+        forbid_tools=("web_search", "scrape"),
+        offline_only=True,
+        failure_class="wrong_retrieval",
+        category="tool_select",
+        notes=(
+            "Guards recall_force_call. Roadmap 4.0: the intent was detected "
+            "and nothing acted on it, so a web_search here was hidden before "
+            "dispatch and the turn ended 'I don't know' with recall unused. "
+            "The model answering in prose is the same failure."
+        ),
+        script=[
+            [("tool_calls", [_tool_call("web_search", {"query": "Sherpa work"})])],
+            [("token", "I don't know, that isn't in what I can recall.")],
+        ],
+    ),
+    Scenario(
         id="image_force_when_model_pretends",
         user="Generate an image of a lighthouse at dusk",
         expect_tools=("image",),
