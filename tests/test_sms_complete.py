@@ -908,3 +908,49 @@ def test_add_text_overlay_on_a_picture_is_not_sms() -> None:
     assert not sms_intent_this_turn(spoken)
     assert parse_sms_utterance("Text Brian: Running 10 minutes late") is not None
     assert parse_sms_utterance("add text message to my wife saying hello") is not None
+
+
+def test_an_unknown_recipient_does_not_unlock_the_body() -> None:
+    """Body integrity is not a contacts question.
+
+    `complete` asks whether every recipient has an address. Until 2026-09-17
+    `fill_send_sms_args` reused it to decide whether the draft body was locked,
+    so texting someone not in the book let the model rewrite the message and
+    the confirm card showed the rewrite. The eval board caught this and nobody
+    saw it, because the board runs nowhere.
+    """
+    draft = complete_sms_draft("Text Brian: Running 10 minutes late")
+    assert draft is not None
+    assert draft.body == "Running 10 minutes late"
+    assert not draft.complete, "Brian is not in the book — this is the unlocked case"
+
+    filled = fill_send_sms_args({"to": "brian", "body": "See you tomorrow"}, draft)
+    assert filled["body"] == "Running 10 minutes late"
+
+
+def test_a_known_recipient_still_locks_the_body() -> None:
+    """The path that already worked must keep working."""
+    book = {
+        "brian": Contact(
+            alias="brian",
+            name="Brian",
+            phone="+15551234567",
+            digits=normalize_phone("+15551234567"),
+        )
+    }
+    draft = complete_sms_draft("Text Brian: Running 10 minutes late", contacts=book)
+    assert draft is not None and draft.complete
+
+    filled = fill_send_sms_args(
+        {"to": "brian", "body": "See you tomorrow"}, draft, contacts=book
+    )
+    assert filled["body"] == "Running 10 minutes late"
+
+
+def test_a_draft_with_no_body_still_takes_the_models_words() -> None:
+    """Locking must not swallow the body when the user never dictated one."""
+    draft = complete_sms_draft("text Brian")
+    if draft is None or draft.body:
+        pytest.skip("no bodyless draft from this phrasing")
+    filled = fill_send_sms_args({"to": "brian", "body": "On my way"}, draft)
+    assert filled["body"] == "On my way"

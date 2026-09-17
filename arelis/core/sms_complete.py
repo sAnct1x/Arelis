@@ -1173,10 +1173,10 @@ def fill_send_sms_args(
 ) -> dict[str, Any]:
     """Fill to/body on a tool call from a known draft.
 
-    When the draft is complete (to+body), the draft body is locked — the model
-    cannot overwrite it with a different invent. Confirm cards therefore show
-    the body that will actually send. For multi-recipient drafts, `to` is the
-    next unresolved alias not already sent this turn.
+    Whenever the draft carries a body, that body is locked — the model cannot
+    overwrite it with a different invent. Confirm cards therefore show the body
+    that will actually send. For multi-recipient drafts, `to` is the next
+    unresolved alias not already sent this turn.
     """
     out = normalize_sms_args(args if draft is None else dict(args))
     if draft is None:
@@ -1185,11 +1185,17 @@ def fill_send_sms_args(
     candidates = draft.resolved_aliases or ((draft.tool_to,) if draft.tool_to else ())
     next_to = next_unsent(candidates, already_sent, draft.tool_to)
 
-    if draft.complete and draft.body:
+    # A draft body is always the user's own words, whether it came from this
+    # turn or the one that opened the thread. Whether the recipient resolves to
+    # a book entry is a separate question, so an unknown name is no licence for
+    # the model to rewrite the message.
+    if draft.body:
         from arelis.core.turn_goal import sms_body_serves_goal
 
         if sms_body_serves_goal(draft.body):
             out["body"] = draft.body
+
+    if draft.complete:
         if next_to:
             # Preserve a model `to` that is still one of the intended recipients.
             model_to = str(out.get("to") or "").strip()
@@ -1205,11 +1211,6 @@ def fill_send_sms_args(
             else:
                 out["to"] = next_to
         return out
-    if not str(out.get("body") or "").strip() and draft.body:
-        from arelis.core.turn_goal import sms_body_serves_goal
-
-        if sms_body_serves_goal(draft.body):
-            out["body"] = draft.body
     to = str(out.get("to") or "").strip()
     if not to:
         out["to"] = next_to
