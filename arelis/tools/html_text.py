@@ -3,7 +3,15 @@ from __future__ import annotations
 from bs4 import BeautifulSoup
 
 # Below this, an HTML extraction is treated as an empty JS shell rather than
-# useful page content. Short enough that a real one-sentence page still passes.
+# useful page content. It is tuned for the shells — "Loading…", "Please enable
+# JavaScript", a bare `<div id="root">` — and it does catch those.
+#
+# It also catches a genuinely short page: "The spring tide arrives at 06:14."
+# is 33 characters. The comment here used to claim a real one-sentence page
+# still passed, which is only true of long sentences. Rather than move the
+# threshold and start reading shells as content, the callers now report the
+# little text they did find instead of discarding it — see the thin branch in
+# web.py.
 _MIN_READABLE_CHARS = 40
 
 

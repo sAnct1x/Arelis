@@ -106,17 +106,34 @@ class WebFetchTool:
                     data=meta,
                 )
             if thin_readable(text):
+                # Say what little was there rather than binning it. This
+                # branch used to drop the extraction on the floor, so a page
+                # that was simply *short* — a price, a status line, a
+                # one-sentence answer — came back indistinguishable from an
+                # empty JavaScript shell, and she either gave up or filled the
+                # gap from her own head. Note the asymmetry it was creating:
+                # a five-character text/plain body falls through to the bottom
+                # of this method and is returned verbatim with ok=True.
+                #
+                # Still ok=False, because thin usually does mean a shell and
+                # the model must not treat this as the whole page. Redacted
+                # for the same reason the successful path is: short does not
+                # mean harmless, and a token is shorter than a sentence.
+                found = redact_secrets(" ".join(text.split()))
                 body_msg = (
                     "web_fetch found little readable text in the HTML; "
                     "the page may require JavaScript. Prefer scrape, or try "
                     "a different URL."
                 )
+                if found:
+                    body_msg += f' All that was readable: "{found}"'
                 return ToolResult(
                     ok=False,
                     output=_fail_output(body_msg),
                     data={
                         **meta,
                         "title": title,
+                        "text": found,
                         "fail_class": classify_fetch_failure(body_msg),
                     },
                 )
