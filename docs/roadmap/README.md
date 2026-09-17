@@ -677,6 +677,45 @@ already clean, and `NOTES.md:30-31` has the recommended order.
 Pain #2: "she can start a task but not finish it." Ordered by how often
 you would hit it.
 
+### Landed 2026-09-17 — the first five verbs
+
+A pattern showed up on all five and is worth stating before the list: in
+every case **the safety plumbing was already written for a verb that never
+arrived.** `WORKSPACE_WRITE_ACTIONS` and `DELETE_ACTIONS["workspace"]` have
+carried `delete`/`remove` since they were written. `save_job_from_payload`
+already create-or-replaces and is what the calendar jobs tab calls. The
+store has had `list_facts` / `list_preferences` / `list_episodes` all along.
+Somebody built the gate and the door was never cut. When picking the next
+item off this list, check the policy table and the store first — the work is
+often smaller than the entry implies.
+
+| gap | verb | commit |
+| --- | --- | --- |
+| `memory` was write-only — nothing could answer *"what do you remember about me?"* | `list` | `00c9722` |
+| `tasks` had no edit; fixing a typo meant `remove`+`add`, losing the id and goal link | `update` | `00c9722` |
+| `workspace` could not rearrange files (**4.1**) | `delete` `move` `rename` `copy` | `9084748` |
+| `schedule` could not be rescheduled; moving a time meant delete+recreate, losing `last_run` | `update` | `f4fbb53` |
+| `git_info` was read-only (**4.3**) | `stage` `commit` | `4043bcf` |
+
+Two of these were watched failing under **mutation**, not just watched
+passing:
+
+- Swapping `resolve(for_write=True)` for `resolve_read` in the workspace
+  delete makes her delete a file outside the roots that was only granted
+  for *reading*. `test_a_read_grant_is_not_a_licence_to_delete` catches it.
+- Adding `push` and `reset` to `git_info._WRITE_ACTIONS` turns
+  `test_the_dangerous_verbs_stay_refused` red on exactly those two.
+
+`git_info` is deliberately **stage + commit and nothing further** — that is
+the finished scope, not a first increment. Those two are additive and
+recoverable; push, reset, clean, checkout, rebase and history rewrite cannot
+be walked back from inside a chat turn. 4.3's "branch, stash, blame, show"
+are still open, but the *write* half of it is closed as narrowly as it will
+get.
+
+Each new verb also joined the tool-choice corpus, so the path is measured
+rather than assumed.
+
 - [ ] **4.0** A recall ask that the model answers with a web search ends
   in a refusal instead of a recall. Found 2026-09-17 while building the
   board. `"What did I say about the Sherpa work last night?"` →
@@ -694,14 +733,21 @@ you would hit it.
   with an inverted scenario, which will also close the gap where
   `"What do I have to do today?"` matches **no** preflight rule at all
   despite the tool-choice corpus expecting `tasks` for it.
-- [ ] **4.1** `workspace` has **no delete, rename, or move**
+- [x] **4.1** `workspace` has **no delete, rename, or move**
   (`tools/code_workspace.py:35`) even though `tools/policy.py:45,127`
   already defines the confirm rules for delete. Finish the CRUD.
+  **Done `9084748`.** No recursive delete — a non-empty directory is
+  refused and says why. Emptying a tree is the one mistake with no undo,
+  so the model does not get a verb for it.
 - [ ] **4.2** `workspace` has no recursive search. "Find where X is
   defined" is impossible without listing every folder, which the same-call
   guard then blocks. Add `action=grep` with a path glob.
-- [ ] **4.3** `git_info` is read-only (`status`/`diff`/`log`). No commit,
+- [~] **4.3** `git_info` is read-only (`status`/`diff`/`log`). No commit,
   branch, stash, blame, or show. Add writes behind the confirm card.
+  **Writes done `4043bcf`: `stage` + `commit`, and that is the final
+  scope.** `branch` / `stash` / `blame` / `show` are still open, and are
+  reads — take them when something needs them. Do not widen
+  `_WRITE_ACTIONS`; a test fails on purpose if you do.
 - [ ] **4.4** `clipboard` is **read-only** but `compact_prompt.py:21`
   tells the model it can "read / write". Either implement write or fix the
   description — right now the model is being lied to, which is a routing
