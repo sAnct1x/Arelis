@@ -68,6 +68,21 @@ def confirm_headline(tool: str, args: dict[str, Any] | None = None) -> str:
             "episode": "save this episode",
         }
         return verbs.get(action, "change memory")
+    if name == "web_fetch":
+        method = str(args.get("method") or "GET").strip().upper()
+        if method in {"GET", "HEAD"}:
+            return "read a page"
+        host = ""
+        raw_url = str(args.get("url") or "")
+        if "//" in raw_url:
+            host = raw_url.split("//", 1)[1].split("/", 1)[0]
+        # The host and the verb, and nothing else. Header values are the one
+        # place an API key lives on this path, and the card is a screenshot and
+        # a log line away from being somewhere it should not be.
+        verb = {"POST": "post to", "PUT": "update", "PATCH": "update", "DELETE": "delete from"}[
+            method
+        ]
+        return f"{verb} {host}" if host else f"send a {method} request"
     if name == "image":
         return image_confirm_headline(args)
     if name == "image_edit":

@@ -47,7 +47,10 @@ def fetched(monkeypatch: pytest.MonkeyPatch) -> Any:
         async def _fake_get(*args: Any, **kwargs: Any) -> _Response:
             return _Response(body, ctype=ctype)
 
-        monkeypatch.setattr(web, "guarded_get", _fake_get)
+        # guarded_request, not guarded_get: web_fetch grew a `method` and now
+        # goes through the wrapper that decides whether redirects may be
+        # followed. It still calls guarded_get underneath for a GET.
+        monkeypatch.setattr(web, "guarded_request", _fake_get)
 
     return _install
 

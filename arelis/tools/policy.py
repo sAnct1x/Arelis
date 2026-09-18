@@ -47,45 +47,55 @@ WORKSPACE_WRITE_ACTIONS = frozenset(
 )
 CONTACTS_WRITE_ACTIONS = frozenset({"add", "update", "remove"})
 AGENDA_WRITE_ACTIONS = frozenset({"create", "update", "delete"})
-TASKS_WRITE_ACTIONS = frozenset(
-    {"add", "update", "done", "reopen", "remove", "attach", "detach"}
+TASKS_WRITE_ACTIONS = frozenset({"add", "update", "done", "reopen", "remove", "attach", "detach"})
+GOALS_WRITE_ACTIONS = frozenset(
+    {
+        "add",
+        "update",
+        "pause",
+        "resume",
+        "done",
+        "drop",
+        "remove",
+    }
 )
-GOALS_WRITE_ACTIONS = frozenset({
-    "add",
-    "update",
-    "pause",
-    "resume",
-    "done",
-    "drop",
-    "remove",
-})
 MEMORY_WRITE_ACTIONS = frozenset({"remember", "forget", "prefer", "decide", "episode"})
 ROOMS_WRITE_ACTIONS = frozenset({"create", "update", "forget"})
-SCHEDULE_WRITE_ACTIONS = frozenset(
-    {"create", "create_briefing", "update", "delete", "run_now"}
+SCHEDULE_WRITE_ACTIONS = frozenset({"create", "create_briefing", "update", "delete", "run_now"})
+SOLAR_WRITE_ACTIONS = frozenset(
+    {
+        "impulse",
+        "add_probe",
+        "add_planet",
+        "fetch_maps",
+        "tracer",
+        "l4",
+        "epoch",
+    }
 )
-SOLAR_WRITE_ACTIONS = frozenset({
-    "impulse",
-    "add_probe",
-    "add_planet",
-    "fetch_maps",
-    "tracer",
-    "l4",
-    "epoch",
-})
 # git_info is registered read because status/diff/log dominate. Staging and
 # committing are the only writes it has, and the only ones it will get: they
 # are additive and recoverable, which push/reset/clean/history-rewrite are not.
 GIT_WRITE_ACTIONS = frozenset({"stage", "commit"})
-INBOX_WRITE_ACTIONS = frozenset({
-    "trash",
-    "delete",
-    "archive",
-    "mark_read",
-    "mark_unread",
-    "move",
-    "create_folder",
-})
+
+# web_fetch keys on `method`, not `action`, so it is handled by name below
+# rather than through the action table. GET and HEAD read; everything else
+# changes something on a server that is not ours, and cannot be undone from
+# here. DELETE is treated as destructive so it pauses on the filament face too,
+# where a spoken ask is otherwise the grant.
+WEB_FETCH_WRITE_METHODS = frozenset({"post", "put", "patch", "delete"})
+WEB_FETCH_DELETE_METHODS = frozenset({"delete"})
+INBOX_WRITE_ACTIONS = frozenset(
+    {
+        "trash",
+        "delete",
+        "archive",
+        "mark_read",
+        "mark_unread",
+        "move",
+        "create_folder",
+    }
+)
 # Saving an attachment writes a file, so it wants Allow, but it changes nothing
 # on the server. Calling it WRITE_EXTERNAL would be wrong twice: nothing leaves
 # the machine, and unattended jobs would be refused something safe for them.
@@ -95,9 +105,7 @@ INBOX_LOCAL_WRITE_ACTIONS = frozenset({"download"})
 NEVER_BATCH = frozenset({"send_email", "send_sms", "agenda", "external_read", "inbox"})
 
 # Asked does not skip these — you still see the exact payload.
-ALWAYS_PAUSE_TOOLS = frozenset(
-    {"send_email", "send_sms", "run_script", "external_read"}
-)
+ALWAYS_PAUSE_TOOLS = frozenset({"send_email", "send_sms", "run_script", "external_read"})
 
 _PERSIST_KEYS = {
     "writes": "confirm_writes",
@@ -124,6 +132,10 @@ def _action(args: dict[str, Any] | None) -> str:
 def _inbox_action(args: dict[str, Any] | None) -> str:
     action = _action(args)
     return "trash" if action == "delete" else action
+
+
+def _http_method(args: dict[str, Any] | None) -> str:
+    return str((args or {}).get("method") or "get").strip().lower()
 
 
 # Filament: the spoken ask is the grant. Only a destructive call pauses.
@@ -155,6 +167,8 @@ def confirm_mode() -> str:
 def action_is_delete(name: str, args: dict[str, Any] | None) -> bool:
     """True when this call removes something that cannot be walked back easily."""
     tool = (name or "").strip()
+    if tool == "web_fetch":
+        return _http_method(args) in WEB_FETCH_DELETE_METHODS
     action = _inbox_action(args) if tool == "inbox" else _action(args)
     wanted = DELETE_ACTIONS.get(tool)
     return bool(wanted and action in wanted)
@@ -180,13 +194,7 @@ def _desktop_is_destructive(args: dict[str, Any] | None) -> bool:
     from arelis.desktop.walls import label_wall
 
     raw = args or {}
-    label = str(
-        raw.get("text")
-        or raw.get("target")
-        or raw.get("key")
-        or raw.get("keys")
-        or ""
-    )
+    label = str(raw.get("text") or raw.get("target") or raw.get("key") or raw.get("keys") or "")
     hit = label_wall(label)
     return hit is not None and hit.kind in {"pay", "delete", "uac"}
 
@@ -258,6 +266,8 @@ def action_is_write(name: str, args: dict[str, Any] | None) -> bool:
     """True when this call's action is in that tool's write set."""
     tool = (name or "").strip()
     action = _action(args)
+    if tool == "web_fetch":
+        return _http_method(args) in WEB_FETCH_WRITE_METHODS
     table = {
         "workspace": WORKSPACE_WRITE_ACTIONS,
         "contacts": CONTACTS_WRITE_ACTIONS,
@@ -312,6 +322,11 @@ def confirm_toggle(
         return "writes"
     if tool == "clipboard":
         return "writes"
+    if tool == "web_fetch":
+        # A GET is a read and stays one. Anything else answers to the same
+        # toggle as a file write, because it is the same promise: nothing
+        # changes without you seeing what changes.
+        return "writes" if action_is_write(tool, args) else "none"
     if tool in {
         "workspace",
         "contacts",
@@ -387,9 +402,7 @@ def evaluate_confirm(
     return True
 
 
-def evaluate_capability(
-    name: str, args: dict[str, Any] | None = None
-) -> CapabilityClass:
+def evaluate_capability(name: str, args: dict[str, Any] | None = None) -> CapabilityClass:
     """Blast-radius class for a concrete tool call (argument-aware)."""
     tool = (name or "").strip()
     action = _action(args)
@@ -461,8 +474,7 @@ def confirm_toggles_for_call(
 ) -> dict[str, bool]:
     """Turn-scoped toggles. 'Rest of this ask' does not cover mail/SMS/agenda."""
     return {
-        "confirm_writes": confirm_writes
-        and (not allow_writes_this_turn or name == "agenda"),
+        "confirm_writes": confirm_writes and (not allow_writes_this_turn or name == "agenda"),
         "confirm_image": confirm_image and not allow_writes_this_turn,
         "confirm_send": confirm_send,
         "confirm_browser": confirm_browser and not allow_writes_this_turn,
@@ -632,9 +644,7 @@ def describe_call(
             if value:
                 lines.append(f"{label}: {value}")
         if action == "open":
-            lines.append(
-                "Shows this URL in Arelis Chrome (same tab, not a second copy)."
-            )
+            lines.append("Shows this URL in Arelis Chrome (same tab, not a second copy).")
         if action == "scroll":
             lines.append("Scrolls the page or a snapshot ref into view.")
         if action == "press":
@@ -643,13 +653,9 @@ def describe_call(
             lines.append("Picks a dropdown option (snapshot ref + option text).")
         if action == "wait":
             if any(
-                str(args.get(key) or "").strip()
-                for key in ("url", "text", "heading", "target")
+                str(args.get(key) or "").strip() for key in ("url", "text", "heading", "target")
             ):
-                lines.append(
-                    "Waits until the tab shows that URL or text (max 8s), "
-                    "then snapshots."
-                )
+                lines.append("Waits until the tab shows that URL or text (max 8s), then snapshots.")
             else:
                 lines.append("Pauses briefly so the page can settle (max 8s).")
         if action == "click":
@@ -696,16 +702,13 @@ def describe_call(
             if args.get("full_page"):
                 lines.append("Full page: yes")
         if action == "read":
-            lines.append(
-                "Reads compact text of the tab she is on (not a web scrape)."
-            )
+            lines.append("Reads compact text of the tab she is on (not a web scrape).")
         if action == "maps":
             dest = str(args.get("destination") or args.get("url") or "").strip()
             if dest:
                 lines.append(f"Destination: {dest}")
             lines.append(
-                "Opens Google Maps directions in her Chrome and returns "
-                "a phone link you can text."
+                "Opens Google Maps directions in her Chrome and returns a phone link you can text."
             )
         if action == "search":
             query = str(args.get("query") or args.get("text") or "").strip()
@@ -757,9 +760,7 @@ def describe_call(
         if action == "type":
             lines.append("Types into the focused window. She does not type passwords.")
         if action == "click":
-            lines.append(
-                "Clicks a named control, or x,y after screenshot then vision."
-            )
+            lines.append("Clicks a named control, or x,y after screenshot then vision.")
         return "\n".join(lines)
     if name == "clipboard":
         if str(args.get("action") or "").strip().lower() == "write":
@@ -823,10 +824,7 @@ def describe_call(
         if action == "reopen":
             return f"Reopen task #{args.get('id') or '?'}"
         if action == "attach":
-            return (
-                f"Attach task #{args.get('id') or '?'} → "
-                f"goal #{args.get('goal_id') or '?'}"
-            )
+            return f"Attach task #{args.get('id') or '?'} → goal #{args.get('goal_id') or '?'}"
         if action == "detach":
             return f"Detach task #{args.get('id') or '?'} from goal"
         lines = [f"Action:  {action}"]
