@@ -35,7 +35,19 @@ echo "pre-commit: ruff…"
 # Ruff used to be CI-only. A solar-lab commit then failed eight GitHub jobs
 # on unsorted imports and the inbox saw eight mails. Catch it here, before
 # the commit exists. The pin is pyproject.toml / ruff==0.16.1.
-"$PY" -m ruff check .
+#
+# Staged files only, not `ruff check .`. Several sittings edit this checkout
+# at once, and the whole-tree form meant one lane's half-written probe blocked
+# every other lane from committing finished, passing work — which pushes people
+# toward --no-verify, and that skips the personal-data guards below too. Only
+# staged content can reach CI, so only staged content is this hook's business.
+# The lint job still runs `ruff check .` over the merged result.
+STAGED=$(git diff --cached --name-only --diff-filter=ACMR -- '*.py' '*.pyi')
+if [ -n "$STAGED" ]; then
+    echo "$STAGED" | tr '\n' '\0' | xargs -0 "$PY" -m ruff check --
+else
+    echo "pre-commit: no Python staged; skipping ruff."
+fi
 
 echo "pre-commit: checking for personal data…"
 # The builder tests are here because the name rules are only as good as the list
