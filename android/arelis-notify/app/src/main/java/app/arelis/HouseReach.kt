@@ -33,6 +33,13 @@ object HouseReach {
         prefs.lanUrls = (listOf(clean) + prefs.lanUrls).distinct()
     }
 
+    /** Beacon + stored URLs. Used when a POST missed — not on the happy path. */
+    fun recover(context: Context, prefs: Prefs): Boolean {
+        val found = findHouse(context, prefs) ?: return false
+        if (found != prefs.baseUrl) adopt(prefs, found)
+        return true
+    }
+
     fun matchesHouse(url: String, instance: String, token: String): Boolean {
         val health = get(url.trimEnd('/') + "/inbound/health", token = null, timeoutMs = 700) ?: return false
         if (health.first !in 200..299) return false

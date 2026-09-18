@@ -215,7 +215,10 @@ def test_parked_orbit_canvas(qt_app) -> None:
 
 
 def test_cold_start_is_orbit_idle(qt_app) -> None:
+    from PySide6.QtWidgets import QLabel
+
     from arelis.ui.app import ArelisWindow, BusBridge
+    from arelis.ui.void_idle import FIRST_RUN_ASKS, TOOLS_CHIP_TITLE
 
     window = ArelisWindow(
         {
@@ -236,6 +239,12 @@ def test_cold_start_is_orbit_idle(qt_app) -> None:
         assert window.chat.empty.idle_placeholder.text() == "what are we working on"
         assert window.chat.empty.listen_word.isHidden()
         assert window.conversation.input.placeholderText() == ""
+        ghost_text = [
+            w.text() for w in window.chat.empty._ghosts.findChildren(QLabel)
+        ]
+        assert "TOOLS" in ghost_text
+        assert TOOLS_CHIP_TITLE in ghost_text
+        assert any(ask in ghost_text for ask in FIRST_RUN_ASKS)
         assert window.conversation.input.parent() is window.chat.empty.prompt_host
         assert window.conversation.role.isHidden()
         window.history_dock.show()

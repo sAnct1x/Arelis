@@ -19,7 +19,10 @@ go in the installer.
 render through pypdfium2; a missing rasterizer is a named fail, not
 silence. Settings → window picks Chat / Research / Vision tags.
 `research_report` and the webcam both pause on Allow. `/tools` lists every tool by name and one
-line — same list from the idle TOOLS chip. `remind me in 20 minutes` is
+line — same list from the idle TOOLS chip. A first-run profile
+actually paints that chip now (plus the TRY asks); an empty
+`_idle_ghosts` used to skip the paint and leave the column blank.
+`remind me in 20 minutes` is
 an in-process timer (tray + notify), not a Windows scheduled job.
 `notes` lists and searches the same pages `keep this:` already writes.
 `recall action=docs` is "search my PDFs". `transcribe` points the warm
@@ -70,6 +73,11 @@ as new.
 **Texts.** Chat tiles keep the thread across a restart. Bubbles show
 a time. Send writes the buffer once; a failure marks that bubble with
 retry. Minimize goes to the taskbar. Contacts have a Text action.
+A quiet week no longer kills the companion: inbound rediscovers the
+PC instead of posting a stale IP, the radio service keeps WifiWatcher
+alive without opening the app, and queued texts last 30 days. Sideload
+this APK — the one already on the phone still has the old path. Doze
+can still mute Google Messages; Battery Unrestricted.
 
 **Mail.** Settings → notify takes the Gmail address and app password
 and can mint the phone token. No secrets.yaml edit. Jobs that email

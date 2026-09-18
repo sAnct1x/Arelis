@@ -8,6 +8,7 @@ import androidx.work.WorkManager
 class ArelisApp : Application() {
     override fun onCreate() {
         super.onCreate()
+        BridgeKeepalive.ensure(this)
         WorkManager.getInstance(this).enqueueUniqueWork(
             InboundWorker.UNIQUE,
             ExistingWorkPolicy.KEEP,

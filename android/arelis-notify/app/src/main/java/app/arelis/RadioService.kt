@@ -14,6 +14,7 @@ import androidx.core.content.ContextCompat
 
 class RadioService : Service() {
     private var server: RadioServer? = null
+    private var wifiWatcher: WifiWatcher? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -49,6 +50,10 @@ class RadioService : Service() {
             startForeground(NOTIF_ID, notification)
         }
         startRadio(prefs)
+        if (wifiWatcher == null) {
+            wifiWatcher = WifiWatcher(applicationContext).also { it.start() }
+        }
+        BridgeKeepalive.ensure(this)
         return START_STICKY
     }
 
@@ -66,6 +71,8 @@ class RadioService : Service() {
     }
 
     override fun onDestroy() {
+        wifiWatcher?.stop()
+        wifiWatcher = null
         server?.stop()
         server = null
         super.onDestroy()

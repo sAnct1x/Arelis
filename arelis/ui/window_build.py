@@ -467,7 +467,9 @@ class WindowBuild:
         self._mobile_foreign = False
         self._drive_session = False
         self._readiness_snap = None
-        self._idle_ghosts: list[tuple[str, str]] = []
+        # None until the first refresh. [] == [] skipped set_sessions and
+        # left first-run idle with no TRY / TOOLS chips.
+        self._idle_ghosts: list[tuple[str, str]] | None = None
         self._away_timer = QTimer(self)
         self._away_timer.setSingleShot(True)
         self._held_inbound: list[InboundSms] = []

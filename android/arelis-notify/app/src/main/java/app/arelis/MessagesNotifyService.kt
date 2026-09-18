@@ -63,12 +63,8 @@ class MessagesNotifyService : NotificationListenerService() {
         val timeIso = Instant.ofEpochMilli(sbn.postTime).toString()
         val from = title.ifEmpty { "(unknown)" }
         executor.execute {
-            try {
-                ArelisClient.fromPrefs(prefs).postInbound(
-                    id, from, text, timeIso, imageJpeg,
-                )
-            } catch (exc: Exception) {
-                Log.w(TAG, "POST failed, queued: $exc")
+            val posted = postOrRecover(prefs, id, from, text, timeIso, imageJpeg)
+            if (!posted) {
                 InboundQueue(this).enqueue(id, from, text, timeIso, imageJpeg)
                 WorkManager.getInstance(this).enqueueUniqueWork(
                     InboundWorker.UNIQUE,
@@ -76,6 +72,30 @@ class MessagesNotifyService : NotificationListenerService() {
                     OneTimeWorkRequestBuilder<InboundWorker>().build(),
                 )
             }
+        }
+    }
+
+    private fun postOrRecover(
+        prefs: Prefs,
+        id: String,
+        from: String,
+        text: String,
+        timeIso: String,
+        imageJpeg: String?,
+    ): Boolean {
+        try {
+            ArelisClient.fromPrefs(prefs).postInbound(id, from, text, timeIso, imageJpeg)
+            return true
+        } catch (exc: Exception) {
+            Log.w(TAG, "POST failed, reaching house: $exc")
+        }
+        if (!HouseReach.recover(this, prefs)) return false
+        return try {
+            ArelisClient.fromPrefs(prefs).postInbound(id, from, text, timeIso, imageJpeg)
+            true
+        } catch (exc: Exception) {
+            Log.w(TAG, "POST failed after reach, queued: $exc")
+            false
         }
     }
 

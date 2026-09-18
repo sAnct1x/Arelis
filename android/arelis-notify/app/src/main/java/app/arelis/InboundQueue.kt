@@ -19,7 +19,7 @@ data class QueuedInbound(
 class InboundQueue(
     private val file: File,
     private val nowMs: () -> Long = { System.currentTimeMillis() },
-    private val maxAgeMs: Long = TimeUnit.DAYS.toMillis(7),
+    private val maxAgeMs: Long = DEFAULT_MAX_AGE_MS,
 ) {
     constructor(context: Context) : this(
         context.applicationContext.filesDir.resolve("inbound_queue.json"),
@@ -101,5 +101,10 @@ class InboundQueue(
             )
         }
         file.writeText(arr.toString())
+    }
+
+    companion object {
+        // A quiet week used to empty the queue while the PC IP was stale.
+        val DEFAULT_MAX_AGE_MS: Long = TimeUnit.DAYS.toMillis(30)
     }
 }

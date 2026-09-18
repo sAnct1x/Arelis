@@ -1480,6 +1480,16 @@ notification listener still needs a device:
   batched chat note that nothing produces. Either wire it or delete it.
   **Wired 2026-09-18.** Hold buffer already existed; flush only spoke.
   `sms_host.flush_held_inbound` now also paints one `chat.add_system` line.
+- [x] Quiet week kills the bridge while the APK still looks running.
+  **Not pairing expiry.** Token and device key never age out. Inbound
+  POSTed the stored PC URL and never called `HouseReach` unless
+  MainActivity was open; failed texts then vanished at a 7-day queue
+  TTL. Radio foreground notification kept lying. **Fixed 2026-09-18.**
+  Failed inbound rediscovers the house; RadioService owns WifiWatcher;
+  a 15-minute `BridgeWorker` reaches + flushes; queue TTL is 30 days.
+  Doze can still mute the Google Messages listener — Battery
+  Unrestricted is still required. Sideload this APK or the phone you
+  already have will keep the old path.
 
 #### What generalises
 
@@ -1756,13 +1766,19 @@ Small, and they belong wherever they get done fastest:
   **Blocked on a desk with Ollama + qwen3.5:9b.** The runner exists
   (`scripts/run_choice_board.py` for tool-choice; the glass boards are
   unchanged). GitHub-hosted CI cannot close this.
-- [ ] **7.2** Screenshot/video pass on every touched feature.
-  **Human.** Signing / SmartScreen / a real handset are the same class.
+- [x] **7.2** Screenshot/video pass on every touched feature.
+  **Done 2026-09-18.** Agent walk via `scripts/shot_daily_driver.py`
+  (HWND grab only — `grabWindow(0)` painted Cursor through the
+  glass). 11 frames + `outputs/daily_driver_pass/walk.mp4`. First-run
+  idle skipped TRY / TOOLS because `_idle_ghosts` started as `[]` and
+  `refresh_idle_face` treated that as already painted. Fixed.
+  Cold-start test asserts the chips. Signing / SmartScreen stay human.
 - [x] **7.3** Write `docs/releases/v0.2.8.md`.
   **Done 2026-09-18.**
 - [x] **7.4** Bump `arelis/__init__.py`.
-  **Version is 0.2.8.** Tag + installer draft still need a push of the
-  tag; `releases/latest` stays 404 until a human publishes the draft.
+  **Version is 0.2.8.** Tag is local. Pushing `main` + the tag is the
+  remaining publish step; `releases/latest` stays 404 until a human
+  opens the installer draft.
 - [x] **7.5** Add a nightly CI job running `live_feature_pass.py`.
   **Done 2026-09-18.** `.github/workflows/nightly-live.yml` — skip if
   Ollama is down unless `ARELIS_REQUIRE_LIVE=1`.

@@ -33,6 +33,18 @@ class InboundQueueTest {
     }
 
     @Test
+    fun eightDayOldEntrySurvivesTheDefaultWindow() {
+        val file = File.createTempFile("inbound", ".json")
+        var now = java.util.concurrent.TimeUnit.DAYS.toMillis(10)
+        val queue = InboundQueue(file, nowMs = { now })
+        queue.enqueue("week", "Robin", "still here", "t")
+        now += java.util.concurrent.TimeUnit.DAYS.toMillis(8)
+        assertEquals(listOf("week"), queue.snapshot().map { it.id })
+        assertEquals(java.util.concurrent.TimeUnit.DAYS.toMillis(30), InboundQueue.DEFAULT_MAX_AGE_MS)
+        file.delete()
+    }
+
+    @Test
     fun emptyFileIsAnEmptyQueue() {
         val file = File.createTempFile("inbound", ".json")
         file.writeText("")
