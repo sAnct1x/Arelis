@@ -13,9 +13,11 @@ from typing import Any
 
 from arelis.core.complete_protocol import (
     CREATE_ALLOW_CLOSER,
+    history_with_current,
     unfinished_call_notice,
 )
-from arelis.history_view import history_pairs
+from arelis.core.confirm_patterns import proceed_ask_pattern, send_confirm_pattern
+from arelis.core.history_revival import last_draft_before_confirm
 from arelis.jobs.store import JobError, normalize_date, normalize_time
 
 _CREATE = re.compile(
@@ -68,6 +70,7 @@ _TITLE_WHEN = re.compile(
     r"(?i)\s+(?:(?:in\s+)?(?:a|one|two|three|four|\d+)\s+weeks?\s+from|"
     r"i\s+want\s+this\s+event)\b"
 )
+_WEEKDAY = r"monday|tuesday|wednesday|thursday|friday|saturday|sunday"
 _DURATION = re.compile(
     r"(?i)\b(?:for|lasting|last(?:s|ing)?\s+for)\s+"
     r"(?:an?\s+|one\s+)?(?:1\s+)?hours?\b"
@@ -137,6 +140,63 @@ _MONTH_NUM = {
 
 _PROVIDER = re.compile(r"(?i)\b(?:provider\s*=\s*|on\s+)(?P<p>google|outlook)\b")
 
+# `_TITLE` runs to the first comma or period, and dictation supplies neither.
+# So "called Dentist, tomorrow at 3pm" gave "Dentist" while the same sentence
+# spoken gave "Dentist tomorrow at 3pm" — one event, named two ways depending
+# on punctuation the user never said. These take the when-clause off the end.
+#
+# Split in two because a trailing day word is ambiguous and a trailing time is
+# not. Nobody names an event "Dentist tomorrow", so today / tonight / tomorrow
+# and a month-day always go. A weekday can genuinely be the name — "Taco
+# Tuesday" — so it only goes when a clock follows it, and the clock is the
+# thing that makes it a when rather than a name.
+_MONTH_DAY_TAIL = r"(?:" + _MONTH + r")\s+\d{1,2}(?:st|nd|rd|th)?(?:\s*,?\s*\d{4})?"
+_CLOCK_TAIL = r"\d{1,2}(?::\d{2}\s*(?:am|pm)?|\s*(?:am|pm))"
+_TITLE_TAIL_TIME = re.compile(
+    r"(?i)\s+(?:(?:on|for|this|next)\s+)?"
+    r"(?:(?:today|tonight|tomorrow|"
+    + _WEEKDAY
+    + r"|"
+    + _MONTH_DAY_TAIL
+    + r"|\d{4}-\d{2}-\d{2})\s+)?"
+    r"(?:at\s+)?" + _CLOCK_TAIL + r"\s*$"
+)
+_TITLE_TAIL_DAY = re.compile(
+    r"(?i)\s+(?:(?:on|for)\s+)?"
+    r"(?:today|tonight|tomorrow|" + _MONTH_DAY_TAIL + r"|\d{4}-\d{2}-\d{2})\s*$"
+)
+# Duration and provider are parsed out of the utterance separately, so leaving
+# them on the title duplicates them: "Standup tomorrow at 9am for 1 hour".
+_TITLE_TAIL_DURATION = re.compile(r"(?i)\s+(?:for|lasting)\s+(?:an?\s+|one\s+|1\s+)?hours?\s*$")
+_TITLE_TAIL_PROVIDER = re.compile(r"(?i)\s+(?:on|in|to)\s+(?:google|outlook)(?:\s+calendar)?\s*$")
+_TITLE_TAILS = (
+    _TITLE_TAIL_PROVIDER,
+    _TITLE_TAIL_DURATION,
+    _TITLE_TAIL_TIME,
+    _TITLE_TAIL_DAY,
+)
+
+
+def _strip_when_from_title(title: str) -> str:
+    """Peel when-clauses off the end of a spoken title, never to nothing.
+
+    A title that is *only* a when-clause is the user naming the event after
+    the day ("add an event called Tomorrow"), and an empty summary is worse
+    than a redundant one — it is the difference between a confirm card and a
+    draft that cannot be created at all.
+    """
+    text = (title or "").strip()
+    changed = True
+    while changed and text:
+        changed = False
+        for pattern in _TITLE_TAILS:
+            shorter = pattern.sub("", text).strip().rstrip(".,!;:")
+            if shorter and shorter != text:
+                text = shorter
+                changed = True
+    return text
+
+
 _REL_AT = re.compile(
     r"(?i)^\s*(?P<day>today|tonight|tomorrow|monday|tuesday|wednesday|thursday|"
     r"friday|saturday|sunday|next\s+\w+)\s+at\s+(?P<time>.+?)\s*$"
@@ -187,24 +247,15 @@ def normalize_calendar_speech(text: str) -> str:
     )
 
 
-_SEND_CONFIRM = re.compile(
-    r"(?i)^\s*("
-    r"(?:yes|yep|yeah|ok|okay|go\s+ahead|do\s+it|please)"
-    r"[,.]?\s*(?:please)?|"
-    r"yes\s*,?\s*please|"
-    r"please\s+(?:do|proceed|create)|"
-    r"proceed(?:\s+with\s+(?:creating|it))?"
-    r")\s*[.!]?\s*$"
+# "Proceed" belongs to this channel and not to the send channels: creating an
+# event is the one of the three where the word is unambiguous.
+_SEND_CONFIRM = send_confirm_pattern(
+    r"please\s+(?:do|proceed|create)",
+    r"proceed(?:\s+with\s+(?:creating|it))?",
+    affirmations=("please",),
 )
 
-_PROCEED_ASK = re.compile(
-    r"(?i)\b("
-    r"would\s+you\s+like\s+(?:me\s+)?to\s+(?:proceed|create)|"
-    r"shall\s+i\s+create|"
-    r"want\s+me\s+to\s+(?:create|proceed)|"
-    r"proceed\s+with\s+creating"
-    r")\b"
-)
+_PROCEED_ASK = proceed_ask_pattern("(?:proceed|create)", "creating")
 
 
 @dataclass(frozen=True)
@@ -276,10 +327,41 @@ _DELETE_TITLED = re.compile(
     r"(?i)\b(?:delete|delight|delate)\s+(?:the\s+)?(?P<title>.+?)\s+"
     r"(?:calendar\s+)?event\b"
 )
-
-_CLOCK = re.compile(
-    r"(?i)\b(?:the\s+)?(?P<h>\d{1,2})(?::(?P<m>\d{2}))?\s*(?P<ap>am|pm)\b"
+# "delete that event" is a pronoun, not a title, and the difference is not
+# cosmetic. The tool matches `summary` as a *substring* of every event's title
+# and description, and this module sends keep=0 with it, so summary="that"
+# resolves to every event with the word "that" anywhere in it and removes all
+# of them. The ambiguity guard in `agenda._delete_resolved` only fires when
+# `keep` is None, so it does not catch this either.
+_DELETE_PRONOUN_TITLE = frozenset(
+    {
+        "a",
+        "an",
+        "it",
+        "last",
+        "my",
+        "one",
+        "that",
+        "that last",
+        "the",
+        "the last",
+        "the one",
+        "this",
+        "this one",
+    }
 )
+
+# The day has to come off the utterance with the clock, not be assumed to be
+# today. `agenda._delete_resolved` filters candidates on date *and* hour, so a
+# dropped day is not a delete that fails — for anything recurring it is the
+# wrong instance deleted, which is the one mistake on this path with no undo.
+_DELETE_WHEN = re.compile(
+    r"(?i)\b(?P<day>today|tonight|tomorrow|monday|tuesday|wednesday|thursday|"
+    r"friday|saturday|sunday|next\s+\w+)\s+(?:at\s+)?"
+    r"(?P<clock>\d{1,2}(?::\d{2})?\s*(?:am|pm))\b"
+)
+
+_CLOCK = re.compile(r"(?i)\b(?:the\s+)?(?P<h>\d{1,2})(?::(?P<m>\d{2}))?\s*(?P<ap>am|pm)\b")
 
 # Surface the Arelis calendar tile — not a list of events, not calendar.google.com.
 _OPEN = re.compile(
@@ -446,8 +528,11 @@ def draft_agenda_delete_args(
         out["event_id"] = eid
         return out
     titled = _DELETE_TITLED.search(raw)
-    if titled and not looks_like_duplicate_delete(raw):
-        out["summary"] = titled.group("title").strip()
+    title = (titled.group("title") or "").strip() if titled else ""
+    if title.casefold() in _DELETE_PRONOUN_TITLE:
+        title = ""
+    if title and not looks_like_duplicate_delete(raw):
+        out["summary"] = title
     else:
         summary = last_agenda_create_summary(receipts=receipts, history=history)
         if summary:
@@ -456,6 +541,10 @@ def draft_agenda_delete_args(
         out["keep"] = 1
     else:
         out["keep"] = 0
+    dayed = _DELETE_WHEN.search(raw)
+    if dayed:
+        out["start"] = normalize_agenda_start(f"{dayed.group('day')} at {dayed.group('clock')}")
+        return out
     clock = _CLOCK.search(raw)
     if clock:
         hour = int(clock.group("h"))
@@ -658,7 +747,16 @@ def normalize_agenda_start(start: str, *, now: datetime | None = None) -> str:
             day_key = left.strip() or "today"
             time_raw = right.strip()
         else:
-            return text
+            # A day with no clock is still a real date, and every branch above
+            # needed a time, so `start` came back as the literal word. That is
+            # what "add an event called Dentist tomorrow" produced: a draft
+            # reporting `complete`, a confirm card, and then the tool refusing
+            # it with `Invalid start 'tomorrow'; use ISO date/datetime`.
+            # Midnight is the honest reading of a day named without an hour.
+            try:
+                return normalize_date(text, today=today) or text
+            except JobError:
+                return text
 
     try:
         day = normalize_date(day_key if day_key != "tonight" else "today", today=today)
@@ -696,7 +794,7 @@ def _extract_title(raw: str) -> tuple[str, str]:
     if title_m:
         summary = (title_m.group("title") or "").strip().rstrip(".,!;:")
         summary = _TITLE_WHEN.split(summary, maxsplit=1)[0].strip().rstrip(".,!;:")
-        return summary, ""
+        return _strip_when_from_title(summary), ""
     rem_m = _REMINDER_TITLE.search(raw)
     if rem_m:
         clause = (rem_m.group("title") or "").strip().rstrip(".,!;:")
@@ -714,7 +812,11 @@ def _extract_title(raw: str) -> tuple[str, str]:
             if len(summary) > 80:
                 summary = summary[:77].rstrip() + "…"
             return summary, body
-        summary = clause[:1].upper() + clause[1:] if clause else ""
+        # The notes keep the whole clause; only the title loses the when.
+        # "Reminder: Call the bank" is the row in the calendar grid, and the
+        # time is already the column it sits in.
+        short = _strip_when_from_title(clause) or clause
+        summary = short[:1].upper() + short[1:] if short else ""
         if not summary.lower().startswith("reminder"):
             summary = f"Reminder: {summary}"
         if len(summary) > 80:
@@ -722,7 +824,7 @@ def _extract_title(raw: str) -> tuple[str, str]:
         return summary, clause
     put_title = _title_from_put_or_add(raw)
     if put_title:
-        return put_title, ""
+        return _strip_when_from_title(put_title) or put_title, ""
     to_m = re.search(r"(?i)(?:[ap]m)\s+to\s+(?P<title>.+)$", raw)
     if to_m:
         title = (to_m.group("title") or "").strip().rstrip(".,!;:")
@@ -731,9 +833,42 @@ def _extract_title(raw: str) -> tuple[str, str]:
     return "", ""
 
 
+def _when_has_clock(match: re.Match[str]) -> bool:
+    if match.group("iso"):
+        return bool(re.search(r"[T ]\d{2}:", match.group("iso")))
+    if match.group("md"):
+        return bool(match.group("md_time"))
+    if match.group("weeks"):
+        return bool(match.group("weeks_time"))
+    return bool(re.search(r"(?i)\bat\s+\d", match.group("rel") or ""))
+
+
+def _pick_when(raw: str) -> re.Match[str] | None:
+    """The when-clause carrying a clock, else the leftmost one.
+
+    `_WHEN` was a plain search, and a weekday inside the *title* sits to the
+    left of the clause that has the time: "add an event called Taco Tuesday
+    tomorrow at 6pm" matched "Tuesday", which is both the wrong day and not a
+    thing `normalize_agenda_start` can turn into a timestamp. Preferring a
+    match that names a time is what tells a name from a when.
+    """
+    first: re.Match[str] | None = None
+    for match in _WHEN.finditer(raw):
+        if first is None:
+            first = match
+        if _when_has_clock(match):
+            return match
+    return first
+
+
 def parse_agenda_utterance(text: str) -> AgendaDraft | None:
     raw = normalize_calendar_speech(text)
-    if not raw or not _CREATE.search(raw):
+    # The guard owns the question, so that `looks_like_calendar_create` and
+    # this cannot disagree. They did: the guard vetoes a turn that opens with
+    # an SMS verb ("text my wife and add an event called…"), the parser went
+    # straight to `_CREATE`, and `turn_prepare` calls the parser without the
+    # guard in front of it — so the agenda force gate armed on a text turn.
+    if not raw or not looks_like_calendar_create(raw):
         return None
     summary, description = _extract_title(raw)
     # Anniversary / titled by trailing "It is my X" when no called/titled/reminder.
@@ -745,7 +880,7 @@ def parse_agenda_utterance(text: str) -> AgendaDraft | None:
         if ann:
             title = (ann.group("title") or "").strip().rstrip(".,!;:")
             summary = title[:1].upper() + title[1:] if title else ""
-    when_m = _WHEN.search(raw)
+    when_m = _pick_when(raw)
     if not when_m:
         return None
     if when_m.group("iso"):
@@ -821,20 +956,19 @@ def complete_agenda_draft(
         return current
     if not _SEND_CONFIRM.match(text or ""):
         return None
-    pairs = history_pairs(history or [])
-    saw_ask = False
-    for role, content in reversed(pairs):
-        if role == "assistant" and _PROCEED_ASK.search(content or ""):
-            saw_ask = True
-            continue
-        if role == "user":
-            prior = parse_agenda_utterance(content)
-            if prior is not None and (prior.complete or prior.start):
-                return prior
-            if saw_ask:
-                continue
-            break
-    return None
+    # `[:-1]` is the whole of this walk working. Both callers — `turn_prepare`
+    # and `preflight.detect_intents` — read `loop.memory.messages`, which
+    # `turn_prepare` has already appended this turn to. So the first thing the
+    # walk saw was the user's own "yes", which parses as nothing, and it broke
+    # out on iteration one every single time. The revival this function
+    # documents has never run in a live session.
+    pairs = history_with_current(history, text)
+    return last_draft_before_confirm(
+        pairs[:-1],
+        parse=parse_agenda_utterance,
+        accept=lambda draft: draft.complete or bool(draft.start),
+        asked=lambda content: bool(_PROCEED_ASK.search(content)),
+    )
 
 
 def fill_agenda_args(

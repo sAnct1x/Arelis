@@ -1371,7 +1371,7 @@ def is_tiny_prompt_ask(text: str) -> bool:
     Unmatched real work still fail-opens. A place ("what time is it in Tokyo")
     does not match: that still needs a tool. "Who is this" is not identity.
     """
-    from arelis.core.sms_complete import (
+    from arelis.core.utterance_guards import (
         looks_like_closing_chitchat,
         looks_like_greeting,
     )

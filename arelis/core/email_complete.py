@@ -13,12 +13,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from arelis.contacts import Contact, load_contacts, match_contact_label, resolve_contact
+from arelis.contacts import Contact, load_contacts
 from arelis.core.complete_protocol import (
     history_with_current,
     remaining_labels,
     unfinished_call_notice,
 )
+from arelis.core.confirm_patterns import proceed_ask_pattern, send_confirm_pattern
+from arelis.core.contact_match import find_contact
+from arelis.core.history_revival import last_draft_before_confirm
 from arelis.history_view import history_pairs
 from arelis.mail import valid_address
 
@@ -398,6 +401,13 @@ _ASKED_FOR_FIELDS = re.compile(
     r")\b"
 )
 
+# The assistant having offered to send. This module had no such pattern for a
+# year, because it had nothing to use one in: its Case C revived a draft on any
+# confirmation regardless of whether anything had been offered. Same verbs as
+# SMS — both of these are sends, and "shall I send it" reads the same whether
+# the thing being sent has a subject line.
+_PROCEED_ASK = proceed_ask_pattern("send", "sending", r"confirm(?:ation)?")
+
 _EMAIL_VERB = re.compile(
     r"(?i)(?:^|[\n.!?]\s*)(?:please\s+)?("
     r"e-?mailed|e-?mails?|send\s+(?:an?\s+)?(?:e-?mail|mail)|"
@@ -406,14 +416,16 @@ _EMAIL_VERB = re.compile(
 )
 
 # Revive a prior complete draft when the user just confirms send (R4 / S10).
-_SEND_CONFIRM = re.compile(
-    r"(?i)^\s*("
-    r"send\s+(?:the\s+)?(?:e-?mail|mail|it|that)|"
-    r"send\s+it\s+(?:now|please)?|"
-    r"(?:yes|yep|yeah|ok|okay|go\s+ahead|do\s+it|ship\s+it)"
-    r"(?:\s+please)?|"
-    r"please\s+send(?:\s+it)?"
-    r")\s*[.!]?\s*$"
+#
+# This is where the copy-drift showed: the trailing allowance here was
+# `(?:\s+please)?`, so "yes, please" — which confirms a text and a calendar
+# event — confirmed nothing, and the user had to say it twice. Sharing the
+# skeleton is what stops that being invisible.
+_SEND_CONFIRM = send_confirm_pattern(
+    r"send\s+(?:the\s+)?(?:e-?mail|mail|it|that)",
+    r"send\s+it\s+(?:now|please)",
+    r"please\s+send(?:\s+it)?",
+    affirmations=(r"ship\s+it",),
 )
 
 
@@ -741,10 +753,21 @@ def _self_email() -> str:
     return owner_inbox()
 
 
-def resolve_email_address(
-    to: str, contacts: dict[str, Contact] | None = None
-) -> str:
-    """Map a spoken name or address to a usable send_email `to` value."""
+def resolve_email_address(to: str, contacts: dict[str, Contact] | None = None) -> str:
+    """Map a spoken name or address to a usable send_email `to` value.
+
+    The name lookup is `core.contact_match.find_contact`, shared with SMS. It
+    used to be a hand-rolled version of the same three tiers with the two
+    guards missing, and that cost the worst bug in this module: "Sam Brightly"
+    for "Sam Brightley" skipped every exact test, degraded to the bare first
+    name "sam", and matched the owner's own card. The mail went to the user's
+    own inbox, and `complete` was satisfied because *an* address came back.
+
+    A person with no email now returns "" rather than letting the search
+    continue to whoever else answers to their first name. That is the point:
+    `unresolved_named_to` then asks for the address, which is the honest
+    answer and is already the copy the preflight nudge carries.
+    """
     raw = _clean_to(to)
     if not raw or raw.lower() in _SELF_TO:
         return _self_email()
@@ -752,23 +775,8 @@ def resolve_email_address(
     if valid_address(raw):
         return raw
     book = contacts if contacts is not None else load_contacts()
-    hit = resolve_contact(raw, book)
-    if hit is not None and hit.email:
-        return hit.email
-    labeled = match_contact_label(raw, book)
-    if labeled is not None and labeled.email:
-        return labeled.email
-    first = raw.split()[0].lower() if raw else ""
-    if first and len(first) >= 2:
-        for contact in book.values():
-            if not contact.email:
-                continue
-            if first in contact.keys:
-                return contact.email
-            name_first = (contact.name or "").split()[0].lower()
-            if name_first and name_first == first:
-                return contact.email
-    return ""
+    hit = find_contact(raw, book)
+    return hit.email if hit is not None else ""
 
 
 def _extract_file_path(text: str) -> str:
@@ -1212,20 +1220,24 @@ def _last_email_draft_any(
 def _last_complete_email_draft(
     pairs: list[tuple[str, str]], book: dict[str, Contact]
 ) -> EmailDraft | None:
-    """Most recent complete compose in history (for 'send the email' revive)."""
-    for role, content in reversed(pairs):
-        if role != "user":
-            continue
-        prior = parse_email_utterance(content)
-        if prior and prior.complete:
-            return _with_resolved(
-                _clone_draft(prior, source="history"),
-                book,
-            )
-        # Also accept a follow-up body turn that completed an earlier draft.
-        follow = parse_subject_body_followup(content)
-        if follow is None:
-            continue
+    """Most recent complete compose in history (for 'send the email' revive).
+
+    The shared walk is the fix for this module's worst defect. This pass used
+    to `continue` past every user turn that was not mail, which
+    meant a confirmation reached backwards without limit: "yes" five unrelated
+    exchanges after a draft returned that draft, complete and sendable. SMS and
+    agenda both stop at the turn where the user moved on. This did not.
+    """
+    revived = last_draft_before_confirm(
+        pairs,
+        parse=parse_email_utterance,
+        accept=lambda draft: draft.complete,
+        asked=lambda content: bool(
+            _ASKED_FOR_FIELDS.search(content) or _PROCEED_ASK.search(content)
+        ),
+    )
+    if revived is not None:
+        return _with_resolved(_clone_draft(revived, source="history"), book)
     # Second pass: incomplete "email X about S" + later body line.
     pending: EmailDraft | None = None
     for role, content in pairs:
