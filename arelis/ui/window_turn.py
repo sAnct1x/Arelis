@@ -21,25 +21,19 @@ from arelis.ui.idle_host import note_engagement, sync_idle_mode
 from arelis.ui.sms_host import flush_held_inbound
 from arelis.ui.status_copy import THINKING_STATUS, WARMING_STATUS
 from arelis.ui.theme import (
-    GLASS,
     SHELL,
     active_theme,
 )
 from arelis.ui.voice_host import stop_speech
+from arelis.ui.window_const import BUSY_WATCHDOG_MS as _BUSY_WATCHDOG_MS
 from arelis.ui.workspace_host import refresh_desk
 
 log = logging.getLogger(__name__)
-
-_WINDOW_RADIUS = int(GLASS["radius"])
-_BUSY_WATCHDOG_MS = 8000
-_THINK_PULSE_MS = 600
-_VOICE_HOTKEY_ECHO_S = 0.12
 
 _PANEL_OUTER = SHELL["outer"]
 _PANEL_HALF = SHELL["half"]
 _PANEL_TOP = SHELL["top"]
 _PANEL_BOTTOM = SHELL["bottom"]
-
 
 
 class WindowTurn:
@@ -69,8 +63,7 @@ class WindowTurn:
             item.tool,
             item.summary,
             detail=item.detail,
-            note=item.note
-            or "Restored pending send — nothing was sent while you were away.",
+            note=item.note or "Restored pending send — nothing was sent while you were away.",
             batch_ok=item.batch_ok,
         )
         self._set_confirm_pending(True)
@@ -99,9 +92,7 @@ class WindowTurn:
     def _on_again(self) -> None:
         """Re-submit the last user turn. Same role; composer stays empty."""
         if self._turn_busy:
-            self._toast_finish_or_stop(
-                "Finish or stop the current turn before asking again."
-            )
+            self._toast_finish_or_stop("Finish or stop the current turn before asking again.")
             return
         text = self.chat._last_user_text
         attachments = list(self.chat._last_user_attachments or [])
@@ -145,9 +136,7 @@ class WindowTurn:
         if callable(pending) and pending():
             tip = "loading the model — first reply after that is quick"
         else:
-            model = str(
-                (self.config.get("models") or {}).get(role) or self._current_model or ""
-            )
+            model = str((self.config.get("models") or {}).get(role) or self._current_model or "")
             tip = f"thinking… ({role}" + (f":{model}" if model else "") + ")"
         self.thinking.append(tip, kind="status")
         if self.conversation.confirm_open():
@@ -366,8 +355,10 @@ class WindowTurn:
         flash_taskbar(self)
 
     def _floor_busy(self) -> bool:
-        speaking = self._speech_expected or self._speech_playing or (
-            self.speech_player is not None and self.speech_player.has_work()
+        speaking = (
+            self._speech_expected
+            or self._speech_playing
+            or (self.speech_player is not None and self.speech_player.has_work())
         )
         return floor_is_busy(
             turn_busy=self._turn_busy,

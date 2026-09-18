@@ -42,12 +42,13 @@ from arelis.ui.settings_host import (
 from arelis.ui.shortcuts import ShortcutsSheet
 from arelis.ui.stage import paint_atmosphere
 from arelis.ui.theme import (
-    GLASS,
     SHELL,
     THEME_CHOICES,
     active_theme,
     theme_from_config,
 )
+from arelis.ui.window_const import VOICE_HOTKEY_ECHO_S as _VOICE_HOTKEY_ECHO_S
+from arelis.ui.window_const import WINDOW_RADIUS as _WINDOW_RADIUS
 from arelis.ui.window_resize import (
     cursor_for_hit,
     enable_win32_resize_frame,
@@ -61,16 +62,10 @@ from arelis.ui.world_host import world_available
 
 log = logging.getLogger(__name__)
 
-_WINDOW_RADIUS = int(GLASS["radius"])
-_BUSY_WATCHDOG_MS = 8000
-_THINK_PULSE_MS = 600
-_VOICE_HOTKEY_ECHO_S = 0.12
-
 _PANEL_OUTER = SHELL["outer"]
 _PANEL_HALF = SHELL["half"]
 _PANEL_TOP = SHELL["top"]
 _PANEL_BOTTOM = SHELL["bottom"]
-
 
 
 class WindowChrome:
@@ -275,9 +270,7 @@ class WindowChrome:
         self.addAction(self.act_fullscreen)
 
         self.act_font_larger = QAction("larger text", self)
-        self.act_font_larger.setShortcuts(
-            [QKeySequence("Ctrl+="), QKeySequence("Ctrl++")]
-        )
+        self.act_font_larger.setShortcuts([QKeySequence("Ctrl+="), QKeySequence("Ctrl++")])
         self.act_font_larger.triggered.connect(lambda: nudge_chat_font(self, 0.1))
         self.addAction(self.act_font_larger)
 
@@ -288,9 +281,7 @@ class WindowChrome:
 
         self.act_font_reset = QAction("reset text size", self)
         self.act_font_reset.setShortcut(QKeySequence("Ctrl+0"))
-        self.act_font_reset.triggered.connect(
-            lambda: apply_chat_font_scale(self, 1.0)
-        )
+        self.act_font_reset.triggered.connect(lambda: apply_chat_font_scale(self, 1.0))
         self.addAction(self.act_font_reset)
 
         self.act_notify_url = QAction("notify url…", self)
@@ -402,9 +393,7 @@ class WindowChrome:
             self._filament.paint(painter, self.rect())
             return
         path = QPainterPath()
-        path.addRoundedRect(
-            self.rect().adjusted(0, 0, -1, -1), _WINDOW_RADIUS, _WINDOW_RADIUS
-        )
+        path.addRoundedRect(self.rect().adjusted(0, 0, -1, -1), _WINDOW_RADIUS, _WINDOW_RADIUS)
         painter.setClipPath(path)
         paint_atmosphere(painter, self.rect(), drift=self._atmosphere_phase)
 
@@ -492,9 +481,7 @@ class WindowChrome:
             # floating instrument is a top-level window that does not go down
             # with it. Left alone, the panel sits on the desktop with nothing
             # behind it — same orphan as close-to-tray, reached from the title bar.
-            was_minimized = bool(
-                event.oldState() & Qt.WindowState.WindowMinimized
-            )
+            was_minimized = bool(event.oldState() & Qt.WindowState.WindowMinimized)
             if self.isMinimized():
                 self._park_floating_docks()
                 park_hands(self)
@@ -681,9 +668,7 @@ class WindowChrome:
         from arelis.ui.dialog import confirm
         from arelis.ui.settings_host import apply_window_theme
 
-        if theme_id == "filament" and not (self.config.get("ui") or {}).get(
-            "filament_ack"
-        ):
+        if theme_id == "filament" and not (self.config.get("ui") or {}).get("filament_ack"):
             ok = confirm(
                 self,
                 "filament (testing)",

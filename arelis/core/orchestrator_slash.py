@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import logging
 import re
 import shlex
 from typing import Any
@@ -11,82 +10,6 @@ from typing import Any
 from arelis.core.events import Event, EventType
 from arelis.core.memory import tool_trace_entry, tool_trace_note
 from arelis.tools.safety import redact_secrets
-
-# Absolute paths typed in chat that may need a session read grant.
-_ABS_PATH_TOKEN = re.compile(
-    r"(?P<path>"
-    r"(?:[A-Za-z]:[\\/][^\s\"'<>|]+)"
-    r"|(?:/(?:Users|home|tmp|var|etc|opt)[^\s\"'<>|]*))"
-)
-
-log = logging.getLogger(__name__)
-
-ROLES: set[str] = {"fast", "research"}
-
-
-def research_needs_vram_swap(router: object) -> bool:
-    """True when research is a different Ollama tag from fast."""
-    same = getattr(router, "same_chat_weights", None)
-    if callable(same):
-        try:
-            return not bool(same("fast", "research"))
-        except Exception:
-            return True
-    model_for = getattr(router, "model_for", None)
-    if not callable(model_for):
-        return True
-    try:
-        from arelis.llm.ollama import same_ollama_model
-
-        return not same_ollama_model(
-            str(model_for("fast") or ""),
-            str(model_for("research") or ""),
-        )
-    except Exception:
-        return True
-
-
-def comms_bypasses_sticky(text: str) -> bool:
-    """True when this turn is SMS/email/agenda and must not keep a sticky hold."""
-    raw = (text or "").strip()
-    if not raw:
-        return False
-    from arelis.core.agenda_complete import (
-        looks_like_calendar_create,
-        looks_like_calendar_delete,
-        looks_like_calendar_read,
-    )
-    from arelis.core.email_complete import looks_like_compose_email
-    from arelis.core.sms_complete import parse_sms_utterance
-
-    if parse_sms_utterance(raw) is not None:
-        return True
-    if looks_like_compose_email(raw):
-        return True
-    from arelis.core.intent_catalog import EARTH_STATUS, SOLAR_STATUS
-
-    if SOLAR_STATUS.matches(raw) or EARTH_STATUS.matches(raw):
-        return True
-    return (
-        looks_like_calendar_create(raw)
-        or looks_like_calendar_delete(raw)
-        or looks_like_calendar_read(raw)
-    )
-
-
-# Slash commands run a tool directly, bypassing the model and the confirm card.
-# That bypass is intentional and is scoped to text the user typed: naming a tool
-# and its arguments explicitly is itself the confirmation.
-#
-# send_email and send_sms are deliberately absent. Every other tool here is
-# undoable or local; a sent message is neither, and the card showing the
-# recipient and body is the only gate it has. There is no version of typing it
-# out that replaces reading what is about to leave the machine.
-TOOL_CMD = re.compile(
-    r"^/(?P<tool>web_search|web_fetch|scrape|workspace|analyze|image"
-    r"|inbox|schedule)(?:\s+(?P<args>.+))?$",
-    re.IGNORECASE,
-)
 
 
 def _as_code_block(text: str) -> str:
@@ -99,6 +22,7 @@ def _as_code_block(text: str) -> str:
     longest = max((len(run) for run in re.findall(r"`+", text)), default=0)
     fence = "`" * max(3, longest + 1)
     return f"{fence}\n{text}\n{fence}"
+
 
 def _tokenize(args: str) -> list[str]:
     """Split slash-command arguments the way a Windows user would expect.
@@ -125,16 +49,19 @@ def _tokenize(args: str) -> list[str]:
         tokens = [_unquote(token) for token in args.split()]
     return tokens
 
+
 def _unquote(token: str) -> str:
     if "=" in token:
         key, value = token.split("=", 1)
         return f"{key}={_strip_quotes(value)}"
     return _strip_quotes(token)
 
+
 def _strip_quotes(value: str) -> str:
     if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
         return value[1:-1]
     return value
+
 
 class OrchestratorSlash:
     async def _emit_help(self) -> None:
@@ -146,7 +73,7 @@ class OrchestratorSlash:
             "  /role fast|research\n"
             "  /project [name]\n"
             "  /rooms                       list rooms\n"
-            "  /room <name>                 open one (or say \"let's work on <name>\")\n"
+            '  /room <name>                 open one (or say "let\'s work on <name>")\n'
             "  /room new <name>             make one\n"
             "  /room set purpose|root|kind|name|result|test <value>\n"
             "  /room forget <name>          drop the room, keep its conversations\n"
@@ -167,9 +94,7 @@ class OrchestratorSlash:
     async def _run_tool_command(self, tool: str, args: str) -> None:
         kwargs = self._parse_args(args)
         await self.bus.publish(Event(EventType.TOOL_START, {"tool": tool, "args": kwargs}))
-        await self.bus.publish(
-            Event(EventType.THINKING, {"text": f"slash  Running tool `{tool}`"})
-        )
+        await self.bus.publish(Event(EventType.THINKING, {"text": f"slash  Running tool `{tool}`"}))
         result = await self.tools.call(tool, **kwargs)
         await self.bus.publish(
             Event(

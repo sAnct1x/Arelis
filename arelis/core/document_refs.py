@@ -10,6 +10,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+from arelis.core.path_refs import ABS_PREFIX_OR_START, ABS_START, PATH_CHARS
 from arelis.paths import outputs_dir
 
 _DOC_SUFFIXES = frozenset({".pdf", ".docx", ".xlsx", ".csv", ".md", ".txt"})
@@ -22,13 +23,11 @@ _SUFFIX = r"\.(?:pdf|docx|xlsx|csv|md|txt|png)"
 # note was dropped, so History came back as prose with no Open / Show card.
 _PATH_MENTION = re.compile(
     r"(?i)("
-    r"(?:[A-Za-z]:[\\/](?!/)[^\s\"'<>|]+[/\\])?"
+    rf"{ABS_PREFIX_OR_START}"
     r"(?:outputs[/\\](?:documents|plots)[/\\]|(?:documents|plots)[/\\])"
-    rf"[^\s\"'<>|]+{_SUFFIX}"
+    rf"{PATH_CHARS}+{_SUFFIX}"
     r"|"
-    rf"[A-Za-z]:[\\/](?!/)[^\s\"'<>|]+{_SUFFIX}"
-    r"|"
-    rf"(?<![:/\w])/(?!/)[^\s\"'<>|]+{_SUFFIX}"
+    rf"{ABS_START}{PATH_CHARS}+{_SUFFIX}"
     r")"
 )
 
@@ -144,9 +143,7 @@ def _history_pairs(history: list[Any] | None) -> list[tuple[str, str, str]]:
     for item in history or []:
         if hasattr(item, "role"):
             note = str(getattr(item, "note", "") or "")
-            out.append(
-                (str(item.role), str(getattr(item, "content", "") or ""), note)
-            )
+            out.append((str(item.role), str(getattr(item, "content", "") or ""), note))
         elif isinstance(item, dict):
             out.append(
                 (
@@ -158,9 +155,7 @@ def _history_pairs(history: list[Any] | None) -> list[tuple[str, str, str]]:
     return out
 
 
-def _usable_file(
-    raw: str, *, suffixes: frozenset[str] | None = None
-) -> str:
+def _usable_file(raw: str, *, suffixes: frozenset[str] | None = None) -> str:
     allowed = suffixes if suffixes is not None else _OPEN_SUFFIXES
     text = (raw or "").strip().strip("\"'`")
     if not text:
@@ -229,11 +224,7 @@ def resolve_drop_file(
     try:
         if not drop.is_dir():
             return ""
-        files = [
-            p
-            for p in drop.iterdir()
-            if p.is_file() and p.suffix.lower() in wanted
-        ]
+        files = [p for p in drop.iterdir() if p.is_file() and p.suffix.lower() in wanted]
     except OSError:
         return ""
     if name:

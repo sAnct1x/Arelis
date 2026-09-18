@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import re
 from typing import Any
 
 from arelis.browser.hold import set_paused
@@ -42,6 +41,16 @@ from arelis.core.orchestrator_rooms import (
 from arelis.core.orchestrator_rooms import (
     resume_last_room as resume_last_room_impl,
 )
+
+# Re-exported, not used here. These lived in this module before the mixin
+# split copied them into three more, and `comms_bypasses_sticky` is imported
+# from this path by tests and is the natural public name for it.
+from arelis.core.orchestrator_shared import (  # noqa: F401
+    ROLES,
+    TOOL_CMD,
+    comms_bypasses_sticky,
+    research_needs_vram_swap,
+)
 from arelis.core.orchestrator_slash import (  # noqa: F401
     OrchestratorSlash,
     _as_code_block,
@@ -70,73 +79,6 @@ from arelis.tools.safety import redact_secrets
 from arelis.workspace import WorkspaceRoots
 
 log = logging.getLogger(__name__)
-
-ROLES: set[str] = {"fast", "research"}
-
-
-def research_needs_vram_swap(router: object) -> bool:
-    """True when research is a different Ollama tag from fast."""
-    same = getattr(router, "same_chat_weights", None)
-    if callable(same):
-        try:
-            return not bool(same("fast", "research"))
-        except Exception:
-            return True
-    model_for = getattr(router, "model_for", None)
-    if not callable(model_for):
-        return True
-    try:
-        from arelis.llm.ollama import same_ollama_model
-
-        return not same_ollama_model(
-            str(model_for("fast") or ""),
-            str(model_for("research") or ""),
-        )
-    except Exception:
-        return True
-
-
-def comms_bypasses_sticky(text: str) -> bool:
-    """True when this turn is SMS/email/agenda and must not keep a sticky hold."""
-    raw = (text or "").strip()
-    if not raw:
-        return False
-    from arelis.core.agenda_complete import (
-        looks_like_calendar_create,
-        looks_like_calendar_delete,
-        looks_like_calendar_read,
-    )
-    from arelis.core.email_complete import looks_like_compose_email
-    from arelis.core.sms_complete import parse_sms_utterance
-
-    if parse_sms_utterance(raw) is not None:
-        return True
-    if looks_like_compose_email(raw):
-        return True
-    from arelis.core.intent_catalog import EARTH_STATUS, SOLAR_STATUS
-
-    if SOLAR_STATUS.matches(raw) or EARTH_STATUS.matches(raw):
-        return True
-    return (
-        looks_like_calendar_create(raw)
-        or looks_like_calendar_delete(raw)
-        or looks_like_calendar_read(raw)
-    )
-
-
-# Slash commands run a tool directly, bypassing the model and the confirm card.
-# That bypass is intentional and is scoped to text the user typed: naming a tool
-# and its arguments explicitly is itself the confirmation.
-#
-# send_email and send_sms are deliberately absent. Every other tool here is
-# undoable or local; a sent message is neither, and the card showing the
-# recipient and body is the only gate it has. There is no version of typing it
-# out that replaces reading what is about to leave the machine.
-TOOL_CMD = re.compile(
-    r"^/(?P<tool>web_search|web_fetch|scrape|workspace|analyze|image"
-    r"|inbox|schedule)(?:\s+(?P<args>.+))?$",
-    re.IGNORECASE,
-)
 
 
 class Orchestrator(OrchestratorTurns, OrchestratorSlash, OrchestratorConfirm):
@@ -205,9 +147,7 @@ class Orchestrator(OrchestratorTurns, OrchestratorSlash, OrchestratorConfirm):
         bus.subscribe(EventType.SESSION_LOAD, self.on_session_load)
         bus.subscribe(EventType.MOBILE_SYNC, self.on_mobile_sync)
 
-    def classify_role(
-        self, text: str, explicit: ModelRole | None = None
-    ) -> tuple[ModelRole, str]:
+    def classify_role(self, text: str, explicit: ModelRole | None = None) -> tuple[ModelRole, str]:
         """Pick a model role and a short reason code for telemetry.
 
         An explicit research chip always wins. The fast chip does not,
@@ -264,25 +204,17 @@ class Orchestrator(OrchestratorTurns, OrchestratorSlash, OrchestratorConfirm):
         if conversing and not self._confirm_waiters and classify_hangup(text):
             task = self._turn_task
             if task is not None and not task.done():
-                await self.bus.publish(
-                    Event(EventType.TURN_CANCEL, {"reason": "voice"})
-                )
-            await self.bus.publish(
-                Event(EventType.CONVERSATION_END, {"reason": "voice"})
-            )
+                await self.bus.publish(Event(EventType.TURN_CANCEL, {"reason": "voice"}))
+            await self.bus.publish(Event(EventType.CONVERSATION_END, {"reason": "voice"}))
             return
         act = classify_physics_act(text, names=speech_body_names())
-        if act and (
-            self.rooms.active_id == PHYSICS_ROOM_ID or act.verb == "goto_earth"
-        ):
+        if act and (self.rooms.active_id == PHYSICS_ROOM_ID or act.verb == "goto_earth"):
             payload = dict(act.payload())
             payload["text"] = text
             await self.bus.publish(Event(EventType.PHYSICS_VERB, payload))
             return
         if not conversing and not control_only:
-            await self.bus.publish(
-                Event(EventType.USER_MESSAGE, {"text": text, "source": "voice"})
-            )
+            await self.bus.publish(Event(EventType.USER_MESSAGE, {"text": text, "source": "voice"}))
             return
         if control_only:
             return
@@ -292,12 +224,8 @@ class Orchestrator(OrchestratorTurns, OrchestratorSlash, OrchestratorConfirm):
                 # Headset barge-in is the next question. Cancel this turn
                 # first so the new USER_MESSAGE does not wait on the lock
                 # behind an answer nobody is listening to anymore.
-                await self.bus.publish(
-                    Event(EventType.TURN_CANCEL, {"reason": "voice"})
-                )
-        await self.bus.publish(
-            Event(EventType.USER_MESSAGE, {"text": text, "source": "voice"})
-        )
+                await self.bus.publish(Event(EventType.TURN_CANCEL, {"reason": "voice"}))
+        await self.bus.publish(Event(EventType.USER_MESSAGE, {"text": text, "source": "voice"}))
 
     def _turn_live(self) -> bool:
         task = self._turn_task
@@ -323,9 +251,7 @@ class Orchestrator(OrchestratorTurns, OrchestratorSlash, OrchestratorConfirm):
 
         if act == "stop":
             if live or waiting or held or conversing or control_only:
-                await self.bus.publish(
-                    Event(EventType.TURN_CANCEL, {"reason": "voice"})
-                )
+                await self.bus.publish(Event(EventType.TURN_CANCEL, {"reason": "voice"}))
                 return True
             return False
 
@@ -372,9 +298,7 @@ class Orchestrator(OrchestratorTurns, OrchestratorSlash, OrchestratorConfirm):
         if not apply_confirm_edit(tool, args, text):
             return False
         await self._republish_confirm(confirm_id, live)
-        await self.bus.publish(
-            Event(EventType.THINKING, {"text": f"voice edit  {tool}"})
-        )
+        await self.bus.publish(Event(EventType.THINKING, {"text": f"voice edit  {tool}"}))
         return True
 
     async def _republish_confirm(self, confirm_id: str, live: dict[str, Any]) -> None:
@@ -424,8 +348,7 @@ class Orchestrator(OrchestratorTurns, OrchestratorSlash, OrchestratorConfirm):
         stopped. No snapshot when nothing was running.
         """
         if self._last_ask and (
-            (self._turn_task is not None and not self._turn_task.done())
-            or self._confirm_waiters
+            (self._turn_task is not None and not self._turn_task.done()) or self._confirm_waiters
         ):
             self._stopped_ask = dict(self._last_ask)
         self._cancel = True
@@ -449,17 +372,9 @@ class Orchestrator(OrchestratorTurns, OrchestratorSlash, OrchestratorConfirm):
         set_paused(False)
         await self.bus.publish(Event(EventType.THINKING, {"text": "drive resumed"}))
 
-
     def _memory_store(self) -> MemoryStore | None:
         sink = self.memory.sink
         return sink if isinstance(sink, MemoryStore) else None
-
-
-
-
-
-
-
 
     # -- rooms ---------------------------------------------------------------
 
@@ -487,9 +402,7 @@ class Orchestrator(OrchestratorTurns, OrchestratorSlash, OrchestratorConfirm):
     async def _advance_room_setup(self, *, user_text: str = "") -> None:
         return await advance_room_setup(self, user_text=user_text)
 
-    async def _finish_room_setup(
-        self, *, skipped: bool, user_text: str = ""
-    ) -> None:
+    async def _finish_room_setup(self, *, skipped: bool, user_text: str = "") -> None:
         return await finish_room_setup(self, skipped=skipped, user_text=user_text)
 
     def _setup_closing(self, room: Room, skipped: bool) -> str:
@@ -554,24 +467,9 @@ class Orchestrator(OrchestratorTurns, OrchestratorSlash, OrchestratorConfirm):
         """
         if status:
             await self.bus.publish(Event(EventType.STATUS, {"message": message}))
-        will_speak = bool(self.config.get("_speak_replies")) and bool(
-            (message or "").strip()
-        )
+        will_speak = bool(self.config.get("_speak_replies")) and bool((message or "").strip())
         await self.bus.publish(
             Event(EventType.ASSISTANT_DONE, {"text": message, "speak": will_speak})
         )
         if will_speak:
             await self.bus.publish(Event(EventType.VOICE_SPEAK, {"text": message}))
-
-
-
-
-
-
-
-
-
-
-
-
-

@@ -30,7 +30,6 @@ from arelis.ui.layout_store import (
     save_window_layout,
 )
 from arelis.ui.theme import (
-    GLASS,
     SHELL,
     active_theme,
 )
@@ -41,16 +40,11 @@ from arelis.ui.window_resize import (
 
 log = logging.getLogger(__name__)
 
-_WINDOW_RADIUS = int(GLASS["radius"])
-_BUSY_WATCHDOG_MS = 8000
-_THINK_PULSE_MS = 600
-_VOICE_HOTKEY_ECHO_S = 0.12
 
 _PANEL_OUTER = SHELL["outer"]
 _PANEL_HALF = SHELL["half"]
 _PANEL_TOP = SHELL["top"]
 _PANEL_BOTTOM = SHELL["bottom"]
-
 
 
 class WindowLifetime:
@@ -68,9 +62,7 @@ class WindowLifetime:
         """
         QTimer.singleShot(
             ms,
-            lambda: None
-            if self._disposed or getattr(self, "_force_quit", False)
-            else fn(),
+            lambda: None if self._disposed or getattr(self, "_force_quit", False) else fn(),
         )
 
     def dispose(self) -> None:
@@ -107,11 +99,7 @@ class WindowLifetime:
         for release in (
             lambda: self.spatial.stop_track(),
             lambda: self.camera.stop(),
-            lambda: (
-                self.voice_controller.stop_all()
-                if self.voice_controller is not None
-                else None
-            ),
+            lambda: self.voice_controller.stop_all() if self.voice_controller is not None else None,
             lambda: stop_speech(self),
         ):
             try:
@@ -202,15 +190,9 @@ class WindowLifetime:
         inbound_timeout = 2.0 if self._force_quit else 5.0
         loop = self.loop
         loop_up = loop is not None and loop.is_running()
-        if (
-            self.inbound_runtime is not None
-            and self.inbound_runtime.owned
-            and loop_up
-        ):
+        if self.inbound_runtime is not None and self.inbound_runtime.owned and loop_up:
             try:
-                fut = asyncio.run_coroutine_threadsafe(
-                    self.inbound_runtime.stop(), loop
-                )
+                fut = asyncio.run_coroutine_threadsafe(self.inbound_runtime.stop(), loop)
                 fut.result(timeout=inbound_timeout)
             except Exception:
                 log.warning("inbound stop timed out or failed during quit", exc_info=True)
@@ -222,12 +204,7 @@ class WindowLifetime:
             self.sms_watcher = None
             self.sms_auto_reply = None
         # Never block tray Quit on indexer flush.
-        if (
-            self.indexer is not None
-            and not self._turn_busy
-            and not self._force_quit
-            and loop_up
-        ):
+        if self.indexer is not None and not self._turn_busy and not self._force_quit and loop_up:
             try:
                 fut = asyncio.run_coroutine_threadsafe(self.indexer.flush(), loop)
                 fut.result(timeout=1.5)
@@ -386,9 +363,7 @@ class WindowLifetime:
         # When attached to --core, ask core to stop too (full Quit Arelis).
         if self.ipc_client is not None:
             try:
-                self._publish_bus_coro(
-                    self.ipc_client.send_shutdown(reason="ui_tray_quit")
-                )
+                self._publish_bus_coro(self.ipc_client.send_shutdown(reason="ui_tray_quit"))
             except Exception:
                 pass
         # Cancel an in-flight turn so Quit is not blocked on model/tools.

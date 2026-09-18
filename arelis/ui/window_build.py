@@ -85,23 +85,18 @@ from arelis.ui.spatial_hands import SpatialHands
 from arelis.ui.stage import StageBackground
 from arelis.ui.surface_report import log_report
 from arelis.ui.theme import (
-    GLASS,
     SHELL,
     apply_theme,
     stylesheet,
     theme_from_config,
 )
+from arelis.ui.window_const import THINK_PULSE_MS as _THINK_PULSE_MS
 from arelis.ui.window_docks import bind_docks
 from arelis.ui.workspace_host import refresh_desk
 from arelis.ui.world_host import attach_world, bind_world
 from arelis.workspace import WorkspaceRoots
 
 log = logging.getLogger(__name__)
-
-_WINDOW_RADIUS = int(GLASS["radius"])
-_BUSY_WATCHDOG_MS = 8000
-_THINK_PULSE_MS = 600
-_VOICE_HOTKEY_ECHO_S = 0.12
 
 _PANEL_OUTER = SHELL["outer"]
 _PANEL_HALF = SHELL["half"]
@@ -116,9 +111,7 @@ def _hide_dock_title(dock: QDockWidget) -> None:
         | QDockWidget.DockWidgetFeature.DockWidgetClosable
     )
     apply_dock_chrome(dock, dock.isFloating())
-    dock.topLevelChanged.connect(
-        lambda floating, d=dock: apply_dock_chrome(d, bool(floating))
-    )
+    dock.topLevelChanged.connect(lambda floating, d=dock: apply_dock_chrome(d, bool(floating)))
 
 
 def _dock_shell(body: QWidget, margins: tuple[int, int, int, int]) -> QWidget:
@@ -128,6 +121,7 @@ def _dock_shell(body: QWidget, margins: tuple[int, int, int, int]) -> QWidget:
     layout.setSpacing(0)
     layout.addWidget(body)
     return shell
+
 
 class WindowBuild:
     def _construct_shell(
@@ -157,9 +151,9 @@ class WindowBuild:
         self.indexer = indexer
         self.router = router
         self._restore_session_id = restore_session_id
-        self.workspace_roots: WorkspaceRoots = (
-            config.get("_workspace") or WorkspaceRoots.from_config(config)
-        )
+        self.workspace_roots: WorkspaceRoots = config.get(
+            "_workspace"
+        ) or WorkspaceRoots.from_config(config)
         raw_desk = config.get("_desk")
         self.desk = raw_desk if isinstance(raw_desk, DeskStore) else DeskStore()
         self.config["_desk"] = self.desk
@@ -171,8 +165,7 @@ class WindowBuild:
             self.setWindowIcon(QIcon(str(icon_path)))
         self.setDockNestingEnabled(True)
         self.setDockOptions(
-            QMainWindow.DockOption.AnimatedDocks
-            | QMainWindow.DockOption.AllowNestedDocks
+            QMainWindow.DockOption.AnimatedDocks | QMainWindow.DockOption.AllowNestedDocks
         )
         apply_theme(theme_from_config(config))
         self.setStyleSheet(stylesheet())
@@ -216,9 +209,7 @@ class WindowBuild:
         self.setCentralWidget(self.stage)
         self._stage_layout = QVBoxLayout(self.stage)
         # Margins synced with docks via _sync_panel_margins (even gutters).
-        self._stage_layout.setContentsMargins(
-            _PANEL_OUTER, _PANEL_TOP, _PANEL_OUTER, _PANEL_BOTTOM
-        )
+        self._stage_layout.setContentsMargins(_PANEL_OUTER, _PANEL_TOP, _PANEL_OUTER, _PANEL_BOTTOM)
         self._stage_layout.setSpacing(0)
 
         default_role = config.get("router", {}).get("default_role", "fast")
@@ -253,9 +244,7 @@ class WindowBuild:
         self.contacts = ContactsPanel()
         self.notifications = NotificationsPanel()
         self.notify_center = NotificationCenter(config)
-        self.sms_chats = SmsChatRegistry(
-            self, persist=not os.environ.get("PYTEST_CURRENT_TEST")
-        )
+        self.sms_chats = SmsChatRegistry(self, persist=not os.environ.get("PYTEST_CURRENT_TEST"))
         self.camera = CameraPanel()
         self.spatial = SpatialHands(self)
         self.spatial.hint.connect(self.camera._set_hint)
@@ -536,6 +525,4 @@ class WindowBuild:
             # Bus is already running on the background thread by the time the
             # window is shown; a zero-delay shot waits one event-loop pass so
             # the bridge is connected before SESSION_LOADED comes back.
-            self._later(
-                0, lambda: request_session_load(self, self._restore_session_id or "")
-            )
+            self._later(0, lambda: request_session_load(self, self._restore_session_id or ""))

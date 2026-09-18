@@ -7,20 +7,27 @@ import time
 from pathlib import Path
 from typing import Any
 
+from arelis.core.path_refs import ABS_PREFIX_OR_START, ABS_START, PATH_CHARS
 from arelis.paths import display_path, outputs_dir
 
 _IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
 
-# Absolute or project-relative outputs/images paths mentioned in chat/tool notes.
+_IMG_SUFFIX = r"\.(?:png|jpe?g|webp|gif)"
+
+# Absolute or project-relative image paths mentioned in chat/tool notes.
+#
+# The shared pieces come from path_refs so the POSIX-absolute case cannot go
+# missing here again. It was missing: the third branch below used to be
+# drive-letter only, so on Linux a named /tmp/.../arelis_1234.png was not seen
+# as a path, and the caller fell back to "newest file in outputs/images" —
+# looking at a different picture than the one the user named, silently.
 _PATH_MENTION = re.compile(
     r"(?i)("
-    r"(?:[A-Za-z]:[\\/][^\s\"'<>|]+[/\\])?"
-    r"outputs[/\\]images[/\\][^\s\"'<>|]+\.(?:png|jpe?g|webp|gif)"
+    rf"{ABS_PREFIX_OR_START}outputs[/\\]images[/\\]{PATH_CHARS}+{_IMG_SUFFIX}"
     r"|"
-    r"(?:[A-Za-z]:[\\/][^\s\"'<>|]+[/\\])?"
-    r"data[/\\]drops[/\\][^\s\"'<>|]+\.(?:png|jpe?g|webp|gif)"
+    rf"{ABS_PREFIX_OR_START}data[/\\]drops[/\\]{PATH_CHARS}+{_IMG_SUFFIX}"
     r"|"
-    r"[A-Za-z]:[\\/][^\s\"'<>|]+[/\\]arelis_\d+[^\s\"'<>|]*\.(?:png|jpe?g|webp|gif)"
+    rf"{ABS_START}{PATH_CHARS}+[/\\]arelis_\d+{PATH_CHARS}*{_IMG_SUFFIX}"
     r")"
 )
 
@@ -61,9 +68,7 @@ def _history_pairs(history: list[Any] | None) -> list[tuple[str, str, str]]:
     for item in history or []:
         if hasattr(item, "role"):
             note = str(getattr(item, "note", "") or "")
-            out.append(
-                (str(item.role), str(getattr(item, "content", "") or ""), note)
-            )
+            out.append((str(item.role), str(getattr(item, "content", "") or ""), note))
         elif isinstance(item, dict):
             out.append(
                 (
@@ -92,11 +97,7 @@ def latest_output_image_file(*, images_dir: Path | None = None) -> str | None:
     try:
         if not folder.is_dir():
             return None
-        files = [
-            p
-            for p in folder.iterdir()
-            if p.is_file() and p.suffix.lower() in _IMAGE_SUFFIXES
-        ]
+        files = [p for p in folder.iterdir() if p.is_file() and p.suffix.lower() in _IMAGE_SUFFIXES]
     except OSError:
         return None
     if not files:
@@ -215,9 +216,7 @@ _UPSCALE = re.compile(
     r")\b"
 )
 
-_BG_REMOVE = re.compile(
-    r"(?i)\b(?:remove|cut\s+out|erase|knock\s+out)\s+(?:the\s+)?background\b"
-)
+_BG_REMOVE = re.compile(r"(?i)\b(?:remove|cut\s+out|erase|knock\s+out)\s+(?:the\s+)?background\b")
 _OUTPAINT = re.compile(
     r"(?i)\b(?:outpaint|uncrop|extend\s+(?:the\s+)?(?:canvas|image|picture|photo|png))\b"
 )
@@ -407,9 +406,7 @@ def fill_vision_args(
     """
     out = dict(args)
     raw_paths = out.get("paths")
-    if isinstance(raw_paths, (list, tuple)) and any(
-        str(item).strip() for item in raw_paths
-    ):
+    if isinstance(raw_paths, (list, tuple)) and any(str(item).strip() for item in raw_paths):
         return out
     if isinstance(raw_paths, str) and raw_paths.strip():
         return out

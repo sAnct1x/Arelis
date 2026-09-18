@@ -84,7 +84,7 @@ def rooms_overview(orch: Any) -> str:
             "No rooms yet. A room is a named place to work on one thing — it "
             "keeps its own conversation, points at one project folder, and "
             "remembers what it is for.\n\n"
-            "Make one by saying \"let's work on <name>\", or `/room new "
+            'Make one by saying "let\'s work on <name>", or `/room new '
             "<name>`. She will ask what it is for in the chat."
         )
     active = orch.rooms.active_id
@@ -117,15 +117,13 @@ async def enter_or_create_room(orch: Any, wanted: str) -> None:
 
     name = normalize_room_name(wanted)
     if not name:
-        await orch._say(
-            "Name it: `/room physics`, or say \"let's work on Reality\"."
-        )
+        await orch._say('Name it: `/room physics`, or say "let\'s work on Reality".')
         return
     folded = name.lower()
     if folded == "earth":
         await orch._say(
             "Earth is a zone inside Reality, not a room. "
-            "Say \"let's work on Reality\", then enter Earth."
+            'Say "let\'s work on Reality", then enter Earth.'
         )
         return
     room = orch.rooms.find(name)
@@ -187,9 +185,7 @@ async def handle_room_talk(orch: Any, text: str) -> bool:
     room = orch.rooms.active
     if match_start_setup_intent(text):
         if room is None:
-            await orch._say(
-                "No room is open. Say \"let's work on\" a name first."
-            )
+            await orch._say('No room is open. Say "let\'s work on" a name first.')
             return True
         await begin_room_setup(orch, room, restart=True)
         return True
@@ -253,8 +249,7 @@ async def take_setup_answer(orch: Any, text: str) -> bool:
             names = orch.workspace.names()
             listed = ", ".join(f"`{item}`" for item in names) or "none yet"
             reply = (
-                f"I don't have a project called that. Existing: {listed}. "
-                "Say the name, or skip."
+                f"I don't have a project called that. Existing: {listed}. Say the name, or skip."
             )
             orch.memory.add("user", text)
             orch.memory.add("assistant", reply)
@@ -288,9 +283,7 @@ async def advance_room_setup(orch: Any, *, user_text: str = "") -> None:
     await orch._say(prompt, status=False)
 
 
-async def finish_room_setup(
-    orch: Any, *, skipped: bool, user_text: str = ""
-) -> None:
+async def finish_room_setup(orch: Any, *, skipped: bool, user_text: str = "") -> None:
     room = orch.rooms.active
     orch._room_setup = None
     if room is None:
@@ -311,7 +304,7 @@ async def finish_room_setup(
 def setup_closing(orch: Any, room: Room, skipped: bool) -> str:
     if skipped:
         return (
-            f"{room.name} can wait. Say \"set up this room\" when you want "
+            f'{room.name} can wait. Say "set up this room" when you want '
             "the questions, or just talk."
         )
     bits = [f"{room.name} is set."]

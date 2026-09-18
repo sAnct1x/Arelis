@@ -17,6 +17,13 @@ from arelis.browser.hold import set_paused
 from arelis.core.agent_loop import AgentLoop
 from arelis.core.events import Event, EventType
 from arelis.core.failure_copy import turn_failed_notice
+from arelis.core.orchestrator_shared import (
+    _ABS_PATH_TOKEN,
+    ROLES,
+    TOOL_CMD,
+    comms_bypasses_sticky,
+    research_needs_vram_swap,
+)
 from arelis.desk import match_keep_last, match_keep_note, write_note
 from arelis.llm.router import ModelRole
 from arelis.rooms import (
@@ -29,81 +36,7 @@ from arelis.rooms import (
 )
 from arelis.workspace import _WINDOWS_DRIVE
 
-# Absolute paths typed in chat that may need a session read grant.
-_ABS_PATH_TOKEN = re.compile(
-    r"(?P<path>"
-    r"(?:[A-Za-z]:[\\/][^\s\"'<>|]+)"
-    r"|(?:/(?:Users|home|tmp|var|etc|opt)[^\s\"'<>|]*))"
-)
-
 log = logging.getLogger(__name__)
-
-ROLES: set[str] = {"fast", "research"}
-
-
-def research_needs_vram_swap(router: object) -> bool:
-    """True when research is a different Ollama tag from fast."""
-    same = getattr(router, "same_chat_weights", None)
-    if callable(same):
-        try:
-            return not bool(same("fast", "research"))
-        except Exception:
-            return True
-    model_for = getattr(router, "model_for", None)
-    if not callable(model_for):
-        return True
-    try:
-        from arelis.llm.ollama import same_ollama_model
-
-        return not same_ollama_model(
-            str(model_for("fast") or ""),
-            str(model_for("research") or ""),
-        )
-    except Exception:
-        return True
-
-
-def comms_bypasses_sticky(text: str) -> bool:
-    """True when this turn is SMS/email/agenda and must not keep a sticky hold."""
-    raw = (text or "").strip()
-    if not raw:
-        return False
-    from arelis.core.agenda_complete import (
-        looks_like_calendar_create,
-        looks_like_calendar_delete,
-        looks_like_calendar_read,
-    )
-    from arelis.core.email_complete import looks_like_compose_email
-    from arelis.core.sms_complete import parse_sms_utterance
-
-    if parse_sms_utterance(raw) is not None:
-        return True
-    if looks_like_compose_email(raw):
-        return True
-    from arelis.core.intent_catalog import EARTH_STATUS, SOLAR_STATUS
-
-    if SOLAR_STATUS.matches(raw) or EARTH_STATUS.matches(raw):
-        return True
-    return (
-        looks_like_calendar_create(raw)
-        or looks_like_calendar_delete(raw)
-        or looks_like_calendar_read(raw)
-    )
-
-
-# Slash commands run a tool directly, bypassing the model and the confirm card.
-# That bypass is intentional and is scoped to text the user typed: naming a tool
-# and its arguments explicitly is itself the confirmation.
-#
-# send_email and send_sms are deliberately absent. Every other tool here is
-# undoable or local; a sent message is neither, and the card showing the
-# recipient and body is the only gate it has. There is no version of typing it
-# out that replaces reading what is about to leave the machine.
-TOOL_CMD = re.compile(
-    r"^/(?P<tool>web_search|web_fetch|scrape|workspace|analyze|image"
-    r"|inbox|schedule)(?:\s+(?P<args>.+))?$",
-    re.IGNORECASE,
-)
 
 
 class OrchestratorTurns:
@@ -317,10 +250,7 @@ class OrchestratorTurns:
                 pointed = match_set_root_intent(text, self.workspace.names())
                 if pointed:
                     await self._apply_room_fields({"root": pointed}, user_text=text)
-                    if (
-                        self._room_setup is not None
-                        and self._room_setup.step == "root"
-                    ):
+                    if self._room_setup is not None and self._room_setup.step == "root":
                         await self._advance_room_setup()
                     return
                 lean = match_set_kind_intent(text)
@@ -389,13 +319,9 @@ class OrchestratorTurns:
                 turn_text = "Please look at the attached file(s)."
         elif text:
             # Bare "yea"/"ok" after an attachment offer: re-inject paths + tools.
-            continued = continue_prior_attachment_ask(
-                text, self.memory.messages
-            )
+            continued = continue_prior_attachment_ask(text, self.memory.messages)
             if continued is None:
-                continued = continue_prior_image_describe(
-                    text, self.memory.messages
-                )
+                continued = continue_prior_image_describe(text, self.memory.messages)
             if continued:
                 turn_text = continued
 
@@ -569,12 +495,8 @@ class OrchestratorTurns:
                             f"Role set to `{wanted}`, but the previous model is "
                             f"still in VRAM: {exc}"
                         )
-                        await self.bus.publish(
-                            Event(EventType.STATUS, {"message": message})
-                        )
-                        await self.bus.publish(
-                            Event(EventType.ASSISTANT_DONE, {"text": message})
-                        )
+                        await self.bus.publish(Event(EventType.STATUS, {"message": message}))
+                        await self.bus.publish(Event(EventType.ASSISTANT_DONE, {"text": message}))
                         return
             message = f"Role set to `{wanted}`. New messages use it unless you pick another chip."
         else:
@@ -589,9 +511,7 @@ class OrchestratorTurns:
             room = self.rooms.active
             room_id = room.id if room is not None else ""
             try:
-                item = write_note(
-                    self.workspace, body, room_id=room_id, store=self.desk
-                )
+                item = write_note(self.workspace, body, room_id=room_id, store=self.desk)
             except Exception as exc:
                 await self._say(f"I could not keep that. {exc}")
                 return True
@@ -628,9 +548,7 @@ class OrchestratorTurns:
             )
             path = items[0].abs_path if items else ""
         if not path:
-            await self._say(
-                "There isn't a file to pin. Say keep this: and what to write down."
-            )
+            await self._say("There isn't a file to pin. Say keep this: and what to write down.")
             return True
         room = self.rooms.active
         root_name = ""
@@ -671,10 +589,7 @@ class OrchestratorTurns:
         names = self.workspace.names()
         if not wanted:
             lines = [
-                (
-                    f"- `{name}`"
-                    + (" (active)" if name == self.workspace.active else "")
-                )
+                (f"- `{name}`" + (" (active)" if name == self.workspace.active else ""))
                 for name in names
             ]
             message = "Projects:\n" + "\n".join(lines)
