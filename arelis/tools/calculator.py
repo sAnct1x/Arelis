@@ -160,7 +160,14 @@ def present(value: Any) -> tuple[Any, str]:
             return float(exact), ""
         return float(value), f"{value.numerator}/{value.denominator}"
     if isinstance(value, float) and value.is_integer():
-        return int(value), ""
+        # Only where a float really is that integer. `hypot(1e308, 1e308)`
+        # satisfies is_integer(), and int() on it spells out 309 digits —
+        # every one after the seventeenth invented by the binary
+        # representation. Printing them claims a precision the number does not
+        # have, which is the same failure as returning nan with ok=True.
+        if abs(value) < 2**53:
+            return int(value), ""
+        return value, ""
     return value, ""
 
 

@@ -126,6 +126,31 @@ async def test_a_runaway_denominator_is_refused(calc):
     assert not result.ok
 
 
+@pytest.mark.parametrize("expression", ["sqrt(1e308)*1e300", "log(1e308)*1e308"])
+async def test_the_float_path_can_still_overflow_and_is_still_caught(calc, expression):
+    """Found by mutation: disabling the isfinite check broke nothing, because
+    Fraction catches the obvious overflows at the literal. These two go through
+    a real function, come back as float, and are the only reason that check is
+    not dead code."""
+    result = await calc.run(expression=expression)
+    assert not result.ok
+    assert "range" in result.output or "overflow" in result.output
+
+
+async def test_a_huge_float_is_not_spelled_out_as_an_integer(calc):
+    """`hypot(1e308, 1e308)` is_integer(), and int() on it prints 309 digits of
+    which roughly 292 are an artefact of the binary representation."""
+    result = await calc.run(expression="hypot(1e308, 1e308)")
+    assert result.ok
+    assert "e+308" in result.output
+    assert len(result.output) < 60
+
+
+async def test_an_ordinary_whole_float_is_still_shown_as_a_whole_number(calc):
+    result = await calc.run(expression="sqrt(16)")
+    assert result.output == "sqrt(16) = 4"
+
+
 # --- repeating fractions ----------------------------------------------------
 
 
