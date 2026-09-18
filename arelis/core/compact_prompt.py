@@ -14,7 +14,7 @@ _SHORT_DESC: dict[str, str] = {
     "agenda": "local calendar. action=today|tomorrow|list|create|update|delete|close",
     "analyze": "CSV / table. path required. action=query + where/group_by/agg/on to answer a data question; never add up rows from head yourself",
     "browser": "her Chrome. no passwords/OTP. stop captcha|Pay. click text|ref|nth",
-    "calculator": "arithmetic. expression required",
+    "calculator": "exact arithmetic. expression required. takes '15% of 84', '30% off 59.99', '$4.50+$2'. not unit conversion (units), not equations (cas)",
     "camera": "webcam snapshot. inspect only",
     "cas": "symbolic math. action=simplify|solve|diff|integrate|limit|series|sum|gradient|directional|factor|expand; n= order, at= point, dir= vector",
     "catalog": "pinned live feeds. action=list|get",
