@@ -99,7 +99,7 @@ class ResearchReportTool:
         "investigations, thorough reports, and research-role asks. Do not use "
         "for weather, SMS, email, or a single known URL (scrape that directly)."
     )
-    risk = "read"
+    risk = "write"
     parameters_schema: dict[str, Any] = {
         "type": "object",
         "properties": {

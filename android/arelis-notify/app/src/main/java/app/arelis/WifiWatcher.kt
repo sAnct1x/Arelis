@@ -19,7 +19,7 @@ fun onWifi(context: Context): Boolean {
         caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)
 }
 
-/** Re-register listen URL when Wi-Fi DHCP moves. */
+/** Re-register listen URL when the phone's IPv4 moves (Wi-Fi DHCP or cellular). */
 class WifiWatcher(private val context: Context) {
     private val io = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
@@ -32,7 +32,8 @@ class WifiWatcher(private val context: Context) {
             override fun onLost(network: Network) = Unit
             override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
                 if (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
-                    caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)
+                    caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) ||
+                    caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)
                 ) {
                     schedule()
                 }
@@ -59,11 +60,16 @@ class WifiWatcher(private val context: Context) {
     private fun reregister() {
         val prefs = Prefs(context)
         if (!prefs.paired || !prefs.readyToTalk) return
-        if (!onWifi(context)) return
-        HouseReach.findHouse(context, prefs)?.let { found ->
-            if (found != prefs.baseUrl) HouseReach.adopt(prefs, found)
+        if (onWifi(context)) {
+            HouseReach.findHouse(context, prefs)?.let { found ->
+                if (found != prefs.baseUrl) HouseReach.adopt(prefs, found)
+            }
         }
-        val guessed = listenUrlFor(context, prefs.listenPort) ?: return
+        val guessed = listenUrlFor(context, prefs.listenPort)
+        if (guessed == null) {
+            RadioService.start(context)
+            return
+        }
         if (guessed == prefs.listenUrl) return
         prefs.listenUrl = ""
         RadioService.start(context)
@@ -74,6 +80,7 @@ class WifiWatcher(private val context: Context) {
             listen = prefs.listenUrl
         }
         listen = listen.ifBlank { guessed }
+        if (listen.contains("0.0.0.0")) return
         prefs.listenUrl = listen
         try {
             ArelisClient(prefs.baseUrl, prefs.token).pair(

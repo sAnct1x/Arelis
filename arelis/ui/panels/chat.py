@@ -90,6 +90,8 @@ class ChatProgress(QLabel):
         self.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
         self.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
         self.setToolTip("open thinking")
+        self.setAccessibleName("Thinking status")
+        self.setAccessibleDescription("open thinking")
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.LeftButton:

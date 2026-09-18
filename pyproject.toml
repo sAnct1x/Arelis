@@ -39,6 +39,9 @@ dependencies = [
   "PySide6>=6.6",
   "PyYAML>=6.0",
   "pypdf>=5.0",
+  # Renders scanned / handwritten PDF pages that have no embedded JPEGs.
+  # Without this, raster_pages() used to return [] and a scan read as nothing.
+  "pypdfium2>=4.30",
   # Deterministic algebra and units so a 9B does not recite integrals or CODATA.
   # BSD; core rather than an extra — science on this PC is the product, not a niche.
   "sympy>=1.13",

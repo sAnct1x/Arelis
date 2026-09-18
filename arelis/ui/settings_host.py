@@ -90,6 +90,24 @@ def apply_settings(window, values: dict[str, Any]) -> None:
                     setattr(loop, key, bool(agent_patch[key]))
         window._schedule_readiness_probe()
 
+    models_patch = values.get("models") or {}
+    if models_patch:
+        clean = {
+            key: str(models_patch.get(key) or "").strip()
+            for key in ("fast", "research", "vision")
+            if str(models_patch.get(key) or "").strip()
+        }
+        if clean:
+            deep_merge(window.config.setdefault("models", {}), clean)
+            merge_local_config({"models": dict(clean)})
+            router = getattr(window, "router", None)
+            live = getattr(router, "models", None)
+            if isinstance(live, dict):
+                live.update(clean)
+            probe = getattr(window, "_schedule_readiness_probe", None)
+            if callable(probe):
+                probe()
+
     workspace_patch = values.get("workspace") or {}
     if "roots" in workspace_patch:
         from arelis.ui.workspace_host import apply_workspace_roots

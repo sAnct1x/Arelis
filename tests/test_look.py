@@ -195,10 +195,10 @@ def test_vision_output_is_untrusted() -> None:
     assert out.startswith("[untrusted external data")
 
 
-def test_camera_un_gated() -> None:
+def test_camera_answers_to_vision_toggle() -> None:
     reg = ToolRegistry()
     reg.register(CameraTool({}))
-    assert not reg.needs_confirm("camera", {"action": "snapshot"})
+    assert reg.needs_confirm("camera", {"action": "snapshot"})
 
 
 def test_look_read_hides_sms() -> None:

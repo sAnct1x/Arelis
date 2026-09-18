@@ -132,7 +132,8 @@ def test_settings_roots_values(qt_app) -> None:
                 ]
             },
             "tools": {"sms": {"inbound": {"ingest": {}}}},
-        }
+        },
+        list_models=lambda: [],
     )
     values = dlg.values()
     roots = values["workspace"]["roots"]
@@ -164,6 +165,7 @@ def test_settings_allow_tab(qt_app) -> None:
             "tools": {"sms": {"inbound": {"ingest": {}}}},
         },
         initial_tab="Allow",
+        list_models=lambda: [],
     )
     try:
         assert dlg.tabs.tabText(dlg.tabs.currentIndex()) == "allow"
@@ -347,6 +349,7 @@ def test_settings_has_no_theme_tab(qt_app) -> None:
             },
             "tools": {"sms": {"inbound": {"ingest": {}}}},
         },
+        list_models=lambda: [],
     )
     try:
         labels = [dlg.tabs.tabText(i) for i in range(dlg.tabs.count())]
@@ -411,6 +414,7 @@ def test_settings_opens_notify_tab(qt_app) -> None:
             "tools": {"sms": {"inbound": {"ingest": {}}}},
         },
         initial_tab="Notify",
+        list_models=lambda: [],
     )
     try:
         assert dlg.tabs.tabText(dlg.tabs.currentIndex()) == "notify"

@@ -288,6 +288,7 @@ def test_settings_toggle_without_confirm_reverts(qt_app) -> None:
         listen_live=True,
         speak_live=True,
         confirm_voice_restart=deny,
+        list_models=lambda: [],
     )
     try:
         dlg.stt_enabled.setChecked(False)
@@ -307,6 +308,7 @@ def test_settings_toggle_confirm_keeps_the_change(qt_app) -> None:
         listen_live=True,
         speak_live=True,
         confirm_voice_restart=lambda _plan: True,
+        list_models=lambda: [],
     )
     try:
         dlg.stt_enabled.setChecked(False)

@@ -20,15 +20,26 @@ from arelis.ui.icons import (
 from arelis.ui.theme import SPACE, control_pad_y, space_box
 
 
-def _chrome_btn(obj: str, icon, slot, *, tooltip: str = "") -> QPushButton:
+def _chrome_btn(
+    obj: str,
+    icon,
+    slot,
+    *,
+    tooltip: str = "",
+    name: str = "",
+) -> QPushButton:
     btn = QPushButton()
     btn.setObjectName(obj)
     btn.setIcon(icon)
     btn.setFixedSize(32, 26)
     btn.setCursor(Qt.CursorShape.PointingHandCursor)
     btn.setFlat(True)
+    label = name or tooltip
     if tooltip:
         btn.setToolTip(tooltip)
+    if label:
+        btn.setAccessibleName(label)
+        btn.setAccessibleDescription(tooltip or label)
     btn.clicked.connect(slot)
     return btn
 
@@ -68,6 +79,7 @@ class TitleBar(QWidget):
         self.title.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.title.setCursor(Qt.CursorShape.PointingHandCursor)
         self.title.setToolTip("themes, rooms, desks")
+        self.title.setAccessibleName("Arelis")
         self.title.clicked.connect(lambda: self.title_menu_requested.emit(self.title))
         layout.addWidget(self.title)
 
@@ -79,6 +91,7 @@ class TitleBar(QWidget):
         self.hands_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.hands_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.hands_btn.setToolTip("C920 hands. Camera tile is inspect-only.")
+        self.hands_btn.setAccessibleName("hands")
         self.hands_btn.setVisible(False)
         layout.addWidget(self.hands_btn)
         layout.addSpacing(SPACE["gap"])
@@ -86,6 +99,7 @@ class TitleBar(QWidget):
         self.view_btn = QToolButton()
         self.view_btn.setObjectName("ChromeViewBtn")
         self.view_btn.setText("view")
+        self.view_btn.setAccessibleName("View")
         self.view_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.view_btn.clicked.connect(lambda: self.view_menu_requested.emit(self.view_btn))
         layout.addWidget(self.view_btn)
@@ -93,6 +107,7 @@ class TitleBar(QWidget):
         self.rooms_btn = QToolButton()
         self.rooms_btn.setObjectName("ChromeRoomsBtn")
         self.rooms_btn.setText("rooms")
+        self.rooms_btn.setAccessibleName("Rooms")
         self.rooms_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.rooms_btn.clicked.connect(
             lambda: self.rooms_menu_requested.emit(self.rooms_btn)
@@ -103,6 +118,7 @@ class TitleBar(QWidget):
         self.settings_btn.setObjectName("ChromeSettingsBtn")
         self.settings_btn.setText("settings")
         self.settings_btn.setToolTip("Settings (Ctrl+,)")
+        self.settings_btn.setAccessibleName("Settings")
         self.settings_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.settings_btn.clicked.connect(self.settings_requested.emit)
         layout.addWidget(self.settings_btn)
@@ -123,6 +139,8 @@ class TitleBar(QWidget):
                 3: "all three, left to right",
             }
             btn.setToolTip(tips[n])
+            btn.setAccessibleName(f"Span {n}")
+            btn.setAccessibleDescription(tips[n])
             btn.setVisible(False)
             btn.clicked.connect(lambda _c=False, k=n: self.span_requested.emit(k))
             self.span_group.addButton(btn, n)
@@ -132,9 +150,27 @@ class TitleBar(QWidget):
 
         layout.addStretch(1)
 
-        self.min_btn = _chrome_btn("ChromeMin", window_minimize_icon(14), self._minimize)
-        self.max_btn = _chrome_btn("ChromeMax", window_maximize_icon(14), self._maximize)
-        self.close_btn = _chrome_btn("ChromeClose", window_close_icon(14), self._close)
+        self.min_btn = _chrome_btn(
+            "ChromeMin",
+            window_minimize_icon(14),
+            self._minimize,
+            tooltip="Minimize",
+            name="Minimize",
+        )
+        self.max_btn = _chrome_btn(
+            "ChromeMax",
+            window_maximize_icon(14),
+            self._maximize,
+            tooltip="Maximize",
+            name="Maximize",
+        )
+        self.close_btn = _chrome_btn(
+            "ChromeClose",
+            window_close_icon(14),
+            self._close,
+            tooltip="Close",
+            name="Close",
+        )
         layout.addWidget(self.min_btn)
         layout.addWidget(self.max_btn)
         layout.addWidget(self.close_btn)
@@ -303,13 +339,26 @@ class FloatingDockTitleBar(QWidget):
         layout.addWidget(self.title)
         layout.addStretch(1)
 
-        self.min_btn = _chrome_btn("ChromeMin", window_minimize_icon(14), self._minimize)
-        self.max_btn = _chrome_btn("ChromeMax", window_maximize_icon(14), self._maximize)
+        self.min_btn = _chrome_btn(
+            "ChromeMin",
+            window_minimize_icon(14),
+            self._minimize,
+            tooltip="Minimize",
+            name="Minimize",
+        )
+        self.max_btn = _chrome_btn(
+            "ChromeMax",
+            window_maximize_icon(14),
+            self._maximize,
+            tooltip="Maximize",
+            name="Maximize",
+        )
         self.close_btn = _chrome_btn(
             "ChromeClose",
             window_close_icon(14),
             self._close,
             tooltip="Hide panel (View menu to restore)",
+            name="Close",
         )
         layout.addWidget(self.min_btn)
         layout.addWidget(self.max_btn)

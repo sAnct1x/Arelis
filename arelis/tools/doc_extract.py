@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import re
-from collections.abc import Awaitable, Callable
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +18,7 @@ from arelis.tools.office_text import (
     sniff_office_kind,
 )
 from arelis.tools.pdf_pages import (
+    RasterizerMissingError,
     collect_page_images,
     page_digest,
     write_page_images,
@@ -81,7 +82,6 @@ class DocExtractTool:
         max_chars: int = _MAX_OUTPUT_CHARS,
         page_dir: Path | None = None,
         ocr_inspect: Callable[[Path], OcrInspect] | None = None,
-        look_pages: Callable[[list[Path]], Awaitable[str]] | None = None,
     ) -> None:
         if isinstance(roots, WorkspaceRoots):
             self.workspace = roots
@@ -91,7 +91,6 @@ class DocExtractTool:
         self.max_chars = max(256, int(max_chars))
         self.page_dir = page_dir
         self._ocr_inspect = ocr_inspect
-        self._look_pages = look_pages
 
     def _resolve(self, path_str: str):
         try:
@@ -118,52 +117,12 @@ class DocExtractTool:
             max_chars_i = int(max_chars)
         except (TypeError, ValueError):
             max_chars_i = self.max_chars
-        result = await asyncio.to_thread(
+        return await asyncio.to_thread(
             self._extract,
             str(path_str),
             page_start,
             page_end,
             max_chars_i,
-        )
-        return await self._look_if_ink(result)
-
-    async def _look_if_ink(self, result: ToolResult) -> ToolResult:
-        """Ink listing is not the answer — read the pages here, once."""
-        data = result.data if isinstance(result.data, dict) else {}
-        images = [Path(p) for p in (data.get("page_images") or [])]
-        if (
-            not result.ok
-            or data.get("source") != "ink"
-            or self._look_pages is None
-            or not images
-        ):
-            return result
-        try:
-            body = (await self._look_pages(images) or "").strip()
-        except Exception as exc:
-            return ToolResult(
-                ok=True,
-                output=(
-                    f"{result.output}\n\n"
-                    f"Looking at the pages failed ({type(exc).__name__}: {exc}). "
-                    "Call vision on the page images above. Do not ask them to paste."
-                ),
-                data=dict(data),
-            )
-        if not body:
-            return result
-        pages = list(data.get("pages") or [])
-        total = int(data.get("n_pages") or (pages[-1] if pages else 1))
-        return _text_result(
-            str(data.get("path") or ""),
-            body,
-            pages,
-            total,
-            self.max_chars,
-            source="look",
-            abs_path=str(data.get("abs_path") or ""),
-            root_name=str(data.get("root_name") or ""),
-            page_images=[str(p) for p in images],
         )
 
     def _extract(
@@ -378,7 +337,20 @@ class DocExtractTool:
     ) -> ToolResult:
         """No text layer: write page pictures. OCR only if we cannot look."""
         cap_end = min(end_i, start_i + _MAX_INK_PAGES - 1)
-        pages = collect_page_images(path, start_i, cap_end)
+        try:
+            pages = collect_page_images(path, start_i, cap_end)
+        except RasterizerMissingError as exc:
+            return _fail(
+                "rasterizer",
+                (
+                    f"{display} has no text layer and no embedded page images, "
+                    f"and the rasterizer is missing ({exc}). "
+                    "Install pypdfium2 (pip install -e .) so scanned pages "
+                    "can be rendered. Do not ask them to paste."
+                ),
+                path=display,
+                source="empty",
+            )
         if not pages:
             return ToolResult(
                 ok=False,

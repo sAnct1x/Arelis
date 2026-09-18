@@ -1,7 +1,10 @@
 # Phone companion
 
-The phone is a window onto this PC, not a second Arelis. Same Wi-Fi,
-scan the QR once, talk. SMS and RCS grants are optional (Settings →
+The phone is a window onto this PC, not a second Arelis. Scan the QR
+once, talk. Same LAN is still how the PC reaches the phone. The SMS
+radio starts on Wi-Fi, ethernet, or cellular — it no longer sits silent
+on mobile data. `0.0.0.0` is bind-only; the advertised listen URL is a
+real IPv4 when one exists. SMS and RCS grants are optional (Settings →
 Texts in the app). Google Messages stays your messenger. This is not a
 Play Store build.
 
@@ -32,7 +35,7 @@ she cannot text.
 
 | Path | Covers | Needs |
 |------|--------|-------|
-| Talk (default) | Same session as the PC. Gemma if the PC is away. | One APK, QR pair, same Wi-Fi. No SMS grant. |
+| Talk (default) | Same session as the PC. Gemma if the PC is away. | One APK, QR pair, reachable LAN. No SMS grant. |
 | Texts (optional) | SMS + RCS via Google Messages. SMS out. | Restricted settings, SMS, notification access, battery Unrestricted |
 | SMSGate inbox poll (fallback) | Classic SMS / MMS only | Local Server still running plus `inbox_base_url` |
 
@@ -56,8 +59,9 @@ are not flooded with backlog.
 3. Sideload the companion from `android/arelis-notify/` (application id
    `app.arelis`). Uninstall the old Notify app first.
 4. On the phone: scan the QR on Settings → Notify (or paste the pairing
-   text). Same Wi-Fi. You can talk immediately. SMS grants are not
-   required for talk.
+   text). Same LAN so the PC can reach the phone. You can talk
+   immediately. SMS grants are not required for talk. The radio still
+   starts on cellular if that is the only IPv4.
 5. After pair, install the offline brain (~2.6 GB) so she still talks
    if the PC is down. Wait for Wi-Fi, or use mobile data on purpose.
 6. Optional, only if you want the text hose: **Settings → Texts**, then
@@ -132,7 +136,7 @@ on the phone and retry when the PC is back. A 429 is "slow down", not
 
 | Symptom | Check |
 |---------|--------|
-| No inbound texts | Arelis still running? Paired? Same Wi-Fi? |
+| No inbound texts | Arelis still running? Paired? Can the PC reach the phone? |
 | STATUS missing | `tools.sms.inbound` / `ingest` enabled. Token set. A bind/poll failure also lands in chat now; the listen URL stays in Thinking (`Ctrl+1`) so orbit does not hide |
 | Companion 401 | Wrong or missing `sms.ingest_token`. New QR |
 | Companion timeout | Firewall / wrong IP. Wait for the phone to find the LAN beacon, or open Settings → Notify if this is a new PC |

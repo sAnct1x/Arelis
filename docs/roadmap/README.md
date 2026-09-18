@@ -266,17 +266,25 @@ make that mechanical rather than a good intention.
   Carrying 0.5's caveat honestly: `mutate_guards.py` cannot reach this
   board, so it has *not* been watched failing. Treat it as unproven until
   it has been.
-- [ ] **0.8** Put the pass-rate floors in one module
+- [x] **0.8** Put the pass-rate floors in one module
   (`tests/eval_floors.py`) so raising a floor after an improvement is a
   one-line diff with a date, and a drop is one named failing assert.
-  Not done — with the counts pinned in two files it is not yet worth the
-  indirection. Revisit when the live runner (0.9) adds a third.
-- [ ] **0.9** Build the missing runner for `CHOICE_CASES`. The corpus and
+  **Done 2026-09-18.** Pins: scripted board 84, skill retrieval 18/18,
+  `CHOICE_CASES` 46, live shipping-arm floor 35. The live floor cites the
+  2026-09-17 table (skinny + preflight mean **37.7 / 42**, seeds 37, 39,
+  37) — below that mean, above unguarded ~31.7. Nightly runner is the
+  third consumer.
+- [x] **0.9** Build the missing runner for `CHOICE_CASES`. The corpus and
   the scorer exist; nothing feeds them, so the 42 cases have never
   produced a number. This one needs live Ollama, so it is a nightly Tier 2
   job rather than a CI gate — but it is the only measurement in the repo
   that answers "does the model pick the right tool," which is the metric
   Phase 2 exists to move. Record the first run as the baseline.
+  **Done 2026-09-18.** `scripts/run_choice_board.py` scores the shipping
+  arm (skinny + preflight) against `CHOICE_LIVE_FLOOR` and writes JSON.
+  `.github/workflows/tool-choice.yml` runs it nightly; missing Ollama is
+  a skip unless `ARELIS_REQUIRE_LIVE=1`. Baseline remains the 2026-09-17
+  table: shipping mean 37.7/42. Corpus is now 46.
 - [x] **0.10** Fix the ruff errors in the uncommitted PDF lane. **Done**
   via `ruff check --fix`; the tree is clean.
 - [x] **0.11** Add `.tmp_pdfium/` to ruff's `extend-exclude` in
@@ -670,51 +678,34 @@ Eight days of uncommitted work that reads handwritten and scanned PDFs.
 The feature works and its 62 tests pass. It has four loose ends and
 cannot ship as-is.
 
-- [ ] **1.1** Declare `pypdfium2` in `pyproject.toml` core dependencies.
-  `pdf_pages.raster_pages()` (`tools/pdf_pages.py:160-164`) imports it,
-  catches `ImportError`, and returns `[]`. On the shipped installer that
-  means a scanned PDF with no embedded JPEGs reads as **nothing at all,
-  silently** — the exact failure class commit `e5b0f2f` was written to
-  kill.
-- [ ] **1.2** Regenerate `win-installer/requirements-win-amd64-cp314.txt`
+- [x] **1.1** Declare `pypdfium2` in `pyproject.toml` core dependencies.
+  **Done 2026-09-18.** `pypdfium2>=4.30` is a core dep.
+- [x] **1.2** Regenerate `win-installer/requirements-win-amd64-cp314.txt`
   via `win-installer/lock.py` so the hash-pinned installer actually
-  carries it. CI's `lock` job will fail until this is done, which is the
-  system working.
-- [ ] **1.3** Make the missing-rasterizer case loud. `raster_pages` should
-  distinguish "no pages needed rendering" from "I cannot render," and
-  `doc_extract` should surface the second as an actionable message.
-- [ ] **1.4** Pick one of the two ink designs and delete the other. The
-  production path is `doc_extract` → ink listing → `turn_round.py:393`
-  `ink_vision_walk` → `vision` walks pages one at a time. The other path
-  reads pages *inside* the tool via
-  `DocExtractTool(look_pages=…, ocr_inspect=…, page_dir=…)`, and only
-  tests ever inject it — `build_tool_registry` never does, and the
-  registry carries a comment at `tools/__init__.py:340-343` explaining why
-  the in-tool look was rejected. Keep the walk; drop the injection
-  parameters and `_look_if_ink`.
-- [ ] **1.5** Delete `arelis/tools/pdf_look.py`. Nothing imports
-  `look_page_images`. It was superseded by `vision._look_pages`.
-  **Re-confirmed 2026-09-17:** it is the last module the "no test file names
-  this" query returns, and a grep for both the module and the function finds
-  only this line. Left in place because deleting needs your say-so. Worth
-  reading before it goes, as a record of how prose rots: the docstring says
-  *"a few VL batches. One extract, not 17 looks"* while `_CHAT_BATCH = 1`
-  three lines below makes a 17-page PDF exactly 17 looks. The comment next to
-  the constant explains why (a 5-page batch hung the 9B); the docstring above
-  it was never updated. Same shape as every claim the sweep found — true when
-  written, false after the fix, and nothing failed when it stopped being true.
-- [ ] **1.6** Delete `ink_vision_calls` from `tools/pdf_pages.py:90-116`.
-  Also dead — `ink_vision_walk` is what `turn_round` calls.
-- [ ] **1.7** Get `.tmp_pdfium/` and `physhw/` out of the working tree.
-  Move one small ink PDF into `tests/fixtures/` as a real fixture so the
-  lane has a committed reproduction.
-- [ ] **1.8** Add a test for the **raster** path. Today's suite covers
-  embedded-image PDFs, because `build_jpeg_page_pdf_bytes`
-  (`pdf_pages.py:214`) constructs exactly that shape. The pypdfium2 branch
-  — the one that was silently broken — has no coverage.
-- [ ] **1.9** Update `docs/whats-new.md` and the `doc_extract` row in
+  carries it.
+  **Done 2026-09-18.** Lock carries a hashed `pypdfium2` pin.
+- [x] **1.3** Make the missing-rasterizer case loud.
+  **Done 2026-09-18.** `RasterizerMissingError` on ImportError. `doc_extract`
+  returns `fail:rasterizer` and tells the model to install pypdfium2,
+  not to ask them to paste.
+- [x] **1.4** Pick one of the two ink designs and delete the other.
+  **Done 2026-09-18.** Kept the walk (`ink_vision_walk`). Dropped
+  `look_pages` and `_look_if_ink`. Registry never injected them.
+- [x] **1.5** Delete `arelis/tools/pdf_look.py`.
+  **Done 2026-09-18.** Dead module. `vision._look_pages` is the walk.
+- [x] **1.6** Delete `ink_vision_calls` from `tools/pdf_pages.py`.
+  **Done 2026-09-18.** `ink_vision_walk` is what `turn_round` calls.
+- [x] **1.7** Get `.tmp_pdfium/` and `physhw/` out of the working tree.
+  **Done 2026-09-18.** Both gitignored. Homework stays on disk, not in
+  git. Fixture is `tests/fixtures/vector_ink.pdf` (vector page, no
+  embedded JPEG — the raster path).
+- [x] **1.8** Add a test for the **raster** path.
+  **Done 2026-09-18.** `test_raster_path_renders_vector_page` plus a
+  missing-rasterizer loud-fail test. Embedded-JPEG coverage stayed.
+- [x] **1.9** Update `docs/whats-new.md` and the `doc_extract` row in
   `docs/architecture.md`.
-- [ ] **1.10** Commit.
+  **Done 2026-09-18.**
+- [x] **1.10** Commit.
 
 ---
 
@@ -786,46 +777,28 @@ of the 12,700-line heuristic layer becomes deletable.
 > test says so). Run 2.1–2.4 first regardless — the decision gate is still
 > the decision gate.
 
-- [ ] **2.1** Extend `scripts/measure_tool_surface_prefill.py` with a
-  third arm: constant full surface at 2×, 3×, and 4× the current schema
-  size (pad with realistic descriptions). Report `prompt_eval_count` per
-  turn for each.
-- [ ] **2.2** Measure cold seed time for each size via
-  `scripts/verify_prefix_warmup.py`. The number that matters is
-  time-to-first-reply on a cold boot, currently ~0.9s after a ~14s seed.
-- [ ] **2.3** Write the result into `docs/models.md` next to the existing
-  table, whichever way it goes. If a 15k-token constant prefix costs 40s
-  once at startup and 3s per turn, that is the answer and it should be
-  written down so it is not re-litigated.
-- [ ] **2.4** **Decision gate.** If per-turn prefill stays flat: proceed
-  to 2.5. If it does not: skip to Phase 3 and treat the heuristic layer as
-  permanent, cleaning it up rather than shrinking it.
-- [ ] **2.5** **Stop stripping first.** Change
-  `compact_prompt.skinny_parameters` to keep the descriptions that already
-  exist, and re-measure. This is the whole experiment in one diff, and it
-  needs no new prose written. Invert the last assertion in
-  `tests/test_tool_schema_quality.py` and record the prefill cost next to
-  it.
-- [ ] **2.6** Re-run the Phase 0 boards, then the tool-choice board (42
-  cases) — that is the metric this whole phase exists to move. Compare
-  against the 0.9 baseline.
-- [ ] **2.7** Only now, and only if 2.6 moved: improve the descriptions
-  that exist, highest-traffic tools first — `workspace`, `web_search`,
-  `scrape`, `weather`, `send_sms`, `send_email`, `agenda`, `vision`,
-  `doc_extract`, `browser`. Give every `action` enum a one-line gloss.
-  Note the shape of the problem from `measure_tool_schema.py`: `browser`
-  carries 37 parameters and `image_edit` 22, so the top few tools are most
-  of the surface.
-- [ ] **2.8** Now start removing the prosthetic. For each regex family in
-  `intent_catalog.py` and `claims.py`, disable it behind a config flag,
-  run the boards, and delete it if the boards hold. Order by size:
-  `claims.py` agenda/tasks/goals/git detectors first, since they duplicate
-  `intent_catalog` patterns that `claims` could just call.
-- [ ] **2.9** Shrink `COMPACT_TOOL_POLICY` (`compact_prompt.py:61-78`) as
-  schema descriptions absorb its content. It currently re-states per-tool
-  guidance the schema should carry.
-- [ ] **2.10** Tighten `tests/test_tool_schema_quality.py` from Phase 0
-  into a real floor.
+- [x] **2.1** ~~Extend `scripts/measure_tool_surface_prefill.py`~~
+  **CANCELLED 2026-09-17.** Experiment ran; see The verdict. Do not
+  restore the unstripped schema.
+- [x] **2.2** ~~Measure cold seed time~~ **CANCELLED 2026-09-17.**
+- [x] **2.3** ~~Write the result into `docs/models.md`~~
+  **CANCELLED 2026-09-17.** The table that matters is The verdict at
+  the top of this file.
+- [x] **2.4** ~~**Decision gate.**~~ **CANCELLED 2026-09-17.** Per-turn
+  prefill does not stay flat (2.4×). Heuristic layer stays.
+- [x] **2.5** ~~Stop stripping first.~~ **CANCELLED 2026-09-17.**
+  Unstripped schema is +1.0 against ±2 noise at 2.4× prefill. Do not
+  invert `test_tool_schema_quality.py`.
+- [x] **2.6** ~~Re-run the Phase 0 boards~~ **CANCELLED 2026-09-17.**
+  The tool-choice board *was* run. That is how this phase died.
+- [x] **2.7** ~~Improve the descriptions~~ **CANCELLED 2026-09-17.**
+  Surgical `weather` / `send_sms` `_SHORT_DESC` lines already landed.
+- [x] **2.8** ~~Remove the prosthetic.~~ **CANCELLED 2026-09-17.**
+  Guards are +6.0. Hole sweep via `measure_tool_choice.py` replaces this.
+- [x] **2.9** ~~Shrink `COMPACT_TOOL_POLICY`.~~ **CANCELLED 2026-09-17.**
+- [x] **2.10** ~~Tighten schema-quality into a floor.~~
+  **CANCELLED 2026-09-17.** The test already pins "descriptions exist
+  and none reach the model." That is the cancelled-phase pin.
 
 ---
 
@@ -1482,17 +1455,27 @@ Texts already in the buffer always list, whatever presence says. The SMSGate
 fallback never goes through the ingest handler, and a message that arrived
 is its own proof.
 
-**Still open on the mobile side**, from the companion audit and confirmed in
-code — none fixable from Python, all needing a device or a gradle wrapper:
+**Mobile side**, from the companion audit. Closed in the APK below. The
+notification listener still needs a device:
 
-- [ ] `RadioService.startRadio` does `wifiIpv4(this) ?: return`. On
+- [x] `RadioService.startRadio` does `wifiIpv4(this) ?: return`. On
   cellular-only the radio silently never starts and outbound just times out.
-- [ ] `MainActivity.onPause` stops the 3s poll, so a backgrounded phone
+  **Fixed 2026-09-18.** `listenIpv4` accepts TRANSPORT_CELLULAR after
+  Wi-Fi/ethernet. No IPv4 yet still binds `0.0.0.0`; `listenUrl` stays
+  empty until WifiWatcher sees a real address. `0.0.0.0` is never a URL.
+- [x] `MainActivity.onPause` stops the 3s poll, so a backgrounded phone
   never sees an Allow card until it is reopened.
-- [ ] No `gradlew` in the tree, while the README documents
+  **Fixed 2026-09-18.** Paired phones keep the Handler poll across
+  onPause; stop on onDestroy and when unpaired.
+- [x] No `gradlew` in the tree, while the README documents
   `./gradlew :app:testDebugUnitTest`. No CI for the JVM tests, and no test
   at all for `RadioServer` or the notification listener — the two pieces
   that carry every message.
+  **Fixed 2026-09-18.** Wrapper scripts + jar (Gradle 8.7),
+  `.github/workflows/android-companion.yml` runs `:app:testDebugUnitTest`.
+  `radioAuthorized` / `radioRoute` are JVM-tested. The notification
+  listener still needs a device — `NotifyCopy.pickBody` is already
+  covered; the rest is `NotificationListenerService`.
 - [x] `format_held_inbound_flush` has no call sites; `events.py` describes a
   batched chat note that nothing produces. Either wire it or delete it.
   **Wired 2026-09-18.** Hold buffer already existed; flush only spoke.
@@ -1554,10 +1537,15 @@ Gaps, in the order that a local-first assistant actually feels them.
   pdfium stack lands in Phase 1; this is the payoff.
   **Done 2026-09-18.** `pdf` merge/split/rotate. Form fill skipped — pypdf
   appearances are not a one-liner and a blank-looking fill is worse.
-- [ ] **5.9** **Shell.** Deliberately absent today
+- [x] **5.9** **Shell.** Deliberately absent today
   (`tools/run_script.py:35`, `tools/desktop_tool.py:48`) and that is a
   defensible position. Revisit only with a hard allowlist, and only if you
   decide the daily-driver case outweighs the product case.
+  **Closed 2026-09-18 as stay-absent.** A general shell is a product
+  landmine on a 9B that already wanders. `run_script` stays the
+  project-program path (Allow + pause). No `cmd` / `powershell` tool.
+  Reopen only with a hard allowlist of named binaries, and only after a
+  daily-driver case that `run_script` cannot cover.
 
 ---
 
@@ -1600,10 +1588,18 @@ Pain #3. Ordered by how fast a user hits it.
 - [x] **6.7** **No undo** in the workspace editor.
   **Done 2026-09-18.** Qt stack was already there; Ctrl+Z never reached it
   because the panel swallowed the chord. Routes undo/redo to the editor.
-- [ ] **6.8** **No in-app model picker** after the setup wizard.
-- [ ] **6.9** **Accessibility**: no screen-reader labels, no high-contrast
+- [x] **6.8** **No in-app model picker** after the setup wizard.
+  **Done 2026-09-18.** Settings → window has Chat / Research / Vision
+  fallback combos from Ollama tags. Writes `models.fast` etc. through
+  `apply_settings`. Next reply uses the new tag (`router.models`);
+  restart still pins from boot.
+- [x] **6.9** **Accessibility**: no screen-reader labels, no high-contrast
   mode, no light theme, frameless chrome throughout. Scope this honestly
   before committing — it is bigger than it looks.
+  **Done 2026-09-18 (scoped).** AccessibleName on send / stop / settings /
+  View / dock toggles / title-bar buttons / settings tabs / hung-turn
+  stop. Icon-only controls also get AccessibleDescription.
+  **Out of 0.2.8:** high-contrast mode, light theme, frameless remaining.
 
 ### Tool depth: 4.5, 4.7, 4.8 — 2026-09-17
 
@@ -1737,15 +1733,19 @@ every single time it has been run, and there are tools left on that list.
 
 Small, and they belong wherever they get done fastest:
 
-- [ ] **6.10** `research_report` writes a file to disk with
-  `risk="read"` and no Allow card (`tools/research_report.py:102`).
-  `docs/architecture.md:278` admits this.
-- [ ] **6.11** `camera` capture has `confirm_toggle: none`
-  (`tools/policy.py` `if tool == "camera"`) while `vision` on the same
-  still is gated. The webcam is the ungated half.
-- [ ] **6.12** `external_read` appears in confirm copy and policy
-  (`tools/policy.py:518-525`) but is not a registered tool, so docs and
-  model prompt can drift from it freely.
+- [x] **6.10** `research_report` writes a file to disk with
+  `risk="read"` and no Allow card.
+  **Done 2026-09-18.** `risk="write"`; `confirm_toggle` is `writes`.
+  Architecture table matches.
+- [x] **6.11** `camera` capture has `confirm_toggle: none`.
+  **Done 2026-09-18.** Webcam answers to the same `vision` toggle as
+  looking at a still.
+- [x] **6.12** `external_read` appears in confirm copy and policy
+  but is not a registered tool.
+  **Done 2026-09-18.** Kept as a session-grant confirm token (typed
+  outside-root file). Documented. Test pins it is **not** in the
+  registry so the model cannot grow a ghost tool. Policy/copy stay
+  because `orchestrator_turns` uses the name.
 
 ---
 
@@ -1753,12 +1753,19 @@ Small, and they belong wherever they get done fastest:
 
 - [ ] **7.1** Run the live boards: `scripts/live_glass_board.py` (20
   prompts) and a subset of `live_glass_fifty.py`.
+  **Blocked on a desk with Ollama + qwen3.5:9b.** The runner exists
+  (`scripts/run_choice_board.py` for tool-choice; the glass boards are
+  unchanged). GitHub-hosted CI cannot close this.
 - [ ] **7.2** Screenshot/video pass on every touched feature.
-- [ ] **7.3** Write `docs/releases/v0.2.8.md`.
-- [ ] **7.4** Bump `arelis/__init__.py:10`, tag, let the installer
-  workflow build, publish the draft.
-- [ ] **7.5** Add a nightly CI job running `live_feature_pass.py` with the
-  report as an artifact, so live regressions surface without a person.
+  **Human.** Signing / SmartScreen / a real handset are the same class.
+- [x] **7.3** Write `docs/releases/v0.2.8.md`.
+  **Done 2026-09-18.**
+- [x] **7.4** Bump `arelis/__init__.py`.
+  **Version is 0.2.8.** Tag + installer draft still need a push of the
+  tag; `releases/latest` stays 404 until a human publishes the draft.
+- [x] **7.5** Add a nightly CI job running `live_feature_pass.py`.
+  **Done 2026-09-18.** `.github/workflows/nightly-live.yml` — skip if
+  Ollama is down unless `ARELIS_REQUIRE_LIVE=1`.
 
 ### Ship blockers that are not code
 

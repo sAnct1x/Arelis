@@ -1,19 +1,24 @@
 # What's new
 
-The installer on GitHub is **0.2.7**.
+This checkout is **0.2.8**. The last published installer is still
+**0.2.7** until the 0.2.8 draft is cut.
 
-Published: [v0.2.7](releases/v0.2.7.md).
-Older: [v0.2.6](releases/v0.2.6.md). [v0.2.5](releases/v0.2.5.md).
-[v0.2.4](releases/v0.2.4.md). [v0.2.3](releases/v0.2.3.md).
-[v0.2.2](releases/v0.2.2.md). [v0.2.1](releases/v0.2.1.md).
+Notes: [v0.2.8](releases/v0.2.8.md). Older:
+[v0.2.7](releases/v0.2.7.md). [v0.2.6](releases/v0.2.6.md).
+[v0.2.5](releases/v0.2.5.md). [v0.2.4](releases/v0.2.4.md).
+[v0.2.3](releases/v0.2.3.md). [v0.2.2](releases/v0.2.2.md).
+[v0.2.1](releases/v0.2.1.md).
 
 ## This checkout
 
-Notes for the tree you have now. The 0.2.7 installer is this tree
-without the 3D plate. Reality's room still ships. Earth and the
-true-scale globe stay on a source checkout.
+Notes for the tree you have now. Reality's room still ships. Earth and
+the true-scale globe stay on a source checkout. The 3D plate does not
+go in the installer.
 
-**Daily driver (unreleased).** `/tools` lists every tool by name and one
+**Daily driver (unreleased).** Scanned PDFs without embedded JPEGs
+render through pypdfium2; a missing rasterizer is a named fail, not
+silence. Settings → window picks Chat / Research / Vision tags.
+`research_report` and the webcam both pause on Allow. `/tools` lists every tool by name and one
 line — same list from the idle TOOLS chip. `remind me in 20 minutes` is
 an in-process timer (tray + notify), not a Windows scheduled job.
 `notes` lists and searches the same pages `keep this:` already writes.

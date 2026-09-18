@@ -1,7 +1,6 @@
 package app.arelis
 
 import android.content.Context
-import android.util.Base64
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedInputStream
@@ -88,16 +87,16 @@ class RadioServer(
             }
             val length = headers["content-length"]?.toIntOrNull()?.coerceIn(0, 32_000) ?: 0
             val body = if (length > 0) input.readNBytesCompat(length) else ByteArray(0)
-            if (!authorized(headers)) {
+            if (!radioAuthorized(headers, prefs.deviceKey)) {
                 reply(client, 401, """{"ok":false,"error":"unauthorized"}""")
                 return
             }
-            when {
-                method == "GET" && (path == "/health" || path == "/") ->
-                    reply(client, 200, """{"ok":true,"service":"arelis-radio"}""")
-                method == "POST" && path == "/messages" -> {
+            when (radioRoute(method, path)) {
+                200 -> if (method == "POST" && path == "/messages") {
                     val result = sendMessage(String(body, StandardCharsets.UTF_8))
                     reply(client, result.first, result.second)
+                } else {
+                    reply(client, 200, """{"ok":true,"service":"arelis-radio"}""")
                 }
                 else -> reply(client, 404, """{"ok":false,"error":"not found"}""")
             }
@@ -106,23 +105,6 @@ class RadioServer(
         } finally {
             runCatching { client.close() }
         }
-    }
-
-    private fun authorized(headers: Map<String, String>): Boolean {
-        val key = prefs.deviceKey
-        if (key.isBlank()) return false
-        val auth = headers["authorization"].orEmpty()
-        if (auth.startsWith("Bearer ", ignoreCase = true)) {
-            return auth.substring(7).trim() == key
-        }
-        if (auth.startsWith("Basic ", ignoreCase = true)) {
-            val decoded = runCatching {
-                String(Base64.decode(auth.substring(6).trim(), Base64.DEFAULT), StandardCharsets.UTF_8)
-            }.getOrNull().orEmpty()
-            val password = decoded.substringAfter(":", missingDelimiterValue = "")
-            return password == key
-        }
-        return headers["x-arelis-token"] == key
     }
 
     private fun sendMessage(raw: String): Pair<Int, String> {

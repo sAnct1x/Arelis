@@ -17,7 +17,7 @@ object HouseReach {
         if (!prefs.readyToTalk || prefs.instanceId.isBlank()) return null
         val port = prefs.ingestPort.takeIf { it > 0 } ?: portOf(prefs.baseUrl) ?: 8765
         val stored = (listOf(prefs.baseUrl) + prefs.lanUrls).distinct()
-        val wifi = wifiIpv4(context)
+        val wifi = listenIpv4(context)
         for (url in candidateHouseUrls(stored, wifi, port)) {
             if (matchesHouse(url, prefs.instanceId, prefs.token)) return url
         }

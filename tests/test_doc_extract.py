@@ -55,29 +55,6 @@ async def test_ink_pdf_writes_page_images_not_empty_fail(tmp_path: Path) -> None
 
 
 @pytest.mark.asyncio
-async def test_ink_pdf_looks_inside_extract(tmp_path: Path) -> None:
-    pdf = _write_jpeg_pdf(tmp_path)
-    pages = tmp_path / "pages"
-
-    async def look(paths: list[Path]) -> str:
-        assert paths
-        assert Path(paths[0]).is_file()
-        return "Page 1: N = Mg(sin beta - cos beta)"
-
-    tool = DocExtractTool(
-        [str(tmp_path)],
-        page_dir=pages,
-        ocr_inspect=lambda _path: inspect_ocr_text(""),
-        look_pages=look,
-    )
-    result = await tool.run(path=str(pdf))
-    assert result.ok
-    assert result.data["source"] == "look"
-    assert "N = Mg(sin beta - cos beta)" in result.output
-    assert "call vision" not in result.output.lower()
-
-
-@pytest.mark.asyncio
 async def test_ink_pdf_uses_ocr_when_text_is_clean(tmp_path: Path) -> None:
     pdf = _write_jpeg_pdf(tmp_path)
     pages = tmp_path / "pages"
@@ -90,6 +67,82 @@ async def test_ink_pdf_uses_ocr_when_text_is_clean(tmp_path: Path) -> None:
     assert result.ok
     assert result.data["source"] == "ocr"
     assert "Printed scan of a receipt" in result.output
+
+
+def test_raster_path_renders_vector_page(tmp_path: Path) -> None:
+    """No embedded JPEGs — pypdfium2 has to paint the page or we get nothing."""
+    from arelis.tools.pdf_pages import (
+        build_vector_page_pdf_bytes,
+        collect_page_images,
+        extract_embedded_pages,
+        raster_pages,
+    )
+
+    pdf = tmp_path / "vector_ink.pdf"
+    pdf.write_bytes(build_vector_page_pdf_bytes(80, 40))
+    assert extract_embedded_pages(pdf, 0, 0) == []
+    rasters = raster_pages(pdf, 0, 0)
+    assert len(rasters) == 1
+    assert rasters[0].suffix == ".png"
+    assert rasters[0].data[:8] == b"\x89PNG\r\n\x1a\n"
+    merged = collect_page_images(pdf, 0, 0)
+    assert len(merged) == 1
+    assert merged[0].suffix == ".png"
+
+
+@pytest.mark.asyncio
+async def test_raster_ink_extract_writes_page_images(tmp_path: Path) -> None:
+    from arelis.tools.pdf_pages import build_vector_page_pdf_bytes
+
+    pdf = tmp_path / "vector_ink.pdf"
+    pdf.write_bytes(build_vector_page_pdf_bytes(80, 40))
+    pages = tmp_path / "pages"
+    tool = DocExtractTool(
+        [str(tmp_path)],
+        page_dir=pages,
+        ocr_inspect=lambda _path: inspect_ocr_text(""),
+    )
+    result = await tool.run(path=str(pdf))
+    assert result.ok
+    assert result.data["source"] == "ink"
+    images = result.data["page_images"]
+    assert len(images) == 1
+    assert Path(images[0]).is_file()
+    assert Path(images[0]).suffix == ".png"
+
+
+@pytest.mark.asyncio
+async def test_missing_rasterizer_is_loud(tmp_path: Path, monkeypatch) -> None:
+    from arelis.tools import pdf_pages as pages_mod
+    from arelis.tools.pdf_pages import RasterizerMissingError, build_vector_page_pdf_bytes
+
+    def _boom(*_args, **_kwargs):
+        raise RasterizerMissingError("pypdfium2 is not installed")
+
+    monkeypatch.setattr(pages_mod, "raster_pages", _boom)
+    pdf = tmp_path / "vector_ink.pdf"
+    pdf.write_bytes(build_vector_page_pdf_bytes(80, 40))
+    tool = DocExtractTool(
+        [str(tmp_path)],
+        page_dir=tmp_path / "pages",
+        ocr_inspect=lambda _path: inspect_ocr_text(""),
+    )
+    result = await tool.run(path=str(pdf))
+    assert not result.ok
+    assert result.data["fail_class"] == "fail:rasterizer"
+    assert "pypdfium2" in result.output.lower()
+    assert "do not ask them to paste" in result.output.lower()
+
+
+def test_committed_raster_fixture_has_no_embedded_images() -> None:
+    from arelis.tools.pdf_pages import collect_page_images, extract_embedded_pages
+
+    fixture = Path(__file__).resolve().parent / "fixtures" / "vector_ink.pdf"
+    assert fixture.is_file(), "tests/fixtures/vector_ink.pdf is the raster-path fixture"
+    assert extract_embedded_pages(fixture, 0, 0) == []
+    found = collect_page_images(fixture, 0, 0)
+    assert len(found) == 1
+    assert found[0].suffix == ".png"
 
 
 def test_embedded_jpeg_is_the_page(tmp_path: Path) -> None:

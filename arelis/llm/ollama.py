@@ -17,6 +17,37 @@ log = logging.getLogger(__name__)
 # | ("metrics", dict)  # final chunk only; prompt_eval_count lives here
 
 
+def parse_installed_tags(payload: Any) -> list[str]:
+    """Names from an Ollama `/api/tags` JSON body."""
+    models = payload.get("models") if isinstance(payload, dict) else None
+    if not isinstance(models, list):
+        return []
+    names: list[str] = []
+    for item in models:
+        if not isinstance(item, dict):
+            continue
+        name = item.get("name") or ""
+        if name:
+            names.append(str(name))
+    return names
+
+
+def list_installed_models(
+    base_url: str = "http://127.0.0.1:11434",
+    *,
+    timeout_s: float = 1.5,
+) -> list[str]:
+    """Sync `/api/tags`. Raises if Ollama is not reachable.
+
+    Same parse as `OllamaProvider.list_models`. Settings cannot await the
+    async client, so this is the dialog path — not a second HTTP stack.
+    """
+    with httpx.Client(timeout=timeout_s) as client:
+        response = client.get(f"{base_url.rstrip('/')}/api/tags")
+        response.raise_for_status()
+        return parse_installed_tags(response.json())
+
+
 def same_ollama_model(name: str, *candidates: str) -> bool:
     """True if `name` is the same Ollama tag as any candidate (or a variant).
 
@@ -332,8 +363,7 @@ class OllamaProvider:
     async def list_models(self) -> list[str]:
         response = await self._client.get("/api/tags")
         response.raise_for_status()
-        models = response.json().get("models") or []
-        return [m.get("name", "") for m in models if m.get("name")]
+        return parse_installed_tags(response.json())
 
     async def running_models(self) -> list[str]:
         """Names currently resident according to `/api/ps`."""

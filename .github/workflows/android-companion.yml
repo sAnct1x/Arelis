@@ -1,0 +1,54 @@
+name: Android companion
+
+on:
+  push:
+    paths:
+      - "android/arelis-notify/**"
+      - ".github/workflows/android-companion.yml"
+  pull_request:
+    paths:
+      - "android/arelis-notify/**"
+      - ".github/workflows/android-companion.yml"
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: android/arelis-notify
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Gradle version from wrapper properties
+        id: props
+        run: |
+          ver=$(sed -n 's|.*gradle-\([0-9][0-9.]*\)-.*|\1|p' gradle/wrapper/gradle-wrapper.properties)
+          echo "version=$ver" >> "$GITHUB_OUTPUT"
+          if [ -f gradle/wrapper/gradle-wrapper.jar ]; then
+            echo "mode=wrapper" >> "$GITHUB_OUTPUT"
+          else
+            echo "mode=direct" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup Gradle (wrapper)
+        if: steps.props.outputs.mode == 'wrapper'
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Setup Gradle (no wrapper jar)
+        if: steps.props.outputs.mode == 'direct'
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: ${{ steps.props.outputs.version }}
+
+      - name: JVM unit tests
+        run: |
+          if [ -f gradle/wrapper/gradle-wrapper.jar ]; then
+            ./gradlew :app:testDebugUnitTest
+          else
+            gradle :app:testDebugUnitTest
+          fi

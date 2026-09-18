@@ -31,6 +31,7 @@ from PySide6.QtWidgets import (
 )
 
 from arelis.core.failure_copy import plain_reason
+from arelis.llm.ollama import list_installed_models
 from arelis.notify.center import CHANNELS, load_channels
 from arelis.presence.lock import find_my_ingest_port
 from arelis.sms_ingest import format_ingest_listen_urls, load_ingest_token
@@ -76,6 +77,7 @@ class SettingsDialog(QDialog):
         listen_live: bool | None = None,
         speak_live: bool | None = None,
         confirm_voice_restart: Callable[[Any], bool] | None = None,
+        list_models: Callable[[], list[str]] | None = None,
     ) -> None:
         super().__init__(parent)
         self.setObjectName("SettingsDialog")
@@ -140,12 +142,15 @@ class SettingsDialog(QDialog):
         close_btn.setFixedSize(28, 28)
         close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         close_btn.setToolTip("Close")
+        close_btn.setAccessibleName("Close")
+        close_btn.setAccessibleDescription("Close settings")
         close_btn.clicked.connect(self.reject)
         head.addWidget(close_btn)
         root.addLayout(head)
 
         tabs = QTabWidget()
         tabs.setObjectName("SettingsTabs")
+        tabs.setAccessibleName("Settings tabs")
         tabs.setDocumentMode(True)
         tabs.setUsesScrollButtons(False)
         self._fusion_style = QStyleFactory.create("Fusion")
@@ -161,6 +166,7 @@ class SettingsDialog(QDialog):
         # --- Audio ---
         audio = QWidget()
         audio.setObjectName("SettingsTabBody")
+        audio.setAccessibleName("audio")
         audio_form = QFormLayout(audio)
         audio_form.setContentsMargins(*space_box("inset", "plate", "inset", "inset"))
         audio_form.setSpacing(SPACE["inset"])
@@ -253,6 +259,7 @@ class SettingsDialog(QDialog):
         # --- Window ---
         window = QWidget()
         window.setObjectName("SettingsTabBody")
+        window.setAccessibleName("window")
         win_form = QFormLayout(window)
         win_form.setContentsMargins(*space_box("inset", "plate", "inset", "inset"))
         win_form.setSpacing(SPACE["inset"])
@@ -321,6 +328,31 @@ class SettingsDialog(QDialog):
         self.reset_layout_btn.setToolTip("Conversation glass only; docks closed.")
         self.reset_layout_btn.clicked.connect(self._run_reset_layout)
 
+        models_cfg = config.get("models") or {}
+        installed, models_up = self._load_installed_models(config, list_models)
+        self.fast_model = self._model_combo(
+            str(models_cfg.get("fast") or ""), installed
+        )
+        self.fast_model.setAccessibleName("Chat")
+        self.research_model = self._model_combo(
+            str(models_cfg.get("research") or ""), installed
+        )
+        self.research_model.setAccessibleName("Research")
+        self.vision_model = self._model_combo(
+            str(models_cfg.get("vision") or ""), installed
+        )
+        self.vision_model.setAccessibleName("Vision fallback")
+        self._models_note = QLabel(
+            "Ollama not reachable. Showing the configured tags."
+            if not models_up
+            else "Next reply uses the new tag. Restart to pin it from boot."
+        )
+        self._models_note.setObjectName("SettingsHint")
+        self._models_note.setWordWrap(True)
+        self._models_note.setSizePolicy(
+            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum
+        )
+
         win_form.addRow(self.always_on_top)
         win_form.addRow(self.close_to_tray)
         win_form.addRow(self.away_rest)
@@ -328,11 +360,19 @@ class SettingsDialog(QDialog):
         win_form.addRow("Interface scale", self.ui_scale)
         win_form.addRow("Chat text size", font_row)
         win_form.addRow(self.reset_layout_btn)
+        models_h = QLabel("Models")
+        models_h.setObjectName("SettingsSection")
+        win_form.addRow(models_h)
+        win_form.addRow("Chat", self.fast_model)
+        win_form.addRow("Research", self.research_model)
+        win_form.addRow("Vision fallback", self.vision_model)
+        win_form.addRow(self._models_note)
         tabs.addTab(window, "window")
 
         # --- Allow ---
         allow_tab = QWidget()
         allow_tab.setObjectName("SettingsTabBody")
+        allow_tab.setAccessibleName("allow")
         allow_l = QVBoxLayout(allow_tab)
         allow_l.setContentsMargins(*space_box("inset", "plate", "inset", "inset"))
         allow_l.setSpacing(SPACE["inset"])
@@ -437,6 +477,7 @@ class SettingsDialog(QDialog):
         # --- Notify ---
         notify = QWidget()
         notify.setObjectName("SettingsTabBody")
+        notify.setAccessibleName("notify")
         notify_l = QVBoxLayout(notify)
         notify_l.setContentsMargins(*space_box("plate", "plate", "plate", "inset"))
         notify_l.setSpacing(SPACE["gap"])
@@ -589,6 +630,7 @@ class SettingsDialog(QDialog):
         # --- Roots (projects Arelis may read/write) ---
         roots_tab = QWidget()
         roots_tab.setObjectName("SettingsTabBody")
+        roots_tab.setAccessibleName("roots")
         roots_l = QVBoxLayout(roots_tab)
         roots_l.setContentsMargins(*space_box("inset", "plate", "inset", "inset"))
         roots_l.setSpacing(SPACE["gap"])
@@ -647,10 +689,14 @@ class SettingsDialog(QDialog):
         # --- Memory (live: forget commits immediately, not via Apply) ---
         self.memory = ActiveFactsPanel()
         self.memory.setObjectName("SettingsTabBody")
+        self.memory.setAccessibleName("memory")
         self.memory.fact_decided.connect(self.fact_decided.emit)
         self.memory.set_facts(list(active_facts or []))
         tabs.addTab(self.memory, "memory")
         self.tabs = tabs
+        tab_bar = tabs.tabBar()
+        if tab_bar is not None:
+            tab_bar.setAccessibleName("Settings tabs")
         want = (initial_tab or "").strip().lower()
         if want:
             for i in range(tabs.count()):
@@ -708,6 +754,50 @@ class SettingsDialog(QDialog):
     def set_active_facts(self, facts: list[dict[str, object]]) -> None:
         """Refresh the Memory tab after a live forget (or external store change)."""
         self.memory.set_facts(facts)
+
+    @staticmethod
+    def _load_installed_models(
+        config: dict[str, Any],
+        list_models: Callable[[], list[str]] | None,
+    ) -> tuple[list[str], bool]:
+        ollama_cfg = config.get("ollama") or {}
+        base = str(ollama_cfg.get("base_url") or "http://127.0.0.1:11434")
+        try:
+            raw = (
+                list_models()
+                if list_models is not None
+                else list_installed_models(base)
+            ) or []
+        except Exception:
+            return [], False
+        names = [str(tag).strip() for tag in raw if str(tag).strip()]
+        return names, True
+
+    def _model_combo(self, current: str, installed: list[str]) -> QComboBox:
+        combo = QComboBox()
+        combo.setObjectName("SettingsField")
+        polish_combo_popup(combo)
+        seen: set[str] = set()
+        want = (current or "").strip()
+        tags: list[str] = []
+        if want:
+            tags.append(want)
+        for tag in installed:
+            if tag not in seen and tag != want:
+                tags.append(tag)
+            seen.add(tag)
+        if want:
+            seen.add(want)
+        if not tags:
+            combo.addItem("(none)", "")
+        else:
+            for tag in tags:
+                combo.addItem(tag, tag)
+        if want:
+            idx = combo.findData(want)
+            if idx >= 0:
+                combo.setCurrentIndex(idx)
+        return combo
 
     @staticmethod
     def _select_by_data(combo: QComboBox, value: str) -> None:
@@ -1139,6 +1229,11 @@ class SettingsDialog(QDialog):
                 "confirm_send": self.confirm_send.isChecked(),
                 "confirm_run": self.confirm_run.isChecked(),
                 "ask_is_grant": self.ask_is_grant.isChecked(),
+            },
+            "models": {
+                "fast": str(self.fast_model.currentData() or ""),
+                "research": str(self.research_model.currentData() or ""),
+                "vision": str(self.vision_model.currentData() or ""),
             },
         }
 

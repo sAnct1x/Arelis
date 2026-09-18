@@ -116,5 +116,9 @@ scripts/_patch_globe_*.py
 # ruff: it is a redistributable, not our code.
 .tmp_pdfium/
 
+# Homework scans used while building the PDF lane. Not product. One small
+# vector-ink fixture lives in tests/fixtures/vector_ink.pdf instead.
+physhw/
+
 # Typechecker and audit scratch output. Regenerated on demand.
 mypy_out.txt

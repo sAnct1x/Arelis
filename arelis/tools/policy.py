@@ -104,6 +104,8 @@ INBOX_WRITE_ACTIONS = frozenset(
 INBOX_LOCAL_WRITE_ACTIONS = frozenset({"download"})
 
 # Approved one at a time, never covered by "allow all this turn".
+# external_read is a session-grant confirm token (typed outside-root file),
+# not a registered tool. The model never sees it; orchestrator_turns does.
 NEVER_BATCH = frozenset({"send_email", "send_sms", "agenda", "external_read", "inbox"})
 
 # Asked does not skip these — you still see the exact payload.
@@ -316,13 +318,16 @@ def confirm_toggle(
     if tool == "vision":
         return "vision"
     if tool == "camera":
-        return "none"
+        # Same gate as looking at a still. The webcam is not the free half.
+        return "vision"
     if tool == "ocr":
         return "vision"
     if tool == "earth":
         return "none"
     if tool == "run_script":
         return "run"
+    if tool == "research_report":
+        return "writes"
     if tool == "external_read":
         return "writes"
     if tool == "clipboard":

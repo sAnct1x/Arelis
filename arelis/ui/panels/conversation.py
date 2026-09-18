@@ -263,6 +263,8 @@ class ConversationStage(GlassFrame):
         self.clear_btn.setIconSize(QSize(_icon, _icon))
         self.clear_btn.setFixedSize(_btn, _btn)
         self.clear_btn.setToolTip("clear the box")
+        self.clear_btn.setAccessibleName("Clear")
+        self.clear_btn.setAccessibleDescription("clear the box")
         self.clear_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.clear_btn.setAutoRaise(True)
         self.clear_btn.clicked.connect(self.input.clear)
@@ -274,6 +276,8 @@ class ConversationStage(GlassFrame):
         self.attach_btn.setIconSize(QSize(_icon, _icon))
         self.attach_btn.setFixedSize(_btn, _btn)
         self.attach_btn.setToolTip("Attach files (or drag onto the chat)")
+        self.attach_btn.setAccessibleName("Attach")
+        self.attach_btn.setAccessibleDescription("Attach files (or drag onto the chat)")
         self.attach_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.attach_btn.setAutoRaise(True)
         self.attach_btn.clicked.connect(self._pick_files)
@@ -285,6 +289,8 @@ class ConversationStage(GlassFrame):
         self.mic_btn.setIconSize(QSize(_icon, _icon))
         self.mic_btn.setFixedSize(_btn, _btn)
         self.mic_btn.setToolTip("dictate into the message box (Ctrl+M)")
+        self.mic_btn.setAccessibleName("Dictate")
+        self.mic_btn.setAccessibleDescription("dictate into the message box (Ctrl+M)")
         self.mic_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.mic_btn.setAutoRaise(True)
 
@@ -294,6 +300,10 @@ class ConversationStage(GlassFrame):
         self.conversation_btn.setIcon(conversation_icon(_icon))
         self._apply_talk_mark_size()
         self.conversation_btn.setToolTip(
+            "talk with Arelis (Ctrl+Shift+M) · say goodbye to stop"
+        )
+        self.conversation_btn.setAccessibleName("Talk")
+        self.conversation_btn.setAccessibleDescription(
             "talk with Arelis (Ctrl+Shift+M) · say goodbye to stop"
         )
         self.conversation_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -307,6 +317,10 @@ class ConversationStage(GlassFrame):
         self.stop_btn.setToolTip(
             "stop current turn — Esc also stops once she has started answering"
         )
+        self.stop_btn.setAccessibleName("Stop")
+        self.stop_btn.setAccessibleDescription(
+            "stop current turn — also the hung-turn unlock"
+        )
         self.stop_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.stop_btn.setAutoRaise(True)
         self.stop_btn.hide()
@@ -317,6 +331,8 @@ class ConversationStage(GlassFrame):
         self.send_btn.setIconSize(QSize(_icon, _icon))
         self.send_btn.setFixedSize(_btn, _btn)
         self.send_btn.setToolTip("send")
+        self.send_btn.setAccessibleName("Send")
+        self.send_btn.setAccessibleDescription("send")
         self.send_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.send_btn.setAutoRaise(True)
 

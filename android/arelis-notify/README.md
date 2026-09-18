@@ -17,22 +17,30 @@ Google Messages stays your messenger. SMS/RCS grants are **optional**
 
 1. Open this folder in Android Studio (Giraffe+ / SDK 34).
 2. Sync Gradle, connect the phone, **Run** the `app` configuration.
-3. Or: `./gradlew :app:assembleDebug` then install
-   `app/build/outputs/apk/debug/app-debug.apk`.
+3. Or: `./gradlew :app:assembleDebug` (Windows: `gradlew.bat`) then
+   install `app/build/outputs/apk/debug/app-debug.apk`.
 4. **Uninstall** the old `app.arelis.notify` package first. This id is
    `app.arelis`.
 
 JVM tests (no emulator): `./gradlew :app:testDebugUnitTest` from this
-folder. Pairing, URL strip, inbound queue, Gemma install, ready-file,
-voice latches, pings. Not screenshots, not Gemma inference.
+folder (`gradlew.bat` on Windows). Pairing, radio auth/routes, URL
+strip, inbound queue, Gemma install, ready-file, voice latches, pings.
+Not screenshots, not Gemma inference, not the notification listener.
+
+The Gradle wrapper (8.7) lives in `gradle/wrapper/`. CI runs the same
+task from `.github/workflows/android-companion.yml`. If
+`gradle-wrapper.jar` is missing, that workflow installs Gradle from
+`gradle-wrapper.properties` instead of `./gradlew`.
 
 Android 13+ / 15: Play Protect may block a GitHub APK. Install anyway
 from this repo, turn Protect back on.
 
 ## Configure
 
-1. Same Wi-Fi as the PC. Arelis running (window, tray, or `--core` with
-   the window open so she can think).
+1. Reachable LAN to the PC (Wi-Fi or ethernet). The SMS radio also
+   starts on cellular; the PC still has to be able to hit the listen
+   URL. Arelis running (window, tray, or `--core` with the window open
+   so she can think).
 2. On the PC: Settings → **Notify**. Scan the QR (or paste the pairing
    text). Pairing is once.
 3. Talk. Chat is home. **chats** and **files** are only at the house —

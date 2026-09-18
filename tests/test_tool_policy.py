@@ -78,7 +78,7 @@ def test_evaluate_confirm_matches_registry() -> None:
         ("send_sms", {}, True),
         ("browser", {"action": "open"}, True),
         ("vision", {"path": "x.png"}, True),
-        ("camera", {"action": "snapshot"}, False),
+        ("camera", {"action": "snapshot"}, True),
         ("earth", {"action": "dump"}, False),
         ("plot", {}, True),
         ("run_script", {"path": "x.py"}, True),
@@ -160,6 +160,10 @@ def test_ask_is_grant_skips_local_work() -> None:
         risk="side_effect",
     )
     assert evaluate_confirm("external_read", {"path": "C:/x"}, asked=True)
+    assert evaluate_confirm("research_report", {"query": "x"}, risk="write")
+    assert evaluate_confirm(
+        "camera", {"action": "snapshot"}, risk="side_effect"
+    )
 
 
 def test_ask_me_everything_restores_cards() -> None:
@@ -214,6 +218,22 @@ def test_persist_confirm_off_flips_image_toggle(tmp_path, monkeypatch) -> None:
     text = local.read_text(encoding="utf-8")
     assert "confirm_image" in text
     assert persist_confirm_off(loop, "send_sms", {}) == ""
+
+
+def test_external_read_is_a_grant_token_not_a_tool() -> None:
+    """Session grant for a typed outside-root file. The model never sees it."""
+    from types import SimpleNamespace
+
+    from arelis.config import load_config
+
+    router = SimpleNamespace(provider=SimpleNamespace(list_models=None))
+    registry = build_tool_registry(
+        load_config(), allow_send=True, attended=True, router=router
+    )
+    assert "external_read" not in registry.names()
+    assert evaluate_confirm("external_read", {"path": "C:/x"})
+    assert always_pause("external_read")
+    assert not batch_ok("external_read")
 
 
 def test_attended_follows_allow_send_by_default() -> None:

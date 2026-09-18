@@ -585,6 +585,7 @@ class WindowChrome:
     def _show_view_menu(self, anchor) -> None:
         self._sync_view_checks()
         menu = QMenu(self)
+        menu.setAccessibleName("View")
         menu.addAction(self.act_thinking)
         menu.addAction(self.act_workspace)
         menu.addAction(self.act_history)

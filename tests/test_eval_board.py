@@ -31,6 +31,13 @@ from arelis.eval.harness import run_all_scripted
 from arelis.eval.scenarios import SCENARIOS
 from arelis.eval.tool_choice import CHOICE_CASES, case_tools, score
 from arelis.tools import build_tool_registry
+from tests.eval_floors import (
+    CHOICE_CASE_COUNT,
+    CHOICE_LIVE_FLOOR,
+    SCRIPTED_BOARD_COUNT,
+    SKILL_RETRIEVAL_PASSED,
+    SKILL_RETRIEVAL_TOTAL,
+)
 
 
 def test_the_whole_scripted_board_passes() -> None:
@@ -38,8 +45,10 @@ def test_the_whole_scripted_board_passes() -> None:
     failed = [f"{r.scenario_id}: {'; '.join(r.reasons)}" for r in results if not r.ok]
     assert not failed, "scripted board regressions:\n  " + "\n  ".join(failed)
     # Exact, not a floor: a scenario that stops running is as bad as one that
-    # fails, and a floor cannot tell the difference.
+    # fails, and a floor cannot tell the difference. The named count is so
+    # adding a scenario is a one-line raise in eval_floors, not a silent extra.
     assert len(results) == len([s for s in SCENARIOS if s.script])
+    assert len(results) == SCRIPTED_BOARD_COUNT
 
 
 def test_scenario_ids_are_unique() -> None:
@@ -127,7 +136,15 @@ def test_the_skill_retrieval_board_passes() -> None:
     ]
     assert not failed, "skill retrieval regressions:\n  " + "\n  ".join(failed)
     assert board["passed"] == board["total"]
+    assert board["total"] == SKILL_RETRIEVAL_TOTAL
+    assert board["passed"] == SKILL_RETRIEVAL_PASSED
     assert board["false_positive_rate"] == 0.0
+
+
+def test_eval_floors_import_and_choice_count() -> None:
+    """The floors module is a pin, not a mirror of len() at import time."""
+    assert CHOICE_CASE_COUNT == len(CHOICE_CASES)
+    assert 0 < CHOICE_LIVE_FLOOR < CHOICE_CASE_COUNT
 
 
 def test_scoring_counts_a_missing_answer_as_a_miss() -> None:

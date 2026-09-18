@@ -288,7 +288,7 @@ published installer is **0.2.7**; see
 
 | Document | What's in it |
 |---|---|
-| [whats-new.md](docs/whats-new.md) | 0.2.7 installer, and what's in this checkout |
+| [whats-new.md](docs/whats-new.md) | 0.2.8 checkout; last published installer is 0.2.7 |
 | [rooms.md](docs/rooms.md) | Named project spaces |
 | [jobs.md](docs/jobs.md) | Timed prompts, emailed |
 | [models.md](docs/models.md) | Which models, and why |

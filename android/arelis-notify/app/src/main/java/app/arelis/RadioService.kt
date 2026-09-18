@@ -54,12 +54,14 @@ class RadioService : Service() {
 
     private fun startRadio(prefs: Prefs) {
         server?.stop()
-        val ip = wifiIpv4(this) ?: return
+        val ip = listenIpv4(this)
+        val bindHost = ip ?: "0.0.0.0"
         val wanted = prefs.listenPort.takeIf { it > 0 } ?: 8080
-        val radio = RadioServer(this, prefs, ip, wanted)
+        val radio = RadioServer(this, prefs, bindHost, wanted)
         radio.start()
         prefs.listenPort = radio.boundPort
-        prefs.listenUrl = "http://$ip:${radio.boundPort}"
+        // 0.0.0.0 is bind-only. WifiWatcher fills listenUrl when an address lands.
+        prefs.listenUrl = if (ip != null) "http://$ip:${radio.boundPort}" else ""
         server = radio
     }
 

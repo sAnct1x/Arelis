@@ -241,11 +241,11 @@ connected. Until then, if you ask, she'll just tell you she can't.
 |---|---|---|
 | `web_search` | Find pages | No |
 | `scrape` / `web_fetch` | Read a page for her | No |
-| `research_report` | Multi-source write-up, saved under `outputs/research/` | No* |
+| `research_report` | Multi-source write-up, saved under `outputs/research/` | Yes |
 | `browser` | Drive her Chrome | Only when she offers it — a drive you asked for counts as the grant |
 | `desktop` | Drive your Windows session (open apps, type, click) | Only when she offers it — a desk ask you named is the grant. Deletes / Pay / UAC still pause |
 | `workspace` | Files in allowed roots. `edit` is old→new; `patch` applies a unified diff | Writes: yes |
-| `analyze` / `doc_extract` / `git_info` | Tables, PDFs, git (status/diff/log/branch/blame/show; stash list; stage/commit) | Writes on git: yes |
+| `analyze` / `doc_extract` / `git_info` | Tables, PDFs (text, office, and scanned pages via pypdfium2), git (status/diff/log/branch/blame/show; stash list; stage/commit) | Writes on git: yes |
 | `notes` | Desk notes — same `notes/` folder as `keep this:` / `/keep`. list / search / read | `add`: yes |
 | `remind` | In-process timer. Toast + notify pill. Max 7 days. Not Task Scheduler | `in` / `at` / `cancel`: yes |
 | `sql` | Read-only SELECT on `memory.db` or a workspace CSV | No |
@@ -262,7 +262,7 @@ connected. Until then, if you ask, she'll just tell you she can't.
 | `catalog` | arXiv, Horizons; APOD / ADS once you add a free key | No |
 | `solar` | Reality's N-body sim (Horizons VECTORS + REBOUND IAS15). Source checkout only. Approach and orbit views, inspect-only fly camera, IAU spheres. No landing | Yes |
 | `earth` | The Earth view inside Reality. Inventory lives in `feeds.py` (109 shipped / 25 keyed / 3 coming later / 4 left out). Source checkout only — see [earth.md](earth.md) | No |
-| `clipboard` / `ocr` / `vision` / `camera` | Paste, read screen text, look at an image, use the webcam | Yes (the still capture itself is free; actually looking at it pauses) |
+| `clipboard` / `ocr` / `vision` / `camera` | Paste, read screen text, look at an image, use the webcam | Yes (webcam capture answers to the same vision toggle as looking at a still) |
 | `memory` / `recall` / `tasks` / `goals` | Remembering things, chores, "what needs my attention". `recall action=docs` searches indexed files / PDFs | Mutates: yes |
 | `inbox` / `send_email` / `schedule` | Mail and timed jobs | Sending: yes. Creating a job: yes. Listing the inbox is free; trash / archive / move / flag actions: yes |
 | `send_sms` / `inbound_sms` | Texting out / listing what's come in | Sending: yes |
@@ -282,7 +282,10 @@ their own separate allow / deny prompt. On neither face are they ever
 batched into "allow the rest of this ask" — that exemption is the same
 in both. On filament there is no card at all for a send: it rides the
 spoken grant like any other non-destructive call.
-`research_report` doesn't currently pop up an Allow card at all.
+`research_report` writes a file under `outputs/research/` and answers
+to the writes toggle — same Allow card as any other local artifact.
+`external_read` is a session-grant confirm token for a typed
+outside-root file, not a registered tool. The model never sees it.
 
 ComfyUI is a separate app entirely — Arelis never starts it
 automatically at launch. `tools.image.auto_start` ships set to false;

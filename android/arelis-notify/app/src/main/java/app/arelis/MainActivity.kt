@@ -321,16 +321,17 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         maybeOpenFreshDay()
         refresh()
-        startPoll()
+        if (prefs.paired) startPoll()
         maybeStartWaitedGemma()
     }
 
     override fun onPause() {
-        stopPoll()
+        if (!prefs.paired) stopPoll()
         super.onPause()
     }
 
     override fun onDestroy() {
+        stopPoll()
         wifiWatcher?.stop()
         if (::voice.isInitialized) voice.stop()
         if (::talkTts.isInitialized) talkTts.shutdown()
@@ -341,6 +342,11 @@ class MainActivity : ComponentActivity() {
     private fun refresh() {
         grants = grantState(this)
         paired = prefs.paired
+        if (prefs.paired) {
+            if (poll == null) startPoll()
+        } else {
+            stopPoll()
+        }
         headline = when {
             prefs.paired -> "linked. talk."
             prefs.readyToTalk -> "This phone already has the house. Scan only for a different PC."
@@ -407,7 +413,15 @@ class MainActivity : ComponentActivity() {
         if (id.isNotBlank()) prefs.focusChat = id
     }
 
+    // Paired phones keep this 3s Handler poll across onPause so an Allow
+    // card can land while the app is backgrounded. Callbacks sit on the
+    // main looper and pin this activity; stop on onDestroy and when
+    // unpaired so they cannot outlive it.
     private fun startPoll() {
+        if (!prefs.paired) {
+            stopPoll()
+            return
+        }
         stopPoll()
         poll = object : Runnable {
             override fun run() {
@@ -424,7 +438,10 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun pollHouse() {
-        if (!prefs.paired) return
+        if (!prefs.paired) {
+            main.post { stopPoll() }
+            return
+        }
         io.execute {
             try {
                 flushSync()
@@ -437,6 +454,7 @@ class MainActivity : ComponentActivity() {
                 val place = status.optJSONObject("place")
                 val room = place?.optJSONObject("room")?.optString("name").orEmpty()
                 main.post {
+                    if (isFinishing || isDestroyed) return@post
                     val wasPhone = mode == HouseMode.OnThePhone
                     mode = HouseMode.AtTheHouse
                     warmup = warm
@@ -481,6 +499,7 @@ class MainActivity : ComponentActivity() {
                 }
             } catch (_: Exception) {
                 main.post {
+                    if (isFinishing || isDestroyed) return@post
                     if (!prefs.paired) return@post
                     if (mode == HouseMode.OnThePhone && !lastHouse) return@post
                     mode = HouseMode.OnThePhone
