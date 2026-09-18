@@ -995,9 +995,32 @@ ones that were real were real, and they were the quiet ones.
   run; **two survived the first draft of the tests** (the helper was
   covered, both layers of wiring were not), so the file now drives the
   real `_finish` and a whole empty-after-tool turn.
-- [ ] **3.15** Adopt a convention: `except Exception` must either log at
-  `warning` or carry a comment saying why silence is correct. Add a ruff
-  or custom check so new ones need a reason.
+- [x] **3.15** ~~460 bare `except Exception:` and 222 `except: pass`~~ —
+  **679 broad handlers and not one bare `except:`** in the whole package.
+  The convention shipped as stated, with two additions the measurement
+  forced. `log.info` cannot satisfy it, because 3.11 is precisely the bug
+  where a fallback logged below the default level and stayed invisible for
+  months. And a handler that *surfaces* the bound exception — into a return
+  value, an event, the UI — already tells someone, so it passes without a
+  comment; requiring one there would have meant 100 comments saying "this
+  returns the error".
+
+  **400 handlers still fail the rule**, so `tests/test_broad_except.py` is a
+  ratchet over a per-file baseline rather than a sweep. Per-file *counts*,
+  not line numbers: a line-keyed baseline goes stale on any edit above the
+  handler and trains people to regenerate it without reading it. Two thirds
+  of the baseline is `ui/` and `earth/`, which are frozen, so this asks
+  nobody to go clean them.
+
+  The third test hands the detector nine hand-written snippets, for the
+  same reason the mypy gate does: a checker whose normal state is "pass"
+  cannot tell you it has gone blind. Five mutants — a new silent handler in
+  a real module, an inflated baseline, a blinded comment check, `log.info`
+  accepted, and bare `except:` dropped from the broad set — all caught. The
+  stale-baseline test turned out to be the canary for the other two: a
+  detector that breaks blind finds *fewer* sites than the baseline allows,
+  which reads as a clean tree to the new-violations test and as a loud
+  failure here.
 
 ### 3d — god functions
 

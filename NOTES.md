@@ -43,6 +43,14 @@ clean. Packages that are fully typed are listed one per line in
 `tests/test_mypy_gate.py` both run mypy against that list, so adding a newly
 clean package gates it in CI and locally in the same one-line change.
 
+**Broad excepts.** A broad handler must re-raise, log at warning or above,
+surface the bound exception, or carry a comment saying why silence is right.
+`log.info` does not count — it is below the default level, which is how a
+broken capability probe stayed invisible. 400 existing handlers fail that
+rule, so `tests/test_broad_except.py` is a ratchet over a per-file baseline
+rather than a sweep: new ones fail, fixing one means lowering a number.
+Two thirds of the baseline is `ui/` and `earth/`, which are frozen.
+
 The table above is the repo-wide *report*, which stays non-blocking — gating
 1,500 known errors would block work that is not a type-fix. The two mypy
 steps in `ci.yml` therefore have opposite error handling, and
