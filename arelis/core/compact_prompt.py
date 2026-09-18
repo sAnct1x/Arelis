@@ -12,7 +12,7 @@ from typing import Any
 # One line per tool. Names + enums in the schema do the rest.
 _SHORT_DESC: dict[str, str] = {
     "agenda": "local calendar. action=today|tomorrow|list|create|update|delete|close",
-    "analyze": "CSV / table stats. path required",
+    "analyze": "CSV / table. path required. action=query + where/group_by/agg/on to answer a data question; never add up rows from head yourself",
     "browser": "her Chrome. no passwords/OTP. stop captcha|Pay. click text|ref|nth",
     "calculator": "arithmetic. expression required",
     "camera": "webcam snapshot. inspect only",
