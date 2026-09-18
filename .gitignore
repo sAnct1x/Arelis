@@ -23,6 +23,19 @@ htmlcov/
 .tmp-earth-*/
 _tmp_*/
 _tmp_*.py
+# Agent scratch. Several sittings work this checkout at once and each one
+# leaves probes, mutation scripts and pre-edit copies of the files it is
+# touching. Ruff honours this file, so an unfinished probe in one lane used
+# to fail the pre-commit hook for every other lane. Anything named this way
+# is disposable by definition — never put the only copy of something here.
+_bk_*
+_keep_*
+_probe_*
+_mutate_*
+_verify_*
+_cut_*
+_unformat_*
+_scratch_*
 .worktrees/
 
 # Local / secrets

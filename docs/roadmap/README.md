@@ -834,22 +834,46 @@ of the 12,700-line heuristic layer becomes deletable.
 You asked for a dedicated cleanup phase. This is it. Every item is a
 concrete, cited duplication or hazard, not a vibe.
 
+**What this phase has actually been worth, so far.** Every item in 3a was
+written up as tidying. Three of the four were, and each of the other two
+was covering something that produces a wrong answer: 3.3 hid a silent
+substitution of one image for another off Windows, and 3.14 hid raw JSON
+becoming her voice in conversation history. The pattern is consistent
+enough to state plainly — *duplication is where defects hide, because the
+fix lands in one copy.* It is also worth noting the roadmap itself has
+been wrong about the specifics four times now (4.5 on both halves, 3.1 on
+the count, 3.3 on the premise, 3.4 on the shape). Verify before fixing.
+
 ### 3a — exact duplication
 
-- [ ] **3.1** `research_needs_vram_swap`, `comms_bypasses_sticky`,
-  `TOOL_CMD`, and `ROLES` are **byte-identical** in
-  `core/orchestrator.py:77-125` and `core/orchestrator_turns.py:44-106`.
-  One owner.
-- [ ] **3.2** `_BUSY_WATCHDOG_MS = 8000` is defined in four files:
-  `ui/window_build.py:102`, `ui/window_chrome.py:65`,
-  `ui/window_lifetime.py:45`, `ui/window_turn.py:34`.
-- [ ] **3.3** Four modules independently scan history for a path mention
-  with their own `_PATH_MENTION` regex: `core/document_refs.py:23`,
-  `core/image_refs.py:15`, `attachments.py`, `core/look.py`. Extract
-  `core/path_refs.py`.
-- [ ] **3.4** Tool surface is computed in `turn_prepare.py:209-371` and
-  recomputed as a near-subset in `turn_round.py:666-696` on escalate. One
-  function, called twice.
+- [x] **3.1** ~~byte-identical in two files~~ — **four**:
+  `orchestrator.py`, `orchestrator_turns.py`, `orchestrator_confirm.py`,
+  `orchestrator_slash.py`. Only `orchestrator_turns` referenced any of
+  them; the other three defined all four and used none. `TOOL_CMD` is the
+  list of tools a typed slash command may run *without* a confirm card,
+  and the long comment on why `send_email`/`send_sms` are absent sat next
+  to three copies nobody read. Now `core/orchestrator_shared.py`.
+- [x] **3.2** Not one constant — a four-constant block in the same four
+  window mixins, and no two of them read the same member. Now
+  `ui/window_const.py`.
+- [x] **3.3** **Premise was wrong.** `attachments.py` and `look.py` have
+  no path-mention regex; `look.py` already imports `path_from_text` from
+  `image_refs`. Two modules, and the gap between them was a defect:
+  `image_refs` had no POSIX-absolute branch, so off Windows a named
+  `/tmp/x/arelis_1234.png` was not seen as a path at all and the caller
+  fell through to "newest file in outputs/images" — she looked at a
+  *different picture* than the one named, silently. Both also matched
+  inside URLs (`https://…/documents/report.pdf` → local
+  `documents/report.pdf`; the image one started its match at the `s` in
+  `https`). Shared fragments now in `core/path_refs.py`.
+- [x] **3.4** Two phases, not one function twice — which is *why* the
+  drift was invisible. In `turn_prepare` the halves sit 130 lines apart
+  because everything between them decides `loop._expected_tools`. The
+  escalate copy never passed `extra_skill_ids`, so a room's skills were
+  in reach on round one and gone on round two. Latent, not live:
+  `filter_tool_names` ignores that argument unless a subset flag is on
+  and both ship off — but load-bearing in 64 of 192 probed combinations
+  once one is. Now `core/tool_surface.py`.
 
 ### 3b — the three `*_complete` modules
 
@@ -862,23 +886,73 @@ notice, in that order.
 Do **not** merge the parsers. The 84 compiled regexes are STT-mishear
 scars and they are domain-specific on purpose.
 
-- [ ] **3.5** Extract `core/utterance_guards.py` and move the ~48
-  `looks_like_*` guards out of `sms_complete.py`. This also breaks the
-  ugly dependency where `intent_catalog.is_tiny_prompt_ask`
-  (`intent_catalog.py:1326-1329`) imports from the fattest complete module
-  just to detect a greeting.
-- [ ] **3.6** Extract `core/confirm_patterns.py`. `_SEND_CONFIRM` appears
-  at `sms_complete.py:365`, `email_complete.py:409`,
-  `agenda_complete.py:190` with the same skeleton and a different verb
-  list. `_PROCEED_ASK` is the same story.
-- [ ] **3.7** Extract the history-revival walk (Case B/C). Roughly 80
-  lines, written three times.
-- [ ] **3.8** Unify recipient resolution. `contacts.resolve_sms_alias`
-  and `email_complete`'s address resolution are the same operation on
-  different channels.
-- [ ] **3.9** Write `tests/test_agenda_complete.py`. SMS and email have
-  real coverage; agenda has none — `test_agenda_parse.py` tests
-  `tools/agenda._parse_dt`, a different module.
+**This was the worst lane in the audit.** Three bugs, two of them in code
+that sends email to a named human. The structural-duplication read above
+was right, and the reason it mattered is that the three modules were each
+expressing the same rule *differently*, so the odd one out was the bug.
+
+- [x] **3.5** ~~~48 guards~~ — **18**. But the dependency was exactly as
+  described, and it was the real complaint: `is_tiny_prompt_ask`, which
+  runs every turn to decide a turn needs *no tools*, imported the SMS
+  draft reconstructor to recognise "hey". 17 generic guards plus
+  `soften_caps` are now `core/utterance_guards.py`; `sms_complete` went
+  1,154 → 970 lines and re-exports every moved name, because thirteen
+  other modules import them through it.
+- [x] **3.6** **Wrong about `_PROCEED_ASK`** — it is in SMS and agenda,
+  and email had no such pattern at all. The drift in `_SEND_CONFIRM` was
+  **one comma**: email allowed `(?:\s+please)?` where the others allowed
+  `(?:\s*,?\s*please)?`, so *"yes, please" confirmed a text and a calendar
+  event and did nothing to an email.* No error, nothing in the log, the
+  user just says it and waits. Extracting it also surfaced that the
+  pattern was doing two jobs — a content-free "yes" (which could be
+  answering anything, or be Whisper noise) and "send the text" (which
+  names the act) — and all three had a different idea of whether those
+  need a preceding offer. They are built separately now and combined at
+  the call sites. Verified with a 53-utterance corpus diff: 4 rows
+  changed, all intended, 49 byte-identical.
+- [x] **3.7** **Claim wrong, and the difference *was* the bug.** Not "80
+  lines three times": agenda's walk was 18 lines, email's was split across
+  helpers using another mechanism, SMS's was ~105 across three walks. What
+  each was trying to express was one rule — has the user moved on? — and
+  they disagreed. **Email had no stop condition at all.** A stray "yes"
+  five unrelated exchanges after a draft returned it complete, addressed,
+  body intact, to the force gate, and the Allow card described it
+  perfectly correctly, because the address and body genuinely are the ones
+  the user dictated — just not now. "Never mind, what's the weather" did
+  not stop it. Only the shared stop condition moved, into
+  `core/history_revival.py`; SMS's richer walk stays hand-written with a
+  comment saying why, because flattening its two extra exits meant four
+  callbacks and a sentinel in the function that decides what text messages
+  get sent.
+- [x] **3.8** **Path wrong** (`arelis/tools/contacts.py` does not exist),
+  **substance worse than stated.** Spoken "Sam Brightley" reached email as
+  `brightley@example.com`; spoken "Sam **Brightly**" reached it as
+  `owner@example.com` — the user's own inbox. One letter. SMS had two
+  guards email lacked: a two-edit last-name tolerance, and a refusal to
+  let a multi-token name degrade into a bare first-name match. Email had
+  neither, so the typo missed every exact tier, became "sam", and matched
+  the owner's own card. Nothing failed, because `EmailDraft.complete` only
+  asks whether *an* address came back. Verified independently against
+  `HEAD` before accepting the fix. Now `core/contact_match.find_contact`,
+  shared. A third thing fell out: `resolve_sms_alias` carried a comment
+  promising it prefers a real contact over the owner's card and **it did
+  not** — `match_contact_label` matched on substring and returned `me`
+  first, so the code implementing the promise was unreachable. "Text Sam"
+  texted you.
+- [x] **3.9** Claim accurate, and agenda's zero coverage is exactly where
+  the defects were. Seven, including: the history revival **had never run
+  in a live session** (it did not slice off the current turn, so it broke
+  on iteration one, every time); "Dentist tomorrow" reached the tool as
+  the literal string `tomorrow` and was rejected; and
+  `draft_agenda_delete_args` stamped today's date on "delete the standup
+  tomorrow at 9am", which for a recurring event **deletes the wrong
+  instance**. 45 tests, 17 mutants, 17 caught.
+
+**Carried forward from this lane.** `contacts.match_contact_label` is too
+loose for spoken names — `cand in name` means a one-letter query matches
+anyone whose name contains that letter. It was written for Google Messages
+notification titles, where that is correct. Pinned as-found in a test that
+explains it, rather than changed out of lane.
 
 ### 3c — silent failure surface
 
@@ -886,19 +960,41 @@ scars and they are domain-specific on purpose.
 Not all are wrong — fail-soft is often correct in a desktop app. These
 specific ones can produce a wrong answer rather than an error:
 
-- [ ] **3.10** `llm/router.py:311-317` — `_refuse_if_host_vram_full`
-  returns silently on probe failure, so the host VRAM guard vanishes
-  without a trace.
-- [ ] **3.11** `llm/ollama.py:315-317` — `capabilities()` returns an empty
-  frozenset on any error, so a vision-capable chat model gets treated as
-  blind and pays an unnecessary VL detour.
-- [ ] **3.12** `memory/indexer.py:111-187` — embed batch failures log and
-  return 0, so the index silently falls behind forever.
-- [ ] **3.13** `core/lessons.py:177-178` — a malformed `lessons.yaml`
-  becomes `{}` with no user warning.
-- [ ] **3.14** `core/turn_round.py:818-848` — `_tool_followup_fallback`
-  can ship raw tool output as the final answer when the model returns
-  empty after a successful tool.
+**Two of the four named items were already fixed.** Worth stating, because
+the count at the top of this section (460 + 222) is what made the lane look
+alarming, and a raw count of `except Exception` is not a defect count. The
+ones that were real were real, and they were the quiet ones.
+
+- [x] **3.10** **Half wrong.** The *probe* failure at `router.py:314-318`
+  already logged at `warning`. The **import** guard one line above did
+  not, so if `arelis.llm.vram` failed to load — the exact case where the
+  guard is most likely broken — the host VRAM guard vanished with no
+  trace and heavy loads proceeded onto a full card. Now warns.
+- [x] **3.11** Confirmed. `capabilities()` fell back to `log.info`, which
+  is below the default level, so a vision-capable chat model got treated
+  as blind and paid a VL detour with nothing in the log saying why. Now
+  warns, and says that vision support is *unknown* rather than absent.
+- [x] **3.12** **Wrong.** Every embed batch failure already calls
+  `log.exception` — traceback and all — and the rows are not marked, so
+  the next flush retries them. This is fail-soft working as designed.
+  No change.
+- [x] **3.13** Confirmed. A malformed `lessons.yaml` became `{}` in
+  silence, so hand-edited lessons vanished and the only symptom was the
+  model behaving like the edit never happened. Now warns with the path
+  and says built-in lessons are being used.
+- [x] **3.14** Confirmed, and it is the *default* path rather than an
+  edge: `chat_followup_from_tool` special-cases seven tools and ends in
+  `return cleaned`, so 36 of the ~43 registered tools paste verbatim and
+  anything new joins them by accident. The harm is downstream —
+  `_finish` writes that text to memory as an assistant turn, so the model
+  reads its own pasted JSON back as an example of how she writes.
+  `tool_passthrough_note` marks the memory turn (bubble unchanged);
+  `_is_json_body` stops an API body becoming the answer, which `web_fetch`
+  needed after it grew POST/PUT/PATCH/DELETE — a probe put
+  `{"access_token": "sk-live-…"}` in the bubble verbatim. Five mutants
+  run; **two survived the first draft of the tests** (the helper was
+  covered, both layers of wiring were not), so the file now drives the
+  real `_finish` and a whole empty-after-tool turn.
 - [ ] **3.15** Adopt a convention: `except Exception` must either log at
   `warning` or carry a comment saying why silence is correct. Add a ruff
   or custom check so new ones need a reason.
@@ -922,14 +1018,29 @@ makes them possible at all.
 
 ### 3e — types
 
-1,391 mypy errors across 134 files, advisory in CI. `arelis/guard/` is
-already clean, and `NOTES.md:30-31` has the recommended order.
+~~1,391~~ **1,550** mypy errors across `arelis/`, advisory in CI.
+`arelis/guard/` is already clean, and `NOTES.md:30-31` has the order.
 
-- [ ] **3.20** Make mypy blocking for `arelis/guard/` and `arelis/memory/`
-  only, via per-module CI config. A clean package that can regress is not
-  clean.
-- [ ] **3.21** Take `arelis/tools/base.py` and `arelis/llm/` next — small,
-  high-traffic, and they define contracts everything else depends on.
+- [x] **3.20** Done for `arelis/guard/`, `arelis/memory/`, and
+  `arelis/llm/` — 19 files. The mechanism matters more
+  than the package: the gated list is one path per line in
+  `tests/mypy_strict_packages.txt`, read by both a blocking CI step and
+  `tests/test_mypy_gate.py`, so adding a package gates it in CI and
+  locally in the same one-line change. Removing `continue-on-error` from
+  the `types` job was required — it would have swallowed the new step —
+  which means the two mypy steps now have *opposite* error handling, and
+  `test_ci_gate.py` pins that so neither can drift into the other's job.
+  Proven by injecting a return-type error into `arelis/guard/watch.py` and
+  again into `arelis/memory/indexer.py`: exit 1 both times. The local test
+  also hands mypy a file it knows is wrong, because a gate is only ever
+  observed passing otherwise — a permissive flag or config key would leave
+  it green on broken code, and that mutant is run.
+- [ ] **3.21** `arelis/tools/base.py` is the last small one, at **1**
+  error. Note that the per-package table in `NOTES.md` is stale: it lists
+  `memory` at 11 and `llm` at 1,391-era counts, and both measure **0**
+  today in the same repo-wide run, so Phase 2 cleaned them as a side
+  effect. Re-measure before trusting that table for the next package —
+  `presence` (15) and `eval` (19) are the next cheapest.
 - [ ] **3.22** Add each newly clean package to the blocking list. Never
   attempt the 689-error `arelis/ui` pile as one task.
 
