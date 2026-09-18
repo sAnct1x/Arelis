@@ -14,6 +14,7 @@ import os
 import queue
 import socket
 import threading
+import time
 from collections import deque
 from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -153,6 +154,75 @@ class RecentInboundLog:
 
 # Process-wide log so the tool and ingest/watcher share one list.
 RECENT_INBOUND = RecentInboundLog()
+
+
+class CompanionPresence:
+    """When the phone last spoke to this machine, and whether it ever has.
+
+    Inbound texts ride a notification listener on the phone. Doze, a muted
+    conversation, or battery optimisation can stop that listener without
+    telling anyone, and on the companion path there is no PC-side fallback
+    poll to notice — `AndroidSmsProvider.supports_inbox_poll` returns False
+    unless an SMSGate inbox URL is also configured.
+
+    So an empty inbox has two completely different meanings: nobody texted,
+    or the bridge is dark and we cannot see. `inbound_sms` reported both as
+    "No inbound texts recorded this session", which makes the second one a
+    confident wrong answer about someone's messages.
+
+    This does not prove the listener is alive — nothing here can, short of
+    the phone telling us, and the listener only posts when a message arrives.
+    What it records is weaker and still worth having: the phone reached this
+    machine at some point, on any authenticated endpoint. If it never has,
+    inbound is certainly dark. If it last did so days ago, saying "no" is a
+    guess wearing a fact's clothing.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._last: float | None = None
+        self._last_path: str = ""
+
+    def touch(self, path: str = "") -> None:
+        with self._lock:
+            self._last = time.time()
+            self._last_path = path or ""
+
+    @property
+    def last_seen(self) -> float | None:
+        with self._lock:
+            return self._last
+
+    def age_seconds(self) -> float | None:
+        """Seconds since the phone last reached us, or None if it never has."""
+        last = self.last_seen
+        return None if last is None else max(0.0, time.time() - last)
+
+    def describe(self) -> str:
+        """One sentence about the bridge, for a tool to put in its answer."""
+        age = self.age_seconds()
+        if age is None:
+            return (
+                "The phone companion has not contacted this machine since "
+                "Arelis started, so inbound texts may not be arriving at all."
+            )
+        if age < 300:
+            return "The phone companion checked in moments ago."
+        minutes = int(age // 60)
+        if minutes < 120:
+            return f"The phone companion last checked in {minutes} minutes ago."
+        hours = minutes // 60
+        return f"The phone companion last checked in about {hours} hours ago."
+
+    def reset(self) -> None:
+        with self._lock:
+            self._last = None
+            self._last_path = ""
+
+
+# Process-wide, for the same reason as RECENT_INBOUND: the HTTP handler and
+# the tool are in different parts of the app and must agree.
+COMPANION_PRESENCE = CompanionPresence()
 
 
 def resolve_inbound_sender(
@@ -359,7 +429,16 @@ class InboundIngestServer:
                     got = auth[7:].strip()
                 else:
                     got = (self.headers.get("X-Arelis-Token") or "").strip()
-                return bool(got) and got == server.token
+                ok = bool(got) and got == server.token
+                if ok:
+                    # Every authenticated request is evidence the phone can
+                    # still reach this machine. Recorded here rather than on
+                    # the inbound-text path specifically, because a text only
+                    # arrives when somebody sends one — the whole problem is
+                    # telling "quiet" apart from "deaf". A failed token is
+                    # deliberately not evidence: it may be anyone on the LAN.
+                    COMPANION_PRESENCE.touch(getattr(self, "path", "") or "")
+                return ok
 
             def _client_ip(self) -> str:
                 return (self.client_address[0] if self.client_address else "") or "?"
