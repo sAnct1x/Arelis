@@ -22,6 +22,7 @@ goes to Thinking and Workspace either way.
 
 from __future__ import annotations
 
+import json
 import re
 
 TURN_FAILED_NOTICE = (
@@ -250,6 +251,15 @@ def chat_followup_from_tool(tool: str, output: str, *, ask: str = "") -> str:
         if name == "agenda":
             return "No events in this window."
         return "The tool finished. The details are in Workspace."
+    # Ahead of the page branch, because web_fetch is on both lists now: it was
+    # a page reader when that branch was written and it answers APIs as well
+    # since it grew POST/PUT/PATCH/DELETE. _page_talk has no idea what to do
+    # with a response body, so it handed the whole object back unchanged.
+    if _is_json_body(cleaned):
+        return (
+            "The call went through and came back with data, but I did not get "
+            "a sentence out of it. Ask again and I will read the response."
+        )
     if name in _PAGE_TOOLS:
         if _BOT_WALL.search(cleaned):
             return (
@@ -270,6 +280,29 @@ def chat_followup_from_tool(tool: str, output: str, *, ask: str = "") -> str:
     if len(cleaned) > 1600:
         cleaned = cleaned[:1597].rstrip() + "…"
     return cleaned
+
+
+def _is_json_body(text: str) -> bool:
+    """True when the whole output is one JSON value.
+
+    The last branch of `chat_followup_from_tool` pastes the tool's output into
+    chat verbatim, which is right for a tool that answers in words and wrong
+    for one that answers in data. `web_fetch` grew POST/PUT/PATCH/DELETE and
+    now returns API bodies, so an empty model reply put a raw response object —
+    tokens and all — in the bubble as if she had written it.
+
+    Parsed rather than pattern-matched, so a sentence that merely starts with a
+    brace is still a sentence, and a body that only looks like JSON is still
+    shown rather than swallowed.
+    """
+    body = (text or "").strip()
+    if not body or body[0] not in "{[":
+        return False
+    try:
+        json.loads(body)
+    except (ValueError, TypeError):
+        return False
+    return True
 
 
 def _first_sentences(text: str, *, n: int = 2, cap: int = _PAGE_CHAT_CHARS) -> str:

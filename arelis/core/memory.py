@@ -307,3 +307,29 @@ def tool_trace_note(trace: list[str]) -> str:
     if len(joined) > _MAX_TRACE_NOTE:
         joined = joined[: _MAX_TRACE_NOTE - 1] + "…"
     return f"[tools used this turn: {joined}]"
+
+
+def tool_passthrough_note(tool: str) -> str:
+    """Mark an assistant turn that is a tool result rather than her words.
+
+    When the model returns nothing after a tool succeeds, the turn still has to
+    end with something, so `_tool_followup_fallback` puts the tool's own output
+    in the bubble. That is the right call — the work was done and throwing the
+    result away would be worse — but `_finish` then writes it to memory as an
+    assistant turn, and from the next turn on it is indistinguishable from
+    something she composed.
+
+    That compounds. A pasted JSON body or a column of numbers becomes an
+    example of how she talks, and the model reads its own history as a style
+    guide. Whatever shape leaked through once gets imitated.
+
+    So the bubble keeps the result and the note says where it came from. It
+    rides into the next prompt the same way the stopped-turn note does.
+    """
+    name = (tool or "").strip()
+    named = f" from {name}" if name else ""
+    return (
+        f"[The line above is raw tool output{named}, not her own words — the "
+        "model returned nothing after the call. Do not treat it as an example "
+        "of how she writes.]"
+    )

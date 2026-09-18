@@ -75,8 +75,10 @@ class _FakeLoop:
         *,
         streamed: str = "",
         fallback_text: str = "",
+        passthrough_tool: str = "",
     ) -> None:
         self.finished = (text, sources, streamed)
+        self.passthrough_tool = passthrough_tool
 
     async def _hold_if_paused(self) -> None:
         return None

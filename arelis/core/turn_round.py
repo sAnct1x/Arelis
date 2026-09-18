@@ -392,6 +392,7 @@ async def apply_no_call_path(
                         ),
                         sources,
                         streamed="",
+                        passthrough_tool=ctx.last_ok_tool_name,
                     )
                     return True
                 # Thinking ate the reply (LIGO / long proofs). Ask for the
@@ -743,6 +744,7 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
                         ),
                         sources,
                         streamed="",
+                        passthrough_tool=ctx.last_ok_tool_name,
                     )
                     return True
                 if ctx.last_ok_tool_out and _is_ollama_object_400(exc):
@@ -760,6 +762,7 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
                         ),
                         sources,
                         streamed="",
+                        passthrough_tool=ctx.last_ok_tool_name,
                     )
                     return True
                 await loop._publish_error(failure.chat, detail=failure.detail)

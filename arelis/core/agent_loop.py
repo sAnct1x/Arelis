@@ -35,7 +35,11 @@ from arelis.core.look import (
     next_look_call,
     ocr_deferral,
 )
-from arelis.core.memory import SessionMemory, tool_trace_note
+from arelis.core.memory import (
+    SessionMemory,
+    tool_passthrough_note,
+    tool_trace_note,
+)
 from arelis.core.receipts import (
     append_action_ledger,
     format_action_receipt,
@@ -1356,12 +1360,17 @@ class AgentLoop:
         *,
         streamed: str = "",
         fallback_text: str = "",
+        passthrough_tool: str = "",
     ) -> None:
         """Publish the single terminal event for this turn.
 
         Everything that must happen exactly once per turn lives here: citation
         append, memory write, whatever delta is still owed, ASSISTANT_DONE, and
         the optional voice hand-off.
+
+        `passthrough_tool` names the tool when `text` is that tool's own output
+        rather than a written answer. The bubble is unchanged; the memory note
+        is what stops the next turn reading it as her prose.
         """
         final = strip_thinking_text(text).strip()
         if not final:
@@ -1399,7 +1408,11 @@ class AgentLoop:
                 )
             )
 
-        self.memory.add("assistant", final, note=tool_trace_note(self._trace))
+        note = tool_trace_note(self._trace)
+        if passthrough_tool:
+            passthrough = tool_passthrough_note(passthrough_tool)
+            note = f"{note}\n{passthrough}" if note else passthrough
+        self.memory.add("assistant", final, note=note)
 
         # Usually the answer was already streamed and only the appended Sources
         # list is still owed. When the text changed under us, for example
