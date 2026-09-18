@@ -1205,6 +1205,62 @@ not the gate. Worth recording as its own outcome: *the honest resolution
 of a prose-vs-code gap is sometimes to fix the prose*, and deciding which
 requires knowing whose lane the gate is in.
 
+### SMS, the other pain reported by name — 2026-09-17
+
+> "the SMS has had an issue with the mobile side because of our approach"
+
+The approach: the phone is the radio, the PC is the brain. No Twilio, no
+carrier gateway. Outbound is LAN HTTP to a companion app that calls
+`SmsManager`. Inbound rides a **notification listener** on Google Messages
+— which is the only path that sees RCS, and also the one that Doze, a muted
+conversation, or battery optimisation can stop dead without surfacing an
+error anywhere. On the companion path there is no PC-side fallback:
+`supports_inbox_poll` returns `False` unless an SMSGate inbox URL is
+configured as well.
+
+That is a defensible architecture. The defect was what the assistant said
+when it failed.
+
+An empty ring buffer had two meanings — nobody texted, or we are deaf — and
+`inbound_sms` answered both with *"No inbound texts recorded this session"*,
+`ok=True`, `count: 0`. Asked "did Robin text back?", a model reads that as a
+clean no and says so. **That is complaint #1 arriving inside the feature
+named in complaint #4**, which is a decent explanation for why the whole
+area has felt untrustworthy rather than merely flaky.
+
+Nothing on the PC can prove the listener is alive — it only posts when a
+message arrives. What can be proven is weaker and sufficient: whether the
+phone has reached this machine *at all*. `CompanionPresence` records a
+timestamp on any authenticated request, so every status poll, sync and
+contacts push counts as evidence. A failed token deliberately does not:
+anyone on the LAN can knock, and a stranger's knock is not the phone.
+
+Three answers where there was one:
+
+| state | answer |
+| --- | --- |
+| never heard from | `ok=False`, "I cannot tell", and the three real causes by name so the user has somewhere to go |
+| heard from recently | an honest no — still carrying the muted/Doze caveat, because a phone answering polls proves nothing about the listener |
+| heard from hours ago | says how long, and lets the user judge |
+
+Texts already in the buffer always list, whatever presence says. The SMSGate
+fallback never goes through the ingest handler, and a message that arrived
+is its own proof.
+
+**Still open on the mobile side**, from the companion audit and confirmed in
+code — none fixable from Python, all needing a device or a gradle wrapper:
+
+- [ ] `RadioService.startRadio` does `wifiIpv4(this) ?: return`. On
+  cellular-only the radio silently never starts and outbound just times out.
+- [ ] `MainActivity.onPause` stops the 3s poll, so a backgrounded phone
+  never sees an Allow card until it is reopened.
+- [ ] No `gradlew` in the tree, while the README documents
+  `./gradlew :app:testDebugUnitTest`. No CI for the JVM tests, and no test
+  at all for `RadioServer` or the notification listener — the two pieces
+  that carry every message.
+- [ ] `format_held_inbound_flush` has no call sites; `events.py` describes a
+  batched chat note that nothing produces. Either wire it or delete it.
+
 #### What generalises
 
 - **"No test names this module" is a five-minute query and it found the
