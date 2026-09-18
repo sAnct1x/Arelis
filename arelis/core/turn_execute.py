@@ -32,7 +32,7 @@ from arelis.core.turn_context import TurnContext
 from arelis.core.turn_goal import NEED_LOGIN, browser_errand_done
 from arelis.core.untrusted import frame_external_tool_output
 from arelis.tools.inbox import INBOX_PEEK_ACTIONS, inbox_peek_was_empty
-from arelis.tools.safety import redact_secrets, truncate_tool_output
+from arelis.tools.safety import redact_data, redact_secrets, truncate_tool_output
 from arelis.tools.weather import (
     weather_place_key,
     weather_places_missing,
@@ -464,7 +464,9 @@ async def execute_call(
                     "tool": name,
                     "ok": result.ok,
                     "output": out,
-                    "data": result.data,
+                    # `out` is already scrubbed; `data` was not, and the python
+                    # tool carries its whole cell output in data["result"].
+                    "data": redact_data(result.data),
                     "truncated": trunc.truncated,
                     "original_chars": trunc.original_chars,
                     "kept_chars": trunc.kept_chars,

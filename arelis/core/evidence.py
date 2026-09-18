@@ -43,12 +43,32 @@ class EvidenceLedger:
         span: str,
         ok: bool,
     ) -> None:
-        text = (span or "").strip()
+        # Imported here, not at module scope: `arelis.tools.safety` cannot be
+        # reached without executing `arelis/tools/__init__`, which imports
+        # scrape, which imports this module. sys.modules makes the repeat cost
+        # a dict lookup.
+        from arelis.tools.safety import redact_secrets
+
+        # The one choke point every warrant passes through, which is why the
+        # redaction belongs here rather than at the twenty-odd call sites in
+        # record_tool below.
+        #
+        # safety.py states that "redaction runs on every tool output before it
+        # reaches the model, the UI, or a confirm card". That was not true of
+        # this path: turn_execute calls record_tool with the *raw*
+        # `result.output`, and only redacts sixty lines later on its way to
+        # the model. Spans are not a dead end — `quote_lines()` feeds them
+        # straight back into the conversation on the quote-first nudge, so a
+        # credential printed by a tool landed in model context by the one
+        # route that skipped the scrubber.
+        text = redact_secrets((span or "").strip())
         if not text:
             text = "(empty)"
         self._items.append(
             Warrant(
-                source=str(source or "unknown")[:200],
+                # A URL can carry credentials in its userinfo, and `source` is
+                # a url for every web warrant.
+                source=redact_secrets(str(source or "unknown"))[:200],
                 kind=str(kind or "other"),
                 span=text[:400],
                 ok=bool(ok),

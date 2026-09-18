@@ -1085,6 +1085,142 @@ rather than assumed.
   runs between turns. Expose an index action so "I just added 40 PDFs"
   has an answer.
 
+### The tools no test file named — 2026-09-17
+
+Cheapest audit query of the day: for each module in `arelis/tools/`, ask
+whether any file under `tests/` so much as mentions its name. Three came
+back — `html_text`, `image_io`, and `python_exec`.
+
+`python_exec` is the tool that **executes code the model writes**, and it
+had no tests at all. It was not unguarded: an AST whitelist, an import
+allowlist, a forbidden-call list, a locked `__builtins__`, a documented
+10s timeout. None of it had ever been run against an attacker. Four
+defects, found by probing rather than reading:
+
+| defect | what it was |
+| --- | --- |
+| `sympy.sympify` | `eval` with a friendlier name. Asking it for `__import__('os').name` returned the platform string — arbitrary import, one step from running a command. Invisible to the AST gate because the payload is a *string constant* and the gate reads `Attribute` and `Name` nodes. |
+| `operator.attrgetter` | Same blind spot. A dunder spelled inside a string walked past the underscore rule. |
+| `numpy.savetxt` | Wrote a real file to the repo root, with the docstring promising "files stay out". |
+| the timeout | **Never worked.** The pool sat in a `with`, so `__exit__` called `shutdown(wait=True)` and joined the runaway thread forever. `while True: pass` hung the assistant permanently while the description advertised "Timeout 10s". |
+
+The last one is the important one for daily use. The others are a
+security story; that one is the user's own worst pain, shipped.
+
+**The denylist lesson, learned twice in one afternoon.** The first fix
+added a denylist of attribute names meaning "evaluate this" or "touch the
+disk". It had `savetxt` and `save` on it. `scipy.io.savemat`,
+`scipy.io.wavfile.write` and `from scipy.io import savemat` all still
+wrote real artifacts. Fix those three names and the next library brings
+its own — a denylist of names is permanently one import behind.
+
+So the promise is now kept by `sys.addaudithook`, which fires on the
+**operation** — the `open`, the `Popen`, the `connect` — whatever function
+was spelled to reach it. Verified against `scipy.io.hb_write`, a write
+path deliberately left off the name list: refused at `open(..., 'w')`,
+nothing written. Turning the entire name denylist off leaves every write
+test passing on the hook alone.
+
+Two things worth remembering about that hook:
+
+- It is process-wide and **cannot be uninstalled**, so it reads
+  thread-local state and returns immediately on every thread that is not
+  running a cell. Full suite passes with it installed.
+- `os.putenv` was on the blocked list for exactly one probe run.
+  `import scipy.sparse` sets environment variables while loading, so the
+  cell was refused before it ran a line of its own. A false positive in a
+  permanent hook is expensive; the list is now operations with no honest
+  use, not operations that merely sound alarming.
+
+One asymmetry is left, named in a test rather than implied: writes are
+structural, reads are not. Blocking read-mode `open` would stop the import
+machinery, and a cell that cannot `import sympy` is not a tool.
+
+`image_io` came out clean — `resolve_image` already refused an absolute
+path outside the roots, a climb out of the workspace, and a climb out of
+the data root. Pinned anyway, because crossing that boundary is silent: it
+does not raise in anyone's face, it reads a file and hands it to a model.
+
+### The claim sweep — 2026-09-17
+
+The pattern behind all of the above is general enough to be worth its own
+pass: **prose states a protection the code does not implement.** Not lies
+— intentions that drifted, or were true of one path. Every tool's
+docstring, class `description`, and inline comments were re-read against
+the code that implements them.
+
+Four more, all verified by probe or measurement before being believed:
+
+| where | claim | reality |
+| --- | --- | --- |
+| `cas.py:5` | "runs the named action under a timeout" | Three actions of twelve. |
+| `safety.py:10` | "redaction runs on every tool output before it reaches the model, the UI, or a confirm card" | Two of those three were false. |
+| `python_exec.py:5` | "files stay out" | `scipy.io` wrote three files. |
+| `clipboard.py` | "Always asks for Allow first" | Not on the voice face. |
+
+**The CAS one is a hang, and it is the worst of them.** `integrate`,
+`dsolve` and `sum` got a killable child process. `solve`, `diff`,
+`simplify`, `factor`, `expand`, `limit`, `series`, `gradient` and
+`directional` ran unbounded on the calling thread. Measured on this
+machine, each of these was still running after twenty seconds:
+
+    solve(x**40 - x**17 + 3*x**5 - 1, x)
+    simplify(sum(sin(x**k)/cos(x**(k+1)) for k in 1..13))
+    series(exp(sin(tan(x))), x, 0, 40)
+
+None is an exotic input for someone doing physics homework — and there is
+a `physhw/` folder in this repo. The glass stops answering and Stop does
+nothing. Reverting the fix hangs *pytest itself*, which is how the test
+was confirmed to catch it rather than merely accompany it.
+
+The fix had to not cost latency, because avoiding a 2s process spawn on
+every quadratic is the entire reason those actions stay in-process. Hence
+a **call-only** tracer: returning `None` from the trace function disables
+per-line tracing, where the expense lives, and SymPy is call-heavy enough
+that the deadline still lands. Benchmarked before it was written —
+`diff`, `solve` on a quadratic and a small `simplify` were all at or under
+their untraced times — and a test pins that bargain so a later change
+cannot quietly trade the hang back for a tax.
+
+**The redaction one is a leak by the one route nobody reads.**
+`turn_execute` calls `ledger.record_tool` with the raw `result.output`,
+about sixty lines before it computes `redact_secrets` for the model.
+Warrant spans are not a dead end: `quote_lines()` feeds them back into the
+conversation on the quote-first nudge. So a credential printed by a tool
+reached model context by the single path that skipped the scrubber.
+Separately, `TOOL_RESULT` published a redacted `output` beside a verbatim
+`data`, and the python tool puts its whole cell output in `data["result"]`.
+
+Both fixed at the boundary rather than the call site — inside `add()`,
+which every warrant passes through, and by walking `data` before it is
+published — so the tool added next month is covered without anyone
+remembering this page.
+
+**The clipboard one is the fix that was not a code change.** In voice /
+filament mode `evaluate_confirm` pauses for `run_script` and destructive
+actions only; a clipboard read is neither. That is deliberate on that face
+— saying the ask is the grant — and `.cursor/rules` says `policy.py` stays
+destructive-only on voice and must not be widened. So the wording moved,
+not the gate. Worth recording as its own outcome: *the honest resolution
+of a prose-vs-code gap is sometimes to fix the prose*, and deciding which
+requires knowing whose lane the gate is in.
+
+#### What generalises
+
+- **"No test names this module" is a five-minute query and it found the
+  worst defects of the day.** Coverage percentages would not have: every
+  one of these files was *reachable* from other tests.
+- **A guard that has never been attacked is a guard with unknown value.**
+  Every check in `python_exec` looked right. Three were bypassable and one
+  was inert.
+- **A denylist of names cannot keep a promise about capabilities.** If the
+  claim is "no files", the check must be on the file operation.
+- **Prose ages worse than code**, because nothing fails when it stops
+  being true. The claims above were all accurate when written.
+- **Probe before believing, including your own sweep.** The subagent that
+  found the `scipy.io` gap also reported items that turned out already
+  fixed; every finding acted on here was reproduced by hand first.
+
 ---
 
 ## Phase 5 — the missing tools

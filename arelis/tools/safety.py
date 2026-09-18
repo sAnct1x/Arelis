@@ -5,6 +5,7 @@ import ipaddress
 import re
 import socket
 from dataclasses import dataclass
+from typing import Any
 from urllib.parse import urlparse
 
 # Redaction runs on every tool output before it reaches the model, the UI, or a
@@ -134,6 +135,43 @@ def redact_secrets(text: str) -> str:
     for pattern in _SECRET_PATTERNS:
         out = pattern.sub("[redacted]", out)
     return out
+
+
+# Deep enough for the shapes tool results actually take — a dict of lists of
+# dicts — and bounded so a cyclic or pathological structure cannot spin here.
+_REDACT_MAX_DEPTH = 6
+_REDACT_MAX_ITEMS = 500
+
+
+def redact_data(value: Any, *, _depth: int = 0, _budget: list[int] | None = None) -> Any:
+    """`redact_secrets` for the structured half of a tool result.
+
+    The comment at the top of this module says redaction happens before a tool
+    output reaches the model or the UI. That was true of `output` and not of
+    `data`: `turn_execute` published `TOOL_RESULT` with `result.data` verbatim,
+    and the python tool puts its entire cell output in `data["result"]`. So
+    `python(code="print('api_key=sk-live-...')")` was scrubbed on the way to
+    the model and published intact on the way to the glass.
+
+    Keys are left alone deliberately. A key is a field name chosen by us, not
+    content returned by a service, and rewriting one would break every UI
+    reader that looks for it.
+    """
+    budget = [_REDACT_MAX_ITEMS] if _budget is None else _budget
+    if _depth > _REDACT_MAX_DEPTH or budget[0] <= 0:
+        return value
+    budget[0] -= 1
+    if isinstance(value, str):
+        return redact_secrets(value)
+    if isinstance(value, dict):
+        return {
+            key: redact_data(item, _depth=_depth + 1, _budget=budget)
+            for key, item in value.items()
+        }
+    if isinstance(value, (list, tuple)):
+        rebuilt = [redact_data(item, _depth=_depth + 1, _budget=budget) for item in value]
+        return type(value)(rebuilt) if isinstance(value, tuple) else rebuilt
+    return value
 
 
 @dataclass(frozen=True)
