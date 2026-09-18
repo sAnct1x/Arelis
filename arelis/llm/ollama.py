@@ -313,7 +313,11 @@ class OllamaProvider:
             response.raise_for_status()
             raw = response.json().get("capabilities") or []
         except Exception as exc:
-            log.info("Could not read capabilities for %s: %s", name, exc)
+            log.warning(
+                "Could not read capabilities for %s; vision support is unknown: %s",
+                name,
+                exc,
+            )
             return frozenset()
         found = frozenset(
             str(item).strip().lower() for item in raw if str(item).strip()

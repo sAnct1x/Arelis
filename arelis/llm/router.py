@@ -308,7 +308,8 @@ class ModelRouter:
         """Fail fast when the card is still full after Ollama reports empty."""
         try:
             from arelis.llm.vram import host_dedicated_bytes, host_vram_blocks_heavy
-        except Exception:
+        except Exception as exc:
+            log.warning("Host VRAM guard could not load: %s", exc)
             return
         try:
             dedicated = await asyncio.to_thread(host_dedicated_bytes)

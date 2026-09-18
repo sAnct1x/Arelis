@@ -8,6 +8,7 @@ full rewrite of the system prompt.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -15,6 +16,8 @@ from typing import Any
 import yaml
 
 from arelis.paths import state_dir
+
+log = logging.getLogger(__name__)
 
 DEFAULT_LESSONS_PATH = state_dir() / "lessons.yaml"
 
@@ -174,7 +177,12 @@ def load_lessons(path: Path | None = None) -> list[Lesson]:
     if path.is_file():
         try:
             data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-        except Exception:
+        except Exception as exc:
+            log.warning(
+                "Could not read lessons from %s; using built-in lessons only: %s",
+                path,
+                exc,
+            )
             data = {}
         items = data.get("lessons") if isinstance(data, dict) else data
         if isinstance(items, list):
