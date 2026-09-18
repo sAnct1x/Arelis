@@ -22,6 +22,7 @@ So: `base_surface` is what the role, the text and the room allow, and
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from arelis.core.agent_loop import (
@@ -32,6 +33,52 @@ from arelis.core.agent_loop import (
 from arelis.core.look import LOOK_TOOL_SUBSET
 from arelis.core.sms_complete import looks_like_stale_sms_skip
 from arelis.core.tool_subset import filter_tool_names
+
+log = logging.getLogger(__name__)
+
+
+def cap_to_room(available_all: set[str], active_room: Any) -> set[str]:
+    """Apply a room's explicit `tools:` cage, and say so when it cannot hold.
+
+    Rooms lean rather than cage by default — `rooms.py` argues the point at
+    length, that a caged agent which has to refuse the time of day teaches you
+    to stop asking. So a `tools:` list is not a side effect of naming a folder,
+    it is a decision somebody made, and it is worth a line in the log when it
+    does not mean what it says.
+
+    A name that is not installed drops out of the cage silently: a typo, a tool
+    since renamed, a room written against a build that had it. When *every*
+    name drops out the cage disappears and the room gets the whole registry —
+    while the rooms tool goes on printing "limited to tools: …" either way.
+
+    The fail-open is deliberate and stays. A room cut down to nothing could not
+    answer anything, which is worse than an unenforced cage and is the exact
+    failure rooms lean to avoid. What changes is that it is no longer quiet.
+    """
+    named = {n for n in (getattr(active_room, "tools", None) or ()) if n}
+    if not named:
+        return available_all
+    missing = named - available_all
+    capped = available_all & named
+    if not capped:
+        log.warning(
+            "Room %r limits tools to %s, none of which are installed — the "
+            "limit cannot be applied and the room is leaning on the full tool "
+            "set instead.",
+            getattr(active_room, "name", "?"),
+            ", ".join(sorted(named)),
+        )
+        return available_all
+    if missing:
+        log.warning(
+            "Room %r limits tools to %s, but %s %s not installed and will be "
+            "ignored.",
+            getattr(active_room, "name", "?"),
+            ", ".join(sorted(named)),
+            ", ".join(sorted(missing)),
+            "is" if len(missing) == 1 else "are",
+        )
+    return capped
 
 
 def base_surface(

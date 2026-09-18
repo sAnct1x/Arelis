@@ -17,7 +17,8 @@ from arelis.core.events import Event
 from arelis.core.sms_complete import SmsDraft
 from arelis.core.turn_context import TurnContext
 from arelis.core.turn_dispatch import dispatch_calls
-from arelis.core.turn_round import _round_scratch, apply_no_call_path
+from arelis.core.turn_round import apply_no_call_path
+from arelis.core.turn_scratch import RoundScratch
 
 
 class _Bus:
@@ -90,10 +91,9 @@ class _FakeLoop:
         return {"role": "tool", "name": name, "content": err}
 
 
-def _scratch(**overrides: Any) -> SimpleNamespace:
+def _scratch(**overrides: Any) -> RoundScratch:
     base = dict(
         text="hello",
-        role="fast",
         agent_cfg={
             "sms_force_call": True,
             "email_force_call": True,
@@ -136,7 +136,6 @@ def _scratch(**overrides: Any) -> SimpleNamespace:
         calls=[],
         tool_calls=[],
         round_ms=1,
-        model="qwen",
     )
     from arelis.core.claims import ExactnessNeed
     from arelis.core.evidence import EvidenceLedger
@@ -146,7 +145,7 @@ def _scratch(**overrides: Any) -> SimpleNamespace:
     if overrides.get("ledger") is None and "ledger" not in overrides:
         base["ledger"] = EvidenceLedger()
     base.update(overrides)
-    return _round_scratch(**base)
+    return RoundScratch(**base)  # type: ignore[arg-type]
 
 
 def _ctx(**overrides: Any) -> TurnContext:

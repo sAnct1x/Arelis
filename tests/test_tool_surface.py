@@ -20,7 +20,7 @@ from types import SimpleNamespace
 import pytest
 
 from arelis.core.tool_subset import filter_tool_names
-from arelis.core.tool_surface import apply_expected, base_surface
+from arelis.core.tool_surface import apply_expected, base_surface, cap_to_room
 
 ALL = {
     "web_search",
@@ -168,3 +168,51 @@ def test_prepare_and_escalate_now_compute_the_same_surface(text, subset):
         return apply_expected(loop, available, text=text, available_all=set(ALL))
 
     assert surface() == surface()
+
+
+# A room's `tools:` list is a cage somebody chose — rooms lean by default, so
+# setting it at all is deliberate. It is also the one part of the surface that
+# can silently stop meaning anything, because a name that is not installed just
+# drops out, and the rooms tool goes on printing "limited to tools: …" anyway.
+
+
+def _caged_room(name: str, tools: tuple[str, ...]):
+    return SimpleNamespace(name=name, tools=tools, spec=SimpleNamespace(skills=()))
+
+
+def test_a_room_cage_narrows_to_the_named_tools() -> None:
+    capped = cap_to_room(set(ALL), _caged_room("physics", ("cas", "calculator")))
+    assert capped == {"cas", "calculator"}
+
+
+def test_a_room_with_no_tool_list_is_left_alone() -> None:
+    assert cap_to_room(set(ALL), _caged_room("orbit", ())) == set(ALL)
+
+
+def test_a_cage_naming_nothing_installed_fails_open_but_says_so(caplog) -> None:
+    """The fail-open is deliberate; the silence was the defect.
+
+    A room cut down to nothing could not answer the time of day, which is the
+    exact failure `rooms.py` says rooms lean to avoid. So the whole registry
+    comes back — but a limit that is printed to the user and not enforced has
+    to be audible somewhere, or the only symptom is the model reaching for a
+    tool the room said it could not use.
+    """
+    with caplog.at_level("WARNING"):
+        capped = cap_to_room(set(ALL), _caged_room("ghost", ("nope", "gone")))
+    assert capped == set(ALL)
+    assert caplog.records, "an unenforceable cage must not be silent"
+    msg = caplog.records[0].getMessage()
+    assert "ghost" in msg
+    assert "gone" in msg and "nope" in msg
+
+
+def test_a_partly_installed_cage_still_applies_and_names_what_it_dropped(
+    caplog,
+) -> None:
+    with caplog.at_level("WARNING"):
+        capped = cap_to_room(set(ALL), _caged_room("physics", ("cas", "typo_tool")))
+    assert capped == {"cas"}, "the names that do exist still cage the room"
+    msg = caplog.records[0].getMessage()
+    assert "typo_tool" in msg
+    assert "cas" not in msg.split("but")[-1], "only the missing one is reported missing"

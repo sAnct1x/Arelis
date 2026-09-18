@@ -49,6 +49,7 @@ from arelis.core.preflight import draft_browser_args
 from arelis.core.sms_complete import draft_send_sms_args, looks_like_browser_or_url
 from arelis.core.tile_complete import match_tile_intent, tile_tool_args
 from arelis.core.turn_context import TurnContext
+from arelis.core.turn_scratch import RoundScratch
 from arelis.tools.weather import draft_weather_args, weather_places_missing
 
 RedirectFn = Callable[..., Awaitable[tuple[Any, ...] | None]]
@@ -66,7 +67,7 @@ async def _think(loop: Any, text: str) -> None:
 
 
 async def redirect_weather(
-    loop: Any, ctx: TurnContext, r: Any, name: str, args: dict[str, Any], drop_wander: Any
+    loop: Any, ctx: TurnContext, r: RoundScratch, name: str, args: dict[str, Any], drop_wander: Any
 ) -> tuple[Any, ...] | None:
     if not (
         name in _WEATHER_WANDER
@@ -97,7 +98,7 @@ async def redirect_weather(
 
 
 async def redirect_browser_to_agenda(
-    loop: Any, ctx: TurnContext, r: Any, name: str, args: dict[str, Any], drop_wander: Any
+    loop: Any, ctx: TurnContext, r: RoundScratch, name: str, args: dict[str, Any], drop_wander: Any
 ) -> tuple[Any, ...] | None:
     if not (name == "browser" and looks_like_calendar_open(r.text) and "agenda" in r.tool_names):
         return None
@@ -114,7 +115,7 @@ async def redirect_browser_to_agenda(
 
 
 async def redirect_browser_to_solar(
-    loop: Any, ctx: TurnContext, r: Any, name: str, args: dict[str, Any], drop_wander: Any
+    loop: Any, ctx: TurnContext, r: RoundScratch, name: str, args: dict[str, Any], drop_wander: Any
 ) -> tuple[Any, ...] | None:
     if not (name == "browser" and SOLAR_STATUS.matches(r.text) and "solar" in r.tool_names):
         return None
@@ -129,7 +130,7 @@ async def redirect_browser_to_solar(
 
 
 async def redirect_browser_to_earth(
-    loop: Any, ctx: TurnContext, r: Any, name: str, args: dict[str, Any], drop_wander: Any
+    loop: Any, ctx: TurnContext, r: RoundScratch, name: str, args: dict[str, Any], drop_wander: Any
 ) -> tuple[Any, ...] | None:
     if not (name == "browser" and EARTH_STATUS.matches(r.text) and "earth" in r.tool_names):
         return None
@@ -144,7 +145,7 @@ async def redirect_browser_to_earth(
 
 
 async def redirect_python_to_run_script(
-    loop: Any, ctx: TurnContext, r: Any, name: str, args: dict[str, Any], drop_wander: Any
+    loop: Any, ctx: TurnContext, r: RoundScratch, name: str, args: dict[str, Any], drop_wander: Any
 ) -> tuple[Any, ...] | None:
     if not (
         name == "python"
@@ -166,7 +167,7 @@ async def redirect_python_to_run_script(
 
 
 async def redirect_browser_to_tile(
-    loop: Any, ctx: TurnContext, r: Any, name: str, args: dict[str, Any], drop_wander: Any
+    loop: Any, ctx: TurnContext, r: RoundScratch, name: str, args: dict[str, Any], drop_wander: Any
 ) -> tuple[Any, ...] | None:
     if not (name == "browser" and match_tile_intent(r.text) and "tile" in r.tool_names):
         return None
@@ -187,7 +188,7 @@ async def redirect_browser_to_tile(
 
 
 async def redirect_browser_wander(
-    loop: Any, ctx: TurnContext, r: Any, name: str, args: dict[str, Any], drop_wander: Any
+    loop: Any, ctx: TurnContext, r: RoundScratch, name: str, args: dict[str, Any], drop_wander: Any
 ) -> tuple[Any, ...] | None:
     if not (
         name in _BROWSER_WANDER
@@ -213,7 +214,7 @@ async def redirect_browser_wander(
 
 
 async def redirect_local_store(
-    loop: Any, ctx: TurnContext, r: Any, name: str, args: dict[str, Any], drop_wander: Any
+    loop: Any, ctx: TurnContext, r: RoundScratch, name: str, args: dict[str, Any], drop_wander: Any
 ) -> tuple[Any, ...] | None:
     if not (
         name in {"weather", "web_search", "browser", "scrape", "web_fetch", "user_location"}
@@ -243,7 +244,7 @@ async def redirect_local_store(
 
 
 async def redirect_sms(
-    loop: Any, ctx: TurnContext, r: Any, name: str, args: dict[str, Any], drop_wander: Any
+    loop: Any, ctx: TurnContext, r: RoundScratch, name: str, args: dict[str, Any], drop_wander: Any
 ) -> tuple[Any, ...] | None:
     sms_draft = r.sms_draft
     if not (
@@ -298,7 +299,7 @@ async def redirect_sms(
 
 
 async def redirect_email(
-    loop: Any, ctx: TurnContext, r: Any, name: str, args: dict[str, Any], drop_wander: Any
+    loop: Any, ctx: TurnContext, r: RoundScratch, name: str, args: dict[str, Any], drop_wander: Any
 ) -> tuple[Any, ...] | None:
     email_draft = r.email_draft
     if not (
@@ -343,7 +344,7 @@ async def redirect_email(
 
 
 async def redirect_agenda(
-    loop: Any, ctx: TurnContext, r: Any, name: str, args: dict[str, Any], drop_wander: Any
+    loop: Any, ctx: TurnContext, r: RoundScratch, name: str, args: dict[str, Any], drop_wander: Any
 ) -> tuple[Any, ...] | None:
     if not (
         name in {"web_search", "contacts", "user_location", "weather", "schedule"}
@@ -410,7 +411,7 @@ async def redirect_agenda(
 
 
 async def redirect_inspect_wander(
-    loop: Any, ctx: TurnContext, r: Any, name: str, args: dict[str, Any], drop_wander: Any
+    loop: Any, ctx: TurnContext, r: RoundScratch, name: str, args: dict[str, Any], drop_wander: Any
 ) -> tuple[Any, ...] | None:
     """A question about her own source is not a question for the web.
 
@@ -479,7 +480,7 @@ REDIRECT_STEPS: tuple[RedirectFn, ...] = (
 async def apply_redirects(
     loop: Any,
     ctx: TurnContext,
-    r: Any,
+    r: RoundScratch,
     name: str,
     args: dict[str, Any],
     drop_wander: Any,

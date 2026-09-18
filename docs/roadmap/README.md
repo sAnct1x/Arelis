@@ -1024,20 +1024,75 @@ ones that were real were real, and they were the quiet ones.
 
 ### 3d — god functions
 
-Do these last; they are the highest-risk edits and Phase 0's net is what
-makes them possible at all.
+Done. The roadmap's line numbers were stale again: `prepare_turn` was
+529 lines starting at 72, not ~580 starting at 76. The rest of the
+claims held in spirit and were wrong in the details that matter.
 
-- [ ] **3.16** `turn_round.apply_no_call_path` (`turn_round.py:179-607`)
-  unpacks ~40 rebound locals and writes them back in a `finally`. The
-  author's own note at `turn_round.py:187-190` says collapsing the scratch
-  object is "a later contract." This is that contract: make a real
-  dataclass instead of `SimpleNamespace`.
-- [ ] **3.17** `turn_dispatch.dispatch_calls` (`turn_dispatch.py:101-793`)
-  — same scratch pattern, same fix.
-- [ ] **3.18** `turn_prepare.prepare_turn` (`turn_prepare.py:76-653`) —
-  ~580 lines of prompt assembly. Split by section, not by line count.
-- [ ] **3.19** `ui/window_build._construct_shell` — constructs 50+
-  subsystems in one method.
+- [x] **3.16 / 3.17** `SimpleNamespace` is now `RoundScratch` in
+  `turn_scratch.py` (`slots=True`, keyword-only). A misspelled field
+  raises instead of becoming a silently dropped write — that is the
+  whole reason it is a dataclass. `apply_no_call_path` and
+  `dispatch_calls` write through the object; the 39-line copy-back
+  `finally` is gone from both coordinators.
+
+  A leftover hole survived the first pass: `run_round` still snapshotted
+  the surface into locals and wrote *those* back in its own `finally`.
+  `_drop_wander` lands on the scratch. If the tool then explodes,
+  `dispatch_calls` never returns, and the snapshot from the start of
+  the round put `web_search` back on `ctx`. The explode-on-`r` test
+  did not catch it — it never went through `run_round`. Write-back now
+  reads `r` when it exists. Mutating that to ignore `r` fails both the
+  raise-path test and the happy-path "next round sees the narrow
+  surface" test.
+
+  `role` and `model` were on the SimpleNamespace and no step ever read
+  either. They stay locals on `run_round`.
+
+  The roadmap's `finally` description was incomplete: both coordinators
+  also had four hand-maintained mid-body flush/re-read lists, so six
+  field lists per pipeline had to stay in step. They were in sync at
+  HEAD — no live bug — but adding one local a callee reads and
+  forgetting the flush was silent. Writing through `r` deletes that
+  class of defect. Two test holes in the first pass (fanout
+  `fill_round_calls`, execute-path JS-shell widen) were the same
+  helper-not-caller miss as 3.14.
+
+  `execute_call` still annotated `r: SimpleNamespace` after the
+  rewrite, which is a live `arg-type` at the dispatch call site.
+  `no_call_steps` / `no_call_finish` / `call_redirects` annotated
+  `r: Any`, so `slots=True` bought them nothing. All four now take
+  `RoundScratch`.
+- [x] **3.18** `prepare_turn` is 224 lines, split around the real
+  prompt seams into `prompt_sections.py`. Five cases — plain,
+  rich-spoken, weather, current-web, SMS — are byte-identical to
+  `HEAD`, independently re-captured by stubbing at both ends of every
+  `from x import y` (the lane's own probe stubbed only
+  `prompt_sections`, a module HEAD does not have, so it could not have
+  produced a "before"). The first draft of that check baked a live
+  wall clock into the capture and agreed only because both runs landed
+  in the same minute. `tests/test_prompt_golden.py` is the permanent
+  form: a stub that does not bind fails `test_every_stub_took` rather
+  than going green until tomorrow morning, and a one-line reorder of
+  PROFILE/CONTACTS fails the golden.
+
+  An existing fail-open was left alone during the split because byte
+  identity was mandatory, then made audible: a room whose `tools:`
+  names nothing installed still gets the full registry (rooms lean
+  rather than cage — `rooms.py` argues the point), but it now logs a
+  warning instead of printing "limited to tools: …" and then offering
+  everything. `cap_to_room` in `tool_surface.py`. Three mutants: silent
+  fail-open, silent partial typo, cage never narrows — all caught.
+- [x] **3.19** `_construct_shell` is seven named phases with
+  `assert hasattr(...)` guards naming what each one reads. The lane's
+  original test was four `hasattr` checks after a construction that
+  would already have crashed, plus an unused import, and it did not
+  pass ruff. Rewritten: every edge in the dependency table is
+  parametrized, skip the needed phase, construction dies. Four
+  mutations — docks before instruments, instruments before the chat
+  stage, signals before secondary windows, timers dropped — each fail
+  two tests and leave the rest green. Nothing in this repo launches
+  with `-O`, and `assert` is already used in shipped code
+  (`browser/actions.py` has 21), so the guards are not decoration.
 
 ### 3e — types
 
@@ -1058,14 +1113,16 @@ makes them possible at all.
   also hands mypy a file it knows is wrong, because a gate is only ever
   observed passing otherwise — a permissive flag or config key would leave
   it green on broken code, and that mutant is run.
-- [ ] **3.21** `arelis/tools/base.py` is the last small one, at **1**
-  error. Note that the per-package table in `NOTES.md` is stale: it lists
-  `memory` at 11 and `llm` at 1,391-era counts, and both measure **0**
-  today in the same repo-wide run, so Phase 2 cleaned them as a side
-  effect. Re-measure before trusting that table for the next package —
-  `presence` (15) and `eval` (19) are the next cheapest.
-- [ ] **3.22** Add each newly clean package to the blocking list. Never
-  attempt the 689-error `arelis/ui` pile as one task.
+- [x] **3.21** `arelis/tools/base.py` is at **0**. The one error was
+  the method named `list` shadowing the builtin, so every `list[...]`
+  annotation in the class was "not valid as a type". `builtins.list`
+  on those three annotations. Re-measured before touching it: presence
+  is still 15, eval still 19, `arelis/tools` as a package is 136 —
+  do not gate the package.
+- [x] **3.22** `arelis/tools/base.py` is on the blocking list. Next
+  cheap packages are still `presence` (15) and `eval` (19). Never
+  attempt the 689-error `arelis/ui` pile as one task. Five of the
+  presence errors are the same `list`-method shadow as base.py.
 
 ---
 

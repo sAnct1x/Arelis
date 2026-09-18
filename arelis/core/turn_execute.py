@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 
 from arelis.contacts import format_contact_spoken
@@ -30,6 +29,7 @@ from arelis.core.sms_complete import (
 from arelis.core.tool_results import PreparedToolOutput, prepare_tool_output
 from arelis.core.turn_context import TurnContext
 from arelis.core.turn_goal import NEED_LOGIN, browser_errand_done
+from arelis.core.turn_scratch import RoundScratch
 from arelis.core.untrusted import frame_external_tool_output
 from arelis.tools.inbox import INBOX_PEEK_ACTIONS, inbox_peek_was_empty
 from arelis.tools.safety import redact_data, redact_secrets, truncate_tool_output
@@ -43,7 +43,7 @@ from arelis.tools.weather import (
 async def execute_call(
     loop: Any,
     ctx: TurnContext,
-    r: SimpleNamespace,
+    r: RoundScratch,
     name: str,
     args: dict[str, Any],
     *,

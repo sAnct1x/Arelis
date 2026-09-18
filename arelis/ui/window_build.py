@@ -138,6 +138,29 @@ class WindowBuild:
         router=None,
     ) -> None:
         """Build chrome, docks, timers, and hosts on this HWND."""
+        self._build_core_state(
+            config, bridge, loop, bus, voice, store, restore_session_id, indexer, router
+        )
+        self._build_chrome()
+        self._build_stage_and_chat()
+        self._build_instruments()
+        self._build_docks()
+        self._build_timers_and_state()
+        self._build_secondary_windows()
+        self._connect_signals_and_bind()
+
+    def _build_core_state(
+        self,
+        config: dict[str, Any],
+        bridge,
+        loop,
+        bus,
+        voice,
+        store,
+        restore_session_id: str | None,
+        indexer,
+        router,
+    ) -> None:
         # Set before anything can schedule a deferred callback. Every one of them
         # goes through _later, which drops rather than delivers once this is true.
         self._disposed = False
@@ -183,6 +206,7 @@ class WindowBuild:
         seal_tool_window(self)
         self.menuBar().hide()
 
+    def _build_chrome(self) -> None:
         self.title_bar = TitleBar()
         self.readiness_strip = ReadinessStrip()
         chrome_stack = QWidget()
@@ -204,6 +228,7 @@ class WindowBuild:
         self.title_bar.view_menu_requested.connect(self._show_view_menu)
         self.readiness_updated.connect(self.readiness_strip.apply)
 
+    def _build_stage_and_chat(self) -> None:
         # Central host (transparent — atmosphere painted full-bleed on the window)
         self.stage = StageBackground()
         self.setCentralWidget(self.stage)
@@ -212,7 +237,7 @@ class WindowBuild:
         self._stage_layout.setContentsMargins(_PANEL_OUTER, _PANEL_TOP, _PANEL_OUTER, _PANEL_BOTTOM)
         self._stage_layout.setSpacing(0)
 
-        default_role = config.get("router", {}).get("default_role", "fast")
+        default_role = self.config.get("router", {}).get("default_role", "fast")
         self.conversation = ConversationStage(default_role=default_role)
         self.chat = self.conversation.chat
         self.chat.progress_clicked.connect(self._on_thinking_status_clicked)
@@ -223,27 +248,34 @@ class WindowBuild:
         self._filament_hiding = False
         self._filament_chat_open = False
         self._filament_woken = False
-        self._filament_span = clamp_filament_span((config.get("ui") or {}).get("filament_span", 1))
+        self._filament_span = clamp_filament_span(
+            (self.config.get("ui") or {}).get("filament_span", 1)
+        )
         self._filament_home: QRect | None = None
-        self._filament_opacity = load_opacities(config)
-        self._filament_tile_sizes = load_tile_sizes(config)
-        self._filament_tile_pos = load_tile_origins(config)
+        self._filament_opacity = load_opacities(self.config)
+        self._filament_tile_sizes = load_tile_sizes(self.config)
+        self._filament_tile_pos = load_tile_origins(self.config)
         self._filament_dock_areas: dict[str, object] | None = None
         self._filament_floats = FilamentFloatBar(self._filament, self.conversation)
         self._filament_floats.hide()
-        self._hands_chip = bool((config.get("ui") or {}).get("hands_chip", False))
+        self._hands_chip = bool((self.config.get("ui") or {}).get("hands_chip", False))
         self._filament_chat_tile = FilamentChatWindow(self)
         self._filament_chat_tile.hide()
         self.filament = FilamentDesk(self)
         self.conversation.setMouseTracking(True)
 
+    def _build_instruments(self) -> None:
+        assert hasattr(self, "conversation"), (
+            "Stage must be built before instruments (refresh_desk needs conversation)"
+        )
+        assert hasattr(self, "workspace_roots"), "Core state must be built before instruments"
         # Dockable instruments — full glass bodies, no broken native title chrome
         self.thinking = ThinkingPanel()
         self.workspace = WorkspacePanel()
         self.history = HistoryPanel()
         self.contacts = ContactsPanel()
         self.notifications = NotificationsPanel()
-        self.notify_center = NotificationCenter(config)
+        self.notify_center = NotificationCenter(self.config)
         self.sms_chats = SmsChatRegistry(self, persist=not os.environ.get("PYTEST_CURRENT_TEST"))
         self.camera = CameraPanel()
         self.spatial = SpatialHands(self)
@@ -261,38 +293,11 @@ class WindowBuild:
         self.work_host = InstrumentPanel("workspace", self.workspace)
         self.history_host = InstrumentPanel("history", self.history)
         self.camera_host = InstrumentPanel("camera", self.camera)
-        self.sms_watcher: InboundSmsWatcher | None = None
-        self.sms_ingest: InboundIngestServer | None = None
-        self.sms_auto_reply: SmsAutoReply | None = None
-        self.inbound_runtime: InboundRuntime | None = None
-        self.ipc_client: IpcClient | None = None
-        # Only one of these is ever set: attached to a core we are its client,
-        # and running alone we are the server a second launch talks to.
-        self.ipc_server: IpcServer | None = None
-        presence_cfg = self.config.get("presence") or {}
-        self._close_to_tray = bool(presence_cfg.get("close_to_tray", True))
-        ui_prefs = load_ui_prefs()
-        self._always_on_top = bool(ui_prefs.get("always_on_top", False))
-        self._chat_font_scale = float(ui_prefs.get("chat_font_scale", 1.0))
-        self._world_reach = clamp_reach(ui_prefs.get("world_reach", REACH_DEFAULT))
-        self._away_rest = bool(ui_prefs.get("away_rest", False))
-        self._away_rest_min = clamp_away_rest_min(ui_prefs.get("away_rest_min", 45))
-        self._away_resting = False
-        self._away_hidden: dict[str, bool] = {}
-        self._force_quit = False
-        # What the window looked like when it went to the tray. showNormal() on
-        # the way back would answer "not maximized" regardless, which is both the
-        # wrong window and the reason a restore used to flash two of them.
-        self._tray_window_state = Qt.WindowState.WindowNoState
-        self._tray: QSystemTrayIcon | None = None
-        self._pending_store = PendingConfirmStore(pending_confirms_path(self.config))
-        self._pending_queue: list[PendingConfirm] = []
-        self._restoring_confirm_ids: set[str] = set()
-        self._ignore_cancel_echo = False
-        # Survives thinking.clear() on session restore so a wiped STATUS line
-        # cannot hide "ingest is down / needs token".
-        self._inbound_banner: str = ""
 
+    def _build_docks(self) -> None:
+        assert hasattr(self, "think_host"), (
+            "Instruments must be built before docks (docks wrap the instrument hosts)"
+        )
         # The four dock object names below are not styling hooks — no QSS rule
         # targets them. QMainWindow.saveState() identifies docks by object name,
         # so they are what layout_store writes into ui_layout.ini and matches on
@@ -404,6 +409,11 @@ class WindowBuild:
         self._later(0, self._stack_left_instruments)
         self._later(250, self._stack_left_instruments)
 
+    def _build_secondary_windows(self) -> None:
+        assert hasattr(self, "notifications"), "Instruments must be built before secondary windows"
+        assert hasattr(self, "_world_reach"), (
+            "Timers and state must be built before secondary windows"
+        )
         self.notify_inbox = NotificationsInboxWindow(self.notifications, self)
         self.notify_inbox.hide()
         self.contacts_inbox = ContactsInboxWindow(self.contacts, self)
@@ -419,6 +429,108 @@ class WindowBuild:
         self._world_placed = False
         self.camera.set_reach(self._world_reach)
 
+    def _build_timers_and_state(self) -> None:
+        self.sms_watcher: InboundSmsWatcher | None = None
+        self.sms_ingest: InboundIngestServer | None = None
+        self.sms_auto_reply: SmsAutoReply | None = None
+        self.inbound_runtime: InboundRuntime | None = None
+        self.ipc_client: IpcClient | None = None
+        # Only one of these is ever set: attached to a core we are its client,
+        # and running alone we are the server a second launch talks to.
+        self.ipc_server: IpcServer | None = None
+        presence_cfg = self.config.get("presence") or {}
+        self._close_to_tray = bool(presence_cfg.get("close_to_tray", True))
+        ui_prefs = load_ui_prefs()
+        self._always_on_top = bool(ui_prefs.get("always_on_top", False))
+        self._chat_font_scale = float(ui_prefs.get("chat_font_scale", 1.0))
+        self._world_reach = clamp_reach(ui_prefs.get("world_reach", REACH_DEFAULT))
+        self._away_rest = bool(ui_prefs.get("away_rest", False))
+        self._away_rest_min = clamp_away_rest_min(ui_prefs.get("away_rest_min", 45))
+        self._away_resting = False
+        self._away_hidden: dict[str, bool] = {}
+        self._force_quit = False
+        # What the window looked like when it went to the tray. showNormal() on
+        # the way back would answer "not maximized" regardless, which is both the
+        # wrong window and the reason a restore used to flash two of them.
+        self._tray_window_state = Qt.WindowState.WindowNoState
+        self._tray: QSystemTrayIcon | None = None
+        self._pending_store = PendingConfirmStore(pending_confirms_path(self.config))
+        self._pending_queue: list[PendingConfirm] = []
+        self._restoring_confirm_ids: set[str] = set()
+        self._ignore_cancel_echo = False
+        # Survives thinking.clear() on session restore so a wiped STATUS line
+        # cannot hide "ingest is down / needs token".
+        self._inbound_banner: str = ""
+
+        self._assistant_streaming = False
+        self._turn_busy = False
+        self._mobile_foreign = False
+        self._drive_session = False
+        self._readiness_snap = None
+        self._idle_ghosts: list[tuple[str, str]] = []
+        self._away_timer = QTimer(self)
+        self._away_timer.setSingleShot(True)
+        self._held_inbound: list[InboundSms] = []
+        self._job_t0: float | None = None
+        self._job_name = ""
+        self._mail_poll_inflight = False
+        self._mail_poll_at = 0.0
+        # Last spoken state per background poller, plus fail/ok streaks so a
+        # one-shot DNS/timeout blip does not print stopped/working/stopped.
+        self._poll_state: dict[str, str] = {}
+        self._poll_fail_streak: dict[str, int] = {}
+        self._poll_ok_streak: dict[str, int] = {}
+        self._poll_spoken: dict[str, str] = {}
+        default_role = self.config.get("router", {}).get("default_role", "fast")
+        self._current_role = default_role
+        self._current_model = self.config.get("models", {}).get(default_role, "")
+        self._busy_watchdog = QTimer(self)
+        self._busy_watchdog.setSingleShot(True)
+        self._busy_watchdog.timeout.connect(self._on_busy_watchdog)
+        self._think_pulse_timer = QTimer(self)
+        self._think_pulse_timer.setSingleShot(True)
+        self._think_pulse_timer.setInterval(_THINK_PULSE_MS)
+        self._think_pulse_timer.timeout.connect(self._on_think_pulse_done)
+
+        # Embed archived messages between turns only. Mid-turn would load nomic
+        # and risk evicting the chat model on a 12GB card.
+        self._index_timer = QTimer(self)
+        self._index_timer.setInterval(30_000)
+        self._index_timer.timeout.connect(self._on_index_tick)
+        if self.indexer is not None:
+            self._index_timer.start()
+
+        # Soft readiness refresh — Ollama + local integrations under the title bar.
+        self._readiness_timer = QTimer(self)
+        self._readiness_timer.setInterval(30_000)
+        self._readiness_timer.timeout.connect(self._schedule_readiness_probe)
+        self._readiness_timer.start()
+
+        notify_cfg = (self.config.get("ui") or {}).get("notifications") or {}
+        self._notify_timer = QTimer(self)
+        self._notify_timer.setInterval(
+            max(15_000, int(float(notify_cfg.get("poll_s") or 30) * 1000))
+        )
+        self._notify_timer.start()
+        self._calendar_sync_inflight = False
+        self._calendar_sync_timeout_ms = 20_000
+        self._calendar_sync_timer = QTimer(self)
+        self._calendar_sync_timer.setInterval(300_000)
+        self._calendar_sync_watchdog = QTimer(self)
+        self._calendar_sync_watchdog.setSingleShot(True)
+        self._job_tick = QTimer(self)
+        self._job_tick.setInterval(1000)
+        
+        self._atmosphere_timer = QTimer(self)
+        self._atmosphere_timer.setInterval(100)
+        self._atmosphere_timer.timeout.connect(self._tick_atmosphere)
+        self._atmosphere_timer.start()
+
+    def _connect_signals_and_bind(self) -> None:
+        assert hasattr(self, "think_dock"), (
+            "Docks must be built before signals (view actions need docks)"
+        )
+        assert hasattr(self, "world_scene"), "Secondary windows must be built before signals"
         self._build_view_actions()
         self._voice_hotkey_at = 0.0
         app = QApplication.instance()
@@ -445,74 +557,12 @@ class WindowBuild:
         self.contacts_inbox.closed.connect(self._on_contacts_inbox_closed)
         self._ui_call.connect(self._run_ui_call)
 
-        self._assistant_streaming = False
-        self._turn_busy = False
-        self._mobile_foreign = False
-        self._drive_session = False
-        self._readiness_snap = None
-        self._idle_ghosts: list[tuple[str, str]] = []
-        self._away_timer = QTimer(self)
-        self._away_timer.setSingleShot(True)
-        self._held_inbound: list[InboundSms] = []
-        self._job_t0: float | None = None
-        self._job_name = ""
-        self._mail_poll_inflight = False
-        self._mail_poll_at = 0.0
-        # Last spoken state per background poller, plus fail/ok streaks so a
-        # one-shot DNS/timeout blip does not print stopped/working/stopped.
-        self._poll_state: dict[str, str] = {}
-        self._poll_fail_streak: dict[str, int] = {}
-        self._poll_ok_streak: dict[str, int] = {}
-        self._poll_spoken: dict[str, str] = {}
-        self._current_role = default_role
-        self._current_model = config.get("models", {}).get(default_role, "")
-        self._busy_watchdog = QTimer(self)
-        self._busy_watchdog.setSingleShot(True)
-        self._busy_watchdog.timeout.connect(self._on_busy_watchdog)
-        self._think_pulse_timer = QTimer(self)
-        self._think_pulse_timer.setSingleShot(True)
-        self._think_pulse_timer.setInterval(_THINK_PULSE_MS)
-        self._think_pulse_timer.timeout.connect(self._on_think_pulse_done)
-
-        # Embed archived messages between turns only. Mid-turn would load nomic
-        # and risk evicting the chat model on a 12GB card.
-        self._index_timer = QTimer(self)
-        self._index_timer.setInterval(30_000)
-        self._index_timer.timeout.connect(self._on_index_tick)
-        if self.indexer is not None:
-            self._index_timer.start()
-
-        # Soft readiness refresh — Ollama + local integrations under the title bar.
-        self._readiness_timer = QTimer(self)
-        self._readiness_timer.setInterval(30_000)
-        self._readiness_timer.timeout.connect(self._schedule_readiness_probe)
-        self._readiness_timer.start()
-
-        notify_cfg = (config.get("ui") or {}).get("notifications") or {}
-        self._notify_timer = QTimer(self)
-        self._notify_timer.setInterval(
-            max(15_000, int(float(notify_cfg.get("poll_s") or 30) * 1000))
-        )
-        self._notify_timer.start()
-        self._calendar_sync_inflight = False
-        self._calendar_sync_timeout_ms = 20_000
-        self._calendar_sync_timer = QTimer(self)
-        self._calendar_sync_timer.setInterval(300_000)
-        self._calendar_sync_watchdog = QTimer(self)
-        self._calendar_sync_watchdog.setSingleShot(True)
-        self._job_tick = QTimer(self)
-        self._job_tick.setInterval(1000)
         bind_window_hosts(self)
         bind_docks(self)
         bind_world(self)
         self.filament.bind()
         apply_startup_hosts(self)
 
-        # Slow grain drift — paused while minimized.
-        self._atmosphere_timer = QTimer(self)
-        self._atmosphere_timer.setInterval(100)
-        self._atmosphere_timer.timeout.connect(self._tick_atmosphere)
-        self._atmosphere_timer.start()
         self._sync_filament_face()
 
         self._later(0, self._schedule_readiness_probe)

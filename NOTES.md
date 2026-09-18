@@ -34,8 +34,10 @@ mypy by package (same run):
 **The table above is stale as of 2026-09-18** — re-measure before using it
 to pick the next package. `memory/` and `llm/` both read 0 today in the
 same repo-wide run, cleaned as a side effect of other work, and the repo
-total is 1,550 rather than 1,391. `tools/base.py` is at 1. Next cheapest
-after that are `presence/` (15) and `eval/` (19).
+total is 1,550 rather than 1,391. `tools/base.py` is at 0 (it was 1: a
+method named `list` made every `list[...]` annotation in the class
+illegal) and is on the strict list. Next cheapest are `presence/` (15)
+and `eval/` (19).
 
 **Mypy strict gate.** A package at zero that is allowed to regress is not
 clean. Packages that are fully typed are listed one per line in

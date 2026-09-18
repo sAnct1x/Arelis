@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import builtins
 import re
 from dataclasses import dataclass, field
 from typing import Any, Protocol
@@ -118,13 +119,16 @@ class ToolRegistry:
     def get(self, name: str) -> Tool | None:
         return self._tools.get(name)
 
-    def list(self) -> list[dict[str, str]]:
+    def list(self) -> builtins.list[dict[str, str]]:
+        # The method is named `list`, so a bare `list[...]` annotation is
+        # the method, not the builtin. mypy then reports "not valid as a
+        # type" — the only error this file had.
         return [{"name": t.name, "description": t.description} for t in self._tools.values()]
 
     def names(self) -> set[str]:
         return set(self._tools)
 
-    def ollama_tools(self, names: set[str] | None = None) -> list[dict[str, Any]]:
+    def ollama_tools(self, names: set[str] | None = None) -> builtins.list[dict[str, Any]]:
         """OpenAI-style tools array for Ollama /api/chat.
 
         When ``names`` is set, only those tools are offered (per-turn subset).
@@ -133,7 +137,7 @@ class ToolRegistry:
         """
         from arelis.core.compact_prompt import skinny_ollama_tool
 
-        out: list[dict[str, Any]] = []
+        out: builtins.list[dict[str, Any]] = []
         for tool in self._tools.values():
             if names is not None and tool.name not in names:
                 continue

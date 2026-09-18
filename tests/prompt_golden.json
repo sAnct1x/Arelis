@@ -1,0 +1,282 @@
+[
+  {
+    "expect_tool_round": true,
+    "expected": [],
+    "messages": [
+      {
+        "content": "PERSONA",
+        "role": "system"
+      },
+      {
+        "content": "tools: call; don't invent results. Never ask \"Would you like me to proceed / fetch / scrape / search / check?\" when the ask is clear. Multi-part: keep calling until done. Fallback: {\"tool\":\"<name>\",\"args\":{}} or {\"final\":\"<answer>\"}.\nconfirm: writes/sends = card, not a chat ask. Never claim a side effect unless a tool this turn succeeded. Confirmation without a tool is a lie.\nbrowser: her Chrome; no password/OTP; stop captcha|Pay; click text|ref|nth. no goto_sign_in.\ndesktop: your Windows session; look=screenshot (grabs+reads); no shell; no raw exe; no password; stop Pay|delete|UAC.\nweb: web_search first; never guess a url; never answer from a snippet alone; never pass the title as url (copy the URL: value); Prefer scrape for pages; web_fetch for apis. After scrape, talk; do not paste the page.\nweather: call the weather tool; not search; not scrape; place=name; two cities = two calls.\nlocation: user_location; do not web-guess. not before weather — weather resolves its own place.\nsms: call send_sms immediately when to+body are known (nickname or any number they typed); do not re-ask for the body. contacts are hints, not a gate. inbound_sms sees everyone.\nemail: inbox list/search/trash/archive; send_email to send; never claim you deleted mail.\nworkspace: workspace read/write/list; inspect source with workspace; writes confirm. Code assess: list one folder then fanout-read; do not list the repo root. Same list/read this turn is a loop — open a new path or answer. Outside roots: stop; do not list parents; Allow the path or Settings → roots.\nattach: image→vision|ocr; pdf→doc_extract; csv→analyze; text→workspace. never invent file contents. never ask them to paste a PDF. ink pdf→one vision paths= (not 17 calls, not ocr).\nmemory: recall before claiming you do not know; remember/forget via the memory tool. \"what do you remember/know about me\" = memory action=list, not recall.\ngoals: goals. tasks: tasks. analyze: analyze. doc_extract: doc_extract. document: document. calculator: calculator. diagnostics: diagnostics. cas: cas. clipboard: clipboard. ocr: ocr.\nagenda: agenda (events). tile: tile (thinking|workspace|history|chat|…; filament chat = name=chat). rooms: rooms. schedule: schedule.\nimage: image. image_edit: image_edit. vision: vision. research_report: research_report.\nsolar: solar. earth: earth. catalog: catalog. plot: plot (xs/ys + out=png; path=CSV). units: units. python: python (no matplotlib; then plot). run_script: a project .py; not a shell; not diagnostics; not schedule run_now. watch: watch. git_info: git_info. camera: camera.",
+        "role": "system"
+      },
+      {
+        "content": "LESSONS",
+        "role": "system"
+      },
+      {
+        "content": "PROFILE",
+        "role": "system"
+      },
+      {
+        "content": "CONTACTS",
+        "role": "system"
+      },
+      {
+        "content": "FACTS",
+        "role": "system"
+      },
+      {
+        "content": "WORLD",
+        "role": "system"
+      },
+      {
+        "content": "LANGUAGE",
+        "role": "system"
+      },
+      {
+        "content": "NOW",
+        "role": "system"
+      },
+      {
+        "content": "hello",
+        "role": "user"
+      }
+    ],
+    "name": "plain",
+    "num_ctx": 4096
+  },
+  {
+    "expect_tool_round": true,
+    "expected": [],
+    "messages": [
+      {
+        "content": "PERSONA",
+        "role": "system"
+      },
+      {
+        "content": "tools: call; don't invent results. Never ask \"Would you like me to proceed / fetch / scrape / search / check?\" when the ask is clear. Multi-part: keep calling until done. Fallback: {\"tool\":\"<name>\",\"args\":{}} or {\"final\":\"<answer>\"}.\nconfirm: writes/sends = card, not a chat ask. Never claim a side effect unless a tool this turn succeeded. Confirmation without a tool is a lie.\nbrowser: her Chrome; no password/OTP; stop captcha|Pay; click text|ref|nth. no goto_sign_in.\ndesktop: your Windows session; look=screenshot (grabs+reads); no shell; no raw exe; no password; stop Pay|delete|UAC.\nweb: web_search first; never guess a url; never answer from a snippet alone; never pass the title as url (copy the URL: value); Prefer scrape for pages; web_fetch for apis. After scrape, talk; do not paste the page.\nweather: call the weather tool; not search; not scrape; place=name; two cities = two calls.\nlocation: user_location; do not web-guess. not before weather — weather resolves its own place.\nsms: call send_sms immediately when to+body are known (nickname or any number they typed); do not re-ask for the body. contacts are hints, not a gate. inbound_sms sees everyone.\nemail: inbox list/search/trash/archive; send_email to send; never claim you deleted mail.\nworkspace: workspace read/write/list; inspect source with workspace; writes confirm. Code assess: list one folder then fanout-read; do not list the repo root. Same list/read this turn is a loop — open a new path or answer. Outside roots: stop; do not list parents; Allow the path or Settings → roots.\nattach: image→vision|ocr; pdf→doc_extract; csv→analyze; text→workspace. never invent file contents. never ask them to paste a PDF. ink pdf→one vision paths= (not 17 calls, not ocr).\nmemory: recall before claiming you do not know; remember/forget via the memory tool. \"what do you remember/know about me\" = memory action=list, not recall.\ngoals: goals. tasks: tasks. analyze: analyze. doc_extract: doc_extract. document: document. calculator: calculator. diagnostics: diagnostics. cas: cas. clipboard: clipboard. ocr: ocr.\nagenda: agenda (events). tile: tile (thinking|workspace|history|chat|…; filament chat = name=chat). rooms: rooms. schedule: schedule.\nimage: image. image_edit: image_edit. vision: vision. research_report: research_report.\nsolar: solar. earth: earth. catalog: catalog. plot: plot (xs/ys + out=png; path=CSV). units: units. python: python (no matplotlib; then plot). run_script: a project .py; not a shell; not diagnostics; not schedule run_now. watch: watch. git_info: git_info. camera: camera.",
+        "role": "system"
+      },
+      {
+        "content": "You were stopped. Last ask:\nold ask\nContinue that only if they want it. If they were not talking to you, stay quiet.",
+        "role": "system"
+      },
+      {
+        "content": "LESSONS",
+        "role": "system"
+      },
+      {
+        "content": "WORKSPACE",
+        "role": "system"
+      },
+      {
+        "content": "ROOM",
+        "role": "system"
+      },
+      {
+        "content": "LOCATION",
+        "role": "system"
+      },
+      {
+        "content": "PROFILE",
+        "role": "system"
+      },
+      {
+        "content": "CONTACTS",
+        "role": "system"
+      },
+      {
+        "content": "FACTS",
+        "role": "system"
+      },
+      {
+        "content": "WORLD",
+        "role": "system"
+      },
+      {
+        "content": "You are speaking aloud in conversation mode. Prefer 1-3 short sentences unless the user asked for detail, code, steps, or a list. When they asked you to do something (text, email, write, search, weather, scrape, remember), call the tool first — do not only talk about doing it, and do not ask permission in chat. send_sms and send_email open a confirm card; that is how the message is approved.",
+        "role": "system"
+      },
+      {
+        "content": "LANGUAGE",
+        "role": "system"
+      },
+      {
+        "content": "NOW",
+        "role": "system"
+      },
+      {
+        "content": "hello",
+        "role": "user"
+      }
+    ],
+    "name": "rich-spoken",
+    "num_ctx": 4096
+  },
+  {
+    "expect_tool_round": true,
+    "expected": [
+      "weather"
+    ],
+    "messages": [
+      {
+        "content": "PERSONA",
+        "role": "system"
+      },
+      {
+        "content": "tools: call; don't invent results. Never ask \"Would you like me to proceed / fetch / scrape / search / check?\" when the ask is clear. Multi-part: keep calling until done. Fallback: {\"tool\":\"<name>\",\"args\":{}} or {\"final\":\"<answer>\"}.\nconfirm: writes/sends = card, not a chat ask. Never claim a side effect unless a tool this turn succeeded. Confirmation without a tool is a lie.\nbrowser: her Chrome; no password/OTP; stop captcha|Pay; click text|ref|nth. no goto_sign_in.\ndesktop: your Windows session; look=screenshot (grabs+reads); no shell; no raw exe; no password; stop Pay|delete|UAC.\nweb: web_search first; never guess a url; never answer from a snippet alone; never pass the title as url (copy the URL: value); Prefer scrape for pages; web_fetch for apis. After scrape, talk; do not paste the page.\nweather: call the weather tool; not search; not scrape; place=name; two cities = two calls.\nlocation: user_location; do not web-guess. not before weather — weather resolves its own place.\nsms: call send_sms immediately when to+body are known (nickname or any number they typed); do not re-ask for the body. contacts are hints, not a gate. inbound_sms sees everyone.\nemail: inbox list/search/trash/archive; send_email to send; never claim you deleted mail.\nworkspace: workspace read/write/list; inspect source with workspace; writes confirm. Code assess: list one folder then fanout-read; do not list the repo root. Same list/read this turn is a loop — open a new path or answer. Outside roots: stop; do not list parents; Allow the path or Settings → roots.\nattach: image→vision|ocr; pdf→doc_extract; csv→analyze; text→workspace. never invent file contents. never ask them to paste a PDF. ink pdf→one vision paths= (not 17 calls, not ocr).\nmemory: recall before claiming you do not know; remember/forget via the memory tool. \"what do you remember/know about me\" = memory action=list, not recall.\ngoals: goals. tasks: tasks. analyze: analyze. doc_extract: doc_extract. document: document. calculator: calculator. diagnostics: diagnostics. cas: cas. clipboard: clipboard. ocr: ocr.\nagenda: agenda (events). tile: tile (thinking|workspace|history|chat|…; filament chat = name=chat). rooms: rooms. schedule: schedule.\nimage: image. image_edit: image_edit. vision: vision. research_report: research_report.\nsolar: solar. earth: earth. catalog: catalog. plot: plot (xs/ys + out=png; path=CSV). units: units. python: python (no matplotlib; then plot). run_script: a project .py; not a shell; not diagnostics; not schedule run_now. watch: watch. git_info: git_info. camera: camera.",
+        "role": "system"
+      },
+      {
+        "content": "Intent preflight: this message asks about weather. Call the weather tool now. For another city pass place (a name, not coordinates). days includes today; tomorrow needs 2 or more. Do not scrape forecast websites and do not ask permission in chat.",
+        "role": "system"
+      },
+      {
+        "content": "Turn goal: A weather-tool forecast for the place they named.",
+        "role": "system"
+      },
+      {
+        "content": "LESSONS",
+        "role": "system"
+      },
+      {
+        "content": "PROFILE",
+        "role": "system"
+      },
+      {
+        "content": "CONTACTS",
+        "role": "system"
+      },
+      {
+        "content": "FACTS",
+        "role": "system"
+      },
+      {
+        "content": "WORLD",
+        "role": "system"
+      },
+      {
+        "content": "LANGUAGE",
+        "role": "system"
+      },
+      {
+        "content": "NOW",
+        "role": "system"
+      },
+      {
+        "content": "what's the weather tomorrow?",
+        "role": "user"
+      }
+    ],
+    "name": "weather",
+    "num_ctx": 4096
+  },
+  {
+    "expect_tool_round": true,
+    "expected": [],
+    "messages": [
+      {
+        "content": "PERSONA",
+        "role": "system"
+      },
+      {
+        "content": "tools: call; don't invent results. Never ask \"Would you like me to proceed / fetch / scrape / search / check?\" when the ask is clear. Multi-part: keep calling until done. Fallback: {\"tool\":\"<name>\",\"args\":{}} or {\"final\":\"<answer>\"}.\nconfirm: writes/sends = card, not a chat ask. Never claim a side effect unless a tool this turn succeeded. Confirmation without a tool is a lie.\nbrowser: her Chrome; no password/OTP; stop captcha|Pay; click text|ref|nth. no goto_sign_in.\ndesktop: your Windows session; look=screenshot (grabs+reads); no shell; no raw exe; no password; stop Pay|delete|UAC.\nweb: web_search first; never guess a url; never answer from a snippet alone; never pass the title as url (copy the URL: value); Prefer scrape for pages; web_fetch for apis. After scrape, talk; do not paste the page.\nweather: call the weather tool; not search; not scrape; place=name; two cities = two calls.\nlocation: user_location; do not web-guess. not before weather — weather resolves its own place.\nsms: call send_sms immediately when to+body are known (nickname or any number they typed); do not re-ask for the body. contacts are hints, not a gate. inbound_sms sees everyone.\nemail: inbox list/search/trash/archive; send_email to send; never claim you deleted mail.\nworkspace: workspace read/write/list; inspect source with workspace; writes confirm. Code assess: list one folder then fanout-read; do not list the repo root. Same list/read this turn is a loop — open a new path or answer. Outside roots: stop; do not list parents; Allow the path or Settings → roots.\nattach: image→vision|ocr; pdf→doc_extract; csv→analyze; text→workspace. never invent file contents. never ask them to paste a PDF. ink pdf→one vision paths= (not 17 calls, not ocr).\nmemory: recall before claiming you do not know; remember/forget via the memory tool. \"what do you remember/know about me\" = memory action=list, not recall.\ngoals: goals. tasks: tasks. analyze: analyze. doc_extract: doc_extract. document: document. calculator: calculator. diagnostics: diagnostics. cas: cas. clipboard: clipboard. ocr: ocr.\nagenda: agenda (events). tile: tile (thinking|workspace|history|chat|…; filament chat = name=chat). rooms: rooms. schedule: schedule.\nimage: image. image_edit: image_edit. vision: vision. research_report: research_report.\nsolar: solar. earth: earth. catalog: catalog. plot: plot (xs/ys + out=png; path=CSV). units: units. python: python (no matplotlib; then plot). run_script: a project .py; not a shell; not diagnostics; not schedule run_now. watch: watch. git_info: git_info. camera: camera.",
+        "role": "system"
+      },
+      {
+        "content": "LESSONS",
+        "role": "system"
+      },
+      {
+        "content": "PROFILE",
+        "role": "system"
+      },
+      {
+        "content": "CONTACTS",
+        "role": "system"
+      },
+      {
+        "content": "FACTS",
+        "role": "system"
+      },
+      {
+        "content": "WORLD",
+        "role": "system"
+      },
+      {
+        "content": "LANGUAGE",
+        "role": "system"
+      },
+      {
+        "content": "NOW",
+        "role": "system"
+      },
+      {
+        "content": "find the current price of gold and verify it",
+        "role": "user"
+      }
+    ],
+    "name": "current-web",
+    "num_ctx": 4096
+  },
+  {
+    "expect_tool_round": true,
+    "expected": [
+      "send_sms"
+    ],
+    "messages": [
+      {
+        "content": "PERSONA",
+        "role": "system"
+      },
+      {
+        "content": "tools: call; don't invent results. Never ask \"Would you like me to proceed / fetch / scrape / search / check?\" when the ask is clear. Multi-part: keep calling until done. Fallback: {\"tool\":\"<name>\",\"args\":{}} or {\"final\":\"<answer>\"}.\nconfirm: writes/sends = card, not a chat ask. Never claim a side effect unless a tool this turn succeeded. Confirmation without a tool is a lie.\nbrowser: her Chrome; no password/OTP; stop captcha|Pay; click text|ref|nth. no goto_sign_in.\ndesktop: your Windows session; look=screenshot (grabs+reads); no shell; no raw exe; no password; stop Pay|delete|UAC.\nweb: web_search first; never guess a url; never answer from a snippet alone; never pass the title as url (copy the URL: value); Prefer scrape for pages; web_fetch for apis. After scrape, talk; do not paste the page.\nweather: call the weather tool; not search; not scrape; place=name; two cities = two calls.\nlocation: user_location; do not web-guess. not before weather — weather resolves its own place.\nsms: call send_sms immediately when to+body are known (nickname or any number they typed); do not re-ask for the body. contacts are hints, not a gate. inbound_sms sees everyone.\nemail: inbox list/search/trash/archive; send_email to send; never claim you deleted mail.\nworkspace: workspace read/write/list; inspect source with workspace; writes confirm. Code assess: list one folder then fanout-read; do not list the repo root. Same list/read this turn is a loop — open a new path or answer. Outside roots: stop; do not list parents; Allow the path or Settings → roots.\nattach: image→vision|ocr; pdf→doc_extract; csv→analyze; text→workspace. never invent file contents. never ask them to paste a PDF. ink pdf→one vision paths= (not 17 calls, not ocr).\nmemory: recall before claiming you do not know; remember/forget via the memory tool. \"what do you remember/know about me\" = memory action=list, not recall.\ngoals: goals. tasks: tasks. analyze: analyze. doc_extract: doc_extract. document: document. calculator: calculator. diagnostics: diagnostics. cas: cas. clipboard: clipboard. ocr: ocr.\nagenda: agenda (events). tile: tile (thinking|workspace|history|chat|…; filament chat = name=chat). rooms: rooms. schedule: schedule.\nimage: image. image_edit: image_edit. vision: vision. research_report: research_report.\nsolar: solar. earth: earth. catalog: catalog. plot: plot (xs/ys + out=png; path=CSV). units: units. python: python (no matplotlib; then plot). run_script: a project .py; not a shell; not diagnostics; not schedule run_now. watch: watch. git_info: git_info. camera: camera.",
+        "role": "system"
+      },
+      {
+        "content": "Intent preflight: the user wants to text Brian, but there is no number yet. Ask for the number, then call send_sms with that number and the body they already gave. Contacts are a nickname hint, not a gate — do not require contacts(action=add) before sending. Do not invent a number.",
+        "role": "system"
+      },
+      {
+        "content": "Turn goal: Send the recipient a message they should read, then stop.",
+        "role": "system"
+      },
+      {
+        "content": "LESSONS",
+        "role": "system"
+      },
+      {
+        "content": "PROFILE",
+        "role": "system"
+      },
+      {
+        "content": "CONTACTS",
+        "role": "system"
+      },
+      {
+        "content": "FACTS",
+        "role": "system"
+      },
+      {
+        "content": "WORLD",
+        "role": "system"
+      },
+      {
+        "content": "LANGUAGE",
+        "role": "system"
+      },
+      {
+        "content": "NOW",
+        "role": "system"
+      },
+      {
+        "content": "text Brian that I'm running late",
+        "role": "user"
+      }
+    ],
+    "name": "sms",
+    "num_ctx": 4096
+  }
+]

@@ -27,15 +27,18 @@ from arelis.core.gates import FORCE_GATE_KINDS, apply_force_gates
 from arelis.core.loop_helpers import _answer_has_quote_span, _exactness_finish_refuse
 from arelis.core.plan_nudge import plan_progress_notice
 from arelis.core.turn_context import TurnContext
+from arelis.core.turn_scratch import RoundScratch
 
 SKIP = "skip"
 NUDGE = "nudge"
 FINISH = "finish"
 
-StepFn = Callable[[Any, TurnContext, Any, int], Awaitable[str]]
+StepFn = Callable[[Any, TurnContext, RoundScratch, int], Awaitable[str]]
 
 
-async def try_scrape_after_search(loop: Any, ctx: TurnContext, r: Any, round_i: int) -> str:
+async def try_scrape_after_search(
+    loop: Any, ctx: TurnContext, r: RoundScratch, round_i: int
+) -> str:
     if not (
         bool(r.agent_cfg.get("scrape_after_search", True))
         and r.wants_fresh_page
@@ -59,7 +62,7 @@ async def try_scrape_after_search(loop: Any, ctx: TurnContext, r: Any, round_i: 
     return NUDGE
 
 
-async def try_js_shell_browser(loop: Any, ctx: TurnContext, r: Any, round_i: int) -> str:
+async def try_js_shell_browser(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: int) -> str:
     if not (
         bool(r.agent_cfg.get("browser_after_js_shell", True))
         and ctx.js_shell_url
@@ -91,7 +94,7 @@ async def try_js_shell_browser(loop: Any, ctx: TurnContext, r: Any, round_i: int
     return NUDGE
 
 
-async def try_plan_progress(loop: Any, ctx: TurnContext, r: Any, round_i: int) -> str:
+async def try_plan_progress(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: int) -> str:
     if not (
         bool(r.agent_cfg.get("plan_progress", True))
         and loop._active_plan is not None
@@ -118,7 +121,7 @@ async def try_plan_progress(loop: Any, ctx: TurnContext, r: Any, round_i: int) -
     return NUDGE
 
 
-async def try_force_gates(loop: Any, ctx: TurnContext, r: Any, round_i: int) -> str:
+async def try_force_gates(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: int) -> str:
     if await apply_force_gates(
         loop, ctx, r.content, refused=answer_looks_like_refusal(r.content)
     ):
@@ -126,7 +129,7 @@ async def try_force_gates(loop: Any, ctx: TurnContext, r: Any, round_i: int) -> 
     return SKIP
 
 
-async def try_evidence(loop: Any, ctx: TurnContext, r: Any, round_i: int) -> str:
+async def try_evidence(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: int) -> str:
     if not (
         r.evidence_gate
         and r.exact_need.kinds
@@ -153,7 +156,7 @@ async def try_evidence(loop: Any, ctx: TurnContext, r: Any, round_i: int) -> str
     return NUDGE
 
 
-async def try_ink_vision(loop: Any, ctx: TurnContext, r: Any, round_i: int) -> str:
+async def try_ink_vision(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: int) -> str:
     """Ink PDF extract is not an answer — vision the page images next."""
     if not (
         ctx.ink_page_images
@@ -178,7 +181,7 @@ async def try_ink_vision(loop: Any, ctx: TurnContext, r: Any, round_i: int) -> s
     return SKIP
 
 
-async def try_file_answer(loop: Any, ctx: TurnContext, r: Any, round_i: int) -> str:
+async def try_file_answer(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: int) -> str:
     if ctx.ink_page_images and "vision" not in loop.tools_used:
         return SKIP
     if not (
@@ -198,7 +201,7 @@ async def try_file_answer(loop: Any, ctx: TurnContext, r: Any, round_i: int) -> 
     return NUDGE
 
 
-async def try_quote_first(loop: Any, ctx: TurnContext, r: Any, round_i: int) -> str:
+async def try_quote_first(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: int) -> str:
     if not (
         r.evidence_gate
         and r.ledger.has_ok("web")
@@ -222,7 +225,7 @@ async def try_quote_first(loop: Any, ctx: TurnContext, r: Any, round_i: int) -> 
     return NUDGE
 
 
-async def try_research_dual(loop: Any, ctx: TurnContext, r: Any, round_i: int) -> str:
+async def try_research_dual(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: int) -> str:
     web_ok_n = len(r.ledger.ok_web_sources()) if r.ledger.has_ok("web") else 0
     if not (
         r.research_dual
@@ -280,7 +283,7 @@ FINISH_STEPS: tuple[StepFn, ...] = (
 )
 
 
-async def run_finish_steps(loop: Any, ctx: TurnContext, r: Any, round_i: int) -> str:
+async def run_finish_steps(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: int) -> str:
     for step in FINISH_STEPS:
         hit = await step(loop, ctx, r, round_i)
         if hit != SKIP:

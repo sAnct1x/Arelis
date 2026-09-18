@@ -7,6 +7,20 @@ from pathlib import Path
 
 import pytest
 
+
+def pytest_addoption(parser) -> None:
+    parser.addoption(
+        "--regenerate-prompt-golden",
+        action="store_true",
+        default=False,
+        help=(
+            "Rewrite tests/prompt_golden.json from the current prompt assembly. "
+            "Only after reading the diff — a change near the front of the system "
+            "prompt costs the prefix cache on every turn."
+        ),
+    )
+
+
 # Point the whole suite at a throwaway data root, at import time, before anything else.
 #
 # This is not belt-and-braces. Until it existed, a test that forgot to sandbox itself wrote

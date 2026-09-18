@@ -89,6 +89,7 @@ from arelis.core.sms_complete import (
 )
 from arelis.core.tile_complete import match_tile_intent, tile_tool_args
 from arelis.core.turn_context import TurnContext
+from arelis.core.turn_scratch import RoundScratch
 from arelis.tools.document import draft_document_args
 from arelis.tools.inbox import draft_inbox_mutate_args
 from arelis.tools.weather import draft_weather_args, weather_places_missing
@@ -99,12 +100,12 @@ INJECT = "inject"
 # Matched the original elif but did nothing. Must not fall through.
 STOP = "stop"
 
-StepFn = Callable[[Any, TurnContext, Any], Awaitable[str]]
+StepFn = Callable[[Any, TurnContext, RoundScratch], Awaitable[str]]
 
 
 async def _nudge(
     loop: Any,
-    r: Any,
+    r: RoundScratch,
     *,
     notice: str,
     thinking: str,
@@ -121,7 +122,7 @@ async def _nudge(
 
 async def _inject(
     loop: Any,
-    r: Any,
+    r: RoundScratch,
     name: str,
     args: dict[str, Any],
     *,
@@ -141,7 +142,7 @@ async def _inject(
     return INJECT
 
 
-async def try_sms(loop: Any, ctx: TurnContext, r: Any) -> str:
+async def try_sms(loop: Any, ctx: TurnContext, r: RoundScratch) -> str:
     sms_draft = r.sms_draft
     sms_remaining: list[str] = []
     if sms_draft is not None and sms_draft.complete:
@@ -178,7 +179,7 @@ async def try_sms(loop: Any, ctx: TurnContext, r: Any) -> str:
     )
 
 
-async def try_email(loop: Any, ctx: TurnContext, r: Any) -> str:
+async def try_email(loop: Any, ctx: TurnContext, r: RoundScratch) -> str:
     email_draft = r.email_draft
     if not (
         bool(r.agent_cfg.get("email_force_call", True))
@@ -207,7 +208,7 @@ async def try_email(loop: Any, ctx: TurnContext, r: Any) -> str:
     )
 
 
-async def try_inbox(loop: Any, ctx: TurnContext, r: Any) -> str:
+async def try_inbox(loop: Any, ctx: TurnContext, r: RoundScratch) -> str:
     if not (
         looks_like_mailbox_mutate(r.text) and "inbox" in r.tool_names and not ctx.inbox_mutated_ok
     ):
@@ -233,7 +234,7 @@ async def try_inbox(loop: Any, ctx: TurnContext, r: Any) -> str:
     )
 
 
-async def try_agenda_create(loop: Any, ctx: TurnContext, r: Any) -> str:
+async def try_agenda_create(loop: Any, ctx: TurnContext, r: RoundScratch) -> str:
     agenda_draft = r.agenda_draft
     if not (
         bool(r.agent_cfg.get("agenda_force_call", True))
@@ -262,7 +263,7 @@ async def try_agenda_create(loop: Any, ctx: TurnContext, r: Any) -> str:
     )
 
 
-async def try_agenda_delete(loop: Any, ctx: TurnContext, r: Any) -> str:
+async def try_agenda_delete(loop: Any, ctx: TurnContext, r: RoundScratch) -> str:
     if not (
         bool(r.agent_cfg.get("agenda_force_call", True))
         and looks_like_calendar_delete(r.text)
@@ -292,7 +293,7 @@ async def try_agenda_delete(loop: Any, ctx: TurnContext, r: Any) -> str:
     )
 
 
-async def try_agenda_close(loop: Any, ctx: TurnContext, r: Any) -> str:
+async def try_agenda_close(loop: Any, ctx: TurnContext, r: RoundScratch) -> str:
     if not (
         bool(r.agent_cfg.get("agenda_force_call", True))
         and looks_like_calendar_close(r.text)
@@ -313,7 +314,7 @@ async def try_agenda_close(loop: Any, ctx: TurnContext, r: Any) -> str:
     )
 
 
-async def try_agenda_open(loop: Any, ctx: TurnContext, r: Any) -> str:
+async def try_agenda_open(loop: Any, ctx: TurnContext, r: RoundScratch) -> str:
     if not (
         bool(r.agent_cfg.get("agenda_force_call", True))
         and looks_like_calendar_open(r.text)
@@ -334,7 +335,7 @@ async def try_agenda_open(loop: Any, ctx: TurnContext, r: Any) -> str:
     )
 
 
-async def try_tile(loop: Any, ctx: TurnContext, r: Any) -> str:
+async def try_tile(loop: Any, ctx: TurnContext, r: RoundScratch) -> str:
     if not (match_tile_intent(r.text) and "tile" in r.tool_names and "tile" not in loop.tools_used):
         return SKIP
     from arelis.tools.tile import TileTool
@@ -347,7 +348,7 @@ async def try_tile(loop: Any, ctx: TurnContext, r: Any) -> str:
     return await _inject(loop, r, "tile", inj, thinking="inject  tile from intent")
 
 
-async def try_agenda_read(loop: Any, ctx: TurnContext, r: Any) -> str:
+async def try_agenda_read(loop: Any, ctx: TurnContext, r: RoundScratch) -> str:
     if not (
         bool(r.agent_cfg.get("agenda_force_call", True))
         and looks_like_calendar_read(r.text)
@@ -373,7 +374,7 @@ async def try_agenda_read(loop: Any, ctx: TurnContext, r: Any) -> str:
     )
 
 
-async def try_image(loop: Any, ctx: TurnContext, r: Any) -> str:
+async def try_image(loop: Any, ctx: TurnContext, r: RoundScratch) -> str:
     if not (
         bool(r.agent_cfg.get("image_force_call", True))
         and "image_edit" not in loop._expected_tools
@@ -408,7 +409,7 @@ async def try_image(loop: Any, ctx: TurnContext, r: Any) -> str:
     )
 
 
-async def try_image_edit(loop: Any, ctx: TurnContext, r: Any) -> str:
+async def try_image_edit(loop: Any, ctx: TurnContext, r: RoundScratch) -> str:
     if not (
         bool(r.agent_cfg.get("image_force_call", True))
         and "image_edit" in loop._expected_tools
@@ -464,7 +465,7 @@ async def try_image_edit(loop: Any, ctx: TurnContext, r: Any) -> str:
     return await _inject(loop, r, "image_edit", inj_edit, thinking="inject  image_edit from intent")
 
 
-async def try_look(loop: Any, ctx: TurnContext, r: Any) -> str:
+async def try_look(loop: Any, ctx: TurnContext, r: RoundScratch) -> str:
     if loop._look is None:
         return SKIP
     nxt = next_look_call(
@@ -492,7 +493,7 @@ async def try_look(loop: Any, ctx: TurnContext, r: Any) -> str:
     return hit
 
 
-async def try_vision(loop: Any, ctx: TurnContext, r: Any) -> str:
+async def try_vision(loop: Any, ctx: TurnContext, r: RoundScratch) -> str:
     if not (
         bool(r.agent_cfg.get("vision_force_call", True))
         and "vision" in loop._expected_tools
@@ -523,7 +524,7 @@ async def try_vision(loop: Any, ctx: TurnContext, r: Any) -> str:
     return await _inject(loop, r, "vision", {"path": path}, thinking="inject  vision from intent")
 
 
-async def try_weather(loop: Any, ctx: TurnContext, r: Any) -> str:
+async def try_weather(loop: Any, ctx: TurnContext, r: RoundScratch) -> str:
     if not (
         bool(r.agent_cfg.get("weather_force_call", True))
         and r.exact_need.needs_weather
@@ -555,7 +556,7 @@ async def try_weather(loop: Any, ctx: TurnContext, r: Any) -> str:
     )
 
 
-async def try_catalog(loop: Any, ctx: TurnContext, r: Any) -> str:
+async def try_catalog(loop: Any, ctx: TurnContext, r: RoundScratch) -> str:
     if not (
         not (r.content or "").strip()
         and r.numeric_gate
@@ -584,7 +585,7 @@ async def try_catalog(loop: Any, ctx: TurnContext, r: Any) -> str:
     )
 
 
-async def try_tasks(loop: Any, ctx: TurnContext, r: Any) -> str:
+async def try_tasks(loop: Any, ctx: TurnContext, r: RoundScratch) -> str:
     if not (
         bool(r.agent_cfg.get("tasks_force_call", True))
         and (
@@ -608,7 +609,7 @@ async def try_tasks(loop: Any, ctx: TurnContext, r: Any) -> str:
     )
 
 
-async def try_goals(loop: Any, ctx: TurnContext, r: Any) -> str:
+async def try_goals(loop: Any, ctx: TurnContext, r: RoundScratch) -> str:
     if not (
         bool(r.agent_cfg.get("goals_force_call", True))
         and (
@@ -648,7 +649,7 @@ async def try_goals(loop: Any, ctx: TurnContext, r: Any) -> str:
     )
 
 
-async def try_diagnostics(loop: Any, ctx: TurnContext, r: Any) -> str:
+async def try_diagnostics(loop: Any, ctx: TurnContext, r: RoundScratch) -> str:
     """ "The tests pass" is not something she is allowed to remember.
 
     Found by generalising the document gate: `apply_force_gates` only nudges,
@@ -683,7 +684,7 @@ async def try_diagnostics(loop: Any, ctx: TurnContext, r: Any) -> str:
 _DOCUMENT_MIN_BODY = 120
 
 
-async def try_document(loop: Any, ctx: TurnContext, r: Any) -> str:
+async def try_document(loop: Any, ctx: TurnContext, r: RoundScratch) -> str:
     """ "Create a pdf about X" has to end in a file, not a chat message.
 
     The `document` ForceGate in gates.py already covers this — and it only
@@ -722,7 +723,7 @@ async def try_document(loop: Any, ctx: TurnContext, r: Any) -> str:
     )
 
 
-async def try_recall(loop: Any, ctx: TurnContext, r: Any) -> str:
+async def try_recall(loop: Any, ctx: TurnContext, r: RoundScratch) -> str:
     """ "What did I say about X" must reach the transcripts, not a shrug.
 
     Roadmap 4.0. The intent was already detected — the RECALL IntentSpec
@@ -762,7 +763,7 @@ async def try_recall(loop: Any, ctx: TurnContext, r: Any) -> str:
     )
 
 
-async def try_memory(loop: Any, ctx: TurnContext, r: Any) -> str:
+async def try_memory(loop: Any, ctx: TurnContext, r: RoundScratch) -> str:
     if not (
         ("memory" in loop._expected_tools or looks_like_memory_utterance(r.text))
         and "memory" not in loop.tools_used
@@ -791,7 +792,7 @@ async def try_memory(loop: Any, ctx: TurnContext, r: Any) -> str:
     )
 
 
-async def try_contacts(loop: Any, ctx: TurnContext, r: Any) -> str:
+async def try_contacts(loop: Any, ctx: TurnContext, r: RoundScratch) -> str:
     if not (
         (
             "contacts" in loop._expected_tools
@@ -820,7 +821,7 @@ async def try_contacts(loop: Any, ctx: TurnContext, r: Any) -> str:
     )
 
 
-async def try_solar_status(loop: Any, ctx: TurnContext, r: Any) -> str:
+async def try_solar_status(loop: Any, ctx: TurnContext, r: RoundScratch) -> str:
     if not (
         SOLAR_STATUS.matches(r.text) and "solar" in r.tool_names and "solar" not in loop.tools_used
     ):
@@ -834,7 +835,7 @@ async def try_solar_status(loop: Any, ctx: TurnContext, r: Any) -> str:
     )
 
 
-async def try_earth_status(loop: Any, ctx: TurnContext, r: Any) -> str:
+async def try_earth_status(loop: Any, ctx: TurnContext, r: RoundScratch) -> str:
     if not (
         EARTH_STATUS.matches(r.text) and "earth" in r.tool_names and "earth" not in loop.tools_used
     ):
@@ -848,7 +849,7 @@ async def try_earth_status(loop: Any, ctx: TurnContext, r: Any) -> str:
     )
 
 
-async def try_browser(loop: Any, ctx: TurnContext, r: Any) -> str:
+async def try_browser(loop: Any, ctx: TurnContext, r: RoundScratch) -> str:
     if not (
         ("browser" in loop._expected_tools or looks_like_browser_or_url(r.text))
         and not looks_like_calendar_open(r.text)
@@ -869,7 +870,7 @@ async def try_browser(loop: Any, ctx: TurnContext, r: Any) -> str:
     )
 
 
-async def try_browser_signin(loop: Any, ctx: TurnContext, r: Any) -> str:
+async def try_browser_signin(loop: Any, ctx: TurnContext, r: RoundScratch) -> str:
     if not (
         looks_like_browser_click_signin(r.text)
         and "browser" in loop.tools_used
@@ -889,7 +890,7 @@ async def try_browser_signin(loop: Any, ctx: TurnContext, r: Any) -> str:
     )
 
 
-async def try_rooms(loop: Any, ctx: TurnContext, r: Any) -> str:
+async def try_rooms(loop: Any, ctx: TurnContext, r: RoundScratch) -> str:
     if not (
         ("rooms" in loop._expected_tools or looks_like_room_create(r.text))
         and "rooms" not in loop.tools_used
@@ -906,7 +907,7 @@ async def try_rooms(loop: Any, ctx: TurnContext, r: Any) -> str:
 
 
 # Order matches the original if/elif chain. Do not reorder without a test.
-async def try_inspect(loop: Any, ctx: TurnContext, r: Any) -> str:
+async def try_inspect(loop: Any, ctx: TurnContext, r: RoundScratch) -> str:
     """Answering about her own source from memory is the one case she cannot check.
 
     Every other intent of this weight already has a step in this tuple. This
@@ -988,7 +989,7 @@ INJECT_STEPS: tuple[StepFn, ...] = (
 )
 
 
-async def run_inject_steps(loop: Any, ctx: TurnContext, r: Any) -> str:
+async def run_inject_steps(loop: Any, ctx: TurnContext, r: RoundScratch) -> str:
     """First matching step wins. ``nudge`` / ``inject`` / ``none``."""
     for step in INJECT_STEPS:
         hit = await step(loop, ctx, r)

@@ -2,9 +2,10 @@
 
 ``run_round`` coordinates: escalate, stream (or preinject), then
 ``apply_no_call_path`` (nudge / inject / finish) and ``dispatch_calls``
-(confirm / execute) in turn_dispatch. Rebound locals ride on a
-SimpleNamespace so early returns still write back. Helpers stay defined
-on agent_loop so existing tests that import them do not move.
+(confirm / execute) in turn_dispatch. Rebound state rides on a
+``RoundScratch`` (turn_scratch), so an early return or a raise still hands
+the next stage what this one decided. Helpers stay defined on agent_loop
+so existing tests that import them do not move.
 """
 
 from __future__ import annotations
@@ -12,7 +13,6 @@ from __future__ import annotations
 import asyncio
 import json
 import time
-from types import SimpleNamespace
 from typing import Any
 
 from arelis.core.agent_loop import (
@@ -61,116 +61,34 @@ from arelis.core.turn_goal import (
     goal_unlock_notice,
     receipt_serves_goal,
 )
+from arelis.core.turn_scratch import RoundScratch, strip_tool_schemas
 from arelis.llm.errors import classify_ollama_failure, is_vram_failure
 from arelis.tools.pdf_pages import ink_vision_walk
 
 
-def _round_scratch(
-    *,
-    text: Any,
-    role: Any,
-    agent_cfg: Any,
-    available_all: Any,
-    available: Any,
-    visible: Any,
-    tool_names: Any,
-    sources: Any,
-    ledger: Any,
-    fail_counts: Any,
-    skip_counts: Any,
-    web_search_ok: Any,
-    page_ok: Any,
-    sms_sent: Any,
-    agenda_created: Any,
-    weather_ok_places: Any,
-    weather_days_retried: Any,
-    numeric_gate: Any,
-    evidence_gate: Any,
-    research_dual: Any,
-    research_min_sources: Any,
-    exact_need: Any,
-    offer_tools: Any,
-    ollama_tools: Any,
-    messages: Any,
-    sms_preinject: Any,
-    sms_draft: Any,
-    email_draft: Any,
-    agenda_draft: Any,
-    research_mode: Any,
-    preflight_kinds: Any,
-    wants_fresh_page: Any,
-    active_room: Any,
-    content: Any,
-    streamed: Any,
-    calls: Any,
-    tool_calls: Any,
-    round_ms: Any,
-    model: Any,
-) -> SimpleNamespace:
-    return SimpleNamespace(
-        text=text,
-        role=role,
-        agent_cfg=agent_cfg,
-        available_all=available_all,
-        available=available,
-        visible=visible,
-        tool_names=tool_names,
-        sources=sources,
-        ledger=ledger,
-        fail_counts=fail_counts,
-        skip_counts=skip_counts,
-        web_search_ok=web_search_ok,
-        page_ok=page_ok,
-        sms_sent=sms_sent,
-        agenda_created=agenda_created,
-        weather_ok_places=weather_ok_places,
-        weather_days_retried=weather_days_retried,
-        numeric_gate=numeric_gate,
-        evidence_gate=evidence_gate,
-        research_dual=research_dual,
-        research_min_sources=research_min_sources,
-        exact_need=exact_need,
-        offer_tools=offer_tools,
-        ollama_tools=ollama_tools,
-        messages=messages,
-        sms_preinject=sms_preinject,
-        sms_draft=sms_draft,
-        email_draft=email_draft,
-        agenda_draft=agenda_draft,
-        research_mode=research_mode,
-        preflight_kinds=preflight_kinds,
-        wants_fresh_page=wants_fresh_page,
-        active_room=active_room,
-        content=content,
-        streamed=streamed,
-        calls=calls,
-        tool_calls=tool_calls,
-        round_ms=round_ms,
-        model=model,
-    )
+def _write_round(ctx: TurnContext, r: RoundScratch) -> None:
+    """Hand the next round the surface this one decided.
 
+    These are the fields a step rebinds on ``r`` that the *next* round
+    reads off ``ctx``. Everything else is already the same object on both
+    (sets, the ledger, the drafts) or dies with the scratch.
 
-def _pull_round(r: SimpleNamespace) -> tuple[Any, ...]:
-    return (
-        r.available,
-        r.visible,
-        r.tool_names,
-        r.ollama_tools,
-        r.offer_tools,
-        r.research_mode,
-        r.sms_preinject,
-        r.exact_need,
-        r.calls,
-        r.tool_calls,
-        r.content,
-        r.streamed,
-        r.round_ms,
-        r.role,
-    )
+    Goes through ``r``, not a local snapshot. A snapshot taken before a
+    raise is how a wander-hide that already landed on the scratch could
+    still be undone when ``dispatch_calls`` blew up — next round would
+    offer web_search again.
+    """
+    ctx.available = r.available
+    ctx.visible = r.visible
+    ctx.ollama_tools = r.ollama_tools
+    ctx.offer_tools = r.offer_tools
+    ctx.research_mode = r.research_mode
+    ctx.sms_preinject = r.sms_preinject
+    ctx.exact_need = r.exact_need
 
 
 async def apply_no_call_path(
-    loop: Any, ctx: TurnContext, r: SimpleNamespace, round_i: int
+    loop: Any, ctx: TurnContext, r: RoundScratch, round_i: int
 ) -> bool | None:
     """Nudge, inject, or finish when this round has no tool call.
 
@@ -178,430 +96,292 @@ async def apply_no_call_path(
     should run (model already called, or a force-inject filled ``r.calls``).
 
     Inject and finish decisions live in ``no_call_steps`` / ``no_call_finish``.
-    This coordinator stays long because ~40 rebound locals still have to
-    unpack and write back on every early return — splitting that again
-    is a new contract, not a table.
+    Everything rebindable is a field on ``r``, so a nudge that takes the tool
+    schemas away has already handed that decision to the next round by the
+    time this returns — or raises.
     """
-    text = r.text
-    role = r.role
-    agent_cfg = r.agent_cfg
-    available_all = r.available_all
-    available = r.available
-    visible = r.visible
-    tool_names = r.tool_names
-    sources = r.sources
-    ledger = r.ledger
-    fail_counts = r.fail_counts
-    skip_counts = r.skip_counts
-    web_search_ok = r.web_search_ok
-    page_ok = r.page_ok
-    sms_sent = r.sms_sent
-    agenda_created = r.agenda_created
-    weather_ok_places = r.weather_ok_places
-    weather_days_retried = r.weather_days_retried
-    numeric_gate = r.numeric_gate
-    evidence_gate = r.evidence_gate
-    research_dual = r.research_dual
-    research_min_sources = r.research_min_sources
-    exact_need = r.exact_need
-    offer_tools = r.offer_tools
-    ollama_tools = r.ollama_tools
-    messages = r.messages
-    sms_preinject = r.sms_preinject
-    sms_draft = r.sms_draft
-    email_draft = r.email_draft
-    agenda_draft = r.agenda_draft
-    research_mode = r.research_mode
-    preflight_kinds = r.preflight_kinds
-    wants_fresh_page = r.wants_fresh_page
-    active_room = r.active_room
-    content = r.content
-    streamed = r.streamed
-    calls = r.calls
-    tool_calls = r.tool_calls
-    round_ms = r.round_ms
-    model = r.model
-    try:
-        if not calls:
-            # The model wrote a call as prose instead of making one, so the
-            # strict parser refused it. Executing it anyway is the hole
-            # strict mode exists to close, and shipping it means the user
-            # gets raw JSON as their answer and no tool ever runs. Neither
-            # is acceptable, so ask again and say what went wrong.
-            stray = (
-                parse_fallback_payload(content, strict=False)
-                if loop.json_fallback and not ctx.fallback_mode
-                else None
-            )
-            if stray and stray["kind"] == "tool" and ctx.nudges < _MAX_TOOL_NUDGES:
-                ctx.nudges += 1
-                await loop._retract()
-                messages.append({"role": "assistant", "content": content})
-                messages.append(
-                    {
-                        "role": "user",
-                        "content": _MALFORMED_CALL_NOTICE.format(
-                            tool=stray["name"],
-                            args=json.dumps(stray["args"], default=str),
-                        ),
-                    }
-                )
-                await loop.bus.publish(
-                    Event(
-                        EventType.THINKING,
-                        {"text": "tool call written as prose; asking for a real one"},
-                    )
-                )
-                return False
-
-            if not content and not ctx.fallback_mode:
-                # Qwen3.5 often puts the wrap-up in thinking and leaves
-                # chat content empty. Native calling still worked — a tool
-                # already ran — so do not enter the sticky-note protocol
-                # and do not ship the "empty reply / model unloaded" notice.
-                # Tools may already be stripped (agenda/SMS/email wrap-up).
-                # A long scrape/search must not become the chat line —
-                # ask once for a write-up. Short facts (price, agenda)
-                # still ship from the tool result.
-                if ctx.last_ok_tool_out:
-                    if (
-                        not ctx.page_write_nudge_used
-                        and ctx.nudges < _MAX_TOOL_NUDGES
-                        and should_nudge_write_after_page(
-                            ctx.last_ok_tool_name, ctx.last_ok_tool_out
-                        )
-                    ):
-                        ctx.page_write_nudge_used = True
-                        ctx.nudges += 1
-                        offer_tools = False
-                        ollama_tools = []
-                        ctx.offer_tools = False
-                        ctx.ollama_tools = []
-                        ctx.tool_names.clear()
-                        tool_names = ctx.tool_names
-                        await loop._retract()
-                        messages.append({"role": "assistant", "content": content})
-                        messages.append(
-                            {
-                                "role": "user",
-                                "content": _WRITE_AFTER_PAGE_NOTICE,
-                            }
-                        )
-                        await loop.bus.publish(
-                            Event(
-                                EventType.THINKING,
-                                {"text": ("empty after page; asking for a write-up")},
-                            )
-                        )
-                        return False
-                    if (
-                        not ctx.algebra_write_nudge_used
-                        and ctx.nudges < _MAX_TOOL_NUDGES
-                        and should_nudge_write_after_algebra(ctx.last_ok_tool_name)
-                    ):
-                        ctx.algebra_write_nudge_used = True
-                        ctx.nudges += 1
-                        offer_tools = False
-                        ollama_tools = []
-                        ctx.offer_tools = False
-                        ctx.ollama_tools = []
-                        ctx.tool_names.clear()
-                        tool_names = ctx.tool_names
-                        await loop._retract()
-                        messages.append({"role": "assistant", "content": content})
-                        messages.append(
-                            {
-                                "role": "user",
-                                "content": _WRITE_AFTER_ALGEBRA_NOTICE,
-                            }
-                        )
-                        await loop.bus.publish(
-                            Event(
-                                EventType.THINKING,
-                                {"text": ("empty after algebra; asking for a write-up")},
-                            )
-                        )
-                        return False
-                    if not receipt_serves_goal(
-                        ctx.goal, ctx.last_ok_tool_name, ctx.last_ok_tool_out
-                    ):
-                        if not ctx.goal_unlock_used and ctx.nudges < _MAX_TOOL_NUDGES:
-                            ctx.goal_unlock_used = True
-                            ctx.nudges += 1
-                            await loop._retract()
-                            messages.append({"role": "assistant", "content": content})
-                            messages.append(
-                                {
-                                    "role": "user",
-                                    "content": goal_unlock_notice(ctx.goal),
-                                }
-                            )
-                            await loop.bus.publish(
-                                Event(
-                                    EventType.THINKING,
-                                    {
-                                        "text": (
-                                            "goal unlock; last receipt does not finish the turn"
-                                        )
-                                    },
-                                )
-                            )
-                            return False
-                        await loop.bus.publish(
-                            Event(
-                                EventType.THINKING,
-                                {"text": ("goal miss; not shipping that receipt")},
-                            )
-                        )
-                        await loop._finish(
-                            goal_miss_reply(ctx.goal),
-                            sources,
-                            streamed="",
-                        )
-                        return True
-                    ink_owes_vision = bool(ctx.ink_page_images and "vision" not in loop.tools_used)
-                    if ink_owes_vision and "vision" in tool_names:
-                        pages = list(ctx.ink_page_images)
-                        calls = ink_vision_walk(pages)
-                        tool_calls = [_native_tool_call(n, a) for n, a in calls]
-                        ctx.allow_writes_this_turn = True
-                        ctx.ink_vision_nudge_used = True
-                        await loop.bus.publish(
-                            Event(
-                                EventType.THINKING,
-                                {
-                                    "text": (
-                                        f"looking at pages 1-{len(pages)} of "
-                                        f"{len(pages)}, one at a time"
-                                    )
-                                },
-                            )
-                        )
-                        return None
-                    await loop.bus.publish(
-                        Event(
-                            EventType.THINKING,
-                            {"text": ("empty after tool; answering from result")},
-                        )
-                    )
-                    await loop._finish(
-                        _tool_followup_fallback(
-                            ctx.last_ok_tool_out,
-                            ctx.last_ok_tool_name,
-                            ask=ctx.text,
-                        ),
-                        sources,
-                        streamed="",
-                        passthrough_tool=ctx.last_ok_tool_name,
-                    )
-                    return True
-                # Thinking ate the reply (LIGO / long proofs). Ask for the
-                # chat line once. Skip when a daily inject still owes a
-                # tool — weather/SMS/agenda must not become an essay.
-                leftover = set(getattr(loop, "_expected_tools", ()) or ()) - {
-                    "cas",
-                    "python",
-                    "calculator",
-                    "units",
-                    "plot",
+    if not r.calls:
+        # The model wrote a call as prose instead of making one, so the
+        # strict parser refused it. Executing it anyway is the hole
+        # strict mode exists to close, and shipping it means the user
+        # gets raw JSON as their answer and no tool ever runs. Neither
+        # is acceptable, so ask again and say what went wrong.
+        stray = (
+            parse_fallback_payload(r.content, strict=False)
+            if loop.json_fallback and not ctx.fallback_mode
+            else None
+        )
+        if stray and stray["kind"] == "tool" and ctx.nudges < _MAX_TOOL_NUDGES:
+            ctx.nudges += 1
+            await loop._retract()
+            r.messages.append({"role": "assistant", "content": r.content})
+            r.messages.append(
+                {
+                    "role": "user",
+                    "content": _MALFORMED_CALL_NOTICE.format(
+                        tool=stray["name"],
+                        args=json.dumps(stray["args"], default=str),
+                    ),
                 }
+            )
+            await loop.bus.publish(
+                Event(
+                    EventType.THINKING,
+                    {"text": "tool call written as prose; asking for a real one"},
+                )
+            )
+            return False
+
+        if not r.content and not ctx.fallback_mode:
+            # Qwen3.5 often puts the wrap-up in thinking and leaves
+            # chat content empty. Native calling still worked — a tool
+            # already ran — so do not enter the sticky-note protocol
+            # and do not ship the "empty reply / model unloaded" notice.
+            # Tools may already be stripped (agenda/SMS/email wrap-up).
+            # A long scrape/search must not become the chat line —
+            # ask once for a write-up. Short facts (price, agenda)
+            # still ship from the tool result.
+            if ctx.last_ok_tool_out:
                 if (
-                    not leftover
-                    and not ctx.think_write_nudge_used
+                    not ctx.page_write_nudge_used
                     and ctx.nudges < _MAX_TOOL_NUDGES
-                    and getattr(loop, "_last_round_thinking", False)
+                    and should_nudge_write_after_page(
+                        ctx.last_ok_tool_name, ctx.last_ok_tool_out
+                    )
                 ):
-                    ctx.think_write_nudge_used = True
+                    ctx.page_write_nudge_used = True
                     ctx.nudges += 1
+                    strip_tool_schemas(ctx, r)
                     await loop._retract()
-                    messages.append({"role": "assistant", "content": content})
-                    messages.append(
+                    r.messages.append({"role": "assistant", "content": r.content})
+                    r.messages.append(
                         {
                             "role": "user",
-                            "content": _WRITE_AFTER_THINK_NOTICE,
+                            "content": _WRITE_AFTER_PAGE_NOTICE,
                         }
                     )
                     await loop.bus.publish(
                         Event(
                             EventType.THINKING,
-                            {"text": ("empty after think; asking for a write-up")},
+                            {"text": ("empty after page; asking for a write-up")},
                         )
                     )
                     return False
-                if ollama_tools and loop.json_fallback:
-                    # First round still blank with no tools yet? JSON fallback.
+                if (
+                    not ctx.algebra_write_nudge_used
+                    and ctx.nudges < _MAX_TOOL_NUDGES
+                    and should_nudge_write_after_algebra(ctx.last_ok_tool_name)
+                ):
+                    ctx.algebra_write_nudge_used = True
+                    ctx.nudges += 1
+                    strip_tool_schemas(ctx, r)
                     await loop._retract()
-                    ctx.fallback_mode = True
+                    r.messages.append({"role": "assistant", "content": r.content})
+                    r.messages.append(
+                        {
+                            "role": "user",
+                            "content": _WRITE_AFTER_ALGEBRA_NOTICE,
+                        }
+                    )
                     await loop.bus.publish(
                         Event(
                             EventType.THINKING,
-                            {"text": "empty tool response; JSON fallback"},
+                            {"text": ("empty after algebra; asking for a write-up")},
                         )
                     )
                     return False
-            hit = await run_inject_steps(loop, ctx, r)
-            calls = r.calls
-            tool_calls = r.tool_calls
-            messages = r.messages
-            available = r.available
-            visible = r.visible
-            tool_names = r.tool_names
-            ollama_tools = r.ollama_tools
-            if hit == NUDGE:
-                return False
-
-            before_sched = list(calls)
-            stripped_run_now = looks_like_bare_confirm(text) and any(
-                n == "schedule" and str((a or {}).get("action") or "").lower() == "run_now"
-                for n, a in before_sched
-            )
-            calls = rewrite_schedule_calls(
-                text,
-                calls,
-                schedule_used="schedule" in loop.tools_used,
-                schedule_available="schedule" in tool_names,
-            )
-            if calls != before_sched:
-                tool_calls = [_native_tool_call(n, a) for n, a in calls]
-                if not before_sched and calls:
-                    await loop._retract()
+                if not receipt_serves_goal(
+                    ctx.goal, ctx.last_ok_tool_name, ctx.last_ok_tool_out
+                ):
+                    if not ctx.goal_unlock_used and ctx.nudges < _MAX_TOOL_NUDGES:
+                        ctx.goal_unlock_used = True
+                        ctx.nudges += 1
+                        await loop._retract()
+                        r.messages.append({"role": "assistant", "content": r.content})
+                        r.messages.append(
+                            {
+                                "role": "user",
+                                "content": goal_unlock_notice(ctx.goal),
+                            }
+                        )
+                        await loop.bus.publish(
+                            Event(
+                                EventType.THINKING,
+                                {
+                                    "text": (
+                                        "goal unlock; last receipt does not finish the turn"
+                                    )
+                                },
+                            )
+                        )
+                        return False
                     await loop.bus.publish(
                         Event(
                             EventType.THINKING,
-                            {"text": "inject  schedule briefing from intent"},
+                            {"text": ("goal miss; not shipping that receipt")},
                         )
                     )
-            if stripped_run_now and not calls:
-                await loop._finish(
-                    "The job is already scheduled. It will run at the time "
-                    "you set — no need to fire it now.",
-                    sources,
-                    streamed="",
-                )
-                return True
-
-            before_browser = list(calls)
-            calls = rewrite_browser_calls(calls, text=text)
-            if calls != before_browser:
-                tool_calls = [_native_tool_call(n, a) for n, a in calls]
+                    await loop._finish(
+                        goal_miss_reply(ctx.goal),
+                        r.sources,
+                        streamed="",
+                    )
+                    return True
+                ink_owes_vision = bool(ctx.ink_page_images and "vision" not in loop.tools_used)
+                if ink_owes_vision and "vision" in r.tool_names:
+                    pages = list(ctx.ink_page_images)
+                    r.calls = ink_vision_walk(pages)
+                    r.tool_calls = [_native_tool_call(n, a) for n, a in r.calls]
+                    ctx.allow_writes_this_turn = True
+                    ctx.ink_vision_nudge_used = True
+                    await loop.bus.publish(
+                        Event(
+                            EventType.THINKING,
+                            {
+                                "text": (
+                                    f"looking at pages 1-{len(pages)} of "
+                                    f"{len(pages)}, one at a time"
+                                )
+                            },
+                        )
+                    )
+                    return None
                 await loop.bus.publish(
                     Event(
                         EventType.THINKING,
-                        {"text": "rewrite  invented browser action → snapshot"},
+                        {"text": ("empty after tool; answering from result")},
                     )
                 )
-
-            if not calls:
-                r.wants_fresh_page = wants_fresh_page
-                r.content = content
-                r.messages = messages
-                r.tool_names = tool_names
-                r.available = available
-                r.visible = visible
-                r.available_all = available_all
-                r.ollama_tools = ollama_tools
-                r.offer_tools = offer_tools
-                r.agent_cfg = agent_cfg
-                r.sources = sources
-                r.ledger = ledger
-                r.exact_need = exact_need
-                r.evidence_gate = evidence_gate
-                r.numeric_gate = numeric_gate
-                r.research_dual = research_dual
-                r.research_mode = research_mode
-                r.research_min_sources = research_min_sources
-                r.round_ms = round_ms
-                r.streamed = streamed
-                hit = await run_finish_steps(loop, ctx, r, round_i)
-                available = r.available
-                visible = r.visible
-                tool_names = r.tool_names
-                ollama_tools = r.ollama_tools
-                messages = r.messages
-                if hit == FINISH_NUDGE:
-                    return False
+                await loop._finish(
+                    _tool_followup_fallback(
+                        ctx.last_ok_tool_out,
+                        ctx.last_ok_tool_name,
+                        ask=ctx.text,
+                    ),
+                    r.sources,
+                    streamed="",
+                    passthrough_tool=ctx.last_ok_tool_name,
+                )
                 return True
+            # Thinking ate the reply (LIGO / long proofs). Ask for the
+            # chat line once. Skip when a daily inject still owes a
+            # tool — weather/SMS/agenda must not become an essay.
+            leftover = set(getattr(loop, "_expected_tools", ()) or ()) - {
+                "cas",
+                "python",
+                "calculator",
+                "units",
+                "plot",
+            }
+            if (
+                not leftover
+                and not ctx.think_write_nudge_used
+                and ctx.nudges < _MAX_TOOL_NUDGES
+                and getattr(loop, "_last_round_thinking", False)
+            ):
+                ctx.think_write_nudge_used = True
+                ctx.nudges += 1
+                await loop._retract()
+                r.messages.append({"role": "assistant", "content": r.content})
+                r.messages.append(
+                    {
+                        "role": "user",
+                        "content": _WRITE_AFTER_THINK_NOTICE,
+                    }
+                )
+                await loop.bus.publish(
+                    Event(
+                        EventType.THINKING,
+                        {"text": ("empty after think; asking for a write-up")},
+                    )
+                )
+                return False
+            if r.ollama_tools and loop.json_fallback:
+                # First round still blank with no tools yet? JSON fallback.
+                await loop._retract()
+                ctx.fallback_mode = True
+                await loop.bus.publish(
+                    Event(
+                        EventType.THINKING,
+                        {"text": "empty tool response; JSON fallback"},
+                    )
+                )
+                return False
+        hit = await run_inject_steps(loop, ctx, r)
+        if hit == NUDGE:
+            return False
 
-        return None
-    finally:
-        r.text = text
-        r.role = role
-        r.agent_cfg = agent_cfg
-        r.available_all = available_all
-        r.available = available
-        r.visible = visible
-        r.tool_names = tool_names
-        r.sources = sources
-        r.ledger = ledger
-        r.fail_counts = fail_counts
-        r.skip_counts = skip_counts
-        r.web_search_ok = web_search_ok
-        r.page_ok = page_ok
-        r.sms_sent = sms_sent
-        r.agenda_created = agenda_created
-        r.weather_ok_places = weather_ok_places
-        r.weather_days_retried = weather_days_retried
-        r.numeric_gate = numeric_gate
-        r.evidence_gate = evidence_gate
-        r.research_dual = research_dual
-        r.research_min_sources = research_min_sources
-        r.exact_need = exact_need
-        r.offer_tools = offer_tools
-        r.ollama_tools = ollama_tools
-        r.messages = messages
-        r.sms_preinject = sms_preinject
-        r.sms_draft = sms_draft
-        r.email_draft = email_draft
-        r.agenda_draft = agenda_draft
-        r.research_mode = research_mode
-        r.preflight_kinds = preflight_kinds
-        r.wants_fresh_page = wants_fresh_page
-        r.active_room = active_room
-        r.content = content
-        r.streamed = streamed
-        r.calls = calls
-        r.tool_calls = tool_calls
-        r.round_ms = round_ms
-        r.model = model
+        before_sched = list(r.calls)
+        stripped_run_now = looks_like_bare_confirm(r.text) and any(
+            n == "schedule" and str((a or {}).get("action") or "").lower() == "run_now"
+            for n, a in before_sched
+        )
+        r.calls = rewrite_schedule_calls(
+            r.text,
+            r.calls,
+            schedule_used="schedule" in loop.tools_used,
+            schedule_available="schedule" in r.tool_names,
+        )
+        if r.calls != before_sched:
+            r.tool_calls = [_native_tool_call(n, a) for n, a in r.calls]
+            if not before_sched and r.calls:
+                await loop._retract()
+                await loop.bus.publish(
+                    Event(
+                        EventType.THINKING,
+                        {"text": "inject  schedule briefing from intent"},
+                    )
+                )
+        if stripped_run_now and not r.calls:
+            await loop._finish(
+                "The job is already scheduled. It will run at the time "
+                "you set — no need to fire it now.",
+                r.sources,
+                streamed="",
+            )
+            return True
+
+        before_browser = list(r.calls)
+        r.calls = rewrite_browser_calls(r.calls, text=r.text)
+        if r.calls != before_browser:
+            r.tool_calls = [_native_tool_call(n, a) for n, a in r.calls]
+            await loop.bus.publish(
+                Event(
+                    EventType.THINKING,
+                    {"text": "rewrite  invented browser action → snapshot"},
+                )
+            )
+
+        if not r.calls:
+            hit = await run_finish_steps(loop, ctx, r, round_i)
+            if hit == FINISH_NUDGE:
+                return False
+            return True
+
+    return None
 
 
 async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
     """One model/tool step. True means the turn is over."""
+    # Only the names this coordinator rebinds, or that the write-back below
+    # has to have bound before the first await. Everything else the round
+    # needs is read off ``ctx`` when the scratch is built.
+    text = ctx.text
+    role = loop._turn_role
+    agent_cfg = ctx.agent_cfg
+    available_all = ctx.available_all
+    available = ctx.available
+    visible = ctx.visible
+    tool_names = ctx.tool_names
+    sources = ctx.sources
+    messages = ctx.messages
+    offer_tools = ctx.offer_tools
+    ollama_tools = ctx.ollama_tools
+    research_mode = ctx.research_mode
+    exact_need = ctx.exact_need
+    sms_preinject = ctx.sms_preinject
+    r: RoundScratch | None = None
     try:
-        text = ctx.text
-        role = loop._turn_role
-        agent_cfg = ctx.agent_cfg
-        available_all = ctx.available_all
-        available = ctx.available
-        visible = ctx.visible
-        tool_names = ctx.tool_names
-        sources = ctx.sources
-        ledger = ctx.ledger
-        fail_counts = ctx.fail_counts
-        skip_counts = ctx.skip_counts
-        web_search_ok = ctx.web_search_ok
-        page_ok = ctx.page_ok
-        sms_sent = ctx.sms_sent
-        agenda_created = ctx.agenda_created
-        weather_ok_places = ctx.weather_ok_places
-        weather_days_retried = ctx.weather_days_retried
-        numeric_gate = ctx.numeric_gate
-        evidence_gate = ctx.evidence_gate
-        research_dual = ctx.research_dual
-        research_min_sources = ctx.research_min_sources
-        exact_need = ctx.exact_need
-        offer_tools = ctx.offer_tools
-        ollama_tools = ctx.ollama_tools
-        messages = ctx.messages
-        sms_preinject = ctx.sms_preinject
-        sms_draft = ctx.sms_draft
-        email_draft = ctx.email_draft
-        agenda_draft = ctx.agenda_draft
-        research_mode = ctx.research_mode
-        preflight_kinds = ctx.preflight_kinds
-        wants_fresh_page = ctx.wants_fresh_page
-        active_room = ctx.active_room
-
         await loop._hold_if_paused()
 
         escalated = await loop._maybe_escalate(
@@ -626,7 +406,7 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
                 role=role,
                 text=text,
                 agent_cfg=agent_cfg,
-                active_room=active_room,
+                active_room=ctx.active_room,
             )
             available, visible = apply_expected(
                 loop, available, text=text, available_all=available_all
@@ -643,7 +423,7 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
         if round_i > 1 and (
             ctx.email_sent_ok
             or ctx.agenda_create_ok
-            or bool(sms_sent)
+            or bool(ctx.sms_sent)
             or ctx.page_write_nudge_used
             or ctx.algebra_write_nudge_used
         ):
@@ -782,88 +562,54 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
             elif parsed and parsed["kind"] == "final":
                 content = parsed["text"]
 
-        r = _round_scratch(
+        r = RoundScratch(
             text=text,
-            role=role,
             agent_cfg=agent_cfg,
             available_all=available_all,
             available=available,
             visible=visible,
             tool_names=tool_names,
             sources=sources,
-            ledger=ledger,
-            fail_counts=fail_counts,
-            skip_counts=skip_counts,
-            web_search_ok=web_search_ok,
-            page_ok=page_ok,
-            sms_sent=sms_sent,
-            agenda_created=agenda_created,
-            weather_ok_places=weather_ok_places,
-            weather_days_retried=weather_days_retried,
-            numeric_gate=numeric_gate,
-            evidence_gate=evidence_gate,
-            research_dual=research_dual,
-            research_min_sources=research_min_sources,
+            ledger=ctx.ledger,
+            fail_counts=ctx.fail_counts,
+            skip_counts=ctx.skip_counts,
+            web_search_ok=ctx.web_search_ok,
+            page_ok=ctx.page_ok,
+            sms_sent=ctx.sms_sent,
+            agenda_created=ctx.agenda_created,
+            weather_ok_places=ctx.weather_ok_places,
+            weather_days_retried=ctx.weather_days_retried,
+            numeric_gate=ctx.numeric_gate,
+            evidence_gate=ctx.evidence_gate,
+            research_dual=ctx.research_dual,
+            research_min_sources=ctx.research_min_sources,
             exact_need=exact_need,
             offer_tools=offer_tools,
             ollama_tools=ollama_tools,
             messages=messages,
             sms_preinject=sms_preinject,
-            sms_draft=sms_draft,
-            email_draft=email_draft,
-            agenda_draft=agenda_draft,
+            sms_draft=ctx.sms_draft,
+            email_draft=ctx.email_draft,
+            agenda_draft=ctx.agenda_draft,
             research_mode=research_mode,
-            preflight_kinds=preflight_kinds,
-            wants_fresh_page=wants_fresh_page,
-            active_room=active_room,
+            preflight_kinds=ctx.preflight_kinds,
+            wants_fresh_page=ctx.wants_fresh_page,
+            active_room=ctx.active_room,
             content=content,
             streamed=streamed,
             calls=calls,
             tool_calls=tool_calls,
             round_ms=round_ms,
-            model=model,
         )
         done = await apply_no_call_path(loop, ctx, r, round_i)
-        (
-            available,
-            visible,
-            tool_names,
-            ollama_tools,
-            offer_tools,
-            research_mode,
-            sms_preinject,
-            exact_need,
-            calls,
-            tool_calls,
-            content,
-            streamed,
-            round_ms,
-            role,
-        ) = _pull_round(r)
         if done is not None:
             return done
         done = await dispatch_calls(loop, ctx, r, round_i)
-        (
-            available,
-            visible,
-            tool_names,
-            ollama_tools,
-            offer_tools,
-            research_mode,
-            sms_preinject,
-            exact_need,
-            calls,
-            tool_calls,
-            content,
-            streamed,
-            round_ms,
-            role,
-        ) = _pull_round(r)
         if (
             done is False
             and ctx.ink_page_images
             and "vision" not in loop.tools_used
-            and "vision" in tool_names
+            and "vision" in r.tool_names
         ):
             pages = list(ctx.ink_page_images)
             extra = ink_vision_walk(pages)
@@ -878,29 +624,16 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
                 )
             )
             done = await dispatch_calls(loop, ctx, r, round_i)
-            (
-                available,
-                visible,
-                tool_names,
-                ollama_tools,
-                offer_tools,
-                research_mode,
-                sms_preinject,
-                exact_need,
-                calls,
-                tool_calls,
-                content,
-                streamed,
-                round_ms,
-                role,
-            ) = _pull_round(r)
         return done
     finally:
         ctx.role = loop._turn_role
-        ctx.available = available
-        ctx.visible = visible
-        ctx.ollama_tools = ollama_tools
-        ctx.offer_tools = offer_tools
-        ctx.research_mode = research_mode
-        ctx.sms_preinject = sms_preinject
-        ctx.exact_need = exact_need
+        if r is not None:
+            _write_round(ctx, r)
+        else:
+            ctx.available = available
+            ctx.visible = visible
+            ctx.ollama_tools = ollama_tools
+            ctx.offer_tools = offer_tools
+            ctx.research_mode = research_mode
+            ctx.sms_preinject = sms_preinject
+            ctx.exact_need = exact_need
