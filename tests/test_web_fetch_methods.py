@@ -234,11 +234,19 @@ def test_an_ordinary_header_passes():
     }
 
 
-async def test_a_forbidden_header_fails_the_call_rather_than_being_dropped(wired):
-    """A dropped Authorization reads as "the API said no", which is a lie."""
+async def test_a_forbidden_header_fails_the_call_rather_than_being_dropped(
+    wired, resolvable
+):
+    """A dropped Authorization reads as "the API said no", which is a lie.
+
+    `resolvable` matters here. Without it this test passed with the header
+    guard disabled, because the made-up host failed DNS and `ok` was False for
+    a reason that had nothing to do with headers.
+    """
     rec = wired(_Recorder())
     result = await _tool().run(url="https://x.example/", headers={"Host": "evil"})
     assert not result.ok
+    assert "Host" in result.output
     assert not rec.requests
 
 
@@ -311,10 +319,11 @@ async def test_a_body_on_a_get_is_caught_rather_than_ignored(wired):
     assert not rec.requests
 
 
-async def test_an_enormous_body_is_refused(wired):
+async def test_an_enormous_body_is_refused(wired, resolvable):
     rec = wired(_Recorder())
     result = await _tool().run(url="https://x.example/", method="POST", body="x" * 200_000)
     assert not result.ok
+    assert "200000" in result.output.replace(",", "")
     assert not rec.requests
 
 

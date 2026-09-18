@@ -59,7 +59,7 @@ _SHORT_DESC: dict[str, str] = {
     # calling user_location first, which weather can never use because it
     # refuses coordinates. Only the arms carrying this sentence got it right.
     "weather": "forecast. defaults to the user's own place — omit place for home, never look up their location first. place=city name, not coords",
-    "web_fetch": "http(s) APIs / JSON. not pages",
+    "web_fetch": "http(s) APIs / JSON. not pages. method=POST|PUT|PATCH|DELETE + headers/body for a real API; non-GET asks first",
     "web_search": "search first. never guess a url",
     "workspace": "sandbox files: list/read/grep/find/write/edit/delete/move/rename/copy. grep query= to locate code, not repeated list. writes confirm",
 }
