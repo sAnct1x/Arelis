@@ -56,13 +56,17 @@ def test_ci_ruff_pin_matches_pyproject() -> None:
     )
 
 
-def test_mypy_is_pinned_in_dev_and_is_not_a_ci_gate() -> None:
-    """mypy exists so the error count is a number, not so CI fails on it.
+def test_mypy_reports_on_the_repo_and_gates_only_the_clean_packages() -> None:
+    """Two mypy steps with opposite jobs, and neither may take the other's.
 
-    A floating extra would make today's baseline meaningless tomorrow. A
-    failing mypy job would block work that is not a type-fix. The types
-    job reports. `|| true` keeps the check green; continue-on-error is
-    the leftover belt.
+    Repo-wide mypy reports a number. It cannot fail CI, because a thousand
+    pre-existing errors would block work that is not a type-fix — that is
+    what `|| true` buys. The strict step is the opposite: packages listed
+    in `mypy_strict_packages.txt` are already clean, and a clean package
+    that is allowed to regress is not clean. It must have no `|| true`.
+
+    `continue-on-error: true` on the job would swallow the strict step, so
+    its absence is load-bearing now rather than a leftover.
     """
     pyproject = PYPROJECT.read_text(encoding="utf-8")
     workflow = CI_YML.read_text(encoding="utf-8")
@@ -74,11 +78,23 @@ def test_mypy_is_pinned_in_dev_and_is_not_a_ci_gate() -> None:
     assert wf_pin, "types job must install the same mypy pin"
     assert wf_pin.group(1) == pin.group(1)
     assert re.search(r"(?m)^  types:", workflow), "CI lost the types report job"
-    types_block = workflow.split("\n  types:", 1)[1]
-    types_block = types_block.split("\n  test:", 1)[0]
-    assert "continue-on-error: true" in types_block
-    assert "python -m mypy" in types_block
-    assert "|| true" in types_block
+    # Bound at the next top-level job, not at `test:` — `eval:` sits between
+    # them, and swallowing it would check another job's error handling here.
+    after = workflow.split("\n  types:", 1)[1]
+    next_job = re.search(r"(?m)^  [a-z][a-z0-9_-]*:$", after)
+    types_block = after[: next_job.start()] if next_job else after
+    assert "continue-on-error: true" not in types_block, (
+        "continue-on-error on the types job would swallow the strict gate"
+    )
+
+    runs = re.findall(r"(?m)^        run: (python -m mypy .*)$", types_block)
+    report = [r for r in runs if "mypy_strict_packages.txt" not in r]
+    strict = [r for r in runs if "mypy_strict_packages.txt" in r]
+    assert len(report) == 1, f"expected one repo-wide mypy report step, got {runs}"
+    assert len(strict) == 1, f"expected one strict-gate mypy step, got {runs}"
+    assert "|| true" in report[0], "the repo-wide report must never fail CI"
+    assert "|| true" not in strict[0], "a gate that cannot fail is not a gate"
+
     test_block = workflow.split("\n  test:", 1)[1].split("\n  lock:", 1)[0]
     installed_block = workflow.split("\n  installed:", 1)[1]
     assert "mypy" not in test_block.lower()

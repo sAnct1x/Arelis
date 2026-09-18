@@ -31,9 +31,24 @@ mypy by package (same run):
 `guard/` is already clean. Phase 1 E should start with `memory/` and
 `tools/base.py`, and stay out of `core/` until A and B have merged.
 
-`tests/test_ci_gate.py` currently forbids the word `mypy` in
-`.github/workflows/ci.yml`. A later non-blocking report job has to
-rewrite that pin, not sneak a step past it.
+**The table above is stale as of 2026-09-18** — re-measure before using it
+to pick the next package. `memory/` and `llm/` both read 0 today in the
+same repo-wide run, cleaned as a side effect of other work, and the repo
+total is 1,550 rather than 1,391. `tools/base.py` is at 1. Next cheapest
+after that are `presence/` (15) and `eval/` (19).
+
+**Mypy strict gate.** A package at zero that is allowed to regress is not
+clean. Packages that are fully typed are listed one per line in
+`tests/mypy_strict_packages.txt`; a blocking CI step and
+`tests/test_mypy_gate.py` both run mypy against that list, so adding a newly
+clean package gates it in CI and locally in the same one-line change.
+
+The table above is the repo-wide *report*, which stays non-blocking — gating
+1,500 known errors would block work that is not a type-fix. The two mypy
+steps in `ci.yml` therefore have opposite error handling, and
+`tests/test_ci_gate.py` pins that: the report must keep `|| true`, the gate
+must not have it, and the job must not carry `continue-on-error`, which
+would swallow the gate.
 
 ### Claim: dangling README doc links — stale, skipped
 
