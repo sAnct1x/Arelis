@@ -16,16 +16,13 @@ from types import SimpleNamespace
 from typing import Any
 
 from arelis.core.agent_loop import (
-    _HIDE_WANDER_FOR,
     _MAX_TOOL_NUDGES,
     _WRITE_AFTER_ALGEBRA_NOTICE,
     _WRITE_AFTER_PAGE_NOTICE,
     _WRITE_AFTER_THINK_NOTICE,
-    _hide_daily_wander,
     _is_ollama_object_400,
     _native_tool_call,
     _normalize_ollama_messages,
-    _offer_expected,
     _StoppedError,
     _tool_followup_fallback,
 )
@@ -43,7 +40,6 @@ from arelis.core.json_tools import (
     parse_fallback_payload,
     strip_thinking_text,
 )
-from arelis.core.look import LOOK_TOOL_SUBSET
 from arelis.core.loop_helpers import (
     _MALFORMED_CALL_NOTICE,
 )
@@ -53,14 +49,11 @@ from arelis.core.no_call_steps import NUDGE, run_inject_steps
 from arelis.core.preflight import (
     rewrite_browser_calls,
 )
-from arelis.core.sms_complete import (
-    looks_like_stale_sms_skip,
-)
 from arelis.core.tool_subset import (
-    filter_tool_names,
     is_research_mode,
     turn_round_budget,
 )
+from arelis.core.tool_surface import apply_expected, base_surface
 from arelis.core.turn_context import TurnContext
 from arelis.core.turn_dispatch import dispatch_calls
 from arelis.core.turn_goal import (
@@ -297,11 +290,7 @@ async def apply_no_call_path(
                         await loop.bus.publish(
                             Event(
                                 EventType.THINKING,
-                                {
-                                    "text": (
-                                        "empty after page; asking for a write-up"
-                                    )
-                                },
+                                {"text": ("empty after page; asking for a write-up")},
                             )
                         )
                         return False
@@ -329,27 +318,18 @@ async def apply_no_call_path(
                         await loop.bus.publish(
                             Event(
                                 EventType.THINKING,
-                                {
-                                    "text": (
-                                        "empty after algebra; asking for a write-up"
-                                    )
-                                },
+                                {"text": ("empty after algebra; asking for a write-up")},
                             )
                         )
                         return False
                     if not receipt_serves_goal(
                         ctx.goal, ctx.last_ok_tool_name, ctx.last_ok_tool_out
                     ):
-                        if (
-                            not ctx.goal_unlock_used
-                            and ctx.nudges < _MAX_TOOL_NUDGES
-                        ):
+                        if not ctx.goal_unlock_used and ctx.nudges < _MAX_TOOL_NUDGES:
                             ctx.goal_unlock_used = True
                             ctx.nudges += 1
                             await loop._retract()
-                            messages.append(
-                                {"role": "assistant", "content": content}
-                            )
+                            messages.append({"role": "assistant", "content": content})
                             messages.append(
                                 {
                                     "role": "user",
@@ -361,8 +341,7 @@ async def apply_no_call_path(
                                     EventType.THINKING,
                                     {
                                         "text": (
-                                            "goal unlock; last receipt "
-                                            "does not finish the turn"
+                                            "goal unlock; last receipt does not finish the turn"
                                         )
                                     },
                                 )
@@ -371,11 +350,7 @@ async def apply_no_call_path(
                         await loop.bus.publish(
                             Event(
                                 EventType.THINKING,
-                                {
-                                    "text": (
-                                        "goal miss; not shipping that receipt"
-                                    )
-                                },
+                                {"text": ("goal miss; not shipping that receipt")},
                             )
                         )
                         await loop._finish(
@@ -384,16 +359,11 @@ async def apply_no_call_path(
                             streamed="",
                         )
                         return True
-                    ink_owes_vision = bool(
-                        ctx.ink_page_images
-                        and "vision" not in loop.tools_used
-                    )
+                    ink_owes_vision = bool(ctx.ink_page_images and "vision" not in loop.tools_used)
                     if ink_owes_vision and "vision" in tool_names:
                         pages = list(ctx.ink_page_images)
                         calls = ink_vision_walk(pages)
-                        tool_calls = [
-                            _native_tool_call(n, a) for n, a in calls
-                        ]
+                        tool_calls = [_native_tool_call(n, a) for n, a in calls]
                         ctx.allow_writes_this_turn = True
                         ctx.ink_vision_nudge_used = True
                         await loop.bus.publish(
@@ -411,11 +381,7 @@ async def apply_no_call_path(
                     await loop.bus.publish(
                         Event(
                             EventType.THINKING,
-                            {
-                                "text": (
-                                    "empty after tool; answering from result"
-                                )
-                            },
+                            {"text": ("empty after tool; answering from result")},
                         )
                     )
                     await loop._finish(
@@ -457,11 +423,7 @@ async def apply_no_call_path(
                     await loop.bus.publish(
                         Event(
                             EventType.THINKING,
-                            {
-                                "text": (
-                                    "empty after think; asking for a write-up"
-                                )
-                            },
+                            {"text": ("empty after think; asking for a write-up")},
                         )
                     )
                     return False
@@ -489,8 +451,7 @@ async def apply_no_call_path(
 
             before_sched = list(calls)
             stripped_run_now = looks_like_bare_confirm(text) and any(
-                n == "schedule"
-                and str((a or {}).get("action") or "").lower() == "run_now"
+                n == "schedule" and str((a or {}).get("action") or "").lower() == "run_now"
                 for n, a in before_sched
             )
             calls = rewrite_schedule_calls(
@@ -500,9 +461,7 @@ async def apply_no_call_path(
                 schedule_available="schedule" in tool_names,
             )
             if calls != before_sched:
-                tool_calls = [
-                    _native_tool_call(n, a) for n, a in calls
-                ]
+                tool_calls = [_native_tool_call(n, a) for n, a in calls]
                 if not before_sched and calls:
                     await loop._retract()
                     await loop.bus.publish(
@@ -523,9 +482,7 @@ async def apply_no_call_path(
             before_browser = list(calls)
             calls = rewrite_browser_calls(calls, text=text)
             if calls != before_browser:
-                tool_calls = [
-                    _native_tool_call(n, a) for n, a in calls
-                ]
+                tool_calls = [_native_tool_call(n, a) for n, a in calls]
                 await loop.bus.publish(
                     Event(
                         EventType.THINKING,
@@ -607,8 +564,6 @@ async def apply_no_call_path(
         r.model = model
 
 
-
-
 async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
     """One model/tool step. True means the turn is over."""
     try:
@@ -659,41 +614,22 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
             research_mode = is_research_mode(role, text)
             loop.max_rounds = max(
                 loop.max_rounds,
-                turn_round_budget(
-                    role, text, agent_cfg, loop._default_max_rounds
-                ),
+                turn_round_budget(role, text, agent_cfg, loop._default_max_rounds),
             )
-            visible = filter_tool_names(
+            # active_room was always in scope here; the escalate copy of this
+            # just never passed it, so a room's skills survived round one and
+            # not round two.
+            available, visible = base_surface(
+                loop,
                 available_all,
                 role=role,
                 text=text,
-                enabled=bool(agent_cfg.get("research_tool_subset", False)),
-                skill_subset=bool(agent_cfg.get("skill_tool_subset", False)),
-                history=loop.memory.messages,
+                agent_cfg=agent_cfg,
+                active_room=active_room,
             )
-            available = visible
-            if loop._look is not None:
-                look_tools = {n for n in available_all if n in LOOK_TOOL_SUBSET}
-                if look_tools:
-                    available = look_tools
-                    visible = look_tools
-            if loop._expected_tools & _HIDE_WANDER_FOR:
-                available = _hide_daily_wander(
-                    set(available), loop._expected_tools
-                )
-                visible = available
-            available = _offer_expected(
-                available, loop._expected_tools, available_all
+            available, visible = apply_expected(
+                loop, available, text=text, available_all=available_all
             )
-            visible = available
-            if (
-                looks_like_stale_sms_skip(text, loop.memory.messages)
-                and "send_sms" not in loop._expected_tools
-            ) or loop._look is not None:
-                available = set(available)
-                available.discard("send_sms")
-                available.discard("send_email")
-                visible = available
             ollama_tools = loop.tools.ollama_tools(visible)
             ctx.tool_names.clear()
             ctx.tool_names.update(visible)
@@ -739,13 +675,9 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
                     {"text": "inject  send_sms from a complete draft (pre-model)"},
                 )
             )
-            await loop.bus.publish(
-                Event(EventType.STATUS, {"message": "Calling send_sms…"})
-            )
+            await loop.bus.publish(Event(EventType.STATUS, {"message": "Calling send_sms…"}))
             if loop._timer is not None:
-                loop._timer.mark(
-                    "exactness", gate="sms_force", action="preinject"
-                )
+                loop._timer.mark("exactness", gate="sms_force", action="preinject")
         else:
             try:
                 round_t0 = time.perf_counter()
@@ -774,9 +706,7 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
                 failure = classify_ollama_failure(
                     exc,
                     model=model,
-                    base_url=str(
-                        (loop.config.get("ollama") or {}).get("base_url") or ""
-                    ),
+                    base_url=str((loop.config.get("ollama") or {}).get("base_url") or ""),
                     role=str(loop._turn_role or ""),
                 )
                 if (
@@ -790,12 +720,7 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
                     await loop.bus.publish(
                         Event(
                             EventType.THINKING,
-                            {
-                                "text": (
-                                    f"native tools failed ({exc}); "
-                                    "JSON fallback"
-                                )
-                            },
+                            {"text": (f"native tools failed ({exc}); JSON fallback")},
                         )
                     )
                     return False
@@ -807,12 +732,7 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
                     await loop.bus.publish(
                         Event(
                             EventType.THINKING,
-                            {
-                                "text": (
-                                    "research_report ready; answering "
-                                    "from artifact"
-                                )
-                            },
+                            {"text": ("research_report ready; answering from artifact")},
                         )
                     )
                     await loop._finish(
@@ -829,12 +749,7 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
                     await loop.bus.publish(
                         Event(
                             EventType.THINKING,
-                            {
-                                "text": (
-                                    "ollama 400 after tool; answering "
-                                    "from result"
-                                )
-                            },
+                            {"text": ("ollama 400 after tool; answering from result")},
                         )
                     )
                     await loop._finish(
@@ -956,12 +871,7 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
             await loop.bus.publish(
                 Event(
                     EventType.THINKING,
-                    {
-                        "text": (
-                            f"looking at pages 1-{len(pages)} of "
-                            f"{len(pages)}, one at a time"
-                        )
-                    },
+                    {"text": (f"looking at pages 1-{len(pages)} of {len(pages)}, one at a time")},
                 )
             )
             done = await dispatch_calls(loop, ctx, r, round_i)
@@ -991,4 +901,3 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
         ctx.research_mode = research_mode
         ctx.sms_preinject = sms_preinject
         ctx.exact_need = exact_need
-

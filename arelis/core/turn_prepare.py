@@ -13,11 +13,8 @@ from arelis.core.agenda_complete import (
     looks_like_calendar_read,
 )
 from arelis.core.agent_loop import (
-    _HIDE_WANDER_FOR,
     _SEE_NO_SMS_REDIRECT,
     _SPEAK_TOOL_OUTPUT_CHARS,
-    _hide_daily_wander,
-    _offer_expected,
     _wants_project_context,
     disconnected_integration_reply,
     now_line,
@@ -39,7 +36,7 @@ from arelis.core.episodes import episodes_prompt_line
 from arelis.core.events import Event, EventType
 from arelis.core.image_refs import CAMERA_FRESH_S, latest_camera_image_file
 from arelis.core.lessons import format_lessons, select_lessons
-from arelis.core.look import LOOK_TOOL_SUBSET, LookTurn, classify_look, frame_sha256
+from arelis.core.look import LookTurn, classify_look, frame_sha256
 from arelis.core.other_work import looks_like_other_work
 from arelis.core.plan_nudge import select_plan
 from arelis.core.preflight import (
@@ -56,15 +53,14 @@ from arelis.core.sms_complete import (
     looks_like_contacts_utterance,
     looks_like_goals_utterance,
     looks_like_memory_utterance,
-    looks_like_stale_sms_skip,
     looks_like_tasks_utterance,
     sms_intent_this_turn,
 )
 from arelis.core.tool_subset import (
-    filter_tool_names,
     is_research_mode,
     turn_round_budget,
 )
+from arelis.core.tool_surface import apply_expected, base_surface
 from arelis.core.turn_context import TurnContext
 from arelis.core.turn_telemetry import TurnTimer, turn_telemetry_enabled
 from arelis.core.world_state import world_state_prompt_line
@@ -142,9 +138,7 @@ async def prepare_turn(
         if loop._look.path:
             loop._look.sha = frame_sha256(loop._look.path)
     agent_cfg = loop.config.get("agent") or {}
-    loop.max_rounds = turn_round_budget(
-        role, text, agent_cfg, loop._default_max_rounds
-    )
+    loop.max_rounds = turn_round_budget(role, text, agent_cfg, loop._default_max_rounds)
     active = getattr(loop.router, "active_model", None)
     if active and active != model:
         await loop.bus.publish(
@@ -176,8 +170,7 @@ async def prepare_turn(
                     EventType.STATUS,
                     {
                         "message": (
-                            f"Loading `{model}` — previous chat model was "
-                            "unloaded so it can fit."
+                            f"Loading `{model}` — previous chat model was unloaded so it can fit."
                         )
                     },
                 )
@@ -205,22 +198,14 @@ async def prepare_turn(
         capped = available_all & set(active_room.tools)
         if capped:
             available_all = capped
-    room_skills = tuple(active_room.spec.skills) if active_room is not None else ()
-    visible = filter_tool_names(
+    available, visible = base_surface(
+        loop,
         available_all,
         role=role,
         text=text,
-        enabled=bool(agent_cfg.get("research_tool_subset", False)),
-        skill_subset=bool(agent_cfg.get("skill_tool_subset", False)),
-        history=loop.memory.messages,
-        extra_skill_ids=room_skills,
+        agent_cfg=agent_cfg,
+        active_room=active_room,
     )
-    available = visible
-    if loop._look is not None:
-        look_tools = {n for n in available_all if n in LOOK_TOOL_SUBSET}
-        if look_tools:
-            available = look_tools
-            visible = look_tools
     if loop._timer is not None and len(visible) < len(available_all):
         loop._timer.mark(
             "tool_subset",
@@ -246,11 +231,7 @@ async def prepare_turn(
         r"(?i)^\s*(?:text|sms|txt|send\s+(?:a\s+)?(?:text|sms|message))\b",
         text or "",
     )
-    sms_draft = (
-        None
-        if skip_sms_draft
-        else complete_sms_draft(text, history=loop.memory.messages)
-    )
+    sms_draft = None if skip_sms_draft else complete_sms_draft(text, history=loop.memory.messages)
     # A scheduled send, a job edit, a new room or a mailbox mutate skip the
     # email draft even when the words also look like compose — "email me the
     # weather every morning" is a job, not a letter.
@@ -262,9 +243,7 @@ async def prepare_turn(
         or not looks_like_compose_email(text)
     )
     email_draft = (
-        None
-        if skip_email_draft
-        else complete_email_draft(text, history=loop.memory.messages)
+        None if skip_email_draft else complete_email_draft(text, history=loop.memory.messages)
     )
     agenda_draft = complete_agenda_draft(text, history=loop.memory.messages)
     # Deterministic intent nudge — does not call tools or skip confirm.
@@ -284,10 +263,7 @@ async def prepare_turn(
             loop._expected_tools.add("tasks")
         if looks_like_goals_utterance(text):
             loop._expected_tools.add("goals")
-        if (
-            loop._expected_tools & _SEE_NO_SMS_REDIRECT
-            and not sms_intent_this_turn(text)
-        ):
+        if loop._expected_tools & _SEE_NO_SMS_REDIRECT and not sms_intent_this_turn(text):
             loop._expected_tools.discard("send_sms")
         if "image_edit" in loop._expected_tools:
             loop._expected_tools.discard("image")
@@ -309,9 +285,7 @@ async def prepare_turn(
     # Mixing them into skill_ids made select_plan treat the lean as
     # this-turn intent, so an analysis room demanded a CSV on
     # "how do toroids relate to physics?".
-    skill_ids, fallback_only = select_skill_ids_detailed(
-        text, available_tools=available
-    )
+    skill_ids, fallback_only = select_skill_ids_detailed(text, available_tools=available)
     # The unmatched "what is" web floor is a tool-menu hint, not a scrape
     # plan. Clock asks already special-case this; definitional physics
     # questions used to get the same cage once room extras stopped
@@ -335,13 +309,9 @@ async def prepare_turn(
         email_draft=email_draft,
         research_mode=research_mode,
     )
-    loop._expected_tools, dropped_for_goal = apply_goal_to_expected(
-        loop._expected_tools, turn_goal
-    )
+    loop._expected_tools, dropped_for_goal = apply_goal_to_expected(loop._expected_tools, turn_goal)
     if turn_goal.line:
-        system_messages.append(
-            {"role": "system", "content": f"Turn goal: {turn_goal.line}"}
-        )
+        system_messages.append({"role": "system", "content": f"Turn goal: {turn_goal.line}"})
     if loop._timer is not None and (turn_goal.kind != "none" or dropped_for_goal):
         loop._timer.mark(
             "goal",
@@ -355,22 +325,8 @@ async def prepare_turn(
     # window has room for it. The list was also a trap: any phrasing outside
     # it — "what is this?" beside a fresh attachment — left the model
     # schema-blind and it invented a caption.
-    if loop._expected_tools & _HIDE_WANDER_FOR:
-        available = _hide_daily_wander(set(available), loop._expected_tools)
-        visible = available
-    available = _offer_expected(available, loop._expected_tools, available_all)
-    visible = available
-    if (
-        looks_like_stale_sms_skip(text, loop.memory.messages)
-        and "send_sms" not in loop._expected_tools
-    ) or loop._look is not None:
-        available = set(available)
-        available.discard("send_sms")
-        available.discard("send_email")
-        visible = available
-    active_plan = select_plan(
-        text, preflight_kinds=preflight_kinds, skill_ids=plan_ids
-    )
+    available, visible = apply_expected(loop, available, text=text, available_all=available_all)
+    active_plan = select_plan(text, preflight_kinds=preflight_kinds, skill_ids=plan_ids)
     if (
         active_plan is not None
         and active_plan.steps
@@ -385,8 +341,7 @@ async def prepare_turn(
             or sms_intent_this_turn(text)
         ),
         want_mail=bool(
-            (email_draft is not None and email_draft.complete)
-            or looks_like_compose_email(text)
+            (email_draft is not None and email_draft.complete) or looks_like_compose_email(text)
         ),
         want_calendar=bool(
             (agenda_draft is not None and agenda_draft.complete)
@@ -432,9 +387,7 @@ async def prepare_turn(
     # project line because it explains what the project is *for*, and before
     # the standing profile because it is the narrower context of the two.
     if active_room is not None:
-        system_messages.append(
-            {"role": "system", "content": active_room.prompt_block()}
-        )
+        system_messages.append({"role": "system", "content": active_room.prompt_block()})
     location = loop.config.get("_location")
     if location is not None:
         # Injected rather than left to the user_location tool. A 7B model
@@ -513,9 +466,7 @@ async def prepare_turn(
     # Sticky for the turn so mid-escalate does not shrink under a built prompt.
     loop._turn_num_ctx = num_ctx
     tool_reserve_chars = (
-        min(loop.tool_output_chars, _SPEAK_TOOL_OUTPUT_CHARS)
-        if speak
-        else loop.tool_output_chars
+        min(loop.tool_output_chars, _SPEAK_TOOL_OUTPUT_CHARS) if speak else loop.tool_output_chars
     )
     # Conversation small-talk: do not reserve a scrape slab when nothing
     # in this turn asked for a tool. That reserve was eating the last turn.
@@ -544,9 +495,7 @@ async def prepare_turn(
         numeric_gate=exact_cfg and bool(agent_cfg.get("numeric_gate", True)),
         evidence_gate=exact_cfg and bool(agent_cfg.get("evidence_gate", True)),
         research_dual=exact_cfg and bool(agent_cfg.get("research_dual_hit", True)),
-        research_min_sources=max(
-            1, int(agent_cfg.get("research_min_sources", 2))
-        ),
+        research_min_sources=max(1, int(agent_cfg.get("research_min_sources", 2))),
         exact_need=exact_need,
         goal=turn_goal,
     )
@@ -555,9 +504,7 @@ async def prepare_turn(
     tool_names = ctx.tool_names
     # Research role / deep-dive needs web warrants for contingent claims,
     # except weather (Open-Meteo). Jobs used to default to research.
-    exact_need = apply_research_web_need(
-        exact_need, research_mode=research_mode, text=text
-    )
+    exact_need = apply_research_web_need(exact_need, research_mode=research_mode, text=text)
     ctx.exact_need = exact_need
     # News / current-events turns should not end on search snippets alone.
     wants_fresh_page = (
