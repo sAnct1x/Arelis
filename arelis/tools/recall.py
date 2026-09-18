@@ -25,6 +25,18 @@ _EXCERPT_CHARS = 300
 _DEFAULT_LIMIT = 8
 _MAX_LIMIT = 20
 _SESSION_MESSAGE_CAP = 40
+_KIND_SUFFIXES: dict[str, tuple[str, ...]] = {
+    "pdf": (".pdf",),
+    "docx": (".docx",),
+    "md": (".md", ".markdown"),
+}
+_KIND_ALIASES = {
+    "pdf": "pdf",
+    "pdfs": "pdf",
+    "docx": "docx",
+    "md": "md",
+    "markdown": "md",
+}
 
 EmbedFn = Callable[[str, list[str]], Awaitable[list[list[float]]]]
 ModelCheckFn = Callable[[], Awaitable[bool]]
@@ -38,10 +50,10 @@ class RecallTool:
         "Search past conversations, indexed project files, and (when enabled) "
         "peeked mail, or read one conversation back. Use this before claiming "
         "you do not know something the user may have said, written, or received. "
-        "Results are dated excerpts, not perfect memory. Pass source=docs, "
-        "source=chat, or source=mail to narrow; source=all (default) searches "
-        "everything that is indexed. action=index chunks new files for "
-        "keyword search now; embeddings wait until the turn is idle."
+        "Results are dated excerpts, not perfect memory. action=docs searches "
+        "indexed files (kind=pdf/docx/md). action=search takes "
+        "source=chat/docs/mail (default all). action=index chunks new files "
+        "for keyword search now; embeddings wait until the turn is idle."
     )
     risk = "read"
     parameters_schema: dict[str, Any] = {
@@ -49,9 +61,11 @@ class RecallTool:
         "properties": {
             "action": {
                 "type": "string",
-                "enum": ["search", "session", "index"],
+                "enum": ["search", "docs", "session", "index"],
                 "description": (
                     "search finds chat, file, and/or mail excerpts by keyword; "
+                    "docs searches indexed files only (same index as "
+                    "source=docs — keyword + embeddings if available); "
                     "session reads one conversation back by id; "
                     "index chunks newly added workspace files (and peeked "
                     "mail) for keyword search without loading the embed model"
@@ -59,14 +73,24 @@ class RecallTool:
             },
             "query": {
                 "type": "string",
-                "description": "Keywords to search for, for action=search",
+                "description": "Keywords to search for, for action=search or action=docs",
             },
             "source": {
                 "type": "string",
                 "enum": ["all", "chat", "docs", "mail"],
                 "description": (
                     "Where to search: all (default), chat, indexed files, or "
-                    "indexed mail (mail requires memory.mail.enabled)"
+                    "indexed mail (mail requires memory.mail.enabled). "
+                    "Ignored when action=docs (always files)."
+                ),
+            },
+            "kind": {
+                "type": "string",
+                "enum": ["pdf", "docx", "md"],
+                "description": (
+                    "Optional suffix filter for file hits: pdf, docx, or md. "
+                    "Use with action=docs so 'search my PDFs' does not return "
+                    "chat or a random .md/.py file"
                 ),
             },
             "session_id": {
@@ -131,6 +155,12 @@ class RecallTool:
         # used to get "Unknown action ''" for a perfectly good lookup.
         if not action and str(kwargs.get("query") or "").strip():
             action = "search"
+        if action == "docs":
+            # First-class "search my PDFs" — same index as source=docs.
+            # source= from the model is ignored so a 9B cannot leak chat in.
+            forced = dict(kwargs)
+            forced["source"] = "docs"
+            return await self._search(forced, verb="docs")
         if action == "search":
             return await self._search(kwargs)
         if action == "session":
@@ -139,22 +169,32 @@ class RecallTool:
             return await self._index(kwargs)
         return ToolResult(
             ok=False,
-            output=f"Unknown action {action!r}. Use search, session, or index.",
+            output=f"Unknown action {action!r}. Use search, docs, session, or index.",
         )
 
-    async def _search(self, kwargs: dict[str, Any]) -> ToolResult:
+    async def _search(
+        self, kwargs: dict[str, Any], *, verb: str = "search"
+    ) -> ToolResult:
         query = str(kwargs.get("query") or "").strip()
         if not query:
-            return ToolResult(ok=False, output="search needs a query.")
+            return ToolResult(ok=False, output=f"{verb} needs a query.")
         source = str(kwargs.get("source") or "all").strip().lower()
         if source not in {"all", "chat", "docs", "mail"}:
             return ToolResult(
                 ok=False,
                 output="source must be all, chat, docs, or mail.",
             )
+        kind = _normalize_kind(kwargs.get("kind"))
+        if kind and kind not in _KIND_SUFFIXES:
+            return ToolResult(
+                ok=False,
+                output="kind must be pdf, docx, or md.",
+            )
         limit = _clamp_limit(kwargs.get("limit"), _DEFAULT_LIMIT)
         offset = _resolve_offset(kwargs, limit=limit)
-        fetch_limit = min(_MAX_LIMIT, limit + offset)
+        # Kind filters after fetch; pull the full window so a .pdf is not
+        # crowded out by earlier .md hits that then get dropped.
+        fetch_limit = _MAX_LIMIT if kind else min(_MAX_LIMIT, limit + offset)
 
         fts_hits: list[SearchHit] = []
         if source in {"all", "chat"}:
@@ -211,6 +251,10 @@ class RecallTool:
                 except Exception as exc:
                     note = f" Semantic search failed ({exc}); using keywords only."
 
+        if kind:
+            fts_hits = [hit for hit in fts_hits if _hit_matches_kind(hit, kind)]
+            vector_hits = [hit for hit in vector_hits if _hit_matches_kind(hit, kind)]
+
         ranked = merge_ranked_hits(fts_hits, vector_hits, limit=fetch_limit)
         hits = ranked[offset : offset + limit]
         where = {
@@ -219,6 +263,8 @@ class RecallTool:
             "docs": "indexed files",
             "mail": "indexed mail",
         }[source]
+        if kind:
+            where = f"indexed {kind} files"
         if not hits:
             return ToolResult(
                 ok=True,
@@ -233,6 +279,7 @@ class RecallTool:
                     "fts": self.store.fts_available,
                     "mode": mode,
                     "source": source,
+                    "kind": kind,
                     "limit": limit,
                     "offset": offset,
                 },
@@ -243,7 +290,8 @@ class RecallTool:
             "semantic": "semantic",
             "keyword": "full-text" if self.store.fts_available else "substring",
         }[mode]
-        lines = [f"Found {len(hits)} match(es) for {query!r} in {source} ({label}):"]
+        scope = f"{source}/{kind}" if kind else source
+        lines = [f"Found {len(hits)} match(es) for {query!r} in {scope} ({label}):"]
         if note:
             lines[0] = lines[0] + note
         payload: list[dict[str, Any]] = []
@@ -274,6 +322,7 @@ class RecallTool:
                 "mode": mode,
                 "fts": self.store.fts_available,
                 "source": source,
+                "kind": kind,
                 "limit": limit,
                 "offset": offset,
             },
@@ -450,6 +499,26 @@ async def _call_index(
     if isinstance(out, tuple) and len(out) >= 2:
         return int(out[0]), int(out[1])
     return int(out), None
+
+
+def _normalize_kind(value: Any) -> str:
+    raw = str(value or "").strip().lower().lstrip(".")
+    if not raw:
+        return ""
+    return _KIND_ALIASES.get(raw, raw)
+
+
+def _hit_matches_kind(hit: SearchHit, kind: str) -> bool:
+    suffixes = _KIND_SUFFIXES.get(kind)
+    if not suffixes:
+        return False
+    return _path_has_suffix(hit.path, suffixes) or _path_has_suffix(hit.title, suffixes)
+
+
+def _path_has_suffix(path: str, suffixes: tuple[str, ...]) -> bool:
+    name = path.replace("\\", "/").rsplit("/", 1)[-1]
+    name = name.rsplit(":", 1)[-1].lower()
+    return any(name.endswith(suffix) for suffix in suffixes)
 
 
 def _clamp_limit(value: Any, default: int) -> int:

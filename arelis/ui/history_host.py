@@ -82,6 +82,7 @@ def enter_room_from_menu(window, room_id: str) -> None:
 def refresh_history(window) -> None:
     if window.store is None:
         return
+    window.history.set_store(window.store)
     current = str(window.store.session_id or "")
     sessions = [
         {

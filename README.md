@@ -246,7 +246,8 @@ Details in [voice-wake.md](docs/voice-wake.md).
 
 **Jobs.** Found under the calendar tile (Ctrl+7). Set a prompt and a
 time, and she'll email you the answer. Requires mail to be set up —
-see [jobs.md](docs/jobs.md).
+see [jobs.md](docs/jobs.md). "Remind me in 20 minutes" is a timer, not
+a job.
 
 **Memory.** Managed under Settings → Memory. Dated backups are kept in
 `data\backups\` for two weeks.
@@ -258,13 +259,17 @@ real pages. Drive her own browser. Track facts, goals, and tasks. Read
 text out of images (OCR), look at pictures, and edit images on disk
 (resize, rotate, overlay, restyle). Generate or restyle images if
 you've got ComfyUI set up (it doesn't start automatically). Listen
-and speak. Run scheduled jobs that email you a digest. Handle
-closed-form math, unit conversions, short Python snippets, charts,
-and documents.
+and speak. Run scheduled jobs that email you a digest, or an
+in-process reminder that toasts when it is due. Handle closed-form
+math, unit conversions, short Python snippets, charts, and documents.
+Search indexed PDFs, transcribe a local audio file, query a CSV or
+`memory.db` with SQL, apply a unified diff, and merge or split PDFs.
+Type `/tools` for the full list.
 
 Mail, calendar, and texting through your Android phone all work once
 you've connected them. She can also produce a PDF, Word document,
-spreadsheet, or markdown note for you.
+spreadsheet, or markdown note for you. Export a conversation from the
+last reply. History search hits message bodies, not just titles.
 
 If you're running from a source checkout, you additionally get the 3D
 solar system and Earth view inside Reality

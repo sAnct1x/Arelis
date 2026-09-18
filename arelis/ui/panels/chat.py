@@ -67,6 +67,9 @@ def _acts_html() -> str:
         f'<span style="color:{dim};"> · </span>'
         f'<a href="arelis-act://again" style="color:{dim};text-decoration:none;">'
         f"again</a>"
+        f'<span style="color:{dim};"> · </span>'
+        f'<a href="arelis-act://export" style="color:{dim};text-decoration:none;">'
+        f"export conversation</a>"
         f"</div>"
     )
 
@@ -114,6 +117,7 @@ class ChatPanel(QWidget):
     # The thinking line above the composer: open Thinking, or pulse it.
     progress_clicked = Signal()
     again_requested = Signal()
+    export_requested = Signal()
     desk_requested = Signal(str)
 
     def __init__(self, parent=None, *, embedded: bool = False) -> None:
@@ -420,6 +424,8 @@ class ChatPanel(QWidget):
                 self._copy_last()
             elif host == "again":
                 self.again_requested.emit()
+            elif host == "export":
+                self.export_requested.emit()
             return
         if scheme != "arelis-file":
             return

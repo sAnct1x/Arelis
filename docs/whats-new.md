@@ -13,6 +13,21 @@ Notes for the tree you have now. The 0.2.7 installer is this tree
 without the 3D plate. Reality's room still ships. Earth and the
 true-scale globe stay on a source checkout.
 
+**Daily driver (unreleased).** `/tools` lists every tool by name and one
+line — same list from the idle TOOLS chip. `remind me in 20 minutes` is
+an in-process timer (tray + notify), not a Windows scheduled job.
+`notes` lists and searches the same pages `keep this:` already writes.
+`recall action=docs` is "search my PDFs". `transcribe` points the warm
+voice engine at a file and will not load Whisper mid-turn. `workspace
+patch` applies a unified diff. `sql` is read-only SELECT on memory.db
+or a CSV. `agenda free` answers when Thursday is open. `pdf` merges,
+splits, and rotates. A turn that hangs unlocks after 90s with a
+countdown on the shimmer. Export conversation sits next to copy ·
+again. History search hits message bodies. Workspace Ctrl+Z reaches
+the editor. Voice Listen/Speak asks you to restart instead of a
+footer nobody sees. Failures land in chat, not only in a closed
+Thinking dock. Type `/tools` if you forget any of that.
+
 **Allow.** Named local work is the grant — pictures, files, seeing, her
 window. Mail, texts, deletes, Pay, and programs still show the card.
 Settings splits that mode from the class boxes: uncheck a class to never

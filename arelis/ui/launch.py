@@ -381,6 +381,10 @@ def run_ui(config: dict[str, Any] | None = None) -> int:
     tools = seat.tools
     orchestrator = seat.orchestrator
     voice = VoiceService(bus, config)
+    transcribe = tools.get("transcribe")
+    if transcribe is not None:
+        transcribe._stt = voice.stt
+    config["_stt"] = voice.stt
     embed_model = str(
         (config.get("memory") or {}).get("embed_model") or DEFAULT_EMBED_MODEL
     )

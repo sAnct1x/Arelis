@@ -324,11 +324,15 @@ def dispatch_event(window: Any, event: Event) -> None:
             window.chat.show_progress(str(msg))
             return
         window.thinking.append(msg, kind="status")
-        # Inbound listen/token belongs in thinking, not chat. A system
-        # line here used to mark the thread as started and hide the orbit
-        # on a cold launch the operator never typed into.
-        if str(msg).startswith(("Inbound notify", "Phone notifications")):
-            window._inbound_banner = str(msg)
+        # Listen URL stays in thinking — a system line on cold launch hid the
+        # orbit. Bind / token / companion-port failures belong on the glass.
+        text = str(msg)
+        if text.startswith(("Inbound notify", "Phone notifications")):
+            window._inbound_banner = text
+            if not text.startswith("Phone notifications: http"):
+                window.chat.add_system(text)
+        elif "update the phone companion" in text:
+            window.chat.add_system(text)
         if msg.startswith("Active project set to"):
             window.workspace.set_active_project(window.workspace_roots.active)
         # /role ack: keep the composer pill in sync with the default role.

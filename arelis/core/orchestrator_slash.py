@@ -7,6 +7,7 @@ import re
 import shlex
 from typing import Any
 
+from arelis.core.compact_prompt import TOOLS_SLASH, format_tool_catalog
 from arelis.core.events import Event, EventType
 from arelis.core.memory import tool_trace_entry, tool_trace_note
 from arelis.tools.safety import redact_secrets
@@ -65,11 +66,11 @@ def _strip_quotes(value: str) -> str:
 
 class OrchestratorSlash:
     async def _emit_help(self) -> None:
-        tools = ", ".join(t["name"] for t in self.tools.list()) or "(none)"
         msg = (
             "Just talk. Arelis can use tools from natural language "
             "(reads and web run on their own; writes and images ask first).\n\n"
             "Power-user slash commands:\n"
+            f"  {TOOLS_SLASH}                      what she can do (name + one line)\n"
             "  /role fast|research\n"
             "  /project [name]\n"
             "  /rooms                       list rooms\n"
@@ -87,8 +88,14 @@ class OrchestratorSlash:
             "  /image prompt=...\n"
             "Slash commands run the tool directly and skip the confirm card.\n"
             "With multiple projects, paths may be `name:relative/path`.\n"
-            f"Tools: {tools}"
+            f"Type {TOOLS_SLASH} for the capability list."
         )
+        await self.bus.publish(Event(EventType.ASSISTANT_DONE, {"text": msg}))
+
+    async def _emit_tools(self) -> None:
+        """Browsable name + one line. Same text the idle chip opens."""
+        listed = self.tools.list() if self.tools is not None else []
+        msg = format_tool_catalog(listed or None)
         await self.bus.publish(Event(EventType.ASSISTANT_DONE, {"text": msg}))
 
     async def _run_tool_command(self, tool: str, args: str) -> None:

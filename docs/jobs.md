@@ -5,6 +5,10 @@ answer. Windows Task Scheduler is what actually fires it. You can
 manage jobs from the calendar tile's **jobs** tab (Ctrl+7), or just
 ask her to set one up for you.
 
+"Remind me in 20 minutes" is not a job. That is the `remind` tool —
+in-process, a tray toast when it is due, no email, no Task Scheduler.
+Jobs are for later today / every Tuesday / a digest in your inbox.
+
 Mail has to be connected first (`data/secrets.yaml`) — the scheduling
 tool isn't even offered until it is. A job that has no way to send
 mail simply won't run.

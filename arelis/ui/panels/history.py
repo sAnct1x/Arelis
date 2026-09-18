@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from datetime import datetime
+from functools import partial
+from typing import Any
 
 from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtGui import QAction
@@ -21,6 +24,53 @@ from PySide6.QtWidgets import (
 
 from arelis.attachments import display_session_title as _display_session_title
 from arelis.ui.dialog import confirm
+
+# MemoryStore.search default is 20 message hits — too tight when one
+# thread ate the quota and another body match sits further down.
+_BODY_SEARCH_LIMIT = 200
+
+
+def filter_history_sessions(
+    sessions: Sequence[Mapping[str, Any]],
+    query: str,
+    *,
+    store: Any | None = None,
+    search: Callable[[str], Iterable[Any]] | None = None,
+) -> list[Mapping[str, Any]]:
+    """Keep sessions whose title/date or archived body matches ``query``.
+
+    ``store.search`` is the FTS/LIKE path (do not invent a second index).
+    ``search`` is a compatible override for tests. Empty query = current list.
+    """
+    needle = query.strip()
+    if not needle:
+        return list(sessions)
+    finder = search
+    if finder is None and store is not None:
+        finder = partial(store.search, limit=_BODY_SEARCH_LIMIT)
+    body_ids = _session_ids_from_hits(finder(needle) if finder is not None else ())
+    lowered = needle.lower()
+    rows: list[Mapping[str, Any]] = []
+    for session in sessions:
+        title = _display_session_title(str(session.get("title") or ""))
+        started = _format_when(str(session.get("started_at") or ""))
+        hay = f"{title} {started}".lower()
+        sid = str(session.get("id") or "")
+        if lowered in hay or sid in body_ids:
+            rows.append(session)
+    return rows
+
+
+def _session_ids_from_hits(hits: Iterable[Any]) -> set[str]:
+    ids: set[str] = set()
+    for hit in hits:
+        sid = getattr(hit, "session_id", None)
+        if sid is None and isinstance(hit, Mapping):
+            sid = hit.get("session_id")
+        text = str(sid or "").strip()
+        if text:
+            ids.add(text)
+    return ids
 
 
 class HistoryPanel(QWidget):
@@ -42,6 +92,7 @@ class HistoryPanel(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.setAutoFillBackground(False)
         self._sessions: list[dict[str, str]] = []
+        self._store: Any | None = None
         self._active_id = ""
         self._list_fp: tuple[tuple[str, str, str], ...] | None = None
 
@@ -140,6 +191,11 @@ class HistoryPanel(QWidget):
         # Empty queue stays collapsed so History is session-first (Pass A).
         self._set_pending_visible(False)
 
+    def set_store(self, store: Any | None) -> None:
+        """MemoryStore whose ``search`` backs body matches in the box."""
+        self._store = store
+        self._apply_filter(self.search.text())
+
     def set_sessions(self, sessions: list[dict[str, str]]) -> None:
         self._sessions = list(sessions)
         self._apply_filter(self.search.text())
@@ -216,14 +272,14 @@ class HistoryPanel(QWidget):
         label.setText(title if count == 0 else f"{title} ({count})")
 
     def _apply_filter(self, text: str) -> None:
-        needle = text.strip().lower()
+        needle = text.strip()
+        filtered = filter_history_sessions(
+            self._sessions, text, store=self._store
+        )
         rows: list[tuple[str, str, str]] = []
-        for session in self._sessions:
+        for session in filtered:
             title = _display_session_title(str(session.get("title") or ""))
             started = _format_when(str(session.get("started_at") or ""))
-            hay = f"{title} {started}".lower()
-            if needle and needle not in hay:
-                continue
             rows.append((str(session.get("id") or ""), title, started))
         fingerprint = tuple(rows)
         empty = not rows

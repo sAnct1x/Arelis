@@ -9,15 +9,24 @@ from uuid import uuid4
 
 ChannelMode = Literal["off", "visual", "voice"]
 
-CHANNELS: tuple[str, ...] = ("sms", "calendar", "email", "job", "task", "allow")
+CHANNELS: tuple[str, ...] = (
+    "sms",
+    "calendar",
+    "email",
+    "job",
+    "task",
+    "remind",
+    "allow",
+)
 
 _KIND_RANK = {
     "allow": 0,
     "sms": 1,
-    "calendar": 2,
-    "email": 3,
-    "job": 4,
-    "task": 5,
+    "remind": 2,
+    "calendar": 3,
+    "email": 4,
+    "job": 5,
+    "task": 6,
 }
 
 _DEFAULT_CHANNELS: dict[str, ChannelMode] = {
@@ -26,6 +35,7 @@ _DEFAULT_CHANNELS: dict[str, ChannelMode] = {
     "email": "visual",
     "job": "visual",
     "task": "visual",
+    "remind": "visual",
     "allow": "visual",
 }
 

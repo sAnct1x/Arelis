@@ -15,6 +15,7 @@ from arelis.attachments import (
 )
 from arelis.browser.hold import set_paused
 from arelis.core.agent_loop import AgentLoop
+from arelis.core.compact_prompt import TOOLS_SLASH
 from arelis.core.events import Event, EventType
 from arelis.core.failure_copy import turn_failed_notice
 from arelis.core.orchestrator_shared import (
@@ -232,6 +233,10 @@ class OrchestratorTurns:
 
             if text in {"/help", "help"}:
                 await self._emit_help()
+                return
+
+            if text.lower() in {TOOLS_SLASH, "/tool"}:
+                await self._emit_tools()
                 return
 
             # Spoken navigation, after the slash commands so a typed command

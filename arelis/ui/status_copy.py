@@ -84,6 +84,11 @@ _ERRANDS: dict[str, str] = {
     "rooms": "looking at rooms",
     "tile": "opening a panel",
     "units": "converting units",
+    "notes": "looking at your notes",
+    "pdf": "building the PDF",
+    "remind": "setting a reminder",
+    "sql": "querying local data",
+    "transcribe": "transcribing the audio",
 }
 
 # A few tools do more than one thing, and the difference is worth a word. Keyed by
@@ -95,6 +100,25 @@ _BY_ACTION: dict[str, dict[str, str]] = {
         "keep": "keeping that note",
         "list": "looking through the folder",
         "search": "searching your files",
+        "patch": "applying the patch",
+        "apply": "applying the patch",
+    },
+    "notes": {
+        "add": "keeping that note",
+        "list": "looking at your notes",
+        "search": "searching your notes",
+        "read": "reading the note",
+    },
+    "remind": {
+        "in": "setting a reminder",
+        "at": "setting a reminder",
+        "list": "checking your reminders",
+        "cancel": "cancelling that reminder",
+    },
+    "pdf": {
+        "merge": "merging the PDFs",
+        "split": "splitting the PDF",
+        "rotate": "rotating the PDF",
     },
     "memory": {
         "add": "remembering that",

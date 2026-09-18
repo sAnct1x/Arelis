@@ -26,11 +26,11 @@ from __future__ import annotations
 from scripts.measure_tool_schema import authored_parameter_docs, measure, tool_specs
 
 # Measured 2026-09-18 under conftest's isolated data root.
-# Raise the floors, never lower them. The ceiling moved when 4.10–4.13
-# added real properties (priority/recurrence/parent, index, target);
-# re-measured, not guessed.
-EXPECTED_TOOLS = 38
-MAX_SCHEMA_TOKENS = 5_100
+# Raise the floors, never lower them. The ceiling moved when Phase 5
+# registered notes/remind/transcribe/sql/pdf (38 → 43). Re-measured,
+# not guessed: skinny ollama_tools() ≈ 5724 tokens.
+EXPECTED_TOOLS = 43
+MAX_SCHEMA_TOKENS = 5_800
 MIN_DESCRIPTION_CHARS = 12
 MIN_MEDIAN_DESCRIPTION = 41
 

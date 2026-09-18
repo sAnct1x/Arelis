@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QSize, Qt, Signal
-from PySide6.QtGui import QIcon, QKeyEvent, QPixmap
+from PySide6.QtCore import QEvent, QSize, Qt, Signal
+from PySide6.QtGui import QIcon, QKeyEvent, QKeySequence, QPixmap
 from PySide6.QtWidgets import (
     QComboBox,
     QFileDialog,
@@ -538,6 +538,7 @@ class WorkspacePanel(QWidget):
         self.open_btn.clicked.connect(self._on_open)
         self.save_btn.clicked.connect(self._on_save)
         self.editor.textChanged.connect(self._sync_dirty)
+        self.editor.installEventFilter(self)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.show_desk()
         self._sync_chrome()
@@ -911,7 +912,20 @@ class WorkspacePanel(QWidget):
             self.image_label.setText("")
             self.image_label.setPixmap(pix)
 
+    def event(self, event) -> bool:  # type: ignore[override]
+        if isinstance(event, QKeyEvent) and self._route_editor_undo(event):
+            return True
+        return super().event(event)
+
+    def eventFilter(self, obj, event) -> bool:  # type: ignore[override]
+        if obj is self.editor and isinstance(event, QKeyEvent):
+            if self._route_editor_undo(event):
+                return True
+        return super().eventFilter(obj, event)
+
     def keyPressEvent(self, event: QKeyEvent) -> None:
+        if self._route_editor_undo(event):
+            return
         if self._image_mode and event.key() in (
             Qt.Key.Key_Left,
             Qt.Key.Key_Right,
@@ -921,6 +935,40 @@ class WorkspacePanel(QWidget):
                 event.accept()
                 return
         super().keyPressEvent(event)
+
+    def _editor_is_active(self) -> bool:
+        if self._image_mode:
+            return False
+        if self.editor_stack.currentWidget() is not self.editor:
+            return False
+        return bool(self.editor.isEnabled() and not self.editor.isReadOnly())
+
+    def _route_editor_undo(self, event: QKeyEvent) -> bool:
+        """Ctrl+Z / redo belong to the editor when it is the face.
+
+        QPlainTextEdit already has a stack. The hole is delivery: this
+        panel takes StrongFocus (image left/right), and a chord that
+        lands here — or a ShortcutOverride the window sees first —
+        used to vanish. Claim the shortcut, then undo/redo. An empty
+        stack is a no-op, so Ctrl+Z cannot wipe a freshly loaded file.
+        """
+        if not self._editor_is_active():
+            return False
+        undo = event.matches(QKeySequence.StandardKey.Undo)
+        redo = event.matches(QKeySequence.StandardKey.Redo)
+        if not (undo or redo):
+            return False
+        if event.type() == QEvent.Type.ShortcutOverride:
+            event.accept()
+            return True
+        if event.type() != QEvent.Type.KeyPress:
+            return False
+        if undo:
+            self.editor.undo()
+        else:
+            self.editor.redo()
+        event.accept()
+        return True
 
     def _step_image(self, delta: int) -> bool:
         if not self._image_paths:

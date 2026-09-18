@@ -30,7 +30,9 @@ _MAX_LOG_N = 50
 _DEFAULT_LOG_N = 10
 _GIT_TIMEOUT_S = 15
 
-_READ_ACTIONS = frozenset({"status", "diff", "log"})
+_READ_ACTIONS = frozenset({"status", "diff", "log", "branch", "stash", "blame", "show"})
+# Stash mutations stay off the allow-list; list-only is the whole verb.
+_STASH_WRITE_ACTIONS = frozenset({"stash_apply", "stash_pop", "stash_drop", "stash_push"})
 # Additive and recoverable. Everything else about a repo is not, so the
 # allow-list stays exactly this long.
 _WRITE_ACTIONS = frozenset({"stage", "commit"})
@@ -43,10 +45,12 @@ class GitInfoTool:
     name = "git_info"
     description = (
         "Git for the active project (or a path under workspace). "
-        "Actions: status, diff, log, stage, commit. Use instead of inventing "
-        "branch or dirty state. commit needs message and only commits what is "
-        "staged; stage takes an optional path. Never pushes, resets, cleans, "
-        "checks out, or rewrites history — say so rather than claiming you did."
+        "Actions: status, diff, log, branch, stash (list only), blame, show, "
+        "stage, commit. Use instead of inventing branch or dirty state. "
+        "commit needs message and only commits what is staged; stage takes an "
+        "optional path; blame needs path; show takes optional rev (default HEAD). "
+        "Never pushes, resets, cleans, checks out, rewrites history, or mutates "
+        "stash — say so rather than claiming you did."
     )
     risk = "read"
     parameters_schema: dict[str, Any] = {
@@ -54,10 +58,21 @@ class GitInfoTool:
         "properties": {
             "action": {
                 "type": "string",
-                "enum": ["status", "diff", "log", "stage", "commit"],
+                "enum": [
+                    "status",
+                    "diff",
+                    "log",
+                    "branch",
+                    "stash",
+                    "blame",
+                    "show",
+                    "stage",
+                    "commit",
+                ],
                 "description": (
-                    "status, diff, log (default status), stage, or commit. "
-                    "push/reset/clean/checkout are not available"
+                    "status, diff, log, branch, stash (list only), blame, show, "
+                    "stage, or commit (default status). "
+                    "push/reset/clean/checkout/stash apply|pop|drop are not available"
                 ),
             },
             "message": {
@@ -80,6 +95,10 @@ class GitInfoTool:
                 "type": "integer",
                 "description": f"Output truncation limit (default {_MAX_OUTPUT_CHARS})",
             },
+            "rev": {
+                "type": "string",
+                "description": "Revision for action=show (default HEAD).",
+            },
         },
         "required": [],
     }
@@ -93,16 +112,33 @@ class GitInfoTool:
 
     async def run(self, **kwargs: Any) -> ToolResult:
         action = str(kwargs.get("action") or "status").strip().lower()
+        if action in _STASH_WRITE_ACTIONS:
+            return ToolResult(
+                ok=False,
+                output=(
+                    f"Unknown or forbidden action: {action}. "
+                    "stash is list-only (git stash list). "
+                    "apply, pop, drop and push are deliberately unavailable — "
+                    "tell the user to run it themselves rather than claiming "
+                    "you did."
+                ),
+            )
         if action not in _ALLOWED_ACTIONS:
             return ToolResult(
                 ok=False,
                 output=(
                     f"Unknown or forbidden action: {action}. "
-                    "Allowed: status, diff, log, stage, commit. "
+                    "Allowed: status, diff, log, branch, stash, blame, show, "
+                    "stage, commit. "
                     "Pushing, resetting, cleaning, checking out and rewriting "
                     "history are deliberately unavailable — tell the user to "
                     "run it themselves rather than claiming you did."
                 ),
+            )
+        if action == "blame" and not str(kwargs.get("path") or "").strip():
+            return ToolResult(
+                ok=False,
+                output="blame needs path — the file to annotate.",
             )
         message = str(kwargs.get("message") or "").strip()
         if action == "commit" and not message:
@@ -126,6 +162,7 @@ class GitInfoTool:
         except (TypeError, ValueError):
             n = _DEFAULT_LOG_N
         n = max(1, min(n, _MAX_LOG_N))
+        rev = str(kwargs.get("rev") or "HEAD").strip() or "HEAD"
 
         return await asyncio.to_thread(
             self._run_sync,
@@ -134,6 +171,7 @@ class GitInfoTool:
             n,
             max_chars,
             message,
+            rev,
         )
 
     def _run_sync(
@@ -143,6 +181,7 @@ class GitInfoTool:
         n: int,
         max_chars: int,
         message: str = "",
+        rev: str = "HEAD",
     ) -> ToolResult:
         if shutil.which("git") is None:
             return ToolResult(ok=False, output="git is not installed or not on PATH.")
@@ -174,7 +213,15 @@ class GitInfoTool:
             return self._stage(cwd, toplevel, path_str, max_chars)
         if action == "commit":
             return self._commit(cwd, toplevel, message, max_chars)
-        return self._log(cwd, toplevel, n, max_chars)
+        if action == "log":
+            return self._log(cwd, toplevel, n, max_chars)
+        if action == "branch":
+            return self._branch(cwd, toplevel, max_chars)
+        if action == "stash":
+            return self._stash(cwd, toplevel, max_chars)
+        if action == "blame":
+            return self._blame(cwd, toplevel, path_str, max_chars)
+        return self._show(cwd, toplevel, rev, max_chars)
 
     def _stage(
         self, cwd: Path, toplevel: Path, path_str: str | None, max_chars: int
@@ -284,6 +331,59 @@ class GitInfoTool:
         if not body.strip():
             body = "(no diff vs HEAD)"
         return self._ok(body, action="diff", cwd=cwd, toplevel=toplevel, max_chars=max_chars)
+
+    def _branch(self, cwd: Path, toplevel: Path, max_chars: int) -> ToolResult:
+        completed = self._git(cwd, "branch", "--no-color")
+        if completed.returncode != 0:
+            return self._git_fail(completed, "branch")
+        body = (completed.stdout or "").rstrip() or "(no branches)"
+        return self._ok(
+            body, action="branch", cwd=cwd, toplevel=toplevel, max_chars=max_chars
+        )
+
+    def _stash(self, cwd: Path, toplevel: Path, max_chars: int) -> ToolResult:
+        completed = self._git(cwd, "stash", "list")
+        if completed.returncode != 0:
+            return self._git_fail(completed, "stash list")
+        body = (completed.stdout or "").rstrip() or "(no stashes)"
+        return self._ok(
+            body, action="stash", cwd=cwd, toplevel=toplevel, max_chars=max_chars
+        )
+
+    def _blame(
+        self, cwd: Path, toplevel: Path, path_str: str | None, max_chars: int
+    ) -> ToolResult:
+        assert path_str and str(path_str).strip()
+        try:
+            resolved = self.workspace.resolve(str(path_str).strip())
+        except Exception as exc:
+            return ToolResult(ok=False, output=f"git_info path error: {exc}")
+        target = resolved.path
+        if not target.is_file():
+            return ToolResult(
+                ok=False,
+                output=f"blame needs a file path; not found: {path_str}",
+            )
+        if not self._within_workspace(target):
+            return ToolResult(ok=False, output="Path escapes workspace roots.")
+        completed = self._git(cwd, "blame", "--", str(target.resolve()))
+        if completed.returncode != 0:
+            return self._git_fail(completed, "blame")
+        body = (completed.stdout or "").rstrip() or "(empty blame)"
+        return self._ok(
+            body, action="blame", cwd=cwd, toplevel=toplevel, max_chars=max_chars
+        )
+
+    def _show(
+        self, cwd: Path, toplevel: Path, rev: str, max_chars: int
+    ) -> ToolResult:
+        completed = self._git(cwd, "show", "--no-color", rev)
+        if completed.returncode != 0:
+            return self._git_fail(completed, "show")
+        body = (completed.stdout or "").rstrip() or "(empty show)"
+        return self._ok(
+            body, action="show", cwd=cwd, toplevel=toplevel, max_chars=max_chars
+        )
 
     def _log(
         self, cwd: Path, toplevel: Path, n: int, max_chars: int

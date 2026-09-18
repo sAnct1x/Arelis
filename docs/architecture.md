@@ -89,7 +89,9 @@ your approval regardless of which path she took to get there.
 
 The confirmation card itself is written in plain human language —
 "text wife," "write note.txt" — nothing cryptic. **Deny** only
-blocks that one step. **Stop** ends the whole turn. Conversation
+blocks that one step. **Stop** ends the whole turn. A turn that hangs
+in a tool unlocks itself after `ui.hung_turn_s` (90s) with a countdown
+on the shimmer — same cancel path as Stop, worded as a hang. Conversation
 mode (and anything still listening after a wake word) can hear
 "allow," "deny," "stop," or a spoken edit to a draft without needing
 to start a whole new turn. After a stop, the next thing you say is
@@ -196,7 +198,7 @@ docks.
 | Readiness | Ollama status and a house indicator. Mail / SMS / calendar only show up here once connected |
 | Chat stage | Empty-session view, the streaming answer, Sources, allow / deny cards. The last finished answer gets a **copy · again** option |
 | Drive strip | Stop / Pause / your-turn controls while her browser or the desk is actively driving |
-| Thinking dock | The actual thinking paragraph. A tool errand shows as one line in that stream. Housekeeping info (model loaded, speech status) sits in a footer, not mixed into the reasoning |
+| Thinking dock | The actual thinking paragraph. A tool errand shows as one line in that stream. Housekeeping info (model loaded, speech status) sits in a footer, not mixed into the reasoning. Failures also go to the conversation line so a closed Thinking dock is not a dead drop |
 | Workspace dock | The desk: notes you kept and files she wrote, pinned first. Folders is the old tree. Markdown reads as a page. `keep this:` writes a note |
 | Camera dock | Webcam still image. View → Camera / Ctrl+5. Inside Reality: Track / Record |
 | History dock | Past sessions (shown as **new chat** if untitled), grouped today / yesterday, plus pending facts to approve or reject |
@@ -242,24 +244,29 @@ connected. Until then, if you ask, she'll just tell you she can't.
 | `research_report` | Multi-source write-up, saved under `outputs/research/` | No* |
 | `browser` | Drive her Chrome | Only when she offers it — a drive you asked for counts as the grant |
 | `desktop` | Drive your Windows session (open apps, type, click) | Only when she offers it — a desk ask you named is the grant. Deletes / Pay / UAC still pause |
-| `workspace` | Files in allowed roots | Writes: yes |
-| `analyze` / `doc_extract` / `git_info` | Tables, PDFs, git | No |
+| `workspace` | Files in allowed roots. `edit` is old→new; `patch` applies a unified diff | Writes: yes |
+| `analyze` / `doc_extract` / `git_info` | Tables, PDFs, git (status/diff/log/branch/blame/show; stash list; stage/commit) | Writes on git: yes |
+| `notes` | Desk notes — same `notes/` folder as `keep this:` / `/keep`. list / search / read | `add`: yes |
+| `remind` | In-process timer. Toast + notify pill. Max 7 days. Not Task Scheduler | `in` / `at` / `cancel`: yes |
+| `sql` | Read-only SELECT on `memory.db` or a workspace CSV | No |
+| `transcribe` | Local audio via the already-loaded voice engine. Will not load Whisper mid-turn | No |
+| `pdf` | Merge / split / rotate. Always a new file. No form fill | Yes |
 | `calculator` | Arithmetic | No |
 | `python` | Short numerics cell (math / sympy / numpy). No file or shell access | No |
 | `run_script` | A project `.py` under a workspace root. Not a shell. Not her own tests | Yes (card / spoken on filament) |
 | `cas` / `units` | Closed forms, conversions, constants | No |
 | `diagnostics` | Her own pytest suite. Source checkout with `tests/` needed | No |
 | `tile` | Open or close a View-menu panel (thinking, calendar, world, …) | No |
-| `plot` | Produces a PNG. Room → `plots/` inside the project; outside a room → `outputs/plots/` | Yes |
+| `plot` | PNG: line / scatter / residuals / histogram / bar / subplots, or `expr=` for a formula | Yes |
 | `document` | PDF, Word, Excel, CSV, markdown. Room → `documents/` inside the project; outside a room → `outputs/documents/` | Yes |
 | `catalog` | arXiv, Horizons; APOD / ADS once you add a free key | No |
 | `solar` | Reality's N-body sim (Horizons VECTORS + REBOUND IAS15). Source checkout only. Approach and orbit views, inspect-only fly camera, IAU spheres. No landing | Yes |
 | `earth` | The Earth view inside Reality. Inventory lives in `feeds.py` (109 shipped / 25 keyed / 3 coming later / 4 left out). Source checkout only — see [earth.md](earth.md) | No |
 | `clipboard` / `ocr` / `vision` / `camera` | Paste, read screen text, look at an image, use the webcam | Yes (the still capture itself is free; actually looking at it pauses) |
-| `memory` / `recall` / `tasks` / `goals` | Remembering things, chores, "what needs my attention" | Mutates: yes |
+| `memory` / `recall` / `tasks` / `goals` | Remembering things, chores, "what needs my attention". `recall action=docs` searches indexed files / PDFs | Mutates: yes |
 | `inbox` / `send_email` / `schedule` | Mail and timed jobs | Sending: yes. Creating a job: yes. Listing the inbox is free; trash / archive / move / flag actions: yes |
 | `send_sms` / `inbound_sms` | Texting out / listing what's come in | Sending: yes |
-| `agenda` | Calendar | Writes: yes |
+| `agenda` | Calendar. `free` / `busy` answer "when am I free Thursday" | Writes: yes |
 | `weather` / `user_location` | Forecast / where she thinks you are | No |
 | `image` | New picture or img2img restyle, via a local ComfyUI instance | Yes |
 | `image_edit` | Resize, rotate, recolor, overlay an existing file (Pillow) | Yes |
@@ -313,8 +320,8 @@ view and C920 hand tracking actually run. See [rooms.md](rooms.md).
 - The History dock shows past sessions plus any pending facts
   waiting for approval or rejection.
 - Active facts live in `memory.db`, managed under **Settings →
-  Memory**. A page you want to reopen is a desk note (`keep this:`),
-  not a fact.
+  Memory**. A page you want to reopen is a desk note (`keep this:` or
+  the `notes` tool), not a fact.
 - Workspace roots are only the folders you've explicitly configured
   — writes always wait for approval. A path you named in chat can
   get a read-only session grant (Allow). Granting a folder includes
@@ -332,6 +339,8 @@ view and C920 hand tracking actually run. See [rooms.md](rooms.md).
 - There's a loop cap on reasoning rounds (`agent.max_rounds` — 8
   normally, 32 in research mode, 16 when she is reading her own
   source / assessing the solar-system sim). Weather and SMS stay at 8.
+  A hung tool is a separate ceiling (`ui.hung_turn_s`, 90s) so the
+  shimmer cannot sit forever.
   "Deeply research" is research mode even on the default fast chip.
   Empty chat after a long scrape asks her to write; it does not
   paste the page. `research_report` Findings are page excerpts with

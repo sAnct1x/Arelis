@@ -4,7 +4,9 @@ import asyncio
 import fnmatch
 import os
 import re
+import tempfile
 from collections.abc import Iterator
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -89,16 +91,243 @@ def _walk_files(root: Path, *, glob: str = "") -> Iterator[Path]:
             yield here / name
 
 
+# Unified diffs are how a model actually hands over a change. difflib can
+# *make* one; it cannot apply one. There is no patch library in the
+# environment, and shelling out to `patch` / `git apply` is the hole this
+# tool exists to close. Strict: exact context, no fuzz, workspace only.
+_HUNK_HEADER = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
+_GIT_META_PREFIXES = (
+    "diff --git ",
+    "index ",
+    "new file mode ",
+    "deleted file mode ",
+    "old mode ",
+    "new mode ",
+    "old file mode ",
+    "similarity index ",
+    "dissimilarity index ",
+    "rename from ",
+    "rename to ",
+    "copy from ",
+    "copy to ",
+)
+_DEV_NULL = frozenset({"/dev/null", "nul", "NUL"})
+
+
+class _PatchError(ValueError):
+    """The diff is malformed, or it does not apply as written."""
+
+
+@dataclass
+class _Hunk:
+    old_start: int
+    old_count: int
+    new_start: int
+    new_count: int
+    body: list[str] = field(default_factory=list)
+
+
+@dataclass
+class _FileDiff:
+    old_path: str | None
+    new_path: str | None
+    hunks: list[_Hunk] = field(default_factory=list)
+
+
+def _is_binary_diff(text: str) -> bool:
+    if "\x00" in text:
+        return True
+    if "GIT binary patch" in text:
+        return True
+    for line in text.splitlines():
+        if line.startswith("Binary files ") or line.startswith("GIT binary patch"):
+            return True
+        if line.startswith("literal "):
+            rest = line[8:].strip()
+            if rest.isdigit():
+                return True
+    return False
+
+
+def _diff_header_path(line: str) -> str | None:
+    """Path from a `---` / `+++` line. `/dev/null` is None (add or delete)."""
+    payload = line[4:]
+    payload = payload.split("\t", 1)[0].strip()
+    if len(payload) >= 2 and payload[0] == payload[-1] == '"':
+        payload = payload[1:-1]
+    if payload in _DEV_NULL:
+        return None
+    if payload.startswith(("a/", "b/")):
+        payload = payload[2:]
+    elif payload.startswith(("a\\", "b\\")):
+        payload = payload[2:]
+    payload = payload.replace("\\", "/")
+    while payload.startswith("./"):
+        payload = payload[2:]
+    if not payload or payload == ".":
+        raise _PatchError("diff path is empty")
+    return payload
+
+
+def _parse_unified_diff(text: str) -> list[_FileDiff]:
+    lines = text.splitlines()
+    files: list[_FileDiff] = []
+    i = 0
+    n = len(lines)
+    while i < n:
+        line = lines[i]
+        if line.startswith("Binary files ") or line.startswith("GIT binary patch"):
+            raise _PatchError("Refusing binary diff")
+        if not line.startswith("--- "):
+            i += 1
+            continue
+        old_path = _diff_header_path(line)
+        i += 1
+        while i < n and lines[i].startswith(_GIT_META_PREFIXES):
+            i += 1
+        if i >= n or not lines[i].startswith("+++ "):
+            raise _PatchError("unified diff --- line must be followed by +++")
+        new_path = _diff_header_path(lines[i])
+        i += 1
+        hunks: list[_Hunk] = []
+        while i < n:
+            here = lines[i]
+            if here.startswith("--- ") or here.startswith("diff --git"):
+                break
+            if here.startswith("Binary files ") or here.startswith("GIT binary patch"):
+                raise _PatchError("Refusing binary diff")
+            if here.startswith(_GIT_META_PREFIXES) or here.strip() == "":
+                i += 1
+                continue
+            if here.startswith("@@"):
+                hunk, i = _read_hunk(lines, i)
+                hunks.append(hunk)
+                continue
+            break
+        if old_path is None and new_path is None:
+            raise _PatchError("diff names no file")
+        files.append(_FileDiff(old_path=old_path, new_path=new_path, hunks=hunks))
+    return files
+
+
+def _read_hunk(lines: list[str], i: int) -> tuple[_Hunk, int]:
+    match = _HUNK_HEADER.match(lines[i])
+    if not match:
+        raise _PatchError(f"malformed hunk header: {lines[i]}")
+    old_start = int(match.group(1))
+    old_count = int(match.group(2)) if match.group(2) is not None else 1
+    new_start = int(match.group(3))
+    new_count = int(match.group(4)) if match.group(4) is not None else 1
+    i += 1
+    body: list[str] = []
+    old_seen = 0
+    new_seen = 0
+    while i < len(lines):
+        raw = lines[i]
+        if raw.startswith("\\"):
+            body.append(raw)
+            i += 1
+            continue
+        if raw == "":
+            if old_seen >= old_count and new_seen >= new_count:
+                break
+            raw = " "
+        tag = raw[0]
+        if tag not in {" ", "+", "-"}:
+            break
+        body.append(raw)
+        if tag in {" ", "-"}:
+            old_seen += 1
+        if tag in {" ", "+"}:
+            new_seen += 1
+        i += 1
+        if old_seen >= old_count and new_seen >= new_count:
+            if i < len(lines) and lines[i].startswith("\\"):
+                continue
+            break
+    if old_seen != old_count or new_seen != new_count:
+        raise _PatchError("hunk line count does not match header")
+    return (
+        _Hunk(
+            old_start=old_start,
+            old_count=old_count,
+            new_start=new_start,
+            new_count=new_count,
+            body=body,
+        ),
+        i,
+    )
+
+
+def _apply_hunks(original: str, hunks: list[_Hunk], *, label: str) -> str:
+    newline = "\r\n" if "\r\n" in original else "\n"
+    lines = original.splitlines()
+    out: list[str] = []
+    cursor = 0
+    result_no_nl = original != "" and not original.endswith(("\n", "\r\n"))
+    for hunk in hunks:
+        src_idx = 0 if hunk.old_start == 0 else hunk.old_start - 1
+        if src_idx < cursor:
+            raise _PatchError(f"overlapping hunk in {label}")
+        if src_idx > len(lines):
+            raise _PatchError(f"hunk past end of {label}")
+        out.extend(lines[cursor:src_idx])
+        old_lines: list[str] = []
+        new_lines: list[str] = []
+        last_tag = ""
+        marked_no_nl = False
+        for raw in hunk.body:
+            if raw.startswith("\\"):
+                marked_no_nl = True
+                continue
+            marked_no_nl = False
+            tag = raw[0]
+            last_tag = tag
+            body = raw[1:]
+            if tag == " ":
+                old_lines.append(body)
+                new_lines.append(body)
+            elif tag == "-":
+                old_lines.append(body)
+            elif tag == "+":
+                new_lines.append(body)
+            else:
+                raise _PatchError(f"malformed hunk in {label}")
+        expected = lines[src_idx : src_idx + len(old_lines)]
+        if expected != old_lines:
+            raise _PatchError(f"context does not match in {label}")
+        out.extend(new_lines)
+        cursor = src_idx + len(old_lines)
+        if cursor >= len(lines):
+            if marked_no_nl and last_tag in {"+", " "}:
+                result_no_nl = True
+            elif new_lines or old_lines:
+                result_no_nl = False
+    out.extend(lines[cursor:])
+    if cursor < len(lines):
+        result_no_nl = original != "" and not original.endswith(("\n", "\r\n"))
+    if not out:
+        return ""
+    text = newline.join(out)
+    if not result_no_nl:
+        text += newline
+    return text
+
+
 class CodeWorkspaceTool:
     name = "workspace"
     description = (
         "Sandboxed file ops under allowed roots. "
-        "Actions: list, read, grep, find, write, edit, delete, move, rename, "
-        "copy, keep. Use list/read/grep/find freely; write/edit change files. "
+        "Actions: list, read, grep, find, write, edit, patch, delete, move, "
+        "rename, copy, keep. Use list/read/grep/find freely; write/edit/patch "
+        "change files. "
         "To locate something you do not have the path for, use grep with "
         "query= (searches file contents, returns path:line) or find with "
         "query= (searches file names) — do not walk the tree with repeated "
         "list calls. "
+        "Use patch (or apply) with a unified diff in diff=/patch=/content= "
+        "when the change arrived as ---/+++ hunks — do not flatten it into "
+        "edit old/new. "
         "Use delete to remove a file they asked you to remove, and "
         "move/rename/copy with to= for the new path — do not read a file and "
         "write it back under another name. "
@@ -107,8 +336,8 @@ class CodeWorkspaceTool:
         "active project. Do not use memory remember for a page they want "
         "to reopen. With multiple projects, qualify paths as name:relative/path."
     )
-    # Registered as read because list/read dominate. write/edit are gated by
-    # ToolRegistry.needs_confirm inspecting the action argument.
+    # Registered as read because list/read dominate. write/edit/patch are
+    # gated by ToolRegistry.needs_confirm inspecting the action argument.
     risk = "read"
     parameters_schema: dict[str, Any] = {
         "type": "object",
@@ -122,6 +351,8 @@ class CodeWorkspaceTool:
                     "find",
                     "write",
                     "edit",
+                    "patch",
+                    "apply",
                     "delete",
                     "move",
                     "rename",
@@ -153,7 +384,18 @@ class CodeWorkspaceTool:
                 "type": "string",
                 "description": "Optional short title for action=keep",
             },
-            "content": {"type": "string", "description": "Full file content for write"},
+            "content": {
+                "type": "string",
+                "description": "Full file content for write, or a unified diff for patch",
+            },
+            "diff": {
+                "type": "string",
+                "description": "Unified diff for action=patch (or use patch/content)",
+            },
+            "patch": {
+                "type": "string",
+                "description": "Unified diff for action=patch (alias of diff)",
+            },
             "old": {"type": "string", "description": "Exact text to replace for edit"},
             "new": {"type": "string", "description": "Replacement text for edit"},
             "max_chars": {"type": "integer", "description": "Read truncation limit"},
@@ -238,6 +480,19 @@ class CodeWorkspaceTool:
                 body = str(kwargs.get("text") or kwargs.get("content") or kwargs.get("fact") or "")
                 title = str(kwargs.get("title") or "")
                 return await asyncio.to_thread(self._keep, body, title)
+
+            if action in {"patch", "apply"}:
+                blob = kwargs.get("diff")
+                if blob is None:
+                    blob = kwargs.get("patch")
+                if blob is None:
+                    blob = kwargs.get("content")
+                if blob is None:
+                    return ToolResult(
+                        ok=False,
+                        output="patch requires a unified diff (diff, patch, or content)",
+                    )
+                return await asyncio.to_thread(self._patch, str(blob))
 
             if not path_str:
                 return ToolResult(ok=False, output="Missing path")
@@ -532,6 +787,117 @@ class CodeWorkspaceTool:
             output=f"Edited {resolved.qualified(multi=len(self.workspace) > 1)}",
             data=self._path_data(resolved),
         )
+
+    def _patch(self, diff_text: str) -> ToolResult:
+        """Apply a unified diff under the sandbox. All files or none.
+
+        Paths come from the +++ / --- headers, not from the caller — a
+        multi-file diff would otherwise need a dummy path just to get past
+        the action dispatcher. for_create is only used for a /dev/null add;
+        everything else is for_write, so an external read grant cannot
+        become a write, and a missing file is not silently created.
+        """
+        if not (diff_text or "").strip():
+            return ToolResult(
+                ok=True,
+                output="Nothing to apply",
+                data={"action": "patch", "files": 0},
+            )
+        if _is_binary_diff(diff_text):
+            return ToolResult(ok=False, output="Refusing binary diff")
+        try:
+            specs = _parse_unified_diff(diff_text)
+        except _PatchError as exc:
+            return ToolResult(ok=False, output=str(exc))
+        if not specs:
+            return ToolResult(
+                ok=True,
+                output="Nothing to apply",
+                data={"action": "patch", "files": 0},
+            )
+
+        planned: list[tuple[Any, str | None]] = []
+        labels: list[str] = []
+        multi = len(self.workspace) > 1
+        try:
+            for spec in specs:
+                creating = spec.old_path is None
+                deleting = spec.new_path is None
+                target = spec.new_path if spec.new_path is not None else spec.old_path
+                if target is None:
+                    raise _PatchError("diff names no file")
+                if creating:
+                    resolved = self.workspace.resolve(target, for_create=True)
+                else:
+                    resolved = self.workspace.resolve(target, for_write=True)
+                path = resolved.path
+                if creating:
+                    if path.exists():
+                        raise _PatchError(f"{target} already exists")
+                    original = ""
+                elif not path.is_file():
+                    raise _PatchError(
+                        f"Not a file: {target}. A missing path is only "
+                        "created when the diff is a /dev/null add."
+                    )
+                elif _is_probably_binary(path):
+                    raise _PatchError(f"Refusing to patch binary file {target}")
+                else:
+                    original = path.read_text(encoding="utf-8")
+                if deleting:
+                    if spec.hunks:
+                        _apply_hunks(original, spec.hunks, label=target)
+                    planned.append((resolved, None))
+                else:
+                    planned.append(
+                        (resolved, _apply_hunks(original, spec.hunks, label=target))
+                    )
+                labels.append(resolved.qualified(multi=multi))
+        except _PatchError as exc:
+            return ToolResult(ok=False, output=str(exc))
+
+        self._commit_patch_plan(planned)
+        return ToolResult(
+            ok=True,
+            output="Patched " + ", ".join(labels),
+            data={"action": "patch", "files": len(planned), "paths": labels},
+        )
+
+    def _commit_patch_plan(self, planned: list[tuple[Any, str | None]]) -> None:
+        """Write every file to a sibling temp, then replace. Failure before
+        the first replace leaves the tree untouched — that is the half-apply
+        mutant. Deletes wait until every replace has landed.
+        """
+        staged: list[tuple[Path, Path]] = []
+        try:
+            for resolved, content in planned:
+                if content is None:
+                    continue
+                dest = resolved.path
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                fd, tmp_name = tempfile.mkstemp(
+                    prefix=".arelis-patch-", suffix=".tmp", dir=str(dest.parent)
+                )
+                os.close(fd)
+                tmp = Path(tmp_name)
+                try:
+                    tmp.write_text(content, encoding="utf-8")
+                except OSError:
+                    tmp.unlink(missing_ok=True)
+                    raise
+                staged.append((tmp, dest))
+            for tmp, dest in staged:
+                os.replace(tmp, dest)
+            staged.clear()
+            for resolved, content in planned:
+                if content is None:
+                    resolved.path.unlink()
+        finally:
+            for tmp, _dest in staged:
+                try:
+                    tmp.unlink(missing_ok=True)
+                except OSError:
+                    pass
 
     def _delete(self, path_str: str) -> ToolResult:
         """Remove one file, or one already-empty directory.

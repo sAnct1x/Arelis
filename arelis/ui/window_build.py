@@ -540,6 +540,7 @@ class WindowBuild:
         apply_chat_font_scale(self, self._chat_font_scale, persist=False)
         self.conversation.submitted.connect(self._on_submit)
         self.chat.again_requested.connect(self._on_again)
+        self.chat.export_requested.connect(self._on_export_conversation)
         self.conversation.attach_errors.connect(self._on_attach_errors)
         self.conversation.stop_requested.connect(self._on_stop)
         self.conversation.stop_declined.connect(self._on_stop_declined)

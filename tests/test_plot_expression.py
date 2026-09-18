@@ -151,3 +151,4 @@ def test_the_schema_advertises_the_new_shape() -> None:
     assert "expr" in PlotTool.description
     # The old warning must not survive next to a field that takes an expression.
     assert "do not pass code" in PlotTool.description
+    assert "histogram" in props["action"]["enum"]

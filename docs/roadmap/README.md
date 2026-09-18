@@ -1183,11 +1183,11 @@ every part before anything is written so an oversized file cannot leave half a
 download behind.
 
 `git_info` is deliberately **stage + commit and nothing further** — that is
-the finished scope, not a first increment. Those two are additive and
+the finished write scope, not a first increment. Those two are additive and
 recoverable; push, reset, clean, checkout, rebase and history rewrite cannot
-be walked back from inside a chat turn. 4.3's "branch, stash, blame, show"
-are still open, but the *write* half of it is closed as narrowly as it will
-get.
+be walked back from inside a chat turn. 4.3's reads (`branch`, stash list,
+`blame`, `show`) landed 2026-09-18. `_WRITE_ACTIONS` is still exactly
+`{stage, commit}`.
 
 Each new verb also joined the tool-choice corpus, so the path is measured
 rather than assumed.
@@ -1239,12 +1239,11 @@ rather than assumed.
   lands next to the real answer). Follow-on now unlocked:
   `inspect_read_path` falls back to `docs/architecture.md` for an unmapped
   source ask, and could grep instead.
-- [~] **4.3** `git_info` is read-only (`status`/`diff`/`log`). No commit,
+- [x] **4.3** `git_info` is read-only (`status`/`diff`/`log`). No commit,
   branch, stash, blame, or show. Add writes behind the confirm card.
   **Writes done `4043bcf`: `stage` + `commit`, and that is the final
-  scope.** `branch` / `stash` / `blame` / `show` are still open, and are
-  reads — take them when something needs them. Do not widen
-  `_WRITE_ACTIONS`; a test fails on purpose if you do.
+  scope.** **Reads done 2026-09-18:** `branch`, `stash` (list only),
+  `blame`, `show`. `_WRITE_ACTIONS` still exactly `{stage, commit}`.
 - [x] **4.4** `clipboard` was **read-only** while `compact_prompt.py:21`
   told the model it could "read / write" — a routing bug by construction.
   **Done `e866aff`, by implementing the write rather than retracting the
@@ -1267,15 +1266,14 @@ rather than assumed.
   so the gap was that `5 miles in km` said "invalid syntax" instead of
   naming it. What the line missed is that the tool was **wrong about
   arithmetic**, which is the one thing it exists for. See the section below.
-- [~] **4.6** `plot` does line, scatter, residuals only. Add histogram,
+- [x] **4.6** `plot` does line, scatter, residuals only. Add histogram,
   bar, and subplots — the three a homework or data question actually asks
   for. **A worse gap was found first and closed in `7a9ac10`:** there was
   no way to plot a *formula* at all, only a table or numbers the model
   typed out by hand, so `sin(x)` was unreachable. `expr` + `xmin` / `xmax`
   now covers it, reusing `cas.parse_cas_expr` for the parse — see the
   ForceGate sweep section for why bare `sympify` would have been RCE.
-  Histogram / bar / subplots are still open. Note when taking them that
-  `7a9ac10` added the **first** test that runs `plot.run` at all.
+  **Histogram / bar / subplots done 2026-09-18.**
 - [x] **4.7** `web_fetch` is GET-only with no headers, no POST, no auth
   (`tools/web.py:28-32`). Any real API integration is impossible.
   **Done `5244834`.** `method`, `headers` and `body`, with the gate wired
@@ -1495,8 +1493,10 @@ code — none fixable from Python, all needing a device or a gradle wrapper:
   `./gradlew :app:testDebugUnitTest`. No CI for the JVM tests, and no test
   at all for `RadioServer` or the notification listener — the two pieces
   that carry every message.
-- [ ] `format_held_inbound_flush` has no call sites; `events.py` describes a
+- [x] `format_held_inbound_flush` has no call sites; `events.py` describes a
   batched chat note that nothing produces. Either wire it or delete it.
+  **Wired 2026-09-18.** Hold buffer already existed; flush only spoke.
+  `sms_host.flush_held_inbound` now also paints one `chat.add_system` line.
 
 #### What generalises
 
@@ -1520,26 +1520,40 @@ code — none fixable from Python, all needing a device or a gradle wrapper:
 
 Gaps, in the order that a local-first assistant actually feels them.
 
-- [ ] **5.1** **Timers and reminders.** "Remind me in 20 minutes" has no
+- [x] **5.1** **Timers and reminders.** "Remind me in 20 minutes" has no
   home. `schedule` is Windows Task Scheduler plus email — far too heavy.
   Needs an in-process timer with an OS notification.
-- [ ] **5.2** **Notes / journal.** `keep this:` writes a desk note with no
+  **Done 2026-09-18.** `remind` + `ReminderStore` (`data/reminders.json`).
+  Notify poller fires tray + `kind=remind`. Max 7 days. No Task Scheduler.
+- [x] **5.2** **Notes / journal.** `keep this:` writes a desk note with no
   tool behind it and no UI button. Make it a real tool with list and
   search.
-- [ ] **5.3** **Local document search.** The embedding index exists
+  **Done 2026-09-18.** `notes` wraps `desk.write_note`. list/search/read
+  stay inside workspace `notes/` folders.
+- [x] **5.3** **Local document search.** The embedding index exists
   (`memory/indexer.py`), `recall` queries it, but there is no way to say
   "search my PDFs" as a first-class act.
-- [ ] **5.4** **Audio/video transcription.** Sherpa and Whisper are
+  **Done 2026-09-18.** `recall(action=docs)` + optional `kind=pdf|docx|md`.
+- [x] **5.4** **Audio/video transcription.** Sherpa and Whisper are
   already installed for voice. Pointing them at a file is a thin wrapper
   and an obvious daily-driver win.
-- [ ] **5.5** **Patch / diff apply.** `workspace edit` does old→new string
+  **Done 2026-09-18.** `transcribe` reuses the warm ear; refuses to load
+  Whisper mid-turn. Audio only (no ffmpeg in this checkout).
+- [x] **5.5** **Patch / diff apply.** `workspace edit` does old→new string
   replacement. A unified diff is how code changes actually arrive.
-- [ ] **5.6** **SQL over local data.** `memory.db` and workspace CSVs are
+  **Done 2026-09-18.** `workspace action=patch` (alias `apply`). Strict
+  in-process unified diff, all-or-nothing, no shell.
+- [x] **5.6** **SQL over local data.** `memory.db` and workspace CSVs are
   both queryable; nothing exposes that.
-- [ ] **5.7** **Calendar find-time.** `agenda` reads and writes events but
+  **Done 2026-09-18.** `sql` is SELECT/WITH/EXPLAIN only; sqlite authorizer
+  + `mode=ro` on allowlisted memory tables.
+- [x] **5.7** **Calendar find-time.** `agenda` reads and writes events but
   cannot answer "when am I free Thursday."
-- [ ] **5.8** **PDF assembly** — merge, split, rotate, fill forms. The
+  **Done 2026-09-18.** `agenda(action=free|busy)` on one local day.
+- [x] **5.8** **PDF assembly** — merge, split, rotate, fill forms. The
   pdfium stack lands in Phase 1; this is the payoff.
+  **Done 2026-09-18.** `pdf` merge/split/rotate. Form fill skipped — pypdf
+  appearances are not a one-liner and a blank-looking fill is worse.
 - [ ] **5.9** **Shell.** Deliberately absent today
   (`tools/run_script.py:35`, `tools/desktop_tool.py:48`) and that is a
   defensible position. Revisit only with a hard allowlist, and only if you
@@ -1551,28 +1565,41 @@ Gaps, in the order that a local-first assistant actually feels them.
 
 Pain #3. Ordered by how fast a user hits it.
 
-- [ ] **6.1** **No hung-turn timeout.** The 8s busy watchdog only arms
+- [x] **6.1** **No hung-turn timeout.** The 8s busy watchdog only arms
   after you press Stop (`ui/window_turn.py:207-208, 242-248`). A turn that
   hangs in a tool shows a shimmer forever. Add a ceiling with a visible
   countdown and an automatic unlock.
-- [ ] **6.2** **Errors route to a closed dock.** Workspace open/save
+  **Done 2026-09-18.** 90s ceiling (`ui.hung_turn_s`) arms on turn start.
+  Countdown on the existing shimmer. Expiry reuses Stop with `reason=hung`.
+- [x] **6.2** **Errors route to a closed dock.** Workspace open/save
   failures (`ui/workspace_host.py:178-188`) and the phone notify status go
   to the Thinking dock footer, which is closed by default. Failures belong
   where the user is looking.
-- [ ] **6.3** **Tool discoverability.** 41 tools and no way to learn they
+  **Done 2026-09-18.** Conversation system line gets the failure; thinking
+  footer still copies when that dock is open.
+- [x] **6.3** **Tool discoverability.** 41 tools and no way to learn they
   exist except reading `docs/` or watching one fire. The orbit idle screen
   has three suggestion chips. Add a browsable capability list — this
   directly serves pain #1 too, because a user who knows `cas` exists will
   ask for it by name.
-- [ ] **6.4** **Voice settings need a restart** and the notice is easy to
+  **Done 2026-09-18.** `/tools` plus an idle TOOLS chip. Name + one line
+  from `_SHORT_DESC`.
+- [x] **6.4** **Voice settings need a restart** and the notice is easy to
   miss (`ui/voice_host.py:27-55`). Either apply live or block the toggle
   with an explicit restart prompt.
-- [ ] **6.5** **No conversation export.** Per-reply copy exists; whole
-  transcript does not.
-- [ ] **6.6** **History search is title-only** (`ui/panels/history.py:54-58`).
+  **Done 2026-09-18.** Block path: glass confirm before the toggle writes.
+  Live rebuild is unsafe (bus + device lock). The quiet Thinking footer is gone.
+- [x] **6.5** **No conversation export.** Per-reply copy exists; whole
+  transcript does not. Export sits next to copy · again; helper is
+  `export_transcript` in `arelis/core/transcript.py`.
+- [x] **6.6** **History search is title-only** (`ui/panels/history.py:54-58`).
   Message bodies are already in FTS5 — wire the existing index to the
   existing search box.
-- [ ] **6.7** **No undo** in the workspace editor.
+  **Done 2026-09-18.** Same box; `MemoryStore.search` adds body hits.
+  Empty query is unchanged.
+- [x] **6.7** **No undo** in the workspace editor.
+  **Done 2026-09-18.** Qt stack was already there; Ctrl+Z never reached it
+  because the panel swallowed the chord. Routes undo/redo to the editor.
 - [ ] **6.8** **No in-app model picker** after the setup wizard.
 - [ ] **6.9** **Accessibility**: no screen-reader labels, no high-contrast
   mode, no light theme, frameless chrome throughout. Scope this honestly
@@ -1714,8 +1741,8 @@ Small, and they belong wherever they get done fastest:
   `risk="read"` and no Allow card (`tools/research_report.py:102`).
   `docs/architecture.md:278` admits this.
 - [ ] **6.11** `camera` capture has `confirm_toggle: none`
-  (`tools/policy.py:287-288`) while `vision` on the same still is gated.
-  The webcam is the ungated half.
+  (`tools/policy.py` `if tool == "camera"`) while `vision` on the same
+  still is gated. The webcam is the ungated half.
 - [ ] **6.12** `external_read` appears in confirm copy and policy
   (`tools/policy.py:518-525`) but is not a registered tool, so docs and
   model prompt can drift from it freely.

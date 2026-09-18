@@ -1,9 +1,9 @@
 """Named charts — a PNG on disk, not Python the model recites.
 
-A 9B cannot be given matplotlib as a programming language. This tool has three
-actions (line, scatter, residuals), reads a table the same way analyze does,
-and writes a new file. It never evals user code. Allow stays: risk=write.
-Unattended jobs do not get this tool.
+A 9B cannot be given matplotlib as a programming language. This tool draws
+named chart kinds (line, scatter, residuals, histogram, bar, subplots), reads
+a table the same way analyze does, and writes a new file. It never evals user
+code. Allow stays: risk=write. Unattended jobs do not get this tool.
 
 Orbit (no room, or a room with no folder) lands under outputs/plots/.
 A room with a real project folder lands under that project's plots/.
@@ -26,7 +26,9 @@ if TYPE_CHECKING:
     import numpy as np
     import pandas as pd
 
-_ACTIONS = frozenset({"line", "scatter", "residuals"})
+_ACTIONS = frozenset({"line", "scatter", "residuals", "histogram", "bar", "subplots"})
+_SUBPLOT_KINDS = frozenset({"line", "scatter", "histogram", "bar"})
+_MAX_SUBPLOTS = 4
 _MAX_ROWS = 20_000
 _MAX_INLINE = 2_000
 _TABLE_SUFFIXES = {".csv", ".tsv", ".tab", ".json", ".xlsx", ".xls"}
@@ -212,16 +214,21 @@ class PlotTool:
         "Draw a chart from a local table or a short list of numbers and write "
         "a PNG. In a room with a folder, the file lands in that project's "
         "plots/ directory. Otherwise it lands under outputs/plots/. Actions: "
-        "line, scatter, residuals. For a CSV/TSV/Excel file pass path plus x "
-        "and y column names. For a tiny series pass xs and ys as "
-        "comma-separated numbers and out='name.png' for the file. To draw a "
+        "line, scatter, residuals, histogram, bar, subplots. For a "
+        "CSV/TSV/Excel file pass path plus column names: x and y for line or "
+        "scatter; y alone for histogram; x (categories) and y (values) for bar. "
+        "For a tiny series pass xs and ys as comma-separated numbers, or ys "
+        "alone for histogram, or categories and values for bar. To draw a "
         "formula (sin(x), x^2) pass expr with xmin and xmax — never type the "
-        "numbers out yourself. path= is "
-        "the table, never the PNG — that name is out=. residuals fits a "
-        "straight line (least squares) and plots data+fit plus residuals — "
-        "do not invent a trend or draw an ASCII chart. This is not Python: "
-        "do not pass code or matplotlib. Allow is required. Do not use "
-        "image (Comfy) for data."
+        "numbers out yourself. path= is the table, never the PNG — that name "
+        "is out=. histogram takes one numeric series (y or ys) with optional "
+        "bins. bar draws categories against values, not a line chart. "
+        "subplots combines two or more panels in one figure — pass panels as "
+        "comma-separated kinds (e.g. line,histogram) with the same data. "
+        "residuals fits a straight line (least squares) and plots data+fit "
+        "plus residuals — do not invent a trend or draw an ASCII chart. This "
+        "is not Python: do not pass code or matplotlib. Allow is required. Do "
+        "not use image (Comfy) for data."
     )
     risk = "write"
     parameters_schema: dict[str, Any] = {
@@ -229,7 +236,14 @@ class PlotTool:
         "properties": {
             "action": {
                 "type": "string",
-                "enum": ["line", "scatter", "residuals"],
+                "enum": [
+                    "line",
+                    "scatter",
+                    "residuals",
+                    "histogram",
+                    "bar",
+                    "subplots",
+                ],
                 "description": "Chart kind (default line)",
             },
             "path": {
@@ -245,7 +259,33 @@ class PlotTool:
             },
             "y": {
                 "type": "string",
-                "description": "Column name for the vertical axis",
+                "description": (
+                    "Column name for the vertical axis, or the only column "
+                    "for histogram"
+                ),
+            },
+            "categories": {
+                "type": "string",
+                "description": (
+                    "Comma-separated category labels for bar when there is no file"
+                ),
+            },
+            "values": {
+                "type": "string",
+                "description": (
+                    "Comma-separated numbers for bar when there is no file"
+                ),
+            },
+            "bins": {
+                "type": "integer",
+                "description": "Bin count for histogram (optional)",
+            },
+            "panels": {
+                "type": "string",
+                "description": (
+                    "For subplots: comma-separated panel kinds, e.g. "
+                    "line,histogram or scatter,bar"
+                ),
             },
             "expr": {
                 "type": "string",
@@ -349,24 +389,88 @@ class PlotTool:
         if action not in _ACTIONS:
             return ToolResult(
                 ok=False,
-                output="Unknown action. Use line, scatter, or residuals.",
+                output=(
+                    "Unknown action. Use line, scatter, residuals, histogram, "
+                    "bar, or subplots."
+                ),
                 data={"fail_class": "fail:action"},
             )
+        title = str(kwargs.get("title") or "").strip()
         try:
-            x, y, xlabel, ylabel, source = self._series(kwargs)
+            if action == "histogram":
+                values, ylabel, source = self._histogram_series(kwargs)
+                xlabel = str(kwargs.get("xlabel") or "").strip() or "bin"
+                ylabel = str(kwargs.get("ylabel") or ylabel).strip() or ylabel
+                n = len(values)
+
+                def _draw() -> tuple:
+                    return self._draw_histogram(
+                        values,
+                        title=title,
+                        xlabel=xlabel,
+                        ylabel=ylabel,
+                        kwargs=kwargs,
+                    )
+
+            elif action == "bar":
+                cats, values, xlabel, ylabel, source = self._bar_series(kwargs)
+                xlabel = str(kwargs.get("xlabel") or xlabel).strip() or xlabel
+                ylabel = str(kwargs.get("ylabel") or ylabel).strip() or ylabel
+                n = len(values)
+
+                def _draw() -> tuple:
+                    return self._draw_bar(
+                        cats,
+                        values,
+                        title=title,
+                        xlabel=xlabel,
+                        ylabel=ylabel,
+                        kwargs=kwargs,
+                    )
+
+            elif action == "subplots":
+                panels = _parse_panels(kwargs.get("panels"))
+                x, y, cats, xlabel, ylabel, source = self._subplot_series(kwargs, panels)
+                xlabel = str(kwargs.get("xlabel") or xlabel).strip() or xlabel
+                ylabel = str(kwargs.get("ylabel") or ylabel).strip() or ylabel
+                n = len(y)
+
+                def _draw() -> tuple:
+                    return self._draw_subplots(
+                        panels,
+                        x,
+                        y,
+                        cats,
+                        title=title,
+                        xlabel=xlabel,
+                        ylabel=ylabel,
+                        kwargs=kwargs,
+                    )
+
+            else:
+                x, y, xlabel, ylabel, source = self._series(kwargs)
+                xlabel = str(kwargs.get("xlabel") or xlabel).strip() or xlabel
+                ylabel = str(kwargs.get("ylabel") or ylabel).strip() or ylabel
+                n = len(x)
+
+                def _draw() -> tuple:
+                    return self._draw(
+                        action,
+                        x,
+                        y,
+                        title=title,
+                        xlabel=xlabel,
+                        ylabel=ylabel,
+                        kwargs=kwargs,
+                    )
         except (ValueError, PermissionError, OSError) as exc:
             return ToolResult(
                 ok=False,
                 output=str(exc),
                 data={"fail_class": "fail:args"},
             )
-        title = str(kwargs.get("title") or "").strip()
-        xlabel = str(kwargs.get("xlabel") or xlabel).strip() or xlabel
-        ylabel = str(kwargs.get("ylabel") or ylabel).strip() or ylabel
         try:
-            dest, extra = self._draw(
-                action, x, y, title=title, xlabel=xlabel, ylabel=ylabel, kwargs=kwargs
-            )
+            dest, extra = _draw()
         except ValueError as exc:
             return ToolResult(
                 ok=False,
@@ -381,7 +485,7 @@ class PlotTool:
             )
         shown = display_path(dest)
         _folder, where = self.out_dir()
-        bits = [f"Wrote {shown} ({action}, {len(x)} points) in {where}."]
+        bits = [f"Wrote {shown} ({action}, {n} points) in {where}."]
         if extra:
             bits.append(extra)
         bits.append("Open that file — that chart is from this turn, not a picture I imagined.")
@@ -392,7 +496,7 @@ class PlotTool:
                 "action": action,
                 "path": shown,
                 "abs_path": str(dest.resolve()),
-                "n": len(x),
+                "n": n,
                 "source": source,
                 "where": where,
             },
@@ -464,6 +568,221 @@ class PlotTool:
             raise ValueError("Need at least two points.")
         return x, y, "x", "y", "inline"
 
+    def _histogram_series(
+        self, kwargs: dict[str, Any]
+    ) -> tuple[np.ndarray, str, str]:
+        path_str = str(kwargs.get("path") or "").strip()
+        png_as_path = bool(path_str and _looks_like_chart_out(path_str))
+        if png_as_path:
+            if not str(kwargs.get("out") or "").strip():
+                kwargs["out"] = Path(path_str.replace("\\", "/")).name
+            path_str = ""
+        if path_str:
+            resolved = self.workspace.resolve_read(path_str)
+            path = resolved.path
+            if not path.is_file():
+                raise ValueError(f"Not a file: {path_str}")
+            suffix = path.suffix.lower()
+            if suffix not in _TABLE_SUFFIXES:
+                raise ValueError(
+                    "plot reads CSV, TSV, JSON or Excel. "
+                    "For a picture use vision; for text use workspace."
+                )
+            frame = _load_table(path)
+            y_name = str(kwargs.get("y") or "").strip()
+            if not y_name:
+                cols = ", ".join(str(c) for c in frame.columns[:12])
+                raise ValueError(f"histogram needs a y column name. Columns: {cols}.")
+            values = _column(frame, y_name)
+            np = _numpy()
+            values = values[np.isfinite(values)]
+            if len(values) < 1:
+                raise ValueError("Need at least one numeric value in the y column.")
+            if len(values) > _MAX_ROWS:
+                values = values[:_MAX_ROWS]
+            display = resolved.qualified(multi=len(self.workspace) > 1)
+            return values, y_name, display
+        ys = str(kwargs.get("ys") or "").strip()
+        if not ys:
+            raise ValueError(
+                "histogram needs a table path with y= column name, or ys= as numbers."
+            )
+        values = _parse_numbers(ys, name="ys")
+        if len(values) < 1:
+            raise ValueError("Need at least one number in ys.")
+        return values, "count", "inline"
+
+    def _bar_series(
+        self, kwargs: dict[str, Any]
+    ) -> tuple[list[str], np.ndarray, str, str, str]:
+        path_str = str(kwargs.get("path") or "").strip()
+        png_as_path = bool(path_str and _looks_like_chart_out(path_str))
+        if png_as_path:
+            if not str(kwargs.get("out") or "").strip():
+                kwargs["out"] = Path(path_str.replace("\\", "/")).name
+            path_str = ""
+        if path_str:
+            resolved = self.workspace.resolve_read(path_str)
+            path = resolved.path
+            if not path.is_file():
+                raise ValueError(f"Not a file: {path_str}")
+            suffix = path.suffix.lower()
+            if suffix not in _TABLE_SUFFIXES:
+                raise ValueError(
+                    "plot reads CSV, TSV, JSON or Excel. "
+                    "For a picture use vision; for text use workspace."
+                )
+            frame = _load_table(path)
+            x_name = str(kwargs.get("x") or "").strip()
+            y_name = str(kwargs.get("y") or "").strip()
+            if not x_name or not y_name:
+                cols = ", ".join(str(c) for c in frame.columns[:12])
+                raise ValueError(f"bar needs x and y column names. Columns: {cols}.")
+            cats = _column_labels(frame, x_name)
+            values = _column(frame, y_name)
+            np = _numpy()
+            mask = np.isfinite(values)
+            cats = [cats[i] for i in range(len(cats)) if mask[i]]
+            values = values[mask]
+            if len(values) < 1:
+                raise ValueError("Need at least one category with a numeric value.")
+            if len(values) > _MAX_ROWS:
+                cats = cats[:_MAX_ROWS]
+                values = values[:_MAX_ROWS]
+            display = resolved.qualified(multi=len(self.workspace) > 1)
+            return cats, values, x_name, y_name, display
+        cats_raw = str(kwargs.get("categories") or "").strip()
+        vals_raw = str(kwargs.get("values") or "").strip()
+        if not cats_raw or not vals_raw:
+            raise ValueError(
+                "bar needs a table path with x and y columns, or categories= "
+                "and values= as comma-separated lists."
+            )
+        cats = _parse_labels(cats_raw, name="categories")
+        values = _parse_numbers(vals_raw, name="values")
+        if len(cats) != len(values):
+            raise ValueError("categories and values must be the same length.")
+        if len(cats) < 1:
+            raise ValueError("Need at least one bar.")
+        return cats, values, "category", "value", "inline"
+
+    def _subplot_series(
+        self, kwargs: dict[str, Any], panels: list[str]
+    ) -> tuple[np.ndarray, np.ndarray, list[str] | None, str, str, str]:
+        needs_xy = any(k in {"line", "scatter"} for k in panels)
+        needs_hist = "histogram" in panels
+        needs_bar = "bar" in panels
+        if needs_bar and not needs_xy:
+            cats, values, xlabel, ylabel, source = self._bar_series(kwargs)
+            x = _numpy().arange(len(values), dtype=float)
+            return x, values, cats, xlabel, ylabel, source
+        if needs_hist and not needs_xy and not needs_bar:
+            values, ylabel, source = self._histogram_series(kwargs)
+            x = _numpy().arange(len(values), dtype=float)
+            return x, values, None, "index", ylabel, source
+        x, y, xlabel, ylabel, source = self._series(kwargs)
+        cats = None
+        if needs_bar:
+            path_str = str(kwargs.get("path") or "").strip()
+            if path_str and not _looks_like_chart_out(path_str):
+                frame = _load_table(self.workspace.resolve_read(path_str).path)
+                x_name = str(kwargs.get("x") or "").strip()
+                if x_name and x_name in frame.columns:
+                    cats = _column_labels(frame, x_name)
+                    np = _numpy()
+                    mask = np.isfinite(y)
+                    cats = [cats[i] for i in range(len(cats)) if mask[i]]
+            elif str(kwargs.get("categories") or "").strip():
+                cats = _parse_labels(str(kwargs.get("categories")), name="categories")
+        return x, y, cats, xlabel, ylabel, source
+
+    def _draw_histogram(
+        self,
+        values: np.ndarray,
+        *,
+        title: str,
+        xlabel: str,
+        ylabel: str,
+        kwargs: dict[str, Any],
+    ) -> tuple[Path, str]:
+        folder, _where = self.out_dir()
+        dest = self._dest(kwargs, "histogram", folder)
+        ensure(dest.parent)
+        bins = _parse_bins(kwargs.get("bins"))
+        figure_cls, canvas_cls = _figure()
+        fig = figure_cls(figsize=(8.0, 5.0), dpi=120)
+        canvas_cls(fig)
+        ax = fig.add_subplot(111)
+        ax.hist(values, bins=bins, edgecolor="0.3", linewidth=0.6)
+        if title:
+            ax.set_title(title)
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel(ylabel or "count")
+        ax.grid(True, alpha=0.3, axis="y")
+        fig.tight_layout()
+        fig.savefig(dest)
+        return dest, ""
+
+    def _draw_bar(
+        self,
+        cats: list[str],
+        values: np.ndarray,
+        *,
+        title: str,
+        xlabel: str,
+        ylabel: str,
+        kwargs: dict[str, Any],
+    ) -> tuple[Path, str]:
+        folder, _where = self.out_dir()
+        dest = self._dest(kwargs, "bar", folder)
+        ensure(dest.parent)
+        figure_cls, canvas_cls = _figure()
+        fig = figure_cls(figsize=(8.0, 5.0), dpi=120)
+        canvas_cls(fig)
+        ax = fig.add_subplot(111)
+        positions = _numpy().arange(len(cats))
+        ax.bar(positions, values, width=0.65, edgecolor="0.3", linewidth=0.6)
+        ax.set_xticks(positions)
+        ax.set_xticklabels(cats, rotation=0 if len(cats) <= 6 else 25, ha="center")
+        if title:
+            ax.set_title(title)
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel(ylabel)
+        ax.grid(True, alpha=0.3, axis="y")
+        fig.tight_layout()
+        fig.savefig(dest)
+        return dest, ""
+
+    def _draw_subplots(
+        self,
+        panels: list[str],
+        x: np.ndarray,
+        y: np.ndarray,
+        cats: list[str] | None,
+        *,
+        title: str,
+        xlabel: str,
+        ylabel: str,
+        kwargs: dict[str, Any],
+    ) -> tuple[Path, str]:
+        folder, _where = self.out_dir()
+        dest = self._dest(kwargs, "subplots", folder)
+        ensure(dest.parent)
+        n = len(panels)
+        rows, cols = _subplot_grid(n)
+        figure_cls, canvas_cls = _figure()
+        fig = figure_cls(figsize=(4.2 * cols, 4.0 * rows), dpi=120)
+        canvas_cls(fig)
+        bins = _parse_bins(kwargs.get("bins"))
+        for idx, kind in enumerate(panels):
+            ax = fig.add_subplot(rows, cols, idx + 1)
+            _draw_panel(ax, kind, x, y, cats=cats, bins=bins, xlabel=xlabel, ylabel=ylabel)
+        if title:
+            fig.suptitle(title)
+        fig.tight_layout()
+        fig.savefig(dest)
+        return dest, f"Panels: {', '.join(panels)}."
+
     def _draw(
         self,
         action: str,
@@ -510,6 +829,102 @@ class PlotTool:
         if not _contained(dest, folder):
             dest = _unique_dest(folder, f"plot-{action}", ".png")
         return dest
+
+
+def _parse_labels(raw: str, *, name: str) -> list[str]:
+    text = (raw or "").strip()
+    if not text:
+        raise ValueError(f"Missing {name}.")
+    if "…" in text or "..." in text:
+        raise ValueError(
+            f"{name} is truncated. Pass every label, or a CSV via path=. Do not use … or ..."
+        )
+    parts = [p for p in _INLINE_SPLIT.split(text) if p]
+    if len(parts) > _MAX_INLINE:
+        raise ValueError(f"{name} is too long (max {_MAX_INLINE} labels).")
+    return parts
+
+
+def _parse_bins(raw: Any) -> int | None:
+    if raw is None or raw == "":
+        return None
+    try:
+        bins = int(raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("bins must be a positive integer.") from exc
+    if bins < 1:
+        raise ValueError("bins must be at least 1.")
+    return min(bins, 200)
+
+
+def _parse_panels(raw: Any) -> list[str]:
+    text = str(raw or "").strip().lower()
+    if not text:
+        raise ValueError(
+            "subplots needs panels= with two or more kinds, e.g. line,histogram."
+        )
+    parts = [p.strip() for p in text.split(",") if p.strip()]
+    if len(parts) < 2:
+        raise ValueError("subplots needs at least two panels, e.g. line,histogram.")
+    if len(parts) > _MAX_SUBPLOTS:
+        raise ValueError(f"At most {_MAX_SUBPLOTS} panels.")
+    bad = [p for p in parts if p not in _SUBPLOT_KINDS]
+    if bad:
+        allowed = ", ".join(sorted(_SUBPLOT_KINDS))
+        raise ValueError(f"Unknown panel kind(s): {', '.join(bad)}. Use: {allowed}.")
+    return parts
+
+
+def _subplot_grid(n: int) -> tuple[int, int]:
+    if n == 2:
+        return 1, 2
+    if n == 3:
+        return 1, 3
+    return 2, 2
+
+
+def _draw_panel(
+    ax: Any,
+    kind: str,
+    x: np.ndarray,
+    y: np.ndarray,
+    *,
+    cats: list[str] | None,
+    bins: int | None,
+    xlabel: str,
+    ylabel: str,
+) -> None:
+    if kind == "histogram":
+        ax.hist(y, bins=bins, edgecolor="0.3", linewidth=0.6)
+        ax.set_xlabel(ylabel or "value")
+        ax.set_ylabel("count")
+        ax.grid(True, alpha=0.3, axis="y")
+        return
+    if kind == "bar":
+        labels = cats if cats is not None else [str(v) for v in x]
+        np = _numpy()
+        positions = np.arange(len(y))
+        ax.bar(positions, y, width=0.65, edgecolor="0.3", linewidth=0.6)
+        ax.set_xticks(positions)
+        ax.set_xticklabels(labels[: len(y)])
+        ax.set_xlabel(xlabel or "category")
+        ax.set_ylabel(ylabel or "value")
+        ax.grid(True, alpha=0.3, axis="y")
+        return
+    if kind == "scatter":
+        ax.scatter(x, y, s=18, alpha=0.85)
+    else:
+        ax.plot(x, y, marker="o", linewidth=1.4, markersize=3.5)
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+    ax.grid(True, alpha=0.3)
+
+
+def _column_labels(frame: pd.DataFrame, name: str) -> list[str]:
+    if name not in frame.columns:
+        cols = ", ".join(str(c) for c in frame.columns[:12])
+        raise ValueError(f"No column {name!r}. Columns: {cols}.")
+    return [str(v) for v in frame[name].tolist()]
 
 
 def _load_table(path: Path) -> pd.DataFrame:

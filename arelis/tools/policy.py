@@ -43,7 +43,7 @@ CapabilityClass = Literal[
 # Actions that turn a reader into a writer. The tool is registered as "read"
 # because list/read is the common case; the gate looks at the action argument.
 WORKSPACE_WRITE_ACTIONS = frozenset(
-    {"write", "edit", "keep", "delete", "remove", "move", "rename", "copy"}
+    {"write", "edit", "keep", "delete", "remove", "move", "rename", "copy", "patch", "apply"}
 )
 CONTACTS_WRITE_ACTIONS = frozenset({"add", "update", "remove"})
 AGENDA_WRITE_ACTIONS = frozenset({"create", "update", "delete"})
@@ -77,6 +77,8 @@ SOLAR_WRITE_ACTIONS = frozenset(
 # committing are the only writes it has, and the only ones it will get: they
 # are additive and recoverable, which push/reset/clean/history-rewrite are not.
 GIT_WRITE_ACTIONS = frozenset({"stage", "commit"})
+NOTES_WRITE_ACTIONS = frozenset({"add"})
+REMIND_WRITE_ACTIONS = frozenset({"in", "at", "cancel"})
 
 # web_fetch keys on `method`, not `action`, so it is handled by name below
 # rather than through the action table. GET and HEAD read; everything else
@@ -151,6 +153,7 @@ DELETE_ACTIONS = {
     "schedule": frozenset({"delete"}),
     "inbox": frozenset({"trash", "delete"}),
     "workspace": frozenset({"delete", "remove"}),
+    "remind": frozenset({"cancel"}),
 }
 
 
@@ -280,6 +283,8 @@ def action_is_write(name: str, args: dict[str, Any] | None) -> bool:
         "solar": SOLAR_WRITE_ACTIONS,
         "inbox": INBOX_WRITE_ACTIONS,
         "git_info": GIT_WRITE_ACTIONS,
+        "notes": NOTES_WRITE_ACTIONS,
+        "remind": REMIND_WRITE_ACTIONS,
     }
     writes = table.get(tool)
     if writes is None:
@@ -337,6 +342,8 @@ def confirm_toggle(
         "solar",
         "schedule",
         "inbox",
+        "notes",
+        "remind",
     }:
         return "writes" if action_is_write(tool, args) else "none"
     if risk == "side_effect":
@@ -440,6 +447,8 @@ def evaluate_capability(name: str, args: dict[str, Any] | None = None) -> Capabi
         "rooms",
         "solar",
         "schedule",
+        "notes",
+        "remind",
     }:
         return "WRITE_LOCAL" if action_is_write(tool, args) else "READ"
     if tool == "earth":
@@ -449,6 +458,8 @@ def evaluate_capability(name: str, args: dict[str, Any] | None = None) -> Capabi
     if tool == "plot":
         return "WRITE_LOCAL"
     if tool == "document":
+        return "WRITE_LOCAL_ARTIFACT"
+    if tool == "pdf":
         return "WRITE_LOCAL_ARTIFACT"
     return "READ"
 

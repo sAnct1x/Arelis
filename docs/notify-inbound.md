@@ -133,7 +133,7 @@ on the phone and retry when the PC is back. A 429 is "slow down", not
 | Symptom | Check |
 |---------|--------|
 | No inbound texts | Arelis still running? Paired? Same Wi-Fi? |
-| STATUS missing | `tools.sms.inbound` / `ingest` enabled. Token set. Thinking dock (`Ctrl+1`), not the orbit |
+| STATUS missing | `tools.sms.inbound` / `ingest` enabled. Token set. A bind/poll failure also lands in chat now; the listen URL stays in Thinking (`Ctrl+1`) so orbit does not hide |
 | Companion 401 | Wrong or missing `sms.ingest_token`. New QR |
 | Companion timeout | Firewall / wrong IP. Wait for the phone to find the LAN beacon, or open Settings → Notify if this is a new PC |
 | Pairing 409 | QR was for a different Windows account's Arelis |

@@ -19,8 +19,14 @@ WINDOW_RADIUS = int(GLASS["radius"])
 
 # How long a turn may look busy before the UI stops believing it. Recovery for
 # a turn that died without publishing a terminal event; it is not a timeout on
-# the model.
+# the model. Armed only after Stop.
 BUSY_WATCHDOG_MS = 8000
+
+# Ceiling on a live turn, armed when busy starts. Override with ui.hung_turn_s.
+# The 8s watchdog above is post-Stop recovery; this is the "tool hung" unlock.
+HUNG_TURN_S = 90
+HUNG_TURN_TICK_MS = 1000
+HUNG_TURN_MAX_S = 3600
 
 THINK_PULSE_MS = 600
 

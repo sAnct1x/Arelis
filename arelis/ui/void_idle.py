@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from arelis.core.compact_prompt import TOOLS_SLASH
 from arelis.ui.glass import Hairline
 from arelis.ui.stage import BLOOM_X, BLOOM_Y
 from arelis.ui.theme import FILAMENT, SPACE, active_theme, color
@@ -55,6 +56,10 @@ FIRST_RUN_ASKS: tuple[str, ...] = (
     "what's on my calendar today?",
     "remember that I climb on Tuesdays",
 )
+
+# Persistent ghost: opens the capability list the same way /tools does.
+# Fills the composer — Enter still belongs to the user, same as TRY.
+TOOLS_CHIP_TITLE = "what she can do"
 
 
 def paint_orbit(
@@ -439,6 +444,7 @@ class OrbitIdle(QWidget):
                 )
                 self._ghost_layout.addWidget(row)
                 row.adjustSize()
+            self._add_tools_chip()
             self._layout_idle()
             return
         fresh = _GhostRow("new", "new chat", self._ghosts, key_text="NEW")
@@ -450,7 +456,17 @@ class OrbitIdle(QWidget):
             row.clicked.connect(lambda s=sid: self.session_clicked.emit(s))
             self._ghost_layout.addWidget(row)
             row.adjustSize()
+        self._add_tools_chip()
         self._layout_idle()
+
+    def _add_tools_chip(self) -> None:
+        """TOOLS ghost — same shape as TRY / RECENT. Fills `/tools`."""
+        row = _GhostRow(
+            TOOLS_SLASH, TOOLS_CHIP_TITLE, self._ghosts, key_text="TOOLS"
+        )
+        row.clicked.connect(lambda: self.suggestion_clicked.emit(TOOLS_SLASH))
+        self._ghost_layout.addWidget(row)
+        row.adjustSize()
 
     def set_voice_preparing(self, on: bool) -> None:
         """Hold the idle line on getting the ear until wake can actually hear."""

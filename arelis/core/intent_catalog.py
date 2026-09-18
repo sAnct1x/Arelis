@@ -329,6 +329,69 @@ _TASK_MENTION = re.compile(
     r")\b"
 )
 _DOC_MENTION = re.compile(r"(?i)\b(document extract)\b")
+_DOCS_SEARCH = re.compile(
+    r"(?i)\b("
+    r"search\s+my\s+(?:pdfs?|documents?|docs|word\s+docs?|markdown)|"
+    r"find\s+in\s+my\s+(?:pdfs?|documents?|docs)|"
+    r"search\s+(?:the\s+)?(?:local\s+)?(?:pdfs?|documents?)\s+for"
+    r")\b"
+)
+_NOTES_PRE = re.compile(
+    r"(?i)\b("
+    r"search\s+my\s+notes|"
+    r"list\s+(?:my\s+)?notes|"
+    r"(?:add|write|keep)\s+(?:a\s+)?(?:note|journal\s+entry)|"
+    r"journal\s+this"
+    r")\b"
+)
+_REMIND_PRE = re.compile(
+    r"(?i)\b("
+    r"remind\s+me\s+in|"
+    r"set\s+(?:a\s+)?timer|"
+    r"timer\s+for|"
+    r"ping\s+me\s+in|"
+    r"nudge\s+me\s+in"
+    r")\b"
+)
+_AGENDA_FREE = re.compile(
+    r"(?i)\b("
+    r"when\s+am\s+i\s+free|"
+    r"am\s+i\s+free|"
+    r"find\s+(?:me\s+)?(?:time|an?\s+hour|a\s+slot)|"
+    r"free\s+slots?|"
+    r"what(?:'s|\s+is)\s+my\s+availability|"
+    r"any\s+open\s+time|"
+    r"when\s+am\s+i\s+busy|"
+    r"what(?:'s|\s+is)\s+blocking"
+    r")\b"
+)
+_TRANSCRIBE_PRE = re.compile(
+    r"(?i)\b("
+    r"transcribe\s+(?:this|the|that|my)|"
+    r"what(?:'s|\s+is)\s+(?:said|spoken)\s+in|"
+    r"(?:audio|recording)\s+to\s+text"
+    r")\b"
+)
+_SQL_PRE = re.compile(
+    r"(?i)\b("
+    r"sql\s+query|"
+    r"select\s+.+\s+from\s+(?:memory|messages|tasks|data)|"
+    r"query\s+memory\.db"
+    r")\b"
+)
+_PDF_ASSEMBLE = re.compile(
+    r"(?i)\b("
+    r"merge\s+(?:these\s+|the\s+|my\s+)?pdfs?|"
+    r"split\s+(?:this\s+|the\s+|my\s+)?pdf|"
+    r"rotate\s+(?:this\s+|the\s+|my\s+)?pdf"
+    r")\b"
+)
+_PATCH_PRE = re.compile(
+    r"(?i)\b("
+    r"apply\s+(?:this\s+|the\s+)?(?:diff|patch|unified\s+diff)|"
+    r"patch\s+(?:this\s+|the\s+)?file"
+    r")\b"
+)
 # A document ask rarely says "pdf". "analyze the document I gave you" and "what
 # does this document say" both used to match nothing, so the ask arrived with no
 # expected tool at all. The noun has to be asked *about* — a bare "document" also
@@ -756,7 +819,8 @@ _PLOT_MENTION = (
     re.compile(r"(?i)\b(?:scatter|line)\s+plot\b"),
     re.compile(r"(?i)\bplot\s+residuals\b"),
     re.compile(r"(?i)\bfit\s+a\s+line\b"),
-    re.compile(r"(?i)\b(?:line|bar|scatter)\s+chart\b"),
+    re.compile(r"(?i)\b(?:line|bar|scatter|histogram)\s+chart\b"),
+    re.compile(r"(?i)\b(?:histogram|bar\s+chart|subplots?)\b"),
     re.compile(r"(?i)\bchart\s+(?:this|the|my)\b"),
     re.compile(r"(?i)\bmake\s+a\s+(?:plot|chart|graph)\b"),
     # claims.py had this one and the catalog did not, so "show me a chart of
@@ -777,7 +841,8 @@ PLOT = IntentSpec(
     expected_tools=("plot",),
     nudge=(
         "Intent preflight: this message asks for a chart. Call plot now "
-        "(line, scatter, or residuals) with xs/ys numbers and out='name.png', "
+        "(line, scatter, histogram, bar, subplots, or residuals) with xs/ys "
+        "numbers and out='name.png', "
         "or a CSV via path= plus x/y columns. path= is the table, not the PNG. "
         "If you need numbers first, call python, then plot. Allow applies. "
         "Do not draw an ASCII chart. Do not call image."
@@ -1265,9 +1330,127 @@ INSPECT = _InspectReadSpec(
     research_extra=True,
 )
 
+RECALL_DOCS = IntentSpec(
+    kind="recall_docs",
+    patterns=(_DOCS_SEARCH,),
+    expected_tools=("recall",),
+    nudge=(
+        "Intent preflight: this message asks to search local documents. "
+        "Call recall(action=docs) with the query. Pass kind=pdf when they "
+        "said PDFs, kind=docx for Word, kind=md for notes/markdown. "
+        "A miss is a miss — do not invent excerpts."
+    ),
+    schema_tools=frozenset({"recall"}),
+    exactness=(_DOCS_SEARCH,),
+    auto_hint=True,
+    research_extra=True,
+)
+
+NOTES = IntentSpec(
+    kind="notes",
+    patterns=(_NOTES_PRE,),
+    expected_tools=("notes",),
+    nudge=(
+        "Intent preflight: this message is about desk notes. Call notes "
+        "(add, list, search, or read). add is the same store as keep this. "
+        "Do not use memory remember for a page they want to reopen."
+    ),
+    schema_tools=frozenset({"notes", "workspace"}),
+    auto_hint=True,
+)
+
+REMIND = IntentSpec(
+    kind="remind",
+    patterns=(_REMIND_PRE,),
+    expected_tools=("remind",),
+    nudge=(
+        "Intent preflight: this is an in-process timer, not a calendar "
+        "event and not a Windows scheduled job. Call remind(action=in) "
+        "with minutes/seconds and a message, or action=at with a local "
+        "time. Max 7 days — later is schedule or agenda."
+    ),
+    schema_tools=frozenset({"remind"}),
+    auto_hint=True,
+)
+
+AGENDA_FREE = IntentSpec(
+    kind="agenda_free",
+    patterns=(_AGENDA_FREE,),
+    expected_tools=("agenda",),
+    nudge=(
+        "Intent preflight: this message asks when they are free. Call "
+        "agenda(action=free) with date/day and optional duration_min. "
+        "Cite real busy blocks. Do not invent an open slot."
+    ),
+    schema_tools=frozenset({"agenda"}),
+    exactness=(_AGENDA_FREE,),
+    auto_hint=True,
+    research_extra=True,
+)
+
+TRANSCRIBE = IntentSpec(
+    kind="transcribe",
+    patterns=(_TRANSCRIBE_PRE,),
+    expected_tools=("transcribe",),
+    nudge=(
+        "Intent preflight: this message asks to transcribe a local audio "
+        "file. Call transcribe(action=file, path=…). Do not load Whisper "
+        "yourself. Video is refused."
+    ),
+    schema_tools=frozenset({"transcribe", "workspace"}),
+    auto_hint=True,
+)
+
+SQL = IntentSpec(
+    kind="sql",
+    patterns=(_SQL_PRE,),
+    expected_tools=("sql",),
+    nudge=(
+        "Intent preflight: this message asks for SQL over local data. "
+        "Call sql with a SELECT. Never INSERT/UPDATE/DELETE. "
+        "memory.db when they did not name a CSV."
+    ),
+    schema_tools=frozenset({"sql", "analyze"}),
+    auto_hint=True,
+)
+
+PDF_ASSEMBLE = IntentSpec(
+    kind="pdf_assemble",
+    patterns=(_PDF_ASSEMBLE,),
+    expected_tools=("pdf",),
+    nudge=(
+        "Intent preflight: this message asks to merge, split, or rotate "
+        "PDFs. Call pdf. Do not use document (that writes a new report) "
+        "and do not use doc_extract (that reads text)."
+    ),
+    schema_tools=frozenset({"pdf"}),
+    auto_hint=True,
+)
+
+PATCH = IntentSpec(
+    kind="patch",
+    patterns=(_PATCH_PRE,),
+    expected_tools=("workspace",),
+    nudge=(
+        "Intent preflight: this message is a unified diff. Call "
+        "workspace(action=patch) with the diff. Do not use edit "
+        "(old/new replace) for a multi-hunk patch."
+    ),
+    schema_tools=frozenset({"workspace"}),
+    auto_hint=True,
+)
+
 CATALOG: tuple[IntentSpec, ...] = (
     WEATHER,
     RECALL,
+    RECALL_DOCS,
+    NOTES,
+    REMIND,
+    AGENDA_FREE,
+    TRANSCRIBE,
+    SQL,
+    PDF_ASSEMBLE,
+    PATCH,
     INBOUND_SMS,
     SMS_SEND,
     COMPOSE_EMAIL,

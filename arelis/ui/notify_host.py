@@ -11,11 +11,31 @@ from arelis.core.failure_copy import plain_reason
 from arelis.local_open import open_local_file, open_local_file_as, reveal_local_file
 from arelis.notify.center import notice_open
 from arelis.notify.sources import (
+    due_remind_notices,
     due_task_notices,
     load_today_events,
     mail_notices,
     peek_contact_mail_sync,
 )
+
+
+def _toast_reminder(window, message: str) -> None:
+    """OS tray balloon for a due reminder. Missing tray is a no-op."""
+    tray = getattr(window, "_tray", None)
+    if tray is None or not message:
+        return
+    from PySide6.QtWidgets import QSystemTrayIcon
+
+    try:
+        tray.showMessage(
+            "Arelis",
+            message,
+            QSystemTrayIcon.MessageIcon.Information,
+            8000,
+        )
+    except Exception:
+        # Headless tests and a missing system tray both land here.
+        return
 
 
 def on_notify_unread(window, count: int) -> None:
@@ -358,6 +378,14 @@ def on_job_tick(window) -> None:
     sync_notify_surface(window)
 
 
+def _surface_status(window, message: str) -> None:
+    """Thinking footer plus the transcript — Thinking is closed by default."""
+    window.thinking.append(message, kind="status")
+    talk = getattr(window, "chat", None)
+    if talk is not None:
+        talk.add_system(message)
+
+
 def report_poll_state(window, key: str, message: str) -> None:
     """Speak poll failure/recovery, but ignore single-shot network blips.
 
@@ -375,7 +403,7 @@ def report_poll_state(window, key: str, message: str) -> None:
             and window._poll_spoken.get(key) != "down"
         ):
             window._poll_spoken[key] = "down"
-            window.thinking.append(message, kind="status")
+            _surface_status(window, message)
         return
     window._poll_ok_streak[key] = window._poll_ok_streak.get(key, 0) + 1
     window._poll_fail_streak[key] = 0
@@ -385,9 +413,7 @@ def report_poll_state(window, key: str, message: str) -> None:
         and window._poll_spoken.get(key) == "down"
     ):
         window._poll_spoken[key] = "up"
-        window.thinking.append(
-            f"{key} notifications are working again.", kind="status"
-        )
+        _surface_status(window, f"{key} notifications are working again.")
 
 
 def on_notify_poll(window) -> None:
@@ -416,6 +442,24 @@ def on_notify_poll(window) -> None:
             )
         else:
             report_poll_state(window, "task", "")
+    try:
+        from arelis.reminders import ReminderStore
+
+        store = getattr(window, "_reminder_store", None)
+        if store is None:
+            store = ReminderStore()
+            window._reminder_store = store
+        if window.notify_center.enabled("remind"):
+            for notice in due_remind_notices(store):
+                window.notify_center.add(notice)
+                _toast_reminder(window, notice.body or notice.title)
+    except Exception as exc:
+        # Poller must not die because one reminder file is corrupt.
+        report_poll_state(
+            window, "remind", f"Reminder notices stopped: {plain_reason(exc)}"
+        )
+    else:
+        report_poll_state(window, "remind", "")
     sync_notify_surface(window)
     mail_cfg = (window.config.get("ui") or {}).get("notifications") or {}
     mail_every = max(45.0, float(mail_cfg.get("mail_poll_s") or 90))

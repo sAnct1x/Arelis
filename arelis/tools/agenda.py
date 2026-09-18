@@ -26,7 +26,34 @@ log = logging.getLogger(__name__)
 
 _MAX_RANGE_DAYS = 31
 AGENDA_WRITE_ACTIONS = frozenset({"create", "update", "delete"})
-_READ_ACTIONS = frozenset({"today", "tomorrow", "range", "list", "sync"})
+_READ_ACTIONS = frozenset(
+    {"today", "tomorrow", "range", "list", "sync", "free", "busy"}
+)
+_DEFAULT_DURATION_MIN = 30
+_DEFAULT_WORK_START = (9, 0)
+_DEFAULT_WORK_END = (17, 0)
+_DAY_INDEX = {
+    "monday": 0,
+    "mon": 0,
+    "tuesday": 1,
+    "tue": 1,
+    "tues": 1,
+    "wednesday": 2,
+    "wed": 2,
+    "thursday": 3,
+    "thu": 3,
+    "thur": 3,
+    "thurs": 3,
+    "friday": 4,
+    "fri": 4,
+    "saturday": 5,
+    "sat": 5,
+    "sunday": 6,
+    "sun": 6,
+}
+_WORK_CLOCK = re.compile(
+    r"(?ix)^\s*(?P<hour>\d{1,2})(?::(?P<minute>\d{2}))?\s*(?P<ampm>am|pm)?\s*$"
+)
 
 
 def _local_now() -> datetime:
@@ -37,12 +64,14 @@ class AgendaTool:
     name = "agenda"
     description = (
         "Calendar: open or close the Arelis calendar tile; list today's/"
-        "tomorrow's events or a date range; sync from Google/Outlook; "
+        "tomorrow's events or a date range; find free/busy slots on one "
+        "local day (when am I free Thursday); sync from Google/Outlook; "
         "create/update/delete events (writes need Allow). Local create "
         "works without Google; connecting later pushes pending events "
         "without another ask. Never invent "
-        "meetings — list first and cite the tool (time, title, place, "
-        "one-line notes). Never ask the user for a Google event id; delete "
+        "meetings or open slots — list or free first and cite the tool "
+        "(time, title, place, one-line notes). Never ask the user for a "
+        "Google event id; delete "
         "by title/time. provider=google|outlook|local|all|ics. action=open shows "
         "the local tile; action=close hides it — do not use the browser "
         "calendar alias unless they asked for the website."
@@ -59,6 +88,8 @@ class AgendaTool:
                     "tomorrow",
                     "range",
                     "list",
+                    "free",
+                    "busy",
                     "sync",
                     "open",
                     "close",
@@ -68,9 +99,11 @@ class AgendaTool:
                 ],
                 "description": (
                     "open/close show or hide the Arelis calendar tile; "
-                    "today/tomorrow/range/list read; sync refreshes Google/Outlook "
-                    "cache (or provider=ics writes local ICS from secrets URL); "
-                    "create/update/delete change cloud calendars (Allow required)."
+                    "today/tomorrow/range/list read; free/busy find open "
+                    "slots or busy blocks on one local day; sync refreshes "
+                    "Google/Outlook cache (or provider=ics writes local ICS "
+                    "from secrets URL); create/update/delete change cloud "
+                    "calendars (Allow required)."
                 ),
             },
             "start": {
@@ -80,6 +113,32 @@ class AgendaTool:
             "end": {
                 "type": "string",
                 "description": "YYYY-MM-DD for range, or ISO datetime for create/update.",
+            },
+            "date": {
+                "type": "string",
+                "description": (
+                    "Day for free/busy: YYYY-MM-DD, weekday (Thursday), "
+                    "today, or tomorrow. Single local day only."
+                ),
+            },
+            "day": {
+                "type": "string",
+                "description": "Alias for date (Thursday / YYYY-MM-DD / today).",
+            },
+            "duration_min": {
+                "type": "integer",
+                "description": (
+                    "Minimum free-slot length in minutes (default 30). "
+                    "Used by action=free."
+                ),
+            },
+            "work_start": {
+                "type": "string",
+                "description": "Local work-window start (default 09:00).",
+            },
+            "work_end": {
+                "type": "string",
+                "description": "Local work-window end (default 17:00).",
             },
             "provider": {
                 "type": "string",
@@ -141,7 +200,7 @@ class AgendaTool:
                 ok=False,
                 output=(
                     "Unknown action. Use open, close, today, tomorrow, range, "
-                    "list, sync, create, update, or delete."
+                    "list, free, busy, sync, create, update, or delete."
                 ),
             )
         if action == "open":
@@ -152,6 +211,8 @@ class AgendaTool:
             return await self._sync(kwargs)
         if action in {"today", "tomorrow", "range", "list"}:
             return await self._list(action, kwargs)
+        if action in {"free", "busy"}:
+            return await self._free(action, kwargs)
         if action == "create":
             return await self._create(kwargs)
         if action == "update":
@@ -230,36 +291,14 @@ class AgendaTool:
             return ToolResult(ok=False, output=str(exc))
 
         provider = str(kwargs.get("provider") or "all").strip().lower()
-        secrets = load_calendar_secrets()
-        store = CalendarStore()
-        try:
-            # Soft sync when authorized so reads stay fresh without a separate call.
-            if secrets.any_authorized() and provider != "ics":
-                try:
-                    await CalendarService(self._config, store=store).sync(
-                        providers=(
-                            (provider,)
-                            if provider in {"google", "outlook"}
-                            else ("google", "outlook")
-                        ),
-                    )
-                except Exception as exc:
-                    log.warning("Background agenda sync failed: %s", exc)
+        loaded = await self._load_window(begin, finish, provider, now)
 
-            cached = store.list_range(
-                begin,
-                finish,
-                provider=None if provider in {"all", "ics"} else provider,
-            )
-        finally:
-            store.close()
-
-        if cached and provider != "ics":
+        if loaded["use_cache"]:
+            cached = loaded["cached"]
             events = [_cached_as_briefing(ev) for ev in cached]
             body = format_agenda_section(events, now=now)
-            sources = sorted({ev.provider for ev in cached})
             output = (
-                f"{body}\n\nSource: cache ({', '.join(sources)})\n"
+                f"{body}\n\nSource: {loaded['source']}\n"
                 "Summarize these events for the user (time, title, place, "
                 "one-line notes). Do not invent events. Do not quote "
                 "Google/Outlook event ids."
@@ -277,9 +316,8 @@ class AgendaTool:
                 },
             )
 
-        # ICS fallback
-        path = resolve_calendar_path(self._config)
-        if not path.is_file():
+        if loaded["missing"]:
+            path = loaded["path"]
             return ToolResult(
                 ok=True,
                 output=(
@@ -295,7 +333,8 @@ class AgendaTool:
                     "missing": True,
                 },
             )
-        ics_events = load_agenda(path, now=now, start_day=begin, end_day=finish)
+        ics_events = loaded["ics"]
+        path = loaded["path"]
         body = format_agenda_section(ics_events, now=now)
         return ToolResult(
             ok=True,
@@ -321,6 +360,170 @@ class AgendaTool:
                     }
                     for ev in ics_events
                 ],
+            },
+        )
+
+    async def _load_window(
+        self,
+        begin: date,
+        finish: date,
+        provider: str,
+        now: datetime,
+    ) -> dict[str, Any]:
+        """Same cache / ICS source as today/list. Does not invent events."""
+        secrets = load_calendar_secrets()
+        store = CalendarStore()
+        try:
+            # Soft sync when authorized so reads stay fresh without a separate call.
+            if secrets.any_authorized() and provider != "ics":
+                try:
+                    await CalendarService(self._config, store=store).sync(
+                        providers=(
+                            (provider,)
+                            if provider in {"google", "outlook"}
+                            else ("google", "outlook")
+                        ),
+                    )
+                except Exception as exc:
+                    log.warning("Background agenda sync failed: %s", exc)
+
+            cached = store.list_range(
+                begin,
+                finish,
+                provider=None if provider in {"all", "ics"} else provider,
+            )
+        finally:
+            store.close()
+
+        if cached and provider != "ics":
+            sources = sorted({ev.provider for ev in cached})
+            return {
+                "use_cache": True,
+                "cached": cached,
+                "ics": [],
+                "path": "",
+                "source": f"cache ({', '.join(sources)})",
+                "missing": False,
+            }
+        path = resolve_calendar_path(self._config)
+        if not path.is_file():
+            return {
+                "use_cache": False,
+                "cached": [],
+                "ics": [],
+                "path": str(path),
+                "source": str(path),
+                "missing": True,
+            }
+        ics_events = load_agenda(path, now=now, start_day=begin, end_day=finish)
+        return {
+            "use_cache": False,
+            "cached": [],
+            "ics": ics_events,
+            "path": str(path),
+            "source": f"{path} (ICS fallback)",
+            "missing": False,
+        }
+
+    async def _free(self, action: str, kwargs: dict[str, Any]) -> ToolResult:
+        """Read-only find-time. One local day. Never writes."""
+        now = _local_now()
+        raw_day = (
+            kwargs.get("date")
+            or kwargs.get("day")
+            or kwargs.get("start")
+            or ""
+        )
+        try:
+            day = _parse_free_day(raw_day, now=now)
+            duration_min = _parse_duration_min(kwargs.get("duration_min"))
+            work_h0, work_m0 = _parse_work_clock(
+                kwargs.get("work_start"), default=_DEFAULT_WORK_START
+            )
+            work_h1, work_m1 = _parse_work_clock(
+                kwargs.get("work_end"), default=_DEFAULT_WORK_END
+            )
+        except ValueError as exc:
+            return ToolResult(ok=False, output=str(exc))
+        if (work_h1, work_m1) <= (work_h0, work_m0):
+            return ToolResult(
+                ok=False,
+                output="work_end must be after work_start on the same local day.",
+            )
+
+        provider = str(kwargs.get("provider") or "all").strip().lower()
+        loaded = await self._load_window(day, day, provider, now)
+        rows = _window_event_rows(loaded)
+        tz = now.tzinfo
+        work_start = datetime(day.year, day.month, day.day, work_h0, work_m0, tzinfo=tz)
+        work_end = datetime(day.year, day.month, day.day, work_h1, work_m1, tzinfo=tz)
+        busy = _busy_on_day(rows, day, tz)
+        free = _free_slots(work_start, work_end, busy, duration_min)
+        day_label = f"{day.strftime('%A')} {day.isoformat()}"
+        work_label = f"{work_h0:02d}:{work_m0:02d}–{work_h1:02d}:{work_m1:02d}"
+        lines = [f"Busy on {day_label} ({work_label} local):"]
+        if busy:
+            for block in busy:
+                if block["all_day"]:
+                    when = "all day"
+                else:
+                    when = (
+                        f"{_format_clock(block['start'], tz)}–"
+                        f"{_format_clock(block['end'], tz)}"
+                    )
+                lines.append(f"- {when} — {block['summary']}")
+        else:
+            lines.append("- (none)")
+        lines.append("")
+        if action == "free":
+            if free:
+                lines.append(f"Free slots ({duration_min} min):")
+                for slot in free:
+                    lines.append(
+                        f"- {_format_clock(slot['start'], tz)}–"
+                        f"{_format_clock(slot['end'], tz)}"
+                    )
+            else:
+                lines.append(f"no open slot of {duration_min} min on {day_label}")
+            lines.append("")
+        lines.append(f"Source: {loaded['source']}")
+        lines.append(
+            "Cite these times. Do not invent a free slot that is not listed."
+        )
+        return ToolResult(
+            ok=True,
+            output="\n".join(lines),
+            data={
+                "action": action,
+                "date": day.isoformat(),
+                "day": day_label,
+                "duration_min": duration_min,
+                "work_start": f"{work_h0:02d}:{work_m0:02d}",
+                "work_end": f"{work_h1:02d}:{work_m1:02d}",
+                "busy": [
+                    {
+                        "summary": b["summary"],
+                        "start": b["start"].isoformat(),
+                        "end": b["end"].isoformat(),
+                        "all_day": b["all_day"],
+                    }
+                    for b in busy
+                ],
+                "free": (
+                    [
+                        {
+                            "start": s["start"].isoformat(),
+                            "end": s["end"].isoformat(),
+                        }
+                        for s in free
+                    ]
+                    if action == "free"
+                    else []
+                ),
+                "count_busy": len(busy),
+                "count_free": len(free) if action == "free" else 0,
+                "source": loaded["source"],
+                "missing": bool(loaded["missing"]),
             },
         )
 
@@ -673,6 +876,225 @@ class AgendaTool:
                 )
             return start, end
         return today, today
+
+
+def _parse_free_day(raw: Any, *, now: datetime) -> date:
+    """Single local day: YYYY-MM-DD, weekday, today, tomorrow."""
+    text = str(raw or "").strip()
+    if not text:
+        return now.date()
+    folded = text.casefold()
+    if folded in {"today", "tonight"}:
+        return now.date()
+    if folded == "tomorrow":
+        return now.date() + timedelta(days=1)
+    if folded == "yesterday":
+        return now.date() - timedelta(days=1)
+    if len(text) >= 10 and text[4:5] == "-" and text[7:8] == "-":
+        try:
+            return date.fromisoformat(text[:10])
+        except ValueError:
+            pass
+    next_week = bool(re.search(r"\bnext\b", folded))
+    for tok in re.findall(r"[a-z]+", folded):
+        if tok in _DAY_INDEX:
+            today = now.date()
+            delta = (_DAY_INDEX[tok] - today.weekday()) % 7
+            if next_week and delta == 0:
+                delta = 7
+            return today + timedelta(days=delta)
+    raise ValueError(
+        f"Invalid date {text!r}; use YYYY-MM-DD, a weekday, today, or tomorrow."
+    )
+
+
+def _parse_duration_min(raw: Any) -> int:
+    if raw is None or str(raw).strip() == "":
+        return _DEFAULT_DURATION_MIN
+    if isinstance(raw, (int, float)) and not isinstance(raw, bool):
+        return max(1, int(raw))
+    text = str(raw).strip().lower()
+    match = re.search(r"(\d+)", text)
+    if not match:
+        raise ValueError("duration_min must be a number of minutes.")
+    mins = int(match.group(1))
+    if re.search(r"hour", text):
+        mins *= 60
+    return max(1, mins)
+
+
+def _parse_work_clock(raw: Any, *, default: tuple[int, int]) -> tuple[int, int]:
+    text = str(raw or "").strip()
+    if not text:
+        return default
+    match = _WORK_CLOCK.fullmatch(text)
+    if not match:
+        raise ValueError(f"Invalid work clock {text!r}; use HH:MM or 9am.")
+    hour = _hour_24(int(match.group("hour")), match.group("ampm") or "")
+    minute = int(match.group("minute") or 0)
+    if hour > 23 or minute > 59:
+        raise ValueError(f"Invalid work clock {text!r}; use HH:MM or 9am.")
+    return hour, minute
+
+
+def _window_event_rows(loaded: dict[str, Any]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    if loaded.get("use_cache"):
+        for ev in loaded.get("cached") or []:
+            rows.append(
+                {
+                    "summary": ev.summary or "(no title)",
+                    "starts_at": ev.starts_at,
+                    "ends_at": ev.ends_at,
+                    "all_day": bool(ev.all_day),
+                }
+            )
+        return rows
+    for ev in loaded.get("ics") or []:
+        rows.append(
+            {
+                "summary": ev.summary or "(no title)",
+                "starts_at": ev.starts_at,
+                "ends_at": None,
+                "all_day": bool(ev.all_day),
+            }
+        )
+    return rows
+
+
+def _aware_local(dt: datetime, tz: Any) -> datetime:
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=tz)
+    return dt.astimezone(tz)
+
+
+def _local_date(dt: datetime, tz: Any) -> date:
+    return _aware_local(dt, tz).date()
+
+
+def _spans_local_day(
+    starts_at: datetime,
+    ends_at: datetime | None,
+    all_day: bool,
+    day: date,
+    tz: Any,
+) -> bool:
+    start = _local_date(starts_at, tz)
+    if all_day:
+        if ends_at is not None:
+            end_excl = _local_date(ends_at, tz)
+            if end_excl <= start:
+                end_excl = start + timedelta(days=1)
+            return start <= day < end_excl
+        return start == day
+    end = _local_date(ends_at, tz) if ends_at is not None else start
+    return start <= day <= end
+
+
+def _busy_on_day(
+    rows: list[dict[str, Any]],
+    day: date,
+    tz: Any,
+) -> list[dict[str, Any]]:
+    """Busy blocks that land on `day`. All-day and overnight count."""
+    day_start = datetime(day.year, day.month, day.day, tzinfo=tz)
+    day_end = day_start + timedelta(days=1)
+    busy: list[dict[str, Any]] = []
+    for row in rows:
+        starts_at = row["starts_at"]
+        ends_at = row["ends_at"]
+        all_day = bool(row["all_day"])
+        if not isinstance(starts_at, datetime):
+            continue
+        if not _spans_local_day(starts_at, ends_at, all_day, day, tz):
+            continue
+        start = _aware_local(starts_at, tz)
+        if all_day:
+            end = day_end
+            if ends_at is not None:
+                end = min(day_end, _aware_local(ends_at, tz))
+            if end <= day_start:
+                end = day_end
+            busy.append(
+                {
+                    "summary": row["summary"],
+                    "start": day_start,
+                    "end": max(end, day_start + timedelta(days=1)),
+                    "all_day": True,
+                }
+            )
+            continue
+        end = (
+            _aware_local(ends_at, tz)
+            if isinstance(ends_at, datetime)
+            else start + timedelta(hours=1)
+        )
+        if end <= start:
+            end = start + timedelta(hours=1)
+        clip_start = max(start, day_start)
+        clip_end = min(end, day_end)
+        if clip_start < clip_end:
+            busy.append(
+                {
+                    "summary": row["summary"],
+                    "start": clip_start,
+                    "end": clip_end,
+                    "all_day": False,
+                }
+            )
+    busy.sort(key=lambda b: (not b["all_day"], b["start"], b["summary"].lower()))
+    return busy
+
+
+def _merge_intervals(
+    intervals: list[tuple[datetime, datetime]],
+) -> list[tuple[datetime, datetime]]:
+    if not intervals:
+        return []
+    ordered = sorted(intervals)
+    out = [ordered[0]]
+    for start, end in ordered[1:]:
+        last_s, last_e = out[-1]
+        if start <= last_e:
+            out[-1] = (last_s, max(last_e, end))
+        else:
+            out.append((start, end))
+    return out
+
+
+def _free_slots(
+    work_start: datetime,
+    work_end: datetime,
+    busy: list[dict[str, Any]],
+    duration_min: int,
+) -> list[dict[str, Any]]:
+    """Gaps inside the work window that fit duration. Empty means empty."""
+    clipped: list[tuple[datetime, datetime]] = []
+    for block in busy:
+        start = max(block["start"], work_start)
+        end = min(block["end"], work_end)
+        if block["all_day"]:
+            start, end = work_start, work_end
+        if start < end:
+            clipped.append((start, end))
+    need = timedelta(minutes=duration_min)
+    slots: list[dict[str, Any]] = []
+    cursor = work_start
+    for start, end in _merge_intervals(clipped):
+        if end <= cursor:
+            continue
+        if start > cursor and (start - cursor) >= need:
+            slots.append({"start": cursor, "end": start})
+        cursor = max(cursor, end)
+        if cursor >= work_end:
+            break
+    if cursor < work_end and (work_end - cursor) >= need:
+        slots.append({"start": cursor, "end": work_end})
+    return slots
+
+
+def _format_clock(dt: datetime, tz: Any) -> str:
+    return _aware_local(dt, tz).strftime("%I:%M %p").lstrip("0")
 
 
 def _cached_as_briefing(ev: CachedEvent) -> CalendarEvent:

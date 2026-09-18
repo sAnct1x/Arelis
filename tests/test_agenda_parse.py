@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
-from arelis.tools.agenda import _parse_dt
+from arelis.tools.agenda import _parse_dt, _parse_duration_min, _parse_free_day, _parse_work_clock
 
 
 def test_parse_dt_iso_stays_local() -> None:
@@ -29,3 +30,24 @@ def test_parse_dt_tomorrow_afternoon() -> None:
     assert dt.date() == expect
     assert dt.hour == 15
     assert dt.minute == 0
+
+
+def test_parse_free_day_weekday_iso_and_today() -> None:
+    now = datetime(2026, 9, 18, 8, 0, tzinfo=ZoneInfo("America/New_York"))
+    assert _parse_free_day("Thursday", now=now) == date(2026, 9, 24)
+    assert _parse_free_day("today", now=now) == date(2026, 9, 18)
+    assert _parse_free_day("tomorrow", now=now) == date(2026, 9, 19)
+    assert _parse_free_day("2026-09-17", now=now) == date(2026, 9, 17)
+    thursday = datetime(2026, 9, 17, 8, 0, tzinfo=ZoneInfo("America/New_York"))
+    assert _parse_free_day("Thursday", now=thursday) == date(2026, 9, 17)
+    assert _parse_free_day("", now=thursday) == date(2026, 9, 17)
+
+
+def test_parse_duration_and_work_clock() -> None:
+    assert _parse_duration_min(None) == 30
+    assert _parse_duration_min(120) == 120
+    assert _parse_duration_min("2 hours") == 120
+    assert _parse_work_clock("", default=(9, 0)) == (9, 0)
+    assert _parse_work_clock("17:00", default=(9, 0)) == (17, 0)
+    assert _parse_work_clock("9am", default=(9, 0)) == (9, 0)
+    assert _parse_work_clock("5pm", default=(17, 0)) == (17, 0)

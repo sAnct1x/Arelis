@@ -7,11 +7,15 @@ essays do not.
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from typing import Any
+
+# Typed slash + idle chip. Same string both places so the chip opens the list.
+TOOLS_SLASH = "/tools"
 
 # One line per tool. Names + enums in the schema do the rest.
 _SHORT_DESC: dict[str, str] = {
-    "agenda": "local calendar. action=today|tomorrow|list|create|update|delete|close",
+    "agenda": "local calendar. action=today|tomorrow|list|free|busy|create|update|delete|close",
     "analyze": "CSV / table. path required. action=query + where/group_by/agg/on to answer a data question; never add up rows from head yourself",
     "browser": "her Chrome. no passwords/OTP. stop captcha|Pay. click text|ref|nth",
     "calculator": "exact arithmetic. expression required. takes '15% of 84', '30% off 59.99', '$4.50+$2'. not unit conversion (units), not equations (cas)",
@@ -25,7 +29,7 @@ _SHORT_DESC: dict[str, str] = {
     "doc_extract": "text from a local PDF, including handwritten/scanned pages",
     "document": "write md/pdf/csv under outputs",
     "earth": "Reality look / bands. not a web search",
-    "git_info": "git status/log/diff, stage, commit (needs message). no push/reset/checkout",
+    "git_info": "git status/log/diff/branch/blame/show, stash list, stage, commit. no push/reset/checkout",
     "goals": "long-lived goals. action=list|add|done|drop",
     "image": "generate an image. confirm first",
     "image_edit": "edit a local image or overlay text. confirm first",
@@ -33,13 +37,17 @@ _SHORT_DESC: dict[str, str] = {
     "inbox": "Gmail list/search/trash/archive. action=download saves attachments. never claim delete without a tool",
     "memory": "durable facts / prefs. action=list to read them back, remember, forget",
     "ocr": "read text in an image",
-    "plot": "chart PNG. expr=sin(x)+xmin/xmax for a formula; xs/ys + out=name.png; or path=CSV + x/y cols. path is the table, not the picture",
+    "notes": "desk notes. action=add|list|search|read. same folder as keep this",
+    "pdf": "merge/split/rotate local PDFs. writes a new file. no form fill",
+    "plot": "chart PNG. histogram|bar|subplots|line|scatter; expr=sin(x)+xmin/xmax; or path=CSV. path is the table, not the picture",
     "python": "short numerics (numpy). no matplotlib. print xs,ys then plot with out=",
-    "recall": "search memory before claiming you do not know",
+    "recall": "search memory. action=docs (+ kind=pdf|docx|md) for local files. miss is a miss",
+    "remind": "in-process timer. action=in minutes= + message; at=local time; list; cancel. max 7 days",
     "research_report": "multi-source writeup under outputs/research",
     "rooms": "list / go to a room. Reality is physics",
     "run_script": "run a project .py under workspace. not a shell; not diagnostics; not schedule run_now",
     "schedule": "local jobs. action=list|create|update|run|delete. move a time with update, not delete+create",
+    "sql": "read-only SELECT on memory.db or a workspace CSV. never INSERT/UPDATE/DELETE",
     "scrape": "readable page text. Prefer scrape for news/docs",
     "send_email": "send mail. confirm card. never invent sent",
     # Prescriptive on purpose. The first attempt at this line said "do not
@@ -51,6 +59,7 @@ _SHORT_DESC: dict[str, str] = {
     "solar": "Reality sim. body/status/load. live lab is one source",
     "tasks": "short list. action=list|add|update|done|drop. fix a typo with update, not remove+add",
     "tile": "View menu. action=open|close name=thinking|history|chat|…",
+    "transcribe": "local audio file via the warm voice engine. never loads Whisper mid-turn",
     "units": "unit convert",
     "user_location": "user's saved place. not a web guess",
     "vision": "describe a local image",
@@ -61,7 +70,7 @@ _SHORT_DESC: dict[str, str] = {
     "weather": "forecast. defaults to the user's own place — omit place for home, never look up their location first. place=city name, not coords",
     "web_fetch": "http(s) APIs / JSON. not pages. method=POST|PUT|PATCH|DELETE + headers/body for a real API; non-GET asks first",
     "web_search": "search first. never guess a url",
-    "workspace": "sandbox files: list/read/grep/find/write/edit/delete/move/rename/copy. grep query= to locate code, not repeated list. writes confirm",
+    "workspace": "sandbox files: list/read/grep/find/write/edit/patch/delete/move/rename/copy. patch=unified diff. writes confirm",
 }
 
 
@@ -79,16 +88,36 @@ email: inbox list/search/trash/archive; send_email to send; never claim you dele
 workspace: workspace read/write/list; inspect source with workspace; writes confirm. Code assess: list one folder then fanout-read; do not list the repo root. Same list/read this turn is a loop — open a new path or answer. Outside roots: stop; do not list parents; Allow the path or Settings → roots.
 attach: image→vision|ocr; pdf→doc_extract; csv→analyze; text→workspace. never invent file contents. never ask them to paste a PDF. ink pdf→one vision paths= (not 17 calls, not ocr).
 memory: recall before claiming you do not know; remember/forget via the memory tool. "what do you remember/know about me" = memory action=list, not recall.
-goals: goals. tasks: tasks. analyze: analyze. doc_extract: doc_extract. document: document. calculator: calculator. diagnostics: diagnostics. cas: cas. clipboard: clipboard. ocr: ocr.
-agenda: agenda (events). tile: tile (thinking|workspace|history|chat|…; filament chat = name=chat). rooms: rooms. schedule: schedule.
-image: image. image_edit: image_edit. vision: vision. research_report: research_report.
-solar: solar. earth: earth. catalog: catalog. plot: plot (xs/ys + out=png; path=CSV). units: units. python: python (no matplotlib; then plot). run_script: a project .py; not a shell; not diagnostics; not schedule run_now. watch: watch. git_info: git_info. camera: camera.
+goals: goals. tasks: tasks. analyze: analyze. sql: sql. doc_extract: doc_extract. document: document. pdf: pdf. calculator: calculator. diagnostics: diagnostics. cas: cas. clipboard: clipboard. ocr: ocr.
+agenda: agenda (events; free=open slots). tile: tile (thinking|workspace|history|chat|…; filament chat = name=chat). rooms: rooms. schedule: schedule. remind: remind (in/at, not schedule). notes: notes.
+image: image. image_edit: image_edit. vision: vision. transcribe: transcribe. research_report: research_report.
+solar: solar. earth: earth. catalog: catalog. plot: plot (histogram|bar|line; xs/ys + out=png; path=CSV). units: units. python: python (no matplotlib; then plot). run_script: a project .py; not a shell; not diagnostics; not schedule run_now. watch: watch. git_info: git_info. camera: camera.
 """.strip()
 
 
 def compact_tool_policy() -> str:
     """The policy Ollama sees. Skill cards stay in skills.py for hints."""
     return COMPACT_TOOL_POLICY
+
+
+def format_tool_catalog(tools: Sequence[Mapping[str, Any]] | None = None) -> str:
+    """Name + one line for the glass. Not the schema essays Ollama used to see.
+
+    Starts from ``_SHORT_DESC`` so a name that exists (cas, remind) cannot
+    fall off a partial registry dump. Extra registry names still land.
+    """
+    rows: dict[str, str] = {
+        name: skinny_description(name, desc) for name, desc in _SHORT_DESC.items()
+    }
+    for item in tools or ():
+        name = str(item.get("name") or "").strip()
+        if not name:
+            continue
+        rows[name] = skinny_description(name, str(item.get("description") or ""))
+    lines = ["What she can do. Ask by name.", ""]
+    for name in sorted(rows, key=str.lower):
+        lines.append(f"`{name}` — {rows[name]}")
+    return "\n".join(lines)
 
 
 def skinny_description(name: str, fallback: str = "") -> str:

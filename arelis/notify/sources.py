@@ -109,6 +109,28 @@ def due_task_notices(
     return out
 
 
+def due_remind_notices(store, *, now: datetime | None = None) -> list:
+    """Fire overdue in-process reminders once. ``store`` is a ReminderStore."""
+    out = []
+    for item in store.due_now(now):
+        payload = item.fire_payload()
+        message = str(payload.get("message") or "Reminder").strip() or "Reminder"
+        rid = str(payload.get("id") or item.id)
+        out.append(
+            new_notice(
+                kind="remind",
+                title="Reminder",
+                body=message,
+                group_key=f"remind:{rid}",
+                voice_cue=message,
+                data={"pill": message, "remind_id": rid},
+                now=now,
+            )
+        )
+        store.mark_fired(item.id)
+    return out
+
+
 def peek_contact_mail_sync(config: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     """Header-only unread mail from contacts.yaml. Empty if mail is not set up.
 

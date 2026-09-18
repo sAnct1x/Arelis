@@ -24,6 +24,16 @@ from arelis.ui.theme import (
     SHELL,
     active_theme,
 )
+from arelis.ui.turn_watchdog import (
+    HUNG_MESSAGE,
+    arm_hung_turn,
+    disarm_hung_turn,
+    on_hung_tick,
+    on_hung_turn,
+    paint_hung_countdown,
+    pause_hung_turn,
+    resume_hung_turn,
+)
 from arelis.ui.voice_host import stop_speech
 from arelis.ui.window_const import BUSY_WATCHDOG_MS as _BUSY_WATCHDOG_MS
 from arelis.ui.workspace_host import refresh_desk
@@ -101,6 +111,54 @@ class WindowTurn:
         role = self._current_role or self.conversation.role.currentText()
         self._on_submit(text, role, attachments)
 
+    def _on_export_conversation(self) -> None:
+        """Save the seated session as markdown. File dialog, not a tool."""
+        from PySide6.QtWidgets import QFileDialog
+
+        from arelis.core.transcript import (
+            EmptyTranscript,
+            default_export_filename,
+            export_transcript,
+            render_transcript,
+        )
+
+        store = self.store
+        if store is None or not store.session_id:
+            self.chat.add_system("Nothing to export — this conversation is empty.")
+            return
+        rows = store.get_messages(store.session_id)
+        try:
+            render_transcript(rows)
+        except EmptyTranscript as exc:
+            self.chat.add_system(str(exc))
+            return
+        session = store.get_session(store.session_id) or {}
+        suggested = default_export_filename(str(session.get("title") or ""))
+        try:
+            start_dir = self.workspace_roots.active_root().path
+        except (AttributeError, KeyError, ValueError):
+            start_dir = Path.home()
+        chosen, _ = QFileDialog.getSaveFileName(
+            self,
+            "Export conversation",
+            str(start_dir / suggested),
+            "Markdown (*.md);;All files (*.*)",
+        )
+        if not chosen:
+            return
+        dest = Path(chosen)
+        if dest.suffix.lower() not in {".md", ".markdown", ".txt"}:
+            dest = dest.with_suffix(".md")
+        try:
+            written = export_transcript(rows, dest)
+        except EmptyTranscript as exc:
+            self.chat.add_system(str(exc))
+            return
+        except OSError:
+            self.chat.add_system(f"I could not write {dest.name}.")
+            return
+        self.chat.add_file_card(written.name, str(written))
+
     def _on_submit(self, text: str, role: str, attachments: list | None = None) -> None:
         note_engagement(self)
         if not attachments and self._try_physics_verb(text):
@@ -161,15 +219,19 @@ class WindowTurn:
     def _on_stop(self) -> None:
         self._cancel_turn(schedule_next=True)
 
-    def _cancel_turn(self, *, schedule_next: bool) -> None:
-        self._apply_stop_ui(publish_confirm_skip=True)
+    def _cancel_turn(self, *, schedule_next: bool, reason: str = "stop") -> None:
+        self._apply_stop_ui(publish_confirm_skip=True, reason=reason)
         self._ignore_cancel_echo = True
         self._publish_bus(Event(EventType.TURN_CANCEL, {}))
         if schedule_next and not self._force_quit and not self._disposed:
             self._later(0, self._show_next_pending_confirm)
 
-    def _apply_stop_ui(self, *, publish_confirm_skip: bool) -> None:
+    def _apply_stop_ui(self, *, publish_confirm_skip: bool, reason: str = "stop") -> None:
         """Cut speech and hide the card. The bus cancel is published separately."""
+        hung = reason == "hung"
+        # Stop (and a hung ceiling) both kill the start-of-turn timer. The 8s
+        # post-Stop watchdog is a different clock and only arms on a press.
+        disarm_hung_turn(self)
         open_id = str(self.conversation.confirm._confirm_id or "")
         self.conversation.dismiss_confirm()
         self._set_confirm_pending(False)
@@ -187,14 +249,24 @@ class WindowTurn:
         # cancelling the turn without cutting playback leaves her talking about
         # something the user has already abandoned.
         stop_speech(self)
-        self.thinking.append("stop requested", kind="status")
+        if hung:
+            self.thinking.append(HUNG_MESSAGE, kind="status")
+            self.chat.add_system(HUNG_MESSAGE)
+        else:
+            self.thinking.append("stop requested", kind="status")
         from arelis.browser.live import cancel as cancel_watch
 
         cancel_watch()
         self._drive_session = False
         self.conversation.set_drive(False)
-        if not self._force_quit and not self._disposed:
+        if not hung and not self._force_quit and not self._disposed:
             self._busy_watchdog.start(_BUSY_WATCHDOG_MS)
+
+    def _on_hung_turn(self) -> None:
+        on_hung_turn(self)
+
+    def _on_hung_tick(self) -> None:
+        on_hung_tick(self)
 
     def _on_stop_declined(self) -> None:
         """Esc on a turn that has painted nothing. Explain instead of cancelling.
@@ -275,12 +347,18 @@ class WindowTurn:
         await emit_restored_confirm(self.bus, item, self.config)
 
     def _set_confirm_pending(self, pending: bool) -> None:
-        self._confirm_waiting = bool(pending)
+        pending = bool(pending)
+        was = bool(getattr(self, "_confirm_waiting", False))
+        self._confirm_waiting = pending
         self.readiness_strip.set_confirm_waiting(pending)
         if self.voice_controller is not None:
             self.voice_controller.notify_confirm_pending(pending)
         if not pending:
             flush_held_inbound(self)
+        if pending and not was:
+            pause_hung_turn(self)
+        elif was and not pending and self._turn_busy:
+            resume_hung_turn(self)
         if active_theme() == "filament":
             self._place_filament_floats(reshape=False)
 
@@ -292,6 +370,7 @@ class WindowTurn:
         return THINKING_STATUS
 
     def _set_busy(self, busy: bool) -> None:
+        was = bool(self._turn_busy)
         self._turn_busy = busy
         self.conversation.set_busy(busy)
         self.history.set_switch_enabled(not busy)
@@ -300,7 +379,12 @@ class WindowTurn:
         # rather than at an answer.
         if busy:
             self.chat.show_progress(self._busy_status_line())
+            if not was:
+                arm_hung_turn(self)
+            else:
+                paint_hung_countdown(self)
         else:
+            disarm_hung_turn(self)
             self.chat.clear_progress()
         if not busy:
             self._busy_watchdog.stop()

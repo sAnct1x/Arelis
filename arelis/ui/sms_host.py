@@ -17,7 +17,11 @@ from arelis.sms import (
     resolve_operator_sms_target,
     send_operator_sms,
 )
-from arelis.sms_inbound import InboundSms, format_held_inbound_voice_cue
+from arelis.sms_inbound import (
+    InboundSms,
+    format_held_inbound_flush,
+    format_held_inbound_voice_cue,
+)
 from arelis.ui.sms_chat import room_owns_doorbell, seed_bodies
 
 
@@ -28,7 +32,7 @@ def _sync_notify(window) -> None:
 
 
 def on_sms_received(window, payload: dict[str, Any]) -> None:
-    """Bubble first. A visible room swallows the doorbell. Voice waits on the floor."""
+    """Bubble first. A visible room swallows the doorbell. Chat/voice wait on the floor."""
     if window._force_quit or window._disposed:
         return
     msg = InboundSms(
@@ -85,10 +89,16 @@ def on_sms_received(window, payload: dict[str, Any]) -> None:
 
 
 def flush_held_inbound(window) -> None:
+    """One batched chat note + voice cue once the turn/Allow/speech floor is free."""
     if not window._held_inbound or window._floor_busy():
         return
-    held = window._held_inbound
+    held = list(window._held_inbound)
     window._held_inbound = []
+    line = format_held_inbound_flush(held)
+    if line:
+        chat = getattr(window, "chat", None)
+        if chat is not None:
+            chat.add_system(line)
     maybe_voice_sms(window, held)
 
 
@@ -151,12 +161,13 @@ def open_sms_chat(window, notice_id: str) -> bool:
         seed=seed_bodies(notice),
     )
     if chat is None:
+        line = "No number on that text — cannot open a chat."
         thinking = getattr(window, "thinking", None)
         if thinking is not None:
-            thinking.append(
-                "No number on that text — cannot open a chat.",
-                kind="status",
-            )
+            thinking.append(line, kind="status")
+        talk = getattr(window, "chat", None)
+        if talk is not None:
+            talk.add_system(line)
         return False
     window.notify_center.dismiss(notice.id)
     _sync_notify(window)

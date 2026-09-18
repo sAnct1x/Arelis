@@ -12,7 +12,7 @@ from arelis.paths import outputs_dir
 from arelis.spatial.scene import clamp_reach
 from arelis.ui.layout_store import clamp_away_rest_min, save_ui_prefs
 from arelis.ui.settings_dialog import SettingsDialog
-from arelis.ui.voice_host import voice_restart_notices
+from arelis.ui.voice_host import commit_voice_directions
 from arelis.ui.window_resize import enable_win32_resize_frame
 
 
@@ -22,14 +22,10 @@ def apply_settings(window, values: dict[str, Any]) -> None:
     ui_prefs = values.get("ui_prefs") or {}
 
     deep_merge(window.config.setdefault("voice", {}), {
-        k: v for k, v in voice_patch.items() if k not in {"stt", "tts"}
+        k: v
+        for k, v in voice_patch.items()
+        if k not in {"stt", "tts", "enabled", "_voice_restart_confirmed"}
     })
-    if "stt" in voice_patch:
-        stt_cfg = window.config.setdefault("voice", {}).setdefault("stt", {})
-        deep_merge(stt_cfg, voice_patch["stt"])
-    if "tts" in voice_patch:
-        tts_cfg = window.config.setdefault("voice", {}).setdefault("tts", {})
-        deep_merge(tts_cfg, voice_patch["tts"])
     if presence_patch:
         deep_merge(window.config.setdefault("presence", {}), presence_patch)
         if "close_to_tray" in presence_patch:
@@ -38,12 +34,9 @@ def apply_settings(window, values: dict[str, Any]) -> None:
     merge_local_config(
         {
             "voice": {
-                "enabled": bool(voice_patch.get("enabled", True)),
                 "input_device": str(voice_patch.get("input_device") or ""),
                 "output_device": str(voice_patch.get("output_device") or ""),
                 "output_volume": float(voice_patch.get("output_volume", 1.0)),
-                "stt": {"enabled": bool((voice_patch.get("stt") or {}).get("enabled", True))},
-                "tts": {"enabled": bool((voice_patch.get("tts") or {}).get("enabled", True))},
             },
             "presence": {
                 "close_to_tray": bool(presence_patch.get("close_to_tray", True)),
@@ -136,13 +129,20 @@ def apply_settings(window, values: dict[str, Any]) -> None:
 
             arm_away_rest_timer(window)
 
-    # Soft-apply listen/speak availability without a full restart when possible.
-    master = bool((window.config.get("voice") or {}).get("enabled", True))
-    if master and window.voice is None:
-        window.thinking.append(
-            "Restart Arelis to load voice hardware after enabling Voice.",
-            kind="status",
+    def _ask_voice_restart(plan) -> bool:
+        from arelis.ui.dialog import confirm
+
+        return confirm(
+            window,
+            plan.heading,
+            plan.message,
+            confirm_text=plan.confirm_text,
+            cancel_text=plan.cancel_text,
         )
+
+    commit_voice_directions(
+        window, voice_patch, confirm_restart=_ask_voice_restart
+    )
     mail_patch = values.get("mail") or {}
     if mail_patch.get("address") or mail_patch.get("app_password"):
         from arelis.mail import save_account
@@ -151,35 +151,6 @@ def apply_settings(window, values: dict[str, Any]) -> None:
             address=str(mail_patch.get("address") or ""),
             app_password=str(mail_patch.get("app_password") or ""),
         )
-
-    if window.voice is not None:
-        stt_on = bool((window.config.get("voice") or {}).get("stt", {}).get("enabled", True))
-        tts_on = bool((window.config.get("voice") or {}).get("tts", {}).get("enabled", True))
-        # Compare against the service that is already wired. Mutating the
-        # flags first made wanted == live and hid the restart line.
-        listen_live = bool(getattr(window.voice, "stt_enabled", False))
-        speak_live = bool(getattr(window.voice, "tts_enabled", False))
-        window.voice.enabled = master
-        window.voice.stt_enabled = master and stt_on
-        window.voice.tts_enabled = master and tts_on
-        for notice in voice_restart_notices(
-            listen_wanted=master and stt_on,
-            listen_live=listen_live,
-            speak_wanted=master and tts_on,
-            speak_live=speak_live,
-        ):
-            window.thinking.append(notice, kind="status")
-        if not master or not stt_on:
-            if window.voice_controller is not None:
-                window.voice_controller.stop_all()
-            window.conversation.set_voice_available(False, "Voice listen is off in Settings.")
-        elif window.voice_controller is not None:
-            window.conversation.set_voice_available(True, "")
-            window.voice_controller.resume_wake()
-        if not master or not tts_on:
-            from arelis.ui.voice_host import stop_speech
-
-            stop_speech(window)
 
 
 def apply_window_theme(window, theme_id: str, *, persist: bool = True) -> str:
@@ -304,6 +275,11 @@ def open_settings(window, tab: str = "") -> None:
     active_facts: list[dict[str, object]] = []
     if window.store is not None:
         active_facts = window.store.list_facts(status="active", limit=50)
+    listen_live = False
+    speak_live = False
+    if window.voice is not None:
+        listen_live = bool(window.voice.stt_enabled)
+        speak_live = bool(window.voice.tts_enabled)
     dlg = SettingsDialog(
         window.config,
         always_on_top=window._always_on_top,
@@ -316,6 +292,8 @@ def open_settings(window, tab: str = "") -> None:
         on_test_speak=lambda: settings_test_speak(window),
         on_reset_layout=window._reset_layout,
         initial_tab=tab,
+        listen_live=listen_live,
+        speak_live=speak_live,
     )
     dlg.applied.connect(lambda values: apply_settings(window, values))
 

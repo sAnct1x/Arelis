@@ -65,6 +65,12 @@ BOARD_SKIP_TOOLS = frozenset(
         "inbox",
         "schedule",
         "desktop",
+        # Phase 5 tools — board turns still to write.
+        "notes",
+        "remind",
+        "transcribe",
+        "sql",
+        "pdf",
     }
 )
 

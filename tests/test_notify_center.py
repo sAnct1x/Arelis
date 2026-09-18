@@ -96,6 +96,25 @@ def test_load_channels_defaults() -> None:
     channels = load_channels({})
     assert channels["sms"] == "voice"
     assert channels["calendar"] == "visual"
+    assert channels["remind"] == "visual"
+
+
+def test_due_remind_notices_fire_once(tmp_path) -> None:
+    from datetime import timedelta
+
+    from arelis.notify.sources import due_remind_notices
+    from arelis.reminders import ReminderStore
+
+    store = ReminderStore(tmp_path / "reminders.json")
+    now = datetime.now().astimezone()
+    item = store.add_in("check the oven", minutes=1, now=now - timedelta(minutes=2))
+    first = due_remind_notices(store, now=now)
+    assert len(first) == 1
+    assert first[0].kind == "remind"
+    assert first[0].body == "check the oven"
+    assert item.id in first[0].group_key
+    second = due_remind_notices(store, now=now)
+    assert second == []
 
 
 def test_calendar_leads_fire_inside_window() -> None:

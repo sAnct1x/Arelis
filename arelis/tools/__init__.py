@@ -45,10 +45,13 @@ from arelis.tools.image_io import CHAT_MAX_EDGE, DEFAULT_MAX_EDGE
 from arelis.tools.inbound_sms import InboundSmsTool
 from arelis.tools.inbox import InboxTool
 from arelis.tools.memory_tool import MemoryTool
+from arelis.tools.notes import NotesTool
 from arelis.tools.ocr import OcrTool
+from arelis.tools.pdf_assemble import PdfAssembleTool
 from arelis.tools.plot import PlotTool
 from arelis.tools.python_exec import PythonTool
 from arelis.tools.recall import RecallTool
+from arelis.tools.remind import RemindTool
 from arelis.tools.research_report import ResearchReportTool
 from arelis.tools.rooms_tool import RoomsTool
 from arelis.tools.run_script import RunScriptTool
@@ -57,8 +60,10 @@ from arelis.tools.scrape import ScrapeTool
 from arelis.tools.search import build_search_tool
 from arelis.tools.sms_send import SendSmsTool
 from arelis.tools.solar_tool import SolarTool
+from arelis.tools.sql_query import SqlTool
 from arelis.tools.tasks import TasksTool
 from arelis.tools.tile import TileTool
+from arelis.tools.transcribe import TranscribeTool
 from arelis.tools.units import UnitsTool
 from arelis.tools.user_location import UserLocationTool
 from arelis.tools.vision import VisionTool
@@ -375,7 +380,21 @@ def build_tool_registry(
     # to approve a file landing on disk.
     if attended and (tools_cfg.get("document") or {}).get("enabled", True):
         registry.register(DocumentTool(workspace, config["_rooms"]))
+    if attended and (tools_cfg.get("pdf") or {}).get("enabled", True):
+        registry.register(PdfAssembleTool(workspace))
     registry.register(CodeWorkspaceTool(workspace))
+    # Same notes/ folder `keep this:` already writes. Always on with workspace.
+    if tools_cfg.get("notes", {}).get("enabled", True):
+        registry.register(NotesTool(workspace))
+    if attended and tools_cfg.get("remind", {}).get("enabled", True):
+        registry.register(RemindTool())
+    if attended and tools_cfg.get("transcribe", {}).get("enabled", True):
+        registry.register(
+            TranscribeTool(
+                workspace,
+                stt=config.get("_stt"),
+            )
+        )
     # Read-only git; same roots as workspace. Always on when workspace is.
     registry.register(GitInfoTool(workspace))
     # Project .py under workspace. Attended only — jobs must not start a
@@ -386,6 +405,13 @@ def build_tool_registry(
         registry.register(RunScriptTool(workspace, python=python))
     if tools_cfg.get("analyze", {}).get("enabled", True):
         registry.register(AnalyzeTool(workspace))
+    if tools_cfg.get("sql", {}).get("enabled", True):
+        registry.register(
+            SqlTool(
+                workspace,
+                memory_path=archive.path if archive is not None else None,
+            )
+        )
     doc_cfg = tools_cfg.get("doc_extract") or {}
     if doc_cfg.get("enabled", True):
         # Do not look at pages inside this tool. A 17-page homework PDF

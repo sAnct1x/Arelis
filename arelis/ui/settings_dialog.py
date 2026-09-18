@@ -73,6 +73,9 @@ class SettingsDialog(QDialog):
         on_test_speak: Callable[[], None] | None = None,
         on_reset_layout: Callable[[], None] | None = None,
         initial_tab: str = "",
+        listen_live: bool | None = None,
+        speak_live: bool | None = None,
+        confirm_voice_restart: Callable[[Any], bool] | None = None,
     ) -> None:
         super().__init__(parent)
         self.setObjectName("SettingsDialog")
@@ -90,6 +93,8 @@ class SettingsDialog(QDialog):
         self._on_test_mic = on_test_mic
         self._on_test_speak = on_test_speak
         self._on_reset_layout = on_reset_layout
+        self._confirm_voice_restart = confirm_voice_restart
+        self._voice_restart_ok = False
         self._drag_origin: QPoint | None = None
         self._rim_pulse = QTimer(self)
         self._rim_pulse.setInterval(100)
@@ -208,6 +213,20 @@ class SettingsDialog(QDialog):
         self.tts_enabled = QCheckBox("Speak (text to speech)")
         self.tts_enabled.setChecked(bool(tts.get("enabled", True)))
         self.tts_enabled.setToolTip(_live_note)
+        master_on = self.voice_enabled.isChecked()
+        self._listen_live = (
+            bool(listen_live)
+            if listen_live is not None
+            else master_on and self.stt_enabled.isChecked()
+        )
+        self._speak_live = (
+            bool(speak_live)
+            if speak_live is not None
+            else master_on and self.tts_enabled.isChecked()
+        )
+        self.voice_enabled.toggled.connect(self._guard_voice_toggle)
+        self.stt_enabled.toggled.connect(self._guard_voice_toggle)
+        self.tts_enabled.toggled.connect(self._guard_voice_toggle)
 
         test_row = QHBoxLayout()
         self.test_mic_btn = QPushButton("Test mic")
@@ -836,6 +855,50 @@ class SettingsDialog(QDialog):
                 f"The speech test did not run. {plain_reason(exc)}"
             )
 
+    def _voice_wanted(self) -> tuple[bool, bool]:
+        master = self.voice_enabled.isChecked()
+        return (
+            master and self.stt_enabled.isChecked(),
+            master and self.tts_enabled.isChecked(),
+        )
+
+    def _guard_voice_toggle(self, checked: bool) -> None:
+        from arelis.ui.voice_host import VOICE_BLOCK, voice_settings_plan
+
+        listen_wanted, speak_wanted = self._voice_wanted()
+        plan = voice_settings_plan(
+            listen_wanted=listen_wanted,
+            listen_live=self._listen_live,
+            speak_wanted=speak_wanted,
+            speak_live=self._speak_live,
+        )
+        if plan.action != VOICE_BLOCK:
+            if listen_wanted == self._listen_live and speak_wanted == self._speak_live:
+                self._voice_restart_ok = False
+            return
+        if self._ask_voice_restart(plan):
+            self._voice_restart_ok = True
+            return
+        box = self.sender()
+        if box is None:
+            return
+        box.blockSignals(True)
+        box.setChecked(not bool(checked))
+        box.blockSignals(False)
+
+    def _ask_voice_restart(self, plan: Any) -> bool:
+        if self._confirm_voice_restart is not None:
+            return bool(self._confirm_voice_restart(plan))
+        from arelis.ui.dialog import confirm
+
+        return confirm(
+            self,
+            plan.heading,
+            plan.message,
+            confirm_text=plan.confirm_text,
+            cancel_text=plan.cancel_text,
+        )
+
     def _run_reset_layout(self) -> None:
         if self._on_reset_layout is not None:
             self._on_reset_layout()
@@ -1033,6 +1096,7 @@ class SettingsDialog(QDialog):
                 "output_volume": self.volume_slider.value() / 100.0,
                 "stt": {"enabled": self.stt_enabled.isChecked()},
                 "tts": {"enabled": self.tts_enabled.isChecked()},
+                "_voice_restart_confirmed": self._voice_restart_ok,
             },
             "presence": {
                 "close_to_tray": self.close_to_tray.isChecked(),

@@ -785,6 +785,10 @@ ui:
   thinking_open: false
   workspace_open: false
   camera_open: false
+  # Wall-clock ceiling on a busy turn. The 8s busy watchdog only arms after
+  # Stop; this one arms when the turn starts, shows a countdown on the
+  # shimmer, and unlocks the same way Stop does if a tool hangs. 0 disables.
+  hung_turn_s: 90
   # Away rest (collapse unused panels) lives in ui_layout.ini via Settings →
   # Window, off by default. Not a shipped-on timer.
   notifications:

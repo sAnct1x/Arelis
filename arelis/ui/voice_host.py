@@ -9,11 +9,14 @@ arelis.voice; this is only the glass side.
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any
 from uuid import uuid4
 
 from PySide6.QtCore import QTimer
 
+from arelis.config import deep_merge, merge_local_config
 from arelis.core.events import Event, EventType
 from arelis.core.failure_copy import plain_reason
 from arelis.paths import outputs_dir
@@ -23,6 +26,31 @@ from arelis.ui.voice_control import VoiceController
 from arelis.voice.pcm import write_wav
 from arelis.voice.wake import WakeResult, classify_wake, looks_like_wake_attempt
 
+VOICE_KEEP = "keep"
+VOICE_BLOCK = "block"
+VOICE_PERSIST = "persist"
+
+
+@dataclass(frozen=True)
+class VoiceSettingsPlan:
+    """What Settings may do with Listen / Speak.
+
+    VoiceService has no reconfigure. The bus cannot unsubscribe, and the mic /
+    Whisper / Piper hold devices for the life of the window. A direction that
+    does not already match the live service cannot be flipped in place, so the
+    toggle blocks until they confirm they will restart. Confirming writes
+    config only — it does not pretend the running service followed.
+    """
+
+    action: str
+    persist: bool
+    apply_live: bool
+    heading: str = ""
+    message: str = ""
+    confirm_text: str = "Save — I'll restart"
+    cancel_text: str = "Keep current"
+    notices: tuple[str, ...] = ()
+
 
 def voice_restart_notices(
     *,
@@ -31,15 +59,24 @@ def voice_restart_notices(
     speak_wanted: bool,
     speak_live: bool,
 ) -> list[str]:
-    """One line per direction the running voice service cannot follow.
+    """One line per direction the running voice service cannot follow."""
+    return list(
+        _voice_direction_notices(
+            listen_wanted=listen_wanted,
+            listen_live=listen_live,
+            speak_wanted=speak_wanted,
+            speak_live=speak_live,
+        )
+    )
 
-    VoiceService reads both directions once, at construction, and only wires
-    itself to the speech events when speak was on at the time. Everything after
-    that is a setting the service never sees: Speak turned on later stays
-    silent, Speak turned off later still talks, and Listen turned on later
-    answers every utterance with "voice input is off". The switch moves, the
-    behaviour does not, and until now nothing said so.
-    """
+
+def _voice_direction_notices(
+    *,
+    listen_wanted: bool,
+    listen_live: bool,
+    speak_wanted: bool,
+    speak_live: bool,
+) -> tuple[str, ...]:
     notices: list[str] = []
     for label, wanted, live in (
         ("Listen", listen_wanted, listen_live),
@@ -52,7 +89,166 @@ def voice_restart_notices(
             f"Restart Arelis to finish turning {label} {state} — "
             f"the running voice service still has it {'off' if wanted else 'on'}."
         )
-    return notices
+    return tuple(notices)
+
+
+def voice_settings_plan(
+    *,
+    listen_wanted: bool,
+    listen_live: bool,
+    speak_wanted: bool,
+    speak_live: bool,
+    listen_saved: bool | None = None,
+    speak_saved: bool | None = None,
+    restart_confirmed: bool = False,
+) -> VoiceSettingsPlan:
+    """Decide keep / block / persist. Never a silent write against a live miss.
+
+    A mutant that flips config when wanted != live, with no live apply and no
+    prompt, must fail the tests that call this.
+    """
+    if listen_saved is None:
+        listen_saved = listen_live
+    if speak_saved is None:
+        speak_saved = speak_live
+    notices = _voice_direction_notices(
+        listen_wanted=listen_wanted,
+        listen_live=listen_live,
+        speak_wanted=speak_wanted,
+        speak_live=speak_live,
+    )
+    mismatch_live = listen_wanted != listen_live or speak_wanted != speak_live
+    mismatch_saved = listen_wanted != listen_saved or speak_wanted != speak_saved
+    if not mismatch_live:
+        return VoiceSettingsPlan(
+            action=VOICE_KEEP,
+            persist=mismatch_saved,
+            apply_live=False,
+            notices=notices,
+        )
+    if not mismatch_saved:
+        # Already persisted; they still owe a restart. Do not nag on Apply
+        # of volume / theme / anything else.
+        return VoiceSettingsPlan(
+            action=VOICE_KEEP,
+            persist=False,
+            apply_live=False,
+            notices=notices,
+        )
+    heading = "Restart required"
+    message = " ".join(notices) if notices else (
+        "Restart Arelis before this voice change takes effect."
+    )
+    if not restart_confirmed:
+        return VoiceSettingsPlan(
+            action=VOICE_BLOCK,
+            persist=False,
+            apply_live=False,
+            heading=heading,
+            message=message,
+            notices=notices,
+        )
+    return VoiceSettingsPlan(
+        action=VOICE_PERSIST,
+        persist=True,
+        apply_live=False,
+        heading=heading,
+        message=message,
+        notices=notices,
+    )
+
+
+def _voice_direction_wanted(
+    voice_cfg: dict[str, Any], voice_patch: dict[str, Any]
+) -> tuple[bool, bool]:
+    master = bool(voice_patch.get("enabled", voice_cfg.get("enabled", True)))
+    stt_src = voice_patch.get("stt") if "stt" in voice_patch else voice_cfg.get("stt")
+    tts_src = voice_patch.get("tts") if "tts" in voice_patch else voice_cfg.get("tts")
+    stt_on = bool((stt_src or {}).get("enabled", True))
+    tts_on = bool((tts_src or {}).get("enabled", True))
+    return master and stt_on, master and tts_on
+
+
+def _voice_direction_saved(voice_cfg: dict[str, Any]) -> tuple[bool, bool]:
+    master = bool(voice_cfg.get("enabled", True))
+    stt_on = bool((voice_cfg.get("stt") or {}).get("enabled", True))
+    tts_on = bool((voice_cfg.get("tts") or {}).get("enabled", True))
+    return master and stt_on, master and tts_on
+
+
+def _voice_direction_live(window) -> tuple[bool, bool]:
+    voice = getattr(window, "voice", None)
+    if voice is None:
+        return False, False
+    return bool(getattr(voice, "stt_enabled", False)), bool(
+        getattr(voice, "tts_enabled", False)
+    )
+
+
+def commit_voice_directions(
+    window,
+    voice_patch: dict[str, Any] | None,
+    *,
+    confirm_restart: Callable[[VoiceSettingsPlan], bool] | None = None,
+) -> VoiceSettingsPlan:
+    """Persist Listen / Speak only after an explicit restart confirm.
+
+    Does not flip the running VoiceService flags. Device / volume live-apply
+    stays in settings_host.
+    """
+    patch = dict(voice_patch or {})
+    confirmed = bool(patch.pop("_voice_restart_confirmed", False))
+    voice_cfg = dict((getattr(window, "config", None) or {}).get("voice") or {})
+    listen_wanted, speak_wanted = _voice_direction_wanted(voice_cfg, patch)
+    listen_saved, speak_saved = _voice_direction_saved(voice_cfg)
+    listen_live, speak_live = _voice_direction_live(window)
+    plan = voice_settings_plan(
+        listen_wanted=listen_wanted,
+        listen_live=listen_live,
+        speak_wanted=speak_wanted,
+        speak_live=speak_live,
+        listen_saved=listen_saved,
+        speak_saved=speak_saved,
+        restart_confirmed=confirmed,
+    )
+    if plan.action == VOICE_BLOCK and confirm_restart is not None:
+        confirmed = bool(confirm_restart(plan))
+        plan = voice_settings_plan(
+            listen_wanted=listen_wanted,
+            listen_live=listen_live,
+            speak_wanted=speak_wanted,
+            speak_live=speak_live,
+            listen_saved=listen_saved,
+            speak_saved=speak_saved,
+            restart_confirmed=confirmed,
+        )
+    if not plan.persist:
+        return plan
+    _persist_voice_directions(window, patch)
+    chat = getattr(window, "chat", None)
+    add_system = getattr(chat, "add_system", None)
+    if callable(add_system):
+        for notice in plan.notices:
+            add_system(notice)
+    return plan
+
+
+def _persist_voice_directions(window, voice_patch: dict[str, Any]) -> None:
+    voice_cfg = window.config.setdefault("voice", {})
+    written: dict[str, Any] = {}
+    if "enabled" in voice_patch:
+        voice_cfg["enabled"] = bool(voice_patch["enabled"])
+        written["enabled"] = bool(voice_patch["enabled"])
+    if "stt" in voice_patch:
+        stt_cfg = voice_cfg.setdefault("stt", {})
+        deep_merge(stt_cfg, voice_patch["stt"])
+        written["stt"] = {"enabled": bool((voice_patch.get("stt") or {}).get("enabled", True))}
+    if "tts" in voice_patch:
+        tts_cfg = voice_cfg.setdefault("tts", {})
+        deep_merge(tts_cfg, voice_patch["tts"])
+        written["tts"] = {"enabled": bool((voice_patch.get("tts") or {}).get("enabled", True))}
+    if written:
+        merge_local_config({"voice": written})
 
 
 def build_voice(window) -> None:

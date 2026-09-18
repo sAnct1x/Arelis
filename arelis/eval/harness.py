@@ -96,7 +96,7 @@ _STUB_SCHEMAS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     ),
     "camera": (("action",), ("action",)),
     "doc_extract": (("path",), ("max_chars", "page_end", "page_start", "path")),
-    "git_info": ((), ("action", "max_chars", "n", "path")),
+    "git_info": ((), ("action", "max_chars", "n", "path", "rev")),
     "goals": (
         ("action",),
         ("action", "horizon", "id", "kind", "limit", "notes", "status", "title"),
@@ -116,7 +116,7 @@ _STUB_SCHEMAS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     "ocr": (("action",), ("action", "lang", "path")),
     "recall": (
         ("action",),
-        ("action", "limit", "offset", "page", "query", "session_id", "source"),
+        ("action", "kind", "limit", "offset", "page", "query", "session_id", "source"),
     ),
     "research_report": (("query",), ("max_sources", "query", "recency")),
     "scrape": (("url",), ("max_chars", "url")),
@@ -139,7 +139,18 @@ _STUB_SCHEMAS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     "web_search": (("query",), ("max_results", "query", "recency")),
     "workspace": (
         ("action",),
-        ("action", "content", "max_chars", "new", "old", "path", "text", "title"),
+        (
+            "action",
+            "content",
+            "diff",
+            "max_chars",
+            "new",
+            "old",
+            "patch",
+            "path",
+            "text",
+            "title",
+        ),
     ),
 }
 
