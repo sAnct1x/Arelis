@@ -3,20 +3,34 @@
 SymPy's parse_expr uses eval. evaluate=False is not a sandbox. This tool
 whitelists an AST first, then parses into a locked namespace with empty
 builtins, then runs the named action under a timeout.
+
+That last clause was aspirational until 2026-09-17. Only integrate, dsolve and
+sum were bounded, by a child process that can be killed; every other action
+ran unbounded on the calling thread, and a degree-40 solve or a nested
+simplify would spin a core with the glass unable to answer and Stop unable to
+help. Both halves are real now, by different means, because they have
+different problems: a thread deadline cannot interrupt integrate(), and a
+process spawn cannot be charged to every quadratic. See `_run_bounded`.
 """
 
 from __future__ import annotations
 
 import ast
 import asyncio
+import concurrent.futures
 import multiprocessing
 import re
+import sys
+import time
 from typing import Any
 
 from arelis.tools.base import ToolResult
 
 _MAX_CHARS = 500
 _TIMEOUT_S = 8.0
+# Extra wall-clock the future waits past the tracer's own deadline, for the
+# case where SymPy is stuck inside one long C call and no call event fires.
+_TIMEOUT_GRACE_S = 2.0
 _ACTIONS = frozenset(
     {
         "integrate",
@@ -576,7 +590,8 @@ def _run_timed(
             n,
             timeout=_TIMEOUT_S,
         )
-    return _compute(
+    return _run_bounded(
+        _compute,
         action,
         expr,
         wrt=wrt,
@@ -587,6 +602,73 @@ def _run_timed(
         at=at,
         direction=direction,
     )
+
+
+class _CasDeadline(BaseException):
+    """Raised inside the worker thread when an in-process action overruns."""
+
+
+def _call_deadline_tracer(deadline: float) -> Any:
+    """A deadline check on function *calls*, not lines.
+
+    Returning None from the global trace function disables per-line tracing,
+    which is where the cost of `sys.settrace` lives. SymPy is call-heavy
+    enough that the deadline still fires promptly, and measured on the fast
+    path the overhead is not distinguishable from noise: diff, solve on a
+    quadratic and a small simplify all came in at or under their untraced
+    times. That matters, because the whole reason these actions stay in this
+    process is that they must not cost a 2s spawn.
+    """
+
+    def _trace(frame: Any, event: str, arg: Any) -> Any:
+        if time.monotonic() > deadline:
+            raise _CasDeadline()
+        return None
+
+    return _trace
+
+
+def _run_bounded(
+    target: Any, *args: Any, timeout: float | None = None, **kwargs: Any
+) -> Any:
+    """The in-process path, with the timeout the module docstring promises.
+
+    It did not have one. `_SPAWN_ACTIONS` — integrate, dsolve, sum — got a
+    killable child process, and every other action ran unbounded on the
+    calling thread. Measured: `solve(x**40 - x**17 + 3*x**5 - 1)`, a nested
+    `simplify`, and `series(exp(sin(tan(x))), n=40)` each ran past twenty
+    seconds and were still going. None of those is an exotic input for
+    someone doing physics homework, and the failure is the worst kind — the
+    glass stops answering and Stop does nothing.
+
+    Two layers, as in python_exec: the tracer stops SymPy itself, and the
+    future walks away from the thread if the tracer never gets a call event
+    to act on.
+    """
+
+    # Resolved here rather than as a default argument, which would bind the
+    # module constant at import and make the budget impossible to lower in a
+    # test without an 8s wait per case.
+    budget = float(_TIMEOUT_S if timeout is None else timeout)
+
+    def _traced() -> Any:
+        sys.settrace(_call_deadline_tracer(time.monotonic() + budget))
+        try:
+            return target(*args, **kwargs)
+        except _CasDeadline as exc:
+            raise TimeoutError("cas timeout") from exc
+        finally:
+            sys.settrace(None)
+
+    pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    try:
+        future = pool.submit(_traced)
+        try:
+            return future.result(timeout=budget + _TIMEOUT_GRACE_S)
+        except concurrent.futures.TimeoutError as exc:
+            raise TimeoutError("cas timeout") from exc
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
 
 
 def _run_in_process(target: Any, *args: Any, timeout: float = _TIMEOUT_S) -> _CasResult:

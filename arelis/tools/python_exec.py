@@ -4,15 +4,34 @@ The pocket calculator is one expression. Physics is a few lines with names.
 This tool runs that cell: assignments, prints, math, sympy, numpy. It is not
 a general interpreter. os, subprocess, sockets, and files stay out.
 
-Three checks do that work, and the order they are written in is the order they
-were learned in. The import allowlist and the underscore rules came first and
-were never enough on their own: they inspect `Import`, `Attribute` and `Name`
-nodes, so anything spelled inside a *string* was invisible to all of them.
-`sympy.sympify` — `eval` with a friendlier name, and preloaded here, because
-symbolic maths is the point of the tool — read those strings quite happily.
-So there are now two more rules. A string literal may not contain `__`, and
-the names that mean "evaluate this text" or "touch the disk" may not be
-referenced at all, by any spelling. See `tests/test_python_exec.py`.
+Two layers do that work, and it is worth knowing which one to trust.
+
+The AST rules came first: an import allowlist, no leading underscores, a list
+of forbidden calls, and a list of attribute names that mean "evaluate this
+text" or "touch the disk". They are useful and they are *not* sufficient,
+which is not a guess — it is the history of this file. The list shipped with
+`savetxt` and `save` on it, and `scipy.io.savemat`, `scipy.io.wavfile.write`
+and `from scipy.io import savemat` all wrote real files to the repo root. Fix
+those three names and the next library arrives with three more. A denylist of
+names is always one import behind.
+
+So the promise above is kept by an audit hook instead. `sys.addaudithook`
+fires on the *operation* — the `open`, the `Popen`, the `connect` — no matter
+which function was spelled to reach it, and the hook refuses any of them on a
+thread that is running a cell. There is only one `open`. The AST rules stay as
+defence in depth and as better error messages, but the hook is the boundary.
+
+One honest asymmetry: writes are structural, reads are not. Blocking read-mode
+`open` would stop the import machinery, and a cell that cannot `import sympy`
+is not a tool, so reads rest on the name denylist alone. See
+`test_reading_a_file_is_refused_too`.
+
+The string rule is worth its own line, because it is what the AST rules kept
+missing: they inspect `Import`, `Attribute` and `Name` nodes, so a dunder or a
+payload spelled inside a *string constant* was invisible to all of them.
+`sympy.sympify` is `eval` with a friendlier name and is preloaded here,
+because symbolic maths is the point of the tool, and it read those strings
+quite happily. A string literal may therefore not contain `__`.
 
 The 10s limit is two layers, because a Python thread cannot be killed from
 outside. A line tracer raises inside the cell, which stops any loop written in
@@ -28,6 +47,7 @@ import ast
 import concurrent.futures
 import io
 import sys
+import threading
 import time
 from typing import Any
 
@@ -149,6 +169,17 @@ _FORBIDDEN_ATTR_CALLS = frozenset(
         "fromfile",
         "tofile",
         "memmap",
+        "savemat",
+        "mmwrite",
+        "write",
+        "writeto",
+        "imsave",
+        "imwrite",
+        "savefig",
+        "to_csv",
+        "to_excel",
+        "to_pickle",
+        "dump",
         "open",
         "mkdir",
         "makedirs",
@@ -272,6 +303,99 @@ class PythonTool:
         )
 
 
+class _CellBlocked(BaseException):
+    """Raised by the audit hook when the cell attempts a forbidden operation.
+
+    `BaseException` for the same reason as `_CellDeadline`: `except
+    Exception` in the model's own code must not be able to swallow it.
+    """
+
+
+# Audit events with no honest use inside a numerics cell. This is the layer
+# that actually keeps the docstring's promise, because it fires on the
+# *operation* rather than on the name someone spelled to reach it.
+#
+# The name denylist below could not do that, and the proof is in the history:
+# it was written with `savetxt` and `save` on it, and `scipy.io.savemat`,
+# `scipy.io.wavfile.write` and `from scipy.io import savemat` all still wrote
+# real files to the repo root. Every denylist of names is one library away
+# from being wrong; there is only one `open`.
+_BLOCKED_AUDIT_EVENTS = frozenset(
+    {
+        "os.system",
+        "os.exec",
+        "os.posix_spawn",
+        "os.spawn",
+        "os.remove",
+        "os.rename",
+        "os.mkdir",
+        "os.rmdir",
+        "os.chmod",
+        "os.link",
+        "os.symlink",
+        "os.truncate",
+        # os.putenv / os.unsetenv are deliberately absent. They were on this
+        # list for one probe run, and `import scipy.sparse` tripped it: the
+        # import machinery sets environment variables, so blocking them broke
+        # legitimate numerics before the cell ran a line of its own. Setting a
+        # variable inside this process is not a write, a process, or a packet.
+        "subprocess.Popen",
+        "socket.connect",
+        "socket.bind",
+        "socket.sendto",
+        "ctypes.dlopen",
+        "ctypes.dlsym",
+        "ctypes.call_function",
+        "shutil.copyfile",
+        "shutil.move",
+        "shutil.rmtree",
+        "webbrowser.open",
+        "urllib.Request",
+        "pickle.find_class",
+    }
+)
+
+# Any of these in an open() mode means the call intends to modify something.
+# Read modes stay allowed: importing a module opens files, and blocking that
+# would mean the cell could not `import sympy`.
+_WRITE_MODE_CHARS = frozenset("wax+")
+
+_cell_local = threading.local()
+_audit_lock = threading.Lock()
+_audit_installed = False
+
+
+def _cell_audit(event: str, args: tuple[Any, ...]) -> None:
+    """Process-wide hook that is inert except on a thread running a cell.
+
+    `sys.addaudithook` cannot be removed once installed, so this has to be
+    safe for the whole application forever. It is: the first line returns for
+    every thread that is not executing a cell, which is all of them almost
+    all of the time, and the only way out of here is a deliberate raise.
+
+    Thread state rather than a set of thread ids on purpose — ids are reused
+    after a thread dies, and the timeout path deliberately abandons threads.
+    """
+    if not getattr(_cell_local, "in_cell", False):
+        return
+    if event in _BLOCKED_AUDIT_EVENTS:
+        raise _CellBlocked(event)
+    if event == "open":
+        mode = args[1] if len(args) >= 2 else ""
+        if isinstance(mode, str) and not _WRITE_MODE_CHARS.isdisjoint(mode):
+            raise _CellBlocked(f"open(..., {mode!r})")
+
+
+def _install_audit_hook() -> None:
+    """Installed on first use, so the app pays nothing until a cell runs."""
+    global _audit_installed
+    with _audit_lock:
+        if _audit_installed:
+            return
+        sys.addaudithook(_cell_audit)
+        _audit_installed = True
+
+
 class _CellDeadline(BaseException):
     """Raised inside the worker thread when the cell runs past its deadline.
 
@@ -339,6 +463,8 @@ def _run_cell(code: str) -> str:
     # The clock starts here rather than at the top of the function: importing
     # sympy and numpy is the tool's own cost, not the model's, and on a cold
     # process it can eat most of the budget on its own.
+    _install_audit_hook()
+    _cell_local.in_cell = True
     sys.settrace(_trace_deadline(time.monotonic() + _TIMEOUT_S))
     try:
         if body and isinstance(body[-1], ast.Expr):
@@ -362,8 +488,15 @@ def _run_cell(code: str) -> str:
             exec(compile(tree, "<python>", "exec"), namespace, namespace)
     except _CellDeadline as exc:
         raise TimeoutError("python timeout") from exc
+    except _CellBlocked as exc:
+        raise ValueError(
+            f"{exc.args[0]} is not allowed in this cell. It runs in Arelis's "
+            "own process: no files, no processes, no sockets. Use the "
+            "workspace tool for files and plot for pictures."
+        ) from exc
     finally:
         sys.settrace(None)
+        _cell_local.in_cell = False
 
     out = buf.getvalue()
     if last_value is not None:

@@ -223,6 +223,76 @@ async def test_the_disk_is_out_of_reach(code: str) -> None:
 
 
 @pytest.mark.asyncio
+async def test_a_write_through_an_unlisted_name_is_still_stopped(
+    tmp_path: Path,
+) -> None:
+    """The name denylist is the weak layer, and it has already been wrong.
+
+    It shipped with `savetxt` and `save` on it, and `scipy.io.savemat`,
+    `scipy.io.wavfile.write` and `from scipy.io import savemat` all wrote real
+    files anyway. Adding those three names fixes those three names; the next
+    library brings its own.
+
+    `hb_write` is the control. It is deliberately *not* on the denylist, so
+    the only thing that can stop it is the audit hook, which fires on the
+    `open` rather than on the spelling.
+    """
+    pytest.importorskip("scipy")
+    target = tmp_path / "escape.mtx"
+    ok, out = await _run(
+        "import numpy as np\nimport scipy.io\nimport scipy.sparse\n"
+        f"scipy.io.hb_write(r'{target}', scipy.sparse.csr_matrix(np.eye(3)))\n"
+        "print('wrote')"
+    )
+    assert not ok, f"an unlisted write name reached the disk: {out}"
+    assert not target.exists(), "a file was created by a tool that forbids files"
+
+
+@pytest.mark.asyncio
+async def test_importing_a_heavy_package_is_not_mistaken_for_an_escape() -> None:
+    """The audit hook is process-wide and cannot be uninstalled, so a false
+    positive is expensive. `os.putenv` was on the blocked list for exactly one
+    probe run: `import scipy.sparse` sets environment variables while loading,
+    so the cell was refused before it ran a line of its own."""
+    pytest.importorskip("scipy")
+    ok, out = await _run("import scipy.sparse\nprint('loaded')")
+    assert ok, out
+    assert "loaded" in out
+
+
+@pytest.mark.asyncio
+async def test_reading_a_file_is_refused_too(tmp_path: Path) -> None:
+    """Reads are the weaker half, and it is worth being clear why.
+
+    Writes are stopped structurally: the audit hook refuses any `open` whose
+    mode implies modification, whatever function was called to get there. It
+    cannot do the same for reads, because importing a module opens files, and
+    a cell that cannot `import sympy` is not a tool.
+
+    So reads rest on the name denylist alone — the layer already proven
+    fallible. Turning the denylist off and re-running this file shows exactly
+    that: every write test still passes on the hook alone, and this one stops.
+    Named here so the asymmetry is a known cost rather than a surprise.
+    """
+    secret = tmp_path / "notes.txt"
+    secret.write_text("private", encoding="utf-8")
+    ok, out = await _run(f"import numpy as n\nprint(n.loadtxt(r'{secret}'))")
+    assert not ok, f"the cell read a file off disk: {out}"
+    assert "private" not in out
+
+
+@pytest.mark.asyncio
+async def test_the_hook_is_inert_on_every_other_thread(tmp_path: Path) -> None:
+    """The hook stays installed for the life of the process. If it leaked out
+    of the cell it would stop Arelis writing its own files — the database, the
+    logs, a document the user asked for."""
+    await _run("print(1)")  # ensure the hook is installed
+    target = tmp_path / "ordinary.txt"
+    target.write_text("the rest of the app still works", encoding="utf-8")
+    assert target.read_text(encoding="utf-8") == "the rest of the app still works"
+
+
+@pytest.mark.asyncio
 async def test_json_round_trips_in_memory() -> None:
     """loads/dumps are fine; only the file-shaped calls are blocked."""
     ok, out = await _run("import json\nprint(json.loads(json.dumps({'a': 1})))")
