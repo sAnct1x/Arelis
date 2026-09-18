@@ -1058,8 +1058,15 @@ rather than assumed.
   question), and an empty `text` is refused rather than executed. And the
   Allow card now names the right action: it read *"read the clipboard"* for
   both, which asks for the wrong consent and understates the cost.
-- [ ] **4.5** `calculator` takes one expression with no variables and no
+- [x] **4.5** `calculator` takes one expression with no variables and no
   units (`tools/calculator.py:66-67`). Give it a variable scratchpad.
+  **Done `6ee6e22` / `b371959`, and both halves of the original note turned
+  out to be wrong.** Variables are the `python` tool's job and the
+  description already said so; adding them here would be a third evaluator
+  to keep safe. Units already have a tool — `tools/units.py`, pint-backed —
+  so the gap was that `5 miles in km` said "invalid syntax" instead of
+  naming it. What the line missed is that the tool was **wrong about
+  arithmetic**, which is the one thing it exists for. See the section below.
 - [~] **4.6** `plot` does line, scatter, residuals only. Add histogram,
   bar, and subplots — the three a homework or data question actually asks
   for. **A worse gap was found first and closed in `7a9ac10`:** there was
@@ -1069,10 +1076,16 @@ rather than assumed.
   ForceGate sweep section for why bare `sympify` would have been RCE.
   Histogram / bar / subplots are still open. Note when taking them that
   `7a9ac10` added the **first** test that runs `plot.run` at all.
-- [ ] **4.7** `web_fetch` is GET-only with no headers, no POST, no auth
+- [x] **4.7** `web_fetch` is GET-only with no headers, no POST, no auth
   (`tools/web.py:28-32`). Any real API integration is impossible.
-- [ ] **4.8** `analyze` does summary/head/describe. No filtering, no
-  grouping, no joins. Add a query action.
+  **Done `5244834`.** `method`, `headers` and `body`, with the gate wired
+  before the capability: a non-GET is `action_is_write` and answers to the
+  same confirm toggle as a file write, and `DELETE` is `action_is_destructive`
+  so it still pauses on the filament face where a spoken ask is otherwise the
+  grant. Three things had to be right beyond "it sends a POST" — see below.
+- [x] **4.8** `analyze` does summary/head/describe. No filtering, no
+  grouping, no joins. Add a query action. **Done `fbb7bd6`,** with a
+  hand-written condition parser rather than `DataFrame.query()`.
 - [ ] **4.9** `inbox` cannot compose or draft. `send_email` is one-shot.
   Add a draft action so a reply can be reviewed before the Allow card.
 - [ ] **4.10** `tasks` and `goals` have no priority, recurrence, or
@@ -1340,6 +1353,134 @@ Pain #3. Ordered by how fast a user hits it.
 - [ ] **6.9** **Accessibility**: no screen-reader labels, no high-contrast
   mode, no light theme, frameless chrome throughout. Scope this honestly
   before committing — it is bigger than it looks.
+
+### Tool depth: 4.5, 4.7, 4.8 — 2026-09-17
+
+Three roadmap lines about tools that could start a job and not finish it.
+All three landed, and in all three cases the roadmap line was less
+interesting than what was behind it.
+
+**`analyze` could describe a table but not answer a question about one**
+(`fbb7bd6`). `summary`, `head` and `describe` tell you the shape of a file.
+"What did we spend in March?" left the model choosing between reading two
+hundred rows out of `head` and adding them up in its own head, or guessing.
+Neither is acceptable from a tool that exists so numbers are not invented.
+
+`action=query` now does the four verbs a data question actually uses:
+`where`, `group_by` + `agg` + `on`, `sort`/`desc`, `limit`.
+
+The obvious implementation is `DataFrame.query()` and it is not used, for
+the third repeat of the same lesson in one day. That method *evaluates* its
+argument, and `@name` resolves against the calling frame. Probed rather than
+assumed, and both of these ran:
+
+- `@df.to_csv(path)` — wrote a real file, then raised on the mask, so the
+  write had already happened.
+- `@asyncio.base_events.os.system(...)` — executed a shell command.
+  `asyncio` is a module global in `analyze.py`, so that chain is live in the
+  exact scope the call would have run in.
+
+pandas blocks `__import__` by name, which matters for a reason worth
+recording: **the first version of the escape test used `__import__` and
+passed with the parser swapped out for `df.query()`.** It was a test named
+for a thing it did not check. The two payloads above replaced it, and both
+fail under that mutation now.
+
+So `where` is parsed by hand into a column, an operator and a literal. No
+precedence, no arithmetic, no calls — each of those is a step back towards
+needing an evaluator. `or` is refused with the workaround named (`in`), a
+wrong column name lists the real columns, and every result states
+`N of M rows matched` so an empty filter cannot be read as a real zero.
+
+**`web_fetch` was GET-only** (`5244834`). Now `method`, `headers`, `body`.
+The capability is the easy part; three other things had to be right.
+
+- *The gate, wired before the feature.* Non-GET is `action_is_write` and
+  answers to the same confirm toggle as a file write. `DELETE` is
+  `action_is_destructive`, so it pauses on the filament face too — without
+  that, "delete my account" spoken aloud would have gone through with no
+  pause at all, because on that face the spoken ask is the grant.
+- *Redirects are not followed for non-GET, at all.* A 307 replays the
+  method, the body **and** the headers against whatever host the `Location`
+  names. An `Authorization` meant for one API would be handed to another,
+  chosen by the server. There is no check that makes that acceptable, so the
+  hop is reported and the model can fetch the new URL deliberately. GET still
+  follows hop-by-hop with the existing per-hop check.
+- *`Host` cannot be set.* Every guard in `fetch.py` validates the host in the
+  *URL*; a `Host:` header that disagrees is how a request that passed the
+  check arrives somewhere else. Framing headers (`Content-Length`,
+  `Transfer-Encoding`, …) are refused for the smuggling reason. A forbidden
+  header **fails the call** rather than being dropped — a silently dropped
+  `Authorization` reads as "the API rejected us" rather than "we never sent
+  the key".
+
+The confirm card shows the verb and the host and nothing else. Header values
+are the one place an API key lives on this path, and a card is one
+screenshot away from somewhere it should not be.
+
+Two of these tests were caught passing for the wrong reason during the
+mutation round: the made-up hosts fail DNS, so `ok is False` was true
+regardless of the guard. They assert on the message now, and a `resolvable`
+fixture stubs the URL check only where the question is what went on the
+wire — never in the SSRF tests, where stubbing it would test the stub.
+
+**`calculator` was wrong about arithmetic** (`6ee6e22`, `b371959`). This is
+the one worth reading. The roadmap line asked for variables and units; both
+were already answered elsewhere — `python` has variables and says so in its
+own description, and `units.py` is pint-backed and has existed the whole
+time. Meanwhile the tool whose module docstring reads *"Deterministic
+arithmetic — so the model does not invent numbers"* had **no test file at
+all**, and returned:
+
+- `0.1 + 0.2 = 0.30000000000000004`
+- `100 * 1.1 = 110.00000000000001`
+- `0.1 + 0.2 - 0.3 = 5.551115123125783e-17` (the answer is zero)
+- `2e400 = inf`, with `ok=True`
+- `2e400 - 2e400 = nan`, with `ok=True`
+
+The last two are the bad ones. A tool called specifically so the model would
+not invent a number handed back a non-number and marked it a success.
+
+Arithmetic now runs on `Fraction`. A decimal literal is read as the decimal
+that was *written* — `Fraction(str(0.1))` is one tenth, where `Fraction(0.1)`
+is the exact binary value and would be the problem rather than the fix.
+Floats are still used the moment a real function is involved, because `sqrt`
+and `log` have no rational answer and pretending otherwise is a different
+lie. `1/3` reports `0.3333333333333333 (exactly 1/3)`, so the model does not
+treat the decimal as the whole truth.
+
+Two problems this *created*, both found by my own tests rather than by
+reading:
+
+- Exact arithmetic has no overflow, so `1e308 * 10` stopped being `inf` and
+  became a genuinely correct 309-digit integer — correct, and three hundred
+  tokens of prompt nobody can read. Capped at 500 digits (generous:
+  `factorial(170)` is 307 and is a real answer), with a refusal that says
+  why rather than truncating.
+- A huge *float* still satisfies `is_integer()`. `hypot(1e308, 1e308)` was
+  being spelled out as a 309-digit integer of which roughly 292 digits are
+  an artefact of the binary representation — claiming precision the number
+  does not have, which is the same failure as returning `nan` with `ok=True`.
+
+Mutation found one more: disabling the `isfinite` check broke nothing,
+because `Fraction` now catches the obvious overflows at the literal. It is
+not dead code — `sqrt(1e308)*1e300` goes through a real function and comes
+back as `inf` — but nothing had been covering it, and it is covered now.
+
+Separately, every failure now names the next tool the way `analyze` does for
+a PDF: unit conversions point at `units`, equations at `cas`, scripts at
+`python`, combinations at the `factorial` form. A bare "invalid syntax"
+leaves answering from memory as the model's only remaining move.
+
+And the shapes people actually type are accepted: `15% of 84`,
+`30% off 59.99`, `$45.00 + $12.50`, `1,250 + 300`, `20 x 5`, `what is 8*7`,
+`3 + 4 =`. The thousands separator is only stripped when the expression
+contains no `(`, because `max(1,250)` is two arguments and reading it as
+1250 would be silent and wrong — much worse than not understanding a comma.
+
+**What generalises, again.** Two of the three tools here had no test file.
+Both had a real defect. The `no test file` query has now found a defect
+every single time it has been run, and there are tools left on that list.
 
 ### Policy holes found during the audit
 
