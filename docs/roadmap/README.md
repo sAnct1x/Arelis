@@ -694,6 +694,15 @@ cannot ship as-is.
   parameters and `_look_if_ink`.
 - [ ] **1.5** Delete `arelis/tools/pdf_look.py`. Nothing imports
   `look_page_images`. It was superseded by `vision._look_pages`.
+  **Re-confirmed 2026-09-17:** it is the last module the "no test file names
+  this" query returns, and a grep for both the module and the function finds
+  only this line. Left in place because deleting needs your say-so. Worth
+  reading before it goes, as a record of how prose rots: the docstring says
+  *"a few VL batches. One extract, not 17 looks"* while `_CHAT_BATCH = 1`
+  three lines below makes a 17-page PDF exactly 17 looks. The comment next to
+  the constant explains why (a 5-page batch hung the 9B); the docstring above
+  it was never updated. Same shape as every claim the sweep found — true when
+  written, false after the fix, and nothing failed when it stopped being true.
 - [ ] **1.6** Delete `ink_vision_calls` from `tools/pdf_pages.py:90-116`.
   Also dead — `ink_vision_walk` is what `turn_round` calls.
 - [ ] **1.7** Get `.tmp_pdfium/` and `physhw/` out of the working tree.
