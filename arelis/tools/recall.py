@@ -12,6 +12,7 @@ says so once.
 
 from __future__ import annotations
 
+import inspect
 from collections.abc import Awaitable, Callable
 from datetime import datetime
 from typing import Any
@@ -27,6 +28,8 @@ _SESSION_MESSAGE_CAP = 40
 
 EmbedFn = Callable[[str, list[str]], Awaitable[list[list[float]]]]
 ModelCheckFn = Callable[[], Awaitable[bool]]
+# int = files; (files, chunks) when the indexer reports both.
+IndexFn = Callable[..., Awaitable[int | tuple[int, int]] | int | tuple[int, int]]
 
 
 class RecallTool:
@@ -37,7 +40,8 @@ class RecallTool:
         "you do not know something the user may have said, written, or received. "
         "Results are dated excerpts, not perfect memory. Pass source=docs, "
         "source=chat, or source=mail to narrow; source=all (default) searches "
-        "everything that is indexed."
+        "everything that is indexed. action=index chunks new files for "
+        "keyword search now; embeddings wait until the turn is idle."
     )
     risk = "read"
     parameters_schema: dict[str, Any] = {
@@ -45,10 +49,12 @@ class RecallTool:
         "properties": {
             "action": {
                 "type": "string",
-                "enum": ["search", "session"],
+                "enum": ["search", "session", "index"],
                 "description": (
                     "search finds chat, file, and/or mail excerpts by keyword; "
-                    "session reads one conversation back by id"
+                    "session reads one conversation back by id; "
+                    "index chunks newly added workspace files (and peeked "
+                    "mail) for keyword search without loading the embed model"
                 ),
             },
             "query": {
@@ -90,6 +96,13 @@ class RecallTool:
                     "offset=(page-1)*limit when offset is omitted."
                 ),
             },
+            "path": {
+                "type": "string",
+                "description": (
+                    "Optional folder or file, for action=index. Limits docs "
+                    "to that workspace path."
+                ),
+            },
         },
         "required": ["action"],
     }
@@ -101,11 +114,15 @@ class RecallTool:
         embed: EmbedFn | None = None,
         embed_model: str = "nomic-embed-text",
         embed_available: ModelCheckFn | None = None,
+        index_docs: IndexFn | None = None,
+        index_mail: IndexFn | None = None,
     ) -> None:
         self.store = store
         self._embed = embed
         self._embed_model = embed_model
         self._embed_available = embed_available
+        self._index_docs = index_docs
+        self._index_mail = index_mail
         self._said_keyword_only = False
 
     async def run(self, **kwargs: Any) -> ToolResult:
@@ -118,9 +135,11 @@ class RecallTool:
             return await self._search(kwargs)
         if action == "session":
             return self._session(kwargs)
+        if action == "index":
+            return await self._index(kwargs)
         return ToolResult(
             ok=False,
-            output=f"Unknown action {action!r}. Use search or session.",
+            output=f"Unknown action {action!r}. Use search, session, or index.",
         )
 
     async def _search(self, kwargs: dict[str, Any]) -> ToolResult:
@@ -322,6 +341,115 @@ class RecallTool:
                 "offset": offset,
             },
         )
+
+    async def _index(self, kwargs: dict[str, Any]) -> ToolResult:
+        """Chunk docs / peek mail. Does not load nomic-embed-text."""
+        source = str(kwargs.get("source") or "all").strip().lower()
+        if source not in {"all", "docs", "mail"}:
+            return ToolResult(
+                ok=False,
+                output="index source must be all, docs, or mail (not chat).",
+            )
+        path = str(kwargs.get("path") or "").strip() or None
+
+        want_docs = source in {"all", "docs"}
+        want_mail = source in {"all", "mail"}
+        if want_docs and self._index_docs is None and (
+            source == "docs" or self._index_mail is None
+        ):
+            return ToolResult(
+                ok=False,
+                output=(
+                    "No document indexer is configured. Files cannot be made "
+                    "searchable until a workspace indexer is wired."
+                ),
+            )
+        if want_mail and source == "mail" and self._index_mail is None:
+            return ToolResult(
+                ok=False,
+                output="Mail indexing is not enabled.",
+            )
+        if not want_docs and not want_mail:
+            return ToolResult(
+                ok=False,
+                output="index needs source=docs, source=mail, or source=all.",
+            )
+
+        files = 0
+        chunks: int | None = None
+        mail = 0
+        if want_docs and self._index_docs is not None:
+            try:
+                files, chunks = await _call_index(self._index_docs, path)
+            except Exception as exc:
+                return ToolResult(
+                    ok=False,
+                    output=f"Document index failed: {exc}",
+                )
+        if want_mail and self._index_mail is not None:
+            try:
+                mail, _mail_chunks = await _call_index(self._index_mail, None)
+            except Exception as exc:
+                return ToolResult(
+                    ok=False,
+                    output=f"Mail index failed: {exc}",
+                )
+
+        parts: list[str] = []
+        if want_docs and self._index_docs is not None:
+            if chunks is not None:
+                parts.append(f"{files} file(s), {chunks} chunk(s)")
+            else:
+                parts.append(f"{files} file(s)")
+        if want_mail and self._index_mail is not None:
+            parts.append(f"{mail} mail message(s)")
+        what = " and ".join(parts) if parts else "nothing"
+        if files == 0 and mail == 0:
+            lines = [f"Indexed {what} (already up to date)."]
+        else:
+            lines = [f"Indexed {what}. Keyword search can see them now."]
+        if self._embed is not None:
+            lines.append(
+                f"Embeddings will land after this turn ({self._embed_model}) "
+                "if that model is pulled."
+            )
+        else:
+            lines.append(
+                "No embed model is configured; keyword search only."
+            )
+        return ToolResult(
+            ok=True,
+            output=" ".join(lines),
+            data={
+                "files": files,
+                "chunks": chunks,
+                "mail": mail,
+                "source": source,
+                "path": path,
+                "embedded": False,
+            },
+        )
+
+
+async def _call_index(
+    fn: IndexFn, path: str | None
+) -> tuple[int, int | None]:
+    """Run a sync-or-async index hook. Never the embed path."""
+    if path:
+        try:
+            out = fn(path)
+        except TypeError:
+            try:
+                out = fn(under=path)
+            except TypeError:
+                out = fn()
+    else:
+        out = fn()
+    if inspect.isawaitable(out):
+        out = await out
+    if isinstance(out, tuple) and len(out) >= 2:
+        return int(out[0]), int(out[1])
+    return int(out), None
 
 
 def _clamp_limit(value: Any, default: int) -> int:

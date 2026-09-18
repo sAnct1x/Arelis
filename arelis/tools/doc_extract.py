@@ -1,8 +1,9 @@
-"""Extract text from a local PDF under workspace roots (no cloud OCR)."""
+"""Extract text from a local PDF, DOCX, or PPTX under workspace roots."""
 
 from __future__ import annotations
 
 import asyncio
+import re
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
@@ -11,6 +12,11 @@ from arelis.core.document_refs import resolve_drop_file
 from arelis.core.look import OcrInspect, inspect_ocr_text, ocr_deferral
 from arelis.paths import outputs_dir
 from arelis.tools.base import ToolResult
+from arelis.tools.office_text import (
+    extract_docx_text,
+    extract_pptx_slides,
+    sniff_office_kind,
+)
 from arelis.tools.pdf_pages import (
     collect_page_images,
     page_digest,
@@ -20,7 +26,11 @@ from arelis.workspace import ResolvedPath, WorkspaceRoots
 
 _MAX_OUTPUT_CHARS = 20_000
 _MAX_INK_PAGES = 20
-_SUPPORTED = frozenset({".pdf"})
+_SUPPORTED = frozenset({".pdf", ".docx", ".pptx"})
+_DROP_SUFFIXES = _SUPPORTED
+_IMAGE_SUFFIXES = frozenset({".png", ".jpg", ".jpeg", ".webp", ".gif"})
+_TABLEISH_LINE = re.compile(r"\S(?:\t|  +)\S")
+_OFFICE_KINDS = frozenset({"docx", "pptx"})
 
 
 def _fail(tag: str, message: str, **extra: Any) -> ToolResult:
@@ -34,12 +44,11 @@ def _fail(tag: str, message: str, **extra: Any) -> ToolResult:
 class DocExtractTool:
     name = "doc_extract"
     description = (
-        "Extract text from a local PDF under allowed workspace roots. "
-        "Optional 1-based page_start/page_end. "
-        "Scanned or handwritten PDFs have no text layer — this tool reads "
-        "the page pictures and returns the transcription. Do not call "
-        "vision on every page. Do not invent PDF quotes. Do not ask them "
-        "to paste."
+        "Extract text from a local PDF, Word (.docx), or PowerPoint (.pptx) "
+        "under workspace roots. Optional page_start/page_end (PDF pages or "
+        "PPTX slides). DOCX tables are cell text. Scanned PDFs have no text "
+        "layer — this reads the page pictures. Do not invent quotes or ask "
+        "them to paste. Not for images or .exe."
     )
     risk = "read"
     parameters_schema: dict[str, Any] = {
@@ -47,7 +56,7 @@ class DocExtractTool:
         "properties": {
             "path": {
                 "type": "string",
-                "description": "Path to PDF, or name:relative/path",
+                "description": "Path to PDF, DOCX, or PPTX, or name:relative/path",
             },
             "page_start": {
                 "type": "integer",
@@ -88,7 +97,7 @@ class DocExtractTool:
         try:
             return self.workspace.resolve_read(path_str)
         except Exception as first:
-            drop = resolve_drop_file(path_str, suffixes={".pdf"})
+            drop = resolve_drop_file(path_str, suffixes=_DROP_SUFFIXES)
             if drop:
                 path = Path(drop)
                 return ResolvedPath(
@@ -165,14 +174,6 @@ class DocExtractTool:
         max_chars: int,
     ) -> ToolResult:
         try:
-            from pypdf import PdfReader
-        except ImportError:
-            return _fail(
-                "other",
-                "pypdf is not installed; pip install pypdf",
-            )
-
-        try:
             resolved = self._resolve(path_str)
         except PermissionError as exc:
             return _fail("other", str(exc))
@@ -183,18 +184,103 @@ class DocExtractTool:
         display = resolved.qualified(multi=len(self.workspace) > 1)
         if not path.is_file():
             return _fail("other", f"Not a file: {display}")
-        suffix = path.suffix.lower()
-        if suffix not in _SUPPORTED:
-            if suffix in {".png", ".jpg", ".jpeg", ".webp", ".gif"}:
-                return _fail(
-                    "other",
-                    "This is an image — use vision to describe it, or ocr "
-                    "(action=text) to read text in it. doc_extract is PDF-only.",
-                    path=display,
-                )
+
+        kind = _document_kind(path)
+        if kind is None:
+            return _unsupported(path, display)
+        if kind == "docx":
+            return self._extract_docx(path, display, resolved.root_name, max_chars)
+        if kind == "pptx":
+            return self._extract_pptx(
+                path, display, resolved.root_name, page_start, page_end, max_chars
+            )
+        return self._extract_pdf(
+            path, display, resolved.root_name, page_start, page_end, max_chars
+        )
+
+    def _extract_docx(
+        self,
+        path: Path,
+        display: str,
+        root_name: str,
+        max_chars: int,
+    ) -> ToolResult:
+        """Word files never go through PdfReader or the ink page-image path."""
+        try:
+            body = extract_docx_text(path)
+        except ImportError:
             return _fail(
                 "other",
-                f"Unsupported file type: {path.suffix or '(none)'} (want .pdf)",
+                "python-docx is not installed; pip install python-docx",
+            )
+        except Exception as exc:
+            return _fail("other", f"doc_extract failed to open DOCX: {exc}", path=display)
+        if not body:
+            return _fail("empty", f"DOCX has no extractable text: {display}", path=display)
+        return _text_result(
+            display,
+            body,
+            [1],
+            1,
+            max_chars,
+            source="docx",
+            abs_path=str(path),
+            root_name=root_name,
+        )
+
+    def _extract_pptx(
+        self,
+        path: Path,
+        display: str,
+        root_name: str,
+        page_start: Any,
+        page_end: Any,
+        max_chars: int,
+    ) -> ToolResult:
+        try:
+            slides = extract_pptx_slides(path)
+        except Exception as exc:
+            return _fail("other", f"doc_extract failed to open PPTX: {exc}", path=display)
+        n_pages = len(slides)
+        if n_pages == 0:
+            return _fail("empty", f"PPTX has no slides: {display}", path=display)
+        start_i, end_i, range_err = _page_bounds(page_start, page_end, n_pages)
+        if range_err:
+            return _fail("other", range_err, path=display)
+        used_pages = list(range(start_i + 1, end_i + 2))
+        blocks = []
+        for number in used_pages:
+            text = (slides[number - 1] or "").strip()
+            blocks.append(f"slide {number}:\n{text}" if text else f"slide {number}:")
+        body = "\n\n".join(blocks).strip()
+        if not any((slides[n - 1] or "").strip() for n in used_pages):
+            return _fail("empty", f"PPTX has no extractable text: {display}", path=display)
+        return _text_result(
+            display,
+            body,
+            used_pages,
+            n_pages,
+            max_chars,
+            source="pptx",
+            abs_path=str(path),
+            root_name=root_name,
+        )
+
+    def _extract_pdf(
+        self,
+        path: Path,
+        display: str,
+        root_name: str,
+        page_start: Any,
+        page_end: Any,
+        max_chars: int,
+    ) -> ToolResult:
+        try:
+            from pypdf import PdfReader
+        except ImportError:
+            return _fail(
+                "other",
+                "pypdf is not installed; pip install pypdf",
             )
 
         try:
@@ -223,6 +309,7 @@ class DocExtractTool:
             return _fail("other", range_err, path=display)
 
         chunks: list[str] = []
+        layout_chunks: list[str] = []
         used_pages: list[int] = []
         for idx in range(start_i, end_i + 1):
             try:
@@ -236,14 +323,29 @@ class DocExtractTool:
             text = text.strip()
             if text:
                 chunks.append(text)
+            layout = _layout_text(reader.pages[idx])
+            if layout:
+                layout_chunks.append(layout)
             used_pages.append(idx + 1)
 
         body = "\n\n".join(chunks).strip()
+        fields = _pdf_form_fields(reader)
+        extra: dict[str, Any] = {}
+        table_note = _tableish_note(layout_chunks, body)
+        if fields:
+            extra["form_fields"] = fields
+            field_block = _format_form_fields(fields)
+            body = f"{body}\n\n{field_block}".strip() if body else field_block
+        if table_note:
+            extra["table_structure"] = "extracted text, not a parser"
+            extra["table_text"] = table_note
+            body = f"{body}\n\n{table_note}".strip() if body else table_note
+
         if not body:
             return self._extract_ink(
                 path,
                 display,
-                resolved.root_name,
+                root_name,
                 start_i,
                 end_i,
                 n_pages,
@@ -259,7 +361,8 @@ class DocExtractTool:
             max_chars,
             source="text",
             abs_path=str(path),
-            root_name=resolved.root_name,
+            root_name=root_name,
+            extra=extra or None,
         )
 
     def _extract_ink(
@@ -358,6 +461,7 @@ class DocExtractTool:
             try:
                 inspect = self._inspect_page(path)
             except Exception:
+                # One bad page must not abort the rest of the extract.
                 return "", False
             if inspect.text:
                 chunks.append(inspect.text)
@@ -391,6 +495,7 @@ def _text_result(
     abs_path: str,
     root_name: str,
     page_images: list[str] | None = None,
+    extra: dict[str, Any] | None = None,
 ) -> ToolResult:
     chars = len(body)
     max_chars = max(256, int(max_chars))
@@ -412,7 +517,95 @@ def _text_result(
     }
     if page_images:
         data["page_images"] = page_images
+    if extra:
+        data.update(extra)
     return ToolResult(ok=True, output=header + body, data=data)
+
+
+def _document_kind(path: Path) -> str | None:
+    """Content wins when the bytes are unambiguously PDF or Office.
+
+    A .docx named notes.pdf is a lie: it is still a docx. Suffix is the
+    fallback only when the file does not speak (empty, truncated, unknown).
+    A zip that is not Office is never sent down the PDF ink path.
+    """
+    try:
+        head = path.read_bytes()[:8]
+    except OSError:
+        head = b""
+    if head.startswith(b"%PDF"):
+        return "pdf"
+    if head.startswith(b"PK"):
+        sniffed = sniff_office_kind(path)
+        if sniffed in _OFFICE_KINDS:
+            return sniffed
+        return None
+    suffix = path.suffix.lower()
+    if suffix in _SUPPORTED:
+        return suffix.lstrip(".")
+    return None
+
+
+def _unsupported(path: Path, display: str) -> ToolResult:
+    suffix = path.suffix.lower()
+    if suffix in _IMAGE_SUFFIXES:
+        return _fail(
+            "unsupported",
+            "This is an image — use vision to describe it, or ocr "
+            "(action=text) to read text in it. doc_extract reads "
+            ".pdf, .docx, and .pptx.",
+            path=display,
+        )
+    return _fail(
+        "unsupported",
+        f"Unsupported file type: {path.suffix or '(none)'} "
+        "(want .pdf, .docx, or .pptx)",
+        path=display,
+    )
+
+
+def _pdf_form_fields(reader: Any) -> dict[str, str]:
+    try:
+        raw = reader.get_form_text_fields() or {}
+    except Exception:
+        # AcroForm is optional; a broken field dict is not a failed extract.
+        return {}
+    out: dict[str, str] = {}
+    for name, value in raw.items():
+        if name is None:
+            continue
+        out[str(name)] = "" if value is None else str(value)
+    return out
+
+
+def _format_form_fields(fields: dict[str, str]) -> str:
+    lines = ["form fields:"]
+    for name, value in fields.items():
+        lines.append(f"  {name}: {value}")
+    return "\n".join(lines)
+
+
+def _layout_text(page: Any) -> str:
+    try:
+        text = page.extract_text(extraction_mode="layout") or ""
+    except Exception:
+        # Layout mode is a hint. If pypdf rejects it, the page still has
+        # the ordinary text extract above.
+        return ""
+    return text.strip()
+
+
+def _tableish_note(layout_chunks: list[str], body: str) -> str:
+    """Best-effort columns from the text layer. Not a table parser."""
+    layout = "\n\n".join(chunk for chunk in layout_chunks if chunk).strip()
+    if not layout or layout == body.strip():
+        return ""
+    hits = [line for line in layout.splitlines() if _TABLEISH_LINE.search(line)]
+    if len(hits) < 2:
+        return ""
+    return (
+        "[extracted text — not a guaranteed table parse]\n" + layout
+    )
 
 
 def _page_bounds(

@@ -26,7 +26,7 @@ _DEFAULT_PATH = state_dir() / "memory.db"
 
 # Bump when the on-disk shape changes, and add a _migrate_to_N step. Opening an
 # older file without this is what turns a weekend of chat into a hard error.
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11
 
 _SCHEMA_V1 = """
 CREATE TABLE IF NOT EXISTS sessions (
@@ -194,6 +194,12 @@ CREATE INDEX IF NOT EXISTS idx_goals_kind ON goals(kind);
 _SCHEMA_V9 = """
 CREATE INDEX IF NOT EXISTS idx_tasks_goal_id ON tasks(goal_id)
     WHERE goal_id IS NOT NULL;
+"""
+
+# v11: priority / recurrence / parent_id. Additive — old rows default.
+_SCHEMA_V11 = """
+CREATE INDEX IF NOT EXISTS idx_tasks_parent_id ON tasks(parent_id)
+    WHERE parent_id IS NOT NULL;
 """
 
 _FTS_SCHEMA = """
@@ -482,6 +488,40 @@ class MemoryStore:
             "CREATE INDEX IF NOT EXISTS idx_sessions_room ON sessions(room_id)"
         )
 
+    def _migrate_to_11(self) -> None:
+        """Task/goal priority, named task recurrence, and task parent_id.
+
+        Old archives have none of these. Defaults: priority=normal, the
+        rest NULL. parent_id is another task, not a second goal link —
+        goal_id stays the durable-outcome pointer.
+        """
+        self._conn.executescript(_SCHEMA_V4)
+        self._conn.executescript(_SCHEMA_V8)
+        task_cols = {
+            str(row[1])
+            for row in self._conn.execute("PRAGMA table_info(tasks)").fetchall()
+        }
+        if "priority" not in task_cols:
+            self._conn.execute(
+                "ALTER TABLE tasks ADD COLUMN priority TEXT NOT NULL DEFAULT 'normal'"
+            )
+        if "recurrence" not in task_cols:
+            self._conn.execute("ALTER TABLE tasks ADD COLUMN recurrence TEXT")
+        if "parent_id" not in task_cols:
+            self._conn.execute(
+                "ALTER TABLE tasks ADD COLUMN parent_id INTEGER "
+                "REFERENCES tasks(id) ON DELETE SET NULL"
+            )
+        goal_cols = {
+            str(row[1])
+            for row in self._conn.execute("PRAGMA table_info(goals)").fetchall()
+        }
+        if "priority" not in goal_cols:
+            self._conn.execute(
+                "ALTER TABLE goals ADD COLUMN priority TEXT NOT NULL DEFAULT 'normal'"
+            )
+        self._conn.executescript(_SCHEMA_V11)
+
     def start_session(self, session_id: str | None = None, *, room_id: str = "") -> str:
         """Begin a new session and make it the sink target for later writes."""
         return sessions.start_session(self, session_id, room_id=room_id)
@@ -576,19 +616,34 @@ class MemoryStore:
         due: str | None = None,
         goal_id: int | None = None,
         source: str = "explicit",
+        priority: str | None = None,
+        recurrence: str | None = None,
+        parent_id: int | None = None,
     ) -> int | None:
         """Insert an open task. Returns its id, or None if the title was empty."""
-        return tasks.add_task(self, title, due=due, goal_id=goal_id, source=source)
+        return tasks.add_task(
+            self,
+            title,
+            due=due,
+            goal_id=goal_id,
+            source=source,
+            priority=priority,
+            recurrence=recurrence,
+            parent_id=parent_id,
+        )
 
     def list_tasks(
         self,
         *,
         status: str | None = "open",
         goal_id: int | None = None,
+        parent_id: int | None = None,
         limit: int = 100,
     ) -> list[dict[str, Any]]:
         """List tasks. Default status is open; pass status=None for all."""
-        return tasks.list_tasks(self, status=status, goal_id=goal_id, limit=limit)
+        return tasks.list_tasks(
+            self, status=status, goal_id=goal_id, parent_id=parent_id, limit=limit
+        )
 
     def get_task(self, task_id: int) -> dict[str, Any] | None:
         return tasks.get_task(self, task_id)
@@ -603,9 +658,22 @@ class MemoryStore:
         *,
         title: str | None = None,
         due: str | None = None,
+        priority: str | None = None,
+        recurrence: str | None = None,
+        parent_id: int | None = None,
+        clear_parent: bool = False,
     ) -> bool:
-        """Edit a task's title and/or due in place. True when a row changed."""
-        return tasks.update_task(self, task_id, title=title, due=due)
+        """Edit a task in place. True when a row changed."""
+        return tasks.update_task(
+            self,
+            task_id,
+            title=title,
+            due=due,
+            priority=priority,
+            recurrence=recurrence,
+            parent_id=parent_id,
+            clear_parent=clear_parent,
+        )
 
     def set_task_goal(self, task_id: int, goal_id: int | None) -> bool:
         """Attach or detach a task from a goal. True when a row changed."""
@@ -623,9 +691,18 @@ class MemoryStore:
         horizon: str | None = None,
         notes: str | None = None,
         source: str = "explicit",
+        priority: str | None = None,
     ) -> int | None:
         """Insert an active goal/commitment. Returns id, or None if empty."""
-        return tasks.add_goal(self, title, kind=kind, horizon=horizon, notes=notes, source=source)
+        return tasks.add_goal(
+            self,
+            title,
+            kind=kind,
+            horizon=horizon,
+            notes=notes,
+            source=source,
+            priority=priority,
+        )
 
     def list_goals(
         self,
@@ -652,6 +729,7 @@ class MemoryStore:
         kind: str | None = None,
         horizon: str | None = None,
         notes: str | None = None,
+        priority: str | None = None,
         clear_horizon: bool = False,
         clear_notes: bool = False,
     ) -> bool:
@@ -663,6 +741,7 @@ class MemoryStore:
             kind=kind,
             horizon=horizon,
             notes=notes,
+            priority=priority,
             clear_horizon=clear_horizon,
             clear_notes=clear_notes,
         )

@@ -1537,6 +1537,23 @@ def _latest_attachment_path(
     return ""
 
 
+def email_draft_from_inbox(data: dict[str, Any] | None) -> EmailDraft | None:
+    """Fill the existing send draft from an inbox reply payload.
+
+    Inbox reply returns {to, subject, body} and does not send. The complete
+    path already reviews EmailDraft before send_email hits Allow — this is
+    the hook, not a second draft type.
+    """
+    if not isinstance(data, dict):
+        return None
+    to = str(data.get("to") or "").strip()
+    subject = str(data.get("subject") or "").strip()
+    body = str(data.get("body") or "").strip()
+    if not to or not body:
+        return None
+    return EmailDraft(to=to, subject=subject, body=body, source="inbox")
+
+
 def fill_send_email_args(
     args: dict[str, Any],
     draft: EmailDraft | None,

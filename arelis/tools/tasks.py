@@ -25,30 +25,65 @@ def _notify_tasks(action: str, **extra: Any) -> None:
 def _format_task(row: dict[str, Any]) -> str:
     title = str(row.get("title") or "").strip() or "(untitled)"
     status = str(row.get("status") or "")
+    priority = str(row.get("priority") or "normal").strip() or "normal"
     due = str(row.get("due") or "").strip()
     tid = row.get("id")
-    line = f"#{tid} [{status}] {title}"
+    line = f"#{tid} [{status}/{priority}] {title}"
     if due:
         line += f" (due {due})"
+    recurrence = str(row.get("recurrence") or "").strip()
+    if recurrence:
+        line += f" {recurrence}"
     gid = row.get("goal_id")
     if gid is not None and str(gid).strip() != "":
         line += f" → goal #{gid}"
+    pid = row.get("parent_id")
+    if pid is not None and str(pid).strip() != "":
+        line += f" (subtask of #{pid})"
     return line
+
+
+def _format_forest(rows: list[dict[str, Any]]) -> list[str]:
+    """Nest children under a parent that is also in this result set."""
+    by_id = {
+        int(row["id"]): row for row in rows if row.get("id") is not None
+    }
+    child_map: dict[int, list[dict[str, Any]]] = {}
+    roots: list[dict[str, Any]] = []
+    for row in rows:
+        pid = row.get("parent_id")
+        if pid is not None and int(pid) in by_id:
+            child_map.setdefault(int(pid), []).append(row)
+        else:
+            roots.append(row)
+    lines: list[str] = []
+
+    def walk(row: dict[str, Any], depth: int) -> None:
+        if depth > 8:
+            return
+        lines.append(("  " * depth) + _format_task(row))
+        rid = row.get("id")
+        if rid is None:
+            return
+        for child in child_map.get(int(rid), []):
+            walk(child, depth + 1)
+
+    for root in roots:
+        walk(root, 0)
+    return lines
 
 
 class TasksTool:
     name = "tasks"
     description = (
         "List, add, edit, complete, reopen, remove, or link local to-dos "
-        "(chores) stored in memory.db. Use action=list for open tasks (or "
-        "status=done|all; optional goal_id to filter). action=add needs title "
-        "(optional due, goal_id). action=update needs id plus a new title "
-        "and/or due — use it to fix a typo or move a date; do not remove and "
-        "re-add, which loses the id and the goal link. "
-        "action=attach needs id + goal_id; action=detach needs id. "
-        "action=done|reopen|remove need id. For durable outcomes use goals; "
-        "link chores to a goal with goal_id / attach. Writes are confirmed "
-        "before they are saved."
+        "in memory.db. list open tasks (status=done|all; optional goal_id). "
+        "add needs title. update needs id plus title/due/priority/"
+        "recurrence/parent_id — do not remove+add (loses id and goal). "
+        "priority high|normal|low. recurrence daily|weekly|weekdays|monthly "
+        "with a YYYY-MM-DD due; done keeps the id and advances due. "
+        "parent_id is a subtask; done fails while children are open. "
+        "attach/detach take id + goal_id. Writes are confirmed."
     )
     # list is free; needs_confirm special-cases write actions.
     risk = "read"
@@ -68,9 +103,10 @@ class TasksTool:
                     "detach",
                 ],
                 "description": (
-                    "list open tasks (default), add, update the title/due of "
-                    "an existing task, mark done, reopen, remove, attach to a "
-                    "goal, or detach from a goal"
+                    "list open tasks (default), add, update title/due/"
+                    "priority/recurrence/parent of an existing task, mark "
+                    "done, reopen, remove, attach to a goal, or detach "
+                    "from a goal"
                 ),
             },
             "title": {
@@ -86,7 +122,28 @@ class TasksTool:
                 "description": (
                     "Optional due date/text for add (e.g. 2026-08-10). For "
                     "action=update, pass a new date to move it or an empty "
-                    "string to clear it; omit to leave it alone"
+                    "string to clear it; omit to leave it alone. Recurring "
+                    "tasks need YYYY-MM-DD"
+                ),
+            },
+            "priority": {
+                "type": "string",
+                "enum": ["high", "normal", "low"],
+                "description": "high, normal (default), or low. Invalid values fail",
+            },
+            "recurrence": {
+                "type": "string",
+                "enum": ["daily", "weekly", "weekdays", "monthly"],
+                "description": (
+                    "Named cadence for add/update. Empty string on update "
+                    "clears it. Unknown values fail. Not RRULE"
+                ),
+            },
+            "parent_id": {
+                "type": "integer",
+                "description": (
+                    "Parent task id for add/update (subtask). Empty string "
+                    "on update clears it"
                 ),
             },
             "goal_id": {
@@ -138,7 +195,7 @@ class TasksTool:
         )
 
     def _update(self, kwargs: dict[str, Any]) -> ToolResult:
-        """Edit title/due in place. Keeps the id, the goal link, and created_at."""
+        """Edit fields in place. Keeps the id, the goal link, and created_at."""
         raw_id = kwargs.get("id")
         if raw_id is None or str(raw_id).strip() == "":
             return ToolResult(ok=False, output="tasks update needs an id.")
@@ -147,25 +204,52 @@ class TasksTool:
         except (TypeError, ValueError):
             return ToolResult(ok=False, output=f"That is not a task id: {raw_id!r}")
 
-        # None means "leave it"; "" on due means "clear it". Distinguishing the
-        # two is why this reads kwargs directly instead of coercing to str.
+        # None means "leave it"; "" on due/recurrence/parent_id means "clear it".
         title = kwargs.get("title")
         due = kwargs.get("due")
-        if title is None and due is None:
+        priority = kwargs.get("priority")
+        recurrence = kwargs.get("recurrence")
+        parent_raw = kwargs.get("parent_id")
+        if (
+            title is None
+            and due is None
+            and priority is None
+            and recurrence is None
+            and parent_raw is None
+        ):
             return ToolResult(
                 ok=False,
-                output="tasks update needs a new title or due.",
+                output="tasks update needs a new title, due, priority, recurrence, or parent_id.",
             )
         if title is not None and not str(title).strip():
             return ToolResult(ok=False, output="A task needs a title.")
 
+        clear_parent = False
+        parent_id: int | None = None
+        if parent_raw is not None:
+            if str(parent_raw).strip() == "":
+                clear_parent = True
+            else:
+                parent_id, perr = _optional_int(parent_raw, label="parent_id")
+                if perr:
+                    return ToolResult(ok=False, output=perr)
+                if parent_id is None:
+                    clear_parent = True
+
         if self.store.get_task(task_id) is None:
             return ToolResult(ok=False, output=f"No task with id {task_id}.")
-        changed = self.store.update_task(
-            task_id,
-            title=None if title is None else str(title),
-            due=None if due is None else str(due),
-        )
+        try:
+            changed = self.store.update_task(
+                task_id,
+                title=None if title is None else str(title),
+                due=None if due is None else str(due),
+                priority=None if priority is None else str(priority),
+                recurrence=None if recurrence is None else str(recurrence),
+                parent_id=parent_id,
+                clear_parent=clear_parent,
+            )
+        except ValueError as exc:
+            return ToolResult(ok=False, output=str(exc))
         if not changed:
             return ToolResult(ok=False, output=f"Could not update task {task_id}.")
         row = self.store.get_task(task_id)
@@ -202,7 +286,7 @@ class TasksTool:
                 output=f"No {label} tasks{suffix}.",
                 data={"tasks": [], "goal_id": goal_id},
             )
-        lines = [_format_task(row) for row in rows]
+        lines = _format_forest(rows)
         lines.append("")
         lines.append(f"{len(rows)} task(s).")
         return ToolResult(
@@ -226,9 +310,22 @@ class TasksTool:
             return ToolResult(ok=False, output=err)
         if goal_id is not None and self.store.get_goal(goal_id) is None:
             return ToolResult(ok=False, output=f"No goal with id {goal_id}.")
+        parent_id, perr = _optional_int(kwargs.get("parent_id"), label="parent_id")
+        if perr:
+            return ToolResult(ok=False, output=perr)
+        priority_raw = kwargs.get("priority")
+        recurrence_raw = kwargs.get("recurrence")
+        priority = None if priority_raw is None else str(priority_raw)
+        recurrence = None if recurrence_raw is None else str(recurrence_raw)
         try:
             task_id = self.store.add_task(
-                title, due=due, goal_id=goal_id, source="explicit"
+                title,
+                due=due,
+                goal_id=goal_id,
+                source="explicit",
+                priority=priority,
+                recurrence=recurrence,
+                parent_id=parent_id,
             )
         except ValueError as exc:
             return ToolResult(ok=False, output=str(exc))
@@ -240,6 +337,9 @@ class TasksTool:
             "status": "open",
             "due": due,
             "goal_id": goal_id,
+            "priority": priority or "normal",
+            "recurrence": recurrence,
+            "parent_id": parent_id,
         }
         _notify_tasks("add", id=task_id)
         return ToolResult(
@@ -251,6 +351,9 @@ class TasksTool:
                 "status": "open",
                 "due": due,
                 "goal_id": goal_id,
+                "priority": row.get("priority"),
+                "recurrence": row.get("recurrence"),
+                "parent_id": row.get("parent_id"),
             },
         )
 
@@ -261,19 +364,33 @@ class TasksTool:
         existing = self.store.get_task(tid)
         if existing is None:
             return ToolResult(ok=False, output=f"No task with id {tid}.")
-        if not self.store.set_task_status(tid, status):
-            return ToolResult(ok=False, output=f"Could not update task {tid}.")
+        try:
+            if not self.store.set_task_status(tid, status):
+                return ToolResult(ok=False, output=f"Could not update task {tid}.")
+        except ValueError as exc:
+            return ToolResult(ok=False, output=str(exc))
         row = self.store.get_task(tid) or {**existing, "status": status}
-        verb = "Done" if status == "done" else "Reopened"
+        if (
+            status == "done"
+            and existing.get("recurrence")
+            and str(row.get("status") or "") == "open"
+        ):
+            verb = "Next"
+        else:
+            verb = "Done" if status == "done" else "Reopened"
         _notify_tasks(status, id=tid)
         return ToolResult(
             ok=True,
             output=f"{verb}: {_format_task(row)}",
             data={
                 "id": tid,
-                "status": status,
+                "status": row.get("status"),
                 "title": row.get("title"),
                 "goal_id": row.get("goal_id"),
+                "due": row.get("due"),
+                "priority": row.get("priority"),
+                "recurrence": row.get("recurrence"),
+                "parent_id": row.get("parent_id"),
             },
         )
 

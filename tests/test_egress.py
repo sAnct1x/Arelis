@@ -82,6 +82,7 @@ ALLOWED: dict[str, str] = {
     "resy.com": "restaurant search, user asked to book",
     # Not requests: an XML namespace identifier in a Task Scheduler document.
     "schemas.microsoft.com": "XML namespace in the scheduled-task definition",
+    "schemas.openxmlformats.org": "XML namespace in pptx zip+xml; never fetched",
     # Fixtures in the offline evaluation harness. Never fetched by the app.
     "example.com": "eval fixture host",
     "www.wsj.com": "eval fixture host, never requested",

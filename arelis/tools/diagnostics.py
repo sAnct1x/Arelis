@@ -1,8 +1,10 @@
 """Arelis's own test suite — the same pytest CI runs, not a guess.
 
 The model must not invent pass/fail counts. This tool runs ``python -m pytest``
-on tests/ with a fixed argv. It is not a shell. Counts come from pytest's last
-summary line, not from the word "passed" showing up in a traceback.
+on a path under tests/ (the full tree when no target is given). It is not a
+shell. Counts come from pytest's last summary line, not from the word
+"passed" showing up in a traceback. A target outside tests/ is refused
+before pytest starts.
 """
 
 from __future__ import annotations
@@ -22,6 +24,7 @@ from arelis.tools.base import ToolResult
 _TIMEOUT_S = 600.0
 _MAX_OUTPUT = 12_000
 _MAX_FAIL_LINES = 40
+_DRIVE_ABS = re.compile(r"^[A-Za-z]:(?:[\\/]|$)")
 
 # Same quiet run CI uses, plus line traces and no ANSI so the model can read it.
 PYTEST_FLAGS = ("-q", "--tb=line", "--color=no")
@@ -48,12 +51,14 @@ _EXIT_MEANING = {
 class DiagnosticsTool:
     name = "diagnostics"
     description = (
-        "Run Arelis's own pytest suite (the full tests/ tree CI runs) and "
-        "return a factual summary: passed/failed/skipped, failed names, short "
-        "traces. Call this only when the user asks to run diagnostics. Do not "
-        "invent results. After it returns, report the counts, name the "
-        "failures, and say what they likely mean. A failing suite is a real "
-        "issue — do not claim everything is fine."
+        "Run Arelis's own pytest suite and return a factual summary: "
+        "passed/failed/skipped, failed names, short traces. target= a path or "
+        "pytest nodeid under tests/ (bare names resolve there). Omit target "
+        "or pass suite=all for the full tree. Call this only when the user "
+        "asks to run diagnostics. Do not invent results. After it returns, "
+        "report the counts, name the failures, and say what they likely "
+        "mean. A failing suite is a real issue — do not claim everything "
+        "is fine."
     )
     risk = "read"
     parameters_schema: dict[str, Any] = {
@@ -62,17 +67,120 @@ class DiagnosticsTool:
             "suite": {
                 "type": "string",
                 "enum": ["all"],
-                "description": "Always all: the full tests/ tree.",
+                "description": "Full tests/ tree when target is omitted.",
+            },
+            "target": {
+                "type": "string",
+                "description": (
+                    "Path or pytest nodeid under tests/ only. "
+                    "Bare names become tests/<name>. Empty runs the full tree."
+                ),
             },
         },
     }
 
     async def run(self, **kwargs: Any) -> ToolResult:
-        del kwargs
-        return await asyncio.to_thread(_run_suite)
+        return await asyncio.to_thread(_run_suite, kwargs)
 
 
-def _run_suite() -> ToolResult:
+def _fail(tag: str, message: str) -> ToolResult:
+    if not tag.startswith("fail:"):
+        tag = f"fail:{tag}"
+    return ToolResult(
+        ok=False,
+        output=f"[{tag}] {message}",
+        data={"fail_class": tag},
+    )
+
+
+def _contained(resolved: Path, tests_root: Path) -> bool:
+    try:
+        resolved.relative_to(tests_root)
+    except ValueError:
+        return False
+    return True
+
+
+def _join_under_tests(path_part: str, *, tests_dir: Path, root: Path) -> Path:
+    posix = path_part.replace("\\", "/").strip()
+    project = root.resolve()
+    parts = Path(posix).parts
+    if parts and str(parts[0]).casefold() == "tests":
+        joined = project.joinpath(*parts)
+    else:
+        joined = tests_dir.joinpath(*parts) if parts else tests_dir
+    return joined.resolve()
+
+
+def _refuse_raw_path(path_part: str) -> bool:
+    raw = (path_part or "").strip()
+    if not raw:
+        return True
+    if _DRIVE_ABS.match(raw):
+        return True
+    if raw.startswith("/") or raw.startswith("\\"):
+        return True
+    try:
+        if Path(raw).is_absolute():
+            return True
+    except (OSError, ValueError):
+        return True
+    return False
+
+
+def resolve_diagnostics_target(
+    raw: str, *, tests_dir: Path, root: Path
+) -> str | ToolResult:
+    """Return a pytest path under tests/, or a tagged refusal.
+
+    The raw string is not passed to pytest until resolve() lands inside
+    tests/ and the file or directory exists.
+    """
+    text = (raw or "").strip()
+    path_part, sep, node = text.partition("::")
+    path_part = path_part.strip()
+    node = node.strip() if sep else ""
+    if _refuse_raw_path(path_part):
+        return _fail(
+            "target",
+            f"diagnostics only runs paths under tests/. Refused: {raw}",
+        )
+    tests_root = tests_dir.resolve()
+    resolved = _join_under_tests(path_part, tests_dir=tests_dir, root=root)
+    if not _contained(resolved, tests_root):
+        return _fail(
+            "target",
+            f"diagnostics only runs paths under tests/. Refused: {raw}",
+        )
+    if node:
+        if not resolved.is_file():
+            return _fail(
+                "missing",
+                f"No such test target: {raw}. I will not invent a result.",
+            )
+    elif not resolved.exists():
+        return _fail(
+            "missing",
+            f"No such test target: {raw}. I will not invent a result.",
+        )
+    try:
+        rel = resolved.relative_to(root.resolve()).as_posix()
+    except ValueError:
+        rel = resolved.as_posix()
+    return f"{rel}::{node}" if node else rel
+
+
+def _pytest_path(
+    kwargs: dict[str, Any], *, tests_dir: Path, root: Path
+) -> str | ToolResult:
+    raw = str(kwargs.get("target") or "").strip()
+    if not raw:
+        return str(tests_dir)
+    return resolve_diagnostics_target(raw, tests_dir=tests_dir, root=root)
+
+
+def _run_suite(kwargs: dict[str, Any] | None = None) -> ToolResult:
+    kwargs = kwargs or {}
     if os.environ.get("ARELIS_IN_DIAGNOSTICS") == "1":
         return ToolResult(
             ok=False,
@@ -88,7 +196,10 @@ def _run_suite() -> ToolResult:
                 "This checkout cannot run diagnostics."
             ),
         )
-    cmd = [sys.executable, "-m", "pytest", str(tests_dir), *PYTEST_FLAGS]
+    decided = _pytest_path(kwargs, tests_dir=tests_dir, root=root)
+    if isinstance(decided, ToolResult):
+        return decided
+    cmd = [sys.executable, "-m", "pytest", decided, *PYTEST_FLAGS]
     env = os.environ.copy()
     env["ARELIS_IN_DIAGNOSTICS"] = "1"
     env.setdefault("PYTHONUNBUFFERED", "1")
@@ -126,6 +237,7 @@ def _run_suite() -> ToolResult:
             output="pytest is not installed in this Python. pip install pytest.",
         )
     parsed = parse_pytest(stdout, stderr, completed.returncode, duration)
+    parsed["target"] = decided
     text = format_report(parsed, root=root)
     if len(text) > _MAX_OUTPUT:
         text = text[:_MAX_OUTPUT] + "\n…(truncated)"
@@ -231,6 +343,7 @@ def format_report(parsed: dict[str, Any], *, root: Path) -> str:
     lines = [
         "Arelis diagnostics (pytest)",
         f"root: {root}",
+        f"target: {parsed.get('target') or 'tests/'}",
         f"python: {sys.executable}",
         f"flags: {' '.join(PYTEST_FLAGS)}",
         f"exit: {parsed['exit_code']} ({parsed['exit_meaning']})",

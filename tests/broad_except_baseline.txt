@@ -74,7 +74,6 @@
 2 arelis/llm/startup.py
 4 arelis/llm/vram.py
 1 arelis/location/providers.py
-1 arelis/memory/docs.py
 1 arelis/memory/mail_index.py
 12 arelis/mobile.py
 2 arelis/notify/sources.py
@@ -98,7 +97,6 @@
 2 arelis/tools/clipboard.py
 4 arelis/tools/comfy_client.py
 3 arelis/tools/comfy_lifecycle.py
-1 arelis/tools/doc_extract.py
 2 arelis/tools/document.py
 4 arelis/tools/earth_tool.py
 1 arelis/tools/image.py

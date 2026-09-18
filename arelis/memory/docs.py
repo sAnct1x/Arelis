@@ -133,10 +133,32 @@ def _skip_walk_dir(path: Path, skip_roots: tuple[Path, ...]) -> bool:
     return any(resolved == root or root in resolved.parents for root in skip_roots)
 
 
+def _path_is_under(path: Path, under: Path) -> bool:
+    try:
+        resolved = path.resolve()
+        base = under.resolve()
+    except OSError:
+        return False
+    if resolved == base:
+        return True
+    try:
+        resolved.relative_to(base)
+        return True
+    except ValueError:
+        return False
+
+
+# Binary-ish files we can still turn into searchable text without nomic.
+# 512KB is the text-file cap; a homework PDF is often larger, and we only
+# store the extracted text, not the bytes.
+_EXTRACT_SUFFIXES = frozenset({".pdf", ".docx", ".pptx"})
+_EXTRACT_MAX_BYTES = 8_000_000
+
+
 def _is_indexable_name(path: Path) -> bool:
     suffix = path.suffix.lower()
     name = path.name.lower()
-    return suffix in _TEXT_SUFFIXES or name in {
+    return suffix in _TEXT_SUFFIXES or suffix in _EXTRACT_SUFFIXES or name in {
         "makefile",
         "dockerfile",
         "readme",
@@ -182,6 +204,60 @@ def chunk_text(
     return chunks
 
 
+def _file_text(path: Path) -> str:
+    """Plain text, or extracted PDF/Office text. Never embeddings."""
+    suffix = path.suffix.lower()
+    if suffix == ".pdf":
+        return _pdf_text(path)
+    if suffix == ".docx":
+        from arelis.tools.office_text import extract_docx_text
+
+        try:
+            return extract_docx_text(path)
+        except Exception as exc:
+            # Corrupt office file: skip, do not fail the whole index turn.
+            log.debug("Skip docx %s: %s", path, exc)
+            return ""
+    if suffix == ".pptx":
+        from arelis.tools.office_text import extract_pptx_slides
+
+        try:
+            slides = extract_pptx_slides(path)
+        except Exception as exc:
+            # Corrupt deck: skip, do not fail the whole index turn.
+            log.debug("Skip pptx %s: %s", path, exc)
+            return ""
+        return "\n".join(
+            f"slide {i}: {text}" for i, text in enumerate(slides, start=1) if text
+        )
+    try:
+        raw = path.read_bytes()
+    except OSError:
+        raise
+    if looks_binary(raw[:8192]):
+        return ""
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return raw.decode("utf-8", errors="replace")
+
+
+def _pdf_text(path: Path) -> str:
+    try:
+        from pypdf import PdfReader
+    except ImportError:
+        log.debug("pypdf missing; cannot index %s", path)
+        return ""
+    try:
+        reader = PdfReader(str(path))
+        parts = [(page.extract_text() or "").strip() for page in reader.pages]
+    except Exception as exc:
+        # Unreadable PDF: skip, do not fail the whole index turn.
+        log.debug("Skip pdf %s: %s", path, exc)
+        return ""
+    return "\n".join(part for part in parts if part)
+
+
 def looks_binary(sample: bytes) -> bool:
     if not sample:
         return False
@@ -212,11 +288,62 @@ class DocumentIndexer:
 
     def sync_batch(self, *, max_files: int = 8) -> int:
         """Reindex up to max_files that are new or changed. Prune missing paths."""
+        files, _chunks = self._sync(max_files=max_files, under=None)
+        return files
+
+    def sync_now(
+        self,
+        *,
+        max_files: int = 4096,
+        under: str | Path | None = None,
+    ) -> tuple[int, int]:
+        """Index dirty files now. Returns (files, chunks). Does not embed."""
+        bound = self._resolve_under(under)
+        if under is not None and str(under).strip() and bound is None:
+            raise ValueError(f"path {under!r} is not inside the workspace")
+        files, chunks = self._sync(max_files=max_files, under=bound)
+        return files, chunks
+
+    def _resolve_under(self, under: str | Path | None) -> Path | None:
+        if under is None:
+            return None
+        raw = str(under).strip()
+        if not raw:
+            return None
+        path = Path(raw)
+        try:
+            if path.is_absolute():
+                resolved = path.resolve()
+                for root in self.workspace.roots:
+                    try:
+                        resolved.relative_to(root.path.resolve())
+                        return resolved
+                    except ValueError:
+                        continue
+                return None
+            return self.workspace.resolve(raw).path
+        except (OSError, ValueError, PermissionError):
+            return None
+
+    def _sync(
+        self, *, max_files: int, under: Path | None
+    ) -> tuple[int, int]:
         candidates = list(self._iter_files())
-        keep = {(root, rel) for root, rel, _path in candidates}
-        removed = self.store.delete_documents_not_in(keep)
-        if removed:
-            log.info("Removed %d stale document(s) from the archive", removed)
+        if under is not None:
+            try:
+                under_resolved = under.resolve()
+            except OSError:
+                under_resolved = under
+            candidates = [
+                item
+                for item in candidates
+                if _path_is_under(item[2], under_resolved)
+            ]
+        else:
+            keep = {(root, rel) for root, rel, _path in candidates}
+            removed = self.store.delete_documents_not_in(keep)
+            if removed:
+                log.info("Removed %d stale document(s) from the archive", removed)
 
         dirty: list[tuple[str, str, Path]] = []
         for root_name, rel_path, path in candidates:
@@ -236,12 +363,15 @@ class DocumentIndexer:
             dirty.append((root_name, rel_path, path))
 
         written = 0
+        chunks_written = 0
         for root_name, rel_path, path in dirty[:max_files]:
-            if self._index_file(root_name, rel_path, path):
+            n = self._index_file(root_name, rel_path, path)
+            if n:
                 written += 1
+                chunks_written += n
         if written:
             log.info("Indexed %d workspace file(s) into memory", written)
-        return written
+        return written, chunks_written
 
     def _iter_files(self) -> list[tuple[str, str, Path]]:
         found: list[tuple[str, str, Path]] = []
@@ -272,34 +402,32 @@ class DocumentIndexer:
         found.sort(key=lambda item: (item[0], item[1]))
         return found
 
-    def _index_file(self, root_name: str, rel_path: str, path: Path) -> bool:
+    def _index_file(self, root_name: str, rel_path: str, path: Path) -> int:
         try:
             st = path.stat()
         except OSError as exc:
             log.debug("Skip %s: %s", path, exc)
-            return False
-        if st.st_size > self.max_file_bytes:
+            return 0
+        cap = (
+            _EXTRACT_MAX_BYTES
+            if path.suffix.lower() in _EXTRACT_SUFFIXES
+            else self.max_file_bytes
+        )
+        if st.st_size > cap:
             log.debug("Skip %s: %d bytes over cap", path, st.st_size)
-            return False
+            return 0
         try:
-            raw = path.read_bytes()
+            text = _file_text(path)
         except OSError as exc:
             log.debug("Skip %s: %s", path, exc)
-            return False
-        if looks_binary(raw[:8192]):
-            return False
-        try:
-            text = raw.decode("utf-8")
-        except UnicodeDecodeError:
-            try:
-                text = raw.decode("utf-8", errors="replace")
-            except Exception:
-                return False
+            return 0
+        if not text:
+            return 0
         chunks = chunk_text(
             text, chunk_chars=self.chunk_chars, overlap=self.chunk_overlap
         )
         if not chunks:
-            return False
+            return 0
         mtime_ns = int(getattr(st, "st_mtime_ns", int(st.st_mtime * 1_000_000_000)))
         self.store.replace_document_chunks(
             root_name=root_name,
@@ -308,4 +436,4 @@ class DocumentIndexer:
             size=int(st.st_size),
             chunks=chunks,
         )
-        return True
+        return len(chunks)

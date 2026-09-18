@@ -919,11 +919,12 @@ SCIENCE_CATALOG = IntentSpec(
 #
 # The trailing `(?!\s+on\b)` on both run-forms is doing real work: it keeps
 # "run diagnostics on my car" and "run the tests on the staging server" out,
-# because neither is a request to run *her* suite.
+# because neither is a request to run *her* suite. One specifier word before
+# "tests" is allowed so "run the inbox tests" is still her suite (target=).
 _DIAGNOSTICS_ASK = re.compile(
     r"(?i)(?<!n't )(?<!not )(?<!never )\b(?:"
     r"run\s+diagnostics(?!\s+on\b)|"
-    r"run\s+(?:the\s+)?(?:unit\s+|full\s+)?tests?\b(?!\s+on\b)|"
+    r"run\s+(?:the\s+)?(?:\w+\s+)?tests?\b(?!\s+on\b)|"
     r"run\s+(?:the\s+)?test\s+suite\b|"
     r"run\s+pytest\b|"
     r"do\s+(?:the\s+|all\s+(?:the\s+)?)?tests?\s+pass\b|"

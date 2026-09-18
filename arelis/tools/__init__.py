@@ -8,7 +8,14 @@ from arelis.llm.router import ModelRouter
 from arelis.location import build_location
 from arelis.mail import Mailer, load_account
 from arelis.memory import MemoryStore
+from arelis.memory.docs import (
+    DEFAULT_CHUNK_CHARS,
+    DEFAULT_CHUNK_OVERLAP,
+    DEFAULT_MAX_FILE_BYTES,
+    DocumentIndexer,
+)
 from arelis.memory.indexer import DEFAULT_EMBED_MODEL
+from arelis.memory.mail_index import MailIndexer
 from arelis.paths import user_data_dir
 from arelis.rooms import RoomStore
 from arelis.sms import DEFAULT_MAX_BODY_CHARS
@@ -140,12 +147,56 @@ def build_tool_registry(
 
             embed = _embed
             embed_available = _embed_available
+        mem_cfg = config.get("memory") or {}
+        docs_cfg = mem_cfg.get("docs") or {}
+        mail_mem_cfg = mem_cfg.get("mail") or {}
+        email_cfg = tools_cfg.get("email") or {}
+        index_docs_fn = None
+        index_mail_fn = None
+        if bool(docs_cfg.get("enabled", True)):
+            doc_ix = DocumentIndexer(
+                archive,
+                workspace,
+                max_file_bytes=int(
+                    docs_cfg.get("max_file_bytes", DEFAULT_MAX_FILE_BYTES)
+                ),
+                chunk_chars=int(docs_cfg.get("chunk_chars", DEFAULT_CHUNK_CHARS)),
+                chunk_overlap=int(
+                    docs_cfg.get("chunk_overlap", DEFAULT_CHUNK_OVERLAP)
+                ),
+            )
+
+            def index_docs_fn(
+                path: str | None = None,
+            ) -> tuple[int, int]:
+                return doc_ix.sync_now(under=path)
+
+        if bool(mail_mem_cfg.get("enabled", False)):
+            mail_account = load_account()
+            if mail_account is not None:
+                mail_ix = MailIndexer(
+                    archive,
+                    mail_account,
+                    host=str(email_cfg.get("imap_host", "imap.gmail.com")),
+                    port=int(email_cfg.get("imap_port", 993)),
+                    timeout_s=float(email_cfg.get("timeout_s", 30)),
+                    max_messages=int(mail_mem_cfg.get("max_messages", 40)),
+                    retention_days=int(mail_mem_cfg.get("retention_days", 30)),
+                    max_body_chars=int(mail_mem_cfg.get("max_body_chars", 4000)),
+                    min_interval_s=float(mail_mem_cfg.get("min_interval_s", 900)),
+                )
+
+                def index_mail_fn() -> int:
+                    return mail_ix.sync_batch(force=True)
+
         registry.register(
             RecallTool(
                 archive,
                 embed=embed,
                 embed_model=embed_model,
                 embed_available=embed_available,
+                index_docs=index_docs_fn,
+                index_mail=index_mail_fn,
             )
         )
         registry.register(MemoryTool(archive))

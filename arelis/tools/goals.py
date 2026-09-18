@@ -41,7 +41,8 @@ def _format_goal(
     kind = str(row.get("kind") or "goal")
     horizon = str(row.get("horizon") or "").strip()
     gid = row.get("id")
-    line = f"#{gid} [{status}/{kind}] {title}"
+    priority = str(row.get("priority") or "normal").strip() or "normal"
+    line = f"#{gid} [{status}/{kind}/{priority}] {title}"
     if horizon:
         line += f" (horizon {horizon})"
     if open_tasks is not None and open_tasks > 0:
@@ -58,7 +59,8 @@ class GoalsTool:
         "promises — not chores (use tasks; link chores with tasks goal_id/"
         "attach) and not identity prefs (use memory prefer/decide). "
         "action=list for active items (or status=paused|done|dropped|all); "
-        "list shows open-task counts when linked. Writes need Allow."
+        "list shows open-task counts when linked. priority is high|normal|low "
+        "(invalid values fail). Writes need Allow."
     )
     risk = "read"
     parameters_schema: dict[str, Any] = {
@@ -93,6 +95,11 @@ class GoalsTool:
                 "type": "string",
                 "enum": ["goal", "commitment"],
                 "description": "goal (default) or commitment",
+            },
+            "priority": {
+                "type": "string",
+                "enum": ["high", "normal", "low"],
+                "description": "high, normal (default), or low. Invalid values fail",
             },
             "horizon": {
                 "type": "string",
@@ -203,6 +210,8 @@ class GoalsTool:
             )
         horizon = str(kwargs.get("horizon") or "").strip() or None
         notes = str(kwargs.get("notes") or "").strip() or None
+        priority_raw = kwargs.get("priority")
+        priority = None if priority_raw is None else str(priority_raw)
         if notes and len(notes) > 800:
             return ToolResult(
                 ok=False,
@@ -215,6 +224,7 @@ class GoalsTool:
                 horizon=horizon,
                 notes=notes,
                 source="explicit",
+                priority=priority,
             )
         except ValueError as exc:
             return ToolResult(ok=False, output=str(exc))
@@ -227,6 +237,7 @@ class GoalsTool:
             "status": "active",
             "horizon": horizon,
             "notes": notes,
+            "priority": priority or "normal",
         }
         return ToolResult(
             ok=True,
@@ -237,6 +248,7 @@ class GoalsTool:
                 "kind": kind,
                 "status": "active",
                 "horizon": horizon,
+                "priority": row.get("priority"),
             },
         )
 
@@ -255,15 +267,17 @@ class GoalsTool:
         kind = kwargs.get("kind")
         horizon = kwargs.get("horizon")
         notes = kwargs.get("notes")
+        priority = kwargs.get("priority")
         if (
             title is None
             and kind is None
             and horizon is None
             and notes is None
+            and priority is None
         ):
             return ToolResult(
                 ok=False,
-                output="Pass at least one of title, kind, horizon, or notes.",
+                output="Pass at least one of title, kind, horizon, notes, or priority.",
             )
         title_text = str(title).strip() if title is not None else None
         if title_text is not None and len(title_text) > 400:
@@ -285,6 +299,7 @@ class GoalsTool:
                 kind=kind_text,
                 horizon=str(horizon) if horizon is not None else None,
                 notes=notes_text,
+                priority=None if priority is None else str(priority),
             )
         except ValueError as exc:
             return ToolResult(ok=False, output=str(exc))

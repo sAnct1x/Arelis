@@ -118,6 +118,20 @@ class MemoryIndexer:
         )
         return self._available
 
+    async def sync_only(self, *, source: str = "all") -> int:
+        """Chunk docs / peek mail. Does not load the embed model.
+
+        Safe during a turn: nomic-embed-text stays on the bench. Embeddings
+        still wait for the idle indexer.
+        """
+        synced = 0
+        if source in {"all", "docs"} and self.docs is not None:
+            files, _chunks = await asyncio.to_thread(self.docs.sync_now)
+            synced += files
+        if source in {"all", "mail"} and self.mail is not None:
+            synced += await asyncio.to_thread(self.mail.sync_batch, force=True)
+        return synced
+
     async def run_batch(self) -> int:
         """Sync docs/mail if needed, then embed one batch of pending rows."""
         synced = 0

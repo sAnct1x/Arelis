@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from arelis.mail import MailAccount
+from arelis.mail import MailAccount, reply_address
 from arelis.paths import display_path, outputs_dir
 from arelis.tools.base import ToolResult
 from arelis.tools.html_text import extract_text
@@ -40,7 +40,7 @@ _UID_SPLIT = re.compile(r"[\s,;]+")
 # as read. It writes a local file, which policy.py gates as WRITE_LOCAL, but
 # it changes nothing on the server, so an unattended job may call it.
 INBOX_READ_ACTIONS = frozenset(
-    {"list", "search", "read", "summarize", "folders", "download"}
+    {"list", "search", "read", "summarize", "folders", "download", "reply"}
 )
 # list / search / summarize. After an empty peek, a second call is the
 # "is it still empty?" loop. read and folders are not that loop.
@@ -73,7 +73,15 @@ class Headers:
 
 
 def _inbox_schema(*, mutate: bool) -> dict[str, Any]:
-    actions = ["list", "search", "read", "summarize", "folders", "download"]
+    actions = [
+        "list",
+        "search",
+        "read",
+        "summarize",
+        "folders",
+        "download",
+        "reply",
+    ]
     if mutate:
         actions.extend(
             [
@@ -95,6 +103,8 @@ def _inbox_schema(*, mutate: bool) -> dict[str, Any]:
                 "description": (
                     "list / search / read / summarize (peek-only), folders, "
                     "download to save a message's attached files, "
+                    "reply to build a quoted draft from a message id "
+                    "(does not send — that is send_email + Allow), "
                     "or with Allow: trash, archive, mark_read, mark_unread, "
                     "move, create_folder. delete is trash (Gmail Bin)."
                 ),
@@ -103,8 +113,16 @@ def _inbox_schema(*, mutate: bool) -> dict[str, Any]:
                 "type": "string",
                 "description": (
                     "Message id from list or search — the digits only, not the "
-                    "[brackets]. Required for read, download, trash, archive, "
-                    "mark_read, mark_unread, move. Comma-separated ok."
+                    "[brackets]. Required for read, download, reply, trash, "
+                    "archive, mark_read, mark_unread, move. Comma-separated ok."
+                ),
+            },
+            "body": {
+                "type": "string",
+                "description": (
+                    "For reply: the text you want to send. Required. The "
+                    "original is quoted under it. Nothing is sent until "
+                    "send_email."
                 ),
             },
             "name": {
@@ -158,6 +176,9 @@ def _inbox_description(*, mutate: bool) -> str:
         "does not mark mail read. `download` saves a message's attached files "
         "under outputs/mail/ and returns their paths — use it before analyze, "
         "doc_extract, or vision on something that arrived by mail. "
+        "`reply` peeks one message and returns {to, subject, body} with the "
+        "original quoted — it does not send; call send_email after review "
+        "(Allow still runs). "
         "Delivered mail cannot be edited — send a new message instead."
     )
     if not mutate:
@@ -244,6 +265,8 @@ class InboxTool:
         with self._connect(writable=writable) as conn:
             if action == "read":
                 return self._read(conn, str(kwargs.get("id") or "").strip())
+            if action == "reply":
+                return self._reply(conn, kwargs)
             if action == "download":
                 return self._download(
                     conn,
@@ -414,10 +437,76 @@ class InboxTool:
             },
         )
 
+    def _reply(self, conn: imaplib.IMAP4_SSL, kwargs: dict[str, Any]) -> ToolResult:
+        """Build a send_email-shaped draft from one peeked message. Does not send."""
+        reply_text = str(kwargs.get("body") or "").strip()
+        uid_raw = str(kwargs.get("id") or "").strip()
+        if not reply_text:
+            return ToolResult(
+                ok=False,
+                output="reply needs a body. Nothing was drafted.",
+            )
+        if not _parse_uids(uid_raw):
+            return ToolResult(
+                ok=False,
+                output=(
+                    "reply needs a message id from list or search. "
+                    "Nothing was drafted."
+                ),
+            )
+        fetched = self._fetch_message(conn, uid_raw)
+        if isinstance(fetched, ToolResult):
+            return ToolResult(
+                ok=False,
+                output=f"{fetched.output.rstrip('.')} Nothing was drafted.",
+            )
+        uid, message = fetched
+        sender = _decode(message.get("From")) or "(unknown sender)"
+        reply_to = _reply_to_address(message)
+        if not reply_to:
+            return ToolResult(
+                ok=False,
+                output=(
+                    f"Message {uid} has no reply address. Nothing was drafted."
+                ),
+            )
+        source_subject = _decode(message.get("Subject")) or "(no subject)"
+        subject = _reply_subject(source_subject)
+        original, _attachments = extract_body(message)
+        original = redact_secrets(original).strip()
+        date = _format_date(message.get("Date"))
+        quoted = _quote_original(original)
+        composed = (
+            f"{reply_text}\n\n"
+            f"On {date}, {sender} wrote:\n"
+            f"{quoted}"
+        )
+        self.last_hits = [{"id": uid, "from": sender, "subject": source_subject}]
+        return ToolResult(
+            ok=True,
+            output=(
+                "Draft reply (not sent). Review it, then call send_email — "
+                "that still needs Allow.\n\n"
+                f"To:      {reply_to}\n"
+                f"Subject: {subject}\n\n"
+                f"{composed}"
+            ),
+            data={
+                "action": "reply",
+                "id": uid,
+                "to": reply_to,
+                "subject": subject,
+                "body": composed,
+                "source_from": sender,
+                "source_subject": source_subject,
+                "sent": False,
+            },
+        )
+
     def _fetch_message(
         self, conn: imaplib.IMAP4_SSL, uid_raw: str
     ) -> tuple[str, Message] | ToolResult:
-        """Shared by read and download: one peeked message, or the refusal."""
+        """Shared by read, download, and reply: one peeked message, or the refusal."""
         parsed = _parse_uids(uid_raw)
         if not parsed:
             return ToolResult(
@@ -697,7 +786,14 @@ def fill_inbox_args(
     if action == "delete":
         out["action"] = "trash"
         action = "trash"
-    if action not in {"trash", "archive", "mark_read", "mark_unread", "move"}:
+    if action not in {
+        "trash",
+        "archive",
+        "mark_read",
+        "mark_unread",
+        "move",
+        "reply",
+    }:
         return out
     raw_id = str(out.get("id") or "").strip()
     if raw_id:
@@ -964,6 +1060,25 @@ def _status_int(text: str, key: str) -> int:
         return int(match.group(1))
     except ValueError:
         return 0
+
+
+def _reply_to_address(message: Message) -> str:
+    """Reply-To if the sender set one, otherwise the From address."""
+    raw = _decode(message.get("Reply-To")) or _decode(message.get("From"))
+    return reply_address(raw)
+
+
+def _reply_subject(subject: str) -> str:
+    text = (subject or "").strip() or "(no subject)"
+    if text.lower().startswith("re:"):
+        return text
+    return f"Re: {text}"
+
+
+def _quote_original(body: str) -> str:
+    """Prefix each original line with `>` so a missing quote is obvious."""
+    lines = (body or "").splitlines() or [""]
+    return "\n".join(f"> {line}" if line else ">" for line in lines)
 
 
 def _parse_uids(raw: str) -> list[str]:

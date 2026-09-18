@@ -16,9 +16,8 @@ nothing. Same class as `_TASKS_UTTERANCE` and the day-planning gap: a regex
 written for the phrasing a developer types, not the one a person says. Nobody
 says "run diagnostics".
 
-The inject itself is the easiest in the file, because `diagnostics` takes no
-meaningful arguments — `suite` is an enum of one — so there is nothing to
-synthesise and no way for the injected call to be subtly wrong.
+The inject itself still fires `suite=all` (the full tree). `target=` is for
+an explicit call, not something this inject has to invent.
 """
 
 from __future__ import annotations
@@ -38,6 +37,7 @@ from tests.test_no_call_path import _ctx, _FakeLoop, _scratch
         "run the tests and tell me if they pass",
         "run pytest",
         "run the test suite",
+        "run the inbox tests",
         "do the tests pass?",
         "are all the tests passing",
         "is the suite green",

@@ -1286,17 +1286,41 @@ rather than assumed.
 - [x] **4.8** `analyze` does summary/head/describe. No filtering, no
   grouping, no joins. Add a query action. **Done `fbb7bd6`,** with a
   hand-written condition parser rather than `DataFrame.query()`.
-- [ ] **4.9** `inbox` cannot compose or draft. `send_email` is one-shot.
-  Add a draft action so a reply can be reviewed before the Allow card.
-- [ ] **4.10** `tasks` and `goals` have no priority, recurrence, or
-  subtasks.
-- [ ] **4.11** `doc_extract` handles PDF only — no DOCX, no PPTX, no PDF
-  form fields, no table structure.
-- [ ] **4.12** `diagnostics` runs the entire pytest suite or nothing. Add
-  a target argument.
-- [ ] **4.13** `recall` cannot trigger a reindex, and the indexer only
-  runs between turns. Expose an index action so "I just added 40 PDFs"
-  has an answer.
+- [x] **4.9** `inbox` cannot compose or draft. `send_email` is one-shot.
+  **Done:** `inbox(action=reply)` PEEKs a UID, builds `{to, subject,
+  quoted body}`, and stops. `send_email` is still the send; Allow still
+  runs there. Empty body / missing id fails without claiming a draft.
+  IMAP Drafts save was not added — no drafts-folder helper, and that
+  would be a write. Compose without a UID is just `send_email`'s
+  existing args.
+- [x] **4.10** `tasks` and `goals` have no priority, recurrence, or
+  subtasks. **Done:** `high|normal|low` on both (invalid fails). Named
+  cadences `daily|weekly|weekdays|monthly` on tasks; `done` keeps the
+  same id and advances due one step (remove+add would drop the goal
+  link). `parent_id` subtasks; `done` on a parent with open children
+  fails. Schema v11, additive, old rows default `normal` / NULL. No
+  RRULE, no catch-up loop.
+- [x] **4.11** `doc_extract` handles PDF only — no DOCX, no PPTX, no PDF
+  form fields, no table structure. **Done:** DOCX via python-docx
+  (tables as cell text), PPTX via zip+XML (no python-pptx), PDF
+  AcroForm fields via pypdf. Content sniff beats a lying suffix
+  (`notes.pdf` that is a docx is Word). PDF "tables" are labeled
+  layout extract, not a parser. Workspace containment unchanged.
+- [x] **4.12** `diagnostics` runs the entire pytest suite or nothing.
+  **Done:** `target` is a path or nodeid resolved under `tests/` only.
+  Escapes and drive paths are `[fail:target]` and never start pytest.
+  Missing file is `[fail:missing]`, not a green suite. Omit target /
+  `suite=all` still runs the full tree. Counts still come from
+  pytest's last summary line.
+- [x] **4.13** `recall` cannot trigger a reindex, and the indexer only
+  runs between turns. **Done:** `recall(action=index)` calls
+  `DocumentIndexer.sync_now` and never `provider.embed` / `run_batch`
+  / `flush`. Keyword search sees the new files during the turn;
+  nomic still waits until idle. First pass only ate text suffixes,
+  so "40 PDFs" was still a miss — `looks_binary` skipped every real
+  PDF. Index now extracts PDF/DOCX/PPTX text (8 MB cap on those)
+  and a fixture PDF is searchable for `ALPHA` with embed monkeypatched
+  to raise.
 
 ### The tools no test file named — 2026-09-17
 
