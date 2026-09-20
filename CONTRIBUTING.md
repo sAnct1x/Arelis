@@ -2,6 +2,22 @@
 
 Thanks for looking.
 
+## About this project
+
+Arelis is maintained by one person on the side of a full-time university degree
+(astrophysics). Roughly a year of on-and-off work. Re-released a month or two
+ago. Updates come in bursts around the school calendar.
+
+Help is welcome. The parts where it helps most:
+
+- **Windows testing** — more hardware, more edge cases.
+- **Documentation** — first-run confusion, setup pitfalls.
+- **Packaging and installer work** — the .exe, signing, dependencies.
+- **Reality/astro extras** — the optional spatial and astro features. Source only.
+
+A clear bug report is useful even if you are not writing code. Follow the rest
+of this file for what works and what will not land.
+
 ## The rule that does not bend
 
 **Nothing that identifies a real person may enter this repository.** Not a
