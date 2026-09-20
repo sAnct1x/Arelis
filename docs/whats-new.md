@@ -1,7 +1,6 @@
 # What's new
 
-This checkout is **0.2.8**. The last published installer is still
-**0.2.7** until the 0.2.8 draft is cut.
+This checkout is **0.2.8**. The published installer is **0.2.8**.
 
 Notes: [v0.2.8](releases/v0.2.8.md). Older:
 [v0.2.7](releases/v0.2.7.md). [v0.2.6](releases/v0.2.6.md).
@@ -15,7 +14,7 @@ Notes for the tree you have now. Reality's room still ships. Earth and
 the true-scale globe stay on a source checkout. The 3D plate does not
 go in the installer.
 
-**Daily driver (unreleased).** Scanned PDFs without embedded JPEGs
+**Daily driver.** Scanned PDFs without embedded JPEGs
 render through pypdfium2; a missing rasterizer is a named fail, not
 silence. Settings → window picks Chat / Research / Vision tags.
 `research_report` and the webcam both pause on Allow. `/tools` lists every tool by name and one
