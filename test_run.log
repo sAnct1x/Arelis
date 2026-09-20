@@ -1,0 +1,159 @@
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-9.1.1, pluggy-1.6.0 -- /workspace/Arelis/.venv/bin/python3
+cachedir: .pytest_cache
+rootdir: /workspace/Arelis
+configfile: pyproject.toml
+plugins: anyio-4.15.1, timeout-2.4.0, asyncio-1.4.0, cov-7.1.0
+timeout: 90.0s
+timeout method: thread
+timeout func_only: False
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 2828 items / 13 errors
+
+==================================== ERRORS ====================================
+_____________ ERROR collecting tests/test_diagnostics_backstop.py ______________
+ImportError while importing test module '/workspace/Arelis/tests/test_diagnostics_backstop.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/usr/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_diagnostics_backstop.py:29: in <module>
+    from tests.test_no_call_path import _ctx, _FakeLoop, _scratch
+E   ModuleNotFoundError: No module named 'tests'
+_______________ ERROR collecting tests/test_document_backstop.py _______________
+ImportError while importing test module '/workspace/Arelis/tests/test_document_backstop.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/usr/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_document_backstop.py:30: in <module>
+    from tests.test_no_call_path import _ctx, _FakeLoop, _scratch
+E   ModuleNotFoundError: No module named 'tests'
+__________________ ERROR collecting tests/test_eval_board.py ___________________
+ImportError while importing test module '/workspace/Arelis/tests/test_eval_board.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/usr/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_eval_board.py:34: in <module>
+    from tests.eval_floors import (
+E   ModuleNotFoundError: No module named 'tests'
+__________________ ERROR collecting tests/test_hands_click.py __________________
+ImportError while importing test module '/workspace/Arelis/tests/test_hands_click.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/usr/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_hands_click.py:27: in <module>
+    from tests.hands_pose import frame_of, make_hand
+E   ModuleNotFoundError: No module named 'tests'
+________________ ERROR collecting tests/test_hardening_loop.py _________________
+ImportError while importing test module '/workspace/Arelis/tests/test_hardening_loop.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/usr/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_hardening_loop.py:20: in <module>
+    from tests.hardening_helpers import (
+E   ModuleNotFoundError: No module named 'tests'
+_______________ ERROR collecting tests/test_inspect_redirect.py ________________
+ImportError while importing test module '/workspace/Arelis/tests/test_inspect_redirect.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/usr/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_inspect_redirect.py:39: in <module>
+    from tests.test_no_call_path import _ctx, _FakeLoop, _scratch
+E   ModuleNotFoundError: No module named 'tests'
+_________________ ERROR collecting tests/test_recall_inject.py _________________
+ImportError while importing test module '/workspace/Arelis/tests/test_recall_inject.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/usr/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_recall_inject.py:33: in <module>
+    from tests.test_no_call_path import _ctx, _FakeLoop, _scratch
+E   ModuleNotFoundError: No module named 'tests'
+_________________ ERROR collecting tests/test_round_scratch.py _________________
+ImportError while importing test module '/workspace/Arelis/tests/test_round_scratch.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/usr/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_round_scratch.py:30: in <module>
+    from tests.test_no_call_path import _ctx, _FakeLoop, _scratch
+E   ModuleNotFoundError: No module named 'tests'
+_________________ ERROR collecting tests/test_spatial_rung0.py _________________
+ImportError while importing test module '/workspace/Arelis/tests/test_spatial_rung0.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/usr/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_spatial_rung0.py:12: in <module>
+    from tests.hands_pose import frame_of, make_hand
+E   ModuleNotFoundError: No module named 'tests'
+_________________ ERROR collecting tests/test_tasks_day_ask.py _________________
+ImportError while importing test module '/workspace/Arelis/tests/test_tasks_day_ask.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/usr/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tasks_day_ask.py:29: in <module>
+    from tests.test_no_call_path import _ctx, _FakeLoop, _scratch
+E   ModuleNotFoundError: No module named 'tests'
+_______________ ERROR collecting tests/test_tool_passthrough.py ________________
+ImportError while importing test module '/workspace/Arelis/tests/test_tool_passthrough.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/usr/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tool_passthrough.py:29: in <module>
+    from tests.hardening_helpers import (
+E   ModuleNotFoundError: No module named 'tests'
+______________ ERROR collecting tests/test_tool_schema_quality.py ______________
+ImportError while importing test module '/workspace/Arelis/tests/test_tool_schema_quality.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/usr/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tool_schema_quality.py:26: in <module>
+    from scripts.measure_tool_schema import authored_parameter_docs, measure, tool_specs
+E   ModuleNotFoundError: No module named 'scripts'
+__________________ ERROR collecting tests/test_voice_modes.py __________________
+ImportError while importing test module '/workspace/Arelis/tests/test_voice_modes.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/usr/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_voice_modes.py:12: in <module>
+    from tests.voice_helpers import (
+E   ModuleNotFoundError: No module named 'tests'
+=========================== short test summary info ============================
+ERROR tests/test_diagnostics_backstop.py
+ERROR tests/test_document_backstop.py
+ERROR tests/test_eval_board.py
+ERROR tests/test_hands_click.py
+ERROR tests/test_hardening_loop.py
+ERROR tests/test_inspect_redirect.py
+ERROR tests/test_recall_inject.py
+ERROR tests/test_round_scratch.py
+ERROR tests/test_spatial_rung0.py
+ERROR tests/test_tasks_day_ask.py
+ERROR tests/test_tool_passthrough.py
+ERROR tests/test_tool_schema_quality.py
+ERROR tests/test_voice_modes.py
+!!!!!!!!!!!!!!!!!!! Interrupted: 13 errors during collection !!!!!!!!!!!!!!!!!!!
+============================== 13 errors in 6.00s ==============================
