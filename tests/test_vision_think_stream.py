@@ -6,7 +6,7 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 import pytest
-from hardening_helpers import _collect, _config, _deny
+from tests.hardening_helpers import _collect, _config, _deny
 
 from arelis.core.agent_loop import AgentLoop
 from arelis.core.bus import EventBus
