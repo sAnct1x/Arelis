@@ -12,6 +12,8 @@ organized in named **rooms**. Mail, texting, and calendar access stay
 switched off until you connect them yourself, and anything that writes
 a file or sends a message will wait for your go-ahead first.
 
+**Overview video:** https://youtu.be/JmczuPQSEV8
+
 The published installer is **0.2.9**. If you build from source, you
 also get **Reality** — a room with a 3D solar system and an Earth
 view — but that doesn't ship with the installer.
@@ -288,6 +290,7 @@ published installer is **0.2.9**; see
 
 | Document | What's in it |
 |---|---|
+| [Overview video](https://youtu.be/JmczuPQSEV8) | Demo and walkthrough on the [Arelis Lab channel](https://www.youtube.com/@ArelisLab) |
 | [whats-new.md](docs/whats-new.md) | 0.2.9 checkout and installer |
 | [rooms.md](docs/rooms.md) | Named project spaces |
 | [jobs.md](docs/jobs.md) | Timed prompts, emailed |
