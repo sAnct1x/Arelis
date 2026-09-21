@@ -13,6 +13,16 @@ from arelis.ui.markdown import render_markdown
 from arelis.workspace import WorkspaceRoots
 
 
+def test_boxed_does_not_print_the_command_name() -> None:
+    out = flatten_latex(r"$$\boxed{\theta_{opt} \approx 35.3^\circ}$$")
+    assert "boxed" not in out
+    assert "θ" in out
+    assert "≈" in out
+    assert "35.3" in out
+    assert "°" in out
+    assert r"\boxed" not in out
+
+
 def test_cas_closed_form_keeps_log_and_frac() -> None:
     out = flatten_latex(r"$$\frac{x^{3}}{6} + 25x\log(x-3) - 75\log(x-3)$$")
     assert "log" in out

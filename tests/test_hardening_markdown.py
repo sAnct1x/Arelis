@@ -213,6 +213,22 @@ def test_long_transcript_load_keeps_markdown_stable(qt_app) -> None:
     assert "final" in live and "bold" in live
 
 
+def test_assistant_bubble_wash_is_a_table_cell_not_a_div(qt_app) -> None:
+    """Qt paints div backgrounds per layout line — that was the barcode."""
+    from arelis.ui.panels.chat import ChatPanel, _assistant_bubble_html
+
+    html = _assistant_bubble_html("line one\n\nline two")
+    assert "<table" in html
+    assert 'width="82%"' in html
+    assert "background-color:" in html
+    panel = ChatPanel()
+    panel.finish_assistant("**Sources:**\n\n1. Example (https://example.com)")
+    text = panel.view.toPlainText()
+    assert "Sources" in text
+    assert "**" not in text
+    assert panel.view.cursorWidth() == 0
+
+
 # --------------------------------------------------------------------------
 # Slash command output and the CLI confirm gate
 # --------------------------------------------------------------------------

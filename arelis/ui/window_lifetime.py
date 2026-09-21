@@ -132,8 +132,12 @@ class WindowLifetime:
             and self._tray.isVisible()
         ):
             self._persist_window_layout()
+            # Keep the ear. stop_all used to kill Hey Arelis until a full
+            # Quit — the opposite of "close to tray keeps listening".
             if self.voice_controller is not None:
-                self.voice_controller.stop_all()
+                self.voice_controller.set_conversation(False)
+                self.voice_controller.set_dictate(False)
+                self.voice_controller.resume_wake()
             stop_speech(self)
             try:
                 self.camera.stop()
@@ -344,6 +348,8 @@ class WindowLifetime:
         invalidate_window_surface(self)
         self._unpark_floating_docks()
         self._show_next_pending_confirm()
+        if self.voice_controller is not None:
+            self.voice_controller.resume_wake()
 
     def quit_from_tray(self) -> None:
         """Full exit. Force-quit first so nothing can raise the glass again."""

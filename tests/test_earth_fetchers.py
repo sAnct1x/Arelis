@@ -203,3 +203,81 @@ def test_own_httpx_fetchers_fail_soft(
         monkeypatch.setattr(mod.httpx, "Client", _TimeoutClient)
     got = getattr(mod, func_name)()
     assert got in (None, [])
+
+
+_FIXTURE_DIR = __import__("pathlib").Path(__file__).resolve().parent / "fixtures" / "earth"
+
+
+def _client_with_body(body: dict):
+    real = httpx.Client
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=body)
+
+    def Client(*args: object, **kwargs: object):
+        kwargs["transport"] = httpx.MockTransport(handler)
+        return real(*args, **kwargs)
+
+    return Client
+
+
+def test_usgs_recorded_geojson_becomes_quakes(monkeypatch: pytest.MonkeyPatch) -> None:
+    import json
+
+    from arelis.earth import live
+
+    body = json.loads((_FIXTURE_DIR / "usgs_all_day_two.json").read_text(encoding="utf-8"))
+    monkeypatch.setattr(live.httpx, "Client", _client_with_body(body))
+    got = live.fetch_usgs()
+    assert got is not None
+    assert len(got) == 2
+    assert all(e.layer == "quakes" for e in got)
+    assert "Fake City" in got[0].label
+    assert got[0].id.startswith("usgs:")
+
+
+def test_usgs_recorded_empty_features_is_quiet(monkeypatch: pytest.MonkeyPatch) -> None:
+    import json
+
+    from arelis.earth import live
+
+    body = json.loads(
+        (_FIXTURE_DIR / "usgs_all_day_empty.json").read_text(encoding="utf-8")
+    )
+    monkeypatch.setattr(live.httpx, "Client", _client_with_body(body))
+    assert live.fetch_usgs() == []
+
+
+def test_opensky_recorded_states_shape() -> None:
+    import json
+
+    from arelis.earth.opensky import entities_from_opensky
+
+    one = json.loads(
+        (_FIXTURE_DIR / "opensky_states_one.json").read_text(encoding="utf-8")
+    )
+    empty = json.loads(
+        (_FIXTURE_DIR / "opensky_states_empty.json").read_text(encoding="utf-8")
+    )
+    rows = entities_from_opensky(one)
+    assert len(rows) == 1
+    assert rows[0].id == "icao:abc123"
+    assert rows[0].layer == "flights"
+    assert entities_from_opensky(empty) == []
+
+
+def test_usgs_live_optional() -> None:
+    import os
+
+    if os.environ.get("ARELIS_LIVE_EARTH", "").strip().lower() not in {
+        "1",
+        "true",
+        "yes",
+    }:
+        pytest.skip("optional live; set ARELIS_LIVE_EARTH=1")
+    from arelis.earth.live import fetch_usgs
+
+    got = fetch_usgs()
+    assert got is None or isinstance(got, list)
+    if got:
+        assert all(e.layer == "quakes" for e in got)

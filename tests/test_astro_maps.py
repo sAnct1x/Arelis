@@ -153,6 +153,47 @@ def test_generated_surfaces_are_real_jpegs(tmp_path, monkeypatch) -> None:
     assert "Dawn" not in info.source or "no Dawn" in info.source
 
 
+def _pole_lon_std(path) -> float:
+    import numpy as np
+
+    arr = np.array(Image.open(path), dtype=np.float32)
+    return float(arr[0].mean(axis=1).std())
+
+
+def test_uranus_map_is_zonal_not_a_pole_clover(tmp_path, monkeypatch) -> None:
+    import numpy as np
+
+    from arelis.physics import maps as maps_mod
+
+    monkeypatch.setattr(maps_mod, "maps_dir", lambda: tmp_path)
+    rgb, albedo, seed, belts = maps_mod._SURFACES["Uranus"]
+    dest = tmp_path / "uranus.jpg"
+    maps_mod.write_surface_map(dest, rgb=rgb, albedo=albedo, seed=seed, belts=belts)
+    arr = np.array(Image.open(dest), dtype=np.float32)
+    mid = arr[arr.shape[0] // 2]
+    assert _pole_lon_std(dest) < 3.0
+    assert float(mid.mean()) < 250.0
+    assert float(mid[:, 2].mean()) > float(mid[:, 0].mean())
+
+
+def test_stale_uranus_clover_is_rewritten(tmp_path, monkeypatch) -> None:
+    import numpy as np
+
+    from arelis.physics import maps as maps_mod
+
+    monkeypatch.setattr(maps_mod, "maps_dir", lambda: tmp_path)
+    dest = tmp_path / "uranus.jpg"
+    width, height = 512, 256
+    lon = np.linspace(0.0, 2.0 * np.pi, width, endpoint=False)
+    row = (140 + 70 * np.sin(2.0 * lon)).astype(np.uint8)
+    blob = np.repeat(row[None, :, None], height, axis=0)
+    Image.fromarray(np.repeat(blob, 3, axis=2), "RGB").save(dest, "JPEG", quality=86)
+    assert _pole_lon_std(dest) > 6.0
+    saved = maps_mod.write_generated_maps()
+    assert "Uranus" in saved
+    assert _pole_lon_std(dest) < 3.0
+
+
 def test_fit_equirect_does_not_stretch_a_square() -> None:
     from arelis.physics.maps import fit_equirect
 

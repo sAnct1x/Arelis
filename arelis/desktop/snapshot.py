@@ -136,7 +136,7 @@ def snapshot_window() -> tuple[str, dict[str, DeskRef], str | None]:
         return (
             "",
             {},
-            "UI Automation needs the desktop extra (pip install -e \".[desktop]\").",
+            "Named-control snapshot is unavailable. Call screenshot of the monitor instead.",
         )
     try:
         rows = _walk_uia()

@@ -331,3 +331,62 @@ def test_the_schema_offers_the_new_shape() -> None:
     assert "hours" in props
     assert "past_days" in props
     assert "hours" in WeatherTool.description
+
+
+def test_garbled_after_tomorrow_is_not_a_city() -> None:
+    from arelis.tools.weather import (
+        draft_weather_args,
+        extract_weather_place,
+        weather_places_missing,
+        weather_places_wanted,
+    )
+
+    ask = "Oh does it what is the forecast say after to tomorrow"
+    assert extract_weather_place(ask) == ""
+    assert weather_places_wanted(ask) == [""]
+    assert "place" not in draft_weather_args(ask)
+    assert weather_places_missing(ask, {""}) == []
+    assert weather_places_missing(ask, set(), {"oh does it say after to"}) == [""]
+
+
+def test_named_cities_still_extract() -> None:
+    from arelis.tools.weather import extract_weather_places
+
+    assert extract_weather_places("weather in Springfield, IL") == ["Springfield IL"]
+    assert extract_weather_places("weather in Paris and London") == ["Paris", "London"]
+    assert extract_weather_places("Oh, what's the weather tomorrow") == []
+
+
+def test_to_morrow_is_tomorrow_not_a_city() -> None:
+    """Live dump: 'to morrow' was geocoded, then she asked which other city."""
+    from arelis.tools.weather import (
+        draft_weather_args,
+        extract_weather_place,
+        extract_weather_places,
+        fill_weather_args,
+        weather_places_missing,
+        weather_places_wanted,
+        weather_wants_beyond_today,
+    )
+
+    ask = "What's the weather going to be like to morrow"
+    assert extract_weather_place(ask) == ""
+    assert extract_weather_places(ask) == []
+    assert weather_places_wanted(ask) == [""]
+    assert "place" not in draft_weather_args(ask)
+    assert weather_wants_beyond_today(ask)
+    stripped = fill_weather_args({"place": "Springfield", "days": 2}, ask)
+    assert "place" not in stripped
+    assert stripped["days"] == 2
+    assert weather_places_missing(ask, {""}) == []
+    # A named-city reading is not home. Profile coords still need a call.
+    assert weather_places_missing(ask, {"springfield"}) == [""]
+
+
+def test_named_city_still_keeps_place() -> None:
+    from arelis.tools.weather import fill_weather_args
+
+    kept = fill_weather_args({"place": "Chicago", "days": 3}, "weather in Chicago")
+    assert kept["place"] == "Chicago"
+    added = fill_weather_args({}, "weather in Chicago")
+    assert added["place"] == "Chicago"

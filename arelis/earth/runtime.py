@@ -446,7 +446,16 @@ class EarthRuntime:
         for spec in LAYERS:
             if not self.layers.get(spec.id, False):
                 continue
-            notes.append(f"{spec.title}: {spec.hole}")
+            hole = spec.hole
+            if spec.id == "fires":
+                try:
+                    from arelis.earth.firms import firms_key
+
+                    if not firms_key():
+                        hole = "FIRMS MAP_KEY missing. " + hole
+                except Exception:
+                    hole = "FIRMS MAP_KEY missing. " + hole
+            notes.append(f"{spec.title}: {hole}")
         return notes
 
     def _merge_local(self) -> None:
@@ -482,11 +491,13 @@ class EarthRuntime:
         if not only:
             return
         try:
-            merge_live(self.store, view=view, layers=self.layers, only=only)
+            got = merge_live(self.store, view=view, layers=self.layers, only=only)
         except Exception:
             return
-        for key in only:
-            self.last_fetch_unix[key] = now
+        if isinstance(got, dict):
+            for key in only:
+                if got.get(key) is not None:
+                    self.last_fetch_unix[key] = now
         self.last_live_view = view
 
     def _lock_wall_clock(self) -> None:

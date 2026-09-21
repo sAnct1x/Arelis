@@ -1,0 +1,47 @@
+{
+  "type": "FeatureCollection",
+  "metadata": {
+    "generated": 1720000000000,
+    "url": "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.geojson",
+    "title": "USGS All Earthquakes, Past Day",
+    "status": 200,
+    "api": "1.10.3",
+    "count": 2
+  },
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "mag": 4.2,
+        "place": "12 km S of Fake City",
+        "time": 1720000000000,
+        "updated": 1720000001000,
+        "status": "reviewed",
+        "type": "earthquake",
+        "title": "M 4.2 - 12 km S of Fake City"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-70.1, -30.2, 10.0]
+      },
+      "id": "us7000fake1"
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "mag": 2.1,
+        "place": "5 km E of Other Place",
+        "time": 1720000100000,
+        "updated": 1720000101000,
+        "status": "automatic",
+        "type": "earthquake",
+        "title": "M 2.1 - 5 km E of Other Place"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [139.7, 35.6, 8.0]
+      },
+      "id": "us7000fake2"
+    }
+  ]
+}

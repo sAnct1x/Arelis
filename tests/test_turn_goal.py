@@ -97,3 +97,33 @@ def test_pay_wall_serves_browser_goal() -> None:
     assert receipt_serves_goal(
         goal, "browser", "Stopped before Pay.", data={"wall": "pay"}
     )
+
+
+def test_youtube_search_ask_keeps_driving_after_navigate() -> None:
+    errand = browser_errand_done(
+        "Hay take me to you tube doc calm and do us search "
+        "for the organic chemistry tutor",
+        action="navigate",
+        requested_url="https://www.youtube.com",
+        landed_url="https://www.youtube.com/",
+        snapshot="title: YouTube\nurl: https://www.youtube.com/",
+    )
+    assert not errand.done
+    assert errand.status == "drive"
+
+
+def test_search_site_follows_youtube_not_google() -> None:
+    from arelis.browser.search import infer_search_site, search_url
+
+    site = infer_search_site(query="organic chemistry tutor youtube")
+    assert site == "youtube"
+    assert "youtube.com/results" in search_url(
+        "organic chemistry tutor youtube", site=site
+    )
+    assert (
+        infer_search_site(
+            query="precalculus playlist",
+            current_url="https://www.youtube.com/@TheOrganicChemistryTutor",
+        )
+        == "youtube"
+    )

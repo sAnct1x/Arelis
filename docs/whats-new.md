@@ -1,8 +1,9 @@
 # What's new
 
-This checkout is **0.2.8**. The published installer is **0.2.8**.
+This checkout is **0.2.9**. The published installer is **0.2.9**.
 
-Notes: [v0.2.8](releases/v0.2.8.md). Older:
+Notes: [v0.2.9](releases/v0.2.9.md). Older:
+[v0.2.8](releases/v0.2.8.md).
 [v0.2.7](releases/v0.2.7.md). [v0.2.6](releases/v0.2.6.md).
 [v0.2.5](releases/v0.2.5.md). [v0.2.4](releases/v0.2.4.md).
 [v0.2.3](releases/v0.2.3.md). [v0.2.2](releases/v0.2.2.md).
@@ -13,6 +14,11 @@ Notes: [v0.2.8](releases/v0.2.8.md). Older:
 Notes for the tree you have now. Reality's room still ships. Earth and
 the true-scale globe stay on a source checkout. The 3D plate does not
 go in the installer.
+
+**0.2.9.** Weather for *here* omits `place`. Forget drops listed
+episodes, not only facts. A local file read stays the file.
+**Hey Arelis** latches Talk. Full notes:
+[v0.2.9](releases/v0.2.9.md).
 
 **Daily driver.** Scanned PDFs without embedded JPEGs
 render through pypdfium2; a missing rasterizer is a named fail, not
@@ -59,7 +65,11 @@ not name who is in the room.
 **Workspace.** The desk does not pop open empty on every research
 start. A PDF or research report she just wrote lands on the desk and
 opens the tile then. Opening a file no longer leaves a vacant brown
-column beside the page.
+column beside the page. Listing a folder they named outside the
+current project opens that folder in Folders — it does not stay on
+the Arelis tree. A named file she reads stays the body — HTML / JS /
+CSS is not a scrape card of title tags. `grep` / `find` locate
+something when she does not already have the path.
 
 **Notifications.** The inbox is an unread pile — no read/unread dots.
 Click a row (or the live pill) and the thing opens: a text becomes
@@ -97,7 +107,11 @@ temperature spec is not weather; a complete SMS draft that still says
 report. The last tool receipt has to serve that goal or the turn
 unlocks and tries again. A derivation stays in chat on the fast chip
 (not a 32-round research loop, not an automatic md→pdf). Year ranges
-like 1960-2026 are not subtraction. The same research query does not
+like 1960-2026 are not subtraction. Compact job/episode stamps
+(`20260810-011327`) and "2–3 hours" in a story are not homework.
+Tomorrow's weather with no city named uses the profile — omit
+`place`, do not geocode the profile city (first gazetteer hit) or "to morrow".
+Forget drops listed episodes, not only facts. The same research query does not
 run twice because `max_sources` changed. `email it to me` is you, not
 a contact named "it". A successful send no longer dies on a leftover
 calculator gate. A hard CAS integral runs in a child we can kill —
@@ -139,8 +153,9 @@ or problem stays on that look.
 **Desk.** `desktop` opens and drives apps on your Windows session —
 Notepad, Calculator, Explorer — the same Stop / Pause / Go strip as
 her Chrome. A typed or spoken ask is the grant; delete / Pay / UAC
-still pause. She does not get a shell, a raw `.exe` path, or System32
-as a folder to rummage. Web stays `browser`. See
+still pause. A screenshot of a monitor is a grab (`screenshot`), not
+named-control `snapshot`. She does not get a shell, a raw `.exe` path,
+or System32 as a folder to rummage. Web stays `browser`. See
 [desktop-control.md](desktop-control.md).
 
 **Browser.** Her Chrome (`data/browser-profile/`) is the window you
@@ -194,7 +209,18 @@ is done.
 with a small beam, not greedy first-token lock. Speech out is Kokoro-82M
 `af_heart` on CPU (Piper fallback). End of
 turn is Silero plus Smart Turn v3 when the ONNX is present. Headset
-barge-in is the next question. [voice-wake.md](voice-wake.md). Those
+barge-in is the next question. A spoken **what did you say** / **I
+didn't hear that** replays the last answer — no model turn, no
+"what did I say that you wanted me to repeat?". Messy transcripts
+drop ah/um and borrow names she just said (tighten → Titan). "What
+did I say" without a topic is not a recall search. She does not
+cut a new clip on every period — a short opener waits for the next
+sentence so playback does not stall. Idle **Hey Arelis** accepts the
+spellings Whisper actually writes here (Arilis, Rellis, Hair Relus)
+and a short clip is no longer dropped silent. A bare doorbell
+latches Talk and stays on **listening** until you say the question.
+Close-to-tray no longer kills the ear. Wake starts on Sherpa
+instead of waiting out a HuggingFace Whisper check. [voice-wake.md](voice-wake.md). Those
 weights are not in the setup `.exe`. First open fetches them with the
 model; the idle line says **getting the ear…** until wake can hear, and
 only then **say "hey arelis"**.
@@ -276,21 +302,31 @@ planes and ships — last city's pins do not occupy the next.
 
 Now: `arelis/earth/feeds.py` is **109 shipped / 25 keyed / 3 later / 4 out**.
 Live is distance-gated (`arelis/earth/lod.py`): from space only
-satellites are fetched; closer in, local planes; closer still, boats
-and planes and no satellite refresh; at city scale every toggled
+satellites are fetched; closer in, local planes (TLE refresh stays);
+closer still, boats and planes; at city scale every toggled
 layer, still boxed to the look area so we do not hammer every 511
-from orbit. Earth layer chips start off except satellites and ISS; the bar
+from orbit. The globe caps the sat swarm in near/city (ISS and a
+tracked mark stay). Earth layer chips start off except satellites and ISS; the bar
 only lists what the current band can show. Distance is a sentence
 (from space / in the city), not a toggle. Enter turns Live on so
 air and sea refresh on TTL while tracks coast. Slash finds a city
 or a street address; Enter flies there. Orbital marks are the full
 catalog, not a nadir patch. Say take me to Tokyo —
 or Japan, Illinois, Africa, the UK, home — typed or spoken.
+A Find miss is loud, not a hop to 0, 0, and it does not sit on
+the ISS ride card. Leave Earth cancels a spoken Enter that was
+still queued. Travel to another body leaves the zone first.
+Until Cesium is ready the NASA disc stays; the plate is not a
+black HUD. Live off stays Live off
+while a coast snapshot is in flight.
 Click a country or city
 to fall toward it. Click the ISS to ride along; Esc or empty sky hops off.
 City and near keep no sat swarm — only a hot station.
 Radio and cameras list in a right-side HUD tile; camera peek / View / More
 stay on that glass, not a second window.
+Enter Earth keeps the NASA disc until GIBS tiles land, then
+frames the sunlit limb (not a night starfield at 20°N 0°E). City
+scale uses OSM under photoreal so 8 km is not a pale smear.
 Enter Earth jumps the clock to now. The camera is an observer
 (`arelis.physics.observe`): physics stays true; the plate commits
 when accumulated motion crosses half a pixel — every body, orbit
@@ -303,16 +339,16 @@ share group, and not `--disable-gpu`. Leave Earth kills the child
 is fallback only. The Cesium plate is opaque (no leftover solar
 frame through the night side); sodium HUD stays in Qt. NASA GIBS (Web Mercator
 Level 8, fog off) is the ground if no
-Google key is pasted; Photorealistic 3D cities light up below 8 km when
-`earth.google_maps_key` is set. Natural Earth country lines paint on
+Google key is pasted; Photorealistic 3D cities light up at 8 km and
+below when `earth.google_maps_key` is set. City scale without that key
+drapes OSM under GIBS so the sit is streets, not a z8 smear. Natural Earth country lines paint on
 the Qt disc so landfall still reads if Cesium is down. The GL Earth
 map shares that frame — Greenwich is the texture center, not the seam.
 The Earth
 software sphere can grow once you have fallen in so the NASA albedo
 still reads; optional `earth_8192.jpg` (Blue Marble shallow topo) is
-preferred when present; Streets is a named-road overlay on the planet (not the OSM carto drawing), with a compass and a distance meter (Cesium emit only — Find does not write the dest as the current eye; click for a pin; map scale only closer in); Cesium pins are WGS84 from ECEF;
-optional building footprints are a city-band chip, look-pin boxed,
-and the same outlines ride Cesium when WebEngine is up.
+preferred when present; Streets is a named-road overlay on the planet (not a swap of the whole globe to OSM carto), with a compass and a distance meter (Cesium emit only — Find does not write the dest as the current eye; click for a pin; map scale only closer in); Cesium pins are WGS84 from ECEF.
+The Overpass footprint module stays in-tree; the chip is off the bar.
 Viewsheds say No terrain. Collision stays no mesh, no DEM. OpenSky uses a bbox
 (1 credit) once you have a look box. Reality telemetry is on while
 we tune: `logs/reality.log` + `logs/reality.jsonl`
@@ -353,6 +389,12 @@ login. Out stays out (sat-AIS, unowned cameras, face index, VIN).
 [earth.md](earth.md).
 
 **Mail.** There is no Mail tab. Credentials live in `data/secrets.yaml`.
+
+## 0.2.8
+
+Daily-driver pass: scanned PDFs, the missing tools, Allow holes,
+and a model picker after setup. Full notes:
+[v0.2.8](releases/v0.2.8.md).
 
 ## 0.2.7
 

@@ -289,6 +289,21 @@ _WRITE_AFTER_ALGEBRA_NOTICE = (
     "Do not call another tool unless the ask still needs one."
 )
 
+_WRITE_AFTER_CALC_NOTICE = (
+    "You already have the calculator result. Write the chat line now. "
+    "It must include the numeric answer from the tool. "
+    "'What's next?' or 'easy enough' without the number is not an answer. "
+    "Do not call the calculator again."
+)
+
+
+def write_after_algebra_notice(tool: str) -> str:
+    """Write-up nudge after algebra. Calculator must state the number."""
+    if (tool or "").strip() in {"calculator", "units"}:
+        return _WRITE_AFTER_CALC_NOTICE
+    return _WRITE_AFTER_ALGEBRA_NOTICE
+
+
 _JS_SHELL_BROWSER_NOTICE = (
     "That page is a JavaScript shell — scrape cannot read it. Call "
     "browser(action=open, url={url}) so they can Allow her window. "

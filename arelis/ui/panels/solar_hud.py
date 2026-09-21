@@ -1040,7 +1040,7 @@ def build_inspect_lines(panel, system: SolarSystem) -> list[str]:
 
         zone = get_earth()
         if zone is None or not zone.active:
-            if earth_arrived(panel):
+            if earth_enter_offered(panel):
                 lines.append(
                     "Enter opens the Earth zone in this window. Closer shows more."
                 )

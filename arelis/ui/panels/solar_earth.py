@@ -47,18 +47,28 @@ def globe_ride_layer(layer: str) -> bool:
     return can_ride(layer)
 
 
+def _placeholder_earth_look(lat: float, lon: float) -> bool:
+    """0,0 and the old 20N/0E default are not a place the observer chose."""
+    if abs(lat) < 1e-6 and abs(lon) < 1e-6:
+        return True
+    return abs(lat - 20.0) < 0.05 and abs(lon) < 0.05
+
+
 def earth_enter_lla(zone=None) -> tuple[float, float, float]:
-    """Space-band nadir for the first Cesium pose. Earth fills the frame."""
+    """Space-band nadir for the first Cesium pose. Daylight limb, not night."""
+    from arelis.earth.frames import subsolar_lla
+
     view = getattr(zone, "last_view", None) if zone is not None else None
     if view is not None:
         try:
             lat = float(view.lat)
             lon = float(view.lon)
-            if abs(lat) <= 90.0:
+            if abs(lat) <= 90.0 and not _placeholder_earth_look(lat, lon):
                 return lat, lon, SPACE_ENTER_ALT_M
         except (TypeError, ValueError):
             pass
-    return 20.0, 0.0, SPACE_ENTER_ALT_M
+    slat, slon = subsolar_lla()
+    return slat, slon, SPACE_ENTER_ALT_M
 
 
 def earth_entity_look_alt_m(layer: str) -> float:
@@ -306,12 +316,18 @@ class SolarEarthMixin:
             self._earth_fly = None
 
     def _leave_earth_zone(self) -> None:
+        from arelis.earth.dump import dump_state
         from arelis.earth.runtime import get_earth
 
         zone = get_earth()
-        if zone is not None:
+        if zone is not None and zone.active:
+            try:
+                dump_state(zone, trigger="leave")
+            except OSError:
+                pass
             zone.stop_ride()
             zone.leave()
+        self._earth_at_door = False
         self._earth_cam = None
         self._earth_fly = None
         self._earth_id = None
@@ -331,6 +347,12 @@ class SolarEarthMixin:
         self._globe_cam_push = 0.0
         self._earth_live_busy = False
         self._cesium_off = False
+        system = get_system()
+        if system is not None:
+            system.pending_enter_earth = False
+        from arelis.ui.earth_chrome import clear_earth_say
+
+        clear_earth_say(self)
         self._close_earth_look()
         from arelis.ui.earth_dock import close_earth_dock
 
@@ -348,6 +370,15 @@ class SolarEarthMixin:
     def _earth_globe_live(self) -> bool:
         host = self._globe_host
         return host is not None and not host.failed and host.isVisible()
+
+    def _earth_globe_ready(self) -> bool:
+        host = self._globe_host
+        return (
+            host is not None
+            and not host.failed
+            and host.isVisible()
+            and bool(getattr(self, "_globe_revealed", False))
+        )
 
     def _cesium_forbidden(self) -> bool:
         """Cannot construct WebEngine. Pytest is not a reason."""
@@ -394,7 +425,12 @@ class SolarEarthMixin:
         self._show_earth_globe()
 
     def _mount_earth_globe(self) -> None:
-        self._globe_mounting = False
+        try:
+            self._mount_earth_globe_body()
+        finally:
+            self._globe_mounting = False
+
+    def _mount_earth_globe_body(self) -> None:
         if not self._earth_zone_on():
             return
         if getattr(self, "_cesium_off", False) or self._cesium_forbidden():
@@ -417,10 +453,25 @@ class SolarEarthMixin:
 
             trace("earth globe: mount host")
             host = EarthGlobeHost(self)
-            if host.failed:
-                self._drop_earth_webengine()
+            if not self._earth_zone_on():
+                shut = getattr(host, "shutdown", None)
+                if callable(shut):
+                    try:
+                        shut()
+                    except Exception:
+                        pass
+                hide = getattr(host, "hide", None)
+                if callable(hide):
+                    hide()
+                late = getattr(host, "deleteLater", None)
+                if callable(late):
+                    late()
                 if gl is not None and hasattr(gl, "unpark"):
                     gl.unpark()
+                return
+            if host.failed:
+                self._drop_earth_webengine()
+                self._fallback_native_globe("host failed on construct")
                 return
             host.bridge.hostPicked.connect(self._on_globe_pick)
             if hasattr(host.bridge, "hostRidden"):
@@ -442,6 +493,8 @@ class SolarEarthMixin:
 
         host = self._globe_host
         if host is not None and not host.failed:
+            # Shown so Chromium actually fetches GIBS. HUD covers it
+            # with the NASA disc until tiles land.
             host.show()
             host.lower()
         if self._earth_hud is not None:
@@ -525,6 +578,7 @@ class SolarEarthMixin:
         self._globe_hpr = None
         self._globe_fly_until = 0.0
         self._globe_did_ready = False
+        self._globe_revealed = False
         self._streets_on = None
         self._roads_gen = None
         self._roads_view_key = None
@@ -541,7 +595,7 @@ class SolarEarthMixin:
                 pin()
         if self._earth_hud is not None:
             host = self._globe_host
-            if host is not None and not host.failed and host.isVisible():
+            if host is not None and not host.failed:
                 self._earth_hud.show()
                 from arelis.ui.earth_globe_host import stack_chrome_over_globe
 
@@ -559,13 +613,31 @@ class SolarEarthMixin:
             return
         lat, lon, alt = earth_enter_lla(zone)
         self._globe_hpr = (0.0, -90.0)
-        host = self._globe_host
-        if host is not None and not host.failed and host.isVisible():
-            host.push_camera(lat, lon, alt, 0.0, -90.0)
-            return
         self._earth_cam = nadir_cam(lat, lon, alt)
         self._earth_agl_m = float(alt)
         self._earth_nadir_m = None
+        # Native disc uses the solar camera. Do not wait for a physics tick
+        # or Enter from the Sun still paints the Sun as "Earth."
+        self._earth_hold_t = 0.0
+        host = self._globe_host
+        if host is not None and not host.failed:
+            host.push_camera(lat, lon, alt, 0.0, -90.0)
+        system = get_system()
+        if system is not None:
+            self._hold_earth_eye(system)
+
+    def _reveal_earth_globe(self) -> None:
+        if not self._earth_zone_on():
+            return
+        if getattr(self, "_globe_revealed", False):
+            return
+        self._globe_revealed = True
+        host = self._globe_host
+        if host is not None and not host.failed:
+            host.show()
+            host.lower()
+        self._layout_earth_globe()
+        self.update()
 
     def _on_globe_ready(self) -> None:
         self._layout_earth_globe()
@@ -589,6 +661,7 @@ class SolarEarthMixin:
         self.update()
 
     def _on_globe_tiles(self, kind: str) -> None:
+        self._reveal_earth_globe()
         try:
             from arelis.physics.telemetry import emit
 
@@ -605,6 +678,7 @@ class SolarEarthMixin:
         from arelis.earth.runtime import get_earth
 
         zone = get_earth()
+        was_ride = bool(zone is not None and zone.ride_id)
         if zone is not None:
             zone.unlock()
         self._earth_id = None
@@ -616,7 +690,9 @@ class SolarEarthMixin:
 
         close_earth_dock(self)
         host = self._globe_host
-        if host is not None and hasattr(host, "release_camera"):
+        if host is not None and hasattr(host, "arm_ride"):
+            host.arm_ride("")
+        if was_ride and host is not None and hasattr(host, "release_camera"):
             host.release_camera()
         if self._earth_globe_live():
             self._sync_earth_globe(force=True)
@@ -755,9 +831,14 @@ class SolarEarthMixin:
             agl = float(payload.get("agl_m") or 0.0)
         except (KeyError, TypeError, ValueError):
             return
-        self._earth_pin = {"lat": lat, "lon": lon, "slant_m": slant}
         if agl > 0.0:
             self._earth_agl_m = agl
+        from arelis.earth.lod import band_from_view
+
+        if band_from_view(alt_m=agl, px_r=0.0, locked=True) == "space":
+            self._hop_off_earth_contact()
+            return
+        self._earth_pin = {"lat": lat, "lon": lon, "slant_m": slant}
         self._clear_earth_pick()
         try:
             from arelis.physics.telemetry import emit
@@ -812,11 +893,11 @@ class SolarEarthMixin:
         self.update()
 
     def _push_globe_camera(self) -> None:
-        if self._earth_globe_live():
+        if getattr(self, "_globe_revealed", False):
             return
         host = self._globe_host
         pose = self._earth_cam
-        if host is None or host.failed or not host.isVisible() or pose is None:
+        if host is None or host.failed or pose is None:
             return
         if self._globe_flight_live():
             return
@@ -941,6 +1022,10 @@ class SolarEarthMixin:
         system = get_system()
         if system is None:
             return
+        if self._earth_zone_on():
+            if name == "Earth":
+                return
+            self._leave_earth_zone()
         body = system.nbody.find(name)
         if body is None:
             return
@@ -1014,18 +1099,15 @@ class SolarEarthMixin:
         self.update()
 
     def _after_travel(self, name: str) -> None:
-        from arelis.earth.runtime import get_earth
-
         if name == "Earth":
             self._earth_at_door = True
             self._set_inspect("Earth")
             self.update()
             return
         self._earth_at_door = False
-        zone = get_earth()
-        if zone is not None and zone.active:
-            zone.stop_ride()
-            zone.leave()
+        if self._earth_zone_on():
+            self._leave_earth_zone()
+            return
         self._earth_cam = None
         self._earth_id = None
         self._close_earth_look()
@@ -1074,7 +1156,7 @@ class SolarEarthMixin:
 
         if self._earth_cam is None:
             return
-        if self._earth_globe_live():
+        if self._earth_globe_ready():
             return
         zone = get_earth()
         if zone is None or not zone.active or zone.ride_id:

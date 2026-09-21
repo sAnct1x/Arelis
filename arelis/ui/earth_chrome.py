@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from typing import Any
 
 from PySide6.QtCore import QRect, Qt
@@ -100,11 +101,16 @@ def paint_live_chip(panel: Any, painter: QPainter, rect: QRect, *, on: bool) -> 
         or (zone is not None and getattr(zone, "_live_busy", False))
     )
     label = live_chip_label(on=on, busy=busy)
+    painter.setFont(panel.font())
     painter.setPen(QPen(color("edge_hot") if on else color("warn"), 1))
     painter.setBrush(_wash("accent", 230) if on else _wash("glass_fill", 220))
     painter.drawRoundedRect(rect, 4, 4)
     painter.setPen(color("text"))
-    painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, label)
+    painter.drawText(
+        rect.adjusted(8, 0, -8, 0),
+        int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
+        label,
+    )
 
 
 def _wash(name: str, alpha: int):
@@ -113,9 +119,24 @@ def _wash(name: str, alpha: int):
     return tint
 
 
+SAY_SECS = 4.0
+
+
 def set_earth_say(panel: Any, title: str, line: str = "") -> None:
     panel._earth_say = (str(title or "").strip(), str(line or "").strip())
+    panel._earth_say_t = time.monotonic()
     panel.update()
+
+
+def clear_earth_say(panel: Any, *, paint: bool = True) -> None:
+    panel._earth_say = None
+    panel._earth_say_t = 0.0
+    panel._earth_say_box = QRect()
+    if not paint:
+        return
+    update = getattr(panel, "update", None)
+    if callable(update):
+        update()
 
 
 def paint_earth_say(panel: Any, painter: QPainter) -> QRect:
@@ -123,6 +144,19 @@ def paint_earth_say(panel: Any, painter: QPainter) -> QRect:
     pair = getattr(panel, "_earth_say", None)
     if not isinstance(pair, tuple) or not pair or not str(pair[0] or "").strip():
         panel._earth_say_box = QRect()
+        return QRect()
+    try:
+        from arelis.earth.runtime import get_earth
+
+        zone = get_earth()
+    except Exception:
+        zone = None
+    if zone is not None and getattr(zone, "ride_id", ""):
+        panel._earth_say_box = QRect()
+        return QRect()
+    started = float(getattr(panel, "_earth_say_t", 0.0) or 0.0)
+    if started and (time.monotonic() - started) > SAY_SECS:
+        clear_earth_say(panel, paint=False)
         return QRect()
     title = str(pair[0]).strip()
     line = str(pair[1]).strip() if len(pair) > 1 else ""

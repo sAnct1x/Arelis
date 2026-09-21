@@ -11,7 +11,8 @@ Leave Earth returns to heliocentric. Breadcrumb for the next agent:
 - Now: feeds.FEEDS is 109 shipped / 25 keyed / 3 later / 4 out.
   Distance-gated live (`lod.py`): space=sats, approach keeps sats and
   opens planes, near adds boats, city opens ground catalogs. Streets
-  wait on altitude. Observer budget
+  wait on altitude. The globe caps the sat swarm in near/city; TLE
+  refresh does not stop. Observer budget
   (`physics.observe`): the camera is not a body. Physics stays true;
   the plate commits at half a pixel of accumulated screen motion —
   every solar body, orbit and IAU spin. Overnight and a closer zoom

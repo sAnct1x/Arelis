@@ -352,7 +352,10 @@ def _public_globe(path: Path) -> bool:
     The rest of the tree still has one fixture place. The globe cannot.
     """
     rel = path.relative_to(PROJECT_ROOT).as_posix()
-    return rel.startswith("arelis/earth/") or rel in {
+    return (
+        rel.startswith("arelis/earth/")
+        or rel.startswith("tests/fixtures/earth/")
+        or rel in {
         "tests/test_earth.py",
         "tests/test_earth_goto.py",
         "tests/test_egress.py",
@@ -362,17 +365,23 @@ def _public_globe(path: Path) -> bool:
         "scripts/walk_earth_streets.py",
         "scripts/walk_earth_globe.py",
         "scripts/walk_earth_field.py",
+        "scripts/shot_earth_break.py",
+        "scripts/shot_earth_reality.py",
         "tests/test_earth_inspect.py",
         "tests/test_earth_field.py",
         "tests/test_earth_polish.py",
+        "tests/test_earth_audit.py",
+        "tests/test_earth_break.py",
         "tests/test_globe_stack.py",
+        "docs/roadmap/earth-reality.md",
         "arelis/ui/earth_globe/bridge.js",
         "docs/earth.md",
         "data/secrets.example.yaml",
         # Public US gazetteer: "Baltimore, OH" vs "baltimore ohio".
         "arelis/tools/weather.py",
         "tests/test_weather_tool.py",
-    }
+        }
+    )
 
 
 def _is_allowed_coordinate(value: str) -> bool:

@@ -17,7 +17,7 @@ from arelis.core.agent_loop import (
     _BROWSER_WANDER,
     _MAX_THINKING_SNIPPET,
     _WEATHER_WANDER,
-    _WRITE_AFTER_ALGEBRA_NOTICE,
+    write_after_algebra_notice,
 )
 from arelis.core.call_redirects import apply_redirects
 from arelis.core.claims import lock_memory_forget_args
@@ -32,7 +32,7 @@ from arelis.core.image_refs import (
     fill_vision_args,
 )
 from arelis.core.look import PASTED_IDENTIFY_QUESTION, look_call_blocked, vision_question
-from arelis.core.preflight import looks_like_browser_click_signin
+from arelis.core.preflight import looks_like_browser_click_signin, rewrite_desktop_calls
 from arelis.core.read_fanout import should_fanout_reads
 from arelis.core.same_call import (
     already_ran_same_call,
@@ -76,6 +76,7 @@ def fill_round_calls(
     hits = getattr(inbox, "last_hits", None) if inbox is not None else None
     history = getattr(getattr(loop, "memory", None), "messages", None)
     receipts = getattr(loop, "_receipts", None)
+    calls = rewrite_desktop_calls(calls, text=text)
     out: list[tuple[str, dict[str, Any]]] = []
     for name, args in calls:
         payload = dict(args or {})
@@ -646,13 +647,20 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
                 ctx.same_skip_keys.add(key)
             # First blocked cas/python: take schemas away. The 9B
             # otherwise re-emits the same call until the round cap.
+            # Calculator 2+2 is the answer. Do not send it down the CAS
+            # latex write-up path — that is how "14-6 = 8" became
+            # "What's next?" with the number only in thinking.
+            if (name or "").strip() == "calculator":
+                line = same_call_finish_line(name, ctx.last_ok_tool_out)
+                await loop._finish(line, r.sources, streamed="")
+                return True
             if same_call_strips_tools(name):
                 if not ctx.algebra_write_nudge_used:
                     ctx.algebra_write_nudge_used = True
                     r.messages.append(
                         {
                             "role": "user",
-                            "content": _WRITE_AFTER_ALGEBRA_NOTICE,
+                            "content": write_after_algebra_notice(name),
                         }
                     )
                     await loop.bus.publish(

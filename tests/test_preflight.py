@@ -166,6 +166,15 @@ def test_recall_intent() -> None:
         assert "recall tool" in recall.nudge.lower()
 
 
+def test_spoken_mush_after_what_did_i_say_is_not_recall() -> None:
+    """Conversation STT tacks leftovers onto 'what did I say'. That is chat."""
+    hints = detect_intents(
+        "Yet indeed it does ah and that i said ah what did i say "
+        "said something how i don't remember what are you doing to night"
+    )
+    assert not any(h.kind == "recall" for h in hints)
+
+
 def test_inbound_sms_intent() -> None:
     for phrase in (
         "Did Brian text?",
@@ -399,6 +408,13 @@ def test_tasks_and_goal_delete_intents() -> None:
     )
     assert not looks_like_browser_open_ask(
         "go to amazon.com and add batteries to cart"
+    )
+    assert not looks_like_browser_open_ask(
+        "Hay take me to you tube doc calm and do us search "
+        "for the organic chemistry tutor"
+    )
+    assert not looks_like_browser_open_ask(
+        "on his page i want you to pull up the precalculus playlist"
     )
 
 

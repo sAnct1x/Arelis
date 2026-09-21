@@ -23,6 +23,12 @@ from arelis.core.claims import (
 )
 from arelis.core.events import Event, EventType
 from arelis.core.evidence import dual_hit_notice, quote_first_notice
+from arelis.core.failure_copy import (
+    _algebra_was_asked,
+    chat_followup_from_tool,
+    reply_states_algebra_result,
+    should_nudge_write_after_algebra,
+)
 from arelis.core.gates import FORCE_GATE_KINDS, apply_force_gates
 from arelis.core.loop_helpers import _answer_has_quote_span, _exactness_finish_refuse
 from arelis.core.plan_nudge import plan_progress_notice
@@ -181,6 +187,42 @@ async def try_ink_vision(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
     return SKIP
 
 
+async def try_algebra_answer(
+    loop: Any, ctx: TurnContext, r: RoundScratch, round_i: int
+) -> str:
+    """Ship the calculator line when chat is filler without the number.
+
+    Live dump: tool returns `14-6 = 8`, thinking has 8, bubble is
+    "What's next?". Empty-after-algebra only fires on blank content.
+    """
+    del round_i
+    name = ctx.last_ok_tool_name
+    out = ctx.last_ok_tool_out
+    if not (
+        out
+        and should_nudge_write_after_algebra(name)
+        and _algebra_was_asked(ctx.text)
+        and not answer_looks_like_refusal(r.content)
+        and not reply_states_algebra_result(r.content, name, out)
+    ):
+        return SKIP
+    line = chat_followup_from_tool(name, out, ask=ctx.text)
+    await loop._retract()
+    await loop.bus.publish(
+        Event(
+            EventType.THINKING,
+            {"text": "algebra result missing from chat; shipping the tool line"},
+        )
+    )
+    await loop._finish(
+        line,
+        r.sources,
+        streamed="",
+        passthrough_tool=name,
+    )
+    return FINISH
+
+
 async def try_file_answer(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: int) -> str:
     if ctx.ink_page_images and "vision" not in loop.tools_used:
         return SKIP
@@ -277,6 +319,7 @@ FINISH_STEPS: tuple[StepFn, ...] = (
     try_ink_vision,
     try_force_gates,
     try_evidence,
+    try_algebra_answer,
     try_file_answer,
     try_quote_first,
     try_research_dual,

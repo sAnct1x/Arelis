@@ -321,11 +321,18 @@ class EarthHudGlass(QWidget):
         from arelis.ui.panels.solar_hud import paint_earth_chrome
 
         painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.setFont(self._panel.font())
+        if not getattr(self._panel, "_globe_revealed", False):
+            painter.fillRect(self.rect(), QColor(4, 5, 8))
+            paint = getattr(self._panel, "_paint_overlay", None)
+            if callable(paint):
+                paint(painter, software=True)
+            self.clearMask()
+            return
         painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
         painter.fillRect(self.rect(), QColor(0, 0, 0, 0))
         painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        painter.setFont(self._panel.font())
         paint_earth_chrome(self._panel, painter)
         after = chrome_mask(self._panel)
         if after.isEmpty():

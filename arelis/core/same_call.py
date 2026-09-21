@@ -131,9 +131,8 @@ def same_call_notice(name: str, args: dict[str, Any]) -> str:
 _FINISH_ON_REPEAT = frozenset({"calculator", "weather", "browser", "agenda"})
 # A CAS dump is not chat. After one blocked repeat, take the schemas
 # away so the 9B writes instead of burning three more tool rounds.
-_STRIP_TOOLS_ON_REPEAT = frozenset(
-    {"cas", "calculator", "python", "units", "plot"}
-)
+# Calculator is not here — 2+2 ships as the chat line (see finishes_turn).
+_STRIP_TOOLS_ON_REPEAT = frozenset({"cas", "python", "units", "plot"})
 
 
 def same_call_finishes_turn(name: str) -> bool:
@@ -157,6 +156,10 @@ def same_call_finish_line(name: str, last_out: str) -> str:
     """
     text = (last_out or "").strip()
     if text:
+        if (name or "").strip() == "calculator":
+            from arelis.core.failure_copy import pretty_calculator_chat
+
+            return pretty_calculator_chat(text)
         if len(text) > 800:
             cut = text[:800]
             nl = cut.rfind("\n")

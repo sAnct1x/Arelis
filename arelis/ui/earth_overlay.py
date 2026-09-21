@@ -138,8 +138,14 @@ def layout_earth_chips(
         band = ""
     for kind, label in earth_chip_items(band):
         w = _chip_width(fm, kind, label)
-        if w > inner_right - inner_left:
-            w = inner_right - inner_left
+        row_w = inner_right - inner_left
+        if w > row_w:
+            # Live must not shrink into "Live ...". Wrap, then clamp.
+            if x > inner_left:
+                x = inner_left
+                y += _CHIP_H + _CHIP_GAP
+            if kind != "live":
+                w = row_w
         if x > inner_left and x + w > inner_right:
             x = inner_left
             y += _CHIP_H + _CHIP_GAP

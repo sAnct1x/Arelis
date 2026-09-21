@@ -308,6 +308,34 @@ async def test_dispatch_cas_same_call_strips_tools_for_a_writeup() -> None:
 
 
 @pytest.mark.asyncio
+async def test_dispatch_calculator_same_call_ships_the_number() -> None:
+    from arelis.core.same_call import record_same_call
+
+    loop = _FakeLoop()
+    args = {"expression": "14-6"}
+    r = _scratch(
+        calls=[("calculator", args)],
+        tool_calls=[],
+        content="",
+        streamed="",
+        tool_names={"calculator"},
+        offer_tools=True,
+        messages=[],
+    )
+    ctx = _ctx()
+    ctx.tool_names = {"calculator"}
+    ctx.offer_tools = True
+    ctx.last_ok_tool_out = "14-6 = 8"
+    ctx.last_ok_tool_name = "calculator"
+    record_same_call(ctx.same_ok, "calculator", args)
+    assert await dispatch_calls(loop, ctx, r, 2) is True
+    assert loop.finished is not None
+    assert loop.finished[0] == "14-6 = 8"
+    thinking = " ".join(str(e.payload.get("text") or "") for e in loop.bus.events)
+    assert "same-call algebra" not in thinking
+
+
+@pytest.mark.asyncio
 async def test_dispatch_unknown_tool_does_not_end_the_turn() -> None:
     loop = _FakeLoop()
     r = _scratch(
@@ -474,6 +502,24 @@ async def test_a_plain_chat_line_is_not_dragged_into_a_source_read() -> None:
     assert not r.calls
 
 
+@pytest.mark.asyncio
+async def test_monitor_screenshot_ask_injects_desktop_screenshot() -> None:
+    loop = _FakeLoop()
+    text = "screenshot my primary monitor and tell me what you can see"
+    r = _scratch(
+        text=text,
+        content="Sure.",
+        tool_names={"desktop"},
+        available={"desktop"},
+        visible={"desktop"},
+        available_all={"desktop"},
+    )
+    ctx = _ctx(text=text)
+    ctx.tool_names = {"desktop"}
+    assert await apply_no_call_path(loop, ctx, r, 0) is None
+    assert r.calls == [("desktop", {"action": "screenshot", "target": "primary"})]
+
+
 def test_fake_loop_finish_matches_the_real_signature() -> None:
     """The double must never accept more than AgentLoop._finish does.
 
@@ -499,6 +545,7 @@ def test_dispatch_tables_are_named_and_ordered() -> None:
 
     assert len(no_call_steps.INJECT_STEPS) >= 8
     assert all(callable(step) for step in no_call_steps.INJECT_STEPS)
+    assert no_call_steps.try_desktop_look in no_call_steps.INJECT_STEPS
     assert len(no_call_finish.FINISH_STEPS) >= 6
     assert len(call_redirects.REDIRECT_STEPS) >= 4
     assert all(callable(step) for step in call_redirects.REDIRECT_STEPS)

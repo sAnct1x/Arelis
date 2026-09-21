@@ -157,7 +157,6 @@ _EARTH_LAYER_ALIASES: tuple[tuple[str, str], ...] = (
     ("satellites", r"satellites?|sats?"),
     ("iss", r"(?:the\s+)?iss"),
     ("tiles", r"streets?|roads?"),
-    ("buildings", r"buildings?"),
     ("live", r"live(?:\s+feeds?)?"),
     ("drones", r"drones?"),
     ("vessels", r"vessels?|ships?"),

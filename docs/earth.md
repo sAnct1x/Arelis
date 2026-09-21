@@ -59,16 +59,24 @@ including People. Slash or the find field + Enter flies to a city,
 country, state, continent, address, or contact. Saying **take me to Tokyo** (or Japan,
 California, Africa, the UK, home) is a closed verb — typed or
 spoken, no model turn. Chat still works throughout all of this;
-it's just never required.
+it's just never required. A Find miss is loud — not a silent hop
+to 0, 0 — and it drops when you ride a contact. Leave Earth
+cancels a spoken Enter that was still queued. Live off stays **Live off** even while a coast snapshot
+is in flight; the ellipsis is only for Live on. Enter snaps the
+native eye onto Earth so the NASA disc is the planet, not leftover
+Sun.
 
 The Live layer is distance-gated on purpose, so we're not hammering
 every catalog while you're still out in space. Space band only
 fetches satellites. Approach pulls in planes within the current look
-box (via OpenSky's bounding-box query, 1 credit per call). Near adds
-boats to the mix and drops satellite refresh entirely. City band
+box (via OpenSky's bounding-box query, 1 credit per call) and keeps
+TLE refresh so sats stay. Near adds boats. City band
 opens every layer whose chip is switched on — cameras, traffic,
 weather, incident sites — still filtered down to the look area and
-capped in volume. Layer chips all start off except for **Sats** and
+capped in volume. The globe stops painting the sat swarm in
+near/city (ISS and a tracked mark stay); CelesTrak still refreshes
+so the shell is not cold when you climb back out. Layer chips all
+start off except for **Sats** and
 **ISS**. The bar itself only ever shows what the current band can
 actually use: space keeps just those two on; approach adds flights;
 near adds boats; city opens the rest. Clicking a country or city on
@@ -92,9 +100,14 @@ The Earth disc can grow past the usual 384px software-sphere size
 once you've fallen in close. The globe is solid — contacts on the far
 side stay behind it. ISS coasts in Cesium, it is not a parked still.
 NASA GIBS Blue Marble (Web Mercator Level 8) drapes
-from space. Closer in, daily VIIRS true-color (Level 9) sits under
+from space. First Enter keeps the NASA disc until those tiles land —
+Cesium does not flash a black “fetching satellites” plate. The first
+nadir is the sunlit limb (wall-clock subsolar), not 20°N 0°E at night.
+Closer in, daily VIIRS true-color (Level 9) sits under
 photoreal so a 50 km sit is not a 500 m/px smear, and a city gap is
-not a navy hole. Fog stays off. From space the night side is NASA Black Marble
+not a navy hole. At city scale OSM raster sits under photoreal so 8 km
+is streets, not a pale GIBS stretch. OSM carto is not the planet from
+space. Fog stays off. From space the night side is NASA Black Marble
 city lights — the dark half of the same globe, not a sticker that
 pops in at the end of a hop. Daytime never paints those lights. A hop
 dresses the destination once and freezes the stack while you fly;
@@ -154,9 +167,9 @@ is not last city's pins.
 | Every camera | TfL, Caltrans, NYC, SG LTA, Fintraffic, HK TD, CARS 511 (ON, MB, NS, AB, SK, FL, NY, CO, IA, MN, GA), ODOT TripCheck, SHA/NDDOT, ALGO, DelDOT, NZTA, Quebec 511, and OSM worldwide. These show as pins; official stills or streams play on click, when the publisher's own JSON includes them. The URL itself isn't stored on the pin. |
 | Continents / countries / states | Natural Earth 110m border lines on the globe (cached in ECEF). Fill color only shows while the globe is small — not a live feed. |
 | Ground imagery | NASA GIBS Blue Marble from space. Daily VIIRS true-color closer in. From space and at night in approach, NASA Black Marble city lights. A published mosaic, not a live pass. |
-| Street-level tiles | Named highway overlays on GIBS / photoreal when Streets is on (Overpass, ODbL). OSM carto is not the planet. |
-| 3D cities | Google Photorealistic 3D Tiles after you land below ~8 km, when `earth.google_maps_key` is set — covered cities only. The hop itself stays on the mosaic. |
-| City blocks | Optional Overpass building footprints when Buildings is on, at city band, within roughly a 0.04° fabric box. Outlines only — individual houses stay unlabeled. |
+| Street-level tiles | Named highway overlays on GIBS / photoreal when Streets is on (Overpass, ODbL). OSM raster is the city underlay below ~15 km when photoreal is off — not a swap of the planet from space. |
+| 3D cities | Google Photorealistic 3D Tiles at city sit (~8 km and below), when `earth.google_maps_key` is set — covered cities only. The hop itself stays on the mosaic. |
+| City blocks | Cesium photoreal below ~8 km when `earth.google_maps_key` is set — covered cities only. Overpass footprints still live in `buildings.py`; the Buildings chip is off the bar. Individual houses stay unlabeled. |
 | Every satellite | CelesTrak's GNSS / weather / visual / science / comm catalogs, plus Starlink/OneWeb/Planet samples — not a painted orbital shell of everything up there. |
 | Military | adsb.lol's public squawk data only — aircraft that stay silent simply stay absent from the map. |
 | Your own video | RTSP, a local webcam, or an HTTP MJPEG/snapshot feed you've pasted in yourself. Clicking the pin plays the live footage, with an eye rendered in the frustum if you've set a heading. Face detection boxes stay in local ENU coordinates only — WGS84 precision is enough for placing the pin itself. |
@@ -295,7 +308,8 @@ reset: kill the Cesium child (or delete the in-process WebEngine
 view), then recreate solar GL.
 
 The native NASA disc is **fallback** when WebEngine is missing
-(software globes, Cesium boot fail). One fallback, not a second
+(software globes, Cesium boot fail), and it stays on the plate
+until Cesium reports ready so Enter is not a black HUD. One fallback, not a second
 product. Pytest without GPU solar stays in-process; pytest may still
 construct WebEngine. Do not special-case `PYTEST_CURRENT_TEST` to
 skip the globe. Do not delete `earth_globe/`, the host, or
@@ -315,8 +329,7 @@ follow the Cesium emit. They do not write the dest as if it landed.
 Sodium HUD stays in
 Qt. NASA GIBS
 (z8 cap) is the Cesium imagery stack when no Google / ion key is
-pasted (`choose_stack`). Building outlines are a city-band chip,
-look-pin boxed. Photorealistic 3D cities light up close-in (below
+pasted (`choose_stack`). Photorealistic 3D cities light up close-in (below
 8 km AGL) when `earth.google_maps_key` is set. Streets draws named
 roads on that planet — it does not replace it with a carto map.
 Find / take-me-to a city parks at 8 km; a street address parks at
@@ -341,7 +354,7 @@ Individual cars stay a labeled hole.
 | `arelis/earth/` | Entity handling, storage, runtime, frames, simulation, live data, feeds, adapters |
 | `arelis/earth/lod.py` | Distance bands, look box logic, adapter/layer gating |
 | `arelis/earth/land.py` | Natural Earth country fill plus state-line and admin-1 centroid cache for landfall |
-| `arelis/earth/buildings.py` | City-band Overpass building footprints. Cached, not a live feed |
+| `arelis/earth/buildings.py` | Overpass footprints still in-tree. Runtime forces the flag off; no chip on the bar. Cesium is the city. |
 | `arelis/physics/telemetry.py` | Reality logging plus jsonl output, always on while things are being tuned |
 | `arelis/earth/owned.py` | Owned-camera face boxes, in local ENU coordinates |
 | `arelis/earth/look.py` | Click-time look-from / listen caching; URLs are never attached to entities |

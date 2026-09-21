@@ -393,6 +393,22 @@ def test_leaving_conversation_resumes_wake_listen(qt_app) -> None:
     QCoreApplication.processEvents()
     assert controller.mode() == "wake"
 
+
+def test_stop_all_stays_deaf_until_resume_wake(qt_app) -> None:
+    """Tray hide used to call stop_all and never come back. Hey Arelis died."""
+    from PySide6.QtCore import QCoreApplication
+
+    controller, _recorder = _controller(qt_app)
+    controller.start_wake()
+    assert controller.mode() == "wake"
+    controller.stop_all()
+    QCoreApplication.processEvents()
+    assert controller.mode() == "off"
+    controller.start_wake()
+    assert controller.mode() == "off"
+    controller.resume_wake()
+    assert controller.mode() == "wake"
+
 def test_wake_is_paused_during_dictate(qt_app) -> None:
     controller, recorder = _controller(qt_app)
     sent: list[str] = []

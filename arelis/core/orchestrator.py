@@ -12,6 +12,7 @@ from arelis.core.confirm_speech import (
     apply_confirm_edit,
     classify_drive_act,
     classify_hangup,
+    classify_repeat,
     classify_voice_act,
 )
 from arelis.core.events import Event, EventType
@@ -185,8 +186,10 @@ class Orchestrator(OrchestratorTurns, OrchestratorSlash, OrchestratorConfirm):
         rewrites the draft. Stop / allow / deny / pause / go also land
         while she is mid-turn or a card is armed — conversation does not
         have to be latched (filament one-shot yes, dictate while she
-        drives). After a stop, the next line is a normal turn with a
-        one-line note — the model decides. Headset barge-in arrives as a
+        drives).         After a stop, the next line is a normal turn with a
+        one-line note — the model decides. "What did you say" / "I didn't
+        hear that" replays the last spoken answer — no model turn, or she
+        asks what they wanted repeated. Headset barge-in arrives as a
         normal turn and cancels the running one first. Speakers with
         barge_in_as_turn false still send deliver ``control`` so only stop /
         allow / deny / pause / go land — soup does not start a turn.
@@ -194,9 +197,13 @@ class Orchestrator(OrchestratorTurns, OrchestratorSlash, OrchestratorConfirm):
         text = (event.payload.get("text") or "").strip()
         if not text:
             return
+        conversing = bool(self.config.get("_speak_replies"))
+        if conversing:
+            from arelis.voice.stt import repair_stt_from_recent
+
+            text = repair_stt_from_recent(text, self.memory.messages)
         deliver = str(event.payload.get("deliver") or "")
         control_only = deliver == "control"
-        conversing = bool(self.config.get("_speak_replies"))
         if await self._voice_control(text, deliver=deliver):
             return
         if deliver == "dictate":
@@ -207,6 +214,14 @@ class Orchestrator(OrchestratorTurns, OrchestratorSlash, OrchestratorConfirm):
                 await self.bus.publish(Event(EventType.TURN_CANCEL, {"reason": "voice"}))
             await self.bus.publish(Event(EventType.CONVERSATION_END, {"reason": "voice"}))
             return
+        if conversing and not self._confirm_waiters and classify_repeat(text):
+            last = self._last_spoken_reply()
+            if last:
+                task = self._turn_task
+                if task is not None and not task.done():
+                    await self.bus.publish(Event(EventType.TURN_CANCEL, {"reason": "voice"}))
+                await self.bus.publish(Event(EventType.VOICE_SPEAK, {"text": last}))
+                return
         act = classify_physics_act(text, names=speech_body_names())
         if act and (self.rooms.active_id == PHYSICS_ROOM_ID or act.verb == "goto_earth"):
             payload = dict(act.payload())
@@ -226,6 +241,16 @@ class Orchestrator(OrchestratorTurns, OrchestratorSlash, OrchestratorConfirm):
                 # behind an answer nobody is listening to anymore.
                 await self.bus.publish(Event(EventType.TURN_CANCEL, {"reason": "voice"}))
         await self.bus.publish(Event(EventType.USER_MESSAGE, {"text": text, "source": "voice"}))
+
+    def _last_spoken_reply(self) -> str:
+        """Most recent assistant line, for a spoken 'say that again'."""
+        for item in reversed(self.memory.messages):
+            if getattr(item, "role", "") != "assistant":
+                continue
+            body = str(getattr(item, "content", "") or "").strip()
+            if body:
+                return body
+        return ""
 
     def _turn_live(self) -> bool:
         task = self._turn_task

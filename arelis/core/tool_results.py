@@ -17,13 +17,12 @@ from arelis.paths import state_dir
 
 log = logging.getLogger(__name__)
 
-FAT_TOOLS = frozenset(
-    {"scrape", "web_fetch", "doc_extract", "research_report", "workspace"}
-)
+# Local workspace reads are not a scrape. Live 2026-09-21: a 5KB index.html
+# became a metadata card, then same-call blocked a second read, so she
+# reviewed title/meta tags instead of the markup.
+FAT_TOOLS = frozenset({"scrape", "web_fetch", "doc_extract", "research_report"})
 # Only rewrite when the body is large enough that truncation risk is real.
 _MIN_FAT_CHARS = 2500
-# Workspace reads of these stay intact — a scrape card makes the model invent.
-_SOURCE_SUFFIXES = frozenset({".py", ".pyi", ".md", ".txt", ".yaml", ".yml"})
 
 # Tests may set this to a tmp dir. Live code resolves through state_dir().
 _CACHE_DIR: Path | None = None
@@ -39,23 +38,6 @@ def is_tool_cache_path(path: str) -> bool:
     """True for this turn's scrape/fetch dump — not a user file to re-read."""
     text = (path or "").replace("\\", "/").casefold()
     return "/tool_cache/" in text or text.rstrip("/").endswith("tool_cache")
-
-
-def _posix_norm(path: str) -> str:
-    return (path or "").replace("\\", "/").strip()
-
-
-def _is_source_like_workspace_path(data: dict[str, Any]) -> bool:
-    """True when workspace ``data`` points at source we must not card-summarize."""
-    for key in ("path", "abs_path"):
-        raw = _posix_norm(str(data.get(key) or ""))
-        if not raw:
-            continue
-        if Path(raw).suffix.casefold() in _SOURCE_SUFFIXES:
-            return True
-        if "arelis/" in raw or raw.startswith("docs/"):
-            return True
-    return False
 
 
 @dataclass(frozen=True)
@@ -156,15 +138,6 @@ def prepare_tool_output(
     raw = output or ""
     data = data or {}
     if name not in FAT_TOOLS or (len(raw) < _MIN_FAT_CHARS and not force):
-        return PreparedToolOutput(
-            inject=raw,
-            full_ref=None,
-            summarized=False,
-            original_chars=len(raw),
-        )
-    # Source-like workspace reads stay intact. A 6-bullet scrape card
-    # makes the model invent architecture from filenames.
-    if name == "workspace" and _is_source_like_workspace_path(data):
         return PreparedToolOutput(
             inject=raw,
             full_ref=None,

@@ -393,6 +393,44 @@ def test_iso_calendar_create_is_not_math() -> None:
     assert detect_math_ask("what is 17-3")
 
 
+def test_prose_quantity_ranges_are_not_math() -> None:
+    """A rant that says '2-3 hours' is not homework.
+
+    Live 2026-09-21: exactness forced calculator, then refused the turn with
+    'this needs a calculator result' on a story that had no ask.
+    """
+    from arelis.core.claims import detect_exactness_need, detect_math_ask
+
+    rant = (
+        "everytime i come up with a plan that i think will take me a couple "
+        "weeks, it takes like an hour in cursor with grok 4.6 and then 2-3 hours "
+        "of testing/bug fixing. 6 months ago, cursor composer 2.5 deleted over "
+        "50% of my entire harddrive. i use opus 5 once a month, it works for "
+        "1-2 days, burns all additional usage. i have never honestly used qwen "
+        "for any real coding because it scares me too bad."
+    )
+    assert not detect_math_ask(rant)
+    assert not detect_exactness_need(rant).needs_calculator
+    assert detect_math_ask("what is 2-3")
+    assert detect_math_ask("what is 17-3")
+
+
+def test_forget_episode_stamps_are_not_math() -> None:
+    """Live 2026-09-21: e2e episode ids looked like subtraction."""
+    from arelis.core.claims import detect_exactness_need, detect_math_ask
+
+    ask = (
+        "you can forget all of those episodes, Episodes:\n"
+        "e2e episode 20260810-011327-7c7369\n"
+        "e2e episode 20260810-005019-dbc9ac\n"
+        "e2e episode 20260810-004830-af83e0\n"
+        "e2e episode 20260810-004632-236df1"
+    )
+    assert not detect_math_ask(ask)
+    assert not detect_exactness_need(ask).needs_calculator
+    assert detect_math_ask("what is 17-3")
+
+
 def test_log_base_10_is_math_not_git() -> None:
     from arelis.core.claims import detect_cas_ask, detect_git_ask, detect_math_ask
 

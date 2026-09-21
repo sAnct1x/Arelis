@@ -1314,9 +1314,20 @@ def test_roster_hides_moons_until_parent_is_inspect(qt_app) -> None:
     assert "Earth" in vis
     assert "Moon" not in vis
     panel._set_inspect("Earth")
-    vis = panel._roster_visible(system)
+    vis = panel._roster_shown(system)
     assert "Moon" in vis
     assert vis.index("Moon") == vis.index("Earth") + 1
+    panel._set_inspect("Jupiter")
+    vis = panel._roster_shown(system)
+    jovian = ["Io", "Europa", "Ganymede", "Callisto"]
+    for moon in jovian:
+        assert moon in vis
+    panel._set_inspect("Io")
+    vis = panel._roster_shown(system)
+    assert "Io" in vis
+    for moon in jovian:
+        assert moon in vis, moon
+    assert vis.index("Io") == vis.index("Jupiter") + 1
     panel.hide()
     set_system(None)
 

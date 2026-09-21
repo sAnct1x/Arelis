@@ -303,7 +303,17 @@ def apply_goto(panel: Any, index: int | None = None) -> bool:
         extra = search_address(q, force=True)
         hit = extra[0] if extra else None
     close_find(panel)
+    if hit is not None and abs(float(hit.lat)) < 1e-5 and abs(float(hit.lon)) < 1e-5:
+        hit = None
     if hit is None:
+        if q:
+            from arelis.ui.earth_chrome import set_earth_say
+
+            set_earth_say(
+                panel,
+                f"No place named {q}.",
+                "Not a hop to 0, 0.",
+            )
         return False
     if hit.entity_id:
         from arelis.earth.runtime import get_earth

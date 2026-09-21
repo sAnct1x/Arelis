@@ -224,7 +224,24 @@ _NOOP = frozenset(
     }
 )
 _TEXT_CMDS = frozenset(
-    {"text", "textrm", "mbox", "mathrm", "operatorname", "mathbf", "mathit"}
+    {
+        "text",
+        "textrm",
+        "mbox",
+        "mathrm",
+        "operatorname",
+        "mathbf",
+        "mathit",
+        # Wrappers: keep the body, drop the command name. `\boxed{\theta}`
+        # used to print "boxedθ" because unknown-strip emits the name.
+        "boxed",
+        "mathbb",
+        "mathcal",
+        "mathscr",
+        "mathfrak",
+        "bm",
+        "boldsymbol",
+    }
 )
 _ACCENTS = {
     "hat": "\u0302",
@@ -495,7 +512,19 @@ def _command(src: str, i: int, *, unknown: str) -> tuple[str, int]:
         return cmd, i
     if cmd in _TEXT_CMDS:
         grp, i = _read_group(src, i)
-        if cmd in {"mathrm", "operatorname", "mathbf", "mathit"}:
+        if cmd in {
+            "mathrm",
+            "operatorname",
+            "mathbf",
+            "mathit",
+            "boxed",
+            "mathbb",
+            "mathcal",
+            "mathscr",
+            "mathfrak",
+            "bm",
+            "boldsymbol",
+        }:
             return _convert(grp, unknown=unknown), i
         return grp, i
     if cmd in {"frac", "dfrac", "tfrac", "cfrac"}:
@@ -553,7 +582,13 @@ def _command(src: str, i: int, *, unknown: str) -> tuple[str, int]:
         return _SYMBOLS[cmd], i
     if unknown == "keep":
         return "\\" + cmd, i
-    return cmd, i
+    # `\boxed{\theta}` / unknown `\foo{bar}`: unwrap the group. Returning
+    # the command name (the old strip) is what painted "boxedθ_opt" in chat.
+    j = _skip_space(src, i)
+    if j < len(src) and src[j] == "{":
+        grp, i = _read_group(src, i)
+        return _convert(grp, unknown=unknown), i
+    return "", i
 
 
 def _environment(env: str, body: str, *, unknown: str) -> str:
@@ -589,6 +624,10 @@ def _script(body: str, table: dict[str, str], mark: str) -> str:
     text = body.strip()
     if not text:
         return ""
+    # `35.3^\circ` is degrees in every homework dump. The ring operator is
+    # `\circ` in the body, not a superscript.
+    if mark == "^" and text in {"∘", "circ", "o"}:
+        return "°"
     if all(ch in table or ch.isspace() for ch in text):
         return "".join(ch if ch.isspace() else table[ch] for ch in text)
     return f"{mark}({text})" if len(text) > 1 else f"{mark}{text}"

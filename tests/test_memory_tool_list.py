@@ -84,6 +84,36 @@ async def test_preferences_and_episodes_come_back_too(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_forget_drops_pasted_episode_list(tmp_path: Path) -> None:
+    """Live dump: forget only matched facts, then math ate the turn."""
+    tool, store = _tool(tmp_path)
+    try:
+        keep = "Rebuilt the eval board"
+        await tool.run(action="episode", summary=keep)
+        stamps = (
+            "20260810-011327-7c7369",
+            "20260810-005019-dbc9ac",
+            "20260810-004830-af83e0",
+            "20260810-004632-236df1",
+        )
+        for stamp in stamps:
+            await tool.run(action="episode", summary=f"e2e episode {stamp}")
+        blob = (
+            "all of those episodes, Episodes:\n"
+            + "\n".join(f"e2e episode {stamp}" for stamp in stamps)
+        )
+        result = await tool.run(action="forget", fact=blob)
+        assert result.ok, result.output
+        assert result.data["episodes"] == 4
+        listed = await tool.run(action="list")
+        assert keep in listed.output
+        for stamp in stamps:
+            assert stamp not in listed.output
+    finally:
+        store.close()
+
+
+@pytest.mark.asyncio
 async def test_one_kind_can_be_asked_for_on_its_own(tmp_path: Path) -> None:
     tool, store = _tool(tmp_path)
     try:

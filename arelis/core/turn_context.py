@@ -88,6 +88,7 @@ class TurnContext:
     diagnostics_nudge_used: bool = False
     weather_nudge_used: int = 0
     weather_ok_places: set[str] = field(default_factory=set)
+    weather_failed_places: set[str] = field(default_factory=set)
     weather_days_retried: set[str] = field(default_factory=set)
     schedule_managed_ok: bool = False
     image_attempted: bool = False

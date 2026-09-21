@@ -13,6 +13,7 @@ from arelis.core.confirm_speech import (
     classify_confirm_utterance,
     classify_drive_act,
     classify_hangup,
+    classify_repeat,
     classify_voice_act,
     stopped_ask_note,
 )
@@ -80,6 +81,21 @@ def test_yes_no_lists() -> None:
     assert not classify_hangup("stop talking")
     assert not classify_hangup("tell her goodbye")
     assert not classify_hangup("that's all I needed")
+
+
+def test_spoken_miss_is_a_repeat_not_a_turn() -> None:
+    assert classify_repeat("what did you say")
+    assert classify_repeat("I'm sorry i was not paying attention what did you say")
+    assert classify_repeat("I didn't hear what you said")
+    assert classify_repeat("say that again")
+    assert classify_repeat(
+        "What kind of question is that that's what i'm asking i didn't hear what you said"
+    )
+    assert not classify_repeat("what did I say about the deck")
+    assert not classify_repeat(
+        "what did i say said something how i don't remember what are you doing to night"
+    )
+    assert not classify_repeat("hey how you doin")
     assert classify_drive_act("pause") == "pause"
     assert classify_drive_act("hold on") == "pause"
     assert classify_drive_act("go") == "resume"
@@ -661,6 +677,35 @@ async def test_barge_turn_cancels_the_running_turn_then_asks() -> None:
     assert types.index(EventType.TURN_CANCEL) < types.index(EventType.USER_MESSAGE)
     messages = [e for e in seen if e.type == EventType.USER_MESSAGE]
     assert messages[0].payload.get("text") == "what's the weather"
+
+
+@pytest.mark.asyncio
+async def test_spoken_what_did_you_say_replays_the_last_answer() -> None:
+    bus = EventBus()
+    seen: list[Event] = []
+
+    async def capture(event: Event) -> None:
+        seen.append(event)
+
+    bus.subscribe(None, capture)
+    orch = _voice_orch(bus)
+    orch.memory.add("assistant", "Titan has methane lakes.")
+    bus_task = asyncio.create_task(bus.run())
+    try:
+        await bus.publish(
+            Event(
+                EventType.VOICE_TRANSCRIPT,
+                {"text": "I'm sorry i was not paying attention what did you say"},
+            )
+        )
+        await bus.drain()
+    finally:
+        bus.stop()
+        bus_task.cancel()
+    speaks = [e for e in seen if e.type == EventType.VOICE_SPEAK]
+    assert speaks
+    assert speaks[0].payload.get("text") == "Titan has methane lakes."
+    assert not any(e.type == EventType.USER_MESSAGE for e in seen)
 
 
 @pytest.mark.asyncio

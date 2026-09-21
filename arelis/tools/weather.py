@@ -273,7 +273,7 @@ _NOT_A_PLACE = re.compile(
     r"(?i)^(?:the\s+)?(?:"
     r"outside|outdoors|here|home|there|local|nearby|my|"
     r"morning|afternoon|evening|night|tonight|"
-    r"today|tomorrow|weekend|week|"
+    r"today|tonight|tomorrow|morrow|weekend|week|"
     r"going(?:\s+to(?:\s+be)?)?|gonna|will|be|right|currently|"
     r"celsius|fahrenheit|degrees|"
     r"a\s+(?:few\s+)?days?|\d+\s+days?|"
@@ -305,14 +305,54 @@ _WEATHER_NOISE = re.compile(
     r"what(?:'s|s|\s+is)|how(?:'s|\s+is)|tell\s+me|give\s+me|check|"
     r"the|a|an|like|of|on|at|this|that|please|now|right|then|"
     r"going(?:\s+to)?|gonna|will|be|currently|looking|"
+    r"does|say|after|still|even|maybe|than|about|just|"
     r"weather|forecast|temperature|temps?|rain(?:y|ing)?|snow(?:y|ing)?|"
     r"humid(?:ity)?|umbrella|conditions?|report|"
-    r"today|tonight|tomorrow|weekend|"
+    r"today|tonight|tomorrow|morrow|weekend|"
     r"outside|outdoors|"
     r"e-?mail|mail|inbox|send|summary|digest|briefing|every|day|"
     r"call|use|run|try|invoke|tool|days|"
     r"\d{1,2}(?::\d{2})?\s*(?:a\.?m\.?|p\.?m\.?)"
     r")\b"
+)
+_LEADING_CHAT = re.compile(
+    r"(?i)^(oh|hey|hay|hi|yo|well|yeah|yep|yes|so|um+|uh+)\b[\s,]+"
+)
+_PLACE_PROSE = frozenset(
+    {
+        "does",
+        "say",
+        "after",
+        "before",
+        "still",
+        "even",
+        "maybe",
+        "than",
+        "then",
+        "just",
+        "really",
+        "very",
+        "almost",
+        "every",
+        "other",
+        "going",
+        "gonna",
+        "will",
+        "been",
+        "like",
+        "about",
+        "what",
+        "when",
+        "where",
+        "which",
+        "who",
+        "how",
+        "why",
+        "to",
+        "from",
+        "with",
+        "into",
+    }
 )
 _IN_PLACE = re.compile(r"(?i)\b(?:in|near|around|for)\s+")
 _PLACE_SPLIT = re.compile(r"(?i)\s*,?\s*\b(?:and|or)\b\s*")
@@ -330,7 +370,7 @@ _COORD_KEYS = ("latitude", "longitude", "lat", "lon")
 
 
 def weather_wants_beyond_today(text: str) -> bool:
-    return bool(_BEYOND_TODAY.search(text or ""))
+    return bool(_BEYOND_TODAY.search(normalize_weather_ask(text)))
 
 
 # City + state: "Baltimore, OH" and "baltimore ohio" are one place.
@@ -392,6 +432,44 @@ _US_STATE_NAME_TO_ABBR = {
 }
 
 
+def normalize_weather_ask(text: str) -> str:
+    """Fold split day-words ('to morrow') before extract and tomorrow matching."""
+    raw = text or ""
+    raw = re.sub(r"(?i)\bto[\s-]+morrow\b", "tomorrow", raw)
+    raw = re.sub(r"(?i)\bto[\s-]+day\b", "today", raw)
+    raw = re.sub(r"(?i)\bto[\s-]+night\b", "tonight", raw)
+    return raw
+
+
+def _is_place_candidate(candidate: str) -> bool:
+    """True for a city-ish name, not leftover chat ('Oh does it say after to')."""
+    text = _LEADING_CHAT.sub("", candidate or "").strip(" -,")
+    if not text or _NOT_A_PLACE.match(text):
+        return False
+    tokens = [t for t in re.findall(r"[A-Za-z]+", text) if t]
+    if not tokens or len(tokens) > 4:
+        return False
+    abbrs = set(_US_STATE_NAME_TO_ABBR.values())
+    if len(tokens) == 1 and tokens[0].lower() in abbrs:
+        return False
+    if len(tokens) == 1 and tokens[0].lower() in _US_STATE_NAME_TO_ABBR:
+        return False
+    substance = [
+        t
+        for t in tokens
+        if t.lower() not in _PLACE_PROSE and t.lower() not in _HOMEISH_PLACE
+    ]
+    if not substance:
+        return False
+    # 'to morrow' is prose + one leftover token, not a city. Real places
+    # with a function word in them still have two substance tokens.
+    if any(t.lower() in _PLACE_PROSE for t in tokens) and (
+        len(tokens) >= 3 or len(substance) < 2
+    ):
+        return False
+    return True
+
+
 def weather_place_key(place: str | None) -> str:
     """Compare places without caring about case, commas, or OH vs Ohio."""
     raw = (place or "").strip().casefold()
@@ -412,7 +490,7 @@ def weather_place_key(place: str | None) -> str:
 
 def extract_weather_places(text: str) -> list[str]:
     """Named cities in the ask, in order, at most four. Empty list means home."""
-    raw = " ".join((text or "").split())
+    raw = " ".join(normalize_weather_ask(text).split())
     if not raw:
         return []
     raw = _TOOL_INSTRUCTION.sub(" ", raw)
@@ -444,6 +522,8 @@ def extract_weather_places(text: str) -> list[str]:
             continue
         if not re.search(r"[A-Za-z]", candidate):
             continue
+        if not _is_place_candidate(candidate):
+            continue
         key = weather_place_key(candidate)
         if key in seen:
             continue
@@ -464,10 +544,17 @@ def weather_places_wanted(text: str) -> list[str]:
     return places if places else [""]
 
 
-def weather_places_missing(text: str, ok_keys: set[str]) -> list[str]:
+def weather_places_missing(
+    text: str,
+    ok_keys: set[str],
+    failed_keys: set[str] | None = None,
+) -> list[str]:
     """Named (or home) places not yet covered by a successful weather call."""
+    skip = set(ok_keys or ()) | set(failed_keys or ())
     return [
-        place for place in weather_places_wanted(text) if weather_place_key(place) not in ok_keys
+        place
+        for place in weather_places_wanted(text)
+        if weather_place_key(place) not in skip
     ]
 
 
@@ -526,7 +613,7 @@ def weather_wants_hourly(text: str) -> int:
     turn that reaches weather through the force gate would otherwise still ask
     for daily rows and answer "will it rain at three" from a daily maximum.
     """
-    raw = text or ""
+    raw = normalize_weather_ask(text)
     if _WEATHER_HOURLY_TOMORROW.search(raw):
         return _HOURS_TOMORROW
     if _WEATHER_HOURLY.search(raw):
@@ -555,13 +642,19 @@ def draft_weather_args(text: str) -> dict[str, Any]:
 
 
 def fill_weather_args(args: dict[str, Any] | None, text: str) -> dict[str, Any]:
-    """Keep place/days; drop model-invented coordinates; bump thin tomorrow."""
+    """Keep days; drop invented coords and a place they never named; bump tomorrow."""
     drafted = draft_weather_args(text)
     out = dict(args or {})
     for key in _COORD_KEYS:
         out.pop(key, None)
-    if drafted.get("place") and not str(out.get("place") or "").strip():
-        out["place"] = drafted["place"]
+    # Home asks omit place so profile coords win. The model stuffing
+    # place=Baltimore geocodes Maryland first; "that name also matched
+    # Ohio" is not another city in the ask.
+    if extract_weather_place(text):
+        if drafted.get("place") and not str(out.get("place") or "").strip():
+            out["place"] = drafted["place"]
+    else:
+        out.pop("place", None)
     try:
         days = int(out.get("days") or 0)
     except (TypeError, ValueError):

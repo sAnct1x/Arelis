@@ -27,7 +27,13 @@ from arelis.desktop.pixels import (
     resolve_screen,
 )
 from arelis.desktop.sanctuary import refuse_secret_type
-from arelis.desktop.snapshot import DeskRef, find_ref, read_window, snapshot_window
+from arelis.desktop.snapshot import (
+    DeskRef,
+    find_ref,
+    read_window,
+    snapshot_window,
+    uia_available,
+)
 from arelis.desktop.walls import YOUR_TURN, Wall, label_wall, wall_message
 from arelis.desktop.windows import (
     focus_window,
@@ -105,6 +111,16 @@ class DesktopSession:
     async def snapshot(self) -> DeskResult:
         text, refs, err = snapshot_window()
         if err:
+            if not uia_available():
+                grabbed = await self.screenshot()
+                if grabbed.ok:
+                    grabbed.output = (
+                        "Named controls unavailable; grabbed the screen instead.\n"
+                        + grabbed.output
+                    )
+                    grabbed.data = dict(grabbed.data or {})
+                    grabbed.data["fallback"] = "screenshot"
+                return grabbed
             return DeskResult(ok=False, output=err)
         self.refs = refs
         title = foreground_title()

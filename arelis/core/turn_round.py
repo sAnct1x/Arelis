@@ -17,7 +17,6 @@ from typing import Any
 
 from arelis.core.agent_loop import (
     _MAX_TOOL_NUDGES,
-    _WRITE_AFTER_ALGEBRA_NOTICE,
     _WRITE_AFTER_PAGE_NOTICE,
     _WRITE_AFTER_THINK_NOTICE,
     _is_ollama_object_400,
@@ -25,6 +24,7 @@ from arelis.core.agent_loop import (
     _normalize_ollama_messages,
     _StoppedError,
     _tool_followup_fallback,
+    write_after_algebra_notice,
 )
 from arelis.core.email_complete import (
     looks_like_bare_confirm,
@@ -48,6 +48,7 @@ from arelis.core.no_call_finish import run_finish_steps
 from arelis.core.no_call_steps import NUDGE, run_inject_steps
 from arelis.core.preflight import (
     rewrite_browser_calls,
+    rewrite_desktop_calls,
 )
 from arelis.core.tool_subset import (
     is_research_mode,
@@ -180,7 +181,9 @@ async def apply_no_call_path(
                     r.messages.append(
                         {
                             "role": "user",
-                            "content": _WRITE_AFTER_ALGEBRA_NOTICE,
+                            "content": write_after_algebra_notice(
+                                ctx.last_ok_tool_name
+                            ),
                         }
                     )
                     await loop.bus.publish(
@@ -349,6 +352,17 @@ async def apply_no_call_path(
                 Event(
                     EventType.THINKING,
                     {"text": "rewrite  invented browser action → snapshot"},
+                )
+            )
+
+        before_desk = list(r.calls)
+        r.calls = rewrite_desktop_calls(r.calls, text=r.text)
+        if r.calls != before_desk:
+            r.tool_calls = [_native_tool_call(n, a) for n, a in r.calls]
+            await loop.bus.publish(
+                Event(
+                    EventType.THINKING,
+                    {"text": "rewrite  desk look snapshot → screenshot"},
                 )
             )
 

@@ -80,15 +80,18 @@ __all__ = [
     "IntentHint",
     "detect_intents",
     "draft_browser_args",
+    "draft_desktop_screenshot_args",
     "draft_rooms_create_args",
     "draft_signin_click_args",
     "login_check_hop_args",
     "looks_like_browser_click_signin",
     "looks_like_browser_open_ask",
+    "looks_like_desktop_look",
     "looks_like_room_create",
     "preflight_system_message",
     "rewrite_browser_action",
     "rewrite_browser_calls",
+    "rewrite_desktop_calls",
     "signin_ref_from_snapshot",
     "user_asked_for_browser",
     "user_asked_for_desktop",
@@ -124,8 +127,9 @@ _BROWSER = re.compile(
 _OPEN_ASK_MORE_WORK = re.compile(
     r"(?i)\b("
     r"add\s+\S.+\s+to\s+(?:(?:the|my)\s+)?(?:cart|bag)|"
-    r"and\s+(?:then\s+)?(?:add|search|click|buy|play|find|type|book|order)|"
-    r"then\s+(?:add|search|click|buy|play|find|type|book|order)"
+    r"and\s+(?:then\s+)?(?:do\s+(?:a|an|us|the)\s+)?(?:add|search|click|buy|play|find|type|book|order)|"
+    r"then\s+(?:add|search|click|buy|play|find|type|book|order)|"
+    r"do\s+(?:a|an|us|the)\s+search"
     r")\b"
 )
 
@@ -169,7 +173,14 @@ _DESK_LOOK = re.compile(
     r"(?:book|textbook|pdf|homework|problem|worksheet)\b|"
     r"(?:see|read)\s+(?:this|that|the)\s+"
     r"(?:book|textbook|pdf|homework|problem)\b|"
-    r"on\s+(?:the|my)\s+(?:other\s+)?monitor\b"
+    r"on\s+(?:the|my)\s+(?:other\s+)?monitor\b|"
+    r"(?:take\s+(?:a\s+)?|capture\s+(?:a\s+)?)?screenshot(?:\s+of)?\s+"
+    r"(?:(?:the|my|this|that)\s+)?"
+    rf"(?:{_DESK_SIDE}|primary|main)\s+"
+    r"(?:screen|monitor|display)\b|"
+    r"(?:take\s+(?:a\s+)?|capture\s+(?:a\s+)?)?screenshot(?:\s+of)?\s+"
+    r"(?:(?:the|my|this|that)\s+)?"
+    r"(?:screen|monitor|display)\b"
     r")"
 )
 
@@ -563,6 +574,55 @@ def rewrite_browser_calls(
     return out
 
 
+_DESK_TARGET = re.compile(
+    rf"(?i)\b({_DESK_SIDE}|primary|main)\b"
+)
+_DESK_INDEX = re.compile(r"(?i)\b(?:monitor|display|screen)\s*([1-9])\b")
+
+
+def draft_desktop_screenshot_args(text: str) -> dict[str, str]:
+    """Monitor/window target when they asked to see the desk."""
+    raw = text or ""
+    indexed = _DESK_INDEX.search(raw)
+    if indexed:
+        return {"action": "screenshot", "target": indexed.group(1)}
+    hit = _DESK_TARGET.search(raw)
+    if hit:
+        which = hit.group(1).lower()
+        if which in {"main", "primary"}:
+            which = "primary"
+        elif which in {"2nd", "second"}:
+            which = "second"
+        return {"action": "screenshot", "target": which}
+    return {"action": "screenshot", "target": "primary"}
+
+
+def rewrite_desktop_calls(
+    calls: list[tuple[str, dict[str, Any]]],
+    *,
+    text: str = "",
+) -> list[tuple[str, dict[str, Any]]]:
+    """A monitor look is screenshot, not UI-Automation snapshot."""
+    if not looks_like_desktop_look(text):
+        return calls
+    drafted = draft_desktop_screenshot_args(text)
+    out: list[tuple[str, dict[str, Any]]] = []
+    for name, args in calls:
+        if name != "desktop":
+            out.append((name, args))
+            continue
+        action = str((args or {}).get("action") or "").strip().lower()
+        if action not in {"snapshot", "read"}:
+            out.append((name, args))
+            continue
+        merged = dict(args or {})
+        merged["action"] = "screenshot"
+        if not str(merged.get("target") or "").strip():
+            merged["target"] = drafted["target"]
+        out.append(("desktop", merged))
+    return out
+
+
 def draft_browser_args(text: str) -> dict[str, str]:
     """Open/read args when the 7B never called browser."""
     raw = text or ""
@@ -601,7 +661,9 @@ def draft_browser_args(text: str) -> dict[str, str]:
             query,
         )
         query = query.strip().rstrip(".!?")
-        site = "youtube" if re.search(r"(?i)youtube|\bvideos?\b", raw) else "google"
+        site = "youtube" if re.search(
+            r"(?i)youtube|you[\s-]*tube|\bvideos?\b|\bplaylist\b", raw
+        ) else "google"
         return {"action": "search", "query": query[:200], "site": site}
     match = _URL_TOKEN.search(raw)
     url = (match.group(1) if match else "").rstrip(".,)!?")
@@ -658,6 +720,12 @@ def detect_intents(
             from arelis.core.intent_catalog import weather_intent_matches
 
             if weather_intent_matches(raw):
+                hints.append(item.to_hint())
+            continue
+        if item.kind == "recall":
+            from arelis.core.intent_catalog import looks_like_recall_utterance
+
+            if looks_like_recall_utterance(raw):
                 hints.append(item.to_hint())
             continue
         if item.matches(raw):

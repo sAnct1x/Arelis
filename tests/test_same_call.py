@@ -202,6 +202,13 @@ def test_same_call_notice_names_the_path() -> None:
 
 def test_same_call_finish_line_ships_the_prior_result() -> None:
     assert same_call_finish_line("calculator", "840 * 0.175 = 147") == "840 * 0.175 = 147"
+    ugly = (
+        "((349.54 - 287.20) / 287.20) * 100 = 21.706128133704734 "
+        "(exactly 15585/718)"
+    )
+    line = same_call_finish_line("calculator", ugly)
+    assert "15585" not in line
+    assert "21.7" in line
     assert "already have that result" in same_call_finish_line("calculator", "").lower()
     assert "tab is open" in same_call_finish_line("browser", "").lower()
 
@@ -212,4 +219,5 @@ def test_same_call_cas_does_not_finish_the_turn() -> None:
     assert not same_call_finishes_turn("python")
     assert same_call_strips_tools("cas")
     assert same_call_strips_tools("python")
+    assert not same_call_strips_tools("calculator")
     assert not same_call_strips_tools("workspace")

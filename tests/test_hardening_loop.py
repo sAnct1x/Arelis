@@ -99,6 +99,25 @@ class _CasStub:
         )
 
 
+class _CalcStub:
+    name = "calculator"
+    description = "stub"
+    risk = "read"
+    parameters_schema: dict[str, Any] = {
+        "type": "object",
+        "properties": {"expression": {"type": "string"}},
+        "required": ["expression"],
+    }
+
+    async def run(self, **kwargs: Any) -> ToolResult:
+        expr = str(kwargs.get("expression") or "").strip() or "1+1"
+        return ToolResult(
+            ok=True,
+            output=f"{expr} = 2",
+            data={"expression": expr, "value": 2},
+        )
+
+
 @pytest.mark.asyncio
 async def test_empty_after_unsolicited_cas_asks_for_a_writeup() -> None:
     """A setup line plus a warmup quadratic used to become the chat bubble."""
@@ -160,6 +179,92 @@ async def test_empty_after_unsolicited_cas_asks_for_a_writeup() -> None:
     done = next(e for e in events if e.type == EventType.ASSISTANT_DONE)
     assert "[-5, 2]" not in done.payload["text"]
     assert "problem" in done.payload["text"].lower()
+
+
+@pytest.mark.asyncio
+async def test_calculator_filler_without_the_number_ships_the_result() -> None:
+    """Live dump: 1+1 ran, thinking had 2, chat was 'Easy enough. What's next?'."""
+    calc_call = {
+        "type": "function",
+        "function": {
+            "name": "calculator",
+            "arguments": {"expression": "1+1"},
+        },
+    }
+    bus = EventBus()
+    router = _ScriptedRouter(
+        [
+            [("tool_calls", [calc_call])],
+            [("token", "Easy enough. What's next?")],
+        ]
+    )
+    tools = ToolRegistry()
+    tools.register(_CalcStub())
+    cfg = _config()
+    cfg["agent"]["chat_fast_path"] = False
+    cfg["agent"]["max_rounds"] = 8
+    loop = AgentLoop(
+        bus,
+        router,  # type: ignore[arg-type]
+        tools,
+        SessionMemory(),
+        "persona",
+        cfg,
+        request_confirm=_deny,
+        is_cancelled=lambda: False,
+    )
+    events = await _collect(bus, loop.run("what is 1+1?", "fast"))
+    thinking = " ".join(
+        str(e.payload.get("text") or "")
+        for e in events
+        if e.type == EventType.THINKING
+    )
+    assert "algebra result missing from chat" in thinking
+    done = next(e for e in events if e.type == EventType.ASSISTANT_DONE)
+    assert "2" in done.payload["text"]
+    assert "What's next?" not in done.payload["text"]
+
+
+@pytest.mark.asyncio
+async def test_calculator_reply_that_states_the_number_is_kept() -> None:
+    calc_call = {
+        "type": "function",
+        "function": {
+            "name": "calculator",
+            "arguments": {"expression": "1+1"},
+        },
+    }
+    bus = EventBus()
+    router = _ScriptedRouter(
+        [
+            [("tool_calls", [calc_call])],
+            [("token", "1+1 = 2. Easy enough.")],
+        ]
+    )
+    tools = ToolRegistry()
+    tools.register(_CalcStub())
+    cfg = _config()
+    cfg["agent"]["chat_fast_path"] = False
+    cfg["agent"]["max_rounds"] = 8
+    loop = AgentLoop(
+        bus,
+        router,  # type: ignore[arg-type]
+        tools,
+        SessionMemory(),
+        "persona",
+        cfg,
+        request_confirm=_deny,
+        is_cancelled=lambda: False,
+    )
+    events = await _collect(bus, loop.run("what is 1+1?", "fast"))
+    thinking = " ".join(
+        str(e.payload.get("text") or "")
+        for e in events
+        if e.type == EventType.THINKING
+    )
+    assert "algebra result missing from chat" not in thinking
+    done = next(e for e in events if e.type == EventType.ASSISTANT_DONE)
+    assert done.payload["text"].strip() == "1+1 = 2. Easy enough."
 
 
 @pytest.mark.asyncio

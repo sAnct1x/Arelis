@@ -302,7 +302,7 @@ def fetch_traffic() -> list[Entity] | None:
             out.append(entity)
             if len(out) >= _CAP:
                 return out
-    return out or None
+    return out
 
 
 def _fetch_caltrans() -> list[Entity] | None:

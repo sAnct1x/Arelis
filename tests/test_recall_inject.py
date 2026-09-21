@@ -41,6 +41,7 @@ from tests.test_no_call_path import _ctx, _FakeLoop, _scratch
     ("utterance", "expected"),
     [
         ("What did I say about the Sherpa work last night?", "Sherpa work"),
+        ("What did I say yesterday?", "yesterday"),
         ("what did I say about arelis?", "arelis"),
         ("do you remember the rebar estimate", "rebar estimate"),
         ("you told me about a book on Rust", "book on Rust"),
@@ -61,7 +62,12 @@ def test_the_search_terms_survive_the_question_wrapper(
 
 @pytest.mark.parametrize(
     "utterance",
-    ["do you remember?", "do you remember", "what did I say"],
+    [
+        "do you remember?",
+        "do you remember",
+        "what did I say",
+        "what did i say said something how i don't remember what are you doing to night",
+    ],
 )
 def test_a_recall_ask_with_no_subject_yields_no_query(utterance: str) -> None:
     """There is nothing to search for, and a blank query is a tool error."""
@@ -73,6 +79,10 @@ def test_the_detector_agrees_with_the_preflight_pattern() -> None:
     assert looks_like_recall_utterance("do you remember the rebar estimate")
     assert not looks_like_recall_utterance("what's the weather tomorrow")
     assert not looks_like_recall_utterance("remember that I climb on Tuesdays")
+    assert not looks_like_recall_utterance("what did I say")
+    assert not looks_like_recall_utterance(
+        "what did i say said something how i don't remember what are you doing to night"
+    )
 
 
 # --------------------------------------------------------------------------
@@ -120,6 +130,18 @@ async def test_the_expected_tool_alone_is_enough_to_fire() -> None:
     assert await try_recall(loop, ctx, r) != "skip"
     assert r.calls
     assert r.calls[0][0] == "recall"
+
+
+@pytest.mark.asyncio
+async def test_spoken_mush_is_not_injected_as_a_search() -> None:
+    loop = _FakeLoop()
+    text = "what did i say said something how i don't remember what are you doing to night"
+    r = _recall_scratch(text)
+    ctx = _ctx(text=text)
+    ctx.tool_names = {"recall"}
+
+    assert await try_recall(loop, ctx, r) == "skip"
+    assert not r.calls
 
 
 @pytest.mark.asyncio

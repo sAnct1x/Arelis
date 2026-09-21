@@ -39,22 +39,34 @@ def _ink(name: str, fallback: str = "") -> str:
 def _assistant_label() -> str:
     dim = _ink("text_dim")
     return (
-        '<div style="margin:14px 18% 3px 0;">'
-        f'<div style="color:{dim};font-size:11px;'
-        f'letter-spacing:0.08em;margin-bottom:3px;">arelis</div></div>'
+        '<table width="100%" cellspacing="0" cellpadding="0" style="margin:14px 0 3px 0;">'
+        "<tr>"
+        f'<td style="color:{dim};font-size:11px;letter-spacing:0.08em;">'
+        "arelis</td>"
+        '<td width="18%"></td>'
+        "</tr></table>"
     )
 
 
 def _assistant_open() -> str:
+    """Open the assistant plate.
+
+    Qt paints ``background`` on a ``<div>`` once per layout line, which is
+    the barcode on long answers. A table cell is one rectangle.
+    """
+    wash = _ink("bubble_wash")
+    pad = SPACE["gap"]
+    inset = SPACE["inset"]
     return (
-        '<div style="margin:0 18% 8px 0;">'
-        f'<div style="background:{_ink("bubble_wash")};'
-        f'padding:{SPACE["gap"]}px {SPACE["inset"]}px;'
-        f'border-radius:8px;color:{_ink("text")};">'
+        '<table width="100%" cellspacing="0" cellpadding="0" style="margin:0 0 8px 0;">'
+        "<tr>"
+        f'<td valign="top" bgcolor="#180e08" width="82%" '
+        f'style="background-color:{wash};color:{_ink("text")};">'
+        f'<div style="padding:{pad}px {inset}px;">'
     )
 
 
-_ASSISTANT_CLOSE = "</div></div>"
+_ASSISTANT_CLOSE = "</div></td><td width=\"18%\"></td></tr></table>"
 
 
 def _acts_html() -> str:
@@ -142,6 +154,9 @@ class ChatPanel(QWidget):
         self.view = QTextBrowser()
         self.view.setObjectName("ChatView")
         self.view.setReadOnly(True)
+        # A visible I-beam in the transcript reads as leftover carets between
+        # bubbles. Selection still works; the cursor does not need to blink.
+        self.view.setCursorWidth(0)
         # Custom arelis-file: links (Open / Show in folder) must not go through
         # Windows "choose an app". http/https/mailto are opened in _on_anchor.
         self.view.setOpenExternalLinks(False)
@@ -398,10 +413,11 @@ class ChatPanel(QWidget):
         reveal_href = f"arelis-file://local/?t={reveal_token}"
         desk_href = f"arelis-file://local/?t={desk_token}"
         return (
-            f'<div style="margin:2px 18% 12px 0;">'
-            f'<div style="background:{_ink("bubble_wash")};'
-            f'padding:{SPACE["gap"]}px {SPACE["inset"]}px;border-radius:8px;'
-            f'display:inline-block;color:{_ink("text")};">'
+            f'<table width="100%" cellspacing="0" cellpadding="0" style="margin:2px 0 12px 0;">'
+            "<tr>"
+            f'<td valign="top" bgcolor="#180e08" width="82%" '
+            f'style="background-color:{_ink("bubble_wash")};color:{_ink("text")};">'
+            f'<div style="padding:{SPACE["gap"]}px {SPACE["inset"]}px;">'
             f'<div style="color:{_ink("text")};font-size:13px;margin-bottom:4px;">'
             f"{_esc(name)}</div>"
             f'<a href="{open_href}" style="color:{_ink("accent")};text-decoration:none;">'
@@ -412,7 +428,7 @@ class ChatPanel(QWidget):
             f'<span style="color:{_ink("text_dim")};"> · </span>'
             f'<a href="{reveal_href}" style="color:{_ink("accent")};text-decoration:none;">'
             f"show in folder</a>"
-            f"</div></div>"
+            f"</div></td><td width=\"18%\"></td></tr></table>"
         )
 
     def _on_anchor(self, url: QUrl) -> None:
@@ -780,10 +796,12 @@ def _user_bubble_html(
         f'<div style="color:{_ink("text_dim")};font-size:11px;'
         f'letter-spacing:0.08em;margin:0 2px 3px 0;" '
         f'align="right">you</div>'
-        f'<div style="background:{_ink("bubble_wash")};'
-        f'padding:{SPACE["gap"]}px {SPACE["inset"]}px;'
-        f'border-radius:8px;color:{_ink("text_dim")};text-align:left;">'
-        f"{inner}</div>"
+        f'<table cellspacing="0" cellpadding="{SPACE["gap"]}" align="right">'
+        "<tr>"
+        f'<td bgcolor="#180e08" align="left" '
+        f'style="background-color:{_ink("bubble_wash")};'
+        f'color:{_ink("text_dim")};text-align:left;">'
+        f"{inner}</td></tr></table>"
         "</td></tr></table>"
         "</td></tr></table>"
     )

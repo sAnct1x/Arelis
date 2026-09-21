@@ -3,8 +3,10 @@
 Distance-gated by arelis.earth.lod: space fetches satellites, approach
 fetches local planes, near adds boats, city opens the rest if the chip
 is on. Hosts named here are pinned in tests/test_egress.py. Failures
-leave the simulated layer in place. Keyed legal feeds are in; logging
-into a camera you do not own is not an adapter.
+(`None`) leave the simulated layer in place. A successful
+empty list replaces that look-box layer — last city's planes are not
+this ocean. Keyed legal feeds are in; logging into a camera you do
+not own is not an adapter.
 """
 
 from __future__ import annotations
@@ -154,6 +156,7 @@ def merge_live(
         )
     except Exception:
         pass
+    return got
 
 
 def _jobs(
@@ -197,6 +200,23 @@ def _capped(entities: list[Entity] | None, view: EarthView | None) -> list[Entit
     return organize(list(entities or []), view)
 
 
+def _heard(got: dict[str, Any], *keys: str) -> bool:
+    """A list, even empty, is a successful fetch. None is a miss — keep sim."""
+    return any(got.get(key) is not None for key in keys)
+
+
+_SITE_PREFIXES: dict[str, tuple[str, ...]] = {
+    "launches": ("ll2:",),
+    "eonet": ("eonet:",),
+    "airports": ("apt:",),
+    "tip": ("tip:",),
+    "volcanoes": ("volc:",),
+    "gdacs": ("gdacs:",),
+    "argo": ("argo:",),
+    "fdsn": ("ingv:", "geofon:", "iris:", "nrcan:", "geonet-sta:"),
+}
+
+
 def _apply_live(
     store: EntityStore,
     got: dict[str, Any],
@@ -204,38 +224,34 @@ def _apply_live(
     view: EarthView | None,
 ) -> None:
     if {"usgs", "emsc", "geonet"} & ran:
-        quakes = _capped(
-            (got.get("usgs") or [])
-            + (got.get("emsc") or [])
-            + (got.get("geonet") or []),
-            view,
-        )
-        if quakes:
+        if _heard(got, "usgs", "emsc", "geonet"):
+            quakes = _capped(
+                (got.get("usgs") or [])
+                + (got.get("emsc") or [])
+                + (got.get("geonet") or []),
+                view,
+            )
             _replace_layer(store, "quakes", quakes)
     if "opensky" in ran:
         flights = got.get("opensky")
-        if flights:
+        if flights is not None:
             civil = _kept([e for e in flights if e.layer == "flights"], view)
             drones = _kept([e for e in flights if e.layer == "drones"], view)
             _replace_layer(store, "flights", civil)
             _replace_layer(store, "drones", drones)
-            if "adsb" not in ran:
-                _replace_layer(store, "military", [])
     if "adsb" in ran:
-        military = _kept(got.get("adsb"), view)
-        if military:
-            _replace_layer(store, "military", military)
+        raw = got.get("adsb")
+        if raw is not None:
+            _replace_layer(store, "military", _kept(raw, view))
     if "ais" in ran:
-        vessels = _kept(got.get("ais"), view)
-        if vessels:
-            _replace_layer(store, "vessels", vessels)
+        raw = got.get("ais")
+        if raw is not None:
+            _replace_layer(store, "vessels", _kept(raw, view))
     if {"radar", "gfw"} & ran:
         frames = got.get("radar") if "radar" in ran else None
         sar = got.get("gfw") if "gfw" in ran else None
-        if frames or sar:
-            kept = _kept((frames or []) + (sar or []), view)
-            if kept:
-                _replace_layer(store, "radar", kept)
+        if frames is not None or sar is not None:
+            _replace_layer(store, "radar", _kept((frames or []) + (sar or []), view))
     if {"celestrak", "spacetrack"} & ran:
         sats = _merge_sats(got.get("celestrak"), got.get("spacetrack"))
         if sats:
@@ -246,19 +262,21 @@ def _apply_live(
             if rest:
                 _replace_layer(store, "satellites", rest)
     if {"radio", "aprs", "satnogs"} & ran:
-        radio = _capped(
-            (got.get("radio") or [])
-            + (got.get("aprs") or [])
-            + (got.get("satnogs") or []),
-            view,
-        )
-        if radio:
+        if _heard(got, "radio", "aprs", "satnogs"):
+            radio = _capped(
+                (got.get("radio") or [])
+                + (got.get("aprs") or [])
+                + (got.get("satnogs") or []),
+                view,
+            )
             _replace_layer(store, "radio", radio)
     if {"cameras", "shodan"} & ran:
-        pins = _capped((got.get("cameras") or []) + (got.get("shodan") or []), view)
-        if pins:
+        if _heard(got, "cameras", "shodan"):
+            pins = _capped(
+                (got.get("cameras") or []) + (got.get("shodan") or []), view
+            )
             _replace_layer(store, "cameras", pins)
-    weather_keys = {
+    weather_keys = (
         "weather",
         "nws",
         "swpc",
@@ -268,26 +286,26 @@ def _apply_live(
         "ndbc",
         "tides",
         "rwis",
-    }
-    if weather_keys & ran:
-        weather = _capped(
-            (got.get("weather") or [])
-            + (got.get("nws") or [])
-            + (got.get("swpc") or [])
-            + (got.get("metar") or [])
-            + (got.get("waqi") or [])
-            + (got.get("openaq") or [])
-            + (got.get("ndbc") or [])
-            + (got.get("tides") or [])
-            + (got.get("rwis") or []),
-            view,
-        )
-        if weather:
+    )
+    if set(weather_keys) & ran:
+        if _heard(got, *weather_keys):
+            weather = _capped(
+                (got.get("weather") or [])
+                + (got.get("nws") or [])
+                + (got.get("swpc") or [])
+                + (got.get("metar") or [])
+                + (got.get("waqi") or [])
+                + (got.get("openaq") or [])
+                + (got.get("ndbc") or [])
+                + (got.get("tides") or [])
+                + (got.get("rwis") or []),
+                view,
+            )
             _replace_layer(store, "weather", weather)
     if "firms" in ran:
-        fires = _capped(got.get("firms"), view)
-        if fires:
-            _replace_layer(store, "fires", fires)
+        fires = got.get("firms")
+        if fires is not None:
+            _replace_layer(store, "fires", _capped(fires, view))
     site_keys = (
         "launches",
         "eonet",
@@ -299,16 +317,22 @@ def _apply_live(
         "fdsn",
     )
     if set(site_keys) & ran:
-        sites: list[Entity] = []
         for k in site_keys:
-            if k in ran:
-                sites.extend(got.get(k) or [])
-        for e in _capped(sites, view):
-            store.upsert(e)
+            if k not in ran:
+                continue
+            raw = got.get(k)
+            if raw is None:
+                continue
+            prefixes = _SITE_PREFIXES.get(k, ())
+            for e in list(store.in_layer("sites")):
+                if any(e.id.startswith(p) for p in prefixes):
+                    store.remove(e.id)
+            for e in _capped(list(raw), view):
+                store.upsert(e)
     if "traffic" in ran:
-        incidents = _capped(got.get("traffic"), view)
-        if incidents:
-            _replace_layer(store, "traffic", incidents)
+        incidents = got.get("traffic")
+        if incidents is not None:
+            _replace_layer(store, "traffic", _capped(incidents, view))
 
 
 def _gather(jobs: dict[str, Callable[[], Any]]) -> dict[str, Any]:
@@ -365,10 +389,10 @@ def _replace_layer(store: EntityStore, layer: str, entities: list[Entity]) -> No
         store.upsert(e)
 
 
-def fetch_usgs() -> list[Entity]:
+def fetch_usgs() -> list[Entity] | None:
     payload = _get_json(USGS_ALL_DAY)
     if not payload:
-        return []
+        return None
     out: list[Entity] = []
     for feat in (payload.get("features") or [])[:200]:
         props = feat.get("properties") or {}

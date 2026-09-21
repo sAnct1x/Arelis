@@ -797,9 +797,13 @@ class BrowserTool:
                     ok=False,
                     output="search needs query (what to look up).",
                 )
-            from arelis.browser.search import normalize_search_site, search_url
+            from arelis.browser.search import infer_search_site, search_url
 
-            site = normalize_search_site(str(kwargs.get("site") or "google"))
+            site = infer_search_site(
+                query=query,
+                site=str(kwargs.get("site") or ""),
+                current_url=self.session.tab_url(),
+            )
             url = search_url(query, site=site)
             opened = await self._open_or_navigate(
                 "open", url, browser=browser, private=private

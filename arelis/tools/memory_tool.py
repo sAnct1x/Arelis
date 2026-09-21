@@ -11,10 +11,47 @@ add_episode with source=confirm).
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from arelis.memory.store import MemoryStore
 from arelis.tools.base import ToolResult
+
+_FORGET_PREAMBLE = re.compile(
+    r"(?i)^(all of\s+)?(those |these )?(episodes?|facts?)[:,]?\s*"
+    r"(?:(?:episodes?|facts?)[:,]?\s*)?"
+)
+_LIST_HEADER = re.compile(r"(?i)^(?:episodes?|facts?|preferences?):\s*$")
+
+
+def _forget_needles(fact: str) -> list[str]:
+    """Lines to match after 'forget all of those episodes, Episodes:'."""
+    raw = (fact or "").strip()
+    if not raw:
+        return []
+    body = _FORGET_PREAMBLE.sub("", raw, count=1).strip() or raw
+    lines: list[str] = []
+    for ln in body.splitlines():
+        ln = re.sub(r"^[-*]\s+", "", ln).strip(" ,")
+        if not ln or _LIST_HEADER.fullmatch(ln):
+            continue
+        lines.append(ln)
+    return lines or [body]
+
+
+def _forget_miss_hint(store: MemoryStore) -> str:
+    active = store.active_fact_texts(limit=12)
+    episodes = store.list_episodes(limit=8)
+    bits: list[str] = []
+    if active:
+        bits.append("Active facts: " + "; ".join(active))
+    if episodes:
+        bits.append(
+            "Episodes: " + "; ".join(str(row.get("summary") or "") for row in episodes)
+        )
+    if bits:
+        return " Do not say there is no such fact. " + " ".join(bits)
+    return " There are no active facts or episodes stored."
 
 
 class MemoryTool:
@@ -32,8 +69,9 @@ class MemoryTool:
         "turn. Use action=prefer (or remember with type=preference) for "
         "key/value prefs, action=decide for project-scoped decisions, "
         "action=episode (or remember with type=episode) for a moment "
-        "summary, and action=forget when a stored fact is wrong. The user "
-        "confirms every change before it is kept."
+        "summary, and action=forget when a stored fact or episode is "
+        "wrong (quote the fact, or the episode summary / pasted list). "
+        "The user confirms every change before it is kept."
     )
     risk = "write"
     parameters_schema: dict[str, Any] = {
@@ -48,7 +86,8 @@ class MemoryTool:
                     "fact (or preference/episode when type is set); prefer "
                     "stores a key/value preference; decide records a project "
                     "decision; episode stores a short moment summary; forget "
-                    "deactivates a matching active fact"
+                    "deactivates a matching active fact or deletes a matching "
+                    "episode (quote the summary, or paste the list)"
                 ),
             },
             "limit": {
@@ -141,9 +180,9 @@ class MemoryTool:
             fact_key = None if raw_key is None else str(raw_key)
             return self._remember(fact, key=fact_key)
         if action == "forget":
-            fact = str(kwargs.get("fact") or "").strip()
+            fact = str(kwargs.get("fact") or kwargs.get("summary") or "").strip()
             if not fact:
-                return ToolResult(ok=False, output="memory needs a fact.")
+                return ToolResult(ok=False, output="memory needs a fact or episode summary.")
             return self._forget(fact)
         return ToolResult(
             ok=False,
@@ -328,24 +367,35 @@ class MemoryTool:
         )
 
     def _forget(self, fact: str) -> ToolResult:
-        n = self.store.forget_fact(fact)
-        if n == 0:
-            # Exact match only: guessing which active fact they meant would
-            # deactivate the wrong one.
-            active = self.store.active_fact_texts(limit=12)
-            if active:
-                listed = "; ".join(active)
-                extra = (
-                    f" Do not say there is no such fact. Active facts: {listed}."
-                )
-            else:
-                extra = " There are no active facts stored."
+        needles = _forget_needles(fact)
+        facts_n = 0
+        for needle in needles:
+            facts_n += int(self.store.forget_fact(needle) or 0)
+        # Whole blob first so a pasted episode list drops every listed row.
+        # Needles catch a leftover summary that had no stamp.
+        eps_n = int(self.store.forget_episode(fact) or 0)
+        for needle in needles:
+            eps_n += int(self.store.forget_episode(needle) or 0)
+        if facts_n == 0 and eps_n == 0:
+            extra = _forget_miss_hint(self.store)
             return ToolResult(
                 ok=False,
-                output=f"No active fact matched {fact!r}.{extra}",
+                output=f"No active fact or episode matched {fact!r}.{extra}",
             )
+        bits = []
+        if facts_n:
+            bits.append(f"{facts_n} fact" + ("s" if facts_n != 1 else ""))
+        if eps_n:
+            bits.append(f"{eps_n} episode" + ("s" if eps_n != 1 else ""))
+        label = " and ".join(bits)
         return ToolResult(
             ok=True,
-            output=f"Forgot: {fact}",
-            data={"fact": fact, "status": "rejected", "count": n},
+            output=f"Forgot {label}.",
+            data={
+                "fact": fact,
+                "status": "rejected",
+                "facts": facts_n,
+                "episodes": eps_n,
+                "count": facts_n + eps_n,
+            },
         )

@@ -373,6 +373,46 @@ def test_parked_orbit_sits_in_a_chat_gutter(qt_app) -> None:
         window.loop.close()
 
 
+def test_parked_orbit_lifts_above_drive_strip(qt_app) -> None:
+    """Pause/Stop (or any bottom bar) must not clip the parked orbit."""
+    from arelis.ui.app import ArelisWindow, BusBridge
+
+    window = ArelisWindow(
+        {
+            "ui": {"default_width": 800, "default_height": 600},
+            "router": {"default_role": "fast"},
+            "voice": {"enabled": False},
+        },
+        BusBridge(),
+        asyncio.new_event_loop(),
+        EventBus(),
+    )
+    try:
+        window.resize(800, 600)
+        window.show()
+        window.chat.add_user("hello")
+        sync_idle_mode(window)
+        qt_app.processEvents()
+        convo = window.conversation
+        convo.set_drive(True, "navigating")
+        qt_app.processEvents()
+        convo._place_parked_orbit()
+        orbit = convo._parked_orbit
+        drive = convo.drive
+        assert drive.isVisible()
+        assert not orbit.isHidden()
+        assert orbit.y() + orbit.height() <= drive.y()
+        convo.set_drive(False)
+        qt_app.processEvents()
+        convo._place_parked_orbit()
+        composer = convo._composer
+        assert composer.isVisible()
+        assert orbit.y() + orbit.height() <= composer.y()
+    finally:
+        window.hide()
+        window.loop.close()
+
+
 def test_idle_prompt_grows_then_wraps(qt_app) -> None:
     from arelis.ui.app import ArelisWindow, BusBridge
 

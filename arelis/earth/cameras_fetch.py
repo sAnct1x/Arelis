@@ -339,8 +339,6 @@ def fetch_cameras(bbox: Any = None) -> list[Entity] | None:
                 continue
             seen.add(entity.id)
             pins.append(entity)
-    if not pins:
-        return None
     for extra in _bundled_without_live(seen) + load_owned():
         if extra.id not in seen:
             pins.append(extra)

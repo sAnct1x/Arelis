@@ -219,7 +219,8 @@ class VoiceService:
             async with self._speak_lock:
                 self._speak_seq += 1
                 utterance = self._speak_seq
-                sentences = split_sentences(spoken) or [spoken]
+                sentences, _ = next_speakable_units(spoken, 0, finalize=True)
+                sentences = sentences or [spoken]
                 self._prune_clips()
                 for index, sentence in enumerate(sentences):
                     if self._speak_cancelled >= utterance:
@@ -265,7 +266,9 @@ class VoiceService:
         prepared = prepare_spoken_text(
             self._stream_raw, max_chars=self.max_spoken_chars
         )
-        units = next_speakable_units(prepared, self._spoken_count, finalize=finalize)
+        units, spoken = next_speakable_units(
+            prepared, self._spoken_count, finalize=finalize
+        )
         if not units:
             return
         if not self._stream_open:
@@ -273,12 +276,11 @@ class VoiceService:
             self._stream_utterance = self._speak_seq
             self._stream_open = True
             self._stream_clips = 0
-        last_i = self._spoken_count + len(units) - 1
+        last_i = len(units) - 1
         for offset, sentence in enumerate(units):
-            index = self._spoken_count + offset
-            is_final = finalize and index == last_i
+            is_final = finalize and offset == last_i
             self._pending.append((sentence, is_final))
-        self._spoken_count += len(units)
+        self._spoken_count = spoken
 
     def _ensure_drain(self) -> None:
         task = self._drain_task
@@ -541,14 +543,18 @@ class VoiceService:
         else:
             await self.bus.publish(Event(EventType.VOICE_TRANSCRIPT, {"text": text}))
 
-    async def preload(self) -> None:
-        """Warm the speech model and TTS so the first exchange is not the slow one."""
-        async with self._preload_lock:
-            try:
-                await self._preload_ear()
-            finally:
-                self.ear_ready = True
+    async def warm_wake(self) -> None:
+        """Sherpa + Kokoro. Whisper can finish later — it must not block speech."""
+        if self.stt_enabled and self.stt.available():
+            async with self._preload_lock:
+                try:
+                    await asyncio.to_thread(self.stt.ensure_sherpa)
+                except Exception as exc:
+                    log.warning("Sherpa wake warm failed: %s", exc)
+        self.ear_ready = True
+        await self._warm_tts()
 
+    async def _warm_tts(self) -> None:
         if not self.tts_enabled:
             return
         problem = self.tts.problem()
@@ -561,6 +567,15 @@ class VoiceService:
             log.warning("TTS warm-up failed: %s", exc)
         finally:
             await asyncio.to_thread(_remove, warm)
+
+    async def preload(self) -> None:
+        """Warm the speech model and TTS so the first exchange is not the slow one."""
+        await self.warm_wake()
+        async with self._preload_lock:
+            try:
+                await self._preload_ear()
+            finally:
+                self.ear_ready = True
 
     async def _preload_ear(self) -> None:
         from arelis.voice.prepare import missing_voice_parts, prepare_voice_files

@@ -163,6 +163,18 @@ _RECALL_WHEN = re.compile(
     r"a\s+(?:while|few\s+days|couple\s+(?:of\s+)?days)\s+ago"
     r")\b\s*$"
 )
+# Spoken leftovers after "what did I say" — not a topic. Searching them
+# ranks garbage and derails the turn (agenda + recall on small talk).
+_RECALL_MUSH = re.compile(
+    r"(?i)\b(?:"
+    r"said\s+something|"
+    r"i\s+don'?t\s+remember|"
+    r"i\s+forget|"
+    r"how\s+i\s+don'?t|"
+    r"what\s+are\s+you\s+doing|"
+    r"what(?:'s|\s+is)\s+on\s+your"
+    r")\b"
+)
 
 _INBOUND_SMS_PRE = re.compile(
     r"(?i)\b("
@@ -495,7 +507,12 @@ BROWSER_SEARCH = re.compile(
     r"google\s+this\s+in\s+(?:the\s+)?(?:browser|chrome)|"
     r"search\s+for\s+.{0,80}\bvideos?\b|"
     r"search\s+(?:on\s+)?amazon|"
-    r"look\s+(?:up|for)\s+.{0,48}\s+on\s+amazon"
+    r"look\s+(?:up|for)\s+.{0,48}\s+on\s+amazon|"
+    r"(?:you[\s-]*tube|youtube|yt).{0,100}\bsearch|"
+    r"\bsearch.{0,80}(?:you[\s-]*tube|youtube)\b|"
+    r"do\s+(?:a|an|us|the)\s+search|"
+    r"pull\s+up\s+.{0,48}playlist|"
+    r"(?:open|find|show)\s+.{0,48}playlist"
     r")\b"
 )
 
@@ -1183,9 +1200,11 @@ def looks_like_recall_utterance(text: str) -> bool:
     """True when they ask what was said before, not when they ask her to store something.
 
     `_RECALL_PRE` requires "do you remember", so the imperative "remember that
-    I climb on Tuesdays" — a memory write — does not match here.
+    I climb on Tuesdays" — a memory write — does not match here. A trigger
+    with no topic ("what did I say", or STT mush after it) is also not recall.
     """
-    return bool(_RECALL_PRE.search(text or ""))
+    raw = text or ""
+    return bool(_RECALL_PRE.search(raw)) and bool(recall_query(raw))
 
 
 def recall_query(text: str) -> str:
@@ -1198,6 +1217,8 @@ def recall_query(text: str) -> str:
 
     An empty return is meaningful: "do you remember?" names nothing to look
     for, and recall refuses a blank query, so the caller must not inject.
+    Spoken leftovers ("said something how i don't remember what are you
+    doing tonight") are the same nothing — they are not a topic.
     """
     raw = (text or "").strip()
     if not raw:
@@ -1207,9 +1228,17 @@ def recall_query(text: str) -> str:
     rest = rest.strip().strip("?.!,;:").strip()
     rest = _RECALL_ADDRESSEE.sub("", rest, count=1)
     rest = _RECALL_LEAD.sub("", rest, count=1)
-    rest = _RECALL_WHEN.sub("", rest, count=1)
     rest = _RECALL_DETERMINER.sub("", rest, count=1)
-    return re.sub(r"\s+", " ", rest).strip().strip("?.!,;:").strip()
+    without_when = _RECALL_WHEN.sub("", rest, count=1)
+    # "what did I say yesterday" has no noun — keep the time so recall
+    # still has something to search. Strip it only when a topic remains.
+    rest = without_when if without_when.strip() else rest
+    query = re.sub(r"\s+", " ", rest).strip().strip("?.!,;:").strip()
+    if not query or _RECALL_MUSH.search(query):
+        return ""
+    if len(query.split()) > 12:
+        return ""
+    return query
 
 
 def looks_like_source_inspect(text: str) -> bool:
@@ -1496,6 +1525,8 @@ def spec(kind: str) -> IntentSpec:
 
 def exactness_match(kind: str, text: str) -> bool:
     """True when the narrower exactness patterns for *kind* match."""
+    if kind == "recall":
+        return looks_like_recall_utterance(text)
     item = BY_KIND.get(kind)
     if item is None or not item.exactness:
         return False

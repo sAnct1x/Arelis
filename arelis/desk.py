@@ -252,6 +252,22 @@ class DeskStore:
         self._save()
         return True
 
+    def retarget(self, abs_path: str, new_path: str) -> Artifact | None:
+        """Point a desk row at a renamed file. Pin and source stay."""
+        self._ensure()
+        old = _normalize_abs(abs_path)
+        new = _normalize_abs(new_path)
+        if not old or not new:
+            return None
+        for item in self._items:
+            if item.abs_path == old:
+                item.abs_path = new
+                item.label = Path(new).name
+                item.last_seen = _now()
+                self._save()
+                return item
+        return None
+
     def list_for(
         self,
         *,

@@ -316,17 +316,18 @@ def build_voice(window) -> None:
             window._provisional_intent = None
             window.conversation.dictate_toggled.connect(controller.set_dictate)
             window.conversation.conversation_toggled.connect(controller.set_conversation)
-            # Do not claim "say hey arelis" until the ear is actually loaded.
-            # First wake into a cold Whisper download looks like a dead mic.
+            # Mic on now. Sherpa can hear Hey Arelis while Whisper still
+            # phones HuggingFace. Waiting for the full preload left the
+            # ear closed for minutes after Zipformer was already up.
             window._voice_ear_ready = False
             _mark_voice_preparing(window, True)
+            controller.start_wake()
             preload_voice(window)
             if window._voice_preload_future is None:
                 # Loop is not running (tests, or a launch that has not
                 # started it). Do not leave the glass stuck on getting the ear.
                 window._voice_ear_ready = True
                 _mark_voice_preparing(window, False)
-                controller.start_wake()
     else:
         window.conversation.set_voice_available(False, "")
 
@@ -606,7 +607,11 @@ def on_wake_detected(window, remainder: object) -> None:
     window.voice_controller.set_conversation(True)
     if window.voice is not None:
         window.voice.speak_enabled = True
-    window.conversation.ack_wake()
+    if not text:
+        dump = getattr(window.voice_controller, "discard_wake_tail", None)
+        if callable(dump):
+            dump()
+    window.conversation.ack_wake(waiting=not text)
     window.voice_controller.trace.record_wake(
         "wake_ack",
         engine=getattr(window.voice_controller, "_wake_engine", ""),
@@ -651,27 +656,31 @@ def _mark_voice_preparing(window, on: bool) -> None:
 
 
 def preload_voice(window) -> None:
-    """Warm the ear once the asyncio loop is actually running.
-
-    Wake stays off until this finishes, so the idle line is not still
-    promising Hey Arelis while Whisper downloads with no status.
-    """
+    """Warm Sherpa first so wake can start; Whisper/TTS keep loading after."""
     if window.voice is None or not window.loop.is_running():
         return
     if getattr(window, "_voice_preload_future", None) is not None:
         return
-    future = asyncio.run_coroutine_threadsafe(window.voice.preload(), window.loop)
-    window._voice_preload_future = future
 
-    def _done(fut) -> None:
+    wake_future = asyncio.run_coroutine_threadsafe(
+        window.voice.warm_wake(), window.loop
+    )
+
+    def _wake_done(fut) -> None:
         try:
             on_voice_ear_ready(window, fut)
         except RuntimeError:
             pass
+        if window.voice is None or not window.loop.is_running():
+            return
+        window._voice_preload_future = asyncio.run_coroutine_threadsafe(
+            window.voice.preload(), window.loop
+        )
 
-    future.add_done_callback(
-        lambda fut: QTimer.singleShot(0, lambda: _done(fut))
+    wake_future.add_done_callback(
+        lambda fut: QTimer.singleShot(0, lambda: _wake_done(fut))
     )
+    window._voice_preload_future = wake_future
 
 
 def on_voice_ear_ready(window, future) -> None:

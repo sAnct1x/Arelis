@@ -12,6 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, timedelta
 
+from arelis.earth.frames import subsolar_lla
 from arelis.earth.secrets import earth_secret
 
 CESIUM_JS = (
@@ -78,6 +79,7 @@ class GlobeStack:
         return tuple(bits)
 
     def to_payload(self) -> dict[str, str]:
+        lat, lon = subsolar_lla()
         return {
             "kind": self.kind,
             "label": self.label(),
@@ -92,6 +94,9 @@ class GlobeStack:
             "osm": OSM_XYZ,
             "google3d": GOOGLE_3D,
             "photorealAltM": "8000",
+            "enterLat": f"{lat:.4f}",
+            "enterLon": f"{lon:.4f}",
+            "enterAltM": "20000000",
             "credits": " · ".join(self.credits()),
         }
 

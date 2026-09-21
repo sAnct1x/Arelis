@@ -117,7 +117,8 @@ def ride_hint(layer: str, *, riding: bool = False) -> str:
 
 
 def live_chip_label(*, on: bool, busy: bool = False) -> str:
-    if busy:
+    """Busy ellipsis only while Live is actually on. Off must stay Off."""
+    if on and busy:
         return "Live …"
     return "Live on" if on else "Live off"
 
@@ -181,10 +182,7 @@ def status_sentence(zone: Any) -> str:
     elif zone.live:
         line = f"Watching Earth {where} — live, simulated until feeds return."
     elif published:
-        line = (
-            f"Watching Earth {where} — last published fix, then coasting. "
-            "Live keeps pulling."
-        )
+        line = f"Watching Earth {where} — last published fix, then coasting."
     else:
         line = f"Watching Earth {where} — simulated. Click Live for published feeds."
     ride = str(getattr(zone, "ride_id", "") or "")
@@ -271,6 +269,23 @@ def layer_hole_line(zone: Any) -> str | None:
             return None
         if "sites" not in have:
             return "No published sites in this look. Airports and pads when the catalog has them."
+    if layers.get("fires"):
+        if "firms" in inflight:
+            return None
+        try:
+            from arelis.earth.firms import firms_key
+
+            keyed = bool(firms_key())
+        except Exception:
+            keyed = False
+        if not keyed:
+            return (
+                "FIRMS needs a MAP_KEY. Simulated fires are not live published."
+            )
+        if "firms" not in fetched:
+            return None
+        if "fires" not in have:
+            return "No FIRMS hotspots in this look. Cloud and revisit hide fires."
     return None
 
 

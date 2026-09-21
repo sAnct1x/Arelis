@@ -71,9 +71,11 @@ from arelis.core.intent_catalog import (
 from arelis.core.look import next_look_call
 from arelis.core.preflight import (
     draft_browser_args,
+    draft_desktop_screenshot_args,
     draft_rooms_create_args,
     draft_signin_click_args,
     looks_like_browser_click_signin,
+    looks_like_desktop_look,
     looks_like_room_create,
 )
 from arelis.core.sms_complete import (
@@ -531,7 +533,9 @@ async def try_weather(loop: Any, ctx: TurnContext, r: RoundScratch) -> str:
         and not looks_like_scheduled_send(r.text)
         and not looks_like_schedule_manage(r.text)
         and not ctx.schedule_managed_ok
-        and weather_places_missing(r.text, r.weather_ok_places)
+        and weather_places_missing(
+            r.text, r.weather_ok_places, getattr(ctx, "weather_failed_places", None)
+        )
         and "weather" in r.tool_names
     ):
         return SKIP
@@ -545,7 +549,9 @@ async def try_weather(loop: Any, ctx: TurnContext, r: RoundScratch) -> str:
             gate="weather_force",
         )
     inj = draft_weather_args(r.text)
-    missing = weather_places_missing(r.text, r.weather_ok_places)
+    missing = weather_places_missing(
+        r.text, r.weather_ok_places, getattr(ctx, "weather_failed_places", None)
+    )
     if missing:
         if missing[0]:
             inj["place"] = missing[0]
@@ -777,7 +783,7 @@ async def try_memory(loop: Any, ctx: TurnContext, r: RoundScratch) -> str:
             r,
             notice=(
                 "Call the memory tool now. Use action=remember "
-                "or action=forget with the fact quoted from "
+                "or action=forget with the fact or episode quoted from "
                 "the user. Do not call recall instead, and "
                 "do not open a browser."
             ),
@@ -846,6 +852,22 @@ async def try_earth_status(loop: Any, ctx: TurnContext, r: RoundScratch) -> str:
         "earth",
         {"action": earth_status_action(r.text)},
         thinking="inject  earth from status/dump ask",
+    )
+
+
+async def try_desktop_look(loop: Any, ctx: TurnContext, r: RoundScratch) -> str:
+    if not (
+        looks_like_desktop_look(r.text)
+        and "desktop" in r.tool_names
+        and "desktop" not in loop.tools_used
+    ):
+        return SKIP
+    return await _inject(
+        loop,
+        r,
+        "desktop",
+        draft_desktop_screenshot_args(r.text),
+        thinking="inject  desktop screenshot from desk look",
     )
 
 
@@ -980,6 +1002,7 @@ INJECT_STEPS: tuple[StepFn, ...] = (
     try_contacts,
     try_solar_status,
     try_earth_status,
+    try_desktop_look,
     try_browser,
     try_browser_signin,
     try_rooms,

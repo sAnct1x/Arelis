@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
@@ -352,3 +353,52 @@ def list_episodes(
             (cap,),
         ).fetchall()
     return [dict(row) for row in rows]
+
+
+_EPISODE_STAMP = re.compile(r"\b\d{8}-\d{6}(?:-[0-9a-fA-F]+)?\b")
+
+
+def forget_episode(store: MemoryStore, text: str) -> int:
+    """Delete episodes matching the quoted summary, stamp, or pasted list."""
+    cleaned = " ".join((text or "").split())
+    if not cleaned:
+        return 0
+    needles = [cleaned]
+    stamps = [s.lower() for s in _EPISODE_STAMP.findall(text or "")]
+    rows = list_episodes(store, limit=200)
+    ids: list[int] = []
+    for row in rows:
+        summary = str(row.get("summary") or "").strip()
+        if not summary:
+            continue
+        sl = summary.lower()
+        hit = False
+        for needle in needles:
+            nl = needle.lower()
+            if sl == nl:
+                hit = True
+                break
+            # Pasted lists contain the summary as a line. Short summaries
+            # like "ok" must not match because they sit inside longer text.
+            if len(sl) >= 12 and sl in nl:
+                hit = True
+                break
+            if len(nl) >= 12 and nl in sl:
+                hit = True
+                break
+            if _facts_loosely_match(needle, summary):
+                hit = True
+                break
+        if not hit and stamps and any(st in sl for st in stamps):
+            hit = True
+        if hit:
+            ids.append(int(row["id"]))
+    if not ids:
+        return 0
+    qmarks = ",".join("?" * len(ids))
+    cur = store._conn.execute(
+        f"DELETE FROM episodes WHERE id IN ({qmarks})",
+        ids,
+    )
+    store._conn.commit()
+    return int(cur.rowcount)

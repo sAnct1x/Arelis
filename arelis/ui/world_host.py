@@ -320,12 +320,20 @@ def apply_physics_act(window, act: PhysicsAct) -> None:
         touch_solar(window)
         return
     if verb == "leave_earth":
+        from arelis.earth.copy import leave_note
         from arelis.earth.dump import dump_state
         from arelis.earth.runtime import get_earth
 
         zone = get_earth()
         if zone is None or not zone.active:
             window.thinking.append("already solar", kind="status")
+            return
+        solar = getattr(getattr(window, "world_window", None), "solar", None)
+        teardown = getattr(solar, "_leave_earth_zone", None)
+        if callable(teardown):
+            teardown()
+            window.thinking.append(leave_note(), kind="status")
+            touch_solar(window)
             return
         try:
             dump_state(zone, trigger="leave")
@@ -427,13 +435,18 @@ def apply_physics_act(window, act: PhysicsAct) -> None:
         from arelis.earth.lod import view_from_eye
         from arelis.earth.runtime import require_earth
         from arelis.physics.runtime import get_system as _get_system
+        from arelis.ui.panels.solar_earth import (
+            CITY_LOOK_ALT_M,
+            SPACE_ENTER_ALT_M,
+            STREET_LOOK_ALT_M,
+        )
 
         alts = {
-            "space": 3_000_000.0,
+            "space": SPACE_ENTER_ALT_M,
             "approach": 800_000.0,
             "near": 80_000.0,
-            "city": 8_000.0,
-            "street": 350.0,
+            "city": CITY_LOOK_ALT_M,
+            "street": STREET_LOOK_ALT_M,
         }
         alt = alts.get((act.name or "").strip().lower())
         if alt is None:
@@ -464,6 +477,9 @@ def apply_physics_act(window, act: PhysicsAct) -> None:
             panel._globe_hpr = (0.0, -90.0)
             apply_earth_cam(panel.cam, (earth.x, earth.y, earth.z), jd, panel._earth_cam)
             zone.note_view(view_from_eye(eye, px_r=800.0, locked=True, look_ecef=look))
+            fly = getattr(panel, "_fly_globe_to", None)
+            if callable(fly):
+                fly(lat, lon, alt)
             try:
                 panel._sync_earth_globe(force=True)
             except Exception:

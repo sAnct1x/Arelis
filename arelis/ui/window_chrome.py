@@ -622,6 +622,7 @@ class WindowChrome:
             btn.setChecked(False)
         if self.voice_controller is not None:
             self.voice_controller.set_conversation(False)
+            self.voice_controller.resume_wake()
         self.thinking.append("Listening for Hey Arelis.", kind="status")
 
     def _toggle_fullscreen(self) -> None:

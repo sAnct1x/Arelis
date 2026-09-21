@@ -2,8 +2,8 @@
 
 Enter/leave reparents knowledge, not the whole UI. Entities are ECEF.
 The plate still paints ECLIPJ2000. dump writes a cited JSONL under
-outputs/physics/earth. Enter snapshots published feeds then coasts.
-Live keeps pulling (action=live). Logging into a camera
+outputs/physics/earth. Enter turns Live on (distance-gated).
+action=live off coasts the last published fix. Logging into a camera
 you do not own is not a layer.
 """
 
@@ -28,14 +28,14 @@ class EarthTool:
         "leave returns to solar. "
         "status reads the HUD. track/ride lock a contact id from status. "
         "layer toggles a named layer. search finds a label. dump writes a "
-        "cited JSONL under outputs/physics/earth. enter snapshots then coasts; "
-        "re-enter refetches. live=on keeps pulling, distance-gated "
-        "(space=sats, approach=local planes, near=boats+planes, city=toggled "
-        "layers in the look box). City-scale pulls USGS, OpenSky "
+        "cited JSONL under outputs/physics/earth. enter turns Live on "
+        "(distance-gated: space=sats, approach keeps sats and opens local "
+        "planes, near adds boats, city=toggled layers in the look box); "
+        "live=off coasts the last published fix. re-enter refetches. "
         "(every squawk + UAV), adsb.lol military, AISStream, Digitraffic AIS, "
         "BarentsWatch if keyed, CelesTrak TLE samples, Radio Browser, published "
         "camera catalogs worldwide (TfL, Caltrans, NYC, Singapore, Finland, "
-        "Hong Kong, OSM), OSM tiles when Tiles is on, Open-Meteo, FIRMS, "
+        "Hong Kong, OSM), named roads when Streets is on, Open-Meteo, FIRMS if keyed, "
         "launches, EONET, OurAirports, NWS alerts, APRS, Shodan banners, "
         "Sentinel-1 footprints, GFW SAR if keyed, national 511 catalogs, "
         "EMSC, METAR, SWPC aurora, SatNOGS, Space-Track if keyed, WAQI/OpenAQ if keyed. "
@@ -244,6 +244,12 @@ class EarthTool:
                 return ToolResult(
                     ok=False,
                     output=f"No place named {q!r} in the gazetteer.",
+                    data={"fail_class": "fail:name"},
+                )
+            if abs(float(hit.lat)) < 1e-5 and abs(float(hit.lon)) < 1e-5:
+                return ToolResult(
+                    ok=False,
+                    output=f"No place named {q!r}. Not a hop to 0, 0.",
                     data={"fail_class": "fail:name"},
                 )
             if not earth.active:

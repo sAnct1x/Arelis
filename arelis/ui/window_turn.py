@@ -259,7 +259,16 @@ class WindowTurn:
         cancel_watch()
         self._drive_session = False
         self.conversation.set_drive(False)
-        if not hung and not self._force_quit and not self._disposed:
+        # Recovery for a live turn that dies without ASSISTANT_DONE. Idle
+        # Stop must not arm this — a later "excellent job" is a new turn,
+        # and an 8s leftover timer used to unlock it mid-generation.
+        if (
+            not hung
+            and self._turn_busy
+            and not self._force_quit
+            and not self._disposed
+        ):
+            self._stop_busy_epoch = self._busy_epoch
             self._busy_watchdog.start(_BUSY_WATCHDOG_MS)
 
     def _on_hung_turn(self) -> None:
@@ -303,10 +312,13 @@ class WindowTurn:
     def _on_busy_watchdog(self) -> None:
         if self._force_quit or self._disposed:
             return
-        if self._turn_busy:
-            self._assistant_streaming = False
-            self._set_busy(False)
-            self.chat.add_system("Turn ended without a reply. Input re-enabled.")
+        if not self._turn_busy:
+            return
+        if self._busy_epoch != self._stop_busy_epoch:
+            return
+        self._assistant_streaming = False
+        self._set_busy(False)
+        self.chat.add_system("Turn ended without a reply. Input re-enabled.")
 
     def _on_confirm_decided(self, confirm_id: str, decision: str, allow_turn: bool) -> None:
         note_engagement(self)
@@ -378,6 +390,8 @@ class WindowTurn:
         # turn that started it — including the turns that end at the watchdog
         # rather than at an answer.
         if busy:
+            self._busy_epoch += 1
+            self._busy_watchdog.stop()
             self.chat.show_progress(self._busy_status_line())
             if not was:
                 arm_hung_turn(self)

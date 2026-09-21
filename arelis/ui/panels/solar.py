@@ -288,6 +288,7 @@ class SolarPanel(SolarEarthMixin, QWidget):
         self._earth_hold_t = 0.0
         self._globe_host = None
         self._globe_mounting = False
+        self._globe_revealed = False
         self._cesium_off = False
         self._earth_hud = None
         self._globe_cam_push = 0.0
@@ -347,6 +348,9 @@ class SolarPanel(SolarEarthMixin, QWidget):
         return tint
 
     def hideEvent(self, event) -> None:
+        if getattr(self, "_globe_mounting", False):
+            super().hideEvent(event)
+            return
         self._clock.stop()
         self._watch.stop()
         self._close_earth_look()
@@ -673,10 +677,6 @@ class SolarPanel(SolarEarthMixin, QWidget):
         return int(key) in self._keys
 
     def _fly_camera(self, dt: float) -> None:
-        if self._earth_globe_live():
-            v = self._fly_v
-            v[0] = v[1] = v[2] = 0.0
-            return
         fwd = (1.0 if self._held(Qt.Key.Key_W) else 0.0) - (
             1.0 if self._held(Qt.Key.Key_S) else 0.0
         )
@@ -694,7 +694,6 @@ class SolarPanel(SolarEarthMixin, QWidget):
         v[0] += (fwd - v[0]) * blend
         v[1] += (right - v[1]) * blend
         v[2] += (up - v[2]) * blend
-        self._camera_fly(v[0], v[1], v[2], dt)
         turn = 1.35 * dt
         yaw = 0.0
         pitch = 0.0
@@ -707,11 +706,14 @@ class SolarPanel(SolarEarthMixin, QWidget):
         if self._held(Qt.Key.Key_Down):
             pitch -= turn
         if self._earth_globe_live():
-            if abs(yaw) + abs(pitch) > 1e-9:
-                host = self._globe_host
-                if host is not None:
+            host = self._globe_host
+            if host is not None:
+                if abs(v[0]) + abs(v[1]) + abs(v[2]) > 1e-4:
+                    host.push_nudge(v[0], v[1], v[2])
+                if abs(yaw) + abs(pitch) > 1e-9:
                     host.push_look(yaw, pitch)
             return
+        self._camera_fly(v[0], v[1], v[2], dt)
         if yaw:
             self.cam.look(-yaw, 0.0)
         if pitch:
@@ -908,6 +910,9 @@ class SolarPanel(SolarEarthMixin, QWidget):
             self._speed_drag = False
 
     def contextMenuEvent(self, event: QContextMenuEvent) -> None:
+        if self._earth_zone_on():
+            event.accept()
+            return
         name = self._body_at(event.pos().x(), event.pos().y())
         if name:
             self._travel_to(name)
@@ -1172,6 +1177,9 @@ class SolarPanel(SolarEarthMixin, QWidget):
 
             zone = get_earth()
             if zone is not None and zone.active:
+                if self._earth_globe_live():
+                    self._hop_off_earth_contact()
+                    return
                 geo = hit_geo(self, system, px, py)
                 if geo is not None:
                     self._select_earth_place(geo)
@@ -1276,8 +1284,26 @@ class SolarPanel(SolarEarthMixin, QWidget):
 
         return [body.name for body in sorted(bodies, key=sort_key)]
 
+    def _roster_open_parent(self, system: SolarSystem) -> str | None:
+        """Planet whose moon list should stay unfolded, if any."""
+        inspect = self._inspect
+        if not inspect:
+            return None
+        spec = BODY_BY_NAME.get(inspect)
+        kind = spec.kind if spec is not None else ""
+        parent = spec.parent if spec is not None else None
+        if spec is None:
+            body = system.nbody.find(inspect)
+            if body is None:
+                return None
+            kind = body.kind
+            parent = body.parent
+        if kind == "moon":
+            return parent
+        return inspect
+
     def _roster_row_open(self, system: SolarSystem, name: str) -> bool:
-        """Moons stay folded until that moon or its parent is inspect."""
+        """Moons stay folded until the parent (or a sibling moon) is inspect."""
         spec = BODY_BY_NAME.get(name)
         kind = spec.kind if spec is not None else ""
         parent = spec.parent if spec is not None else None
@@ -1289,8 +1315,7 @@ class SolarPanel(SolarEarthMixin, QWidget):
             parent = body.parent
         if kind != "moon":
             return True
-        inspect = self._inspect
-        return inspect == name or inspect == parent
+        return self._roster_open_parent(system) == parent
 
     def _roster_shown(self, system: SolarSystem) -> list[str]:
         return [
@@ -1511,17 +1536,15 @@ class SolarPanel(SolarEarthMixin, QWidget):
     def reset_view(self, *, keep_inspect: bool = False) -> None:
         from arelis.earth.runtime import get_earth
 
-        zone = get_earth()
-        if zone is not None and zone.active:
-            zone.stop_ride()
-            zone.leave()
-        self._earth_cam = None
-        self._earth_fly = None
-        self._earth_id = None
+        if get_earth() is not None and self._earth_zone_on():
+            self._leave_earth_zone()
+        else:
+            self._earth_cam = None
+            self._earth_fly = None
+            self._earth_id = None
+            self._close_earth_look()
+            self._leave_earth_globe()
         self._earth_at_door = False
-        self._place = None
-        self._close_earth_look()
-        self._leave_earth_globe()
         system = get_system()
         self._warp = None
         self.cam.frame_system(self._system_span(system))
@@ -1536,6 +1559,8 @@ class SolarPanel(SolarEarthMixin, QWidget):
 
     def _reset_after_paint(self) -> None:
         self._reset_pending = False
+        if self._earth_zone_on():
+            return
         self.reset_view()
 
     def paintEvent(self, _event) -> None:
@@ -1544,10 +1569,19 @@ class SolarPanel(SolarEarthMixin, QWidget):
             self._painted_t = system.t
         self._painted_note = self._maps_note
         try:
-            if self._earth_globe_live():
+            if self._earth_globe_ready():
                 self._layout_earth_globe()
                 painter = QPainter(self)
                 painter.fillRect(self.rect(), QColor(4, 5, 8))
+                if self._earth_hud is not None:
+                    self._earth_hud.update()
+                return
+            if self._earth_globe_live():
+                self._layout_earth_globe()
+                painter = QPainter(self)
+                painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+                painter.fillRect(self.rect(), QColor(4, 5, 8))
+                self._paint_overlay(painter, software=True)
                 if self._earth_hud is not None:
                     self._earth_hud.update()
                 return

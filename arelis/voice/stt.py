@@ -54,6 +54,12 @@ _STUTTER = re.compile(
     r"(?i)\b((?:i(?:'m)?|uh|um|ah|oh|like))(?:(?:\s*[,.]?\s+|\s+)\1)+\b"
 )
 
+# Isolated spoken fillers. Not "like" — that is also a real word.
+_FILLER_TOKEN = re.compile(
+    r"(?i)(?:^|(?<=\s))(?:uh+|um+|ah+|er+|eh+|hmm+)[,.]?(?=\s|$)"
+)
+_MULTI_SPACE = re.compile(r"\s{2,}")
+
 # Tokens that belong to the wake phrase itself — not "jargon echo".
 _WAKE_PROMPT_WORDS = frozenset(
     {
@@ -112,6 +118,8 @@ def scrub_transcript(text: str) -> str:
     if not raw:
         return ""
     raw = _STUTTER.sub(r"\1", raw)
+    raw = _FILLER_TOKEN.sub(" ", raw)
+    raw = _MULTI_SPACE.sub(" ", raw).strip()
     raw = _HALLUCINATION_PREFIX.sub("", raw).strip()
     raw = _HALLUCINATION_SPAN.sub(" ", raw)
     raw = collapse_repeated_phrase(raw)
@@ -147,6 +155,145 @@ def repair_stt_mail_words(text: str) -> str:
     raw = _EMILE.sub("email", raw)
     raw = _EMIL.sub("email", raw)
     return raw
+
+
+_STT_STOP = frozenset(
+    {
+        "about",
+        "after",
+        "again",
+        "also",
+        "and",
+        "are",
+        "because",
+        "been",
+        "before",
+        "being",
+        "but",
+        "did",
+        "does",
+        "doing",
+        "for",
+        "from",
+        "have",
+        "into",
+        "just",
+        "like",
+        "more",
+        "not",
+        "really",
+        "said",
+        "say",
+        "some",
+        "than",
+        "that",
+        "the",
+        "their",
+        "them",
+        "then",
+        "there",
+        "these",
+        "they",
+        "this",
+        "those",
+        "very",
+        "was",
+        "were",
+        "what",
+        "when",
+        "where",
+        "which",
+        "with",
+        "would",
+        "your",
+    }
+)
+_STT_TOKEN = re.compile(r"[A-Za-z][A-Za-z']+")
+
+
+def _consonant_key(word: str) -> str:
+    """Rough spoken skeleton so Titan≈tighten and Europa≈rope."""
+    raw = re.sub(r"[^a-z]", "", (word or "").lower())
+    if len(raw) < 4:
+        return ""
+    raw = raw.replace("gh", "").replace("ph", "f").replace("ck", "k")
+    key = re.sub(r"[aeiouy]+", "", raw)
+    return key if len(key) >= 2 else ""
+
+
+def recent_stt_vocab(messages: list[Any], *, limit: int = 8) -> list[str]:
+    """Content words from the last few turns, newest first."""
+    found: list[str] = []
+    seen: set[str] = set()
+    remaining = limit
+    for item in reversed(list(messages or [])):
+        role = getattr(item, "role", "") or ""
+        if role not in {"assistant", "user"}:
+            continue
+        content = str(getattr(item, "content", "") or "")
+        for token in _STT_TOKEN.findall(content):
+            low = token.lower()
+            if low in _STT_STOP or len(low) < 4 or low in seen:
+                continue
+            seen.add(low)
+            found.append(token)
+        remaining -= 1
+        if remaining <= 0 or len(found) >= 48:
+            break
+    return found
+
+
+def _stt_context_hit(heard: str, candidate: str) -> bool:
+    a = heard.lower()
+    b = candidate.lower()
+    if a == b:
+        return False
+    if a in _STT_STOP or b in _STT_STOP:
+        return False
+    if abs(len(a) - len(b)) > 4:
+        return False
+    key_a = _consonant_key(a)
+    key_b = _consonant_key(b)
+    if key_a and key_a == key_b:
+        return True
+    shorter, longer = (a, b) if len(a) <= len(b) else (b, a)
+    if len(shorter) >= 4 and len(longer) >= 6 and shorter in longer:
+        return True
+    return False
+
+
+def repair_stt_from_recent(text: str, messages: list[Any] | None) -> str:
+    """Swap near-miss transcript words for ones just said in this chat.
+
+    Sherpa hears "tighten" / "your rope" after she said Titan and Europa.
+    The model can often guess, but intent gates and the next turn cannot.
+    Ambiguous hits stay as heard.
+    """
+    raw = (text or "").strip()
+    if not raw:
+        return ""
+    vocab = recent_stt_vocab(messages or [])
+    if not vocab:
+        return raw
+    parts = re.split(r"(\b[A-Za-z][A-Za-z']+\b)", raw)
+    out: list[str] = []
+    for part in parts:
+        token = _STT_TOKEN.fullmatch(part)
+        if token is None:
+            out.append(part)
+            continue
+        heard = part
+        low = heard.lower()
+        if low in _STT_STOP or len(low) < 4:
+            out.append(heard)
+            continue
+        hits = [word for word in vocab if _stt_context_hit(low, word)]
+        names = {word.lower() for word in hits}
+        if len(names) != 1:
+            out.append(heard)
+            continue
+        out.append(hits[0])
+    return "".join(out)
 
 
 def looks_like_prompt_echo(text: str, prompt: str) -> bool:
@@ -247,13 +394,23 @@ class SpeechToText:
         conversation turn for the rest of the session quietly went there too —
         Sherpa was configured, downloaded, and never used again.
         """
-        whisper_ready = self._whisper_installed() or self._model is not None
-        if purpose == "wake" and whisper_ready:
-            return "faster-whisper"
+        whisper_loaded = self._model is not None
+        whisper_pkg = self._whisper_installed()
+        if purpose == "wake":
+            # Prefer Whisper once it is actually in RAM. Until then Sherpa
+            # hears the doorbell — waiting on a HuggingFace check left the
+            # mic closed for minutes after Sherpa was already up.
+            if whisper_loaded:
+                return "faster-whisper"
+            if not self._sherpa_failed and self._sherpa_usable():
+                return "sherpa"
+            if whisper_pkg:
+                return "faster-whisper"
+            return None
         want = self.requested_backend()
         if want == "sherpa" and not self._sherpa_failed and self._sherpa_usable():
             return "sherpa"
-        if whisper_ready:
+        if whisper_loaded or whisper_pkg:
             return "faster-whisper"
         return None
 
@@ -312,6 +469,12 @@ class SpeechToText:
             return await asyncio.to_thread(
                 self._transcribe_blocking, str(audio_path), purpose
             )
+
+    def ensure_sherpa(self) -> None:
+        """Load Zipformer only. Enough for the doorbell while Whisper warms."""
+        if self._sherpa_failed or not self._sherpa_usable():
+            return
+        self._sherpa_engine().ensure_loaded()
 
     async def preload(self) -> None:
         """Build the models ahead of time, off the loop. Safe to call twice."""
@@ -376,6 +539,10 @@ class SpeechToText:
             self.resolved_backend(),
             self.resolved_backend(purpose="wake"),
         }
+        # Wake may be on Sherpa until Whisper is in RAM. Still warm Whisper
+        # in the background so later clips can switch.
+        if self._whisper_installed():
+            backends.add("faster-whisper")
         if "sherpa" in backends:
             try:
                 self._sherpa_engine().ensure_loaded()
@@ -405,7 +572,12 @@ class SpeechToText:
         compute_type = self.config.get("compute_type") or (
             "int8" if device == "cpu" else "default"
         )
-        self._model = WhisperModel(size, device=device, compute_type=compute_type)
+        kwargs = {"device": device, "compute_type": compute_type}
+        try:
+            self._model = WhisperModel(size, local_files_only=True, **kwargs)
+        except Exception:
+            log.info("Whisper cache miss; downloading %s", size)
+            self._model = WhisperModel(size, **kwargs)
         return self._model
 
     def _sherpa_engine(self):

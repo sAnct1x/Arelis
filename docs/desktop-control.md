@@ -32,7 +32,10 @@ work the same as a browser drive.
   out loud. The window is captured from the monitor Windows says
   it is on (not always the primary).
 - `snapshot` ranks named controls in the focused window (`[d1]`…).
-  Needs the desktop extra (`pip install -e ".[desktop]"`).
+  Named-control click needs UI Automation (`comtypes`). A monitor
+  look never does — that is `screenshot`. If named controls are
+  missing, snapshot grabs the screen instead of lecturing a pip
+  install.
 - `click(text="7")` or `click(ref=d3)`. `x,y` only after
   `screenshot` then `vision` this turn. The PNG is a look still —
   deleted after she reads it, unless you asked to save it.

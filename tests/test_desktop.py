@@ -87,6 +87,81 @@ def test_preflight_page_screenshot_stays_browser() -> None:
     assert any(h.kind == "browser_vision" for h in hints)
 
 
+def test_monitor_screenshot_ask_is_desk_not_browser() -> None:
+    text = "screenshot my primary monitor and tell me what you can see"
+    assert looks_like_desktop_look(text)
+    assert user_asked_for_desktop(text)
+    kinds = {h.kind for h in detect_intents(text)}
+    assert "desktop_look" in kinds
+    assert "browser_vision" not in kinds
+
+
+def test_desk_look_rewrites_snapshot_to_screenshot() -> None:
+    from arelis.core.preflight import (
+        draft_desktop_screenshot_args,
+        rewrite_desktop_calls,
+    )
+
+    text = "screenshot my primary monitor and tell me what you can see"
+    assert draft_desktop_screenshot_args(text) == {
+        "action": "screenshot",
+        "target": "primary",
+    }
+    rewritten = rewrite_desktop_calls(
+        [("desktop", {"action": "snapshot"})],
+        text=text,
+    )
+    assert rewritten == [("desktop", {"action": "screenshot", "target": "primary"})]
+    kept = rewrite_desktop_calls(
+        [("desktop", {"action": "click", "text": "7"})],
+        text=text,
+    )
+    assert kept == [("desktop", {"action": "click", "text": "7"})]
+    named = rewrite_desktop_calls(
+        [("desktop", {"action": "snapshot"})],
+        text="click the 7 button",
+    )
+    assert named == [("desktop", {"action": "snapshot"})]
+
+
+def test_fill_round_calls_rewrites_desk_snapshot() -> None:
+    from types import SimpleNamespace
+
+    from arelis.core.turn_dispatch import fill_round_calls
+
+    loop = SimpleNamespace(
+        tools=SimpleNamespace(get=lambda _name: None),
+        memory=SimpleNamespace(messages=[]),
+        _receipts=[],
+    )
+    filled = fill_round_calls(
+        loop,
+        [("desktop", {"action": "snapshot"})],
+        text="screenshot my primary monitor",
+    )
+    assert filled == [("desktop", {"action": "screenshot", "target": "primary"})]
+
+
+@pytest.mark.asyncio
+async def test_snapshot_falls_back_to_screenshot_without_uia(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = DesktopSession()
+    session.screenshot = AsyncMock(  # type: ignore[method-assign]
+        return_value=DeskResult(ok=True, output="OCR: notepad", data={"path": "x.png"})
+    )
+    monkeypatch.setattr(
+        "arelis.desktop.session.snapshot_window",
+        lambda: ("", {}, "Named-control snapshot is unavailable."),
+    )
+    monkeypatch.setattr("arelis.desktop.session.uia_available", lambda: False)
+    result = await session.snapshot()
+    assert result.ok
+    session.screenshot.assert_awaited()
+    assert "OCR: notepad" in result.output
+    assert result.data.get("fallback") == "screenshot"
+
+
 def test_monitor_token_and_sides() -> None:
     assert looks_like_monitor_token("left")
     assert looks_like_monitor_token("2")
@@ -247,6 +322,10 @@ DESK_LOOK_YES = (
     "what's on the monitor above",
     "what's the second paragraph about?",
     "read the homework on the left monitor",
+    "screenshot my primary monitor",
+    "screenshot my primary monitor and tell me what you can see",
+    "take a screenshot of my left monitor",
+    "screenshot the screen",
 )
 
 DESK_LOOK_NO = (

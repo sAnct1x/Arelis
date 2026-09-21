@@ -89,6 +89,24 @@ def test_status_is_a_sentence_without_ecef() -> None:
     earth._live_busy = True
     earth.store.clear()
     assert "fetching published feeds" in status_sentence(earth)
+    earth._live_busy = False
+    earth.live = False
+    earth.store.upsert(
+        Entity(
+            id="icao:pub",
+            cls="aircraft",
+            layer="flights",
+            label="PUB",
+            x=0.0,
+            y=0.0,
+            z=0.0,
+            freshness="live",
+            source="OpenSky",
+        )
+    )
+    coast = status_sentence(earth)
+    assert "coasting" in coast
+    assert "Live keeps pulling" not in coast
 
 
 def test_enter_note_is_human() -> None:
@@ -128,6 +146,7 @@ def test_live_chip_label() -> None:
     assert live_chip_label(on=False) == "Live off"
     assert live_chip_label(on=True) == "Live on"
     assert live_chip_label(on=True, busy=True) == "Live …"
+    assert live_chip_label(on=False, busy=True) == "Live off"
     from arelis.earth.copy import loading_line, ride_hint
     from arelis.earth.lod import EarthView
 
@@ -141,9 +160,13 @@ def test_live_chip_label() -> None:
     assert loading_line(earth, globe_failed=True) == "fancy map failed — NASA ball"
     from arelis.ui.panels.solar_earth import SPACE_ENTER_ALT_M, earth_enter_lla
 
-    lat, _lon, alt = earth_enter_lla(None)
+    lat, lon, alt = earth_enter_lla(None)
     assert alt == SPACE_ENTER_ALT_M
-    assert lat == 20.0
+    from arelis.earth.frames import subsolar_lla
+
+    slat, slon = subsolar_lla()
+    assert abs(lat - slat) < 0.2
+    assert abs(((lon - slon + 180) % 360) - 180) < 0.2
     earth.last_view = EarthView("space", lat=40.0, lon=-83.0)
     assert earth_enter_lla(earth) == (40.0, -83.0, SPACE_ENTER_ALT_M)
 

@@ -98,6 +98,61 @@ _SUBJECT_EDIT = re.compile(
 )
 _PRONOUN_TO = frozenset({"her", "him", "them"})
 
+# They missed the last spoken answer. Whole utterance, or a complaint that
+# ends on the same ask. "what did I say about X" is recall, not this.
+_REPEAT_CORE = (
+    r"(?:"
+    r"what\s+did\s+you\s+(?:just\s+)?say|"
+    r"what'd\s+you\s+say|"
+    r"(?:can|could|would)\s+you\s+(?:please\s+)?(?:say\s+that\s+again|repeat(?:\s+that)?(?:\s+yourself)?)|"
+    r"(?:please\s+)?(?:say\s+(?:that|it)\s+again|repeat\s+that|"
+    r"repeat\s+(?:what\s+you\s+said|yourself))|"
+    r"i\s+(?:didn'?t|did\s+not)\s+hear\s+(?:what\s+you\s+said|you|that)|"
+    r"i\s+missed\s+(?:that|what\s+you\s+said)|"
+    r"come\s+again"
+    r")"
+)
+_REPEAT_PREFIX = (
+    r"(?:"
+    r"(?:(?:i(?:'?m|\s+am)\s+)?sorry[,.]?\s+)?"
+    r"(?:i\s+(?:was\s+not|wasn'?t)\s+paying\s+attention[,.]?\s+)?"
+    r"(?:i\s+(?:didn'?t|did\s+not)\s+(?:hear|catch)\s+"
+    r"(?:that|you|what\s+you\s+said)[,.]?\s+)?"
+    r")?"
+)
+_REPEAT_WHOLE = re.compile(
+    rf"(?i)^\s*{_REPEAT_PREFIX}{_REPEAT_CORE}\s*[.?!]?\s*$"
+)
+_REPEAT_TAIL = re.compile(rf"(?i){_REPEAT_CORE}\s*[.?!]?\s*$")
+# A new question after the miss — leave it for the model.
+_REPEAT_NEW_ASK = re.compile(
+    r"(?i)\b(?:"
+    r"what\s+are\s+you\s+doing|"
+    r"what(?:'s|\s+is)\s+on|"
+    r"can\s+you\s+(?!please\s+(?:say|repeat))|"
+    r"could\s+you\s+(?!please\s+(?:say|repeat))|"
+    r"tell\s+me\s+about|"
+    r"what\s+did\s+i\s+say\s+about"
+    r")\b"
+)
+
+
+def classify_repeat(text: str) -> bool:
+    """True when they asked her to say the last answer again.
+
+    Conversation STT turns this into a model turn that asks what they
+    wanted repeated. That is the failure. Hangup stays hangup; recall
+    stays "what did I say about X".
+    """
+    raw = (text or "").strip()
+    if not raw:
+        return False
+    if _REPEAT_WHOLE.match(raw):
+        return True
+    if not _REPEAT_TAIL.search(raw):
+        return False
+    return not _REPEAT_NEW_ASK.search(raw)
+
 
 def classify_voice_act(text: str) -> str | None:
     """Return a speech act, or None when this is ordinary talk.

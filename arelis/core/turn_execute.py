@@ -661,6 +661,10 @@ async def execute_call(
             await loop._finish(str(result.output).strip(), sources, streamed="")
             return True
         messages.append(loop._tool_message(name, out))
+        if name == "weather" and not result.ok:
+            asked = str(args.get("place") or "").strip()
+            if asked:
+                ctx.weather_failed_places.add(weather_place_key(asked))
         if (
             name == "schedule"
             and result.ok
@@ -705,7 +709,9 @@ async def execute_call(
                 )
             else:
                 weather_ok_places.add(wx_key)
-                missing = weather_places_missing(text, weather_ok_places)
+                missing = weather_places_missing(
+                    text, weather_ok_places, ctx.weather_failed_places
+                )
                 # A two-city fanout already has the sibling in this batch.
                 # Steering "call the other city" here leaves a stale user
                 # line after the second reading, and 9b re-calls until
@@ -756,7 +762,9 @@ async def execute_call(
                             if later_weather
                             else (
                                 "need_place"
-                                if weather_places_missing(text, weather_ok_places)
+                                if weather_places_missing(
+                                    text, weather_ok_places, ctx.weather_failed_places
+                                )
                                 else "answer_now"
                             )
                         )

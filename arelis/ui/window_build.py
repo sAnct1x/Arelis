@@ -464,6 +464,8 @@ class WindowBuild:
 
         self._assistant_streaming = False
         self._turn_busy = False
+        self._busy_epoch = 0
+        self._stop_busy_epoch = 0
         self._mobile_foreign = False
         self._drive_session = False
         self._readiness_snap = None

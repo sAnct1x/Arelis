@@ -18,6 +18,7 @@ Numbers in here were measured on this checkout, not estimated.
 - [Phase 5 — the missing tools](#phase-5--the-missing-tools)
 - [Phase 6 — usability](#phase-6--usability)
 - [Phase 7 — ship 0.2.8](#phase-7--ship-028)
+- [Phase 8 — ship 0.2.9](#phase-8--ship-029)
 - [Frozen](#frozen)
 
 ---
@@ -1794,7 +1795,32 @@ Small, and they belong wherever they get done fastest:
 
 ---
 
+## Phase 8 — ship 0.2.9
+
+Live-test pass after 0.2.8: weather for the profile, forget
+episodes, workspace reads stay the file, wake latch, Earth zone
+polish (checkout-only 3D).
+
+- [x] **8.1** Write `docs/releases/v0.2.9.md`.
+- [x] **8.2** Bump `arelis/__init__.py` to 0.2.9. Front door
+  (README, issue templates, win-installer README, whats-new)
+  names that file.
+- [x] **8.3** Push `main` + tag `v0.2.9`. CI builds the unsigned
+  installer onto a **draft** release. A human publishes it.
+
+---
+
 ## Frozen
+
+**Earth / Reality / solar — freeze lifted 2026-09-19** for that
+sitting only. Source of truth is now
+[`docs/roadmap/earth-reality.md`](earth-reality.md). Glass, tools,
+orchestrator, SMS, Allow stay frozen *this* way: do not reopen them
+from an Earth sitting.
+
+Numbers below were the freeze-day snapshot and are already stale
+(earth is 66 files / 17,555 lines on 2026-09-19, not ~16k / 70).
+Leave them; the new roadmap remeasured.
 
 **Earth / Reality / solar.** `arelis/earth/` (~16k lines, 70 files),
 `arelis/spatial/` (~3.1k), `arelis/physics/` (~3.9k). 141 catalog feeds,
@@ -1804,9 +1830,8 @@ It is coherent and well documented. It also ships in no installer
 (`spatial/grant.py:27-38` hard-blocks it), carries 327 of the 1,391 mypy
 errors, and has the thinnest per-fetcher test coverage in the tree.
 
-**Rule for this roadmap:** keep it green, do not extend it, do not delete
-it. If a Phase 3 refactor touches a shared file, make the Earth side
-compile and move on. Revisit after 0.2.8 ships.
+**Rule for this (daily-driver) roadmap:** keep it green, do not
+extend it, do not delete it.
 
 The existing `.cursor/rules/multi-agent-lanes.mdc` protections stay in
 force regardless of this freeze.

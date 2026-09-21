@@ -266,20 +266,30 @@ def write_surface_map(
     yy, xx = np.mgrid[0:height, 0:width]
     lon = xx / max(width, 1) * (2.0 * math.pi)
     lat = (0.5 - yy / max(height - 1, 1)) * math.pi
-    field = np.zeros((height, width), dtype=np.float32)
-    for freq, amp, phase in (
-        (2.0, 0.28, seed * 0.17),
-        (5.0, 0.16, seed * 0.31),
-        (9.0, 0.08, seed * 0.47),
-    ):
-        field += amp * np.sin(freq * lon + phase) * np.cos((freq * 0.45) * lat + phase)
-    field = 0.62 + 0.38 * np.tanh(field)
     if belts:
-        field *= 0.88 + 0.12 * np.cos(lat * 6.0)
-    scale = max(float(albedo), 0.04) / 0.18
-    color = np.clip(
-        np.array(rgb, dtype=np.float32) * field[..., None] * scale, 0, 255
-    ).astype(np.uint8)
+        # Ice giant, Voyager-level: faint zonal belts + polar haze. Longitude
+        # sines pinch into a clover at the pole, and Uranus is seen pole-on.
+        field = np.ones((height, width), dtype=np.float32)
+        field += 0.035 * np.cos(lat * 4.0)
+        field += 0.022 * np.sin(lat * 8.0 + seed * 0.1)
+        pole = np.clip((np.abs(lat) - 0.72) / 0.85, 0.0, 1.0)
+        field += 0.055 * pole * pole
+        color = np.clip(
+            np.array(rgb, dtype=np.float32) * field[..., None], 0, 255
+        ).astype(np.uint8)
+    else:
+        field = np.zeros((height, width), dtype=np.float32)
+        for freq, amp, phase in (
+            (2.0, 0.28, seed * 0.17),
+            (5.0, 0.16, seed * 0.31),
+            (9.0, 0.08, seed * 0.47),
+        ):
+            field += amp * np.sin(freq * lon + phase) * np.cos((freq * 0.45) * lat + phase)
+        field = 0.62 + 0.38 * np.tanh(field)
+        scale = max(float(albedo), 0.04) / 0.18
+        color = np.clip(
+            np.array(rgb, dtype=np.float32) * field[..., None] * scale, 0, 255
+        ).astype(np.uint8)
     dest.parent.mkdir(parents=True, exist_ok=True)
     Image.fromarray(color, mode="RGB").save(dest, "JPEG", quality=86)
 
@@ -293,11 +303,22 @@ _SURFACES: dict[str, tuple[tuple[int, int, int], float, int, bool]] = {
 }
 
 
+def _belt_wrap_is_stale(path: Path) -> bool:
+    """True if a belts map still has longitude sines pinched at the pole."""
+    decoded = load_rgb(path)
+    if decoded is None:
+        return True
+    width, height, buf = decoded
+    arr = np.frombuffer(buf, dtype=np.uint8).reshape(height, width, 3)
+    brightness = arr[0].astype(np.float32).mean(axis=1)
+    return float(np.std(brightness)) > 6.0
+
+
 def write_generated_maps() -> list[str]:
     saved: list[str] = []
     for body, (rgb, albedo, seed, belts) in _SURFACES.items():
         dest = map_path(body)
-        if map_ready(dest):
+        if map_ready(dest) and not (belts and _belt_wrap_is_stale(dest)):
             continue
         write_surface_map(dest, rgb=rgb, albedo=albedo, seed=seed, belts=belts)
         saved.append(body)

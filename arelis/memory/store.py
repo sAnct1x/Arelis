@@ -792,6 +792,10 @@ class MemoryStore:
         """Recent episodes, newest first. Optional project filter."""
         return facts.list_episodes(self, limit=limit, project=project)
 
+    def forget_episode(self, text: str) -> int:
+        """Delete matching episode rows. Returns how many were removed."""
+        return facts.forget_episode(self, text)
+
     def latest_session_id(
         self, *, require_messages: bool = True, room_id: str | None = None
     ) -> str | None:

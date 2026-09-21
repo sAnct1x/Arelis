@@ -113,10 +113,14 @@ def paint_overlay(panel, painter: QPainter, *, software: bool, chrome_only: bool
         if chrome_only:
             pass
         elif software:
-            panel.reset_view()
+            zone_on = bool(getattr(panel, "_earth_zone_on", lambda: False)())
+            if not zone_on:
+                panel.reset_view()
         elif not panel._reset_pending:
-            panel._reset_pending = True
-            QTimer.singleShot(0, panel._reset_after_paint)
+            zone_on = bool(getattr(panel, "_earth_zone_on", lambda: False)())
+            if not zone_on:
+                panel._reset_pending = True
+                QTimer.singleShot(0, panel._reset_after_paint)
     panel._begin_view(system)
     sun = system.nbody.find("Sun")
     dist_sun = 0.0
@@ -133,8 +137,9 @@ def paint_overlay(panel, painter: QPainter, *, software: bool, chrome_only: bool
     shots.sort(key=lambda row: row[0])
     panel._drawn_labels = []
     panel._cover = None
+    zone_on = bool(getattr(panel, "_earth_zone_on", lambda: False)())
     cover_name = panel._inspect
-    if not cover_name and getattr(panel, "_earth_zone_on", lambda: False)():
+    if not cover_name and zone_on:
         cover_name = "Earth"
     if cover_name:
         for _depth, body, proj in shots:
@@ -145,7 +150,7 @@ def paint_overlay(panel, painter: QPainter, *, software: bool, chrome_only: bool
                     panel._true_px(body.radius, proj[2]),
                 )
                 break
-    if software and not chrome_only:
+    if software and not chrome_only and not zone_on:
         if sun is not None and dist_sun > 0.25 * AU_M:
             panel._paint_ecliptic(painter, sun)
         if system.show_trails:
@@ -156,6 +161,8 @@ def paint_overlay(panel, painter: QPainter, *, software: bool, chrome_only: bool
             panel._paint_heliocentric_orbits(painter, system)
     for _depth, body, proj in shots:
         if chrome_only:
+            continue
+        if zone_on and body.name != "Earth":
             continue
         if body.tracer:
             if software:
@@ -178,7 +185,13 @@ def paint_overlay(panel, painter: QPainter, *, software: bool, chrome_only: bool
         panel._paint_wind(painter, system)
     if not chrome_only and system.overlay.show_grid:
         panel._paint_grid(painter, system)
-    if software and not chrome_only and sun is not None and not close_globe(panel):
+    if (
+        software
+        and not chrome_only
+        and sun is not None
+        and not close_globe(panel)
+        and not zone_on
+    ):
         sp = panel._proj((sun.x, sun.y, sun.z))
         if sp is not None:
             panel._sun_limb(
@@ -192,17 +205,18 @@ def paint_overlay(panel, painter: QPainter, *, software: bool, chrome_only: bool
             sync_earth_view(panel, system)
     else:
         paint_earth(painter, panel, system)
-    if getattr(panel, "_earth_zone_on", lambda: False)() and (
-        chrome_only or getattr(panel, "_earth_globe_live", lambda: False)()
-    ):
-        globe = getattr(panel, "_earth_globe_live", lambda: False)()
+    if getattr(panel, "_earth_zone_on", lambda: False)():
+        ready = getattr(panel, "_earth_globe_ready", lambda: False)()
         hud = getattr(panel, "_earth_hud", None)
-        if globe and hud is not None and not chrome_only:
+        hud_up = hud is not None and bool(getattr(hud, "isVisible", lambda: False)())
+        if ready and hud is not None and not chrome_only:
             from arelis.ui.panels.solar_hud import earth_chip_layout
 
             hits, box = earth_chip_layout(panel)
             panel._earth_chip_hits = hits
             panel._earth_chip_box = QRect(box)
+            return
+        if hud_up and not chrome_only:
             return
         from arelis.ui.panels.solar_hud import paint_earth_chrome
 

@@ -6,7 +6,8 @@ credentials.json (clientId / clientSecret) into earth.opensky_client_id
 401 refreshes once. Standard tier is 4,000 credits/day; a global
 /states/all costs 4. We read X-Rate-Limit-Remaining and stop near the
 cap, or on 429. extended=1 so UAV category 14 can split to drones.
-Anonymous still works with no client. Failures return []. Token never
+Anonymous still works with no client. Failures return None (keep sim).
+Empty list is a quiet box — heard the API, nothing squawked. Token never
 lands on entities. Hosts pinned in egress.
 """
 
@@ -68,28 +69,32 @@ def opensky_client_secret(path=None) -> str:
     return earth_secret("opensky_client_secret", CLIENT_SECRET_ENV, path)
 
 
-def fetch_opensky(bbox: Any | None = None) -> list[Entity]:
+def fetch_opensky(bbox: Any | None = None) -> list[Entity] | None:
     if not _credits_ok():
-        return []
+        return None
     from arelis.earth.lod import LookBBox
 
     box = bbox if isinstance(bbox, LookBBox) else None
     if box is None:
         payload = _states()
         if not payload:
-            return []
+            return None
         return entities_from_opensky(payload)
     out: list[Entity] = []
     seen: set[str] = set()
+    heard = False
     for part in box.split():
         payload = _states(part)
         if not payload:
             continue
+        heard = True
         for entity in entities_from_opensky(payload):
             if entity.id in seen:
                 continue
             seen.add(entity.id)
             out.append(entity)
+    if not heard:
+        return None
     return out
 
 

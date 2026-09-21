@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 from pathlib import Path
 
-from PySide6.QtCore import QBuffer, QIODevice, QRect, QSize, Qt, QTimer, Signal
+from PySide6.QtCore import QBuffer, QIODevice, QPoint, QRect, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import (
     QDragEnterEvent,
     QDragLeaveEvent,
@@ -375,6 +375,7 @@ class ConversationStage(GlassFrame):
         self._idle_mode = False
         self._pulse_phase = 0.0
         self._wake_acking = False
+        self._wake_waiting = False
         self._listen_pulse = QTimer(self)
         self._listen_pulse.setInterval(50)
         self._listen_pulse.timeout.connect(self._tick_listen_pulse)
@@ -469,6 +470,7 @@ class ConversationStage(GlassFrame):
             self.attach_errors.emit(list(result.errors))
         if result.ok:
             self.attach_bar.add_many([a.as_dict() for a in result.ok])
+            self._place_parked_orbit()
 
     def _stage_paths(self, paths: list[Path]) -> None:
         if not paths:
@@ -478,6 +480,7 @@ class ConversationStage(GlassFrame):
             self.attach_errors.emit(list(result.errors))
         if result.ok:
             self.attach_bar.add_many([a.as_dict() for a in result.ok])
+            self._place_parked_orbit()
 
     def set_drive(self, driving: bool, status: str = "") -> None:
         """Show the glass Drive strip while she is driving her Chrome."""
@@ -505,6 +508,7 @@ class ConversationStage(GlassFrame):
             self.drive.set_driving(True)
         else:
             self.drive.hide()
+        self._place_parked_orbit()
 
     def set_busy(self, busy: bool) -> None:
         """Swap the composer between send and stop for the duration of a turn.
@@ -514,6 +518,8 @@ class ConversationStage(GlassFrame):
         """
         self._busy = busy
         self._turn_visible = False
+        if busy:
+            self._wake_waiting = False
         if hasattr(self, "_parked_orbit"):
             self._parked_orbit.set_thinking(busy)
         self._sync_composer_buttons()
@@ -825,6 +831,7 @@ class ConversationStage(GlassFrame):
             self.input.setFocus(Qt.FocusReason.OtherFocusReason)
             self.input.setCursorPosition(cursor)
             self.input.ensureCursorVisible()
+        self._place_parked_orbit()
 
     def _sync_parked_orbit(self, idle: bool) -> None:
         """Keep a small dim orbit in the corner once a thread exists."""
@@ -841,6 +848,30 @@ class ConversationStage(GlassFrame):
         else:
             self.chat.set_parked_gutter(0)
 
+    def _bottom_chrome_top(self) -> int:
+        """Top of the first visible bar under the transcript, in stage coords.
+
+        Drive / Allow / attach / hairline / composer all live in this stack.
+        The parked orbit sits above whichever of them is showing — not over it.
+        """
+        lay = self.layout()
+        chat = getattr(self, "chat", None)
+        room = getattr(self, "room", None)
+        floor = self.height()
+        if lay is None:
+            return floor
+        for i in range(lay.count()):
+            item = lay.itemAt(i)
+            widget = item.widget() if item is not None else None
+            if widget is None or widget is chat or widget is room:
+                continue
+            if widget.isHidden() or widget.height() <= 0:
+                continue
+            top = widget.mapTo(self, QPoint(0, 0)).y()
+            if top < floor:
+                floor = top
+        return floor
+
     def _place_parked_orbit(self) -> None:
         if not hasattr(self, "_parked_orbit") or not hasattr(self, "chat"):
             return
@@ -853,11 +884,12 @@ class ConversationStage(GlassFrame):
         edge = 8
         air = 12
         orbit_w = self._parked_orbit.width()
-        composer_h = self._composer.height() if self._composer.isVisible() else 0
-        margin_b = 18 + composer_h
+        orbit_h = self._parked_orbit.height()
+        lift = SPACE["gap"]
+        floor = self._bottom_chrome_top()
         self._parked_orbit.move(
             max(edge, self.width() - orbit_w - edge),
-            max(edge, self.height() - self._parked_orbit.height() - margin_b),
+            max(edge, floor - orbit_h - lift),
         )
         self.chat.set_parked_gutter(orbit_w + air + edge)
 
@@ -968,14 +1000,22 @@ class ConversationStage(GlassFrame):
         self._sync_listen_pulse()
 
     def set_conversing(self, active: bool) -> None:
+        if not active:
+            self._wake_waiting = False
         mark, _box = _talk_mark_px()
         self._set_toggle(self.conversation_btn, active, conversation_icon(mark, live=active))
         self._sync_listen_pulse()
         self._sync_composer_buttons()
 
-    def ack_wake(self) -> None:
-        """Receipt that the doorbell rang: icon flares, copy says listening."""
+    def ack_wake(self, *, waiting: bool = False) -> None:
+        """Receipt that the doorbell rang: icon flares, copy says listening.
+
+        *waiting* is a bare "Hey Arelis" — no first question yet. Stay on
+        listening copy after the flare so the two-arcs don't look idle while
+        she is actually latched and waiting for the next sentence.
+        """
         self._wake_acking = True
+        self._wake_waiting = bool(waiting)
         self._pulse_phase = 0.0
         if not self.conversation_btn.isChecked():
             self.set_conversing(True)
@@ -983,15 +1023,16 @@ class ConversationStage(GlassFrame):
         self._apply_listening_copy(True)
         self._sync_listen_pulse()
         self._tick_listen_pulse()
-        QTimer.singleShot(1200, self._end_wake_ack)
+        QTimer.singleShot(2800 if waiting else 1200, self._end_wake_ack)
 
     def _end_wake_ack(self) -> None:
         self._wake_acking = False
-        self._apply_listening_copy(False)
+        # Bare wake: keep the idle line on "listening" until they speak or hang up.
+        self._apply_listening_copy(self._wake_waiting)
         if self.conversation_btn.isChecked():
-            self.conversation_btn.setToolTip(
+            self.conversation_btn.setToolTip("listening" if self._wake_waiting else (
                 "talk with Arelis (Ctrl+Shift+M) · say goodbye to stop"
-            )
+            ))
         self._sync_listen_pulse()
 
     def _apply_listening_copy(self, listening: bool) -> None:
@@ -1025,6 +1066,8 @@ class ConversationStage(GlassFrame):
         self.idle_conditions_changed.emit()
 
     def _on_conversation_toggled(self, checked: bool) -> None:
+        if not checked:
+            self._wake_waiting = False
         if checked and self.mic_btn.isChecked():
             self.mic_btn.setChecked(False)
         mark, _box = _talk_mark_px()
@@ -1122,6 +1165,7 @@ class ConversationStage(GlassFrame):
             )
         self._sync_composer_buttons()
         self.idle_conditions_changed.emit()
+        self._place_parked_orbit()
 
     def dismiss_confirm(self) -> None:
         """Hide a pending confirm without answering it.
@@ -1133,12 +1177,14 @@ class ConversationStage(GlassFrame):
         self.confirm.dismiss()
         self._sync_composer_buttons()
         self.idle_conditions_changed.emit()
+        self._place_parked_orbit()
         self.restore_composer_caret()
 
     def _on_confirm_decided(self, confirm_id: str, decision: str, allow_turn: bool) -> None:
         self._sync_composer_buttons()
         self.confirm_decided.emit(confirm_id, decision, allow_turn)
         self.restore_composer_caret()
+        self._place_parked_orbit()
 
     def _submit(self) -> None:
         # Enter on an open card: empty or yes-list = allow; no-list = deny;
@@ -1175,6 +1221,7 @@ class ConversationStage(GlassFrame):
         role = self.role.currentText()
         self.input.clear()
         self.attach_bar.clear()
+        self._place_parked_orbit()
         self.submitted.emit(text, role, attachments)
 
     def _stop(self) -> None:

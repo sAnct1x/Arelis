@@ -4,8 +4,9 @@ Whisper will not spell the name the same way every time. Accept a short list of
 spellings and return the remainder of the utterance, or None when this was not
 a wake.
 
-The compound phrase is required: "Hey" (or Whisper's "Hay" / leading "Pay")
-plus the name. Bare "Arelis", "Hi Arelis", and "Okay Arelis" do not wake —
+The compound phrase is required: "Hey" (or Whisper's "Hay" / "Hair" /
+leading "Pay") plus the name. Bare "Arelis", "Hi Arelis", and
+"Okay Arelis" do not wake —
 those fire too easily on Discord and room talk. Leading Whisper fillers
 ("and", "uh", …) are ignored. A long clip may still wake if it contains
 "Hey Arelis" later; a bare name later in the transcript does not.
@@ -21,8 +22,9 @@ from dataclasses import dataclass
 # match ordinary speech ("or Ellis", "air Elise").
 _NAME = (
     r"(?:airelyse|airelease|aurelyse|aurelis|arellis|"
-    r"arelyse|areliss|arelis|arrellis|arreliss|arrelis|"
-    r"arrelas|arella|relus|relis)"
+    r"arelyse|areliss|arelis|arilis|arillis|"
+    r"arrellis|arreliss|arrelis|"
+    r"arrelas|arella|rellis|relics|relus|relis|arlus)"
 )
 
 # Junk Whisper often sticks before the greeting on noisy/long clips.
@@ -34,11 +36,19 @@ _FILLER = (
 # Required. "hay" is a frequent Whisper misspelling of "hey".
 # "hi" / "ok" / "okay" are too common in calls to be wake greetings.
 _GREETING = r"(?:hey|hay)\s*,?\s*"
-# "pay" is hey-as-heard, but only at the start — mid-clip "pay Aurelis"
-# is ordinary speech.
-_GREETING_START = r"(?:hey|hay|pay)\s*,?\s*"
-# Whisper also writes "Hey a relus" / "Pay a relus".
-_ARTICLE = r"(?:a\s+)?"
+# Start-only cousins: Whisper/Sherpa write "Hair Relus", "Hier relus",
+# "Hayer relus", "Haigha relus", "Heiga relus", "Here relus". Mid-clip
+# those words are ordinary speech ("here we go", "hair cut").
+_GREETING_START = (
+    r"(?:hey|hay|pay|hair|hier|hayer|haigha|heiga|here)\s*,?\s*"
+)
+# Whisper also writes "Hey a relus" / "Pay a relus" / "HAY Are relus".
+_ARTICLE = r"(?:(?:a|are)\s+)?"
+# One mashed token, no space. Dictate + a few Whisper clips.
+_FUSED = (
+    r"(?:haigaretllus|hierrallelus|hierrallus|hierarlus|"
+    r"hayorellus|hayorlus|hiarlus|pyrallus|harlus)"
+)
 
 # Strict: start of string after optional fillers + required greeting.
 _WAKE_AT_START = re.compile(
@@ -54,8 +64,24 @@ _WAKE_ANYWHERE = re.compile(
 
 # Soft hint that Whisper heard the compound phrase but match_wake still failed.
 _NAME_HINT = re.compile(
-    r"(?i)\b(?:hey|hay|pay)\s+(?:a\s+)?(?:airelyse|airelease|aurelis|aurelyse|"
-    r"arellis|arelyse|areliss|arelis|arrelis|arrelas|arella|relus|relis)\b"
+    r"(?i)\b(?:hey|hay|pay|hair|hier|hayer|haigha|heiga|here)\s+"
+    r"(?:(?:a|are)\s+)?(?:airelyse|airelease|aurelis|aurelyse|"
+    r"arellis|arelyse|areliss|arelis|arilis|arillis|arrellis|arrelis|"
+    r"arrelas|arella|rellis|relics|relus|relis|arlus)\b"
+    r"|\bher\s+(?:relus|relics|relis|arlus)\b"
+    r"|\b(?:haigaretllus|hierrallelus|hierrallus|hierarlus|"
+    r"hayorellus|hayorlus|hiarlus|pyrallus|harlus)\b"
+)
+
+# "Her relus" — "her" is too common to be a greeting, but this pair is the
+# doorbell as Sherpa writes it. Start of clip only.
+_WAKE_HER = re.compile(
+    rf"^\s*(?:{_FILLER}){{0,6}}her\s+(?:relus|relics|relis|arlus)\b[\s,.\?!;:]*",
+    re.IGNORECASE,
+)
+_WAKE_FUSED = re.compile(
+    rf"^\s*(?:{_FILLER}){{0,6}}{_FUSED}\b[\s,.\?!;:]*",
+    re.IGNORECASE,
 )
 
 
@@ -68,18 +94,25 @@ class WakeResult:
     heard: str
 
 
+def _leading_wake(rest: str):
+    """First doorbell token at the start of *rest*, or None."""
+    for pattern in (_WAKE_FUSED, _WAKE_HER, _WAKE_AT_START):
+        hit = pattern.match(rest)
+        if hit is not None:
+            return hit
+    return re.match(
+        rf"^\s*{_GREETING_START}{_ARTICLE}{_NAME}\b[\s,.\?!;:]*",
+        rest,
+        re.IGNORECASE,
+    )
+
+
 def _peel_leading_wakes(rest: str) -> str:
     """Strip repeated wake phrases so they never become a user turn."""
     while True:
-        again = _WAKE_AT_START.match(rest)
+        again = _leading_wake(rest)
         if again is None:
-            again = re.match(
-                rf"^\s*{_GREETING_START}{_ARTICLE}{_NAME}\b[\s,.\?!;:]*",
-                rest,
-                re.IGNORECASE,
-            )
-            if again is None:
-                break
+            break
         rest = rest[again.end() :].strip()
     # Trailing "Arelis. Arelis." echoes after a command (hey optional here).
     trail = re.compile(
@@ -101,7 +134,7 @@ def match_wake(text: str) -> str | None:
     if not raw:
         return None
 
-    match = _WAKE_AT_START.match(raw)
+    match = _leading_wake(raw)
     if match is not None:
         return _peel_leading_wakes(raw[match.end() :].strip())
 

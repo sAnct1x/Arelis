@@ -221,6 +221,12 @@ def sync_idle_voice_mode(window, mode: str | None = None) -> None:
     idle = getattr(window.chat, "empty", None)
     if idle is None or not hasattr(idle, "set_voice_mode"):
         return
+    conv = getattr(window, "conversation", None)
+    if conv is not None and (
+        getattr(conv, "_wake_acking", False) or getattr(conv, "_wake_waiting", False)
+    ):
+        idle.set_voice_mode("ack")
+        return
     if mode is None:
         if window.conversation.conversation_btn.isChecked():
             mode = "conversation"

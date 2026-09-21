@@ -9,7 +9,9 @@ that lock and the solar-lab camera is inertial again.
 from __future__ import annotations
 
 import math
+import time
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
 from arelis.physics.attitude import _earth_frame, gmst_rad, spin_jd
 
@@ -44,6 +46,26 @@ def nadir_cam(lat_deg: float, lon_deg: float, alt_m: float) -> EarthCam:
 def julian_unix(unix: float) -> float:
     """Unix seconds → Julian day (UTC≈UT1)."""
     return float(unix) / 86400.0 + 2_440_587.5
+
+
+def subsolar_lla(*, unix: float | None = None) -> tuple[float, float]:
+    """Wall-clock subsolar pin. Cesium lighting is now, not sim epoch 2000.
+
+    Mean solar: noon UTC sits near 0°E. Equation of time is ignored —
+    we need a daylight limb, not a survey. Polar summer is clamped so
+    first Enter is not ice-cap first.
+    """
+    t = float(unix if unix is not None else time.time())
+    utc_hours = (t % 86400.0) / 3600.0
+    lon = 15.0 * (12.0 - utc_hours)
+    while lon > 180.0:
+        lon -= 360.0
+    while lon < -180.0:
+        lon += 360.0
+    day = datetime.fromtimestamp(t, tz=UTC).timetuple().tm_yday
+    lat = 23.44 * math.sin(math.radians((360.0 / 365.0) * (day - 81)))
+    lat = max(-50.0, min(50.0, lat))
+    return (lat, lon)
 
 
 def lla_to_sphere(

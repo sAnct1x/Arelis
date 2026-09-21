@@ -454,6 +454,109 @@ def test_field_escape_hops_off_the_station(
     set_earth(None)
 
 
+def test_space_click_off_a_sat_does_not_pin_or_smash_camera(
+    qt_app, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from arelis.physics.demo import sun_and_planet
+    from arelis.physics.engine import rebound_available
+    from arelis.physics.runtime import set_system
+    from arelis.physics.scene import SolarSystem
+    from arelis.ui.panels.solar import SolarPanel
+
+    if not rebound_available():
+        pytest.skip("REBOUND is not installed")
+    monkeypatch.setattr(
+        "arelis.earth.runtime.EarthRuntime._merge_live", lambda self: None
+    )
+    set_system(SolarSystem.from_states(sun_and_planet(), tracers=0))
+    earth = EarthRuntime()
+    earth.enter(unix=1.0)
+    set_earth(earth)
+    sat = earth.get("sim-gps:00")
+    assert sat is not None
+    released: list[str] = []
+
+    class Host:
+        failed = False
+
+        def isVisible(self) -> bool:
+            return False
+
+        def release_camera(self) -> None:
+            released.append("release")
+
+        def arm_ride(self, _eid: str) -> None:
+            return None
+
+    panel = SolarPanel()
+    panel.resize(640, 480)
+    panel._globe_host = Host()
+    panel._select_earth_entity(sat, ride=False)
+    assert earth.track_id == "sim-gps:00"
+    panel._on_globe_ground(
+        json.dumps(
+            {
+                "lat": -12.03,
+                "lon": 55.56,
+                "slant_m": 79_202_557.0,
+                "agl_m": 78_482_912.0,
+            }
+        )
+    )
+    assert earth.track_id == ""
+    assert panel._earth_id is None
+    assert getattr(panel, "_earth_pin", None) is None
+    assert released == []
+    panel.hide()
+    set_system(None)
+    set_earth(None)
+
+
+def test_city_ground_click_still_pins(
+    qt_app, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from arelis.physics.demo import sun_and_planet
+    from arelis.physics.engine import rebound_available
+    from arelis.physics.runtime import set_system
+    from arelis.physics.scene import SolarSystem
+    from arelis.ui.panels.solar import SolarPanel
+
+    if not rebound_available():
+        pytest.skip("REBOUND is not installed")
+    monkeypatch.setattr(
+        "arelis.earth.runtime.EarthRuntime._merge_live", lambda self: None
+    )
+    set_system(SolarSystem.from_states(sun_and_planet(), tracers=0))
+    earth = EarthRuntime()
+    earth.enter(unix=1.0)
+    set_earth(earth)
+    released: list[str] = []
+
+    class Host:
+        failed = False
+
+        def isVisible(self) -> bool:
+            return False
+
+        def release_camera(self) -> None:
+            released.append("release")
+
+    panel = SolarPanel()
+    panel.resize(640, 480)
+    panel._globe_host = Host()
+    panel._on_globe_ground(
+        json.dumps(
+            {"lat": 1.29, "lon": 103.85, "slant_m": 2400.0, "agl_m": 1800.0}
+        )
+    )
+    assert panel._earth_pin is not None
+    assert panel._earth_pin["lat"] == pytest.approx(1.29)
+    assert released == []
+    panel.hide()
+    set_system(None)
+    set_earth(None)
+
+
 def test_field_ride_arms_js_follow(
     qt_app, monkeypatch: pytest.MonkeyPatch
 ) -> None:

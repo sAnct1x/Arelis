@@ -76,7 +76,9 @@ async def redirect_weather(
         and not looks_like_scheduled_send(r.text)
         and not looks_like_schedule_manage(r.text)
         and not ctx.schedule_managed_ok
-        and weather_places_missing(r.text, r.weather_ok_places)
+        and weather_places_missing(
+            r.text, r.weather_ok_places, getattr(ctx, "weather_failed_places", None)
+        )
         and "weather" in r.tool_names
     ):
         return None
@@ -85,7 +87,9 @@ async def redirect_weather(
     r.messages.append(loop._tool_message(name, notice))
     drop_wander(*_WEATHER_WANDER)
     inj = draft_weather_args(r.text)
-    missing = weather_places_missing(r.text, r.weather_ok_places)
+    missing = weather_places_missing(
+        r.text, r.weather_ok_places, getattr(ctx, "weather_failed_places", None)
+    )
     if missing:
         if missing[0]:
             inj["place"] = missing[0]

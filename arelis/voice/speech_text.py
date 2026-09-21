@@ -99,12 +99,19 @@ def prepare_spoken_text(text: str, *, max_chars: int = 0) -> str:
     return spoken.strip()
 
 
-def split_sentences(text: str) -> list[str]:
-    """Split prepared text into synthesis units.
+# A lone short sentence plays in a second, then dead air until the next
+# period arrives. Hold it. A long sentence covers the wait, so it can go.
+_SHORT_CLIP_CHARS = 72
+# Glue following sentences into one WAV so Kokoro keeps the breath across
+# periods instead of restarting on every full stop.
+_PACK_TARGET_CHARS = 160
 
-    The voice service synthesizes and plays these one at a time so speech starts
-    about a second after the answer lands instead of after the whole thing is
-    rendered, and so stopping her only has to abandon a queue.
+
+def split_sentences(text: str) -> list[str]:
+    """Split prepared text on sentence ends.
+
+    The voice service packs these into breaths before synthesis so a period
+    is not its own clip. Stopping her still abandons the queue.
     """
     if not text.strip():
         return []
@@ -128,33 +135,70 @@ def split_sentences(text: str) -> list[str]:
     return [s for s in (part.strip() for part in out) if s]
 
 
+def _sentence_complete(chunk: str) -> bool:
+    trailing = (chunk or "").rstrip()
+    return bool(trailing) and trailing[-1:] in ".!?" and not _ends_on_abbreviation(trailing)
+
+
 def next_speakable_units(
     prepared: str, already: int, *, finalize: bool
-) -> list[str]:
-    """Return synthesis units that are newly safe to speak.
+) -> tuple[list[str], int]:
+    """Return new clips and how many sentences have now been handed off.
 
-    `already` is how many units from this prepared text have been handed to
-    Piper. While the answer is still streaming (`finalize=False`), the last
-    unit is held back: it may still be growing. On the final pass every
-    remaining unit is returned so a one-sentence answer still gets spoken.
+    `already` is a sentence count, not a clip count. The first sentence
+    starts as soon as it is complete. Later short leftovers wait for a
+    neighbor so she does not restart on every period. Neighboring
+    sentences are glued into one clip until ``_PACK_TARGET_CHARS``.
+    Finalize flushes whatever is left.
     """
-    if not prepared.strip():
-        return []
-    units = split_sentences(prepared) or [prepared.strip()]
     if already < 0:
         already = 0
-    if already >= len(units):
-        return []
-    if finalize:
-        return units[already:]
-    # A complete trailing sentence can start audio before the turn ends.
-    trailing = units[-1].rstrip()
-    if trailing[-1:] in ".!?" and not _ends_on_abbreviation(trailing):
-        return units[already:]
-    # Hold the trailing unit until another sentence appears or the turn ends.
-    if len(units) <= already + 1:
-        return []
-    return units[already:-1]
+    raw = (prepared or "").strip()
+    if not raw:
+        return [], already
+    sentences = split_sentences(raw) or ([raw] if finalize else [])
+    if already >= len(sentences):
+        return [], already
+
+    limit = len(sentences) if finalize or _sentence_complete(sentences[-1]) else len(sentences) - 1
+    pending = sentences[already:limit]
+    if not pending:
+        return [], already
+    # Later leftovers can wait for a neighbor. The first sentence of a
+    # reply has to start now — holding it until finalize is how the
+    # whole answer types out and she sits silent until Kokoro gets it.
+    if (
+        not finalize
+        and already > 0
+        and len(pending) == 1
+        and len(pending[0]) < _SHORT_CLIP_CHARS
+    ):
+        return [], already
+
+    clips: list[str] = []
+    consumed = already
+    buf: list[str] = []
+    size = 0
+    for sentence in pending:
+        buf.append(sentence)
+        size += len(sentence) + 1
+        if size >= _PACK_TARGET_CHARS:
+            clips.append(" ".join(buf))
+            consumed += len(buf)
+            buf = []
+            size = 0
+    if buf:
+        leftover_is_short = len(buf) == 1 and len(buf[0]) < _SHORT_CLIP_CHARS
+        if finalize or not leftover_is_short or len(buf) >= 2:
+            clips.append(" ".join(buf))
+            consumed += len(buf)
+        elif clips:
+            # A trailing short after a full pack waits for more text.
+            pass
+        else:
+            clips.append(" ".join(buf))
+            consumed += len(buf)
+    return clips, consumed
 
 
 def _ends_on_abbreviation(chunk: str) -> bool:

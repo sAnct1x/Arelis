@@ -158,8 +158,10 @@ SKILL_CARDS: dict[str, SkillCard] = {
 ### Weather
 - Call the weather tool. Do not scrape AccuWeather, weather.com, or other
   forecast sites (they are JavaScript shells). Do not hand-build Open-Meteo URLs.
-- Default is the user's own location. Another city is place (a name this tool
-  geocodes). Never pass coordinates. days includes today: 1 is today only,
+- Default is the user's own location. If they did not name a city, omit
+  place — do not pass the city from their profile (a city name geocodes
+  the first gazetteer hit). Another city is place (a name this tool geocodes).
+  Never pass coordinates. days includes today: 1 is today only,
   tomorrow needs 2 or more, default 3.
 - Two named cities: call weather once per place, then answer. Do not stop
   after the first city.
@@ -347,6 +349,8 @@ SKILL_CARDS: dict[str, SkillCard] = {
 - Never tell the user to run a shell command to do something a tool can do.
 - Do not claim you edited a file unless a write/edit tool succeeded.
 - Prefer git_info (status/diff/log) over inventing branch or dirty state.
+- A named file they asked you to look at is action=read. Answer from that
+  body — do not scrape it, and do not grep a path you already have.
 - How you work, where a feature lives, or read your source: workspace(action=read)
   on arelis/… or docs/…. {inspect_guide} Answer from the result. Do not recall the
   package or web_search. A fix is write/edit (Allow), never a silent self-edit.
@@ -473,7 +477,9 @@ SKILL_CARDS: dict[str, SkillCard] = {
   ("keep this", "put this on the desk") is workspace keep, not memory. When a stored fact is wrong,
   use action=forget with the fact quoted exactly. Do not promise either without
   calling the tool. For a short moment summary, use action=episode (or
-  remember with type=episode). Episodes are never written silently each turn.
+  remember with type=episode). To drop episodes, action=forget with the
+  summary quoted — or the list they pasted. Episodes are never written
+  silently each turn.
 - For to-dos and checklists, use the tasks tool (list/add/done/reopen/remove/
   attach/detach). Transient chores are tasks, not durable memory facts or goals.
 - Link a chore to a durable goal with tasks add goal_id=… or attach/detach.

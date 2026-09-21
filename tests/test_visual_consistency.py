@@ -494,6 +494,45 @@ def test_browse_to_opens_the_listed_folder(qt_app, tmp_path) -> None:
         panel.deleteLater()
 
 
+def _browse_names(panel: WorkspacePanel) -> list[str]:
+    return [
+        panel.browse_list.item(i).text()
+        for i in range(panel.browse_list.count())
+    ]
+
+
+def test_browse_to_opens_a_folder_outside_the_project(qt_app, tmp_path) -> None:
+    root = tmp_path / "arelis"
+    farm = tmp_path / "farm"
+    css = farm / "css"
+    root.mkdir()
+    css.mkdir(parents=True)
+    (root / "README.md").write_text("repo", encoding="utf-8")
+    (farm / "index.html").write_text("<html>", encoding="utf-8")
+    (css / "site.css").write_text("body{}", encoding="utf-8")
+    panel = WorkspacePanel()
+    try:
+        panel.set_projects(["arelis"], "arelis", paths={"arelis": str(root)})
+        panel.browse_to(str(farm), root_name="external")
+        names = _browse_names(panel)
+        assert "index.html" in names
+        assert "css" in names
+        assert "README.md" not in names
+        assert panel.browse_label.text() == "farm"
+        assert panel.folders_btn.isChecked()
+        panel._browse_up()
+        assert "index.html" in _browse_names(panel)
+        panel.browse_to(str(css), root_name="external")
+        assert "site.css" in _browse_names(panel)
+        panel._browse_up()
+        assert "index.html" in _browse_names(panel)
+        panel.set_active_project("arelis")
+        assert "README.md" in _browse_names(panel)
+        assert "index.html" not in _browse_names(panel)
+    finally:
+        panel.deleteLater()
+
+
 def test_a_workspace_list_does_not_fill_the_dock(arelis_window, tmp_path) -> None:
     from arelis.core.events import Event, EventType
 
@@ -533,6 +572,51 @@ def test_a_workspace_list_does_not_fill_the_dock(arelis_window, tmp_path) -> Non
         for i in range(win.workspace.browse_list.count())
     ]
     assert "guide.md" in names
+
+
+def test_workspace_list_opens_an_outside_folder(arelis_window, tmp_path) -> None:
+    from arelis.core.events import Event, EventType
+
+    root = tmp_path / "arelis"
+    farm = tmp_path / "farm"
+    root.mkdir()
+    farm.mkdir()
+    (root / "README.md").write_text("repo", encoding="utf-8")
+    (farm / "index.html").write_text("<html>", encoding="utf-8")
+    win = arelis_window()
+    win.workspace.set_projects(["arelis"], "arelis", paths={"arelis": str(root)})
+    win._on_event(
+        Event(
+            EventType.TOOL_START,
+            {
+                "tool": "workspace",
+                "args": {"action": "list", "path": str(farm)},
+            },
+        )
+    )
+    win._on_event(
+        Event(
+            EventType.TOOL_RESULT,
+            {
+                "tool": "workspace",
+                "ok": True,
+                "output": "[dir] css\n[file] index.html",
+                "args": {"action": "list"},
+                "data": {
+                    "path": str(farm),
+                    "abs_path": str(farm),
+                    "root_name": "external",
+                },
+            },
+        )
+    )
+    names = [
+        win.workspace.browse_list.item(i).text()
+        for i in range(win.workspace.browse_list.count())
+    ]
+    assert "index.html" in names
+    assert "README.md" not in names
+    assert win.workspace.browse_label.text() == "farm"
 
 
 def test_directory_read_back_does_not_permission_deny(arelis_window, tmp_path) -> None:

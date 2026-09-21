@@ -59,8 +59,9 @@ CONVERSATION = "conversation"
 # desk. Sending it costs a model turn and produces "you" or "thank you", which
 # is what Whisper hallucinates from a fraction of a second of noise.
 _MIN_UTTERANCE_S = 0.3
-# Wake clips need a bit more body so room noise does not monopolise Whisper.
-_MIN_WAKE_UTTERANCE_S = 0.55
+# "Hey Arelis" said quickly is ~0.4s after trailing-silence trim. 0.55
+# was dropping real wakes with no log line. Floor matches conversation.
+_MIN_WAKE_UTTERANCE_S = 0.35
 
 # An utterance is handed to the window and the window is expected to report back
 # whether it became a turn. Everything in that path is bounded -- a Whisper run,
@@ -212,6 +213,7 @@ class VoiceController(QObject):
         # Hard stop (failure / teardown): do not auto-resume wake listen.
         self._wake_suspended = False
         self._mic_retries = 0
+        self._wake_retries = 0
 
         self._turn_watchdog = QTimer(self)
         self._turn_watchdog.setSingleShot(True)
@@ -266,7 +268,11 @@ class VoiceController(QObject):
 
     def start_wake(self) -> None:
         """Begin always-listen for the wake phrase (app open / leave converse)."""
-        if not self._wake_enabled or self._wake_suspended:
+        if not self._wake_enabled:
+            self.trace.record_always("wake_skip", reason="disabled", **self.debug_state())
+            return
+        if self._wake_suspended:
+            self.trace.record_always("wake_skip", reason="suspended", **self.debug_state())
             return
         if self._mode in {DICTATE, CONVERSATION}:
             return
@@ -285,6 +291,21 @@ class VoiceController(QObject):
             self._enter(CONVERSATION)
         elif self._mode == CONVERSATION:
             self._leave(flush=False, resume_wake=True)
+
+    def discard_wake_tail(self) -> None:
+        """Bare doorbell: leftover PCM is the wake clip, not a first question."""
+        if self._mode != CONVERSATION:
+            return
+        self.recorder.take()
+        reset = getattr(self._detector, "reset_soft", None)
+        if callable(reset):
+            reset()
+        else:
+            self._detector.reset()
+        self._live_feeding = False
+        self._clear_awaiting()
+        self._sync_listening(announce=False)
+        self.trace.record_always("wake_tail_discarded", **self.debug_state())
 
     def stop_all(self) -> None:
         """Hard stop: mic off, no wake resume (failure or teardown)."""
@@ -348,6 +369,12 @@ class VoiceController(QObject):
             self._leave(flush=False, resume_wake=False)
         problem = self.recorder.problem()
         if problem:
+            self.trace.record_always(
+                "wake_enter_failed" if mode == WAKE else "enter_failed",
+                reason="device",
+                detail=problem[:80],
+                **self.debug_state(),
+            )
             self.failed.emit(problem)
             return
         self._mode = mode
@@ -356,10 +383,21 @@ class VoiceController(QObject):
         if mode != WAKE:
             self._wake_suspended = False
         if not self._open_mic():
+            wanted = mode
             self._mode = OFF
             self._sync_listening()
             self.mode_changed.emit(self._mode)
+            self.trace.record_always(
+                "wake_enter_failed" if wanted == WAKE else "enter_failed",
+                reason="mic",
+                **self.debug_state(),
+            )
+            if wanted == WAKE and self._wake_retries < 5:
+                self._wake_retries += 1
+                self.status.emit("Microphone dropped. Waiting on Hey Arelis.")
+                QTimer.singleShot(350, self.start_wake)
             return
+        self._wake_retries = 0
         self.trace.record("enter", **self.debug_state())
         self.mode_changed.emit(self._mode)
         self._announce_mode(mode)
@@ -847,6 +885,13 @@ class VoiceController(QObject):
     def _emit_utterance(self, pcm: bytes, mode: str) -> None:
         minimum = _MIN_WAKE_UTTERANCE_S if mode == WAKE else _MIN_UTTERANCE_S
         if self._too_short(pcm, minimum):
+            if mode == WAKE:
+                self.trace.record_always(
+                    "wake_drop",
+                    reason="too_short",
+                    seconds=round(self._seconds(pcm), 3),
+                    **self.debug_state(),
+                )
             return
         deliver = "wake" if mode == WAKE else "dictate"
         self.utterance.emit(pcm, self.recorder.sample_rate, self.recorder.channels, deliver)

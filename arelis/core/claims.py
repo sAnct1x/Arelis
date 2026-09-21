@@ -50,6 +50,10 @@ _PICTURE_SIZE = re.compile(
 # was overwritten with "this needs a calculator result".
 _ISO_DT = re.compile(r"\b(?:\d{4}-\d{2}-\d{2})(?:T\d{2}:\d{2}(?::\d{2})?(?:[+-]\d{2}:\d{2})?)?")
 _CLOCK = re.compile(r"\b\d{1,2}:\d{2}(?::\d{2})?\b")
+# YYYYMMDD-HHMMSS job/episode ids are not subtraction. Live 2026-09-21:
+# forgetting "e2e episode 20260810-011327-7c7369" forced calculator, then
+# refused the turn with "this needs a calculator result".
+_COMPACT_STAMP = re.compile(r"\b\d{8}-\d{6}(?:-[0-9a-fA-F]+)?\b")
 
 # "1960-2026" is a span, not subtraction. "what is 17-3" still matches
 # the what-is pattern below and stays math.
@@ -60,6 +64,16 @@ _ARITH_PAIR = re.compile(
     re.I,
 )
 _YEAR_RANGE = re.compile(r"\b(?:1\d{3}|20\d{2})\s*[-–—]\s*(?:1\d{3}|20\d{2})\b")
+# "2-3 hours" / "1-2 days" is a span in a story. Live 2026-09-21: a rant
+# about Grok 4.6 that mentioned those ranges was refused with
+# "this needs a calculator result".
+_QUANTITY_RANGE = re.compile(
+    r"(?i)\b\d+(?:\.\d+)?\s*[-–—]\s*\d+(?:\.\d+)?\s+"
+    r"(?:hours?|hrs?|days?|weeks?|months?|years?|"
+    r"mins?|minutes?|secs?|seconds?|"
+    r"times?|turns?|rounds?|steps?|"
+    r"pages?|files?|tests?)\b"
+)
 _PEDAGOGICAL_DERIVE = re.compile(r"(?i)\bderiv(?:e|ation|ing)\b")
 _REPORT_FILE_ASK = re.compile(
     r"(?i)\b(research\s+report|write\s+a\s+report|multi-?source|pdf|docx)\b"
@@ -558,6 +572,9 @@ def detect_math_ask(text: str) -> bool:
     if _SYMBOLIC_MATH.search(lowered):
         return False
     cleaned = _CLOCK.sub(" ", _ISO_DT.sub(" ", lowered))
+    cleaned = _COMPACT_STAMP.sub(" ", cleaned)
+    cleaned = _YEAR_RANGE.sub(" ", cleaned)
+    cleaned = _QUANTITY_RANGE.sub(" ", cleaned)
     hits = [p for p in _MATH_PATTERNS if p.search(cleaned)]
     if not hits:
         return False
@@ -567,7 +584,9 @@ def detect_math_ask(text: str) -> bool:
     # picture in it.
     if hits == [_SPACED_TIMES] and _PICTURE_SIZE.search(lowered):
         return False
-    if hits == [_ARITH_PAIR] and _YEAR_RANGE.search(lowered):
+    if hits == [_ARITH_PAIR] and (
+        _YEAR_RANGE.search(lowered) or _QUANTITY_RANGE.search(lowered)
+    ):
         return False
     return True
 

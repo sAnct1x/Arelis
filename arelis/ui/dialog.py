@@ -274,6 +274,7 @@ def ask_text(
     message: str,
     *,
     placeholder: str = "",
+    initial: str = "",
     accept_text: str = "Keep",
     cancel_text: str = "Cancel",
 ) -> str:
@@ -283,6 +284,11 @@ def ask_text(
     edit = QPlainTextEdit()
     edit.setObjectName("ComposerInput")
     edit.setPlaceholderText(placeholder)
+    if initial:
+        edit.setPlainText(initial)
+        cursor = edit.textCursor()
+        cursor.select(cursor.SelectionType.Document)
+        edit.setTextCursor(cursor)
     edit.setFixedHeight(120)
     dialog.body.addWidget(edit)
     cancel = dialog.add_button(cancel_text)

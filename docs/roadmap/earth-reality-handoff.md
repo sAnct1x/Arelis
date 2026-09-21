@@ -16,8 +16,8 @@ product God's Eye View. Earth is a zone. Room id is `physics`
 (humans read **Reality**).
 
 I am the only person on this checkout. Solo hobbyist. Daily driver
-already ships as 0.2.8 locally; last published installer is still
-0.2.7 until I publish the draft. 12 GB GPU. “Cost” means
+already ships as 0.2.9 locally; last published installer is the
+draft until a human publishes it. 12 GB GPU. “Cost” means
 compute / tokens / VRAM / latency, not money. Talk like a person
 at this desk, not a ticket. Keep working until the plan is closed.
 Do not ask me to launch Arelis as your test loop — you run the
@@ -26,9 +26,9 @@ when you say the code is ready, the same way I did for glass.
 
 ## What we just finished, so you do not redo it
 
-HEAD after the daily-driver close is on `main`. Version is
-**0.2.8**. Tag `v0.2.8` is on origin. Last daily-driver commit
-that matters for this handoff:
+HEAD after the live-test pass is on `main`. Version is
+**0.2.9**. Tag `v0.2.9` is the installer draft. 3D stays
+checkout-only. Last daily-driver commit that closed 0.2.8:
 
 - `105b0b8` Close the remaining roadmap: PDF raster lane, Allow
   holes, picker, SMS radio.

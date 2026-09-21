@@ -40,6 +40,13 @@ def test_stack_picks_photoreal_then_ion_then_gibs() -> None:
     assert "NASA" in payload["credits"]
     assert "Google" in payload["credits"]
     assert payload["photorealAltM"] == "8000"
+    assert "enterLat" in payload
+    assert "enterLon" in payload
+    assert payload["enterAltM"] == "20000000"
+    lat = float(payload["enterLat"])
+    lon = float(payload["enterLon"])
+    assert abs(lat) <= 50.0
+    assert abs(lon) <= 180.0
     assert "VIIRS_Black_Marble" in payload["gibsNight"]
     assert "VIIRS_SNPP_CorrectedReflectance_TrueColor" in payload["gibsNear"]
     assert "/default/default/" not in payload["gibsNear"]
@@ -780,6 +787,7 @@ def test_hud_glass_does_not_forward_events() -> None:
     assert "keyStruck" in js
     assert "function pickedMarkId" in js
     assert "LEFT_DOUBLE_CLICK" in js
+    assert 'if (cameraBand() === "space")' in js
     assert "minimumZoomDistance = 200" in js
     assert "function labelDepth" in js
     assert "POSITIVE_INFINITY" not in js.split("function labelDepth")[1].split("function lookHit")[0]
@@ -829,9 +837,13 @@ def test_hud_glass_does_not_forward_events() -> None:
     assert "foveatedScreenSpaceError" in js
     assert "loadingDescendantLimit" in js
     assert "function parkPhotoreal" in js
-    assert "function dressNightLayer" in js
-    assert "function dressNearLayer" in js
-    assert "function applyImagery" in js
+    assert "function dressOsmLayer" in js
+    assert "function osmProvider" in js
+    assert "function enterPose" in js
+    assert "function watchGlobeTiles" in js
+    assert "tileLoadProgressEvent" in js
+    assert "alt <= photorealAltM" in js
+    assert "function armNearLayer" in js
     assert "distance(n, lastRideDest) < step" in js
     assert 'layer === "flights"' in js.split("function orbitalDepth")[1].split(
         "function flySeconds"

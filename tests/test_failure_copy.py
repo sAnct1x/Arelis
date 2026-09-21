@@ -110,6 +110,37 @@ def test_an_exception_with_no_message_still_says_something() -> None:
     assert plain_reason(RuntimeError()) == "RuntimeError"
 
 
+def test_calculator_filler_does_not_count_as_stating_the_result() -> None:
+    from arelis.core.failure_copy import reply_states_algebra_result
+
+    out = "1+1 = 2"
+    assert not reply_states_algebra_result(
+        "Easy enough. What's next?", "calculator", out
+    )
+    assert not reply_states_algebra_result("What's next?", "calculator", "14-6 = 8")
+    assert reply_states_algebra_result("1+1 = 2. Easy enough.", "calculator", out)
+    assert reply_states_algebra_result("2", "calculator", out)
+    # CAS dumps stay on the write-up path.
+    assert reply_states_algebra_result("What's next?", "cas", "[-5, 2]")
+
+
+def test_calculator_chat_drops_the_exact_fraction_dump() -> None:
+    from arelis.core.failure_copy import chat_followup_from_tool, pretty_calculator_chat
+
+    raw = (
+        "((349.54 - 287.20) / 287.20) * 100 = 21.706128133704734 "
+        "(exactly 15585/718)"
+    )
+    chat = pretty_calculator_chat(raw)
+    assert "15585" not in chat
+    assert "21.706128" not in chat
+    assert "21.7" in chat
+    ask = "what is the percent difference from the price then versus the price now?"
+    assert chat_followup_from_tool("calculator", raw, ask=ask) == chat
+    third = pretty_calculator_chat("1/3 = 0.3333333333333333 (exactly 1/3)")
+    assert "exactly 1/3" in third
+
+
 def test_unsolicited_cas_is_not_the_chat_line() -> None:
     from arelis.core.failure_copy import chat_followup_from_tool
 

@@ -214,6 +214,9 @@ class WorkspacePanel(QWidget):
         self._hero_path = ""
         self._image_paths: list[Path] = []
         self._browse_cwd = Path(".")
+        # Listed folder outside the active project (session peek). refresh_browse
+        # clamps to this instead of snapping back to the project root.
+        self._browse_root: Path | None = None
         # What the editor held when the file was last loaded or saved. Dirty is
         # derived from it rather than latched, so setPlainText() firing
         # textChanged does not mark a freshly loaded file as edited.
@@ -563,6 +566,7 @@ class WorkspacePanel(QWidget):
         self.project_combo.setEnabled(len(names) > 1)
         self.project_combo.show()
         self.project_combo.blockSignals(False)
+        self._browse_root = None
         self._browse_cwd = Path(".")
         self._sync_root_label(active if active in names else (names[0] if names else ""))
         self._sync_desk_hint()
@@ -582,6 +586,7 @@ class WorkspacePanel(QWidget):
         self.project_combo.blockSignals(True)
         self.project_combo.setCurrentText(name)
         self.project_combo.blockSignals(False)
+        self._browse_root = None
         self._sync_root_label(name)
         self._sync_desk_hint()
         self.refresh_browse()
@@ -605,6 +610,7 @@ class WorkspacePanel(QWidget):
 
     def _on_project_changed(self, name: str) -> None:
         if name and name in self._project_names:
+            self._browse_root = None
             self._sync_root_label(name)
             self.refresh_browse()
             self.project_changed.emit(name)
@@ -624,8 +630,32 @@ class WorkspacePanel(QWidget):
         root = Path(raw)
         return root if root.is_dir() else None
 
+    def _project_for_path(self, abs_path: str) -> str:
+        """Registered project that contains this path, or empty."""
+        try:
+            target = Path(abs_path).resolve()
+        except OSError:
+            return ""
+        for name, raw in self._project_paths.items():
+            try:
+                target.relative_to(Path(raw).resolve())
+            except (OSError, ValueError):
+                continue
+            return name
+        return ""
+
+    def _browse_clamp(self) -> Path | None:
+        if self._browse_root is not None:
+            try:
+                if self._browse_root.is_dir():
+                    return self._browse_root
+            except OSError:
+                pass
+            self._browse_root = None
+        return self._active_root_path()
+
     def refresh_browse(self) -> None:
-        root = self._active_root_path()
+        root = self._browse_clamp()
         if root is None:
             self.browse_list.clear()
             self.browse_label.setText("browse")
@@ -666,7 +696,7 @@ class WorkspacePanel(QWidget):
             )
 
     def _browse_up(self) -> None:
-        root = self._active_root_path()
+        root = self._browse_clamp()
         if root is None:
             return
         root_r = root.resolve()
@@ -692,8 +722,17 @@ class WorkspacePanel(QWidget):
             self.refresh_browse()
             return
         if path.is_file():
-            active = self.project_combo.currentText() or self._root_name
-            root = self._active_root_path()
+            owning = self._project_for_path(str(path))
+            if not owning:
+                # Outside every root — emit the absolute path so resolve_read
+                # can honor a session grant. Do not prefix arelis:.
+                display = str(path)
+                self.path_edit.setText(display)
+                self.open_requested.emit(display)
+                return
+            active = owning
+            raw = self._project_paths.get(owning)
+            root = Path(raw) if raw else self._active_root_path()
             display = path.name
             if root is not None:
                 try:
@@ -847,17 +886,37 @@ class WorkspacePanel(QWidget):
 
     def browse_to(self, abs_path: str, root_name: str = "") -> None:
         """Point browse at a folder the workspace tool just listed."""
+        owning = ""
         if root_name and root_name in self._project_names:
+            owning = root_name
+        elif abs_path:
+            owning = self._project_for_path(abs_path)
+        if owning:
+            self._browse_root = None
             self.project_combo.blockSignals(True)
-            self.project_combo.setCurrentText(root_name)
+            self.project_combo.setCurrentText(owning)
             self.project_combo.blockSignals(False)
-            self._sync_root_label(root_name)
+            self._sync_root_label(owning)
         if abs_path:
             path = Path(abs_path)
             try:
                 target = path if path.is_dir() else path.parent
                 if target.is_dir():
-                    self._browse_cwd = target
+                    resolved = target.resolve()
+                    self._browse_cwd = resolved
+                    if not owning:
+                        # Keep the clamp at the first outside folder we opened
+                        # so a later list of a child (farm/css) can still go up.
+                        current = self._browse_root
+                        keep = False
+                        if current is not None:
+                            try:
+                                resolved.relative_to(current.resolve())
+                                keep = True
+                            except (OSError, ValueError):
+                                keep = False
+                        if not keep:
+                            self._browse_root = resolved
             except OSError:
                 pass
         self.refresh_browse()
@@ -1133,6 +1192,7 @@ class WorkspacePanel(QWidget):
         self.desk_hint.setVisible(True)
         self.browse_label.hide()
         self.browse_list.hide()
+        self._sync_desk_hint()
         self._sync_chrome()
         self._sync_face()
 
@@ -1145,6 +1205,7 @@ class WorkspacePanel(QWidget):
         self.browse_label.show()
         self.browse_list.show()
         self.refresh_browse()
+        self._sync_desk_hint()
         self._sync_chrome()
         self._sync_face()
 
@@ -1196,7 +1257,12 @@ class WorkspacePanel(QWidget):
         ):
             room = ""
         project = self.project_combo.currentText() or self._root_name
-        if room and project:
+        peek = None
+        if self._mode == "files" and self._browse_root is not None:
+            peek = self._browse_root.name or str(self._browse_root)
+        if peek:
+            self.desk_hint.setText(peek)
+        elif room and project:
             self.desk_hint.setText(f"{room} · {project}")
         elif project:
             self.desk_hint.setText(f"{project} · papers")

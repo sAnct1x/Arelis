@@ -112,8 +112,8 @@ def aisstream_key(path: Path | None = None) -> str:
 def fetch_ais(bbox: Any = None) -> list[Entity] | None:
     """None = every source failed (keep sim). Empty list = heard nothing."""
     stream = fetch_aisstream(bbox=bbox)
-    finland = fetch_digitraffic() if _near_baltic(bbox) else []
-    norway = fetch_barentswatch() if _near_barents(bbox) else []
+    finland = fetch_digitraffic() if _near_baltic(bbox) else None
+    norway = fetch_barentswatch() if _near_barents(bbox) else None
     if stream is None and finland is None and norway is None:
         return None
     return merge_vessels(stream or [], finland or [], norway or [])

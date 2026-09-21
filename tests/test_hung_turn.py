@@ -78,3 +78,35 @@ def test_clearing_busy_disarms_the_countdown(arelis_window) -> None:
     assert not window._hung_tick.isActive()
     assert "left" not in window.chat.progress.text()
     assert window.chat.progress.isHidden()
+
+
+def test_idle_stop_does_not_arm_the_busy_watchdog(arelis_window) -> None:
+    """Login YOUR_TURN already ended the turn. Stop after closing Chrome
+    used to arm an 8s timer that then killed 'excellent job'."""
+    window = arelis_window()
+    window._on_stop()
+    assert not window._turn_busy
+    assert not window._busy_watchdog.isActive()
+    assert "Turn ended without a reply" not in window.chat.view.toPlainText()
+
+
+def test_new_turn_after_stop_is_not_killed_by_the_watchdog(arelis_window) -> None:
+    window = arelis_window()
+    window._set_busy(True)
+    window._on_stop()
+    assert window._busy_watchdog.isActive()
+    window._set_busy(True)
+    assert not window._busy_watchdog.isActive()
+    assert window._turn_busy
+    window._on_busy_watchdog()
+    assert window._turn_busy
+    assert "Turn ended without a reply" not in window.chat.view.toPlainText()
+
+
+def test_busy_watchdog_still_unlocks_the_stopped_turn(arelis_window) -> None:
+    window = arelis_window()
+    window._set_busy(True)
+    window._on_stop()
+    window._on_busy_watchdog()
+    assert window._turn_busy is False
+    assert "Turn ended without a reply" in window.chat.view.toPlainText()

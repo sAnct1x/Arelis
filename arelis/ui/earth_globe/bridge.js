@@ -12,6 +12,8 @@
   var photoSSETimer = 0;
   var osmLayer = null;
   var streetsOn = false;
+  var globeHadWork = false;
+  var pictureReady = false;
   var roads = {};
   var lastRoadsKey = "";
   var entities = {};
@@ -135,6 +137,7 @@
       globe.enableLighting = false;
       dressNightLayer(alt);
       dressNearLayer(alt);
+      dressOsmLayer(alt);
       return;
     }
     globe.enableLighting = true;
@@ -144,11 +147,30 @@
     }
     dressNightLayer(alt);
     dressNearLayer(alt);
+    dressOsmLayer(alt);
   }
 
   function dressNearLayer(alt) {
     if (!nearLayer) return;
     nearLayer.show = finite(alt, 1e7) <= 2.5e6;
+  }
+
+  function dressOsmLayer(alt) {
+    /* City fabric, not the planet. Space stays GIBS. Photoreal wins. */
+    if (!viewer || !lastStack) return;
+    var want = finite(alt, 1e7) <= 1.5e4 && lastStack.osm && !wantPhotoreal(alt);
+    if (want && !osmLayer) {
+      try {
+        osmLayer = viewer.imageryLayers.addImageryProvider(osmProvider(lastStack.osm));
+        osmLayer.alpha = 0.97;
+      } catch (err) {
+        osmLayer = null;
+      }
+    }
+    if (!want && osmLayer) {
+      viewer.imageryLayers.remove(osmLayer);
+      osmLayer = null;
+    }
   }
 
   function dressNightLayer(alt) {
@@ -325,7 +347,7 @@
   function wantPhotoreal(alt) {
     /* A hop stays on the finished mosaic. 3D is a city sit, not the flight. */
     if (goLock) return false;
-    return lastKind === "photoreal" && lastStack && lastStack.googleKey && alt < photorealAltM;
+    return lastKind === "photoreal" && lastStack && lastStack.googleKey && alt <= photorealAltM;
   }
 
   function gibsProvider(url, maxLevel) {
@@ -336,6 +358,17 @@
       tileWidth: 256,
       tileHeight: 256,
       credit: "NASA GIBS"
+    });
+  }
+
+  function osmProvider(url) {
+    return new Cesium.UrlTemplateImageryProvider({
+      url: url,
+      tilingScheme: new Cesium.WebMercatorTilingScheme(),
+      maximumLevel: 19,
+      tileWidth: 256,
+      tileHeight: 256,
+      credit: "© OpenStreetMap"
     });
   }
 
@@ -354,6 +387,8 @@
     if (!viewer || !stack) return;
     viewer.imageryLayers.removeAll();
     osmLayer = null;
+    globeHadWork = false;
+    pictureReady = false;
     dayLayer = viewer.imageryLayers.addImageryProvider(gibsProvider(stack.gibs, 8));
     nearLayer = null;
     if (stack.gibsNear) {
@@ -365,6 +400,8 @@
           nearLayer.dayAlpha = 1;
           nearLayer.nightAlpha = 0;
         }
+        nearLayer.alpha = 0;
+        armNearLayer(nearLayer);
       } catch (err) {
         nearLayer = null;
       }
@@ -379,6 +416,32 @@
     }
     dressNightLayer(currentAlt());
     dressNearLayer(currentAlt());
+    dressOsmLayer(currentAlt());
+  }
+
+  function armNearLayer(layer) {
+    /* VIIRS 404s must not cover Blue Marble with a pale smear. */
+    var fails = 0;
+    var provider = layer.imageryProvider;
+    function showNear() {
+      if (nearLayer === layer) layer.alpha = 1;
+    }
+    function dropNear() {
+      if (nearLayer !== layer || !viewer) return;
+      try { viewer.imageryLayers.remove(layer); } catch (err) {}
+      if (nearLayer === layer) nearLayer = null;
+    }
+    if (provider && provider.readyPromise && provider.readyPromise.then) {
+      provider.readyPromise.then(showNear, dropNear);
+    } else {
+      showNear();
+    }
+    if (provider && provider.errorEvent) {
+      provider.errorEvent.addEventListener(function () {
+        fails += 1;
+        if (fails > 8) dropNear();
+      });
+    }
   }
 
   function tunePhotoreal(set) {
@@ -529,10 +592,7 @@
       clearRoads();
       lastRoadsKey = "";
     }
-    if (osmLayer) {
-      viewer.imageryLayers.remove(osmLayer);
-      osmLayer = null;
-    }
+    dressOsmLayer(currentAlt());
     viewer.scene.requestRender();
   }
 
@@ -589,11 +649,25 @@
     var pos = Cesium.Cartesian3.clone(cam.positionWC);
     var dir = Cesium.Cartesian3.clone(cam.directionWC);
     var up = Cesium.Cartesian3.clone(cam.upWC);
+    if (Cesium.Cartesian3.magnitude(pos) < 1) return;
+    Cesium.Cartesian3.normalize(dir, dir);
+    Cesium.Cartesian3.normalize(up, up);
+    var right = Cesium.Cartesian3.cross(dir, up, new Cesium.Cartesian3());
+    if (Cesium.Cartesian3.magnitudeSquared(right) < 1e-12) {
+      Cesium.Cartesian3.cross(dir, Cesium.Cartesian3.UNIT_Z, right);
+    }
+    if (Cesium.Cartesian3.magnitudeSquared(right) < 1e-12) {
+      Cesium.Cartesian3.cross(dir, Cesium.Cartesian3.UNIT_Y, right);
+    }
+    if (Cesium.Cartesian3.magnitudeSquared(right) < 1e-12) return;
+    Cesium.Cartesian3.normalize(right, right);
+    Cesium.Cartesian3.cross(right, dir, up);
+    Cesium.Cartesian3.normalize(up, up);
     cam.lookAtTransform(Cesium.Matrix4.IDENTITY);
     cam.position = pos;
     cam.direction = dir;
     cam.up = up;
-    cam.right = Cesium.Cartesian3.cross(dir, up, new Cesium.Cartesian3());
+    cam.right = right;
   }
 
   function sitCamera(pose, heading, pitch) {
@@ -1445,6 +1519,37 @@
     return new Cesium.Viewer("globe", opts);
   }
 
+  function enterPose(stack) {
+    var lat = Number(stack && stack.enterLat);
+    var lon = Number(stack && stack.enterLon);
+    var alt = Number(stack && stack.enterAltM);
+    if (!isFinite(lat) || !isFinite(lon) || Math.abs(lat) > 90) {
+      var now = new Date();
+      var utc = now.getUTCHours() + now.getUTCMinutes() / 60 + now.getUTCSeconds() / 3600;
+      lon = 15 * (12 - utc);
+      if (lon > 180) lon -= 360;
+      if (lon < -180) lon += 360;
+      var start = Date.UTC(now.getUTCFullYear(), 0, 0);
+      var day = Math.floor((now.getTime() - start) / 86400000);
+      lat = 23.44 * Math.sin((2 * Math.PI / 365) * (day - 81));
+    }
+    if (!isFinite(alt) || alt < 1000) alt = 2.0e7;
+    return { lat: lat, lon: lon, alt: alt };
+  }
+
+  function watchGlobeTiles() {
+    if (!viewer || !viewer.scene || !viewer.scene.globe) return;
+    viewer.scene.globe.tileLoadProgressEvent.addEventListener(function (queued) {
+      if (queued > 0) {
+        globeHadWork = true;
+        return;
+      }
+      if (!globeHadWork || pictureReady) return;
+      pictureReady = true;
+      if (bridge) bridge.tilesReady(lastKind || "gibs");
+    });
+  }
+
   function boot(stack) {
     var base = stack.cesiumBase || String(stack.cesiumJs || "").replace(/Cesium\.js(\?.*)?$/, "");
     if (base) window.CESIUM_BASE_URL = base;
@@ -1454,6 +1559,8 @@
       window.viewer = viewer;
       dressSpace();
       applyEarthFov();
+      sitCamera(enterPose(stack), 0, -90);
+      watchGlobeTiles();
       window.addEventListener("resize", function () {
         applyEarthFov();
         if (viewer) viewer.scene.requestRender();
@@ -1510,6 +1617,12 @@
         }
         selectedId = "";
         if (!bridge || !bridge.groundPicked) return;
+        /* Space: the disc is the whole plate. Click-off a sat is not a
+           city pin, and globe.pick + lookAt smash from 20 Mm freezes. */
+        if (cameraBand() === "space") {
+          bridge.groundPicked(JSON.stringify({ sky: true }));
+          return;
+        }
         var ray = viewer.camera.getPickRay(click.position);
         var cart = ray ? viewer.scene.globe.pick(ray, viewer.scene) : undefined;
         if (!Cesium.defined(cart)) {

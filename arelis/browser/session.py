@@ -93,6 +93,20 @@ class BrowserSession:
             await self._driver.read(max_chars=self.max_read_chars)
         )
 
+    def tab_url(self) -> str:
+        """Current tab URL if the driver already knows it. Empty if not attached."""
+        driver = self._driver
+        url = str(getattr(driver, "url", "") or "")
+        if url:
+            return url
+        page = getattr(driver, "_page", None)
+        try:
+            if page is not None:
+                return str(getattr(page, "url", "") or "")
+        except Exception:
+            return ""
+        return ""
+
     def _clickable(self) -> dict[str, Any]:
         refs = getattr(self._driver, "_refs", None)
         if isinstance(refs, dict) and refs:
