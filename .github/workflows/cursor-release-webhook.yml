@@ -1,0 +1,29 @@
+name: Notify Cursor on release
+on:
+  release:
+    types: [published]
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: POST release to Cursor webhook
+        env:
+          CURSOR_WEBHOOK_URL: ${{ secrets.CURSOR_WEBHOOK_URL }}
+          CURSOR_WEBHOOK_KEY: ${{ secrets.CURSOR_WEBHOOK_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CURSOR_WEBHOOK_URL}" ] || [ -z "${CURSOR_WEBHOOK_KEY}" ]; then
+            echo "Missing CURSOR_WEBHOOK_URL or CURSOR_WEBHOOK_KEY secrets; skipping."
+            exit 0
+          fi
+          curl -fsSL -X POST "$CURSOR_WEBHOOK_URL" \
+            -H "Authorization: Bearer ${CURSOR_WEBHOOK_KEY}" \
+            -H "Content-Type: application/json" \
+            -H "X-GitHub-Event: release" \
+            -d "$(jq -n \
+              --arg tag "${{ github.event.release.tag_name }}" \
+              --arg name "${{ github.event.release.name }}" \
+              --arg body "${{ github.event.release.body }}" \
+              --arg url "${{ github.event.release.html_url }}" \
+              --arg action "${{ github.event.action }}" \
+              '{action:$action, release:{tag_name:$tag, name:$name, body:$body, html_url:$url}}')"
