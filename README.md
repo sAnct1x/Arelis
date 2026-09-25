@@ -1,119 +1,120 @@
 # Arelis
 
-Arelis is a personal research assistant that runs entirely on your
-Windows PC. She thinks using a local model through
-[Ollama](https://ollama.com/download), so there's no account to create
-and nothing goes to a paid chat API.
+Arelis is a personal research assistant for Windows that runs entirely
+on your PC. There's no account, no cloud API, and no data leaving your
+machine. She thinks using a local model through
+[Ollama](https://ollama.com/download), searches the web, drives her
+own browser, and keeps longer projects organized in named rooms.
+Anything that writes a file or sends a message waits for your approval
+first.
 
-You can talk to her through a desktop window, the terminal, or a phone
-app on the same Wi-Fi network. Point her at a folder to work in, and
-she can search the web, drive her own browser, and keep longer projects
-organized in named **rooms**. Mail, texting, and calendar access stay
-switched off until you connect them yourself, and anything that writes
-a file or sends a message will wait for your go-ahead first.
+**Overview video:** https://youtu.be/JmczuPQSEV8 • **Latest release:** [v0.2.9](https://github.com/sAnct1x/arelis/releases/latest)
 
-**Overview video:** https://youtu.be/JmczuPQSEV8
+## What it does
 
-The published installer is **0.2.9**. If you build from source, you
-also get **Reality** — a room with a 3D solar system and an Earth
-view — but that doesn't ship with the installer.
+- Search the web and read pages
+- Drive its own browser window (separate from yours)
+- Work in folders you approve, keeping projects organized in rooms
+- Listen and speak (wake word, voice conversations, dictation)
+- Handle images (look at them, edit them, generate with local ComfyUI)
+- Manage email, texting through your Android phone, and calendar (all opt-in)
+- Run scheduled jobs, set reminders, track facts and tasks
+- Work with documents (PDF, Word, Excel, markdown)
+- Handle math, unit conversions, charts, and code snippets
 
-Arelis is licensed under AGPL. If you're curious how the code is
-organized, see [architecture.md](docs/architecture.md).
+Mail, calendar, and texting stay off until you connect them. Everything
+that writes or sends shows you an approval card first.
 
-## Privacy
+## What you need
 
-Nothing about you leaves this machine unless you explicitly asked her
-to send it somewhere.
+- **Windows 10 or later** (64-bit)
+- **Ollama** (downloads automatically if missing, ~1.4 GB)
+- **A chat model** (downloads on first run - the recommended model is `qwen3.5:9b`)
+- **8-16 GB graphics card** recommended for good performance
+- **~640 MB disk space** for the installed program (plus models)
 
-There's no sign-up, no analytics, and no crash reports being phoned
-home. Logs live on your disk. Your conversations, contacts, and memory
-are just ordinary files — you can open them, edit them, or delete them
-whenever you want. Mail, the phone token, and calendar live in
-`data/secrets.yaml` the same way: plaintext on this machine, gitignored,
-and overridable by environment variables so the file never has to exist.
-The example to copy is in the table below.
+Optional extras like voice, browser control, and the phone app can be
+added later. The core program works without them.
 
-She only touches the network when you've asked her to: for a search,
-the weather, mail, a calendar you've connected, or your own phone. The
-one exception is that an installed copy checks GitHub once a day to see
-if there's a newer version — a source checkout never does this. Every
-host she's allowed to talk to is pinned by a test, so if something
-tries to add a new destination, the build simply fails.
+## Quick start
 
-Anything risky pauses on an **allow / deny** card before it happens.
-Mail and texts always show you the exact message before it goes out,
-and she won't send either while you're away. You can see (and edit)
-everything she's allowed to do without asking under Settings → Allow.
+**To try it:** Download the latest installer from [GitHub releases](https://github.com/sAnct1x/arelis/releases/latest) (`Arelis-0.2.9-win64-setup.exe`, ~186 MB). Run it. The first time you open Arelis, she'll ask which folder she can use, then download Ollama and the chat model if needed. That's it.
 
-That's **sodium**, the face she ships with. There's a second one under
-View → Themes — **filament (testing)** — where speaking the ask is the
-grant instead: sends go without a card, and only deletes, payments, and
-running a project script still stop to ask you.
+**To run from source:** See [Running from source](#running-from-source) below.
+
+**Note:** The installer isn't code-signed, so Windows SmartScreen will warn you the first time. That's normal. You can verify the download by checking the SHA-256 hash against the `.sha256` file in the release.
+
+## About this project
+
+Arelis is maintained by one person (Christopher Sommers, a 4th-year
+astrophysics student at OSU) as a hobby project in spare time. It's
+been about a year of on-and-off work, with updates coming in bursts
+around the school calendar. Help and feedback are welcome. See
+[CONTRIBUTING.md](CONTRIBUTING.md) for how to help out.
+
+Arelis is licensed under AGPL-3.0-or-later. For technical details about
+how the code is organized, see [architecture.md](docs/architecture.md).
+
+## Privacy and safety
+
+Nothing leaves your machine unless you asked for it. No sign-up, no
+analytics, no crash reports. Your conversations, contacts, and memory
+are ordinary files on your disk that you can open, edit, or delete
+anytime.
+
+Network access only happens when you've asked for it: web search,
+weather, mail, calendar, or your phone. An installed copy checks GitHub
+once a day for updates (source checkouts don't). Every host the program
+can contact is pinned by a test, so adding a new destination fails the
+build.
+
+Anything risky (mail, texts, file writes, deletes) shows you an approval
+card first. You can see and edit what's allowed without asking under
+Settings → Allow. That's the default **sodium** theme. There's also
+**filament (testing)** where speaking the request is the grant, but
+deletes, payments, and running project scripts still ask.
 
 ## Installing
 
-You'll need Windows 10 or later, 64-bit.
+Download the latest setup file from [GitHub releases](https://github.com/sAnct1x/arelis/releases/latest): `Arelis-0.2.9-win64-setup.exe` (~186 MB download, ~640 MB installed). Run it. It installs per-user into `%LOCALAPPDATA%\Programs\Arelis`, so no administrator prompt.
 
-Grab the latest setup file from
-[GitHub releases](https://github.com/sAnct1x/arelis/releases/latest).
-The current file is `Arelis-0.2.9-win64-setup.exe` — about 186 MB to
-download, roughly 640 MB once installed. It installs per-user into
-`%LOCALAPPDATA%\Programs\Arelis`, so you won't get an administrator
-prompt.
+### First run
 
-It's **not code-signed**, so SmartScreen will warn you the first time
-you run it — that's just Windows doing its job, not a sign anything's
-wrong. Worth checking the SHA-256 against the installer, though:
+The installer bundles voice support and the browser, but not the chat
+model or voice weights. On first launch:
+
+1. She'll ask which folder she can use (she can only read and write inside this folder)
+2. If Ollama isn't installed, she'll download it (~1.4 GB)
+3. She'll download the chat model (recommended: `qwen3.5:9b` for 8-16 GB graphics cards)
+4. Voice weights download in the same step (Sherpa, Kokoro, Silero)
+
+Once the model is ready, you'll see **say "hey arelis"** in the window.
+That's it.
+
+### Verifying the download
+
+The installer isn't code-signed, so SmartScreen will warn you. That's
+normal. To verify your download wasn't corrupted, check the SHA-256:
 
 ```powershell
 Get-FileHash .\Arelis-0.2.9-win64-setup.exe -Algorithm SHA256
 Get-Content .\Arelis-0.2.9-win64-setup.exe.sha256
 ```
 
-The two hashes should match — that just confirms your download wasn't
-corrupted, not that it's been signed by anyone. Both files ship
-together in the same release.
+The two hashes should match. Both files are in the release.
 
-The installer bundles voice support and her browser, but not the chat
-model or the voice weights. The first time you open her, she'll ask
-which folder she's allowed to read and modify, then which model to
-download — the ear (Sherpa, Kokoro, Silero) comes down in that same
-step. The window says **getting the ear…** until wake can hear; then
-**say "hey arelis"**. You can go with the recommended model, or pick
-Gemma or DeepSeek instead — just note that Fast and Research modes
-share whichever model you choose, so it's one at a time. If
-[Ollama](https://ollama.com/download) isn't already on your system,
-she'll grab that first (about 1.4 GB), then the model itself. The
-recommended model can already read images on its own; a separate
-vision model only gets downloaded if you choose one that can't.
+You can launch Arelis from the Start menu once installed. Only the
+installed copy checks for updates; source checkouts don't. An install
+won't touch your source checkout's profile if you have one - they keep
+separate records.
 
-If you're running an 8–16 GB graphics card, `qwen3.5:9b` is the usual
-recommendation. If you're working from source, you can pull it
-yourself:
-
-```powershell
-ollama pull qwen3.5:9b
-ollama pull nomic-embed-text
-```
-
-Ollama itself is shared system-wide, so if you've also got a 0.2.2
-install on the same machine, it's still relying on Qwen2.5 7B / 14B /
-Coder 7B — don't delete those models while that older copy is still
-around. More detail in [models.md](docs/models.md).
-
-You can launch **Arelis** from the Start menu once it's installed.
-Only the installed copy checks for updates; a source checkout won't.
-Installing also won't touch or copy any profile from this repository
-— the two setups deliberately keep separate records.
-
-Curious how the installer itself gets built? See
-[win-installer/README.md](win-installer/README.md).
+For details on models, see [models.md](docs/models.md). For how the
+installer is built, see [win-installer/README.md](win-installer/README.md).
 
 ## Running from source
 
 You'll need [Python 3.11+](https://www.python.org/downloads/) and
-Ollama, then:
+[Ollama](https://ollama.com/download). Then:
 
 ```powershell
 python -m venv .venv
@@ -121,40 +122,35 @@ python -m venv .venv
 pip install -e .
 ```
 
-The science tools (CAS, units, charts, arXiv, Horizons) are included
-in that base install — there's no separate `science` extra. NASA APOD
-and NASA ADS do need a free API key added to `data/secrets.yaml`,
-though.
-
-A few optional extras, depending on what you want:
+This installs the core program plus science tools (CAS, units, charts,
+arXiv, Horizons). To add optional features:
 
 ```powershell
 pip install -e ".[voice]"      # talking and listening
 pip install -e ".[browser]"    # her own browser window
-playwright install chromium
-pip install -e ".[spatial]"    # hand tracking in Reality — source only
-pip install -e ".[astro]"      # the 3D solar system — source only
+playwright install chromium    # required after installing browser extra
+pip install -e ".[spatial]"    # hand tracking in Reality (source only)
+pip install -e ".[astro]"      # 3D solar system (source only)
 ```
 
-Then start her up with:
+### Running it
 
 ```powershell
 .\scripts\run_ui.ps1
 ```
 
-Or just run `arelis` once your virtual environment is active. For the
-terminal, use `arelis --cli`. If you want her running quietly in the
-background for phone messages, without opening a window, use
+Or just `arelis` with the virtual environment active. For terminal
+mode: `arelis --cli`. To run in the background for phone messages:
 `.\scripts\run_core.ps1`.
 
-Want a desktop icon for a checkout? Run:
+To create a desktop shortcut for the dev build:
 
 ```powershell
 .\scripts\install_desktop_shortcut.ps1
 ```
 
-That creates a shortcut named **Arelis (dev)**, so it won't overwrite
-the shortcut from an installed copy.
+This creates **Arelis (dev)**, which won't overwrite an installed copy's
+shortcut.
 
 ## Where everything lives
 
@@ -254,37 +250,44 @@ a job.
 **Memory.** Managed under Settings → Memory. Dated backups are kept in
 `data\backups\` for two weeks.
 
-## What she can actually do
+## Using Arelis
 
-Work inside rooms and folders you've approved. Search the web and read
-real pages. Drive her own browser. Track facts, goals, and tasks. Read
-text out of images (OCR), look at pictures, and edit images on disk
-(resize, rotate, overlay, restyle). Generate or restyle images if
-you've got ComfyUI set up (it doesn't start automatically). Listen
-and speak. Run scheduled jobs that email you a digest, or an
-in-process reminder that toasts when it is due. Handle closed-form
-math, unit conversions, short Python snippets, charts, and documents.
-Search indexed PDFs, transcribe a local audio file, query a CSV or
-`memory.db` with SQL, apply a unified diff, and merge or split PDFs.
-Type `/tools` for the full list.
+**The main window.** Type in the box to chat. Once you send a message,
+you'll see the full workbench: chat, composer, and docks for thinking,
+files, history, contacts, and notifications. Press **F1** anytime for
+keyboard shortcuts and the current version.
 
-Mail, calendar, and texting through your Android phone all work once
-you've connected them. She can also produce a PDF, Word document,
-spreadsheet, or markdown note for you. Export a conversation from the
-last reply. History search hits message bodies, not just titles.
+**Rooms.** The main chat is for everyday questions. Longer projects go
+in rooms - each has a name, a folder, and its own thread. `/room physics`
+takes you in, `/leave` takes you out. See [rooms.md](docs/rooms.md).
 
-If you're running from a source checkout, you additionally get the 3D
-solar system and Earth view inside Reality
-([earth.md](docs/earth.md)). Installed copies still get Reality as a
-room — chat, CAS, and Horizons all work — but the 3D visuals
-themselves don't ship in the installer.
+**Roles.** `/role fast` and `/role research` both use the same model
+(unless you picked something else during setup). Research just runs a
+longer reasoning loop. See [models.md](docs/models.md).
 
-There's test coverage for most of this, but voice timing, a real
-handset, and image generation have really only been exercised
-end-to-end on the author's own hardware — so if something behaves
-oddly on yours, it's worth opening an issue. Again, the current
-published installer is **0.2.9**; see
-[whats-new.md](docs/whats-new.md) for what's changed.
+**Optional features:**
+- **Voice:** Wait for **say "hey arelis"** in the status line. `Ctrl+Shift+M` starts a conversation, `Ctrl+M` is dictation. See [voice-wake.md](docs/voice-wake.md).
+- **Her browser:** A separate window you can watch. She won't type passwords or click Book, Pay, or Checkout. See [browser-control.md](docs/browser-control.md).
+- **Phone app:** One sideloaded Android app paired by scanning a QR code in Settings → Notify. See [notify-inbound.md](docs/notify-inbound.md).
+- **Mail, calendar, texting:** All stay off until you connect them. Configuration lives in `data/secrets.yaml`. See [calendar-oauth.md](docs/calendar-oauth.md) and the optional extras section below.
+- **Jobs:** Timed prompts that email you the answer. Found under the calendar tile (`Ctrl+7`). Requires mail setup. See [jobs.md](docs/jobs.md).
+
+Type `/tools` in the chat for the full list of what she can do.
+
+## Source-only features
+
+If you're running from source, you get the 3D solar system and Earth
+view inside Reality ([earth.md](docs/earth.md)). Installed copies still
+get Reality as a room (chat, CAS, Horizons all work), but the 3D visuals
+don't ship in the installer.
+
+## Known limitations
+
+Test coverage is good for most features, but voice timing, the phone
+app, and image generation have mainly been tested on the author's
+hardware. If something behaves oddly on yours, open an issue. Current
+release is **0.2.9** - see [whats-new.md](docs/whats-new.md) for
+changes.
 
 ## Further reading
 

@@ -18,6 +18,43 @@ Help is welcome. The parts where it helps most:
 A clear bug report is useful even if you are not writing code. Follow the rest
 of this file for what works and what will not land.
 
+## Getting started
+
+New to the codebase? Look for issues labeled `good first issue` - these are
+small, self-contained tasks that don't require deep knowledge of the whole
+system.
+
+### Dev setup
+
+You'll need Python 3.11+ and [Ollama](https://ollama.com/download).
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -e ".[dev,voice,browser]"
+# Optional extras:
+# pip install -e ".[spatial]"  # hand tracking in Reality (not in installer)
+# pip install -e ".[astro]"    # 3D solar system (not in installer)
+playwright install chromium
+git config core.hooksPath .githooks
+```
+
+That last line is important - the hooks run lint and personal data checks
+before commits. Without it, a lint failure might not show up until you push.
+
+### Running tests
+
+Before opening a pull request:
+
+```powershell
+.\.venv\Scripts\python -m pytest -q
+.\.venv\Scripts\python -m ruff check .
+```
+
+Both must pass. Type-checking (`mypy`) is installed with the dev extra but
+isn't a merge gate - run it when working on type fixes, not as a blocker for
+unrelated changes.
+
 ## The rule that does not bend
 
 **Nothing that identifies a real person may enter this repository.** Not a
@@ -68,38 +105,20 @@ licence clash with a dependency, without hunting down every person who
 ever landed a line. If you are not comfortable with that, open an issue
 instead. A clear bug report is genuinely useful.
 
-## Getting a change merged
+## Pull request guidelines
 
-```
-python -m venv .venv
-.venv\Scripts\pip install -e ".[dev,voice,browser]"
-# optional: pip install -e ".[spatial]"  — physics-room hands. Not in the installer.
-# optional: pip install -e ".[astro]"    — solar-system N-body. Not in the installer.
-git config core.hooksPath .githooks
-```
+Open a pull request once your change is tested and passing lint. The PR
+template will guide you through what to include.
 
-That last line matters. The hooks live in `.githooks` so they survive a
-clone. Git will not use them until you point it there. The pre-commit hook
-runs `ruff check .` and the personal-data guards. A lint failure never
-reaches GitHub.
+Ruff is pinned in `pyproject.toml` so a new release won't turn an untouched
+tree red on your unrelated change. The pre-commit hook in `.githooks` runs
+lint and personal data checks, so local failures catch early.
 
-Before you open a pull request:
+Type-checking (`mypy`) is pinned the same way but isn't a merge gate. Run it
+when working on type fixes, not to block unrelated changes:
 
-```
-.venv\Scripts\python -m pytest -q
-.venv\Scripts\python -m ruff check .
-```
-
-Both must be clean. Ruff is pinned in `pyproject.toml` so a new release
-cannot turn an untouched tree red on your unrelated change.
-
-Type-checking is installed with the `dev` extra and is not a merge gate.
-`mypy` is pinned the same way ruff is, so the error count is comparable
-across machines. Run it when you are working a type-fix, not as a reason
-to block an unrelated change:
-
-```
-.venv\Scripts\python -m mypy
+```powershell
+.\.venv\Scripts\python -m mypy
 ```
 
 ### Tests
