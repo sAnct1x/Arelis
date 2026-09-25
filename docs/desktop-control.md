@@ -1,8 +1,8 @@
 # Desktop
 
 Arelis can drive **your Windows session** — open apps, switch
-windows, type, click. That is not her Chrome. Web stays
-[browser-control.md](browser-control.md).
+windows, type, click. This is separate from her Chrome browser. For web
+tasks, see [Browser Control](browser-control.md).
 
 You watch it. Stop / Pause / Go on the Drive strip (or out loud)
 work the same as a browser drive.
