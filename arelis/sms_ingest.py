@@ -491,7 +491,7 @@ class InboundIngestServer:
 
                     try:
                         companion = companion_status().snapshot()
-                    except Exception as exc:
+                    except Exception:
                         log.debug("companion snapshot failed", exc_info=True)
                         # snapshot unavailable — report minimal status
                         companion = {"apk": False, "gemma": False}
@@ -1299,7 +1299,7 @@ class InboundIngestServer:
                     bind="loopback" if self.host in {"127.0.0.1", "::1"} else "lan",
                 )
             )
-        except Exception as exc:
+        except Exception:
             # watch registration failed — logged for debugging
             log.debug("Watch did not register ingest", exc_info=True)
         if not self._mobile_hooked:
