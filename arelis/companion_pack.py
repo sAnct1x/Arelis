@@ -227,59 +227,69 @@ def expected_companion(gradle: Path | None = None) -> ExpectedCompanion | None:
     return None
 
 
-def sidecar_path(apk: Path) -> Path:
-    """Sidecars live in cache, indexed by APK location, not beside the APK."""
+def _sidecar_cache_path(apk: Path) -> Path:
+    """Compute cache-based sidecar location for an APK."""
     cache = cache_dir() / "companion" / "sidecars"
     apk_hash = hashlib.sha256(str(apk.resolve()).encode("utf-8")).hexdigest()[:16]
     return cache / f"{apk.name}.{apk_hash}{SIDECAR_SUFFIX}"
 
 
+def _sidecar_payload(offer: ApkOffer) -> str:
+    """JSON payload for sidecar metadata."""
+    return json.dumps(
+        {
+            "versionCode": offer.version_code,
+            "versionName": offer.version_name,
+            "sha256": offer.sha256,
+            "signed": offer.signed,
+            "applicationId": "app.arelis",
+        },
+        indent=2,
+    ) + "\n"
+
+
+def sidecar_path(apk: Path) -> Path:
+    """Sidecars live in cache, indexed by APK location, not beside the APK."""
+    return _sidecar_cache_path(apk)
+
+
 def load_sidecar(apk: Path) -> dict[str, Any] | None:
-    path = sidecar_path(apk)
-    try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except FileNotFoundError:
-        return None
-    except (OSError, json.JSONDecodeError) as exc:
-        log.warning("Could not read %s: %s", path, exc)
-        return None
-    if not isinstance(raw, dict):
-        return None
-    try:
-        code = int(raw.get("versionCode") or raw.get("version_code") or 0)
-        name = str(raw.get("versionName") or raw.get("version_name") or "").strip()
-    except (TypeError, ValueError):
-        return None
-    if code <= 0 or not name:
-        return None
-    return {
-        "version_code": code,
-        "version_name": name,
-        "sha256": str(raw.get("sha256") or "").strip(),
-        "signed": str(raw.get("signed") or "unknown").strip() or "unknown",
-    }
+    """Read sidecar from cache first, then fall back to legacy location next to APK."""
+    candidates = [
+        sidecar_path(apk),  # Cache location (new)
+        apk.with_name(apk.name + SIDECAR_SUFFIX),  # Legacy: next to APK (installer tree)
+    ]
+    for path in candidates:
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            continue
+        except (OSError, json.JSONDecodeError) as exc:
+            log.warning("Could not read %s: %s", path, exc)
+            continue
+        if not isinstance(raw, dict):
+            continue
+        try:
+            code = int(raw.get("versionCode") or raw.get("version_code") or 0)
+            name = str(raw.get("versionName") or raw.get("version_name") or "").strip()
+        except (TypeError, ValueError):
+            continue
+        if code <= 0 or not name:
+            continue
+        return {
+            "version_code": code,
+            "version_name": name,
+            "sha256": str(raw.get("sha256") or "").strip(),
+            "signed": str(raw.get("signed") or "unknown").strip() or "unknown",
+        }
+    return None
 
 
 def write_sidecar(apk: Path, offer: ApkOffer) -> Path:
     """Write sidecar to cache, not beside APK (which may be read-only package location)."""
-    cache = cache_dir() / "companion" / "sidecars"
-    cache.mkdir(parents=True, exist_ok=True)
-    apk_hash = hashlib.sha256(str(apk.resolve()).encode("utf-8")).hexdigest()[:16]
-    dest = cache / f"{apk.name}.{apk_hash}{SIDECAR_SUFFIX}"
-    (cache / f"{apk.name}.{apk_hash}{SIDECAR_SUFFIX}").write_text(
-        json.dumps(
-            {
-                "versionCode": offer.version_code,
-                "versionName": offer.version_name,
-                "sha256": offer.sha256,
-                "signed": offer.signed,
-                "applicationId": "app.arelis",
-            },
-            indent=2,
-        )
-        + "\n",
-        encoding="utf-8",
-    )
+    dest = _sidecar_cache_path(apk)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(_sidecar_payload(offer), encoding="utf-8")
     return dest
 
 
@@ -550,20 +560,7 @@ def copy_apk_into(dest_dir: Path, offer: ApkOffer | None = None) -> Path | None:
     # Write sidecar next to the staged APK (installer tree is writable).
     staged_offer = replace(found, path=dest, size=dest.stat().st_size, source=str(dest))
     sidecar = dest.with_name(dest.name + SIDECAR_SUFFIX)
-    sidecar.write_text(
-        json.dumps(
-            {
-                "versionCode": staged_offer.version_code,
-                "versionName": staged_offer.version_name,
-                "sha256": staged_offer.sha256,
-                "signed": staged_offer.signed,
-                "applicationId": "app.arelis",
-            },
-            indent=2,
-        )
-        + "\n",
-        encoding="utf-8",
-    )
+    sidecar.write_text(_sidecar_payload(staged_offer), encoding="utf-8")
     return dest
 
 

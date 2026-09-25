@@ -23,6 +23,7 @@ from arelis.companion_pack import (
     gemma_ready,
     install_page_url,
     landing_html,
+    load_sidecar,
     pair_from_query,
     parse_gradle_version,
     write_sidecar,
@@ -201,6 +202,36 @@ def test_copy_apk_into_writes_sidecar(tmp_path: Path) -> None:
     meta = json.loads(dest.with_name("arelis.apk.json").read_text(encoding="utf-8"))
     assert meta["versionCode"] == 6
     assert meta["sha256"] == file_sha256(src)
+
+
+def test_load_sidecar_falls_back_to_legacy_location(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Installed users have sidecars next to APK, not in cache."""
+    monkeypatch.setattr(companion_pack, "cache_dir", lambda: tmp_path / "empty-cache")
+    apk = tmp_path / "installer" / "companion" / "arelis.apk"
+    apk.parent.mkdir(parents=True)
+    apk.write_bytes(b"apk")
+    # Sidecar next to APK (legacy installer location).
+    legacy = apk.with_name("arelis.apk.json")
+    legacy.write_text(
+        json.dumps(
+            {
+                "versionCode": 7,
+                "versionName": "0.3.7",
+                "sha256": "abc123",
+                "signed": "release",
+            }
+        ),
+        encoding="utf-8",
+    )
+    # Cache is empty (new install or upgrade).
+    assert not (tmp_path / "empty-cache").exists()
+    # Should load from legacy location.
+    meta = load_sidecar(apk)
+    assert meta is not None
+    assert meta["version_code"] == 7
+    assert meta["version_name"] == "0.3.7"
 
 
 def test_gemma_ready_floor(tmp_path: Path) -> None:
