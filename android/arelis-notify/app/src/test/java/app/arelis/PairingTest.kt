@@ -32,13 +32,12 @@ class PairingTest {
         val ticket = parsePairTicket(
             """
             {"instance":"i","token":"t","pair":"p",
-             "url":"http://pc:8765",
-             "urls":["http://192.168.1.4:8765"]}
+             "urls":["http://192.168.1.4:8765","http://10.0.0.2:8765"]}
             """.trimIndent(),
         )
         assertEquals("i", ticket.instance)
-        assertTrue(ticket.urls[0] == "http://pc:8765")
-        assertTrue("http://192.168.1.4:8765" in ticket.urls)
+        assertEquals("http://192.168.1.4:8765", ticket.urls[0])
+        assertEquals("http://10.0.0.2:8765", ticket.urls[1])
     }
 
     @Test
