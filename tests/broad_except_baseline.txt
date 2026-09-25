@@ -10,7 +10,6 @@
 24 arelis/browser/actions.py
 3 arelis/browser/launch.py
 1 arelis/browser/live.py
-1 arelis/browser/session.py
 1 arelis/calendar/models.py
 1 arelis/cli.py
 1 arelis/core/agent_loop.py
@@ -34,7 +33,6 @@
 2 arelis/earth/barentswatch.py
 4 arelis/earth/buildings.py
 3 arelis/earth/cameras_fetch.py
-1 arelis/earth/copy.py
 1 arelis/earth/dump.py
 1 arelis/earth/fdsn.py
 1 arelis/earth/firms.py
@@ -54,7 +52,6 @@
 1 arelis/earth/radar.py
 1 arelis/earth/radio.py
 2 arelis/earth/roads.py
-23 arelis/earth/runtime.py
 1 arelis/earth/rwis.py
 1 arelis/earth/shodan.py
 1 arelis/earth/simulate.py
@@ -87,7 +84,6 @@
 1 arelis/relay/house.py
 3 arelis/setup/engine.py
 1 arelis/setup/state.py
-5 arelis/sms_ingest.py
 1 arelis/sms_media.py
 1 arelis/spatial/verbs.py
 3 arelis/telemetry/system_sample.py
@@ -109,7 +105,6 @@
 1 arelis/ui/_verify_tray_restore.py
 1 arelis/ui/audio.py
 1 arelis/ui/calendar_host.py
-2 arelis/ui/earth_chrome.py
 3 arelis/ui/earth_find.py
 15 arelis/ui/earth_globe_host.py
 1 arelis/ui/earth_globe_proc.py
@@ -126,11 +121,9 @@
 8 arelis/ui/panels/camera.py
 3 arelis/ui/panels/solar.py
 1 arelis/ui/panels/solar_const.py
-13 arelis/ui/panels/solar_earth.py
 9 arelis/ui/panels/solar_hud.py
 2 arelis/ui/panels/solar_paint.py
 1 arelis/ui/panels/workspace.py
-2 arelis/ui/settings_dialog.py
 15 arelis/ui/solar_gl.py
 1 arelis/ui/solar_gl_geom.py
 1 arelis/ui/surface_report.py
@@ -144,3 +137,4 @@
 1 arelis/uninstall.py
 1 arelis/voice/__init__.py
 1 arelis/voice/openwake.py
+
