@@ -160,6 +160,7 @@ def has_published(zone: Any) -> bool:
             if getattr(entity, "freshness", "") in _PUBLISHED:
                 return True
     except Exception:
+        # store iteration may fail — treat as no published data
         return False
     return False
 
@@ -277,6 +278,7 @@ def layer_hole_line(zone: Any) -> str | None:
 
             keyed = bool(firms_key())
         except Exception:
+            # firms import or check may fail — treat as no key
             keyed = False
         if not keyed:
             return (

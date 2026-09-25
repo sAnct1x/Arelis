@@ -133,6 +133,7 @@ def _emit_earth_lock(on: bool) -> None:
 
         emit("earth_lock", on=on)
     except Exception:
+        # telemetry is non-critical, continue on failure
         pass
 
 
@@ -387,6 +388,7 @@ class SolarEarthMixin:
 
             return not webengine_available()
         except Exception:
+            # webengine check failed, assume forbidden
             return True
 
     def _skip_cesium(self) -> bool:
@@ -411,6 +413,7 @@ class SolarEarthMixin:
             try:
                 system.go_realtime()
             except Exception:
+                # realtime lock failed, continue in current mode
                 pass
         if getattr(self, "_cesium_off", False) or self._cesium_forbidden():
             self._fallback_native_globe("webengine missing or already off")
@@ -459,6 +462,7 @@ class SolarEarthMixin:
                     try:
                         shut()
                     except Exception:
+                        # globe shutdown failed during cleanup, continue
                         pass
                 hide = getattr(host, "hide", None)
                 if callable(hide):
@@ -508,6 +512,7 @@ class SolarEarthMixin:
 
                 zone = get_earth()
             except Exception:
+                # earth runtime unavailable, skip zone check
                 zone = None
             if getattr(self, "_globe_did_ready", False) and not self._globe_flight_live():
                 self._push_globe_camera()
@@ -562,6 +567,7 @@ class SolarEarthMixin:
             try:
                 shut()
             except Exception:
+                # globe shutdown failed during cleanup, continue
                 pass
         view = getattr(host, "_view", None)
         if view is not None:
@@ -667,6 +673,7 @@ class SolarEarthMixin:
 
             emit("earth_tiles", kind=str(kind or ""))
         except Exception:
+            # telemetry is non-critical, continue on failure
             pass
 
     def _on_globe_failed(self) -> None:
@@ -813,6 +820,7 @@ class SolarEarthMixin:
                 tiles=bool(zone.tiles) if zone is not None else False,
             )
         except Exception:
+            # telemetry sampling is non-critical, continue on failure
             pass
         self.update()
 
@@ -851,6 +859,7 @@ class SolarEarthMixin:
                 agl_m=agl,
             )
         except Exception:
+            # telemetry is non-critical, continue on failure
             pass
         self.update()
 
@@ -947,6 +956,7 @@ class SolarEarthMixin:
                 agl_m=getattr(self, "_earth_agl_m", None) or 0.0,
             )
         except Exception:
+            # telemetry is non-critical, continue on failure
             pass
 
     def _sync_earth_globe(self, *, force: bool = False, camera: bool = False) -> None:
@@ -1045,6 +1055,7 @@ class SolarEarthMixin:
 
             emit("travel", body=name, radius=body.radius)
         except Exception:
+            # telemetry is non-critical, continue on failure
             pass
         self._fly_v = [0.0, 0.0, 0.0]
         self._set_inspect(name)
@@ -1356,6 +1367,7 @@ class SolarEarthMixin:
         try:
             lat, lon, alt = ecef_to_geodetic(ent.x, ent.y, ent.z)
         except Exception:
+            # coordinate conversion failed, use follow fallback
             self._globe_follow_ride(ent)
             return
         if getattr(ent, "layer", "") == "iss":
@@ -1384,6 +1396,7 @@ class SolarEarthMixin:
         try:
             lat, lon, alt = ecef_to_geodetic(ent.x, ent.y, ent.z)
         except Exception:
+            # coordinate conversion failed, skip ride update
             return
         heading = heading_of(ent)
         speed = math.hypot(float(ent.vx), float(ent.vy), float(ent.vz))
@@ -1421,6 +1434,7 @@ class SolarEarthMixin:
         try:
             lat, lon, alt = ecef_to_geodetic(ent.x, ent.y, ent.z)
         except Exception:
+            # coordinate conversion failed, skip aim update
             return
         host.push_aim(lat, lon, alt)
 

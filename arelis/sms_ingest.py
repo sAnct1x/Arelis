@@ -493,6 +493,7 @@ class InboundIngestServer:
                         companion = companion_status().snapshot()
                     except Exception:
                         log.debug("companion snapshot failed", exc_info=True)
+                        # snapshot unavailable — report minimal status
                         companion = {"apk": False, "gemma": False}
 
                     self._reply(
@@ -986,6 +987,7 @@ class InboundIngestServer:
                     try:
                         busy = bool(server.mobile.busy_fn())
                     except Exception:
+                        # busy check unavailable — treat as not busy
                         busy = False
                     if busy:
                         self._reply(
@@ -1099,6 +1101,7 @@ class InboundIngestServer:
                         try:
                             await_session_load({"session_id": restore_id, "silent": True})
                         except Exception:
+                            # session restore failed, already erroring out
                             pass
                     self._reply(500, {"ok": False, "error": str(exc)})
                     return
@@ -1192,6 +1195,7 @@ class InboundIngestServer:
                                 server.token, server.port, rotate=False
                             ).as_text()
                         except Exception:
+                            # ticket creation failed — serve page without ticket
                             ticket = ""
                     html = landing_html(
                         pair=pair,
@@ -1296,6 +1300,7 @@ class InboundIngestServer:
                 )
             )
         except Exception:
+            # watch registration failed — logged for debugging
             log.debug("Watch did not register ingest", exc_info=True)
         if not self._mobile_hooked:
             for kind in (
@@ -1330,6 +1335,7 @@ class InboundIngestServer:
 
             get_watch().drop_listener("ingest")
         except Exception:
+            # watch cleanup failed during shutdown, continue
             pass
         announcer = self._announce
         self._announce = None
@@ -1337,6 +1343,7 @@ class InboundIngestServer:
             try:
                 announcer.stop()
             except Exception:
+                # announcer cleanup failed during shutdown, continue
                 pass
         httpd = self._httpd
         self._httpd = None
