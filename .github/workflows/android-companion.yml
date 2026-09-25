@@ -2,6 +2,7 @@ name: Android companion
 
 on:
   push:
+    branches: ["main"]
     paths:
       - "android/arelis-notify/**"
       - ".github/workflows/android-companion.yml"
@@ -25,11 +26,14 @@ jobs:
       run:
         working-directory: android/arelis-notify
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: "17"
+
+      - name: Make gradlew executable
+        run: chmod +x gradlew
 
       - name: Gradle version from wrapper properties
         id: props
@@ -44,11 +48,11 @@ jobs:
 
       - name: Setup Gradle (wrapper)
         if: steps.props.outputs.mode == 'wrapper'
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v6
 
       - name: Setup Gradle (no wrapper jar)
         if: steps.props.outputs.mode == 'direct'
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v6
         with:
           gradle-version: ${{ steps.props.outputs.version }}
 
@@ -61,16 +65,22 @@ jobs:
           fi
 
       - name: Write release keystore
-        if: ${{ secrets.ARELIS_ANDROID_KEYSTORE_BASE64 != '' }}
         env:
           ARELIS_ANDROID_KEYSTORE_BASE64: ${{ secrets.ARELIS_ANDROID_KEYSTORE_BASE64 }}
+          ARELIS_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ARELIS_ANDROID_KEYSTORE_PASSWORD }}
+          ARELIS_ANDROID_KEY_ALIAS: ${{ secrets.ARELIS_ANDROID_KEY_ALIAS }}
+          ARELIS_ANDROID_KEY_PASSWORD: ${{ secrets.ARELIS_ANDROID_KEY_PASSWORD }}
         run: |
+          if [ -z "${ARELIS_ANDROID_KEYSTORE_BASE64:-}" ]; then
+            echo "No keystore; debug build"
+            exit 0
+          fi
           mkdir -p "$HOME/arelis-android"
           printf '%s' "$ARELIS_ANDROID_KEYSTORE_BASE64" | base64 -d > "$HOME/arelis-android/release.jks"
           echo "ARELIS_ANDROID_KEYSTORE=$HOME/arelis-android/release.jks" >> "$GITHUB_ENV"
-          echo "ARELIS_ANDROID_KEYSTORE_PASSWORD=${{ secrets.ARELIS_ANDROID_KEYSTORE_PASSWORD }}" >> "$GITHUB_ENV"
-          echo "ARELIS_ANDROID_KEY_ALIAS=${{ secrets.ARELIS_ANDROID_KEY_ALIAS }}" >> "$GITHUB_ENV"
-          echo "ARELIS_ANDROID_KEY_PASSWORD=${{ secrets.ARELIS_ANDROID_KEY_PASSWORD }}" >> "$GITHUB_ENV"
+          echo "ARELIS_ANDROID_KEYSTORE_PASSWORD=${ARELIS_ANDROID_KEYSTORE_PASSWORD}" >> "$GITHUB_ENV"
+          echo "ARELIS_ANDROID_KEY_ALIAS=${ARELIS_ANDROID_KEY_ALIAS}" >> "$GITHUB_ENV"
+          echo "ARELIS_ANDROID_KEY_PASSWORD=${ARELIS_ANDROID_KEY_PASSWORD}" >> "$GITHUB_ENV"
 
       - name: Assemble APK
         id: apk
@@ -115,7 +125,7 @@ jobs:
         env:
           APK_KIND: ${{ secrets.ARELIS_ANDROID_KEYSTORE_BASE64 != '' && 'release' || 'debug' }}
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: arelis-companion-apk
           path: |
