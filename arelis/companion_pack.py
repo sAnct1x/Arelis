@@ -48,7 +48,7 @@ from typing import Any
 from urllib.parse import quote
 
 from arelis import __version__
-from arelis.paths import INSTALL_PARENT, is_source_checkout, models_dir, user_data_dir
+from arelis.paths import INSTALL_PARENT, cache_dir, is_source_checkout, models_dir, user_data_dir
 
 log = logging.getLogger(__name__)
 
@@ -228,7 +228,10 @@ def expected_companion(gradle: Path | None = None) -> ExpectedCompanion | None:
 
 
 def sidecar_path(apk: Path) -> Path:
-    return apk.with_name(apk.name + SIDECAR_SUFFIX)
+    """Sidecar metadata lives in cache, not beside the APK (which may be read-only)."""
+    sidecar_dir = cache_dir() / "companion" / "sidecars"
+    apk_hash = hashlib.sha256(str(apk.resolve()).encode("utf-8")).hexdigest()[:16]
+    return sidecar_dir / f"{apk.name}.{apk_hash}{SIDECAR_SUFFIX}"
 
 
 def load_sidecar(apk: Path) -> dict[str, Any] | None:
@@ -258,8 +261,14 @@ def load_sidecar(apk: Path) -> dict[str, Any] | None:
 
 
 def write_sidecar(apk: Path, offer: ApkOffer) -> Path:
-    path = sidecar_path(apk)
-    path.write_text(
+    # Sidecar metadata goes in cache, not beside the APK (which may be read-only).
+    sidecar_dir = cache_dir() / "companion" / "sidecars"
+    sidecar_dir.mkdir(parents=True, exist_ok=True)
+    # Build filename from APK to distinguish multiple APK locations.
+    apk_name = apk.name
+    apk_location_hash = hashlib.sha256(str(apk.resolve()).encode("utf-8")).hexdigest()[:16]
+    dest = sidecar_dir / f"{apk_name}.{apk_location_hash}{SIDECAR_SUFFIX}"
+    dest.write_text(
         json.dumps(
             {
                 "versionCode": offer.version_code,
@@ -273,7 +282,7 @@ def write_sidecar(apk: Path, offer: ApkOffer) -> Path:
         + "\n",
         encoding="utf-8",
     )
-    return path
+    return dest
 
 
 def file_sha256(path: Path) -> str:
@@ -290,7 +299,8 @@ def file_sha256(path: Path) -> str:
 def _install_companion_dir() -> Path | None:
     try:
         from arelis.update import install_root
-    except Exception:
+    except Exception as exc:
+        log.warning("Could not import install_root: %s", exc)
         return None
     root = install_root()
     if root is None:
@@ -511,7 +521,7 @@ def landing_html(
         "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
         f"<title>{title}</title>"
         "<style>"
-        "body{font:16px/1.45 Georgia,serif;background:#16110d;color:#f3e6d4;"
+        "body{font:16px/1.45 'Times New Roman',serif;background:#16110d;color:#f3e6d4;"
         "max-width:32rem;margin:0 auto;padding:2.5rem 1.25rem;}"
         "h1{font-weight:500;letter-spacing:.12em;text-transform:lowercase;"
         "font-size:1rem;color:#c47a4a;}"
@@ -539,9 +549,22 @@ def copy_apk_into(dest_dir: Path, offer: ApkOffer | None = None) -> Path | None:
     dest = dest_dir / APK_NAME
     if dest.resolve() != found.path.resolve():
         dest.write_bytes(found.path.read_bytes())
-    write_sidecar(
-        dest,
-        replace(found, path=dest, size=dest.stat().st_size, source=str(dest)),
+    # Write sidecar next to the staged APK (installer tree is writable).
+    staged_offer = replace(found, path=dest, size=dest.stat().st_size, source=str(dest))
+    sidecar = dest.with_name(dest.name + SIDECAR_SUFFIX)
+    sidecar.write_text(
+        json.dumps(
+            {
+                "versionCode": staged_offer.version_code,
+                "versionName": staged_offer.version_name,
+                "sha256": staged_offer.sha256,
+                "signed": staged_offer.signed,
+                "applicationId": "app.arelis",
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
     )
     return dest
 
