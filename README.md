@@ -269,7 +269,7 @@ longer reasoning loop. See [models.md](docs/models.md).
 - **Voice:** Wait for **say "hey arelis"** in the status line. `Ctrl+Shift+M` starts a conversation, `Ctrl+M` is dictation. See [voice-wake.md](docs/voice-wake.md).
 - **Her browser:** A separate window you can watch. She won't type passwords or click Book, Pay, or Checkout. See [browser-control.md](docs/browser-control.md).
 - **Phone app:** One sideloaded Android app paired by scanning a QR code in Settings → Notify. See [notify-inbound.md](docs/notify-inbound.md).
-- **Mail, calendar, texting:** All stay off until you connect them. Configuration lives in `data/secrets.yaml`. See [calendar-oauth.md](docs/calendar-oauth.md) and the optional extras section below.
+- **Mail, calendar, texting:** All stay off until you connect them. Configuration lives in `data/secrets.yaml`. See [calendar-oauth.md](docs/calendar-oauth.md) and the optional extras section above.
 - **Jobs:** Timed prompts that email you the answer. Found under the calendar tile (`Ctrl+7`). Requires mail setup. See [jobs.md](docs/jobs.md).
 
 Type `/tools` in the chat for the full list of what she can do.

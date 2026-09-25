@@ -51,9 +51,10 @@ Before opening a pull request:
 .\.venv\Scripts\python -m ruff check .
 ```
 
-Both must pass. Type-checking (`mypy`) is installed with the dev extra but
-isn't a merge gate - run it when working on type fixes, not as a blocker for
-unrelated changes.
+Both must pass. Type-checking (`mypy`) is installed with the dev extra. CI gates
+the packages listed in `tests/mypy_strict_packages.txt` using
+`python -m mypy --no-pretty --follow-imports=silent @tests/mypy_strict_packages.txt`.
+For other code, run mypy when working on type fixes, not as a blocker for unrelated changes.
 
 ## The rule that does not bend
 
@@ -114,8 +115,8 @@ Ruff is pinned in `pyproject.toml` so a new release won't turn an untouched
 tree red on your unrelated change. The pre-commit hook in `.githooks` runs
 lint and personal data checks, so local failures catch early.
 
-Type-checking (`mypy`) is pinned the same way but isn't a merge gate. Run it
-when working on type fixes, not to block unrelated changes:
+Type-checking (`mypy`) is pinned the same way. CI gates the packages listed
+in `tests/mypy_strict_packages.txt`. To check all code (a report, not a gate):
 
 ```powershell
 .\.venv\Scripts\python -m mypy
