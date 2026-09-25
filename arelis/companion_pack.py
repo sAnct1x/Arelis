@@ -228,10 +228,10 @@ def expected_companion(gradle: Path | None = None) -> ExpectedCompanion | None:
 
 
 def sidecar_path(apk: Path) -> Path:
-    """Sidecar metadata lives in cache, not beside the APK (which may be read-only)."""
-    sidecar_dir = cache_dir() / "companion" / "sidecars"
+    """Sidecars live in cache, indexed by APK location, not beside the APK."""
+    cache = cache_dir() / "companion" / "sidecars"
     apk_hash = hashlib.sha256(str(apk.resolve()).encode("utf-8")).hexdigest()[:16]
-    return sidecar_dir / f"{apk.name}.{apk_hash}{SIDECAR_SUFFIX}"
+    return cache / f"{apk.name}.{apk_hash}{SIDECAR_SUFFIX}"
 
 
 def load_sidecar(apk: Path) -> dict[str, Any] | None:
@@ -261,14 +261,12 @@ def load_sidecar(apk: Path) -> dict[str, Any] | None:
 
 
 def write_sidecar(apk: Path, offer: ApkOffer) -> Path:
-    # Sidecar metadata goes in cache, not beside the APK (which may be read-only).
-    sidecar_dir = cache_dir() / "companion" / "sidecars"
-    sidecar_dir.mkdir(parents=True, exist_ok=True)
-    # Build filename from APK to distinguish multiple APK locations.
-    apk_name = apk.name
-    apk_location_hash = hashlib.sha256(str(apk.resolve()).encode("utf-8")).hexdigest()[:16]
-    dest = sidecar_dir / f"{apk_name}.{apk_location_hash}{SIDECAR_SUFFIX}"
-    dest.write_text(
+    """Write sidecar to cache, not beside APK (which may be read-only package location)."""
+    cache = cache_dir() / "companion" / "sidecars"
+    cache.mkdir(parents=True, exist_ok=True)
+    apk_hash = hashlib.sha256(str(apk.resolve()).encode("utf-8")).hexdigest()[:16]
+    dest = cache / f"{apk.name}.{apk_hash}{SIDECAR_SUFFIX}"
+    (cache / f"{apk.name}.{apk_hash}{SIDECAR_SUFFIX}").write_text(
         json.dumps(
             {
                 "versionCode": offer.version_code,
