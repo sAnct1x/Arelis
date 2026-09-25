@@ -656,6 +656,7 @@ class SettingsDialog(QDialog):
 
             account = load_account()
         except Exception:
+            # mail account load failed, skip prefill
             account = None
         if account is not None:
             self.mail_address.setText(account.address)
@@ -814,6 +815,7 @@ class SettingsDialog(QDialog):
                 else list_installed_models(base)
             ) or []
         except Exception:
+            # model listing failed, treat as unavailable
             return [], False
         names = [str(tag).strip() for tag in raw if str(tag).strip()]
         return names, True
@@ -965,6 +967,7 @@ class SettingsDialog(QDialog):
 
             self._set_pair_qr(pairing_pixmap(self._pairing_text, scale=4, pad=16))
         except Exception:
+            # QR generation failed, user can copy text instead
             self.pair_qr.clear()
             self.pair_qr.setFixedSize(0, 0)
             self.pair_status.setText("Could not draw the QR. Use Copy for paste.")
@@ -1004,6 +1007,7 @@ class SettingsDialog(QDialog):
             self.install_qr.setPixmap(pixmap)
             self.install_qr.setFixedSize(pixmap.size())
         except Exception:
+            # QR generation failed, hide install QR
             self.install_qr.clear()
             self.install_qr.setFixedSize(0, 0)
 
@@ -1074,6 +1078,7 @@ class SettingsDialog(QDialog):
                     port = int(primary.rsplit(":", 1)[-1]) if primary else 8765
                     ticket = make_ticket(token, port, rotate=False)
                 except Exception:
+                    # ticket creation failed, skip panel refresh
                     ticket = None
             self._refresh_companion_panel(ticket, primary)
             self.companion_status.setText(

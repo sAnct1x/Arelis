@@ -150,6 +150,7 @@ def paint_earth_say(panel: Any, painter: QPainter) -> QRect:
 
         zone = get_earth()
     except Exception:
+        # earth runtime unavailable, skip check
         zone = None
     if zone is not None and getattr(zone, "ride_id", ""):
         panel._earth_say_box = QRect()
@@ -331,6 +332,7 @@ def _cam_alt_m(panel: Any) -> float | None:
 
         alt = float(ecef_to_geodetic(*eye)[2])
     except Exception:
+        # coordinate conversion failed, altitude unavailable
         return None
     return alt if alt > 0.0 else None
 
@@ -350,6 +352,7 @@ def _globe_owns_eye(panel: Any) -> bool:
     try:
         return bool(fn())
     except Exception:
+        # globe check failed, treat as not live
         return False
 
 
