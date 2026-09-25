@@ -24,11 +24,13 @@ jobs:
       run:
         working-directory: android/arelis-notify
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: "17"
+      - name: Make gradlew executable
+        run: chmod +x gradlew
       - name: Gradle version from wrapper properties
         id: props
         run: |
@@ -41,27 +43,33 @@ jobs:
           fi
       - name: Setup Gradle (wrapper)
         if: steps.props.outputs.mode == 'wrapper'
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v6
       - name: Setup Gradle (no wrapper jar)
         if: steps.props.outputs.mode == 'direct'
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v6
         with:
           gradle-version: ${{ steps.props.outputs.version }}
       - name: Write release keystore
-        if: ${{ secrets.ARELIS_ANDROID_KEYSTORE_BASE64 != '' }}
         env:
           ARELIS_ANDROID_KEYSTORE_BASE64: ${{ secrets.ARELIS_ANDROID_KEYSTORE_BASE64 }}
+          ARELIS_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ARELIS_ANDROID_KEYSTORE_PASSWORD }}
+          ARELIS_ANDROID_KEY_ALIAS: ${{ secrets.ARELIS_ANDROID_KEY_ALIAS }}
+          ARELIS_ANDROID_KEY_PASSWORD: ${{ secrets.ARELIS_ANDROID_KEY_PASSWORD }}
         run: |
+          if [ -z "${ARELIS_ANDROID_KEYSTORE_BASE64:-}" ]; then
+            echo "No keystore; debug build"
+            exit 0
+          fi
           mkdir -p "$HOME/arelis-android"
           printf '%s' "$ARELIS_ANDROID_KEYSTORE_BASE64" | base64 -d > "$HOME/arelis-android/release.jks"
           echo "ARELIS_ANDROID_KEYSTORE=$HOME/arelis-android/release.jks" >> "$GITHUB_ENV"
-          echo "ARELIS_ANDROID_KEYSTORE_PASSWORD=${{ secrets.ARELIS_ANDROID_KEYSTORE_PASSWORD }}" >> "$GITHUB_ENV"
-          echo "ARELIS_ANDROID_KEY_ALIAS=${{ secrets.ARELIS_ANDROID_KEY_ALIAS }}" >> "$GITHUB_ENV"
-          echo "ARELIS_ANDROID_KEY_PASSWORD=${{ secrets.ARELIS_ANDROID_KEY_PASSWORD }}" >> "$GITHUB_ENV"
+          echo "ARELIS_ANDROID_KEYSTORE_PASSWORD=${ARELIS_ANDROID_KEYSTORE_PASSWORD}" >> "$GITHUB_ENV"
+          echo "ARELIS_ANDROID_KEY_ALIAS=${ARELIS_ANDROID_KEY_ALIAS}" >> "$GITHUB_ENV"
+          echo "ARELIS_ANDROID_KEY_PASSWORD=${ARELIS_ANDROID_KEY_PASSWORD}" >> "$GITHUB_ENV"
       - name: Assemble and stage
         working-directory: .
         run: python3 scripts/build_companion.py
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: arelis-companion-apk
           path: |
@@ -78,8 +86,8 @@ jobs:
       # Only for the release step at the end, and only on a tag.
       contents: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
         with:
           name: arelis-companion-apk
           path: companion
@@ -88,7 +96,7 @@ jobs:
       # downloads CPython 3.14.7's embeddable distribution itself and verifies it against
       # the digest python.org publishes. Matching versions anyway, so that the pip doing
       # the resolving agrees with the interpreter being resolved for.
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.14"
           cache: pip
@@ -123,7 +131,7 @@ jobs:
             "Verify with ``Get-FileHash <file> -Algorithm SHA256``."
           ) | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: arelis-windows-installer
           path: |
