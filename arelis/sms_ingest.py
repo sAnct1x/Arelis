@@ -487,6 +487,14 @@ class InboundIngestServer:
                 # No auth: lets the companion distinguish "PC unreachable" from
                 # "wrong token" when Test ping fails.
                 if path in {"/inbound/health", "/health"}:
+                    from arelis.companion_pack import status as companion_status
+
+                    try:
+                        companion = companion_status().snapshot()
+                    except Exception:
+                        log.debug("companion snapshot failed", exc_info=True)
+                        companion = {"apk": False, "gemma": False}
+
                     self._reply(
                         200,
                         {
@@ -499,6 +507,7 @@ class InboundIngestServer:
                             "instance": instance_id(),
                             "port": server.port,
                             "auth": "required for /inbound/ping",
+                            "companion": companion,
                         },
                     )
                     return
@@ -617,6 +626,14 @@ class InboundIngestServer:
                         self._reply(404, {"ok": False, "error": "not found"})
                         return
                     self._send_bytes(*got)
+                    return
+                if path in {
+                    "/companion",
+                    "/companion/manifest",
+                    "/companion/apk",
+                    "/companion/gemma",
+                }:
+                    self._handle_companion_get(path)
                     return
                 self._reply(404, {"ok": False, "error": "not found"})
 
@@ -1114,6 +1131,131 @@ class InboundIngestServer:
                             )
                         except Exception:
                             log.exception("restore pc seat after phone turn failed")
+
+            def _companion_allowed(self, *, allow_pair: bool) -> bool:
+                """Token, or the short-lived pair secret on first-install URLs.
+
+                A browser hitting /companion with no secret is not a guessed
+                token — do not count it toward the auth lock.
+                """
+                from arelis.sms_pairing import pair_secret_ok
+
+                if allow_pair:
+                    from arelis.companion_pack import pair_from_query
+
+                    pair = pair_from_query(self.path)
+                    if pair:
+                        if pair_secret_ok(pair):
+                            return True
+                        from arelis.guard import get_watch
+
+                        locked = get_watch().note_auth_fail(self._client_ip())
+                        if not locked.ok:
+                            self._reply(
+                                429,
+                                {
+                                    "ok": False,
+                                    "error": "slow down",
+                                    "retry_after": locked.retry_after,
+                                },
+                            )
+                            return False
+                        self._reply(401, {"ok": False, "error": "unauthorized"})
+                        return False
+                if self._token_ok():
+                    from arelis.guard import get_watch
+
+                    get_watch().note_auth_ok(self._client_ip())
+                    return True
+                self._reply(401, {"ok": False, "error": "unauthorized"})
+                return False
+
+            def _handle_companion_get(self, path: str) -> None:
+                from arelis.companion_pack import (
+                    landing_html,
+                    pair_from_query,
+                )
+                from arelis.companion_pack import (
+                    status as companion_status,
+                )
+                from arelis.sms_pairing import make_ticket
+
+                current = companion_status()
+                if path == "/companion":
+                    if not self._companion_allowed(allow_pair=True):
+                        return
+                    pair = pair_from_query(self.path)
+                    ticket = ""
+                    if server.token:
+                        try:
+                            ticket = make_ticket(
+                                server.token, server.port, rotate=False
+                            ).as_text()
+                        except Exception:
+                            ticket = ""
+                    html = landing_html(
+                        pair=pair,
+                        ticket=ticket,
+                        apk=current.apk,
+                        arelis_version=current.arelis_version,
+                    )
+                    payload = html.encode("utf-8")
+                    self.send_response(200)
+                    self.send_header("Content-Type", "text/html; charset=utf-8")
+                    self.send_header("Content-Length", str(len(payload)))
+                    self.end_headers()
+                    self.wfile.write(payload)
+                    return
+                if path == "/companion/manifest":
+                    if not self._companion_allowed(allow_pair=True):
+                        return
+                    self._reply(200, current.manifest())
+                    return
+                if path == "/companion/apk":
+                    if not self._companion_allowed(allow_pair=True):
+                        return
+                    if current.apk is None:
+                        self._reply(404, {"ok": False, "error": "no companion apk"})
+                        return
+                    name = f"Arelis-{current.apk.version_name}.apk"
+                    self._send_file(
+                        current.apk.path,
+                        "application/vnd.android.package-archive",
+                        name,
+                    )
+                    return
+                if path == "/companion/gemma":
+                    # Already-paired phones only. First-install does not need 2.6 GB.
+                    if not self._companion_allowed(allow_pair=False):
+                        return
+                    if current.gemma is None:
+                        self._reply(404, {"ok": False, "error": "gemma not cached"})
+                        return
+                    self._send_file(
+                        current.gemma.path,
+                        "application/octet-stream",
+                        current.gemma.path.name,
+                    )
+                    return
+                self._reply(404, {"ok": False, "error": "not found"})
+
+            def _send_file(self, path: Path, mime: str, name: str) -> None:
+                safe = name.replace('"', "")
+                size = path.stat().st_size
+                self.send_response(200)
+                self.send_header("Content-Type", mime)
+                self.send_header("Content-Length", str(size))
+                self.send_header(
+                    "Content-Disposition",
+                    f'attachment; filename="{safe}"',
+                )
+                self.end_headers()
+                with path.open("rb") as fh:
+                    while True:
+                        chunk = fh.read(64 * 1024)
+                        if not chunk:
+                            break
+                        self.wfile.write(chunk)
 
             def _send_bytes(self, data: bytes, mime: str, name: str) -> None:
                 safe = name.replace('"', "")

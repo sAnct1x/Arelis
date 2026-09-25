@@ -33,7 +33,8 @@ The phone app is a LAN companion, not a second copy of Arelis. When
 your PC is reachable, chat on the phone is literally the same live
 session. When it isn't, the phone keeps its own seat and just picks
 up the conversation — any Gemma-generated words from that time sync
-back once the PC is up again. See
+back once the PC is up again. The APK and the offline brain come from
+this PC when they are here (`/companion/*` on ingest). See
 [notify-inbound.md](notify-inbound.md).
 
 ## First open

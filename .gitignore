@@ -83,6 +83,15 @@ data/*
 !data/lessons.example.yaml
 # Chat attachments land under data/drops/ (covered by data/* above).
 
+# Android companion signing. Public repo — a keystore in git is a stolen keystore.
+*.jks
+*.keystore
+
+# Staged house-served companion APK (scripts/build_companion.py)
+companion/*.apk
+companion/*.apk.json
+companion/*.sha256
+
 # Android companion build outputs
 android/**/build/
 android/**/.gradle/

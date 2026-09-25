@@ -21,6 +21,14 @@ class BaseUrlTest {
     }
 
     @Test
+    fun stripsCompanionManifest() {
+        assertEquals(
+            "http://pc:8765",
+            ArelisClient.normalizeBaseUrl("http://pc:8765/companion/manifest"),
+        )
+    }
+
+    @Test
     fun leavesABareIngestRootAlone() {
         assertEquals(
             "http://pc:8765",

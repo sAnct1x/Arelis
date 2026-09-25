@@ -11,8 +11,20 @@ android {
         applicationId = "app.arelis"
         minSdk = 26
         targetSdk = 34
-        versionCode = 5
-        versionName = "0.3.2"
+        versionCode = 6
+        versionName = "0.3.3"
+    }
+
+    signingConfigs {
+        val store = System.getenv("ARELIS_ANDROID_KEYSTORE")?.trim().orEmpty()
+        if (store.isNotEmpty()) {
+            create("release") {
+                storeFile = file(store)
+                storePassword = System.getenv("ARELIS_ANDROID_KEYSTORE_PASSWORD") ?: ""
+                keyAlias = System.getenv("ARELIS_ANDROID_KEY_ALIAS") ?: ""
+                keyPassword = System.getenv("ARELIS_ANDROID_KEY_PASSWORD") ?: ""
+            }
+        }
     }
 
     buildTypes {
@@ -22,6 +34,7 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
+            signingConfigs.findByName("release")?.let { signingConfig = it }
         }
     }
     compileOptions {
@@ -33,6 +46,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
     composeOptions {
         kotlinCompilerExtensionVersion = "1.5.14"

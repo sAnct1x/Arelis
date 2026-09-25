@@ -859,6 +859,28 @@ def install_over_existing(installer: Path) -> None:
         )
 
 
+def copy_companion_into_tree() -> None:
+    """Put the house APK next to the installed copy, if this build has one.
+
+    Gemma stays out — 2.6 GB is not an installer payload. Settings → Notify
+    fetches that later. Missing APK is ordinary for a checkout that has not
+    run scripts/build_companion.py.
+    """
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    from arelis.companion_pack import copy_apk_into, find_apk
+
+    offer = find_apk()
+    dest = TREE / "companion"
+    if copy_apk_into(dest, offer) is None:
+        say("  no companion APK in this tree (Settings → Notify will say so)")
+        return
+    apk = dest / "arelis.apk"
+    say(f"  {apk.relative_to(TREE)}  {human(apk.stat().st_size)}")
+    if offer is not None:
+        say(f"  companion {offer.version_name} ({offer.signed})")
+
+
 def package_installer(version: str) -> Path | None:
     """Compile the tree into one setup .exe, if Inno Setup is here to do it.
 
@@ -1133,6 +1155,9 @@ def main(argv: list[str] | None = None) -> int:
 
     say("\n== Verification ==")
     verify()
+
+    say("\n== Companion APK ==")
+    copy_companion_into_tree()
 
     installer = None
     if not args.no_installer:

@@ -65,6 +65,10 @@ class MainActivity : ComponentActivity() {
     private var pendingFileBytes by mutableStateOf<ByteArray?>(null)
     private var gemmaProgress by mutableStateOf("")
     private var gemmaInstall by mutableStateOf(GemmaInstall())
+    private var companionUpdate by mutableStateOf(CompanionUpdate())
+    private var companionProgress by mutableStateOf("")
+    private val companionBusy = AtomicBoolean(false)
+    private var lastCompanionCheckMs = 0L
     private var error by mutableStateOf("")
     private var voiceMode by mutableStateOf("off")
     private var listening by mutableStateOf(false)
@@ -184,6 +188,7 @@ class MainActivity : ComponentActivity() {
         paired = prefs.paired
         screen = if (prefs.paired) "talk" else "pair"
         mode = if (prefs.paired) HouseMode.Connecting else HouseMode.Pairing
+        handlePairIntent(intent)
         if (prefs.paired) {
             WorkManager.getInstance(this).enqueueUniqueWork(
                 InboundWorker.UNIQUE,
@@ -199,6 +204,11 @@ class MainActivity : ComponentActivity() {
                     "settings" -> SettingsScreen(
                         paired = paired,
                         language = talkLanguage,
+                        phoneName = BuildConfig.VERSION_NAME,
+                        phoneCode = BuildConfig.VERSION_CODE,
+                        houseName = companionUpdate.houseName,
+                        arelisVersion = companionUpdate.arelisVersion,
+                        compatNote = companionCompatNote(),
                         onBack = { stepBack() },
                         onPair = {
                             pairFromSettings = true
@@ -264,6 +274,11 @@ class MainActivity : ComponentActivity() {
                                 ready = GemmaStore.ready(this),
                                 onWifi = onWifi(this),
                             ).toUi(gemmaProgress),
+                            companion = companionUpdate.toUi(
+                                companionProgress,
+                                BuildConfig.VERSION_CODE,
+                                BuildConfig.VERSION_NAME,
+                            ),
                             error = error,
                             voiceMode = voiceMode,
                             listening = listening,
@@ -293,6 +308,9 @@ class MainActivity : ComponentActivity() {
                         onGemmaLater = { applyGemma(GemmaEvent.Later) },
                         onGemmaUseData = { applyGemma(GemmaEvent.UseData) },
                         onGemmaShow = { applyGemma(GemmaEvent.Show) },
+                        onCompanionInstall = { applyCompanion(CompanionEvent.Install) },
+                        onCompanionLater = { applyCompanion(CompanionEvent.Later) },
+                        onCompanionShow = { applyCompanion(CompanionEvent.Show) },
                     )
                     else -> PairScreen(
                         headline = headline,
@@ -317,12 +335,19 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handlePairIntent(intent)
+    }
+
     override fun onResume() {
         super.onResume()
         maybeOpenFreshDay()
         refresh()
         if (prefs.paired) startPoll()
         maybeStartWaitedGemma()
+        lastCompanionCheckMs = 0L
     }
 
     override fun onPause() {
@@ -445,6 +470,7 @@ class MainActivity : ComponentActivity() {
         io.execute {
             try {
                 flushSync()
+                maybeRefreshCompanion()
                 val status = loadHouseStatus()
                 val transcript = status.optJSONArray("transcript")
                 val confirm = status.optJSONObject("pending_confirm")
@@ -985,10 +1011,10 @@ class MainActivity : ComponentActivity() {
         gemmaProgress = "Downloading the offline brain…"
         io.execute {
             try {
-                GemmaStore.download(this) { got, total ->
+                GemmaStore.download(this, { got, total ->
                     val pct = if (total > 0) (got * 100 / total).toInt() else 0
                     main.post { gemmaProgress = "Downloading the offline brain… $pct%" }
-                }
+                }, client())
                 main.post {
                     gemmaProgress = ""
                     gemmaBusy.set(false)
@@ -1002,6 +1028,95 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    private fun companionCompatNote(): String {
+        val house = companionUpdate.houseName
+        val phone = BuildConfig.VERSION_NAME
+        return when {
+            companionUpdate.houseCode > BuildConfig.VERSION_CODE ->
+                "This phone is $phone. The house has $house. Install from Talk."
+            companionUpdate.staleNoApk && companionUpdate.expectedName.isNotBlank() ->
+                "This Arelis wants companion ${companionUpdate.expectedName}. Build the APK on the PC."
+            else -> ""
+        }
+    }
+
+    private fun maybeRefreshCompanion() {
+        val now = System.currentTimeMillis()
+        if (now - lastCompanionCheckMs < 60_000L) return
+        lastCompanionCheckMs = now
+        val client = client() ?: return
+        try {
+            val manifest = CompanionManifest.parse(client.companionManifest())
+            val next = manifest.offerFor(BuildConfig.VERSION_CODE, prefs.companionLaterCode)
+            main.post {
+                if (isFinishing || isDestroyed) return@post
+                if (!companionUpdate.downloading) companionUpdate = next
+            }
+        } catch (_: Exception) {
+            // Same rule as the desktop updater: a failed check is silence, not a toast.
+        }
+    }
+
+    private fun applyCompanion(event: CompanionEvent) {
+        val next = companionUpdate.reduce(event)
+        companionUpdate = next
+        when (event) {
+            CompanionEvent.Later -> prefs.companionLaterCode = next.houseCode.takeIf { it > 0 } ?: prefs.companionLaterCode
+            CompanionEvent.Show -> prefs.companionLaterCode = 0
+            CompanionEvent.Install -> downloadCompanion()
+            else -> Unit
+        }
+    }
+
+    private fun downloadCompanion() {
+        if (!companionBusy.compareAndSet(false, true)) return
+        companionProgress = "Downloading the phone app…"
+        io.execute {
+            try {
+                val client = client() ?: throw IllegalStateException("The house is not reachable.")
+                val dest = CompanionInstall.apkFile(this)
+                client.downloadCompanionApk(dest) { got, total ->
+                    val pct = if (total > 0) (got * 100 / total).toInt() else 0
+                    main.post { companionProgress = "Downloading the phone app… $pct%" }
+                }
+                val expected = companionUpdate.sha256
+                if (expected.isNotBlank() && CompanionInstall.sha256(dest) != expected) {
+                    dest.delete()
+                    throw IllegalStateException("The APK did not match the house digest.")
+                }
+                main.post {
+                    companionProgress = ""
+                    companionBusy.set(false)
+                    companionUpdate = companionUpdate.reduce(CompanionEvent.Installed)
+                    if (!CompanionInstall.canInstall(this)) {
+                        CompanionInstall.askInstallPermission(this)
+                        Toast.makeText(
+                            this,
+                            "Allow Arelis to install apps, then tap install again.",
+                            Toast.LENGTH_LONG,
+                        ).show()
+                        return@post
+                    }
+                    CompanionInstall.prompt(this, dest)
+                }
+            } catch (exc: Exception) {
+                main.post {
+                    companionUpdate = companionUpdate.reduce(CompanionEvent.Failed)
+                    companionProgress = exc.message ?: "Download failed."
+                    companionBusy.set(false)
+                    error = companionProgress
+                }
+            }
+        }
+    }
+
+    private fun handlePairIntent(intent: Intent?) {
+        val data = intent?.data ?: return
+        if (data.scheme != "arelis" || data.host != "pair") return
+        val ticket = data.getQueryParameter("ticket").orEmpty()
+        if (ticket.isNotBlank()) applyTicket(ticket)
     }
 
     private fun loadFiles(scope: String, path: String) {
@@ -1360,6 +1475,8 @@ class MainActivity : ComponentActivity() {
                     refresh()
                     Toast.makeText(this, "paired. the offline brain is next.", Toast.LENGTH_LONG).show()
                     applyGemma(GemmaEvent.Show)
+                    lastCompanionCheckMs = 0L
+                    io.execute { maybeRefreshCompanion() }
                 }
             }
         }

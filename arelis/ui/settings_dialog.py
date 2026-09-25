@@ -5,7 +5,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import QEvent, QPoint, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, QPoint, Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QMouseEvent
 from PySide6.QtWidgets import (
     QApplication,
@@ -591,6 +591,49 @@ class SettingsDialog(QDialog):
         notify_l.addLayout(pair_btns)
         notify_l.addWidget(self.pair_status)
 
+        get_app_h = QLabel("Get the app")
+        get_app_h.setObjectName("SettingsSection")
+        self.install_blurb = QLabel("")
+        self.install_blurb.setObjectName("SettingsHint")
+        self.install_blurb.setWordWrap(True)
+        notify_l.addWidget(get_app_h)
+        notify_l.addWidget(self.install_blurb)
+
+        self.install_qr = QLabel()
+        self.install_qr.setObjectName("SettingsInstallQr")
+        self.install_qr.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.install_qr.setSizePolicy(
+            QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed
+        )
+        install_qr_row = QHBoxLayout()
+        install_qr_row.addStretch(1)
+        install_qr_row.addWidget(self.install_qr)
+        install_qr_row.addStretch(1)
+        notify_l.addLayout(install_qr_row)
+
+        self.companion_status = QLabel("")
+        self.companion_status.setObjectName("SettingsHint")
+        self.companion_status.setWordWrap(True)
+        notify_l.addWidget(self.companion_status)
+
+        copy_install = QPushButton("Copy install URL")
+        copy_install.setToolTip(
+            "Camera or browser on the phone — not the Arelis scanner."
+        )
+        copy_install.clicked.connect(self._copy_install_url)
+        self.fetch_gemma_btn = QPushButton("Fetch offline brain")
+        self.fetch_gemma_btn.setToolTip(
+            "Downloads ~2.6 GB onto this PC so phones take it from here "
+            "instead of Hugging Face."
+        )
+        self.fetch_gemma_btn.clicked.connect(self._fetch_gemma_for_phones)
+        install_btns = QHBoxLayout()
+        install_btns.setSpacing(8)
+        install_btns.addWidget(copy_install)
+        install_btns.addWidget(self.fetch_gemma_btn)
+        install_btns.addStretch(1)
+        notify_l.addLayout(install_btns)
+
         mail_h = QLabel("Mail")
         mail_h.setObjectName("SettingsSection")
         mail_blurb = QLabel(
@@ -625,6 +668,8 @@ class SettingsDialog(QDialog):
         notify_l.addStretch(1)
         tabs.addTab(notify, "notify")
         self._pairing_text = ""
+        self._install_url = ""
+        self._gemma_thread: QThread | None = None
         self._refresh_pairing_qr(config, rotate=False)
 
         # --- Roots (projects Arelis may read/write) ---
@@ -882,6 +927,7 @@ class SettingsDialog(QDialog):
             self.pair_status.setText(
                 "No phone token yet. Click Create phone token."
             )
+            self._refresh_companion_panel(None, "")
             return
         _, primary = self._notify_urls(config)
         port = find_my_ingest_port(config)
@@ -900,6 +946,7 @@ class SettingsDialog(QDialog):
             self.pair_qr.clear()
             self.pair_qr.setFixedSize(0, 0)
             self.pair_status.setText(f"Could not build a pairing ticket: {exc}")
+            self._refresh_companion_panel(None, primary)
             return
         self._pairing_text = ticket.as_text()
         companion = load_companion()
@@ -921,6 +968,121 @@ class SettingsDialog(QDialog):
             self.pair_qr.clear()
             self.pair_qr.setFixedSize(0, 0)
             self.pair_status.setText("Could not draw the QR. Use Copy for paste.")
+        self._refresh_companion_panel(ticket, primary)
+
+    def _refresh_companion_panel(self, ticket, primary: str) -> None:
+        from arelis.companion_pack import install_page_url
+        from arelis.companion_pack import status as companion_status
+
+        current = companion_status()
+        self.companion_status.setText(current.hint())
+        self._install_url = ""
+        self.install_qr.clear()
+        self.install_qr.setFixedSize(0, 0)
+        if current.apk is None:
+            self.install_blurb.setText(
+                "The phone camera cannot download an app that is not here yet. "
+                + current.hint()
+            )
+            return
+        if not ticket or not primary:
+            self.install_blurb.setText(
+                f"Companion APK {current.apk.version_name} is ready. "
+                "Create a phone token to grow a download QR."
+            )
+            return
+        self._install_url = install_page_url(primary, ticket.pair)
+        self.install_blurb.setText(
+            "No Arelis on the phone yet? Scan this with the camera — not the "
+            "app. It opens a page on this PC. Download, install, then pair "
+            "with the code above."
+        )
+        try:
+            from arelis.ui.qr_image import pairing_pixmap
+
+            pixmap = pairing_pixmap(self._install_url, scale=4, pad=16)
+            self.install_qr.setPixmap(pixmap)
+            self.install_qr.setFixedSize(pixmap.size())
+        except Exception:
+            self.install_qr.clear()
+            self.install_qr.setFixedSize(0, 0)
+
+    def _copy_install_url(self) -> None:
+        if not self._install_url:
+            self.companion_status.setText(
+                "No install URL yet. Need a companion APK and a phone token."
+            )
+            return
+        clip = QApplication.clipboard()
+        if clip is not None:
+            clip.setText(self._install_url)
+        self.companion_status.setText(f"Copied {self._install_url}")
+
+    def _fetch_gemma_for_phones(self) -> None:
+        if self._gemma_thread is not None and self._gemma_thread.isRunning():
+            return
+        from arelis.companion_pack import fetch_gemma, gemma_ready
+
+        if gemma_ready():
+            self.companion_status.setText("Offline brain is already cached on this PC.")
+            return
+        self.fetch_gemma_btn.setEnabled(False)
+        self.companion_status.setText("Fetching the offline brain onto this PC…")
+
+        class _Fetch(QThread):
+            progressed = Signal(int, int)
+            finished_with = Signal(object)
+
+            def run(self) -> None:  # pragma: no cover - UI thread
+                try:
+                    path = fetch_gemma(
+                        progress=lambda got, total: self.progressed.emit(got, total)
+                    )
+                    self.finished_with.emit(path)
+                except Exception as exc:
+                    self.finished_with.emit(exc)
+
+        thread = _Fetch(self)
+        self._gemma_thread = thread
+
+        def on_progress(got: int, total: int) -> None:
+            if total:
+                pct = int(got * 100 / total)
+                self.companion_status.setText(
+                    f"Fetching the offline brain… {pct}%"
+                )
+            else:
+                mb = got / 1_000_000
+                self.companion_status.setText(
+                    f"Fetching the offline brain… {mb:.0f} MB"
+                )
+
+        def on_done(result: object) -> None:
+            self.fetch_gemma_btn.setEnabled(True)
+            if isinstance(result, Exception):
+                self.companion_status.setText(
+                    f"Could not fetch the offline brain: {result}"
+                )
+                return
+            from arelis.sms_pairing import make_ticket
+
+            token = load_ingest_token()
+            _, primary = self._notify_urls(self._settings_config)
+            ticket = None
+            if token and self._pairing_text:
+                try:
+                    port = int(primary.rsplit(":", 1)[-1]) if primary else 8765
+                    ticket = make_ticket(token, port, rotate=False)
+                except Exception:
+                    ticket = None
+            self._refresh_companion_panel(ticket, primary)
+            self.companion_status.setText(
+                "Offline brain is cached. Phones take it from this PC."
+            )
+
+        thread.progressed.connect(on_progress)
+        thread.finished_with.connect(on_done)
+        thread.start()
 
 
     def _run_test_mic(self) -> None:

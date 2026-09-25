@@ -59,6 +59,7 @@ data class TalkUi(
     val previewJpeg: ByteArray?,
     val attachName: String = "",
     val gemma: GemmaUi,
+    val companion: CompanionUpdateUi = CompanionUpdateUi(),
     val error: String,
     val voiceMode: String,
     val listening: Boolean,
@@ -86,6 +87,9 @@ fun TalkScreen(
     onGemmaLater: () -> Unit,
     onGemmaUseData: () -> Unit,
     onGemmaShow: () -> Unit,
+    onCompanionInstall: () -> Unit = {},
+    onCompanionLater: () -> Unit = {},
+    onCompanionShow: () -> Unit = {},
 ) {
     val list = rememberLazyListState()
     LaunchedEffect(state.bubbles.size) {
@@ -133,9 +137,18 @@ fun TalkScreen(
                         onGemmaLater = onGemmaLater,
                         onGemmaUseData = onGemmaUseData,
                         onGemmaShow = onGemmaShow,
+                        onCompanionInstall = onCompanionInstall,
+                        onCompanionLater = onCompanionLater,
+                        onCompanionShow = onCompanionShow,
                     )
                 }
                 Column(Modifier.align(Alignment.BottomStart).fillMaxWidth()) {
+                    CompanionBanner(
+                        state.companion,
+                        onInstall = onCompanionInstall,
+                        onLater = onCompanionLater,
+                        onShow = onCompanionShow,
+                    )
                     GemmaBanner(
                         state.gemma,
                         onInstall = onGemmaInstall,
@@ -170,6 +183,9 @@ fun TalkScreen(
                 onGemmaLater = onGemmaLater,
                 onGemmaUseData = onGemmaUseData,
                 onGemmaShow = onGemmaShow,
+                onCompanionInstall = onCompanionInstall,
+                onCompanionLater = onCompanionLater,
+                onCompanionShow = onCompanionShow,
             )
             Spacer(Modifier.height(Ember.gap))
             LazyColumn(
@@ -269,6 +285,9 @@ private fun TalkTopBar(
     onGemmaLater: () -> Unit,
     onGemmaUseData: () -> Unit,
     onGemmaShow: () -> Unit,
+    onCompanionInstall: () -> Unit = {},
+    onCompanionLater: () -> Unit = {},
+    onCompanionShow: () -> Unit = {},
 ) {
     Column(Modifier.fillMaxWidth()) {
         BrandMark(
@@ -302,6 +321,12 @@ private fun TalkTopBar(
         )
     }
     if (showGemma) {
+        CompanionBanner(
+            state.companion,
+            onInstall = onCompanionInstall,
+            onLater = onCompanionLater,
+            onShow = onCompanionShow,
+        )
         GemmaBanner(
             state.gemma,
             onInstall = onGemmaInstall,
@@ -445,6 +470,69 @@ private fun TalkComposer(
             filled = true,
         ) {
             SendMark(busy = state.busy)
+        }
+    }
+}
+
+@Composable
+private fun CompanionBanner(
+    update: CompanionUpdateUi,
+    onInstall: () -> Unit,
+    onLater: () -> Unit,
+    onShow: () -> Unit,
+) {
+    if (!update.available && !update.downloading && !update.staleNoApk) {
+        if (update.later) {
+            Spacer(Modifier.height(Ember.gap))
+            Text(
+                "phone app",
+                color = Campfire.dim,
+                fontSize = 12.sp,
+                letterSpacing = 0.8.sp,
+                modifier = Modifier.clickable(onClick = onShow).padding(4.dp),
+            )
+        }
+        return
+    }
+    Spacer(Modifier.height(Ember.gap))
+    GlassCard {
+        Text("phone app", color = Campfire.accent, fontSize = 11.sp, letterSpacing = 1.2.sp, fontWeight = FontWeight.Medium)
+        Spacer(Modifier.height(6.dp))
+        when {
+            update.downloading -> {
+                Text(
+                    update.progress.ifBlank { "downloading…" },
+                    color = Campfire.accent2,
+                    fontSize = 14.sp,
+                )
+            }
+            update.staleNoApk -> {
+                Text(
+                    "This Arelis wants companion ${update.expectedName.ifBlank { "a newer app" }}. " +
+                        "There is no APK on the PC yet. On the house: python scripts/build_companion.py",
+                    color = Campfire.text,
+                    fontSize = 14.sp,
+                    lineHeight = 20.sp,
+                )
+                Spacer(Modifier.height(10.dp))
+                LatchChip("later", on = false, onClick = onLater)
+            }
+            else -> {
+                val size = update.sizeText
+                Text(
+                    "Arelis ${update.arelisVersion.ifBlank { "on the PC" }} has companion " +
+                        "${update.houseName}${if (size.isNotBlank()) " ($size)" else ""}. " +
+                        "This phone is ${update.phoneName.ifBlank { "older" }}.",
+                    color = Campfire.text,
+                    fontSize = 14.sp,
+                    lineHeight = 20.sp,
+                )
+                Spacer(Modifier.height(10.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    EmberButton("install", onInstall)
+                    LatchChip("later", on = false, onClick = onLater)
+                }
+            }
         }
     }
 }
