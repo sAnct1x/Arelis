@@ -367,6 +367,9 @@ def test_settings_has_no_theme_tab(qt_app) -> None:
         assert dlg.mail_address.placeholderText()
         assert dlg.mail_password.echoMode() != 0
         assert dlg.make_token_btn.text() == "Create phone token"
+        assert dlg.install_blurb.text()
+        assert dlg.companion_status.text()
+        assert dlg.fetch_gemma_btn.text() == "Fetch offline brain"
         assert "Apply" in dlg.stt_enabled.toolTip()
         assert "Apply" in dlg.tts_enabled.toolTip()
         assert "restart" not in dlg.stt_enabled.toolTip().lower()

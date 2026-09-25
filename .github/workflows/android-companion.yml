@@ -5,15 +5,22 @@ on:
     paths:
       - "android/arelis-notify/**"
       - ".github/workflows/android-companion.yml"
+      - "arelis/companion_pack.py"
+      - "scripts/build_companion.py"
+    tags: ["v*"]
   pull_request:
     paths:
       - "android/arelis-notify/**"
       - ".github/workflows/android-companion.yml"
+      - "arelis/companion_pack.py"
+      - "scripts/build_companion.py"
 
 jobs:
   unit-tests:
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    permissions:
+      contents: write
     defaults:
       run:
         working-directory: android/arelis-notify
@@ -52,3 +59,87 @@ jobs:
           else
             gradle :app:testDebugUnitTest
           fi
+
+      - name: Write release keystore
+        if: ${{ secrets.ARELIS_ANDROID_KEYSTORE_BASE64 != '' }}
+        env:
+          ARELIS_ANDROID_KEYSTORE_BASE64: ${{ secrets.ARELIS_ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          mkdir -p "$HOME/arelis-android"
+          printf '%s' "$ARELIS_ANDROID_KEYSTORE_BASE64" | base64 -d > "$HOME/arelis-android/release.jks"
+          echo "ARELIS_ANDROID_KEYSTORE=$HOME/arelis-android/release.jks" >> "$GITHUB_ENV"
+          echo "ARELIS_ANDROID_KEYSTORE_PASSWORD=${{ secrets.ARELIS_ANDROID_KEYSTORE_PASSWORD }}" >> "$GITHUB_ENV"
+          echo "ARELIS_ANDROID_KEY_ALIAS=${{ secrets.ARELIS_ANDROID_KEY_ALIAS }}" >> "$GITHUB_ENV"
+          echo "ARELIS_ANDROID_KEY_PASSWORD=${{ secrets.ARELIS_ANDROID_KEY_PASSWORD }}" >> "$GITHUB_ENV"
+
+      - name: Assemble APK
+        id: apk
+        run: |
+          if [ -n "${ARELIS_ANDROID_KEYSTORE:-}" ]; then
+            task=:app:assembleRelease
+            built=app/build/outputs/apk/release/app-release.apk
+            kind=release
+          else
+            task=:app:assembleDebug
+            built=app/build/outputs/apk/debug/app-debug.apk
+            kind=debug
+            echo "No ARELIS_ANDROID_KEYSTORE secret — debug APK. In-place updates need a release key."
+          fi
+          if [ -f gradle/wrapper/gradle-wrapper.jar ]; then
+            ./gradlew "$task"
+          else
+            gradle "$task"
+          fi
+          mkdir -p "$GITHUB_WORKSPACE/companion"
+          cp "$built" "$GITHUB_WORKSPACE/companion/arelis.apk"
+          python3 - <<'PY'
+          import hashlib, json, os, re
+          from pathlib import Path
+          apk = Path(os.environ["GITHUB_WORKSPACE"]) / "companion" / "arelis.apk"
+          gradle = Path("app/build.gradle.kts").read_text()
+          code = int(re.search(r"versionCode\s*=\s*(\d+)", gradle).group(1))
+          name = re.search(r'versionName\s*=\s*"([^"]+)"', gradle).group(1)
+          digest = hashlib.sha256(apk.read_bytes()).hexdigest()
+          (apk.with_name("arelis.apk.json")).write_text(
+              json.dumps({
+                  "versionCode": code,
+                  "versionName": name,
+                  "sha256": digest,
+                  "signed": os.environ.get("APK_KIND", "debug"),
+                  "applicationId": "app.arelis",
+              }, indent=2) + "\n"
+          )
+          (apk.with_suffix(apk.suffix + ".sha256")).write_text(f"{digest}  {apk.name}\n")
+          print(f"apk={apk} version={name} code={code} sha256={digest}")
+          PY
+        env:
+          APK_KIND: ${{ secrets.ARELIS_ANDROID_KEYSTORE_BASE64 != '' && 'release' || 'debug' }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: arelis-companion-apk
+          path: |
+            companion/arelis.apk
+            companion/arelis.apk.json
+            companion/arelis.apk.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Attach to a draft release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${{ github.ref_name }}"
+          name=$(python3 -c "import json; print(json.load(open('companion/arelis.apk.json'))['versionName'])")
+          kind=$(python3 -c "import json; print(json.load(open('companion/arelis.apk.json'))['signed'])")
+          dest="Arelis-companion-${name}.apk"
+          if [ "$kind" != "release" ]; then
+            dest="Arelis-companion-${name}-debug.apk"
+          fi
+          cp companion/arelis.apk "$dest"
+          cp companion/arelis.apk.sha256 "${dest}.sha256"
+          if ! gh release view "$tag" >/dev/null 2>&1; then
+            gh release create "$tag" --draft --title "Arelis $tag" --notes "Draft. Companion APK attached; unsigned Windows installer is a separate workflow."
+          fi
+          gh release upload "$tag" "$dest" "${dest}.sha256" --clobber

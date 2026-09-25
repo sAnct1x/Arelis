@@ -6,7 +6,6 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 import pytest
-from tests.hardening_helpers import _collect, _config, _deny
 
 from arelis.core.agent_loop import AgentLoop
 from arelis.core.bus import EventBus
@@ -15,6 +14,7 @@ from arelis.core.memory import SessionMemory
 from arelis.llm.ollama import OllamaProvider
 from arelis.llm.router import ModelRouter
 from arelis.tools.base import ToolRegistry
+from tests.hardening_helpers import _collect, _config, _deny
 
 
 @pytest.mark.asyncio
