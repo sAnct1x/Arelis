@@ -272,3 +272,11 @@ files = ["arelis"]
 module = ["numpy", "numpy.*"]
 follow_imports = "skip"
 follow_imports_for_stubs = true
+
+# Pint 0.25+ uses PEP 695 type parameter syntax (Python 3.12+). Following
+# its source under python_version = 3.11 hits a syntax error on the
+# type parameter list in pint/facets/context/objects.py.
+[[tool.mypy.overrides]]
+module = ["pint", "pint.*"]
+follow_imports = "skip"
+follow_imports_for_stubs = true
