@@ -1,0 +1,38 @@
+name: Feature idea
+description: Suggest something new
+title: ""
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A clear feature request helps. What would you use it for?
+
+        Nothing that identifies a real person. No contacts, no real
+        mailbox, no home folder. Springfield is the town we keep.
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: F1 in the window, or which release you're using.
+      placeholder: 0.2.9
+    validations:
+      required: true
+  - type: textarea
+    id: feature
+    attributes:
+      label: What you'd like
+      description: The feature itself, in plain words.
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why it would help
+      description: Your use case. What would this let you do?
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you've tried
+      description: Optional. Workarounds you've used, or why existing features don't quite fit.
