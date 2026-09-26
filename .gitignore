@@ -131,3 +131,7 @@ physhw/
 
 # Typechecker and audit scratch output. Regenerated on demand.
 mypy_out.txt
+
+# Test artifacts. Agent and CI ephemera, not product.
+/test_run.log
+/TEST_REPORT.md
