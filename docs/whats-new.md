@@ -11,6 +11,12 @@ Notes: [v0.2.9](releases/v0.2.9.md). Older:
 
 ## This checkout
 
+The house now serves the companion APK. Settings → Notify grows a
+camera QR when `companion/arelis.apk` is present (`python
+scripts/build_companion.py`). A paired phone offers a newer
+versionCode and installs it with one tap. Gemma tries this PC first.
+Signing stays in env secrets — nothing that can sign as you is in git.
+
 Notes for the tree you have now. Reality's room still ships. Earth and
 the true-scale globe stay on a source checkout. The 3D plate does not
 go in the installer.

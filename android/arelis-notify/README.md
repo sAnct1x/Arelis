@@ -1,7 +1,9 @@
 # Arelis (Android)
 
-One sideloaded app. Scan the QR on the PC, then talk. This is not a
-Play Store build, and it is not a second copy of Arelis.
+One sideloaded app. The house serves updates. Scan the **Get the app**
+QR on the PC with the camera, install, then scan the pair QR with this
+app. This is not a Play Store build, and it is not a second copy of
+Arelis.
 
 When the PC is reachable, the first open of the day is a new chat
 (orbit), like the PC. Yesterday stays under **chats**. When the house
@@ -15,7 +17,16 @@ Google Messages stays your messenger. SMS/RCS grants are **optional**
 
 ## Build / install
 
-1. Open this folder in Android Studio (Giraffe+ / SDK 34).
+From the repo root: `python scripts/build_companion.py`. That stages
+`companion/arelis.apk` so Settings → Notify can hand it to the phone.
+Release signing reads `ARELIS_ANDROID_KEYSTORE*` from the environment.
+Without those you get a debug APK. Never commit a keystore — this repo
+is public. `python scripts/generate_android_keystore.py` writes one
+outside the tree.
+
+Android Studio still works:
+
+1. Open this folder (Giraffe+ / SDK 34).
 2. Sync Gradle, connect the phone, **Run** the `app` configuration.
 3. Or: `./gradlew :app:assembleDebug` (Windows: `gradlew.bat`) then
    install `app/build/outputs/apk/debug/app-debug.apk`.

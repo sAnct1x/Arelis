@@ -10,6 +10,11 @@ jobs:
         env:
           CURSOR_WEBHOOK_URL: ${{ secrets.CURSOR_WEBHOOK_URL }}
           CURSOR_WEBHOOK_KEY: ${{ secrets.CURSOR_WEBHOOK_KEY }}
+          REL_TAG: ${{ github.event.release.tag_name }}
+          REL_NAME: ${{ github.event.release.name }}
+          REL_BODY: ${{ github.event.release.body }}
+          REL_URL: ${{ github.event.release.html_url }}
+          REL_ACTION: ${{ github.event.action }}
         run: |
           set -euo pipefail
           if [ -z "${CURSOR_WEBHOOK_URL}" ] || [ -z "${CURSOR_WEBHOOK_KEY}" ]; then
@@ -21,9 +26,9 @@ jobs:
             -H "Content-Type: application/json" \
             -H "X-GitHub-Event: release" \
             -d "$(jq -n \
-              --arg tag "${{ github.event.release.tag_name }}" \
-              --arg name "${{ github.event.release.name }}" \
-              --arg body "${{ github.event.release.body }}" \
-              --arg url "${{ github.event.release.html_url }}" \
-              --arg action "${{ github.event.action }}" \
+              --arg tag "$REL_TAG" \
+              --arg name "$REL_NAME" \
+              --arg body "$REL_BODY" \
+              --arg url "$REL_URL" \
+              --arg action "$REL_ACTION" \
               '{action:$action, release:{tag_name:$tag, name:$name, body:$body, html_url:$url}}')"

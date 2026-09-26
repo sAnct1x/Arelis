@@ -20,12 +20,25 @@ object GemmaStore {
 
     fun ready(dest: File): Boolean = dest.isFile && dest.length() > MIN_BYTES
 
-    fun download(context: Context, onProgress: (Long, Long) -> Unit): File {
+    fun download(
+        context: Context,
+        onProgress: (Long, Long) -> Unit,
+        fromHouse: ArelisClient? = null,
+    ): File {
         val dest = file(context)
         val part = File(dest.absolutePath + ".part")
+        if (fromHouse != null) {
+            try {
+                if (fromHouse.downloadCompanionGemma(part, onProgress)) {
+                    return finish(dest, part)
+                }
+            } catch (_: Exception) {
+                // House missing the file, or the LAN dropped. Hugging Face is the fallback.
+            }
+        }
         val client = OkHttpClient.Builder()
             .connectTimeout(30, TimeUnit.SECONDS)
-            .readTimeout(5, TimeUnit.MINUTES)
+            .readTimeout(30, TimeUnit.MINUTES)
             .build()
         val req = Request.Builder()
             .url(URL)
@@ -35,25 +48,37 @@ object GemmaStore {
             if (!resp.isSuccessful) {
                 throw IllegalStateException("Could not download Gemma (HTTP ${resp.code}).")
             }
-            val total = resp.body?.contentLength() ?: -1L
-            val source = resp.body?.byteStream() ?: throw IllegalStateException("Empty Gemma download.")
-            FileOutputStream(part).use { out ->
-                val buf = ByteArray(64 * 1024)
-                var got = 0L
-                while (true) {
-                    val n = source.read(buf)
-                    if (n < 0) break
-                    out.write(buf, 0, n)
-                    got += n
-                    onProgress(got, total)
-                }
-            }
+            writeStream(resp.body?.byteStream(), resp.body?.contentLength() ?: -1L, part, onProgress)
         }
+        return finish(dest, part)
+    }
+
+    internal fun finish(dest: File, part: File): File {
         if (dest.exists()) dest.delete()
         if (!part.renameTo(dest)) {
             part.copyTo(dest, overwrite = true)
             part.delete()
         }
         return dest
+    }
+
+    internal fun writeStream(
+        source: java.io.InputStream?,
+        total: Long,
+        part: File,
+        onProgress: (Long, Long) -> Unit,
+    ) {
+        val input = source ?: throw IllegalStateException("Empty Gemma download.")
+        FileOutputStream(part).use { out ->
+            val buf = ByteArray(64 * 1024)
+            var got = 0L
+            while (true) {
+                val n = input.read(buf)
+                if (n < 0) break
+                out.write(buf, 0, n)
+                got += n
+                onProgress(got, total)
+            }
+        }
     }
 }

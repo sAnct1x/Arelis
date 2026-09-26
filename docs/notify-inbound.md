@@ -6,7 +6,9 @@ radio starts on Wi-Fi, ethernet, or cellular — it no longer sits silent
 on mobile data. `0.0.0.0` is bind-only; the advertised listen URL is a
 real IPv4 when one exists. SMS and RCS grants are optional (Settings →
 Texts in the app). Google Messages stays your messenger. This is not a
-Play Store build.
+Play Store build. The house serves the APK: Settings → Notify grows a
+camera QR that downloads it from this PC, and a paired phone offers a
+newer one the same way. One tap to install. Not silent.
 
 When the PC is reachable, the first open of the local day is a new chat
 — empty orbit, same as glass cold launch. Yesterday stays under
@@ -56,14 +58,20 @@ are not flooded with backlog.
    listener.
 2. Put a shared token in `data/secrets.yaml` under `sms.ingest_token`
    (see `data/secrets.example.yaml`), or set `ARELIS_INGEST_TOKEN`.
-3. Sideload the companion from `android/arelis-notify/` (application id
-   `app.arelis`). Uninstall the old Notify app first.
-4. On the phone: scan the QR on Settings → Notify (or paste the pairing
-   text). Same LAN so the PC can reach the phone. You can talk
-   immediately. SMS grants are not required for talk. The radio still
-   starts on cellular if that is the only IPv4.
+3. On the phone camera (not the Arelis app), scan **Get the app** on
+   Settings → Notify. That page is this PC. Download, install
+   (`app.arelis`). Uninstall the old Notify package first if it is still
+   `app.arelis.notify`. A checkout with no APK will say so — run
+   `python scripts/build_companion.py` on the PC, then reopen Notify.
+4. Open Arelis and scan the pair QR (or paste the pairing text). Same
+   LAN so the PC can reach the phone. You can talk immediately. SMS
+   grants are not required for talk. The radio still starts on cellular
+   if that is the only IPv4.
 5. After pair, install the offline brain (~2.6 GB) so she still talks
-   if the PC is down. Wait for Wi-Fi, or use mobile data on purpose.
+   if the PC is down. The phone asks this PC first; Hugging Face is the
+   fallback if the house has not cached it. **Fetch offline brain** on
+   Notify pulls it onto the PC. Wait for Wi-Fi, or use mobile data on
+   purpose.
 6. Optional, only if you want the text hose: **Settings → Texts**, then
    Allow restricted settings, SMS, notification access, Battery
    Unrestricted. Pairing and texts are once; chat is the home screen.
@@ -145,6 +153,8 @@ on the phone and retry when the PC is back. A 429 is "slow down", not
 | Pairing 409 | QR was for a different Windows account's Arelis |
 | Some texts, not others | Muted chat? Battery optimization? |
 | Updates in a thread missing | Rebuild / reinstall companion. Check log for `published=false` |
+| Phone app never offers an update | This Arelis has no APK. Checkout: `python scripts/build_companion.py`. Installed: the setup exe should have bundled one. Same signing key as the APK already on the phone, or Android will ask you to uninstall. |
+| Get the app QR missing | No APK next to this Arelis. The pair QR is still the Arelis scanner. |
 | Core running, empty window | UI not IPC-attached |
 | SMS radio never sees RCS | Expected. Keep Google Messages plus notification access |
 | Picture shows as a Photo chip | Rebuild/sideload companion 0.3.2+. Google Messages often posts no bytes; the listener now also reads MessagingStyle image URIs, not the contact avatar. |

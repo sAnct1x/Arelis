@@ -23,6 +23,11 @@ import androidx.compose.ui.unit.sp
 fun SettingsScreen(
     paired: Boolean,
     language: String,
+    phoneName: String,
+    phoneCode: Int,
+    houseName: String,
+    arelisVersion: String,
+    compatNote: String,
     onBack: () -> Unit,
     onPair: () -> Unit,
     onTexts: () -> Unit,
@@ -109,6 +114,48 @@ fun SettingsScreen(
                             Text("selected", color = Campfire.accent, fontSize = 12.sp)
                         }
                     }
+                }
+            }
+            Spacer(Modifier.height(Ember.gap))
+            GlassCard(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    "versions",
+                    color = Campfire.accent,
+                    fontSize = 11.sp,
+                    letterSpacing = 1.8.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "this phone $phoneName ($phoneCode)",
+                    color = Campfire.text,
+                    fontWeight = FontWeight.Medium,
+                    fontSize = 17.sp,
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    buildString {
+                        if (arelisVersion.isNotBlank()) {
+                            append("Arelis $arelisVersion on the PC")
+                        } else {
+                            append("Arelis version unknown until the house answers")
+                        }
+                        if (houseName.isNotBlank()) {
+                            append(". Companion APK there: $houseName")
+                        }
+                    },
+                    color = Campfire.dim,
+                    fontSize = 13.sp,
+                    lineHeight = 18.sp,
+                )
+                if (compatNote.isNotBlank()) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        compatNote,
+                        color = Campfire.text,
+                        fontSize = 13.sp,
+                        lineHeight = 18.sp,
+                    )
                 }
             }
             Spacer(Modifier.height(Ember.gap))

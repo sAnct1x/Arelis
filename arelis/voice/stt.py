@@ -575,8 +575,8 @@ class SpeechToText:
         kwargs = {"device": device, "compute_type": compute_type}
         try:
             self._model = WhisperModel(size, local_files_only=True, **kwargs)
-        except Exception:
-            log.info("Whisper cache miss; downloading %s", size)
+        except Exception as exc:
+            log.warning("Whisper cache miss; downloading %s: %s", size, exc)
             self._model = WhisperModel(size, **kwargs)
         return self._model
 

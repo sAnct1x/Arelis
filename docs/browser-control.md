@@ -9,6 +9,9 @@ profile. She does not enter passwords,
 OTP codes, or payment fields. Relaunch never runs `taskkill /IM
 chrome.exe`.
 
+> Controlling the Windows desktop is a separate Arelis feature.
+> See [Desktop Control](desktop-control.md) for more information.
+
 Ask her to open a page and she does. If she offers a window you did not
 ask for, you still get allow / deny.
 
