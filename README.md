@@ -202,9 +202,9 @@ For calendar, see [calendar-oauth.md](docs/calendar-oauth.md). Note
 that scheduled jobs need mail set up first — details in
 [jobs.md](docs/jobs.md).
 
-## Using her
+## Using Arelis
 
-**The window.** Sodium is the default face — just type in the box.
+**The window.** Sodium is the default face. Type in the box to chat.
 Once you send a message, you'll see the full workbench: chat,
 composer, and docks for thinking, files, history, contacts, and
 notifications. She follows your Windows display scale (1080p, 2K,
@@ -226,51 +226,15 @@ actually use the same model (`qwen3.5:9b`, unless you picked something
 else) — Research just means a longer reasoning loop, not a bigger
 model. See [models.md](docs/models.md).
 
-**Phone.** One sideloaded **Arelis** app, paired by scanning the QR
-code in Settings → Notify. Google Messages stays your everyday
-messenger — she sends texts from your SIM only after you approve the
-card. If the PC is off, the phone keeps its own conversation going; if
-you installed Gemma during pairing (~2.6 GB), she can keep talking
-on-device, and those messages sync back once the PC is up again.
-
-**Her browser.** Not your everyday Chrome — her own separate window
-that you can watch. She'll never type a password or click Book, Pay,
-or Checkout. See [browser-control.md](docs/browser-control.md).
-
-**Voice.** Wait until the idle line says **say "hey arelis"** — not
-**getting the ear…**. A bare name still will not wake her.
-Ctrl+Shift+M starts a conversation, Ctrl+M is for dictation.
-Details in [voice-wake.md](docs/voice-wake.md).
-
-**Jobs.** Found under the calendar tile (Ctrl+7). Set a prompt and a
-time, and she'll email you the answer. Requires mail to be set up —
-see [jobs.md](docs/jobs.md). "Remind me in 20 minutes" is a timer, not
-a job.
+**Optional features:**
+- **Voice:** Wait until the idle line says **say "hey arelis"** — not **getting the ear…**. A bare name still will not wake her. `Ctrl+Shift+M` starts a conversation, `Ctrl+M` is for dictation. See [voice-wake.md](docs/voice-wake.md).
+- **Her browser:** Not your everyday Chrome — her own separate window that you can watch. She'll never type a password or click Book, Pay, or Checkout. See [browser-control.md](docs/browser-control.md).
+- **Phone app:** One sideloaded **Arelis** app, paired by scanning the QR code in Settings → Notify. Google Messages stays your everyday messenger — she sends texts from your SIM only after you approve the card. If the PC is off, the phone keeps its own conversation going; if you installed Gemma during pairing (~2.6 GB), she can keep talking on-device, and those messages sync back once the PC is up again. See [notify-inbound.md](docs/notify-inbound.md).
+- **Mail, calendar, texting:** All stay off until you connect them. Configuration lives in `data/secrets.yaml`. See [calendar-oauth.md](docs/calendar-oauth.md) and the optional extras section above.
+- **Jobs:** Found under the calendar tile (`Ctrl+7`). Set a prompt and a time, and she'll email you the answer. Requires mail to be set up — see [jobs.md](docs/jobs.md). "Remind me in 20 minutes" is a timer, not a job.
 
 **Memory.** Managed under Settings → Memory. Dated backups are kept in
 `data\backups\` for two weeks.
-
-## Using Arelis
-
-**The main window.** Type in the box to chat. Once you send a message,
-you'll see the full workbench: chat, composer, and docks for thinking,
-files, history, contacts, and notifications. Press **F1** anytime for
-keyboard shortcuts and the current version.
-
-**Rooms.** The main chat is for everyday questions. Longer projects go
-in rooms - each has a name, a folder, and its own thread. `/room physics`
-takes you in, `/leave` takes you out. See [rooms.md](docs/rooms.md).
-
-**Roles.** `/role fast` and `/role research` both use the same model
-(unless you picked something else during setup). Research just runs a
-longer reasoning loop. See [models.md](docs/models.md).
-
-**Optional features:**
-- **Voice:** Wait for **say "hey arelis"** in the status line. `Ctrl+Shift+M` starts a conversation, `Ctrl+M` is dictation. See [voice-wake.md](docs/voice-wake.md).
-- **Her browser:** A separate window you can watch. She won't type passwords or click Book, Pay, or Checkout. See [browser-control.md](docs/browser-control.md).
-- **Phone app:** One sideloaded Android app paired by scanning a QR code in Settings → Notify. See [notify-inbound.md](docs/notify-inbound.md).
-- **Mail, calendar, texting:** All stay off until you connect them. Configuration lives in `data/secrets.yaml`. See [calendar-oauth.md](docs/calendar-oauth.md) and the optional extras section above.
-- **Jobs:** Timed prompts that email you the answer. Found under the calendar tile (`Ctrl+7`). Requires mail setup. See [jobs.md](docs/jobs.md).
 
 Type `/tools` in the chat for the full list of what she can do.
 
