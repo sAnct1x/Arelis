@@ -273,6 +273,10 @@ changes.
 
 ## Contributing
 
+Questions about setting up or using Arelis go in
+[Discussions](https://github.com/sAnct1x/Arelis/discussions), and so do
+ideas. Bugs go in [Issues](https://github.com/sAnct1x/Arelis/issues).
+
 See [CONTRIBUTING.md](CONTRIBUTING.md). Found a security hole? Please
 report it privately per [SECURITY.md](SECURITY.md) rather than opening
 a public issue.
