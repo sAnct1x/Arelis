@@ -29,6 +29,7 @@ _SKIP_TOOLS = frozenset(
         "send_email",
         "inbox",
         "run_script",
+        "run_task",
         "schedule",
     }
 )

@@ -211,7 +211,7 @@ def _wrap(delta: float) -> float:
 
 @dataclass
 class WorldScene:
-    """Bodies on one plane. A fist near one grabs. Two pinches stretch that one."""
+    """Bodies on one plane. One pinch grabs. Two pinches stretch that one."""
 
     bodies: list[Disc] = field(default_factory=_starter_bodies)
     last_release_speed: float = 0.0
@@ -250,7 +250,7 @@ class WorldScene:
                     return
         if pose == "open":
             return
-        reach = NEAR_SLACK if pose == "fist" else SCALE_REACH
+        reach = SCALE_REACH
         best: Disc | None = None
         best_d = 1e9
         for body in self.bodies:
@@ -575,17 +575,18 @@ class WorldScene:
         self._pz = None if z is None else min(1.0, max(0.0, float(z)))
         self._p_ang = None if angle is None else float(angle)
         owner = str(who or "")
-        pose = (kind or ("fist" if grabbing else "open")).lower()
-        if pose not in ("open", "fist", "pinch"):
-            pose = "fist" if grabbing else "open"
+        pose = (kind or ("pinch" if grabbing else "open")).lower()
+        # A fist is a hard pinch. Callers that still say fist get the pinch.
+        if pose == "fist":
+            pose = "pinch"
+        if pose not in ("open", "pinch"):
+            pose = "pinch" if grabbing else "open"
         self._expire_lost_scaler(now)
         if not self.bodies:
             return
         self._bind(px, py, owner, pose)
         try:
-            if pose == "fist":
-                self._apply_fist(px, py, owner, now)
-            elif pose == "pinch":
+            if pose == "pinch":
                 self._apply_pinch(px, py, owner, now)
             else:
                 self._apply_open(owner, now)
@@ -617,66 +618,25 @@ class WorldScene:
         self._note_peak(now)
         self._mark_pointer(now)
 
-    def _apply_fist(self, px: float, py: float, owner: str, now: float) -> None:
-        if self._hit is None:
-            return
-        if self.disc.attached:
-            if owner and owner == self.disc.scaler:
-                return
-            if owner and owner == self.disc.holder:
-                self._mark_grip(owner, px, py, "fist")
-                if self.disc.scaler:
-                    return
-                self._follow_fist(px, py, now)
-                self._apply_fist_turn()
-                return
-            if owner and self.disc.holder and owner != self.disc.holder:
-                return
-            if owner and not self.disc.holder:
-                if not self.near(px, py):
-                    return
-                self._mark_grip(owner, px, py, "fist")
-                self.disc.holder = owner
-                self._lock_hold()
-                self._follow_fist(px, py, now)
-                self._apply_fist_turn()
-                return
-        elif not self.near(px, py):
-            return
-        elif (
-            owner
-            and owner == self._last_holder
-            and self._released_at >= 0
-            and now - self._released_at < REGRAB_LOCK
-        ):
-            return
-        self._mark_grip(owner, px, py, "fist")
-        if not self.disc.attached:
-            self._trail.clear()
-            self._clear_peak()
-            self._clear_hitch()
-            self._clear_spin(self.disc)
-            self.disc.holder = owner
-            self._lock_hold()
-        self.disc.attached = True
-        self._follow_fist(px, py, now)
-        self._apply_fist_turn()
-
     def _apply_fist_turn(self) -> None:
-        """Palm angle delta. Fist rotate; pinch does not call this."""
+        """In-plane aim delta while a grab is held.
+
+        A short bone flips by about half a turn when the hand goes
+        edge-on. That spike is not a twist, so it is dropped.
+        """
         ang = self._p_ang
         if ang is None:
             return
         if self.disc._spin_last is not None:
-            self.disc.angle += _wrap(ang - self.disc._spin_last)
+            delta = _wrap(ang - self.disc._spin_last)
+            if abs(delta) <= 0.5:
+                self.disc.angle += delta
         self.disc._spin_last = ang
 
     def _apply_pinch(self, px: float, py: float, owner: str, now: float) -> None:
         if self._hit is None:
             return
         if self.disc.attached:
-            if self._grip_kind.get(self.disc.holder) == "fist":
-                return
             if owner and owner == self.disc.scaler:
                 self._scaler_lost_at = -1.0
                 self._mark_grip(owner, px, py, "pinch")
@@ -690,6 +650,7 @@ class WorldScene:
                     self._orbit_spin(px, py)
                 else:
                     self._follow_fist(px, py, now)
+                    self._apply_fist_turn()
                 return
             if (
                 owner
@@ -750,6 +711,7 @@ class WorldScene:
                 self._lock_hold()
             self.disc.attached = True
             self._follow_fist(px, py, now)
+            self._apply_fist_turn()
             return
         self._mark_grip(owner, px, py, "pinch")
         self.disc.attached = True
@@ -970,14 +932,13 @@ class WorldScene:
                 scaler = self.disc.scaler
                 self._end_scale()
                 self._scaler_lost_at = -1.0
-                if self._grip_kind.get(holder) != "fist":
-                    self.disc.attached = False
-                    self.disc.holder = ""
-                    self._pop_hands(holder, scaler)
+                self.disc.attached = False
+                self.disc.holder = ""
+                self._pop_hands(holder, scaler)
         self._hit = None
 
     def drop(self, t: float | None = None, *, who: str = "") -> None:
-        """Detach. A lost scaler just leaves scale; a lost fist throws."""
+        """Detach. A lost scaler just leaves scale; a lost grab throws."""
         now = time.perf_counter() if t is None else float(t)
         if who:
             body = self._body_for(who)
@@ -1195,12 +1156,6 @@ class WorldScene:
         self.disc.vy = 0.0
 
     def _end_scale(self) -> None:
-        holder = self._grips.get(self.disc.holder)
-        if holder is not None and self._grip_kind.get(self.disc.holder) == "fist":
-            # Stay where the stretch left the disc. Snapping onto the remaining
-            # fist is what made the next join a fight.
-            self._hold_dx = self.disc.x - holder[0]
-            self._hold_dy = self.disc.y - holder[1]
         self.disc.scaler = ""
         self._scale_last = 0.0
         self._scale_seen.clear()

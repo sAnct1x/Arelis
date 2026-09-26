@@ -202,7 +202,9 @@ def test_own_httpx_fetchers_fail_soft(
     if hasattr(mod, "httpx"):
         monkeypatch.setattr(mod.httpx, "Client", _TimeoutClient)
     got = getattr(mod, func_name)()
-    assert got in (None, [])
+    from arelis.earth.entity import FeedMiss
+
+    assert got is None or got == [] or isinstance(got, FeedMiss)
 
 
 _FIXTURE_DIR = __import__("pathlib").Path(__file__).resolve().parent / "fixtures" / "earth"

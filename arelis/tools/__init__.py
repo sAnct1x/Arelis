@@ -55,6 +55,7 @@ from arelis.tools.remind import RemindTool
 from arelis.tools.research_report import ResearchReportTool
 from arelis.tools.rooms_tool import RoomsTool
 from arelis.tools.run_script import RunScriptTool
+from arelis.tools.run_task import RunTaskTool
 from arelis.tools.schedule_jobs import ScheduleTool
 from arelis.tools.scrape import ScrapeTool
 from arelis.tools.search import build_search_tool
@@ -403,6 +404,7 @@ def build_tool_registry(
     if attended and run_cfg.get("enabled", True):
         python = str(run_cfg.get("python") or "").strip() or None
         registry.register(RunScriptTool(workspace, python=python))
+        registry.register(RunTaskTool(workspace, python=python))
     if tools_cfg.get("analyze", {}).get("enabled", True):
         registry.register(AnalyzeTool(workspace))
     if tools_cfg.get("sql", {}).get("enabled", True):

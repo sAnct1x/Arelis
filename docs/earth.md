@@ -73,15 +73,15 @@ box (via OpenSky's bounding-box query, 1 credit per call) and keeps
 TLE refresh so sats stay. Near adds boats. City band
 opens every layer whose chip is switched on — cameras, traffic,
 weather, incident sites — still filtered down to the look area and
-capped in volume. The globe stops painting the sat swarm in
-near/city (ISS and a tracked mark stay); CelesTrak still refreshes
-so the shell is not cold when you climb back out. Layer chips all
-start off except for **Sats** and
-**ISS**. The bar itself only ever shows what the current band can
-actually use: space keeps just those two on; approach adds flights;
-near adds boats; city opens the rest. Clicking a country or city on
-the globe lets you fall toward it. A chip that's off simply isn't
-being fetched at all.
+capped in volume. The globe keeps the satellite sample through approach. Near and
+city stop painting the swarm (ISS and a tracked mark stay).
+CelesTrak still refreshes so the shell is not cold when you climb
+back out. **Sats** and **ISS** start on. The first time the eye enters
+approach, **Flights** turns on. Near adds **Vessels**. City adds
+**Cameras**. Weather, traffic, military, and drones stay a click.
+Turn one off and it stays off until you turn it back on. Leave
+resets. The bar only shows what this band can use. A chip that's
+off is not fetched.
 
 Natural Earth country borders are painted directly onto the globe so
 continents actually read clearly (public domain data, cached in ECEF
@@ -148,7 +148,9 @@ What shows up on the globe is only what a receiver or operator has
 already chosen to publish. This isn't meant to be a US-centric map,
 either — NYC, for instance, is represented by one municipal catalog
 among many. `merge_live` only runs the adapters that the current band
-and enabled chips allow, in parallel, then caps the fetch. The plate
+and enabled chips allow, in parallel, then caps the fetch. A 429,
+a missing AISStream key, and a feed that does not answer are named
+misses. An empty list is the only quiet box. The plate
 filters to the current look box. Walking that box invalidates air,
 sea, cameras, radio, weather, traffic, and fires so the next city
 is not last city's pins.
@@ -164,12 +166,14 @@ is not last city's pins.
 | Airports | OurAirports' large/medium scheduled-service fields — not a live radar feed. |
 | Ocean floats | Argo's last-fix samples (via IFREMER ERDDAP, capped at 80) — not a painted subsurface shell. |
 | Every car | A genuine gap. We use 511 / WZDx / Open511 / official ArcGIS catalogs, not individual VINs. |
-| Every camera | TfL, Caltrans, NYC, SG LTA, Fintraffic, HK TD, CARS 511 (ON, MB, NS, AB, SK, FL, NY, CO, IA, MN, GA), ODOT TripCheck, SHA/NDDOT, ALGO, DelDOT, NZTA, Quebec 511, and OSM worldwide. These show as pins; official stills or streams play on click, when the publisher's own JSON includes them. The URL itself isn't stored on the pin. |
+| Every camera | TfL, Caltrans, NYC, SG LTA, Fintraffic, HK TD, CARS 511 (ON, MB, NS, AB, SK, FL, NY, CO, IA, MN, GA), ODOT TripCheck, SHA/NDDOT, ALGO, DelDOT, NZTA, Quebec 511, and OSM worldwide. Highway stills play on click when that catalog's JSON includes one. An OSM `contact:webcam` or `website:webcam` that is a public http(s) page plays on click too. The URL isn't stored on the pin. A surveillance tag with no published page is not a camera you can view. An IP address is not a layer. |
 | Continents / countries / states | Natural Earth 110m border lines on the globe (cached in ECEF). Fill color only shows while the globe is small — not a live feed. |
 | Ground imagery | NASA GIBS Blue Marble from space. Daily VIIRS true-color closer in. From space and at night in approach, NASA Black Marble city lights. A published mosaic, not a live pass. |
 | Street-level tiles | Named highway overlays on GIBS / photoreal when Streets is on (Overpass, ODbL). OSM raster is the city underlay below ~15 km when photoreal is off — not a swap of the planet from space. |
 | 3D cities | Google Photorealistic 3D Tiles at city sit (~8 km and below), when `earth.google_maps_key` is set — covered cities only. The hop itself stays on the mosaic. |
 | City blocks | Cesium photoreal below ~8 km when `earth.google_maps_key` is set — covered cities only. Overpass footprints still live in `buildings.py`; the Buildings chip is off the bar. Individual houses stay unlabeled. |
+| Every earthquake | USGS all-day, EMSC, and GeoNet. Heat from space: bigger magnitude, bigger glow. The city look keeps the ones in the box. |
+| Every fire | NASA FIRMS VIIRS, last day, if `earth.firms_key` is set. Heat, not a pin. Cloud and the next pass hide fires. Not a perimeter. |
 | Every satellite | CelesTrak's GNSS / weather / visual / science / comm catalogs, plus Starlink/OneWeb/Planet samples — not a painted orbital shell of everything up there. |
 | Military | adsb.lol's public squawk data only — aircraft that stay silent simply stay absent from the map. |
 | Your own video | RTSP, a local webcam, or an HTTP MJPEG/snapshot feed you've pasted in yourself. Clicking the pin plays the live footage, with an eye rendered in the frustum if you've set a heading. Face detection boxes stay in local ENU coordinates only — WGS84 precision is enough for placing the pin itself. |

@@ -141,7 +141,6 @@ class _ComposerLineEdit(QPlainTextEdit):
             event.accept()
             return
         super().keyPressEvent(event)
-        self.ensureCursorVisible()
 
 
 _STAGE_MARGIN_TOP = SPACE["inset"]
@@ -628,8 +627,49 @@ class ConversationStage(GlassFrame):
             self._fit_workbench_prompt()
         self._sync_composer_buttons()
 
+    def _settle_prompt_box(self, *, floor: int, cap_lines: int, inner: int) -> None:
+        """Size the field to the wrapped draft.
+
+        The document's own size stays one line until the viewport catches
+        the new width, so the height has to come from the font metrics.
+        Padding sits inside the widget: a short field plus the caret scroll
+        hides the start of the prompt and leaves no bar to get it back.
+        """
+        edit = self.input
+        edit.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        edit.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        fm = edit.fontMetrics()
+        line_h = max(fm.lineSpacing(), fm.height(), 1)
+        wrapped = fm.boundingRect(
+            QRect(0, 0, max(1, inner), 10_000),
+            Qt.TextFlag.TextWordWrap,
+            edit.toPlainText() or " ",
+        )
+        view_h = edit.viewport().height()
+        chrome = (edit.height() - view_h) if 0 < view_h < edit.height() else 16
+        cap = line_h * cap_lines + chrome
+        height = max(floor, min(cap, wrapped.height() + chrome))
+        edit.setFixedHeight(height)
+        bar = edit.verticalScrollBar()
+        if bar.maximum() > 0 and height < cap:
+            height = min(cap, height + int(bar.maximum()) + 2)
+            edit.setFixedHeight(height)
+        fits = edit.verticalScrollBar().maximum() <= 0
+        edit.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+            if fits
+            else Qt.ScrollBarPolicy.ScrollBarAsNeeded
+        )
+        if fits:
+            edit.verticalScrollBar().setValue(0)
+            edit.horizontalScrollBar().setValue(0)
+        else:
+            edit.ensureCursorVisible()
+
     def _fit_idle_prompt(self) -> None:
-        """Widen with the sentence, then wrap — never clip the start."""
+        """Widen with the sentence, then wrap. Show the whole draft until it
+        is past six lines.
+        """
         if not self._idle_mode:
             return
         empty = getattr(self.chat, "empty", None)
@@ -656,46 +696,24 @@ class ConversationStage(GlassFrame):
             width = min(max_w, max(160, ph_w))
         self.input.setFixedWidth(width)
         host.setFixedWidth(width)
-        self.input.resize(width, max(36, self.input.height()))
-        doc = self.input.document()
-        doc.setTextWidth(max(1.0, float(width - 16)))
-        line_h = max(fm.lineSpacing(), fm.height())
-        inner = max(1, width - 16)
-        wrapped = fm.boundingRect(QRect(0, 0, inner, 10_000), Qt.TextFlag.TextWordWrap, raw or " ")
-        content_h = max(math.ceil(doc.size().height()), wrapped.height()) + 12
-        height = max(36, min(line_h * 5 + 16, content_h))
-        overflow = content_h > height
-        self.input.setVerticalScrollBarPolicy(
-            Qt.ScrollBarPolicy.ScrollBarAsNeeded
-            if overflow
-            else Qt.ScrollBarPolicy.ScrollBarAlwaysOff
-        )
-        self.input.setFixedHeight(height)
+        self._settle_prompt_box(floor=36, cap_lines=6, inner=max(1, width - 16))
         if hasattr(empty, "fit_prompt"):
-            empty.fit_prompt(width, height, typing=typing)
+            empty.fit_prompt(width, self.input.height(), typing=typing)
 
     def _fit_workbench_prompt(self) -> None:
-        """Wrap and grow a few lines so a long draft is not clipped off-screen."""
+        """Wrap and grow until the draft is on screen, then scroll."""
         if self._idle_mode:
             return
-        fm = self.input.fontMetrics()
-        raw = self.input.text()
-        line_h = max(fm.lineSpacing(), fm.height())
-        inner = max(1, self.input.viewport().width() - 8)
-        wrapped = fm.boundingRect(
-            QRect(0, 0, inner, 10_000), Qt.TextFlag.TextWordWrap, raw or " "
+        if not self.input.text().strip():
+            self.input.setFixedHeight(int(METRICS["control"]))
+            self.input.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+            self.input.verticalScrollBar().setValue(0)
+            return
+        self._settle_prompt_box(
+            floor=int(METRICS["control"]),
+            cap_lines=6,
+            inner=max(1, self.input.viewport().width() - 8, self.input.width() - 16),
         )
-        content_h = wrapped.height() + 12
-        rest = int(METRICS["control"])
-        height = rest if not raw.strip() else max(rest, min(line_h * 5 + 16, content_h))
-        overflow = bool(raw.strip()) and content_h > height
-        self.input.setVerticalScrollBarPolicy(
-            Qt.ScrollBarPolicy.ScrollBarAsNeeded
-            if overflow
-            else Qt.ScrollBarPolicy.ScrollBarAlwaysOff
-        )
-        self.input.setFixedHeight(height)
-        self.input.ensureCursorVisible()
 
     def restore_composer_caret(self) -> None:
         """Put the caret back after Allow or a tool turn stole focus.
@@ -795,13 +813,16 @@ class ConversationStage(GlassFrame):
                 self.input.setParent(self._composer)
                 self._composer_row.insertWidget(1, self.input, stretch=1)
                 moved = True
-                self.input.setAlignment(Qt.AlignmentFlag.AlignLeft)
-                self.input.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
-                self.input.setMinimumWidth(0)
-                self.input.setMaximumWidth(16777215)
-                self.input.setSizePolicy(
-                    QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
-                )
+            # Idle parks a narrow, centered prompt on this same row and hides
+            # it. Opening the plate has to left-align and drop that fixed
+            # width, or the first character sits where the transcript starts.
+            self.input.setAlignment(Qt.AlignmentFlag.AlignLeft)
+            self.input.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
+            self.input.setMinimumWidth(0)
+            self.input.setMaximumWidth(16777215)
+            self.input.setSizePolicy(
+                QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+            )
             self.input.show()
             self.input.setClearButtonEnabled(True)
             self._composer.show()

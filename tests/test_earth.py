@@ -169,31 +169,54 @@ def test_real_door_enter_turns_live_on(monkeypatch: pytest.MonkeyPatch) -> None:
     assert earth.active is False
 
 
-def test_closer_band_does_not_flip_layer_chips() -> None:
+def test_closer_band_opens_that_bands_layers() -> None:
     earth = EarthRuntime()
     earth.enter(unix=1.0)
     assert earth.layers["flights"] is False
     assert earth.layers["vessels"] is False
     assert earth.layers["cameras"] is False
+    assert earth.layers["traffic"] is False
     earth.note_view(EarthView("approach", alt_m=800_000.0, lat=0.0, lon=0.0))
+    assert earth.layers["flights"] is True
+    assert earth.layers["vessels"] is False
+    assert earth.layers["drones"] is False
+    earth.set_layer("flights", False)
+    earth.note_view(EarthView("near", alt_m=80_000.0, lat=0.0, lon=0.0))
     assert earth.layers["flights"] is False
-    assert earth.layers["vessels"] is False
-    earth.note_view(EarthView("near", alt_m=20_000.0, lat=0.0, lon=0.0))
-    assert earth.layers["vessels"] is False
+    assert earth.layers["vessels"] is True
+    assert earth.layers["military"] is False
     assert earth.tiles is False
     earth.note_view(EarthView("city", alt_m=20_000.0, lat=35.6, lon=139.7))
-    assert earth.layers["cameras"] is False
+    assert earth.layers["cameras"] is True
+    assert earth.layers["traffic"] is False
+    assert earth.layers["flights"] is False
     assert earth.tiles is False
     assert earth.buildings is False
     earth.note_view(EarthView("city", alt_m=4_000.0, lat=35.6, lon=139.7))
     assert earth.tiles is True
     assert earth.buildings is False
-    earth.note_view(EarthView("near", alt_m=20_000.0, lat=0.0, lon=0.0))
+    earth.note_view(EarthView("near", alt_m=80_000.0, lat=0.0, lon=0.0))
     assert earth.tiles is False
     assert earth.buildings is False
     earth.leave()
     assert earth.layers["satellites"] is True
     assert earth.layers["cameras"] is False
+    assert earth.held_off == set()
+
+
+def test_live_hides_the_sketch(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("arelis.earth.runtime._in_pytest", lambda: False)
+    earth = EarthRuntime()
+    earth.active = True
+    earth.live = True
+    earth.layers["satellites"] = True
+    earth.layers["iss"] = True
+    from arelis.earth.simulate import populate
+
+    populate(earth.store, 1.0)
+    earth.last_view = EarthView("space", alt_m=8_000_000.0, lat=0.0, lon=0.0)
+    assert earth.store.in_layer("satellites")
+    assert all(e.freshness != "simulated" for e in earth.visible())
 
 
 def test_layer_toggle_hides() -> None:
@@ -473,7 +496,8 @@ def test_ais_without_key_does_not_open_a_socket(
         raise AssertionError("websocket must not run without a key")
 
     monkeypatch.setattr(ais_mod, "_drain", _boom)
-    assert ais_mod.fetch_ais() is None
+    missed = ais_mod.fetch_ais()
+    assert getattr(missed, "reason", "") == "no_key"
 
 
 def test_ais_without_key_still_uses_digitraffic(
@@ -1349,6 +1373,50 @@ def test_osm_webcam_has_no_stream_url() -> None:
     assert pins[0].layer == "cameras"
     blob = str(pins[0].meta) + pins[0].cite
     assert "rtsp://" not in blob
+    from arelis.earth.look import forget, resolve
+
+    assert resolve("osm:node:99") is None
+    forget("osm:node:99")
+
+
+def test_published_webcam_opens_without_landing_on_the_pin() -> None:
+    from arelis.earth.look import describe, forget, published_url_ok, resolve
+    from arelis.earth.osm import _webcam_query, entities_from_elements
+
+    page = "https://harbor.example/cam.jpg"
+    pins = entities_from_elements(
+        [
+            {
+                "type": "node",
+                "id": 100,
+                "lat": 41.5,
+                "lon": -81.7,
+                "tags": {
+                    "name": "Harbor",
+                    "contact:webcam": page,
+                },
+            }
+        ]
+    )
+    assert len(pins) == 1
+    blob = str(pins[0].meta) + pins[0].cite + str(pins[0].coverage)
+    assert "harbor.example" not in blob
+    assert page not in blob
+    handle = resolve("osm:node:100")
+    assert handle is not None
+    assert handle.kind == "published"
+    assert "harbor.example" not in describe("osm:node:100", layer="cameras")
+    forget("osm:node:100")
+    query = _webcam_query((41.0, -82.0, 42.0, -81.0))
+    assert 'contact:webcam' in query
+    assert 'website:webcam' in query
+    assert 'camera:type"="webcam"' in query
+    assert published_url_ok(page)
+    assert not published_url_ok("https://insecam.org/en/view/1/")
+    assert not published_url_ok("http://203.0.113.8/video.mjpg")
+    assert not published_url_ok("http://user:pass@harbor.example/cam.jpg")
+    assert not published_url_ok("http://harbor.example:8080/cam.jpg")
+    assert not published_url_ok("rtsp://harbor.example/live")
 
 
 def test_look_from_allowlist_never_lands_on_the_pin(tmp_path: Path) -> None:
@@ -1546,9 +1614,11 @@ def test_earth_chips_toggle_live_and_layers(
     assert "tiles" in kinds
     assert "flights" in kinds
     assert "traffic" in kinds
-    assert earth.layers["flights"] is False
+    assert earth.layers["flights"] is True
+    assert earth.layers["cameras"] is True
     assert earth.layers["traffic"] is False
     assert not box.isEmpty()
+    earth.set_layer("flights", False)
     assert earth.layers["flights"] is False
     panel._toggle_earth_chip("flights")
     assert earth.layers["flights"] is True
@@ -2457,7 +2527,10 @@ def test_lod_gates_planes_boats_and_cameras() -> None:
     assert "satellites" in paint_layers("near")
     assert "cameras" not in paint_layers("near")
     assert "cameras" in paint_layers("city")
-    assert chip_layers("space") == ("satellites", "iss")
+    assert "quakes" in paint_layers("space")
+    assert "fires" in paint_layers("space")
+    assert "cameras" not in paint_layers("space")
+    assert chip_layers("space") == ("satellites", "iss", "quakes", "fires")
     assert "flights" in (chip_layers("approach") or ())
     assert "satellites" in (chip_layers("approach") or ())
     assert chip_layers("city") is None
@@ -2778,6 +2851,48 @@ def test_marks_read_as_their_kind(qt_app) -> None:
     assert _opaque_pixels(boat) > 40
     assert _opaque_pixels(plane) > 40
     assert _opaque_pixels(cam) > 40
+
+
+def test_space_heat_keeps_the_bigger_quake(monkeypatch: pytest.MonkeyPatch) -> None:
+    import arelis.earth.lod as lod
+    from arelis.earth.entity import Entity
+    from arelis.earth.lod import look_bbox, organize
+
+    monkeypatch.setitem(lod.LAYER_CAP, "quakes", 1)
+    small = Entity(
+        id="quake:small",
+        cls="quake",
+        layer="quakes",
+        label="M2.1",
+        x=0.0,
+        y=0.0,
+        z=0.0,
+        meta={"lat": 40.0, "lon": -83.0, "mag": 2.1},
+    )
+    big = Entity(
+        id="quake:big",
+        cls="quake",
+        layer="quakes",
+        label="M7.2",
+        x=0.0,
+        y=0.0,
+        z=0.0,
+        meta={"lat": -30.0, "lon": 140.0, "mag": 7.2},
+    )
+    view = EarthView("space", alt_m=8_000_000.0, lat=40.0, lon=-83.0)
+    kept = organize([small, big], view)
+    assert [e.id for e in kept] == ["quake:big"]
+    city = EarthView(
+        "city",
+        alt_m=2_000.0,
+        lat=40.0,
+        lon=-83.0,
+        bbox=look_bbox(40.0, -83.0, "city"),
+    )
+    # City heat is the one in the box, ranked nearest. Both sit in meta;
+    # the near one wins the single seat.
+    near_kept = organize([big, small], city)
+    assert near_kept[0].id == "quake:small"
 
 
 def test_city_visible_drops_far_quakes() -> None:

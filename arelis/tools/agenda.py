@@ -20,6 +20,7 @@ from arelis.calendar.models import CachedEvent, same_event_slot
 from arelis.calendar.secrets import load_calendar_secrets
 from arelis.calendar.service import CalendarService
 from arelis.calendar.store import CalendarStore
+from arelis.core.reliance.conflicts import find_overlaps, overlap_line
 from arelis.tools.base import ToolResult
 
 log = logging.getLogger(__name__)
@@ -553,11 +554,15 @@ class AgendaTool:
         calendar_id = str(kwargs.get("calendar_id") or "").strip() or None
 
         # Idempotency: refuse a second POST for the same title+start (S11).
+        # A different event on the same hour still creates; the result names it.
+        overlap_note = ""
+        overlap_rows: list[dict[str, str]] = []
         store = CalendarStore()
         try:
             day = starts_at.date()
+            end_day = (ends_at or starts_at).date()
             cached = store.list_range(
-                day, day, provider=provider or None
+                day, end_day, provider=provider or None
             )
             for hit in cached:
                 if _same_event(summary, starts_at, hit):
@@ -573,6 +578,21 @@ class AgendaTool:
                             "duplicate": True,
                         },
                     )
+            overlaps = find_overlaps(
+                start=starts_at,
+                end=ends_at,
+                events=[hit.as_dict() for hit in cached],
+                ignore_summary=summary,
+            )
+            overlap_note = overlap_line(overlaps)
+            overlap_rows = [
+                {
+                    "summary": hit.summary,
+                    "starts_at": hit.starts_at,
+                    "ends_at": hit.ends_at,
+                }
+                for hit in overlaps
+            ]
         finally:
             store.close()
 
@@ -594,13 +614,18 @@ class AgendaTool:
         extra = ""
         if ev.provider == "local" or ev.sync_state == "pending":
             extra = " It will sync to Google or Outlook when that calendar is connected."
+        clash = f" {overlap_note}" if overlap_note else ""
         return ToolResult(
             ok=True,
             output=(
                 f"Created on {where}: {ev.summary} @ {ev.starts_at.isoformat()}."
-                f"{extra}"
+                f"{extra}{clash}"
             ),
-            data={"event": ev.as_dict(), "action": "create"},
+            data={
+                "event": ev.as_dict(),
+                "action": "create",
+                "overlaps": overlap_rows,
+            },
         )
 
     async def _update(self, kwargs: dict[str, Any]) -> ToolResult:

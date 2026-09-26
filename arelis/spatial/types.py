@@ -125,10 +125,20 @@ class Hand:
         return sum(self.finger_curl(*bones) for bones in CURL_FINGERS) / 3.0
 
     def palm_angle(self) -> float:
-        """Index MCP → pinky MCP. Fist rotate uses the delta, not the absolute."""
+        """Index MCP → pinky MCP. Short, and it flips when the palm goes edge-on."""
         ix, iy = self.xy(INDEX_MCP)
         px, py = self.xy(PINKY_MCP)
         return math.atan2(py - iy, px - ix)
+
+    def aim_angle(self) -> float:
+        """Wrist → middle MCP. The bone that actually turns with the hand.
+
+        The pinch tips are too close: a take measured ~100 rad of tip-angle
+        noise in the same minute the wrist–middle bone moved 6.
+        """
+        wx, wy = self.xy(0)
+        mx, my = self.xy(MIDDLE_MCP)
+        return math.atan2(my - wy, mx - wx)
 
     def clips_frame(self) -> bool:
         """True when pose bones have left the sensor.
@@ -238,9 +248,9 @@ class FilterBank:
     _next_id: int = 0
 
     def apply(self, frame: HandsFrame) -> HandsFrame:
-        from arelis.spatial.one_euro import OneEuro
+        from arelis.spatial.one_euro import hand_euro
 
-        make = self.factory or (lambda: OneEuro())
+        make = self.factory or hand_euro
         t = frame.t_capture
         used: set[int] = set()
         assigned: list[tuple[Hand, int, tuple[float, float]]] = []

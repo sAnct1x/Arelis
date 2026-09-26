@@ -95,6 +95,28 @@ class StubBackend:
         return
 
 
+def present_selfie(rgb: np.ndarray) -> np.ndarray:
+    """Horizontal flip into the front-camera view the landmarker expects."""
+    if rgb.ndim != 3 or rgb.shape[1] < 2:
+        return np.ascontiguousarray(rgb)
+    return np.ascontiguousarray(rgb[:, ::-1])
+
+
+def sensor_hands(hands: list[Hand]) -> tuple[Hand, ...]:
+    """Undo the selfie flip. Image +x is the operator's right again.
+
+    Labels stay as the model reported them on the mirrored frame, which
+    is the person's left and right, not the sensor's.
+    """
+    out: list[Hand] = []
+    for hand in hands:
+        marks = tuple(
+            Landmark(x=1.0 - lm.x, y=lm.y, z=lm.z, name=lm.name) for lm in hand.landmarks
+        )
+        out.append(Hand(label=hand.label, landmarks=marks, score=hand.score))
+    return tuple(out)
+
+
 def hand_model_path() -> Path:
     return models_dir() / "hands" / HAND_MODEL_NAME
 
@@ -135,8 +157,10 @@ class TasksHandsBackend:
             base_options=BaseOptions(model_asset_path=str(model_path)),
             running_mode=RunningMode.VIDEO,
             num_hands=2,
-            min_hand_detection_confidence=0.5,
-            min_hand_presence_confidence=0.4,
+            # Re-acquire is where the off-center hand disappears. 0.5
+            # dropped it; tracking stays loose so a live box is not cut.
+            min_hand_detection_confidence=0.35,
+            min_hand_presence_confidence=0.35,
             min_tracking_confidence=0.3,
         )
         self._landmarker = HandLandmarker.create_from_options(options)
@@ -147,7 +171,11 @@ class TasksHandsBackend:
     ) -> HandsFrame:
         from mediapipe import Image, ImageFormat
 
-        infer = np.ascontiguousarray(downscale_rgb(rgb))
+        # Selfie before the model, sensor x after. The landmarker was
+        # trained on front-camera mirrors; an unflipped C920 is why one
+        # hand (usually the left) locks on late and drops first.
+        # Landmarks are flipped back so image +x stays operator-right.
+        infer = present_selfie(downscale_rgb(rgb))
         self._t_ms = video_clock_ms(t_capture, self._t_ms)
         t0 = time.perf_counter()
         image = Image(image_format=ImageFormat.SRGB, data=infer)
@@ -168,6 +196,7 @@ class TasksHandsBackend:
             hands.append(
                 Hand(label=label, landmarks=_landmarks_from_pairs(pts), score=score)
             )
+        hands = list(sensor_hands(hands))
         return HandsFrame(
             t_capture=t_capture,
             t_infer=t1 - t0,

@@ -1,9 +1,10 @@
 """Published camera *positions* worldwide. Not video.
 
 Operator catalogs wherever a public JSON/XML exists, plus OSM webcam
-tags on every inhabited continent. Pins only — no still fetch, no stream
-URL in meta. Caltrans publishes a look direction; that becomes a
-viewshed. Other pose is unknown unless a prior exists. Owned pins come
+tags on every inhabited continent. A public contact:webcam or
+website:webcam opens on click. The URL never lands in meta. Caltrans
+publishes a look direction; that becomes a viewshed. Other pose is
+unknown unless a prior exists. Owned pins come
 from secrets the user pasted. Unsecured IP cameras are out. An open
 port is not consent. One US city (NYC) is a catalog, not the map.
 """

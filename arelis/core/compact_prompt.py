@@ -21,7 +21,7 @@ _SHORT_DESC: dict[str, str] = {
     "calculator": "exact arithmetic. expression required. takes '15% of 84', '30% off 59.99', '$4.50+$2'. not unit conversion (units), not equations (cas)",
     "camera": "webcam snapshot. inspect only",
     "cas": "symbolic math. action=simplify|solve|diff|integrate|limit|series|sum|gradient|directional|factor|expand; n= order, at= point, dir= vector",
-    "catalog": "pinned live feeds. action=list|get",
+    "catalog": "arxiv, horizons, apod, or ads. no list/get",
     "clipboard": "OS clipboard. action=read (default) | write with text=",
     "contacts": "local address book. action=list|get|add|update|remove",
     "diagnostics": "local pytest / doctor. not a web search",
@@ -92,6 +92,7 @@ goals: goals. tasks: tasks. analyze: analyze. sql: sql. doc_extract: doc_extract
 agenda: agenda (events; free=open slots). tile: tile (thinking|workspace|history|chat|…; filament chat = name=chat). rooms: rooms. schedule: schedule. remind: remind (in/at, not schedule). notes: notes.
 image: image. image_edit: image_edit. vision: vision. transcribe: transcribe. research_report: research_report.
 solar: solar. earth: earth. catalog: catalog. plot: plot (histogram|bar|line; xs/ys + out=png; path=CSV). units: units. python: python (no matplotlib; then plot). run_script: a project .py; not a shell; not diagnostics; not schedule run_now. watch: watch. git_info: git_info. camera: camera.
+hands: one gesture, a pinch. still pinch clicks; a moving pinch grabs empty glass, the edge, or the title; two pinches resize a Reality shape or a tile; an open hand scrolls. instant voice: open/close history|thinking|files|days|camera|notify|contacts|chat|reality, span 1|2|3, close this, open rooms. if they ask how hands or voice control works, explain that. do not invent a fist.
 """.strip()
 
 

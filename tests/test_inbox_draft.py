@@ -289,6 +289,23 @@ def test_reply_is_a_read_not_a_mailbox_write() -> None:
     assert not evaluate_confirm("inbox", args)
 
 
+@pytest.mark.asyncio
+async def test_reply_is_one_yes_for_send_email(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The card is the permission. Chat does not get a second ask."""
+    tool, _fake = _tool(monkeypatch)
+
+    result = await tool.run(action="reply", id="12", body="I'll be late.")
+
+    assert result.ok, result.output
+    assert "do not ask in chat" in result.output.lower()
+    assert "allow card" in result.output.lower()
+    assert result.data["send"]["to"] == "sam@example.com"
+    assert result.data["send"]["subject"] == "Re: Lunch tomorrow"
+    assert "I'll be late." in result.data["send"]["body"]
+
+
 def test_the_model_is_told_reply_exists() -> None:
     assert "reply" in InboxTool.parameters_schema["properties"]["action"]["enum"]
     assert "reply" in InboxTool.description.lower()

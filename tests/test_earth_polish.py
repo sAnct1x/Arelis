@@ -70,7 +70,7 @@ def test_status_is_a_sentence_without_ecef() -> None:
     earth.live = True
     line = status_sentence(earth)
     assert "in the city" in line
-    assert "until feeds return" in line
+    assert "waiting on published feeds" in line
     assert "Click Live" not in line
     earth.store.upsert(
         Entity(
@@ -210,6 +210,98 @@ def test_coach_and_deaf_copy() -> None:
     assert "deaf" in (deaf_line(earth) or "").lower() or "hole" in (
         deaf_line(earth) or ""
     ).lower()
+
+
+def test_space_status_names_the_altitude_door() -> None:
+    earth = EarthRuntime()
+    earth.enter(unix=1.0)
+    earth.live = True
+    earth.last_view = EarthView("space", alt_m=8_000_000.0, lat=40.0, lon=-83.0)
+    earth.store.upsert(
+        Entity(
+            id="norad:25544",
+            cls="station",
+            layer="iss",
+            label="ISS",
+            x=0.0,
+            y=0.0,
+            z=0.0,
+            freshness="live",
+            source="CelesTrak",
+        )
+    )
+    line = status_sentence(earth)
+    assert "2,500 km" in line
+    assert "satellites" in line.lower()
+
+
+def test_no_key_is_not_a_quiet_ocean() -> None:
+    earth = EarthRuntime()
+    earth.enter(unix=1.0)
+    earth.store.clear()
+    earth.live = True
+    earth.layers["vessels"] = True
+    earth.layers["satellites"] = True
+    earth.misses["ais"] = "no_key"
+    earth.last_view = EarthView("near", alt_m=80_000.0, lat=40.0, lon=-83.0)
+    earth.store.upsert(
+        Entity(
+            id="norad:1",
+            cls="satellite",
+            layer="satellites",
+            label="SAT",
+            x=0.0,
+            y=0.0,
+            z=0.0,
+            freshness="live",
+            source="CelesTrak",
+        )
+    )
+    line = coach_line(earth) or ""
+    assert "AISStream" in line
+    assert "quiet" not in line.lower()
+
+
+def test_opensky_rate_is_not_a_quiet_sky() -> None:
+    earth = EarthRuntime()
+    earth.enter(unix=1.0)
+    earth.store.clear()
+    earth.live = True
+    earth.layers["flights"] = True
+    earth.misses["opensky"] = "rate"
+    earth.last_view = EarthView("approach", alt_m=800_000.0, lat=40.0, lon=-83.0)
+    line = coach_line(earth) or ""
+    assert "slow down" in line.lower()
+    assert "quiet" not in line.lower()
+
+
+def test_feed_miss_does_not_count_as_fetched(monkeypatch: pytest.MonkeyPatch) -> None:
+    from arelis.earth.entity import FeedMiss
+    from arelis.earth.live import _lists_only
+
+    listed = _lists_only(
+        {"opensky": FeedMiss("rate"), "ais": FeedMiss("no_key"), "cameras": []}
+    )
+    assert listed["opensky"] is None
+    assert listed["ais"] is None
+    assert listed["cameras"] == []
+    monkeypatch.setattr(
+        "arelis.earth.live.merge_live",
+        lambda *_a, **_k: {
+            "opensky": FeedMiss("rate"),
+            "ais": FeedMiss("no_key"),
+        },
+    )
+    earth = EarthRuntime()
+    earth.enter(unix=1.0)
+    earth._live_queue.append(("opensky", "ais"))
+    earth._merge_live()
+    assert "opensky" not in earth.last_fetch_unix
+    assert "ais" not in earth.last_fetch_unix
+    assert earth.misses["opensky"] == "rate"
+    assert earth.misses["ais"] == "no_key"
+    earth.leave()
+    assert earth.misses == {}
 
 
 def test_camera_chip_on_empty_look_is_a_hole() -> None:

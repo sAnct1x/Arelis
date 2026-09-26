@@ -228,6 +228,32 @@ class Orchestrator(OrchestratorTurns, OrchestratorSlash, OrchestratorConfirm):
             payload["text"] = text
             await self.bus.publish(Event(EventType.PHYSICS_VERB, payload))
             return
+        from arelis.core.desk_guide import match_desk_guide
+        from arelis.core.tile_complete import match_desk_intent, match_tile_intent
+
+        if match_desk_guide(text):
+            await self.bus.publish(
+                Event(
+                    EventType.TILE_VERB,
+                    {"text": text, "action": "guide", "name": ""},
+                )
+            )
+            return
+        tile = match_tile_intent(text)
+        desk = match_desk_intent(text)
+        # A named tile, "close this", or span / rooms. Same instant path.
+        if desk or (tile and (tile[1] or tile[0] == "close")):
+            await self.bus.publish(
+                Event(
+                    EventType.TILE_VERB,
+                    {
+                        "text": text,
+                        "action": (desk or tile)[0],
+                        "name": (desk or tile)[1],
+                    },
+                )
+            )
+            return
         if not conversing and not control_only:
             await self.bus.publish(Event(EventType.USER_MESSAGE, {"text": text, "source": "voice"}))
             return

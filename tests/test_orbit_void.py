@@ -442,6 +442,17 @@ def test_idle_prompt_grows_then_wraps(qt_app) -> None:
         assert window.conversation.input.width() <= 720
         assert window.conversation.input.height() > 36
         assert "hello," in window.conversation.input.text()
+        sentence = (
+            "I want you to deeply research what JWST has discovered about "
+            "the planet K2-12B's atmosphere. I want this research to be "
+            "properly formatted"
+        )
+        window.conversation.input.setText(sentence)
+        window.conversation._fit_idle_prompt()
+        bar = window.conversation.input.verticalScrollBar()
+        assert bar.maximum() == 0
+        assert bar.value() == 0
+        assert window.conversation.input.height() > 36
     finally:
         window.hide()
         window.loop.close()

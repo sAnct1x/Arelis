@@ -121,12 +121,23 @@ def test_thumbs_and_hero_decode_to_display_size(qt_app, tmp_path: Path) -> None:
     assert fitted.width() < 400
 
 
-def test_overlay_prefers_plex() -> None:
+def test_overlay_uses_the_desk_face() -> None:
     paths = overlay_font_paths()
-    assert "IBMPlexSans-SemiBold.ttf" in str(paths[0])
-    assert "arial" not in str(paths[0]).lower()
+    assert paths[0].name == "ZenKakuGothicNew-Bold.ttf"
+    assert paths[0].is_file()
+    assert "arial" not in paths[0].name.lower()
     first_hit = next(path for path in paths if path.is_file())
-    assert "Plex" in first_hit.name
+    assert first_hit.name.startswith("ZenKaku")
+
+
+def test_desk_fonts_register(qt_app) -> None:
+    from arelis.ui.theme import load_fonts
+    from arelis.ui.theme_tokens import DESK_MONO, DESK_SANS
+
+    families = load_fonts()
+    assert families["body"] == DESK_SANS
+    assert families["display"] == DESK_SANS
+    assert families["mono"] == DESK_MONO
 
 
 def test_qss_names_each_role() -> None:

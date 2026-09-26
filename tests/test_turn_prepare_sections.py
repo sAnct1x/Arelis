@@ -201,3 +201,23 @@ async def test_prepare_turn_wires_sections_expected_tools_budget_and_history(mon
     num_ctx, kwargs = captured["budget_args"]
     assert num_ctx == 4096
     assert kwargs["schema_chars"] == len(json.dumps([{"name": "weather"}]))
+
+
+def test_now_line_names_the_half_of_the_day(monkeypatch) -> None:
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    import arelis.core.agent_loop as agent_loop
+
+    tz = ZoneInfo("America/New_York")
+    fixed = {"when": datetime(2026, 9, 26, 2, 31, tzinfo=tz)}
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return fixed["when"]
+
+    monkeypatch.setattr(agent_loop, "datetime", Clock)
+    assert "2:31 AM" in agent_loop.now_line()
+    fixed["when"] = datetime(2026, 9, 26, 14, 31, tzinfo=tz)
+    assert "2:31 PM" in agent_loop.now_line()

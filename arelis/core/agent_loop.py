@@ -427,7 +427,8 @@ def now_line() -> str:
     actually resolves it.
     """
     now = datetime.now().astimezone()
-    stamp = now.strftime("%A, %d %B %Y, %H:%M").replace(" 0", " ")
+    # 12-hour with AM/PM. A 24-hour 02:31 was read back as 2:31 PM.
+    stamp = now.strftime("%A, %d %B %Y, %I:%M %p").replace(" 0", " ")
     zone = now.strftime("%Z") or "local time"
     return (
         f"Right now it is {stamp} ({zone}). Use this for anything about today, "
@@ -438,6 +439,24 @@ def now_line() -> str:
 
 class _StoppedError(Exception):
     """Raised internally when the cooperative cancel flag is seen mid-stream."""
+
+
+class _CloseError(Exception):
+    """The ceiling asked the turn to finish from work already in hand."""
+
+
+_CLOSE_NUDGE = (
+    "Time is up. Stop searching and stop opening pages. Finish from the "
+    "sources you already opened. If they asked for a file, call document "
+    "once with the full body, and say plainly what you did not get to. "
+    "If they did not ask for a file, answer in text. Do not call any other "
+    "tool. Where sources disagree, keep the disagreement. Leave out any "
+    "number you did not actually read."
+)
+
+_CLOSE_PARTIAL = (
+    "I closed with what I already had. I did not finish every source."
+)
 
 
 class _LiveAnswer:
@@ -585,6 +604,10 @@ class AgentLoop:
         self._last_round_thinking = False
         self._fail_replan_used = False
         self._active_plan = None
+        # Ceiling asked for a close. _in_close means that pass is running,
+        # so the same flag does not abort the answer it just asked for.
+        self._close_requested = False
+        self._in_close = False
         from arelis.browser.live import set_hit_sink
 
         set_hit_sink(self._on_watch_hit)
@@ -644,9 +667,52 @@ class AgentLoop:
         if ctx is None:
             return
         for round_i in range(1, self.max_rounds + 1):
-            if await self._run_round(ctx, round_i):
+            if self._wants_close():
+                await self._close_from_gathered(ctx)
                 return
+            try:
+                if await self._run_round(ctx, round_i):
+                    return
+            except _CloseError:
+                await self._close_from_gathered(ctx)
+                return
+        if self._wants_close():
+            await self._close_from_gathered(ctx)
+            return
         await self._force_final_answer(ctx)
+
+    def request_close(self) -> None:
+        """Finish from work already in hand. Stop still cancels outright."""
+        if self._in_close or self.terminal_sent:
+            return
+        self._close_requested = True
+
+    def _wants_close(self) -> bool:
+        return bool(self._close_requested) and not self._in_close
+
+    async def _close_from_gathered(self, ctx: TurnContext) -> None:
+        """One pass, no more searches. Document only if they asked for a file."""
+        self._in_close = True
+        self._close_requested = False
+        await self.bus.publish(
+            Event(EventType.THINKING, {"text": "closing with what I have"})
+        )
+        ctx.messages.append({"role": "user", "content": _CLOSE_NUDGE})
+        done = await self._run_round(ctx, self.max_rounds + 1)
+        # Native tools rejected: one JSON-fallback pass, still inside the close.
+        if not done and not self.terminal_sent and ctx.fallback_mode:
+            done = await self._run_round(ctx, self.max_rounds + 1)
+        if done:
+            return
+        if ctx.last_ok_tool_name == "document" and ctx.last_ok_tool_out:
+            note = _tool_followup_fallback(
+                ctx.last_ok_tool_out,
+                ctx.last_ok_tool_name,
+                ask=ctx.text,
+            )
+        else:
+            note = _CLOSE_PARTIAL
+        await self._finish(note, ctx.sources, streamed="")
 
     async def _prepare_turn(
         self,
@@ -668,6 +734,9 @@ class AgentLoop:
 
     async def _force_final_answer(self, ctx: TurnContext) -> None:
         """Last round with tools withheld, after the loop has spent its budget."""
+        # Already a wrap-up. Do not let a late ceiling abort this stream.
+        self._in_close = True
+        self._close_requested = False
         await self.bus.publish(
             Event(
                 EventType.THINKING,
@@ -1245,6 +1314,8 @@ class AgentLoop:
             if self._timer is not None:
                 self._timer.mark("warmup_wait")
 
+        if self._wants_close():
+            raise _CloseError
         async for kind, payload in self.router.stream(
             role,
             stream_messages,
@@ -1253,6 +1324,8 @@ class AgentLoop:
         ):
             if self.is_cancelled():
                 raise _StoppedError
+            if self._wants_close():
+                raise _CloseError
             if self.is_paused():
                 await self._hold_if_paused()
             if kind == "thinking":

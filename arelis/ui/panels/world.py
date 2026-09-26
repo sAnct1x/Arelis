@@ -48,7 +48,7 @@ def make_reach_control(parent: QWidget | None, reach: float) -> tuple[QSlider, Q
 
 
 class WorldPanel(QWidget):
-    """Paints the plane. Mouse is the control; a fist uses the same scene."""
+    """Paints the plane. The mouse is a pinch, same grab as a hand."""
 
     changed = Signal()
 
@@ -261,7 +261,9 @@ class WorldPanel(QWidget):
         painter.setPen(meridian)
         painter.drawLine(QPoint(px, py), QPoint(qx, qy))
         painter.setPen(color("text"))
-        painter.setFont(QFont("Segoe UI", 8))
+        label_font = QFont(painter.font())
+        label_font.setPixelSize(11)
+        painter.setFont(label_font)
         painter.drawText(mx + 6, my - 2, "spin")
         painter.drawText(qx + 4, qy + 4, "tilt")
 
@@ -360,7 +362,9 @@ class WorldPanel(QWidget):
         self.scene.select_at(x, y)
         if self.scene.near_any(x, y):
             self._dragging = True
-            self.scene.apply_pointer(x, y, True, t=time.perf_counter())
+            self.scene.apply_pointer(
+                x, y, True, t=time.perf_counter(), who="pointer", kind="pinch"
+            )
         self.update()
         self.changed.emit()
 
@@ -368,7 +372,9 @@ class WorldPanel(QWidget):
         if not self._dragging:
             return
         x, y = self._from_px(event.position().x(), event.position().y())
-        self.scene.apply_pointer(x, y, True, t=time.perf_counter())
+        self.scene.apply_pointer(
+            x, y, True, t=time.perf_counter(), who="pointer", kind="pinch"
+        )
         self.update()
         self.changed.emit()
 
@@ -377,7 +383,9 @@ class WorldPanel(QWidget):
             return
         if self._dragging:
             x, y = self._from_px(event.position().x(), event.position().y())
-            self.scene.apply_pointer(x, y, False, t=time.perf_counter())
+            self.scene.apply_pointer(
+                x, y, False, t=time.perf_counter(), who="pointer"
+            )
             self._dragging = False
             self.update()
             self.changed.emit()

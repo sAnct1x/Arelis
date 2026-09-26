@@ -565,6 +565,24 @@ class FilamentDesk:
             unread = int(center.unread_count())
         if unread > 0 and not self._filament_plate_open(notify):
             live.add("notify")
+        hot = getattr(w, "_filament_hot", None)
+        if isinstance(hot, set) and hot:
+            plates = {
+                "history": history,
+                "thinking": think,
+                "files": work,
+                "days": cal,
+                "camera": camera,
+                "notify": notify,
+                "contacts": contacts,
+                "reality": world,
+                "chat": getattr(w, "_filament_chat_tile", None),
+            }
+            for name in list(hot):
+                if self._filament_plate_open(plates.get(name)):
+                    hot.discard(name)
+                else:
+                    live.add(name)
         w._filament.set_live_faces(live)
         w._filament.set_load("camera" if self._filament_plate_open(camera) else "")
         floats.place(w.rect())
@@ -665,6 +683,9 @@ class FilamentDesk:
     def _filament_present_tile(self, dock: QDockWidget, name: str) -> None:
         if active_theme() != "filament" or dock.isHidden():
             return
+        from arelis.ui.hands_desk import remember_front
+
+        remember_front(self.window, name)
         dock.setAllowedAreas(Qt.DockWidgetArea.NoDockWidgetArea)
         dock.setFloating(True)
         apply_dock_chrome(dock, True)
@@ -725,6 +746,7 @@ class FilamentDesk:
         if want:
             self._filament_mount_chat()
             w._filament_chat_open = True
+            w._filament_front = "chat"
             self._filament_dress_tile(w._filament_chat_tile, "chat")
             self._filament_place_near_title(w._filament_chat_tile, "chat")
         else:
@@ -853,6 +875,21 @@ def filament_apply_glass(window, on: bool) -> None:
 
 def filament_pin_home(window) -> QRect | None:
     return _of(window)._filament_pin_home()
+
+
+def filament_note_face(window, name: str) -> None:
+    """Sodium would have popped this dock. Light the bead until the plate is up."""
+    face = (name or "").strip()
+    if not face:
+        return
+    hot = getattr(window, "_filament_hot", None)
+    if not isinstance(hot, set):
+        hot = set()
+        window._filament_hot = hot
+    hot.add(face)
+    place = getattr(window, "_place_filament_floats", None)
+    if callable(place):
+        place(reshape=False)
 
 
 def filament_set_span(window, n: int) -> None:

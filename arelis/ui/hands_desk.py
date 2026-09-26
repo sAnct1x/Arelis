@@ -17,22 +17,39 @@ from PySide6.QtWidgets import (
     QAbstractScrollArea,
     QAbstractSlider,
     QApplication,
+    QComboBox,
     QLineEdit,
+    QListWidget,
     QPlainTextEdit,
     QTextBrowser,
     QTextEdit,
     QWidget,
 )
 
+from arelis.spatial.grammar import hand_act
 from arelis.spatial.hands_log import emit as hands_emit
 from arelis.spatial.hands_log import sample as hands_sample
-from arelis.spatial.scene import image_to_world
+from arelis.spatial.scene import SCALE_RATIO_MAX, SCALE_RATIO_MIN, image_to_world
 from arelis.ui.hand_cursor import clear_on, paint_on
 
 RIM = 28
 FLICK_PX_S = 380.0
 FLICK_DT = 0.42
 SCROLL_PAGE = 3.6
+# Image units per frame. Under this, a resting hand is not a scroll.
+SCROLL_DEAD = 0.008
+# A second pinch on the same row. Mouse double-click opens the file.
+ROW_DOUBLE_S = 0.45
+# These lists open on mouse double-click / Enter, not on a single click.
+_OPEN_ON_ACTIVATE = frozenset(
+    {
+        "BrowseList",
+        "CalendarAgendaList",
+        "CalendarTaskList",
+        "CalendarJobList",
+    }
+)
+_last_row: tuple[int, str, float] | None = None
 
 
 def span_pixel(nx: float, ny: float, width: int, height: int) -> tuple[int, int]:
@@ -54,7 +71,7 @@ def on_span_edge(nx: float, ny: float, *, margin: float = 0.03) -> bool:
 
 def scroll_steps(dy_norm: float, page: int) -> int:
     """Image-space dy → scrollbar steps. Hand up (dy < 0) scrolls the list up."""
-    if abs(dy_norm) < 1e-4:
+    if abs(dy_norm) < SCROLL_DEAD:
         return 0
     raw = dy_norm * max(8, int(page)) * SCROLL_PAGE
     if raw > 0:
@@ -84,6 +101,9 @@ def is_tile_chrome(tile: QWidget, global_pt: QPoint, *, rim: int = RIM) -> bool:
         ):
             return False
         obj = str(cur.objectName() or "")
+        # The heading is the grab. The list under it stays a click.
+        if obj == "SettingsHeading":
+            return True
         if obj in (
             "FilamentChatBody",
             "ChatLog",
@@ -242,6 +262,49 @@ def glow_hits(window, apertures: list) -> None:
     st["hot_controls"] = now_controls
 
 
+def scaled_frame(geo: QRect, ratio: float) -> QRect:
+    """Grow or shrink around the center. One frame cannot jump the size."""
+    ratio = max(SCALE_RATIO_MIN, min(SCALE_RATIO_MAX, float(ratio)))
+    width = max(240, min(720, int(geo.width() * ratio)))
+    height = max(180, min(800, int(geo.height() * ratio)))
+    center = geo.center()
+    return QRect(center.x() - width // 2, center.y() - height // 2, width, height)
+
+
+def _resize_tile(window, widget: QWidget, name: str, a: QPoint, b: QPoint) -> None:
+    """Two pinches on one tile. Spread grows it, closing the hands shrinks it."""
+    st = _state(window)
+    span = math.hypot(a.x() - b.x(), a.y() - b.y())
+    prev = st.get("resize_span")
+    if not isinstance(prev, tuple) or prev[0] != name or float(prev[1]) < 8 or span < 8:
+        st["resize_span"] = (name, span)
+        return
+    ratio = span / float(prev[1])
+    if abs(ratio - 1.0) >= 0.01:
+        widget.setGeometry(scaled_frame(widget.frameGeometry(), ratio))
+        place = getattr(window, "_place_filament_floats", None)
+        if callable(place):
+            place(reshape=False)
+    st["resize_span"] = (name, span)
+
+
+def _end_resize(window) -> None:
+    st = _state(window)
+    prev = st.pop("resize_span", None)
+    if not isinstance(prev, tuple):
+        return
+    name = str(prev[0])
+    store = getattr(window, "_filament_tile_sizes", None)
+    if not isinstance(store, dict):
+        return
+    from arelis.ui.filament_tile import remember_tile_size
+
+    for widget, tile_name in filament_tiles(window):
+        if tile_name == name:
+            remember_tile_size(widget, name, store)
+            return
+
+
 def apply_verbs(window, apertures: list, reach: float) -> None:
     tracks = tuple(getattr(window.spatial, "last_tracks", ()) or ())
     st = _state(window)
@@ -252,6 +315,8 @@ def apply_verbs(window, apertures: list, reach: float) -> None:
         who = str(getattr(track, "who", "") or "")
         if who:
             by_who[who] = track
+    pinching: list[tuple[str, QPoint]] = []
+    rows: list[tuple[str, str, bool, QPoint, float]] = []
     for track in tracks:
         who = str(getattr(track, "who", "") or "")
         hand = getattr(track, "hand", None)
@@ -268,6 +333,31 @@ def apply_verbs(window, apertures: list, reach: float) -> None:
             nx, ny = image_to_world(*pointer, reach=reach)
         px, py = span_pixel(nx, ny, w, h)
         global_pt = window.mapToGlobal(QPoint(px, py))
+        rows.append((who, st_name, dragging, global_pt, ny))
+        if st_name == "pinch":
+            tip = hand.pointer_xy()
+            tx, ty = image_to_world(*tip, reach=reach)
+            sx, sy = span_pixel(tx, ty, w, h)
+            pinching.append((who, window.mapToGlobal(QPoint(sx, sy))))
+    stretching: set[str] = set()
+    if (
+        hand_act(closed=bool(pinching), dragging=False, company=len(pinching))
+        == "resize"
+    ):
+        (who_a, pt_a), (who_b, pt_b) = pinching[0], pinching[1]
+        tile_a = tile_under(window, pt_a)
+        tile_b = tile_under(window, pt_b)
+        if tile_a is not None and tile_b is not None and tile_a[1] == tile_b[1]:
+            _resize_tile(window, tile_a[0], tile_a[1], pt_a, pt_b)
+            stretching = {who_a, who_b}
+            for who in stretching:
+                st["holds"].pop(who, None)
+                st["armed"].pop(who, None)
+    if not stretching:
+        _end_resize(window)
+    for who, st_name, dragging, global_pt, ny in rows:
+        if who in stretching:
+            continue
         if st_name == "pinch" and not dragging:
             found = tile_under(window, global_pt)
             if found is not None and is_tile_chrome(found[0], global_pt):
@@ -323,9 +413,10 @@ def deliver_click(window, click: object, reach: float) -> None:
 
 
 def fire_click(widget: QWidget | None, global_pt: QPoint) -> tuple[str, bool]:
-    """Mouse-equivalent press. Buttons, copy/again anchors, thinking line.
+    """Mouse-equivalent press.
 
-    Empty glass / chrome plate has no click. That is a miss, not a drag.
+    Buttons, copy/again anchors, list rows, combo popups, the thinking
+    line. Empty glass has no click. That is a miss, not a drag.
     """
     if widget is None:
         return "miss", False
@@ -352,8 +443,50 @@ def fire_click(widget: QWidget | None, global_pt: QPoint) -> tuple[str, bool]:
         ):
             clicked.emit()
             return obj, True
+        if isinstance(cur, QComboBox) and cur.isEnabled() and cur.isVisible():
+            cur.showPopup()
+            return obj, True
+        if isinstance(cur, QAbstractItemView) and cur.isEnabled() and cur.isVisible():
+            hit = _activate_row(cur, global_pt)
+            if hit is not None:
+                return hit
         cur = cur.parentWidget()
     return str(widget.objectName() or widget.__class__.__name__ or "miss"), False
+
+
+def _activate_row(view: QAbstractItemView, global_pt: QPoint) -> tuple[str, bool] | None:
+    """One pinch selects. A second pinch on that row is the double-click."""
+    global _last_row
+    local = view.viewport().mapFromGlobal(global_pt)
+    if isinstance(view, QListWidget):
+        item = view.itemAt(local)
+        if item is None:
+            return None
+        label = str(item.text() or "")
+        view.setCurrentItem(item)
+        name = str(view.objectName() or "")
+        now = time.perf_counter()
+        again = (
+            _last_row is not None
+            and _last_row[0] == id(view)
+            and _last_row[1] == label
+            and now - _last_row[2] <= ROW_DOUBLE_S
+        )
+        _last_row = (id(view), label, now)
+        if name in _OPEN_ON_ACTIVATE:
+            view.itemActivated.emit(item)
+        elif again:
+            view.itemDoubleClicked.emit(item)
+        else:
+            view.itemClicked.emit(item)
+        return (label or name or "row")[:48], True
+    index = view.indexAt(local)
+    if not index.isValid():
+        return None
+    view.setCurrentIndex(index)
+    view.activated.emit(index)
+    label = str(index.data() or view.objectName() or "row")
+    return label[:48], True
 
 
 def hwnd_under(window, global_pt: QPoint) -> QWidget:
@@ -370,6 +503,35 @@ def tile_under(window, global_pt: QPoint) -> tuple[QWidget, str] | None:
         if widget.frameGeometry().contains(global_pt):
             hit = (widget, name)
     return hit
+
+
+def front_tile_key(window) -> str:
+    """The tile 'close this' means. Focus, then the last one we opened or grabbed."""
+    from arelis.core.tile_complete import FILAMENT_TO_TILE
+
+    tiles = filament_tiles(window)
+    by_id = {id(widget): name for widget, name in tiles}
+    cur = QApplication.focusWidget()
+    while cur is not None:
+        if id(cur) in by_id:
+            return FILAMENT_TO_TILE.get(by_id[id(cur)], "")
+        cur = cur.parentWidget()
+    remembered = str(getattr(window, "_filament_front", "") or "")
+    if remembered in FILAMENT_TO_TILE.values():
+        for _widget, name in tiles:
+            if FILAMENT_TO_TILE.get(name) == remembered:
+                return remembered
+    if len(tiles) == 1:
+        return FILAMENT_TO_TILE.get(tiles[0][1], "")
+    return ""
+
+
+def remember_front(window, filament_name: str) -> None:
+    from arelis.core.tile_complete import FILAMENT_TO_TILE
+
+    key = FILAMENT_TO_TILE.get(filament_name, "")
+    if key:
+        window._filament_front = key
 
 
 def filament_tiles(window) -> list[tuple[QWidget, str]]:
@@ -461,6 +623,7 @@ def _drag_tile(window, who: str, global_pt: QPoint) -> None:
                 return
             armed = found
         widget, name = armed
+        remember_front(window, name)
         if getattr(widget, "_filament_growing", False):
             return
         hold = _Hold(

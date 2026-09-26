@@ -3,10 +3,11 @@
 Distance-gated by arelis.earth.lod: space fetches satellites, approach
 fetches local planes, near adds boats, city opens the rest if the chip
 is on. Hosts named here are pinned in tests/test_egress.py. Failures
-(`None`) leave the simulated layer in place. A successful
-empty list replaces that look-box layer — last city's planes are not
-this ocean. Keyed legal feeds are in; logging into a camera you do
-not own is not an adapter.
+(`None` or a FeedMiss) leave the last published fix in place. A
+successful empty list replaces that look-box layer — last city's
+planes are not this ocean. A rate limit, a missing key, and a dead
+poll are named misses, not a quiet sky. Keyed legal feeds are in;
+logging into a camera you do not own is not an adapter.
 """
 
 from __future__ import annotations
@@ -105,6 +106,11 @@ def _adapter_fns() -> dict[str, Callable[[], Any]]:
     }
 
 
+def _lists_only(got: dict[str, Any]) -> dict[str, Any]:
+    """A list is an answer, even []. A miss is not an answer."""
+    return {key: val if isinstance(val, list) else None for key, val in got.items()}
+
+
 def merge_live(
     store: EntityStore,
     view: EarthView | None = None,
@@ -137,13 +143,12 @@ def merge_live(
         pass
     t0 = time.perf_counter()
     got = _gather(jobs)
-    _apply_live(store, got, set(jobs), view)
+    _apply_live(store, _lists_only(got), set(jobs), view)
     try:
         from arelis.physics.telemetry import emit
 
         counts = {
-            key: (len(val) if isinstance(val, list) else 0 if val is None else 1)
-            for key, val in got.items()
+            key: len(val) if isinstance(val, list) else 0 for key, val in got.items()
         }
         emit(
             "live_merge",

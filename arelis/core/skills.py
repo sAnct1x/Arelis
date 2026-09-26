@@ -381,11 +381,15 @@ SKILL_CARDS: dict[str, SkillCard] = {
   python cell is a formula, not their script.
 - When they name a .py to run, call run_script with that path. Not a shell.
   Not diagnostics (that is her tests/ only). Not schedule run_now.
+- A check the project already named is run_task. action=list shows pytest
+  (when tests/ exists), package.json scripts, and arelis-tasks.json.
+  action=run needs name= one of those. args is a list of strings.
+  Do not pass a command string. Do not call cmd, PowerShell, or bash.
 - Prefer print or a CSV so you can read the result. Do not invent numbers
   a process did not print. A later workspace read is how you open a file
   the script wrote.
 - Writes and runs still Allow. Do not claim a run succeeded unless
-  run_script returned this turn.
+  run_script or run_task returned this turn.
 """.strip(),
     ),
     "inspect": SkillCard(
@@ -1338,7 +1342,9 @@ SKILL_CARDS: dict[str, SkillCard] = {
 - You drive the window. Plan the errand: open or search, click, type,
   read, go back. Do not wait for them to hand you refs.
 - Click: text='Sign in', or nth=1 for the first result, or a snapshot ref.
-  hover / dblclick / right_click / drag use the same refs and glow.
+  hover / dblclick / right_click / drag use the same refs. A click
+  returns the new snapshot — do not snapshot again unless that list is
+  missing the control.
   x,y only after screenshot then vision this turn. Prefer refs.
   Type: type(text='…', into='search') — empty into uses the search box.
   type(who=Mom, into=email|phone|name|work_phone) fills that field from

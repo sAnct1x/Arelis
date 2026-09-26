@@ -118,6 +118,18 @@ def dispatch_event(window: Any, event: Event) -> None:
         # user to edit and send themselves.
         if p.get("deliver") == "dictate":
             window.conversation.insert_dictation(p.get("text") or "")
+    elif t == EventType.TILE_VERB:
+        # Same closed path as a typed "open history". No model turn.
+        if window.voice_controller is not None:
+            window.voice_controller.notify_utterance_dropped()
+        said = str(p.get("text") or "")
+        window._try_tile_speech(said)
+        from arelis.core.desk_guide import desk_guide_text, match_desk_guide
+
+        if match_desk_guide(said):
+            window.bus.publish(
+                Event(EventType.VOICE_SPEAK, {"text": desk_guide_text()})
+            )
     elif t == EventType.PHYSICS_VERB:
         # Closed verbs never publish USER_MESSAGE, so conversation would
         # wait for a turn that does not exist. Drop the awaiting latch
@@ -398,6 +410,7 @@ def dispatch_event(window: Any, event: Event) -> None:
             str(p.get("headline") or p.get("summary") or "waiting for you"),
             kind="tool",
         )
+        _mirror_pending_work(window, p)
     elif t == EventType.TOOL_CONFIRM_REPLY:
         # Timeout / remote skip — dismiss the open card if it matches.
         cid = str(p.get("id") or "")
@@ -617,6 +630,9 @@ def dispatch_event(window: Any, event: Event) -> None:
                     )
         if p.get("tool") == "workspace":
             window._workspace_tool_args = {}
+            _show_search_hits(window, p)
+        if p.get("tool") in {"run_script", "run_task"}:
+            _show_run_log(window, p)
     elif t == EventType.IMAGE_READY:
         path = p.get("path")
         if path:
@@ -721,4 +737,38 @@ def dispatch_event(window: Any, event: Event) -> None:
 
             stop_speech(window)
             window._set_busy(False)
+
+
+def _mirror_pending_work(window, payload: dict) -> None:
+    """The Allow card is the decision. The tile shows the same text."""
+    tool = str(payload.get("tool") or "")
+    if tool not in {"workspace", "run_script", "run_task"}:
+        return
+    detail = str(payload.get("detail") or "").strip()
+    if not detail:
+        return
+    title = str(payload.get("headline") or tool)
+    window.workspace.show_log(title, detail)
+    # The card is hidden on filament. The log is the body of the yes/no.
+    window._reveal_dock(window.work_dock, window.act_workspace, asked=True)
+
+
+def _show_search_hits(window, payload: dict) -> None:
+    if not payload.get("ok"):
+        return
+    data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+    hits = data.get("hits")
+    if not isinstance(hits, list) or not hits:
+        return
+    window.workspace.show_search_hits(hits)
+    window._reveal_dock(window.work_dock, window.act_workspace)
+
+
+def _show_run_log(window, payload: dict) -> None:
+    data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+    name = str(data.get("name") or data.get("path") or payload.get("tool") or "run")
+    cwd = str(data.get("cwd") or "")
+    title = f"{name}  {cwd}".strip()
+    window.workspace.show_log(title, str(payload.get("output") or ""))
+    window._reveal_dock(window.work_dock, window.act_workspace)
 

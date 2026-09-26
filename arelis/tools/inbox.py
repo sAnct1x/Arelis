@@ -177,8 +177,8 @@ def _inbox_description(*, mutate: bool) -> str:
         "under outputs/mail/ and returns their paths — use it before analyze, "
         "doc_extract, or vision on something that arrived by mail. "
         "`reply` peeks one message and returns {to, subject, body} with the "
-        "original quoted — it does not send; call send_email after review "
-        "(Allow still runs). "
+        "original quoted — it does not send. Call send_email on that same turn "
+        "with those fields. Do not ask in chat. The Allow card is the permission. "
         "Delivered mail cannot be edited — send a new message instead."
     )
     if not mutate:
@@ -482,24 +482,35 @@ class InboxTool:
             f"{quoted}"
         )
         self.last_hits = [{"id": uid, "from": sender, "subject": source_subject}]
+        payload = {
+            "action": "reply",
+            "id": uid,
+            "to": reply_to,
+            "subject": subject,
+            "body": composed,
+            "source_from": sender,
+            "source_subject": source_subject,
+            "sent": False,
+        }
+        from arelis.core.reliance.mail_reply import send_ready
+
+        ready = send_ready(payload)
         return ToolResult(
             ok=True,
             output=(
-                "Draft reply (not sent). Review it, then call send_email — "
-                "that still needs Allow.\n\n"
-                f"To:      {reply_to}\n"
-                f"Subject: {subject}\n\n"
-                f"{composed}"
+                "Draft reply, not sent. Call send_email now with these fields. "
+                "Do not ask in chat. The Allow card is the permission.\n\n"
+                f"To:      {ready.to}\n"
+                f"Subject: {ready.subject}\n\n"
+                f"{ready.body}"
             ),
             data={
-                "action": "reply",
-                "id": uid,
-                "to": reply_to,
-                "subject": subject,
-                "body": composed,
-                "source_from": sender,
-                "source_subject": source_subject,
-                "sent": False,
+                **payload,
+                "send": {
+                    "to": ready.to,
+                    "subject": ready.subject,
+                    "body": ready.body,
+                },
             },
         )
 

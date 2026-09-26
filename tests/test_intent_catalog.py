@@ -445,3 +445,10 @@ def test_log_base_10_is_math_not_git() -> None:
     assert detect_cas_ask("factor x^3 - 8")
     assert not detect_math_ask("factor x^3 - 8")
     assert detect_exactness_need("factor x^3 - 8").needs_cas
+
+
+def test_kilometers_in_miles_is_units_not_calculator() -> None:
+    ask = "What is 3 kilometers in miles? Use the units tool. Do not change anything."
+    need = detect_exactness_need(ask)
+    assert need.needs_units
+    assert not need.needs_calculator

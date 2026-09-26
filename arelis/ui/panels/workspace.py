@@ -198,6 +198,9 @@ class WorkspacePanel(QWidget):
     desk_open_requested = Signal(str)
     reveal_requested = Signal(str)
     outside_requested = Signal(str)
+    open_line_requested = Signal(str, int)
+    console_submit = Signal(str)
+    console_stop_requested = Signal()
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -224,6 +227,7 @@ class WorkspacePanel(QWidget):
         self._loaded_abs = ""
         self._loaded_label = ""
         self._dirty = False
+        self._console_busy = False
         layout = QVBoxLayout(self)
         layout.setContentsMargins(*space_box("micro", "hair", "micro", "gap"))
         layout.setSpacing(SPACE["gap"])
@@ -526,6 +530,48 @@ class WorkspacePanel(QWidget):
         self.face_stack.addWidget(self.split)
         layout.addWidget(self.face_stack, stretch=1)
 
+        self.search_list = QListWidget()
+        self.search_list.setObjectName("SearchHits")
+        self.search_list.setFrameShape(QListWidget.Shape.NoFrame)
+        self.search_list.setMaximumHeight(140)
+        self.search_list.setToolTip("Search hits. Click one to open it.")
+        self.search_list.itemClicked.connect(self._on_search_hit)
+        self.search_list.hide()
+        layout.addWidget(self.search_list)
+
+        self.run_log = QPlainTextEdit()
+        self.run_log.setObjectName("RunLog")
+        self.run_log.setReadOnly(True)
+        self.run_log.setMaximumHeight(168)
+        self.run_log.setPlaceholderText("")
+        self.run_log.hide()
+        layout.addWidget(self.run_log)
+
+        console_row = QHBoxLayout()
+        console_row.setContentsMargins(0, 0, 0, 0)
+        console_row.setSpacing(6)
+        self.console_cwd = QLabel("project")
+        self.console_cwd.setObjectName("InstrumentHint")
+        self.console_cwd.setMaximumWidth(220)
+        self.console_cwd.setToolTip("Commands you type start in this folder")
+        self.console_edit = QLineEdit()
+        self.console_edit.setObjectName("InstrumentSearch")
+        self.console_edit.setPlaceholderText("you type it — she cannot run this line")
+        self.console_edit.setFixedHeight(METRICS["row"])
+        self.console_edit.setToolTip(
+            "Runs in the active project. Arelis has no tool that presses enter."
+        )
+        self.console_btn = QPushButton("run")
+        self.console_btn.setObjectName("InstrumentAction")
+        self.console_btn.setFixedHeight(METRICS["row"])
+        self.console_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.console_edit.returnPressed.connect(self._submit_console)
+        self.console_btn.clicked.connect(self._submit_console)
+        console_row.addWidget(self.console_cwd)
+        console_row.addWidget(self.console_edit, stretch=1)
+        console_row.addWidget(self.console_btn)
+        layout.addLayout(console_row)
+
         self.output = QPlainTextEdit()
         self.output.setObjectName("OutputView")
         self.output.setReadOnly(True)
@@ -607,6 +653,9 @@ class WorkspacePanel(QWidget):
             self.root_label.setToolTip("")
             self.project_combo.setToolTip("Active project")
         self.root_label.hide()
+        folder = Path(path).name if path else (name or "project")
+        self.console_cwd.setText(folder)
+        self.console_cwd.setToolTip(path or "Commands you type start in this folder")
 
     def _on_project_changed(self, name: str) -> None:
         if name and name in self._project_names:
@@ -931,6 +980,78 @@ class WorkspacePanel(QWidget):
         self.output.setPlainText(clipped)
         self.output.setFixedHeight(_STATUS_HEIGHT)
         self.output.show()
+
+    def show_search_hits(self, hits: list[dict]) -> None:
+        """Clickable grep/find rows. Each hit is path, line, text."""
+        self.search_list.clear()
+        shown = 0
+        for hit in hits or []:
+            if not isinstance(hit, dict):
+                continue
+            path = str(hit.get("path") or "").strip()
+            if not path:
+                continue
+            try:
+                line = int(hit.get("line") or 0)
+            except (TypeError, ValueError):
+                line = 0
+            text = str(hit.get("text") or "").strip()
+            label = f"{path}:{line}  {text}".rstrip() if line else path
+            item = QListWidgetItem(label)
+            item.setData(Qt.ItemDataRole.UserRole, path)
+            item.setData(Qt.ItemDataRole.UserRole + 1, line)
+            self.search_list.addItem(item)
+            shown += 1
+            if shown >= 80:
+                break
+        self.search_list.setVisible(shown > 0)
+
+    def show_log(self, title: str, text: str) -> None:
+        """Diff, run output, or a console transcript. Replaces the previous log."""
+        head = (title or "").strip()
+        body = text or ""
+        if len(body) > 12_000:
+            body = body[:12_000] + "\n…(truncated)"
+        shown = f"{head}\n{body}".strip() if head else body.strip()
+        self.run_log.setPlainText(shown)
+        self.run_log.show()
+
+    def reveal_line(self, line: int) -> None:
+        if line <= 0:
+            return
+        self._show_preview(False)
+        block = self.editor.document().findBlockByNumber(line - 1)
+        if not block.isValid():
+            return
+        cursor = self.editor.textCursor()
+        cursor.setPosition(block.position())
+        self.editor.setTextCursor(cursor)
+        self.editor.centerCursor()
+        self.editor.setFocus()
+
+    def set_console_busy(self, busy: bool) -> None:
+        self._console_busy = busy
+        self.console_btn.setText("stop" if busy else "run")
+        self.console_edit.setEnabled(not busy)
+
+    def _on_search_hit(self, item: QListWidgetItem) -> None:
+        path = str(item.data(Qt.ItemDataRole.UserRole) or "").strip()
+        if not path:
+            return
+        try:
+            line = int(item.data(Qt.ItemDataRole.UserRole + 1) or 0)
+        except (TypeError, ValueError):
+            line = 0
+        self.open_line_requested.emit(path, line)
+
+    def _submit_console(self) -> None:
+        if self._console_busy:
+            self.console_stop_requested.emit()
+            return
+        text = self.console_edit.text().strip()
+        if not text:
+            return
+        self.console_submit.emit(text)
 
     def show_image(self, path: str) -> None:
         target = Path(path)
