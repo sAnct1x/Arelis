@@ -36,6 +36,11 @@ class ArelisClient(
         .readTimeout(10, TimeUnit.MINUTES)
         .writeTimeout(30, TimeUnit.SECONDS)
         .build()
+    private val packHttp = OkHttpClient.Builder()
+        .connectTimeout(8, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.MINUTES)
+        .writeTimeout(30, TimeUnit.SECONDS)
+        .build()
 
     fun ping(): String {
         if (relay == null) {
@@ -169,6 +174,73 @@ class ArelisClient(
         if (code == 401) throw IllegalStateException("Token does not match this Arelis.")
         if (code !in 200..299) throw IllegalStateException("HTTP $code: $body")
         return JSONObject(body.ifBlank { "{}" })
+    }
+
+    fun companionManifest(): JSONObject {
+        val req = Request.Builder()
+            .url("$baseUrl/companion/manifest")
+            .header("X-Arelis-Token", token)
+            .get()
+            .build()
+        packHttp.newCall(req).execute().use { resp ->
+            val body = resp.body?.string().orEmpty()
+            if (resp.code !in 200..299) {
+                throw IllegalStateException("HTTP ${resp.code}: $body")
+            }
+            return JSONObject(body.ifBlank { "{}" })
+        }
+    }
+
+    fun downloadCompanionApk(dest: java.io.File, onProgress: (Long, Long) -> Unit) {
+        downloadPack("$baseUrl/companion/apk", dest, onProgress, missing = "no companion apk")
+    }
+
+    fun downloadCompanionGemma(dest: java.io.File, onProgress: (Long, Long) -> Unit): Boolean {
+        return try {
+            downloadPack("$baseUrl/companion/gemma", dest, onProgress, missing = "gemma not cached")
+            true
+        } catch (exc: IllegalStateException) {
+            if (exc.message?.contains("404") == true || exc.message?.contains("gemma not cached") == true) {
+                false
+            } else {
+                throw exc
+            }
+        }
+    }
+
+    private fun downloadPack(
+        url: String,
+        dest: java.io.File,
+        onProgress: (Long, Long) -> Unit,
+        missing: String,
+    ) {
+        val req = Request.Builder()
+            .url(url)
+            .header("X-Arelis-Token", token)
+            .get()
+            .build()
+        packHttp.newCall(req).execute().use { resp ->
+            if (resp.code == 404) {
+                throw IllegalStateException("HTTP 404: $missing")
+            }
+            if (!resp.isSuccessful) {
+                throw IllegalStateException("HTTP ${resp.code}: ${resp.body?.string().orEmpty()}")
+            }
+            val total = resp.body?.contentLength() ?: -1L
+            val source = resp.body?.byteStream() ?: throw IllegalStateException("Empty download.")
+            dest.parentFile?.mkdirs()
+            dest.outputStream().use { out ->
+                val buf = ByteArray(64 * 1024)
+                var got = 0L
+                while (true) {
+                    val n = source.read(buf)
+                    if (n < 0) break
+                    out.write(buf, 0, n)
+                    got += n
+                    onProgress(got, total)
+                }
+            }
+        }
     }
 
     fun persona(): String {
@@ -412,6 +484,10 @@ class ArelisClient(
                 "/inbound",
                 "/mobile/status",
                 "/mobile/turn",
+                "/companion/manifest",
+                "/companion/apk",
+                "/companion/gemma",
+                "/companion",
             )) {
                 if (value.endsWith(suffix)) {
                     value = value.removeSuffix(suffix)

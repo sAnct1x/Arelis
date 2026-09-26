@@ -90,6 +90,11 @@ class Prefs(context: Context) {
         get() = TalkLanguage.normalize(sp.getString(KEY_LANG, TalkLanguage.DEFAULT).orEmpty())
         set(value) = sp.edit().putString(KEY_LANG, TalkLanguage.normalize(value)).apply()
 
+    /** House versionCode the user dismissed with Later. */
+    var companionLaterCode: Int
+        get() = sp.getInt(KEY_APP_LATER, 0)
+        set(value) = sp.edit().putInt(KEY_APP_LATER, value).apply()
+
     companion object {
         private const val PREFS = "arelis"
         private const val KEY_URL = "base_url"
@@ -108,5 +113,6 @@ class Prefs(context: Context) {
         private const val KEY_FOCUS = "focus_chat"
         private const val KEY_TALK_DAY = "last_talk_day"
         private const val KEY_LANG = "talk_language"
+        private const val KEY_APP_LATER = "companion_later_code"
     }
 }

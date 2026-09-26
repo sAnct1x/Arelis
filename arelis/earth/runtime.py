@@ -123,6 +123,7 @@ class EarthRuntime:
 
                 emit("earth_enter", n=len(self.store), live=self.live, already=True)
             except Exception:
+                # telemetry is non-critical, continue on failure
                 pass
             return self.note
         self.active = True
@@ -141,6 +142,7 @@ class EarthRuntime:
 
             schedule_land_fetch()
         except Exception:
+            # background land fetch is optional, continue without
             pass
         if self.live:
             self._merge_live()
@@ -162,6 +164,7 @@ class EarthRuntime:
 
             emit("earth_enter", n=n, live=self.live, already=False)
         except Exception:
+            # telemetry is non-critical, continue on failure
             pass
         return self.note
 
@@ -191,12 +194,14 @@ class EarthRuntime:
 
             forget()
         except Exception:
+            # look cleanup is optional, continue on failure
             pass
         try:
             from arelis.earth.trails import forget as forget_trails
 
             forget_trails()
         except Exception:
+            # trails cleanup is optional, continue on failure
             pass
         from arelis.earth.copy import leave_note
 
@@ -206,6 +211,7 @@ class EarthRuntime:
 
             emit("earth_leave")
         except Exception:
+            # telemetry is non-critical, continue on failure
             pass
         return self.note
 
@@ -253,6 +259,7 @@ class EarthRuntime:
 
             emit("earth_layer", layer=key, on=val, live=self.live)
         except Exception:
+            # telemetry is non-critical, continue on failure
             pass
         if val:
             from arelis.earth.lod import ADAPTER_LAYERS
@@ -286,6 +293,7 @@ class EarthRuntime:
 
                 roads_for_view(view.lat, view.lon, view.band, alt_m=view.alt_m)
             except Exception:
+                # roads fetch is optional, continue without
                 pass
 
     def note_view(self, view: EarthView) -> None:
@@ -306,6 +314,7 @@ class EarthRuntime:
                     live=self.live,
                 )
             except Exception:
+                # telemetry is non-critical, continue on failure
                 pass
             if view.band in {"approach", "near", "city"}:
                 try:
@@ -318,6 +327,7 @@ class EarthRuntime:
                         source="gibs",
                     )
                 except Exception:
+                    # tiles fetch is optional, continue without
                     pass
         self._sync_ground_detail(prev)
 
@@ -358,6 +368,7 @@ class EarthRuntime:
 
                 forget(was)
             except Exception:
+                # trail cleanup is optional, continue on failure
                 pass
 
     def _note_trails(self) -> None:
@@ -367,6 +378,7 @@ class EarthRuntime:
         try:
             from arelis.earth.trails import forget, note
         except Exception:
+            # trails module unavailable, skip trail tracking
             return
         ent = self.store.get(hot)
         if ent is None:
@@ -390,6 +402,7 @@ class EarthRuntime:
 
                 forget(prev)
             except Exception:
+                # trail cleanup is optional, continue on failure
                 pass
         self.track_id = hit.id
         try:
@@ -397,6 +410,7 @@ class EarthRuntime:
 
             emit("earth_track", id=hit.id, layer=hit.layer)
         except Exception:
+            # telemetry is non-critical, continue on failure
             pass
         return hit
 
@@ -411,6 +425,7 @@ class EarthRuntime:
 
             emit("earth_ride", id=hit.id, layer=hit.layer)
         except Exception:
+            # telemetry is non-critical, continue on failure
             pass
         return hit
 
@@ -423,6 +438,7 @@ class EarthRuntime:
 
                 emit("earth_ride", id="", stop=True)
             except Exception:
+                # telemetry is non-critical, continue on failure
                 pass
 
     def search(self, text: str) -> tuple[Entity, ...]:
@@ -454,6 +470,7 @@ class EarthRuntime:
                     if not firms_key():
                         hole = "FIRMS MAP_KEY missing. " + hole
                 except Exception:
+                    # firms check failed, assume missing key
                     hole = "FIRMS MAP_KEY missing. " + hole
             notes.append(f"{spec.title}: {hole}")
         return notes
@@ -465,6 +482,7 @@ class EarthRuntime:
             from arelis.earth.owned import load_owned_faces
             from arelis.earth.people import load_people
         except Exception:
+            # local data modules unavailable, skip merge
             return
         try:
             for e in load_people():
@@ -474,6 +492,7 @@ class EarthRuntime:
             for e in load_owned_faces():
                 self.store.upsert(e)
         except Exception:
+            # local data load failed, continue without
             return
 
     def _merge_live(self) -> None:
@@ -481,6 +500,7 @@ class EarthRuntime:
         try:
             from arelis.earth.live import merge_live
         except Exception:
+            # live feed module unavailable, skip merge
             return
         view = self.last_view or EarthView(band="space")
         now = time.time()
@@ -493,6 +513,7 @@ class EarthRuntime:
         try:
             got = merge_live(self.store, view=view, layers=self.layers, only=only)
         except Exception:
+            # live feed merge failed, continue without
             return
         if isinstance(got, dict):
             for key in only:
@@ -509,12 +530,14 @@ class EarthRuntime:
 
             system = get_system()
         except Exception:
+            # physics system unavailable, skip wall clock lock
             return
         if system is None:
             return
         try:
             system.go_realtime()
         except Exception:
+            # realtime lock failed, continue in current mode
             pass
 
     def _kick_snapshot(self, *, refetch: bool = False) -> None:
@@ -591,6 +614,7 @@ class EarthRuntime:
                 live=self.live,
             )
         except Exception:
+            # telemetry is non-critical, continue on failure
             pass
 
         def work() -> None:

@@ -104,6 +104,7 @@ class BrowserSession:
             if page is not None:
                 return str(getattr(page, "url", "") or "")
         except Exception:
+            # page may be detached or unavailable — empty is correct
             return ""
         return ""
 
@@ -548,6 +549,7 @@ class BrowserSession:
                 if isinstance(raw, dict):
                     signals = raw
             except Exception:
+                # probe_wall_signals unavailable — fallback to detect_wall heuristics
                 signals = {}
         return detect_wall(
             url=str(signals.get("url") or getattr(self._driver, "url", "") or ""),
