@@ -1,0 +1,42 @@
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For help setting up or using Arelis. If something is broken, open an [issue](https://github.com/sAnct1x/Arelis/issues) instead.
+
+        Nothing that identifies a real person. No contacts, no real email, no home folder path.
+  - type: textarea
+    id: question
+    attributes:
+      label: Your question
+      description: What you're trying to do, and what happened when you tried.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Arelis version
+      description: Press F1 in the window, or check the setup file name.
+      placeholder: 0.2.9
+    validations:
+      required: true
+  - type: input
+    id: windows
+    attributes:
+      label: Windows version
+      placeholder: Windows 11
+    validations:
+      required: true
+  - type: input
+    id: gpu-model
+    attributes:
+      label: GPU and model (if relevant)
+      description: Your graphics card and the chat model you're using.
+      placeholder: 12 GB NVIDIA, qwen3.5:9b
+  - type: checkboxes
+    id: searched
+    attributes:
+      label: Before posting
+      options:
+        - label: I searched existing discussions and the README
+          required: true

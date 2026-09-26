@@ -1,0 +1,21 @@
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Ideas for Arelis. It's one person working on this, so no promises, but I do read these.
+
+        Ideas that send your data off your PC without you asking, or put a feature behind a payment, won't land. More in [CONTRIBUTING.md](https://github.com/sAnct1x/Arelis/blob/main/CONTRIBUTING.md).
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+      description: What were you trying to do, and what got in the way?
+    validations:
+      required: true
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: Your idea
+      description: What you'd want Arelis to do. Rough is fine.
+    validations:
+      required: true

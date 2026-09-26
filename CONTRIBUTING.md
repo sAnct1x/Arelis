@@ -164,6 +164,10 @@ diff. Do not credit a tool in the message.
 A security hole is different. See [SECURITY.md](SECURITY.md). Private
 report. Not a public issue.
 
+A question is not a bug. Ask it in
+[Discussions](https://github.com/sAnct1x/Arelis/discussions) under Q&A.
+Ideas go there too. Issues are for things that broke.
+
 For ordinary bugs: what you did, what you expected, what happened. Logs
 stay on your machine (`%LOCALAPPDATA%\Arelis\logs` installed, `logs/`
 from source). Read them before you attach anything. An issue is public.
