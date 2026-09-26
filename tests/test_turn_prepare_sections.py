@@ -205,19 +205,20 @@ async def test_prepare_turn_wires_sections_expected_tools_budget_and_history(mon
 
 def test_now_line_names_the_half_of_the_day(monkeypatch) -> None:
     from datetime import datetime
-    from zoneinfo import ZoneInfo
 
     import arelis.core.agent_loop as agent_loop
 
-    tz = ZoneInfo("America/New_York")
-    fixed = {"when": datetime(2026, 9, 26, 2, 31, tzinfo=tz)}
+    fixed = {"when": datetime(2026, 9, 26, 2, 31)}
 
     class Clock(datetime):
         @classmethod
         def now(cls, tz=None):
-            return fixed["when"]
+            if tz is None:
+                return fixed["when"]
+            else:
+                return fixed["when"].replace(tzinfo=tz)
 
     monkeypatch.setattr(agent_loop, "datetime", Clock)
     assert "2:31 AM" in agent_loop.now_line()
-    fixed["when"] = datetime(2026, 9, 26, 14, 31, tzinfo=tz)
+    fixed["when"] = datetime(2026, 9, 26, 14, 31)
     assert "2:31 PM" in agent_loop.now_line()
