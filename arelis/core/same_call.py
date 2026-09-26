@@ -62,7 +62,9 @@ def same_call_key(name: str, args: dict[str, Any] | None) -> str | None:
     return _generic_key(n, payload)
 
 
-def already_ran_same_call(same_ok: set[str], name: str, args: dict[str, Any] | None) -> str | None:
+def already_ran_same_call(
+    same_ok: set[str], name: str, args: dict[str, Any] | None
+) -> str | None:
     """Notice to inject when this exact call already succeeded, else None."""
     key = same_call_key(name, args)
     if key is None or key not in same_ok:
@@ -70,7 +72,9 @@ def already_ran_same_call(same_ok: set[str], name: str, args: dict[str, Any] | N
     return same_call_notice(name, args or {})
 
 
-def record_same_call(same_ok: set[str], name: str, args: dict[str, Any] | None) -> None:
+def record_same_call(
+    same_ok: set[str], name: str, args: dict[str, Any] | None
+) -> None:
     """Remember a successful call. A write drops reads of that path."""
     payload = args or {}
     key = same_call_key(name, payload)

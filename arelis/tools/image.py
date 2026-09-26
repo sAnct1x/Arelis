@@ -101,7 +101,9 @@ def mask_from_box(width: int, height: int, box: list[Any]) -> Any:
         raise ValueError("mask_box must be [x, y, w, h] in source pixels.")
     x, y, box_w, box_h = (int(v) for v in box)
     mask = Image.new("L", (int(width), int(height)), 0)
-    ImageDraw.Draw(mask).rectangle([x, y, x + max(0, box_w) - 1, y + max(0, box_h) - 1], fill=255)
+    ImageDraw.Draw(mask).rectangle(
+        [x, y, x + max(0, box_w) - 1, y + max(0, box_h) - 1], fill=255
+    )
     return mask
 
 
@@ -128,7 +130,9 @@ def pad_for_outpaint(source: Any, direction: str) -> tuple[Any, Any]:
     canvas = Image.new("RGB", (w + left + right, h + top + bottom), (0, 0, 0))
     canvas.paste(rgb, (left, top))
     mask = Image.new("L", canvas.size, 255)
-    ImageDraw.Draw(mask).rectangle([left, top, left + w - 1, top + h - 1], fill=0)
+    ImageDraw.Draw(mask).rectangle(
+        [left, top, left + w - 1, top + h - 1], fill=0
+    )
     return canvas, mask
 
 
@@ -341,7 +345,8 @@ class ImageTool:
         if width is not None or height is not None:
             if width is None or height is None:
                 raise ValueError(
-                    "Give both width and height, or an aspect. A single dimension is ambiguous."
+                    "Give both width and height, or an aspect. A single "
+                    "dimension is ambiguous."
                 )
             return clamp_size(int(width), int(height))
         aspect = str(kwargs.get("aspect") or "").strip()
@@ -369,7 +374,9 @@ class ImageTool:
             return str(found), True
         return "", self.auto_start
 
-    async def _upload_bytes(self, client: httpx.AsyncClient, data: bytes, name: str) -> str:
+    async def _upload_bytes(
+        self, client: httpx.AsyncClient, data: bytes, name: str
+    ) -> str:
         tmp = self.output_dir / name
         tmp.write_bytes(data)
         try:
@@ -459,7 +466,9 @@ class ImageTool:
                 return ToolResult(ok=False, output=f"[fail:image] {exc}")
 
         if mask_box is not None and not isinstance(mask_box, (list, tuple)):
-            return ToolResult(ok=False, output="[fail:image] mask_box must be [x, y, w, h].")
+            return ToolResult(
+                ok=False, output="[fail:image] mask_box must be [x, y, w, h]."
+            )
         if mask_region and mask_region not in MASK_REGIONS:
             known = ", ".join(MASK_REGIONS)
             return ToolResult(
@@ -608,7 +617,9 @@ class ImageTool:
                         work_w, work_h = rgb.size
                         payload, upload_name = _png_bytes(rgb, f"{source.stem}-src.png")
                         image_name = await self._upload_bytes(client, payload, upload_name)
-                        mask_payload, mask_upload = _mask_rgb_bytes(mask, f"{source.stem}-mask.png")
+                        mask_payload, mask_upload = _mask_rgb_bytes(
+                            mask, f"{source.stem}-mask.png"
+                        )
                         mask_name = await self._upload_bytes(client, mask_payload, mask_upload)
                     except Exception as exc:
                         return ToolResult(
@@ -619,7 +630,9 @@ class ImageTool:
                     mode = "img2img"
                     denoise = 0.55 if denoise_raw is None else float(denoise_raw)
                     try:
-                        payload, upload_name = _prepare_img2img_bytes(source, width, height)
+                        payload, upload_name = _prepare_img2img_bytes(
+                            source, width, height
+                        )
                         image_name = await self._upload_bytes(client, payload, upload_name)
                     except Exception as exc:
                         return ToolResult(
@@ -703,7 +716,9 @@ class ImageTool:
                         self.comfy_url,
                         prompt_id or "",
                         on_progress=lambda step, total, i=index: self._note(
-                            image_progress_line(index=i + 1, n=n, step=step, total=total)
+                            image_progress_line(
+                                index=i + 1, n=n, step=step, total=total
+                            )
                         ),
                     )
                     oom = any(
@@ -743,7 +758,9 @@ class ImageTool:
                                 self.comfy_url,
                                 prompt_id or "",
                                 on_progress=lambda step, total, i=index: self._note(
-                                    image_progress_line(index=i + 1, n=n, step=step, total=total)
+                                    image_progress_line(
+                                        index=i + 1, n=n, step=step, total=total
+                                    )
                                 ),
                             )
                     if wait_error or not image_file:
@@ -844,7 +861,9 @@ def schedule_image_progress(bus: Any, line: str) -> None:
 
     try:
         asyncio.get_running_loop().create_task(
-            bus.publish(Event(EventType.STATUS, {"message": line, "image_progress": True}))
+            bus.publish(
+                Event(EventType.STATUS, {"message": line, "image_progress": True})
+            )
         )
     except RuntimeError:
         pass

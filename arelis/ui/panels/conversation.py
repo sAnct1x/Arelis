@@ -89,7 +89,10 @@ class _ComposerLineEdit(QPlainTextEdit):
         self.viewport().setAcceptDrops(False)
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
-        if event.buttons() & Qt.MouseButton.LeftButton and self.textCursor().hasSelection():
+        if (
+            event.buttons() & Qt.MouseButton.LeftButton
+            and self.textCursor().hasSelection()
+        ):
             hit = self.cursorForPosition(event.position().toPoint())
             cursor = self.textCursor()
             cursor.setPosition(cursor.anchor())
@@ -221,7 +224,9 @@ class ConversationStage(GlassFrame):
             self.role.setCurrentText(default_role)
         self.role.setFixedHeight(METRICS["control"])
         # Fit longest label ("research") — avoid a wide empty popup.
-        self.role.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
+        self.role.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToContents
+        )
         self.role.setFixedWidth(92)
         # Non-editable on purpose: an editable+readOnly LineEdit with NoFocus
         # was used to center the label, but on Windows it ate popup clicks so
@@ -294,7 +299,9 @@ class ConversationStage(GlassFrame):
         self.conversation_btn.setCheckable(True)
         self.conversation_btn.setIcon(conversation_icon(_icon))
         self._apply_talk_mark_size()
-        self.conversation_btn.setToolTip("talk with Arelis (Ctrl+Shift+M) · say goodbye to stop")
+        self.conversation_btn.setToolTip(
+            "talk with Arelis (Ctrl+Shift+M) · say goodbye to stop"
+        )
         self.conversation_btn.setAccessibleName("Talk")
         self.conversation_btn.setAccessibleDescription(
             "talk with Arelis (Ctrl+Shift+M) · say goodbye to stop"
@@ -311,7 +318,9 @@ class ConversationStage(GlassFrame):
             "stop current turn — Esc also stops once she has started answering"
         )
         self.stop_btn.setAccessibleName("Stop")
-        self.stop_btn.setAccessibleDescription("stop current turn — also the hung-turn unlock")
+        self.stop_btn.setAccessibleDescription(
+            "stop current turn — also the hung-turn unlock"
+        )
         self.stop_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.stop_btn.setAutoRaise(True)
         self.stop_btn.hide()
@@ -410,7 +419,9 @@ class ConversationStage(GlassFrame):
         margins = layout.contentsMargins()
         if margins.top() == want:
             return
-        layout.setContentsMargins(margins.left(), want, margins.right(), margins.bottom())
+        layout.setContentsMargins(
+            margins.left(), want, margins.right(), margins.bottom()
+        )
         layout.activate()
 
     def dragEnterEvent(self, event: QDragEnterEvent) -> None:  # type: ignore[override]
@@ -554,9 +565,9 @@ class ConversationStage(GlassFrame):
         self._sync_composer_buttons()
         if getattr(self, "_filament_desk", False):
             win = self.window()
-            chat_open = (
-                bool(getattr(win, "_filament_chat_open", False)) if win is not None else False
-            )
+            chat_open = bool(
+                getattr(win, "_filament_chat_open", False)
+            ) if win is not None else False
             self.apply_filament_desk(True, chat_open=chat_open)
         self.update()
 
@@ -671,7 +682,9 @@ class ConversationStage(GlassFrame):
         raw = self.input.text()
         line_h = max(fm.lineSpacing(), fm.height())
         inner = max(1, self.input.viewport().width() - 8)
-        wrapped = fm.boundingRect(QRect(0, 0, inner, 10_000), Qt.TextFlag.TextWordWrap, raw or " ")
+        wrapped = fm.boundingRect(
+            QRect(0, 0, inner, 10_000), Qt.TextFlag.TextWordWrap, raw or " "
+        )
         content_h = wrapped.height() + 12
         rest = int(METRICS["control"])
         height = rest if not raw.strip() else max(rest, min(line_h * 5 + 16, content_h))
@@ -786,7 +799,9 @@ class ConversationStage(GlassFrame):
                 self.input.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
                 self.input.setMinimumWidth(0)
                 self.input.setMaximumWidth(16777215)
-                self.input.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+                self.input.setSizePolicy(
+                    QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+                )
             self.input.show()
             self.input.setClearButtonEnabled(True)
             self._composer.show()
@@ -803,7 +818,9 @@ class ConversationStage(GlassFrame):
                     if host_l is not None:
                         host_l.removeWidget(btn)
                     btn.setParent(self._composer)
-                    self._composer_row.insertWidget(self._composer_row.indexOf(self.stop_btn), btn)
+                    self._composer_row.insertWidget(
+                        self._composer_row.indexOf(self.stop_btn), btn
+                    )
                 btn.setVisible(visible)
             empty = getattr(self.chat, "empty", None)
             voice_host = getattr(empty, "voice_host", None) if empty is not None else None
@@ -959,7 +976,9 @@ class ConversationStage(GlassFrame):
         self.clear_btn.setIcon(window_close_icon(icon))
         self.attach_btn.setIcon(paperclip_icon(icon))
         self.send_btn.setIcon(signal_flare_icon(icon))
-        self.mic_btn.setIcon(microphone_icon(icon, live=self.mic_btn.isChecked()))
+        self.mic_btn.setIcon(
+            microphone_icon(icon, live=self.mic_btn.isChecked())
+        )
         self._apply_talk_mark_size()
         mark, _box = _talk_mark_px()
         self.conversation_btn.setIcon(
@@ -1011,11 +1030,9 @@ class ConversationStage(GlassFrame):
         # Bare wake: keep the idle line on "listening" until they speak or hang up.
         self._apply_listening_copy(self._wake_waiting)
         if self.conversation_btn.isChecked():
-            self.conversation_btn.setToolTip(
-                "listening"
-                if self._wake_waiting
-                else ("talk with Arelis (Ctrl+Shift+M) · say goodbye to stop")
-            )
+            self.conversation_btn.setToolTip("listening" if self._wake_waiting else (
+                "talk with Arelis (Ctrl+Shift+M) · say goodbye to stop"
+            ))
         self._sync_listen_pulse()
 
     def _apply_listening_copy(self, listening: bool) -> None:

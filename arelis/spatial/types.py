@@ -98,7 +98,10 @@ class Hand:
         palm = self.palm_width()
         if palm < 1e-6:
             return 0.0
-        spans = [_dist3(self.xyz(tip), self.xyz(mcp)) for mcp, _pip, _dip, tip in CURL_FINGERS]
+        spans = [
+            _dist3(self.xyz(tip), self.xyz(mcp))
+            for mcp, _pip, _dip, tip in CURL_FINGERS
+        ]
         return (sum(spans) / 3.0) / palm
 
     def finger_curl(self, mcp: int, pip: int, dip: int, tip: int) -> float:
@@ -248,7 +251,9 @@ class FilterBank:
             for prev_wrist, prev_slot in self._prev:
                 if prev_slot in used:
                     continue
-                dist = ((wrist[0] - prev_wrist[0]) ** 2 + (wrist[1] - prev_wrist[1]) ** 2) ** 0.5
+                dist = (
+                    (wrist[0] - prev_wrist[0]) ** 2 + (wrist[1] - prev_wrist[1]) ** 2
+                ) ** 0.5
                 if dist < best:
                     best = dist
                     slot = prev_slot

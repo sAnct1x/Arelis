@@ -83,7 +83,9 @@ def test_an_sms_body_is_not_mistaken_for_a_to_do_ask() -> None:
     assert not looks_like_tasks_utterance(
         "text my wife and tell her I have to do the shopping today"
     )
-    assert not looks_like_tasks_utterance("send Sam a message saying what do I need to bring")
+    assert not looks_like_tasks_utterance(
+        "send Sam a message saying what do I need to bring"
+    )
 
 
 @pytest.mark.asyncio

@@ -23,7 +23,9 @@ def _talk_window(*, roots: WorkspaceRoots | None = None) -> SimpleNamespace:
     think: list[str] = []
     window = SimpleNamespace(
         chat=SimpleNamespace(add_system=said.append),
-        thinking=SimpleNamespace(append=lambda text, kind="status": think.append(str(text))),
+        thinking=SimpleNamespace(
+            append=lambda text, kind="status": think.append(str(text))
+        ),
         work_dock=object(),
         act_workspace=object(),
         workspace_roots=roots,
@@ -55,7 +57,9 @@ def test_workspace_save_failure_lands_in_conversation(tmp_path: Path) -> None:
     assert any("save failed" in line for line in window.think)
 
 
-def test_workspace_save_write_error_lands_in_conversation(tmp_path: Path, monkeypatch) -> None:
+def test_workspace_save_write_error_lands_in_conversation(
+    tmp_path: Path, monkeypatch
+) -> None:
     roots = WorkspaceRoots.from_paths([str(tmp_path)], active=tmp_path.name)
     window = _talk_window(roots=roots)
     (tmp_path / "notes.txt").write_text("ok", encoding="utf-8")
@@ -76,9 +80,7 @@ def test_workspace_open_failure_lands_in_conversation(tmp_path: Path) -> None:
 
     open_file(window, "ghost.txt")
 
-    assert any(
-        "could not open" in line.lower() or "not a file" in line.lower() for line in window.said
-    )
+    assert any("could not open" in line.lower() or "not a file" in line.lower() for line in window.said)
     assert window.said, "open failure must not be thinking-only"
 
 
@@ -91,7 +93,9 @@ def test_notify_poll_failure_lands_in_conversation() -> None:
     assert any("Phone notifications stopped" in line for line in window.think)
 
 
-def test_sms_chat_without_a_number_lands_in_conversation(qt_app, monkeypatch) -> None:
+def test_sms_chat_without_a_number_lands_in_conversation(
+    qt_app, monkeypatch
+) -> None:
     from PySide6.QtWidgets import QWidget
 
     from arelis.ui.sms_chat import SmsChatRegistry

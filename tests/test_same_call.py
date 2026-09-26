@@ -32,7 +32,9 @@ def test_root_list_aliases_are_the_same_call() -> None:
 def test_new_folder_or_file_is_new_work() -> None:
     root = same_call_key("workspace", {"action": "list", "path": "."})
     physics = same_call_key("workspace", {"action": "list", "path": "arelis/physics"})
-    engine = same_call_key("workspace", {"action": "read", "path": "arelis/physics/engine.py"})
+    engine = same_call_key(
+        "workspace", {"action": "read", "path": "arelis/physics/engine.py"}
+    )
     constants = same_call_key(
         "workspace", {"action": "read", "path": "arelis/physics/constants.py"}
     )
@@ -50,14 +52,11 @@ def test_same_read_is_blocked_after_success() -> None:
     assert notice is not None
     assert "Already read" in notice
     assert "engine.py" in notice
-    assert (
-        already_ran_same_call(
-            same_ok,
-            "workspace",
-            {"action": "read", "path": "arelis/physics/scene.py"},
-        )
-        is None
-    )
+    assert already_ran_same_call(
+        same_ok,
+        "workspace",
+        {"action": "read", "path": "arelis/physics/scene.py"},
+    ) is None
 
 
 def test_same_list_is_blocked_slash_aliases() -> None:
@@ -66,10 +65,9 @@ def test_same_list_is_blocked_slash_aliases() -> None:
     notice = already_ran_same_call(same_ok, "workspace", {"action": "list"})
     assert notice is not None
     assert "Already listed" in notice
-    assert (
-        already_ran_same_call(same_ok, "workspace", {"action": "list", "path": "arelis/physics"})
-        is None
-    )
+    assert already_ran_same_call(
+        same_ok, "workspace", {"action": "list", "path": "arelis/physics"}
+    ) is None
 
 
 def test_failed_calls_are_not_recorded_by_helpers() -> None:
@@ -123,7 +121,9 @@ def test_rooms_get_repeats_and_browser_does_not() -> None:
     notice = already_ran_same_call(same_ok, "rooms", get)
     assert notice is not None
     assert "rooms" in notice
-    assert already_ran_same_call(same_ok, "rooms", {"action": "get", "name": "lab"}) is None
+    assert already_ran_same_call(
+        same_ok, "rooms", {"action": "get", "name": "lab"}
+    ) is None
     snap = {"action": "snapshot"}
     assert same_call_key("browser", snap) is None
     record_same_call(same_ok, "browser", snap)
@@ -142,14 +142,11 @@ def test_same_browser_open_url_is_a_loop() -> None:
     assert "Already opened" in notice
     assert "Stop" in notice
     assert "research_report" not in notice
-    assert (
-        already_ran_same_call(
-            same_ok,
-            "browser",
-            {"action": "open", "url": "https://www.bloomberg.com/news/articles/x"},
-        )
-        is None
-    )
+    assert already_ran_same_call(
+        same_ok,
+        "browser",
+        {"action": "open", "url": "https://www.bloomberg.com/news/articles/x"},
+    ) is None
     assert same_call_key("browser", {"action": "click", "text": "Sign in"}) is None
     assert same_call_key(
         "browser",
@@ -160,7 +157,9 @@ def test_same_browser_open_url_is_a_loop() -> None:
     notice = already_ran_same_call(same_ok, "browser", wait)
     assert notice is not None
     assert "waited" in notice.lower()
-    assert already_ran_same_call(same_ok, "browser", {"action": "wait", "text": "Home"}) is None
+    assert already_ran_same_call(
+        same_ok, "browser", {"action": "wait", "text": "Home"}
+    ) is None
     assert same_call_key("browser", {"action": "wait", "seconds": 1}) is None
 
 
@@ -203,7 +202,10 @@ def test_same_call_notice_names_the_path() -> None:
 
 def test_same_call_finish_line_ships_the_prior_result() -> None:
     assert same_call_finish_line("calculator", "840 * 0.175 = 147") == "840 * 0.175 = 147"
-    ugly = "((349.54 - 287.20) / 287.20) * 100 = 21.706128133704734 (exactly 15585/718)"
+    ugly = (
+        "((349.54 - 287.20) / 287.20) * 100 = 21.706128133704734 "
+        "(exactly 15585/718)"
+    )
     line = same_call_finish_line("calculator", ugly)
     assert "15585" not in line
     assert "21.7" in line

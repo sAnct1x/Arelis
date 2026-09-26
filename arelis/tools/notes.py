@@ -131,7 +131,9 @@ class NotesTool:
         )
         title = str(kwargs.get("title") or "")
         try:
-            item = write_note(self.workspace, body, title=title, store=self.store)
+            item = write_note(
+                self.workspace, body, title=title, store=self.store
+            )
         except (ValueError, PermissionError, OSError) as exc:
             return ToolResult(ok=False, output=str(exc))
         path = Path(item.abs_path)
@@ -156,7 +158,9 @@ class NotesTool:
                 output="No notes on the desk.",
                 data={"notes": []},
             )
-        lines = [f"{row['date'] or '—'}  {row['title']}  {row['path']}" for row in rows]
+        lines = [
+            f"{row['date'] or '—'}  {row['title']}  {row['path']}" for row in rows
+        ]
         lines.append(f"{len(rows)} note(s).")
         return ToolResult(ok=True, output="\n".join(lines), data={"notes": rows})
 
@@ -208,7 +212,9 @@ class NotesTool:
 
     def _iter_notes(self, *, active_only: bool) -> list[tuple[str, Path]]:
         """`.md` files sitting in notes/ under workspace roots. No walk."""
-        entries = [self.workspace.active_root()] if active_only else self.workspace.roots
+        entries = (
+            [self.workspace.active_root()] if active_only else self.workspace.roots
+        )
         found: list[tuple[str, Path]] = []
         for entry in entries:
             folder = _notes_folder(entry.path)

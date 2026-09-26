@@ -119,7 +119,10 @@ def main() -> int:
     }
     _write_report(args.json, payload)
 
-    line = f"choice board  {hits}/{cases}  floor {CHOICE_LIVE_FLOOR}  model {result['model']}"
+    line = (
+        f"choice board  {hits}/{cases}  floor {CHOICE_LIVE_FLOOR}  "
+        f"model {result['model']}"
+    )
     if hits < CHOICE_LIVE_FLOOR:
         print(f"FAIL: {line}")
         for miss in result["misses"]:

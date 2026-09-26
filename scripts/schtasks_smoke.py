@@ -25,7 +25,9 @@ NAME = "\\Arelis\\__smoketest__"
 
 
 def run(*args: str) -> subprocess.CompletedProcess[str]:
-    completed = subprocess.run(["schtasks", *args], capture_output=True, text=True, check=False)
+    completed = subprocess.run(
+        ["schtasks", *args], capture_output=True, text=True, check=False
+    )
     if completed.returncode != 0:
         detail = (completed.stderr or completed.stdout or "").strip()
         print(f"  schtasks {args[0]} -> exit {completed.returncode}: {detail}")

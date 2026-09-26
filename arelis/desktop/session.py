@@ -115,7 +115,8 @@ class DesktopSession:
                 grabbed = await self.screenshot()
                 if grabbed.ok:
                     grabbed.output = (
-                        "Named controls unavailable; grabbed the screen instead.\n" + grabbed.output
+                        "Named controls unavailable; grabbed the screen instead.\n"
+                        + grabbed.output
                     )
                     grabbed.data = dict(grabbed.data or {})
                     grabbed.data["fallback"] = "screenshot"

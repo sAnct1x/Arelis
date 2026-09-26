@@ -7,7 +7,9 @@ from typing import Any
 from urllib.parse import urlparse
 
 # Labelled lines from WebSearchTool._format, plus bare http(s) fallbacks.
-_URL_LINE = re.compile(r"(?im)^\s*(?:URL|Url|url)\s*:\s*(https?://\S+)")
+_URL_LINE = re.compile(
+    r"(?im)^\s*(?:URL|Url|url)\s*:\s*(https?://\S+)"
+)
 _BARE_URL = re.compile(r"https?://[^\s<>\"')\]]+")
 
 
@@ -67,7 +69,10 @@ def _dedupe(urls: list[str]) -> list[str]:
         if not url.startswith(("http://", "https://")):
             continue
         parsed = urlparse(url)
-        key = f"{parsed.netloc.lower().removeprefix('www.')}{parsed.path.rstrip('/')}"
+        key = (
+            f"{parsed.netloc.lower().removeprefix('www.')}"
+            f"{parsed.path.rstrip('/')}"
+        )
         if not key or key in seen:
             continue
         seen.add(key)

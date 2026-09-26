@@ -28,7 +28,9 @@ class CoreTray:
     def start(self) -> None:
         if self._thread is not None and self._thread.is_alive():
             return
-        self._thread = threading.Thread(target=self._run, name="arelis-core-tray", daemon=True)
+        self._thread = threading.Thread(
+            target=self._run, name="arelis-core-tray", daemon=True
+        )
         self._thread.start()
 
     def stop(self) -> None:

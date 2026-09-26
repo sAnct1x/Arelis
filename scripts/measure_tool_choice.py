@@ -67,7 +67,9 @@ def _registry() -> Any:
     make two of the corpus cases unanswerable.
     """
     router = SimpleNamespace(provider=SimpleNamespace(list_models=None))
-    return build_tool_registry(load_config(), allow_send=True, attended=True, router=router)
+    return build_tool_registry(
+        load_config(), allow_send=True, attended=True, router=router
+    )
 
 
 def tool_array(registry: Any, arm: str) -> list[dict[str, Any]]:
@@ -138,7 +140,9 @@ async def ask_one(
         if kind == "metrics":
             metrics = dict(payload or {})
         elif kind == "tool_calls" and payload:
-            names = [str((c.get("function") or {}).get("name") or "") for c in payload]
+            names = [
+                str((c.get("function") or {}).get("name") or "") for c in payload
+            ]
             picked = names[0] if names else ""
             extra_calls = names[1:]
 
@@ -212,18 +216,14 @@ async def run_arm(
             )
 
     picks = {r["utterance"]: r["picked"] for r in rows}
-    hits, misses = (
-        score(picks)
-        if not limit
-        else (
-            sum(1 for r in rows if r["hit"]),
-            [
-                f"{r['utterance']!r}: called {r['picked'] or 'nothing'}, "
-                f"wanted one of {', '.join(r['accepts'])}"
-                for r in rows
-                if not r["hit"]
-            ],
-        )
+    hits, misses = score(picks) if not limit else (
+        sum(1 for r in rows if r["hit"]),
+        [
+            f"{r['utterance']!r}: called {r['picked'] or 'nothing'}, "
+            f"wanted one of {', '.join(r['accepts'])}"
+            for r in rows
+            if not r["hit"]
+        ],
     )
 
     prefills = [r["prompt_eval_count"] for r in rows if r["prompt_eval_count"]]
@@ -284,7 +284,9 @@ def report(results: list[dict[str, Any]]) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--arm", action="append", choices=ARMS, help="repeatable; default skinny")
+    parser.add_argument(
+        "--arm", action="append", choices=ARMS, help="repeatable; default skinny"
+    )
     parser.add_argument("--all", action="store_true", help="run every arm")
     parser.add_argument("--limit", type=int, help="first N cases only (smoke)")
     parser.add_argument(

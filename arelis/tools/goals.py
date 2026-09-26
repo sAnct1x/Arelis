@@ -14,7 +14,9 @@ from typing import Any
 from arelis.memory.store import MemoryStore
 from arelis.tools.base import ToolResult
 
-WRITE_ACTIONS = frozenset({"add", "update", "pause", "resume", "done", "drop", "remove"})
+WRITE_ACTIONS = frozenset(
+    {"add", "update", "pause", "resume", "done", "drop", "remove"}
+)
 
 _STATUS_FROM_ACTION = {
     "pause": "paused",
@@ -31,7 +33,9 @@ _ALLOWED_FROM: dict[str, frozenset[str]] = {
 }
 
 
-def _format_goal(row: dict[str, Any], *, open_tasks: int | None = None) -> str:
+def _format_goal(
+    row: dict[str, Any], *, open_tasks: int | None = None
+) -> str:
     title = str(row.get("title") or "").strip() or "(untitled)"
     status = str(row.get("status") or "")
     kind = str(row.get("kind") or "goal")
@@ -135,7 +139,10 @@ class GoalsTool:
             return self._remove(kwargs)
         return ToolResult(
             ok=False,
-            output=("Unknown action. Use list, add, update, pause, resume, done, drop, or remove."),
+            output=(
+                "Unknown action. Use list, add, update, pause, resume, "
+                "done, drop, or remove."
+            ),
         )
 
     def _list(self, kwargs: dict[str, Any]) -> ToolResult:
@@ -172,7 +179,11 @@ class GoalsTool:
             gid = row.get("id")
             n_open = 0
             if gid is not None:
-                n_open = len(self.store.list_tasks(status="open", goal_id=int(gid), limit=200))
+                n_open = len(
+                    self.store.list_tasks(
+                        status="open", goal_id=int(gid), limit=200
+                    )
+                )
             lines.append(_format_goal(row, open_tasks=n_open))
         lines.append("")
         lines.append(f"{len(rows)} goal(s).")

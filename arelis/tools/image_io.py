@@ -124,7 +124,9 @@ def resolve_image(workspace: WorkspaceRoots | None, path_str: str) -> Path:
 
     if found is None:
         allowed = ", ".join(str(p) for p in readable_image_roots())
-        raise PermissionError(f"Path is outside the workspace and outside {allowed}: {raw}")
+        raise PermissionError(
+            f"Path is outside the workspace and outside {allowed}: {raw}"
+        )
     if found.suffix.lower() not in IMAGE_SUFFIXES:
         raise ValueError(f"Unsupported image type `{found.suffix}` (use png/jpg/webp/gif)")
     if not found.is_file():

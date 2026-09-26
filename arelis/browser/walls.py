@@ -9,7 +9,9 @@ from urllib.parse import urlparse
 
 YOUR_TURN = "YOUR_TURN"
 
-_CAPTCHA_HOST = re.compile(r"(?i)(recaptcha|hcaptcha|challenges\.cloudflare|geetest)")
+_CAPTCHA_HOST = re.compile(
+    r"(?i)(recaptcha|hcaptcha|challenges\.cloudflare|geetest)"
+)
 _LOGIN_HOST = re.compile(
     r"(?i)(accounts\.google\.com|login\.microsoftonline|login\.live\.com|"
     r"appleid\.apple\.com|auth0\.com|okta\.com)"
@@ -33,9 +35,13 @@ _X_HOST = frozenset(
         "mobile.twitter.com",
     }
 )
-_PAY_PATH = re.compile(r"(?i)/(checkout|payment|payments|place-?order|billing)(/|$|\?)")
+_PAY_PATH = re.compile(
+    r"(?i)/(checkout|payment|payments|place-?order|billing)(/|$|\?)"
+)
 _PAY_HOST = re.compile(r"(?i)(checkout\.stripe|paypal\.com)")
-_LOGIN_COPY = re.compile(r"(?i)\b(sign in|log in|login|enter (your )?password|verify it.?s you)\b")
+_LOGIN_COPY = re.compile(
+    r"(?i)\b(sign in|log in|login|enter (your )?password|verify it.?s you)\b"
+)
 _CHALLENGE_COPY = re.compile(
     r"(?i)(i['\u2019]m not a robot|verify you are (a )?human|"
     r"complete the security check|select all (the )?images)"
@@ -58,10 +64,18 @@ class Wall:
 
 
 _MESSAGES = {
-    "captcha": ("Your turn — captcha. Tap it in her Chrome; I will continue when it is gone."),
-    "login": ("Your turn — sign in. I do not type passwords. Hit Go when you are in."),
-    "pay": ("Your turn — you click Book / Pay / Order. I stop on this screen."),
-    "stuck": ("Your turn — I cannot find the next control. The page stays."),
+    "captcha": (
+        "Your turn — captcha. Tap it in her Chrome; I will continue when it is gone."
+    ),
+    "login": (
+        "Your turn — sign in. I do not type passwords. Hit Go when you are in."
+    ),
+    "pay": (
+        "Your turn — you click Book / Pay / Order. I stop on this screen."
+    ),
+    "stuck": (
+        "Your turn — I cannot find the next control. The page stays."
+    ),
     "hands": (
         "Your turn — you have the mouse. I will not click over you. "
         "Hit Go when you want me to drive again."
@@ -202,7 +216,9 @@ def detect_wall(
 
     login_url = is_login_url(url)
     login_copy = bool(_LOGIN_COPY.search(copy))
-    if login_url or ((signals.get("password") or signals.get("otp")) and (login_url or login_copy)):
+    if login_url or (
+        (signals.get("password") or signals.get("otp")) and (login_url or login_copy)
+    ):
         return Wall("login", "signin", wall_message("login"))
     return None
 

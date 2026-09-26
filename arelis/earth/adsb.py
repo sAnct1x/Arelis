@@ -65,7 +65,11 @@ def _entity_from_ac(row: dict[str, Any]) -> Entity | None:
     track = _num(row.get("track") or row.get("true_heading")) or 0.0
     pos = lla_to_ecef(lat, lon, alt_m)
     speed = gs * 0.51444 if gs else 0.0
-    vx, vy, vz = ecef_vel_from_track(lat, lon, speed, track) if speed > 0.5 else (0.0, 0.0, 0.0)
+    vx, vy, vz = (
+        ecef_vel_from_track(lat, lon, speed, track)
+        if speed > 0.5
+        else (0.0, 0.0, 0.0)
+    )
     return Entity(
         id=f"icao:{hex_id or call.casefold()}",
         cls="aircraft",

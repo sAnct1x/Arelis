@@ -135,7 +135,9 @@ _PRONOUN_SMS = re.compile(
 _TELL_HIM_BODY = re.compile(
     r"(?is)\s+(?:and\s+)?(?:just\s+|please\s+)?tell(?:ing)?\s+(?:him|her|them)\s+(.+)$"
 )
-_HAVE_IT_SAY = re.compile(r"(?is)\s+(?:and\s+)?have\s+it\s+say\s+(.+)$")
+_HAVE_IT_SAY = re.compile(
+    r"(?is)\s+(?:and\s+)?have\s+it\s+say\s+(.+)$"
+)
 
 # "text in that last picture" / "text this screenshot" — prepositions, not people.
 _SMS_TO_STOPWORDS = frozenset(
@@ -497,7 +499,9 @@ def _last_sms_alias_from_history(
         # Skip unresolved pronouns in the prior turn itself.
         if names[0].lower() in {"her", "him", "them"}:
             continue
-        draft = _finalize_draft(names=names, body=prior.body or "x", source="history", book=book)
+        draft = _finalize_draft(
+            names=names, body=prior.body or "x", source="history", book=book
+        )
         if draft.tool_to:
             return draft.tool_to
         if draft.alias:
@@ -786,7 +790,9 @@ def complete_sms_draft(
                     # Keep scanning for the text-X turn.
                     continue
         if pending_names:
-            return _finalize_draft(names=pending_names, body=body, source="history", book=book)
+            return _finalize_draft(
+                names=pending_names, body=body, source="history", book=book
+            )
         # Also: previous user turn was "text X" with no body, no assistant ask
         # (model stalled). Merge current as body.
         for role, content in reversed(pairs[:-1]):
@@ -843,7 +849,9 @@ def draft_send_sms_args(
     already_sent: set[str] | None = None,
 ) -> dict[str, Any]:
     """Concrete send_sms kwargs from a complete draft (for inject)."""
-    return fill_send_sms_args({}, draft, already_sent=already_sent)
+    return fill_send_sms_args(
+        {}, draft, already_sent=already_sent
+    )
 
 
 def fill_send_sms_args(
@@ -938,7 +946,9 @@ def sms_preflight_nudge(draft: SmsDraft) -> str:
     )
 
 
-def sms_force_call_notice(draft: SmsDraft, *, already_sent: set[str] | None = None) -> str:
+def sms_force_call_notice(
+    draft: SmsDraft, *, already_sent: set[str] | None = None
+) -> str:
     """User-role nudge when the model tried to finish without calling send_sms."""
     if draft.missing:
         miss = ", ".join(draft.missing)

@@ -62,7 +62,9 @@ _MEDIA_ATTACH_CUE = re.compile(
     r"\b(?:file|pdf|document)\b"
 )
 
-_WITH_SUBJECT = re.compile(r"(?i)\b(?:with\s+)?subject\s*[:=]?\s*(?P<subject>.+)$")
+_WITH_SUBJECT = re.compile(
+    r"(?i)\b(?:with\s+)?subject\s*[:=]?\s*(?P<subject>.+)$"
+)
 # The curly quotes are the point, not a typo: Windows autocorrect and phone
 # keyboards produce them, and a user who typed a smart quote must still get their
 # subject parsed. RUF001 flags them as ambiguous, which is exactly why they are
@@ -115,7 +117,9 @@ _STANDARD_BRIEFING = re.compile(
     r"create_briefing"
     r")\b"
 )
-_CUSTOM_JOB_TONE = re.compile(r"(?i)\b(fun|friendly|witty|jok(?:e|y)|keep\s+it\s+brief)\b")
+_CUSTOM_JOB_TONE = re.compile(
+    r"(?i)\b(fun|friendly|witty|jok(?:e|y)|keep\s+it\s+brief)\b"
+)
 _SCHEDULE_MANAGE = re.compile(
     r"(?i)\b(?:"
     r"(?:show|list|see|delete|remove|cancel|stop|disable|"
@@ -188,7 +192,9 @@ def _history_had_email_send(history: list[Any] | None) -> bool:
     return False
 
 
-def looks_like_email_send_followup(text: str, history: list[Any] | None = None) -> bool:
+def looks_like_email_send_followup(
+    text: str, history: list[Any] | None = None
+) -> bool:
     """True when this turn is still a send, even after a summarize drop."""
     raw = text or ""
     if looks_like_mailbox_mutate(raw):
@@ -224,7 +230,9 @@ def looks_like_standard_briefing(text: str) -> bool:
 _BARE_CONFIRM = re.compile(
     r"(?i)^\s*(confirm|yes|yeah|yep|ok|okay|do it|please do|go ahead)\.?\s*$"
 )
-_SCHEDULE_TIME = re.compile(r"(?i)\b(?:at\s+)?(\d{1,2}(?::\d{2})?\s*(?:a\.?m\.?|p\.?m\.?))\b")
+_SCHEDULE_TIME = re.compile(
+    r"(?i)\b(?:at\s+)?(\d{1,2}(?::\d{2})?\s*(?:a\.?m\.?|p\.?m\.?))\b"
+)
 
 
 def looks_like_bare_confirm(text: str) -> bool:
@@ -290,7 +298,8 @@ def rewrite_schedule_calls(
             (name, args)
             for name, args in calls
             if not (
-                name == "schedule" and str((args or {}).get("action") or "").lower() == "run_now"
+                name == "schedule"
+                and str((args or {}).get("action") or "").lower() == "run_now"
             )
         ]
     if not looks_like_scheduled_send(text) or not schedule_available:
@@ -331,8 +340,12 @@ def rewrite_schedule_calls(
     return out
 
 
-_ABOUT_SUBJECT = re.compile(r"(?i)^\s+(?:about|subject|\bre)\s*:?\s*(?P<rest>.+)$")
-_BODY_ONLY = re.compile(r"(?i)^\s*(?::|that|saying|,)\s*(?P<body>.+)$")
+_ABOUT_SUBJECT = re.compile(
+    r"(?i)^\s+(?:about|subject|\bre)\s*:?\s*(?P<rest>.+)$"
+)
+_BODY_ONLY = re.compile(
+    r"(?i)^\s*(?::|that|saying|,)\s*(?P<body>.+)$"
+)
 
 _SUBJECT_BODY_LINE = re.compile(
     r"(?i)^(?:subject\s*[:=]\s*(?P<subject>.+?)\s+)?"
@@ -373,7 +386,6 @@ def strip_it_to_recipient(raw: str) -> str:
     if match:
         return (match.group("who") or "").strip()
     return text
-
 
 _SELF_TO = frozenset({"me", "myself"})
 
@@ -454,7 +466,9 @@ class EmailDraft:
         names = self.recipients or ((self.to,) if self.to.strip() else ())
         if not names:
             return False
-        resolved = self.resolved_recipients or ((self.resolved_to,) if self.resolved_to else ())
+        resolved = self.resolved_recipients or (
+            (self.resolved_to,) if self.resolved_to else ()
+        )
         resolved_l = {r.lower() for r in resolved if r}
         for raw in names:
             text = raw.strip()
@@ -539,7 +553,9 @@ _BARE_MAIL_TLD = {
     "aol": "aol.com",
 }
 _BARE_MAIL = re.compile(
-    r"(?i)\b(?P<user>[A-Za-z0-9._%+\-]+)@(?P<prov>" + "|".join(_BARE_MAIL_TLD) + r")\b(?!\.)"
+    r"(?i)\b(?P<user>[A-Za-z0-9._%+\-]+)@(?P<prov>"
+    + "|".join(_BARE_MAIL_TLD)
+    + r")\b(?!\.)"
 )
 
 
@@ -555,7 +571,9 @@ def repair_email_address(raw: str) -> str:
     return fixed if valid_address(fixed) else text
 
 
-_ADDR_IN_TEXT = re.compile(r"(?i)\b([A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})\b")
+_ADDR_IN_TEXT = re.compile(
+    r"(?i)\b([A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})\b"
+)
 _COMPOSE_INSTRUCTION = re.compile(
     r"(?i)^\s*(?:,|and|&)?\s*(?:"
     r"be\s+creative|"
@@ -615,7 +633,9 @@ def email_remaining(draft: EmailDraft | None, already_sent: set[str] | None) -> 
 def wanted_attach_suffixes(text: str) -> tuple[str, ...]:
     """File suffixes they asked to write and mail (markdown + PDF, etc.)."""
     raw = text or ""
-    if not looks_like_compose_email(raw) and not re.search(r"(?i)\be-?mailed\b", raw):
+    if not looks_like_compose_email(raw) and not re.search(
+        r"(?i)\be-?mailed\b", raw
+    ):
         return ()
     found: list[str] = []
     if re.search(r"(?i)\bmarkdown\b|\.md\b", raw):
@@ -637,12 +657,18 @@ def split_attach_args(raw: str) -> list[str]:
     ]
 
 
-def email_remaining_files(draft: EmailDraft | None, already_attached: set[str] | None) -> list[str]:
+def email_remaining_files(
+    draft: EmailDraft | None, already_attached: set[str] | None
+) -> list[str]:
     """Written files still owed on a multi-attach draft."""
     if draft is None:
         return []
     have = {Path(s).name.lower() for s in (already_attached or set()) if s}
-    return [path for path in draft.all_attach_paths if Path(path).name.lower() not in have]
+    return [
+        path
+        for path in draft.all_attach_paths
+        if Path(path).name.lower() not in have
+    ]
 
 
 def email_files_still_owed(draft: EmailDraft | None) -> bool:
@@ -696,7 +722,9 @@ def bind_written_files(
         seen.add(key)
         picked.append(path)
     if not picked:
-        return draft if draft.wanted_suffixes else _clone_draft(draft, wanted_suffixes=wanted)
+        return draft if draft.wanted_suffixes else _clone_draft(
+            draft, wanted_suffixes=wanted
+        )
     names = ", ".join(Path(p).name for p in picked)
     body = draft.body.strip()
     if not body or body.lower().startswith("please see the attached"):
@@ -768,7 +796,9 @@ def _looks_like_analyze_file_ask(text: str) -> bool:
         return False
     if not re.search(r"(?i)\b(summarize|analyse|analyze|describe)\b", raw):
         return False
-    return bool(re.search(r"(?i)\b(csv|xlsx|tsv|spreadsheet|json|table)\b", raw))
+    return bool(
+        re.search(r"(?i)\b(csv|xlsx|tsv|spreadsheet|json|table)\b", raw)
+    )
 
 
 def looks_like_compose_email(text: str) -> bool:
@@ -950,7 +980,9 @@ def parse_email_utterance(text: str) -> EmailDraft | None:
             r"(?i)\b(?P<to>[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})\b",
             raw,
         )
-        if addr_m and valid_address(addr_m.group("to") or "") and _EMAIL_VERB.search(raw):
+        if addr_m and valid_address(addr_m.group("to") or "") and _EMAIL_VERB.search(
+            raw
+        ):
             to_addr = _clean_to(addr_m.group("to") or "")
             subject = ""
             body = ""
@@ -1078,7 +1110,6 @@ def parse_email_utterance(text: str) -> EmailDraft | None:
         attach_path=attach,
         recipients=recips,
     )
-
 
 def parse_subject_body_followup(text: str) -> tuple[str, str] | None:
     """Parse 'subject: X body: Y' style follow-ups (subject optional)."""
@@ -1568,7 +1599,9 @@ def fill_send_email_args(
         out["subject"] = draft.subject
     if not str(out.get("body") or "").strip() and draft.tool_body:
         out["body"] = draft.tool_body
-    if draft.all_attach_paths and not str(out.get("attach") or out.get("path") or "").strip():
+    if draft.all_attach_paths and not str(
+        out.get("attach") or out.get("path") or ""
+    ).strip():
         out["attach"] = ", ".join(draft.all_attach_paths)
     return out
 
@@ -1604,7 +1637,7 @@ def email_preflight_nudge(draft: EmailDraft) -> str:
     if draft.complete:
         attach = ""
         if draft.all_attach_paths:
-            attach = f' attach="{", ".join(draft.all_attach_paths)}"'
+            attach = f' attach="{ ", ".join(draft.all_attach_paths) }"'
         if len(draft.all_tos) > 1:
             return (
                 "Intent preflight: send an email to each address now. Call "
@@ -1634,7 +1667,9 @@ def email_preflight_nudge(draft: EmailDraft) -> str:
     )
 
 
-def email_force_call_notice(draft: EmailDraft, *, already_sent: set[str] | None = None) -> str:
+def email_force_call_notice(
+    draft: EmailDraft, *, already_sent: set[str] | None = None
+) -> str:
     """User-role nudge when the model tried to finish without calling send_email."""
     remaining = email_remaining(draft, already_sent)
     to = remaining[0] if remaining else (draft.tool_to or "(user)")
@@ -1643,7 +1678,7 @@ def email_force_call_notice(draft: EmailDraft, *, already_sent: set[str] | None 
         extra = f" Then repeat for: {', '.join(remaining[1:])}."
     attach = ""
     if draft.all_attach_paths:
-        attach = f' attach="{", ".join(draft.all_attach_paths)}"'
+        attach = f' attach="{ ", ".join(draft.all_attach_paths) }"'
     return unfinished_call_notice(
         "send_email",
         (

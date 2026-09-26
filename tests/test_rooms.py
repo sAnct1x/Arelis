@@ -285,7 +285,9 @@ def test_a_forgotten_room_is_not_resumed(tmp_path: Path) -> None:
 
 
 def test_the_purpose_reaches_the_prompt_with_the_folder(store: RoomStore) -> None:
-    room = store.update(PHYSICS_ROOM_ID, purpose="Analysing the survey data.", root="Lab Notes")
+    room = store.update(
+        PHYSICS_ROOM_ID, purpose="Analysing the survey data.", root="Lab Notes"
+    )
 
     block = room.prompt_block()
 
@@ -482,5 +484,7 @@ def test_kind_is_inferred_from_the_words() -> None:
 
 
 def test_setup_answers_strip_the_lead_in() -> None:
-    assert strip_setup_value("purpose", "this room is for the field data") == ("the field data")
+    assert strip_setup_value("purpose", "this room is for the field data") == (
+        "the field data"
+    )
     assert strip_setup_value("result", "a plot in plots/") == "a plot in plots/"

@@ -93,7 +93,9 @@ def _num(value: Any) -> float | None:
 def _get_json() -> list[Any] | None:
     from arelis.earth.http import get_json
 
-    data = get_json(SATNOGS_STATIONS, SATNOGS_HOST, timeout=_TIMEOUT, headers={"User-Agent": _UA})
+    data = get_json(
+        SATNOGS_STATIONS, SATNOGS_HOST, timeout=_TIMEOUT, headers={"User-Agent": _UA}
+    )
     if isinstance(data, list):
         return data
     if isinstance(data, dict):

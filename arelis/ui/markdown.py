@@ -54,7 +54,6 @@ _INLINE = re.compile(
 )
 _LINK_PARTS = re.compile(r"^\[([^\]\n]*)\]\(([^)\s]+)\)$")
 
-
 def _mono() -> str:
     # Theme quotes font names with double quotes, which would close a style
     # attribute the moment they were interpolated into one.
@@ -96,7 +95,9 @@ def _style_link() -> str:
 
 
 def _style_table() -> str:
-    return f"border-collapse:collapse; margin:8px 0 10px 0; color:{COLORS['text']};"
+    return (
+        f"border-collapse:collapse; margin:8px 0 10px 0; color:{COLORS['text']};"
+    )
 
 
 def _style_th() -> str:
@@ -294,7 +295,9 @@ def _take_list(lines: list[str], i: int) -> tuple[int, str]:
     while i < len(lines):
         if not lines[i].strip():
             # A blank line only ends the list if no item follows it.
-            if i + 1 < len(lines) and (_BULLET.match(lines[i + 1]) or _NUMBER.match(lines[i + 1])):
+            if i + 1 < len(lines) and (
+                _BULLET.match(lines[i + 1]) or _NUMBER.match(lines[i + 1])
+            ):
                 i += 1
                 continue
             break
@@ -333,7 +336,11 @@ def _take_list(lines: list[str], i: int) -> tuple[int, str]:
 
 
 def _is_table(lines: list[str], i: int) -> bool:
-    return "|" in lines[i] and i + 1 < len(lines) and _TABLE_RULE.match(lines[i + 1]) is not None
+    return (
+        "|" in lines[i]
+        and i + 1 < len(lines)
+        and _TABLE_RULE.match(lines[i + 1]) is not None
+    )
 
 
 def _take_table(lines: list[str], i: int) -> tuple[int, str]:

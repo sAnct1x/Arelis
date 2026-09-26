@@ -62,13 +62,16 @@ def resolve_upload_path(
         try:
             hit = workspace.resolve_read(str(resolved))
         except Exception as exc:
-            return None, (f"Upload stays under workspace roots or outputs/: {exc}")
+            return None, (
+                f"Upload stays under workspace roots or outputs/: {exc}"
+            )
         path = getattr(hit, "path", None)
         if path is None:
             return None, "Upload stays under workspace roots or outputs/."
         return Path(path), ""
     return None, (
-        "Upload stays under workspace roots or outputs/. Add the folder in Settings → roots."
+        "Upload stays under workspace roots or outputs/. "
+        "Add the folder in Settings → roots."
     )
 
 

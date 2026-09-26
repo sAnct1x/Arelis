@@ -75,7 +75,9 @@ class SendEmailTool:
                 output="[fail:send_email] Missing body. Do not claim the email was sent.",
             )
         if not subject:
-            subject = Path(attach_raw).name if attach_raw else "A message from Arelis"
+            subject = (
+                Path(attach_raw).name if attach_raw else "A message from Arelis"
+            )
         if not body and attach_raw:
             body = f"Please see the attached file ({Path(attach_raw).name})."
 
@@ -85,7 +87,9 @@ class SendEmailTool:
             strip_it_to_recipient,
         )
 
-        requested = repair_email_address(strip_it_to_recipient(str(kwargs.get("to") or "")))
+        requested = repair_email_address(
+            strip_it_to_recipient(str(kwargs.get("to") or ""))
+        )
         if requested and requested.lower() not in _SELF_TO:
             to = requested
         else:
@@ -142,7 +146,8 @@ class SendEmailTool:
             return ToolResult(
                 ok=False,
                 output=(
-                    f"[fail:send_email] {explain_smtp_error(exc)} Do not claim the email was sent."
+                    f"[fail:send_email] {explain_smtp_error(exc)} "
+                    "Do not claim the email was sent."
                 ),
             )
 

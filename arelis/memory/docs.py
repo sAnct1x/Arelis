@@ -158,18 +158,13 @@ _EXTRACT_MAX_BYTES = 8_000_000
 def _is_indexable_name(path: Path) -> bool:
     suffix = path.suffix.lower()
     name = path.name.lower()
-    return (
-        suffix in _TEXT_SUFFIXES
-        or suffix in _EXTRACT_SUFFIXES
-        or name
-        in {
-            "makefile",
-            "dockerfile",
-            "readme",
-            "license",
-            "licence",
-        }
-    )
+    return suffix in _TEXT_SUFFIXES or suffix in _EXTRACT_SUFFIXES or name in {
+        "makefile",
+        "dockerfile",
+        "readme",
+        "license",
+        "licence",
+    }
 
 
 def chunk_text(
@@ -232,7 +227,9 @@ def _file_text(path: Path) -> str:
             # Corrupt deck: skip, do not fail the whole index turn.
             log.debug("Skip pptx %s: %s", path, exc)
             return ""
-        return "\n".join(f"slide {i}: {text}" for i, text in enumerate(slides, start=1) if text)
+        return "\n".join(
+            f"slide {i}: {text}" for i, text in enumerate(slides, start=1) if text
+        )
     try:
         raw = path.read_bytes()
     except OSError:
@@ -328,14 +325,20 @@ class DocumentIndexer:
         except (OSError, ValueError, PermissionError):
             return None
 
-    def _sync(self, *, max_files: int, under: Path | None) -> tuple[int, int]:
+    def _sync(
+        self, *, max_files: int, under: Path | None
+    ) -> tuple[int, int]:
         candidates = list(self._iter_files())
         if under is not None:
             try:
                 under_resolved = under.resolve()
             except OSError:
                 under_resolved = under
-            candidates = [item for item in candidates if _path_is_under(item[2], under_resolved)]
+            candidates = [
+                item
+                for item in candidates
+                if _path_is_under(item[2], under_resolved)
+            ]
         else:
             keep = {(root, rel) for root, rel, _path in candidates}
             removed = self.store.delete_documents_not_in(keep)
@@ -406,7 +409,9 @@ class DocumentIndexer:
             log.debug("Skip %s: %s", path, exc)
             return 0
         cap = (
-            _EXTRACT_MAX_BYTES if path.suffix.lower() in _EXTRACT_SUFFIXES else self.max_file_bytes
+            _EXTRACT_MAX_BYTES
+            if path.suffix.lower() in _EXTRACT_SUFFIXES
+            else self.max_file_bytes
         )
         if st.st_size > cap:
             log.debug("Skip %s: %d bytes over cap", path, st.st_size)
@@ -418,7 +423,9 @@ class DocumentIndexer:
             return 0
         if not text:
             return 0
-        chunks = chunk_text(text, chunk_chars=self.chunk_chars, overlap=self.chunk_overlap)
+        chunks = chunk_text(
+            text, chunk_chars=self.chunk_chars, overlap=self.chunk_overlap
+        )
         if not chunks:
             return 0
         mtime_ns = int(getattr(st, "st_mtime_ns", int(st.st_mtime * 1_000_000_000)))

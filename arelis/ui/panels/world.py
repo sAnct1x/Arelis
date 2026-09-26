@@ -187,7 +187,9 @@ class WorldPanel(QWidget):
             painter.setPen(pen)
             painter.setBrush(fill)
             if poly:
-                shape = QPolygonF([QPointF(*self._to_px(px, py)) for px, py in poly])
+                shape = QPolygonF(
+                    [QPointF(*self._to_px(px, py)) for px, py in poly]
+                )
                 painter.drawPolygon(shape)
             else:
                 painter.drawEllipse(QPoint(cx, cy), radius, radius)

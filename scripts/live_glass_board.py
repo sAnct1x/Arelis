@@ -179,7 +179,9 @@ def _verify_artifacts(token: str) -> list[dict[str, Any]]:
         for path in folder.rglob("*.csv"):
             if token.lower() in path.name.lower():
                 csv_hits.append(path)
-    csv_ok = any(token in p.read_text(encoding="utf-8", errors="replace") for p in csv_hits)
+    csv_ok = any(
+        token in p.read_text(encoding="utf-8", errors="replace") for p in csv_hits
+    )
     rows.append(
         {
             "check": "workspace_csv",
@@ -253,12 +255,16 @@ async def _verify_calendar(tools: Any, token: str) -> dict[str, Any]:
     )
     if not keep:
         keep = KEEP_MARK in blob.lower() and token.lower() in blob.lower()
-        scratch = scratch or (SCRATCH_MARK in blob.lower() and token.lower() in blob.lower())
+        scratch = scratch or (
+            SCRATCH_MARK in blob.lower() and token.lower() in blob.lower()
+        )
     return {
         "check": "calendar_keep",
         "ok": bool(result.ok and keep and not scratch),
         "detail": (
-            "stay present, toss gone" if keep and not scratch else f"stay={keep} toss={scratch}"
+            "stay present, toss gone"
+            if keep and not scratch
+            else f"stay={keep} toss={scratch}"
         ),
     }
 
@@ -299,7 +305,9 @@ def _write_report(
         mark = "PASS" if row.get("ok") else "FAIL"
         tools = ", ".join(row.get("tools") or []) or "—"
         why = _snip("; ".join(row.get("reasons") or []) or row.get("final") or "", 80)
-        lines.append(f"| {i} | `{row.get('id')}` | {mark} | {row.get('ms', 0)} | {tools} | {why} |")
+        lines.append(
+            f"| {i} | `{row.get('id')}` | {mark} | {row.get('ms', 0)} | {tools} | {why} |"
+        )
     if extra:
         lines.extend(["", "## Side-effect checks", ""])
         for row in extra:
@@ -375,7 +383,9 @@ def _open_glass(config: dict[str, Any], cap: _Cap) -> tuple[Any, Any, Any, Any, 
     async def _startup() -> None:
         try:
             await run_model_preflight(bus, seat.router.provider, config.get("models"))
-            await run_model_warmup(bus, seat.router, prefix=prefix_warmup_for(config, seat.tools))
+            await run_model_warmup(
+                bus, seat.router, prefix=prefix_warmup_for(config, seat.tools)
+            )
         finally:
             seat.router.mark_warmup_done()
 
@@ -605,7 +615,8 @@ def main() -> int:
             passed = sum(1 for r in rows if r.get("ok"))
             print()
             print(
-                f"summary  {passed}/{len(rows)} turns  token={token}  wrote {out / 'report.md'}",
+                f"summary  {passed}/{len(rows)} turns  token={token}  "
+                f"wrote {out / 'report.md'}",
                 flush=True,
             )
             if passed == len(rows) and rows:

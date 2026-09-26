@@ -32,7 +32,9 @@ from arelis.tools import build_tool_registry
 
 def _registry() -> Any:
     router = SimpleNamespace(provider=SimpleNamespace(list_models=None))
-    return build_tool_registry(load_config(), allow_send=True, attended=True, router=router)
+    return build_tool_registry(
+        load_config(), allow_send=True, attended=True, router=router
+    )
 
 
 def tool_specs() -> list[dict[str, Any]]:
@@ -127,14 +129,18 @@ def main() -> int:
         f"mean={stats['description_mean']} "
         f"max={stats['description_max']}"
     )
-    print(f"under 60 chars       : {stats['tools_under_60_chars']}/{stats['tools']}")
+    print(
+        f"under 60 chars       : {stats['tools_under_60_chars']}/{stats['tools']}"
+    )
     print()
     print(
         f"parameters           : {stats['total_params']} total, "
         f"{stats['documented_params']} documented, "
         f"{stats['undocumented_params']} undocumented"
     )
-    print(f"authored in source   : {authored}/{authored_total} documented")
+    print(
+        f"authored in source   : {authored}/{authored_total} documented"
+    )
     thrown_away = authored - stats["documented_params"]
     if thrown_away > 0:
         print()
@@ -142,8 +148,14 @@ def main() -> int:
             f"  >> {thrown_away} parameter descriptions exist and are stripped "
             "before the model sees them."
         )
-        print("     compact_prompt.skinny_parameters does this to hold the prefix cache. The")
-        print("     measurement behind that (tool_subset.py:11-31) was about an array that changes")
+        print(
+            "     compact_prompt.skinny_parameters does this to hold the prefix "
+            "cache. The"
+        )
+        print(
+            "     measurement behind that (tool_subset.py:11-31) was about an "
+            "array that changes"
+        )
         print(
             "     shape per turn. This one does not. Re-price it with "
             "measure_tool_surface_prefill.py."

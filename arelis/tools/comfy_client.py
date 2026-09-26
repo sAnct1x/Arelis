@@ -112,7 +112,8 @@ def clamp_size(width: int, height: int) -> tuple[int, int]:
         raise ValueError(f"Size must be at least 64px, got {width}x{height}.")
     if max(width, height) > _MAX_EDGE:
         raise ValueError(
-            f"{width}x{height} is larger than this tool will generate (max edge {_MAX_EDGE}px)."
+            f"{width}x{height} is larger than this tool will generate "
+            f"(max edge {_MAX_EDGE}px)."
         )
     return width, height
 
@@ -313,7 +314,7 @@ async def list_checkpoints(client: httpx.AsyncClient, comfy_url: str) -> list[st
             return []
         data = info.json() or {}
         node = data.get("CheckpointLoaderSimple") or data
-        required = (node.get("input") or {}).get("required") or {}
+        required = ((node.get("input") or {}).get("required") or {})
         raw = required.get("ckpt_name")
         names = raw[0] if isinstance(raw, list) and raw else []
         if isinstance(names, list):
@@ -323,7 +324,9 @@ async def list_checkpoints(client: httpx.AsyncClient, comfy_url: str) -> list[st
     return []
 
 
-async def upload_image(client: httpx.AsyncClient, comfy_url: str, path: Path) -> str:
+async def upload_image(
+    client: httpx.AsyncClient, comfy_url: str, path: Path
+) -> str:
     """Put a local file in Comfy's input folder. Returns the name LoadImage wants."""
     data = path.read_bytes()
     files = {"image": (path.name, data, "application/octet-stream")}
@@ -366,7 +369,9 @@ def _history_error(entry: dict[str, Any]) -> str:
         payload = item[1]
         if not isinstance(payload, dict):
             continue
-        msg = str(payload.get("exception_message") or payload.get("message") or "").strip()
+        msg = str(
+            payload.get("exception_message") or payload.get("message") or ""
+        ).strip()
         if msg and msg not in bits:
             bits.append(msg)
     return " ".join(bits)
@@ -411,7 +416,10 @@ async def wait_for_image(
             return None, detail or f"ComfyUI reported an error for job {prompt_id}."
         await asyncio.sleep(interval_s)
     seconds = max(1, round(total * float(interval_s)))
-    return None, (f"ComfyUI did not produce an image for job {prompt_id} within {seconds}s.")
+    return None, (
+        f"ComfyUI did not produce an image for job {prompt_id} "
+        f"within {seconds}s."
+    )
 
 
 async def fetch_image(

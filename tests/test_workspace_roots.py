@@ -100,7 +100,9 @@ async def test_workspace_tool_reads_granted_external(tmp_path: Path) -> None:
     assert result.ok
     assert "hello external" in result.output
     # edit must still fail outside roots
-    denied = await tool.run(action="edit", path=str(outside), old="hello", new="bye")
+    denied = await tool.run(
+        action="edit", path=str(outside), old="hello", new="bye"
+    )
     assert not denied.ok
 
 
@@ -298,7 +300,9 @@ def test_read_only_root_rejects_write_and_edit(tmp_path: Path) -> None:
     root = tmp_path / "papers"
     root.mkdir()
     (root / "note.txt").write_text("keep", encoding="utf-8")
-    ws = WorkspaceRoots([RootEntry(name="papers", path=root.resolve(), read_only=True)])
+    ws = WorkspaceRoots(
+        [RootEntry(name="papers", path=root.resolve(), read_only=True)]
+    )
     with pytest.raises(PermissionError, match="read-only"):
         ws.resolve("new.txt", for_create=True)
     with pytest.raises(PermissionError, match="read-only"):
@@ -313,7 +317,9 @@ async def test_workspace_tool_honors_read_only(tmp_path: Path) -> None:
     root = tmp_path / "archive"
     root.mkdir()
     (root / "a.txt").write_text("old", encoding="utf-8")
-    ws = WorkspaceRoots([RootEntry(name="archive", path=root.resolve(), read_only=True)])
+    ws = WorkspaceRoots(
+        [RootEntry(name="archive", path=root.resolve(), read_only=True)]
+    )
     tool = CodeWorkspaceTool(ws)
     denied = await tool.run(action="write", path="a.txt", content="new")
     assert not denied.ok
@@ -419,11 +425,7 @@ async def test_project_slash_command_switches(tmp_path: Path) -> None:
         bus,
         _StubRouter(),  # type: ignore[arg-type]
         ToolRegistry(),
-        {
-            "_persona_path": str(tmp_path / "missing.md"),
-            "workspace": {},
-            "voice": {"enabled": False},
-        },
+        {"_persona_path": str(tmp_path / "missing.md"), "workspace": {}, "voice": {"enabled": False}},
         workspace=ws,
     )
     task = asyncio.create_task(bus.run())
@@ -436,7 +438,9 @@ async def test_project_slash_command_switches(tmp_path: Path) -> None:
     assert done and "interferometer" in done[-1].payload["text"]
 
 
-def _installed_package_roots(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> tuple[Path, dict]:
+def _installed_package_roots(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> tuple[Path, dict]:
     """Installed copy: Documents/Arelis writable, package inspectable."""
     home = tmp_path / "home"
     (home / "Documents").mkdir(parents=True)

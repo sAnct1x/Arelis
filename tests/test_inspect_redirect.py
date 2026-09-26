@@ -124,7 +124,9 @@ async def test_an_unmapped_ask_is_left_alone(monkeypatch: pytest.MonkeyPatch) ->
     fallback above, so the branch is driven directly rather than left
     unexercised.
     """
-    monkeypatch.setattr("arelis.core.call_redirects.inspect_read_path", lambda _text: None)
+    monkeypatch.setattr(
+        "arelis.core.call_redirects.inspect_read_path", lambda _text: None
+    )
     loop, ctx, r = _inspect_turn()
     drop, _ = _dropped()
 

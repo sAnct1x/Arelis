@@ -88,17 +88,21 @@ def zoom_for_ground(px_r: float, band: str = "") -> int:
 def latlon_to_tile(lat: float, lon: float, zoom: int) -> tuple[int, int, int]:
     lat = max(-85.0511, min(85.0511, lat))
     lon = ((lon + 180.0) % 360.0) - 180.0
-    n = 2.0**zoom
+    n = 2.0 ** zoom
     x = int((lon + 180.0) / 360.0 * n)
     lat_r = math.radians(lat)
-    y = int((1.0 - math.log(math.tan(lat_r) + 1.0 / math.cos(lat_r)) / math.pi) / 2.0 * n)
+    y = int(
+        (1.0 - math.log(math.tan(lat_r) + 1.0 / math.cos(lat_r)) / math.pi)
+        / 2.0
+        * n
+    )
     n_i = 1 << zoom
     return (zoom, x % n_i, max(0, min(n_i - 1, y)))
 
 
 def tile_corners(z: int, x: int, y: int) -> list[tuple[float, float]]:
     """NW, NE, SE, SW as (lat, lon)."""
-    n = 2.0**z
+    n = 2.0 ** z
 
     def lon_of(tx: int) -> float:
         return tx / n * 360.0 - 180.0
@@ -157,7 +161,9 @@ def cached_bytes(source: Source, z: int, x: int, y: int) -> bytes | None:
     return data if len(data) > 32 else None
 
 
-def schedule_fetch(z: int, x: int, y: int, *, source: Source = "osm") -> None:
+def schedule_fetch(
+    z: int, x: int, y: int, *, source: Source = "osm"
+) -> None:
     if os.environ.get("PYTEST_CURRENT_TEST"):
         return
     key = (source, z, x, y)

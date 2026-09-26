@@ -55,11 +55,15 @@ class BrowserSession:
         name = resolve_browser_choice(browser)
         # Firefox private is the only private path we honor.
         use_private = bool(private) and name == "firefox"
-        result = await self._driver.ensure(name, private=use_private, relaunch=relaunch)
+        result = await self._driver.ensure(
+            name, private=use_private, relaunch=relaunch
+        )
         if result.ok:
             self.last_browser = name
             self.last_mode = str((result.data or {}).get("mode") or "")
-            self.cdp_url = str(getattr(self._driver, "cdp_url", self.cdp_url) or self.cdp_url)
+            self.cdp_url = str(
+                getattr(self._driver, "cdp_url", self.cdp_url) or self.cdp_url
+            )
         return result
 
     async def open_url(self, url: str) -> ActionResult:
@@ -79,11 +83,15 @@ class BrowserSession:
 
     async def snapshot(self, *, focus: str = "") -> ActionResult:
         return await self._with_wall(
-            await self._driver.snapshot(max_chars=self.max_snapshot_chars, focus=focus)
+            await self._driver.snapshot(
+                max_chars=self.max_snapshot_chars, focus=focus
+            )
         )
 
     async def read(self) -> ActionResult:
-        return await self._with_wall(await self._driver.read(max_chars=self.max_read_chars))
+        return await self._with_wall(
+            await self._driver.read(max_chars=self.max_read_chars)
+        )
 
     def tab_url(self) -> str:
         """Current tab URL if the driver already knows it. Empty if not attached."""
@@ -129,7 +137,9 @@ class BrowserSession:
         missing = await self._ensure_targets()
         if missing is not None:
             return "", missing
-        ref_hit, err, matches = resolve_target_ref(self._clickable(), text=text, nth=nth, kind=kind)
+        ref_hit, err, matches = resolve_target_ref(
+            self._clickable(), text=text, nth=nth, kind=kind
+        )
         if ref_hit:
             return ref_hit, None
         lines = [err or "No match."]
@@ -141,7 +151,9 @@ class BrowserSession:
             data={"code": code, "text": text, "refs": [info.ref for info in matches]},
         )
 
-    async def click(self, ref: str = "", *, text: str = "", nth: int = 0) -> ActionResult:
+    async def click(
+        self, ref: str = "", *, text: str = "", nth: int = 0
+    ) -> ActionResult:
         label = (text or "").strip()
         if label:
             wall = detect_wall(click_label=label)
@@ -163,7 +175,9 @@ class BrowserSession:
             snap = await self.snapshot()
             if snap.ok:
                 retry_ref = "" if (text or nth) else resolved
-                resolved, err = await self._resolve(ref=retry_ref, text=text, nth=nth, kind="click")
+                resolved, err = await self._resolve(
+                    ref=retry_ref, text=text, nth=nth, kind="click"
+                )
                 if err is None and resolved:
                     result = await self._driver.click(resolved)
         if not result.ok and "Unknown ref" in (result.output or ""):
@@ -246,7 +260,9 @@ class BrowserSession:
         to_y: float | None = None,
     ) -> ActionResult:
         if x is not None and y is not None:
-            return await self._with_wall(await self._driver.drag(x=x, y=y, to_x=to_x, to_y=to_y))
+            return await self._with_wall(
+                await self._driver.drag(x=x, y=y, to_x=to_x, to_y=to_y)
+            )
         resolved, err = await self._resolve(ref=ref, text=text, nth=nth, kind="click")
         if err is not None:
             return err
@@ -255,8 +271,12 @@ class BrowserSession:
             return dest_err
         return await self._with_wall(await self._driver.drag(resolved, to=dest))
 
-    async def type_text(self, ref: str, text: str, *, into: str = "") -> ActionResult:
-        resolved, err = await self._resolve(ref=ref, text=into or ref, nth=0, kind="type")
+    async def type_text(
+        self, ref: str, text: str, *, into: str = ""
+    ) -> ActionResult:
+        resolved, err = await self._resolve(
+            ref=ref, text=into or ref, nth=0, kind="type"
+        )
         if err is not None:
             return err
         result = await self._driver.type_text(resolved, text)
@@ -282,7 +302,9 @@ class BrowserSession:
     ) -> ActionResult:
         return await self._driver.tabs(select=select, op=op, url=url)
 
-    async def screenshot(self, path: str, *, full_page: bool = False) -> ActionResult:
+    async def screenshot(
+        self, path: str, *, full_page: bool = False
+    ) -> ActionResult:
         return await self._driver.screenshot(path, full_page=full_page)
 
     async def scroll(
@@ -292,13 +314,19 @@ class BrowserSession:
         amount: int = 600,
         ref: str = "",
     ) -> ActionResult:
-        return await self._driver.scroll(direction=direction, amount=amount, ref=ref)
+        return await self._driver.scroll(
+            direction=direction, amount=amount, ref=ref
+        )
 
     async def press(self, key: str) -> ActionResult:
         return await self._driver.press(key)
 
-    async def select_option(self, ref: str, value: str, *, into: str = "") -> ActionResult:
-        resolved, err = await self._resolve(ref=ref, text=into, nth=0, kind="select")
+    async def select_option(
+        self, ref: str, value: str, *, into: str = ""
+    ) -> ActionResult:
+        resolved, err = await self._resolve(
+            ref=ref, text=into, nth=0, kind="select"
+        )
         if err is not None:
             return err
         return await self._driver.select_option(resolved, value)
@@ -312,7 +340,9 @@ class BrowserSession:
         heading: str = "",
     ) -> ActionResult:
         return await self._with_wall(
-            await self._driver.wait(seconds, url=url, text=text, heading=heading)
+            await self._driver.wait(
+                seconds, url=url, text=text, heading=heading
+            )
         )
 
     def cancel_watch(self) -> None:
@@ -373,7 +403,9 @@ class BrowserSession:
         set_paused(False)
         bind_session(self)
         first = await self._driver.watch(url=url, text=text, heading=heading)
-        if not first.ok or (first.data or {}).get("hit") or (first.data or {}).get("cancelled"):
+        if not first.ok or (first.data or {}).get("hit") or (first.data or {}).get(
+            "cancelled"
+        ):
             mark_watching(False)
             self._watch_result = first
             return first
@@ -395,7 +427,9 @@ class BrowserSession:
             },
         )
 
-    async def _watch_loop(self, watch_id: int, *, url: str, text: str, heading: str) -> None:
+    async def _watch_loop(
+        self, watch_id: int, *, url: str, text: str, heading: str
+    ) -> None:
         from arelis.browser.hold import cooperative_wait
         from arelis.browser.live import emit_hit, mark_watching
         from arelis.browser.wait_for import WATCH_POLL_S
@@ -440,16 +474,22 @@ class BrowserSession:
     async def download(
         self, path: str, *, ref: str = "", text: str = "", nth: int = 0
     ) -> ActionResult:
-        resolved, err = await self._resolve(ref=ref, text=text, nth=nth, kind="click")
+        resolved, err = await self._resolve(
+            ref=ref, text=text, nth=nth, kind="click"
+        )
         if err is not None:
             return err
         return await self._driver.download(path, ref=resolved)
 
     async def upload(self, ref: str, path: str, *, into: str = "") -> ActionResult:
-        resolved, err = await self._resolve(ref=ref, text=into or ref, nth=0, kind="type")
+        resolved, err = await self._resolve(
+            ref=ref, text=into or ref, nth=0, kind="type"
+        )
         if err is not None:
             # File inputs are not typeable — resolve by click label / ref.
-            resolved, err = await self._resolve(ref=ref, text=into, nth=0, kind="click")
+            resolved, err = await self._resolve(
+                ref=ref, text=into, nth=0, kind="click"
+            )
         if err is not None:
             return err
         return await self._driver.upload(resolved, path)
@@ -469,7 +509,9 @@ class BrowserSession:
         missing = await self._ensure_targets()
         if missing is not None:
             return missing
-        _ref, err, matches = resolve_target_ref(self._clickable(), text=text, nth=nth, kind="click")
+        _ref, err, matches = resolve_target_ref(
+            self._clickable(), text=text, nth=nth, kind="click"
+        )
         if not matches:
             return ActionResult(
                 ok=False,
@@ -517,7 +559,9 @@ class BrowserSession:
             click_label=click_label,
         )
 
-    async def _with_wall(self, result: ActionResult, *, click_label: str = "") -> ActionResult:
+    async def _with_wall(
+        self, result: ActionResult, *, click_label: str = ""
+    ) -> ActionResult:
         if not result.ok:
             return result
         if str((result.data or {}).get("code") or "") == "YOUR_TURN":

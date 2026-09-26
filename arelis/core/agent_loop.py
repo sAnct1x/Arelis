@@ -90,7 +90,9 @@ _STREAM_DECIDE_CHARS = 20
 _WEB_TOOLS = {"web_fetch", "scrape", "research_report", "browser"}
 
 # Outbound drafts must keep the full tool surface — never escalate away.
-_OUTBOUND_LOCK = re.compile(r"(?i)\b(text|sms|send\s+(?:a\s+)?(?:text|sms|email|mail)|e-?mail)\b")
+_OUTBOUND_LOCK = re.compile(
+    r"(?i)\b(text|sms|send\s+(?:a\s+)?(?:text|sms|email|mail)|e-?mail)\b"
+)
 
 # How many times a turn will correct a model that writes tool calls as prose.
 # Two is enough for a model having a bad round; past that it is not going to
@@ -99,7 +101,9 @@ _MAX_TOOL_NUDGES = 2
 _FILE_ANSWER_TOOLS = frozenset({"workspace", "analyze", "doc_extract"})
 _DAILY_WANDER = frozenset({"weather", "send_sms", "send_email", "agenda"})
 _LOCAL_STORE = frozenset({"memory", "tasks", "goals", "contacts", "recall"})
-_SEE_TOOLS = frozenset({"vision", "ocr", "camera", "clipboard", "image", "image_edit", "git_info"})
+_SEE_TOOLS = frozenset(
+    {"vision", "ocr", "camera", "clipboard", "image", "image_edit", "git_info"}
+)
 # user_location is here because weather resolves the user's place itself and
 # refuses coordinates outright (see WeatherTool's docstring). Asking where she
 # is first can only burn a round. Measured 2026-09-17: it was the model's most
@@ -108,7 +112,9 @@ _SEE_TOOLS = frozenset({"vision", "ocr", "camera", "clipboard", "image", "image_
 # Safe to hide: both call sites run _offer_expected straight after, so a turn
 # that genuinely wants the place ("where am I, and what's the weather") gets it
 # back.
-_WEATHER_WANDER = frozenset({"web_search", "scrape", "web_fetch", "user_location"})
+_WEATHER_WANDER = frozenset(
+    {"web_search", "scrape", "web_fetch", "user_location"}
+)
 _SMS_WANDER = frozenset(
     {
         "web_search",
@@ -121,8 +127,12 @@ _SMS_WANDER = frozenset(
         "camera",
     }
 )
-_SEE_NO_SMS_REDIRECT = frozenset({"vision", "ocr", "image", "image_edit", "camera"})
-_BROWSER_WANDER = frozenset({"web_search", "scrape", "web_fetch", "research_report"})
+_SEE_NO_SMS_REDIRECT = frozenset(
+    {"vision", "ocr", "image", "image_edit", "camera"}
+)
+_BROWSER_WANDER = frozenset(
+    {"web_search", "scrape", "web_fetch", "research_report"}
+)
 _HIDE_WANDER_FOR = _DAILY_WANDER | _LOCAL_STORE | _SEE_TOOLS | {"browser"}
 
 
@@ -200,7 +210,9 @@ def _hide_daily_wander(visible: set[str], expected: set[str]) -> set[str]:
     return set(visible) - hide
 
 
-def _offer_expected(visible: set[str], expected: set[str], available_all: set[str]) -> set[str]:
+def _offer_expected(
+    visible: set[str], expected: set[str], available_all: set[str]
+) -> set[str]:
     """Skill subset can drop a tool that preflight later marked expected."""
     return set(visible) | (expected & available_all)
 
@@ -251,7 +263,6 @@ def _tool_followup_fallback(out: str, tool: str = "", ask: str = "") -> str:
     from arelis.core.failure_copy import chat_followup_from_tool
 
     return chat_followup_from_tool(tool, out, ask=ask)
-
 
 # One extra round when the model tries to answer news from search snippets alone.
 _SCRAPE_AFTER_SEARCH_NOTICE = (
@@ -647,19 +658,12 @@ class AgentLoop:
         stopped_ask: str = "",
     ) -> TurnContext | None:
         from arelis.core.turn_prepare import prepare_turn
-
         return await prepare_turn(
-            self,
-            text,
-            role,
-            source=source,
-            route_reason=route_reason,
-            stopped_ask=stopped_ask,
+            self, text, role, source=source, route_reason=route_reason, stopped_ask=stopped_ask,
         )
 
     async def _run_round(self, ctx: TurnContext, round_i: int) -> bool:
         from arelis.core.turn_round import run_round
-
         return await run_round(self, ctx, round_i)
 
     async def _force_final_answer(self, ctx: TurnContext) -> None:
@@ -741,7 +745,9 @@ class AgentLoop:
         look = self._look
         if look is None:
             return None
-        return look_answer_refuse(content, act=look.intent.act, record=look.record)
+        return look_answer_refuse(
+            content, act=look.intent.act, record=look.record
+        )
 
     def _note_look_tool(
         self,
@@ -924,7 +930,9 @@ class AgentLoop:
                     "content": f"[earlier in this conversation: {self.memory.summary}]",
                 }
             )
-        history = self.memory.as_ollama(include_notes=not bool(self.config.get("_speak_replies")))
+        history = self.memory.as_ollama(
+            include_notes=not bool(self.config.get("_speak_replies"))
+        )
         # A backstop on message count. The token budget below is the real limit;
         # this only stops the trailer growing without bound in a session long
         # enough that the budget alone would keep saying yes.
@@ -934,7 +942,8 @@ class AgentLoop:
             max_msgs = 120
         try:
             min_recent = int(
-                agent_cfg.get("history_min_recent", _HISTORY_MIN_RECENT) or _HISTORY_MIN_RECENT
+                agent_cfg.get("history_min_recent", _HISTORY_MIN_RECENT)
+                or _HISTORY_MIN_RECENT
             )
         except (TypeError, ValueError):
             min_recent = _HISTORY_MIN_RECENT
@@ -951,7 +960,9 @@ class AgentLoop:
             dropped = list(older)
             kept = list(tail)
         else:
-            kept_older, dropped = allocate_history(older, remaining, chars_per_token=ratio)
+            kept_older, dropped = allocate_history(
+                older, remaining, chars_per_token=ratio
+            )
             kept = [*kept_older, *tail]
         if capped_drop:
             dropped = [*capped_drop, *dropped]
@@ -972,14 +983,10 @@ class AgentLoop:
         # ~1-2s and shows up in turns.log every spoken reply. The archive
         # already has those messages; drop them and keep answering.
         # Slash commands also skip the model summarize (H1 / L7).
-        skip_summarize = (
-            bool(self.config.get("_speak_replies"))
-            or (
-                bool(agent_cfg.get("summarize_skip_slash", True))
-                and (user_text or "").lstrip().startswith("/")
-            )
-            or (role or "").strip().lower() == "research"
-        )
+        skip_summarize = bool(self.config.get("_speak_replies")) or (
+            bool(agent_cfg.get("summarize_skip_slash", True))
+            and (user_text or "").lstrip().startswith("/")
+        ) or (role or "").strip().lower() == "research"
         if skip_summarize:
             n_drop = len(dropped)
             self.memory.drop_prompt_prefix(n_drop)
@@ -1024,7 +1031,9 @@ class AgentLoop:
                 {"message": "Compressing earlier chat so the next reply fits…"},
             )
         )
-        await self.bus.publish(Event(EventType.THINKING, {"text": "phase=summarize starting"}))
+        await self.bus.publish(
+            Event(EventType.THINKING, {"text": "phase=summarize starting"})
+        )
         summarize_t0 = time.perf_counter()
         max_ms = int(agent_cfg.get("summarize_max_ms", 8000) or 8000)
         summary, facts = await self._summarize_dropped(
@@ -1054,7 +1063,11 @@ class AgentLoop:
             await self.bus.publish(
                 Event(
                     EventType.THINKING,
-                    {"text": (f"phase=drop dropped={n_drop} mode=summarize_timeout")},
+                    {
+                        "text": (
+                            f"phase=drop dropped={n_drop} mode=summarize_timeout"
+                        )
+                    },
                 )
             )
             return [*pinned, *kept]
@@ -1086,7 +1099,9 @@ class AgentLoop:
         if room <= 0 or not older:
             kept = list(tail)
         else:
-            kept_older, _more = allocate_history(older, max(0, room), chars_per_token=ratio)
+            kept_older, _more = allocate_history(
+                older, max(0, room), chars_per_token=ratio
+            )
             kept = [*kept_older, *tail]
         return [*pinned, *kept]
 
@@ -1163,7 +1178,9 @@ class AgentLoop:
         if not text:
             return
         self._last_round_thinking = True
-        await self.bus.publish(Event(EventType.THINKING, {"text": text, "stream": True}))
+        await self.bus.publish(
+            Event(EventType.THINKING, {"text": text, "stream": True})
+        )
 
     async def _stream_round(
         self,
@@ -1189,8 +1206,12 @@ class AgentLoop:
         # a half-streamed answer (H5 / R13). Schemas can still ride a chitchat
         # turn for the prefix cache — that is not a tool round.
         agent_cfg = self.config.get("agent") or {}
-        tool_round = bool(tools) and (bool(expect_tools) if expect_tools is not None else True)
-        hold_paint = tool_round and bool(agent_cfg.get("stream_answer_after_tools", True))
+        tool_round = bool(tools) and (
+            bool(expect_tools) if expect_tools is not None else True
+        )
+        hold_paint = tool_round and bool(
+            agent_cfg.get("stream_answer_after_tools", True)
+        )
         stream_messages = _normalize_ollama_messages(list(messages))
         if tool_round:
             # Trailing hint only — must not sit in the static cached prefix.
@@ -1199,7 +1220,11 @@ class AgentLoop:
         await self.bus.publish(
             Event(
                 EventType.THINKING,
-                {"text": (f"phase=model role={role} hold_paint={int(hold_paint)}")},
+                {
+                    "text": (
+                        f"phase=model role={role} hold_paint={int(hold_paint)}"
+                    )
+                },
             )
         )
         # Eval/scripted fakes are not ModelRouter. Asking them for the
@@ -1323,7 +1348,12 @@ class AgentLoop:
                 await self.bus.publish(
                     Event(
                         EventType.THINKING,
-                        {"text": (f"phase=confirm waiting for Allow ({elapsed}s) tool={tool}")},
+                        {
+                            "text": (
+                                f"phase=confirm waiting for Allow "
+                                f"({elapsed}s) tool={tool}"
+                            )
+                        },
                     )
                 )
         except asyncio.CancelledError:

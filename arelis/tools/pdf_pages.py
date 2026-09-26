@@ -16,7 +16,6 @@ from typing import Any
 class RasterizerMissingError(RuntimeError):
     """pypdfium2 is not installed; scanned pages cannot be rendered."""
 
-
 _INK_PATH_LINE = re.compile(
     r"^\s+\d+:\s+(.+\.(?:jpg|jpeg|png|webp))\s*$",
     re.IGNORECASE,
@@ -43,7 +42,9 @@ class PageImage:
 def is_ink_extract(output: str) -> bool:
     """True when doc_extract wrote page images instead of a text layer."""
     body = (output or "").lower()
-    return "source: ink" in body or ("no text layer" in body and "page images" in body)
+    return "source: ink" in body or (
+        "no text layer" in body and "page images" in body
+    )
 
 
 def ink_page_paths(output: str) -> list[str]:
@@ -168,7 +169,11 @@ def collect_page_images(
     """Embedded images first; rasterize only pages that had none."""
     embedded = extract_embedded_pages(path, start_i, end_i)
     have = {item.page for item in embedded}
-    missing = [idx for idx in range(max(0, start_i), end_i + 1) if (idx + 1) not in have]
+    missing = [
+        idx
+        for idx in range(max(0, start_i), end_i + 1)
+        if (idx + 1) not in have
+    ]
     if not missing:
         return embedded
     rasters = raster_pages(path, missing[0], missing[-1])
@@ -230,7 +235,8 @@ def build_jpeg_page_pdf_bytes(jpeg: bytes, width: int, height: int) -> bytes:
     for off in offsets[1:]:
         xref.append(f"{off:010d} 00000 n \n".encode("ascii"))
     trailer = (
-        f"trailer\n<< /Size {len(offsets)} /Root 1 0 R >>\nstartxref\n{xref_start}\n%%EOF\n"
+        f"trailer\n<< /Size {len(offsets)} /Root 1 0 R >>\n"
+        f"startxref\n{xref_start}\n%%EOF\n"
     ).encode("ascii")
     return header + body + b"".join(xref) + trailer
 
@@ -271,7 +277,8 @@ def build_vector_page_pdf_bytes(width: int = 200, height: int = 80) -> bytes:
     for off in offsets[1:]:
         xref.append(f"{off:010d} 00000 n \n".encode("ascii"))
     trailer = (
-        f"trailer\n<< /Size {len(offsets)} /Root 1 0 R >>\nstartxref\n{xref_start}\n%%EOF\n"
+        f"trailer\n<< /Size {len(offsets)} /Root 1 0 R >>\n"
+        f"startxref\n{xref_start}\n%%EOF\n"
     ).encode("ascii")
     return header + body + b"".join(xref) + trailer
 

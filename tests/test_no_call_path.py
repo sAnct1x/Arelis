@@ -549,3 +549,4 @@ def test_dispatch_tables_are_named_and_ordered() -> None:
     assert len(no_call_finish.FINISH_STEPS) >= 6
     assert len(call_redirects.REDIRECT_STEPS) >= 4
     assert all(callable(step) for step in call_redirects.REDIRECT_STEPS)
+

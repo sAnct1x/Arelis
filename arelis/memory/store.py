@@ -443,7 +443,8 @@ class MemoryStore:
         """Optional fact keys so a new active fact can supersede siblings."""
         self._conn.execute("ALTER TABLE facts ADD COLUMN key TEXT")
         self._conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_facts_key ON facts(key) WHERE key IS NOT NULL"
+            "CREATE INDEX IF NOT EXISTS idx_facts_key ON facts(key) "
+            "WHERE key IS NOT NULL"
         )
 
     def _migrate_to_7(self) -> None:
@@ -458,7 +459,10 @@ class MemoryStore:
         """Optional tasks.goal_id → goals.id (SET NULL on goal delete)."""
         # Synthetic older-archive tests may skip v4; ensure tasks exists first.
         self._conn.executescript(_SCHEMA_V4)
-        cols = {str(row[1]) for row in self._conn.execute("PRAGMA table_info(tasks)").fetchall()}
+        cols = {
+            str(row[1])
+            for row in self._conn.execute("PRAGMA table_info(tasks)").fetchall()
+        }
         if "goal_id" not in cols:
             self._conn.execute(
                 "ALTER TABLE tasks ADD COLUMN goal_id INTEGER "
@@ -472,10 +476,17 @@ class MemoryStore:
         A nullable column would make "general" and "unknown" the same value, and
         every existing archive is general by definition — it predates rooms.
         """
-        cols = {str(row[1]) for row in self._conn.execute("PRAGMA table_info(sessions)").fetchall()}
+        cols = {
+            str(row[1])
+            for row in self._conn.execute("PRAGMA table_info(sessions)").fetchall()
+        }
         if "room_id" not in cols:
-            self._conn.execute("ALTER TABLE sessions ADD COLUMN room_id TEXT NOT NULL DEFAULT ''")
-        self._conn.execute("CREATE INDEX IF NOT EXISTS idx_sessions_room ON sessions(room_id)")
+            self._conn.execute(
+                "ALTER TABLE sessions ADD COLUMN room_id TEXT NOT NULL DEFAULT ''"
+            )
+        self._conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_sessions_room ON sessions(room_id)"
+        )
 
     def _migrate_to_11(self) -> None:
         """Task/goal priority, named task recurrence, and task parent_id.
@@ -487,7 +498,8 @@ class MemoryStore:
         self._conn.executescript(_SCHEMA_V4)
         self._conn.executescript(_SCHEMA_V8)
         task_cols = {
-            str(row[1]) for row in self._conn.execute("PRAGMA table_info(tasks)").fetchall()
+            str(row[1])
+            for row in self._conn.execute("PRAGMA table_info(tasks)").fetchall()
         }
         if "priority" not in task_cols:
             self._conn.execute(
@@ -501,7 +513,8 @@ class MemoryStore:
                 "REFERENCES tasks(id) ON DELETE SET NULL"
             )
         goal_cols = {
-            str(row[1]) for row in self._conn.execute("PRAGMA table_info(goals)").fetchall()
+            str(row[1])
+            for row in self._conn.execute("PRAGMA table_info(goals)").fetchall()
         }
         if "priority" not in goal_cols:
             self._conn.execute(
@@ -545,7 +558,9 @@ class MemoryStore:
         """Persist one message. Called from SessionMemory.add when a sink is set."""
         return sessions.on_message(self, role, content, note)
 
-    def append_to_session(self, session_id: str, role: str, content: str, note: str = "") -> bool:
+    def append_to_session(
+        self, session_id: str, role: str, content: str, note: str = ""
+    ) -> bool:
         """Write into another conversation without switching this process's seat."""
         return sessions.append_to_session(self, session_id, role, content, note)
 
@@ -581,7 +596,9 @@ class MemoryStore:
         """Reject pending facts older than the cutoff. Returns how many rows changed."""
         return facts.archive_stale_pending_facts(self, older_than_days=older_than_days)
 
-    def _supersede_active_by_key(self, key: str, *, except_id: int | None = None) -> None:
+    def _supersede_active_by_key(
+        self, key: str, *, except_id: int | None = None
+    ) -> None:
         """Reject other active facts that share this key."""
         return facts._supersede_active_by_key(self, key, except_id=except_id)
 
@@ -747,7 +764,9 @@ class MemoryStore:
         """Record a project-scoped decision. Returns its id, or None if empty."""
         return facts.add_decision(self, project, text)
 
-    def list_decisions(self, project: str, limit: int = 50) -> list[dict[str, Any]]:
+    def list_decisions(
+        self, project: str, limit: int = 50
+    ) -> list[dict[str, Any]]:
         return facts.list_decisions(self, project, limit)
 
     def add_episode(
@@ -767,7 +786,9 @@ class MemoryStore:
             self, summary, source=source, session_id=session_id, project=project
         )
 
-    def list_episodes(self, *, limit: int = 20, project: str | None = None) -> list[dict[str, Any]]:
+    def list_episodes(
+        self, *, limit: int = 20, project: str | None = None
+    ) -> list[dict[str, Any]]:
         """Recent episodes, newest first. Optional project filter."""
         return facts.list_episodes(self, limit=limit, project=project)
 
@@ -790,7 +811,9 @@ class MemoryStore:
         """
         return sessions.latest_session_id(self, require_messages=require_messages, room_id=room_id)
 
-    def list_sessions(self, *, limit: int = 50, room_id: str | None = None) -> list[dict[str, Any]]:
+    def list_sessions(
+        self, *, limit: int = 50, room_id: str | None = None
+    ) -> list[dict[str, Any]]:
         return sessions.list_sessions(self, limit=limit, room_id=room_id)
 
     def delete_session(self, session_id: str) -> bool:

@@ -23,7 +23,9 @@ _AUDIO_SUFFIXES = frozenset({".wav", ".mp3", ".flac", ".m4a", ".ogg"})
 _VIDEO_SUFFIXES = frozenset({".mp4", ".mkv"})
 _MAX_BYTES = 50 * 1024 * 1024
 _DEFAULT_MAX_CHARS = 12_000
-_ENGINE_NOT_LOADED = "voice engine not loaded — I will not pull Whisper onto the GPU mid-turn."
+_ENGINE_NOT_LOADED = (
+    "voice engine not loaded — I will not pull Whisper onto the GPU mid-turn."
+)
 _VIDEO_REFUSED = (
     "Video is not supported — this checkout has no ffmpeg/imageio to extract "
     "audio. Use wav, mp3, flac, m4a, or ogg."
@@ -161,7 +163,10 @@ class TranscribeTool:
         if suffix not in _AUDIO_SUFFIXES:
             return ToolResult(
                 ok=False,
-                output=(f"Unsupported suffix {suffix or '(none)'}. Audio only: {_suffix_list()}."),
+                output=(
+                    f"Unsupported suffix {suffix or '(none)'}. "
+                    f"Audio only: {_suffix_list()}."
+                ),
             )
         if not path.is_file():
             return ToolResult(ok=False, output=f"Audio file not found: {path}")
@@ -171,7 +176,10 @@ class TranscribeTool:
             cap = self.max_bytes / (1024 * 1024)
             return ToolResult(
                 ok=False,
-                output=(f"File is {mb:.1f} MB; transcribe refuses files over {cap:.0f} MB."),
+                output=(
+                    f"File is {mb:.1f} MB; transcribe refuses files over "
+                    f"{cap:.0f} MB."
+                ),
             )
 
         fn = self._engine_fn()

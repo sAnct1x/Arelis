@@ -140,7 +140,9 @@ class CalendarService:
         )
         return summary
 
-    async def push_pending(self, *, store: CalendarStore | None = None) -> dict[str, Any]:
+    async def push_pending(
+        self, *, store: CalendarStore | None = None
+    ) -> dict[str, Any]:
         """Ship local pending events to the first authorized cloud. No model."""
         dest = self.default_provider()
         if dest == "local":
@@ -163,7 +165,9 @@ class CalendarService:
             client = self.client(dest)
             for ev in pending:
                 try:
-                    twin = self._slot_in_store(cache, ev.summary, ev.starts_at, skip_id=ev.id)
+                    twin = self._slot_in_store(
+                        cache, ev.summary, ev.starts_at, skip_id=ev.id
+                    )
                     if twin is not None and twin.provider == dest:
                         cache.delete_id(ev.id)
                         pushed += 1
@@ -217,7 +221,9 @@ class CalendarService:
                 and which in {"google", "outlook"}
                 and self._authorized(which)
             ):
-                return await self._promote_pending(existing, dest=which, calendar_id=calendar_id)
+                return await self._promote_pending(
+                    existing, dest=which, calendar_id=calendar_id
+                )
             if existing.provider == "local":
                 return existing
         if which not in {"google", "outlook"} or not self._authorized(which):
@@ -241,7 +247,9 @@ class CalendarService:
                 calendar_id=calendar_id,
             )
         except Exception as exc:
-            log.warning("cloud calendar create failed (%s); saving locally", exc)
+            log.warning(
+                "cloud calendar create failed (%s); saving locally", exc
+            )
             return self._create_local(
                 summary=summary,
                 starts_at=starts_at,
@@ -387,7 +395,9 @@ class CalendarService:
         cal_cfg = (self._config.get("tools") or {}).get("calendar") or {}
         if provider == "google":
             if secrets.google is None or not secrets.google.authorized:
-                raise RuntimeError("Google Calendar not authorized. Sign in on the calendar tile.")
+                raise RuntimeError(
+                    "Google Calendar not authorized. Sign in on the calendar tile."
+                )
             creds = secrets.google
             override = str(cal_cfg.get("google_calendar_id") or "").strip()
             if override and override != creds.calendar_id:
@@ -399,7 +409,9 @@ class CalendarService:
                 )
             return GoogleCalendarClient(creds)
         if secrets.outlook is None or not secrets.outlook.authorized:
-            raise RuntimeError("Outlook not authorized. Sign in on the calendar tile.")
+            raise RuntimeError(
+                "Outlook not authorized. Sign in on the calendar tile."
+            )
         creds = secrets.outlook
         override = str(cal_cfg.get("outlook_calendar_id") or "").strip()
         if override and override != creds.calendar_id:
@@ -435,7 +447,9 @@ class CalendarService:
             ends_at=ends_at if ends_at is not None else existing.ends_at,
             all_day=existing.all_day if all_day is None else all_day,
             location=location if location is not None else existing.location,
-            description=(description if description is not None else existing.description),
+            description=(
+                description if description is not None else existing.description
+            ),
             raw_id=existing.raw_id,
             sync_state="pending",
         )

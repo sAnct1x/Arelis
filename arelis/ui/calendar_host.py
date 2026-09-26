@@ -18,7 +18,6 @@ def calendar_service(window):
 
     return CalendarService(window.config)
 
-
 def run_calendar(window, coro, *, ok_status: str = "google · just now") -> None:
     if getattr(window, "_disposed", False) or getattr(window, "_force_quit", False):
         coro.close()
@@ -49,7 +48,6 @@ def run_calendar(window, coro, *, ok_status: str = "google · just now") -> None
 
     fut.add_done_callback(lambda _f: window._ui_call.emit(done))
 
-
 def kick_calendar_sync(window) -> None:
     if window._force_quit or window._disposed:
         return
@@ -74,7 +72,9 @@ def kick_calendar_sync(window) -> None:
     window._calendar_sync_inflight = True
     window.calendar.set_status("syncing…")
     window._calendar_sync_watchdog.start(int(window._calendar_sync_timeout_ms))
-    fut = asyncio.run_coroutine_threadsafe(calendar_service(window).sync(), window.loop)
+    fut = asyncio.run_coroutine_threadsafe(
+        calendar_service(window).sync(), window.loop
+    )
 
     def done() -> None:
         try:
@@ -103,7 +103,9 @@ def kick_calendar_sync(window) -> None:
                     for name, info in (summary.get("providers") or {}).items()
                     if info.get("ok")
                 ]
-                window.calendar.set_status(f"{', '.join(names) or 'calendar'} · just now")
+                window.calendar.set_status(
+                    f"{', '.join(names) or 'calendar'} · just now"
+                )
             else:
                 err = "; ".join(summary.get("errors") or []) or "sync failed"
                 window.calendar.set_status("sync failed", failed=True)
@@ -213,7 +215,6 @@ def on_calendar_sync_watchdog(window) -> None:
     window._calendar_sync_inflight = False
     window.calendar.set_status("sync failed", failed=True)
 
-
 def on_calendar_create(window, payload: dict[str, Any]) -> None:
     run_calendar(
         window,
@@ -229,7 +230,6 @@ def on_calendar_create(window, payload: dict[str, Any]) -> None:
         ),
         ok_status="created",
     )
-
 
 def on_calendar_update(window, payload: dict[str, Any]) -> None:
     event_id = str(payload.get("event_id") or "")
@@ -251,7 +251,6 @@ def on_calendar_update(window, payload: dict[str, Any]) -> None:
         ok_status="updated",
     )
 
-
 def on_calendar_delete(window, event_id: str) -> None:
     from arelis.ui.dialog import confirm
 
@@ -261,7 +260,11 @@ def on_calendar_delete(window, event_id: str) -> None:
     except Exception:
         ev = None
     cloud = ev.provider if ev and ev.provider in {"google", "outlook"} else ""
-    prompt = f"Remove this from {cloud} Calendar?" if cloud else "Remove this local event?"
+    prompt = (
+        f"Remove this from {cloud} Calendar?"
+        if cloud
+        else "Remove this local event?"
+    )
     if not confirm(
         window,
         "delete event",
@@ -280,7 +283,6 @@ def on_calendar_delete(window, event_id: str) -> None:
         ok_status="deleted",
     )
 
-
 def on_calendar_task_add(window, title: str, due: str) -> None:
     if window.store is None:
         return
@@ -296,7 +298,6 @@ def on_calendar_task_add(window, title: str, due: str) -> None:
     emit_nowait(Event(EventType.TASKS_CHANGED, {"action": "add"}))
     window.calendar.reload_tasks()
 
-
 def on_calendar_task_status(window, task_id: int, status: str) -> None:
     if window.store is None:
         return
@@ -305,7 +306,6 @@ def on_calendar_task_status(window, task_id: int, status: str) -> None:
 
     emit_nowait(Event(EventType.TASKS_CHANGED, {"action": status, "id": task_id}))
     window.calendar.reload_tasks()
-
 
 def on_calendar_task_remove(window, task_id: int) -> None:
     from arelis.ui.dialog import confirm
@@ -328,13 +328,11 @@ def on_calendar_task_remove(window, task_id: int) -> None:
     emit_nowait(Event(EventType.TASKS_CHANGED, {"action": "remove", "id": task_id}))
     window.calendar.reload_tasks()
 
-
 def reveal_calendar_jobs(window) -> None:
     window.act_calendar.setChecked(True)
     window._toggle_calendar(True)
     window.calendar.show_jobs_tab()
     window.calendar.reload_jobs()
-
 
 def on_calendar_job_save(window, payload: dict[str, Any]) -> None:
     from arelis.tools.schedule_jobs import save_job_from_payload
@@ -360,7 +358,6 @@ def on_calendar_job_save(window, payload: dict[str, Any]) -> None:
             detail=str(result.output),
             warning=True,
         )
-
 
 def on_calendar_job_delete(window, job_id: str) -> None:
     from arelis.jobs.store import get_job
@@ -389,7 +386,6 @@ def on_calendar_job_delete(window, job_id: str) -> None:
         return
     window.calendar.reload_jobs()
 
-
 def on_calendar_job_run(window, job_id: str) -> None:
     from arelis.tools.schedule_jobs import ScheduleTool
     from arelis.ui.dialog import notice
@@ -405,7 +401,6 @@ def on_calendar_job_run(window, job_id: str) -> None:
         )
         return
     window.calendar.jobs_page.set_note("Started. The result will arrive by email.")
-
 
 def on_calendar_window_closed(window) -> None:
     window.act_calendar.setChecked(False)

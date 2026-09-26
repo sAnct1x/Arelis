@@ -27,11 +27,15 @@ class OutlookCalendarClient:
         if self._access:
             return self._access
         if not self.creds.refresh_token:
-            raise RuntimeError("Outlook not authorized. Sign in on the calendar tile.")
+            raise RuntimeError(
+                "Outlook not authorized. Sign in on the calendar tile."
+            )
         try:
             import msal
         except ImportError as exc:
-            raise RuntimeError("msal is required for Outlook. pip install msal") from exc
+            raise RuntimeError(
+                "msal is required for Outlook. pip install msal"
+            ) from exc
 
         app = msal.PublicClientApplication(
             self.creds.client_id,
@@ -45,7 +49,8 @@ class OutlookCalendarClient:
             err = (result or {}).get("error_description") or (result or {}).get("error")
             log.warning("Outlook token refresh failed: %s", err)
             raise RuntimeError(
-                f"Outlook token refresh failed: {err}. Sign in on the calendar tile."
+                f"Outlook token refresh failed: {err}. "
+                "Sign in on the calendar tile."
             )
         self._access = str(result["access_token"])
         return self._access
@@ -80,7 +85,9 @@ class OutlookCalendarClient:
                 },
             )
         if resp.status_code >= 400:
-            raise RuntimeError(f"Outlook list failed ({resp.status_code}): {resp.text[:240]}")
+            raise RuntimeError(
+                f"Outlook list failed ({resp.status_code}): {resp.text[:240]}"
+            )
         items = (resp.json() or {}).get("value") or []
         out: list[CachedEvent] = []
         for item in items:
@@ -126,7 +133,9 @@ class OutlookCalendarClient:
                 },
             )
         if resp.status_code >= 400:
-            raise RuntimeError(f"Outlook create failed ({resp.status_code}): {resp.text[:240]}")
+            raise RuntimeError(
+                f"Outlook create failed ({resp.status_code}): {resp.text[:240]}"
+            )
         ev = _parse_outlook_event(resp.json(), calendar_id=cal or "default")
         if ev is None:
             raise RuntimeError("Outlook create returned an unreadable event")
@@ -178,7 +187,9 @@ class OutlookCalendarClient:
                 },
             )
         if resp.status_code >= 400:
-            raise RuntimeError(f"Outlook update failed ({resp.status_code}): {resp.text[:240]}")
+            raise RuntimeError(
+                f"Outlook update failed ({resp.status_code}): {resp.text[:240]}"
+            )
         cal = (calendar_id or self.creds.calendar_id or "").strip() or "default"
         ev = _parse_outlook_event(resp.json(), calendar_id=cal)
         if ev is None:
@@ -200,7 +211,9 @@ class OutlookCalendarClient:
                 headers={"Authorization": f"Bearer {token}"},
             )
         if resp.status_code not in {200, 204, 404}:
-            raise RuntimeError(f"Outlook delete failed ({resp.status_code}): {resp.text[:240]}")
+            raise RuntimeError(
+                f"Outlook delete failed ({resp.status_code}): {resp.text[:240]}"
+            )
 
 
 def _rfc3339(dt: datetime) -> str:

@@ -52,7 +52,8 @@ class OpenWakeListener:
             from openwakeword.model import Model
         except ImportError as exc:
             raise OpenWakeUnavailableError(
-                'openwakeword is not installed. Run: pip install -e ".[voice]"'
+                "openwakeword is not installed. "
+                'Run: pip install -e ".[voice]"'
             ) from exc
 
         path = Path(model_path) if model_path else _DEFAULT_MODEL

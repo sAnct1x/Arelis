@@ -393,7 +393,9 @@ def format_contact(contact: Contact) -> str:
         lines.append(f"  email:   {contact.email} (not a phone number)")
     else:
         lines.append("  email:   (none)")
-    lines.append("Use SMS phone for texts. Do not report another contact's email as this phone.")
+    lines.append(
+        "Use SMS phone for texts. Do not report another contact's email as this phone."
+    )
     return "\n".join(lines)
 
 
@@ -492,12 +494,18 @@ def save_contacts(
     """Rewrite data/contacts.yaml from the in-memory book."""
     path = path or CONTACTS_PATH
     path.parent.mkdir(parents=True, exist_ok=True)
-    body = {"contacts": {key: contact_to_mapping(contact) for key, contact in contacts.items()}}
+    body = {
+        "contacts": {
+            key: contact_to_mapping(contact) for key, contact in contacts.items()
+        }
+    }
     text = (
         "# Gitignored. Named people for send_sms.\n"
         "# Template: data/contacts.example.yaml\n"
         "# Edited by the Contacts panel, the contacts tool, or by hand.\n\n"
-        + yaml.safe_dump(body, default_flow_style=False, allow_unicode=True, sort_keys=False)
+        + yaml.safe_dump(
+            body, default_flow_style=False, allow_unicode=True, sort_keys=False
+        )
     )
     path.write_text(text, encoding="utf-8")
 
@@ -521,7 +529,9 @@ def find_alias_owner(
     return None
 
 
-def find_contact_by_phone(phone: str, contacts: dict[str, Contact]) -> Contact | None:
+def find_contact_by_phone(
+    phone: str, contacts: dict[str, Contact]
+) -> Contact | None:
     """Match a live number to a card. Empty phone matches nobody."""
     digits = normalize_phone(phone)
     e164 = to_e164(phone)
@@ -700,7 +710,10 @@ def update_contact(
     book = load_all_contacts(path)
     existing = resolve_contact(who, book)
     if existing is None:
-        return f"No contact matches {who!r}. Use action=add to create one, or list contacts first."
+        return (
+            f"No contact matches {who!r}. Use action=add to create one, or "
+            f"list contacts first."
+        )
     return _write_contact(
         book,
         primary=existing.alias,

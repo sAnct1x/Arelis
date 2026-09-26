@@ -25,7 +25,11 @@ def clamp_wait_seconds(seconds: float, *, has_needle: bool) -> float:
 
 
 def has_wait_needle(*, url: str = "", text: str = "", heading: str = "") -> bool:
-    return bool(str(url or "").strip() or str(text or "").strip() or str(heading or "").strip())
+    return bool(
+        str(url or "").strip()
+        or str(text or "").strip()
+        or str(heading or "").strip()
+    )
 
 
 def url_needle_hit(landed: str, needle: str) -> bool:

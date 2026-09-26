@@ -77,7 +77,9 @@ def build_seat(
     if profile == "job":
         memory = SessionMemory()
         tools = build_tool_registry(config, workspace, allow_send=False)
-        orchestrator = Orchestrator(bus, router, tools, config, memory, workspace=workspace)
+        orchestrator = Orchestrator(
+            bus, router, tools, config, memory, workspace=workspace
+        )
         return AgentSeat(
             config=config,
             workspace=workspace,
@@ -121,7 +123,9 @@ def build_seat(
                 store.get_messages(restore_id),
                 summary=store.get_summary(restore_id),
             )
-    orchestrator = Orchestrator(bus, router, tools, config, memory, workspace=workspace)
+    orchestrator = Orchestrator(
+        bus, router, tools, config, memory, workspace=workspace
+    )
     return AgentSeat(
         config=config,
         workspace=workspace,

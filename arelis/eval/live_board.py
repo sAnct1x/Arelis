@@ -96,7 +96,9 @@ def live_board_turns(*, token: str = BOARD_ID) -> list[ConversationTurn]:
         ),
         ConversationTurn(
             id="T07_sqrt",
-            user=("Using python, print the square root of 2 to at least 8 decimal places."),
+            user=(
+                "Using python, print the square root of 2 to at least 8 decimal places."
+            ),
             expect_tools=("python", "calculator"),
             expect_tools_any=True,
             expect_answer_contains=("1.41421356",),
@@ -142,7 +144,10 @@ def live_board_turns(*, token: str = BOARD_ID) -> list[ConversationTurn]:
         ),
         ConversationTurn(
             id="T11_cal_delete",
-            user=(f"Delete only the calendar event titled {scratch}. Do not delete {keep}."),
+            user=(
+                f"Delete only the calendar event titled {scratch}. "
+                f"Do not delete {keep}."
+            ),
             expect_tools=("agenda",),
             require_args=("action",),
             expect_args={"action": "delete"},

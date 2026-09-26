@@ -101,7 +101,9 @@ def test_voice_grant_only_pauses_on_delete() -> None:
             "browser", {"action": "open", "url": "youtube"}, risk="side_effect"
         )
         assert evaluate_confirm("run_script", {"path": "x.py"}, risk="side_effect")
-        assert not evaluate_confirm("image", {"prompt": "x"}, asked=True, risk="side_effect")
+        assert not evaluate_confirm(
+            "image", {"prompt": "x"}, asked=True, risk="side_effect"
+        )
         # Settings Allow boxes off (the filament default): voice is still
         # the grant. ask-is-grant / wander / ask-me-everything do not
         # reopen cards here. Only delete, Pay, and run_script pause.
@@ -115,14 +117,22 @@ def test_voice_grant_only_pauses_on_delete() -> None:
             asked=False,
             ask_is_grant=False,
         )
-        assert not evaluate_confirm("image", {"prompt": "x"}, risk="side_effect", **off)
+        assert not evaluate_confirm(
+            "image", {"prompt": "x"}, risk="side_effect", **off
+        )
         assert not evaluate_confirm("send_sms", {}, risk="side_effect", **off)
-        assert not evaluate_confirm("workspace", {"action": "write"}, risk="read", **off)
+        assert not evaluate_confirm(
+            "workspace", {"action": "write"}, risk="read", **off
+        )
         assert not evaluate_confirm(
             "browser", {"action": "open", "url": "youtube"}, risk="side_effect", **off
         )
-        assert not evaluate_confirm("vision", {"path": "x.png"}, risk="side_effect", **off)
-        assert evaluate_confirm("workspace", {"action": "delete"}, risk="read", **off)
+        assert not evaluate_confirm(
+            "vision", {"path": "x.png"}, risk="side_effect", **off
+        )
+        assert evaluate_confirm(
+            "workspace", {"action": "delete"}, risk="read", **off
+        )
         assert evaluate_confirm("run_script", {"path": "x.py"}, risk="side_effect", **off)
         assert evaluate_confirm("inbox", {"action": "trash"}, **off)
         assert evaluate_confirm(
@@ -601,7 +611,10 @@ def test_filament_takes_the_desk(arelis_window) -> None:
     assert isinstance(history, QPushButton)
     assert history.objectName() == "FilamentFloat"
     assert history.contextMenuPolicy() == Qt.ContextMenuPolicy.NoContextMenu
-    assert window._filament_chat_tile.contextMenuPolicy() == Qt.ContextMenuPolicy.CustomContextMenu
+    assert (
+        window._filament_chat_tile.contextMenuPolicy()
+        == Qt.ContextMenuPolicy.CustomContextMenu
+    )
     assert abs(window.windowOpacity() - 1.0) < 0.02
     window.act_history.trigger()
     assert window.history_dock.isFloating()
@@ -609,7 +622,9 @@ def test_filament_takes_the_desk(arelis_window) -> None:
     assert window.history_dock.width() < 420
     assert window.history_dock.height() < 420
     assert window._filament_weather() == "awake"
-    assert window.act_history.shortcutContext() == Qt.ShortcutContext.ApplicationShortcut
+    assert (
+        window.act_history.shortcutContext() == Qt.ShortcutContext.ApplicationShortcut
+    )
     window._filament_set_chat_open(True)
     assert window._filament_chat_tile.hasMouseTracking()
     assert window._filament_chat_tile.minimumWidth() <= 240
@@ -746,11 +761,19 @@ def test_filament_rooms_menu_omits_reality(tmp_path, arelis_window) -> None:
     store.create("Writing")
     window = arelis_window({"_rooms": store})
     apply_window_theme(window, "filament", persist=False)
-    labels = [act.text() for act in window._build_rooms_menu().actions() if not act.isSeparator()]
+    labels = [
+        act.text()
+        for act in window._build_rooms_menu().actions()
+        if not act.isSeparator()
+    ]
     assert "Reality" not in labels
     assert "Writing" in labels
     apply_window_theme(window, "sodium", persist=False)
-    labels = [act.text() for act in window._build_rooms_menu().actions() if not act.isSeparator()]
+    labels = [
+        act.text()
+        for act in window._build_rooms_menu().actions()
+        if not act.isSeparator()
+    ]
     assert labels[0] == "Reality"
 
 
@@ -767,7 +790,11 @@ def test_sodium_keeps_its_face_after_filament(tmp_path, arelis_window) -> None:
     apply_window_theme(window, "sodium", persist=False)
     assert active_theme() == "sodium"
     assert confirm_mode() == "card"
-    labels = [act.text() for act in window._build_rooms_menu().actions() if not act.isSeparator()]
+    labels = [
+        act.text()
+        for act in window._build_rooms_menu().actions()
+        if not act.isSeparator()
+    ]
     assert labels[0] == "Reality"
     assert "Writing" in labels
     assert not window.title_bar.view_btn.isHidden()
@@ -779,7 +806,9 @@ def test_sodium_keeps_its_face_after_filament(tmp_path, arelis_window) -> None:
     if world_available():
         window._toggle_world(True)
         assert window.world_window.isHidden()
-        window._on_event(Event(EventType.ROOM_CHANGED, {"room_id": "physics", "name": "Reality"}))
+        window._on_event(
+            Event(EventType.ROOM_CHANGED, {"room_id": "physics", "name": "Reality"})
+        )
         window._toggle_world(True)
         assert not window.world_window.isHidden()
         window._toggle_world(False)

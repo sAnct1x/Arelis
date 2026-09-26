@@ -10,7 +10,8 @@ from typing import Any
 log = logging.getLogger(__name__)
 
 _MISSING_DEP = (
-    'Speech recognition is not available. Install the voice extra: pip install -e ".[voice]"'
+    "Speech recognition is not available. "
+    'Install the voice extra: pip install -e ".[voice]"'
 )
 
 _WORD = re.compile(r"[a-z0-9]+", re.I)
@@ -40,17 +41,23 @@ _HALLUCINATION_CLIP = re.compile(
 )
 
 # Mixed barge-in: peel the invented threat, keep "ok stop".
-_HALLUCINATION_SPAN = re.compile(r"(?is)(?:^|\s+)(?:i(?:'m| am) going to kill you[.!,]?\s*)+")
+_HALLUCINATION_SPAN = re.compile(
+    r"(?is)(?:^|\s+)(?:i(?:'m| am) going to kill you[.!,]?\s*)+"
+)
 
 # Barge-in of TTS often becomes a fake "I'm going to…" story, then the real cut.
 _STOP_TAIL = re.compile(
     r"(?is)^(?P<lead>.+?)(?P<stop>(?:all\s+right|alright|ok(?:ay)?),?\s+stop)\s*$"
 )
 
-_STUTTER = re.compile(r"(?i)\b((?:i(?:'m)?|uh|um|ah|oh|like))(?:(?:\s*[,.]?\s+|\s+)\1)+\b")
+_STUTTER = re.compile(
+    r"(?i)\b((?:i(?:'m)?|uh|um|ah|oh|like))(?:(?:\s*[,.]?\s+|\s+)\1)+\b"
+)
 
 # Isolated spoken fillers. Not "like" — that is also a real word.
-_FILLER_TOKEN = re.compile(r"(?i)(?:^|(?<=\s))(?:uh+|um+|ah+|er+|eh+|hmm+)[,.]?(?=\s|$)")
+_FILLER_TOKEN = re.compile(
+    r"(?i)(?:^|(?<=\s))(?:uh+|um+|ah+|er+|eh+|hmm+)[,.]?(?=\s|$)"
+)
 _MULTI_SPACE = re.compile(r"\s{2,}")
 
 # Tokens that belong to the wake phrase itself — not "jargon echo".
@@ -459,7 +466,9 @@ class SpeechToText:
         async with self._lock:
             if proceed is not None and not proceed():
                 return ""
-            return await asyncio.to_thread(self._transcribe_blocking, str(audio_path), purpose)
+            return await asyncio.to_thread(
+                self._transcribe_blocking, str(audio_path), purpose
+            )
 
     def ensure_sherpa(self) -> None:
         """Load Zipformer only. Enough for the doorbell while Whisper warms."""
@@ -560,7 +569,9 @@ class SpeechToText:
         # int8 on CPU is roughly three times faster than float32 for a
         # negligible accuracy cost at these model sizes, and this runs on a
         # machine whose GPU is reserved for the language models.
-        compute_type = self.config.get("compute_type") or ("int8" if device == "cpu" else "default")
+        compute_type = self.config.get("compute_type") or (
+            "int8" if device == "cpu" else "default"
+        )
         kwargs = {"device": device, "compute_type": compute_type}
         try:
             self._model = WhisperModel(size, local_files_only=True, **kwargs)

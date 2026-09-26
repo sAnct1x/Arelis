@@ -228,7 +228,9 @@ class HistoryPanel(QWidget):
         self.new_btn.setEnabled(enabled)
         tip = "" if enabled else "Finish or stop the current turn first"
         self.list.setToolTip(tip)
-        self.new_btn.setToolTip("Start a fresh conversation" if enabled else tip)
+        self.new_btn.setToolTip(
+            "Start a fresh conversation" if enabled else tip
+        )
 
     def recent_sessions(self, limit: int = 3) -> list[tuple[str, str]]:
         """Most recent sessions for the Orbit idle ghosts."""
@@ -271,7 +273,9 @@ class HistoryPanel(QWidget):
 
     def _apply_filter(self, text: str) -> None:
         needle = text.strip()
-        filtered = filter_history_sessions(self._sessions, text, store=self._store)
+        filtered = filter_history_sessions(
+            self._sessions, text, store=self._store
+        )
         rows: list[tuple[str, str, str]] = []
         for session in filtered:
             title = _display_session_title(str(session.get("title") or ""))

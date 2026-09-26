@@ -76,8 +76,14 @@ def test_role_popup_fills_the_plate(qt_app) -> None:
     try:
         view = stage.role.view()
         assert view is not None
-        assert view.verticalScrollBarPolicy() == Qt.ScrollBarPolicy.ScrollBarAlwaysOff
-        assert view.horizontalScrollBarPolicy() == Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        assert (
+            view.verticalScrollBarPolicy()
+            == Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+        assert (
+            view.horizontalScrollBarPolicy()
+            == Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
         parent = view.parentWidget()
         assert parent is not None
         assert parent.objectName() == "ComboPopup"
@@ -108,7 +114,10 @@ def test_workbench_composer_keeps_long_text_after_a_tool_sync(qt_app) -> None:
         stage.input.setCursorPosition(len(draft))
         qt_app.processEvents()
         assert stage.input.toPlainText() == draft
-        assert stage.input.lineWrapMode() == QPlainTextEdit.LineWrapMode.WidgetWidth
+        assert (
+            stage.input.lineWrapMode()
+            == QPlainTextEdit.LineWrapMode.WidgetWidth
+        )
         assert stage.input.height() >= METRICS["control"]
         # Same hammer a tool start / Allow / ASSISTANT_DONE used to apply.
         stage.set_busy(True)
@@ -223,7 +232,9 @@ def test_every_colour_in_the_stylesheet_came_from_a_token() -> None:
         if value.startswith(("#", "rgb"))
     }
     emitted = re.findall(r"rgba?\([^)]*\)|#[0-9a-fA-F]{6}\b", qss)
-    stray = {found for found in emitted if re.sub(r"\s+", "", found).lower() not in known}
+    stray = {
+        found for found in emitted if re.sub(r"\s+", "", found).lower() not in known
+    }
     assert not stray, f"colours with no token behind them: {sorted(stray)}"
 
 
@@ -390,7 +401,10 @@ def test_browse_hides_junk_and_keeps_gitignore(qt_app, tmp_path) -> None:
     panel = WorkspacePanel()
     try:
         panel.set_projects(["lab"], "lab", paths={"lab": str(root)})
-        names = [panel.browse_list.item(i).text() for i in range(panel.browse_list.count())]
+        names = [
+            panel.browse_list.item(i).text()
+            for i in range(panel.browse_list.count())
+        ]
         assert "notes.txt" in names
         assert ".gitignore" in names
         assert "src" in names
@@ -425,9 +439,20 @@ def test_workspace_log_stays_a_strip(qt_app) -> None:
 
 def test_status_strip_ignores_listings_and_keeps_wrote() -> None:
     listing = "[dir] docs\n[file] LICENSE\n[file] README.md"
-    assert status_for_tool_result("workspace", ok=True, action="list", output=listing) is None
-    assert status_for_tool_result("workspace", ok=True, action="read", output="hello") is None
-    assert status_for_tool_result("analyze", ok=True, output="n=3\nmean=1.2") is None
+    assert (
+        status_for_tool_result("workspace", ok=True, action="list", output=listing)
+        is None
+    )
+    assert (
+        status_for_tool_result("workspace", ok=True, action="read", output="hello")
+        is None
+    )
+    assert (
+        status_for_tool_result(
+            "analyze", ok=True, output="n=3\nmean=1.2"
+        )
+        is None
+    )
     assert (
         status_for_tool_result(
             "workspace",
@@ -438,7 +463,9 @@ def test_status_strip_ignores_listings_and_keeps_wrote() -> None:
         == "Wrote theory_of_relativity.md"
     )
     assert (
-        status_for_tool_result("workspace", ok=False, output="Not a file: C:/typo.csv")
+        status_for_tool_result(
+            "workspace", ok=False, output="Not a file: C:/typo.csv"
+        )
         == "Not a file: C:/typo.csv"
     )
     assert is_workspace_listing("list", listing, "")
@@ -456,7 +483,10 @@ def test_browse_to_opens_the_listed_folder(qt_app, tmp_path) -> None:
     try:
         panel.set_projects(["lab"], "lab", paths={"lab": str(root)})
         panel.browse_to(str(docs), root_name="lab")
-        names = [panel.browse_list.item(i).text() for i in range(panel.browse_list.count())]
+        names = [
+            panel.browse_list.item(i).text()
+            for i in range(panel.browse_list.count())
+        ]
         assert "guide.md" in names
         assert "notes.txt" not in names
         assert panel.browse_label.text() == "docs"
@@ -465,7 +495,10 @@ def test_browse_to_opens_the_listed_folder(qt_app, tmp_path) -> None:
 
 
 def _browse_names(panel: WorkspacePanel) -> list[str]:
-    return [panel.browse_list.item(i).text() for i in range(panel.browse_list.count())]
+    return [
+        panel.browse_list.item(i).text()
+        for i in range(panel.browse_list.count())
+    ]
 
 
 def test_browse_to_opens_a_folder_outside_the_project(qt_app, tmp_path) -> None:
@@ -535,7 +568,8 @@ def test_a_workspace_list_does_not_fill_the_dock(arelis_window, tmp_path) -> Non
     assert win.workspace.output.isHidden()
     assert "[file]" not in win.workspace.output.toPlainText()
     names = [
-        win.workspace.browse_list.item(i).text() for i in range(win.workspace.browse_list.count())
+        win.workspace.browse_list.item(i).text()
+        for i in range(win.workspace.browse_list.count())
     ]
     assert "guide.md" in names
 
@@ -577,7 +611,8 @@ def test_workspace_list_opens_an_outside_folder(arelis_window, tmp_path) -> None
         )
     )
     names = [
-        win.workspace.browse_list.item(i).text() for i in range(win.workspace.browse_list.count())
+        win.workspace.browse_list.item(i).text()
+        for i in range(win.workspace.browse_list.count())
     ]
     assert "index.html" in names
     assert "README.md" not in names
@@ -613,7 +648,8 @@ def test_directory_read_back_does_not_permission_deny(arelis_window, tmp_path) -
     )
     assert not any("Permission denied" in line for line in said)
     names = [
-        win.workspace.browse_list.item(i).text() for i in range(win.workspace.browse_list.count())
+        win.workspace.browse_list.item(i).text()
+        for i in range(win.workspace.browse_list.count())
     ]
     assert "guide.md" in names
 
@@ -670,5 +706,9 @@ def test_every_named_tool_has_an_errand() -> None:
     from arelis.core.compact_prompt import _SHORT_DESC
     from arelis.ui.status_copy import tool_errand
 
-    missing = [name for name in _SHORT_DESC if tool_errand(name) == f"using {name}"]
+    missing = [
+        name
+        for name in _SHORT_DESC
+        if tool_errand(name) == f"using {name}"
+    ]
     assert not missing, f"no glass errand for {missing}"

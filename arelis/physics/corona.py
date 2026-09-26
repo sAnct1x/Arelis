@@ -134,7 +134,9 @@ def off_limb_segments(
         if ss > 1.0:
             world = pairs + eye.reshape(1, 1, 3)
             dist = np.sqrt((world * world).sum(axis=2))
-            cos_ang = (world * eye.reshape(1, 1, 3)).sum(axis=2) / np.maximum(dist * ss, 1.0)
+            cos_ang = (world * eye.reshape(1, 1, 3)).sum(axis=2) / np.maximum(
+                dist * ss, 1.0
+            )
             ang = np.arccos(np.clip(cos_ang, -1.0, 1.0))
             beta = math.asin(min(1.0, float(r_phot) / ss))
             on_face = (ang < beta * 0.99) & (dist < ss)

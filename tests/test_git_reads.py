@@ -28,7 +28,9 @@ def _repo(tmp_path: Path) -> Path:
     ):
         subprocess.run(["git", "-C", str(root), *args], check=True, capture_output=True)
     (root / "README.md").write_text("first line\n", encoding="utf-8")
-    subprocess.run(["git", "-C", str(root), "add", "-A"], check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-C", str(root), "add", "-A"], check=True, capture_output=True
+    )
     subprocess.run(
         ["git", "-C", str(root), "commit", "-q", "-m", "initial"],
         check=True,

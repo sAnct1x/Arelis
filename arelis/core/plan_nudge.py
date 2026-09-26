@@ -170,7 +170,8 @@ _PLAN_RESEARCH = PlanSpec(
 _PLAN_WEATHER = PlanSpec(
     id="weather",
     message=(
-        "Plan: 1) Call the weather tool for the user's place. 2) Answer only from the tool result."
+        "Plan: 1) Call the weather tool for the user's place. "
+        "2) Answer only from the tool result."
     ),
     steps=("weather",),
     skip_progress=True,  # weather_force_call owns nudge/inject
@@ -512,7 +513,9 @@ def select_plan(
     # Local source beats a web report. "Investigate the sim files" is a
     # workspace crawl, not research_report.
     if (
-        "inspect" in kinds or "inspect" in skills or (raw and looks_like_source_inspect(raw))
+        "inspect" in kinds
+        or "inspect" in skills
+        or (raw and looks_like_source_inspect(raw))
     ) and not (raw and looks_like_source_write(raw)):
         return _inspect_read_plan(raw)
 
@@ -625,10 +628,17 @@ def select_plan(
     ):
         return _PLAN_BROWSER_CLICK
 
-    if "browser" in skills or "vision" in skills or (raw and _BROWSER_SEE.search(raw)):
+    if (
+        "browser" in skills
+        or "vision" in skills
+        or (raw and _BROWSER_SEE.search(raw))
+    ):
         return _PLAN_BROWSER_SEE
 
-    if "agenda_create" in kinds or (raw and _AGENDA_CREATE.search(raw)):
+    if (
+        "agenda_create" in kinds
+        or (raw and _AGENDA_CREATE.search(raw))
+    ):
         return _PLAN_AGENDA_CREATE
 
     if "agenda_delete" in kinds or (
@@ -640,7 +650,11 @@ def select_plan(
     ):
         return _PLAN_AGENDA_DELETE
 
-    if "agenda_read" in kinds or "agenda" in skills or (raw and _AGENDA.search(raw)):
+    if (
+        "agenda_read" in kinds
+        or "agenda" in skills
+        or (raw and _AGENDA.search(raw))
+    ):
         return _PLAN_AGENDA
 
     if "goals" in skills or (raw and _GOALS.search(raw)):
@@ -660,7 +674,11 @@ def select_plan(
     if "email" in skills or (raw and _INBOX.search(raw)):
         return _PLAN_INBOX
 
-    if "web" in skills or len(kinds) >= 2 or (raw and _MULTI_WEB.search(raw)):
+    if (
+        "web" in skills
+        or len(kinds) >= 2
+        or (raw and _MULTI_WEB.search(raw))
+    ):
         return _PLAN_MULTI
 
     return None

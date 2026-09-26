@@ -58,7 +58,9 @@ def dump_state(
     folder = _unique_folder(base, stamp or datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ"))
     folder.mkdir(parents=True, exist_ok=True)
     rows = _state_rows(system, include_tracers=include_tracers)
-    tracers_omitted = (not include_tracers) and any(p.tracer for p in system.nbody.particles)
+    tracers_omitted = (not include_tracers) and any(
+        p.tracer for p in system.nbody.particles
+    )
     manifest = {
         "schema": SCHEMA,
         "center": CENTER,
@@ -92,7 +94,9 @@ def dump_state(
         json.dumps(manifest, indent=2, ensure_ascii=True) + "\n",
         encoding="utf-8",
     )
-    lines = [json.dumps(row, separators=(",", ":"), ensure_ascii=True) for row in rows]
+    lines = [
+        json.dumps(row, separators=(",", ":"), ensure_ascii=True) for row in rows
+    ]
     (folder / "state.jsonl").write_text(
         ("\n".join(lines) + ("\n" if lines else "")),
         encoding="utf-8",
@@ -159,7 +163,9 @@ def _include_particle(
     return name == system.lock
 
 
-def _state_rows(system: SolarSystem, *, include_tracers: bool) -> list[dict[str, Any]]:
+def _state_rows(
+    system: SolarSystem, *, include_tracers: bool
+) -> list[dict[str, Any]]:
     t = system.t
     rows: list[dict[str, Any]] = []
     for p in system.nbody.particles:
@@ -182,7 +188,10 @@ def _state_rows(system: SolarSystem, *, include_tracers: bool) -> list[dict[str,
 
 def _overlay_block(system: SolarSystem) -> dict[str, dict[str, Any]]:
     flags = _model_flags(system)
-    return {name: {"on": on, "cite": OVERLAY_CITES[name]} for name, on in flags.items()}
+    return {
+        name: {"on": on, "cite": OVERLAY_CITES[name]}
+        for name, on in flags.items()
+    }
 
 
 def _model_flags(system: SolarSystem) -> dict[str, bool]:

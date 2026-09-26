@@ -61,7 +61,9 @@ def test_pinch_with_travel_is_grab_not_click() -> None:
     assert machine.tracks[0].state == "pinch"
     assert not machine.tracks[0].dragging
     for i in range(4):
-        machine.step(frame_of(make_hand("Right", (0.40 + 0.03 * (i + 1), 0.55), pose="pinch"), t=t))
+        machine.step(
+            frame_of(make_hand("Right", (0.40 + 0.03 * (i + 1), 0.55), pose="pinch"), t=t)
+        )
         t += 0.03
     assert machine.tracks[0].dragging
     clicks = []

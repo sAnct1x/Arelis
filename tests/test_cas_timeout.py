@@ -104,7 +104,9 @@ async def test_the_other_untimed_actions_are_bounded_too(
         ("expand", "(x + 1)**2", "x**2"),
     ],
 )
-async def test_the_everyday_actions_still_answer(action: str, expr: str, expected: str) -> None:
+async def test_the_everyday_actions_still_answer(
+    action: str, expr: str, expected: str
+) -> None:
     result = await CasTool().run(action=action, expr=expr)
     assert result.ok, result.output
     assert expected in result.output

@@ -136,7 +136,9 @@ class MemoryIndexer:
         """Sync docs/mail if needed, then embed one batch of pending rows."""
         synced = 0
         if self.docs is not None:
-            synced += await asyncio.to_thread(self.docs.sync_batch, max_files=_DOC_FILES_PER_TICK)
+            synced += await asyncio.to_thread(
+                self.docs.sync_batch, max_files=_DOC_FILES_PER_TICK
+            )
         if self.mail is not None:
             synced += await asyncio.to_thread(self.mail.sync_batch)
 

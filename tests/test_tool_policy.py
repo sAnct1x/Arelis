@@ -134,16 +134,24 @@ def test_never_batch_and_batch_ok() -> None:
 def test_ask_is_grant_skips_local_work() -> None:
     set_confirm_mode("card")
     assert not evaluate_confirm("image", {"prompt": "x"}, asked=True)
-    assert not evaluate_confirm("vision", {"path": "x.png"}, asked=True, risk="side_effect")
-    assert not evaluate_confirm("workspace", {"action": "write"}, asked=True, risk="read")
+    assert not evaluate_confirm(
+        "vision", {"path": "x.png"}, asked=True, risk="side_effect"
+    )
+    assert not evaluate_confirm(
+        "workspace", {"action": "write"}, asked=True, risk="read"
+    )
     assert not evaluate_confirm(
         "browser", {"action": "open", "url": "youtube"}, asked=True, risk="side_effect"
     )
     assert evaluate_confirm("image", {"prompt": "x"}, asked=False)
     assert evaluate_confirm("send_sms", {}, asked=True)
     assert evaluate_confirm("send_email", {}, asked=True)
-    assert evaluate_confirm("workspace", {"action": "delete"}, asked=True, risk="read")
-    assert evaluate_confirm("run_script", {"path": "x.py"}, asked=True, risk="side_effect")
+    assert evaluate_confirm(
+        "workspace", {"action": "delete"}, asked=True, risk="read"
+    )
+    assert evaluate_confirm(
+        "run_script", {"path": "x.py"}, asked=True, risk="side_effect"
+    )
     assert evaluate_confirm("inbox", {"action": "trash"}, asked=True)
     assert evaluate_confirm(
         "browser",
@@ -153,12 +161,16 @@ def test_ask_is_grant_skips_local_work() -> None:
     )
     assert evaluate_confirm("external_read", {"path": "C:/x"}, asked=True)
     assert evaluate_confirm("research_report", {"query": "x"}, risk="write")
-    assert evaluate_confirm("camera", {"action": "snapshot"}, risk="side_effect")
+    assert evaluate_confirm(
+        "camera", {"action": "snapshot"}, risk="side_effect"
+    )
 
 
 def test_ask_me_everything_restores_cards() -> None:
     set_confirm_mode("card")
-    assert evaluate_confirm("image", {"prompt": "x"}, asked=True, ask_is_grant=False)
+    assert evaluate_confirm(
+        "image", {"prompt": "x"}, asked=True, ask_is_grant=False
+    )
     assert evaluate_confirm(
         "workspace",
         {"action": "write"},
@@ -179,7 +191,9 @@ def test_always_pause_and_persist_ok() -> None:
     assert persist_ok("image", {})
     assert persist_label("image", {}) == "don't ask again about pictures"
     assert persist_ok("workspace", {"action": "write"})
-    assert persist_label("workspace", {"action": "write"}) == ("don't ask again about files")
+    assert persist_label("workspace", {"action": "write"}) == (
+        "don't ask again about files"
+    )
     assert persist_ok("vision", {"path": "x.png"})
     assert persist_ok("browser", {"action": "open"})
     assert not persist_ok("send_sms", {})
@@ -213,7 +227,9 @@ def test_external_read_is_a_grant_token_not_a_tool() -> None:
     from arelis.config import load_config
 
     router = SimpleNamespace(provider=SimpleNamespace(list_models=None))
-    registry = build_tool_registry(load_config(), allow_send=True, attended=True, router=router)
+    registry = build_tool_registry(
+        load_config(), allow_send=True, attended=True, router=router
+    )
     assert "external_read" not in registry.names()
     assert evaluate_confirm("external_read", {"path": "C:/x"})
     assert always_pause("external_read")

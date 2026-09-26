@@ -152,7 +152,9 @@ def fit_messages(
     return [*pinned, *kept]
 
 
-def prompt_char_count(messages: list[dict[str, Any]], *, tools: Any = None) -> int:
+def prompt_char_count(
+    messages: list[dict[str, Any]], *, tools: Any = None
+) -> int:
     """Sum of message contents, used to derive chars-per-token from eval counts.
 
     Pass the same ``tools`` array that went to the model. Ollama counts the tool

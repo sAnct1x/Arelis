@@ -245,7 +245,11 @@ class SeenMessageStore:
     def _trim_fingerprints(self, *, now: float | None = None) -> None:
         present = time.time() if now is None else now
         window = REFRESH_LOOKBACK.total_seconds()
-        self._fps = {key: stamp for key, stamp in self._fps.items() if (present - stamp) < window}
+        self._fps = {
+            key: stamp
+            for key, stamp in self._fps.items()
+            if (present - stamp) < window
+        }
 
     def _load(self) -> None:
         try:
@@ -390,11 +394,13 @@ async def refresh_inbox(
         )
     if response.status_code == 404:
         raise SmsInboxError(
-            f"SMSGate returned 404 for {url}. POST /inbox/refresh is Local Server only."
+            f"SMSGate returned 404 for {url}. POST /inbox/refresh is Local "
+            f"Server only."
         )
     if response.status_code >= 400:
         raise SmsInboxError(
-            f"SMSGate inbox refresh refused ({response.status_code}): {_inbox_detail(response)}"
+            f"SMSGate inbox refresh refused ({response.status_code}): "
+            f"{_inbox_detail(response)}"
         )
 
 
@@ -422,7 +428,9 @@ async def fetch_inbox(
         client = httpx.AsyncClient(timeout=timeout_s)
     try:
         if refresh:
-            await refresh_inbox(account, lookback=lookback, timeout_s=timeout_s, client=client)
+            await refresh_inbox(
+                account, lookback=lookback, timeout_s=timeout_s, client=client
+            )
         response = await client.get(url, params=params, auth=auth)
     finally:
         if owns_client:
@@ -440,7 +448,8 @@ async def fetch_inbox(
         )
     if response.status_code >= 400:
         raise SmsInboxError(
-            f"SMSGate inbox refused ({response.status_code}): {_inbox_detail(response)}"
+            f"SMSGate inbox refused ({response.status_code}): "
+            f"{_inbox_detail(response)}"
         )
     data = _json(response)
     if not isinstance(data, list):
@@ -502,7 +511,9 @@ def hydrate_inbound_media(msg: InboundSms) -> InboundSms:
     path = msg.media_path
     kind = msg.media_kind
     if not path and msg.media_url:
-        got = fetch_image_url(msg.media_url, message_id=msg.id, allow_private=True)
+        got = fetch_image_url(
+            msg.media_url, message_id=msg.id, allow_private=True
+        )
         if got is not None:
             path = str(got)
             kind = "image"
@@ -618,7 +629,6 @@ class InboundSmsWatcher:
             inbound_fingerprint,
             remember_published,
         )
-
         for msg in announce:
             msg = hydrate_inbound_media(msg)
             fp = inbound_fingerprint(
@@ -665,7 +675,9 @@ class InboundSmsWatcher:
                 )
             except httpx.HTTPError as exc:
                 log.warning("Inbound SMS poll HTTP error: %s", exc)
-                await self._status_throttled(f"Inbound SMS: could not reach SMSGate ({exc}).")
+                await self._status_throttled(
+                    f"Inbound SMS: could not reach SMSGate ({exc})."
+                )
             except Exception:
                 log.exception("Inbound SMS poll crashed")
                 await self._status_throttled(

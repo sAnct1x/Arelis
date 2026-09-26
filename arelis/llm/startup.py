@@ -72,7 +72,9 @@ async def run_model_preflight(
 ) -> None:
     """Publish STATUS events for missing models. Never raises into the UI loop."""
     configured = {
-        str(role): str(name) for role, name in (models or {}).items() if str(name or "").strip()
+        str(role): str(name)
+        for role, name in (models or {}).items()
+        if str(name or "").strip()
     }
     if not configured:
         return
@@ -99,7 +101,8 @@ async def run_model_preflight(
                 EventType.STATUS,
                 {
                     "message": (
-                        f"Model `{name}` (role `{role}`) is not pulled. Run: ollama pull {name}"
+                        f"Model `{name}` (role `{role}`) is not pulled. "
+                        f"Run: ollama pull {name}"
                     )
                 },
             )
@@ -129,14 +132,20 @@ async def run_auto_lessons(bus: EventBus, *, enabled: bool = True) -> None:
     if report.appended_ids:
         bits.append("appended lessons: " + ", ".join(report.appended_ids))
     elif report.proposed_ids:
-        bits.append("playbook already covers: " + ", ".join(report.proposed_ids))
+        bits.append(
+            "playbook already covers: " + ", ".join(report.proposed_ids)
+        )
     # Only speak when the playbook actually grew. A covered-fail recap every
     # boot ("calculatorx11…") reads as a live error. Keep it in the log.
     if report.appended_ids:
         await bus.publish(
             Event(
                 EventType.STATUS,
-                {"message": ("Noted recent tool misses and updated the playbook.")},
+                {
+                    "message": (
+                        "Noted recent tool misses and updated the playbook."
+                    )
+                },
             )
         )
         return

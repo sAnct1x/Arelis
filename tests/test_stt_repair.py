@@ -21,7 +21,9 @@ def test_isolated_fillers_are_stripped() -> None:
 
 
 def test_mail_homophones_still_repair() -> None:
-    assert repair_stt_mail_words("check my in box for an emile") == ("check my inbox for an email")
+    assert repair_stt_mail_words("check my in box for an emile") == (
+        "check my inbox for an email"
+    )
 
 
 def test_recent_names_repair_the_near_misses() -> None:

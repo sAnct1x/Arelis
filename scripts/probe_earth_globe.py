@@ -1,4 +1,4 @@
-"""One-off: why EarthGlobeHost fails with cesium. Do not use offscreen."""
+﻿"""One-off: why EarthGlobeHost fails with cesium. Do not use offscreen."""
 
 from __future__ import annotations
 
@@ -91,9 +91,7 @@ def main() -> int:
     failed_why: list[str] = []
     ready_kind: list[str] = []
     bridge.hostFailed.connect(lambda why: (failed_why.append(why), note(f"hostFailed why={why!r}")))
-    bridge.hostReady.connect(
-        lambda kind: (ready_kind.append(kind), note(f"hostReady kind={kind!r}"))
-    )
+    bridge.hostReady.connect(lambda kind: (ready_kind.append(kind), note(f"hostReady kind={kind!r}")))
     bridge.hostTiles.connect(lambda kind: note(f"hostTiles kind={kind!r}"))
 
     channel = QWebChannel(page)

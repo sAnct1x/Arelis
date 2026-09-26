@@ -30,7 +30,6 @@ deliberate and not merely a default: silently asking a third party where this
 machine is, on every start, is not a thing a local-first assistant should do
 without being told to.
 """
-
 from __future__ import annotations
 
 import json
@@ -122,7 +121,8 @@ class UserLocation:
         if clock:
             facts.append(f"in timezone {clock}")
         return (
-            " ".join(facts) + ". Use that for anything place-sensitive, such as weather or local "
+            " ".join(facts)
+            + ". Use that for anything place-sensitive, such as weather or local "
             "time, instead of asking, unless the user names somewhere else."
         )
 
@@ -266,7 +266,9 @@ class LocationResolver:
         if not isinstance(payload, dict):
             return
         known = {f.name for f in UserLocation.__dataclass_fields__.values()}
-        self._network_result = UserLocation(**{k: v for k, v in payload.items() if k in known})
+        self._network_result = UserLocation(
+            **{k: v for k, v in payload.items() if k in known}
+        )
         try:
             self._network_at = float(raw.get("resolved_at") or 0.0)
         except (TypeError, ValueError):
@@ -281,7 +283,9 @@ class LocationResolver:
         }
         try:
             self._cache_path.parent.mkdir(parents=True, exist_ok=True)
-            self._cache_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+            self._cache_path.write_text(
+                json.dumps(payload, indent=2), encoding="utf-8"
+            )
         except OSError:
             # Losing the cache costs one extra request next start, nothing more.
             log.debug("Could not write the location cache", exc_info=True)

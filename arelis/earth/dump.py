@@ -43,7 +43,9 @@ def _camera_block(camera: Any) -> dict[str, list[float]] | None:
     return out or None
 
 
-def view_receipt(earth: EarthRuntime, *, camera: Any | None = None) -> dict[str, Any]:
+def view_receipt(
+    earth: EarthRuntime, *, camera: Any | None = None
+) -> dict[str, Any]:
     """Shareable view: band, chips, one target. No stream URLs."""
     view = earth.last_view
     payload: dict[str, Any] = {

@@ -254,7 +254,9 @@ class AndroidSmsProvider:
                     "(optional radio) → tap sms → Allow. Google Messages "
                     "stays your messenger."
                 )
-            raise SmsSendError(f"{radio} refused the message (403): {_detail(response)}")
+            raise SmsSendError(
+                f"{radio} refused the message (403): {_detail(response)}"
+            )
         if response.status_code == 404:
             raise SmsSendError(
                 f"{radio} returned 404 for {url}. For SMSGate Cloud use "
@@ -263,7 +265,8 @@ class AndroidSmsProvider:
             )
         if response.status_code >= 400:
             raise SmsSendError(
-                f"{radio} refused the message ({response.status_code}): {_detail(response)}"
+                f"{radio} refused the message ({response.status_code}): "
+                f"{_detail(response)}"
             )
         return _message_id(response)
 

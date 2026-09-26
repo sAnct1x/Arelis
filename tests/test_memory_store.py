@@ -175,7 +175,7 @@ def test_session_memory_without_a_sink_writes_nothing(tmp_path: Path) -> None:
 def test_the_job_runner_builds_session_memory_with_no_sink() -> None:
     """Scheduled runs must stay isolated by construction, not by remembering."""
     runner = Path("arelis/jobs/runner.py").read_text(encoding="utf-8")
-    assert 'build_seat(config, profile="job")' in runner
+    assert "build_seat(config, profile=\"job\")" in runner
     assert "SessionMemory(" not in runner
 
     tree = ast.parse(Path("arelis/core/seat.py").read_text(encoding="utf-8"))
@@ -188,7 +188,9 @@ def test_the_job_runner_builds_session_memory_with_no_sink() -> None:
             isinstance(test, ast.Compare)
             and isinstance(test.left, ast.Name)
             and test.left.id == "profile"
-            and any(isinstance(c, ast.Constant) and c.value == "job" for c in test.comparators)
+            and any(
+                isinstance(c, ast.Constant) and c.value == "job" for c in test.comparators
+            )
         ):
             continue
         for child in ast.walk(node):

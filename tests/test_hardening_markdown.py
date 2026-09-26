@@ -1,5 +1,4 @@
 """Pins markdown render, chat bubble replace, inbound notice, and CLI consent."""
-
 from __future__ import annotations
 
 import pytest

@@ -84,7 +84,9 @@ class VisionTool:
             },
             "question": {
                 "type": "string",
-                "description": ("Optional question about the image. Default: describe clearly."),
+                "description": (
+                    "Optional question about the image. Default: describe clearly."
+                ),
             },
         },
         "required": [],
@@ -176,7 +178,9 @@ class VisionTool:
         from arelis.tools.pdf_pages import is_ink_page_image
 
         ink = len(paths) > 1 or any(is_ink_page_image(item) for item in paths)
-        edge = _INK_EDGE if ink else (self.chat_max_edge if chat_sees else self.max_edge)
+        edge = _INK_EDGE if ink else (
+            self.chat_max_edge if chat_sees else self.max_edge
+        )
         if len(paths) > 1:
             return await self._look_pages(paths, question, edge=edge)
 
@@ -221,7 +225,9 @@ class VisionTool:
         if inspect.isawaitable(maybe):
             await maybe
 
-    async def _encode_one(self, path: Path, edge: int) -> tuple[list[str], dict[str, Any]]:
+    async def _encode_one(
+        self, path: Path, edge: int
+    ) -> tuple[list[str], dict[str, Any]]:
         b64, meta = await asyncio.to_thread(encode_for_vision, path, max_edge=edge)
         return [b64], dict(meta)
 
@@ -336,7 +342,9 @@ class VisionTool:
             )
         return self._ok_result(paths[0], body, prepared)
 
-    def _ok_result(self, path: Path, answer: str, prepared: dict[str, Any]) -> ToolResult:
+    def _ok_result(
+        self, path: Path, answer: str, prepared: dict[str, Any]
+    ) -> ToolResult:
         digest = hashlib.sha256(answer.encode("utf-8")).hexdigest()[:12]
         rel = display_path(path)
         from arelis.look_scratch import forget_look_scratch, is_look_scratch

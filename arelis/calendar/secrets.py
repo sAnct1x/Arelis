@@ -56,7 +56,8 @@ class CalendarSecrets:
 
     def any_authorized(self) -> bool:
         return bool(
-            (self.google and self.google.authorized) or (self.outlook and self.outlook.authorized)
+            (self.google and self.google.authorized)
+            or (self.outlook and self.outlook.authorized)
         )
 
 

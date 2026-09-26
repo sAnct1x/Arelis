@@ -33,16 +33,24 @@ def _set_shell_margins(shell: QWidget | None, margins: tuple[int, int, int, int]
 def bind_docks(window) -> None:
     """Wire think/work/history/camera docks to the extracted layout slots."""
     window.think_dock.visibilityChanged.connect(
-        lambda visible, d=window.think_dock: on_dock_visibility(window, visible, sender=d)
+        lambda visible, d=window.think_dock: on_dock_visibility(
+            window, visible, sender=d
+        )
     )
     window.work_dock.visibilityChanged.connect(
-        lambda visible, d=window.work_dock: on_dock_visibility(window, visible, sender=d)
+        lambda visible, d=window.work_dock: on_dock_visibility(
+            window, visible, sender=d
+        )
     )
     window.history_dock.visibilityChanged.connect(
-        lambda visible, d=window.history_dock: on_dock_visibility(window, visible, sender=d)
+        lambda visible, d=window.history_dock: on_dock_visibility(
+            window, visible, sender=d
+        )
     )
     window.camera_dock.visibilityChanged.connect(
-        lambda visible, d=window.camera_dock: on_dock_visibility(window, visible, sender=d)
+        lambda visible, d=window.camera_dock: on_dock_visibility(
+            window, visible, sender=d
+        )
     )
     for dock in (
         window.think_dock,
@@ -53,10 +61,18 @@ def bind_docks(window) -> None:
         dock.dockLocationChanged.connect(lambda _area: sync_panel_margins(window))
         dock.topLevelChanged.connect(lambda _floating: sync_panel_margins(window))
         dock.topLevelChanged.connect(lambda _floating: window._flush_glass_surface())
-    window.history_dock.topLevelChanged.connect(lambda _f: stack_left_instruments(window))
-    window.camera_dock.topLevelChanged.connect(lambda _f: stack_left_instruments(window))
-    window.history_dock.dockLocationChanged.connect(lambda _a: stack_left_instruments(window))
-    window.camera_dock.dockLocationChanged.connect(lambda _a: stack_left_instruments(window))
+    window.history_dock.topLevelChanged.connect(
+        lambda _f: stack_left_instruments(window)
+    )
+    window.camera_dock.topLevelChanged.connect(
+        lambda _f: stack_left_instruments(window)
+    )
+    window.history_dock.dockLocationChanged.connect(
+        lambda _a: stack_left_instruments(window)
+    )
+    window.camera_dock.dockLocationChanged.connect(
+        lambda _a: stack_left_instruments(window)
+    )
 
 
 def reveal_dock(
@@ -237,7 +253,11 @@ def on_dock_visibility(window, visible: bool, *, sender=None) -> None:
         chrome_applying(sender) or getattr(sender, "_arelis_parked", False)
     ):
         return
-    if not visible and active_theme() == "filament" and isinstance(sender, QDockWidget):
+    if (
+        not visible
+        and active_theme() == "filament"
+        and isinstance(sender, QDockWidget)
+    ):
         flush_tile_geom(sender)
     window._sync_view_checks()
     window._place_filament_floats()
@@ -255,7 +275,11 @@ def on_dock_visibility(window, visible: bool, *, sender=None) -> None:
 
 
 def docked_in(window, dock: QDockWidget, area: Qt.DockWidgetArea) -> bool:
-    return dock.isVisible() and not dock.isFloating() and window.dockWidgetArea(dock) == area
+    return (
+        dock.isVisible()
+        and not dock.isFloating()
+        and window.dockWidgetArea(dock) == area
+    )
 
 
 def left_column_member(window, dock: QDockWidget) -> bool:
@@ -311,10 +335,16 @@ def sync_panel_margins(window) -> None:
     """Keep outer and inter-panel gutters equal (history | chat | thinking)."""
     left = docked_in(
         window, window.history_dock, Qt.DockWidgetArea.LeftDockWidgetArea
-    ) or docked_in(window, window.camera_dock, Qt.DockWidgetArea.LeftDockWidgetArea)
+    ) or docked_in(
+        window, window.camera_dock, Qt.DockWidgetArea.LeftDockWidgetArea
+    )
     # Thinking on the right abuts the chat glass.
-    right = docked_in(window, window.think_dock, Qt.DockWidgetArea.RightDockWidgetArea)
-    bottom = docked_in(window, window.work_dock, Qt.DockWidgetArea.BottomDockWidgetArea)
+    right = docked_in(
+        window, window.think_dock, Qt.DockWidgetArea.RightDockWidgetArea
+    )
+    bottom = docked_in(
+        window, window.work_dock, Qt.DockWidgetArea.BottomDockWidgetArea
+    )
 
     # Chat: OUTER against the window when a side is empty; HALF when a dock
     # shares that edge (dock contributes the other HALF → gap == OUTER).

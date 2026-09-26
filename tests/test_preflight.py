@@ -71,7 +71,9 @@ def test_inbox_read_not_compose_email() -> None:
         hints = detect_intents(phrase, history=history)
         assert any(h.kind == "inbox" for h in hints), phrase
         assert not any(h.kind == "compose_email" for h in hints), phrase
-        assert "send_email" not in {t for h in hints for t in h.expected_tools}, phrase
+        assert "send_email" not in {
+            t for h in hints for t in h.expected_tools
+        }, phrase
 
 
 def test_delete_mail_is_inbox_not_compose() -> None:
@@ -364,7 +366,9 @@ def test_tasks_and_goal_delete_intents() -> None:
         assert "goto_sign_in" in nudge
     howto = detect_intents("how do I sign in to github from the terminal")
     assert not any(h.kind == "browser_click" for h in howto)
-    rewritten = rewrite_browser_calls([("browser", {"action": "goto_sign_in"})])
+    rewritten = rewrite_browser_calls(
+        [("browser", {"action": "goto_sign_in"})]
+    )
     assert rewritten == [("browser", {"action": "snapshot"})]
     kept = rewrite_browser_calls([("browser", {"action": "click", "ref": "e3"})])
     assert kept == [("browser", {"action": "click", "ref": "e3"})]
@@ -399,11 +403,15 @@ def test_tasks_and_goal_delete_intents() -> None:
     from arelis.core.preflight import looks_like_browser_open_ask
 
     assert looks_like_browser_open_ask(
-        "go to x.com and take me to the login page if it does not automatically sign me in."
+        "go to x.com and take me to the login page if it does not "
+        "automatically sign me in."
     )
-    assert not looks_like_browser_open_ask("go to amazon.com and add batteries to cart")
     assert not looks_like_browser_open_ask(
-        "Hay take me to you tube doc calm and do us search for the organic chemistry tutor"
+        "go to amazon.com and add batteries to cart"
+    )
+    assert not looks_like_browser_open_ask(
+        "Hay take me to you tube doc calm and do us search "
+        "for the organic chemistry tutor"
     )
     assert not looks_like_browser_open_ask(
         "on his page i want you to pull up the precalculus playlist"
@@ -418,7 +426,7 @@ def _expected(text: str) -> set[str]:
 
 
 def test_analyze_a_picture_reaches_vision_not_the_table_reader() -> None:
-    """ "Analyze" is the word the user says, and it named a pandas tool.
+    """"Analyze" is the word the user says, and it named a pandas tool.
 
     Every one of these used to produce no expected tool at all, which left the
     ask to a model looking at a menu where `analyze` reads spreadsheets — and
@@ -528,7 +536,9 @@ def test_inspect_write_preflight_is_allow_not_a_read() -> None:
     kinds = {h.kind for h in hints}
     assert "inspect_write" in kinds or "workspace_write" in kinds
     assert "inspect" not in kinds
-    write = next(h for h in hints if h.kind in {"inspect_write", "workspace_write"})
+    write = next(
+        h for h in hints if h.kind in {"inspect_write", "workspace_write"}
+    )
     assert write.expected_tools == ("workspace",)
     assert "Allow" in write.nudge
     assert "write" in write.nudge.lower() or "edit" in write.nudge.lower()

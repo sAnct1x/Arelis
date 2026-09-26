@@ -102,7 +102,10 @@ class TextToSpeech:
     def problem(self) -> str | None:
         """Why synthesis cannot run, phrased as something the user can act on."""
         if self.backend not in {"piper", "kokoro", "auto"}:
-            return f"Unknown TTS backend {self.backend!r}. Use auto, kokoro, or piper."
+            return (
+                f"Unknown TTS backend {self.backend!r}. "
+                "Use auto, kokoro, or piper."
+            )
         if self._use_kokoro():
             issue = self._kokoro.problem()
             if issue is None:

@@ -64,7 +64,9 @@ class SampleSeries:
         shared_peak = self.peak("gpu_shared_bytes")
         util_peak = self.peak("gpu_util_percent")
         ram_peak = self.peak("ram_used_bytes")
-        ram_total = next((s.ram_total_bytes for s in self.samples if s.ram_total_bytes), None)
+        ram_total = next(
+            (s.ram_total_bytes for s in self.samples if s.ram_total_bytes), None
+        )
         return {
             "n_samples": len(self.samples),
             "gpu_dedicated_peak_bytes": ded_peak,

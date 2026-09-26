@@ -39,7 +39,8 @@ class TileTool:
                 "type": "string",
                 "enum": ["solar", "hands"],
                 "description": (
-                    "Reality page. solar is the sim; hands is the toy. Omit for the chooser."
+                    "Reality page. solar is the sim; hands is the toy. "
+                    "Omit for the chooser."
                 ),
             },
         },

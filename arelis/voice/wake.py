@@ -39,7 +39,9 @@ _GREETING = r"(?:hey|hay)\s*,?\s*"
 # Start-only cousins: Whisper/Sherpa write "Hair Relus", "Hier relus",
 # "Hayer relus", "Haigha relus", "Heiga relus", "Here relus". Mid-clip
 # those words are ordinary speech ("here we go", "hair cut").
-_GREETING_START = r"(?:hey|hay|pay|hair|hier|hayer|haigha|heiga|here)\s*,?\s*"
+_GREETING_START = (
+    r"(?:hey|hay|pay|hair|hier|hayer|haigha|heiga|here)\s*,?\s*"
+)
 # Whisper also writes "Hey a relus" / "Pay a relus" / "HAY Are relus".
 _ARTICLE = r"(?:(?:a|are)\s+)?"
 # One mashed token, no space. Dictate + a few Whisper clips.
@@ -113,7 +115,9 @@ def _peel_leading_wakes(rest: str) -> str:
             break
         rest = rest[again.end() :].strip()
     # Trailing "Arelis. Arelis." echoes after a command (hey optional here).
-    trail = re.compile(rf"(?i)(?:\s*[.\?!;:]?\s*(?:{_GREETING})?{_NAME}\b)+[\s,.\?!;:]*$")
+    trail = re.compile(
+        rf"(?i)(?:\s*[.\?!;:]?\s*(?:{_GREETING})?{_NAME}\b)+[\s,.\?!;:]*$"
+    )
     rest = trail.sub("", rest).strip()
     return rest
 

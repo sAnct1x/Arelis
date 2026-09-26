@@ -70,7 +70,9 @@ def test_v9_db_gains_columns_and_existing_rows_default(tmp_path: Path) -> None:
     probe = sqlite3.connect(path)
     try:
         assert int(probe.execute("PRAGMA user_version").fetchone()[0]) == 9
-        task_cols = {str(row[1]) for row in probe.execute("PRAGMA table_info(tasks)")}
+        task_cols = {
+            str(row[1]) for row in probe.execute("PRAGMA table_info(tasks)")
+        }
         assert "priority" not in task_cols
         assert "recurrence" not in task_cols
         assert "parent_id" not in task_cols
@@ -80,8 +82,14 @@ def test_v9_db_gains_columns_and_existing_rows_default(tmp_path: Path) -> None:
     store = MemoryStore(path)
     try:
         assert store.schema_version == SCHEMA_VERSION
-        task_cols = {str(row[1]) for row in store._conn.execute("PRAGMA table_info(tasks)")}
-        goal_cols = {str(row[1]) for row in store._conn.execute("PRAGMA table_info(goals)")}
+        task_cols = {
+            str(row[1])
+            for row in store._conn.execute("PRAGMA table_info(tasks)")
+        }
+        goal_cols = {
+            str(row[1])
+            for row in store._conn.execute("PRAGMA table_info(goals)")
+        }
         assert "priority" in task_cols
         assert "recurrence" in task_cols
         assert "parent_id" in task_cols
@@ -119,10 +127,7 @@ async def test_migrated_row_is_usable_from_the_tool(tmp_path: Path) -> None:
         assert listed.data["tasks"][0]["priority"] == "normal"
         assert "old chore" in listed.output
         bumped = await tool.run(
-            action="update",
-            id=1,
-            priority="high",
-            recurrence="weekly",
+            action="update", id=1, priority="high", recurrence="weekly",
             due="2026-09-18",
         )
         assert bumped.ok, bumped.output

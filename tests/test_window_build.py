@@ -66,7 +66,9 @@ def test_every_phase_runs_once_and_after_what_it_needs(qt_app, monkeypatch) -> N
 
     _window()
 
-    assert sorted(seen) == sorted(PHASES), f"a build phase was skipped or run twice: {seen}"
+    assert sorted(seen) == sorted(PHASES), (
+        f"a build phase was skipped or run twice: {seen}"
+    )
     for phase, needs in REQUIRES.items():
         for need in needs:
             assert seen.index(need) < seen.index(phase), (

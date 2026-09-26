@@ -437,8 +437,7 @@ def test_the_scratch_carries_no_field_the_turn_context_cannot_supply() -> None:
     left behind.
     """
     built = re.findall(
-        r"^\s{12}(\w+)=",
-        Path("arelis/core/turn_round.py").read_text(encoding="utf-8"),
+        r"^\s{12}(\w+)=", Path("arelis/core/turn_round.py").read_text(encoding="utf-8"),
         re.MULTILINE,
     )
     assert set(FIELD_NAMES) <= set(built)

@@ -404,7 +404,9 @@ class SolarPanel(SolarEarthMixin, QWidget):
                     self.reset_view(keep_inspect=True)
                 if system is not None and system.ic_date:
                     self._ic_date = system.ic_date
-                self._maps_note = system.ic_caption() if system is not None else loaded.output
+                self._maps_note = (
+                    system.ic_caption() if system is not None else loaded.output
+                )
             else:
                 self._on_horizons_fail()
                 if loaded.output:
@@ -426,7 +428,9 @@ class SolarPanel(SolarEarthMixin, QWidget):
             elif errors:
                 self._maps_note = "maps failed: " + "; ".join(errors[:3])
             else:
-                self._maps_note = "albedo already on disk (NASA public domain, approach only)"
+                self._maps_note = (
+                    "albedo already on disk (NASA public domain, approach only)"
+                )
         if self._earth_live_done:
             dirty = True
             self._earth_live_done = False
@@ -592,7 +596,11 @@ class SolarPanel(SolarEarthMixin, QWidget):
                     self._road_gen = road_gen
                     self._layer_wake = now
                     return True
-            if zone.live and not system.paused and time.perf_counter() - self._painted_wall >= 2.0:
+            if (
+                zone.live
+                and not system.paused
+                and time.perf_counter() - self._painted_wall >= 2.0
+            ):
                 return True
             if (
                 getattr(self, "_earth_cam", None) is not None
@@ -608,7 +616,9 @@ class SolarPanel(SolarEarthMixin, QWidget):
                 view = zone.last_view
                 dt_s = float(system.t) - float(self._painted_t)
                 if view is not None:
-                    return earth_idle_due(alt_m=view.alt_m, px_r=view.px_r, dt_s=dt_s)
+                    return earth_idle_due(
+                        alt_m=view.alt_m, px_r=view.px_r, dt_s=dt_s
+                    )
                 return earth_idle_due(alt_m=44_600_000.0, px_r=200.0, dt_s=dt_s)
         # Dipole flares run on wall time, even while IAS15 is paused.
         # Osculating rings are a still path at overview — do not 6 Hz the FBO.
@@ -673,7 +683,9 @@ class SolarPanel(SolarEarthMixin, QWidget):
         right = (1.0 if self._held(Qt.Key.Key_D) else 0.0) - (
             1.0 if self._held(Qt.Key.Key_A) else 0.0
         )
-        up = (1.0 if self._held(Qt.Key.Key_E) else 0.0) - (1.0 if self._held(Qt.Key.Key_Q) else 0.0)
+        up = (1.0 if self._held(Qt.Key.Key_E) else 0.0) - (
+            1.0 if self._held(Qt.Key.Key_Q) else 0.0
+        )
         mag = math.sqrt(fwd * fwd + right * right + up * up)
         if mag > 1.0:
             fwd, right, up = fwd / mag, right / mag, up / mag
@@ -815,7 +827,11 @@ class SolarPanel(SolarEarthMixin, QWidget):
                 from arelis.earth.runtime import get_earth
 
                 zone = get_earth()
-                if self._inspect == "Earth" and zone is not None and zone.active:
+                if (
+                    self._inspect == "Earth"
+                    and zone is not None
+                    and zone.active
+                ):
                     self._leave_earth_zone()
                 else:
                     self._travel_to(self._inspect)
@@ -1110,7 +1126,9 @@ class SolarPanel(SolarEarthMixin, QWidget):
         self._look = (self.cam.x + fx, self.cam.y + fy, self.cam.z + fz)
         self._basis = self.cam.basis()
 
-    def _proj(self, point: tuple[float, float, float]) -> tuple[float, float, float] | None:
+    def _proj(
+        self, point: tuple[float, float, float]
+    ) -> tuple[float, float, float] | None:
         return project_with_basis(
             point,
             self._eye,
@@ -1134,7 +1152,9 @@ class SolarPanel(SolarEarthMixin, QWidget):
         over_speed = self._speed_rect().contains(int(pos.x()), int(pos.y()))
         if over_speed or event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
             self.cam.nudge_speed(0.85 if delta < 0 else 1.18)
-        elif self._earth_globe_live() and not self._chrome_covers(int(pos.x()), int(pos.y())):
+        elif self._earth_globe_live() and not self._chrome_covers(
+            int(pos.x()), int(pos.y())
+        ):
             event.ignore()
             return
         elif delta != 0:
@@ -1169,7 +1189,11 @@ class SolarPanel(SolarEarthMixin, QWidget):
             self._earth_id = None
             self._place = None
             self._close_earth_look()
-            if self._inspect == name and self._warp is None and not self._earth_zone_on():
+            if (
+                self._inspect == name
+                and self._warp is None
+                and not self._earth_zone_on()
+            ):
                 self._travel_to(name)
                 return
             self._set_inspect(name)
@@ -1235,7 +1259,11 @@ class SolarPanel(SolarEarthMixin, QWidget):
         return names
 
     def _sorted_roster(self, system: SolarSystem) -> list[str]:
-        bodies = [b for b in system.views() if not _is_sketch(b)]
+        bodies = [
+            b
+            for b in system.views()
+            if not _is_sketch(b)
+        ]
         planet_i = {name: i for i, name in enumerate(PLANET_NAMES)}
         catalog_i = {spec.name: i for i, spec in enumerate(BODIES)}
 
@@ -1290,7 +1318,11 @@ class SolarPanel(SolarEarthMixin, QWidget):
         return self._roster_open_parent(system) == parent
 
     def _roster_shown(self, system: SolarSystem) -> list[str]:
-        return [name for name in self._roster_names(system) if self._roster_row_open(system, name)]
+        return [
+            name
+            for name in self._roster_names(system)
+            if self._roster_row_open(system, name)
+        ]
 
     def _roster_rect(self) -> QRect:
         if self._earth_zone_on():
@@ -1458,7 +1490,9 @@ class SolarPanel(SolarEarthMixin, QWidget):
 
     def _camera_fly(self, fwd: float, right: float, up: float, dt: float) -> None:
         saved = self.cam.speed
-        self.cam.speed = self._earth_fly_speed() if self._earth_zone_on() else self._fly_speed()
+        self.cam.speed = (
+            self._earth_fly_speed() if self._earth_zone_on() else self._fly_speed()
+        )
         if self._earth_globe_live() and (abs(fwd) + abs(right) + abs(up)) > 1e-6:
             host = self._globe_host
             step = float(self.cam.speed)
@@ -1645,7 +1679,7 @@ class SolarPanel(SolarEarthMixin, QWidget):
     ) -> None:
         return stroke_world(self, painter, pts, closed=closed, host=host)
 
-    def _ring_xy(self, painter: QPainter, body: BodyView, radius: float, n: int = 72) -> None:
+    def _ring_xy(self, painter: QPainter, body: BodyView, radius: float, n: int=72) -> None:
         return ring_xy(self, painter, body, radius, n)
 
     def _paint_sphere_cage(
@@ -1664,7 +1698,7 @@ class SolarPanel(SolarEarthMixin, QWidget):
     def _paint_g(self, painter: QPainter, system: SolarSystem) -> None:
         return paint_g(self, painter, system)
 
-    def _paint_wells(self, painter: QPainter, system: SolarSystem, *, strokes: bool = True) -> None:
+    def _paint_wells(self, painter: QPainter, system: SolarSystem, *, strokes: bool=True) -> None:
         return paint_wells(self, painter, system, strokes=strokes)
 
     def _paint_well_slice(self, painter: QPainter, body: BodyView, mu: float) -> None:
@@ -1710,10 +1744,10 @@ class SolarPanel(SolarEarthMixin, QWidget):
     def _keys_footer(self) -> str:
         return keys_footer(self)
 
-    def _paint_plate(self, painter: QPainter, box: QRect, *, radius: int = 8) -> None:
+    def _paint_plate(self, painter: QPainter, box: QRect, *, radius: int=8) -> None:
         return paint_plate(self, painter, box, radius=radius)
 
-    def _paint_chip(self, painter: QPainter, box: QRect, label: str, *, on: bool = False) -> None:
+    def _paint_chip(self, painter: QPainter, box: QRect, label: str, *, on: bool=False) -> None:
         return paint_chip(self, painter, box, label, on=on)
 
     def _paint_keys_chrome(self, painter: QPainter, box: QRect) -> int:
@@ -1775,7 +1809,7 @@ class SolarPanel(SolarEarthMixin, QWidget):
     def _inspect_rect(self) -> QRect:
         return inspect_rect(self)
 
-    def _inspect_font(self, *, title: bool = False) -> QFont:
+    def _inspect_font(self, *, title: bool=False) -> QFont:
         return inspect_font(self, title=title)
 
     def _inspect_body_height(self, lines: list[str], width: int) -> int:
@@ -1854,7 +1888,11 @@ class SolarPanel(SolarEarthMixin, QWidget):
         if self._load_pending:
             return
         live = get_system()
-        if live is not None and not refresh and "not Horizons" not in (live.epoch_tdb or ""):
+        if (
+            live is not None
+            and not refresh
+            and "not Horizons" not in (live.epoch_tdb or "")
+        ):
             return
         if not refresh and self._try_nearest_cache():
             return

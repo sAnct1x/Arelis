@@ -133,7 +133,9 @@ def fetch_gfw() -> list[Entity] | None:
     return out
 
 
-def entities_from_report(payload: Any, *, unix: float | None = None) -> list[Entity]:
+def entities_from_report(
+    payload: Any, *, unix: float | None = None
+) -> list[Entity]:
     now = float(unix if unix is not None else time.time())
     out: list[Entity] = []
     seen: set[str] = set()

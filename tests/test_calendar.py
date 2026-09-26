@@ -94,7 +94,9 @@ def test_load_agenda_start_day_tomorrow(tmp_path) -> None:
 async def test_agenda_tool_range_includes_source(tmp_path) -> None:
     path = tmp_path / "calendar.ics"
     path.write_text(ICS, encoding="utf-8")
-    tool = AgendaTool({"tools": {"briefing": {"calendar_path": str(path)}}})
+    tool = AgendaTool(
+        {"tools": {"briefing": {"calendar_path": str(path)}}}
+    )
     result = await tool.run(action="range", start="2026-08-08", end="2026-08-09")
     assert result.ok
     assert "Morning standup" in result.output
@@ -108,7 +110,9 @@ async def test_agenda_tool_range_includes_source(tmp_path) -> None:
 async def test_agenda_tool_today_and_tomorrow(tmp_path, monkeypatch) -> None:
     path = tmp_path / "calendar.ics"
     path.write_text(ICS, encoding="utf-8")
-    tool = AgendaTool({"tools": {"briefing": {"calendar_path": str(path)}}})
+    tool = AgendaTool(
+        {"tools": {"briefing": {"calendar_path": str(path)}}}
+    )
     fixed = datetime(2026, 8, 8, 8, 0, tzinfo=ZoneInfo("America/New_York"))
     monkeypatch.setattr("arelis.tools.agenda._local_now", lambda: fixed)
     today = await tool.run(action="today")
@@ -125,14 +129,16 @@ async def test_agenda_tool_today_and_tomorrow(tmp_path, monkeypatch) -> None:
 async def test_agenda_list_default_covers_next_week(tmp_path, monkeypatch) -> None:
     path = tmp_path / "calendar.ics"
     path.write_text(ICS, encoding="utf-8")
-    tool = AgendaTool({"tools": {"briefing": {"calendar_path": str(path)}}})
+    tool = AgendaTool(
+        {"tools": {"briefing": {"calendar_path": str(path)}}}
+    )
     fixed = datetime(2026, 8, 8, 8, 0, tzinfo=ZoneInfo("America/New_York"))
     monkeypatch.setattr("arelis.tools.agenda._local_now", lambda: fixed)
     monkeypatch.setattr(
         "arelis.tools.agenda.load_calendar_secrets",
-        lambda: __import__("arelis.calendar.secrets", fromlist=["CalendarSecrets"]).CalendarSecrets(
-            google=None, outlook=None
-        ),
+        lambda: __import__(
+            "arelis.calendar.secrets", fromlist=["CalendarSecrets"]
+        ).CalendarSecrets(google=None, outlook=None),
     )
     monkeypatch.setattr(
         "arelis.tools.agenda.CalendarStore",
@@ -149,7 +155,9 @@ async def test_agenda_list_default_covers_next_week(tmp_path, monkeypatch) -> No
 @pytest.mark.asyncio
 async def test_agenda_tool_missing_file_is_clear(tmp_path) -> None:
     missing = tmp_path / "absent.ics"
-    tool = AgendaTool({"tools": {"briefing": {"calendar_path": str(missing)}}})
+    tool = AgendaTool(
+        {"tools": {"briefing": {"calendar_path": str(missing)}}}
+    )
     result = await tool.run(action="today")
     assert result.ok
     assert "missing" in result.output.lower()
@@ -161,7 +169,9 @@ async def test_agenda_tool_missing_file_is_clear(tmp_path) -> None:
 async def test_agenda_tool_range_requires_dates(tmp_path) -> None:
     path = tmp_path / "calendar.ics"
     path.write_text(ICS, encoding="utf-8")
-    tool = AgendaTool({"tools": {"briefing": {"calendar_path": str(path)}}})
+    tool = AgendaTool(
+        {"tools": {"briefing": {"calendar_path": str(path)}}}
+    )
     result = await tool.run(action="range")
     assert not result.ok
     assert "start" in result.output.lower()

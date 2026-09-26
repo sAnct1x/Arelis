@@ -21,14 +21,11 @@ def apply_settings(window, values: dict[str, Any]) -> None:
     presence_patch = values.get("presence") or {}
     ui_prefs = values.get("ui_prefs") or {}
 
-    deep_merge(
-        window.config.setdefault("voice", {}),
-        {
-            k: v
-            for k, v in voice_patch.items()
-            if k not in {"stt", "tts", "enabled", "_voice_restart_confirmed"}
-        },
-    )
+    deep_merge(window.config.setdefault("voice", {}), {
+        k: v
+        for k, v in voice_patch.items()
+        if k not in {"stt", "tts", "enabled", "_voice_restart_confirmed"}
+    })
     if presence_patch:
         deep_merge(window.config.setdefault("presence", {}), presence_patch)
         if "close_to_tray" in presence_patch:
@@ -161,7 +158,9 @@ def apply_settings(window, values: dict[str, Any]) -> None:
             cancel_text=plan.cancel_text,
         )
 
-    commit_voice_directions(window, voice_patch, confirm_restart=_ask_voice_restart)
+    commit_voice_directions(
+        window, voice_patch, confirm_restart=_ask_voice_restart
+    )
     mail_patch = values.get("mail") or {}
     if mail_patch.get("address") or mail_patch.get("app_password"):
         from arelis.mail import save_account
@@ -372,4 +371,7 @@ def settings_test_speak(window) -> None:
 
 def bind_settings(window) -> None:
     window.title_bar.settings_requested.connect(lambda: open_settings(window))
-    window.readiness_strip.settings_requested.connect(lambda tab="": open_settings(window, tab))
+    window.readiness_strip.settings_requested.connect(
+        lambda tab="": open_settings(window, tab)
+    )
+

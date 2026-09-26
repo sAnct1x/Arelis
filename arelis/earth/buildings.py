@@ -88,7 +88,9 @@ def rings_from_overpass(payload: dict[str, Any]) -> list[list[tuple[float, float
     return out
 
 
-def footprints_for_view(lat: float, lon: float, band: str) -> list[list[tuple[float, float]]]:
+def footprints_for_view(
+    lat: float, lon: float, band: str
+) -> list[list[tuple[float, float]]]:
     """Cached footprints at the look pin. Misses schedule a fetch."""
     if band != "city":
         return []
@@ -154,7 +156,7 @@ def _fetch_one(key: str, lat: float, lon: float) -> None:
     try:
         south, west, north, east = fabric_bbox(lat, lon)
         query = (
-            f"[out:json][timeout:10];"
+            f'[out:json][timeout:10];'
             f'way["building"]({south},{west},{north},{east});'
             f"out geom {_CAP};"
         )

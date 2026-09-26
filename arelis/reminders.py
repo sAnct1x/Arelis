@@ -29,7 +29,9 @@ MAX_DELAY_DAYS = 7
 MAX_DELAY = timedelta(days=MAX_DELAY_DAYS)
 MAX_DELAY_SECONDS = MAX_DELAY.total_seconds()
 
-_LONG_DELAY = "Reminders only go up to 7 days. Use schedule or agenda for anything later."
+_LONG_DELAY = (
+    "Reminders only go up to 7 days. Use schedule or agenda for anything later."
+)
 
 
 class ReminderError(ValueError):
@@ -79,7 +81,9 @@ def parse_local_datetime(text: str) -> datetime:
     """ISO or ``YYYY-MM-DD HH:MM`` local time. Naive clocks stay local."""
     raw = (text or "").strip()
     if not raw:
-        raise ReminderError("Could not read that as a time. Use ISO or YYYY-MM-DD HH:MM.")
+        raise ReminderError(
+            "Could not read that as a time. Use ISO or YYYY-MM-DD HH:MM."
+        )
     cleaned = raw.replace("Z", "+00:00")
     if "T" not in cleaned and " " in cleaned:
         cleaned = cleaned.replace(" ", "T", 1)
@@ -97,7 +101,9 @@ def normalize_message(raw: Any) -> str:
     if not text:
         raise ReminderError("A reminder needs a message.")
     if len(text) > MAX_MESSAGE_CHARS:
-        raise ReminderError(f"That message is too long. Keep it to {MAX_MESSAGE_CHARS} characters.")
+        raise ReminderError(
+            f"That message is too long. Keep it to {MAX_MESSAGE_CHARS} characters."
+        )
     return text
 
 
@@ -142,9 +148,9 @@ class ReminderStore:
         now: datetime | None = None,
     ) -> Reminder:
         stamp = as_aware(now or local_now())
-        due = stamp + timedelta(
-            seconds=delay_seconds(hours=hours, minutes=minutes, seconds=seconds)
-        )
+        due = stamp + timedelta(seconds=delay_seconds(
+            hours=hours, minutes=minutes, seconds=seconds
+        ))
         return self._add(message, due, created=stamp)
 
     def add_at(

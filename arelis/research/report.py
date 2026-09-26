@@ -56,7 +56,9 @@ def excerpt_text(text: str, *, max_chars: int = 600) -> str:
     if not body:
         return ""
     lines = [
-        ln.strip() for ln in body.splitlines() if ln.strip() and not _EXCERPT_META.match(ln.strip())
+        ln.strip()
+        for ln in body.splitlines()
+        if ln.strip() and not _EXCERPT_META.match(ln.strip())
     ]
     joined = " ".join(lines) if lines else body
     joined = _AUTHOR_MARK.sub(" ", joined)
@@ -87,7 +89,11 @@ def render_report(
             findings_parts.append(f"{i}. **{title}** — {excerpt}")
         else:
             findings_parts.append(f"{i}. **{title}** — (no extractable text)")
-    findings = "\n".join(findings_parts) if findings_parts else "_No successful page extracts._"
+    findings = (
+        "\n".join(findings_parts)
+        if findings_parts
+        else "_No successful page extracts._"
+    )
 
     uncertainties: list[str] = []
     if not sources:
@@ -97,14 +103,21 @@ def render_report(
             "Only one independent source succeeded; treat claims as single-source."
         )
     if failed:
-        uncertainties.append("Failed or skipped URLs: " + "; ".join(failed[:8]))
-    uncertainties.append("Excerpts are truncated tool output, not an LLM synthesis.")
+        uncertainties.append(
+            "Failed or skipped URLs: " + "; ".join(failed[:8])
+        )
+    uncertainties.append(
+        "Excerpts are truncated tool output, not an LLM synthesis."
+    )
     unc_block = "\n".join(f"- {u}" for u in uncertainties)
 
     source_lines = [
-        f"{i}. [{hit.title or hit.url}]({hit.url})" for i, hit in enumerate(sources, start=1)
+        f"{i}. [{hit.title or hit.url}]({hit.url})"
+        for i, hit in enumerate(sources, start=1)
     ]
-    sources_block = "\n".join(source_lines) if source_lines else "_None (no successful scrapes)._"
+    sources_block = (
+        "\n".join(source_lines) if source_lines else "_None (no successful scrapes)._"
+    )
 
     return (
         f"# Research report\n\n"

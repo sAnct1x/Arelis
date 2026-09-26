@@ -128,7 +128,9 @@ async def try_plan_progress(loop: Any, ctx: TurnContext, r: RoundScratch, round_
 
 
 async def try_force_gates(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: int) -> str:
-    if await apply_force_gates(loop, ctx, r.content, refused=answer_looks_like_refusal(r.content)):
+    if await apply_force_gates(
+        loop, ctx, r.content, refused=answer_looks_like_refusal(r.content)
+    ):
         return NUDGE
     return SKIP
 
@@ -175,13 +177,19 @@ async def try_ink_vision(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
         ctx.ink_vision_nudge_used = True
         await loop._retract()
         r.messages.append({"role": "assistant", "content": r.content})
-        r.messages.append({"role": "user", "content": ink_vision_notice(ctx.ink_page_images)})
-        await loop.bus.publish(Event(EventType.THINKING, {"text": "plan_progress  ink-vision"}))
+        r.messages.append(
+            {"role": "user", "content": ink_vision_notice(ctx.ink_page_images)}
+        )
+        await loop.bus.publish(
+            Event(EventType.THINKING, {"text": "plan_progress  ink-vision"})
+        )
         return NUDGE
     return SKIP
 
 
-async def try_algebra_answer(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: int) -> str:
+async def try_algebra_answer(
+    loop: Any, ctx: TurnContext, r: RoundScratch, round_i: int
+) -> str:
     """Ship the calculator line when chat is filler without the number.
 
     Live dump: tool returns `14-6 = 8`, thinking has 8, bubble is

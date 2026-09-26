@@ -35,7 +35,9 @@ async def _serve(token: str = "test-token"):
     bus = EventBus()
     task = asyncio.create_task(bus.run())
     port = _free_port()
-    server = InboundIngestServer(bus, loop, token=token, host="127.0.0.1", port=port)
+    server = InboundIngestServer(
+        bus, loop, token=token, host="127.0.0.1", port=port
+    )
     server.start()
     return bus, task, server, f"http://127.0.0.1:{port}"
 
@@ -86,7 +88,9 @@ async def test_companion_manifest_needs_auth(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_companion_apk_streams_with_pair_secret(tmp_path: Path, monkeypatch) -> None:
+async def test_companion_apk_streams_with_pair_secret(
+    tmp_path: Path, monkeypatch
+) -> None:
     apk = tmp_path / "arelis.apk"
     apk.write_bytes(b"PK\x03\x04-fake-apk")
     offer = ApkOffer(
@@ -120,7 +124,9 @@ async def test_companion_apk_streams_with_pair_secret(tmp_path: Path, monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_companion_gemma_rejects_pair_secret(tmp_path: Path, monkeypatch) -> None:
+async def test_companion_gemma_rejects_pair_secret(
+    tmp_path: Path, monkeypatch
+) -> None:
     pack = tmp_path / "gemma-4-E2B-it.litertlm"
     pack.write_bytes(b"x" * (companion_pack.GEMMA_MIN_BYTES + 1))
     from arelis.companion_pack import GemmaOffer

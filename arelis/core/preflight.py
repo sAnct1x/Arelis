@@ -264,8 +264,9 @@ def _skip_compose_for_other_work(raw: str) -> bool:
 
     return looks_like_other_work(raw) or bool(_GRAPH_ASK.search(raw or ""))
 
-
-_EXPLICIT_SMS_VERB = re.compile(r"(?i)^\s*(?:text|sms|txt|send\s+(?:a\s+)?(?:text|sms|message))\b")
+_EXPLICIT_SMS_VERB = re.compile(
+    r"(?i)^\s*(?:text|sms|txt|send\s+(?:a\s+)?(?:text|sms|message))\b"
+)
 
 # See one local image (VL) — not Comfy generate.
 # "analyze" is in here because it is the word the user actually says for this —
@@ -423,7 +424,9 @@ def _prior_desk_look(history: list[Any] | None) -> bool:
     return False
 
 
-def looks_like_desktop_look(text: str, history: list[Any] | None = None) -> bool:
+def looks_like_desktop_look(
+    text: str, history: list[Any] | None = None
+) -> bool:
     """True for 'look at my right monitor' / 'do you see problem 2.22'."""
     raw = text or ""
     matched = bool(_DESK_LOOK.search(raw))
@@ -456,8 +459,12 @@ def looks_like_desktop_look(text: str, history: list[Any] | None = None) -> bool
     return True
 
 
-def user_asked_for_desktop(text: str, history: list[Any] | None = None) -> bool:
-    return looks_like_desktop_ask(text) or looks_like_desktop_look(text, history=history)
+def user_asked_for_desktop(
+    text: str, history: list[Any] | None = None
+) -> bool:
+    return looks_like_desktop_ask(text) or looks_like_desktop_look(
+        text, history=history
+    )
 
 
 def user_asked_for_browser(text: str) -> bool:
@@ -567,7 +574,9 @@ def rewrite_browser_calls(
     return out
 
 
-_DESK_TARGET = re.compile(rf"(?i)\b({_DESK_SIDE}|primary|main)\b")
+_DESK_TARGET = re.compile(
+    rf"(?i)\b({_DESK_SIDE}|primary|main)\b"
+)
 _DESK_INDEX = re.compile(r"(?i)\b(?:monitor|display|screen)\s*([1-9])\b")
 
 
@@ -630,7 +639,9 @@ def draft_browser_args(text: str) -> dict[str, str]:
         return {"action": "click", "nth": str(nth)}
     if BROWSER_READ.search(raw):
         return {"action": "read"}
-    if BROWSER_SEARCH.search(raw) and not re.search(r"(?i)\bsearch\s+the\s+web\b", raw):
+    if BROWSER_SEARCH.search(raw) and not re.search(
+        r"(?i)\bsearch\s+the\s+web\b", raw
+    ):
         query = raw
         q_m = re.search(
             r"(?i)\bsearch\s+(?:on\s+(?:youtube|google|amazon)\s+)?(?:for\s+)?(.+)$",
@@ -650,11 +661,9 @@ def draft_browser_args(text: str) -> dict[str, str]:
             query,
         )
         query = query.strip().rstrip(".!?")
-        site = (
-            "youtube"
-            if re.search(r"(?i)youtube|you[\s-]*tube|\bvideos?\b|\bplaylist\b", raw)
-            else "google"
-        )
+        site = "youtube" if re.search(
+            r"(?i)youtube|you[\s-]*tube|\bvideos?\b|\bplaylist\b", raw
+        ) else "google"
         return {"action": "search", "query": query[:200], "site": site}
     match = _URL_TOKEN.search(raw)
     url = (match.group(1) if match else "").rstrip(".,)!?")
@@ -837,7 +846,8 @@ def detect_intents(
                     "browser(action=maps, destination=the place). That opens "
                     "Google Maps in her window and returns a phone link. "
                     + (
-                        "They asked to text it — then send_sms to me/myself with that phone link. "
+                        "They asked to text it — then send_sms to me/myself "
+                        "with that phone link. "
                         if send
                         else "Only call send_sms if they asked to text the link. "
                     )
@@ -862,7 +872,9 @@ def detect_intents(
                 ),
             )
         )
-    elif BROWSER_SEARCH.search(raw) and not re.search(r"(?i)\bsearch\s+the\s+web\b", raw):
+    elif BROWSER_SEARCH.search(raw) and not re.search(
+        r"(?i)\bsearch\s+the\s+web\b", raw
+    ):
         hints.append(
             IntentHint(
                 kind="browser_search",
@@ -984,7 +996,11 @@ def detect_intents(
     look = classify_look(raw, fresh_path=cam, history=history)
     if look:
         if look.path or cam:
-            expected = ("ocr", "vision") if look.act in {"read", "translate"} else ("vision",)
+            expected = (
+                ("ocr", "vision")
+                if look.act in {"read", "translate"}
+                else ("vision",)
+            )
         else:
             expected = (
                 ("camera", "ocr", "vision")
@@ -1022,7 +1038,9 @@ def detect_intents(
     ask_text = _turn_ask(raw)
     image_attached = "image" in attachment_kinds_from_turn(raw)
     image_route = route_tool("image", ask_text) if image_attached else ""
-    if image_attached and image_route == "vision" and not any(h.kind == "vision" for h in hints):
+    if image_attached and image_route == "vision" and not any(
+        h.kind == "vision" for h in hints
+    ):
         hints.append(
             IntentHint(
                 kind="vision",
@@ -1036,9 +1054,10 @@ def detect_intents(
             )
         )
 
-    if (wants_image_edit(ask_text) or image_route == "image_edit") and not wants_image_text(
-        ask_text
-    ):
+    if (
+        wants_image_edit(ask_text)
+        or image_route == "image_edit"
+    ) and not wants_image_text(ask_text):
         hints.append(
             IntentHint(
                 kind="image_edit",
@@ -1105,9 +1124,12 @@ def detect_intents(
 
     # Affirmation after an attachment turn — keep the model on the prior file ask.
     # Orchestrator may already have expanded "yea" into a Continue… block; match both.
-    attachment_continue = "Continue the prior request about these attachments" in raw or (
-        is_short_affirmation(raw)
-        and continue_prior_attachment_ask(raw, history=history) is not None
+    attachment_continue = (
+        "Continue the prior request about these attachments" in raw
+        or (
+            is_short_affirmation(raw)
+            and continue_prior_attachment_ask(raw, history=history) is not None
+        )
     )
     if attachment_continue:
         hints.append(
@@ -1257,49 +1279,52 @@ def detect_intents(
             IntentHint(
                 kind="schedule",
                 expected_tools=("schedule",),
-                nudge=(
-                    "Intent preflight: this message asks to run something later "
-                    "or on a timer. Call schedule now: create_briefing for the "
-                    "canned morning digest, or create with a stand-alone prompt "
-                    "for any other recurring job. Do not send_email, send_sms, "
-                    "or weather this turn — those run when the job fires. "
-                    "Allow still applies — do not ask permission in chat."
-                ),
+                    nudge=(
+                        "Intent preflight: this message asks to run something later "
+                        "or on a timer. Call schedule now: create_briefing for the "
+                        "canned morning digest, or create with a stand-alone prompt "
+                        "for any other recurring job. Do not send_email, send_sms, "
+                        "or weather this turn — those run when the job fires. "
+                        "Allow still applies — do not ask permission in chat."
+                    ),
             )
         )
 
     # Goals / file-write / image-gen / calendar / browser / look turns win over
     # a stale pending SMS draft (and over "text …" buried inside a calendar reminder).
     skip_sms = (
-        looks_like_stale_sms_skip(raw, history)
-        or bool(GOALS.matches(raw))
-        or looks_like_workspace_write(raw)
-        or looks_like_image_gen(raw)
-        or wants_image_edit(ask_text)
-        or looks_like_calendar_create(raw)
-        or looks_like_calendar_delete(raw)
-        or looks_like_calendar_close(raw)
-        or looks_like_calendar_open(raw)
-        or looks_like_calendar_read(raw)
-        or looks_like_browser_or_url(raw)
-        or looks_like_browser_click_signin(raw)
-        or looks_like_scheduled_send(raw)
-        or looks_like_schedule_manage(raw)
-        or any(
-            h.kind
-            in {
-                "analyze",
-                "vision",
-                "image_edit",
-                "rooms",
-                "browser_click",
-                "inspect",
-                "inspect_write",
-            }
-            for h in hints
+        (
+            looks_like_stale_sms_skip(raw, history)
+            or bool(GOALS.matches(raw))
+            or looks_like_workspace_write(raw)
+            or looks_like_image_gen(raw)
+            or wants_image_edit(ask_text)
+            or looks_like_calendar_create(raw)
+            or looks_like_calendar_delete(raw)
+            or looks_like_calendar_close(raw)
+            or looks_like_calendar_open(raw)
+            or looks_like_calendar_read(raw)
+            or looks_like_browser_or_url(raw)
+            or looks_like_browser_click_signin(raw)
+            or looks_like_scheduled_send(raw)
+            or looks_like_schedule_manage(raw)
+            or any(
+                h.kind
+                in {
+                    "analyze",
+                    "vision",
+                    "image_edit",
+                    "rooms",
+                    "browser_click",
+                    "inspect",
+                    "inspect_write",
+                }
+                for h in hints
+            )
+            or (image_attached and not _EXPLICIT_SMS_VERB.match(raw))
         )
-        or (image_attached and not _EXPLICIT_SMS_VERB.match(raw))
-    ) and not _EXPLICIT_SMS_VERB.match(raw)
+        and not _EXPLICIT_SMS_VERB.match(raw)
+    )
     draft = None if skip_sms else complete_sms_draft(raw, history=history)
     if draft is not None:
         hints.append(
@@ -1311,40 +1336,36 @@ def detect_intents(
         )
 
     # Inbox / analyze / vision / calendar / image / schedule must not revive a compose.
-    skip_email = (
-        looks_like_scheduled_send(raw)
-        or looks_like_schedule_manage(raw)
-        or (
-            (
-                bool(INBOX.matches(raw))
-                or looks_like_mailbox_mutate(raw)
-                or any(
-                    h.kind
-                    in {
-                        "analyze",
-                        "vision",
-                        "image_edit",
-                        "schedule",
-                        "rooms",
-                        "inspect",
-                        "inspect_write",
-                    }
-                    for h in hints
-                )
-                or looks_like_image_gen(raw)
-                or looks_like_calendar_create(raw)
-                or looks_like_calendar_delete(raw)
-                or looks_like_calendar_close(raw)
-                or looks_like_calendar_open(raw)
-                or looks_like_calendar_read(raw)
-                or looks_like_browser_or_url(raw)
-                or looks_like_browser_click_signin(raw)
-                or looks_like_closing_chitchat(raw)
-                or match_tile_intent(raw) is not None
-                or _skip_compose_for_other_work(raw)
+    skip_email = looks_like_scheduled_send(raw) or looks_like_schedule_manage(raw) or (
+        (
+            bool(INBOX.matches(raw))
+            or looks_like_mailbox_mutate(raw)
+            or any(
+                h.kind
+                in {
+                    "analyze",
+                    "vision",
+                    "image_edit",
+                    "schedule",
+                    "rooms",
+                    "inspect",
+                    "inspect_write",
+                }
+                for h in hints
             )
-            and not _EMAIL_SEND_VERB.search(raw)
+            or looks_like_image_gen(raw)
+            or looks_like_calendar_create(raw)
+            or looks_like_calendar_delete(raw)
+            or looks_like_calendar_close(raw)
+            or looks_like_calendar_open(raw)
+            or looks_like_calendar_read(raw)
+            or looks_like_browser_or_url(raw)
+            or looks_like_browser_click_signin(raw)
+            or looks_like_closing_chitchat(raw)
+            or match_tile_intent(raw) is not None
+            or _skip_compose_for_other_work(raw)
         )
+        and not _EMAIL_SEND_VERB.search(raw)
     )
     email_draft = None if skip_email else complete_email_draft(raw, history=history)
     if email_draft is not None:
@@ -1357,7 +1378,11 @@ def detect_intents(
         )
 
     if looks_like_scheduled_send(raw):
-        hints = [h for h in hints if h.kind not in {"weather", "compose_email", "sms_send"}]
+        hints = [
+            h
+            for h in hints
+            if h.kind not in {"weather", "compose_email", "sms_send"}
+        ]
         if not any(h.kind == "schedule" for h in hints):
             hints.append(
                 IntentHint(
@@ -1372,7 +1397,11 @@ def detect_intents(
             )
 
     if looks_like_schedule_manage(raw):
-        hints = [h for h in hints if h.kind not in {"weather", "compose_email", "sms_send"}]
+        hints = [
+            h
+            for h in hints
+            if h.kind not in {"weather", "compose_email", "sms_send"}
+        ]
         if not any(h.kind == "schedule" for h in hints):
             hints.append(
                 IntentHint(
@@ -1387,7 +1416,9 @@ def detect_intents(
                 )
             )
 
-    if looks_like_contacts_utterance(raw) or looks_like_contacts_followup(raw, history):
+    if looks_like_contacts_utterance(raw) or looks_like_contacts_followup(
+        raw, history
+    ):
         hints.append(
             IntentHint(
                 kind="contacts",

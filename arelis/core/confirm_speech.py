@@ -120,7 +120,9 @@ _REPEAT_PREFIX = (
     r"(?:that|you|what\s+you\s+said)[,.]?\s+)?"
     r")?"
 )
-_REPEAT_WHOLE = re.compile(rf"(?i)^\s*{_REPEAT_PREFIX}{_REPEAT_CORE}\s*[.?!]?\s*$")
+_REPEAT_WHOLE = re.compile(
+    rf"(?i)^\s*{_REPEAT_PREFIX}{_REPEAT_CORE}\s*[.?!]?\s*$"
+)
 _REPEAT_TAIL = re.compile(rf"(?i){_REPEAT_CORE}\s*[.?!]?\s*$")
 # A new question after the miss — leave it for the model.
 _REPEAT_NEW_ASK = re.compile(

@@ -133,7 +133,9 @@ def build_tool_registry(
     archive: MemoryStore | None = None
     if attended or memory_store is not None:
         archive = memory_store or MemoryStore()
-        embed_model = str((config.get("memory") or {}).get("embed_model") or DEFAULT_EMBED_MODEL)
+        embed_model = str(
+            (config.get("memory") or {}).get("embed_model") or DEFAULT_EMBED_MODEL
+        )
         embed = None
         embed_available = None
         if provider is not None:
@@ -144,7 +146,8 @@ def build_tool_registry(
             async def _embed_available() -> bool:
                 names = await provider.list_models()
                 return any(
-                    name == embed_model or name.startswith(f"{embed_model}:") for name in names
+                    name == embed_model or name.startswith(f"{embed_model}:")
+                    for name in names
                 )
 
             embed = _embed
@@ -159,9 +162,13 @@ def build_tool_registry(
             doc_ix = DocumentIndexer(
                 archive,
                 workspace,
-                max_file_bytes=int(docs_cfg.get("max_file_bytes", DEFAULT_MAX_FILE_BYTES)),
+                max_file_bytes=int(
+                    docs_cfg.get("max_file_bytes", DEFAULT_MAX_FILE_BYTES)
+                ),
                 chunk_chars=int(docs_cfg.get("chunk_chars", DEFAULT_CHUNK_CHARS)),
-                chunk_overlap=int(docs_cfg.get("chunk_overlap", DEFAULT_CHUNK_OVERLAP)),
+                chunk_overlap=int(
+                    docs_cfg.get("chunk_overlap", DEFAULT_CHUNK_OVERLAP)
+                ),
             )
 
             def index_docs_fn(
@@ -253,7 +260,9 @@ def build_tool_registry(
                 scrape_tool,
                 fetch=web_fetch_tool,
                 max_sources=int(research_cfg.get("max_sources", 8)),
-                max_chars_per_source=int(research_cfg.get("max_chars_per_source", 4000)),
+                max_chars_per_source=int(
+                    research_cfg.get("max_chars_per_source", 4000)
+                ),
                 output_dir=out_path,
             )
         )
@@ -275,7 +284,9 @@ def build_tool_registry(
                             timeout_s=float(sms_cfg.get("timeout_s", 30)),
                             live=True,
                         ),
-                        max_body_chars=int(sms_cfg.get("max_body_chars", DEFAULT_MAX_BODY_CHARS)),
+                        max_body_chars=int(
+                            sms_cfg.get("max_body_chars", DEFAULT_MAX_BODY_CHARS)
+                        ),
                     )
                 )
 
@@ -320,7 +331,8 @@ def build_tool_registry(
     # the agenda the digest is built from.
     cal_cfg = tools_cfg.get("calendar") or {}
     if attended and (
-        cal_cfg.get("enabled", True) or tools_cfg.get("briefing", {}).get("enabled", True)
+        cal_cfg.get("enabled", True)
+        or tools_cfg.get("briefing", {}).get("enabled", True)
     ):
         registry.register(AgendaTool(config))
     # Clipboard read needs a person for the Allow card (privacy).
@@ -456,14 +468,23 @@ def build_tool_registry(
         ollama_cfg = config.get("ollama") or {}
         models_cfg = config.get("models") or {}
         vl_model = str(
-            vision_cfg.get("model") or models_cfg.get("vision") or "qwen2.5vl:3b"
+            vision_cfg.get("model")
+            or models_cfg.get("vision")
+            or "qwen2.5vl:3b"
         ).strip()
-        num_ctx = int(vision_cfg.get("num_ctx") or ollama_cfg.get("vision_num_ctx") or 4096)
+        num_ctx = int(
+            vision_cfg.get("num_ctx")
+            or ollama_cfg.get("vision_num_ctx")
+            or 4096
+        )
         prov = provider or router.provider
 
         async def _vision_available() -> bool:
             names = await prov.list_models()
-            return any(name == vl_model or name.startswith(f"{vl_model}:") for name in names)
+            return any(
+                name == vl_model or name.startswith(f"{vl_model}:")
+                for name in names
+            )
 
         registry.register(
             VisionTool(
@@ -473,7 +494,9 @@ def build_tool_registry(
                 num_ctx=num_ctx,
                 model_available=_vision_available,
                 max_edge=int(vision_cfg.get("max_edge") or DEFAULT_MAX_EDGE),
-                chat_max_edge=int(vision_cfg.get("chat_max_edge") or CHAT_MAX_EDGE),
+                chat_max_edge=int(
+                    vision_cfg.get("chat_max_edge") or CHAT_MAX_EDGE
+                ),
             )
         )
         # Look-on-ask webcam stills — same Allow gate as vision; UI owns capture.
@@ -494,7 +517,9 @@ def build_tool_registry(
             max_snapshot_chars=int(browser_cfg.get("max_snapshot_chars") or 6000),
             max_read_chars=int(browser_cfg.get("max_read_chars") or 3500),
         )
-        registry.register(BrowserTool(session, aliases=aliases, workspace=workspace))
+        registry.register(
+            BrowserTool(session, aliases=aliases, workspace=workspace)
+        )
     desktop_cfg = tools_cfg.get("desktop") or {}
     if attended and desktop_cfg.get("enabled", True):
         aliases_raw = desktop_cfg.get("aliases") or {}

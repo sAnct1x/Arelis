@@ -61,13 +61,11 @@ def pytest_sessionfinish(session, exitstatus):
 # Isolate only the Earth-zone split (and the pre-split giant). Do not apply
 # to the older siblings test_earth_fetchers / _goto / _polish — they never
 # used this fixture.
-_EARTH_ISOLATE_SKIP = frozenset(
-    {
-        "test_earth_fetchers.py",
-        "test_earth_goto.py",
-        "test_earth_polish.py",
-    }
-)
+_EARTH_ISOLATE_SKIP = frozenset({
+    "test_earth_fetchers.py",
+    "test_earth_goto.py",
+    "test_earth_polish.py",
+})
 
 
 def _earth_isolate_applies(filename: str) -> bool:

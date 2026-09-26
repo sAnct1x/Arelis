@@ -707,7 +707,9 @@ SKILL_CARDS: dict[str, SkillCard] = {
     ),
     "diagnostics": SkillCard(
         id="diagnostics",
-        hints=("run diagnostics",),
+        hints=(
+            "run diagnostics",
+        ),
         negative_hints=(
             "run your tests",
             "run the tests",
@@ -1581,13 +1583,17 @@ def select_skill_ids_detailed(
                     available_tools & {"send_sms", "inbound_sms", "contacts"}
                 ):
                     continue
-                elif card_id == "email" and not (available_tools & {"inbox", "send_email"}):
+                elif card_id == "email" and not (
+                    available_tools & {"inbox", "send_email"}
+                ):
                     continue
                 elif card_id == "web" and not (
                     available_tools & {"web_search", "scrape", "web_fetch"}
                 ):
                     continue
-                elif card_id == "memory" and not (available_tools & {"recall", "memory", "tasks"}):
+                elif card_id == "memory" and not (
+                    available_tools & {"recall", "memory", "tasks"}
+                ):
                     continue
                 elif card_id == "analyze" and "analyze" not in available_tools:
                     continue
@@ -1600,10 +1606,13 @@ def select_skill_ids_detailed(
                 elif card_id == "document" and "document" not in available_tools:
                     continue
                 elif card_id == "research" and not (
-                    available_tools & {"research_report", "web_search", "scrape", "web_fetch"}
+                    available_tools
+                    & {"research_report", "web_search", "scrape", "web_fetch"}
                 ):
                     continue
-                elif card_id == "deadline" and not (available_tools & {"tasks", "agenda"}):
+                elif card_id == "deadline" and not (
+                    available_tools & {"tasks", "agenda"}
+                ):
                     continue
                 elif card_id == "vision" and "vision" not in available_tools:
                     continue
@@ -1698,16 +1707,17 @@ def assemble_tool_policy(
     if force_all:
         ids = list(SKILL_CARDS.keys())
     else:
-        ids = select_skill_ids(text, available_tools=available_tools, max_cards=max_cards)
+        ids = select_skill_ids(
+            text, available_tools=available_tools, max_cards=max_cards
+        )
         # Thin turns still need a minimal web+calc safety net when those tools exist.
         if available_tools:
             for fallback in ("calculator",):
                 if fallback in SKILL_CARDS and fallback not in ids:
                     tool = SKILL_CARDS[fallback].requires_tool
-                    if (
-                        tool
-                        and tool in available_tools
-                        and any(h in (text or "").lower() for h in SKILL_CARDS[fallback].hints)
+                    if tool and tool in available_tools and any(
+                        h in (text or "").lower()
+                        for h in SKILL_CARDS[fallback].hints
                     ):
                         ids.append(fallback)
     parts = [SKILL_CORE]
@@ -1723,3 +1733,5 @@ def full_tool_policy() -> str:
     from arelis.core.compact_prompt import compact_tool_policy
 
     return compact_tool_policy()
+
+

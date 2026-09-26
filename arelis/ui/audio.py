@@ -10,7 +10,6 @@ Qt, which is the problem this avoids rather than the one it creates.
 The cost is that audio is bound to the Qt thread. Everything crossing to the
 async side goes through the bus, the same as every other UI interaction.
 """
-
 from __future__ import annotations
 
 import logging
@@ -70,8 +69,8 @@ class MicRecorder(QObject):
     file writer for the same bytes.
     """
 
-    level = Signal(float)  # 0.0 - 1.0, one per arriving block
-    frames = Signal(bytes)  # each block, for callers doing their own analysis
+    level = Signal(float)          # 0.0 - 1.0, one per arriving block
+    frames = Signal(bytes)         # each block, for callers doing their own analysis
     failed = Signal(str)
 
     def __init__(
@@ -163,7 +162,9 @@ class MicRecorder(QObject):
             self._io = self._source.start()
         except Exception as exc:
             log.exception("Could not open the microphone")
-            self.failed.emit(f"I could not open the microphone. {plain_reason(exc)}")
+            self.failed.emit(
+                f"I could not open the microphone. {plain_reason(exc)}"
+            )
             self._source = None
             self._io = None
             return False

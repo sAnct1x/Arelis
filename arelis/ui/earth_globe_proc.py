@@ -87,7 +87,9 @@ def main(argv: list[str] | None = None) -> int:
     app = QApplication.instance() or QApplication([])
     host = EarthGlobeHost(process="in")
     host.setWindowFlags(
-        Qt.WindowType.FramelessWindowHint | Qt.WindowType.Tool | Qt.WindowType.WindowStaysOnTopHint
+        Qt.WindowType.FramelessWindowHint
+        | Qt.WindowType.Tool
+        | Qt.WindowType.WindowStaysOnTopHint
     )
     host.setAttribute(Qt.WidgetAttribute.WA_NativeWindow, True)
     seal_globe_plate(host)
@@ -196,7 +198,9 @@ def main(argv: list[str] | None = None) -> int:
             host.arm_ride(str(msg.get("id") or ""))
             return
         if op == "follow":
-            _note(f"follow {msg.get('lat')} {msg.get('lon')} {msg.get('alt_m')}")
+            _note(
+                f"follow {msg.get('lat')} {msg.get('lon')} {msg.get('alt_m')}"
+            )
             host.follow_lla(
                 float(msg["lat"]),
                 float(msg["lon"]),

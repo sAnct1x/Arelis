@@ -128,7 +128,9 @@ def _refuse_raw_path(path_part: str) -> bool:
     return False
 
 
-def resolve_diagnostics_target(raw: str, *, tests_dir: Path, root: Path) -> str | ToolResult:
+def resolve_diagnostics_target(
+    raw: str, *, tests_dir: Path, root: Path
+) -> str | ToolResult:
     """Return a pytest path under tests/, or a tagged refusal.
 
     The raw string is not passed to pytest until resolve() lands inside
@@ -168,7 +170,9 @@ def resolve_diagnostics_target(raw: str, *, tests_dir: Path, root: Path) -> str 
     return f"{rel}::{node}" if node else rel
 
 
-def _pytest_path(kwargs: dict[str, Any], *, tests_dir: Path, root: Path) -> str | ToolResult:
+def _pytest_path(
+    kwargs: dict[str, Any], *, tests_dir: Path, root: Path
+) -> str | ToolResult:
     raw = str(kwargs.get("target") or "").strip()
     if not raw:
         return str(tests_dir)
@@ -187,7 +191,10 @@ def _run_suite(kwargs: dict[str, Any] | None = None) -> ToolResult:
     if not tests_dir.is_dir():
         return ToolResult(
             ok=False,
-            output=(f"No tests/ directory at {root}. This checkout cannot run diagnostics."),
+            output=(
+                f"No tests/ directory at {root}. "
+                "This checkout cannot run diagnostics."
+            ),
         )
     decided = _pytest_path(kwargs, tests_dir=tests_dir, root=root)
     if isinstance(decided, ToolResult):
@@ -264,7 +271,9 @@ def parse_pytest(
     fail_lines = [
         line
         for line in blob.splitlines()
-        if line.startswith("E ") or line.startswith("FAILED ") or line.startswith("ERROR ")
+        if line.startswith("E ")
+        or line.startswith("FAILED ")
+        or line.startswith("ERROR ")
     ][:_MAX_FAIL_LINES]
     no_tests = bool(_NO_TESTS_RE.search(summary_body or blob)) or returncode == 5
     interrupted = returncode == 2 or bool(_INTERRUPT_RE.search(blob) and returncode != 0)
@@ -390,7 +399,9 @@ def _issues(parsed: dict[str, Any]) -> list[str]:
         out.append("- none from this run. The suite is green.")
         skipped = int(parsed.get("skipped") or 0)
         if skipped:
-            out.append(f"- {skipped} skipped (usually optional deps or not this OS).")
+            out.append(
+                f"- {skipped} skipped (usually optional deps or not this OS)."
+            )
         warnings = int(parsed.get("warnings") or 0)
         if warnings:
             out.append(f"- {warnings} warning(s). Not a failure.")
@@ -403,7 +414,9 @@ def _issues(parsed: dict[str, Any]) -> list[str]:
             "trace is an env/key miss."
         )
     if errors:
-        out.append(f"- {errors} collection/error(s). The suite did not finish cleanly.")
+        out.append(
+            f"- {errors} collection/error(s). The suite did not finish cleanly."
+        )
     meaning = str(parsed.get("exit_meaning") or "")
     if not failed and not errors and parsed.get("exit_code"):
         out.append(

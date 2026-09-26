@@ -524,7 +524,7 @@ class WindowBuild:
         self._calendar_sync_watchdog.setSingleShot(True)
         self._job_tick = QTimer(self)
         self._job_tick.setInterval(1000)
-
+        
         self._atmosphere_timer = QTimer(self)
         self._atmosphere_timer.setInterval(100)
         self._atmosphere_timer.timeout.connect(self._tick_atmosphere)

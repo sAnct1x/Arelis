@@ -93,7 +93,9 @@ _WHEN = re.compile(
     r"(?i)\b(?:"
     r"(?P<iso>\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2})?)?)"
     r"|"
-    r"(?:on\s+)?(?P<md>(?:" + _MONTH + r")\s+\d{1,2}(?:st|nd|rd|th)?(?:\s*,?\s*\d{4})?)"
+    r"(?:on\s+)?(?P<md>(?:"
+    + _MONTH
+    + r")\s+\d{1,2}(?:st|nd|rd|th)?(?:\s*,?\s*\d{4})?)"
     r"(?:\s+at\s+(?P<md_time>\d{1,2}(?::\d{2})?\s*(?:am|pm)?))?"
     r"|"
     r"(?P<rel>"
@@ -201,7 +203,9 @@ _REL_AT = re.compile(
 )
 _BARE_AT = re.compile(r"(?i)^\s*at\s+(?P<time>\d{1,2}(?::\d{2})?\s*(?:am|pm))\s*$")
 
-_EXPLICIT_SMS_VERB = re.compile(r"(?i)^\s*(?:text|sms|txt|send\s+(?:a\s+)?(?:text|sms|message))\b")
+_EXPLICIT_SMS_VERB = re.compile(
+    r"(?i)^\s*(?:text|sms|txt|send\s+(?:a\s+)?(?:text|sms|message))\b"
+)
 
 _SPOKEN_HOURS = {
     "one": "1",
@@ -599,7 +603,9 @@ def lock_agenda_delete_args(
 ) -> dict[str, Any]:
     """Force keep=0 on a titled delete so the 7B cannot leave the event."""
     out = dict(args)
-    drafted = draft_agenda_delete_args(text, receipts=receipts, history=history)
+    drafted = draft_agenda_delete_args(
+        text, receipts=receipts, history=history
+    )
     if not str(out.get("summary") or "").strip() and drafted.get("summary"):
         out["summary"] = drafted["summary"]
     if looks_like_duplicate_delete(text):
@@ -617,7 +623,9 @@ def event_id_from_text(text: str) -> str:
 def _parse_month_day(text: str, *, wall: datetime) -> datetime | None:
     """Parse 'August 13th' / 'Aug 13, 2026' optionally with trailing time already stripped."""
     m = re.match(
-        r"(?i)^\s*(?P<mon>" + _MONTH + r")\s+(?P<day>\d{1,2})(?:st|nd|rd|th)?"
+        r"(?i)^\s*(?P<mon>"
+        + _MONTH
+        + r")\s+(?P<day>\d{1,2})(?:st|nd|rd|th)?"
         r"(?:\s*,?\s*(?P<year>\d{4}))?\s*$",
         text.strip(),
     )
@@ -703,7 +711,9 @@ def normalize_agenda_start(start: str, *, now: datetime | None = None) -> str:
 
     # "August 13th at 7am" (full phrase) or month-day alone.
     md = re.match(
-        r"(?i)^\s*(?:on\s+)?(?P<md>(?:" + _MONTH + r")\s+\d{1,2}(?:st|nd|rd|th)?(?:\s*,?\s*\d{4})?)"
+        r"(?i)^\s*(?:on\s+)?(?P<md>(?:"
+        + _MONTH
+        + r")\s+\d{1,2}(?:st|nd|rd|th)?(?:\s*,?\s*\d{4})?)"
         r"(?:\s+at\s+(?P<time>.+))?\s*$",
         text,
     )
@@ -763,7 +773,6 @@ def normalize_agenda_start(start: str, *, now: datetime | None = None) -> str:
         tzinfo=wall.tzinfo,
     )
     return combined.isoformat()
-
 
 def _title_from_put_or_add(raw: str) -> str:
     """Quoted or plain title from 'put X on my calendar' / 'add X to my calendar'."""
@@ -936,7 +945,6 @@ def parse_agenda_utterance(text: str) -> AgendaDraft | None:
         description=description,
     )
 
-
 def complete_agenda_draft(
     text: str,
     *,
@@ -1003,7 +1011,6 @@ def fill_agenda_args(
 def draft_agenda_create_args(draft: AgendaDraft) -> dict[str, Any]:
     """Concrete agenda.create kwargs from a complete draft (for inject)."""
     return fill_agenda_args({}, draft)
-
 
 def agenda_preflight_nudge(draft: AgendaDraft | None) -> str:
     """System nudge with concrete agenda.create args (still requires Allow)."""

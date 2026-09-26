@@ -162,7 +162,9 @@ async def test_sibling_ingest_does_not_count_as_core(
     try:
         assert runtime.ingest is not None
         assert find_my_ingest_port(config) in {port, *candidates(port)[1:]}
-        assert not external_core_available(config), "sibling ingest was treated as a detached core"
+        assert not external_core_available(config), (
+            "sibling ingest was treated as a detached core"
+        )
     finally:
         await runtime.stop()
         bus.stop()
@@ -178,4 +180,6 @@ async def test_claim_skips_when_already_owning() -> None:
         inbound_runtime=SimpleNamespace(owned=True, ingest=object()),
     )
     bus = SimpleNamespace(publish=lambda *_a, **_k: None)
-    assert not await claim_orphan_ingest(window, bus, asyncio.get_running_loop(), {}, hint="stay")
+    assert not await claim_orphan_ingest(
+        window, bus, asyncio.get_running_loop(), {}, hint="stay"
+    )

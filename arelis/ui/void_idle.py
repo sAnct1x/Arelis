@@ -31,7 +31,6 @@ _CLEAR = QColor(0, 0, 0, 0)
 def _lit(base: QColor, alpha: float) -> QColor:
     return QColor(base.red(), base.green(), base.blue(), max(0, min(255, int(alpha))))
 
-
 # Sodium idle: "what are we working on" is the typeable ask; wake status only
 # while something is latched. Filament idle: the field is not a composer —
 # the line is say "hey arelis", one line. Text lives on the chat plate.
@@ -327,7 +326,9 @@ class OrbitIdle(QWidget):
         self.idle_placeholder = QLabel("what are we working on", self.prompt_host)
         self.idle_placeholder.setObjectName("VoidIdlePlaceholder")
         self.idle_placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.idle_placeholder.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self.idle_placeholder.setAttribute(
+            Qt.WidgetAttribute.WA_TransparentForMouseEvents, True
+        )
         col.addSpacing(8)
         col.addWidget(self.prompt_host, alignment=Qt.AlignmentFlag.AlignHCenter)
         self.idle_hairline = Hairline(width=280)
@@ -438,7 +439,9 @@ class OrbitIdle(QWidget):
         if not sessions:
             for ask in FIRST_RUN_ASKS:
                 row = _GhostRow(ask, ask, self._ghosts, key_text="TRY")
-                row.clicked.connect(lambda text=ask: self.suggestion_clicked.emit(text))
+                row.clicked.connect(
+                    lambda text=ask: self.suggestion_clicked.emit(text)
+                )
                 self._ghost_layout.addWidget(row)
                 row.adjustSize()
             self._add_tools_chip()
@@ -458,7 +461,9 @@ class OrbitIdle(QWidget):
 
     def _add_tools_chip(self) -> None:
         """TOOLS ghost — same shape as TRY / RECENT. Fills `/tools`."""
-        row = _GhostRow(TOOLS_SLASH, TOOLS_CHIP_TITLE, self._ghosts, key_text="TOOLS")
+        row = _GhostRow(
+            TOOLS_SLASH, TOOLS_CHIP_TITLE, self._ghosts, key_text="TOOLS"
+        )
         row.clicked.connect(lambda: self.suggestion_clicked.emit(TOOLS_SLASH))
         self._ghost_layout.addWidget(row)
         row.adjustSize()
@@ -641,7 +646,11 @@ class OrbitIdle(QWidget):
 
         self._readout.adjustSize()
         rx = self._window_inset_x(from_left=False, width=self._readout.width())
-        room_right = self._want_readout and active_theme() != "filament" and (cx + cw) + 12 <= rx
+        room_right = (
+            self._want_readout
+            and active_theme() != "filament"
+            and (cx + cw) + 12 <= rx
+        )
         self._readout.setVisible(room_right)
         if self._readout.isVisible():
             ry = max(margin, min(cy, h - hint_h - self._readout.height() - margin))

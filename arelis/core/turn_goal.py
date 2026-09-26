@@ -55,7 +55,10 @@ class TurnGoal:
 NONE = TurnGoal(kind="none", line="")
 
 _LINES = {
-    "research": ("A sourced write-up. Not a forecast, not a login wall, not the same URL again."),
+    "research": (
+        "A sourced write-up. Not a forecast, not a login wall, "
+        "not the same URL again."
+    ),
     "weather": "A weather-tool forecast for the place they named.",
     "sms": "Send the recipient a message they should read, then stop.",
     "email": "Send the email they asked for, then stop.",
@@ -100,7 +103,9 @@ def derive_turn_goal(
             kind="sms",
             line=_LINES["sms"],
             need=frozenset({"send_sms"}),
-            forbid=frozenset({"weather", "research_report", "web_search", "browser"}),
+            forbid=frozenset(
+                {"weather", "research_report", "web_search", "browser"}
+            ),
             done_tools=frozenset({"send_sms"}),
         )
     if email:
@@ -146,7 +151,9 @@ def derive_turn_goal(
     return NONE
 
 
-def apply_goal_to_expected(expected: set[str], goal: TurnGoal) -> tuple[set[str], tuple[str, ...]]:
+def apply_goal_to_expected(
+    expected: set[str], goal: TurnGoal
+) -> tuple[set[str], tuple[str, ...]]:
     """Drop tools that contradict the goal; add the tool that can finish it."""
     out = set(expected)
     dropped = tuple(sorted(out & goal.forbid))
@@ -211,7 +218,9 @@ LOGIN_READY = "login_ready"
 NEED_LOGIN = "need_login"
 OPEN = "open"
 
-LOGIN_READY_REPLY = "Login is up. Sign in in the window — I don't type passwords."
+LOGIN_READY_REPLY = (
+    "Login is up. Sign in in the window — I don't type passwords."
+)
 
 
 @dataclass(frozen=True)
@@ -256,7 +265,9 @@ def browser_errand_done(
         return BrowserErrand(DRIVE)
     bounced = signed_in or login_redirected_signed_in(requested_url, landed_url)
     if bounced:
-        return BrowserErrand(SIGNED_IN, browser_open_done_reply(text, signed_in=True))
+        return BrowserErrand(
+            SIGNED_IN, browser_open_done_reply(text, signed_in=True)
+        )
     if not open_ask:
         return BrowserErrand(DRIVE)
     snap = snapshot or ""

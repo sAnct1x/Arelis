@@ -35,7 +35,9 @@ class GoogleCalendarClient:
         if self._access:
             return self._access
         if not self.creds.refresh_token:
-            raise RuntimeError("Google Calendar not authorized. Sign in on the calendar tile.")
+            raise RuntimeError(
+                "Google Calendar not authorized. Sign in on the calendar tile."
+            )
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.post(
                 GOOGLE_TOKEN,
@@ -49,7 +51,8 @@ class GoogleCalendarClient:
         if resp.status_code >= 400:
             log.warning("Google token refresh failed: %s", resp.text[:300])
             raise RuntimeError(
-                f"Google token refresh failed ({resp.status_code}). Sign in on the calendar tile."
+                f"Google token refresh failed ({resp.status_code}). "
+                "Sign in on the calendar tile."
             )
         data = resp.json()
         self._access = str(data.get("access_token") or "")
@@ -81,7 +84,9 @@ class GoogleCalendarClient:
                 headers={"Authorization": f"Bearer {token}"},
             )
         if resp.status_code >= 400:
-            raise RuntimeError(f"Google list events failed ({resp.status_code}): {resp.text[:240]}")
+            raise RuntimeError(
+                f"Google list events failed ({resp.status_code}): {resp.text[:240]}"
+            )
         items = (resp.json() or {}).get("items") or []
         out: list[CachedEvent] = []
         for item in items:
@@ -150,7 +155,9 @@ class GoogleCalendarClient:
             log.info("Google create 409 for %s; reusing id without a second insert", event_id)
             return ev
         if resp.status_code >= 400:
-            raise RuntimeError(f"Google create failed ({resp.status_code}): {resp.text[:240]}")
+            raise RuntimeError(
+                f"Google create failed ({resp.status_code}): {resp.text[:240]}"
+            )
         ev = _parse_google_event(resp.json(), calendar_id=cal)
         if ev is None:
             raise RuntimeError("Google create returned an unreadable event")
@@ -164,7 +171,10 @@ class GoogleCalendarClient:
     ) -> CachedEvent | None:
         token = await self.access_token()
         cal = calendar_id or self.creds.calendar_id or "primary"
-        url = f"{GOOGLE_CAL_BASE}/calendars/{quote(cal, safe='')}/events/{quote(event_id, safe='')}"
+        url = (
+            f"{GOOGLE_CAL_BASE}/calendars/{quote(cal, safe='')}/events/"
+            f"{quote(event_id, safe='')}"
+        )
         async with httpx.AsyncClient(timeout=45.0) as client:
             resp = await client.get(
                 url,
@@ -173,7 +183,9 @@ class GoogleCalendarClient:
         if resp.status_code == 404:
             return None
         if resp.status_code >= 400:
-            raise RuntimeError(f"Google get event failed ({resp.status_code}): {resp.text[:240]}")
+            raise RuntimeError(
+                f"Google get event failed ({resp.status_code}): {resp.text[:240]}"
+            )
         return _parse_google_event(resp.json(), calendar_id=cal)
 
     async def update_event(
@@ -213,7 +225,10 @@ class GoogleCalendarClient:
             )
             if summary is None:
                 body.pop("summary", None)
-        url = f"{GOOGLE_CAL_BASE}/calendars/{quote(cal, safe='')}/events/{quote(event_id, safe='')}"
+        url = (
+            f"{GOOGLE_CAL_BASE}/calendars/{quote(cal, safe='')}/events/"
+            f"{quote(event_id, safe='')}"
+        )
         async with httpx.AsyncClient(timeout=45.0) as client:
             resp = await client.patch(
                 url,
@@ -224,7 +239,9 @@ class GoogleCalendarClient:
                 },
             )
         if resp.status_code >= 400:
-            raise RuntimeError(f"Google update failed ({resp.status_code}): {resp.text[:240]}")
+            raise RuntimeError(
+                f"Google update failed ({resp.status_code}): {resp.text[:240]}"
+            )
         ev = _parse_google_event(resp.json(), calendar_id=cal)
         if ev is None:
             raise RuntimeError("Google update returned an unreadable event")
@@ -238,14 +255,19 @@ class GoogleCalendarClient:
     ) -> None:
         token = await self.access_token()
         cal = calendar_id or self.creds.calendar_id or "primary"
-        url = f"{GOOGLE_CAL_BASE}/calendars/{quote(cal, safe='')}/events/{quote(event_id, safe='')}"
+        url = (
+            f"{GOOGLE_CAL_BASE}/calendars/{quote(cal, safe='')}/events/"
+            f"{quote(event_id, safe='')}"
+        )
         async with httpx.AsyncClient(timeout=45.0) as client:
             resp = await client.delete(
                 url,
                 headers={"Authorization": f"Bearer {token}"},
             )
         if resp.status_code not in {200, 204, 410}:
-            raise RuntimeError(f"Google delete failed ({resp.status_code}): {resp.text[:240]}")
+            raise RuntimeError(
+                f"Google delete failed ({resp.status_code}): {resp.text[:240]}"
+            )
 
     async def list_calendar_list(self) -> list[dict[str, Any]]:
         """Calendars the account can read, including subscribed holidays."""

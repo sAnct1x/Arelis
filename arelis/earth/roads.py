@@ -111,7 +111,9 @@ def roads_for_view(
     return cached[1] if cached is not None else []
 
 
-def schedule_fetch(key: str, lat: float, lon: float, band: str, *, alt_m: float = 0.0) -> None:
+def schedule_fetch(
+    key: str, lat: float, lon: float, band: str, *, alt_m: float = 0.0
+) -> None:
     if os.environ.get("PYTEST_CURRENT_TEST"):
         return
     with _lock:
@@ -186,7 +188,7 @@ def _fetch_one(key: str, lat: float, lon: float, band: str, alt_m: float) -> Non
         south, west, north, east = _bbox(lat, lon, band)
         kinds = "|".join(_CITY if _grain(alt_m) == "names" else _MAJOR)
         query = (
-            f"[out:json][timeout:10];"
+            f'[out:json][timeout:10];'
             f'way["highway"~"^({kinds})$"]({south},{west},{north},{east});'
             f"out geom {_CAP};"
         )

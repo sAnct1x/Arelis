@@ -20,7 +20,8 @@ from arelis.earth.secrets import earth_cars_key, earth_secret
 
 CALTRANS_HOST = "cwwp2.dot.ca.gov"
 CALTRANS_LCS = tuple(
-    f"https://cwwp2.dot.ca.gov/data/d{d}/lcs/lcsStatusD{d:02d}.json" for d in range(1, 13)
+    f"https://cwwp2.dot.ca.gov/data/d{d}/lcs/lcsStatusD{d:02d}.json"
+    for d in range(1, 13)
 )
 TFL_ROAD = "https://api.tfl.gov.uk/Road/all/Disruption"
 TFL_HOST = "api.tfl.gov.uk"
@@ -173,7 +174,10 @@ QC_CONDITIONS = (
 QC_HOST = "ws.mapserver.transports.gouv.qc.ca"
 DE_AUTOBAHN = "https://verkehr.autobahn.de/o/autobahn"
 DE_HOST = "verkehr.autobahn.de"
-WA_ALERTS = "https://wsdot.wa.gov/Traffic/api/HighwayAlerts/HighwayAlertsREST.svc/GetAlertsAsJson"
+WA_ALERTS = (
+    "https://wsdot.wa.gov/Traffic/api/HighwayAlerts/"
+    "HighwayAlertsREST.svc/GetAlertsAsJson"
+)
 WA_HOST = "wsdot.wa.gov"
 WA_ENV = "ARELIS_WSDOT_ACCESS_CODE"
 OH_HOST = "publicapi.ohgo.com"
@@ -201,7 +205,8 @@ _CITE = (
     "index. Individual cars are not in this feed."
 )
 _TFL_CITE = (
-    "TfL Road Disruption. Operator catalog, not a VIN index. Individual cars are not in this feed."
+    "TfL Road Disruption. Operator catalog, not a VIN index. "
+    "Individual cars are not in this feed."
 )
 _FI_CITE = (
     "Fintraffic traffic messages. Finnish roads. CC BY 4.0. "
@@ -625,7 +630,9 @@ def entities_from_geojson_incidents(
     for row in rows:
         if not isinstance(row, dict):
             continue
-        entity = _entity_from_geojson_incident(row, prefix=prefix, source=source, cite=cite)
+        entity = _entity_from_geojson_incident(
+            row, prefix=prefix, source=source, cite=cite
+        )
         if entity is None or entity.id in seen:
             continue
         seen.add(entity.id)
@@ -747,12 +754,9 @@ def _fetch_nzta() -> list[Entity] | None:
             raw = raw.get("event") or raw.get("events") or []
         rows = [row for row in raw if isinstance(row, dict)] if isinstance(raw, list) else []
         if not rows and payload.get("features"):
-            return (
-                entities_from_geojson_incidents(
-                    payload, prefix="nzta", source="NZTA traffic", cite=_NZ_CITE
-                )
-                or None
-            )
+            return entities_from_geojson_incidents(
+                payload, prefix="nzta", source="NZTA traffic", cite=_NZ_CITE
+            ) or None
     else:
         return None
     return entities_from_cars(rows, prefix="nzta", source="NZTA traffic") or None
@@ -831,7 +835,9 @@ def _wzdx_prefix(host: str) -> str:
     return host.split(".")[0][:12]
 
 
-def entities_from_wzdx(payload: dict[str, Any], *, prefix: str, source: str) -> list[Entity]:
+def entities_from_wzdx(
+    payload: dict[str, Any], *, prefix: str, source: str
+) -> list[Entity]:
     rows = payload.get("features")
     if not isinstance(rows, list):
         return []
@@ -850,7 +856,9 @@ def entities_from_wzdx(payload: dict[str, Any], *, prefix: str, source: str) -> 
     return out
 
 
-def _entity_from_wzdx(feat: dict[str, Any], *, prefix: str, source: str) -> Entity | None:
+def _entity_from_wzdx(
+    feat: dict[str, Any], *, prefix: str, source: str
+) -> Entity | None:
     props = feat.get("properties") if isinstance(feat.get("properties"), dict) else {}
     core = props.get("core_details") if isinstance(props.get("core_details"), dict) else {}
     geom = feat.get("geometry") if isinstance(feat.get("geometry"), dict) else {}
@@ -910,7 +918,9 @@ def _fetch_arcgis() -> list[Entity] | None:
     out: list[Entity] = []
     seen: set[str] = set()
     with ThreadPoolExecutor(max_workers=4) as pool:
-        futs = [pool.submit(_get_json, url, host) for host, url, _name, _prefix in _ARCGIS]
+        futs = [
+            pool.submit(_get_json, url, host) for host, url, _name, _prefix in _ARCGIS
+        ]
         meta = [(name, prefix) for _host, _url, name, prefix in _ARCGIS]
         for fut, (name, prefix) in zip(futs, meta, strict=True):
             payload = fut.result()
@@ -960,7 +970,9 @@ def _fetch_cars() -> list[Entity] | None:
             elif isinstance(payload, dict):
                 raw = payload.get("events") or payload.get("Events") or payload.get("data") or []
                 rows = (
-                    [row for row in raw if isinstance(row, dict)] if isinstance(raw, list) else []
+                    [row for row in raw if isinstance(row, dict)]
+                    if isinstance(raw, list)
+                    else []
                 )
             else:
                 continue
@@ -980,7 +992,9 @@ def _fetch_cars() -> list[Entity] | None:
     return out or None
 
 
-def entities_from_cars(rows: list[dict[str, Any]], *, prefix: str, source: str) -> list[Entity]:
+def entities_from_cars(
+    rows: list[dict[str, Any]], *, prefix: str, source: str
+) -> list[Entity]:
     out: list[Entity] = []
     seen: set[str] = set()
     for row in rows:
@@ -994,7 +1008,9 @@ def entities_from_cars(rows: list[dict[str, Any]], *, prefix: str, source: str) 
     return out
 
 
-def _entity_from_cars(row: dict[str, Any], *, prefix: str, source: str) -> Entity | None:
+def _entity_from_cars(
+    row: dict[str, Any], *, prefix: str, source: str
+) -> Entity | None:
     loc = row.get("Location") if isinstance(row.get("Location"), dict) else {}
     lat = _num(
         row.get("Latitude"),
@@ -1194,7 +1210,8 @@ def _fetch_keyed_cars() -> list[Entity] | None:
     seen: set[str] = set()
     with ThreadPoolExecutor(max_workers=len(jobs)) as pool:
         futs = [
-            pool.submit(_get_json, url, host, params={"key": key}) for host, url, _name, key in jobs
+            pool.submit(_get_json, url, host, params={"key": key})
+            for host, url, _name, key in jobs
         ]
         for fut, (host, _url, name, _key) in zip(futs, jobs, strict=True):
             payload = fut.result()
@@ -1307,7 +1324,9 @@ def _fetch_drivetexas() -> list[Entity] | None:
         chunks.append(None)
     wzdx = _get_json(TX_WZDX, TX_HOST, params=params)
     if isinstance(wzdx, dict):
-        chunks.append(entities_from_wzdx(wzdx, prefix="tx-wzdx", source="DriveTexas WZDx") or None)
+        chunks.append(
+            entities_from_wzdx(wzdx, prefix="tx-wzdx", source="DriveTexas WZDx") or None
+        )
     else:
         chunks.append(None)
     if all(chunk is None for chunk in chunks):
@@ -1338,7 +1357,9 @@ def _fetch_quebec() -> list[Entity] | None:
             chunks.append(None)
             continue
         chunks.append(
-            entities_from_geojson_incidents(payload, prefix=prefix, source=source, cite=_QC_CITE)
+            entities_from_geojson_incidents(
+                payload, prefix=prefix, source=source, cite=_QC_CITE
+            )
             or None
         )
     if all(chunk is None for chunk in chunks):
@@ -1418,7 +1439,9 @@ def entities_from_autobahn(
     return out
 
 
-def _entity_from_autobahn(row: dict[str, Any], *, prefix: str, source: str) -> Entity | None:
+def _entity_from_autobahn(
+    row: dict[str, Any], *, prefix: str, source: str
+) -> Entity | None:
     coord = row.get("coordinate") if isinstance(row.get("coordinate"), dict) else {}
     lat = _num(coord.get("lat"), row.get("lat"))
     lon = _num(coord.get("long"), coord.get("lon"), row.get("long"))

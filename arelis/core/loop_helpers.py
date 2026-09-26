@@ -79,7 +79,10 @@ def disconnected_integration_reply(
         if "inbound_sms" in expected:
             needed.add("inbound_sms")
         if needed and not (needed & available):
-            return "I can't text until the phone is paired. Open Settings → Notify and scan the QR."
+            return (
+                "I can't text until the phone is paired. "
+                "Open Settings → Notify and scan the QR."
+            )
     if want_mail or expected & {"send_email", "inbox"}:
         needed = set()
         if want_mail or "send_email" in expected:
@@ -87,10 +90,15 @@ def disconnected_integration_reply(
         if "inbox" in expected:
             needed.add("inbox")
         if needed and not (needed & available):
-            return "I can't send or read mail until an account is in Settings → Mail."
+            return (
+                "I can't send or read mail until an account is in Settings → Mail."
+            )
     if want_calendar or "agenda" in expected:
         if "agenda" not in available:
-            return "I can't use the calendar until Google is connected. That's in Settings."
+            return (
+                "I can't use the calendar until Google is connected. "
+                "That's in Settings."
+            )
     return None
 
 
@@ -212,19 +220,15 @@ def decide_mid_turn_escalate(
     multi = bool(expected) or is_deep_dive_ask(text)
     if not multi:
         return None
-    if (
-        expected
-        & {
-            "analyze",
-            "weather",
-            "send_sms",
-            "send_email",
-            "agenda",
-            "image",
-            "vision",
-        }
-        and "research_report" not in expected
-    ):
+    if expected & {
+        "analyze",
+        "weather",
+        "send_sms",
+        "send_email",
+        "agenda",
+        "image",
+        "vision",
+    } and "research_report" not in expected:
         return None
     if expected and (tools_used & expected):
         return None
@@ -293,7 +297,9 @@ def _exactness_finish_refuse(
             None,
         )
         if cas_fail is not None:
-            return unsupported_exactness_reply(missing, cas_failed=True, cas_detail=cas_fail.span)
+            return unsupported_exactness_reply(
+                missing, cas_failed=True, cas_detail=cas_fail.span
+            )
     if "units" in missing:
         units_fail = next(
             (w for w in ledger.items if w.kind == "units" and not w.ok),

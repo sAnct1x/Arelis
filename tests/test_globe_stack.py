@@ -177,7 +177,9 @@ def test_entity_lla_orbital_uses_geodetic_not_sphere() -> None:
 
 
 def test_photoreal_miss_does_not_fail_the_host(qt_app, monkeypatch) -> None:
-    monkeypatch.setattr("arelis.ui.earth_globe_host.webengine_available", lambda: False)
+    monkeypatch.setattr(
+        "arelis.ui.earth_globe_host.webengine_available", lambda: False
+    )
     from arelis.ui.earth_globe_host import EarthGlobeHost
 
     host = EarthGlobeHost()
@@ -253,11 +255,15 @@ def test_pytest_does_not_forbid_cesium(qt_app) -> None:
         assert panel._cesium_forbidden() is True
 
 
-def test_gpu_env_does_not_forbid_cesium(qt_app, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_gpu_env_does_not_forbid_cesium(
+    qt_app, monkeypatch: pytest.MonkeyPatch
+) -> None:
     from arelis.ui.panels.solar import SolarPanel
 
     monkeypatch.setattr("arelis.ui.solar_gl.gl_wanted", lambda: True)
-    monkeypatch.setattr("arelis.ui.earth_globe_host.webengine_available", lambda: True)
+    monkeypatch.setattr(
+        "arelis.ui.earth_globe_host.webengine_available", lambda: True
+    )
     panel = SolarPanel()
     panel._gl = None
     panel._cesium_off = False
@@ -265,7 +271,9 @@ def test_gpu_env_does_not_forbid_cesium(qt_app, monkeypatch: pytest.MonkeyPatch)
     assert panel._cesium_forbidden() is False
 
 
-def test_enter_earth_parks_solar_gl_for_cesium(qt_app, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_enter_earth_parks_solar_gl_for_cesium(
+    qt_app, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Destroy the offscreen context, then schedule Cesium — under pytest too."""
     from PySide6.QtCore import QTimer
     from PySide6.QtGui import QImage
@@ -273,7 +281,9 @@ def test_enter_earth_parks_solar_gl_for_cesium(qt_app, monkeypatch: pytest.Monke
     from arelis.ui.panels.solar import SolarPanel
 
     panel = SolarPanel()
-    monkeypatch.setattr("arelis.ui.earth_globe_host.webengine_available", lambda: True)
+    monkeypatch.setattr(
+        "arelis.ui.earth_globe_host.webengine_available", lambda: True
+    )
     monkeypatch.setattr(QTimer, "singleShot", lambda *_a, **_k: None)
     calls: list[str] = []
 
@@ -575,7 +585,9 @@ def test_building_rows_need_city_and_the_chip(tmp_path) -> None:
 def test_chromium_disables_gpu_when_a_share_context_exists(monkeypatch) -> None:
     from arelis.ui.earth_globe_host import prepare_chromium_for_shared_gl
 
-    monkeypatch.setattr("PySide6.QtGui.QOpenGLContext.globalShareContext", lambda: object())
+    monkeypatch.setattr(
+        "PySide6.QtGui.QOpenGLContext.globalShareContext", lambda: object()
+    )
     env: dict[str, str] = {}
     flags = prepare_chromium_for_shared_gl(env)
     assert "--disable-gpu" in flags
@@ -590,7 +602,9 @@ def test_chromium_disables_gpu_when_a_share_context_exists(monkeypatch) -> None:
 def test_chromium_keeps_gpu_without_a_share_context(monkeypatch) -> None:
     from arelis.ui.earth_globe_host import prepare_chromium_for_shared_gl
 
-    monkeypatch.setattr("PySide6.QtGui.QOpenGLContext.globalShareContext", lambda: None)
+    monkeypatch.setattr(
+        "PySide6.QtGui.QOpenGLContext.globalShareContext", lambda: None
+    )
     env: dict[str, str] = {}
     assert prepare_chromium_for_shared_gl(env) == ""
     assert "QTWEBENGINE_CHROMIUM_FLAGS" not in env
@@ -733,14 +747,17 @@ def test_hud_glass_does_not_forward_events() -> None:
     assert "function applyNudge" in js
     assert "QRect(8, 6, 300, 240)" not in host
     assert "disableDepthTestDistance: Number.POSITIVE_INFINITY" in js
-    assert "hold_globe_keys" in (GLOBE_DIR.parent / "earth_find.py").read_text(encoding="utf-8")
-    assert "2_400_000" not in (GLOBE_DIR.parent / "earth_chrome.py").read_text(encoding="utf-8")
+    assert "hold_globe_keys" in (
+        GLOBE_DIR.parent / "earth_find.py"
+    ).read_text(encoding="utf-8")
+    assert "2_400_000" not in (
+        GLOBE_DIR.parent / "earth_chrome.py"
+    ).read_text(encoding="utf-8")
     assert "showErrorPanel" in js
     assert "recoverRender" in js
-    assert (
-        "fromDegrees(0, 20, 2.0e7)"
-        not in js.split("function recoverRender")[1].split("function emitCamera")[0]
-    )
+    assert "fromDegrees(0, 20, 2.0e7)" not in js.split("function recoverRender")[1].split(
+        "function emitCamera"
+    )[0]
     assert "setBuildings" in js
     assert "bldg:" in js
     assert "background: #040508" in html
@@ -756,7 +773,7 @@ def test_hud_glass_does_not_forward_events() -> None:
     assert "function flyTo" in js
     assert "function dressWorld" in js
     assert "pendingRide" in js
-    assert 'layer === "iss" ? 80 : 2500' in js
+    assert "layer === \"iss\" ? 80 : 2500" in js
     assert "dressWorld(pose.alt)" in js
     assert "if (!goLock) dressWorld(alt)" in js
     assert "dayAlpha stays 0" in js
@@ -773,9 +790,7 @@ def test_hud_glass_does_not_forward_events() -> None:
     assert 'if (cameraBand() === "space")' in js
     assert "minimumZoomDistance = 200" in js
     assert "function labelDepth" in js
-    assert (
-        "POSITIVE_INFINITY" not in js.split("function labelDepth")[1].split("function lookHit")[0]
-    )
+    assert "POSITIVE_INFINITY" not in js.split("function labelDepth")[1].split("function lookHit")[0]
     assert "function wantLabel" in js
     assert "function orbitalDepth" in js
     assert "function followRide" in js
@@ -785,21 +800,18 @@ def test_hud_glass_does_not_forward_events() -> None:
     assert 'row.ride ? "1" : "0"' in js
     assert "function farSide" in js
     assert "function hideFarSide" in js
-    assert 'rideId = ""' in js
+    assert "rideId = \"\"" in js
     assert "function stepCoast" in js
     assert "setInterval(stepCoast" in js
     assert "depthTestAgainstTerrain = false" in js
     assert "Waiting for tilesLoaded hid the city" in js
-    assert "? 90 : 8" in js
-    assert (
-        'row.layer === "radio"'
-        in js.split("function wantLabel")[1].split("function applyEarthFov")[0]
-    )
+    assert '? 90 : 8' in js
+    assert 'row.layer === "radio"' in js.split("function wantLabel")[1].split("function applyEarthFov")[0]
     assert "var RIDE_LAYERS" in js
     assert "bridge.ridden" in js
     assert "hostRidden" in host
-    assert 'event == "ridden"' in host
-    assert "ent.label.text = row.label" in js
+    assert "event == \"ridden\"" in host
+    assert 'ent.label.text = row.label' in js
     assert "(row.hot && row.card)" not in js
     assert 'row.layer === "satellites") return false' in js
     assert "sitCamera(pose" in js.split("function finish")[1].split("viewer.camera.flyTo")[0]
@@ -818,10 +830,9 @@ def test_hud_glass_does_not_forward_events() -> None:
     assert "requestRenderMode = false" in js
     assert "function gibsProvider" in js
     assert "function wantPhotoreal" in js
-    assert (
-        "if (goLock) return false"
-        in js.split("function wantPhotoreal")[1].split("function gibsProvider")[0]
-    )
+    assert "if (goLock) return false" in js.split("function wantPhotoreal")[1].split(
+        "function gibsProvider"
+    )[0]
     assert "function tunePhotoreal" in js
     assert "foveatedScreenSpaceError" in js
     assert "loadingDescendantLimit" in js
@@ -834,10 +845,9 @@ def test_hud_glass_does_not_forward_events() -> None:
     assert "alt <= photorealAltM" in js
     assert "function armNearLayer" in js
     assert "distance(n, lastRideDest) < step" in js
-    assert (
-        'layer === "flights"'
-        in js.split("function orbitalDepth")[1].split("function flySeconds")[0]
-    )
+    assert 'layer === "flights"' in js.split("function orbitalDepth")[1].split(
+        "function flySeconds"
+    )[0]
     assert "WebMercatorTilingScheme" in js
     assert "fog.enabled = pose.alt" not in js
     assert "row.hot ? 72 : 56" in js
@@ -854,7 +864,9 @@ def test_hud_glass_does_not_forward_events() -> None:
     assert "hostRidden" in proc
     assert "ridden" in proc
     assert "hostKey.connect" in proc
-    stack = (GLOBE_DIR.parent.parent / "earth" / "globe_stack.py").read_text(encoding="utf-8")
+    stack = (GLOBE_DIR.parent.parent / "earth" / "globe_stack.py").read_text(
+        encoding="utf-8"
+    )
     blob = html + js + stack
     for banned in ("NOFORN", "KH11", "Gods Eye", "TOP SECRET"):
         assert banned not in blob
@@ -866,7 +878,9 @@ def test_globe_wants_own_process_when_gpu_solar(
     monkeypatch.delenv("ARELIS_EARTH_GLOBE_CHILD", raising=False)
     monkeypatch.delenv("ARELIS_EARTH_GLOBE_OOP", raising=False)
     monkeypatch.setattr("arelis.ui.solar_gl.gl_wanted", lambda: True)
-    monkeypatch.setattr("arelis.ui.earth_globe_host.share_group_live", lambda: False)
+    monkeypatch.setattr(
+        "arelis.ui.earth_globe_host.share_group_live", lambda: False
+    )
     assert globe_wants_own_process() is True
     monkeypatch.setenv("ARELIS_EARTH_GLOBE_CHILD", "1")
     assert globe_wants_own_process() is False
@@ -878,7 +892,9 @@ def test_globe_stays_in_process_without_gpu_or_share(
     monkeypatch.delenv("ARELIS_EARTH_GLOBE_CHILD", raising=False)
     monkeypatch.delenv("ARELIS_EARTH_GLOBE_OOP", raising=False)
     monkeypatch.setattr("arelis.ui.solar_gl.gl_wanted", lambda: False)
-    monkeypatch.setattr("arelis.ui.earth_globe_host.share_group_live", lambda: False)
+    monkeypatch.setattr(
+        "arelis.ui.earth_globe_host.share_group_live", lambda: False
+    )
     assert globe_wants_own_process() is False
 
 
@@ -919,13 +935,16 @@ def test_earth_plate_uses_main_app_ghost_rule() -> None:
 def test_launch_does_not_import_webengine() -> None:
     from pathlib import Path
 
-    text = (Path(__file__).resolve().parents[1] / "arelis" / "ui" / "launch.py").read_text(
-        encoding="utf-8"
-    )
+    text = (
+        Path(__file__).resolve().parents[1] / "arelis" / "ui" / "launch.py"
+    ).read_text(encoding="utf-8")
     assert "from PySide6.QtWebEngineWidgets import QWebEngineView" not in text
     assert "AA_ShareOpenGLContexts" not in text
     assert "earth_globe_proc" in (
-        Path(__file__).resolve().parents[1] / "arelis" / "ui" / "earth_globe_proc.py"
+        Path(__file__).resolve().parents[1]
+        / "arelis"
+        / "ui"
+        / "earth_globe_proc.py"
     ).read_text(encoding="utf-8")
 
 
@@ -1042,7 +1061,9 @@ def test_entity_rows_city_keeps_iss_and_caps_sats() -> None:
         "lat": 0.0,
         "lon": 0.0,
     }
-    near_rows = [{"id": f"sat:{i}", "layer": "satellites", "hot": False} for i in range(90)]
+    near_rows = [
+        {"id": f"sat:{i}", "layer": "satellites", "hot": False} for i in range(90)
+    ]
     picked = pick_orbit_marks(
         [{"id": "plane:1", "layer": "flights"}, *near_rows, far],
         keep_ids={"sat:far"},

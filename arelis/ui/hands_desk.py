@@ -445,10 +445,9 @@ def _button_under(global_pt: QPoint) -> QWidget | None:
 def _still_dragging(track: object | None) -> bool:
     if track is None:
         return False
-    return (
-        bool(getattr(track, "dragging", False))
-        and str(getattr(track, "state", "") or "") == "pinch"
-    )
+    return bool(getattr(track, "dragging", False)) and str(
+        getattr(track, "state", "") or ""
+    ) == "pinch"
 
 
 def _drag_tile(window, who: str, global_pt: QPoint) -> None:
@@ -563,13 +562,18 @@ def _vertical_bar(widget: QWidget | None):
     while cur is not None:
         if isinstance(cur, QAbstractScrollArea):
             return cur.verticalScrollBar()
-        if isinstance(cur, QAbstractSlider) and cur.orientation() == Qt.Orientation.Vertical:
+        if (
+            isinstance(cur, QAbstractSlider)
+            and cur.orientation() == Qt.Orientation.Vertical
+        ):
             return cur
         cur = cur.parentWidget()
     return None
 
 
-def _remap_xy(xy: tuple[float, float], src: QWidget, dest: QWidget) -> tuple[float, float]:
+def _remap_xy(
+    xy: tuple[float, float], src: QWidget, dest: QWidget
+) -> tuple[float, float]:
     px, py = span_pixel(xy[0], xy[1], src.width(), src.height())
     global_pt = src.mapToGlobal(QPoint(px, py))
     local = dest.mapFromGlobal(global_pt)

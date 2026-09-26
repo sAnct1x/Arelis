@@ -319,7 +319,8 @@ class OcrTool:
         dest = self.output_dir / "pdf_pages" / f"{path.stem}_{page_digest(path)}"
         written = write_page_images(pages, dest)
         listing = "\n".join(
-            f"  {item.page}: {dest_path}" for item, dest_path in zip(pages, written, strict=True)
+            f"  {item.page}: {dest_path}"
+            for item, dest_path in zip(pages, written, strict=True)
         )
         # Tablet ink / homework scans have no text layer. Tesseract returns
         # soup; last night she graded from that soup. Vision is the read.

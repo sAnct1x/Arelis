@@ -46,7 +46,9 @@ def picture_key_state() -> list[tuple[str, str, str, bool]]:
 
 def missing_picture_keys() -> list[tuple[str, str, str]]:
     return [
-        (field, chip, prompt) for field, chip, prompt, present in picture_key_state() if not present
+        (field, chip, prompt)
+        for field, chip, prompt, present in picture_key_state()
+        if not present
     ]
 
 

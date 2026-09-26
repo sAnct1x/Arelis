@@ -73,7 +73,9 @@ async def test_cas_solve_stays_in_process(monkeypatch: pytest.MonkeyPatch) -> No
         return _CasResult("[-5, 2]", ascii="[-5, 2]", latex="[-5, 2]")
 
     monkeypatch.setattr(cas, "_run_in_process", _no_spawn)
-    result = await CasTool().run(action="solve", expr="x**2 + 3*x - 10 = 0", symbol="x")
+    result = await CasTool().run(
+        action="solve", expr="x**2 + 3*x - 10 = 0", symbol="x"
+    )
     assert result.ok
     assert spawned == []
     assert "2" in str(result.data.get("result", ""))
@@ -89,7 +91,9 @@ async def test_cas_timeout_does_not_claim_none_exists(
         raise TimeoutError("cas timeout")
 
     monkeypatch.setattr(cas, "_run_timed", _boom)
-    result = await CasTool().run(action="integrate", expr="log(1+x)/(1+x**2)", lo="0", hi="1")
+    result = await CasTool().run(
+        action="integrate", expr="log(1+x)/(1+x**2)", lo="0", hi="1"
+    )
     assert not result.ok
     assert "not a proof" in result.output.lower()
     assert "usually means" not in result.output.lower()
@@ -165,14 +169,18 @@ async def test_cas_integrate_x_squared() -> None:
 
 @pytest.mark.asyncio
 async def test_cas_limit_sinc_is_one() -> None:
-    result = await CasTool().run(action="limit", expr="sin(x)/x", wrt="x", at="0")
+    result = await CasTool().run(
+        action="limit", expr="sin(x)/x", wrt="x", at="0"
+    )
     assert result.ok
     assert str(result.data.get("result") or "").strip() == "1"
 
 
 @pytest.mark.asyncio
 async def test_cas_sum_one_to_hundred() -> None:
-    result = await CasTool().run(action="sum", expr="k", wrt="k", lo="1", hi="100")
+    result = await CasTool().run(
+        action="sum", expr="k", wrt="k", lo="1", hi="100"
+    )
     assert result.ok
     assert "5050" in str(result.data.get("result") or "")
 

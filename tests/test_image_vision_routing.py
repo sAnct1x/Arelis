@@ -66,7 +66,9 @@ def test_new_image_phrases_match_image_gen() -> None:
 
 
 def test_image_gen_preflight_expects_image_tool() -> None:
-    hints = detect_intents("generate a new image of a cute puppy but make it look happier")
+    hints = detect_intents(
+        "generate a new image of a cute puppy but make it look happier"
+    )
     assert any(h.kind == "image_gen" for h in hints)
     assert "image" in {t for h in hints for t in h.expected_tools}
     assert not any(h.kind == "sms_send" for h in hints)
@@ -154,9 +156,8 @@ def test_shipped_chat_fast_path_is_off_so_the_prefix_cache_survives() -> None:
     import yaml
 
     shipped = yaml.safe_load(
-        (Path(__file__).resolve().parents[1] / "arelis" / "config" / "default.yaml").read_text(
-            encoding="utf-8"
-        )
+        (Path(__file__).resolve().parents[1] / "arelis" / "config" / "default.yaml")
+        .read_text(encoding="utf-8")
     )
     assert shipped["agent"]["chat_fast_path"] is False
 
@@ -661,7 +662,9 @@ def test_remove_background_is_image_surgical() -> None:
         assert not wants_image_edit(ask), ask
         assert looks_like_image_gen(ask), ask
         _assert_routes_image(ask)
-        filled = fill_image_gen_args({}, history=_last_image_history(), user_text=ask)
+        filled = fill_image_gen_args(
+            {}, history=_last_image_history(), user_text=ask
+        )
         assert filled.get("remove_background") is True, ask
         path = str(filled.get("path") or "").replace("\\", "/")
         assert "arelis_00021_.png" in path, ask
@@ -676,7 +679,9 @@ def test_outpaint_uncrop_is_image_surgical() -> None:
         assert wants_image_surgical(ask), ask
         assert not wants_image_edit(ask), ask
         _assert_routes_image(ask)
-        filled = fill_image_gen_args({}, history=_last_image_history(), user_text=ask)
+        filled = fill_image_gen_args(
+            {}, history=_last_image_history(), user_text=ask
+        )
         assert filled.get("outpaint") == "all", ask
         path = str(filled.get("path") or "").replace("\\", "/")
         assert "arelis_00021_.png" in path, ask
@@ -695,7 +700,9 @@ def test_mask_region_is_image_surgical() -> None:
         assert not wants_image_edit(ask), ask
         assert not wants_image_restyle(ask), ask
         _assert_routes_image(ask)
-        filled = fill_image_gen_args({}, history=_last_image_history(), user_text=ask)
+        filled = fill_image_gen_args(
+            {}, history=_last_image_history(), user_text=ask
+        )
         assert filled.get("mask_region") == region, ask
         path = str(filled.get("path") or "").replace("\\", "/")
         assert "arelis_00021_.png" in path, ask
@@ -722,7 +729,9 @@ def test_upscale_is_image_edit_scale_2() -> None:
         "make this 2x",
     ):
         _assert_routes_image_edit(ask)
-        filled = fill_image_edit_args({}, history=_last_image_history(), user_text=ask)
+        filled = fill_image_edit_args(
+            {}, history=_last_image_history(), user_text=ask
+        )
         assert filled.get("scale") == 2, ask
         path = str(filled.get("path") or "").replace("\\", "/")
         assert "arelis_00021_.png" in path, ask
@@ -736,7 +745,9 @@ def test_crop_half_is_image_edit_not_restyle() -> None:
     )
     for ask, crop in cases:
         _assert_routes_image_edit(ask)
-        filled = fill_image_edit_args({}, history=_last_image_history(), user_text=ask)
+        filled = fill_image_edit_args(
+            {}, history=_last_image_history(), user_text=ask
+        )
         assert filled.get("crop") == crop, ask
         path = str(filled.get("path") or "").replace("\\", "/")
         assert "arelis_00021_.png" in path, ask

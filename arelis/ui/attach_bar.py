@@ -132,7 +132,9 @@ class AttachmentTile(QWidget):
             self.setFixedSize(ATTACH_TILE, ATTACH_TILE)
 
         btn = QToolButton(self)
-        btn.setObjectName("AttachmentTileRemoveOnPhoto" if self._image else "AttachmentTileRemove")
+        btn.setObjectName(
+            "AttachmentTileRemoveOnPhoto" if self._image else "AttachmentTileRemove"
+        )
         btn.setText("\u00d7")
         btn.setAutoRaise(True)
         btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)

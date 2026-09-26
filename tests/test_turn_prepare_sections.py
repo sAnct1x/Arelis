@@ -151,26 +151,28 @@ async def test_prepare_turn_wires_sections_expected_tools_budget_and_history(mon
     monkeypatch.setattr(
         subject,
         "append_plan_and_lessons",
-        lambda messages, *_a, **_k: messages.append({"role": "system", "content": "PLAN_LESSONS"}),
+        lambda messages, *_a, **_k: messages.append(
+            {"role": "system", "content": "PLAN_LESSONS"}
+        ),
     )
     monkeypatch.setattr(
         subject,
         "append_operating_context",
-        lambda messages, *_a, **_k: messages.append({"role": "system", "content": "OPERATING"}),
+        lambda messages, *_a, **_k: messages.append(
+            {"role": "system", "content": "OPERATING"}
+        ),
     )
     monkeypatch.setattr(
         subject,
         "append_delivery_context",
-        lambda messages, *_a, **_k: messages.append({"role": "system", "content": "DELIVERY"}),
-    )
-    monkeypatch.setattr(
-        subject,
-        "detect_exactness_need",
-        lambda _text: SimpleNamespace(
-            needs_web_evidence=False,
-            needs_weather=False,
+        lambda messages, *_a, **_k: messages.append(
+            {"role": "system", "content": "DELIVERY"}
         ),
     )
+    monkeypatch.setattr(subject, "detect_exactness_need", lambda _text: SimpleNamespace(
+        needs_web_evidence=False,
+        needs_weather=False,
+    ))
     monkeypatch.setattr(subject, "apply_research_web_need", lambda need, **_: need)
     monkeypatch.setattr(subject, "wants_fresh_page_ask", lambda _text: False)
     monkeypatch.setattr(subject, "should_offer_tools", lambda **_: True)

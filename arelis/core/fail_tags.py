@@ -116,4 +116,8 @@ def tool_fail_replan_notice(
 
 def _web_search_failed(output: str) -> bool:
     lowered = (output or "").lower()
-    return "found nothing" in lowered or "web_search failed" in lowered or "[fail:" in lowered
+    return (
+        "found nothing" in lowered
+        or "web_search failed" in lowered
+        or "[fail:" in lowered
+    )

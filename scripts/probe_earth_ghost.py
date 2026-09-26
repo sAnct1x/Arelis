@@ -244,7 +244,8 @@ def main() -> int:
     hole = leak > 0.02
     no_planet = sc_bright < 0.02 and near_bright < 0.02
     print(
-        f"verdict leftover_qt_disc={leftover} magenta_hole={hole} no_planet={no_planet}",
+        f"verdict leftover_qt_disc={leftover} magenta_hole={hole} "
+        f"no_planet={no_planet}",
         flush=True,
     )
 

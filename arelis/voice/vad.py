@@ -140,7 +140,9 @@ class EnergyUtteranceDetector:
         self.reset()
         if kept > 0:
             self._floor = kept
-            self._calibrated_samples = _ms_to_samples(cfg.calibration_ms, cfg.sample_rate)
+            self._calibrated_samples = _ms_to_samples(
+                cfg.calibration_ms, cfg.sample_rate
+            )
 
     @property
     def speaking(self) -> bool:
@@ -285,7 +287,9 @@ class SileroUtteranceDetector:
         # Voiced duration is tracked in 16 kHz sample units from Silero frames.
         from arelis.voice.silero_vad import TARGET_SR
 
-        return _required_silence_ms(self.config, self._voiced_samples, sample_rate=TARGET_SR)
+        return _required_silence_ms(
+            self.config, self._voiced_samples, sample_rate=TARGET_SR
+        )
 
     def feed(self, block: bytes) -> str | None:
         if self._finished or not block:
@@ -315,7 +319,8 @@ class SileroUtteranceDetector:
         for prob in probs:
             self._last_speech_prob = float(prob)
             self._prob_ema = (
-                _SILERO_PROB_EMA * float(prob) + (1.0 - _SILERO_PROB_EMA) * self._prob_ema
+                _SILERO_PROB_EMA * float(prob)
+                + (1.0 - _SILERO_PROB_EMA) * self._prob_ema
             )
             if not self._speaking:
                 voiced = self._prob_ema >= threshold
@@ -399,7 +404,9 @@ def make_utterance_detector(
         return EnergyUtteranceDetector(cfg)
 
 
-def _required_silence_ms(cfg: DetectorConfig, voiced_samples: int, *, sample_rate: int) -> int:
+def _required_silence_ms(
+    cfg: DetectorConfig, voiced_samples: int, *, sample_rate: int
+) -> int:
     short = int(cfg.short_silence_ms or 0)
     long = int(cfg.silence_ms)
     if short <= 0 or short >= long:

@@ -84,7 +84,9 @@ def fetch_barentswatch() -> list[Entity] | None:
     return entities_from_latest(payload)
 
 
-def entities_from_latest(rows: Any, *, unix: float | None = None) -> list[Entity]:
+def entities_from_latest(
+    rows: Any, *, unix: float | None = None
+) -> list[Entity]:
     now = float(unix if unix is not None else time.time())
     if not isinstance(rows, list):
         return []
@@ -118,7 +120,9 @@ def _entity_from_row(row: dict[str, Any], now: float) -> Entity | None:
     pos = lla_to_ecef(lat, lon, 0.0)
     speed = (sog or 0.0) * 0.514444
     vx, vy, vz = (
-        ecef_vel_from_track(lat, lon, speed, cog or 0.0) if speed > 0.5 else (0.0, 0.0, 0.0)
+        ecef_vel_from_track(lat, lon, speed, cog or 0.0)
+        if speed > 0.5
+        else (0.0, 0.0, 0.0)
     )
     return Entity(
         id=f"mmsi:{mmsi}",

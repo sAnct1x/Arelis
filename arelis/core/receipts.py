@@ -29,7 +29,6 @@ def default_ledger_path() -> Path:
         else state_dir() / "action_ledger.jsonl"
     )
 
-
 # Mutating / side-effect tools that should emit a receipt when they succeed.
 _RECEIPT_TOOLS = frozenset(
     {
@@ -53,8 +52,12 @@ _RECEIPT_TOOLS = frozenset(
 )
 
 _AGENDA_MUTATE = frozenset({"create", "update", "delete"})
-_TASKS_MUTATE = frozenset({"add", "done", "reopen", "remove", "attach", "detach"})
-_GOALS_MUTATE = frozenset({"add", "update", "pause", "resume", "done", "drop", "remove"})
+_TASKS_MUTATE = frozenset(
+    {"add", "done", "reopen", "remove", "attach", "detach"}
+)
+_GOALS_MUTATE = frozenset(
+    {"add", "update", "pause", "resume", "done", "drop", "remove"}
+)
 _WORKSPACE_MUTATE = frozenset({"write", "edit"})
 _MEMORY_MUTATE = frozenset({"remember", "forget", "prefer", "decide", "episode"})
 _CONTACTS_MUTATE = frozenset({"add", "update", "remove"})
@@ -161,7 +164,9 @@ def action_receipt(
         receipt["kind"] = str(data.get("kind") or args.get("kind") or "")[:40]
         receipt["status"] = str(data.get("status") or "")[:40]
     elif tool == "workspace":
-        receipt["path"] = str(data.get("path") or args.get("path") or "").strip()[:200]
+        receipt["path"] = str(
+            data.get("path") or args.get("path") or ""
+        ).strip()[:200]
     elif tool == "memory":
         receipt["kind"] = str(data.get("kind") or action or "").strip()[:40]
     elif tool == "browser":
@@ -170,11 +175,15 @@ def action_receipt(
     elif tool == "image":
         receipt["path"] = str(data.get("path") or "").strip()[:200]
     elif tool == "vision":
-        receipt["path"] = str(data.get("path") or args.get("path") or "").strip()[:200]
+        receipt["path"] = str(
+            data.get("path") or args.get("path") or ""
+        ).strip()[:200]
         receipt["answer_len"] = data.get("answer_len")
         receipt["answer_hash"] = str(data.get("answer_hash") or "")[:16]
     elif tool == "look":
-        receipt["path"] = str(data.get("path") or args.get("path") or "").strip()[:200]
+        receipt["path"] = str(
+            data.get("path") or args.get("path") or ""
+        ).strip()[:200]
         receipt["speech_act"] = str(data.get("speech_act") or "")[:40]
         receipt["channel"] = str(data.get("channel") or "")[:40]
         receipt["frame_sha256"] = str(data.get("frame_sha256") or "")[:16]

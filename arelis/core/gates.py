@@ -169,7 +169,9 @@ async def apply_force_gates(
         await loop._retract()
         ctx.messages.append({"role": "assistant", "content": content})
         ctx.messages.append({"role": "user", "content": gate.notice()})
-        await loop.bus.publish(Event(EventType.THINKING, {"text": gate.thinking}))
+        await loop.bus.publish(
+            Event(EventType.THINKING, {"text": gate.thinking})
+        )
         if loop._timer is not None:
             loop._timer.mark("exactness", gate=gate.timer_gate, action="force")
         return gate

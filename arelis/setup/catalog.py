@@ -156,7 +156,11 @@ def recommend(hardware: HardwareSnapshot) -> CatalogModel:
     """
     qwen = [m for m in CATALOG if m.family == "Qwen"]
     if hardware.vram_gb is None:
-        cpu = [m for m in qwen if m.tag in {"qwen3.5:4b", "qwen3.5:9b"} and fits(m, hardware)]
+        cpu = [
+            m
+            for m in qwen
+            if m.tag in {"qwen3.5:4b", "qwen3.5:9b"} and fits(m, hardware)
+        ]
         if cpu:
             return max(cpu, key=lambda m: m.download_gb)
         return qwen[0]

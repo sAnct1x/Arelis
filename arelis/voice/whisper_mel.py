@@ -4,7 +4,6 @@ Vendored from Pipecat's ``_whisper_features`` (BSD-2-Clause, Daily) so we do
 not import ``transformers``. The math mirrors HuggingFace WhisperFeatureExtractor
 (Apache-2.0). Caller pads or truncates to 8 s at 16 kHz.
 """
-
 from __future__ import annotations
 
 import numpy as np

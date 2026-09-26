@@ -1,5 +1,4 @@
 """Conversation / dictate / wake modes, hotkeys, and listen gates."""
-
 from __future__ import annotations
 
 import asyncio
@@ -31,7 +30,6 @@ def test_a_pause_sends_the_utterance_hands_free(qt_app) -> None:
     assert sent[0][1] == "turn"
     assert len(sent[0][0]) > 0
 
-
 def test_dictation_keeps_listening_through_a_pause(qt_app) -> None:
     """The whole reason dictation exists: pauses are thinking, not the end."""
     controller, recorder = _controller(qt_app)
@@ -44,7 +42,6 @@ def test_dictation_keeps_listening_through_a_pause(qt_app) -> None:
     assert sent == ["dictate", "dictate"]
     assert controller.mode() == "dictate"
     assert recorder.is_recording()
-
 
 def test_a_second_utterance_is_not_stacked_on_a_running_turn(qt_app) -> None:
     """One turn at a time is an orchestrator invariant. Queueing speech the
@@ -61,7 +58,6 @@ def test_a_second_utterance_is_not_stacked_on_a_running_turn(qt_app) -> None:
     recorder.push(_tone(1.0) + _silence(1.4))
     assert sent == ["turn", "control"]
 
-
 def test_a_misclick_is_not_sent(qt_app) -> None:
     """A fraction of a second of noise makes Whisper hallucinate "thank you",
     which then costs a model turn."""
@@ -73,7 +69,6 @@ def test_a_misclick_is_not_sent(qt_app) -> None:
     recorder.push(_tone(0.1))
     controller.set_dictate(False)
     assert sent == []
-
 
 def test_turning_dictation_off_flushes_what_was_said(qt_app) -> None:
     from PySide6.QtCore import QCoreApplication
@@ -90,7 +85,6 @@ def test_turning_dictation_off_flushes_what_was_said(qt_app) -> None:
     QCoreApplication.processEvents()
     assert controller.mode() == "wake"
 
-
 def test_switching_modes_closes_the_previous_one(qt_app) -> None:
     controller, recorder = _controller(qt_app)
     controller.set_dictate(True)
@@ -105,7 +99,6 @@ def test_switching_modes_closes_the_previous_one(qt_app) -> None:
 # --------------------------------------------------------------------------
 # The window: spoken words have to appear as a message
 # --------------------------------------------------------------------------
-
 
 def test_conversation_keeps_listening_when_nothing_was_heard(qt_app) -> None:
     """An utterance that never becomes a turn produces no terminal event. The
@@ -128,7 +121,6 @@ def test_conversation_keeps_listening_when_nothing_was_heard(qt_app) -> None:
 
     recorder.push(_tone(1.0) + _silence(1.4))
     assert len(sent) == 2, "the next thing said must still be heard"
-
 
 def test_a_spoken_physics_verb_does_not_deafen_conversation(qt_app) -> None:
     """Closed verbs skip USER_MESSAGE. Conversation must listen again, not wait."""
@@ -161,7 +153,6 @@ def test_a_spoken_physics_verb_does_not_deafen_conversation(qt_app) -> None:
         window.hide()
         window.loop.close()
 
-
 def test_conversation_listen_gate_does_not_depend_on_world_focus(qt_app) -> None:
     """The mic gate is turn/speech/awaiting — not which plate is active."""
     controller, _recorder = _controller(qt_app)
@@ -172,7 +163,6 @@ def test_conversation_listen_gate_does_not_depend_on_world_focus(qt_app) -> None
     assert controller._wants_listening() is False
     controller.notify_turn_finished()
     assert controller._wants_listening() is True
-
 
 def test_voice_hotkeys_allowed_when_world_is_the_active_window(qt_app, monkeypatch) -> None:
     """World is a native Tool window; conversation chords still belong to Arelis."""
@@ -187,7 +177,9 @@ def test_voice_hotkeys_allowed_when_world_is_the_active_window(qt_app, monkeypat
     }
     window = ArelisWindow(config, BusBridge(), asyncio.new_event_loop(), EventBus())
     try:
-        monkeypatch.setattr(QApplication, "activeWindow", lambda *a, **k: window.world_window)
+        monkeypatch.setattr(
+            QApplication, "activeWindow", lambda *a, **k: window.world_window
+        )
         assert window._voice_hotkeys_allowed() is True
         monkeypatch.setattr(QApplication, "activeWindow", lambda *a, **k: None)
         assert window._voice_hotkeys_allowed() is False
@@ -195,7 +187,6 @@ def test_voice_hotkeys_allowed_when_world_is_the_active_window(qt_app, monkeypat
         window.dispose()
         window.hide()
         window.loop.close()
-
 
 def test_spoken_goodbye_unlatches_conversation(qt_app) -> None:
     """Hangup is a closed act: the two-arcs toggle drops, wake can listen."""
@@ -228,7 +219,6 @@ def test_spoken_goodbye_unlatches_conversation(qt_app) -> None:
         window.hide()
         window.loop.close()
 
-
 def test_confirm_card_keeps_conversation_listening(qt_app) -> None:
     """Conversation mode hears allow / deny. The mic stays on for the card."""
     controller, _recorder = _controller(qt_app)
@@ -245,7 +235,6 @@ def test_confirm_card_keeps_conversation_listening(qt_app) -> None:
     controller.notify_confirm_pending(False)
     controller.notify_turn_finished()
     assert listening[-1] is True
-
 
 def test_a_capture_failure_actually_leaves_the_mode(qt_app) -> None:
     """Unchecking the buttons without stopping the controller showed voice as
@@ -278,7 +267,6 @@ def test_a_capture_failure_actually_leaves_the_mode(qt_app) -> None:
     finally:
         window.loop.close()
 
-
 def test_one_held_chord_latches_conversation_on(qt_app) -> None:
     """Held Ctrl+Shift+M must latch ON and stay there.
 
@@ -303,7 +291,9 @@ def test_one_held_chord_latches_conversation_on(qt_app) -> None:
         assert toggles == [True]
 
         for _ in range(6):
-            window.eventFilter(window, _chord(QEvent.Type.KeyPress, shift=True, autorep=True))
+            window.eventFilter(
+                window, _chord(QEvent.Type.KeyPress, shift=True, autorep=True)
+            )
         assert toggles == [True], "auto-repeat is one press, not seven"
         assert window.conversation.conversation_btn.isChecked()
 
@@ -313,7 +303,6 @@ def test_one_held_chord_latches_conversation_on(qt_app) -> None:
         assert toggles == [True, False]
     finally:
         window.loop.close()
-
 
 def test_the_shift_chord_does_not_start_dictation(qt_app) -> None:
     """Ctrl+M and Ctrl+Shift+M are different modes and both are exclusive."""
@@ -339,7 +328,6 @@ def test_the_shift_chord_does_not_start_dictation(qt_app) -> None:
         assert not window.conversation.conversation_btn.isChecked()
     finally:
         window.loop.close()
-
 
 def test_the_latched_mode_is_readable_on_the_empty_orbit(qt_app) -> None:
     """The orbit is the whole UI in idle. A latched mode with no visible mark
@@ -373,7 +361,6 @@ def test_the_latched_mode_is_readable_on_the_empty_orbit(qt_app) -> None:
 # Wake word
 # --------------------------------------------------------------------------
 
-
 def test_wake_listen_emits_wake_deliver(qt_app) -> None:
     controller, recorder = _controller(qt_app)
     sent: list[str] = []
@@ -383,7 +370,6 @@ def test_wake_listen_emits_wake_deliver(qt_app) -> None:
     assert controller.mode() == "wake"
     recorder.push(_silence(0.5) + _tone(1.0) + _silence(1.4))
     assert sent == ["wake"]
-
 
 def test_conversation_stays_on_when_mic_resume_fails(qt_app) -> None:
     """A blipped mic after Stop must not drop conversation into whisper wake."""
@@ -395,7 +381,6 @@ def test_conversation_stays_on_when_mic_resume_fails(qt_app) -> None:
     recorder.start = lambda: False  # type: ignore[method-assign]
     controller.notify_turn_finished()
     assert controller.mode() == "conversation"
-
 
 def test_leaving_conversation_resumes_wake_listen(qt_app) -> None:
     from PySide6.QtCore import QCoreApplication
@@ -424,7 +409,6 @@ def test_stop_all_stays_deaf_until_resume_wake(qt_app) -> None:
     controller.resume_wake()
     assert controller.mode() == "wake"
 
-
 def test_wake_is_paused_during_dictate(qt_app) -> None:
     controller, recorder = _controller(qt_app)
     sent: list[str] = []
@@ -434,7 +418,6 @@ def test_wake_is_paused_during_dictate(qt_app) -> None:
     recorder.push(_silence(0.5) + _tone(1.0) + _silence(1.4))
     assert sent == ["dictate"]
     assert controller.mode() == "dictate"
-
 
 def test_a_lost_utterance_callback_does_not_deafen_conversation(qt_app) -> None:
     """Nothing in the hand-off path is unbounded, but a callback that never
@@ -446,7 +429,6 @@ def test_a_lost_utterance_callback_does_not_deafen_conversation(qt_app) -> None:
 
     controller._on_turn_watchdog()  # what the timer does thirty seconds later
     assert controller.listening()
-
 
 def test_voice_debug_records_the_state_that_stuck(qt_app, tmp_path) -> None:
     """The point of the trace: reading the last line has to say which of the
@@ -469,7 +451,6 @@ def test_voice_debug_records_the_state_that_stuck(qt_app, tmp_path) -> None:
     assert "turn_busy=1" in lines[-1]
     assert "speaking=1" in lines[-1]
 
-
 def test_a_pause_that_captured_nothing_leaves_the_listening_alone(qt_app) -> None:
     """Nothing was said, so there is no turn to wait for. Going deaf here used
     to need a deferred timer to undo it."""
@@ -482,7 +463,6 @@ def test_a_pause_that_captured_nothing_leaves_the_listening_alone(qt_app) -> Non
     controller._on_speech_ended(timed_out=False)  # the buffer is empty
     assert sent == []
     assert controller.listening()
-
 
 def test_smart_turn_incomplete_pause_does_not_end_the_turn(qt_app) -> None:
     class _StubSmartTurn:
@@ -510,7 +490,6 @@ def test_smart_turn_incomplete_pause_does_not_end_the_turn(qt_app) -> None:
     recorder.push(_tone(0.6) + _silence(1.4))
     assert sent == ["turn"]
 
-
 def test_missing_smart_turn_uses_silence_ms(qt_app) -> None:
     controller, recorder = _controller(qt_app)
     assert controller._smart_turn is None
@@ -520,7 +499,6 @@ def test_missing_smart_turn_uses_silence_ms(qt_app) -> None:
     recorder.push(_silence(0.5) + _tone(1.0) + _silence(1.4))
     assert sent == ["turn"]
 
-
 def test_conversation_onset_emits_live_started(qt_app) -> None:
     controller, recorder = _controller(qt_app)
     hits: list[int] = []
@@ -528,7 +506,6 @@ def test_conversation_onset_emits_live_started(qt_app) -> None:
     controller.set_conversation(True)
     recorder.push(_silence(0.5) + _tone(1.0) + _silence(1.4))
     assert hits == [1]
-
 
 def test_wake_to_conversation_keeps_the_buffer(qt_app) -> None:
     controller, recorder = _controller(qt_app)

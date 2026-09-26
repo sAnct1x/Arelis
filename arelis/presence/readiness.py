@@ -76,7 +76,9 @@ def _configured_chat_models(config: dict[str, Any]) -> dict[str, str]:
 
 
 def _embed_tag(config: dict[str, Any]) -> str:
-    return str((config.get("memory") or {}).get("embed_model") or DEFAULT_EMBED_MODEL).strip()
+    return str(
+        (config.get("memory") or {}).get("embed_model") or DEFAULT_EMBED_MODEL
+    ).strip()
 
 
 async def probe_readiness(
@@ -158,7 +160,9 @@ async def probe_readiness(
         else:
             missing_bits = ", ".join(f"{role}:{name}" for role, name in absent)
             n_unique = len(set(configured.values()))
-            level = ChipLevel.OFF if len(absent) >= n_unique else ChipLevel.WARN
+            level = (
+                ChipLevel.OFF if len(absent) >= n_unique else ChipLevel.WARN
+            )
             chips["models"] = ReadinessChip(
                 "models",
                 "Models",
@@ -183,7 +187,7 @@ async def probe_readiness(
 
 def _watch_chip(config: dict[str, Any]) -> ReadinessChip:
     """The doors Arelis opened — not a scan of the rest of the PC."""
-    watch_cfg = (config.get("agent") or {}).get("watch") or {}
+    watch_cfg = ((config.get("agent") or {}).get("watch") or {})
     if not bool(watch_cfg.get("enabled", True)):
         return ReadinessChip(
             "watch",
@@ -234,7 +238,9 @@ def _role_chip(
     router: Any | None,
     configured: dict[str, str],
 ) -> ReadinessChip:
-    default_role = str((config.get("router") or {}).get("default_role") or "fast").strip() or "fast"
+    default_role = str(
+        (config.get("router") or {}).get("default_role") or "fast"
+    ).strip() or "fast"
     if router is not None:
         role = str(getattr(router, "active_role", None) or default_role)
         active = getattr(router, "active_model", None)

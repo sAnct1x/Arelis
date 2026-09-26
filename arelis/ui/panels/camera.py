@@ -174,7 +174,9 @@ def _ys(src_h: int, dest_h: int) -> np.ndarray:
     return (np.arange(dest_h) * (src_h / dest_h)).astype(np.int32)
 
 
-def _sample_nv12(buf: np.ndarray, w: int, h: int, bpl: int, dw: int, dh: int) -> np.ndarray:
+def _sample_nv12(
+    buf: np.ndarray, w: int, h: int, bpl: int, dw: int, dh: int
+) -> np.ndarray:
     y_plane = buf[: bpl * h].reshape(h, bpl)[:, :w]
     xs, ys = _xs(w, dw), _ys(h, dh)
     y = y_plane[ys][:, xs].astype(np.float32)
@@ -307,7 +309,9 @@ def _prefer_preview(camera, device, max_width: int | None = None) -> None:
     kwargs = {}
     if max_width is not None:
         kwargs["max_width"] = int(max_width)
-    picked = pick_preview_format([(w, h, fps, pix) for w, h, fps, pix, _ in rows], **kwargs)
+    picked = pick_preview_format(
+        [(w, h, fps, pix) for w, h, fps, pix, _ in rows], **kwargs
+    )
     if picked is None:
         return
     pw, ph, pfps, ppix = picked
@@ -344,7 +348,9 @@ def _match_video_device(hint: str):
         if PREFERRED_CAMERA.lower() in device.description().lower():
             return device
     default = QMediaDevices.defaultVideoInput()
-    if default is not None and not default.isNull() and _usable_camera_name(default.description()):
+    if default is not None and not default.isNull() and _usable_camera_name(
+        default.description()
+    ):
         return default
     return devices[0]
 
@@ -460,7 +466,9 @@ class CameraPanel(QWidget):
             self.video.setObjectName("InstrumentHint")
             self.video.setAlignment(Qt.AlignmentFlag.AlignCenter)
             self.video.setMinimumHeight(180)
-            self.video.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+            self.video.setSizePolicy(
+                QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+            )
             layout.addWidget(self.video, stretch=1)
 
         self._refresh_devices()
@@ -494,7 +502,9 @@ class CameraPanel(QWidget):
                 if idx >= 0:
                     self.device_combo.setCurrentIndex(idx)
             elif self.device_combo.findData(PREFERRED_CAMERA) >= 0:
-                self.device_combo.setCurrentIndex(self.device_combo.findData(PREFERRED_CAMERA))
+                self.device_combo.setCurrentIndex(
+                    self.device_combo.findData(PREFERRED_CAMERA)
+                )
         self.device_combo.blockSignals(False)
 
     def _sync_controls(self) -> None:

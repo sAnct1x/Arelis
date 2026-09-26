@@ -46,7 +46,9 @@ def _forget_miss_hint(store: MemoryStore) -> str:
     if active:
         bits.append("Active facts: " + "; ".join(active))
     if episodes:
-        bits.append("Episodes: " + "; ".join(str(row.get("summary") or "") for row in episodes))
+        bits.append(
+            "Episodes: " + "; ".join(str(row.get("summary") or "") for row in episodes)
+        )
     if bits:
         return " Do not say there is no such fact. " + " ".join(bits)
     return " There are no active facts or episodes stored."
@@ -112,7 +114,8 @@ class MemoryTool:
             "summary": {
                 "type": "string",
                 "description": (
-                    "Episode summary for action=episode or remember+type=episode (or use fact)"
+                    "Episode summary for action=episode or remember+type=episode "
+                    "(or use fact)"
                 ),
             },
             "key": {
@@ -129,7 +132,8 @@ class MemoryTool:
             "project": {
                 "type": "string",
                 "description": (
-                    "Project name for action=decide; optional project tag for action=episode"
+                    "Project name for action=decide; optional project tag for "
+                    "action=episode"
                 ),
             },
             "text": {
@@ -236,7 +240,9 @@ class MemoryTool:
                 # The store indexes decisions by project and has no
                 # all-projects query. Saying "none" here would be a wrong
                 # answer to a question that was never asked.
-                lines.append("Decisions are filed per project — name one to list them.")
+                lines.append(
+                    "Decisions are filed per project — name one to list them."
+                )
 
         if not lines:
             return ToolResult(

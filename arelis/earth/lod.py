@@ -175,7 +175,9 @@ ADAPTER_BANDS: dict[str, frozenset[str]] = {
 PAINT_LAYERS: dict[str, frozenset[str]] = {
     "space": frozenset({"iss", "satellites"}),
     "approach": frozenset({"iss", "satellites", "flights", "drones"}),
-    "near": frozenset({"iss", "satellites", "flights", "drones", "military", "vessels"}),
+    "near": frozenset(
+        {"iss", "satellites", "flights", "drones", "military", "vessels"}
+    ),
     "city": frozenset(LAYER_IDS),
 }
 
@@ -203,7 +205,6 @@ LAYER_CAP: dict[str, int] = {
     "sites": 200,
     "people": 80,
 }
-
 
 def _sibs(*names: str) -> dict[str, tuple[str, ...]]:
     group = tuple(names)
@@ -573,5 +574,8 @@ def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     p1, p2 = math.radians(lat1), math.radians(lat2)
     dlat = math.radians(lat2 - lat1)
     dlon = math.radians(lon2 - lon1)
-    a = math.sin(dlat / 2.0) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dlon / 2.0) ** 2
+    a = (
+        math.sin(dlat / 2.0) ** 2
+        + math.cos(p1) * math.cos(p2) * math.sin(dlon / 2.0) ** 2
+    )
     return 2.0 * r * math.asin(min(1.0, math.sqrt(a)))

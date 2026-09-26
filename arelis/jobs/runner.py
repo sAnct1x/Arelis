@@ -97,7 +97,9 @@ async def run_job_async(job: Job, config: dict[str, Any] | None = None) -> int:
             log.exception("Briefing job %s failed while building", job.id)
             status = f"failed: {exc}"[:120]
             subject = f"{job.name} failed — {stamp}"
-            body = f"The scheduled briefing **{job.name}** did not finish.\n\n{exc}"
+            body = (
+                f"The scheduled briefing **{job.name}** did not finish.\n\n{exc}"
+            )
         return await _mail_and_finish(job, mailer, to, subject, body, status)
 
     from arelis.core.seat import build_seat
@@ -112,7 +114,9 @@ async def run_job_async(job: Job, config: dict[str, Any] | None = None) -> int:
     bus_task = asyncio.create_task(bus.run())
     status = "ok"
     try:
-        await bus.publish(Event(EventType.USER_MESSAGE, {"text": job.prompt, "role": job.role}))
+        await bus.publish(
+            Event(EventType.USER_MESSAGE, {"text": job.prompt, "role": job.role})
+        )
         try:
             await asyncio.wait_for(collector.done.wait(), timeout=TURN_TIMEOUT_S)
         except TimeoutError:

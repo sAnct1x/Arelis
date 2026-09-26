@@ -311,9 +311,7 @@ async def main() -> int:
     if reg.get("image") is not None:
         boot = await ensure_comfy_running(
             "http://127.0.0.1:8188",
-            launch_command=str(
-                ((cfg.get("tools") or {}).get("image") or {}).get("launch_command") or ""
-            ),
+            launch_command=str(((cfg.get("tools") or {}).get("image") or {}).get("launch_command") or ""),
             launch_cwd=str(((cfg.get("tools") or {}).get("image") or {}).get("launch_cwd") or ""),
             startup_timeout_s=180,
             auto_start=bool(((cfg.get("tools") or {}).get("image") or {}).get("auto_start")),
@@ -450,13 +448,8 @@ async def main() -> int:
                 detail = _snip(
                     f"tools={report.tools_called} {'; '.join(report.reasons) or report.final_text}"
                 )
-                if any(
-                    t in {"weather", "inbox", "contacts", "send_sms", "send_email"}
-                    for t in report.tools_called
-                ):
-                    detail = _snip(
-                        f"tools={report.tools_called} {'; '.join(report.reasons) or status}"
-                    )
+                if any(t in {"weather", "inbox", "contacts", "send_sms", "send_email"} for t in report.tools_called):
+                    detail = _snip(f"tools={report.tools_called} {'; '.join(report.reasons) or status}")
                 rows.append(
                     {
                         "status": status,

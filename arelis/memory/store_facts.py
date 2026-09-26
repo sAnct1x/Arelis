@@ -16,7 +16,6 @@ from arelis.memory.store import (
 if TYPE_CHECKING:
     from arelis.memory.store import MemoryStore
 
-
 def on_pending_fact(store: MemoryStore, text: str) -> None:
     """Record a proposed fact. Nothing becomes active without a later click."""
     store.add_fact(
@@ -25,7 +24,6 @@ def on_pending_fact(store: MemoryStore, text: str) -> None:
         status="pending",
         session_id=store.session_id,
     )
-
 
 def add_fact(
     store: MemoryStore,
@@ -70,7 +68,6 @@ def add_fact(
     store._conn.commit()
     return _inserted_id(cur)
 
-
 def list_facts(
     store: MemoryStore, *, status: str | None = None, limit: int = 100
 ) -> list[dict[str, Any]]:
@@ -97,7 +94,6 @@ def list_facts(
         ).fetchall()
     return [dict(row) for row in rows]
 
-
 def set_fact_status(store: MemoryStore, fact_id: int, status: str) -> bool:
     """Approve or reject a pending fact. True when a row changed."""
     if status not in {"active", "pending", "rejected"}:
@@ -122,7 +118,6 @@ def set_fact_status(store: MemoryStore, fact_id: int, status: str) -> bool:
     store._conn.commit()
     return cur.rowcount > 0
 
-
 def archive_stale_pending_facts(store: MemoryStore, *, older_than_days: int = 30) -> int:
     """Reject pending facts older than the cutoff. Returns how many rows changed."""
     days = max(0, int(older_than_days))
@@ -139,8 +134,9 @@ def archive_stale_pending_facts(store: MemoryStore, *, older_than_days: int = 30
     store._conn.commit()
     return int(cur.rowcount)
 
-
-def _supersede_active_by_key(store: MemoryStore, key: str, *, except_id: int | None = None) -> None:
+def _supersede_active_by_key(
+    store: MemoryStore, key: str, *, except_id: int | None = None
+) -> None:
     """Reject other active facts that share this key."""
     now = _utc_now()
     if except_id is None:
@@ -162,7 +158,6 @@ def _supersede_active_by_key(store: MemoryStore, key: str, *, except_id: int | N
             (now, key, int(except_id)),
         )
 
-
 def active_fact_texts(store: MemoryStore, *, limit: int = 24) -> list[str]:
     rows = store._conn.execute(
         """
@@ -174,7 +169,6 @@ def active_fact_texts(store: MemoryStore, *, limit: int = 24) -> list[str]:
         (limit,),
     ).fetchall()
     return [str(row["text"]) for row in rows]
-
 
 def forget_fact(store: MemoryStore, text: str) -> int:
     """Deactivate active facts matching text. Returns how many rows changed."""
@@ -209,7 +203,6 @@ def forget_fact(store: MemoryStore, text: str) -> int:
     store._conn.commit()
     return 0
 
-
 def set_preference(store: MemoryStore, key: str, value: str) -> int | None:
     """Upsert a preference by key. Returns its id, or None if empty."""
     cleaned_key = key.strip()
@@ -243,7 +236,6 @@ def set_preference(store: MemoryStore, key: str, value: str) -> int | None:
     store._conn.commit()
     return _inserted_id(cur)
 
-
 def get_preference(store: MemoryStore, key: str) -> str | None:
     cleaned_key = key.strip()
     if not cleaned_key:
@@ -253,7 +245,6 @@ def get_preference(store: MemoryStore, key: str) -> str | None:
         (cleaned_key,),
     ).fetchone()
     return str(row["value"]) if row is not None else None
-
 
 def list_preferences(store: MemoryStore, *, limit: int = 100) -> list[dict[str, Any]]:
     rows = store._conn.execute(
@@ -266,7 +257,6 @@ def list_preferences(store: MemoryStore, *, limit: int = 100) -> list[dict[str, 
         (limit,),
     ).fetchall()
     return [dict(row) for row in rows]
-
 
 def add_decision(store: MemoryStore, project: str, text: str) -> int | None:
     """Record a project-scoped decision. Returns its id, or None if empty."""
@@ -285,8 +275,9 @@ def add_decision(store: MemoryStore, project: str, text: str) -> int | None:
     store._conn.commit()
     return _inserted_id(cur)
 
-
-def list_decisions(store: MemoryStore, project: str, limit: int = 50) -> list[dict[str, Any]]:
+def list_decisions(
+    store: MemoryStore, project: str, limit: int = 50
+) -> list[dict[str, Any]]:
     cleaned_project = project.strip()
     if not cleaned_project:
         return []
@@ -301,7 +292,6 @@ def list_decisions(store: MemoryStore, project: str, limit: int = 50) -> list[di
         (cleaned_project, limit),
     ).fetchall()
     return [dict(row) for row in rows]
-
 
 def add_episode(
     store: MemoryStore,
@@ -335,7 +325,6 @@ def add_episode(
     )
     store._conn.commit()
     return _inserted_id(cur)
-
 
 def list_episodes(
     store: MemoryStore, *, limit: int = 20, project: str | None = None

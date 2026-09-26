@@ -151,7 +151,9 @@ class _AgendaSoakStub(_StubTool):
             }
             return ToolResult(
                 ok=True,
-                output=(f"Created Google Calendar event '{summary}' at {start}."),
+                output=(
+                    f"Created Google Calendar event '{summary}' at {start}."
+                ),
                 data={"event_id": eid, **self.events[eid]},
             )
         if action == "delete":
@@ -221,7 +223,10 @@ class _ImageSoakStub(_StubTool):
         prompt = str(kwargs.get("prompt") or kwargs.get("text") or "")[:120]
         return ToolResult(
             ok=True,
-            output=(f"Generated image.\nSaved: {rel}\nCall vision with this path to describe it."),
+            output=(
+                f"Generated image.\nSaved: {rel}\n"
+                "Call vision with this path to describe it."
+            ),
             data={"path": rel, "prompt": prompt},
         )
 
@@ -369,11 +374,15 @@ def _score_turn(
     if turn.expect_tools and not (turn.allow_no_tools and not tools_called):
         if turn.expect_tools_any:
             if not any(t in tools_called for t in turn.expect_tools):
-                reasons.append(f"expected one of {turn.expect_tools}, got {tools_called or '-'}")
+                reasons.append(
+                    f"expected one of {turn.expect_tools}, got {tools_called or '-'}"
+                )
         else:
             missing = [t for t in turn.expect_tools if t not in tools_called]
             if missing:
-                reasons.append(f"missing tools {missing}; got {tools_called or '-'}")
+                reasons.append(
+                    f"missing tools {missing}; got {tools_called or '-'}"
+                )
     elif not turn.allow_no_tools and not tools_called:
         # No expectation listed — still OK if allow_no_tools; otherwise soft.
         pass
@@ -400,11 +409,15 @@ def _score_turn(
         for key, needle in turn.expect_args.items():
             raw = str(target.args.get(key) or "")
             if needle.lower() not in raw.lower():
-                reasons.append(f"arg {key}={raw!r} missing {needle!r} on {target.name}")
+                reasons.append(
+                    f"arg {key}={raw!r} missing {needle!r} on {target.name}"
+                )
         same = [r for r in tool_records if r.name == target.name]
         if target.ok is False and not any(r.ok for r in same):
             if turn.expect_tools_any:
-                other_ok = any(r.ok for r in tool_records if r.name in turn.expect_tools)
+                other_ok = any(
+                    r.ok for r in tool_records if r.name in turn.expect_tools
+                )
                 if not other_ok:
                     reasons.append(f"{target.name} returned ok=False")
             else:
@@ -533,7 +546,9 @@ class ConversationSession:
             if name:
                 self._cap["tools"].append(name)
                 self._cap["pending_args"][name] = args
-                self._cap["tool_records"].append(ToolCallRecord(name=name, args=args))
+                self._cap["tool_records"].append(
+                    ToolCallRecord(name=name, args=args)
+                )
 
         async def on_tool_result(event: Event) -> None:
             name = str((event.payload or {}).get("tool") or "")
@@ -703,7 +718,9 @@ async def run_conversation_soak(
             raise ValueError(f"mock mode needs scripts for turns: {missing}")
         router = _QueueRouter([])
 
-    async with ConversationSession(router=router, tools=tools, agent_cfg=agent_cfg) as session:
+    async with ConversationSession(
+        router=router, tools=tools, agent_cfg=agent_cfg
+    ) as session:
         image = session.tools.get("image")
         agenda = session.tools.get("agenda")
         last_image = ""
@@ -739,7 +756,9 @@ async def run_conversation_soak(
                             if events:
                                 last_event_id = next(reversed(events))
                         if action == "delete":
-                            last_event_id = next(reversed(events)) if events else ""
+                            last_event_id = (
+                                next(reversed(events)) if events else ""
+                            )
 
             if not report.ok and fail_fast:
                 break
@@ -749,7 +768,8 @@ async def run_conversation_soak(
     ok = all(r.ok for r in reports) and len(reports) == len(turns)
     passed = sum(1 for r in reports if r.ok)
     summary = (
-        f"{'PASS' if ok else 'FAIL'}  {passed}/{len(turns)} turns  total={total_ms}ms  mode={mode}"
+        f"{'PASS' if ok else 'FAIL'}  {passed}/{len(turns)} turns  "
+        f"total={total_ms}ms  mode={mode}"
     )
     return SoakReport(
         id=soak_id,

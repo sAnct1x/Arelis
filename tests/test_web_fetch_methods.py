@@ -234,7 +234,9 @@ def test_an_ordinary_header_passes():
     }
 
 
-async def test_a_forbidden_header_fails_the_call_rather_than_being_dropped(wired, resolvable):
+async def test_a_forbidden_header_fails_the_call_rather_than_being_dropped(
+    wired, resolvable
+):
     """A dropped Authorization reads as "the API said no", which is a lie.
 
     `resolvable` matters here. Without it this test passed with the header

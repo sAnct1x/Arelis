@@ -17,33 +17,49 @@ from arelis import __source_url__, __version__
 from arelis.earth.entity import Coverage, Entity
 from arelis.earth.frames import lla_to_ecef
 
-INGV = "https://webservices.ingv.it/fdsnws/station/1/query?network=IV&format=text&level=station"
+INGV = (
+    "https://webservices.ingv.it/fdsnws/station/1/query"
+    "?network=IV&format=text&level=station"
+)
 INGV_HOST = "webservices.ingv.it"
-GEOFON = "https://geofon.gfz-potsdam.de/fdsnws/station/1/query?network=GE&format=text&level=station"
+GEOFON = (
+    "https://geofon.gfz-potsdam.de/fdsnws/station/1/query"
+    "?network=GE&format=text&level=station"
+)
 GEOFON_HOST = "geofon.gfz-potsdam.de"
-IRIS = "https://service.iris.edu/fdsnws/station/1/query?network=IU&format=text&level=station"
+IRIS = (
+    "https://service.iris.edu/fdsnws/station/1/query"
+    "?network=IU&format=text&level=station"
+)
 IRIS_HOST = "service.iris.edu"
 NRCAN = (
     "https://www.earthquakescanada.nrcan.gc.ca/fdsnws/station/1/query"
     "?network=CN&format=text&level=station"
 )
 NRCAN_HOST = "www.earthquakescanada.nrcan.gc.ca"
-GEONET = "https://service.geonet.org.nz/fdsnws/station/1/query?network=NZ&format=text&level=station"
+GEONET = (
+    "https://service.geonet.org.nz/fdsnws/station/1/query"
+    "?network=NZ&format=text&level=station"
+)
 GEONET_HOST = "service.geonet.org.nz"
 _UA = f"Arelis/{__version__} (+{__source_url__})"
 _TIMEOUT = 12.0
 _CAP = 4000
 _INGV_CITE = (
-    "INGV FDSN station text. Italian national network. Published sensor sites, not every quake."
+    "INGV FDSN station text. Italian national network. "
+    "Published sensor sites, not every quake."
 )
 _GEOFON_CITE = (
-    "GFZ GEOFON FDSN station text. Global backbone sample. Published sensor sites, not every quake."
+    "GFZ GEOFON FDSN station text. Global backbone sample. "
+    "Published sensor sites, not every quake."
 )
 _IRIS_CITE = (
-    "IRIS FDSN station text. IU global seismic network. Published sensor sites, not every quake."
+    "IRIS FDSN station text. IU global seismic network. "
+    "Published sensor sites, not every quake."
 )
 _NRCAN_CITE = (
-    "NRCAN FDSN station text. Canadian national network. Published sensor sites, not every quake."
+    "NRCAN FDSN station text. Canadian national network. "
+    "Published sensor sites, not every quake."
 )
 _GEONET_CITE = (
     "GeoNet FDSN station text. New Zealand national network. "
@@ -82,7 +98,9 @@ def fetch_fdsn() -> list[Entity] | None:
     return out or None
 
 
-def entities_from_fdsn_text(text: str, *, prefix: str, source: str, cite: str) -> list[Entity]:
+def entities_from_fdsn_text(
+    text: str, *, prefix: str, source: str, cite: str
+) -> list[Entity]:
     out: list[Entity] = []
     seen: set[str] = set()
     for raw in (text or "").splitlines():
@@ -136,7 +154,9 @@ def entities_from_fdsn_text(text: str, *, prefix: str, source: str, cite: str) -
     return out
 
 
-def _fetch_one(url: str, pin: str, prefix: str, source: str, cite: str) -> list[Entity] | None:
+def _fetch_one(
+    url: str, pin: str, prefix: str, source: str, cite: str
+) -> list[Entity] | None:
     text = _get_text(url, pin)
     if text is None:
         return None

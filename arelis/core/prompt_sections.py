@@ -106,7 +106,9 @@ def append_turn_goal(
         email_draft=email_draft,
         research_mode=research_mode,
     )
-    loop._expected_tools, dropped_for_goal = apply_goal_to_expected(loop._expected_tools, turn_goal)
+    loop._expected_tools, dropped_for_goal = apply_goal_to_expected(
+        loop._expected_tools, turn_goal
+    )
     if turn_goal.line:
         messages.append({"role": "system", "content": f"Turn goal: {turn_goal.line}"})
     if loop._timer is not None and (turn_goal.kind != "none" or dropped_for_goal):

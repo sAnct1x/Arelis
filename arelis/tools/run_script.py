@@ -53,7 +53,8 @@ class RunScriptTool:
             "timeout_s": {
                 "type": "number",
                 "description": (
-                    f"Seconds to wait (default {_DEFAULT_TIMEOUT_S:g}, max {_MAX_TIMEOUT_S:g})"
+                    f"Seconds to wait (default {_DEFAULT_TIMEOUT_S:g}, "
+                    f"max {_MAX_TIMEOUT_S:g})"
                 ),
             },
         },
@@ -162,7 +163,8 @@ class RunScriptTool:
             return ToolResult(
                 ok=False,
                 output=(
-                    f"The script timed out after {int(timeout_s)}s. I will not invent the result."
+                    f"The script timed out after {int(timeout_s)}s. "
+                    "I will not invent the result."
                 ),
                 data=_result_data(resolved, interpreter, cwd, -1, duration),
             )

@@ -249,7 +249,9 @@ def _hosts_named_in_source() -> dict[str, set[str]]:
                 host = urlparse(url).hostname
                 if not host or host in LOOPBACK or not HOSTNAME.match(host):
                     continue
-                found.setdefault(host, set()).add(str(path.relative_to(PACKAGE_ROOT.parent)))
+                found.setdefault(host, set()).add(
+                    str(path.relative_to(PACKAGE_ROOT.parent))
+                )
     return found
 
 
@@ -283,21 +285,9 @@ def test_no_module_reports_usage_anywhere() -> None:
     should meet a test whose name says why the answer is no.
     """
     banned = (
-        "sentry_sdk",
-        "posthog",
-        "mixpanel",
-        "amplitude",
-        "segment",
-        "analytics",
-        "bugsnag",
-        "rollbar",
-        "datadog",
-        "newrelic",
-        "opentelemetry",
-        "google-analytics",
-        "googletagmanager",
-        "plausible",
-        "matomo",
+        "sentry_sdk", "posthog", "mixpanel", "amplitude", "segment", "analytics",
+        "bugsnag", "rollbar", "datadog", "newrelic", "opentelemetry",
+        "google-analytics", "googletagmanager", "plausible", "matomo",
     )
     offenders: list[str] = []
     for path in sorted(PACKAGE_ROOT.rglob("*.py")):

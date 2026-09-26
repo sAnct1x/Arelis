@@ -101,9 +101,9 @@ class SolarSystem:
     pending_travel: str | None = None
     pending_enter_earth: bool = False
     pending_reset: bool = False
-    _present: list[tuple[str, float, float, float, float, float, float, float, float]] | None = (
-        field(default=None, repr=False)
-    )
+    _present: list[
+        tuple[str, float, float, float, float, float, float, float, float]
+    ] | None = field(default=None, repr=False)
 
     @classmethod
     def from_states(
@@ -268,9 +268,7 @@ class SolarSystem:
             parent=hit.parent,
         )
 
-    def about(
-        self, body: BodyView
-    ) -> tuple[
+    def about(self, body: BodyView) -> tuple[
         tuple[float, float, float],
         tuple[float, float, float],
         float,
@@ -426,7 +424,10 @@ class SolarSystem:
         r = (earth.x - sun.x, earth.y - sun.y, earth.z - sun.z)
         v = (earth.vx - sun.vx, earth.vy - sun.vy, earth.vz - sun.vz)
         pts = sun_planet_l_points(r, M_SUN, earth.mass, v)
-        return {name: (sun.x + xyz[0], sun.y + xyz[1], sun.z + xyz[2]) for name, xyz in pts.items()}
+        return {
+            name: (sun.x + xyz[0], sun.y + xyz[1], sun.z + xyz[2])
+            for name, xyz in pts.items()
+        }
 
     def lagrange_sun_jupiter(self) -> dict[str, tuple[float, float, float]]:
         jup = self.nbody.find("Jupiter")
@@ -436,7 +437,10 @@ class SolarSystem:
         r = (jup.x - sun.x, jup.y - sun.y, jup.z - sun.z)
         v = (jup.vx - sun.vx, jup.vy - sun.vy, jup.vz - sun.vz)
         pts = sun_planet_l_points(r, M_SUN, jup.mass, v)
-        return {name: (sun.x + xyz[0], sun.y + xyz[1], sun.z + xyz[2]) for name, xyz in pts.items()}
+        return {
+            name: (sun.x + xyz[0], sun.y + xyz[1], sun.z + xyz[2])
+            for name, xyz in pts.items()
+        }
 
     def impulse(self, name: str, dv: tuple[float, float, float]) -> bool:
         ok = self.nbody.apply_impulse(name, dv)
@@ -455,7 +459,9 @@ class SolarSystem:
         if speed < 1e-12:
             return False
         scale = float(mag_m_s) / speed
-        return self.impulse(name, (body.vx * scale, body.vy * scale, body.vz * scale))
+        return self.impulse(
+            name, (body.vx * scale, body.vy * scale, body.vz * scale)
+        )
 
     def add_probe(
         self,
@@ -827,7 +833,9 @@ class SolarSystem:
     def _capture_present(self) -> None:
         rows = []
         for p in self.nbody.particles:
-            rows.append((p.name, p.x, p.y, p.z, p.vx, p.vy, p.vz, p.mass, p.radius))
+            rows.append(
+                (p.name, p.x, p.y, p.z, p.vx, p.vy, p.vz, p.mass, p.radius)
+            )
         self._present = rows
 
     def _restore_present(self) -> None:
@@ -907,7 +915,9 @@ class SolarSystem:
         """Spoken solar action=craft / inspect. No-op: the camera is inspect-only."""
         return
 
-    def gravity_at(self, x: float, y: float, z: float) -> tuple[float, float, float, float]:
+    def gravity_at(
+        self, x: float, y: float, z: float
+    ) -> tuple[float, float, float, float]:
         """Newtonian g from massive bodies at a point. m/s^2."""
         gx = gy = gz = 0.0
         for p in self.nbody.particles:
@@ -915,7 +925,7 @@ class SolarSystem:
                 continue
             dx, dy, dz = p.x - x, p.y - y, p.z - z
             r2 = dx * dx + dy * dy + dz * dz
-            r = r2**0.5
+            r = r2 ** 0.5
             if r < 1.0:
                 continue
             a = G_SI * p.mass / r2

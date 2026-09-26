@@ -12,7 +12,6 @@ from arelis.memory.store import SearchHit, _fts_match, _inserted_id, _utc_now, l
 if TYPE_CHECKING:
     from arelis.memory.store import MemoryStore
 
-
 def search(store: MemoryStore, query: str, *, limit: int = 20) -> list[SearchHit]:
     """Keyword search across archived messages.
 
@@ -26,7 +25,6 @@ def search(store: MemoryStore, query: str, *, limit: int = 20) -> list[SearchHit
         return store._search_fts(cleaned, limit=limit)
     return store._search_like(cleaned, limit=limit)
 
-
 def search_documents(store: MemoryStore, query: str, *, limit: int = 20) -> list[SearchHit]:
     """Keyword search across indexed workspace file chunks."""
     cleaned = query.strip()
@@ -35,7 +33,6 @@ def search_documents(store: MemoryStore, query: str, *, limit: int = 20) -> list
     if store._fts:
         return store._search_documents_fts(cleaned, limit=limit)
     return store._search_documents_like(cleaned, limit=limit)
-
 
 def list_documents(store: MemoryStore) -> list[dict[str, Any]]:
     rows = store._conn.execute(
@@ -47,7 +44,6 @@ def list_documents(store: MemoryStore) -> list[dict[str, Any]]:
     ).fetchall()
     return [dict(row) for row in rows]
 
-
 def get_document(store: MemoryStore, root_name: str, rel_path: str) -> dict[str, Any] | None:
     row = store._conn.execute(
         """
@@ -58,7 +54,6 @@ def get_document(store: MemoryStore, root_name: str, rel_path: str) -> dict[str,
         (root_name, rel_path),
     ).fetchone()
     return dict(row) if row else None
-
 
 def replace_document_chunks(
     store: MemoryStore,
@@ -91,7 +86,9 @@ def replace_document_chunks(
             """,
             (int(mtime_ns), int(size), now, doc_id),
         )
-        store._conn.execute("DELETE FROM document_chunks WHERE document_id = ?", (doc_id,))
+        store._conn.execute(
+            "DELETE FROM document_chunks WHERE document_id = ?", (doc_id,)
+        )
     for ordinal, text in enumerate(chunks):
         cleaned = text.strip()
         if not cleaned:
@@ -105,7 +102,6 @@ def replace_document_chunks(
         )
     store._conn.commit()
     return doc_id
-
 
 def delete_documents_not_in(store: MemoryStore, keep: set[tuple[str, str]]) -> int:
     """Drop indexed files that no longer exist on disk. Returns rows removed."""
@@ -121,7 +117,6 @@ def delete_documents_not_in(store: MemoryStore, keep: set[tuple[str, str]]) -> i
         store._conn.commit()
     return removed
 
-
 def unembedded_document_chunks(store: MemoryStore, *, limit: int = 32) -> list[dict[str, Any]]:
     rows = store._conn.execute(
         """
@@ -136,7 +131,6 @@ def unembedded_document_chunks(store: MemoryStore, *, limit: int = 32) -> list[d
         (limit,),
     ).fetchall()
     return [dict(row) for row in rows]
-
 
 def upsert_document_embedding(
     store: MemoryStore,
@@ -159,7 +153,6 @@ def upsert_document_embedding(
         (int(chunk_id), model, int(arr.size), arr.tobytes()),
     )
     store._conn.commit()
-
 
 def vector_search_documents(
     store: MemoryStore,
@@ -210,7 +203,6 @@ def vector_search_documents(
         hits.append(store._doc_hit(row))
     return hits
 
-
 def search_mail(store: MemoryStore, query: str, *, limit: int = 20) -> list[SearchHit]:
     cleaned = query.strip()
     if not cleaned:
@@ -218,7 +210,6 @@ def search_mail(store: MemoryStore, query: str, *, limit: int = 20) -> list[Sear
     if store._fts:
         return store._search_mail_fts(cleaned, limit=limit)
     return store._search_mail_like(cleaned, limit=limit)
-
 
 def upsert_mail_message(
     store: MemoryStore,
@@ -232,7 +223,9 @@ def upsert_mail_message(
 ) -> int:
     """Insert or replace one peeked mail message. Returns its row id."""
     now = _utc_now()
-    existing = store._conn.execute("SELECT id FROM mail_messages WHERE uid = ?", (uid,)).fetchone()
+    existing = store._conn.execute(
+        "SELECT id FROM mail_messages WHERE uid = ?", (uid,)
+    ).fetchone()
     if existing is None:
         cur = store._conn.execute(
             """
@@ -271,10 +264,11 @@ def upsert_mail_message(
             ),
         )
         # Body change invalidates the old vector.
-        store._conn.execute("DELETE FROM mail_embeddings WHERE mail_id = ?", (mail_id,))
+        store._conn.execute(
+            "DELETE FROM mail_embeddings WHERE mail_id = ?", (mail_id,)
+        )
     store._conn.commit()
     return mail_id
-
 
 def delete_mail_not_in(store: MemoryStore, keep_uids: set[str]) -> int:
     rows = store._conn.execute("SELECT id, uid FROM mail_messages").fetchall()
@@ -287,7 +281,6 @@ def delete_mail_not_in(store: MemoryStore, keep_uids: set[str]) -> int:
     if removed:
         store._conn.commit()
     return removed
-
 
 def unembedded_mail(store: MemoryStore, *, limit: int = 32) -> list[dict[str, Any]]:
     rows = store._conn.execute(
@@ -306,7 +299,6 @@ def unembedded_mail(store: MemoryStore, *, limit: int = 32) -> list[dict[str, An
         text = f"{row['subject']}\nFrom: {row['sender']}\n\n{row['body']}"
         out.append({"id": int(row["id"]), "content": text})
     return out
-
 
 def upsert_mail_embedding(
     store: MemoryStore,
@@ -329,7 +321,6 @@ def upsert_mail_embedding(
         (int(mail_id), model, int(arr.size), arr.tobytes()),
     )
     store._conn.commit()
-
 
 def vector_search_mail(
     store: MemoryStore,
@@ -375,7 +366,6 @@ def vector_search_mail(
     order = np.argsort(-scores)[:limit]
     return [store._mail_hit(meta[int(idx)]) for idx in order]
 
-
 def unembedded_messages(store: MemoryStore, *, limit: int = 32) -> list[dict[str, Any]]:
     rows = store._conn.execute(
         """
@@ -390,7 +380,6 @@ def unembedded_messages(store: MemoryStore, *, limit: int = 32) -> list[dict[str
         (limit,),
     ).fetchall()
     return [dict(row) for row in rows]
-
 
 def upsert_embedding(
     store: MemoryStore,
@@ -413,7 +402,6 @@ def upsert_embedding(
         (int(message_id), model, int(arr.size), arr.tobytes()),
     )
     store._conn.commit()
-
 
 def vector_search(
     store: MemoryStore,
@@ -483,7 +471,6 @@ def vector_search(
         )
     return hits
 
-
 def _search_fts(store: MemoryStore, query: str, *, limit: int) -> list[SearchHit]:
     # Quote each token so punctuation in the user's words cannot break
     # the FTS query syntax; MATCH still does prefix-friendly AND of terms.
@@ -516,7 +503,6 @@ def _search_fts(store: MemoryStore, query: str, *, limit: int) -> list[SearchHit
         for row in rows
     ]
 
-
 def _search_like(store: MemoryStore, query: str, *, limit: int) -> list[SearchHit]:
     pattern = f"%{query}%"
     rows = store._conn.execute(
@@ -544,7 +530,6 @@ def _search_like(store: MemoryStore, query: str, *, limit: int) -> list[SearchHi
         for row in rows
     ]
 
-
 def _search_documents_fts(store: MemoryStore, query: str, *, limit: int) -> list[SearchHit]:
     match = _fts_match(query)
     if not match:
@@ -563,7 +548,6 @@ def _search_documents_fts(store: MemoryStore, query: str, *, limit: int) -> list
     ).fetchall()
     return [store._doc_hit(row) for row in rows]
 
-
 def _search_documents_like(store: MemoryStore, query: str, *, limit: int) -> list[SearchHit]:
     pattern = f"%{query}%"
     rows = store._conn.execute(
@@ -578,7 +562,6 @@ def _search_documents_like(store: MemoryStore, query: str, *, limit: int) -> lis
         (pattern, limit),
     ).fetchall()
     return [store._doc_hit(row) for row in rows]
-
 
 def _doc_hit(store: MemoryStore, row: sqlite3.Row) -> SearchHit:
     root = str(row["root_name"])
@@ -597,7 +580,6 @@ def _doc_hit(store: MemoryStore, row: sqlite3.Row) -> SearchHit:
         chunk_id=chunk_id,
     )
 
-
 def _search_mail_fts(store: MemoryStore, query: str, *, limit: int) -> list[SearchHit]:
     match = _fts_match(query)
     if not match:
@@ -615,7 +597,6 @@ def _search_mail_fts(store: MemoryStore, query: str, *, limit: int) -> list[Sear
     ).fetchall()
     return [store._mail_hit(row) for row in rows]
 
-
 def _search_mail_like(store: MemoryStore, query: str, *, limit: int) -> list[SearchHit]:
     pattern = f"%{query}%"
     rows = store._conn.execute(
@@ -629,7 +610,6 @@ def _search_mail_like(store: MemoryStore, query: str, *, limit: int) -> list[Sea
         (pattern, pattern, pattern, limit),
     ).fetchall()
     return [store._mail_hit(row) for row in rows]
-
 
 def _mail_hit(store: MemoryStore, row: sqlite3.Row) -> SearchHit:
     mail_id = int(row["id"] if "id" in row.keys() else row["mail_id"])
@@ -649,7 +629,6 @@ def _mail_hit(store: MemoryStore, row: sqlite3.Row) -> SearchHit:
         path=f"mail:{uid}",
         chunk_id=mail_id,
     )
-
 
 def _probe_fts(store: MemoryStore) -> bool:
     try:

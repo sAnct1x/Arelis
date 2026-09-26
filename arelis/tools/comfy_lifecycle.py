@@ -451,8 +451,9 @@ def start_comfy(argv: list[str], cwd: Path) -> subprocess.Popen[bytes]:
     if sys.platform == "win32":
         # CREATE_NO_WINDOW + SW_HIDE. Do not combine DETACHED_PROCESS — that
         # pair still opens a visible console for python.exe / .bat children.
-        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(
-            subprocess, "CREATE_NEW_PROCESS_GROUP", 0
+        creationflags = (
+            getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
         )
         startupinfo = subprocess.STARTUPINFO()
         startupinfo.dwFlags |= getattr(subprocess, "STARTF_USESHOWWINDOW", 1)
@@ -540,7 +541,10 @@ async def ensure_comfy_running(
             detail = " See logs/comfy_launch.log for the crash output."
             if tail:
                 detail = f" Last log lines:\n{tail}"
-            return f"ComfyUI exited immediately (code {_format_exit_code(code)}).{detail}"
+            return (
+                f"ComfyUI exited immediately (code {_format_exit_code(code)})."
+                f"{detail}"
+            )
         await asyncio.sleep(1.0)
 
     return (

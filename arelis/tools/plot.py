@@ -260,16 +260,21 @@ class PlotTool:
             "y": {
                 "type": "string",
                 "description": (
-                    "Column name for the vertical axis, or the only column for histogram"
+                    "Column name for the vertical axis, or the only column "
+                    "for histogram"
                 ),
             },
             "categories": {
                 "type": "string",
-                "description": ("Comma-separated category labels for bar when there is no file"),
+                "description": (
+                    "Comma-separated category labels for bar when there is no file"
+                ),
             },
             "values": {
                 "type": "string",
-                "description": ("Comma-separated numbers for bar when there is no file"),
+                "description": (
+                    "Comma-separated numbers for bar when there is no file"
+                ),
             },
             "bins": {
                 "type": "integer",
@@ -278,7 +283,8 @@ class PlotTool:
             "panels": {
                 "type": "string",
                 "description": (
-                    "For subplots: comma-separated panel kinds, e.g. line,histogram or scatter,bar"
+                    "For subplots: comma-separated panel kinds, e.g. "
+                    "line,histogram or scatter,bar"
                 ),
             },
             "expr": {
@@ -384,7 +390,8 @@ class PlotTool:
             return ToolResult(
                 ok=False,
                 output=(
-                    "Unknown action. Use line, scatter, residuals, histogram, bar, or subplots."
+                    "Unknown action. Use line, scatter, residuals, histogram, "
+                    "bar, or subplots."
                 ),
                 data={"fail_class": "fail:action"},
             )
@@ -561,7 +568,9 @@ class PlotTool:
             raise ValueError("Need at least two points.")
         return x, y, "x", "y", "inline"
 
-    def _histogram_series(self, kwargs: dict[str, Any]) -> tuple[np.ndarray, str, str]:
+    def _histogram_series(
+        self, kwargs: dict[str, Any]
+    ) -> tuple[np.ndarray, str, str]:
         path_str = str(kwargs.get("path") or "").strip()
         png_as_path = bool(path_str and _looks_like_chart_out(path_str))
         if png_as_path:
@@ -595,13 +604,17 @@ class PlotTool:
             return values, y_name, display
         ys = str(kwargs.get("ys") or "").strip()
         if not ys:
-            raise ValueError("histogram needs a table path with y= column name, or ys= as numbers.")
+            raise ValueError(
+                "histogram needs a table path with y= column name, or ys= as numbers."
+            )
         values = _parse_numbers(ys, name="ys")
         if len(values) < 1:
             raise ValueError("Need at least one number in ys.")
         return values, "count", "inline"
 
-    def _bar_series(self, kwargs: dict[str, Any]) -> tuple[list[str], np.ndarray, str, str, str]:
+    def _bar_series(
+        self, kwargs: dict[str, Any]
+    ) -> tuple[list[str], np.ndarray, str, str, str]:
         path_str = str(kwargs.get("path") or "").strip()
         png_as_path = bool(path_str and _looks_like_chart_out(path_str))
         if png_as_path:
@@ -847,7 +860,9 @@ def _parse_bins(raw: Any) -> int | None:
 def _parse_panels(raw: Any) -> list[str]:
     text = str(raw or "").strip().lower()
     if not text:
-        raise ValueError("subplots needs panels= with two or more kinds, e.g. line,histogram.")
+        raise ValueError(
+            "subplots needs panels= with two or more kinds, e.g. line,histogram."
+        )
     parts = [p.strip() for p in text.split(",") if p.strip()]
     if len(parts) < 2:
         raise ValueError("subplots needs at least two panels, e.g. line,histogram.")

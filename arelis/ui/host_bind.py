@@ -95,13 +95,17 @@ def bind_window_hosts(window) -> None:
     window.sms_chats.set_send_handler(
         lambda key, body, alias, phone: on_sms_tile_send(window, key, body, alias, phone)
     )
-    window.sms_chats.set_shown_handler(lambda alias, phone: on_sms_tile_shown(window, alias, phone))
+    window.sms_chats.set_shown_handler(
+        lambda alias, phone: on_sms_tile_shown(window, alias, phone)
+    )
     window.spatial.frame_ready.connect(lambda frame: on_spatial_hands(window, frame))
     window.spatial.recording_changed.connect(lambda on: on_spatial_recording(window, on))
     window.camera.track_toggled.connect(lambda on: on_camera_track(window, on))
     window.camera.record_toggled.connect(lambda on: on_camera_record(window, on))
     window.camera.pose_frame.connect(lambda payload: on_camera_pose(window, payload))
-    window.camera.pose_video.connect(lambda frame, t: on_camera_pose_video(window, frame, t))
+    window.camera.pose_video.connect(
+        lambda frame, t: on_camera_pose_video(window, frame, t)
+    )
     window.camera.reach_changed.connect(lambda reach: on_reach_changed(window, reach))
     window.camera.ask_arelis.connect(lambda path: on_camera_ask(window, path))
     window.camera.running_changed.connect(
@@ -120,15 +124,29 @@ def bind_window_hosts(window) -> None:
     window.conversation.idle_conditions_changed.connect(lambda: sync_idle_mode(window))
 
     window.workspace.open_requested.connect(lambda path: open_file(window, path))
-    window.workspace.save_requested.connect(lambda path, content: save_file(window, path, content))
-    window.workspace.add_root_requested.connect(lambda: add_workspace_folder_dialog(window))
-    window.workspace.new_root_requested.connect(lambda: new_workspace_folder_dialog(window))
-    window.workspace.remove_root_requested.connect(lambda: remove_active_workspace_root(window))
+    window.workspace.save_requested.connect(
+        lambda path, content: save_file(window, path, content)
+    )
+    window.workspace.add_root_requested.connect(
+        lambda: add_workspace_folder_dialog(window)
+    )
+    window.workspace.new_root_requested.connect(
+        lambda: new_workspace_folder_dialog(window)
+    )
+    window.workspace.remove_root_requested.connect(
+        lambda: remove_active_workspace_root(window)
+    )
     window.workspace.keep_requested.connect(lambda: keep_note_dialog(window))
-    window.workspace.pin_requested.connect(lambda path, pinned: pin_desk_item(window, path, pinned))
+    window.workspace.pin_requested.connect(
+        lambda path, pinned: pin_desk_item(window, path, pinned)
+    )
     window.workspace.drop_requested.connect(lambda path: drop_desk_item(window, path))
-    window.workspace.desk_open_requested.connect(lambda path: open_desk_item(window, path))
-    window.workspace.reveal_requested.connect(lambda path: reveal_desk_item(window, path))
+    window.workspace.desk_open_requested.connect(
+        lambda path: open_desk_item(window, path)
+    )
+    window.workspace.reveal_requested.connect(
+        lambda path: reveal_desk_item(window, path)
+    )
     window.workspace.outside_requested.connect(lambda path: open_outside(window, path))
 
     window.history.session_selected.connect(
@@ -142,30 +160,42 @@ def bind_window_hosts(window) -> None:
         lambda fact_ids, status: on_fact_decided(window, fact_ids, status)
     )
 
-    window.notifications.unread_changed.connect(lambda count: on_notify_unread(window, count))
+    window.notifications.unread_changed.connect(
+        lambda count: on_notify_unread(window, count)
+    )
     window.notifications.opened.connect(lambda: on_inbox_opened(window))
     window.notifications.notice_activated.connect(
         lambda notice_id: on_notice_activated(window, notice_id)
     )
-    window.notifications.chat_requested.connect(lambda notice_id: open_sms_chat(window, notice_id))
+    window.notifications.chat_requested.connect(
+        lambda notice_id: open_sms_chat(window, notice_id)
+    )
     window.notifications.artifact_requested.connect(
         lambda notice_id, how: on_artifact_requested(window, notice_id, how)
     )
-    window.notifications.mark_read_btn.clicked.connect(lambda: on_notify_mark_all_read(window))
+    window.notifications.mark_read_btn.clicked.connect(
+        lambda: on_notify_mark_all_read(window)
+    )
     window.notify_inbox.closed.connect(lambda: on_notify_inbox_closed(window))
     window.calendar_window.closed.connect(lambda: on_calendar_window_closed(window))
 
     overlay = window.conversation.notify_overlay
     overlay.dismiss_requested.connect(lambda nid: on_notice_dismiss(window, nid))
-    overlay.snooze_requested.connect(lambda nid, mins=15: on_notice_snooze(window, nid, mins))
+    overlay.snooze_requested.connect(
+        lambda nid, mins=15: on_notice_snooze(window, nid, mins)
+    )
     overlay.reply_requested.connect(lambda nid: on_notice_reply(window, nid))
     overlay.open_requested.connect(lambda nid: on_notice_open(window, nid))
-    overlay.artifact_requested.connect(lambda nid, how: on_artifact_requested(window, nid, how))
+    overlay.artifact_requested.connect(
+        lambda nid, how: on_artifact_requested(window, nid, how)
+    )
     overlay.pill_clicked.connect(lambda: on_notify_pill_clicked(window))
     overlay.collapsed.connect(lambda: sync_idle_mode(window))
 
     window.readiness_updated.connect(lambda snap: on_idle_readiness(window, snap))
-    window.readiness_strip.notify_chip.clicked.connect(lambda: on_notify_chip_clicked(window))
+    window.readiness_strip.notify_chip.clicked.connect(
+        lambda: on_notify_chip_clicked(window)
+    )
     window.mail_headers_ready.connect(lambda rows: on_mail_headers(window, rows))
     window.sms_send_finished.connect(
         lambda key, ok, error: on_sms_send_finished(window, key, ok, error)
@@ -175,12 +205,20 @@ def bind_window_hosts(window) -> None:
     window._away_timer.timeout.connect(lambda: enter_away_rest(window))
     window._notify_timer.timeout.connect(lambda: on_notify_poll(window))
     window._calendar_sync_timer.timeout.connect(lambda: kick_calendar_sync(window))
-    window._calendar_sync_watchdog.timeout.connect(lambda: on_calendar_sync_watchdog(window))
+    window._calendar_sync_watchdog.timeout.connect(
+        lambda: on_calendar_sync_watchdog(window)
+    )
     window._job_tick.timeout.connect(lambda: on_job_tick(window))
 
-    window.calendar.create_requested.connect(lambda payload: on_calendar_create(window, payload))
-    window.calendar.update_requested.connect(lambda payload: on_calendar_update(window, payload))
-    window.calendar.delete_requested.connect(lambda event_id: on_calendar_delete(window, event_id))
+    window.calendar.create_requested.connect(
+        lambda payload: on_calendar_create(window, payload)
+    )
+    window.calendar.update_requested.connect(
+        lambda payload: on_calendar_update(window, payload)
+    )
+    window.calendar.delete_requested.connect(
+        lambda event_id: on_calendar_delete(window, event_id)
+    )
     window.calendar.sync_requested.connect(lambda: kick_calendar_sync(window))
     window.calendar.auth_requested.connect(lambda: kick_calendar_auth(window))
     window.calendar.task_add_requested.connect(
@@ -198,9 +236,13 @@ def bind_window_hosts(window) -> None:
     window.calendar.job_delete_requested.connect(
         lambda job_id: on_calendar_job_delete(window, job_id)
     )
-    window.calendar.job_run_requested.connect(lambda job_id: on_calendar_job_run(window, job_id))
+    window.calendar.job_run_requested.connect(
+        lambda job_id: on_calendar_job_run(window, job_id)
+    )
     window.contacts.chat_requested.connect(
-        lambda alias, phone, title: window.sms_chats.open(alias=alias, phone=phone, title=title)
+        lambda alias, phone, title: window.sms_chats.open(
+            alias=alias, phone=phone, title=title
+        )
     )
 
 
@@ -219,6 +261,8 @@ def apply_startup_hosts(window) -> None:
     arm_away_rest_timer(window)
     build_voice(window)
     if window.voice_controller is not None:
-        window.voice_controller.listening_changed.connect(lambda _on: refresh_idle_face(window))
+        window.voice_controller.listening_changed.connect(
+            lambda _on: refresh_idle_face(window)
+        )
     refresh_history(window)
     sync_idle_mode(window)

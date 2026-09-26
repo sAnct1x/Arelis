@@ -61,7 +61,9 @@ def test_purge_on_a_checkout_only_touches_tasks(
     (doomed / "keep.txt").write_text("x", encoding="utf-8")
 
     monkeypatch.setattr(wipe, "residue_dirs", lambda: [doomed])
-    monkeypatch.setattr("arelis.jobs.schedule.remove_all_tasks", lambda: ["news"])
+    monkeypatch.setattr(
+        "arelis.jobs.schedule.remove_all_tasks", lambda: ["news"]
+    )
 
     assert paths.is_source_checkout()
     gone = wipe.purge_user_state()
@@ -69,7 +71,9 @@ def test_purge_on_a_checkout_only_touches_tasks(
     assert (doomed / "keep.txt").is_file()
 
 
-def test_purge_removes_published_dirs(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_purge_removes_published_dirs(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     gone_dir = tmp_path / "Arelis"
     gone_dir.mkdir()
     (gone_dir / "secrets.yaml").write_text("x", encoding="utf-8")
@@ -83,7 +87,9 @@ def test_purge_removes_published_dirs(monkeypatch: pytest.MonkeyPatch, tmp_path:
     assert not gone_dir.exists()
 
 
-def test_purge_flag_runs_before_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_purge_flag_runs_before_config(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     from arelis import main as entry
 
     monkeypatch.setenv(paths.DATA_DIR_ENV, str(tmp_path / "state"))

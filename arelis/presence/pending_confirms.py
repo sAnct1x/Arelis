@@ -130,11 +130,11 @@ class PendingConfirmStore:
             if not cid:
                 continue
             args_raw = row.get("args") or {}
-            args = (
-                {str(k): str(v) for k, v in args_raw.items() if isinstance(k, str)}
-                if isinstance(args_raw, dict)
-                else {}
-            )
+            args = {
+                str(k): str(v)
+                for k, v in args_raw.items()
+                if isinstance(k, str)
+            } if isinstance(args_raw, dict) else {}
             out.append(
                 PendingConfirm(
                     id=cid,
@@ -161,11 +161,11 @@ class PendingConfirmStore:
 
 def _string_args(payload: dict[str, Any]) -> dict[str, str]:
     args_raw = payload.get("args") or {}
-    args = (
-        {str(k): str(v) for k, v in args_raw.items() if isinstance(k, str)}
-        if isinstance(args_raw, dict)
-        else {}
-    )
+    args = {
+        str(k): str(v)
+        for k, v in args_raw.items()
+        if isinstance(k, str)
+    } if isinstance(args_raw, dict) else {}
     # Prefer full args stashed by auto-reply when present.
     full = payload.get("full_args")
     if isinstance(full, dict) and full:

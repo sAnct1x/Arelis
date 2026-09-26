@@ -37,7 +37,9 @@ def _repo(tmp_path: Path) -> Path:
     ):
         subprocess.run(["git", "-C", str(root), *args], check=True, capture_output=True)
     (root / "README.md").write_text("first\n", encoding="utf-8")
-    subprocess.run(["git", "-C", str(root), "add", "-A"], check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-C", str(root), "add", "-A"], check=True, capture_output=True
+    )
     subprocess.run(
         ["git", "-C", str(root), "commit", "-q", "-m", "initial"],
         check=True,
@@ -146,7 +148,9 @@ async def test_a_refused_verb_cannot_be_smuggled_through_the_message(
     tool = GitInfoTool([str(root)])
     await tool.run(action="stage")
 
-    result = await tool.run(action="commit", message='done"; git push --force; echo "')
+    result = await tool.run(
+        action="commit", message="done\"; git push --force; echo \""
+    )
     assert result.ok, result.output
     # It landed as a commit subject, not as a second command.
     assert "git push" in _log(root)

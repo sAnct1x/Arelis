@@ -531,7 +531,8 @@ def _command(src: str, i: int, *, unknown: str) -> tuple[str, int]:
         num, i = _read_group(src, i)
         den, i = _read_group(src, i)
         return (
-            f"{_paren(_convert(num, unknown=unknown))}/{_paren(_convert(den, unknown=unknown))}"
+            f"{_paren(_convert(num, unknown=unknown))}/"
+            f"{_paren(_convert(den, unknown=unknown))}"
         ), i
     if cmd == "sqrt":
         root = ""
@@ -547,7 +548,9 @@ def _command(src: str, i: int, *, unknown: str) -> tuple[str, int]:
     if cmd == "binom":
         n, i = _read_group(src, i)
         k, i = _read_group(src, i)
-        return (f"C({_convert(n, unknown=unknown)}, {_convert(k, unknown=unknown)})"), i
+        return (
+            f"C({_convert(n, unknown=unknown)}, {_convert(k, unknown=unknown)})"
+        ), i
     if cmd in _ACCENTS:
         grp, i = _read_group(src, i)
         body = _convert(grp, unknown=unknown)

@@ -89,7 +89,7 @@ class HardwareSnapshot:
             short = _short_gpu(name)
             return f"This PC has {short} with about {vram:g} GB of graphics memory."
         if name:
-            return f"This PC has {_short_gpu(name)}. We could not read how large it is."
+            return f"This PC has { _short_gpu(name) }. We could not read how large it is."
         if ram:
             return (
                 f"We did not see a dedicated graphics card. This PC has about "

@@ -60,7 +60,9 @@ class PoseWorker(QThread):
     def run(self) -> None:
         self._backend = load_backend()
         if isinstance(self._backend, StubBackend):
-            self.status.emit('Hands need MediaPipe. In this checkout: pip install -e ".[spatial]"')
+            self.status.emit(
+                "Hands need MediaPipe. In this checkout: pip install -e \".[spatial]\""
+            )
         else:
             self.status.emit(f"Hands: {self._backend.name}")
         try:
@@ -89,7 +91,9 @@ class PoseWorker(QThread):
                 self._backend.close()
             self._filters.reset()
 
-    def _unpack(self, item: tuple[Any, ...]) -> tuple[np.ndarray | None, float, int, int]:
+    def _unpack(
+        self, item: tuple[Any, ...]
+    ) -> tuple[np.ndarray | None, float, int, int]:
         kind = item[0]
         if kind == "rgb":
             _, rgb, t_cap, w, h = item
@@ -163,7 +167,9 @@ class SpatialHands(QObject):
     def set_face(self, *, filament: bool, chip: bool) -> None:
         self._filament = bool(filament)
         self._chip = bool(chip)
-        if must_revoke(self._room_id, filament=self._filament, chip=self._chip):
+        if must_revoke(
+            self._room_id, filament=self._filament, chip=self._chip
+        ):
             self.stop_track()
 
     def set_preview_wanted(self, on: bool) -> None:
@@ -173,12 +179,18 @@ class SpatialHands(QObject):
 
     def set_room(self, room_id: str) -> None:
         self._room_id = str(room_id or "")
-        if must_revoke(self._room_id, filament=self._filament, chip=self._chip):
+        if must_revoke(
+            self._room_id, filament=self._filament, chip=self._chip
+        ):
             self.stop_track()
 
     def start_track(self, meta: dict[str, Any] | None = None) -> bool:
-        if must_revoke(self._room_id, filament=self._filament, chip=self._chip):
-            self.hint.emit("Hands need Reality Track, or the filament Hands chip.")
+        if must_revoke(
+            self._room_id, filament=self._filament, chip=self._chip
+        ):
+            self.hint.emit(
+                "Hands need Reality Track, or the filament Hands chip."
+            )
             return False
         if self._tracking:
             return True
@@ -293,7 +305,9 @@ class SpatialHands(QObject):
         control = self._gesture.hand
         if control is not None:
             wrist = control.xy(0)
-            self._wrist_hist.append((wrist[0] * frame.width, wrist[1] * frame.height))
+            self._wrist_hist.append(
+                (wrist[0] * frame.width, wrist[1] * frame.height)
+            )
         self._last_frame = frame
         clicks = self._gesture.consume_clicks()
         self.last_state = state

@@ -49,24 +49,16 @@ def release_payload(
 
 class TestWhatCountsAsAnUpdate:
     def test_a_newer_tag_is_offered(self) -> None:
-        release = update.available_update(
-            "0.1.0", fetch=lambda: update.parse_release(release_payload())
-        )
+        release = update.available_update("0.1.0", fetch=lambda: update.parse_release(release_payload()))
         assert release is not None
         assert release.version == Version("0.2.0")
         assert release.setup_name.endswith("-setup.exe")
 
     def test_the_version_you_are_running_is_not_an_update(self) -> None:
-        assert (
-            update.available_update("0.2.0", fetch=lambda: update.parse_release(release_payload()))
-            is None
-        )
+        assert update.available_update("0.2.0", fetch=lambda: update.parse_release(release_payload())) is None
 
     def test_an_older_release_is_not_an_update(self) -> None:
-        assert (
-            update.available_update("0.3.0", fetch=lambda: update.parse_release(release_payload()))
-            is None
-        )
+        assert update.available_update("0.3.0", fetch=lambda: update.parse_release(release_payload())) is None
 
     def test_ten_is_newer_than_nine(self) -> None:
         """The reason tags are parsed rather than compared as text."""
@@ -232,9 +224,7 @@ class TestDownloading:
         assert path.read_bytes() == body
         assert not list(tmp_path.glob("*.part")), "the partial file should have been renamed"
 
-    def test_a_download_that_does_not_match_its_digest_is_deleted(
-        self, monkeypatch, tmp_path
-    ) -> None:
+    def test_a_download_that_does_not_match_its_digest_is_deleted(self, monkeypatch, tmp_path) -> None:
         """The whole reason the digest is published. A mismatch must leave nothing behind
         that looks like an installer, because the next thing anyone does is run it."""
         self._serve(monkeypatch, b"tampered", hashlib.sha256(b"expected").hexdigest())
@@ -246,9 +236,7 @@ class TestDownloading:
         body = b"installer"
         self._serve(monkeypatch, body, hashlib.sha256(body).hexdigest())
         seen: list[tuple[int, int]] = []
-        update.download(
-            self._release(), into=tmp_path, progress=lambda got, total: seen.append((got, total))
-        )
+        update.download(self._release(), into=tmp_path, progress=lambda got, total: seen.append((got, total)))
         assert seen
         assert seen[-1][0] == len(body)
 

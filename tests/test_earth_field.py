@@ -63,7 +63,9 @@ def test_field_iss_coasts_on_tick() -> None:
     earth.tick(unix=90.0)
     later = earth.get("norad:25544")
     assert later is not None
-    drift = ((later.x - x0) ** 2 + (later.y - y0) ** 2 + (later.z - z0) ** 2) ** 0.5
+    drift = (
+        (later.x - x0) ** 2 + (later.y - y0) ** 2 + (later.z - z0) ** 2
+    ) ** 0.5
     assert drift > 1_000.0
     lat, _lon, alt = ecef_to_geodetic(later.x, later.y, later.z)
     assert 300_000.0 < alt < 500_000.0
@@ -308,7 +310,9 @@ def test_field_camera_click_starts_look_on_the_plate(
     earth.layers["cameras"] = True
     set_earth(earth)
     started: list[object] = []
-    monkeypatch.setattr(LookSession, "start", lambda self, handle: started.append(handle))
+    monkeypatch.setattr(
+        LookSession, "start", lambda self, handle: started.append(handle)
+    )
     panel = SolarPanel()
     panel.resize(640, 480)
     panel._select_earth_entity(cam, ride=False)
@@ -368,7 +372,9 @@ def test_field_click_sat_does_not_rebuild_the_globe() -> None:
     assert "keep_ride=True" in follow
     assert "sit = 80_000" in follow
     assert "return" not in follow.split('== "iss":', 1)[1].split("sit = 80_000", 1)[0]
-    assert inspect_kind_line("satellites", "interpolated") == ("satellite · interpolated")
+    assert inspect_kind_line("satellites", "interpolated") == (
+        "satellite · interpolated"
+    )
     from arelis.earth.entity import Entity
 
     dummy = Entity(
@@ -400,7 +406,9 @@ def test_field_look_shift_drops_city_catalog_ttl() -> None:
     assert last["celestrak"] == 1.0
 
 
-def test_field_escape_hops_off_the_station(qt_app, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_field_escape_hops_off_the_station(
+    qt_app, monkeypatch: pytest.MonkeyPatch
+) -> None:
     from arelis.physics.demo import sun_and_planet
     from arelis.physics.engine import rebound_available
     from arelis.physics.runtime import set_system
@@ -409,7 +417,9 @@ def test_field_escape_hops_off_the_station(qt_app, monkeypatch: pytest.MonkeyPat
 
     if not rebound_available():
         pytest.skip("REBOUND is not installed")
-    monkeypatch.setattr("arelis.earth.runtime.EarthRuntime._merge_live", lambda self: None)
+    monkeypatch.setattr(
+        "arelis.earth.runtime.EarthRuntime._merge_live", lambda self: None
+    )
     set_system(SolarSystem.from_states(sun_and_planet(), tracers=0))
     earth = EarthRuntime()
     earth.enter(unix=1.0)
@@ -455,7 +465,9 @@ def test_space_click_off_a_sat_does_not_pin_or_smash_camera(
 
     if not rebound_available():
         pytest.skip("REBOUND is not installed")
-    monkeypatch.setattr("arelis.earth.runtime.EarthRuntime._merge_live", lambda self: None)
+    monkeypatch.setattr(
+        "arelis.earth.runtime.EarthRuntime._merge_live", lambda self: None
+    )
     set_system(SolarSystem.from_states(sun_and_planet(), tracers=0))
     earth = EarthRuntime()
     earth.enter(unix=1.0)
@@ -500,7 +512,9 @@ def test_space_click_off_a_sat_does_not_pin_or_smash_camera(
     set_earth(None)
 
 
-def test_city_ground_click_still_pins(qt_app, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_city_ground_click_still_pins(
+    qt_app, monkeypatch: pytest.MonkeyPatch
+) -> None:
     from arelis.physics.demo import sun_and_planet
     from arelis.physics.engine import rebound_available
     from arelis.physics.runtime import set_system
@@ -509,7 +523,9 @@ def test_city_ground_click_still_pins(qt_app, monkeypatch: pytest.MonkeyPatch) -
 
     if not rebound_available():
         pytest.skip("REBOUND is not installed")
-    monkeypatch.setattr("arelis.earth.runtime.EarthRuntime._merge_live", lambda self: None)
+    monkeypatch.setattr(
+        "arelis.earth.runtime.EarthRuntime._merge_live", lambda self: None
+    )
     set_system(SolarSystem.from_states(sun_and_planet(), tracers=0))
     earth = EarthRuntime()
     earth.enter(unix=1.0)
@@ -529,7 +545,9 @@ def test_city_ground_click_still_pins(qt_app, monkeypatch: pytest.MonkeyPatch) -
     panel.resize(640, 480)
     panel._globe_host = Host()
     panel._on_globe_ground(
-        json.dumps({"lat": 1.29, "lon": 103.85, "slant_m": 2400.0, "agl_m": 1800.0})
+        json.dumps(
+            {"lat": 1.29, "lon": 103.85, "slant_m": 2400.0, "agl_m": 1800.0}
+        )
     )
     assert panel._earth_pin is not None
     assert panel._earth_pin["lat"] == pytest.approx(1.29)
@@ -539,7 +557,9 @@ def test_city_ground_click_still_pins(qt_app, monkeypatch: pytest.MonkeyPatch) -
     set_earth(None)
 
 
-def test_field_ride_arms_js_follow(qt_app, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_field_ride_arms_js_follow(
+    qt_app, monkeypatch: pytest.MonkeyPatch
+) -> None:
     from arelis.physics.demo import sun_and_planet
     from arelis.physics.engine import rebound_available
     from arelis.physics.runtime import set_system
@@ -548,7 +568,9 @@ def test_field_ride_arms_js_follow(qt_app, monkeypatch: pytest.MonkeyPatch) -> N
 
     if not rebound_available():
         pytest.skip("REBOUND is not installed")
-    monkeypatch.setattr("arelis.earth.runtime.EarthRuntime._merge_live", lambda self: None)
+    monkeypatch.setattr(
+        "arelis.earth.runtime.EarthRuntime._merge_live", lambda self: None
+    )
     set_system(SolarSystem.from_states(sun_and_planet(), tracers=0))
     earth = EarthRuntime()
     earth.enter(unix=1.0)
@@ -598,11 +620,15 @@ def test_field_ride_arms_js_follow(qt_app, monkeypatch: pytest.MonkeyPatch) -> N
     set_earth(None)
 
 
-def test_field_find_does_not_seed_dest_as_eye(qt_app, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_field_find_does_not_seed_dest_as_eye(
+    qt_app, monkeypatch: pytest.MonkeyPatch
+) -> None:
     from arelis.earth.gazetteer import resolve_place
     from arelis.ui.panels.solar import SolarPanel
 
-    monkeypatch.setattr("arelis.earth.runtime.EarthRuntime._merge_live", lambda self: None)
+    monkeypatch.setattr(
+        "arelis.earth.runtime.EarthRuntime._merge_live", lambda self: None
+    )
     earth = EarthRuntime()
     earth.enter(unix=1.0)
     set_earth(earth)

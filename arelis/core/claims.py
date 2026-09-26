@@ -584,7 +584,9 @@ def detect_math_ask(text: str) -> bool:
     # picture in it.
     if hits == [_SPACED_TIMES] and _PICTURE_SIZE.search(lowered):
         return False
-    if hits == [_ARITH_PAIR] and (_YEAR_RANGE.search(lowered) or _QUANTITY_RANGE.search(lowered)):
+    if hits == [_ARITH_PAIR] and (
+        _YEAR_RANGE.search(lowered) or _QUANTITY_RANGE.search(lowered)
+    ):
         return False
     return True
 

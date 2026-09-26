@@ -18,7 +18,9 @@ NONCE_LEN = 12
 KEY_LEN = 32
 
 
-def hkdf_sha256(ikm: bytes, *, salt: bytes, info: bytes, length: int = KEY_LEN) -> bytes:
+def hkdf_sha256(
+    ikm: bytes, *, salt: bytes, info: bytes, length: int = KEY_LEN
+) -> bytes:
     if not salt:
         salt = b"\x00" * hashlib.sha256().digest_size
     prk = hmac.new(salt, ikm, hashlib.sha256).digest()

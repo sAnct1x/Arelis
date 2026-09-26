@@ -123,7 +123,8 @@ class RecallTool:
             "path": {
                 "type": "string",
                 "description": (
-                    "Optional folder or file, for action=index. Limits docs to that workspace path."
+                    "Optional folder or file, for action=index. Limits docs "
+                    "to that workspace path."
                 ),
             },
         },
@@ -171,7 +172,9 @@ class RecallTool:
             output=f"Unknown action {action!r}. Use search, docs, session, or index.",
         )
 
-    async def _search(self, kwargs: dict[str, Any], *, verb: str = "search") -> ToolResult:
+    async def _search(
+        self, kwargs: dict[str, Any], *, verb: str = "search"
+    ) -> ToolResult:
         query = str(kwargs.get("query") or "").strip()
         if not query:
             return ToolResult(ok=False, output=f"{verb} needs a query.")
@@ -268,7 +271,8 @@ class RecallTool:
                 output=(
                     f"No {where} matched {query!r}. That is a search miss, "
                     "not proof the user never said or wrote it - ask them rather "
-                    "than inventing." + note
+                    "than inventing."
+                    + note
                 ),
                 data={
                     "hits": [],
@@ -332,7 +336,9 @@ class RecallTool:
                 output="session needs a session_id from a search hit.",
             )
         messages = [
-            m for m in self.store.get_messages(session_id) if str(m.get("role") or "") != "notice"
+            m
+            for m in self.store.get_messages(session_id)
+            if str(m.get("role") or "") != "notice"
         ]
         if not messages:
             return ToolResult(
@@ -364,7 +370,8 @@ class RecallTool:
             )
         elif messages:
             lines.append(
-                f"(no messages in this page; {len(messages)} total, offset={offset}, limit={limit})"
+                f"(no messages in this page; {len(messages)} total, "
+                f"offset={offset}, limit={limit})"
             )
         for message in slice_:
             when = _format_when(str(message.get("created_at") or ""))
@@ -396,10 +403,8 @@ class RecallTool:
 
         want_docs = source in {"all", "docs"}
         want_mail = source in {"all", "mail"}
-        if (
-            want_docs
-            and self._index_docs is None
-            and (source == "docs" or self._index_mail is None)
+        if want_docs and self._index_docs is None and (
+            source == "docs" or self._index_mail is None
         ):
             return ToolResult(
                 ok=False,
@@ -458,7 +463,9 @@ class RecallTool:
                 "if that model is pulled."
             )
         else:
-            lines.append("No embed model is configured; keyword search only.")
+            lines.append(
+                "No embed model is configured; keyword search only."
+            )
         return ToolResult(
             ok=True,
             output=" ".join(lines),
@@ -473,7 +480,9 @@ class RecallTool:
         )
 
 
-async def _call_index(fn: IndexFn, path: str | None) -> tuple[int, int | None]:
+async def _call_index(
+    fn: IndexFn, path: str | None
+) -> tuple[int, int | None]:
     """Run a sync-or-async index hook. Never the embed path."""
     if path:
         try:
@@ -566,4 +575,7 @@ def _format_hit(hit: SearchHit) -> str:
         subject = hit.title.strip() or "(no subject)"
         return f"- [{when}] mail={hit.path or subject}: {_excerpt(hit.content)}"
     title = hit.title.strip() or "(untitled)"
-    return f"- [{when}] session={hit.session_id} ({title}) {hit.role}: {_excerpt(hit.content)}"
+    return (
+        f"- [{when}] session={hit.session_id} ({title}) "
+        f"{hit.role}: {_excerpt(hit.content)}"
+    )

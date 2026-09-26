@@ -216,7 +216,10 @@ def build_see_record(turn: LookTurn) -> SeeRecord:
                 and turn.vl_text.strip()
                 and turn.ocr_text.strip() != turn.vl_text.strip()
             ):
-                conflict = f"ocr={turn.ocr_text.strip()[:120]!r} vl={turn.vl_text.strip()[:120]!r}"
+                conflict = (
+                    f"ocr={turn.ocr_text.strip()[:120]!r} "
+                    f"vl={turn.vl_text.strip()[:120]!r}"
+                )
         else:
             channel, text, epistemic = "abstain", "", "abstain"
     elif turn.vision_done and turn.vl_text.strip():
@@ -283,12 +286,16 @@ def classify_look(
 ) -> LookIntent | None:
     """Speech-act for a Point-and-Ask turn, or None if this is not a look."""
     raw = text or ""
-    if not has_look_context(raw, dock_live=dock_live, fresh_path=fresh_path, history=history):
+    if not has_look_context(
+        raw, dock_live=dock_live, fresh_path=fresh_path, history=history
+    ):
         return None
     lowered = raw.lower()
     path = camera_path_in_text(raw)
     lang = _target_lang(lowered)
-    if any(p in lowered for p in _TRANSLATE) or ("translate" in lowered and _DEICTIC.search(raw)):
+    if any(p in lowered for p in _TRANSLATE) or (
+        "translate" in lowered and _DEICTIC.search(raw)
+    ):
         return LookIntent("translate", path, lang)
     if any(p in lowered for p in _FRESHNESS):
         return LookIntent("freshness", path, lang)
@@ -444,7 +451,8 @@ def format_see_record(record: SeeRecord) -> str:
         )
     elif record.speech_act == "freshness":
         lines.append(
-            "Relay visible signs only. Abstain from a safe/unsafe verdict. Do not call more tools."
+            "Relay visible signs only. Abstain from a safe/unsafe verdict. "
+            "Do not call more tools."
         )
     else:
         lines.append("Narrate this record. Do not call more tools.")

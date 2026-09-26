@@ -16,7 +16,9 @@ YOUR_TURN = "YOUR_TURN"
 _MESSAGES = {
     "pay": "Your turn — you click Book / Pay / Order. I stop on this screen.",
     "delete": "Your turn — I do not delete, format, or uninstall without you.",
-    "password": ("Your turn — I do not type passwords. Hit Go when you are in."),
+    "password": (
+        "Your turn — I do not type passwords. Hit Go when you are in."
+    ),
     "hands": "Your turn — you have the mouse. I will not click over you.",
     "uac": "Your turn — I never click Yes on User Account Control.",
     "stuck": "Your turn — I cannot find the next control. The window stays.",

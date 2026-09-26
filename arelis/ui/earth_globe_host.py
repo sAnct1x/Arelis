@@ -390,7 +390,9 @@ def stack_chrome_over_globe(hud: QWidget | None, host: QWidget | None) -> None:
         return
     panel = getattr(hud, "_panel", None)
     if panel is not None:
-        if hud.parentWidget() is not None and not bool(hud.windowFlags() & Qt.WindowType.Window):
+        if hud.parentWidget() is not None and not bool(
+            hud.windowFlags() & Qt.WindowType.Window
+        ):
             origin = panel.mapTo(hud.parentWidget(), QPoint(0, 0))
         else:
             origin = panel.mapToGlobal(QPoint(0, 0))
@@ -530,7 +532,9 @@ class EarthGlobeHost(QWidget):
     driver must not construct WebEngine next to a desktop share context.
     """
 
-    def __init__(self, parent: QWidget | None = None, *, process: str | None = None) -> None:
+    def __init__(
+        self, parent: QWidget | None = None, *, process: str | None = None
+    ) -> None:
         super().__init__(parent)
         self.ready = False
         self.failed = False
@@ -601,7 +605,9 @@ class EarthGlobeHost(QWidget):
             QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls,
             True,
         )
-        settings.setAttribute(QWebEngineSettings.WebAttribute.JavascriptEnabled, True)
+        settings.setAttribute(
+            QWebEngineSettings.WebAttribute.JavascriptEnabled, True
+        )
         settings.setAttribute(
             QWebEngineSettings.WebAttribute.LocalContentCanAccessFileUrls,
             True,
@@ -755,7 +761,9 @@ class EarthGlobeHost(QWidget):
         return False
 
     def _deliver_remote_key(self, msg: dict[str, Any]) -> None:
-        kind = QEvent.Type.KeyPress if msg.get("down") else QEvent.Type.KeyRelease
+        kind = (
+            QEvent.Type.KeyPress if msg.get("down") else QEvent.Type.KeyRelease
+        )
         try:
             key = int(msg.get("key") or 0)
         except (TypeError, ValueError):
@@ -1038,7 +1046,9 @@ class EarthGlobeHost(QWidget):
 
     def fly_to(self, lat: float, lon: float, alt_m: float) -> None:
         if self._own_process:
-            self._write_remote({"op": "fly", "lat": lat, "lon": lon, "alt_m": alt_m})
+            self._write_remote(
+                {"op": "fly", "lat": lat, "lon": lon, "alt_m": alt_m}
+            )
             return
         self.bridge.flyJson.emit(json.dumps({"lat": lat, "lon": lon, "alt_m": alt_m}))
 
@@ -1143,10 +1153,15 @@ def pick_orbit_marks(
     iss = [
         row
         for row in orbit
-        if row.get("layer") == "iss" and (row.get("hot") or str(row.get("id") or "") in held)
+        if row.get("layer") == "iss"
+        and (row.get("hot") or str(row.get("id") or "") in held)
     ]
     sats = [row for row in orbit if row.get("layer") == "satellites"]
-    pinned = [row for row in sats if row.get("hot") or str(row.get("id") or "") in held]
+    pinned = [
+        row
+        for row in sats
+        if row.get("hot") or str(row.get("id") or "") in held
+    ]
     pinned_ids = {str(row.get("id") or "") for row in pinned}
     rest = [row for row in sats if str(row.get("id") or "") not in pinned_ids]
     return ground + iss + pinned + rest[: max(0, cap - len(pinned))]
@@ -1236,7 +1251,8 @@ def place_rows(band: str, lat: float, lon: float) -> list[dict[str, Any]]:
     found = places_dense() if band in {"near", "city"} else places()
     ranked = sorted(
         found,
-        key=lambda row: (row[1] - lat) ** 2 + (((row[2] - lon + 180.0) % 360.0) - 180.0) ** 2,
+        key=lambda row: (row[1] - lat) ** 2
+        + (((row[2] - lon + 180.0) % 360.0) - 180.0) ** 2,
     )
     cap = 8 if band == "approach" else 18 if band == "near" else 36
     return [{"name": n, "lat": a, "lon": b} for n, a, b in ranked[:cap]]

@@ -122,7 +122,9 @@ def build_task_xml(job: Job, *, command: str = "", now: date | None = None) -> s
     triggers = "\n".join(_trigger(job, when, today, enabled) for when in job.times)
     # A one-off cleans itself out of Task Scheduler once it has fired and its
     # end boundary has passed. Without this the tree fills with spent reminders.
-    expiry = "    <DeleteExpiredTaskAfter>PT10M</DeleteExpiredTaskAfter>\n" if job.one_off else ""
+    expiry = (
+        "    <DeleteExpiredTaskAfter>PT10M</DeleteExpiredTaskAfter>\n" if job.one_off else ""
+    )
 
     return f"""<?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
@@ -198,7 +200,9 @@ def _trigger(job: Job, when: str, today: date, enabled: str) -> str:
         )
     elif len(job.days) == 7:
         recurrence = (
-            "      <ScheduleByDay>\n        <DaysInterval>1</DaysInterval>\n      </ScheduleByDay>"
+            "      <ScheduleByDay>\n"
+            "        <DaysInterval>1</DaysInterval>\n"
+            "      </ScheduleByDay>"
         )
     else:
         chosen = "".join(f"          <{d.capitalize()}/>\n" for d in job.days)
@@ -353,10 +357,9 @@ def repoint_moved_tasks_on_launch() -> list[str]:
 
 def _same_runner(previous: dict[str, str], current: dict[str, str]) -> bool:
     """Compare command lines the way Windows compares paths: case-insensitively."""
-    return (
-        os.path.normcase(str(previous.get("command", ""))) == os.path.normcase(current["command"])
-        and str(previous.get("arguments", "")) == current["arguments"]
-    )
+    return os.path.normcase(str(previous.get("command", ""))) == os.path.normcase(
+        current["command"]
+    ) and str(previous.get("arguments", "")) == current["arguments"]
 
 
 def registered_ids() -> set[str]:

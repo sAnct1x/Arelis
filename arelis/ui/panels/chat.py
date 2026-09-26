@@ -66,7 +66,7 @@ def _assistant_open() -> str:
     )
 
 
-_ASSISTANT_CLOSE = '</div></td><td width="18%"></td></tr></table>'
+_ASSISTANT_CLOSE = "</div></td><td width=\"18%\"></td></tr></table>"
 
 
 def _acts_html() -> str:
@@ -84,7 +84,6 @@ def _acts_html() -> str:
         f"export conversation</a>"
         f"</div>"
     )
-
 
 _CARET_GLYPHS = {"▍", "|", "▌"}
 
@@ -259,7 +258,9 @@ class ChatPanel(QWidget):
         body = max(10, min(24, round(14 * self._text_scale)))
         # Inner pad only. The parked orbit uses layout contentsMargins, because
         # Qt rich-text tables ignore stylesheet padding-right.
-        self.view.setStyleSheet(f"font-size: {body}px; padding-right: {SPACE['plate']}px;")
+        self.view.setStyleSheet(
+            f"font-size: {body}px; padding-right: {SPACE['plate']}px;"
+        )
 
     def _ensure_view(self) -> None:
         if not self._has_messages:
@@ -427,7 +428,7 @@ class ChatPanel(QWidget):
             f'<span style="color:{_ink("text_dim")};"> · </span>'
             f'<a href="{reveal_href}" style="color:{_ink("accent")};text-decoration:none;">'
             f"show in folder</a>"
-            f'</div></td><td width="18%"></td></tr></table>'
+            f"</div></td><td width=\"18%\"></td></tr></table>"
         )
 
     def _on_anchor(self, url: QUrl) -> None:
@@ -715,7 +716,10 @@ class ChatPanel(QWidget):
 
 def _esc(text: str) -> str:
     return (
-        text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br/>")
+        text.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace("\n", "<br/>")
     )
 
 
@@ -769,7 +773,11 @@ def _user_bubble_html(
     if attachments:
         parts = [_attachment_html(item) for item in attachments]
         gap = "6px" if body else "0"
-        chips = f'<div style="margin-top:{gap};" align="right">' + "".join(parts) + "</div>"
+        chips = (
+            f'<div style="margin-top:{gap};" align="right">'
+            + "".join(parts)
+            + "</div>"
+        )
     if not body and not chips:
         body = "(attachment)"
     inner = body
@@ -780,11 +788,11 @@ def _user_bubble_html(
     return (
         '<table width="100%" cellspacing="0" cellpadding="0" style="margin:12px 0 8px 0;">'
         "<tr>"
-        "<td></td>"
+        '<td></td>'
         '<td align="right" valign="top" style="width:1%;">'
         # Nested table shrink-wraps; a lone block div still fills the row in Qt.
         '<table cellspacing="0" cellpadding="0" align="right">'
-        '<tr><td align="right">'
+        "<tr><td align=\"right\">"
         f'<div style="color:{_ink("text_dim")};font-size:11px;'
         f'letter-spacing:0.08em;margin:0 2px 3px 0;" '
         f'align="right">you</div>'
@@ -800,4 +808,9 @@ def _user_bubble_html(
 
 
 def _assistant_bubble_html(body: str) -> str:
-    return _assistant_label() + _assistant_open() + render_markdown(body) + _ASSISTANT_CLOSE
+    return (
+        _assistant_label()
+        + _assistant_open()
+        + render_markdown(body)
+        + _ASSISTANT_CLOSE
+    )

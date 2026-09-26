@@ -18,7 +18,13 @@ from arelis.tools.policy import WORKSPACE_WRITE_ACTIONS, action_is_destructive, 
 
 def _udiff(path: str, old: str, new: str) -> str:
     """One-line file, one hunk. Enough to exercise apply without a library."""
-    return f"--- a/{path}\n+++ b/{path}\n@@ -1 +1 @@\n-{old}\n+{new}\n"
+    return (
+        f"--- a/{path}\n"
+        f"+++ b/{path}\n"
+        "@@ -1 +1 @@\n"
+        f"-{old}\n"
+        f"+{new}\n"
+    )
 
 
 def test_patch_and_apply_hit_the_confirm_table() -> None:
@@ -98,7 +104,13 @@ async def test_dotdot_in_plus_path_does_not_escape(tmp_path: Path) -> None:
     victim.write_text("untouched\n", encoding="utf-8")
 
     tool = CodeWorkspaceTool([str(root)])
-    diff = "--- a/inside.txt\n+++ b/../victim.txt\n@@ -1 +1 @@\n-hello\n+pwned\n"
+    diff = (
+        "--- a/inside.txt\n"
+        "+++ b/../victim.txt\n"
+        "@@ -1 +1 @@\n"
+        "-hello\n"
+        "+pwned\n"
+    )
     result = await tool.run(action="patch", diff=diff)
     assert not result.ok
     assert victim.read_text(encoding="utf-8") == "untouched\n"
@@ -115,7 +127,10 @@ async def test_second_file_failure_does_not_half_apply(tmp_path: Path) -> None:
     one.write_text("aaa\n", encoding="utf-8")
     two.write_text("bbb\n", encoding="utf-8")
 
-    diff = _udiff("one.py", "aaa", "AAA") + _udiff("two.py", "XXX", "BBB")
+    diff = (
+        _udiff("one.py", "aaa", "AAA")
+        + _udiff("two.py", "XXX", "BBB")
+    )
     result = await tool.run(action="patch", diff=diff)
     assert not result.ok
     assert one.read_text(encoding="utf-8") == "aaa\n"
@@ -133,7 +148,13 @@ async def test_missing_file_is_refused_unless_dev_null_add(tmp_path: Path) -> No
 
     created = await tool.run(
         action="patch",
-        diff=("--- /dev/null\n+++ b/born.py\n@@ -0,0 +1,2 @@\n+hello\n+world\n"),
+        diff=(
+            "--- /dev/null\n"
+            "+++ b/born.py\n"
+            "@@ -0,0 +1,2 @@\n"
+            "+hello\n"
+            "+world\n"
+        ),
     )
     assert created.ok, created.output
     assert (tmp_path / "born.py").read_text(encoding="utf-8") == "hello\nworld\n"

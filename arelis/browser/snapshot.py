@@ -11,7 +11,7 @@ SNAPSHOT_SCAN = 160
 
 # Keep in sync with SNAPSHOT_STAMP_JS.
 SNAPSHOT_SELECTOR = (
-    "a[href], button, input, textarea, select, "
+    'a[href], button, input, textarea, select, '
     '[role="button"], [role="link"], [role="textbox"], [contenteditable="true"]'
 )
 
@@ -254,7 +254,9 @@ def match_click_targets(elements: Any, text: str) -> list[Any]:
             continue
         if label == needle:
             exact.append(info)
-        elif label.startswith(needle) or (needle.startswith(label) and len(label) >= 4):
+        elif label.startswith(needle) or (
+            needle.startswith(label) and len(label) >= 4
+        ):
             prefix.append(info)
         elif needle in label and len(label) < 48:
             contain.append(info)
@@ -304,7 +306,9 @@ def _as_list(elements: Any) -> list[Any]:
 
 
 def info_label(info: Any) -> str:
-    return " ".join(str(getattr(info, "text", "") or getattr(info, "name", "") or "").split())
+    return " ".join(
+        str(getattr(info, "text", "") or getattr(info, "name", "") or "").split()
+    )
 
 
 def is_typeable(info: Any) -> bool:
@@ -316,17 +320,12 @@ def is_typeable(info: Any) -> bool:
     typ = str(getattr(info, "type", "") or "").lower()
     if typ in {"password", "hidden", "submit", "button", "checkbox", "radio", "file"}:
         return False
-    return (
-        tag in {"input", "textarea"}
-        or role == "textbox"
-        or typ
-        in {
-            "search",
-            "text",
-            "email",
-            "url",
-        }
-    )
+    return tag in {"input", "textarea"} or role == "textbox" or typ in {
+        "search",
+        "text",
+        "email",
+        "url",
+    }
 
 
 def is_select(info: Any) -> bool:
@@ -422,7 +421,11 @@ def match_type_targets(elements: Any, into: str) -> list[Any]:
     labeled = match_click_targets(items, needle)
     if labeled:
         return labeled
-    return [info for info in items if needle in str(getattr(info, "name", "") or "").lower()]
+    return [
+        info
+        for info in items
+        if needle in str(getattr(info, "name", "") or "").lower()
+    ]
 
 
 def format_result_lines(elements: Any, *, max_n: int = 12) -> str:
@@ -481,9 +484,8 @@ def resolve_target_ref(
     if len(matches) == 1:
         return str(matches[0].ref), None, matches
     if not matches:
-        return (
-            None,
-            (f"No visible control matching {needle or kind!r}. Call snapshot and use a ref."),
-            matches,
-        )
+        return None, (
+            f"No visible control matching {needle or kind!r}. "
+            "Call snapshot and use a ref."
+        ), matches
     return None, f"Several matches for {needle or kind!r}. Pick one by ref.", matches

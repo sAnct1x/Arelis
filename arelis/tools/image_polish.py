@@ -52,12 +52,8 @@ CHECKS: tuple[Check, ...] = (
     Check("rail-module", "maintainability", "Listing and decode live in image_rail"),
     Check("copy-module", "maintainability", "Image sentences live in image_copy"),
     Check("polish-module", "maintainability", "This rubric is importable"),
-    Check(
-        "one-name-per-role", "maintainability", "Well, strip, and thumb do not share an object name"
-    ),
-    Check(
-        "confirm-covers-verbs", "maintainability", "Confirm copy covers restyle, cut-out, crop, 2×"
-    ),
+    Check("one-name-per-role", "maintainability", "Well, strip, and thumb do not share an object name"),
+    Check("confirm-covers-verbs", "maintainability", "Confirm copy covers restyle, cut-out, crop, 2×"),
 )
 
 

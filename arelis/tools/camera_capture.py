@@ -98,7 +98,9 @@ class CameraTool:
                 rel = self._rel_path(captured)
                 return ToolResult(
                     ok=True,
-                    output=(f"Saved camera frame to {rel}. Call vision with path={rel}."),
+                    output=(
+                        f"Saved camera frame to {rel}. Call vision with path={rel}."
+                    ),
                     data={"path": rel},
                 )
 

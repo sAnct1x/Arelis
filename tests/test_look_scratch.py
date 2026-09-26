@@ -75,7 +75,9 @@ def test_hold_skips_forget(tmp_path: Path, monkeypatch) -> None:
     clear_look_pending()
 
 
-def test_sweep_means_followup_needs_a_new_grab(tmp_path: Path, monkeypatch) -> None:
+def test_sweep_means_followup_needs_a_new_grab(
+    tmp_path: Path, monkeypatch
+) -> None:
     """A later 'third paragraph' cannot reuse the deleted still."""
     images = tmp_path / "images"
     images.mkdir()

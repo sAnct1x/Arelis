@@ -43,7 +43,9 @@ class _ElideLabel(QLabel):
             self.setText(self._full)
             return
         metrics = self.fontMetrics()
-        self.setText(metrics.elidedText(self._full, Qt.TextElideMode.ElideRight, self.width()))
+        self.setText(
+            metrics.elidedText(self._full, Qt.TextElideMode.ElideRight, self.width())
+        )
 
 
 class RoomStrip(QWidget):
@@ -90,7 +92,9 @@ class RoomStrip(QWidget):
     def room_id(self) -> str:
         return self._room_id
 
-    def set_room(self, room_id: str, name: str = "", purpose: str = "", root: str = "") -> None:
+    def set_room(
+        self, room_id: str, name: str = "", purpose: str = "", root: str = ""
+    ) -> None:
         """Paint the open room, or hide when room_id is empty."""
         self._room_id = room_id or ""
         if not self._room_id:

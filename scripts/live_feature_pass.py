@@ -118,7 +118,8 @@ def _grab_camera_still() -> Path | None:
     cams = [
         d
         for d in QMediaDevices.videoInputs()
-        if "brother" not in d.description().lower() and "mfc-" not in d.description().lower()
+        if "brother" not in d.description().lower()
+        and "mfc-" not in d.description().lower()
     ]
     if not cams:
         return None
@@ -184,7 +185,9 @@ async def main() -> int:
     img.save(ocr_png)
 
     csv_path = out / "sales.csv"
-    csv_path.write_text("item,qty,price\nnails,10,1.25\nscrews,4,3.50\n", encoding="utf-8")
+    csv_path.write_text(
+        "item,qty,price\nnails,10,1.25\nscrews,4,3.50\n", encoding="utf-8"
+    )
 
     cfg = load_config()
     router = build_router(cfg)
@@ -206,12 +209,19 @@ async def main() -> int:
     print(f"live feature pass  {stamp}")
     print(f"  tools     {sorted(reg.names())}")
     print(
-        f"  mail      {'yes' if mail else 'no'}  owner_inbox={'yes' if owner_inbox(mail) else 'no'}"
+        f"  mail      {'yes' if mail else 'no'}  "
+        f"owner_inbox={'yes' if owner_inbox(mail) else 'no'}"
     )
-    print(f"  sms       {'yes' if sms else 'no'}  me_phone={'yes' if me and me.digits else 'no'}")
+    print(
+        f"  sms       {'yes' if sms else 'no'}  "
+        f"me_phone={'yes' if me and me.digits else 'no'}"
+    )
     print(f"  contacts  {len(load_contacts())} reachable")
     print(f"  tesseract {'yes' if tesseract_available() else 'no'}")
-    print(f"  comfy     {'yes' if comfy_is_healthy('http://127.0.0.1:8188') else 'booting'}")
+    print(
+        f"  comfy     "
+        f"{'yes' if comfy_is_healthy('http://127.0.0.1:8188') else 'booting'}"
+    )
     print()
 
     comfy_task = asyncio.create_task(_boot_comfy(cfg))
@@ -481,7 +491,9 @@ async def main() -> int:
         skip("browser_open", "browser not registered")
 
     # --- live 9B with the real registry (no Reality, no send) ---
-    soak_reg = _drop_tools(reg, "solar", "earth", "send_sms", "send_email", "diagnostics")
+    soak_reg = _drop_tools(
+        reg, "solar", "earth", "send_sms", "send_email", "diagnostics"
+    )
     persona = load_persona(cfg)
     soak_turns = [
         ConversationTurn(
@@ -579,11 +591,15 @@ async def main() -> int:
     skipped = sum(1 for s, _, _ in rows if s == "SKIP")
     env = sum(1 for s, _, _ in rows if s == "ENV")
     print()
-    summary = f"summary  PASS={passed}  FAIL={failed}  ENV={env}  SKIP={skipped}  n={len(rows)}"
+    summary = (
+        f"summary  PASS={passed}  FAIL={failed}  ENV={env}  "
+        f"SKIP={skipped}  n={len(rows)}"
+    )
     print(summary)
     report = out / "report.txt"
     body = (
-        "\n".join(f"{s:4}  {label:<32}  {detail}" for s, label, detail in rows) + f"\n\n{summary}\n"
+        "\n".join(f"{s:4}  {label:<32}  {detail}" for s, label, detail in rows)
+        + f"\n\n{summary}\n"
     )
     report.write_text(body, encoding="utf-8")
     detail_log.write_text("\n".join(log_lines) + "\n\n" + body, encoding="utf-8")

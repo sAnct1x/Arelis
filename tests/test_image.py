@@ -60,7 +60,9 @@ def test_unknown_style_names_the_known_ones() -> None:
 
 
 def test_pick_checkpoint_prefers_sdxl_when_present() -> None:
-    chosen = pick_checkpoint(["v1-5-pruned-emaonly.safetensors", "sdxl_base.safetensors"])
+    chosen = pick_checkpoint(
+        ["v1-5-pruned-emaonly.safetensors", "sdxl_base.safetensors"]
+    )
     assert chosen == "sdxl_base.safetensors"
     assert looks_sdxl(chosen)
 
@@ -336,7 +338,9 @@ def test_sidecar_roundtrip(tmp_path: Path) -> None:
     assert data["n"] == 2
 
 
-def test_named_sidecar_reads_under_the_data_root(tmp_path: Path, monkeypatch) -> None:
+def test_named_sidecar_reads_under_the_data_root(
+    tmp_path: Path, monkeypatch
+) -> None:
     monkeypatch.setenv("ARELIS_DATA_DIR", str(tmp_path))
     folder = tmp_path / "outputs" / "images"
     folder.mkdir(parents=True)

@@ -87,7 +87,8 @@ _DIGITRAFFIC_CITE = (
     "Not a paid satellite product. Not navigation."
 )
 _COVERAGE = (
-    "Mostly terrestrial AIS. Mid-ocean VHF is deaf. We do not buy a commercial sat-AIS product."
+    "Mostly terrestrial AIS. Mid-ocean VHF is deaf. "
+    "We do not buy a commercial sat-AIS product."
 )
 
 
@@ -221,7 +222,9 @@ def _entity_from_envelope(payload: dict[str, Any], now: float) -> Entity | None:
     pos = lla_to_ecef(lat, lon, 0.0)
     speed = (sog or 0.0) * 0.514444
     vx, vy, vz = (
-        ecef_vel_from_track(lat, lon, speed, cog or 0.0) if speed > 0.5 else (0.0, 0.0, 0.0)
+        ecef_vel_from_track(lat, lon, speed, cog or 0.0)
+        if speed > 0.5
+        else (0.0, 0.0, 0.0)
     )
     return Entity(
         id=f"mmsi:{mmsi}",
@@ -317,7 +320,9 @@ def _digitraffic_names(vessels: Any) -> dict[str, str]:
     return out
 
 
-def _entity_from_digitraffic(feat: Any, names: dict[str, str], now: float) -> Entity | None:
+def _entity_from_digitraffic(
+    feat: Any, names: dict[str, str], now: float
+) -> Entity | None:
     if not isinstance(feat, dict):
         return None
     props = feat.get("properties") if isinstance(feat.get("properties"), dict) else {}
@@ -342,7 +347,9 @@ def _entity_from_digitraffic(feat: Any, names: dict[str, str], now: float) -> En
     pos = lla_to_ecef(lat, lon, 0.0)
     speed = (sog or 0.0) * 0.514444
     vx, vy, vz = (
-        ecef_vel_from_track(lat, lon, speed, cog or 0.0) if speed > 0.5 else (0.0, 0.0, 0.0)
+        ecef_vel_from_track(lat, lon, speed, cog or 0.0)
+        if speed > 0.5
+        else (0.0, 0.0, 0.0)
     )
     return Entity(
         id=f"mmsi:{mmsi}",

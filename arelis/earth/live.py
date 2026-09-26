@@ -57,7 +57,9 @@ from arelis.earth.waqi import fetch_waqi
 from arelis.earth.wx import fetch_weather
 
 # User-started live Earth zone only. Never from jobs.
-USGS_ALL_DAY = "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.geojson"
+USGS_ALL_DAY = (
+    "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.geojson"
+)
 
 _TIMEOUT = 12.0
 _PINNED_HOSTS = frozenset({"earthquake.usgs.gov"})
@@ -224,7 +226,9 @@ def _apply_live(
     if {"usgs", "emsc", "geonet"} & ran:
         if _heard(got, "usgs", "emsc", "geonet"):
             quakes = _capped(
-                (got.get("usgs") or []) + (got.get("emsc") or []) + (got.get("geonet") or []),
+                (got.get("usgs") or [])
+                + (got.get("emsc") or [])
+                + (got.get("geonet") or []),
                 view,
             )
             _replace_layer(store, "quakes", quakes)
@@ -260,13 +264,17 @@ def _apply_live(
     if {"radio", "aprs", "satnogs"} & ran:
         if _heard(got, "radio", "aprs", "satnogs"):
             radio = _capped(
-                (got.get("radio") or []) + (got.get("aprs") or []) + (got.get("satnogs") or []),
+                (got.get("radio") or [])
+                + (got.get("aprs") or [])
+                + (got.get("satnogs") or []),
                 view,
             )
             _replace_layer(store, "radio", radio)
     if {"cameras", "shodan"} & ran:
         if _heard(got, "cameras", "shodan"):
-            pins = _capped((got.get("cameras") or []) + (got.get("shodan") or []), view)
+            pins = _capped(
+                (got.get("cameras") or []) + (got.get("shodan") or []), view
+            )
             _replace_layer(store, "cameras", pins)
     weather_keys = (
         "weather",

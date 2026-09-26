@@ -146,7 +146,9 @@ async def apply_no_call_path(
                 if (
                     not ctx.page_write_nudge_used
                     and ctx.nudges < _MAX_TOOL_NUDGES
-                    and should_nudge_write_after_page(ctx.last_ok_tool_name, ctx.last_ok_tool_out)
+                    and should_nudge_write_after_page(
+                        ctx.last_ok_tool_name, ctx.last_ok_tool_out
+                    )
                 ):
                     ctx.page_write_nudge_used = True
                     ctx.nudges += 1
@@ -179,7 +181,9 @@ async def apply_no_call_path(
                     r.messages.append(
                         {
                             "role": "user",
-                            "content": write_after_algebra_notice(ctx.last_ok_tool_name),
+                            "content": write_after_algebra_notice(
+                                ctx.last_ok_tool_name
+                            ),
                         }
                     )
                     await loop.bus.publish(
@@ -189,7 +193,9 @@ async def apply_no_call_path(
                         )
                     )
                     return False
-                if not receipt_serves_goal(ctx.goal, ctx.last_ok_tool_name, ctx.last_ok_tool_out):
+                if not receipt_serves_goal(
+                    ctx.goal, ctx.last_ok_tool_name, ctx.last_ok_tool_out
+                ):
                     if not ctx.goal_unlock_used and ctx.nudges < _MAX_TOOL_NUDGES:
                         ctx.goal_unlock_used = True
                         ctx.nudges += 1
@@ -204,7 +210,11 @@ async def apply_no_call_path(
                         await loop.bus.publish(
                             Event(
                                 EventType.THINKING,
-                                {"text": ("goal unlock; last receipt does not finish the turn")},
+                                {
+                                    "text": (
+                                        "goal unlock; last receipt does not finish the turn"
+                                    )
+                                },
                             )
                         )
                         return False

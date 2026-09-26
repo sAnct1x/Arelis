@@ -13,7 +13,8 @@ from arelis.earth.entity import Coverage, Entity
 from arelis.earth.frames import lla_to_ecef
 
 EMSC_QUERY = (
-    "https://www.seismicportal.eu/fdsnws/event/1/query?format=json&limit=200&orderby=time&minmag=2"
+    "https://www.seismicportal.eu/fdsnws/event/1/query"
+    "?format=json&limit=200&orderby=time&minmag=2"
 )
 EMSC_HOST = "www.seismicportal.eu"
 _UA = f"Arelis/{__version__} (+{__source_url__})"

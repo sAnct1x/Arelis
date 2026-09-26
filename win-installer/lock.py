@@ -110,16 +110,8 @@ def build_wheel(destination: Path) -> Path:
     rather than what the current pyproject would declare if the build backend agreed.
     """
     run(
-        [
-            sys.executable,
-            "-m",
-            "pip",
-            "wheel",
-            "--no-deps",
-            "--wheel-dir",
-            str(destination),
-            str(REPO_ROOT),
-        ],
+        [sys.executable, "-m", "pip", "wheel", "--no-deps", "--wheel-dir", str(destination),
+         str(REPO_ROOT)],
         "Building the arelis wheel",
     )
     wheels = sorted(destination.glob("arelis-*.whl"))
@@ -138,23 +130,16 @@ def resolve(wheel: Path, scratch: Path) -> list[dict]:
     report = scratch / "report.json"
     run(
         [
-            sys.executable,
-            "-m",
-            "pip",
-            "install",
+            sys.executable, "-m", "pip", "install",
             "--dry-run",
             "--ignore-installed",
             "--only-binary=:all:",
-            "--platform",
-            PLATFORM,
-            "--python-version",
-            PYTHON_VERSION,
+            "--platform", PLATFORM,
+            "--python-version", PYTHON_VERSION,
             # Required by pip whenever --platform is given. --dry-run means nothing is
             # written to it, but it still has to name somewhere.
-            "--target",
-            str(scratch / "unused"),
-            "--report",
-            str(report),
+            "--target", str(scratch / "unused"),
+            "--report", str(report),
             f"{wheel}[{EXTRA}]",
         ],
         f"Resolving the {EXTRA} extra for {PLATFORM} on Python {PYTHON_VERSION}",
@@ -172,8 +157,8 @@ def lock_lines(entries: list[dict]) -> list[str]:
         if normalise(name) == SELF:
             continue
         version = entry["metadata"]["version"]
-        digest = (
-            entry.get("download_info", {}).get("archive_info", {}).get("hashes", {}).get("sha256")
+        digest = entry.get("download_info", {}).get("archive_info", {}).get("hashes", {}).get(
+            "sha256"
         )
         if not digest:
             missing.append(name)
@@ -232,7 +217,9 @@ def read_lock() -> dict[str, str]:
             continue
         match = re.fullmatch(r"([A-Za-z0-9._-]+)==([^\s]+)\s+--hash=sha256:([0-9a-f]{64})", line)
         if not match:
-            raise SystemExit(f"{LOCK_PATH.name}:{number}: not a pinned, hashed requirement: {line}")
+            raise SystemExit(
+                f"{LOCK_PATH.name}:{number}: not a pinned, hashed requirement: {line}"
+            )
         found[normalise(match.group(1))] = match.group(2)
     return found
 
@@ -255,15 +242,6 @@ def check() -> int:
 
 
 def generate() -> int:
-    # pip evaluates environment markers against the host even with --platform,
-    # so must run on Windows for this lock to match actual Windows installs.
-    if sys.platform != "win32":
-        sys.stderr.write(
-            "Cannot generate the Windows lock on a non-Windows platform.\n"
-            "pip's --platform only selects wheels; environment markers like\n"
-            "sys_platform == 'win32' are still evaluated against the host.\n"
-        )
-        return 1
     with tempfile.TemporaryDirectory(prefix="arelis-lock-") as raw:
         scratch = Path(raw)
         print("Building the wheel, so extras resolve from real metadata...")

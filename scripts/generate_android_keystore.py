@@ -80,17 +80,13 @@ def main() -> int:
     if result.returncode != 0:
         return result.returncode
     raw = path.read_bytes()
-    print(
-        f"Wrote {path} ({len(raw)} bytes). Keep this file. If you lose it, phones cannot update in place."
-    )
+    print(f"Wrote {path} ({len(raw)} bytes). Keep this file. If you lose it, phones cannot update in place.")
     print()
     print("GitHub Actions secrets (repo settings → Secrets):")
     print("  ARELIS_ANDROID_KEYSTORE_BASE64")
     print("  ARELIS_ANDROID_KEYSTORE_PASSWORD")
     print("  ARELIS_ANDROID_KEY_ALIAS          =", args.alias)
-    print(
-        "  ARELIS_ANDROID_KEY_PASSWORD       = same as the store password unless you set a different one"
-    )
+    print("  ARELIS_ANDROID_KEY_PASSWORD       = same as the store password unless you set a different one")
     print()
     print("Local build:")
     print(f"  set ARELIS_ANDROID_KEYSTORE={path}")

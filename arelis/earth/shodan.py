@@ -99,7 +99,7 @@ def _entity_from_match(row: dict[str, Any]) -> Entity | None:
     raw = f"{ip}:{port or 0}" if ip else f"{lat:.4f}:{lon:.4f}:{product}"
     hid = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:12]
     pos = lla_to_ecef(lat, lon, 12.0)
-    label = product[:48] or "banner"
+    label = (product[:48] or "banner")
     return Entity(
         id=f"shodan:{hid}",
         cls="camera",

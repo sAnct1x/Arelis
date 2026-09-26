@@ -188,7 +188,9 @@ def screen_work_areas() -> list[tuple[int, int, int, int]]:
 
 def fit_window_size(width: int, height: int, work: QRect | None = None) -> QSize:
     area = work if work is not None else available_work_area()
-    fitted_w, fitted_h = fit_size(width, height, area.width(), area.height())
+    fitted_w, fitted_h = fit_size(
+        width, height, area.width(), area.height()
+    )
     return QSize(fitted_w, fitted_h)
 
 
@@ -207,6 +209,8 @@ def clamp_widget_to_screens(widget: QWidget) -> None:
     if not screens:
         return
     geo = widget.geometry()
-    x, y, w, h = clamp_rect(geo.x(), geo.y(), geo.width(), geo.height(), screens)
+    x, y, w, h = clamp_rect(
+        geo.x(), geo.y(), geo.width(), geo.height(), screens
+    )
     if (x, y, w, h) != (geo.x(), geo.y(), geo.width(), geo.height()):
         widget.setGeometry(x, y, w, h)

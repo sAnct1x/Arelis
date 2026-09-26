@@ -58,7 +58,9 @@ def test_parse_email_quoted_subject_and_body() -> None:
 
 
 def test_parse_email_with_subject_and_body() -> None:
-    draft = parse_email_utterance("Email bob@example.com about Dinner plans: See you at 7")
+    draft = parse_email_utterance(
+        "Email bob@example.com about Dinner plans: See you at 7"
+    )
     assert draft is not None
     assert draft.complete
     assert draft.to == "bob@example.com"
@@ -91,7 +93,9 @@ def test_parse_email_to_name_incomplete_without_subject() -> None:
 
 def test_about_without_colon_fills_body_for_force() -> None:
     """'email X about the trip…' must not leave body empty (second-ask trap)."""
-    draft = parse_email_utterance("email bob@example.com about the trip this weekend")
+    draft = parse_email_utterance(
+        "email bob@example.com about the trip this weekend"
+    )
     assert draft is not None
     assert draft.complete
     assert "trip" in draft.body.lower()
@@ -197,7 +201,9 @@ def test_check_my_email_is_not_a_compose_draft() -> None:
 
 
 def test_compose_email_preflight_intent() -> None:
-    hints = detect_intents("Email bob@example.com about Dinner: See you at 7")
+    hints = detect_intents(
+        "Email bob@example.com about Dinner: See you at 7"
+    )
     assert any(h.kind == "compose_email" for h in hints)
     email = next(h for h in hints if h.kind == "compose_email")
     assert email.expected_tools == ("send_email",)
@@ -209,7 +215,9 @@ def test_bare_gmail_repairs_to_gmail_com() -> None:
     from arelis.core.email_complete import named_address_in_text, repair_email_address
 
     assert repair_email_address("you@gmail") == "you@gmail.com"
-    assert named_address_in_text("send an email to you@gmail, be creative") == ("you@gmail.com")
+    assert named_address_in_text("send an email to you@gmail, be creative") == (
+        "you@gmail.com"
+    )
     draft = parse_email_utterance("send an email to you@gmail, be creative")
     assert draft is not None
     assert draft.tool_to == "you@gmail.com"
@@ -235,7 +243,9 @@ def test_analyze_json_does_not_revive_compose_email() -> None:
 
 def test_email_me_quoted_subject_comma_body(monkeypatch) -> None:
     """9.3: subject 'X', body 'Y' (comma) and me → the user's inbox."""
-    monkeypatch.setattr("arelis.profile.load_profile_email", lambda **k: "you@example.com")
+    monkeypatch.setattr(
+        "arelis.profile.load_profile_email", lambda **k: "you@example.com"
+    )
     ask = "Email me a test: subject 'Arelis test', body 'this is a test'."
     draft = parse_email_utterance(ask)
     assert draft is not None
@@ -274,7 +284,9 @@ def test_email_me_does_not_use_smtp_from(monkeypatch) -> None:
 
 
 def test_subject_colon_body_colon_splits() -> None:
-    draft = parse_email_utterance("email you@example.com subject: test, body: just a test")
+    draft = parse_email_utterance(
+        "email you@example.com subject: test, body: just a test"
+    )
     assert draft is not None
     assert draft.tool_subject == "test"
     assert "just a test" in draft.tool_body

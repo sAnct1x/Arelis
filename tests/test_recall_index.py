@@ -29,9 +29,7 @@ from arelis.workspace import WorkspaceRoots
 _TOKEN = "ZXQ_QUOKKA_7721"
 
 
-def _workspace_with_note(
-    tmp_path: Path,
-) -> tuple[MemoryStore, WorkspaceRoots, DocumentIndexer, Path]:
+def _workspace_with_note(tmp_path: Path) -> tuple[MemoryStore, WorkspaceRoots, DocumentIndexer, Path]:
     project = tmp_path / "papers"
     project.mkdir()
     note = project / "notes.txt"
@@ -69,11 +67,15 @@ async def test_index_chunks_a_new_file_and_search_finds_it_without_embed(
 
         root = workspace.roots[0].name
         assert store.get_document(root, "notes.txt") is not None
-        rows = store._conn.execute("SELECT content FROM document_chunks").fetchall()
+        rows = store._conn.execute(
+            "SELECT content FROM document_chunks"
+        ).fetchall()
         assert any(_TOKEN in str(row["content"]) for row in rows)
 
         # Separate tool so search cannot hide an embed call behind index.
-        found = await RecallTool(store).run(action="search", query=_TOKEN, source="docs")
+        found = await RecallTool(store).run(
+            action="search", query=_TOKEN, source="docs"
+        )
         assert found.ok, found.output
         assert _TOKEN in found.output
         assert found.data.get("mode") == "keyword"
@@ -112,7 +114,9 @@ async def test_index_makes_a_pdf_keyword_searchable_without_embed(
         assert result.ok, result.output
         assert embed_calls == []
         assert int(result.data.get("files") or 0) >= 1
-        found = await RecallTool(store).run(action="search", query="ALPHA", source="docs")
+        found = await RecallTool(store).run(
+            action="search", query="ALPHA", source="docs"
+        )
         assert found.ok, found.output
         assert "ALPHA" in found.output
     finally:

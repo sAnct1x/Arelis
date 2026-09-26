@@ -24,7 +24,9 @@ _SAFE = frozenset({"weather", "sms_send"})
 
 def provisional_intents(text: str) -> ProvisionalIntent | None:
     """Return safe provisional intents, or None if nothing actionable."""
-    kinds = tuple(h.kind for h in detect_intents(text or "") if h.kind in _SAFE)
+    kinds = tuple(
+        h.kind for h in detect_intents(text or "") if h.kind in _SAFE
+    )
     if not kinds:
         return None
     labels = []

@@ -137,12 +137,16 @@ class ReadinessStrip(QWidget):
 
     def apply(self, snapshot: ReadinessSnapshot) -> None:
         """Update Ollama + rebuild the house menu."""
-        sig = tuple((item.key, item.status.value, item.detail) for item in snapshot.chips)
+        sig = tuple(
+            (item.key, item.status.value, item.detail) for item in snapshot.chips
+        )
         if sig == self._apply_sig:
             return
         self._apply_sig = sig
         by_key = {item.key: item for item in snapshot.chips}
-        self._systems_details = {key: by_key[key] for key in _SYSTEMS_KEYS if key in by_key}
+        self._systems_details = {
+            key: by_key[key] for key in _SYSTEMS_KEYS if key in by_key
+        }
 
         for key in _PRIMARY_KEYS:
             widget = self._chips[key]
@@ -158,7 +162,9 @@ class ReadinessStrip(QWidget):
         sys_statuses = [
             item.status.value
             for item in self._systems_details.values()
-            if not (item.key in _OPTIONAL_SYSTEMS and item.status == ChipLevel.OFF)
+            if not (
+                item.key in _OPTIONAL_SYSTEMS and item.status == ChipLevel.OFF
+            )
         ]
         if self._confirm_waiting:
             sys_statuses.append("wait")
@@ -170,7 +176,11 @@ class ReadinessStrip(QWidget):
         self._rebuild_systems_menu()
 
     def _refresh_systems_label(self) -> None:
-        warn_n = sum(1 for item in self._systems_details.values() if item.status == ChipLevel.WARN)
+        warn_n = sum(
+            1
+            for item in self._systems_details.values()
+            if item.status == ChipLevel.WARN
+        )
         label = "house ▾"
         if self._confirm_waiting:
             label = "house · allow ▾"
@@ -184,7 +194,9 @@ class ReadinessStrip(QWidget):
         ]
         if self._confirm_waiting:
             tip_bits.insert(0, "Allow card open — Allow or Skip in the chat")
-        self.systems_btn.setToolTip("\n".join(tip_bits) if tip_bits else "No system signals yet.")
+        self.systems_btn.setToolTip(
+            "\n".join(tip_bits) if tip_bits else "No system signals yet."
+        )
 
     def _rebuild_systems_menu(self) -> None:
         self._systems_menu.clear()
@@ -203,7 +215,9 @@ class ReadinessStrip(QWidget):
             self._systems_menu.addSeparator()
         for key in _SYSTEMS_KEYS:
             item = self._systems_details.get(key)
-            if key in _OPTIONAL_SYSTEMS and (item is None or item.status == ChipLevel.OFF):
+            if key in _OPTIONAL_SYSTEMS and (
+                item is None or item.status == ChipLevel.OFF
+            ):
                 continue
             if item is None:
                 # Friendly labels when the probe has not reported yet.
@@ -232,7 +246,9 @@ class ReadinessStrip(QWidget):
         if not self._confirm_waiting:
             return
         self._pulse_on = not self._pulse_on
-        self._set_status(self.systems_btn, "wait" if self._pulse_on else "wait_dim")
+        self._set_status(
+            self.systems_btn, "wait" if self._pulse_on else "wait_dim"
+        )
 
     @staticmethod
     def _set_status(widget: QWidget, status: str) -> None:

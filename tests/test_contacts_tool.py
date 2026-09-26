@@ -101,7 +101,9 @@ def test_write_actions_need_confirm_list_does_not() -> None:
     assert not registry.needs_confirm("contacts", {"action": "get", "who": "me"})
     for action in CONTACTS_WRITE_ACTIONS:
         assert registry.needs_confirm("contacts", {"action": action, "id": "x"})
-    assert not registry.needs_confirm("contacts", {"action": "add"}, confirm_writes=False)
+    assert not registry.needs_confirm(
+        "contacts", {"action": "add"}, confirm_writes=False
+    )
 
 
 def test_describe_call_shows_contact_fields() -> None:
@@ -147,7 +149,9 @@ def test_job_runner_has_no_contacts_tool(tmp_path, monkeypatch) -> None:
     from arelis import tools as tools_pkg
     from arelis.workspace import WorkspaceRoots
 
-    monkeypatch.setattr(tools_pkg, "load_account", lambda: MailAccount("me@example.com", "pw"))
+    monkeypatch.setattr(
+        tools_pkg, "load_account", lambda: MailAccount("me@example.com", "pw")
+    )
     monkeypatch.setattr(tools_pkg, "load_sms_account", lambda: None)
     workspace = WorkspaceRoots.from_config({"workspace": {"roots": [str(tmp_path)]}})
     attended = tools_pkg.build_tool_registry({"tools": {}, "agent": {}}, workspace)

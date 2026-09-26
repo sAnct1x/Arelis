@@ -5,7 +5,6 @@ window, without fighting child widgets for mouse events. On show we add
 WS_THICKFRAME and zero out WM_NCCALCSIZE so Windows treats the window as
 resizable while it still paints frameless.
 """
-
 from __future__ import annotations
 
 import sys
@@ -95,7 +94,9 @@ def configure_native_windows() -> None:
     keeps a single winId() from cascading to the toolbar, the docks, the stage
     and the splitters.
     """
-    QApplication.setAttribute(Qt.ApplicationAttribute.AA_DontCreateNativeWidgetSiblings, True)
+    QApplication.setAttribute(
+        Qt.ApplicationAttribute.AA_DontCreateNativeWidgetSiblings, True
+    )
 
 
 def _is_top_level(widget: QWidget) -> bool:

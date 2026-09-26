@@ -38,7 +38,9 @@ def on_camera_track(window, on: bool) -> None:
         if not getattr(window.camera, "_running", False):
             window.camera.start()
         window.spatial.set_preview_wanted(window.camera_dock.isVisible())
-        ok = window.spatial.start_track({"device": window.camera.current_device_name()})
+        ok = window.spatial.start_track(
+            {"device": window.camera.current_device_name()}
+        )
         if not ok:
             window.camera.track_btn.blockSignals(True)
             window.camera.track_btn.setChecked(False)
@@ -96,7 +98,9 @@ def hand_depth(window, who: str, hand: object, stamp: float, frame: object) -> f
     height = int(getattr(frame, "height", 0) or 0)
     if width < 1 or height < 1:
         return None
-    return window.world_depth.observe(who, hand, t=stamp, width=width, height=height)
+    return window.world_depth.observe(
+        who, hand, t=stamp, width=width, height=height
+    )
 
 
 def on_spatial_hands(window, frame: object) -> None:
@@ -146,7 +150,9 @@ def on_spatial_hands(window, frame: object) -> None:
     ordered = sorted(
         tracks,
         key=lambda track: (
-            0 if str(getattr(track, "state", "") or "") in ("fist", "pinch") else 1,
+            0
+            if str(getattr(track, "state", "") or "") in ("fist", "pinch")
+            else 1,
             0
             if getattr(track, "who", "") == "Left"
             else 1
@@ -185,7 +191,9 @@ def on_spatial_hands(window, frame: object) -> None:
         thumb, index = hand.pinch_tips()
         closed = st in ("fist", "pinch")
         grabbing = dragging or st == "fist"
-        centroid, off = grab_drive(hand, closed=closed, offset=window._closed_off.get(who))
+        centroid, off = grab_drive(
+            hand, closed=closed, offset=window._closed_off.get(who)
+        )
         if who and off is not None:
             window._closed_off[who] = off
         elif who:
@@ -227,7 +235,9 @@ def on_spatial_hands(window, frame: object) -> None:
         hand = hands[0]
         holding = state in ("fist", "pinch", "both")
         kind = "fist" if state in ("fist", "both") else "pinch" if state == "pinch" else "open"
-        centroid, off = grab_drive(hand, closed=holding, offset=window._closed_off.get(""))
+        centroid, off = grab_drive(
+            hand, closed=holding, offset=window._closed_off.get("")
+        )
         if off is not None:
             window._closed_off[""] = off
         else:
@@ -268,7 +278,10 @@ def on_spatial_hands(window, frame: object) -> None:
                 body.attached
                 and body.holder
                 and body.holder not in alive
-                and not any(str(getattr(track, "who", "") or "") == body.holder for track in tracks)
+                and not any(
+                    str(getattr(track, "who", "") or "") == body.holder
+                    for track in tracks
+                )
             ):
                 window.world_scene.drop(t=stamp, who=body.holder)
     if not hands and not tracks:
@@ -292,9 +305,13 @@ def on_spatial_hands(window, frame: object) -> None:
                     who0 = str(getattr(ordered[0], "who", "") or "") if ordered else ""
                     if hand0 is not None:
                         z = hand_depth(window, who0, hand0, stamp, frame)
-                window.world_window.solar.apply_hand(mx, my, pinched=pinched, span=span, palm_z=z)
+                window.world_window.solar.apply_hand(
+                    mx, my, pinched=pinched, span=span, palm_z=z
+                )
             else:
-                window.world_window.solar.apply_hand(0.5, 0.5, pinched=False, span=0.0, palm_z=None)
+                window.world_window.solar.apply_hand(
+                    0.5, 0.5, pinched=False, span=0.0, palm_z=None
+                )
         else:
             window.world_window.panel.set_apertures(apertures)
     from arelis.ui.hands_desk import apply_desk, deliver_click
@@ -315,7 +332,9 @@ def refresh_camera_capture_hook(window) -> None:
 def on_camera_ask(window, path: str) -> None:
     """Dock Ask Arelis: submit a look-on-ask turn naming the snapshot path."""
     path_text = display_path(path)
-    text = f"Look at the camera frame at {path_text}. What do you see?"
+    text = (
+        f"Look at the camera frame at {path_text}. What do you see?"
+    )
     if not window.camera_dock.isVisible():
         window.camera_dock.show()
         window.camera_dock.raise_()
@@ -334,10 +353,15 @@ def bind_camera(window) -> None:
     window.camera.track_toggled.connect(lambda on: on_camera_track(window, on))
     window.camera.record_toggled.connect(lambda on: on_camera_record(window, on))
     window.camera.pose_frame.connect(lambda payload: on_camera_pose(window, payload))
-    window.camera.pose_video.connect(lambda frame, t: on_camera_pose_video(window, frame, t))
+    window.camera.pose_video.connect(
+        lambda frame, t: on_camera_pose_video(window, frame, t)
+    )
     window.camera.ask_arelis.connect(lambda path: on_camera_ask(window, path))
     window.spatial.frame_ready.connect(lambda frame: on_spatial_hands(window, frame))
-    window.spatial.recording_changed.connect(lambda on: on_spatial_recording(window, on))
+    window.spatial.recording_changed.connect(
+        lambda on: on_spatial_recording(window, on)
+    )
     from arelis.ui.settings_host import on_reach_changed
 
     window.camera.reach_changed.connect(lambda reach: on_reach_changed(window, reach))
+

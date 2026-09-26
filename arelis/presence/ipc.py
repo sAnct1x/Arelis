@@ -39,7 +39,9 @@ def assert_loopback_host(host: str) -> str:
     """Return normalized host or raise ValueError if not loopback."""
     cleaned = (host or "").strip().lower()
     if cleaned not in _LOOPBACK_HOSTS:
-        raise ValueError(f"IPC host must be loopback (127.0.0.1 / ::1), got {host!r}")
+        raise ValueError(
+            f"IPC host must be loopback (127.0.0.1 / ::1), got {host!r}"
+        )
     # Prefer IPv4 literal for asyncio start_server clarity on Windows.
     if cleaned == "localhost":
         return "127.0.0.1"
@@ -47,7 +49,9 @@ def assert_loopback_host(host: str) -> str:
 
 
 def encode_line(obj: dict[str, Any]) -> bytes:
-    return (json.dumps(obj, separators=(",", ":"), ensure_ascii=False) + "\n").encode("utf-8")
+    return (json.dumps(obj, separators=(",", ":"), ensure_ascii=False) + "\n").encode(
+        "utf-8"
+    )
 
 
 def decode_line(raw: bytes | str) -> dict[str, Any] | None:

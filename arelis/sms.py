@@ -73,7 +73,11 @@ def resolve_operator_sms_target(
     if e164:
         digits = normalize_phone(phone)
         contact = next(
-            (item for item in book.values() if item.digits == digits or item.e164 == e164),
+            (
+                item
+                for item in book.values()
+                if item.digits == digits or item.e164 == e164
+            ),
             None,
         )
         return ResolvedSms(
@@ -119,7 +123,11 @@ def resolve_sms_target(to: str, contacts: dict[str, Contact]) -> ResolvedSms | s
         digits = normalize_phone(to)
         if e164 and len(digits) >= 10:
             contact = next(
-                (item for item in contacts.values() if item.digits == digits or item.e164 == e164),
+                (
+                    item
+                    for item in contacts.values()
+                    if item.digits == digits or item.e164 == e164
+                ),
                 None,
             )
             return ResolvedSms(

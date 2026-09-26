@@ -230,7 +230,9 @@ class SolarTool:
             try:
                 label = system.spawn_tracer()
             except RuntimeError as exc:
-                return ToolResult(ok=False, output=str(exc), data={"fail_class": "fail:name"})
+                return ToolResult(
+                    ok=False, output=str(exc), data={"fail_class": "fail:name"}
+                )
             return ToolResult(
                 ok=True,
                 output=(
@@ -243,7 +245,9 @@ class SolarTool:
             try:
                 label = system.spawn_lagrange("L4")
             except RuntimeError as exc:
-                return ToolResult(ok=False, output=str(exc), data={"fail_class": "fail:name"})
+                return ToolResult(
+                    ok=False, output=str(exc), data={"fail_class": "fail:name"}
+                )
             return ToolResult(
                 ok=True,
                 output=(
@@ -359,7 +363,9 @@ class SolarTool:
             epoch_jd=float(data["jd"]) if data.get("jd") else None,
         )
 
-    async def _fetch_vectors(self, day_iso: str) -> tuple[dict[str, VectorState], list[str]]:
+    async def _fetch_vectors(
+        self, day_iso: str
+    ) -> tuple[dict[str, VectorState], list[str]]:
         """Sun first, then planets, then the rest. Stop if the Sun fails."""
         states: dict[str, VectorState] = {}
         errors: list[str] = []
@@ -400,7 +406,10 @@ class SolarTool:
             have = ", ".join(MAPS)
             return ToolResult(
                 ok=True,
-                output=(f"Albedo already on disk: {have}. Approach/orbit only — not landing DEM."),
+                output=(
+                    f"Albedo already on disk: {have}. "
+                    "Approach/orbit only — not landing DEM."
+                ),
                 data={"saved": [], "errors": []},
             )
         saved, errors = download_maps()
@@ -431,7 +440,10 @@ class SolarTool:
         if not rebound_available():
             return ToolResult(
                 ok=False,
-                output=('REBOUND is not installed. From a checkout: pip install -e ".[astro]".'),
+                output=(
+                    "REBOUND is not installed. From a checkout: "
+                    'pip install -e ".[astro]".'
+                ),
                 data={"fail_class": "fail:dep"},
             )
         day = str(kwargs.get("date") or "")
@@ -538,7 +550,11 @@ class SolarTool:
                 output=str(exc),
                 data={"fail_class": "fail:io"},
             )
-        n = sum(1 for p in system.nbody.particles if (not p.tracer) or p.name == system.lock)
+        n = sum(
+            1
+            for p in system.nbody.particles
+            if (not p.tracer) or p.name == system.lock
+        )
         omitted = any(p.tracer for p in system.nbody.particles)
         digest = (system.ic_hash[:12] + "...") if system.ic_hash else "(none)"
         tracers = "Belt tracers omitted. " if omitted else ""
@@ -584,7 +600,10 @@ class SolarTool:
         radius = float(live.radius if live is not None else spec.radius)
         gm = float(spec.gm if spec is not None else (live.mass * G_SI if live else 0.0))
         g_surf = (gm / (radius * radius)) if radius > 0.0 and gm > 0.0 else None
-        lines = [f"{name} from the Reality lab catalog (IAU mean radius, DE440 / IAU 2015 GM)."]
+        lines = [
+            f"{name} from the Reality lab catalog "
+            f"(IAU mean radius, DE440 / IAU 2015 GM)."
+        ]
         lines.append(f"radius {radius / 1000.0:.1f} km")
         if gm:
             lines.append(f"GM {gm:.6e} m^3/s^2")
@@ -730,7 +749,11 @@ class SolarTool:
 
 def _vector_fetch_order():
     sun = [b for b in BODIES if b.name == "Sun"]
-    core = [b for b in BODIES if b.name != "Sun" and (b.kind == "planet" or b.name == "Moon")]
+    core = [
+        b
+        for b in BODIES
+        if b.name != "Sun" and (b.kind == "planet" or b.name == "Moon")
+    ]
     rest = [b for b in BODIES if b.name != "Sun" and b not in core]
     return sun + core + rest
 

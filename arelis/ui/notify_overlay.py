@@ -91,7 +91,9 @@ class NotifyOverlay(QWidget):
         self.card_body.setObjectName("NotifyCardBody")
         self.card_body.setWordWrap(True)
         self.card_body.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.card_body.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
+        self.card_body.setSizePolicy(
+            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum
+        )
         card_l.addWidget(self.card_title)
         card_l.addWidget(self.card_body)
 
@@ -218,7 +220,9 @@ class NotifyOverlay(QWidget):
         margin = 12
         narrow = parent.width() < _NARROW_STAGE
         room = getattr(parent, "room", None)
-        room_open = room is not None and not room.isHidden() and self.pill.isVisible()
+        room_open = (
+            room is not None and not room.isHidden() and self.pill.isVisible()
+        )
         if room_open and not (narrow and not self._maximized):
             pill_h = max(self.pill.sizeHint().height(), 28)
             self._sync_gutter(parent, _PILL_AIR + pill_h + _PILL_GAP)
@@ -245,11 +249,9 @@ class NotifyOverlay(QWidget):
 
     def sizeHint(self) -> QSize:
         if self._expanded:
-            return QSize(
-                280,
-                self.card.sizeHint().height()
-                + (0 if self._maximized else self.pill.sizeHint().height() + 8),
-            )
+            return QSize(280, self.card.sizeHint().height() + (
+                0 if self._maximized else self.pill.sizeHint().height() + 8
+            ))
         return self.pill.sizeHint().expandedTo(QSize(120, 28))
 
     def eventFilter(self, obj, event) -> bool:  # type: ignore[override]

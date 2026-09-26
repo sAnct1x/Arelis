@@ -90,7 +90,9 @@ class BrowserDriver(Protocol):
 
     async def navigate(self, url: str) -> ActionResult: ...
 
-    async def snapshot(self, *, max_chars: int = 6000, focus: str = "") -> ActionResult: ...
+    async def snapshot(
+        self, *, max_chars: int = 6000, focus: str = ""
+    ) -> ActionResult: ...
 
     async def read(self, *, max_chars: int = 3500) -> ActionResult: ...
 
@@ -141,7 +143,9 @@ class BrowserDriver(Protocol):
         url: str = "",
     ) -> ActionResult: ...
 
-    async def screenshot(self, path: str, *, full_page: bool = False) -> ActionResult: ...
+    async def screenshot(
+        self, path: str, *, full_page: bool = False
+    ) -> ActionResult: ...
 
     async def scroll(
         self,
@@ -627,7 +631,9 @@ class FakeDriver:
         self.mode = "relaunch" if relaunch else "attach"
         return ActionResult(
             ok=True,
-            output=f"Connected to {browser} ({self.mode}" + (", private" if private else "") + ").",
+            output=f"Connected to {browser} ({self.mode}"
+            + (", private" if private else "")
+            + ").",
             data={"browser": browser, "mode": self.mode, "private": private},
         )
 
@@ -708,10 +714,14 @@ class FakeDriver:
         from arelis.browser.hold import set_drive_labels
         from arelis.browser.snapshot import format_result_lines
 
-        set_drive_labels({ref: info.text or info.name for ref, info in self._elements.items()})
+        set_drive_labels(
+            {ref: info.text or info.name for ref, info in self._elements.items()}
+        )
         if (focus or "").strip().lower() == "results":
             results = format_result_lines(self._elements)
-            text = "\n".join([f"title: {self.title}", f"url: {self.url}", results or "results:"])
+            text = "\n".join(
+                [f"title: {self.title}", f"url: {self.url}", results or "results:"]
+            )
         else:
             lines = [f"title: {self.title}", f"url: {self.url}", "elements:"]
             for info in self._elements.values():
@@ -763,7 +773,8 @@ class FakeDriver:
         extra.setdefault(
             "card",
             any(
-                "cc-" in (info.autocomplete or "").lower() or "card" in (info.name or "").lower()
+                "cc-" in (info.autocomplete or "").lower()
+                or "card" in (info.name or "").lower()
                 for info in self._elements.values()
             ),
         )
@@ -812,7 +823,9 @@ class FakeDriver:
             return key, None
         info = self._elements.get(ref)
         if info is None:
-            return "", ActionResult(ok=False, output=f"Unknown ref {ref!r}. Call snapshot.")
+            return "", ActionResult(
+                ok=False, output=f"Unknown ref {ref!r}. Call snapshot."
+            )
         return ref, None
 
     async def hover(
@@ -986,7 +999,9 @@ class FakeDriver:
             target = (url or "").strip() or "about:blank"
             self.url = target
             self.title = target
-            self._tabs.append({"index": str(self._active), "title": self.title, "url": self.url})
+            self._tabs.append(
+                {"index": str(self._active), "title": self.title, "url": self.url}
+            )
             self._history.clear()
             self._future.clear()
             return ActionResult(
@@ -1044,7 +1059,9 @@ class FakeDriver:
             data={"tabs": list(self._tabs), "active": self._active},
         )
 
-    async def screenshot(self, path: str, *, full_page: bool = False) -> ActionResult:
+    async def screenshot(
+        self, path: str, *, full_page: bool = False
+    ) -> ActionResult:
         if not self.connected:
             return ActionResult(ok=False, output="Browser not connected.")
         abs_path = await asyncio.to_thread(_write_bytes_sync, path, _FAKE_PNG)
@@ -1537,7 +1554,9 @@ class PlaywrightDriver:
             window_placement,
         )
 
-        park = should_park_window(fresh_launch=self._fresh_launch, already_placed=self._placed)
+        park = should_park_window(
+            fresh_launch=self._fresh_launch, already_placed=self._placed
+        )
         if park and self._page is not None:
             x, y, w, h = window_placement()
             try:
@@ -1832,7 +1851,9 @@ class PlaywrightDriver:
                     SNAPSHOT_STAMP_JS,
                     {
                         "focus": focus_key,
-                        "pairs": [{"index": n["index"], "ref": n["ref"]} for n in nodes],
+                        "pairs": [
+                            {"index": n["index"], "ref": n["ref"]} for n in nodes
+                        ],
                     },
                 )
             self._refs = {
@@ -1868,7 +1889,9 @@ class PlaywrightDriver:
                 text = text[: max_chars - 20] + "\n…(snapshot truncated)"
             from arelis.browser.hold import set_drive_labels
 
-            set_drive_labels({ref: info.text or info.name for ref, info in self._refs.items()})
+            set_drive_labels(
+                {ref: info.text or info.name for ref, info in self._refs.items()}
+            )
             return ActionResult(
                 ok=True,
                 output=text,
@@ -1979,7 +2002,9 @@ class PlaywrightDriver:
                 )
             self._ptr_seen = after
             try:
-                await self._page.wait_for_load_state("domcontentloaded", timeout=4_000)
+                await self._page.wait_for_load_state(
+                    "domcontentloaded", timeout=4_000
+                )
             except Exception:
                 pass
             await self.settle()
@@ -2048,7 +2073,9 @@ class PlaywrightDriver:
         to_x: float | None = None,
         to_y: float | None = None,
     ) -> ActionResult:
-        return await self._pointer("drag", ref=ref, x=x, y=y, to=to, to_x=to_x, to_y=to_y)
+        return await self._pointer(
+            "drag", ref=ref, x=x, y=y, to=to, to_x=to_x, to_y=to_y
+        )
 
     async def _pointer(
         self,
@@ -2095,7 +2122,9 @@ class PlaywrightDriver:
                 elif verb == "dblclick":
                     await self._page.mouse.dblclick(float(x), float(y))
                 elif verb == "right_click":
-                    await self._page.mouse.click(float(x), float(y), button="right")
+                    await self._page.mouse.click(
+                        float(x), float(y), button="right"
+                    )
                 elif verb == "drag":
                     if to_x is None or to_y is None:
                         return ActionResult(
@@ -2289,7 +2318,9 @@ class PlaywrightDriver:
             self._page = None
             return _playwright_fail(exc)
 
-    async def screenshot(self, path: str, *, full_page: bool = False) -> ActionResult:
+    async def screenshot(
+        self, path: str, *, full_page: bool = False
+    ) -> ActionResult:
         err = await self._require_page()
         if err:
             return err
@@ -2438,7 +2469,9 @@ class PlaywrightDriver:
         if not has:
             await cooperative_wait(delay)
             landed = str(self._page.url or "") if self._page is not None else ""
-            output, data = wait_output(hit=True, seconds=delay, landed_url=landed)
+            output, data = wait_output(
+                hit=True, seconds=delay, landed_url=landed
+            )
             return ActionResult(ok=True, output=output, data=data)
         deadline = time.monotonic() + delay
         signals: dict[str, str] = {}
@@ -2685,7 +2718,9 @@ class PlaywrightDriver:
                 except Exception:
                     hit = False
                 if hit:
-                    return ActionResult(ok=True, output="Settled.", data={"settled": True})
+                    return ActionResult(
+                        ok=True, output="Settled.", data={"settled": True}
+                    )
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     return ActionResult(

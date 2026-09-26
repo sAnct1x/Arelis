@@ -58,7 +58,9 @@ def test_the_span_that_reaches_the_model_is_scrubbed() -> None:
     """quote_lines() is the path back into the conversation, so it is the one
     that has to be clean."""
     ledger = EvidenceLedger()
-    ledger.record_tool("python", ok=True, output=_ASSIGNMENT, data={"result": _ASSIGNMENT})
+    ledger.record_tool(
+        "python", ok=True, output=_ASSIGNMENT, data={"result": _ASSIGNMENT}
+    )
     assert _SECRET not in "\n".join(ledger.quote_lines())
 
 
@@ -88,7 +90,9 @@ def test_an_ordinary_warrant_is_untouched() -> None:
 
 
 def test_a_secret_nested_in_data_is_scrubbed() -> None:
-    cleaned = redact_data({"result": _ASSIGNMENT, "rows": [{"note": _ASSIGNMENT}], "ok": True})
+    cleaned = redact_data(
+        {"result": _ASSIGNMENT, "rows": [{"note": _ASSIGNMENT}], "ok": True}
+    )
     assert _SECRET not in str(cleaned)
 
 

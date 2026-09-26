@@ -395,7 +395,9 @@ class EvidenceLedger:
             # read this turn, is the warrant now. Left as-is the kind became
             # unsatisfiable, and every "what needs my attention" would refuse.
             elif kind == "attention" and not (
-                self.has_ok("tasks") or self.has_ok("goals") or self.has_ok("agenda")
+                self.has_ok("tasks")
+                or self.has_ok("goals")
+                or self.has_ok("agenda")
             ):
                 missing.append("attention")
             elif kind == "analyze" and not self.has_ok("analyze"):
@@ -433,7 +435,12 @@ def classify_search_failure(
 ) -> str:
     """Stable failure taxonomy tag for web_search backend misses."""
     text = " ".join([output or "", *(errors or [])]).lower()
-    if "rate limit" in text or "ratelimit" in text or "429" in text or "too many requests" in text:
+    if (
+        "rate limit" in text
+        or "ratelimit" in text
+        or "429" in text
+        or "too many requests" in text
+    ):
         return "fail:rate_limit"
     if "timeout" in text or "timed out" in text:
         return "fail:timeout"

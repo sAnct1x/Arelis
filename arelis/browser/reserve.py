@@ -114,7 +114,9 @@ def reserve_url(
             bits.append(clock)
         if covers != 2:
             bits.append(f"party of {covers}")
-        return "https://www.google.com/search?q=" + quote_plus(" ".join(b for b in bits if b))
+        return "https://www.google.com/search?q=" + quote_plus(
+            " ".join(b for b in bits if b)
+        )
     params = {"term": q, "covers": str(covers)}
     stamp = opentable_datetime(day, clock)
     if stamp:

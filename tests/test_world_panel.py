@@ -239,7 +239,9 @@ def test_esc_opens_pause_menu(qt_app, monkeypatch, tmp_path) -> None:
     window.enter_solar()
     from PySide6.QtGui import QKeyEvent
 
-    esc = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Escape, Qt.KeyboardModifier.NoModifier)
+    esc = QKeyEvent(
+        QEvent.Type.KeyPress, Qt.Key.Key_Escape, Qt.KeyboardModifier.NoModifier
+    )
     window.solar.keyPressEvent(esc)
     assert window.pause.isVisible()
     assert window.stack.currentWidget() is window.solar

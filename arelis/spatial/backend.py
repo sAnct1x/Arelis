@@ -28,7 +28,9 @@ HAND_MODEL_URL = (
 class PoseBackend(Protocol):
     name: str
 
-    def infer(self, rgb: np.ndarray, t_capture: float, src_w: int, src_h: int) -> HandsFrame: ...
+    def infer(
+        self, rgb: np.ndarray, t_capture: float, src_w: int, src_h: int
+    ) -> HandsFrame: ...
 
     def close(self) -> None: ...
 
@@ -74,7 +76,9 @@ class StubBackend:
 
     name = "stub"
 
-    def infer(self, rgb: np.ndarray, t_capture: float, src_w: int, src_h: int) -> HandsFrame:
+    def infer(
+        self, rgb: np.ndarray, t_capture: float, src_w: int, src_h: int
+    ) -> HandsFrame:
         infer = downscale_rgb(rgb)
         return HandsFrame(
             t_capture=t_capture,
@@ -138,7 +142,9 @@ class TasksHandsBackend:
         self._landmarker = HandLandmarker.create_from_options(options)
         self._t_ms = 0
 
-    def infer(self, rgb: np.ndarray, t_capture: float, src_w: int, src_h: int) -> HandsFrame:
+    def infer(
+        self, rgb: np.ndarray, t_capture: float, src_w: int, src_h: int
+    ) -> HandsFrame:
         from mediapipe import Image, ImageFormat
 
         infer = np.ascontiguousarray(downscale_rgb(rgb))
@@ -156,8 +162,12 @@ class TasksHandsBackend:
             if i < len(handed) and handed[i]:
                 label = str(getattr(handed[i][0], "category_name", "Unknown"))
                 score = float(getattr(handed[i][0], "score", 0.0))
-            pts = [(float(p.x), float(p.y), float(getattr(p, "z", 0.0))) for p in lm_list]
-            hands.append(Hand(label=label, landmarks=_landmarks_from_pairs(pts), score=score))
+            pts = [
+                (float(p.x), float(p.y), float(getattr(p, "z", 0.0))) for p in lm_list
+            ]
+            hands.append(
+                Hand(label=label, landmarks=_landmarks_from_pairs(pts), score=score)
+            )
         return HandsFrame(
             t_capture=t_capture,
             t_infer=t1 - t0,

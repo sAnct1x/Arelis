@@ -3,7 +3,6 @@
 Body / orbit paint stays in solar_paint.py. SolarPanel methods stay as
 delegates so paint_overlay can call chrome without a circular import.
 """
-
 from __future__ import annotations
 
 import os
@@ -52,7 +51,12 @@ def maps_alert(panel) -> str:
     if not note:
         return ""
     low = note.lower()
-    if "kepler" in low or "placeholder" in low or "horizons ic" in low or "cached" in low:
+    if (
+        "kepler" in low
+        or "placeholder" in low
+        or "horizons ic" in low
+        or "cached" in low
+    ):
         return ""
     if "counterfactual" in low:
         return ""
@@ -172,7 +176,9 @@ def key_strip_chips(
     y = top + 4
     keys_w = fm.horizontalAdvance("Keys") + 16
     toggle = QRect(inner_right - keys_w, y, keys_w, _KEYS_ROW)
-    hint = QRect(inner_left, y, max(40, toggle.left() - inner_left - 8), _KEYS_ROW)
+    hint = QRect(
+        inner_left, y, max(40, toggle.left() - inner_left - 8), _KEYS_ROW
+    )
     from arelis.earth.runtime import get_earth
 
     zone = get_earth()
@@ -220,7 +226,10 @@ def keys_footer(panel) -> str:
 
     zone = get_earth()
     if zone is not None and zone.active:
-        return "Slash finds a city. Live is published feeds. Sparse is a hole, not a miss. No F."
+        return (
+            "Slash finds a city. Live is published feeds. "
+            "Sparse is a hole, not a miss. No F."
+        )
     return "Spoken flags match H and ⋯. No F. Travel flies the eye, not a burn."
 
 
@@ -310,7 +319,9 @@ def paint_hud(panel, painter: QPainter, system: SolarSystem) -> None:
     for i, (y0, h, line) in enumerate(status_rows):
         painter.setPen(color("text") if i == 0 else color("text_dim"))
         painter.drawText(QRect(20, y0, inner, h + 4), wrap, line)
-    used = panel._paint_keys_chrome(painter, QRect(10, keys_top, plate_w, keys_h + 8))
+    used = panel._paint_keys_chrome(
+        painter, QRect(10, keys_top, plate_w, keys_h + 8)
+    )
     bottom = max(plate.bottom(), keys_top + used + 8)
     panel._hud_box = QRect(plate.left(), plate.top(), plate.width(), bottom - plate.top())
     panel._hud_bottom = panel._hud_box.bottom()
@@ -612,10 +623,15 @@ def paint_earth_loading(panel, painter: QPainter, zone) -> None:
 
     host = getattr(panel, "_globe_host", None)
     globe_ready = bool(
-        host is None or getattr(host, "ready", False) or getattr(host, "failed", False)
+        host is None
+        or getattr(host, "ready", False)
+        or getattr(host, "failed", False)
     )
     globe_failed = bool(host is not None and getattr(host, "failed", False) and zone.active)
-    busy = bool(getattr(panel, "_earth_live_busy", False) or getattr(zone, "_live_busy", False))
+    busy = bool(
+        getattr(panel, "_earth_live_busy", False)
+        or getattr(zone, "_live_busy", False)
+    )
     line = loading_line(
         zone,
         globe_ready=globe_ready and not globe_failed,
@@ -726,6 +742,7 @@ def paint_earth_card(panel, painter: QPainter) -> None:
     copy_box = QRect(box.left() + 12, box.bottom() - 26, 88, 22)
     panel._earth_copy_box = QRect(copy_box)
     panel._paint_chip(painter, copy_box, "copy view", on=False)
+
 
 
 def dots_rect(panel) -> QRect:
@@ -957,8 +974,14 @@ def build_inspect_lines(panel, system: SolarSystem) -> list[str]:
             "numbers, not capture walls"
         )
     ic = system.ic_caption()
-    if hud.get("e") is not None and float(hud.get("e") or 0) < 1e-4 and "not Horizons" in ic:
-        lines.append("e≈0 is the placeholder catalog, not a Horizons eccentricity.")
+    if (
+        hud.get("e") is not None
+        and float(hud.get("e") or 0) < 1e-4
+        and "not Horizons" in ic
+    ):
+        lines.append(
+                "e≈0 is the placeholder catalog, not a Horizons eccentricity."
+        )
     hid = hud.get("horizons_id")
     if hid:
         lines.append(f"Horizons COMMAND={hid}")
@@ -969,11 +992,15 @@ def build_inspect_lines(panel, system: SolarSystem) -> list[str]:
         lines.append(CITE)
     elif kind == "asteroid":
         if info.path is None:
-            lines.append(f"IAU mean sphere, not a potato. No crater DEM. {info.source}")
+            lines.append(
+                "IAU mean sphere, not a potato. No crater DEM. "
+                f"{info.source}"
+            )
         else:
             gsd = f"{info.km_per_px:g} km/px" if info.km_per_px else "?"
             lines.append(
-                f"IAU mean sphere, not a potato. Albedo {info.source} (~{gsd}), large-scale only."
+                f"IAU mean sphere, not a potato. Albedo {info.source} "
+                f"(~{gsd}), large-scale only."
             )
     elif info.path is None:
         lines.append(f"albedo: none — {info.source}. Limb-lit sphere, no fake detail.")
@@ -988,14 +1015,17 @@ def build_inspect_lines(panel, system: SolarSystem) -> list[str]:
     if system.overlay.show_magnetic and name == "Sun":
         lines.append("Dipole loops are a centred-dipole sketch. Not MHD.")
     elif system.overlay.show_magnetic and name != "Earth":
-        lines.append("Magnetic overlay is Earth Shue 1998 only. Inspect Earth to see it.")
+        lines.append(
+            "Magnetic overlay is Earth Shue 1998 only. Inspect Earth to see it."
+        )
     if system.overlay.show_wind:
         from arelis.physics.parker import CITE as WIND_CITE
 
         lines.append(WIND_CITE)
     if name == "Saturn":
         lines.append(
-            "Rings: IAU WGCCRE 2015 pole, C–A + Cassini (NASA/JPL km). Sketch, not particles."
+            "Rings: IAU WGCCRE 2015 pole, C–A + Cassini (NASA/JPL km). "
+            "Sketch, not particles."
         )
     r_stop, cite = stop_radius_m(name)
     lines.append(f"approach stop {_fmt_m(r_stop)}. {cite}")
@@ -1011,9 +1041,13 @@ def build_inspect_lines(panel, system: SolarSystem) -> list[str]:
         zone = get_earth()
         if zone is None or not zone.active:
             if earth_enter_offered(panel):
-                lines.append("Enter opens the Earth zone in this window. Closer shows more.")
+                lines.append(
+                    "Enter opens the Earth zone in this window. Closer shows more."
+                )
             else:
-                lines.append("Travel to Earth first. Enter appears when you arrive.")
+                lines.append(
+                    "Travel to Earth first. Enter appears when you arrive."
+                )
         if zone is not None and zone.active:
             from arelis.earth.globe_stack import choose_stack
 
@@ -1057,7 +1091,11 @@ def paint_inspect(panel, painter: QPainter, system: SolarSystem) -> None:
     except Exception:
         zone_on = False
     y = box.top() + (12 if zone_on else 16)
-    wrap = int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop | Qt.TextFlag.TextWordWrap)
+    wrap = int(
+        Qt.AlignmentFlag.AlignLeft
+        | Qt.AlignmentFlag.AlignTop
+        | Qt.TextFlag.TextWordWrap
+    )
     if lines:
         from arelis.ui.earth_marks import ink_for_kind, paint_mark
 
@@ -1083,7 +1121,12 @@ def paint_inspect(panel, painter: QPainter, system: SolarSystem) -> None:
             28 if zone_on else 48,
         )
         painter.drawText(title_box, wrap, lines[0])
-        y = painter.fontMetrics().boundingRect(title_box, wrap, lines[0]).bottom() + 10
+        y = (
+            painter.fontMetrics()
+            .boundingRect(title_box, wrap, lines[0])
+            .bottom()
+            + 10
+        )
     painter.setFont(panel._inspect_font())
     limit = box.bottom() - 52
     inner_w = box.width() - 32
@@ -1095,7 +1138,12 @@ def paint_inspect(panel, painter: QPainter, system: SolarSystem) -> None:
         painter.setPen(color("text") if i == 1 else color("text_dim"))
         text_box = QRect(box.left() + 16, y, inner_w, max(16, limit - y))
         painter.drawText(text_box, wrap, line)
-        y = painter.fontMetrics().boundingRect(text_box, wrap, line).bottom() + 8
+        y = (
+            painter.fontMetrics()
+            .boundingRect(text_box, wrap, line)
+            .bottom()
+            + 8
+        )
     travel = panel._inspect_travel_rect()
     travel_label = "Travel to"
     enter = panel._inspect_enter_rect()
@@ -1158,7 +1206,9 @@ def chip_rects(panel) -> list[tuple[str, QRect]]:
     h = max(28, panel.height() // n)
     rows: list[tuple[str, QRect]] = []
     for i, (kind, _label, _hint) in enumerate(items):
-        rows.append((kind, QRect(panel.left(), panel.top() + i * h, panel.width(), h - 3)))
+        rows.append(
+            (kind, QRect(panel.left(), panel.top() + i * h, panel.width(), h - 3))
+        )
     return rows
 
 
@@ -1396,16 +1446,16 @@ def paint_confirm(panel, painter: QPainter) -> None:
     }
     selected = float(ask.get("dv_mps") or 0.0) if kind == "impulse" else None
     for name, rect in chips.items():
-        on = (
-            (name == "dv10" and selected == 10.0)
-            or (name == "dv100" and selected == 100.0)
-            or (name == "dv1000" and selected == 1000.0)
-        )
+        on = (name == "dv10" and selected == 10.0) or (
+            name == "dv100" and selected == 100.0
+        ) or (name == "dv1000" and selected == 1000.0)
         painter.setPen(QPen(color("edge_hot") if on else color("edge"), 1))
         painter.setBrush(_wash("accent", 110 if on else 40))
         painter.drawRoundedRect(rect, 4, 4)
         painter.setPen(color("text"))
-        painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, labels.get(name, name))
+        painter.drawText(
+            rect, Qt.AlignmentFlag.AlignCenter, labels.get(name, name)
+        )
 
 
 def paint_tools(panel, painter: QPainter) -> None:
@@ -1424,7 +1474,10 @@ def paint_tools(panel, painter: QPainter) -> None:
     painter.setBrush(_wash("glass_fill", 236))
     painter.setPen(QPen(color("edge"), 1))
     painter.drawRoundedRect(box, 6, 6)
-    captions = {kind: (label, hint) for kind, label, hint in (*SOLAR_OVERLAY, *SOLAR_SPAWN)}
+    captions = {
+        kind: (label, hint)
+        for kind, label, hint in (*SOLAR_OVERLAY, *SOLAR_SPAWN)
+    }
     overlay = {kind for kind, _label, _hint in SOLAR_OVERLAY}
     for kind, rect in panel._chip_rects():
         on = kind in overlay and panel._overlay_on(kind)
@@ -1446,3 +1499,4 @@ def paint_tools(panel, painter: QPainter) -> None:
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop,
             hint,
         )
+

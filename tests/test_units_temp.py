@@ -9,14 +9,18 @@ from arelis.tools.units import UnitsTool
 
 def test_fahrenheit_to_celsius_spoken() -> None:
     tool = UnitsTool()
-    result = asyncio.run(tool.run(action="convert", quantity="90 degrees Fahrenheit", to="Celsius"))
+    result = asyncio.run(
+        tool.run(action="convert", quantity="90 degrees Fahrenheit", to="Celsius")
+    )
     assert result.ok, result.output
     assert "32.2" in result.output
 
 
 def test_fahrenheit_phrase_in_quantity_only() -> None:
     tool = UnitsTool()
-    result = asyncio.run(tool.run(action="convert", quantity="90 degrees Fahrenheit to Celsius"))
+    result = asyncio.run(
+        tool.run(action="convert", quantity="90 degrees Fahrenheit to Celsius")
+    )
     assert result.ok, result.output
     assert "32.2" in result.output
 

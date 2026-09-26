@@ -35,10 +35,9 @@ def test_detect_wall_kinds() -> None:
     assert detect_wall(url="https://accounts.google.com/signin").kind == "login"
     assert detect_wall(url="https://x.com/i/jf/onboarding/web?mode=login").kind == "login"
     assert detect_wall(url="https://x.com/i/flow/login").kind == "login"
-    assert (
-        detect_wall(url="https://x.com/i/jf/onboarding/web#/s/signup_phone/r-auy0ku").kind
-        == "login"
-    )
+    assert detect_wall(
+        url="https://x.com/i/jf/onboarding/web#/s/signup_phone/r-auy0ku"
+    ).kind == "login"
     assert detect_wall(url="https://x.com/home") is None
     assert detect_wall(url="https://shop.example/checkout").kind == "pay"
     assert detect_wall(url="https://www.youtube.com", signals={"password": True}) is None
@@ -62,7 +61,9 @@ def test_your_turn_on_x_onboarding_login() -> None:
 
         async def _run() -> None:
             await session.ensure("chrome")
-            opened = await session.open_url("https://x.com/i/jf/onboarding/web?mode=login")
+            opened = await session.open_url(
+                "https://x.com/i/jf/onboarding/web?mode=login"
+            )
             assert opened.ok
             assert opened.data.get("code") == "YOUR_TURN"
             assert opened.data.get("wall") == "login"
@@ -176,11 +177,11 @@ def test_pay_checkout_receipt_reads_once() -> None:
         session._driver.title = "Checkout"  # type: ignore[attr-defined]
         session._driver.heading = "Pay now"  # type: ignore[attr-defined]
         session._driver.page_text = "Total $12.00"  # type: ignore[attr-defined]
-        loop = SimpleNamespace(
-            tools=SimpleNamespace(get=lambda _n: SimpleNamespace(session=session))
-        )
+        loop = SimpleNamespace(tools=SimpleNamespace(get=lambda _n: SimpleNamespace(session=session)))
         ctx = TurnContext(text="checkout", role="hot")
-        line = await _pay_checkout_receipt(loop, ctx, {"url": "https://shop.example/checkout"})
+        line = await _pay_checkout_receipt(
+            loop, ctx, {"url": "https://shop.example/checkout"}
+        )
         assert "your turn to click Pay" in line
         assert "Pay now" in line or "Checkout" in line
 
@@ -249,3 +250,4 @@ def test_your_turn_after_two_missed_clicks() -> None:
         asyncio.run(_run())
     finally:
         set_paused(False)
+

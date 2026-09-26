@@ -87,7 +87,8 @@ def test_no_module_builds_a_mutable_path_from_the_install_directory() -> None:
                 hits.append(f"  arelis/{rel}:{line_no}")
     assert not hits, (
         "A mutable directory is being built from the install location. Use "
-        "arelis.paths.state_dir(), logs_dir(), outputs_dir() or models_dir():\n" + "\n".join(hits)
+        "arelis.paths.state_dir(), logs_dir(), outputs_dir() or models_dir():\n"
+        + "\n".join(hits)
     )
 
 
@@ -166,10 +167,13 @@ def _opens_for_writing(call: ast.Call) -> bool:
     """``.open()`` is only a write when the mode says so."""
     modes = [arg for arg in call.args if isinstance(arg, ast.Constant)]
     modes += [
-        kw.value for kw in call.keywords if kw.arg == "mode" and isinstance(kw.value, ast.Constant)
+        kw.value
+        for kw in call.keywords
+        if kw.arg == "mode" and isinstance(kw.value, ast.Constant)
     ]
     return any(
-        isinstance(mode.value, str) and any(ch in mode.value for ch in "wax+") for mode in modes
+        isinstance(mode.value, str) and any(ch in mode.value for ch in "wax+")
+        for mode in modes
     )
 
 
@@ -356,7 +360,9 @@ def test_two_accounts_get_state_that_does_not_overlap(
     for who in (alice, bob):
         paths.ensure(who["state_dir"])
         (who["state_dir"] / "contacts.yaml").write_text("contacts: {}\n", encoding="utf-8")
-    assert (alice["state_dir"] / "contacts.yaml").read_text(encoding="utf-8") == ("contacts: {}\n")
+    assert (alice["state_dir"] / "contacts.yaml").read_text(encoding="utf-8") == (
+        "contacts: {}\n"
+    )
     assert len(list((tmp_path / "alice").rglob("contacts.yaml"))) == 1
     assert len(list((tmp_path / "bob").rglob("contacts.yaml"))) == 1
 
@@ -364,7 +370,9 @@ def test_two_accounts_get_state_that_does_not_overlap(
 # ------------------------------------------------------------- resolution order
 
 
-def test_the_override_wins_over_everything(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_the_override_wins_over_everything(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     """A test that touched a real profile directory would be a test that lost data."""
     monkeypatch.setenv(paths.DATA_DIR_ENV, str(tmp_path / "elsewhere"))
     assert paths.user_data_dir() == tmp_path / "elsewhere"

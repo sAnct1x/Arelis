@@ -26,7 +26,9 @@ def test_notification_rows_include_time_and_body(qt_app) -> None:
 def test_clear_removes_the_rows(qt_app) -> None:
     """Mark-all-read used to grey the dots and leave the texts sitting there."""
     panel = NotificationsPanel()
-    panel.add_message(message_id="m1", from_label="A", body="hi", time_text="10:00")
+    panel.add_message(
+        message_id="m1", from_label="A", body="hi", time_text="10:00"
+    )
     assert panel.unread_count == 1
     panel.clear()
     assert panel.unread_count == 0
@@ -127,8 +129,15 @@ def test_snooze_minutes_reach_the_center(qt_app, monkeypatch) -> None:
     monkeypatch.setattr(notify_host, "sync_notify_surface", lambda _w: None)
     now = datetime.now().astimezone()
     notify_host.on_notice_snooze(window, notice.id, 60)
-    assert not any(n.id == notice.id for n in center.visible_items(now=now + timedelta(minutes=30)))
-    later = [n for n in center.visible_items(now=now + timedelta(minutes=61)) if n.id == notice.id]
+    assert not any(
+        n.id == notice.id
+        for n in center.visible_items(now=now + timedelta(minutes=30))
+    )
+    later = [
+        n
+        for n in center.visible_items(now=now + timedelta(minutes=61))
+        if n.id == notice.id
+    ]
     assert later
 
 

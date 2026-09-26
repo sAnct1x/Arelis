@@ -849,7 +849,9 @@ class CodeWorkspaceTool:
                         _apply_hunks(original, spec.hunks, label=target)
                     planned.append((resolved, None))
                 else:
-                    planned.append((resolved, _apply_hunks(original, spec.hunks, label=target)))
+                    planned.append(
+                        (resolved, _apply_hunks(original, spec.hunks, label=target))
+                    )
                 labels.append(resolved.qualified(multi=multi))
         except _PatchError as exc:
             return ToolResult(ok=False, output=str(exc))

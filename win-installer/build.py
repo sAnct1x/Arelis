@@ -135,7 +135,9 @@ def say(message: str) -> None:
 
 
 def run(command: list[str], what: str, cwd: Path | None = None) -> str:
-    result = subprocess.run(command, capture_output=True, text=True, cwd=str(cwd) if cwd else None)
+    result = subprocess.run(
+        command, capture_output=True, text=True, cwd=str(cwd) if cwd else None
+    )
     if result.returncode != 0:
         sys.stderr.write(f"\n{what} failed (exit {result.returncode}).\n\n")
         sys.stderr.write((result.stdout or "").strip() + "\n")
@@ -254,17 +256,8 @@ def bootstrap_pip() -> None:
     plain package instead, which is all pip is.
     """
     run(
-        [
-            sys.executable,
-            "-m",
-            "pip",
-            "install",
-            "--no-deps",
-            "--upgrade",
-            "--target",
-            str(TREE / "Lib" / "site-packages"),
-            f"pip=={PIP_VERSION}",
-        ],
+        [sys.executable, "-m", "pip", "install", "--no-deps", "--upgrade",
+         "--target", str(TREE / "Lib" / "site-packages"), f"pip=={PIP_VERSION}"],
         f"Installing pip {PIP_VERSION} into the tree",
     )
     say(f"  pip {PIP_VERSION} available to the bundled interpreter")
@@ -301,18 +294,11 @@ def install_locked_dependencies() -> None:
     same modules and throws the result away.
     """
     run(
-        [
-            str(python_exe()),
-            "-m",
-            "pip",
-            "install",
-            "--require-hashes",
-            "--only-binary",
-            ":all:",
-            "--no-warn-script-location",
-            "-r",
-            str(LOCK),
-        ],
+        [str(python_exe()), "-m", "pip", "install",
+         "--require-hashes",
+         "--only-binary", ":all:",
+         "--no-warn-script-location",
+         "-r", str(LOCK)],
         "Installing the locked dependency set",
     )
     say(f"  installed the {LOCK.name} set")
@@ -330,31 +316,16 @@ def build_and_install_arelis() -> str:
     if wheelhouse.exists():
         shutil.rmtree(wheelhouse)
     run(
-        [
-            sys.executable,
-            "-m",
-            "pip",
-            "wheel",
-            "--no-deps",
-            "--wheel-dir",
-            str(wheelhouse),
-            str(REPO_ROOT),
-        ],
+        [sys.executable, "-m", "pip", "wheel", "--no-deps", "--wheel-dir", str(wheelhouse),
+         str(REPO_ROOT)],
         "Building the arelis wheel",
     )
     wheels = sorted(wheelhouse.glob("arelis-*.whl"))
     if len(wheels) != 1:
         raise SystemExit(f"expected one arelis wheel, found {wheels}")
     run(
-        [
-            str(python_exe()),
-            "-m",
-            "pip",
-            "install",
-            "--no-deps",
-            "--no-warn-script-location",
-            str(wheels[0]),
-        ],
+        [str(python_exe()), "-m", "pip", "install", "--no-deps", "--no-warn-script-location",
+         str(wheels[0])],
         "Installing arelis into the tree",
     )
     say(f"  installed {wheels[0].name}")
@@ -451,7 +422,9 @@ def check_no_build_paths_leak() -> None:
         ("the build tree", str(TREE.resolve())),
         ("the repository", str(REPO_ROOT.resolve())),
     )
-    encoded = [(label, text.encode("utf-8"), text.encode("utf-16-le")) for label, text in needles]
+    encoded = [
+        (label, text.encode("utf-8"), text.encode("utf-16-le")) for label, text in needles
+    ]
 
     offenders: list[str] = []
     exempt = 0
@@ -498,8 +471,8 @@ def remove_build_only_packages() -> None:
     site = TREE / "Lib" / "site-packages"
     freed = 0
     for name in BUILD_ONLY:
-        for path in (
-            list(site.glob(name)) + list(site.glob(f"{name}-*")) + list(site.glob(f"{name}.py"))
+        for path in list(site.glob(name)) + list(site.glob(f"{name}-*")) + list(
+            site.glob(f"{name}.py")
         ):
             freed += tree_size(path) if path.is_dir() else path.stat().st_size
             shutil.rmtree(path) if path.is_dir() else path.unlink()
@@ -559,73 +532,27 @@ QT_DROP_DIRECTORIES = {
 # start shipping it.
 QT_DROP_PREFIXES = (
     # The single largest item in the distribution, at 195MB, plus its bindings.
-    "Qt6WebEngine",
-    "QtWebEngine",
-    "Qt6WebView",
-    "QtWebView",
-    "Qt6WebSockets",
-    "QtWebSockets",
-    "Qt6WebChannel",
-    "QtWebChannel",
+    "Qt6WebEngine", "QtWebEngine", "Qt6WebView", "QtWebView",
+    "Qt6WebSockets", "QtWebSockets", "Qt6WebChannel", "QtWebChannel",
     # Qt's other UI toolkit. Arelis is Widgets throughout.
-    "Qt6Quick",
-    "QtQuick",
-    "Qt6Qml",
-    "QtQml",
-    "Qt6LabsStyleKit",
-    "Qt6ShaderTools",
+    "Qt6Quick", "QtQuick", "Qt6Qml", "QtQml", "Qt6LabsStyleKit", "Qt6ShaderTools",
     # 3D, charting and data visualisation.
-    "Qt63D",
-    "Qt3D",
-    "Qt6Charts",
-    "QtCharts",
-    "Qt6DataVisualization",
-    "QtDataVisualization",
-    "Qt6Graphs",
-    "QtGraphs",
+    "Qt63D", "Qt3D", "Qt6Charts", "QtCharts",
+    "Qt6DataVisualization", "QtDataVisualization", "Qt6Graphs", "QtGraphs",
     # Qt's own development tools, shipped inside the runtime wheel.
-    "Qt6Designer",
-    "QtDesigner",
-    "Qt6UiTools",
-    "QtUiTools",
-    "Qt6Help",
-    "QtHelp",
+    "Qt6Designer", "QtDesigner", "Qt6UiTools", "QtUiTools", "Qt6Help", "QtHelp",
     # Hardware and protocol modules for hardware Arelis does not talk to.
-    "Qt6Bluetooth",
-    "QtBluetooth",
-    "Qt6Nfc",
-    "QtNfc",
-    "Qt6SerialPort",
-    "QtSerialPort",
-    "Qt6SerialBus",
-    "QtSerialBus",
-    "Qt6Location",
-    "QtLocation",
-    "Qt6Positioning",
-    "QtPositioning",
-    "Qt6Sensors",
-    "QtSensors",
+    "Qt6Bluetooth", "QtBluetooth", "Qt6Nfc", "QtNfc",
+    "Qt6SerialPort", "QtSerialPort", "Qt6SerialBus", "QtSerialBus",
+    "Qt6Location", "QtLocation", "Qt6Positioning", "QtPositioning",
+    "Qt6Sensors", "QtSensors",
     # Modules with a real Arelis counterpart elsewhere: PDF is pypdf, speech is Kokoro
     # and Piper, OAuth is msal and google-auth, and nothing prints.
-    "Qt6Pdf",
-    "QtPdf",
-    "Qt6TextToSpeech",
-    "QtTextToSpeech",
-    "Qt6NetworkAuth",
-    "QtNetworkAuth",
-    "Qt6PrintSupport",
-    "QtPrintSupport",
+    "Qt6Pdf", "QtPdf", "Qt6TextToSpeech", "QtTextToSpeech",
+    "Qt6NetworkAuth", "QtNetworkAuth", "Qt6PrintSupport", "QtPrintSupport",
     # SQL, state machines, remote objects, Qt's own test framework.
-    "Qt6Sql",
-    "QtSql",
-    "Qt6Scxml",
-    "QtScxml",
-    "Qt6StateMachine",
-    "QtStateMachine",
-    "Qt6RemoteObjects",
-    "QtRemoteObjects",
-    "Qt6Test",
-    "QtTest",
+    "Qt6Sql", "QtSql", "Qt6Scxml", "QtScxml", "Qt6StateMachine", "QtStateMachine",
+    "Qt6RemoteObjects", "QtRemoteObjects", "Qt6Test", "QtTest",
     # The Python QtOpenGL* bindings. The installer does not enter the solar plate, so
     # it does not import them. Qt6OpenGL.dll itself stays: it is 1.9MB and Qt6Gui can
     # reach for it.
@@ -920,7 +847,9 @@ def install_over_existing(installer: Path) -> None:
     # And that it knows it is one, which is the question the updater asks. A tree missing its
     # uninstaller, or one whose package resolves somewhere else, answers no and quietly never
     # offers an update again.
-    report = run([str(interpreter), "-m", "arelis", "--check-update"], "Asking the installed copy")
+    report = run(
+        [str(interpreter), "-m", "arelis", "--check-update"], "Asking the installed copy"
+    )
     for line in report.strip().splitlines():
         say(f"    {line}")
     if "not an installed copy" in report:
@@ -1021,7 +950,9 @@ def verify() -> None:
         "print('\\n'.join(broken))\n"
         "sys.exit(1 if broken else 0)\n"
     )
-    result = subprocess.run([str(python_exe()), "-c", census], capture_output=True, text=True)
+    result = subprocess.run(
+        [str(python_exe()), "-c", census], capture_output=True, text=True
+    )
     if result.returncode != 0:
         sys.stderr.write("\nDeclared dependencies that do not import in the built tree:\n\n")
         sys.stderr.write((result.stdout or "").strip() + "\n")

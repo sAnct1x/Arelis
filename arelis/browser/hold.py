@@ -134,7 +134,9 @@ def format_drive_done(
     args = args or {}
     data = data or {}
     act = (action or "").strip().lower()
-    label = str(data.get("label") or args.get("text") or args.get("label") or "").strip()
+    label = str(
+        data.get("label") or args.get("text") or args.get("label") or ""
+    ).strip()
     if act == "click":
         return f"clicked {label[:40]}" if label else "clicked"
     if act == "search":

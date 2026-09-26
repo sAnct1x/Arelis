@@ -26,7 +26,6 @@ native window. That cannot happen mid-drag without dropping the mouse grab, so
 it is the half that sometimes has to wait — and it applies the surface first,
 so waiting is never the same as being translucent.
 """
-
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, QTimer
@@ -45,7 +44,6 @@ DOCKED_MIN_WIDTH = 220
 # Workspace is the one instrument with an editor in it; below this it is a slit.
 WORKSPACE_MIN_HEIGHT = 160
 
-
 def _float_dock_qss() -> str:
     return f"""
 QDockWidget {{
@@ -58,7 +56,6 @@ QDockWidget {{
 
 def _float_shell_qss() -> str:
     return f"background-color: {COLORS['plate']};"
-
 
 _FLOAT_FLAGS = (
     Qt.WindowType.Window
@@ -189,7 +186,6 @@ def apply_dock_chrome(dock: QDockWidget, floating: bool | None = None) -> None:
             if was_visible and not dock.isVisible():
                 dock.show()
     finally:
-
         def _end_guard(d: QDockWidget = dock, want: bool = was_visible) -> None:
             setattr(d, _CHROME_APPLYING, False)
             if want and not d.isVisible():

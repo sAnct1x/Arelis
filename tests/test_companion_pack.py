@@ -72,9 +72,7 @@ def test_find_apk_prefers_staged_file(tmp_path: Path, monkeypatch) -> None:
         source=str(staged),
     )
     write_sidecar(staged, offer)
-    monkeypatch.setattr(
-        companion_pack, "apk_candidates", lambda: [staged, tmp_path / "missing.apk"]
-    )
+    monkeypatch.setattr(companion_pack, "apk_candidates", lambda: [staged, tmp_path / "missing.apk"])
     monkeypatch.setattr(companion_pack, "expected_companion", lambda gradle=None: None)
     found = find_apk()
     assert found is not None

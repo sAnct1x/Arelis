@@ -103,7 +103,9 @@ CHOICE_CASES: tuple[ChoiceCase, ...] = (
     ChoiceCase("what changed in the repo since yesterday?", ("git_info",)),
     ChoiceCase("run diagnostics", ("diagnostics",)),
     ChoiceCase("run measure_drift.py and tell me the results", ("run_script",)),
-    ChoiceCase("read arelis/core/tool_subset.py and tell me what it does", ("workspace",)),
+    ChoiceCase(
+        "read arelis/core/tool_subset.py and tell me what it does", ("workspace",)
+    ),
     ChoiceCase("how do you confirm writes?", ("workspace",)),
     ChoiceCase("how does my confirm gate work?", ("workspace",)),
     ChoiceCase("where is the Drive strip?", ("workspace",)),

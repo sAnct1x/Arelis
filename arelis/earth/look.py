@@ -174,7 +174,9 @@ def remember(
         return None
     if kind == "owned" and not _owned_source_ok(raw):
         return None
-    handle = LookHandle(entity_id=eid, kind=kind, media=media, _source=raw, note=note)
+    handle = LookHandle(
+        entity_id=eid, kind=kind, media=media, _source=raw, note=note
+    )
     with _LOCK:
         _CACHE[eid] = handle
     return handle
@@ -203,11 +205,15 @@ def offer_official(entity_id: str, *urls: str) -> LookHandle | None:
     )
 
 
-def offer_owned(entity_id: str, *, rtsp: str = "", device: Any = None) -> LookHandle | None:
+def offer_owned(
+    entity_id: str, *, rtsp: str = "", device: Any = None
+) -> LookHandle | None:
     raw = (rtsp or "").strip()
     if raw:
         media = media_of(raw) if _http_url(raw) else "video"
-        return remember(entity_id, kind="owned", source=raw, media=media, note="owned")
+        return remember(
+            entity_id, kind="owned", source=raw, media=media, note="owned"
+        )
     if device is None or device == "":
         return None
     try:

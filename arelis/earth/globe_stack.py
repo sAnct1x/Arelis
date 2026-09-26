@@ -15,8 +15,13 @@ from datetime import date, timedelta
 from arelis.earth.frames import subsolar_lla
 from arelis.earth.secrets import earth_secret
 
-CESIUM_JS = "https://cesium.com/downloads/cesiumjs/releases/1.128/Build/Cesium/Cesium.js"
-CESIUM_CSS = "https://cesium.com/downloads/cesiumjs/releases/1.128/Build/Cesium/Widgets/widgets.css"
+CESIUM_JS = (
+    "https://cesium.com/downloads/cesiumjs/releases/1.128/Build/Cesium/Cesium.js"
+)
+CESIUM_CSS = (
+    "https://cesium.com/downloads/cesiumjs/releases/1.128/Build/Cesium/"
+    "Widgets/widgets.css"
+)
 CESIUM_ION = "https://ion.cesium.com"
 CESIUM_API = "https://api.cesium.com"
 GIBS_XYZ = (

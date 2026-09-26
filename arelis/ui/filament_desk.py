@@ -282,19 +282,27 @@ class FilamentDesk:
         )
         if on:
             if w._filament_dock_areas is None:
-                w._filament_dock_areas = {name: dock.allowedAreas() for name, dock in docks.items()}
+                w._filament_dock_areas = {
+                    name: dock.allowedAreas() for name, dock in docks.items()
+                }
             for name, dock in docks.items():
                 dock.setAllowedAreas(Qt.DockWidgetArea.NoDockWidgetArea)
                 bind_tile_opacity(dock, name, w._filament_opacity)
-                bind_tile_size(dock, name, w._filament_tile_sizes, w._filament_tile_pos)
+                bind_tile_size(
+                    dock, name, w._filament_tile_sizes, w._filament_tile_pos
+                )
                 if not getattr(dock, "_filament_afloat_bound", False):
                     dock._filament_afloat_bound = True
                     dock.topLevelChanged.connect(
-                        lambda floating, d=dock, n=name: self._filament_refuse_dock(d, n, floating)
+                        lambda floating, d=dock, n=name: self._filament_refuse_dock(
+                            d, n, floating
+                        )
                     )
             for widget, name in self._filament_extra_tiles():
                 bind_tile_opacity(widget, name, w._filament_opacity)
-                bind_tile_size(widget, name, w._filament_tile_sizes, w._filament_tile_pos)
+                bind_tile_size(
+                    widget, name, w._filament_tile_sizes, w._filament_tile_pos
+                )
         else:
             parked = w._filament_dock_areas or {}
             w._filament_dock_areas = None
@@ -547,7 +555,9 @@ class FilamentDesk:
         floats.set_open("reality", self._filament_plate_open(world))
         floats.set_open("chat", bool(w._filament_chat_open))
         live: set[str] = set()
-        if self._filament_weather() == "think" or getattr(w, "_confirm_waiting", False):
+        if self._filament_weather() == "think" or getattr(
+            w, "_confirm_waiting", False
+        ):
             live.add("thinking")
         unread = 0
         center = getattr(w, "notify_center", None)
@@ -576,7 +586,9 @@ class FilamentDesk:
             "chat": getattr(w, "_filament_chat_tile", None),
         }
         open_faces = {
-            name for name, widget in tiles.items() if widget is not None and not widget.isHidden()
+            name
+            for name, widget in tiles.items()
+            if widget is not None and not widget.isHidden()
         }
         w._filament.set_open_faces(open_faces)
         for name, widget in tiles.items():
@@ -675,7 +687,9 @@ class FilamentDesk:
             local = QRect(w.mapFromGlobal(dest.topLeft()), dest.size())
             w._filament.bind_tether(name, attach_on_rect(local, start))
             widget.setMinimumSize(240, 180)
-            apply_tile_opacity(widget, w._filament_opacity.get(name, DEFAULT_OPACITY))
+            apply_tile_opacity(
+                widget, w._filament_opacity.get(name, DEFAULT_OPACITY)
+            )
             widget.setGeometry(dest)
             widget.show()
             widget.raise_()

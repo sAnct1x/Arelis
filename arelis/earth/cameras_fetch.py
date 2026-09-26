@@ -39,7 +39,8 @@ SG_HOST = "api.data.gov.sg"
 FI_WEATHERCAM = "https://tie.digitraffic.fi/api/weathercam/v1/stations"
 FI_HOST = "tie.digitraffic.fi"
 HK_CAMERAS = (
-    "https://static.data.gov.hk/td/traffic-snapshot-images/code/Traffic_Camera_Locations_En.xml"
+    "https://static.data.gov.hk/td/traffic-snapshot-images/"
+    "code/Traffic_Camera_Locations_En.xml"
 )
 HK_HOST = "static.data.gov.hk"
 ON_CAMERAS = "https://511on.ca/api/v2/get/cameras?format=json"
@@ -133,7 +134,8 @@ NSW_CAMERAS = "https://api.transport.nsw.gov.au/v1/live/cameras"
 NSW_CAM_HOST = "api.transport.nsw.gov.au"
 NSW_ENV = "ARELIS_NSW_KEY"
 WA_CAMERAS = (
-    "https://wsdot.wa.gov/Traffic/api/HighwayCameras/HighwayCamerasREST.svc/GetCamerasAsJson"
+    "https://wsdot.wa.gov/Traffic/api/HighwayCameras/"
+    "HighwayCamerasREST.svc/GetCamerasAsJson"
 )
 WA_CAM_HOST = "wsdot.wa.gov"
 WA_ENV = "ARELIS_WSDOT_ACCESS_CODE"
@@ -146,7 +148,10 @@ MO_CAMERAS = (
     "?where=1%3D1&outFields=*&f=geojson&returnGeometry=true"
 )
 MO_CAM_HOST = "mapping.modot.mo.gov"
-_MO_CAM_CITE = "MoDOT published camera catalog. Operator GeoJSON. Position only. No still ingest."
+_MO_CAM_CITE = (
+    "MoDOT published camera catalog. Operator GeoJSON. "
+    "Position only. No still ingest."
+)
 # CARS clones that 400 without a developer key. Query is ?key=
 # field empty means earth.cars_keys[host].
 _KEYED_CARS_CAMERAS: tuple[tuple[str, str, str, str, str], ...] = (
@@ -163,7 +168,8 @@ _KEYED_CARS_CAMERAS: tuple[tuple[str, str, str, str, str], ...] = (
 )
 CALTRANS_HOST = "cwwp2.dot.ca.gov"
 CALTRANS_CCTV = tuple(
-    f"https://cwwp2.dot.ca.gov/data/d{d}/cctv/cctvStatusD{d:02d}.json" for d in range(1, 13)
+    f"https://cwwp2.dot.ca.gov/data/d{d}/cctv/cctvStatusD{d:02d}.json"
+    for d in range(1, 13)
 )
 SECRETS_PATH = state_dir() / "secrets.yaml"
 _UA = f"Arelis/{__version__} (+{__source_url__})"
@@ -192,35 +198,60 @@ _FI_CITE = (
     "Position only. No still ingest."
 )
 _HK_CITE = (
-    "Hong Kong Transport Department camera locations. Operator XML. Position only. No still ingest."
+    "Hong Kong Transport Department camera locations. Operator XML. "
+    "Position only. No still ingest."
 )
 _ON_CITE = (
-    "Ontario 511 published camera positions. Operator catalog. Position only. No still ingest."
+    "Ontario 511 published camera positions. Operator catalog. "
+    "Position only. No still ingest."
 )
-_CARS_CAM_CITE = "Published 511 camera catalog. Operator JSON. Position only. No still ingest."
-_TRIP_CITE = "ODOT TripCheck CCTV inventory. Operator catalog. Position only. No still ingest."
-_MD_CAM_CITE = "SHA traffic-camera GeoJSON. Operator catalog. Position only. No still ingest."
-_ND_CAM_CITE = "NDDOT camera GeoJSON. Operator catalog. Position only. No still ingest."
-_AL_CITE = "ALGO / ALDOT published camera catalog. Operator JSON. Position only. No still ingest."
-_DE_CAM_CITE = "DelDOT published camera catalog. Operator JSON. Position only. No still ingest."
+_CARS_CAM_CITE = (
+    "Published 511 camera catalog. Operator JSON. Position only. "
+    "No still ingest."
+)
+_TRIP_CITE = (
+    "ODOT TripCheck CCTV inventory. Operator catalog. "
+    "Position only. No still ingest."
+)
+_MD_CAM_CITE = (
+    "SHA traffic-camera GeoJSON. Operator catalog. "
+    "Position only. No still ingest."
+)
+_ND_CAM_CITE = (
+    "NDDOT camera GeoJSON. Operator catalog. "
+    "Position only. No still ingest."
+)
+_AL_CITE = (
+    "ALGO / ALDOT published camera catalog. Operator JSON. "
+    "Position only. No still ingest."
+)
+_DE_CAM_CITE = (
+    "DelDOT published camera catalog. Operator JSON. "
+    "Position only. No still ingest."
+)
 _NZ_CAM_CITE = (
-    "Waka Kotahi / NZTA published camera catalog. Operator GeoJSON. Position only. No still ingest."
+    "Waka Kotahi / NZTA published camera catalog. Operator GeoJSON. "
+    "Position only. No still ingest."
 )
 _QC_CAM_CITE = (
     "Quebec 511 / MTMD published camera locations. Operator GeoJSON. "
     "Position only. No still ingest."
 )
 _NSW_CAM_CITE = (
-    "NSW Live Traffic published camera catalog. Operator GeoJSON. Position only. No still ingest."
+    "NSW Live Traffic published camera catalog. Operator GeoJSON. "
+    "Position only. No still ingest."
 )
 _WA_CAM_CITE = (
-    "WSDOT published highway-camera catalog. Operator JSON. Position only. No still ingest."
+    "WSDOT published highway-camera catalog. Operator JSON. "
+    "Position only. No still ingest."
 )
 _KEYED_CARS_CAM_CITE = (
-    "Published 511 camera catalog (developer key). Operator JSON. Position only. No still ingest."
+    "Published 511 camera catalog (developer key). Operator JSON. "
+    "Position only. No still ingest."
 )
 _OH_CAM_CITE = (
-    "OHGO / ODOT published camera catalog. Operator JSON. Position only. No still ingest."
+    "OHGO / ODOT published camera catalog. Operator JSON. "
+    "Position only. No still ingest."
 )
 _OWNED_CITE = (
     "Owned camera pin from secrets. Look-from plays the stream you pasted. "
@@ -315,7 +346,9 @@ def fetch_cameras(bbox: Any = None) -> list[Entity] | None:
     return _prefer_look_pins(pins, bbox, _CAP)
 
 
-def _prefer_look_pins(pins: list[Entity], bbox: Any, cap: int) -> list[Entity]:
+def _prefer_look_pins(
+    pins: list[Entity], bbox: Any, cap: int
+) -> list[Entity]:
     """Keep look-box pins first so a worldwide dump cannot starve OSM."""
     if bbox is None or not pins:
         return pins[:cap]
@@ -421,7 +454,9 @@ def entities_from_caltrans(payload: dict[str, Any]) -> list[Entity]:
     return _collect(_entity_from_caltrans, [r for r in rows if isinstance(r, dict)])
 
 
-def _collect(builder: Any, rows: list[dict[str, Any]]) -> list[Entity]:
+def _collect(
+    builder: Any, rows: list[dict[str, Any]]
+) -> list[Entity]:
     out: list[Entity] = []
     seen: set[str] = set()
     for row in rows:
@@ -986,7 +1021,10 @@ def entities_from_geojson_cameras(
         lat = _num(coords[1] if len(coords) > 1 else None)
         if not _ok_ll(lat, lon):
             lat = _num(
-                props.get("lat") or props.get("latitude") or props.get("LATITUDE") or props.get("Y")
+                props.get("lat")
+                or props.get("latitude")
+                or props.get("LATITUDE")
+                or props.get("Y")
             )
             lon = _num(
                 props.get("lon")
@@ -1072,7 +1110,9 @@ def entities_from_geojson_cameras(
 def _fetch_cars_cameras() -> list[Entity] | None:
     chunks: list[list[Entity] | None] = []
     with ThreadPoolExecutor(max_workers=len(_CARS_CAMERAS)) as pool:
-        futs = [pool.submit(_get_json, url, host) for host, url, _prefix, _source in _CARS_CAMERAS]
+        futs = [
+            pool.submit(_get_json, url, host) for host, url, _prefix, _source in _CARS_CAMERAS
+        ]
         meta = [(prefix, source) for _host, _url, prefix, source in _CARS_CAMERAS]
         for fut, (prefix, source) in zip(futs, meta, strict=True):
             payload = fut.result()
@@ -1081,7 +1121,9 @@ def _fetch_cars_cameras() -> list[Entity] | None:
             elif isinstance(payload, dict):
                 raw = payload.get("cameras") or payload.get("data") or []
                 rows = (
-                    [row for row in raw if isinstance(row, dict)] if isinstance(raw, list) else []
+                    [row for row in raw if isinstance(row, dict)]
+                    if isinstance(raw, list)
+                    else []
                 )
             else:
                 chunks.append(None)

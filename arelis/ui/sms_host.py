@@ -59,7 +59,9 @@ def on_sms_received(window, payload: dict[str, Any]) -> None:
         sent_at=msg.time,
     )
     window._alert_if_background()
-    _window, state = window.sms_chats.room_state(alias=alias, phone=msg.sender, sender=msg.sender)
+    _window, state = window.sms_chats.room_state(
+        alias=alias, phone=msg.sender, sender=msg.sender
+    )
     if room_owns_doorbell(state):
         return
     notice = window.notify_center.add(
@@ -180,7 +182,9 @@ def on_sms_tile_send(window, key: str, body: str, alias: str, phone: str) -> Non
         operator_send_sms(window, alias, phone, body),
         window.loop,
     )
-    future.add_done_callback(lambda fut, k=key: sms_send_resolved(window, fut, k))
+    future.add_done_callback(
+        lambda fut, k=key: sms_send_resolved(window, fut, k)
+    )
 
 
 async def operator_send_sms(window, alias: str, phone: str, body: str) -> None:
@@ -228,11 +232,16 @@ def push_mobile_notice(window, kind: str, title: str, body: str) -> None:
 def bind_sms(window) -> None:
     overlay = window.conversation.notify_overlay
     overlay.reply_requested.connect(lambda nid: on_notice_reply(window, nid))
-    window.notifications.chat_requested.connect(lambda notice_id: open_sms_chat(window, notice_id))
+    window.notifications.chat_requested.connect(
+        lambda notice_id: open_sms_chat(window, notice_id)
+    )
     window.sms_send_finished.connect(
         lambda key, ok, error: on_sms_send_finished(window, key, ok, error)
     )
     window.sms_chats.set_send_handler(
         lambda key, body, alias, phone: on_sms_tile_send(window, key, body, alias, phone)
     )
-    window.sms_chats.set_shown_handler(lambda alias, phone: on_sms_tile_shown(window, alias, phone))
+    window.sms_chats.set_shown_handler(
+        lambda alias, phone: on_sms_tile_shown(window, alias, phone)
+    )
+

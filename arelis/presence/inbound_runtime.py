@@ -147,7 +147,9 @@ def attach_inbound(
                 urls = format_ingest_listen_urls(server.port, host=ingest_host)
                 primary = urls.split(",")[0].strip() if urls else urls
                 if server.port == ingest_port:
-                    runtime.status_messages.append(f"Phone notifications: {primary}")
+                    runtime.status_messages.append(
+                        f"Phone notifications: {primary}"
+                    )
                 else:
                     runtime.status_messages.append(
                         f"Port {ingest_port} was already in use, so inbound "
@@ -172,7 +174,8 @@ def attach_inbound(
                     log.exception("Mailbox house tunnel failed to start")
         else:
             runtime.status_messages.append(
-                "Phone notifications need a token in data/secrets.yaml (see secrets.example.yaml)."
+                "Phone notifications need a token in data/secrets.yaml "
+                "(see secrets.example.yaml)."
             )
 
         if inbound_cfg.get("fallback_smsgate", True):
@@ -201,10 +204,13 @@ def attach_inbound(
             ),
             max_body_chars=int(sms_cfg.get("max_body_chars", DEFAULT_MAX_BODY_CHARS)),
         )
-    runtime.auto_reply = SmsAutoReply(bus, config, send_tool=send_tool, headless=headless)
+    runtime.auto_reply = SmsAutoReply(
+        bus, config, send_tool=send_tool, headless=headless
+    )
     runtime.auto_reply.start()
     if bool(auto_cfg.get("enabled", False)):
         runtime.status_messages.append(
-            "SMS auto-reply on for allowlisted contacts (every draft still needs the confirm card)."
+            "SMS auto-reply on for allowlisted contacts "
+            "(every draft still needs the confirm card)."
         )
     return runtime

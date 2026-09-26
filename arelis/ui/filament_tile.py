@@ -50,7 +50,7 @@ def clamp_opacity(value: float) -> float:
 
 
 def load_opacities(config: dict) -> dict[str, float]:
-    raw = (config.get("ui") or {}).get("filament_opacity") or {}
+    raw = ((config.get("ui") or {}).get("filament_opacity") or {})
     if not isinstance(raw, dict):
         return {}
     out: dict[str, float] = {}
@@ -66,7 +66,9 @@ def apply_tile_opacity(widget: QWidget, value: float) -> None:
     widget.setWindowOpacity(clamp_opacity(value))
 
 
-def add_opacity_action(menu: QMenu, widget: QWidget, name: str, store: dict[str, float]) -> None:
+def add_opacity_action(
+    menu: QMenu, widget: QWidget, name: str, store: dict[str, float]
+) -> None:
     """Live slider. The plate updates as the thumb moves."""
     host = QWidget()
     lay = QVBoxLayout(host)
@@ -124,7 +126,7 @@ def bind_tile_opacity(widget: QWidget, name: str, store: dict[str, float]) -> No
 
 
 def load_tile_origins(config: dict) -> dict[str, tuple[int, int]]:
-    raw = (config.get("ui") or {}).get("filament_tile_pos") or {}
+    raw = ((config.get("ui") or {}).get("filament_tile_pos") or {})
     if not isinstance(raw, dict):
         return {}
     out: dict[str, tuple[int, int]] = {}
@@ -138,7 +140,9 @@ def load_tile_origins(config: dict) -> dict[str, tuple[int, int]]:
     return out
 
 
-def remember_tile_origin(widget: QWidget, name: str, store: dict[str, tuple[int, int]]) -> None:
+def remember_tile_origin(
+    widget: QWidget, name: str, store: dict[str, tuple[int, int]]
+) -> None:
     geo = widget.frameGeometry()
     pos = (int(geo.x()), int(geo.y()))
     store[name] = pos
@@ -160,7 +164,7 @@ def origin_on_a_desk(x: int, y: int, width: int, height: int) -> bool:
 
 
 def load_tile_sizes(config: dict) -> dict[str, tuple[int, int]]:
-    raw = (config.get("ui") or {}).get("filament_tile_size") or {}
+    raw = ((config.get("ui") or {}).get("filament_tile_size") or {})
     if not isinstance(raw, dict):
         return {}
     out: dict[str, tuple[int, int]] = {}
@@ -247,7 +251,9 @@ def apply_tile_size(widget: QWidget, name: str, store: dict[str, tuple[int, int]
     widget.resize(width, height)
 
 
-def remember_tile_size(widget: QWidget, name: str, store: dict[str, tuple[int, int]]) -> None:
+def remember_tile_size(
+    widget: QWidget, name: str, store: dict[str, tuple[int, int]]
+) -> None:
     size = (max(240, min(720, widget.width())), max(180, min(800, widget.height())))
     store[name] = size
     merge_local_config({"ui": {"filament_tile_size": {name: {"w": size[0], "h": size[1]}}}})
@@ -299,7 +305,9 @@ def bind_tile_size(
     if getattr(widget, "_filament_size_bound", False):
         return
     widget._filament_size_bound = True
-    parked = origins if origins is not None else getattr(widget, "_filament_origin_store", {})
+    parked = origins if origins is not None else getattr(
+        widget, "_filament_origin_store", {}
+    )
     filt = _GeomRemember(widget, name, store, parked)
     widget.installEventFilter(filt)
     widget._filament_size_filter = filt

@@ -44,7 +44,9 @@ _CITE = (
     "every Sentinel-1 scene. Public browse is too coarse to resolve hulls. "
     "Not satellite AIS. Not navigation."
 )
-_COVERAGE = "Radar looked here. Terrestrial AIS did not. Hull identity is a hole."
+_COVERAGE = (
+    "Radar looked here. Terrestrial AIS did not. Hull identity is a hole."
+)
 
 
 def fetch_radar() -> list[Entity] | None:
@@ -54,7 +56,9 @@ def fetch_radar() -> list[Entity] | None:
     chunks: list[dict[str, Any]] = []
     any_ok = False
     with ThreadPoolExecutor(max_workers=4) as pool:
-        futs = [pool.submit(_search_box, wkt, start, end) for wkt in _OCEAN_WKT]
+        futs = [
+            pool.submit(_search_box, wkt, start, end) for wkt in _OCEAN_WKT
+        ]
         for fut in as_completed(futs):
             payload = fut.result()
             if payload is None:

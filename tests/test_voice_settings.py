@@ -266,7 +266,9 @@ def _dialog_config() -> dict:
         "voice": {},
         "presence": {},
         "workspace": {
-            "named_roots": [{"name": "arelis", "path": str(Path.cwd()), "read_only": False}]
+            "named_roots": [
+                {"name": "arelis", "path": str(Path.cwd()), "read_only": False}
+            ]
         },
         "tools": {"sms": {"inbound": {"ingest": {}}}},
     }

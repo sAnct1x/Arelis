@@ -279,7 +279,9 @@ async def test_empty_after_ink_asks_for_vision_not_path_dump() -> None:
     )
     events = await _collect(bus, loop.run("how accurate is this homework pdf?", "fast"))
     thinking = " ".join(
-        str(e.payload.get("text") or "") for e in events if e.type == EventType.THINKING
+        str(e.payload.get("text") or "")
+        for e in events
+        if e.type == EventType.THINKING
     )
     assert "looking at pages 1-" in thinking
     assert "empty after tool; answering from result" not in thinking

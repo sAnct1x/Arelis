@@ -154,13 +154,15 @@ class PdfAssembleTool:
             "paths": {
                 "type": "string",
                 "description": (
-                    "merge: comma-separated paths or a JSON array, in the order they should appear"
+                    "merge: comma-separated paths or a JSON array, in the "
+                    "order they should appear"
                 ),
             },
             "pages": {
                 "type": "string",
                 "description": (
-                    "1-based page list for split (required) or rotate (optional), e.g. 1-3,5"
+                    "1-based page list for split (required) or rotate "
+                    "(optional), e.g. 1-3,5"
                 ),
             },
             "degrees": {
@@ -193,7 +195,10 @@ class PdfAssembleTool:
         if action not in _ACTIONS:
             return ToolResult(
                 ok=False,
-                output=("Unknown action. Use merge, split, or rotate. Form fill is not supported."),
+                output=(
+                    "Unknown action. Use merge, split, or rotate. "
+                    "Form fill is not supported."
+                ),
             )
         try:
             sources = self._sources(action, kwargs)
@@ -258,7 +263,9 @@ class PdfAssembleTool:
             except OSError as exc:
                 raise ValueError(f"Cannot read {item!r}: {exc}") from exc
             if size > MAX_FILE_BYTES:
-                raise ValueError(f"{item!r} is over {MAX_FILE_BYTES // (1024 * 1024)} MB.")
+                raise ValueError(
+                    f"{item!r} is over {MAX_FILE_BYTES // (1024 * 1024)} MB."
+                )
             found.append(path)
         return found
 
@@ -289,19 +296,27 @@ class PdfAssembleTool:
 
         if action == "merge":
             if total > MAX_SOURCE_PAGES:
-                raise ValueError(f"Refusing {total} source pages (cap {MAX_SOURCE_PAGES}).")
+                raise ValueError(
+                    f"Refusing {total} source pages (cap {MAX_SOURCE_PAGES})."
+                )
             return list(range(1, total + 1))
 
         n = counts[0]
         if wanted is None:
             if n > MAX_SOURCE_PAGES:
-                raise ValueError(f"Refusing {n} source pages (cap {MAX_SOURCE_PAGES}).")
+                raise ValueError(
+                    f"Refusing {n} source pages (cap {MAX_SOURCE_PAGES})."
+                )
             return list(range(1, n + 1))
         missing = [page for page in wanted if page > n]
         if missing:
-            raise ValueError(f"{sources[0].name} has {n} page(s); {missing[0]} is past the end.")
+            raise ValueError(
+                f"{sources[0].name} has {n} page(s); {missing[0]} is past the end."
+            )
         if len(wanted) > MAX_SOURCE_PAGES:
-            raise ValueError(f"Refusing {len(wanted)} source pages (cap {MAX_SOURCE_PAGES}).")
+            raise ValueError(
+                f"Refusing {len(wanted)} source pages (cap {MAX_SOURCE_PAGES})."
+            )
         return wanted
 
     def _dest(
@@ -333,7 +348,9 @@ class PdfAssembleTool:
                 dest = _unique_dest(folder, f"{stem}-out", ".pdf")
         ensure(dest.parent)
         if dest.resolve() in source_set:
-            raise ValueError("Refusing to overwrite a source PDF. Omit dest or pick another path.")
+            raise ValueError(
+                "Refusing to overwrite a source PDF. Omit dest or pick another path."
+            )
         return dest
 
     def _default_stem(
