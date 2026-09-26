@@ -18,7 +18,8 @@ def test_read_pose_splits_pinch_from_fist() -> None:
     fist = make_hand("Right", (0.50, 0.55), pose="fist")
     assert read_pose(open_h) == "open"
     assert read_pose(pinch) == "pinch"
-    assert read_pose(fist) == "fist"
+    # A curled close is the same grab. Fist was a second verb.
+    assert read_pose(fist) == "pinch"
     assert pinch.pinch_metric() < 0.50
     assert pinch.hand_curl() <= 0.28
     assert fist.hand_curl() > 0.28
@@ -38,9 +39,9 @@ def test_two_tracks_stay_independent() -> None:
         t += 0.03
     kinds = {track.who: track.state for track in machine.tracks}
     assert kinds.get("Right") == "pinch"
-    assert kinds.get("Left") == "fist"
-    assert not next(t for t in machine.tracks if t.who == "Right").dragging
-    assert next(t for t in machine.tracks if t.who == "Left").dragging
+    assert kinds.get("Left") == "pinch"
+    assert len(machine.tracks) == 2
+    assert not any(track.dragging for track in machine.tracks)
 
 
 def test_filament_chip_grants_outside_reality() -> None:

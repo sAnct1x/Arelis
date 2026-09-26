@@ -72,14 +72,14 @@ LAYERS: tuple[LayerSpec, ...] = (
     LayerSpec(
         "quakes",
         "Earthquakes",
-        "Recent seismicity as points.",
+        "Recent seismicity as heat. Bigger magnitude, bigger glow.",
         "simulated belts; live: USGS all_day + EMSC FDSN + GeoNet NZ",
         "Only what a seismograph reported.",
     ),
     LayerSpec(
         "fires",
         "Fires",
-        "Hotspots, trailing day.",
+        "Hotspots as heat, trailing day.",
         "simulated; live: NASA FIRMS (key)",
         "Cloud and revisit hide fires.",
     ),

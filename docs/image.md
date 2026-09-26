@@ -46,7 +46,7 @@ None of this is a cloud API.
   the sidecar prompt. Left / right walk the rail. Open stays on that face.
 - **Feel.** `arelis/tools/image_polish.py` is the rubric (intuitiveness,
   usability, visual, scalability, maintainability). A 10 is every named
-  check on that axis. Overlay type is IBM Plex with a sodium stroke.
+  check on that axis. Overlay type is Zen Kaku Gothic New with a sodium stroke.
 - **Routing.** “Four versions” → `image n=4`. “Upscale this” →
   `image_edit scale=2`. “Remove the background” → `image`.
   “Crop the left half” → `image_edit`. “Make this a watercolor” →

@@ -48,20 +48,40 @@ def _assistant_label() -> str:
     )
 
 
+def _bubble_plate() -> str:
+    """One opaque color for a transcript cell.
+
+    Qt paints a cell's CSS ``background-color`` and then paints it again on
+    the paragraph inside. An rgba wash therefore goes down twice under the
+    words and once on the empty rest of the bar, which is the two-tone
+    highlight. ``bgcolor`` is a single rectangle, and it does not take
+    alpha, so this is the wash's rgb with the alpha dropped.
+    """
+    raw = _ink("bubble_wash").strip()
+    if raw.startswith("#") and len(raw) >= 7:
+        return raw[:7]
+    if raw.lower().startswith("rgb"):
+        inner = raw[raw.find("(") + 1 : raw.find(")")]
+        parts = [int(float(p.strip())) for p in inner.split(",")[:3]]
+        return f"#{parts[0]:02x}{parts[1]:02x}{parts[2]:02x}"
+    return "#180e08"
+
+
 def _assistant_open() -> str:
     """Open the assistant plate.
 
     Qt paints ``background`` on a ``<div>`` once per layout line, which is
-    the barcode on long answers. A table cell is one rectangle.
+    the barcode on long answers. A table cell is one rectangle. The fill
+    is ``bgcolor`` only — a CSS background on this cell stacks a second
+    coat on the paragraph. See ``_bubble_plate``.
     """
-    wash = _ink("bubble_wash")
     pad = SPACE["gap"]
     inset = SPACE["inset"]
     return (
         '<table width="100%" cellspacing="0" cellpadding="0" style="margin:0 0 8px 0;">'
         "<tr>"
-        f'<td valign="top" bgcolor="#180e08" width="82%" '
-        f'style="background-color:{wash};color:{_ink("text")};">'
+        f'<td valign="top" bgcolor="{_bubble_plate()}" width="82%" '
+        f'style="color:{_ink("text")};">'
         f'<div style="padding:{pad}px {inset}px;">'
     )
 
@@ -415,8 +435,8 @@ class ChatPanel(QWidget):
         return (
             f'<table width="100%" cellspacing="0" cellpadding="0" style="margin:2px 0 12px 0;">'
             "<tr>"
-            f'<td valign="top" bgcolor="#180e08" width="82%" '
-            f'style="background-color:{_ink("bubble_wash")};color:{_ink("text")};">'
+            f'<td valign="top" bgcolor="{_bubble_plate()}" width="82%" '
+            f'style="color:{_ink("text")};">'
             f'<div style="padding:{SPACE["gap"]}px {SPACE["inset"]}px;">'
             f'<div style="color:{_ink("text")};font-size:13px;margin-bottom:4px;">'
             f"{_esc(name)}</div>"
@@ -798,9 +818,8 @@ def _user_bubble_html(
         f'align="right">you</div>'
         f'<table cellspacing="0" cellpadding="{SPACE["gap"]}" align="right">'
         "<tr>"
-        f'<td bgcolor="#180e08" align="left" '
-        f'style="background-color:{_ink("bubble_wash")};'
-        f'color:{_ink("text_dim")};text-align:left;">'
+        f'<td bgcolor="{_bubble_plate()}" align="left" '
+        f'style="color:{_ink("text_dim")};text-align:left;">'
         f"{inner}</td></tr></table>"
         "</td></tr></table>"
         "</td></tr></table>"

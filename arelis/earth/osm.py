@@ -1,6 +1,7 @@
-"""OSM-tagged public webcams. Mapper catalog. Positions only.
+"""OSM-tagged public webcams. Mapper catalog.
 
-camera:type=webcam nodes/ways. No still, no stream URL in meta.
+camera:type=webcam, plus contact:webcam and website:webcam. A public
+http(s) link on those tags plays on click and never lands on the pin.
 © OpenStreetMap contributors, ODbL. Failures return None.
 Hosts pinned in tests/test_egress.py.
 """
@@ -100,8 +101,8 @@ _BOXES: tuple[tuple[float, float, float, float], ...] = (
     (-45.0, -76.0, -32.0, -68.0),
 )
 _CITE = (
-    "OpenStreetMap camera:type=webcam. © OpenStreetMap contributors (ODbL). "
-    "Worldwide mapper catalog, not a crawl. Position only. No still, no stream."
+    "OpenStreetMap public webcam tags. © OpenStreetMap contributors (ODbL). "
+    "Worldwide mapper catalog, not a crawl. URL stays off the pin."
 )
 
 
@@ -193,7 +194,7 @@ def _entity_from_el(row: dict[str, Any]) -> Entity | None:
     tags = row.get("tags") if isinstance(row.get("tags"), dict) else {}
     name = str(tags.get("name") or tags.get("webcam") or "webcam").strip()
     pos = lla_to_ecef(lat, lon, 12.0)
-    return Entity(
+    entity = Entity(
         id=f"osm:{kind}:{oid}",
         cls="camera",
         layer="cameras",
@@ -208,10 +209,13 @@ def _entity_from_el(row: dict[str, Any]) -> Entity | None:
         meta={"lat": lat, "lon": lon},
         coverage=Coverage(
             "pin",
-            "OSM webcam tag. No video. Pose unknown unless a prior exists.",
+            "OSM webcam tag. Published http(s) opens on click. "
+            "Pose unknown unless a prior exists.",
         ),
         pii="none",
     )
+    _remember_published(entity.id, tags)
+    return entity
 
 
 def _num(value: Any) -> float | None:
@@ -230,13 +234,40 @@ def _host_pinned(host: str | None, pin: str) -> bool:
     return name == pin or name.endswith("." + pin)
 
 
-def _query_box(box: tuple[float, float, float, float]) -> dict[str, Any] | None:
+def _webcam_query(box: tuple[float, float, float, float]) -> str:
+    """Public webcam tags in this box. Not a surveillance-camera map."""
     south, west, north, east = box
-    query = (
-        f'[out:json][timeout:15];'
+    return (
+        f"[out:json][timeout:15];"
+        f"("
         f'nwr["camera:type"="webcam"]({south},{west},{north},{east});'
+        f'nwr["contact:webcam"]({south},{west},{north},{east});'
+        f'nwr["website:webcam"]({south},{west},{north},{east});'
+        f");"
         f"out center {_PER_BOX};"
     )
+
+
+def _published_page(tags: dict[str, Any]) -> str:
+    """The URL the mapper says the operator published. Empty if none."""
+    for key in ("contact:webcam", "website:webcam"):
+        text = str(tags.get(key) or "").strip()
+        if text:
+            return text
+    return ""
+
+
+def _remember_published(entity_id: str, tags: dict[str, Any]) -> None:
+    page = _published_page(tags)
+    if not page:
+        return
+    from arelis.earth.look import offer_published
+
+    offer_published(entity_id, page)
+
+
+def _query_box(box: tuple[float, float, float, float]) -> dict[str, Any] | None:
+    query = _webcam_query(box)
     return _post(OVERPASS, OVERPASS_HOST, query) or _post(
         OVERPASS_FALLBACK, OVERPASS_FALLBACK_HOST, query
     )

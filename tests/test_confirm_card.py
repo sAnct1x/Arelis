@@ -42,6 +42,8 @@ def test_headlines_are_human() -> None:
     assert confirm_headline("run_script", {"path": "lab/measure_drift.py"}) == (
         "run measure_drift.py"
     )
+    assert confirm_headline("run_task", {"action": "run", "name": "pytest"}) == "run pytest"
+    assert confirm_headline("run_task", {"action": "list"}) == "list project tasks"
     assert confirm_headline("desktop", {"action": "open", "target": "notepad"}) == (
         "open notepad"
     )

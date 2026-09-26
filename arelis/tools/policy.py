@@ -109,7 +109,9 @@ INBOX_LOCAL_WRITE_ACTIONS = frozenset({"download"})
 NEVER_BATCH = frozenset({"send_email", "send_sms", "agenda", "external_read", "inbox"})
 
 # Asked does not skip these — you still see the exact payload.
-ALWAYS_PAUSE_TOOLS = frozenset({"send_email", "send_sms", "run_script", "external_read"})
+ALWAYS_PAUSE_TOOLS = frozenset(
+    {"send_email", "send_sms", "run_script", "run_task", "external_read"}
+)
 
 _PERSIST_KEYS = {
     "writes": "confirm_writes",
@@ -217,6 +219,8 @@ def action_is_destructive(name: str, args: dict[str, Any] | None) -> bool:
 def always_pause(name: str, args: dict[str, Any] | None = None) -> bool:
     """True when the ask is not enough — send, pay, delete, run, outside read."""
     tool = (name or "").strip()
+    if tool == "run_task" and _action(args) == "list":
+        return False
     if tool in ALWAYS_PAUSE_TOOLS:
         return True
     if tool == "browser" and _action(args) == "upload":
@@ -326,6 +330,8 @@ def confirm_toggle(
         return "none"
     if tool == "run_script":
         return "run"
+    if tool == "run_task":
+        return "none" if _action(args) == "list" else "run"
     if tool == "research_report":
         return "writes"
     if tool == "external_read":
@@ -388,6 +394,8 @@ def evaluate_confirm(
     """
     if _CONFIRM_MODE == "voice":
         if (name or "").strip() == "run_script":
+            return True
+        if (name or "").strip() == "run_task" and _action(args) != "list":
             return True
         return action_is_destructive(name, args)
     toggle = confirm_toggle(name, args, risk=risk)
@@ -460,6 +468,8 @@ def evaluate_capability(name: str, args: dict[str, Any] | None = None) -> Capabi
         return "READ"
     if tool == "run_script":
         return "SIDE_EFFECT_LOCAL"
+    if tool == "run_task":
+        return "READ" if action == "list" else "SIDE_EFFECT_LOCAL"
     if tool == "plot":
         return "WRITE_LOCAL"
     if tool == "document":
@@ -498,6 +508,23 @@ def confirm_toggles_for_call(
         "confirm_vision": confirm_vision and not allow_writes_this_turn,
         "confirm_run": confirm_run,
     }
+
+
+def _tool_confirm(
+    name: str,
+    args: dict[str, Any],
+    lookup: Callable[[str], Any] | None,
+) -> str:
+    """Card body from the tool, when it knows the file better than this table."""
+    tool = (lookup or (lambda _n: None))(name)
+    detail = getattr(tool, "confirm_detail", None)
+    if not callable(detail):
+        return ""
+    try:
+        return str(detail(args) or "").strip()
+    except Exception:
+        # A preview that throws must not take the Allow card down with it.
+        return ""
 
 
 def describe_call(
@@ -676,8 +703,8 @@ def describe_call(
                 lines.append("Pauses briefly so the page can settle (max 8s).")
         if action == "click":
             lines.append(
-                "Glows the target in her Chrome, waits a beat, then clicks. "
-                "text= is the visible label; nth=1 is the first result."
+                "Clicks immediately in her Chrome and returns a snapshot of "
+                "the page. text= is the visible label; nth=1 is the first result."
             )
         if action == "type":
             lines.append(
@@ -884,18 +911,39 @@ def describe_call(
             lines.append(f"Horizon: {horizon}")
         return "\n".join(lines)
     if name == "run_script":
+        rendered = _tool_confirm(name, args, lookup)
+        if rendered:
+            return rendered
         path = str(args.get("path") or "").strip() or "(path)"
         extra = args.get("args")
-        lines = ["Run this program", f"Path: {path}"]
+        lines = [
+            "Run this program",
+            "This process runs as you. It can touch the rest of the disk.",
+            f"Path: {path}",
+        ]
         if extra:
             lines.append(f"Args: {extra}")
         return "\n".join(lines)
+    if name == "run_task":
+        rendered = _tool_confirm(name, args, lookup)
+        if rendered:
+            return rendered
+        task = str(args.get("name") or "").strip() or "(name)"
+        return (
+            f"Run {task}\n"
+            "This process runs as you. It can touch the rest of the disk."
+        )
     if name == "workspace":
+        rendered = _tool_confirm(name, args, lookup)
+        if rendered:
+            return rendered
         action = str(args.get("action") or "").strip().lower() or "?"
         path = str(args.get("path") or "").strip() or "(path)"
         lines = [f"Workspace {action}", f"Path: {path}"]
         if action in {"write", "edit"}:
-            content = redact_secrets(str(args.get("content") or args.get("new_text") or ""))
+            content = redact_secrets(
+                str(args.get("content") or args.get("new") or args.get("new_text") or "")
+            )
             if not content.strip():
                 lines.append("Content: (empty)")
             else:

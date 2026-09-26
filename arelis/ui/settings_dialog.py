@@ -551,6 +551,7 @@ class SettingsDialog(QDialog):
         qr_row.addStretch(1)
         qr_row.addWidget(self.pair_qr)
         qr_row.addStretch(1)
+        qr_row.setContentsMargins(0, SPACE["gap"], 0, SPACE["gap"])
         notify_l.addLayout(qr_row)
 
         self.notify_url = QLabel(self._notify_url_text(config))
@@ -609,6 +610,7 @@ class SettingsDialog(QDialog):
         install_qr_row.addStretch(1)
         install_qr_row.addWidget(self.install_qr)
         install_qr_row.addStretch(1)
+        install_qr_row.setContentsMargins(0, SPACE["gap"], 0, SPACE["gap"])
         notify_l.addLayout(install_qr_row)
 
         self.companion_status = QLabel("")
@@ -918,6 +920,7 @@ class SettingsDialog(QDialog):
 
     def _set_pair_qr(self, pixmap) -> None:
         self.pair_qr.setPixmap(pixmap)
+        self.pair_qr.setContentsMargins(0, 0, 0, 0)
         self.pair_qr.setFixedSize(pixmap.size())
 
     def _refresh_pairing_qr(self, config: dict[str, Any], *, rotate: bool = False) -> None:
@@ -1005,6 +1008,7 @@ class SettingsDialog(QDialog):
 
             pixmap = pairing_pixmap(self._install_url, scale=4, pad=16)
             self.install_qr.setPixmap(pixmap)
+            self.install_qr.setContentsMargins(0, 0, 0, 0)
             self.install_qr.setFixedSize(pixmap.size())
         except Exception:
             # QR generation failed, hide install QR

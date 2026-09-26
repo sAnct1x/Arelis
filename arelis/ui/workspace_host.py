@@ -164,7 +164,7 @@ def remove_active_workspace_root(window) -> None:
     )
 
 
-def open_file(window, path: str) -> None:
+def open_file(window, path: str, line: int = 0) -> None:
     if not path:
         window.chat.add_system(
             "open needs a path — pick a file or type one under the workspace roots"
@@ -204,6 +204,8 @@ def open_file(window, path: str) -> None:
     window.workspace.set_file(
         label, text, root_name=hit.root_name, abs_path=str(hit.path), force=True
     )
+    if line > 0:
+        window.workspace.reveal_line(line)
     window.workspace.set_recent(push_recent_workspace_file(label))
     window.thinking.append(f"workspace open {label}", kind="status")
 
@@ -396,6 +398,11 @@ def open_outside(window, abs_path: str) -> None:
 
 def bind_workspace(window) -> None:
     window.workspace.open_requested.connect(lambda path: open_file(window, path))
+    window.workspace.open_line_requested.connect(
+        lambda path, line: open_file(window, path, line)
+    )
+    window.workspace.console_submit.connect(lambda text: run_user_console(window, text))
+    window.workspace.console_stop_requested.connect(lambda: stop_user_console(window))
     window.workspace.save_requested.connect(
         lambda path, content: save_file(window, path, content)
     )
@@ -420,4 +427,70 @@ def bind_workspace(window) -> None:
         lambda path: reveal_desk_item(window, path)
     )
     window.workspace.outside_requested.connect(lambda path: open_outside(window, path))
+
+
+def run_user_console(window, command: str) -> None:
+    """The line the operator typed. There is no tool that calls this."""
+    from PySide6.QtCore import QProcess
+
+    text = (command or "").strip()
+    if not text:
+        return
+    if getattr(window, "_workspace_console", None) is not None:
+        window.workspace.show_log("console", "A command is still running.")
+        return
+    root = window.workspace_roots.active_root().path
+    program = _powershell()
+    proc = QProcess(window)
+    window._workspace_console = proc
+    proc.setWorkingDirectory(str(root))
+    proc.setProgram(program)
+    proc.setArguments(["-NoProfile", "-NonInteractive", "-Command", text])
+    window.workspace.set_console_busy(True)
+    window.workspace.show_log(str(root), f"$ {text}\nrunning…")
+
+    def _done(code, _status) -> None:
+        if getattr(window, "_workspace_console", None) is not proc:
+            return
+        out = bytes(proc.readAllStandardOutput()).decode("utf-8", "replace")
+        err = bytes(proc.readAllStandardError()).decode("utf-8", "replace")
+        window._workspace_console = None
+        window.workspace.set_console_busy(False)
+        body = f"$ {text}\n"
+        if out:
+            body += out
+        if err.strip():
+            if out and not out.endswith("\n"):
+                body += "\n"
+            body += err
+        body += f"\nexit {int(code)}"
+        window.workspace.show_log(str(root), body)
+        proc.deleteLater()
+
+    def _fail(err) -> None:
+        if err != QProcess.ProcessError.FailedToStart:
+            return
+        if getattr(window, "_workspace_console", None) is not proc:
+            return
+        window._workspace_console = None
+        window.workspace.set_console_busy(False)
+        window.workspace.show_log(str(root), f"$ {text}\nCould not start PowerShell.")
+        proc.deleteLater()
+
+    proc.finished.connect(_done)
+    proc.errorOccurred.connect(_fail)
+    proc.start()
+
+
+def stop_user_console(window) -> None:
+    proc = getattr(window, "_workspace_console", None)
+    if proc is not None:
+        proc.kill()
+
+
+def _powershell() -> str:
+    import shutil
+
+    found = shutil.which("powershell.exe") or shutil.which("powershell")
+    return found or "powershell.exe"
 

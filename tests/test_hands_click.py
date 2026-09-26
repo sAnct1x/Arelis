@@ -7,6 +7,8 @@ from pathlib import Path
 
 from PySide6.QtCore import QPoint, QRect
 from PySide6.QtWidgets import (
+    QLabel,
+    QListWidget,
     QPushButton,
     QTextBrowser,
     QTextEdit,
@@ -139,6 +141,71 @@ def test_twin_collapse_does_not_double_click() -> None:
     assert len(clicks) == 1
 
 
+def test_scroll_ignores_a_resting_hand() -> None:
+    from arelis.ui.hands_desk import scroll_steps
+
+    assert scroll_steps(0.002, 24) == 0
+    assert scroll_steps(-0.02, 24) < 0
+
+
+def test_hand_act_is_the_only_split() -> None:
+    from arelis.spatial.grammar import hand_act
+
+    assert hand_act(closed=True, dragging=False, company=1) == "click"
+    assert hand_act(closed=True, dragging=True, company=1) == "grab"
+    assert hand_act(closed=True, dragging=False, company=2) == "resize"
+    assert hand_act(closed=False, dragging=False, company=0) == "open"
+
+
+def test_two_pinches_resize_and_one_still_pinch_does_not() -> None:
+    from PySide6.QtCore import QRect
+
+    from arelis.ui.camera_host import scene_pose
+    from arelis.ui.hands_desk import scaled_frame
+
+    grab, pose = scene_pose(closed=True, dragging=False, company=1)
+    assert grab is False and pose == "open"
+    grab, pose = scene_pose(closed=True, dragging=False, company=2)
+    assert grab is True and pose == "pinch"
+    grab, pose = scene_pose(closed=True, dragging=True, company=1)
+    assert grab is True and pose == "pinch"
+    grown = scaled_frame(QRect(100, 80, 300, 200), 1.5)
+    assert grown.width() == 324
+    assert grown.height() == 216
+    assert abs(grown.center().x() - 249) <= 1
+    assert abs(grown.center().y() - 179) <= 1
+
+
+def test_filament_words_are_desk_commands() -> None:
+    from arelis.core.tile_complete import match_desk_intent, match_tile_intent
+
+    assert match_tile_intent("open files") == ("open", "workspace")
+    assert match_tile_intent("open days") == ("open", "calendar")
+    assert match_tile_intent("close notify") == ("close", "notifications")
+    assert match_tile_intent("open history") == ("open", "history")
+    assert match_tile_intent("close this") == ("close", "")
+    assert match_desk_intent("span 2") == ("span", "2")
+    assert match_desk_intent("two screens") == ("span", "2")
+    assert match_desk_intent("open rooms") == ("rooms", "")
+    assert match_desk_intent("open the notes room") is None
+    assert match_desk_intent("span 2 and check the weather") is None
+    assert match_tile_intent("open settings") is None
+    from arelis.core.desk_guide import desk_guide_text, match_desk_guide
+
+    assert match_desk_guide("how do hands work")
+    assert match_desk_guide("how do I use my hands")
+    assert match_desk_guide("how does voice control work")
+    assert match_desk_guide("what can I say")
+    assert match_desk_guide("how do I drag a window")
+    assert match_desk_guide("how do I control you")
+    assert not match_desk_guide("open history")
+    assert not match_desk_guide("how is the weather")
+    guide = desk_guide_text()
+    assert "pinch" in guide.casefold()
+    assert "fist" not in guide.casefold()
+    assert "span 2" in guide.casefold()
+
+
 def test_hit_float_names_the_title_chip() -> None:
     field = FilamentField()
     field.set_state("idle")
@@ -147,6 +214,7 @@ def test_hit_float_names_the_title_chip() -> None:
     assert field.hit_float(title, rect) == "chat"
     bead = field.bead_point("history", rect).toPoint()
     assert field.hit_float(bead, rect) == "history"
+    assert field.hit_float(bead + QPoint(40, 0), rect) == "history"
 
 
 def test_hit_float_skips_an_open_title() -> None:
@@ -168,7 +236,7 @@ def test_rim_button_is_not_tile_chrome(qt_app) -> None:
     close_btn.setGeometry(210, 4, 24, 24)
     view = QTextEdit(tile)
     view.setObjectName("ChatView")
-    view.setGeometry(12, 36, 216, 150)
+    view.setGeometry(12, 72, 216, 110)
     tile.show()
     rim = tile.mapToGlobal(QPoint(8, 8))
     assert is_tile_chrome(tile, rim)
@@ -176,6 +244,11 @@ def test_rim_button_is_not_tile_chrome(qt_app) -> None:
     assert not is_tile_chrome(tile, on_close)
     on_view = tile.mapToGlobal(QPoint(80, 100))
     assert not is_tile_chrome(tile, on_view)
+    heading = QLabel("history", tile)
+    heading.setObjectName("SettingsHeading")
+    heading.setGeometry(16, 40, 120, 24)
+    on_heading = tile.mapToGlobal(QPoint(40, 52))
+    assert is_tile_chrome(tile, on_heading)
     tile.hide()
     tile.deleteLater()
 
@@ -223,6 +296,49 @@ def test_fire_click_buttons_and_copy_anchor(qt_app, tmp_path: Path) -> None:
     name, ok = fire_click(view, view.mapToGlobal(found))
     assert ok
     assert "copy" in hits
+    host.hide()
+    host.deleteLater()
+
+
+def test_fire_click_selects_a_list_row_and_a_second_pinch_opens(qt_app) -> None:
+    clicked: list[str] = []
+    opened: list[str] = []
+    host = QWidget()
+    layout = QVBoxLayout(host)
+    rows = QListWidget()
+    rows.addItem("notice")
+    rows.itemClicked.connect(lambda item: clicked.append(item.text()))
+    rows.itemDoubleClicked.connect(lambda item: opened.append(item.text()))
+    layout.addWidget(rows)
+    host.resize(220, 140)
+    host.show()
+    qt_app.processEvents()
+    rect = rows.visualItemRect(rows.item(0))
+    point = rows.viewport().mapToGlobal(rect.center())
+    name, ok = fire_click(rows.viewport(), point)
+    assert ok and name == "notice" and clicked == ["notice"] and opened == []
+    name, ok = fire_click(rows.viewport(), point)
+    assert ok and opened == ["notice"] and clicked == ["notice"]
+    host.hide()
+    host.deleteLater()
+
+
+def test_fire_click_opens_a_browse_row_on_the_first_pinch(qt_app) -> None:
+    opened: list[str] = []
+    host = QWidget()
+    layout = QVBoxLayout(host)
+    rows = QListWidget()
+    rows.setObjectName("BrowseList")
+    rows.addItem("notes")
+    rows.itemActivated.connect(lambda item: opened.append(item.text()))
+    layout.addWidget(rows)
+    host.resize(220, 140)
+    host.show()
+    qt_app.processEvents()
+    rect = rows.visualItemRect(rows.item(0))
+    point = rows.viewport().mapToGlobal(rect.center())
+    name, ok = fire_click(rows.viewport(), point)
+    assert ok and name == "notes" and opened == ["notes"]
     host.hide()
     host.deleteLater()
 

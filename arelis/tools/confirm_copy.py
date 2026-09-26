@@ -235,6 +235,11 @@ def confirm_headline(tool: str, args: dict[str, Any] | None = None) -> str:
     if name == "run_script":
         leaf = _path_leaf(args)
         return f"run {leaf}" if leaf else "run a program"
+    if name == "run_task":
+        task = _who(args, "name")
+        if str(args.get("action") or "").strip().lower() == "list":
+            return "list project tasks"
+        return f"run {task}" if task else "run a project task"
     if name == "external_read":
         leaf = _path_leaf(args)
         return f"read {leaf}" if leaf else "read this file"

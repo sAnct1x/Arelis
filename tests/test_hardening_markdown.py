@@ -220,7 +220,9 @@ def test_assistant_bubble_wash_is_a_table_cell_not_a_div(qt_app) -> None:
     html = _assistant_bubble_html("line one\n\nline two")
     assert "<table" in html
     assert 'width="82%"' in html
-    assert "background-color:" in html
+    assert "bgcolor=" in html
+    # CSS background-color on the cell stacks a second coat on the paragraph.
+    assert "background-color:" not in html
     panel = ChatPanel()
     panel.finish_assistant("**Sources:**\n\n1. Example (https://example.com)")
     text = panel.view.toPlainText()

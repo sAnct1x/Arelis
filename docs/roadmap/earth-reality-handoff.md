@@ -20,9 +20,9 @@ already ships as 0.2.9 locally; last published installer is the
 draft until a human publishes it. 12 GB GPU. “Cost” means
 compute / tokens / VRAM / latency, not money. Talk like a person
 at this desk, not a ticket. Keep working until the plan is closed.
-Do not ask me to launch Arelis as your test loop — you run the
-walks, grabs, pytest, and scripts. I will test the plate myself
-when you say the code is ready, the same way I did for glass.
+Do not ask me to launch Arelis as your test loop — you run
+pytest. I will test the plate myself when you say the code is
+ready, the same way I did for glass.
 
 ## What we just finished, so you do not redo it
 
@@ -35,7 +35,7 @@ checkout-only. Last daily-driver commit that closed 0.2.8:
 - `4237e47` Paint first-run TOOLS chips and stop the companion
   dying after a quiet week.
 
-**Closed phases (0–7 of `docs/roadmap/README.md`):** eval floors +
+**Closed phases (0–7):** eval floors +
 choice board; PDF raster lane (pypdfium2, loud miss); Phase 2
 **cancelled on measurement** (guards +6.0, full schema +1.0 vs ±2
 at 2.4× prefill — do not restore descriptions); cleanup/dedup that
@@ -103,10 +103,10 @@ This is the part that matters. The Earth/Reality work is not
    thesis of the last audit (“12,700 lines of regex are a wound;
    restore the full tool schema”) was confident and wrong.
    Thirteen runs, three seeds, shipped guards +6.0, full schema
-   in the noise. We cancelled Phase 2 and kept the wrong thesis
-   in the doc so nobody “cleans it up.” If you decide Cesium, the
-   catalog, REBOUND, or the native disc is a wound, **measure
-   it**. Do not rip it because it is large.
+   in the noise. Phase 2 was cancelled. The number lives in this
+   handoff: do not restore full descriptions, and do not rip a
+   layer because it is large. If you decide Cesium, the catalog,
+   REBOUND, or the native disc is a wound, **measure it**.
 
 7. **Duplication is where defects hide.** When three modules
    express one rule and disagree, the odd one out is the bug.
@@ -157,13 +157,12 @@ This is the part that matters. The Earth/Reality work is not
 
 **Daily-driver audit (method + lessons, not your scope):**
 
-- `docs/roadmap/README.md` — the closed 0–7 checklist. Read
-  **The thesis — measured, and wrong**, Phase 3’s “roadmap is a
-  lead,” the Frozen section, and the lessons. That is how we
-  work.
-- Canvas: `arelis-audit.canvas.tsx` (Cursor canvases folder).
-  Headlines, lessons, verb table, open leftovers. Updated
-  2026-09-18. If it is empty, trust the markdown.
+The closed checklist is gone. The lessons that still bind are
+above: measure before deleting a compensation layer (guards
++6.0, full schema in the noise), duplication is where defects
+hide, and glass / tools / orchestrator / SMS / Allow stay
+frozen. Canvas `arelis-audit.canvas.tsx` was a view over that
+checklist. If it is empty, trust this handoff.
 
 **Earth / Reality — existing concept and production boards
 (prior build campaigns, not this audit):**

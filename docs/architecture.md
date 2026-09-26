@@ -29,12 +29,15 @@ core never answers, the glass binds `:8765` itself. `--core` never
 runs the first-open setup wizards — it just uses whatever defaults
 exist until the window is actually opened.
 
-The phone app is a LAN companion, not a second copy of Arelis. When
-your PC is reachable, chat on the phone is literally the same live
-session. When it isn't, the phone keeps its own seat and just picks
-up the conversation — any Gemma-generated words from that time sync
-back once the PC is up again. The APK and the offline brain come from
-this PC when they are here (`/companion/*` on ingest). See
+The phone app is a LAN companion, not a second copy of Arelis. The
+app itself is `android/arelis-notify/`. When your PC is reachable,
+chat on the phone is literally the same live session. When it isn't,
+the phone keeps its own seat and just picks up the conversation —
+any Gemma-generated words from that time sync back once the PC is up
+again. The APK and the offline brain come from this PC when they are
+here (`/companion/*` on ingest). Off the LAN, phone and PC meet
+through `arelis/relay/`, a mailbox that cannot read the bytes. If the
+house is not holding a poll, the phone is told to use Gemma. See
 [notify-inbound.md](notify-inbound.md).
 
 ## First open
@@ -57,22 +60,37 @@ the first time you actually send a picture. More on all this in
 
 ## What happens in one turn
 
+The window, the CLI, a scheduled job, and the tray-restore check all
+build the same brain through `arelis/core/seat.py` (`build_seat`).
+The core process is separate: it holds the lock and `:8765`, and the
+window attaches over loopback.
+
 1. Your text (or a voice transcript) hits the orchestrator
-   (`arelis/core/orchestrator.py`). Typed and spoken input share this
-   exact same path once the transcript exists — only one turn runs at
-   a time.
+   (`arelis/core/orchestrator.py`). That class is three mixins —
+   turns, slash, and confirm — so a reply, a `/room`, and an Allow
+   can land while a turn is already running. Typed and spoken input
+   share this exact same path once the transcript exists — only one
+   turn runs at a time.
 2. Slash commands (`/role`, `/room`, `/leave`) and spoken room names
    get handled right here. Entering a room, notably, is not itself a
    tool call.
-3. The role model actually thinks (`arelis/core/agent_loop.py`). Tool
+3. `AgentLoop.run` (`arelis/core/agent_loop.py`) only prepares and
+   loops. `turn_prepare.py` builds the prompt, the turn goal, and the
+   round budget. `turn_round.py` streams one model round. Tool
    schemas are already sitting in the prompt from the launch seed, so
-   she may go ahead and call tools.
+   she may go ahead and call tools. A call goes through
+   `turn_dispatch.py` (Allow) and `turn_execute.py` (run it, then the
+   finish gates). Most of the rest of `arelis/core/` sits beside that
+   loop: preflight, redirects, force-calls, the SMS and mail
+   completers, evidence, exactness. Those correct a bad call. The
+   model does not own them.
 4. Risky actions pause for your input. A drive you already asked for
    doesn't need to pause again. On **sodium** mail and texts always
    pause, no exceptions. The **filament** desk is the one exception in
    the app: there the spoken ask is the grant, so a send goes without a
-   card and only destructive calls — delete, forget, Pay, Checkout —
-   plus `run_script` stop and wait. See Themes below.
+   card and only destructive calls — delete, forget, Pay, Checkout,
+   a UAC prompt on the desk — plus `run_script` stop and wait. See
+   Themes below.
 5. Tool results flow back into the turn, and she answers based on
    what she actually got back — not what she expects to get back.
 
@@ -90,10 +108,12 @@ your approval regardless of which path she took to get there.
 
 The confirmation card itself is written in plain human language —
 "text wife," "write note.txt" — nothing cryptic. **Deny** only
-blocks that one step. **Stop** ends the whole turn. A turn that hangs
-in a tool unlocks itself after `ui.hung_turn_s` (90s) with a countdown
-on the shimmer — same cancel path as Stop, worded as a hang. Conversation
-mode (and anything still listening after a wake word) can hear
+blocks that one step. **Stop** ends the whole turn. A busy turn has a ceiling
+(`ui.hung_turn_s`, 90s) with a countdown on the shimmer. If she already
+has tool results, that ceiling tells her to close from what she has,
+and a shorter second clock hard-stops only if that close never comes
+back. If she has nothing yet, it cancels like Stop, worded as a hang.
+Conversation mode (and anything still listening after a wake word) can hear
 "allow," "deny," "stop," or a spoken edit to a draft without needing
 to start a whole new turn. After a stop, the next thing you say is
 just treated as ordinary conversation — she only gets a quiet note
@@ -136,8 +156,9 @@ started.
 | Piece | Path | Job |
 |---|---|---|
 | Bus | `arelis/core/bus.py` | Events between the UI and the brain |
-| Orchestrator | `arelis/core/orchestrator.py` | Runs one turn at a time; resumes the last room on a new empty chat |
-| Agent loop | `arelis/core/agent_loop.py` | Model, tools, confirmations, finish rules |
+| Seat | `arelis/core/seat.py` | One constructor for the window, CLI, job, and tray-restore brains |
+| Orchestrator | `arelis/core/orchestrator.py` | One turn at a time. Mixins: `orchestrator_turns.py`, `orchestrator_slash.py`, `orchestrator_confirm.py`. Resumes the last room on a new empty chat |
+| Agent loop | `arelis/core/agent_loop.py` | Shell around one turn. The body is `turn_prepare.py`, `turn_round.py`, `turn_dispatch.py`, `turn_execute.py`, plus the corrective modules beside them (preflight, redirects, finish gates) |
 | Skills | `arelis/core/skills.py` | Which tools she leans toward |
 | Router | `arelis/llm/` | Picks the role model, warms it, unloads it |
 | Setup | `arelis/setup/` | First-open flow: hardware, model, voice weights, pulling |
@@ -145,8 +166,16 @@ started.
 | Tools | `arelis/tools/` | Everything she can actually call — registry lives in `__init__.py` |
 | Jobs | `arelis/jobs/` | The unattended runner plus Task Scheduler integration |
 | Browser | `arelis/browser/` | Her own Chrome instance |
-| UI | `arelis/ui/` | Window, empty session, docks |
-| Presence | `arelis/presence/` | Core process, tray, IPC |
+| Desktop | `arelis/desktop/` | Drive the user's Windows session (open, type, click). The `desktop` tool is the front door |
+| UI | `arelis/ui/` | Sodium window (`app.py` is five mixins: build, chrome, lifetime, turns, aliases). Docks are hosts. Filament is a second GUI on the same window |
+| Presence | `arelis/presence/` | Core process, tray, IPC, the `:8765` lock |
+| Guard | `arelis/guard/` | House watch: inbound limits, bad-token lockout, outbound API budget. The `watch` tool only reads the snapshot |
+| Relay | `arelis/relay/` | Off-LAN mailbox between the phone and the PC. Blind to the bytes |
+| Notify | `arelis/notify/` | In-app pill, card, and inbox. Not a dock |
+| Briefing | `arelis/briefing/` | Deterministic daily digest for the briefing job. Not a free-form prompt |
+| Location | `arelis/location/` | Where you are. A typed profile always wins. Timezone comes from the OS locale. Coordinates come from an opt-in IP lookup, and nothing here calls the network unless that lookup is on |
+| Research | `arelis/research/` | Deterministic multi-source report (excerpts, not an LLM synthesis). The tool is `research_report` |
+| Eval | `arelis/eval/` | Scripted board. Scores whether the guards still catch a canned mistake. It does not score live tool choice |
 | Voice | `arelis/voice/` | Listening and speaking; `prepare.py` is the first-open fetch — [voice-wake.md](voice-wake.md) |
 | Spatial | `arelis/spatial/` | World engine, grants, hand-tracking takes. Pose input is not a chat turn |
 | Earth | `arelis/earth/` | Earth view on Reality's globe — 109 shipped / 25 keyed / 3 coming later / 4 left out. Marks come from `arelis/ui/earth_marks.py`. See [earth.md](earth.md) |
@@ -187,6 +216,10 @@ defaults it to false — don't flip it on just to "go faster."
 
 ## The window
 
+`arelis/ui/app.py` is the sodium window: five mixins on one Qt window
+(build, chrome, lifetime, turns, aliases). Docks are hosts, not
+methods on that file. Filament is a second GUI on the same window.
+
 An empty session is what we call orbit — a warm void, a ring, and a
 text box underneath it. Typing stays there until you actually send
 it. Once you do, you land in the full workbench: chat, composer, and
@@ -206,8 +239,8 @@ docks.
 | Notifications | Inbound texts, shown while the UI is open |
 | Contacts | People you can text, under View → Contacts / Ctrl+6 |
 | Calendar | Local tile, Ctrl+7 — month / week / day / agenda views, plus tasks and jobs. Empty of any Google events until you authorize |
-| Settings | Audio / window / allow / notify / roots / memory. Mail and calendar credentials aren't a Settings tab at all — they live in `data/secrets.yaml` and are set up via [calendar-oauth.md](calendar-oauth.md) |
-| Themes | View → Themes. **sodium** is the shipped face. **filament (testing)** is a checkout experiment for a row of desks — three monitors is the intended layout; 1 and 2 still work. Saved to `data/config.local.yaml`. Confirms change with the face: sodium raises the Allow card, filament treats the spoken ask as the grant and only pauses on destructive calls (delete / forget / Pay / Checkout) and `run_script`. Switching theme switches that policy — a send that would have shown you a card on sodium does not on filament. Filament is a desk presence: coil at first rest or away-idle, unwrapped once in use. Slim title bar, say “hey arelis”, and 1 / 2 / 3 stay on the primary desk. 1 / 2 / 3 are desk counts, not Windows monitor numbers; default is one primary desk. Text lives on the chat plate. The thinking title breathes while a turn is running. Each title has its own particle on the current (same motion as the word). Click the bead or the word. HWND stays opaque; tiles are floating resizable plates. The field paints a horizontal band and remasks only on span / resize, not every atmosphere tick. Dust stamps live in RAM; camera preview convert is a worker, not the HWND thread |
+| Settings | Audio / window / allow / notify / roots / memory. Mail is a form on Notify: Gmail address and app password. The password is not shown again after Apply, and it is stored in `data/secrets.yaml`. Phone pairing (the QR and a token) is on that same tab. Calendar OAuth is not a Settings tab — `arelis --auth-calendar`, see [calendar-oauth.md](calendar-oauth.md) |
+| Themes | View → Themes. **sodium** is the shipped face. **filament (testing)** is a checkout experiment for a row of desks — three monitors is the intended layout; 1 and 2 still work. Saved to `data/config.local.yaml`. Confirms change with the face: sodium raises the Allow card, filament treats the spoken ask as the grant and only pauses on destructive calls (delete / forget / Pay / Checkout / a UAC prompt on the desk) and `run_script`. Switching theme switches that policy — a send that would have shown you a card on sodium does not on filament. Filament is a desk presence: coil at first rest or away-idle, unwrapped once in use. Slim title bar, say “hey arelis”, and 1 / 2 / 3 stay on the primary desk. 1 / 2 / 3 are desk counts, not Windows monitor numbers; default is one primary desk. Text lives on the chat plate. The thinking title breathes while a turn is running. Each title has its own particle on the current (same motion as the word). Click the bead or the word. HWND stays opaque; tiles are floating resizable plates. The field paints a horizontal band and remasks only on span / resize, not every atmosphere tick. Dust stamps live in RAM; camera preview convert is a worker, not the HWND thread |
 | Display | Same model as Chrome / VS Code / Office. Qt 6 per-monitor DPI: a 4K panel at 150% is ~2560×1440 logical, not a second 4K mode. First-launch size (1440×900) shrinks to the current work area so 1080p fits; 2K and 4K stay that size until you maximize. Restored geometry that landed on an unplugged monitor moves back. Settings → window → Interface scale is an optional zoom on top of the OS (`ui.scale`, default 1.0, needs a restart). Chat text size is just the transcript (Ctrl+= / − / 0). |
 | Reality | A floating 3D window. View → Reality / Ctrl+8. Only appears while the Reality room is active, and only on a source checkout (`world_stage_allowed`). Needs `pip install -e ".[spatial]"` for hand tracking and `.[astro]` for REBOUND — none of it ships in the installer. Default size 1280×800. The solar GPU path is `--solar-gl` / `ARELIS_SOLAR_GL=1` (an offscreen FBO). The Earth view renders the planet through Cesium, with Arelis handling stars and the HUD; contacts there use `earth_marks.py`. It's inspect-only — a WASD fly camera, with H reciting the live key bindings. There's no piloted chase-cam |
 
@@ -227,12 +260,15 @@ QR code lives under **Settings → Notify**.
 
 ## Tools, briefly
 
-All tools are registered in `arelis/tools/__init__.py`. Scheduled
-jobs specifically leave out sending, browser, vision, plotting,
-documents, solar, Earth, the archive tools, and anything else that
-genuinely needs a person present. `cas`, `units`, `catalog`,
-`python`, and `calculator` are all safe to run unattended — see
-[jobs.md](jobs.md).
+All tools are registered in `arelis/tools/__init__.py`. A scheduled
+job passes `attended=False` and does not send. That leaves out mail
+and text sends, `schedule`, the archive tools (recall, memory, tasks,
+goals, contacts), browser, desktop, vision, camera, clipboard, OCR,
+tile, research reports, agenda, plotting, documents, pdf, reminders,
+transcribe, and `run_script`. `image` and `image_edit` stay
+registered — the runner skips the Allow card instead of hiding them.
+`cas`, `units`, `catalog`, `python`, `calculator`, and `watch` run
+unattended — see [jobs.md](jobs.md).
 
 `send_email` / `inbox`, `send_sms` / `inbound_sms`, and `agenda` only
 get registered once mail, the phone, or a calendar source is actually
@@ -257,6 +293,7 @@ connected. Until then, if you ask, she'll just tell you she can't.
 | `run_script` | A project `.py` under a workspace root. Not a shell. Not her own tests | Yes (card / spoken on filament) |
 | `cas` / `units` | Closed forms, conversions, constants | No |
 | `diagnostics` | Her own pytest suite. Source checkout with `tests/` needed | No |
+| `watch` | House watch snapshot: listeners, inbound limits, outbound API volume. Not antivirus, and it does not scan the rest of the PC | No |
 | `tile` | Open or close a View-menu panel (thinking, calendar, world, …) | No |
 | `plot` | PNG: line / scatter / residuals / histogram / bar / subplots, or `expr=` for a formula | Yes |
 | `document` | PDF, Word, Excel, CSV, markdown. Room → `documents/` inside the project; outside a room → `outputs/documents/` | Yes |
@@ -343,8 +380,9 @@ view and C920 hand tracking actually run. See [rooms.md](rooms.md).
 - There's a loop cap on reasoning rounds (`agent.max_rounds` — 8
   normally, 32 in research mode, 16 when she is reading her own
   source / assessing the solar-system sim). Weather and SMS stay at 8.
-  A hung tool is a separate ceiling (`ui.hung_turn_s`, 90s) so the
-  shimmer cannot sit forever.
+  A busy turn has a separate ceiling (`ui.hung_turn_s`, 90s) so the
+  shimmer cannot sit forever. Work already in hand closes into an
+  answer; a close that itself stalls still hard-stops.
   "Deeply research" is research mode even on the default fast chip.
   Empty chat after a long scrape asks her to write; it does not
   paste the page. `research_report` Findings are page excerpts with

@@ -33,6 +33,15 @@ Freshness = Literal[
 
 PiiKind = Literal["none", "contact", "inferred"]
 
+MissReason = Literal["no_key", "rate", "http"]
+
+
+@dataclass(frozen=True)
+class FeedMiss:
+    """A fetch that did not answer. Not an empty sky."""
+
+    reason: MissReason
+
 # Dump / cite never carry a playable source. Adapters must keep these off
 # meta; this is the last door if one slips through.
 _LOOK_META = frozenset(

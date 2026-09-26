@@ -6,8 +6,9 @@ credentials.json (clientId / clientSecret) into earth.opensky_client_id
 401 refreshes once. Standard tier is 4,000 credits/day; a global
 /states/all costs 4. We read X-Rate-Limit-Remaining and stop near the
 cap, or on 429. extended=1 so UAV category 14 can split to drones.
-Anonymous still works with no client. Failures return None (keep sim).
-Empty list is a quiet box — heard the API, nothing squawked. Token never
+Anonymous still works with no client. A 429 or a spent credit budget
+is FeedMiss("rate"). Other failures return None. Empty list is a
+quiet box — heard the API, nothing squawked. Token never
 lands on entities. Hosts pinned in egress.
 """
 
@@ -22,7 +23,7 @@ from urllib.parse import urlparse
 import httpx
 
 from arelis import __source_url__, __version__
-from arelis.earth.entity import Entity
+from arelis.earth.entity import Entity, FeedMiss
 from arelis.earth.frames import ecef_vel_from_track, lla_to_ecef
 from arelis.earth.secrets import earth_secret
 from arelis.paths import state_dir
@@ -69,22 +70,30 @@ def opensky_client_secret(path=None) -> str:
     return earth_secret("opensky_client_secret", CLIENT_SECRET_ENV, path)
 
 
-def fetch_opensky(bbox: Any | None = None) -> list[Entity] | None:
+def fetch_opensky(bbox: Any | None = None) -> list[Entity] | FeedMiss | None:
+    from arelis.earth.entity import FeedMiss
+
     if not _credits_ok():
-        return None
+        return FeedMiss("rate")
     from arelis.earth.lod import LookBBox
 
     box = bbox if isinstance(bbox, LookBBox) else None
     if box is None:
         payload = _states()
+        if isinstance(payload, FeedMiss):
+            return payload
         if not payload:
             return None
         return entities_from_opensky(payload)
     out: list[Entity] = []
     seen: set[str] = set()
     heard = False
+    limited = False
     for part in box.split():
         payload = _states(part)
+        if isinstance(payload, FeedMiss):
+            limited = True
+            continue
         if not payload:
             continue
         heard = True
@@ -93,9 +102,11 @@ def fetch_opensky(bbox: Any | None = None) -> list[Entity] | None:
                 continue
             seen.add(entity.id)
             out.append(entity)
-    if not heard:
-        return None
-    return out
+    if heard:
+        return out
+    if limited:
+        return FeedMiss("rate")
+    return None
 
 
 def entities_from_opensky(payload: dict[str, Any]) -> list[Entity]:
@@ -185,7 +196,9 @@ def _states(bbox: Any | None = None) -> dict[str, Any] | None:
         _forget_token()
         payload, status = _get_states(_bearer(), **extra)
     if status == 429:
-        return None
+        from arelis.earth.entity import FeedMiss
+
+        return FeedMiss("rate")
     return payload
 
 

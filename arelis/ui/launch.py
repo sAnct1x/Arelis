@@ -466,6 +466,7 @@ def run_ui(config: dict[str, Any] | None = None) -> int:
         logging.getLogger(__name__).exception("Arelis window failed to start")
         _release_ui_lock()
         raise
+    window.orchestrator = orchestrator
     asyncio.run_coroutine_threadsafe(orchestrator.resume_last_room(), loop)
     # Inbound: by default the UI owns ingest. Close-to-tray keeps it alive when
     # the window hides; `arelis --core` can own ingest instead.

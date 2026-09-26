@@ -68,7 +68,8 @@ class OrchestratorSlash:
     async def _emit_help(self) -> None:
         msg = (
             "Just talk. Arelis can use tools from natural language "
-            "(reads and web run on their own; writes and images ask first).\n\n"
+            "(reads and web run on their own; writes and images ask first).\n"
+            'Ask "how do hands work" for hands and voice on the desk.\n\n'
             "Power-user slash commands:\n"
             f"  {TOOLS_SLASH}                      what she can do (name + one line)\n"
             "  /role fast|research\n"

@@ -1117,20 +1117,26 @@ class EarthGlobeHost(QWidget):
 
 # City eye looks at the street. The store still holds the catalog.
 _CITY_ORBIT_MARKS = 0
-_APPROACH_ORBIT_MARKS = 16
+# Approach keeps the CelesTrak sample (the group budgets sum past 1,300).
+# Near and city drop the swarm. A tracked sat still stays.
+_APPROACH_ORBIT_MARKS = 1600
 
 
 def _entity_push_key(rows: list[dict[str, Any]]) -> tuple[Any, ...]:
+    """Identity of a push. Motion between pushes is the JS coast.
+
+    Latitude in this key used to change every tick, so the whole catalog
+    crossed the bridge three times a second. Cesium already coasts from
+    the last pose and velocity. A new base pose every 10 s is enough.
+    """
     return tuple(
         (
             row.get("id"),
-            round(float(row.get("lat") or 0.0), 3),
-            round(float(row.get("lon") or 0.0), 3),
-            int(row.get("alt_m") or 0),
             int(float(row.get("vx") or 0.0)),
             int(float(row.get("vy") or 0.0)),
             int(float(row.get("vz") or 0.0)),
-            int(float(row.get("when_unix") or 0.0)),
+            int(float(row.get("when_unix") or 0.0) // 10),
+            round(float(row.get("heading_deg") or 0.0)),
             row.get("freshness") or "",
             bool(row.get("hot")),
             bool(row.get("ride")),
@@ -1165,6 +1171,16 @@ def pick_orbit_marks(
     pinned_ids = {str(row.get("id") or "") for row in pinned}
     rest = [row for row in sats if str(row.get("id") or "") not in pinned_ids]
     return ground + iss + pinned + rest[: max(0, cap - len(pinned))]
+
+
+def _meta_float(meta: dict[str, Any], key: str) -> float | None:
+    try:
+        raw = meta.get(key)
+        if raw is None or raw == "":
+            return None
+        return float(raw)
+    except (TypeError, ValueError):
+        return None
 
 
 def entity_rows() -> list[dict[str, Any]]:
@@ -1233,6 +1249,8 @@ def entity_rows() -> list[dict[str, Any]]:
                 "vy": ent.vy,
                 "vz": ent.vz,
                 "when_unix": pose_at,
+                "mag": _meta_float(meta, "mag"),
+                "bright": _meta_float(meta, "bright"),
             }
         )
     held = {track, ride} - {""}

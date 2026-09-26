@@ -25,12 +25,13 @@ from __future__ import annotations
 
 from scripts.measure_tool_schema import authored_parameter_docs, measure, tool_specs
 
-# Measured 2026-09-18 under conftest's isolated data root.
+# Measured under conftest's isolated data root.
 # Raise the floors, never lower them. The ceiling moved when Phase 5
-# registered notes/remind/transcribe/sql/pdf (38 → 43). Re-measured,
-# not guessed: skinny ollama_tools() ≈ 5724 tokens.
-EXPECTED_TOOLS = 43
-MAX_SCHEMA_TOKENS = 5_800
+# registered notes/remind/transcribe/sql/pdf (38 → 43), then again when
+# run_task registered beside run_script (43 → 44). Re-measured, not
+# guessed: skinny schema ≈ 5821 tokens.
+EXPECTED_TOOLS = 44
+MAX_SCHEMA_TOKENS = 5_900
 MIN_DESCRIPTION_CHARS = 12
 MIN_MEDIAN_DESCRIPTION = 41
 

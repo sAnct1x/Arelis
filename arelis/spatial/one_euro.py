@@ -2,6 +2,12 @@
 
 Speed-dependent low-pass: still signals lose jitter, fast signals lose lag.
 Two knobs. No Kalman pile until this is measured on a take.
+
+beta is "Hz per unit of speed", and speed is in the same units as the
+signal. The paper's 0.007 is a pixel demo (~1000 px/s). A hand on this
+camera is 0–1, and a cross of the frame is a few units per second, so
+0.007 never opens the filter — the cursor sits on a ~160 ms low-pass
+whether the hand is still or not.
 """
 
 from __future__ import annotations
@@ -64,3 +70,18 @@ class OneEuro:
         edx = self._dx.filter(dx, _alpha(self.d_cutoff, dt))
         cutoff = self.min_cutoff + self.beta * abs(edx)
         return self._x.filter(value, _alpha(cutoff, dt))
+
+
+def depth_euro() -> OneEuro:
+    """1€ for world z. The cursor's beta snaps a bad span to the far wall."""
+    return OneEuro(min_cutoff=1.0, beta=4.0, d_cutoff=1.0)
+
+
+def hand_euro() -> OneEuro:
+    """1€ for a 0–1 image or world axis at camera rate.
+
+    min_cutoff stays ~1 Hz so a still hand does not buzz. beta=30 raises
+    the cutoff to ~10 Hz on a deliberate move (~0.3 /s) and essentially
+    turns the filter off on a flick, which is what 0.007 does in pixels.
+    """
+    return OneEuro(min_cutoff=1.0, beta=30.0, d_cutoff=1.0)

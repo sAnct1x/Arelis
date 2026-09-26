@@ -85,10 +85,22 @@ def reveal_dock(
     """Show an instrument once, with the same fade used by the View menu.
 
     Filament plates open from the bead, not from a turn. Auto-show is
-    sodium stacked glass. asked=True is View / click. Thinking still
-    breathes on the current.
+    sodium stacked glass. On filament that same call lights the bead
+    until the plate is up. asked=True opens the plate: View, a click,
+    or a confirm whose body is the thing they have to read.
     """
     if active_theme() == "filament" and not asked:
+        if not dock.isVisible():
+            name = {
+                window.think_dock: "thinking",
+                window.work_dock: "files",
+                window.history_dock: "history",
+                window.camera_dock: "camera",
+            }.get(dock, "")
+            if name:
+                from arelis.ui.filament_desk import filament_note_face
+
+                filament_note_face(window, name)
         return
     if getattr(window, "_away_resting", False):
         return

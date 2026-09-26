@@ -16,9 +16,8 @@ lines), `arelis/physics/` (26 / 4,955), `arelis/spatial/` (12 /
 `test_globe_stack.py` file. Numbers in here were measured on this
 checkout, not estimated.
 
-The daily-driver audit (`docs/roadmap/README.md`) is **closed**.
-Do not reopen it. Glass, tools, orchestrator, SMS, Allow stay
-frozen the other way.
+The daily-driver audit is **closed**. Do not reopen it. Glass,
+tools, orchestrator, SMS, Allow stay frozen the other way.
 
 Canvas view: `earth-reality-audit.canvas.tsx` in the Cursor
 canvases folder. The markdown is the source of truth. If the
@@ -126,9 +125,9 @@ leave the argument here.
 
 ## Measured inventory
 
-Freeze note in `docs/roadmap/README.md` said ~16k / 70 files
-earth, ~3.1k spatial, ~3.9k physics, 327 of 1,391 mypy. On this
-checkout (physical `splitlines()`, 2026-09-19):
+An earlier freeze note said ~16k / 70 files earth, ~3.1k spatial,
+~3.9k physics, 327 of 1,391 mypy. On this checkout (physical
+`splitlines()`, 2026-09-19):
 
 | Package | Files | Lines | Freeze said |
 |---------|------:|------:|-------------|
@@ -484,9 +483,9 @@ You run this. Isolated `ARELIS_DATA_DIR`. HWND grab via
   `outputs/earth_reality_pass/` (gitignored). HWND grab is
   `widget.grab()` / `grabWindow(winId)`, never
   `screen.grabWindow(0)`.
-- [x] **7.10** Break pass (`scripts/shot_earth_break.py`,
-  `tests/test_earth_break.py`). Enter from the Sun, double
-  leave, Mercury kick, re-enter, Find garbage, ride ISS.
+- [x] **7.10** Break pass (`tests/test_earth_break.py`). Enter from
+  the Sun, double leave, Mercury kick, re-enter, Find garbage,
+  ride ISS.
   Fixed what the pixels and the hunt actually broke: pending
   Enter after leave, travel-away under Cesium, GPU `view_id`
   reset, construct-fail `_cesium_off`, AIS Ohio `[]` wipe,
@@ -495,9 +494,9 @@ You run this. Isolated `ARELIS_DATA_DIR`. HWND grab via
   city is OSM/photoreal not a pale wash; space nadir is
   sunlit. Fetcher tests parse recorded USGS/OpenSky JSON
   through the real client path; optional live USGS behind
-  `ARELIS_LIVE_EARTH=1`. Walks are still the live Cesium
-  proof. ISS ride over Japan is the plate working. Walks:
-  `outputs/earth_reality_pass/` and
+  `ARELIS_LIVE_EARTH=1`. The contract is
+  `tests/test_earth_break.py`. Pixel dumps from that pass sit
+  under `outputs/earth_reality_pass/` and
   `outputs/earth_reality_break/` (gitignored).
 
 Do not ask the human to launch Arelis as the test loop.
@@ -507,8 +506,8 @@ Do not ask the human to launch Arelis as the test loop.
 ## Frozen the other way
 
 Glass, chat UI, orchestrator, SMS, Allow, PDF lane, eval
-floors, Settings model picker, companion APK. Closed in
-`docs/roadmap/README.md`. Do not wander back. Do not
+floors, Settings model picker, companion APK. Closed with
+the 0.2.9 daily-driver pass. Do not wander back. Do not
 ruff-format the tree. Do not remount Drive. Do not widen
 `policy.py`. Read `.cursor/rules/multi-agent-lanes.mdc`
 before touching `conversation.py` or `launch.py`.

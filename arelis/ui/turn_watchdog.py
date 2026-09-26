@@ -1,9 +1,13 @@
 """Hung-turn ceiling. The 8s busy watchdog only arms after Stop.
 
 A tool that never returns used to shimmer forever. This arms when the turn
-starts, paints the remaining time on the existing progress line, and unlocks
-through the same cancel path Stop uses — with a hung message, not "stop
-requested". Confirm wait is a person, not a hang, so the ceiling pauses.
+starts and paints the remaining time on the progress line. Confirm wait is
+a person, not a hang, so the ceiling pauses.
+
+When the ceiling hits and the turn already has tool results, she closes
+from that work instead of being cancelled. A shorter grace clock then
+hard-stops only if that close never comes back. Nothing gathered yet
+still cancels like Stop, worded as a hang.
 """
 
 from __future__ import annotations
@@ -13,7 +17,9 @@ from typing import Any
 
 from PySide6.QtCore import QTimer
 
+from arelis.ui.status_copy import WRAPUP_STATUS
 from arelis.ui.window_const import (
+    HUNG_CLOSE_GRACE_S,
     HUNG_TURN_MAX_S,
     HUNG_TURN_S,
     HUNG_TURN_TICK_MS,
@@ -22,6 +28,7 @@ from arelis.ui.window_const import (
 _LEFT_SUFFIX = re.compile(r"(?:\s+\d+:\d{2} left)+$")
 
 HUNG_MESSAGE = "Turn stopped because it hung."
+WRAPUP_NOTE = "wrapping up with what I have"
 
 
 def hung_turn_ms(config: dict[str, Any] | None) -> int:
@@ -54,9 +61,14 @@ def ensure_hung_timers(window) -> None:
     window._hung_tick = tick
 
 
-def arm_hung_turn(window) -> None:
-    """Start the ceiling. Called from idle→busy, not after Stop."""
-    ms = hung_turn_ms(getattr(window, "config", None))
+def arm_hung_turn(window, *, ms: int | None = None) -> None:
+    """Start the ceiling. Called from idle→busy, not after Stop.
+
+    ``ms`` is the grace clock after a close has been asked for. The full
+    ceiling is the default.
+    """
+    if ms is None:
+        ms = hung_turn_ms(getattr(window, "config", None))
     window._hung_paused_ms = None
     if ms <= 0:
         disarm_hung_turn(window)
@@ -69,6 +81,7 @@ def arm_hung_turn(window) -> None:
 
 def disarm_hung_turn(window) -> None:
     window._hung_paused_ms = None
+    window._hung_closing = False
     timer = getattr(window, "_hung_watchdog", None)
     if timer is not None:
         timer.stop()
@@ -129,8 +142,47 @@ def on_hung_tick(window) -> None:
     paint_hung_countdown(window)
 
 
+def _live_agent_loop(window):
+    orch = getattr(window, "orchestrator", None)
+    if orch is None:
+        return None
+    return getattr(orch, "_agent_loop", None)
+
+
+def _has_gathered(loop) -> bool:
+    """True when a close has something to tie together."""
+    if loop is None or getattr(loop, "terminal_sent", False):
+        return False
+    if getattr(loop, "_in_close", False):
+        return False
+    if getattr(loop, "tools_used", None):
+        return True
+    return bool(getattr(loop, "_trace", None))
+
+
+def _hard_hung(window) -> None:
+    window._cancel_turn(schedule_next=True, reason="hung")
+    window._assistant_streaming = False
+    window._set_busy(False)
+
+
+def _begin_close(window, loop) -> None:
+    request = getattr(loop, "request_close", None)
+    if not callable(request):
+        _hard_hung(window)
+        return
+    request()
+    window.thinking.append(WRAPUP_NOTE, kind="status")
+    window.chat.show_progress(WRAPUP_STATUS)
+    arm_hung_turn(window, ms=HUNG_CLOSE_GRACE_S * 1000)
+    window._hung_closing = True
+
+
 def on_hung_turn(window) -> None:
-    """Ceiling hit. Same cancel as Stop, then unlock immediately."""
+    """Ceiling hit. Close from work in hand, or cancel if there is none.
+
+    A second hit while that close is still running is a real hang.
+    """
     if getattr(window, "_force_quit", False) or getattr(window, "_disposed", False):
         return
     if getattr(window, "_confirm_waiting", False):
@@ -138,6 +190,11 @@ def on_hung_turn(window) -> None:
         return
     if not getattr(window, "_turn_busy", False):
         return
-    window._cancel_turn(schedule_next=True, reason="hung")
-    window._assistant_streaming = False
-    window._set_busy(False)
+    if getattr(window, "_hung_closing", False):
+        _hard_hung(window)
+        return
+    loop = _live_agent_loop(window)
+    if _has_gathered(loop):
+        _begin_close(window, loop)
+        return
+    _hard_hung(window)

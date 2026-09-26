@@ -47,7 +47,11 @@ CHECKS: tuple[Check, ...] = (
     Check("inspect-human", "friendly", "Inspect names kind and freshness in English"),
     Check("enter-human", "friendly", "Enter note is Watching Earth, not ECEF"),
     Check("verbs-stay", "friendly", "enter Earth / leave Earth still closed verbs"),
-    Check("failures-keep-sim", "friendly", "Live failure still keeps simulation"),
+    Check(
+        "failures-keep-sim",
+        "friendly",
+        "A live miss keeps the last published fix and does not paint the sketch",
+    ),
     Check("east-right-nadir", "accuracy", "Nadir north-up puts Florida right of California"),
     Check("clock-honest", "accuracy", "1× is locked-to-now or labeled at epoch"),
     Check("horizons-or-labeled-kepler", "accuracy", "Kepler bootstrap is not called realtime"),

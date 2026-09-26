@@ -440,7 +440,7 @@ def test_describe_browser_relaunch() -> None:
     assert "vision" in shot.lower()
     assert "full page" in shot.lower()
     click = reg.describe_call("browser", {"action": "click", "ref": "e1"})
-    assert "glow" in click.lower()
+    assert "snapshot" in click.lower()
     read = reg.describe_call("browser", {"action": "read"})
     assert "compact" in read.lower()
     assert "scrape" in read.lower()

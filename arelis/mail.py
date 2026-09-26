@@ -285,7 +285,7 @@ _CODE = re.compile(r"`([^`\n]+)`")
 _BARE_URL = re.compile(r"(?<![\"'>=])\bhttps?://[^\s<>\"')]+")
 
 _BODY_STYLE = (
-    "font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;"
+    "font-family:'Zen Kaku Gothic New',-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;"
     "font-size:15px;line-height:1.5;color:#1a1a1a;max-width:40em"
 )
 
@@ -361,7 +361,8 @@ def _inline(text: str) -> str:
     escaped = html_lib.escape(text)
     escaped = _CODE.sub(
         lambda m: (
-            '<code style="background:#f2f2f2;padding:1px 4px;'
+            '<code style="font-family:\'Space Mono\',ui-monospace,monospace;'
+            "background:#f2f2f2;padding:1px 4px;"
             f'border-radius:3px">{m.group(1)}</code>'
         ),
         escaped,
