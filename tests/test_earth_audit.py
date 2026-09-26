@@ -527,7 +527,7 @@ def test_opensky_fail_is_none_empty_states_is_quiet(
     import arelis.earth.opensky as opensky
 
     monkeypatch.setattr(opensky, "_credits_ok", lambda: False)
-    assert opensky.fetch_opensky() is None
+    assert getattr(opensky.fetch_opensky(), "reason", "") == "rate"
     monkeypatch.setattr(opensky, "_credits_ok", lambda: True)
     monkeypatch.setattr(opensky, "_states", lambda *_a, **_k: None)
     assert opensky.fetch_opensky() is None

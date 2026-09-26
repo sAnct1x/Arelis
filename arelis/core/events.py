@@ -30,6 +30,10 @@ class EventType(str, Enum):
     freeze, undo). It mutates the live scene this frame and never starts
     a turn. The 9B is not on this path.
 
+    TILE_VERB is the same idea for the desk: "open history", "close files".
+    Typed text already takes this path before a turn. Speech has to as
+    well, or the sentence waits on the model.
+
     CONVERSATION_END hangs up hands-free talk (goodbye / that's all / stop
     listening). The glass unlatches the two-arcs toggle the same way the
     chord does. It never starts a turn. The room you were in stays put.
@@ -108,6 +112,7 @@ class EventType(str, Enum):
     ERROR = "error"
     VOICE_TRANSCRIPT = "voice_transcript"
     PHYSICS_VERB = "physics_verb"
+    TILE_VERB = "tile_verb"
     CONVERSATION_END = "conversation_end"
     VOICE_SPEAK = "voice_speak"
     VOICE_AUDIO_READY = "voice_audio_ready"

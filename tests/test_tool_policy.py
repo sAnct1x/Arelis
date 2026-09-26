@@ -38,6 +38,8 @@ def test_capability_class_is_the_policy_table() -> None:
         ("agenda", {"action": "sync", "provider": "ics"}, "WRITE_LOCAL"),
         ("image", None, "SIDE_EFFECT_LOCAL"),
         ("run_script", {"path": "x.py"}, "SIDE_EFFECT_LOCAL"),
+        ("run_task", {"action": "run", "name": "pytest"}, "SIDE_EFFECT_LOCAL"),
+        ("run_task", {"action": "list"}, "READ"),
         ("earth", {"action": "dump"}, "READ"),
     ]
     for name, args, expected in cases:
@@ -67,6 +69,7 @@ def test_evaluate_confirm_matches_registry() -> None:
         ("earth", "read"),
         ("plot", "write"),
         ("run_script", "side_effect"),
+        ("run_task", "side_effect"),
     ):
         reg.register(_Stub(name, risk))
 
@@ -82,6 +85,8 @@ def test_evaluate_confirm_matches_registry() -> None:
         ("earth", {"action": "dump"}, False),
         ("plot", {}, True),
         ("run_script", {"path": "x.py"}, True),
+        ("run_task", {"action": "run", "name": "pytest"}, True),
+        ("run_task", {"action": "list"}, False),
         ("unknown", {}, False),
     ]
     for name, args, expected in pairs:
@@ -128,6 +133,8 @@ def test_never_batch_and_batch_ok() -> None:
     assert batch_ok("workspace", {"action": "write"})
     assert not batch_ok("workspace", {"action": "delete"})
     assert not batch_ok("run_script", {"path": "x.py"})
+    assert not batch_ok("run_task", {"action": "run", "name": "pytest"})
+    assert batch_ok("run_task", {"action": "list"})
     assert "send_email" in NEVER_BATCH
 
 
@@ -151,6 +158,9 @@ def test_ask_is_grant_skips_local_work() -> None:
     )
     assert evaluate_confirm(
         "run_script", {"path": "x.py"}, asked=True, risk="side_effect"
+    )
+    assert evaluate_confirm(
+        "run_task", {"action": "run", "name": "pytest"}, asked=True, risk="side_effect"
     )
     assert evaluate_confirm("inbox", {"action": "trash"}, asked=True)
     assert evaluate_confirm(
@@ -183,6 +193,8 @@ def test_ask_me_everything_restores_cards() -> None:
 def test_always_pause_and_persist_ok() -> None:
     assert always_pause("send_sms")
     assert always_pause("run_script")
+    assert always_pause("run_task", {"action": "run", "name": "pytest"})
+    assert not always_pause("run_task", {"action": "list"})
     assert always_pause("workspace", {"action": "delete"})
     assert always_pause("browser", {"action": "upload", "path": "x.csv"})
     assert not always_pause("browser", {"action": "download"})
@@ -200,6 +212,7 @@ def test_always_pause_and_persist_ok() -> None:
     assert persist_label("send_sms", {}) == ""
     assert not persist_ok("workspace", {"action": "delete"})
     assert not persist_ok("run_script", {"path": "x.py"})
+    assert not persist_ok("run_task", {"action": "run", "name": "pytest"})
     assert not persist_ok("inbox", {"action": "trash"})
 
 
@@ -246,6 +259,7 @@ def test_attended_follows_allow_send_by_default() -> None:
     assert "image_edit" in jobs.names()
     assert "research_report" not in jobs.names()
     assert "run_script" not in jobs.names()
+    assert "run_task" not in jobs.names()
 
 
 def test_placeholder_phone_still_blocks_allow_card() -> None:

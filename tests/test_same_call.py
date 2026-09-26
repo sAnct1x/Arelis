@@ -167,6 +167,7 @@ def test_weather_and_search_stay_on_their_own_gates() -> None:
     assert same_call_key("weather", {"place": "Boston"}) is None
     assert same_call_key("web_search", {"query": "fusion"}) is None
     assert same_call_key("run_script", {"path": "demo.py"}) is None
+    assert same_call_key("run_task", {"action": "run", "name": "pytest"}) is None
 
 
 def test_research_report_same_query_ignores_max_sources() -> None:

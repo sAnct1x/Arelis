@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from arelis.tools.base import ToolResult
+from arelis.tools.confirm_preview import workspace_confirm
 from arelis.tools.safety import redact_secrets
 from arelis.workspace import WorkspaceRoots
 
@@ -430,6 +431,9 @@ class CodeWorkspaceTool:
         # Kept for tests/callers that still inspect .roots as paths.
         self.roots = [r.path for r in self.workspace.roots]
 
+    def confirm_detail(self, args: dict[str, Any]) -> str:
+        return workspace_confirm(self.workspace, args)
+
     def _resolve(self, path_str: str, *, for_create: bool = False, for_read: bool = False):
         # Writes never honor external grants; list/read may.
         if for_create:
@@ -606,6 +610,7 @@ class CodeWorkspaceTool:
             return ToolResult(ok=False, output=f"Not found: {label}")
         cap = self._cap(max_results)
         hits: list[str] = []
+        structured: list[dict[str, Any]] = []
         files_with_hits = 0
         truncated = False
         for file in _walk_files(root, glob=glob):
@@ -631,6 +636,7 @@ class CodeWorkspaceTool:
                 found_here = True
                 body = line.strip()[:_SEARCH_LINE_CHARS]
                 hits.append(f"{rel}:{lineno}: {body}")
+                structured.append({"path": rel, "line": lineno, "text": body})
                 if len(hits) >= cap:
                     truncated = True
                     break
@@ -657,6 +663,7 @@ class CodeWorkspaceTool:
                 "matches": len(hits),
                 "files": files_with_hits,
                 "truncated": truncated,
+                "hits": structured,
             },
         )
 
@@ -680,6 +687,7 @@ class CodeWorkspaceTool:
             return ToolResult(ok=False, output=f"Not found: {label}")
         cap = self._cap(max_results)
         found: list[str] = []
+        structured: list[dict[str, Any]] = []
         truncated = False
         for file in _walk_files(root, glob=glob):
             if needle and needle not in file.name.lower():
@@ -687,7 +695,9 @@ class CodeWorkspaceTool:
             if len(found) >= cap:
                 truncated = True
                 break
-            found.append(self._display_rel(file))
+            rel = self._display_rel(file)
+            found.append(rel)
+            structured.append({"path": rel, "line": 1, "text": file.name})
         if not found:
             asked = needle or glob
             return ToolResult(
@@ -701,7 +711,12 @@ class CodeWorkspaceTool:
         return ToolResult(
             ok=True,
             output="\n".join(lines),
-            data={"action": "find", "matches": len(found), "truncated": truncated},
+            data={
+                "action": "find",
+                "matches": len(found),
+                "truncated": truncated,
+                "hits": structured,
+            },
         )
 
     def _display_rel(self, file: Path) -> str:

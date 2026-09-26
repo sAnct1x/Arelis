@@ -81,10 +81,12 @@ Override per call: `browser=edge`, `browser=firefox`, `private=true`
 - Snapshot ranks visible controls (light DOM, one shadow root, same-origin
   iframes). `focus=results` (what search returns)
   is a short result list, not the footer.
-- `click` glows the target in-page (not your mouse), waits a beat, then
-  clicks. The Drive strip says the label, not `e3`.
-  `hover` / `dblclick` / `right_click` / `drag` use the same glow on a
-  snapshot ref. `x,y` only after `screenshot` then `vision` this turn —
+- `click` hits the target immediately and returns a short snapshot of
+  the page she landed on, so the next step does not start with another
+  snapshot call. A miss restamps once and retries inside the same call.
+  The Drive strip says the label, not `e3`.
+  `hover` / `dblclick` / `right_click` / `drag` use the same refs.
+  `x,y` only after `screenshot` then `vision` this turn —
   not computer-use by default. Walls still apply.
 - `wait(seconds)` sleeps. `wait(url=/home)` / `wait(text=…)` /
   `wait(heading=…)` polls the tab (max 8s) then snapshots. No CSS
@@ -109,10 +111,11 @@ Override per call: `browser=edge`, `browser=firefox`, `private=true`
 - `reserve` opens OpenTable (or Resy / Google) with party, date, and
   time in the URL. She can type remaining non-secret fields. Book /
   Reserve / Confirm is still your turn.
-- A **Drive strip** in Arelis (not in Chrome) shows Stop / Pause /
-  "about to click…". Pause freezes the glow beat and the next step. The
-  page stays. Go continues. Stop aborts the turn. The same words work
-  out loud on both faces.
+- A **Drive strip** in Arelis (not in Chrome) shows Stop / Pause.
+  Her Chrome is hers for the drive: moving the mouse in that window
+  does not take it back. Pause freezes the next step. The page stays.
+  Go continues. Stop aborts the turn. The same words work out loud on
+  both faces.
 - `screenshot` writes a PNG under `outputs/images/browser_….png`.
   Describe pixels with `vision` in a separate call. The file is a
   look still — deleted after vision, unless you asked to save it.

@@ -29,6 +29,9 @@ from arelis.tools.image_copy import image_edit_errand, image_errand
 # The bare waiting state: a turn is running and no tool has been named yet.
 THINKING_STATUS = "✦ thinking…"
 
+# The ceiling hit and she already has pages. One closing pass, then stop.
+WRAPUP_STATUS = "✦ wrapping up…"
+
 # Startup pin + prefix seed. The first message waits on this; calling it
 # "thinking" made a 40s load look like a hung reply.
 WARMING_STATUS = "✦ loading the model…"
@@ -49,6 +52,7 @@ _ERRANDS: dict[str, str] = {
     "cas": "working the algebra",
     "python": "running the numbers",
     "run_script": "running a program",
+    "run_task": "running a project task",
     "diagnostics": "running my tests",
     "watch": "checking the house watch",
     "camera": "looking through the camera",
@@ -204,6 +208,12 @@ def tool_errand(tool: str, args: dict[str, Any] | None = None) -> str:
         raw = str((args or {}).get("path") or "").strip().replace("\\", "/")
         leaf = raw.rsplit("/", 1)[-1] if raw else ""
         return f"running {leaf}" if leaf else "running a program"
+    if name == "run_task":
+        action = str((args or {}).get("action") or "").strip().lower()
+        if action == "list":
+            return "listing project tasks"
+        task = str((args or {}).get("name") or "").strip()
+        return f"running {task}" if task else "running a project task"
     if name == "image":
         return image_errand(args)
     if name == "image_edit":

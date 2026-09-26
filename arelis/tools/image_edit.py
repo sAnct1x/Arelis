@@ -791,9 +791,11 @@ def _apply_warmth(frame: Any, warmth: float) -> Any:
 
 
 def overlay_font_paths() -> tuple[Path, ...]:
-    """IBM Plex first (the desk face), then Segoe. Arial is a last resort."""
+    """Desk face first (Zen Kaku Bold), then IBM Plex. Arial is a last resort."""
     bundled = Path(__file__).resolve().parents[1] / "ui" / "fonts"
     return (
+        bundled / "ZenKakuGothicNew-Bold.ttf",
+        bundled / "ZenKakuGothicNew-Regular.ttf",
         bundled / "IBMPlexSans-SemiBold.ttf",
         bundled / "IBMPlexSans-Regular.ttf",
         Path(r"C:\Windows\Fonts\segoeuib.ttf"),

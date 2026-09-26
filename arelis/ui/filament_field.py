@@ -694,7 +694,8 @@ class FilamentField:
             if name in self._hidden:
                 continue
             a = self.bead_point(name, rect)
-            reach = _REALITY_HIT if name in FREE_FLOATS else 26.0
+            # The glow is wider than the old 26px dot. A pinch lands on it.
+            reach = _REALITY_HIT if name in FREE_FLOATS else 44.0
             dist = math.hypot(pos.x() - a.x(), pos.y() - a.y())
             if dist < reach and dist < best_d:
                 best = name
@@ -702,7 +703,7 @@ class FilamentField:
             if name in self._open:
                 continue
             title = self.title_point(name, rect)
-            title_reach = 36.0 if name in FREE_FLOATS else 32.0
+            title_reach = 56.0 if name in FREE_FLOATS else 52.0
             tdist = math.hypot(pos.x() - title.x(), pos.y() - title.y())
             if tdist < title_reach and tdist < best_d:
                 best = name

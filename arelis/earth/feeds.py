@@ -148,8 +148,10 @@ FEEDS: tuple[FeedSpec, ...] = (
         "osm-webcams",
         "cameras",
         "shipped",
-        "OSM camera:type=webcam pins worldwide (ODbL, positions only)",
-        "Mapper catalog, not a crawl. No stills. Overpass sample boxes on inhabited continents.",
+        "OSM public webcam tags worldwide (ODbL)",
+        "camera:type=webcam plus contact:webcam and website:webcam. "
+        "A public http(s) page opens on click. URL stays off the pin. "
+        "Not a surveillance map. Not an IP camera.",
         host="overpass-api.de",
     ),
     FeedSpec(

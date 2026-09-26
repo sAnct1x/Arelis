@@ -81,11 +81,12 @@ class BrowserSession:
     async def navigate(self, url: str) -> ActionResult:
         return await self._with_wall(await self._driver.navigate(url))
 
-    async def snapshot(self, *, focus: str = "") -> ActionResult:
+    async def snapshot(
+        self, *, focus: str = "", max_chars: int | None = None
+    ) -> ActionResult:
+        cap = self.max_snapshot_chars if max_chars is None else max_chars
         return await self._with_wall(
-            await self._driver.snapshot(
-                max_chars=self.max_snapshot_chars, focus=focus
-            )
+            await self._driver.snapshot(max_chars=cap, focus=focus)
         )
 
     async def read(self) -> ActionResult:
@@ -196,6 +197,20 @@ class BrowserSession:
         self._click_misses = 0
         if str((result.data or {}).get("code") or "") == "YOUR_TURN":
             return result
+        if result.ok:
+            # The next model round used to be "snapshot, then look."
+            # Hand her the page she just landed on.
+            snap = await self.snapshot(max_chars=1600)
+            if str((snap.data or {}).get("code") or "") == "YOUR_TURN":
+                return snap
+            if snap.ok and snap.output:
+                data = dict(result.data or {})
+                data["snapshot"] = True
+                result = ActionResult(
+                    ok=True,
+                    output=f"{result.output}\n\n{snap.output}",
+                    data=data,
+                )
         label = str((result.data or {}).get("label") or "")
         return await self._with_wall(result, click_label=label)
 
@@ -497,7 +512,7 @@ class BrowserSession:
     async def pdf(self, path: str) -> ActionResult:
         return await self._driver.pdf(path)
 
-    async def settle(self, *, timeout_s: float = 4.0) -> ActionResult:
+    async def settle(self, *, timeout_s: float = 1.0) -> ActionResult:
         settler = getattr(self._driver, "settle", None)
         if not callable(settler):
             return ActionResult(ok=True, output="Settled.", data={"settled": True})

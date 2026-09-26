@@ -187,15 +187,14 @@ def test_the_other_hand_cannot_steal_or_drop_the_disc() -> None:
     assert not scene.disc.attached
 
 
-def test_two_fists_do_not_scale_the_disc() -> None:
+def test_a_fist_is_a_pinch_and_two_of_them_scale() -> None:
+    """kind=fist is the old name. It is a pinch, so a pair stretches."""
     scene = _plane()
-    scene.apply_pointer(0.48, 0.50, True, t=1.0, who="Right", kind="fist")
     r0 = scene.disc.radius
-    scene.apply_pointer(0.48, 0.50, True, t=1.1, who="Right", kind="fist")
+    scene.apply_pointer(0.44, 0.50, True, t=1.0, who="Right", kind="fist")
     scene.apply_pointer(0.56, 0.50, True, t=1.1, who="Left", kind="fist")
-    assert not scene.disc.scaler
-    assert scene.disc.holder == "Right"
-    assert scene.disc.radius == r0
+    assert scene.disc.scaler == "Left"
+    assert scene.disc.radius >= r0
 
 
 def test_pinch_on_the_face_grabs() -> None:
@@ -243,14 +242,13 @@ def test_a_label_flip_does_not_become_a_second_pinch() -> None:
     assert "Left" not in scene.held_names()
 
 
-def test_a_fist_plus_a_pinch_does_not_scale() -> None:
+def test_a_fist_pairs_with_a_pinch() -> None:
+    """The old fist grip refused to join a pinch. It is a pinch now."""
     scene = _plane()
-    scene.apply_pointer(0.48, 0.50, True, t=1.0, who="Right", kind="fist")
-    r0 = scene.disc.radius
+    scene.apply_pointer(0.44, 0.50, True, t=1.0, who="Right", kind="fist")
     scene.apply_pointer(0.56, 0.50, True, t=1.1, who="Left", kind="pinch")
     assert scene.disc.holder == "Right"
-    assert not scene.disc.scaler
-    assert scene.disc.radius == r0
+    assert scene.disc.scaler == "Left"
 
 
 def test_two_hands_scale_the_disc() -> None:

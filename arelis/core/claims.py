@@ -132,7 +132,7 @@ _CAS_FORCE = (
 )
 
 _UNIT_NAMES = (
-    r"meters?|metres?|kilometers?|kilometres?|kg|kilograms?|"
+    r"meters?|metres?|kilometers?|kilometres?|miles?|kg|kilograms?|"
     r"feet|foot|inches|inch|pounds?|lbs?|kelvin|celsius|fahrenheit|"
     r"eV|joules?|watts?|newtons?|parsecs?|\bau\b|nm|μm|um|"
     r"solar\s+masses?"
@@ -777,8 +777,12 @@ def detect_exactness_need(text: str) -> ExactnessNeed:
         needs_units = False
     if needs_calc and needs_units:
         # "17% of 240 in a table" is arithmetic, not Pint — unless they
-        # clearly named a physical unit conversion.
-        if not any(p.search(text or "") for p in _UNITS_FORCE[:1]):
+        # clearly named a physical unit conversion. A conversion keeps
+        # the units warrant; demanding a calculator then refuses a good
+        # units result ("3 kilometers in miles" became "I don't know").
+        if any(p.search(text or "") for p in _UNITS_FORCE):
+            needs_calc = False
+        else:
             needs_units = False
     if needs_calc:
         kinds.append("math")

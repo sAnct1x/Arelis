@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from arelis.tools.base import ToolResult
+from arelis.tools.confirm_preview import run_script_confirm
 from arelis.tools.safety import redact_secrets
 from arelis.workspace import WorkspaceRoots
 
@@ -74,6 +75,9 @@ class RunScriptTool:
             self.workspace = WorkspaceRoots.from_paths(list(roots))
         self.python = (python or "").strip() or None
         self.is_cancelled = is_cancelled
+
+    def confirm_detail(self, args: dict[str, Any]) -> str:
+        return run_script_confirm(self.workspace, args)
 
     async def run(self, **kwargs: Any) -> ToolResult:
         return await asyncio.to_thread(self._run_sync, kwargs)

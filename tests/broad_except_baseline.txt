@@ -7,7 +7,7 @@
 # asked to go clean them.
 1 arelis/briefing/builder.py
 1 arelis/briefing/calendar.py
-24 arelis/browser/actions.py
+21 arelis/browser/actions.py
 3 arelis/browser/launch.py
 1 arelis/browser/live.py
 1 arelis/calendar/models.py

@@ -24,12 +24,13 @@ _ALIASES: tuple[tuple[str, str], ...] = (
     ("thinking", r"thinking|thoughts"),
     (
         "workspace",
-        r"workspace|work\s*space|(?:the\s+)?desk|(?:file|files)\s+(?:tile|panel|dock)|the\s+editor",
+        r"workspace|work\s*space|(?:the\s+)?desk|(?:the\s+)?files|"
+        r"(?:file|files)\s+(?:tile|panel|dock)|the\s+editor",
     ),
     ("history", r"history|(?:past|old)\s+(?:chats?|conversations?)"),
     ("camera", r"camera|webcam|web\s*cam"),
     ("contacts", r"contacts?|address\s+book"),
-    ("calendar", r"calendar|agenda"),
+    ("calendar", r"calendar|agenda|days"),
     (
         "world",
         r"world|reality|solar\s+lab|solar\s+system|toy\s+area|"
@@ -89,6 +90,54 @@ _NOT_TILE = re.compile(
     r"https?://"
     r")"
 )
+
+
+# Filament chip names → the View-menu tile the tool already opens.
+FILAMENT_TO_TILE: dict[str, str] = {
+    "history": "history",
+    "thinking": "thinking",
+    "files": "workspace",
+    "days": "calendar",
+    "camera": "camera",
+    "notify": "notifications",
+    "contacts": "contacts",
+    "reality": "world",
+    "chat": "chat",
+}
+
+_SPAN_WORD = {"1": "1", "2": "2", "3": "3", "one": "1", "two": "2", "three": "3"}
+_SPAN = re.compile(
+    r"(?i)^\s*(?:(?:set|use|go\s+to)\s+)?"
+    r"(?:span|screens?|monitors?|desks?)\s+"
+    r"(?P<n>[123]|one|two|three)\s*[.!]?\s*$"
+)
+_SPAN_ALT = re.compile(
+    r"(?i)^\s*(?P<n>one|two|three|[123])\s+"
+    r"(?:screens?|monitors?|desks?)\s*[.!]?\s*$"
+)
+# The rooms chip. "open the notes room" is a room enter, not this menu.
+_ROOMS_MENU = re.compile(
+    r"(?i)^\s*(?:open|show|pull\s+up|bring\s+up)\s+"
+    r"(?:the\s+)?rooms(?:\s+menu)?\s*[.!]?\s*$"
+)
+
+
+def match_desk_intent(text: str) -> tuple[str, str] | None:
+    """Desk chrome that is a click: ('span', '2') or ('rooms', '').
+
+    Anchored on the whole sentence so "span 2 and check the weather"
+    still goes to her.
+    """
+    raw = (text or "").strip()
+    if not raw:
+        return None
+    found = _SPAN.match(raw) or _SPAN_ALT.match(raw)
+    if found:
+        n = _SPAN_WORD.get((found.group("n") or "").casefold(), "")
+        return ("span", n) if n else None
+    if _ROOMS_MENU.match(raw):
+        return ("rooms", "")
+    return None
 
 
 _SOLAR_PAGE = re.compile(r"(?i)\bsolar\s+(?:lab|system)\b")

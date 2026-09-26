@@ -237,7 +237,8 @@ the same menu as a right-click) and before 1 / 2 / 3. The chip starts
 the C920 session — the camera tile is inspect only and can stay closed.
 Sodium is still camera → Track. Pinch tap is
 a click (frozen at pinch-down); pinch plus travel grabs a tile rim or a
-Reality disc; fist rotates and dollies; two pinches scale. Open palm
+Reality disc, and that grab turns with the wrist and dollies with a
+real reach. Two pinches scale. Open palm
 scrolls the list under that hand; a fast release flicks a held tile
 across the 1 / 2 / 3 span. Thumb–index apertures paint on the HWND
 under each hand. `logs/hands.log` + `logs/hands.jsonl`. Rest, minimize,
@@ -301,7 +302,12 @@ Earth wheel zoom no longer fights hundreds of street-name labels;
 chips stay readable on imagery; planes point along track; a click
 does not freeze the globe. Cameras / traffic / sites fetch on their
 own thread so CelesTrak cannot stall Columbus, and OSM webcams query
-the look box instead of the whole continent. Shodan (keyed) searches
+the look box instead of the whole continent. A public
+`contact:webcam` or `website:webcam` opens on click. The URL stays
+off the pin. An IP camera still does not. Earthquakes and fires paint as heat
+from space, not as icons, and only once that chip is on. A bigger
+quake or a hotter pixel is a bigger glow. Named storms and monitored
+volcanoes stay marks. Shodan (keyed) searches
 that same look. An empty Cameras chip is a hole, not every phone on
 Wi-Fi. Walking the look box refetches those city catalogs, not only
 planes and ships — last city's pins do not occupy the next.
@@ -311,8 +317,13 @@ Live is distance-gated (`arelis/earth/lod.py`): from space only
 satellites are fetched; closer in, local planes (TLE refresh stays);
 closer still, boats and planes; at city scale every toggled
 layer, still boxed to the look area so we do not hammer every 511
-from orbit. The globe caps the sat swarm in near/city (ISS and a
-tracked mark stay). Earth layer chips start off except satellites and ISS; the bar
+from orbit. The globe keeps the satellite sample through approach, and caps
+the swarm in near/city (ISS and a tracked mark stay). Satellites
+and ISS start on. The first descent into approach, near, or city
+turns on flights, vessels, or cameras. An explicit off stays off.
+A rate limit, a missing AISStream key, and a feed that does not
+answer stay named misses. They do not stamp as a quiet sky.
+Weather, traffic, military, and drones stay a click. The bar
 only lists what the current band can show. Distance is a sentence
 (from space / in the city), not a toggle. Enter turns Live on so
 air and sea refresh on TTL while tracks coast. Slash finds a city

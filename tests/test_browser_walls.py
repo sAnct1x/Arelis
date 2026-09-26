@@ -96,9 +96,9 @@ def test_x_login_redirect_to_home_is_not_a_wall() -> None:
         set_paused(False)
 
 
-def test_operator_mouse_pauses_drive() -> None:
-    from arelis.browser.hold import is_paused, set_paused
-    from arelis.browser.walls import your_turn_status
+def test_mouse_does_not_steal_her_window() -> None:
+    """Her Chrome stays hers during a drive. Stop / Pause is the strip."""
+    from arelis.browser.hold import set_paused
 
     session = BrowserSession.fake()
     set_paused(False)
@@ -108,11 +108,9 @@ def test_operator_mouse_pauses_drive() -> None:
             await session.ensure("chrome")
             session._driver.user_took_over = True  # type: ignore[attr-defined]
             result = await session.click("e1")
-            assert result.data.get("code") == "YOUR_TURN"
-            assert result.data.get("wall") == "hands"
-            assert is_paused()
-            assert "e1" not in getattr(session._driver, "clicked", [])
-            assert "mouse" in your_turn_status("hands")
+            assert result.ok
+            assert result.data.get("wall") != "hands"
+            assert "e1" in getattr(session._driver, "clicked", [])
 
         asyncio.run(_run())
     finally:

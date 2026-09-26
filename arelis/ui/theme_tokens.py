@@ -239,20 +239,27 @@ def space_allowed() -> frozenset[int]:
         {0, 1, control_pad_y(), SHELL["half"]} | set(SPACE.values())
     )
 
+# Desk face. Files live in ui/fonts/. IBM Plex is the fallback if those
+# files fail to register. Segoe / Cascadia / Consolas are the system floor.
+DESK_SANS = "Zen Kaku Gothic New"
+DESK_MONO = "Space Mono"
+
 FONTS = {
-    "display": '"IBM Plex Sans", "Segoe UI Semibold", "Segoe UI", sans-serif',
-    "body": '"IBM Plex Sans", "Segoe UI", sans-serif',
-    "mono": '"IBM Plex Mono", "Cascadia Mono", "Consolas", monospace',
+    "display": f'"{DESK_SANS}", "IBM Plex Sans", "Segoe UI Semibold", "Segoe UI", sans-serif',
+    "body": f'"{DESK_SANS}", "IBM Plex Sans", "Segoe UI", sans-serif',
+    "mono": f'"{DESK_MONO}", "IBM Plex Mono", "Cascadia Mono", "Consolas", monospace',
 }
 
-# Tracking and body weight ride the active palette so a later room can
-# change type without a second stylesheet.
+# Body weight rides the active palette so a later room can change type
+# without a second stylesheet. 400 is Regular. Light (300) at 13px drops
+# the strokes on the dark plate. Tracking stays 0: Qt does not add
+# letter-spacing to the text width, so any of it clips the last glyph.
 TYPE = {
-    "body_weight": "300",
-    "track_wide": "0.14em",
-    "track_mid": "0.12em",
-    "track_idle": "0.16em",
-    "track_heading": "0.08em",
+    "body_weight": "400",
+    "track_wide": "0em",
+    "track_mid": "0em",
+    "track_idle": "0em",
+    "track_heading": "0em",
 }
 
 # Sodium is the product. Filament is a test face (View → themes).

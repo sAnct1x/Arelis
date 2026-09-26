@@ -1,9 +1,10 @@
 """AIS. AISStream (keyed) plus Fintraffic Digitraffic plus BarentsWatch (keyed).
 
 Hosts named here are pinned in tests/test_egress.py. Keys never appear in
-entity fields, dumps, or logs. Failures return None so the simulated
-layer stays. AISStream is a short TLS websocket sample, not a standing
-socket. Digitraffic is Finnish coastal / Baltic (CC BY 4.0). BarentsWatch
+entity fields, dumps, or logs. No AISStream key is FeedMiss("no_key")
+and never opens a socket. Other failures return None. AISStream is a
+short TLS websocket sample, not a standing socket. Digitraffic is
+Finnish coastal / Baltic (CC BY 4.0). BarentsWatch
 is Norwegian EEZ including Norwegian satellites in that zone.
 
 VHF dies tens of kilometres from a coast receiver. We still paint a
@@ -32,7 +33,7 @@ import yaml
 
 from arelis import __source_url__, __version__
 from arelis.earth.barentswatch import fetch_barentswatch
-from arelis.earth.entity import Coverage, Entity
+from arelis.earth.entity import Coverage, Entity, FeedMiss
 from arelis.earth.frames import ecef_vel_from_track, lla_to_ecef
 from arelis.paths import state_dir
 
@@ -109,21 +110,28 @@ def aisstream_key(path: Path | None = None) -> str:
     return str(block.get("aisstream_key") or "").strip()
 
 
-def fetch_ais(bbox: Any = None) -> list[Entity] | None:
-    """None = every source failed (keep sim). Empty list = heard nothing."""
+def fetch_ais(bbox: Any = None) -> list[Entity] | FeedMiss | None:
+    """A list is an answer. FeedMiss is a named failure. None is a dead source."""
+    from arelis.earth.entity import FeedMiss
+
     stream = fetch_aisstream(bbox=bbox)
     finland = fetch_digitraffic() if _near_baltic(bbox) else None
     norway = fetch_barentswatch() if _near_barents(bbox) else None
-    if stream is None and finland is None and norway is None:
-        return None
-    return merge_vessels(stream or [], finland or [], norway or [])
+    parts = [part for part in (stream, finland, norway) if isinstance(part, list)]
+    if parts:
+        return merge_vessels(*parts)
+    if isinstance(stream, FeedMiss):
+        return stream
+    return None
 
 
-def fetch_aisstream(bbox: Any = None) -> list[Entity] | None:
-    """None = failed or no key. Empty list = heard nothing in the sample."""
+def fetch_aisstream(bbox: Any = None) -> list[Entity] | FeedMiss | None:
+    """FeedMiss(no_key) never opens a socket. Empty list = heard nothing."""
+    from arelis.earth.entity import FeedMiss
+
     key = aisstream_key()
     if not key:
-        return None
+        return FeedMiss("no_key")
     try:
         messages = _drain(key, bbox=bbox)
     except Exception:

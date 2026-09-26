@@ -1,15 +1,21 @@
 # UI fonts
 
-Orbit prefers **Zen Kaku Gothic New** (body) and **Space Mono** (readouts)
-when those files are present:
+Desk face is **Zen Kaku Gothic New**. Readouts are **Space Mono**.
+Both are SIL Open Font License. The files in this folder are the ones
+`load_fonts()` registers:
 
-- `ZenKakuGothicNew-Regular.ttf`
-- `ZenKakuGothicNew-Light.ttf` (optional; display)
+- `ZenKakuGothicNew-Light.ttf` (300)
+- `ZenKakuGothicNew-Regular.ttf` (400, body weight)
+- `ZenKakuGothicNew-Medium.ttf` (500)
+- `ZenKakuGothicNew-Bold.ttf` (700)
 - `SpaceMono-Regular.ttf`
+- `SpaceMono-Bold.ttf`
 
-Both families are SIL Open Font License. Drop the TTF files here to use them.
+Source: [google/fonts](https://github.com/google/fonts) `ofl/zenkakugothicnew`
+and `ofl/spacemono`. License text is `OFL-ZenKakuGothicNew.txt` and
+`OFL-SpaceMono.txt`.
 
-Otherwise Arelis maps to the bundled IBM Plex files (same tracking in QSS):
+IBM Plex is the fallback if a desk file fails to load:
 
 - `IBMPlexSans-Regular.ttf`
 - `IBMPlexSans-SemiBold.ttf`

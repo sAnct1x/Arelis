@@ -16,9 +16,11 @@ import time
 from typing import Any
 
 from arelis.core.agent_loop import (
+    _CLOSE_PARTIAL,
     _MAX_TOOL_NUDGES,
     _WRITE_AFTER_PAGE_NOTICE,
     _WRITE_AFTER_THINK_NOTICE,
+    _CloseError,
     _is_ollama_object_400,
     _native_tool_call,
     _normalize_ollama_messages,
@@ -398,11 +400,15 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
     try:
         await loop._hold_if_paused()
 
-        escalated = await loop._maybe_escalate(
-            text,
-            round_i=round_i,
-            agent_cfg=agent_cfg,
-        )
+        # A close is one answer from work already in hand, not a model swap
+        # and not another search.
+        escalated = False
+        if not getattr(loop, "_in_close", False):
+            escalated = await loop._maybe_escalate(
+                text,
+                round_i=round_i,
+                agent_cfg=agent_cfg,
+            )
         role = loop._turn_role
         model = loop.router.model_for(role)
         if escalated:
@@ -455,6 +461,16 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
             )
         )
 
+        if getattr(loop, "_in_close", False):
+            if loop.tools.get("document") is not None:
+                ollama_tools = loop.tools.ollama_tools({"document"})
+                offer_tools = True
+            else:
+                ollama_tools = []
+                offer_tools = False
+            ctx.ollama_tools = ollama_tools
+            ctx.offer_tools = offer_tools
+
         tools_arg = None if ctx.fallback_mode else (ollama_tools or None)
         round_ms = 0
         if sms_preinject is not None:
@@ -488,6 +504,8 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
                     loop._timer.rounds += 1
                     loop._timer.model_ms += round_ms
             except _StoppedError:
+                raise
+            except _CloseError:
                 raise
             except asyncio.CancelledError:
                 raise
@@ -575,6 +593,14 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
                 calls = [(parsed["name"], parsed["args"])]
             elif parsed and parsed["kind"] == "final":
                 content = parsed["text"]
+
+        if getattr(loop, "_in_close", False):
+            calls = [(n, a) for n, a in (calls or []) if n == "document"]
+            if not calls:
+                prose = (content or "").strip() or _CLOSE_PARTIAL
+                await loop._finish(prose, sources, streamed=streamed)
+                return True
+            tool_calls = [_native_tool_call(n, a) for n, a in calls]
 
         r = RoundScratch(
             text=text,
