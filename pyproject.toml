@@ -126,7 +126,7 @@ dev = [
   # which is how this repo ended up with 24 lint errors nobody wrote. New rules
   # are worth taking, but as a deliberate version bump, not as a surprise on
   # somebody's unrelated pull request.
-  "ruff==0.16.1",
+  "ruff==0.16.8",
   "pytest>=8.0",
   "pytest-asyncio>=0.23",
   # Hung Qt tests used to sit until GitHub's six-hour job wall. A per-test

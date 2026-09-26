@@ -242,6 +242,15 @@ def check() -> int:
 
 
 def generate() -> int:
+    # pip evaluates environment markers against the host even with --platform,
+    # so a lock generated anywhere but Windows silently drops Windows-only dependencies.
+    if sys.platform != "win32":
+        sys.stderr.write(
+            "Cannot generate the Windows lock on a non-Windows platform.\n"
+            "pip's --platform only selects wheels; environment markers like\n"
+            "sys_platform == 'win32' are still evaluated against the host.\n"
+        )
+        return 1
     with tempfile.TemporaryDirectory(prefix="arelis-lock-") as raw:
         scratch = Path(raw)
         print("Building the wheel, so extras resolve from real metadata...")
