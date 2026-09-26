@@ -31,7 +31,7 @@ class RoomsTool:
         "turn inside it. Use create when the user asks for a room or a dedicated "
         "space for a project, and fill purpose and root from what they said "
         "rather than asking twice. You cannot enter a room from here — tell the "
-        "user to say \"let's work on <name>\" or type /room <name>. Creating and "
+        'user to say "let\'s work on <name>" or type /room <name>. Creating and '
         "changing rooms is confirmed by the user first."
     )
     risk = "read"
@@ -56,9 +56,9 @@ class RoomsTool:
             "purpose": {
                 "type": "string",
                 "description": (
-                "One or two sentences on what this room is for, written to "
-                "be read by you at the start of every turn in it. Say what "
-                "the work is and what a good answer looks like."
+                    "One or two sentences on what this room is for, written to "
+                    "be read by you at the start of every turn in it. Say what "
+                    "the work is and what a good answer looks like."
                 ),
             },
             "result": {
@@ -211,7 +211,7 @@ class RoomsTool:
             output=(
                 f"Created the room.\n\n{self._describe(room)}\n\n"
                 f"Tell the user they can go in by saying \"let's work on "
-                f"{room.name}\" or typing `/room {room.id}`."
+                f'{room.name}" or typing `/room {room.id}`.'
             ),
             data={"id": room.id, "name": room.name},
         )

@@ -20,10 +20,7 @@ _TASK_COLUMNS = (
     "id, title, status, due, created_at, updated_at, source, goal_id, "
     "priority, recurrence, parent_id"
 )
-_GOAL_COLUMNS = (
-    "id, title, kind, status, horizon, notes, created_at, updated_at, source, "
-    "priority"
-)
+_GOAL_COLUMNS = "id, title, kind, status, horizon, notes, created_at, updated_at, source, priority"
 
 _PRIORITY_ORDER = "CASE priority WHEN 'high' THEN 0 WHEN 'normal' THEN 1 ELSE 2 END"
 
@@ -46,10 +43,7 @@ def resolve_recurrence(raw: Any) -> str | None:
     if not text:
         return None
     if text not in CADENCES:
-        raise ValueError(
-            "recurrence must be daily, weekly, weekdays, or monthly, "
-            f"not {raw!r}"
-        )
+        raise ValueError(f"recurrence must be daily, weekly, weekdays, or monthly, not {raw!r}")
     return text
 
 
@@ -57,15 +51,11 @@ def parse_iso_due(due: str | None) -> str:
     """Recurrence advances YYYY-MM-DD only. Free-text dues stay non-recurring."""
     text = (due or "").strip()
     if len(text) != 10:
-        raise ValueError(
-            f"recurring tasks need a due date (YYYY-MM-DD), not {due!r}"
-        )
+        raise ValueError(f"recurring tasks need a due date (YYYY-MM-DD), not {due!r}")
     try:
         date.fromisoformat(text)
     except ValueError:
-        raise ValueError(
-            f"recurring tasks need a due date (YYYY-MM-DD), not {due!r}"
-        ) from None
+        raise ValueError(f"recurring tasks need a due date (YYYY-MM-DD), not {due!r}") from None
     return text
 
 
@@ -217,10 +207,7 @@ def list_tasks(
             created_at ASC
         """
         if status is None
-        else (
-            f"ORDER BY {_PRIORITY_ORDER}, "
-            "COALESCE(due, '9999-99-99') ASC, created_at ASC"
-        )
+        else (f"ORDER BY {_PRIORITY_ORDER}, COALESCE(due, '9999-99-99') ASC, created_at ASC")
     )
     params.append(limit)
     rows = store._conn.execute(
@@ -266,9 +253,7 @@ def set_task_status(store: MemoryStore, task_id: int, status: str) -> bool:
         if open_kids:
             n = len(open_kids)
             noun = "subtask" if n == 1 else "subtasks"
-            raise ValueError(
-                f"task #{tid} still has {n} open {noun}; finish those first"
-            )
+            raise ValueError(f"task #{tid} still has {n} open {noun}; finish those first")
         rec = existing.get("recurrence")
         if rec:
             nxt = next_due_date(existing.get("due"), str(rec))

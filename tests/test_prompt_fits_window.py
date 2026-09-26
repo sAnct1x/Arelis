@@ -43,9 +43,7 @@ def _tokens(text: str) -> int:
 @pytest.fixture(scope="module")
 def parts() -> dict[str, int]:
     config = load_config()
-    persona_and_policy = static_prefix_text(
-        (config.get("persona_text") or "") or "You are Arelis."
-    )
+    persona_and_policy = static_prefix_text((config.get("persona_text") or "") or "You are Arelis.")
     schemas = build_tool_registry(config).ollama_tools()
     return {
         "prefix": _tokens(persona_and_policy),
@@ -66,9 +64,7 @@ def test_the_shipped_window_holds_the_prompt(parts: dict[str, int]) -> None:
 def test_the_smallest_pinned_window_holds_the_prompt(parts: dict[str, int]) -> None:
     """The floor is what an unreadable card gets. It has to work too."""
     total = parts["prefix"] + parts["schemas"]
-    assert total < _MIN_PINNED, (
-        f"{total:,} tokens does not fit in the floor of {_MIN_PINNED:,}"
-    )
+    assert total < _MIN_PINNED, f"{total:,} tokens does not fit in the floor of {_MIN_PINNED:,}"
 
 
 def test_the_smallest_window_leaves_room_to_talk(parts: dict[str, int]) -> None:

@@ -234,7 +234,4 @@ def bind_history(window) -> None:
         lambda session_id: on_history_selected(window, session_id)
     )
     window.conversation.leave_room_requested.connect(lambda: leave_room(window))
-    window.title_bar.rooms_menu_requested.connect(
-        lambda anchor: show_rooms_menu(window, anchor)
-    )
-
+    window.title_bar.rooms_menu_requested.connect(lambda anchor: show_rooms_menu(window, anchor))

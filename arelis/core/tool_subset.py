@@ -176,9 +176,7 @@ def turn_round_budget(
     return budget
 
 
-def web_read_caps(
-    research_mode: bool, agent_cfg: dict[str, Any] | None
-) -> tuple[int, int]:
+def web_read_caps(research_mode: bool, agent_cfg: dict[str, Any] | None) -> tuple[int, int]:
     """Distinct search queries and pages this turn. Everyday stays small.
 
     Research may read many *different* pages. Same query / same URL is
@@ -301,9 +299,7 @@ def _without_unauthorized_sends(
     from arelis.core.sms_complete import sms_intent_this_turn
 
     out = set(visible)
-    if "send_sms" in out and "send_sms" not in expected and not sms_intent_this_turn(
-        text
-    ):
+    if "send_sms" in out and "send_sms" not in expected and not sms_intent_this_turn(text):
         out.discard("send_sms")
     if "send_email" in out and "send_email" not in expected:
         if looks_like_mailbox_mutate(text):
@@ -316,9 +312,7 @@ def _without_unauthorized_sends(
                 out.discard("send_email")
     if "diagnostics" in out and not DIAGNOSTICS.matches(text):
         out.discard("diagnostics")
-    if "run_script" in out and "run_script" not in expected and not RUN_SCRIPT.matches(
-        text
-    ):
+    if "run_script" in out and "run_script" not in expected and not RUN_SCRIPT.matches(text):
         out.discard("run_script")
     if "watch" in out and not WATCH.matches(text):
         out.discard("watch")
@@ -350,16 +344,12 @@ def filter_tool_names(
         # The full surface still owes the authorization filter. Skipping it here
         # is what let a stale SMS draft ride an unrelated turn.
         expected = {
-            t
-            for hint in detect_intents(text, history=history)
-            for t in hint.expected_tools
+            t for hint in detect_intents(text, history=history) for t in hint.expected_tools
         }
         return _without_unauthorized_sends(names, text, expected, history=history)
     if _must_keep_full_surface(text, history):
         expected = {
-            t
-            for hint in detect_intents(text, history=history)
-            for t in hint.expected_tools
+            t for hint in detect_intents(text, history=history) for t in hint.expected_tools
         }
         return _without_unauthorized_sends(names, text, expected, history=history)
     if enabled and should_apply_research_subset(role, text, history=history):

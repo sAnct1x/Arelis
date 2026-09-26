@@ -53,8 +53,7 @@ def apply_workspace_roots(
         paths={r.name: str(r.path) for r in window.workspace_roots.roots},
     )
     window.thinking.append(
-        f"Workspace roots updated ({len(entries)}): "
-        + ", ".join(window.workspace_roots.names()),
+        f"Workspace roots updated ({len(entries)}): " + ", ".join(window.workspace_roots.names()),
         kind="status",
     )
     refresh_desk(window)
@@ -106,18 +105,14 @@ def register_workspace_folder(window, path: Path, *, make_active: bool = True) -
     name = unique_root_name(resolved.name, taken)
     roots = workspace_root_dicts(window)
     roots.append({"name": name, "path": str(resolved), "read_only": False})
-    apply_workspace_roots(
-        window, roots, preferred_active=name if make_active else None
-    )
+    apply_workspace_roots(window, roots, preferred_active=name if make_active else None)
 
 
 def add_workspace_folder_dialog(window) -> None:
     from PySide6.QtWidgets import QFileDialog
 
     start = str(Path.home() / "Documents")
-    chosen = QFileDialog.getExistingDirectory(
-        window, "Add folder to workspace", start
-    )
+    chosen = QFileDialog.getExistingDirectory(window, "Add folder to workspace", start)
     if chosen:
         register_workspace_folder(window, Path(chosen), make_active=True)
 
@@ -126,9 +121,7 @@ def new_workspace_folder_dialog(window) -> None:
     from PySide6.QtWidgets import QFileDialog, QInputDialog
 
     start = str(Path.home() / "Documents")
-    parent = QFileDialog.getExistingDirectory(
-        window, "Parent folder for new project", start
-    )
+    parent = QFileDialog.getExistingDirectory(window, "Parent folder for new project", start)
     if not parent:
         return
     name, ok = QInputDialog.getText(window, "New folder", "Folder name:")
@@ -333,9 +326,7 @@ def keep_note_dialog(window) -> None:
         return
     room_id = str(window.conversation.room.room_id or "")
     try:
-        item = write_note(
-            window.workspace_roots, text, room_id=room_id, store=desk_store(window)
-        )
+        item = write_note(window.workspace_roots, text, room_id=room_id, store=desk_store(window))
     except Exception as exc:
         window.chat.add_system(f"I could not keep that. {plain_reason(exc)}")
         return
@@ -396,28 +387,13 @@ def open_outside(window, abs_path: str) -> None:
 
 def bind_workspace(window) -> None:
     window.workspace.open_requested.connect(lambda path: open_file(window, path))
-    window.workspace.save_requested.connect(
-        lambda path, content: save_file(window, path, content)
-    )
-    window.workspace.add_root_requested.connect(
-        lambda: add_workspace_folder_dialog(window)
-    )
-    window.workspace.new_root_requested.connect(
-        lambda: new_workspace_folder_dialog(window)
-    )
-    window.workspace.remove_root_requested.connect(
-        lambda: remove_active_workspace_root(window)
-    )
+    window.workspace.save_requested.connect(lambda path, content: save_file(window, path, content))
+    window.workspace.add_root_requested.connect(lambda: add_workspace_folder_dialog(window))
+    window.workspace.new_root_requested.connect(lambda: new_workspace_folder_dialog(window))
+    window.workspace.remove_root_requested.connect(lambda: remove_active_workspace_root(window))
     window.workspace.keep_requested.connect(lambda: keep_note_dialog(window))
-    window.workspace.pin_requested.connect(
-        lambda path, pinned: pin_desk_item(window, path, pinned)
-    )
+    window.workspace.pin_requested.connect(lambda path, pinned: pin_desk_item(window, path, pinned))
     window.workspace.drop_requested.connect(lambda path: drop_desk_item(window, path))
-    window.workspace.desk_open_requested.connect(
-        lambda path: open_desk_item(window, path)
-    )
-    window.workspace.reveal_requested.connect(
-        lambda path: reveal_desk_item(window, path)
-    )
+    window.workspace.desk_open_requested.connect(lambda path: open_desk_item(window, path))
+    window.workspace.reveal_requested.connect(lambda path: reveal_desk_item(window, path))
     window.workspace.outside_requested.connect(lambda path: open_outside(window, path))
-

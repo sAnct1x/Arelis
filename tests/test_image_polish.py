@@ -77,14 +77,10 @@ def test_status_and_confirm_are_human() -> None:
     assert confirm_headline("image", {"path": "a.png", "style": "watercolor"}) == (
         "restyle this as watercolor"
     )
-    assert confirm_headline("image", {"remove_background": True}) == (
-        "cut out the background"
-    )
+    assert confirm_headline("image", {"remove_background": True}) == ("cut out the background")
     assert confirm_headline("image_edit", {"crop": "left"}) == "crop this picture"
     assert confirm_headline("image_edit", {"scale": 2}) == "enlarge this picture"
-    assert confirm_headline("image_edit", {"text": "Arelis"}) == (
-        'add "Arelis" to this picture'
-    )
+    assert confirm_headline("image_edit", {"text": "Arelis"}) == ('add "Arelis" to this picture')
 
 
 def test_progress_lines() -> None:

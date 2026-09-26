@@ -402,13 +402,9 @@ def test_jobs_do_not_get_earth() -> None:
     from arelis.workspace import WorkspaceRoots
 
     config = load_config()
-    jobs = build_tool_registry(
-        config, WorkspaceRoots.from_config(config), allow_send=False
-    )
+    jobs = build_tool_registry(config, WorkspaceRoots.from_config(config), allow_send=False)
     assert "earth" not in jobs.names()
-    attended = build_tool_registry(
-        config, WorkspaceRoots.from_config(config), allow_send=True
-    )
+    attended = build_tool_registry(config, WorkspaceRoots.from_config(config), allow_send=True)
     assert "earth" in attended.names()
 
 
@@ -675,7 +671,9 @@ def test_military_live_does_not_freeze_civil_sim(
     assert store.get("icao:ae0001") is not None
     after = store.get("sim-flight:0001")
     assert after is not None
-    moved = ((after.x - before[0]) ** 2 + (after.y - before[1]) ** 2 + (after.z - before[2]) ** 2) ** 0.5
+    moved = (
+        (after.x - before[0]) ** 2 + (after.y - before[1]) ** 2 + (after.z - before[2]) ** 2
+    ) ** 0.5
     assert moved > 100.0
     assert all(e.id != "sim-flight:0000" for e in store.in_layer("military"))
 
@@ -1008,8 +1006,46 @@ def test_opensky_uav_category_is_the_drones_layer() -> None:
     payload = {
         "time": 1.0,
         "states": [
-            ["abc123", "UAL1  ", None, None, None, -0.12, 51.5, 10000, False, 200, 90, 0, None, None, None, None, 0, 0],
-            ["def456", "UAV1  ", None, None, None, -0.12, 51.5, 120, False, 20, 0, 0, None, None, None, None, 0, 14],
+            [
+                "abc123",
+                "UAL1  ",
+                None,
+                None,
+                None,
+                -0.12,
+                51.5,
+                10000,
+                False,
+                200,
+                90,
+                0,
+                None,
+                None,
+                None,
+                None,
+                0,
+                0,
+            ],
+            [
+                "def456",
+                "UAV1  ",
+                None,
+                None,
+                None,
+                -0.12,
+                51.5,
+                120,
+                False,
+                20,
+                0,
+                0,
+                None,
+                None,
+                None,
+                None,
+                0,
+                14,
+            ],
         ],
     }
     rows = entities_from_opensky(payload)
@@ -1017,7 +1053,10 @@ def test_opensky_uav_category_is_the_drones_layer() -> None:
     assert by_id["icao:abc123"].layer == "flights"
     assert by_id["icao:def456"].layer == "drones"
     assert by_id["icao:abc123"].vx != 0.0 or by_id["icao:abc123"].vy != 0.0
-    assert "not every car" in by_id["icao:abc123"].cite.lower() or "cars" in by_id["icao:abc123"].cite.lower()
+    assert (
+        "not every car" in by_id["icao:abc123"].cite.lower()
+        or "cars" in by_id["icao:abc123"].cite.lower()
+    )
 
 
 def test_caltrans_look_direction_becomes_a_viewshed() -> None:
@@ -1084,7 +1123,14 @@ def test_adsb_mil_keeps_squawks() -> None:
 
     rows = entities_from_ac(
         [
-            {"hex": "ae0001", "flight": "RCH1", "lat": 51.5, "lon": -0.12, "alt_baro": 30000, "gs": 400},
+            {
+                "hex": "ae0001",
+                "flight": "RCH1",
+                "lat": 51.5,
+                "lon": -0.12,
+                "alt_baro": 30000,
+                "gs": 400,
+            },
             {"hex": "nogeo", "flight": "NONE"},
         ]
     )
@@ -1128,18 +1174,13 @@ def test_shipped_feed_hosts_are_pinned() -> None:
     assert any(spec.id == "unsecured-cams" and spec.status == "out" for spec in FEEDS)
     assert any(spec.id == "car-vin" and spec.status == "out" for spec in FEEDS)
     assert any(spec.id == "sat-ais" and spec.status == "out" for spec in FEEDS)
-    assert any(
-        spec.id == "digitraffic" and spec.status == "shipped" for spec in FEEDS
-    )
-    assert any(
-        spec.id == "sentinel1-asf" and spec.status == "shipped" for spec in FEEDS
-    )
+    assert any(spec.id == "digitraffic" and spec.status == "shipped" for spec in FEEDS)
+    assert any(spec.id == "sentinel1-asf" and spec.status == "shipped" for spec in FEEDS)
     assert any(spec.id == "eonet" and spec.status == "shipped" for spec in FEEDS)
     assert any(spec.id == "osm-nominatim" and spec.status == "shipped" for spec in FEEDS)
     for host in shipped_hosts():
         assert any(
-            pin == host or pin.endswith("." + host) or host.endswith("." + pin)
-            for pin in ALLOWED
+            pin == host or pin.endswith("." + host) or host.endswith("." + pin) for pin in ALLOWED
         ), host
 
 
@@ -1523,9 +1564,7 @@ def test_earth_chip_items_cover_live_and_every_layer() -> None:
     assert "iss" in space
 
 
-def test_earth_chips_toggle_live_and_layers(
-    qt_app, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_earth_chips_toggle_live_and_layers(qt_app, monkeypatch: pytest.MonkeyPatch) -> None:
     from PySide6.QtCore import QEvent, QPointF, Qt
     from PySide6.QtGui import QMouseEvent
 
@@ -1887,9 +1926,9 @@ def test_advance_live_reruns_sgp4_between_tle_polls() -> None:
 def test_celestrak_groups_fetch_in_parallel() -> None:
     from pathlib import Path
 
-    src = (
-        Path(__file__).resolve().parents[1] / "arelis" / "earth" / "tle.py"
-    ).read_text(encoding="utf-8")
+    src = (Path(__file__).resolve().parents[1] / "arelis" / "earth" / "tle.py").read_text(
+        encoding="utf-8"
+    )
     assert "ThreadPoolExecutor" in src
     assert "def _get_tle_groups" in src
     assert "max_workers" in src
@@ -1926,11 +1965,7 @@ def test_owned_local_camera_pin_needs_only_wgs84(tmp_path: Path) -> None:
 
     book = tmp_path / "secrets.yaml"
     book.write_text(
-        "earth:\n"
-        "  local_camera:\n"
-        "    latitude: 51.5\n"
-        "    longitude: -0.12\n"
-        "    heading_deg: 90\n",
+        "earth:\n  local_camera:\n    latitude: 51.5\n    longitude: -0.12\n    heading_deg: 90\n",
         encoding="utf-8",
     )
     pins = load_owned(book)
@@ -2010,9 +2045,7 @@ def test_spacetrack_tip_is_not_a_hull() -> None:
 def test_swpc_ovation_keeps_bright_cells() -> None:
     from arelis.earth.swpc import entities_from_ovation
 
-    pins = entities_from_ovation(
-        {"coordinates": [[-150.0, 65.0, 40.0], [-150.0, 20.0, 2.0]]}
-    )
+    pins = entities_from_ovation({"coordinates": [[-150.0, 65.0, 40.0], [-150.0, 20.0, 2.0]]})
     assert len(pins) == 1
     assert pins[0].layer == "weather"
     assert pins[0].meta["aurora"] == 40.0
@@ -2027,7 +2060,11 @@ def test_emsc_keeps_reported_events() -> None:
                 {
                     "id": "20260101.1",
                     "geometry": {"type": "Point", "coordinates": [28.0, -26.2]},
-                    "properties": {"mag": 4.2, "flynn_region": "SOUTH AFRICA", "time": 1_700_000_000_000},
+                    "properties": {
+                        "mag": 4.2,
+                        "flynn_region": "SOUTH AFRICA",
+                        "time": 1_700_000_000_000,
+                    },
                 },
                 {"id": "nogeo", "geometry": {}, "properties": {"mag": 3.0}},
             ]
@@ -2236,7 +2273,13 @@ def test_sigmet_uses_polygon_centroid() -> None:
                     "geometry": {
                         "type": "Polygon",
                         "coordinates": [
-                            [[-74.0, 40.0], [-72.0, 40.0], [-72.0, 42.0], [-74.0, 42.0], [-74.0, 40.0]]
+                            [
+                                [-74.0, 40.0],
+                                [-72.0, 40.0],
+                                [-72.0, 42.0],
+                                [-74.0, 42.0],
+                                [-74.0, 40.0],
+                            ]
                         ],
                     },
                 }
@@ -2270,9 +2313,7 @@ def test_coops_gauge_is_not_a_hull() -> None:
 def test_ioc_gauge_is_not_altimetry() -> None:
     from arelis.earth.tides import entities_from_ioc
 
-    pins = entities_from_ioc(
-        [{"Code": "NEWL", "Lat": 50.1, "Lon": -5.5, "Location": "Newlyn"}]
-    )
+    pins = entities_from_ioc([{"Code": "NEWL", "Lat": 50.1, "Lon": -5.5, "Location": "Newlyn"}])
     assert len(pins) == 1
     assert pins[0].id == "ioc:newl"
     assert "altimetry" in pins[0].cite.lower()
@@ -2446,9 +2487,7 @@ def test_lod_gates_planes_boats_and_cameras() -> None:
     assert adapter_allowed("cameras", "near") is False
     assert adapter_allowed("cameras", "city") is True
     assert adapter_allowed("celestrak", "city") is True
-    assert adapter_allowed(
-        "opensky", "city", {"flights": False, "drones": False}
-    ) is False
+    assert adapter_allowed("opensky", "city", {"flights": False, "drones": False}) is False
     assert adapter_allowed("opensky", "city", {"flights": True}) is True
     assert "flights" in paint_layers("approach")
     assert "satellites" in paint_layers("approach")
@@ -2463,9 +2502,7 @@ def test_lod_gates_planes_boats_and_cameras() -> None:
     assert chip_layers("city") is None
     from arelis.earth.lod import adapters_due
 
-    due = adapters_due(
-        "city", {}, 1000.0, {"cameras": False, "flights": True, "drones": False}
-    )
+    due = adapters_due("city", {}, 1000.0, {"cameras": False, "flights": True, "drones": False})
     assert "cameras" not in due
     assert "opensky" in due
     assert "ais" not in due
@@ -2595,9 +2632,7 @@ def test_earth_marks_are_unique_and_drawn(qt_app) -> None:
         digest = mark_digest(kind, band="city")
         assert digest not in seen.values(), kind
         seen[kind] = digest
-    assert mark_digest("flights", heading_deg=0) != mark_digest(
-        "flights", heading_deg=90
-    )
+    assert mark_digest("flights", heading_deg=0) != mark_digest("flights", heading_deg=90)
     assert mark_digest("flights", freshness="stale") != mark_digest("flights")
     assert mark_digest("flights", freshness="dead-reckoned") != mark_digest("flights")
     assert set(ALL_KINDS) >= set(LAYER_IDS) | set(SOLAR_KINDS) | set(OVERLAY_KINDS)
@@ -2764,9 +2799,7 @@ def test_marks_read_as_their_kind(qt_app) -> None:
         painter.end()
         return hashlib.sha256(bytes(img.constBits())).hexdigest()
 
-    ring = digest_of(
-        lambda p: p.drawEllipse(20, 20, 24, 24)
-    )
+    ring = digest_of(lambda p: p.drawEllipse(20, 20, 24, 24))
     square = digest_of(lambda p: p.drawRect(18, 18, 28, 28))
     assert mark_digest("quakes", band="city") != ring
     assert mark_digest("cameras", band="city") != square
@@ -2874,9 +2907,7 @@ def test_layer_chips_leave_room_for_the_mark(qt_app) -> None:
     set_earth(None)
 
 
-def test_earth_dblclick_on_globe_flies_to_quake(
-    qt_app, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_earth_dblclick_on_globe_flies_to_quake(qt_app, monkeypatch: pytest.MonkeyPatch) -> None:
     from PySide6.QtCore import QEvent, QPointF, Qt
     from PySide6.QtGui import QMouseEvent
 
@@ -2905,9 +2936,7 @@ def test_earth_dblclick_on_globe_flies_to_quake(
     flew: list[str] = []
     monkeypatch.setattr(panel, "_earth_globe_live", lambda: True)
     monkeypatch.setattr(panel, "_chrome_covers", lambda *_a: False)
-    monkeypatch.setattr(
-        panel, "_fly_to_earth_entity", lambda ent: flew.append(ent.id)
-    )
+    monkeypatch.setattr(panel, "_fly_to_earth_entity", lambda ent: flew.append(ent.id))
     monkeypatch.setattr("arelis.ui.panels.solar.get_system", lambda: object())
     monkeypatch.setattr("arelis.ui.panels.solar.hit_entity", lambda *_a, **_k: hit)
     pos = QPointF(200, 200)
@@ -2933,4 +2962,3 @@ def _opaque_pixels(img) -> int:
             if img.pixelColor(x, y).alpha() > 0:
                 n += 1
     return n
-

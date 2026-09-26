@@ -418,9 +418,7 @@ def grade_facts(row: dict[str, Any]) -> dict[str, Any]:
         # "Yes" on line 3 is the failure; "No" is the pass.
         lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
         prime_line = next((ln for ln in lines if re.search(r"prime|1", ln, re.I)), "")
-        if re.search(r"\byes\b", prime_line, re.I) and not re.search(
-            r"\bno\b", prime_line, re.I
-        ):
+        if re.search(r"\byes\b", prime_line, re.I) and not re.search(r"\bno\b", prime_line, re.I):
             notes.append("called 1 prime")
     elif not re.search(r"\bno\b", text, re.I):
         notes.append("did not say 1 is not prime")
@@ -440,9 +438,7 @@ def grade_hallu(row: dict[str, Any]) -> dict[str, Any]:
             blob,
         )
     )
-    claims = bool(
-        re.search(r"\b(proved|demonstrated|published in nature|the paper is)\b", blob)
-    )
+    claims = bool(re.search(r"\b(proved|demonstrated|published in nature|the paper is)\b", blob))
     ok = denies and not (invented and claims)
     notes: list[str] = []
     if invented:
@@ -639,9 +635,7 @@ def _norm_tag(tag: str) -> str:
 def listed_tags() -> list[str]:
     import subprocess
 
-    proc = subprocess.run(
-        ["ollama", "list"], capture_output=True, text=True, check=False
-    )
+    proc = subprocess.run(["ollama", "list"], capture_output=True, text=True, check=False)
     tags: list[str] = []
     for line in (proc.stdout or "").splitlines():
         name = line.split()[0] if line.split() else ""

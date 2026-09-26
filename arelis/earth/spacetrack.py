@@ -35,9 +35,7 @@ _GP_PATHS = (
     "/basicspacedata/query/class/gp/OBJECT_TYPE/PAYLOAD/PERIOD/500--800/orderby/NORAD_CAT_ID/limit/40/format/3le",
     "/basicspacedata/query/class/gp/OBJECT_TYPE/PAYLOAD/PERIOD/1400--1500/orderby/NORAD_CAT_ID/limit/60/format/3le",
 )
-TIP_PATH = (
-    "/basicspacedata/query/class/tip/orderby/INSERT_EPOCH desc/limit/20/format/json"
-)
+TIP_PATH = "/basicspacedata/query/class/tip/orderby/INSERT_EPOCH desc/limit/20/format/json"
 USER_ENV = "ARELIS_SPACETRACK_USER"
 PASS_ENV = "ARELIS_SPACETRACK_PASSWORD"
 BUDGET_PATH = state_dir() / "spacetrack_budget.json"

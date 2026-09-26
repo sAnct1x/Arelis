@@ -51,9 +51,7 @@ def _write_pptx(path: Path, slides: list[str]) -> Path:
         '<Default Extension="xml" ContentType="application/xml"/>'
         '<Override PartName="/ppt/presentation.xml" '
         'ContentType="application/vnd.openxmlformats-officedocument.'
-        'presentationml.presentation.main+xml"/>'
-        + "".join(overrides)
-        + "</Types>"
+        'presentationml.presentation.main+xml"/>' + "".join(overrides) + "</Types>"
     )
     with zipfile.ZipFile(path, "w") as zf:
         zf.writestr("[Content_Types].xml", content_types)
@@ -112,8 +110,7 @@ def _write_form_pdf(path: Path) -> Path:
     for off in offsets[1:]:
         xref.append(f"{off:010d} 00000 n \n".encode("latin-1"))
     trailer = (
-        f"trailer\n<< /Size {len(offsets)} /Root 1 0 R >>\n"
-        f"startxref\n{pos}\n%%EOF\n"
+        f"trailer\n<< /Size {len(offsets)} /Root 1 0 R >>\nstartxref\n{pos}\n%%EOF\n"
     ).encode("latin-1")
     path.write_bytes(header + body + b"".join(xref) + trailer)
     return path

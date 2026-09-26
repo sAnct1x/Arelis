@@ -35,7 +35,7 @@ def test_packaging_reads_the_version_rather_than_repeating_it() -> None:
     project = _pyproject()["project"]
     assert "version" in project.get("dynamic", []), (
         "pyproject.toml should declare version as dynamic. A literal version = "
-        "\"…\" here is a second source of truth that nothing keeps in step with "
+        '"…" here is a second source of truth that nothing keeps in step with '
         "arelis/__init__.py."
     )
     assert "version" not in project, (

@@ -40,8 +40,7 @@ class RemindTool:
                 "type": "string",
                 "enum": ["in", "at", "list", "cancel"],
                 "description": (
-                    "in = delay from now, at = local datetime, list pending, "
-                    "cancel by id"
+                    "in = delay from now, at = local datetime, list pending, cancel by id"
                 ),
             },
             "minutes": {
@@ -58,9 +57,7 @@ class RemindTool:
             },
             "when": {
                 "type": "string",
-                "description": (
-                    "Local due time for action=at: ISO or YYYY-MM-DD HH:MM"
-                ),
+                "description": ("Local due time for action=at: ISO or YYYY-MM-DD HH:MM"),
             },
             "at": {
                 "type": "string",
@@ -122,12 +119,7 @@ class RemindTool:
         message = _message(kwargs)
         if message is None:
             return ToolResult(ok=False, output="remind at needs a message.")
-        when = str(
-            kwargs.get("when")
-            or kwargs.get("at")
-            or kwargs.get("datetime")
-            or ""
-        ).strip()
+        when = str(kwargs.get("when") or kwargs.get("at") or kwargs.get("datetime") or "").strip()
         if not when:
             return ToolResult(
                 ok=False,
@@ -148,9 +140,7 @@ class RemindTool:
                 data={"reminders": []},
             )
         listed = [_pending_row(item) for item in rows]
-        lines = [
-            f"#{row['id']}  {row['due']}  {row['message']}" for row in listed
-        ]
+        lines = [f"#{row['id']}  {row['due']}  {row['message']}" for row in listed]
         lines.append(f"{len(listed)} pending reminder(s).")
         return ToolResult(
             ok=True,

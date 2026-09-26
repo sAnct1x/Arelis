@@ -26,6 +26,7 @@ _CLEAR = QColor(0, 0, 0, 0)
 def _alpha(base: QColor, value: float) -> QColor:
     return QColor(base.red(), base.green(), base.blue(), max(0, min(255, int(value))))
 
+
 # Shared slow rim breath — driven by the main window atmosphere timer.
 _rim_pulse_phase = 0.0
 
@@ -69,9 +70,7 @@ class GlassFrame(QFrame):
         # True when something else decides this widget's HWND surface — see
         # _apply_seal.
         self._surface_owned = bool(surface_owned)
-        self._fill_alpha = int(
-            GLASS.get("fill_docked", 72) if fill_alpha is None else fill_alpha
-        )
+        self._fill_alpha = int(GLASS.get("fill_docked", 72) if fill_alpha is None else fill_alpha)
         self._radius = float(GLASS.get("radius", 12.0) if radius is None else radius)
         self._pulse_rim = bool(pulse_rim)
         # Paint hint: skip the sharp fillRect. The parent HWND stays opaque

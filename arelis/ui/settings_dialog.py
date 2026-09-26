@@ -1,4 +1,5 @@
 """Single Settings dialog — audio, window, allow, notify, roots, memory."""
+
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -170,12 +171,8 @@ class SettingsDialog(QDialog):
         audio_form = QFormLayout(audio)
         audio_form.setContentsMargins(*space_box("inset", "plate", "inset", "inset"))
         audio_form.setSpacing(SPACE["inset"])
-        audio_form.setFieldGrowthPolicy(
-            QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow
-        )
-        audio_form.setLabelAlignment(
-            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
-        )
+        audio_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+        audio_form.setLabelAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
         self.mic_combo = QComboBox()
         self.mic_combo.setObjectName("SettingsField")
@@ -200,9 +197,7 @@ class SettingsDialog(QDialog):
         self.volume_slider.setValue(int(max(0.0, min(1.0, vol)) * 100))
         self.volume_label = QLabel(f"{self.volume_slider.value()}%")
         self.volume_label.setObjectName("SettingsHint")
-        self.volume_slider.valueChanged.connect(
-            lambda v: self.volume_label.setText(f"{v}%")
-        )
+        self.volume_slider.valueChanged.connect(lambda v: self.volume_label.setText(f"{v}%"))
         vol_row = QHBoxLayout()
         vol_row.addWidget(self.volume_slider, stretch=1)
         vol_row.addWidget(self.volume_label)
@@ -210,9 +205,7 @@ class SettingsDialog(QDialog):
         _live_note = "Applies when you click Apply."
         self.voice_enabled = QCheckBox("Voice features")
         self.voice_enabled.setChecked(bool(voice.get("enabled", True)))
-        self.voice_enabled.setToolTip(
-            f"{_live_note} First-time hardware still needs a restart."
-        )
+        self.voice_enabled.setToolTip(f"{_live_note} First-time hardware still needs a restart.")
         self.stt_enabled = QCheckBox("Listen (speech to text)")
         self.stt_enabled.setChecked(bool(stt.get("enabled", True)))
         self.stt_enabled.setToolTip(_live_note)
@@ -263,12 +256,8 @@ class SettingsDialog(QDialog):
         win_form = QFormLayout(window)
         win_form.setContentsMargins(*space_box("inset", "plate", "inset", "inset"))
         win_form.setSpacing(SPACE["inset"])
-        win_form.setFieldGrowthPolicy(
-            QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow
-        )
-        win_form.setLabelAlignment(
-            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
-        )
+        win_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+        win_form.setLabelAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
         self.always_on_top = QCheckBox("always on top")
         self.always_on_top.setChecked(always_on_top)
@@ -317,9 +306,7 @@ class SettingsDialog(QDialog):
         self.font_slider.setValue(round(chat_font_scale * 100))
         self.font_label = QLabel(f"{self.font_slider.value()}%")
         self.font_label.setObjectName("SettingsHint")
-        self.font_slider.valueChanged.connect(
-            lambda v: self.font_label.setText(f"{v}%")
-        )
+        self.font_slider.valueChanged.connect(lambda v: self.font_label.setText(f"{v}%"))
         font_row = QHBoxLayout()
         font_row.addWidget(self.font_slider, stretch=1)
         font_row.addWidget(self.font_label)
@@ -330,17 +317,11 @@ class SettingsDialog(QDialog):
 
         models_cfg = config.get("models") or {}
         installed, models_up = self._load_installed_models(config, list_models)
-        self.fast_model = self._model_combo(
-            str(models_cfg.get("fast") or ""), installed
-        )
+        self.fast_model = self._model_combo(str(models_cfg.get("fast") or ""), installed)
         self.fast_model.setAccessibleName("Chat")
-        self.research_model = self._model_combo(
-            str(models_cfg.get("research") or ""), installed
-        )
+        self.research_model = self._model_combo(str(models_cfg.get("research") or ""), installed)
         self.research_model.setAccessibleName("Research")
-        self.vision_model = self._model_combo(
-            str(models_cfg.get("vision") or ""), installed
-        )
+        self.vision_model = self._model_combo(str(models_cfg.get("vision") or ""), installed)
         self.vision_model.setAccessibleName("Vision fallback")
         self._models_note = QLabel(
             "Ollama not reachable. Showing the configured tags."
@@ -349,9 +330,7 @@ class SettingsDialog(QDialog):
         )
         self._models_note.setObjectName("SettingsHint")
         self._models_note.setWordWrap(True)
-        self._models_note.setSizePolicy(
-            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum
-        )
+        self._models_note.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
 
         win_form.addRow(self.always_on_top)
         win_form.addRow(self.close_to_tray)
@@ -382,9 +361,7 @@ class SettingsDialog(QDialog):
             lab = QLabel(text)
             lab.setObjectName("SettingsHint")
             lab.setWordWrap(True)
-            lab.setSizePolicy(
-                QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum
-            )
+            lab.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
             return lab
 
         def _allow_section(title: str) -> QLabel:
@@ -400,15 +377,12 @@ class SettingsDialog(QDialog):
 
         self._allow_ask_all = QPushButton("ask me everything")
         self._allow_ask_all.setObjectName("SettingsField")
-        self._allow_ask_all.setToolTip(
-            "Every checked class shows Allow, even a job you named."
-        )
+        self._allow_ask_all.setToolTip("Every checked class shows Allow, even a job you named.")
         self._allow_ask_all.clicked.connect(self._preset_allow_everything)
         self._allow_trust_local = QPushButton("never ask about local work")
         self._allow_trust_local.setObjectName("SettingsField")
         self._allow_trust_local.setToolTip(
-            "Never pause for files, pictures, her window, or seeing. "
-            "Mail and programs still can."
+            "Never pause for files, pictures, her window, or seeing. Mail and programs still can."
         )
         self._allow_trust_local.clicked.connect(self._preset_allow_trust_local)
         preset_row = QHBoxLayout()
@@ -459,14 +433,10 @@ class SettingsDialog(QDialog):
         allow_l.addWidget(self._allow_always_blurb)
         self.confirm_send = QCheckBox("mail and texts")
         self.confirm_send.setChecked(bool(agent.get("confirm_send", True)))
-        self.confirm_send.setToolTip(
-            "Each mail or text still needs Allow when this is on."
-        )
+        self.confirm_send.setToolTip("Each mail or text still needs Allow when this is on.")
         self.confirm_run = QCheckBox("programs in the project")
         self.confirm_run.setChecked(bool(agent.get("confirm_run", True)))
-        self.confirm_run.setToolTip(
-            "Running a project program still needs Allow when this is on."
-        )
+        self.confirm_run.setToolTip("Running a project program still needs Allow when this is on.")
         allow_l.addWidget(self.confirm_send)
         allow_l.addWidget(self.confirm_run)
         self.ask_is_grant.toggled.connect(self._sync_allow_copy)
@@ -484,14 +454,10 @@ class SettingsDialog(QDialog):
 
         notices_h = QLabel("Notices")
         notices_h.setObjectName("SettingsSection")
-        notices_blurb = QLabel(
-            "How the glass tells you. Voice only when idle — never mid-turn."
-        )
+        notices_blurb = QLabel("How the glass tells you. Voice only when idle — never mid-turn.")
         notices_blurb.setObjectName("SettingsHint")
         notices_blurb.setWordWrap(True)
-        notices_blurb.setSizePolicy(
-            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum
-        )
+        notices_blurb.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
         notify_l.addWidget(notices_h)
         notify_l.addWidget(notices_blurb)
         channel_grid = QGridLayout()
@@ -534,18 +500,14 @@ class SettingsDialog(QDialog):
         )
         phone_blurb.setObjectName("SettingsHint")
         phone_blurb.setWordWrap(True)
-        phone_blurb.setSizePolicy(
-            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum
-        )
+        phone_blurb.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
         notify_l.addWidget(phone_h)
         notify_l.addWidget(phone_blurb)
 
         self.pair_qr = QLabel()
         self.pair_qr.setObjectName("SettingsPairQr")
         self.pair_qr.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.pair_qr.setSizePolicy(
-            QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed
-        )
+        self.pair_qr.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         self.pair_qr.setScaledContents(False)
         qr_row = QHBoxLayout()
         qr_row.addStretch(1)
@@ -556,17 +518,13 @@ class SettingsDialog(QDialog):
         self.notify_url = QLabel(self._notify_url_text(config))
         self.notify_url.setObjectName("SettingsNotifyUrl")
         self.notify_url.setWordWrap(True)
-        self.notify_url.setTextInteractionFlags(
-            Qt.TextInteractionFlag.TextSelectableByMouse
-        )
+        self.notify_url.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         notify_l.addWidget(self.notify_url)
 
         self.pair_status = QLabel("")
         self.pair_status.setObjectName("SettingsHint")
         self.pair_status.setWordWrap(True)
-        self.pair_status.setSizePolicy(
-            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum
-        )
+        self.pair_status.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
         copy_url = QPushButton("Copy URL")
         copy_url.clicked.connect(lambda: self._copy_notify_url(config))
         copy_pair = QPushButton("Copy for paste")
@@ -602,9 +560,7 @@ class SettingsDialog(QDialog):
         self.install_qr = QLabel()
         self.install_qr.setObjectName("SettingsInstallQr")
         self.install_qr.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.install_qr.setSizePolicy(
-            QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed
-        )
+        self.install_qr.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         install_qr_row = QHBoxLayout()
         install_qr_row.addStretch(1)
         install_qr_row.addWidget(self.install_qr)
@@ -617,14 +573,11 @@ class SettingsDialog(QDialog):
         notify_l.addWidget(self.companion_status)
 
         copy_install = QPushButton("Copy install URL")
-        copy_install.setToolTip(
-            "Camera or browser on the phone — not the Arelis scanner."
-        )
+        copy_install.setToolTip("Camera or browser on the phone — not the Arelis scanner.")
         copy_install.clicked.connect(self._copy_install_url)
         self.fetch_gemma_btn = QPushButton("Fetch offline brain")
         self.fetch_gemma_btn.setToolTip(
-            "Downloads ~2.6 GB onto this PC so phones take it from here "
-            "instead of Hugging Face."
+            "Downloads ~2.6 GB onto this PC so phones take it from here instead of Hugging Face."
         )
         self.fetch_gemma_btn.clicked.connect(self._fetch_gemma_for_phones)
         install_btns = QHBoxLayout()
@@ -809,11 +762,7 @@ class SettingsDialog(QDialog):
         ollama_cfg = config.get("ollama") or {}
         base = str(ollama_cfg.get("base_url") or "http://127.0.0.1:11434")
         try:
-            raw = (
-                list_models()
-                if list_models is not None
-                else list_installed_models(base)
-            ) or []
+            raw = (list_models() if list_models is not None else list_installed_models(base)) or []
         except Exception:
             # model listing failed, treat as unavailable
             return [], False
@@ -875,9 +824,7 @@ class SettingsDialog(QDialog):
         # gets copied into a phone, and if another account on this PC already
         # holds 8765 then the configured number would point the phone at their
         # Arelis. Loopback refusals are immediate, so the scan is not a stall.
-        urls = format_ingest_listen_urls(
-            find_my_ingest_port(config) or port, host=host
-        )
+        urls = format_ingest_listen_urls(find_my_ingest_port(config) or port, host=host)
         primary = urls.split(",")[0].strip() if urls else urls
         return urls, primary
 
@@ -912,9 +859,7 @@ class SettingsDialog(QDialog):
         clip = QApplication.clipboard()
         if clip is not None:
             clip.setText(self._pairing_text)
-        self.pair_status.setText(
-            "Copied. On the phone, tap Paste instead of Scan."
-        )
+        self.pair_status.setText("Copied. On the phone, tap Paste instead of Scan.")
 
     def _set_pair_qr(self, pixmap) -> None:
         self.pair_qr.setPixmap(pixmap)
@@ -926,9 +871,7 @@ class SettingsDialog(QDialog):
             self._pairing_text = ""
             self.pair_qr.clear()
             self.pair_qr.setFixedSize(0, 0)
-            self.pair_status.setText(
-                "No phone token yet. Click Create phone token."
-            )
+            self.pair_status.setText("No phone token yet. Click Create phone token.")
             self._refresh_companion_panel(None, "")
             return
         _, primary = self._notify_urls(config)
@@ -984,8 +927,7 @@ class SettingsDialog(QDialog):
         self.install_qr.setFixedSize(0, 0)
         if current.apk is None:
             self.install_blurb.setText(
-                "The phone camera cannot download an app that is not here yet. "
-                + current.hint()
+                "The phone camera cannot download an app that is not here yet. " + current.hint()
             )
             return
         if not ticket or not primary:
@@ -1039,9 +981,7 @@ class SettingsDialog(QDialog):
 
             def run(self) -> None:  # pragma: no cover - UI thread
                 try:
-                    path = fetch_gemma(
-                        progress=lambda got, total: self.progressed.emit(got, total)
-                    )
+                    path = fetch_gemma(progress=lambda got, total: self.progressed.emit(got, total))
                     self.finished_with.emit(path)
                 except Exception as exc:
                     self.finished_with.emit(exc)
@@ -1052,21 +992,15 @@ class SettingsDialog(QDialog):
         def on_progress(got: int, total: int) -> None:
             if total:
                 pct = int(got * 100 / total)
-                self.companion_status.setText(
-                    f"Fetching the offline brain… {pct}%"
-                )
+                self.companion_status.setText(f"Fetching the offline brain… {pct}%")
             else:
                 mb = got / 1_000_000
-                self.companion_status.setText(
-                    f"Fetching the offline brain… {mb:.0f} MB"
-                )
+                self.companion_status.setText(f"Fetching the offline brain… {mb:.0f} MB")
 
         def on_done(result: object) -> None:
             self.fetch_gemma_btn.setEnabled(True)
             if isinstance(result, Exception):
-                self.companion_status.setText(
-                    f"Could not fetch the offline brain: {result}"
-                )
+                self.companion_status.setText(f"Could not fetch the offline brain: {result}")
                 return
             from arelis.sms_pairing import make_ticket
 
@@ -1081,14 +1015,11 @@ class SettingsDialog(QDialog):
                     # ticket creation failed, skip panel refresh
                     ticket = None
             self._refresh_companion_panel(ticket, primary)
-            self.companion_status.setText(
-                "Offline brain is cached. Phones take it from this PC."
-            )
+            self.companion_status.setText("Offline brain is cached. Phones take it from this PC.")
 
         thread.progressed.connect(on_progress)
         thread.finished_with.connect(on_done)
         thread.start()
-
 
     def _run_test_mic(self) -> None:
         if self._on_test_mic is None:
@@ -1108,9 +1039,7 @@ class SettingsDialog(QDialog):
             self._on_test_speak()
             self.test_status.setText("Speaking a short test…")
         except Exception as exc:
-            self.test_status.setText(
-                f"The speech test did not run. {plain_reason(exc)}"
-            )
+            self.test_status.setText(f"The speech test did not run. {plain_reason(exc)}")
 
     def _voice_wanted(self) -> tuple[bool, bool]:
         master = self.voice_enabled.isChecked()
@@ -1191,9 +1120,7 @@ class SettingsDialog(QDialog):
                 )
             else:
                 p = str(item)
-                loaded.append(
-                    {"name": Path(p).name or "root", "path": p, "read_only": False}
-                )
+                loaded.append({"name": Path(p).name or "root", "path": p, "read_only": False})
         return loaded or [{"name": "root", "path": ".", "read_only": False}]
 
     def _root_label(self, entry: dict[str, Any]) -> str:
@@ -1381,7 +1308,7 @@ class SettingsDialog(QDialog):
                         key: str(combo.currentData() or "visual")
                         for key, combo in self._notify_channels.items()
                     }
-                }
+                },
             },
             "mail": {
                 "address": self.mail_address.text().strip(),

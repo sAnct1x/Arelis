@@ -43,9 +43,7 @@ def spin_px_s(px_r: float, omega_rad_s: float) -> float:
 
 def orbit_px_s(*, speed_m_s: float, depth_m: float, scale: float) -> float:
     """On-screen slide of a body vs an inertial eye. Same estimator as the plate."""
-    return (max(0.0, float(speed_m_s)) / max(float(depth_m), 1.0)) * max(
-        0.0, float(scale)
-    )
+    return (max(0.0, float(speed_m_s)) / max(float(depth_m), 1.0)) * max(0.0, float(scale))
 
 
 def clock_step_s(px_s: float, *, cap_s: float = 3600.0, floor_s: float = 1.0) -> float:

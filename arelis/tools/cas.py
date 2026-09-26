@@ -201,8 +201,7 @@ class CasTool:
             "wrt": {
                 "type": "string",
                 "description": (
-                    "Variable, or comma list for gradient/directional "
-                    "(default x, or x,y,z)"
+                    "Variable, or comma list for gradient/directional (default x, or x,y,z)"
                 ),
             },
             "symbol": {
@@ -226,15 +225,12 @@ class CasTool:
             },
             "at": {
                 "type": "string",
-                "description": (
-                    "Evaluate at this point (0, or 1,-1,2 for several vars)"
-                ),
+                "description": ("Evaluate at this point (0, or 1,-1,2 for several vars)"),
             },
             "dir": {
                 "type": "string",
                 "description": (
-                    "Direction vector for directional, e.g. 1,2,-2. "
-                    "Normalized automatically."
+                    "Direction vector for directional, e.g. 1,2,-2. Normalized automatically."
                 ),
             },
         },
@@ -509,9 +505,7 @@ def _assert_safe_ast(expression: str) -> None:
         raise ValueError(f"invalid expression ({exc.msg})") from exc
     for node in ast.walk(tree):
         if isinstance(node, ast.Constant):
-            if isinstance(node.value, (int, float, complex)) and not isinstance(
-                node.value, bool
-            ):
+            if isinstance(node.value, (int, float, complex)) and not isinstance(node.value, bool):
                 continue
             raise ValueError("only numbers and names are allowed")
         if isinstance(node, ast.Name):
@@ -628,9 +622,7 @@ def _call_deadline_tracer(deadline: float) -> Any:
     return _trace
 
 
-def _run_bounded(
-    target: Any, *args: Any, timeout: float | None = None, **kwargs: Any
-) -> Any:
+def _run_bounded(target: Any, *args: Any, timeout: float | None = None, **kwargs: Any) -> Any:
     """The in-process path, with the timeout the module docstring promises.
 
     It did not have one. `_SPAWN_ACTIONS` — integrate, dsolve, sum — got a
@@ -706,9 +698,7 @@ def _run_in_process(target: Any, *args: Any, timeout: float = _TIMEOUT_S) -> _Ca
             raise ValueError(message)
         raise RuntimeError(message)
     _ok, ascii_text, latex, text, unevaluated = payload
-    return _CasResult(
-        text, ascii=ascii_text, latex=latex, unevaluated=bool(unevaluated)
-    )
+    return _CasResult(text, ascii=ascii_text, latex=latex, unevaluated=bool(unevaluated))
 
 
 def _compute_to_queue(
@@ -759,12 +749,8 @@ def _n_definite(func: Any, var: Any, lower: Any, upper: Any) -> Any:
         return numeric
     try:
         if lower == 0 and upper == sp.oo:
-            left = _collapse_erf(
-                sp.N(sp.Integral(func, (var, sp.exp(-20), 1)), 40)
-            )
-            right = _collapse_erf(
-                sp.N(sp.Integral(func, (var, 1, sp.exp(20))), 40)
-            )
+            left = _collapse_erf(sp.N(sp.Integral(func, (var, sp.exp(-20), 1)), 40))
+            right = _collapse_erf(sp.N(sp.Integral(func, (var, 1, sp.exp(20))), 40))
             if (
                 left is not None
                 and right is not None

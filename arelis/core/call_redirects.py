@@ -57,9 +57,7 @@ RedirectFn = Callable[..., Awaitable[tuple[Any, ...] | None]]
 # Everything that could answer "where is the Drive strip?" from outside the
 # checkout. `browser` is in here and not in `_BROWSER_WANDER` because on a
 # source ask the browser is just a slower search.
-_INSPECT_WANDER = frozenset(
-    {"web_search", "scrape", "web_fetch", "research_report", "browser"}
-)
+_INSPECT_WANDER = frozenset({"web_search", "scrape", "web_fetch", "research_report", "browser"})
 
 
 async def _think(loop: Any, text: str) -> None:
@@ -162,8 +160,7 @@ async def redirect_python_to_run_script(
     if not path:
         return None
     notice = (
-        "Blocked: they named a .py to run. "
-        f"Call run_script with path={path}, not the python cell."
+        f"Blocked: they named a .py to run. Call run_script with path={path}, not the python cell."
     )
     await _think(loop, "redirect  python → run_script")
     r.messages.append(loop._tool_message(name, notice))
@@ -259,10 +256,7 @@ async def redirect_sms(
                 tools_used=loop.tools_used,
                 sms_failed=ctx.sms_failed,
             )
-            or (
-                name == "contacts"
-                and not ctx.sms_failed
-            )
+            or (name == "contacts" and not ctx.sms_failed)
         )
         and "send_sms" in loop._expected_tools
         and "send_sms" not in loop.tools_used
@@ -321,8 +315,7 @@ async def redirect_email(
     ):
         return None
     notice = (
-        f"Blocked: this turn expects send_email, not {name}. "
-        "Use the literal address the user gave."
+        f"Blocked: this turn expects send_email, not {name}. Use the literal address the user gave."
     )
     await _think(loop, f"redirect  {name} → email")
     r.messages.append(loop._tool_message(name, notice))
@@ -337,8 +330,7 @@ async def redirect_email(
         {
             "role": "user",
             "content": (
-                "Call send_email with the address and body the user gave. "
-                "Do not web_search."
+                "Call send_email with the address and body the user gave. Do not web_search."
             ),
         }
     )
@@ -367,9 +359,7 @@ async def redirect_agenda(
     drop_wander("web_search", "contacts", "user_location", "weather", "schedule")
     text = r.text
     if looks_like_calendar_delete(text) and "agenda" in r.tool_names:
-        inj = draft_agenda_delete_args(
-            text, receipts=loop._receipts, history=loop.memory.messages
-        )
+        inj = draft_agenda_delete_args(text, receipts=loop._receipts, history=loop.memory.messages)
         await _think(loop, "inject  agenda delete")
         if loop._timer is not None:
             loop._timer.mark("exactness", gate="agenda_redirect", action="inject")

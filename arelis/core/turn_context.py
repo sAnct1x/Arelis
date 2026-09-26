@@ -41,9 +41,7 @@ class TurnContext:
     sources: list[tuple[str, str]] = field(default_factory=list)
     ledger: EvidenceLedger = field(default_factory=EvidenceLedger)
     exact_need: ExactnessNeed = field(
-        default_factory=lambda: ExactnessNeed(
-            False, False, False, False
-        )
+        default_factory=lambda: ExactnessNeed(False, False, False, False)
     )
 
     numeric_gate: bool = True

@@ -63,12 +63,8 @@ def test_per_host_burst_mutes_one_catalog() -> None:
 
 def test_snapshot_lists_bound_listeners() -> None:
     watch = Watch()
-    watch.register_listener(
-        Listener(name="ingest", host="0.0.0.0", port=8765, bind="lan")
-    )
-    watch.register_listener(
-        Listener(name="ipc", host="127.0.0.1", port=8766, bind="loopback")
-    )
+    watch.register_listener(Listener(name="ingest", host="0.0.0.0", port=8765, bind="lan"))
+    watch.register_listener(Listener(name="ipc", host="127.0.0.1", port=8766, bind="loopback"))
     text = watch.snapshot().as_text()
     assert "ingest" in text and ":8765" in text
     assert "ipc" in text and "loopback" in text
@@ -105,9 +101,7 @@ def test_disabled_watch_admits_everything() -> None:
 @pytest.mark.asyncio
 async def test_watch_tool_reports_the_snapshot() -> None:
     reset_watch()
-    get_watch().register_listener(
-        Listener(name="ingest", host="0.0.0.0", port=8765, bind="lan")
-    )
+    get_watch().register_listener(Listener(name="ingest", host="0.0.0.0", port=8765, bind="lan"))
     result = await WatchTool().run()
     assert result.ok
     assert "Watch:" in result.output
@@ -119,8 +113,6 @@ def test_attach_watch_reads_config() -> None:
 
     reset_watch()
     bus = EventBus()
-    watch = attach_watch(
-        bus, {"agent": {"watch": {"enabled": True, "inbound_burst": 7}}}
-    )
+    watch = attach_watch(bus, {"agent": {"watch": {"enabled": True, "inbound_burst": 7}}})
     assert watch.enabled
     assert watch.inbound_burst == 7

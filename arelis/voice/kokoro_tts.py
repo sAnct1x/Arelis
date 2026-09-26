@@ -5,6 +5,7 @@ of the process so sentence two does not pay a model load, and it does not touch
 the GPU (Ollama owns that). G2P is espeak-ng via phonemizer-fork (the same
 stack Kokoro ONNX was exported with), so Windows does not need spaCy.
 """
+
 from __future__ import annotations
 
 import logging
@@ -29,8 +30,7 @@ _MODEL_URL = (
     "model-files-v1.0/kokoro-v1.0.onnx"
 )
 _VOICES_URL = (
-    "https://github.com/thewh1teagle/kokoro-onnx/releases/download/"
-    "model-files-v1.0/voices-v1.0.bin"
+    "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin"
 )
 
 # Piper spells the name so Jenny does not say "airelyse". Espeak sees Arelis.
@@ -39,22 +39,120 @@ _ARELIS = re.compile(r"(?i)\b(?:Airelyse|Airelis|Ahrelis)\b")
 
 # Kokoro v1 token map (hexgrad / kokoro-onnx config.json). Unknown glyphs drop.
 _VOCAB: dict[str, int] = {
-    ";": 1, ":": 2, ",": 3, ".": 4, "!": 5, "?": 6, "—": 9, "…": 10,
-    '"': 11, "(": 12, ")": 13, "“": 14, "”": 15, " ": 16, "\u0303": 17,
-    "ʣ": 18, "ʥ": 19, "ʦ": 20, "ʨ": 21, "ᵝ": 22, "\uab67": 23,
-    "A": 24, "I": 25, "O": 31, "Q": 33, "S": 35, "T": 36, "W": 39, "Y": 41,
-    "ᵊ": 42, "a": 43, "b": 44, "c": 45, "d": 46, "e": 47, "f": 48, "h": 50,
-    "i": 51, "j": 52, "k": 53, "l": 54, "m": 55, "n": 56, "o": 57, "p": 58,
-    "q": 59, "r": 60, "s": 61, "t": 62, "u": 63, "v": 64, "w": 65, "x": 66,
-    "y": 67, "z": 68, "ɑ": 69, "ɐ": 70, "ɒ": 71, "æ": 72, "β": 75, "ɔ": 76,
-    "ɕ": 77, "ç": 78, "ɖ": 80, "ð": 81, "ʤ": 82, "ə": 83, "ɚ": 85, "ɛ": 86,
-    "ɜ": 87, "ɟ": 90, "ɡ": 92, "ɥ": 99, "ɨ": 101, "ɪ": 102, "ʝ": 103,
-    "ɯ": 110, "ɰ": 111, "ŋ": 112, "ɳ": 113, "ɲ": 114, "ɴ": 115, "ø": 116,
-    "ɸ": 118, "θ": 119, "œ": 120, "ɹ": 123, "ɾ": 125, "ɻ": 126, "ʁ": 128,
-    "ɽ": 129, "ʂ": 130, "ʃ": 131, "ʈ": 132, "ʧ": 133, "ʊ": 135, "ʋ": 136,
-    "ʌ": 138, "ɣ": 139, "ɤ": 140, "χ": 142, "ʎ": 143, "ʒ": 147, "ʔ": 148,
-    "ˈ": 156, "ˌ": 157, "ː": 158, "ʰ": 162, "ʲ": 164, "↓": 169, "→": 171,
-    "↗": 172, "↘": 173, "ᵻ": 177,
+    ";": 1,
+    ":": 2,
+    ",": 3,
+    ".": 4,
+    "!": 5,
+    "?": 6,
+    "—": 9,
+    "…": 10,
+    '"': 11,
+    "(": 12,
+    ")": 13,
+    "“": 14,
+    "”": 15,
+    " ": 16,
+    "\u0303": 17,
+    "ʣ": 18,
+    "ʥ": 19,
+    "ʦ": 20,
+    "ʨ": 21,
+    "ᵝ": 22,
+    "\uab67": 23,
+    "A": 24,
+    "I": 25,
+    "O": 31,
+    "Q": 33,
+    "S": 35,
+    "T": 36,
+    "W": 39,
+    "Y": 41,
+    "ᵊ": 42,
+    "a": 43,
+    "b": 44,
+    "c": 45,
+    "d": 46,
+    "e": 47,
+    "f": 48,
+    "h": 50,
+    "i": 51,
+    "j": 52,
+    "k": 53,
+    "l": 54,
+    "m": 55,
+    "n": 56,
+    "o": 57,
+    "p": 58,
+    "q": 59,
+    "r": 60,
+    "s": 61,
+    "t": 62,
+    "u": 63,
+    "v": 64,
+    "w": 65,
+    "x": 66,
+    "y": 67,
+    "z": 68,
+    "ɑ": 69,
+    "ɐ": 70,
+    "ɒ": 71,
+    "æ": 72,
+    "β": 75,
+    "ɔ": 76,
+    "ɕ": 77,
+    "ç": 78,
+    "ɖ": 80,
+    "ð": 81,
+    "ʤ": 82,
+    "ə": 83,
+    "ɚ": 85,
+    "ɛ": 86,
+    "ɜ": 87,
+    "ɟ": 90,
+    "ɡ": 92,
+    "ɥ": 99,
+    "ɨ": 101,
+    "ɪ": 102,
+    "ʝ": 103,
+    "ɯ": 110,
+    "ɰ": 111,
+    "ŋ": 112,
+    "ɳ": 113,
+    "ɲ": 114,
+    "ɴ": 115,
+    "ø": 116,
+    "ɸ": 118,
+    "θ": 119,
+    "œ": 120,
+    "ɹ": 123,
+    "ɾ": 125,
+    "ɻ": 126,
+    "ʁ": 128,
+    "ɽ": 129,
+    "ʂ": 130,
+    "ʃ": 131,
+    "ʈ": 132,
+    "ʧ": 133,
+    "ʊ": 135,
+    "ʋ": 136,
+    "ʌ": 138,
+    "ɣ": 139,
+    "ɤ": 140,
+    "χ": 142,
+    "ʎ": 143,
+    "ʒ": 147,
+    "ʔ": 148,
+    "ˈ": 156,
+    "ˌ": 157,
+    "ː": 158,
+    "ʰ": 162,
+    "ʲ": 164,
+    "↓": 169,
+    "→": 171,
+    "↗": 172,
+    "↘": 173,
+    "ᵻ": 177,
 }
 
 _NO_G2P = (
@@ -62,8 +160,7 @@ _NO_G2P = (
     'Run: pip install -e ".[voice]"  (inside the Arelis virtualenv).'
 )
 _NO_ORT = (
-    "Kokoro TTS needs onnxruntime. "
-    'Run: pip install -e ".[voice]"  (inside the Arelis virtualenv).'
+    'Kokoro TTS needs onnxruntime. Run: pip install -e ".[voice]"  (inside the Arelis virtualenv).'
 )
 
 
@@ -141,9 +238,7 @@ class KokoroSynthesizer:
             raise KokoroUnavailableError(_NO_ORT)
         if not g2p_available():
             raise KokoroUnavailableError(_NO_G2P)
-        ensure_kokoro_files(
-            self.model_path, self.voices_path, allow_download=self.allow_download
-        )
+        ensure_kokoro_files(self.model_path, self.voices_path, allow_download=self.allow_download)
         import onnxruntime as ort
 
         opts = ort.SessionOptions()
@@ -230,9 +325,7 @@ def _phonemize(text: str, lang: str) -> str:
     import phonemizer
 
     _configure_espeak()
-    raw = phonemizer.phonemize(
-        text, lang, preserve_punctuation=True, with_stress=True
-    )
+    raw = phonemizer.phonemize(text, lang, preserve_punctuation=True, with_stress=True)
     return str(raw or "")
 
 

@@ -73,11 +73,7 @@ def search_address(query: str, *, limit: int = 5, force: bool = False) -> list[G
     with _lock:
         cached = _cache.get(key)
     if cached is not None:
-        return [
-            hit
-            for hit in cached
-            if abs(hit.lat) >= 1e-5 or abs(hit.lon) >= 1e-5
-        ][:limit]
+        return [hit for hit in cached if abs(hit.lat) >= 1e-5 or abs(hit.lon) >= 1e-5][:limit]
     if not force and not looks_like_address(query):
         return []
     if os.environ.get("PYTEST_CURRENT_TEST"):

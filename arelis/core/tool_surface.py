@@ -71,8 +71,7 @@ def cap_to_room(available_all: set[str], active_room: Any) -> set[str]:
         return available_all
     if missing:
         log.warning(
-            "Room %r limits tools to %s, but %s %s not installed and will be "
-            "ignored.",
+            "Room %r limits tools to %s, but %s %s not installed and will be ignored.",
             getattr(active_room, "name", "?"),
             ", ".join(sorted(named)),
             ", ".join(sorted(missing)),

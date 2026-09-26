@@ -19,10 +19,7 @@ from PIL import Image
 
 from arelis.paths import models_dir
 
-_NASA3D = (
-    "https://raw.githubusercontent.com/nasa/NASA-3D-Resources/master/"
-    "Images%20and%20Textures"
-)
+_NASA3D = "https://raw.githubusercontent.com/nasa/NASA-3D-Resources/master/Images%20and%20Textures"
 _MAX_EDGE = 2048
 _EARTH_HI_EDGE = 8192
 _MIN_W, _MIN_H = 256, 128
@@ -30,8 +27,7 @@ EARTH_HI_FILE = "earth_8192.jpg"
 EARTH_HI_SOURCE = "NASA Visible Earth Blue Marble (land_shallow_topo_8192)"
 EARTH_HI_KM = 5.0
 EARTH_HI_URL = (
-    "https://eoimages.gsfc.nasa.gov/images/imagerecords/57000/"
-    "57752/land_shallow_topo_8192.tif"
+    "https://eoimages.gsfc.nasa.gov/images/imagerecords/57000/57752/land_shallow_topo_8192.tif"
 )
 
 
@@ -47,15 +43,13 @@ MAPS: dict[str, tuple[str, str, float, str]] = {
         "earth.jpg",
         "NASA Visible Earth Blue Marble (land_shallow_topo_2048)",
         20.0,
-        "https://eoimages.gsfc.nasa.gov/images/imagerecords/57000/"
-        "57752/land_shallow_topo_2048.jpg",
+        "https://eoimages.gsfc.nasa.gov/images/imagerecords/57000/57752/land_shallow_topo_2048.jpg",
     ),
     "Moon": (
         "moon.jpg",
         "NASA SVS LRO color mosaic ~1k",
         11.0,
-        "https://svs.gsfc.nasa.gov/vis/a000000/a004700/a004720/"
-        "lroc_color_poles_1k.jpg",
+        "https://svs.gsfc.nasa.gov/vis/a000000/a004700/a004720/lroc_color_poles_1k.jpg",
     ),
     "Mercury": (
         "mercury.jpg",
@@ -274,9 +268,7 @@ def write_surface_map(
         field += 0.022 * np.sin(lat * 8.0 + seed * 0.1)
         pole = np.clip((np.abs(lat) - 0.72) / 0.85, 0.0, 1.0)
         field += 0.055 * pole * pole
-        color = np.clip(
-            np.array(rgb, dtype=np.float32) * field[..., None], 0, 255
-        ).astype(np.uint8)
+        color = np.clip(np.array(rgb, dtype=np.float32) * field[..., None], 0, 255).astype(np.uint8)
     else:
         field = np.zeros((height, width), dtype=np.float32)
         for freq, amp, phase in (
@@ -287,9 +279,9 @@ def write_surface_map(
             field += amp * np.sin(freq * lon + phase) * np.cos((freq * 0.45) * lat + phase)
         field = 0.62 + 0.38 * np.tanh(field)
         scale = max(float(albedo), 0.04) / 0.18
-        color = np.clip(
-            np.array(rgb, dtype=np.float32) * field[..., None] * scale, 0, 255
-        ).astype(np.uint8)
+        color = np.clip(np.array(rgb, dtype=np.float32) * field[..., None] * scale, 0, 255).astype(
+            np.uint8
+        )
     dest.parent.mkdir(parents=True, exist_ok=True)
     Image.fromarray(color, mode="RGB").save(dest, "JPEG", quality=86)
 
@@ -459,9 +451,7 @@ def download_maps() -> tuple[list[str], list[str]]:
         return saved, errors
     import httpx
 
-    headers = {
-        "User-Agent": "Arelis/research (NASA public-domain albedo; personal lab)"
-    }
+    headers = {"User-Agent": "Arelis/research (NASA public-domain albedo; personal lab)"}
     with httpx.Client(timeout=120.0, follow_redirects=True, headers=headers) as client:
         for body, url in todo:
             dest = map_path(body)
@@ -491,9 +481,7 @@ def download_maps() -> tuple[list[str], list[str]]:
                 if response.status_code >= 400:
                     errors.append(f"Earth-8192: HTTP {response.status_code}")
                 else:
-                    err = _store_image(
-                        hi_dest, response.content, max_edge=_EARTH_HI_EDGE
-                    )
+                    err = _store_image(hi_dest, response.content, max_edge=_EARTH_HI_EDGE)
                     if err:
                         errors.append(f"Earth-8192: {err}")
                     else:

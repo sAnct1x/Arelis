@@ -20,10 +20,7 @@ from arelis.earth.frames import lla_to_ecef
 
 # Same files as davidmegginson.github.io/ourairports-data/. GitHub raw is
 # already an egress pin (release assets). Do not add a second host.
-AIRPORTS_CSV = (
-    "https://raw.githubusercontent.com/davidmegginson/ourairports-data/"
-    "main/airports.csv"
-)
+AIRPORTS_CSV = "https://raw.githubusercontent.com/davidmegginson/ourairports-data/main/airports.csv"
 AIRPORTS_HOST = "raw.githubusercontent.com"
 _UA = f"Arelis/{__version__} (+{__source_url__})"
 

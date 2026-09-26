@@ -13,12 +13,11 @@ import numpy as np
 from arelis.physics.parker import shue_standoff
 
 
-def earth_standoff_m(
-    p_npa: float, re: float, *, bz_nt: float = 0.0
-) -> tuple[float, float, float]:
+def earth_standoff_m(p_npa: float, re: float, *, bz_nt: float = 0.0) -> tuple[float, float, float]:
     """Shue 1998 r0 in metres, r0 in Re, and flaring α."""
     r0_re, alpha = shue_standoff(float(p_npa), bz_nt=float(bz_nt))
     return r0_re * max(float(re), 1.0), r0_re, alpha
+
 
 # Nose-to-flank. Shue blows up toward the tail; keep the dayside + flanks.
 THETA_MAX = math.radians(120.0)

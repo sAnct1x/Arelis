@@ -71,9 +71,7 @@ def _seed_overdue(path: Path, *, fired: bool = False) -> None:
 async def test_tool_run_in_is_due_after_travel_forward(tmp_path: Path) -> None:
     """Mutant: due_now compares with == and a later now misses it."""
     tool = _tool(tmp_path)
-    created = await tool.run(
-        action="in", minutes=20, message="take the pizza out"
-    )
+    created = await tool.run(action="in", minutes=20, message="take the pizza out")
     assert created.ok, created.output
     assert created.data["kind"] == KIND
     assert created.data["message"] == "take the pizza out"
@@ -200,9 +198,7 @@ async def test_zero_and_negative_delay_fail(tmp_path: Path) -> None:
 async def test_tool_run_is_actually_called(tmp_path: Path) -> None:
     """Mutant: the suite only hits ReminderStore and run() is a stub."""
     tool = _tool(tmp_path)
-    created = await tool.run(
-        action="in", hours=1, text="walk the dog"
-    )
+    created = await tool.run(action="in", hours=1, text="walk the dog")
     assert created.ok, created.output
     assert "walk the dog" in created.output
     assert created.data["kind"] == KIND
@@ -249,9 +245,7 @@ async def test_at_past_and_beyond_seven_days_fail(tmp_path: Path) -> None:
     assert "schedule" in long.output.lower()
     assert "agenda" in long.output.lower()
 
-    delay = await tool.run(
-        action="in", minutes=MAX_DELAY_DAYS * 24 * 60 + 1, message="nope"
-    )
+    delay = await tool.run(action="in", minutes=MAX_DELAY_DAYS * 24 * 60 + 1, message="nope")
     assert not delay.ok
     assert "schedule" in delay.output.lower()
     assert "agenda" in delay.output.lower()
@@ -300,7 +294,9 @@ async def test_write_actions_are_in_at_cancel() -> None:
 
 
 @pytest.mark.asyncio
-async def test_default_path_is_under_user_data(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_default_path_is_under_user_data(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setenv("ARELIS_DATA_DIR", str(tmp_path))
     path = default_reminders_path()
     assert path == tmp_path / "data" / "reminders.json"

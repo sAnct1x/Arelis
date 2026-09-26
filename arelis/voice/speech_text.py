@@ -11,6 +11,7 @@ interrupt, not by cutting the text: see the sentence queue in the voice service,
 which starts speaking after the first sentence and can be abandoned mid-answer.
 max_chars stays available as a runaway guard and is off unless configured.
 """
+
 from __future__ import annotations
 
 import re
@@ -58,8 +59,24 @@ _ARELIS_SPOKEN = "Uh-rell-iss"
 # abbreviations from splitting mid-sentence, which would make the synthesizer
 # drop a full stop's worth of silence into the middle of a clause.
 _ABBREVIATIONS = {
-    "dr", "mr", "mrs", "ms", "prof", "st", "vs", "etc", "e.g", "i.e", "fig",
-    "no", "approx", "al", "inc", "ltd", "jr", "sr",
+    "dr",
+    "mr",
+    "mrs",
+    "ms",
+    "prof",
+    "st",
+    "vs",
+    "etc",
+    "e.g",
+    "i.e",
+    "fig",
+    "no",
+    "approx",
+    "al",
+    "inc",
+    "ltd",
+    "jr",
+    "sr",
 }
 _SENTENCE_END = re.compile(r"(?<=[.!?])[\"')\]]*\s+")
 
@@ -140,9 +157,7 @@ def _sentence_complete(chunk: str) -> bool:
     return bool(trailing) and trailing[-1:] in ".!?" and not _ends_on_abbreviation(trailing)
 
 
-def next_speakable_units(
-    prepared: str, already: int, *, finalize: bool
-) -> tuple[list[str], int]:
+def next_speakable_units(prepared: str, already: int, *, finalize: bool) -> tuple[list[str], int]:
     """Return new clips and how many sentences have now been handed off.
 
     `already` is a sentence count, not a clip count. The first sentence
@@ -167,12 +182,7 @@ def next_speakable_units(
     # Later leftovers can wait for a neighbor. The first sentence of a
     # reply has to start now — holding it until finalize is how the
     # whole answer types out and she sits silent until Kokoro gets it.
-    if (
-        not finalize
-        and already > 0
-        and len(pending) == 1
-        and len(pending[0]) < _SHORT_CLIP_CHARS
-    ):
+    if not finalize and already > 0 and len(pending) == 1 and len(pending[0]) < _SHORT_CLIP_CHARS:
         return [], already
 
     clips: list[str] = []

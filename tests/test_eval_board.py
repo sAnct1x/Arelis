@@ -90,9 +90,7 @@ def test_forbidden_tools_are_never_also_expected() -> None:
 @pytest.fixture(scope="module")
 def registered() -> set[str]:
     router = SimpleNamespace(provider=SimpleNamespace(list_models=None))
-    registry = build_tool_registry(
-        load_config(), allow_send=True, attended=True, router=router
-    )
+    registry = build_tool_registry(load_config(), allow_send=True, attended=True, router=router)
     return set(registry.names())
 
 
@@ -129,11 +127,7 @@ def test_the_skill_retrieval_board_passes() -> None:
     from arelis.eval.skill_retrieval import run_retrieval_board
 
     board = run_retrieval_board()
-    failed = [
-        f"{c['id']}: {'; '.join(c['reasons'])}"
-        for c in board["cases"]
-        if not c["ok"]
-    ]
+    failed = [f"{c['id']}: {'; '.join(c['reasons'])}" for c in board["cases"] if not c["ok"]]
     assert not failed, "skill retrieval regressions:\n  " + "\n  ".join(failed)
     assert board["passed"] == board["total"]
     assert board["total"] == SKILL_RETRIEVAL_TOTAL

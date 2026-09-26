@@ -33,11 +33,7 @@ def create_fingerprint(provider: Any, summary: Any, start: Any) -> str:
                 slot = event_slot_key(dt)
         except ValueError:
             pass
-    return (
-        f"{str(provider or '').strip().lower()}|"
-        f"{str(summary or '').strip().casefold()}|"
-        f"{slot}"
-    )
+    return f"{str(provider or '').strip().lower()}|{str(summary or '').strip().casefold()}|{slot}"
 
 
 def same_event_slot(

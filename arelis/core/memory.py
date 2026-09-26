@@ -11,19 +11,11 @@ from arelis.core.context import DEFAULT_CHARS_PER_TOKEN, estimate_tokens
 # a cancelled homework dump — she then said the derivation was not in the
 # session while it was still on screen. Sends stay redacted; other asks stay
 # visible and marked stopped.
-_STOPPED_NOTE = (
-    "[Stopped. Visible in chat. Do not resume unless they clearly ask to continue.]"
-)
-_STOPPED_SEND_NOTE = (
-    "[Stopped a send. Do not send it. They cancelled that message.]"
-)
+_STOPPED_NOTE = "[Stopped. Visible in chat. Do not resume unless they clearly ask to continue.]"
+_STOPPED_SEND_NOTE = "[Stopped a send. Do not send it. They cancelled that message.]"
 _PHONE_IN_ASK = re.compile(r"(?:\+?1[-.\s]*)?\b\d{3}[-.\s]*\d{3}[-.\s]*\d{4}\b")
-_SEND_ASK_START = re.compile(
-    r"(?i)^\s*(?:please\s+)?(?:text|sms|imessage|email|mail)\s+"
-)
-_SEND_ASK_VERB = re.compile(
-    r"(?i)\bsend\s+(?:an?\s+)?(?:text|sms|email|mail|message)\b"
-)
+_SEND_ASK_START = re.compile(r"(?i)^\s*(?:please\s+)?(?:text|sms|imessage|email|mail)\s+")
+_SEND_ASK_VERB = re.compile(r"(?i)\bsend\s+(?:an?\s+)?(?:text|sms|email|mail|message)\b")
 
 # Argument names worth recording in a trace line, most specific first.
 _TRACE_KEYS = ("path", "url", "prompt", "query")

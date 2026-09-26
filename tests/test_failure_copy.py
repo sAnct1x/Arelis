@@ -114,9 +114,7 @@ def test_calculator_filler_does_not_count_as_stating_the_result() -> None:
     from arelis.core.failure_copy import reply_states_algebra_result
 
     out = "1+1 = 2"
-    assert not reply_states_algebra_result(
-        "Easy enough. What's next?", "calculator", out
-    )
+    assert not reply_states_algebra_result("Easy enough. What's next?", "calculator", out)
     assert not reply_states_algebra_result("What's next?", "calculator", "14-6 = 8")
     assert reply_states_algebra_result("1+1 = 2. Easy enough.", "calculator", out)
     assert reply_states_algebra_result("2", "calculator", out)
@@ -127,10 +125,7 @@ def test_calculator_filler_does_not_count_as_stating_the_result() -> None:
 def test_calculator_chat_drops_the_exact_fraction_dump() -> None:
     from arelis.core.failure_copy import chat_followup_from_tool, pretty_calculator_chat
 
-    raw = (
-        "((349.54 - 287.20) / 287.20) * 100 = 21.706128133704734 "
-        "(exactly 15585/718)"
-    )
+    raw = "((349.54 - 287.20) / 287.20) * 100 = 21.706128133704734 (exactly 15585/718)"
     chat = pretty_calculator_chat(raw)
     assert "15585" not in chat
     assert "21.706128" not in chat
@@ -200,10 +195,8 @@ def test_long_scrape_nudges_a_write_short_fact_does_not() -> None:
     price = "NASDAQ:SPCX last $143.34"
     assert not should_nudge_write_after_page("scrape", price)
     assert not should_nudge_write_after_page("agenda", "Created on google: lab")
-    article = (
-        "# What is Single Crystal Piezo or PMN-PT?\n"
-        "Site: piezo.com\n"
-        + ("PMN-PT single crystals have a high d33. " * 20)
+    article = "# What is Single Crystal Piezo or PMN-PT?\nSite: piezo.com\n" + (
+        "PMN-PT single crystals have a high d33. " * 20
     )
     assert should_nudge_write_after_page("scrape", article)
 

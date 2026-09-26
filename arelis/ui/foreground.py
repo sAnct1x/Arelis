@@ -34,10 +34,7 @@ def process_owns_foreground() -> bool:
             from PySide6.QtCore import Qt
             from PySide6.QtGui import QGuiApplication
 
-            return (
-                QGuiApplication.applicationState()
-                == Qt.ApplicationState.ApplicationActive
-            )
+            return QGuiApplication.applicationState() == Qt.ApplicationState.ApplicationActive
         except Exception:
             return True
     try:

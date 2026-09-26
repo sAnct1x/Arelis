@@ -38,9 +38,7 @@ def maps_directions_url(
     orig = (origin or "").strip()
     if orig:
         params["origin"] = orig
-    return "https://www.google.com/maps/dir/?" + urlencode(
-        params, quote_via=quote_plus
-    )
+    return "https://www.google.com/maps/dir/?" + urlencode(params, quote_via=quote_plus)
 
 
 def maps_phone_link(destination: str, *, mode: str = "driving") -> str:

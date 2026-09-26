@@ -84,9 +84,7 @@ class ModelRouter:
         # answers about a file it never actually saw.
         self.options = dict(options or {})
         # Optional per-role overrides (e.g. research_num_ctx: 8192).
-        self.role_num_ctx = {
-            str(k): int(v) for k, v in (role_num_ctx or {}).items() if v
-        }
+        self.role_num_ctx = {str(k): int(v) for k, v in (role_num_ctx or {}).items() if v}
         self.active_role: ModelRole | None = None
         self.active_model: str | None = None
         # True after `/role research` until 14B starts (or we recover to 7B).
@@ -184,9 +182,7 @@ class ModelRouter:
         self._sticky_role = role
         self._sticky_until = time.monotonic() + self.sticky_hold_s
 
-    def apply_sticky(
-        self, wanted: ModelRole, reason: str
-    ) -> tuple[ModelRole, str]:
+    def apply_sticky(self, wanted: ModelRole, reason: str) -> tuple[ModelRole, str]:
         """Absorb fast/default downgrades while a heavy model is sticky.
 
         File/git work stays on fast (same weights plus skills). Only the
@@ -232,9 +228,7 @@ class ModelRouter:
     async def _evict_others(self, *, keep: str | None) -> None:
         """Unload every resident chat model except `keep`, then wait for /api/ps."""
         names: set[str] = set()
-        if self.active_model and not (
-            keep and same_ollama_model(self.active_model, keep)
-        ):
+        if self.active_model and not (keep and same_ollama_model(self.active_model, keep)):
             names.add(self.active_model)
         running_fn = getattr(self.provider, "running_models", None)
         if callable(running_fn):
@@ -279,9 +273,7 @@ class ModelRouter:
                     log.warning("Could not re-list running Ollama models: %s", exc)
                     leftover = []
                 if leftover:
-                    raise RuntimeError(
-                        _VRAM_STUCK_NOTICE.format(still=", ".join(leftover))
-                    )
+                    raise RuntimeError(_VRAM_STUCK_NOTICE.format(still=", ".join(leftover)))
         heavy_models = {
             self.model_for(role)  # type: ignore[arg-type]
             for role in _HEAVY_ROLES
@@ -551,9 +543,7 @@ class ModelRouter:
         try:
             if first_token_s > 0:
                 try:
-                    first = await asyncio.wait_for(
-                        agen.__anext__(), timeout=first_token_s
-                    )
+                    first = await asyncio.wait_for(agen.__anext__(), timeout=first_token_s)
                 except StopAsyncIteration:
                     return
                 except TimeoutError:
@@ -567,9 +557,7 @@ class ModelRouter:
                         )
                     self.active_model = None
                     raise RuntimeError(
-                        _VRAM_LOCK_NOTICE.format(
-                            model=model, seconds=first_token_s
-                        )
+                        _VRAM_LOCK_NOTICE.format(model=model, seconds=first_token_s)
                     ) from None
                 yield first
             async for item in agen:

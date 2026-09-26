@@ -24,9 +24,7 @@ from arelis.paths import logs_dir
 
 DEFAULT_TURNS_LOG = logs_dir() / "turns.log"
 
-_TOOL_LINE = re.compile(
-    r"\btool\b.*?\bname=(?P<name>[^\s]+).*?\bok=(?P<ok>[01])\b"
-)
+_TOOL_LINE = re.compile(r"\btool\b.*?\bname=(?P<name>[^\s]+).*?\bok=(?P<ok>[01])\b")
 _DONE_LINE = re.compile(
     r"\bdone\b.*?\bstatus=(?P<status>\S+).*?\brounds=(?P<rounds>\d+)"
     r".*?\btools=(?P<tools>\S+)"
@@ -94,9 +92,7 @@ _CATALOG: dict[str, dict[str, Any]] = {
     },
 }
 
-_EXACTNESS_LINE = re.compile(
-    r"\bexactness\b.*?\bgate=(?P<gate>\S+)"
-)
+_EXACTNESS_LINE = re.compile(r"\bexactness\b.*?\bgate=(?P<gate>\S+)")
 _ROUTING_GAP_LINE = re.compile(
     r"\brouting_gap\b.*?\bexpected=(?P<expected>\S+).*?\bused=(?P<used>\S+)"
 )
@@ -252,9 +248,7 @@ def mine_turns_log(
     lessons_path = lessons_path or DEFAULT_LESSONS_PATH
     text = _read_tail(log_path, max_bytes=max_bytes)
     fails, oks, lines, exact_gates, routing_gaps = parse_turns_log(text)
-    proposed = propose_lesson_ids(
-        fails, exactness_gates=exact_gates, routing_gaps=routing_gaps
-    )
+    proposed = propose_lesson_ids(fails, exactness_gates=exact_gates, routing_gaps=routing_gaps)
     loaded = {lesson.id for lesson in load_lessons(lessons_path)}
     already = tuple(lid for lid in proposed if lid in loaded)
     appended: list[str] = []

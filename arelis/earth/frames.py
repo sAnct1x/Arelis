@@ -27,6 +27,7 @@ class EarthCam:
     look: tuple[float, float, float]
     up: tuple[float, float, float]
 
+
 # WGS84. Sketch geoid: spherical labels, ellipsoidal radius for height.
 WGS84_A = 6_378_137.0
 WGS84_F = 1.0 / 298.257223563
@@ -150,9 +151,7 @@ def earth_spin_jd(system_epoch_jd: float, system_t: float) -> float:
     return spin_jd(system_epoch_jd, system_t)
 
 
-def teme_to_ecef(
-    teme: tuple[float, float, float], jd: float
-) -> tuple[float, float, float]:
+def teme_to_ecef(teme: tuple[float, float, float], jd: float) -> tuple[float, float, float]:
     """TEME metres → ECEF metres. GMST only; no polar motion. Globe pins, not IERS."""
     theta = gmst_rad(jd)
     c, s = math.cos(theta), math.sin(theta)
@@ -260,13 +259,13 @@ def capture_earth_cam(cam, earth_xyz: tuple[float, float, float], jd: float) -> 
     ex, ey, ez = earth_xyz
     eye = ecliptic_offset_to_ecef((cam.x - ex, cam.y - ey, cam.z - ez), jd)
     fx, fy, fz = cam.forward()
-    dist = float(cam.distance) if cam.distance > 1.0 else math.hypot(
-        cam.x - ex, cam.y - ey, cam.z - ez
+    dist = (
+        float(cam.distance)
+        if cam.distance > 1.0
+        else math.hypot(cam.x - ex, cam.y - ey, cam.z - ez)
     )
     look_ecl = (cam.x + fx * dist, cam.y + fy * dist, cam.z + fz * dist)
-    look = ecliptic_offset_to_ecef(
-        (look_ecl[0] - ex, look_ecl[1] - ey, look_ecl[2] - ez), jd
-    )
+    look = ecliptic_offset_to_ecef((look_ecl[0] - ex, look_ecl[1] - ey, look_ecl[2] - ez), jd)
     up = ecliptic_offset_to_ecef(cam.up, jd)
     return EarthCam(eye=eye, look=look, up=up)
 

@@ -91,9 +91,7 @@ def _sms_config(port: int) -> dict[str, Any]:
 # --------------------------------------------------------------- who am I
 
 
-def test_two_data_roots_are_two_instances(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_two_data_roots_are_two_instances(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """A copy of Arelis is its data root, so two roots are two copies.
 
     Derived rather than stored, so there is no file to be missing on a read-only
@@ -147,7 +145,7 @@ def test_the_preferred_port_comes_first() -> None:
 
 
 def test_port_zero_is_left_alone() -> None:
-    """"Let the OS choose" cannot collide, so scanning would be nonsense.
+    """ "Let the OS choose" cannot collide, so scanning would be nonsense.
 
     Without this it would expand to ports 1 to 6, which are privileged.
     """

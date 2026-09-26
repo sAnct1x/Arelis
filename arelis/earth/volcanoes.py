@@ -63,12 +63,7 @@ def _entity_from_feat(feat: dict[str, Any]) -> Entity | None:
         return None
     if abs(lat) > 90.0 or abs(lon) > 180.0:
         return None
-    vid = str(
-        props.get("volcanoId")
-        or props.get("id")
-        or feat.get("id")
-        or ""
-    ).strip()
+    vid = str(props.get("volcanoId") or props.get("id") or feat.get("id") or "").strip()
     name = str(props.get("volcanoName") or props.get("name") or vid).strip()
     alert = str(props.get("alertLevel") or props.get("colorCode") or "").strip()
     if not vid and not name:
@@ -109,7 +104,5 @@ def _num(value: Any) -> float | None:
 def _get_json() -> dict[str, Any] | None:
     from arelis.earth.http import get_json
 
-    data = get_json(
-        VOLCANOES, VOLCANOES_HOST, timeout=_TIMEOUT, headers={"User-Agent": _UA}
-    )
+    data = get_json(VOLCANOES, VOLCANOES_HOST, timeout=_TIMEOUT, headers={"User-Agent": _UA})
     return data if isinstance(data, dict) else None

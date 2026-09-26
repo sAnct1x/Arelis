@@ -52,9 +52,7 @@ async def test_the_ask_that_had_no_tool(project, tool) -> None:
     root, _data, _ws = project
     _write(root / "shot.png", (2560, 1440))
 
-    result = await tool.run(
-        path="project:shot.png", preset="youtube_thumbnail", vibrance=1.3
-    )
+    result = await tool.run(path="project:shot.png", preset="youtube_thumbnail", vibrance=1.3)
 
     assert result.ok, result.output
     assert result.data["result_px"] == [1280, 720]
@@ -89,9 +87,7 @@ async def test_a_pasted_attachment_resolves_on_an_installed_layout(project, tool
     _root, data, _ws = project
     _write(data / "data" / "drops" / "20260817" / "paste.png", (1600, 900))
 
-    result = await tool.run(
-        path="data/drops/20260817/paste.png", preset="youtube_thumbnail"
-    )
+    result = await tool.run(path="data/drops/20260817/paste.png", preset="youtube_thumbnail")
 
     assert result.ok, result.output
     assert result.data["result_px"] == [1280, 720]
@@ -116,9 +112,7 @@ async def test_contain_pads_instead_of_cutting(project, tool) -> None:
     root, _data, _ws = project
     _write(root / "four-three.png", (1600, 1200))
 
-    result = await tool.run(
-        path="project:four-three.png", width=1280, height=720, fit="contain"
-    )
+    result = await tool.run(path="project:four-three.png", width=1280, height=720, fit="contain")
 
     assert result.ok
     assert result.data["cropped"] is False
@@ -130,9 +124,7 @@ async def test_stretch_distorts_on_request(project, tool) -> None:
     root, _data, _ws = project
     _write(root / "square.png", (1000, 1000))
 
-    result = await tool.run(
-        path="project:square.png", width=1280, height=720, fit="stretch"
-    )
+    result = await tool.run(path="project:square.png", width=1280, height=720, fit="stretch")
 
     assert result.ok
     assert result.data["cropped"] is False
@@ -304,9 +296,7 @@ def test_it_can_be_turned_off(project) -> None:
 def test_an_unattended_job_may_still_resize(project) -> None:
     """No model, no network, nobody to ask — unlike vision, which needs a person."""
     _root, _data, workspace = project
-    registry = build_tool_registry(
-        {"tools": {}, "agent": {}}, workspace, allow_send=False
-    )
+    registry = build_tool_registry({"tools": {}, "agent": {}}, workspace, allow_send=False)
 
     assert "image_edit" in registry.names()
     assert "vision" not in registry.names()
@@ -334,9 +324,7 @@ async def test_the_name_says_what_happened(project, tool) -> None:
     root, _data, _ws = project
     _write(root / "holiday.png", (2000, 1000))
 
-    result = await tool.run(
-        path="project:holiday.png", preset="youtube_thumbnail", vibrance=1.2
-    )
+    result = await tool.run(path="project:holiday.png", preset="youtube_thumbnail", vibrance=1.2)
 
     assert result.ok
     name = result.data["path"].rsplit("/", 1)[-1]
@@ -508,9 +496,7 @@ async def test_pixel_edits_leave_the_original_untouched(project, tool) -> None:
     source = _write(root / "keep.png", (80, 60), (90, 40, 20))
     before = source.read_bytes()
 
-    result = await tool.run(
-        path="project:keep.png", crop="center", scale=2, pad=4, warmth=0.5
-    )
+    result = await tool.run(path="project:keep.png", crop="center", scale=2, pad=4, warmth=0.5)
 
     assert result.ok, result.output
     assert source.read_bytes() == before

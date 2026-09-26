@@ -49,7 +49,7 @@ def test_solar_tools_dots_spawn_a_probe(qt_app) -> None:
     from arelis.physics.scene import SolarSystem
 
     if not rebound_available():
-        pytest.skip('REBOUND is not installed')
+        pytest.skip("REBOUND is not installed")
     set_system(SolarSystem.from_states(sun_and_planet(), tracers=0))
     panel = SolarPanel()
     panel.resize(640, 480)
@@ -99,9 +99,7 @@ def test_empty_solar_panel_opens_tools(qt_app) -> None:
     panel.hide()
 
 
-def test_open_solar_populates_then_fetches_horizons_once(
-    qt_app, monkeypatch, tmp_path
-) -> None:
+def test_open_solar_populates_then_fetches_horizons_once(qt_app, monkeypatch, tmp_path) -> None:
     from arelis.physics.engine import rebound_available
 
     monkeypatch.setenv("ARELIS_DATA_DIR", str(tmp_path))
@@ -159,9 +157,7 @@ def test_empty_caption_hides_http_dump(qt_app) -> None:
     panel.hide()
 
 
-def test_horizons_fail_populates_kepler_bootstrap(
-    qt_app, monkeypatch, tmp_path
-) -> None:
+def test_horizons_fail_populates_kepler_bootstrap(qt_app, monkeypatch, tmp_path) -> None:
     from arelis.physics.engine import rebound_available
     from arelis.tools.base import ToolResult
 
@@ -189,9 +185,7 @@ def test_horizons_fail_populates_kepler_bootstrap(
     set_system(None)
 
 
-def test_nearest_cache_fills_the_plate_when_jpl_is_busy(
-    qt_app, tmp_path, monkeypatch
-) -> None:
+def test_nearest_cache_fills_the_plate_when_jpl_is_busy(qt_app, tmp_path, monkeypatch) -> None:
     from arelis.physics.demo import sun_and_planet
     from arelis.physics.engine import rebound_available
     from arelis.physics.ic_store import save_cached
@@ -270,9 +264,7 @@ def test_mouse_drag_left_looks_left(qt_app) -> None:
     panel.mousePressEvent(_mouse(QEvent.Type.MouseButtonPress, 400, 200, grab=True))
     panel.mouseMoveEvent(_mouse(QEvent.Type.MouseButtonPress, 300, 200, grab=True))
     fx1, fy1, fz1 = panel.cam.forward()
-    assert (
-        (fx1 - fx0) * right0[0] + (fy1 - fy0) * right0[1] + (fz1 - fz0) * right0[2] < 0.0
-    )
+    assert (fx1 - fx0) * right0[0] + (fy1 - fy0) * right0[1] + (fz1 - fz0) * right0[2] < 0.0
     panel.hide()
     set_system(None)
 
@@ -349,7 +341,9 @@ def test_click_inspects_without_traveling(qt_app) -> None:
     assert (panel.cam.x, panel.cam.y, panel.cam.z) == eye0
     panel._travel_to("Earth")
     panel._finish_travel()
-    dist = ((panel.cam.x - earth.x) ** 2 + (panel.cam.y - earth.y) ** 2 + (panel.cam.z - earth.z) ** 2) ** 0.5
+    dist = (
+        (panel.cam.x - earth.x) ** 2 + (panel.cam.y - earth.y) ** 2 + (panel.cam.z - earth.z) ** 2
+    ) ** 0.5
     assert dist >= earth.radius * 2.5
     panel.hide()
     set_system(None)
@@ -406,18 +400,14 @@ def test_inspect_tile_travel_warps_the_camera(qt_app) -> None:
     qt_app.processEvents()
     eye0 = (panel.cam.x, panel.cam.y, panel.cam.z)
     hit = panel._inspect_travel_rect().center()
-    panel.mousePressEvent(
-        _mouse(QEvent.Type.MouseButtonPress, hit.x(), hit.y(), grab=True)
-    )
+    panel.mousePressEvent(_mouse(QEvent.Type.MouseButtonPress, hit.x(), hit.y(), grab=True))
     panel._finish_travel()
     system = get_system()
     assert system is not None
     earth = system.nbody.find("Earth")
     assert earth is not None
     dist = (
-        (panel.cam.x - earth.x) ** 2
-        + (panel.cam.y - earth.y) ** 2
-        + (panel.cam.z - earth.z) ** 2
+        (panel.cam.x - earth.x) ** 2 + (panel.cam.y - earth.y) ** 2 + (panel.cam.z - earth.z) ** 2
     ) ** 0.5
     assert dist >= earth.radius * 2.5
     assert (panel.cam.x, panel.cam.y, panel.cam.z) != eye0
@@ -474,9 +464,7 @@ def test_wasd_flies_the_camera(qt_app) -> None:
     panel.resize(640, 480)
     panel.show()
     qt_app.processEvents()
-    press = QKeyEvent(
-        QEvent.Type.KeyPress, Qt.Key.Key_W, Qt.KeyboardModifier.NoModifier
-    )
+    press = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_W, Qt.KeyboardModifier.NoModifier)
     panel.keyPressEvent(press)
     assert panel._held(Qt.Key.Key_W)
     eye0 = (panel.cam.x, panel.cam.y, panel.cam.z)
@@ -715,9 +703,7 @@ def test_home_returns_to_system_overview(qt_app) -> None:
     panel._travel_to("Earth")
     panel._finish_travel()
     near = (
-        (panel.cam.x - earth.x) ** 2
-        + (panel.cam.y - earth.y) ** 2
-        + (panel.cam.z - earth.z) ** 2
+        (panel.cam.x - earth.x) ** 2 + (panel.cam.y - earth.y) ** 2 + (panel.cam.z - earth.z) ** 2
     ) ** 0.5
     assert near < 1.0e9
     panel.keyPressEvent(

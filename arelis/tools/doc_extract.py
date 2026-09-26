@@ -153,9 +153,7 @@ class DocExtractTool:
             return self._extract_pptx(
                 path, display, resolved.root_name, page_start, page_end, max_chars
             )
-        return self._extract_pdf(
-            path, display, resolved.root_name, page_start, page_end, max_chars
-        )
+        return self._extract_pdf(path, display, resolved.root_name, page_start, page_end, max_chars)
 
     def _extract_docx(
         self,
@@ -397,8 +395,7 @@ class DocExtractTool:
                 f"Call again with page_start={cap_end + 2}."
             )
         listing = "\n".join(
-            f"  {item.page}: {dest_path}"
-            for item, dest_path in zip(pages, written, strict=True)
+            f"  {item.page}: {dest_path}" for item, dest_path in zip(pages, written, strict=True)
         )
         output = (
             f"path: {display}\n"
@@ -530,8 +527,7 @@ def _unsupported(path: Path, display: str) -> ToolResult:
         )
     return _fail(
         "unsupported",
-        f"Unsupported file type: {path.suffix or '(none)'} "
-        "(want .pdf, .docx, or .pptx)",
+        f"Unsupported file type: {path.suffix or '(none)'} (want .pdf, .docx, or .pptx)",
         path=display,
     )
 
@@ -575,9 +571,7 @@ def _tableish_note(layout_chunks: list[str], body: str) -> str:
     hits = [line for line in layout.splitlines() if _TABLEISH_LINE.search(line)]
     if len(hits) < 2:
         return ""
-    return (
-        "[extracted text — not a guaranteed table parse]\n" + layout
-    )
+    return "[extracted text — not a guaranteed table parse]\n" + layout
 
 
 def _page_bounds(
@@ -606,12 +600,7 @@ def _page_bounds(
 
 def build_simple_pdf_bytes(text: str) -> bytes:
     """Minimal one-page PDF with extractable Helvetica text (tests/fixtures)."""
-    safe = (
-        (text or " ")
-        .replace("\\", "\\\\")
-        .replace("(", "\\(")
-        .replace(")", "\\)")
-    )
+    safe = (text or " ").replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
     content = f"BT /F1 12 Tf 72 720 Td ({safe}) Tj ET"
     content_b = content.encode("latin-1", errors="replace")
 
@@ -641,7 +630,6 @@ def build_simple_pdf_bytes(text: str) -> bytes:
     for off in offsets[1:]:
         xref.append(f"{off:010d} 00000 n \n".encode("latin-1"))
     trailer = (
-        f"trailer\n<< /Size {len(offsets)} /Root 1 0 R >>\n"
-        f"startxref\n{xref_start}\n%%EOF\n"
+        f"trailer\n<< /Size {len(offsets)} /Root 1 0 R >>\nstartxref\n{xref_start}\n%%EOF\n"
     ).encode("latin-1")
     return header + body + b"".join(xref) + trailer

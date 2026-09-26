@@ -12,8 +12,7 @@ from arelis.physics.constants import AU_M, GM_SUN
 A_JUPITER_AU = 5.20336301
 # Mean-motion resonances n/n_J = p/q → a = a_J * (q/p)^(2/3)
 KIRKWOOD_AU: tuple[float, ...] = tuple(
-    A_JUPITER_AU * (q / p) ** (2.0 / 3.0)
-    for p, q in ((3, 1), (5, 2), (7, 3), (2, 1))
+    A_JUPITER_AU * (q / p) ** (2.0 / 3.0) for p, q in ((3, 1), (5, 2), (7, 3), (2, 1))
 )
 GAP_WIDTH_AU = 0.045
 A_MIN_AU = 2.10
@@ -97,9 +96,7 @@ def generate_tracers(n: int = 800, *, seed: int = 20260824) -> list[Tracer]:
         raan = rng.uniform(0.0, 2.0 * math.pi)
         argp = rng.uniform(0.0, 2.0 * math.pi)
         ta = rng.uniform(0.0, 2.0 * math.pi)
-        x, y, z, vx, vy, vz = state_from_elements(
-            a, e, inc, raan=raan, argp=argp, ta=ta
-        )
+        x, y, z, vx, vy, vz = state_from_elements(a, e, inc, raan=raan, argp=argp, ta=ta)
         out.append(
             Tracer(
                 x=x,

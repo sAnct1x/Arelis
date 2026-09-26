@@ -46,9 +46,7 @@ def newtonian_phi(mu: float, r: float) -> float:
 BEAD_LAP_S = 8.0
 
 
-def bead_true_anomalies(
-    nu: float, n: int = BEAD_COUNT, *, phase: float = 0.0
-) -> tuple[float, ...]:
+def bead_true_anomalies(nu: float, n: int = BEAD_COUNT, *, phase: float = 0.0) -> tuple[float, ...]:
     """Direction beads on an osculating ellipse. Half-step so none sits on the body.
 
     ``phase`` is a wall-clock chase along increasing true anomaly — a direction

@@ -83,12 +83,12 @@ def test_contacts_containers_never_claim_opaque_paint(qt_app, tmp_path) -> None:
         assert panel.save_card()
         for widget in _contacts_layers(panel):
             assert widget is not None
-            assert not widget.testAttribute(
-                Qt.WidgetAttribute.WA_OpaquePaintEvent
-            ), f"{widget.objectName() or type(widget).__name__} claims opaque paint"
-            assert not widget.testAttribute(
-                Qt.WidgetAttribute.WA_TranslucentBackground
-            ), f"{widget.objectName() or type(widget).__name__} is translucent"
+            assert not widget.testAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent), (
+                f"{widget.objectName() or type(widget).__name__} claims opaque paint"
+            )
+            assert not widget.testAttribute(Qt.WidgetAttribute.WA_TranslucentBackground), (
+                f"{widget.objectName() or type(widget).__name__} is translucent"
+            )
     finally:
         panel.deleteLater()
 

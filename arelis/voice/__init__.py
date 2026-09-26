@@ -263,12 +263,8 @@ class VoiceService:
             )
 
     def _queue_from_buffer(self, *, finalize: bool) -> None:
-        prepared = prepare_spoken_text(
-            self._stream_raw, max_chars=self.max_spoken_chars
-        )
-        units, spoken = next_speakable_units(
-            prepared, self._spoken_count, finalize=finalize
-        )
+        prepared = prepare_spoken_text(self._stream_raw, max_chars=self.max_spoken_chars)
+        units, spoken = next_speakable_units(prepared, self._spoken_count, finalize=finalize)
         if not units:
             return
         if not self._stream_open:
@@ -402,9 +398,7 @@ class VoiceService:
             await self._status("Getting the ear…")
         try:
             stt_t0 = time.perf_counter()
-            text = (
-                await self.stt.transcribe(path, proceed=proceed, purpose=deliver)
-            ).strip()
+            text = (await self.stt.transcribe(path, proceed=proceed, purpose=deliver)).strip()
             stt_ms = int((time.perf_counter() - stt_t0) * 1000)
             if turn_telemetry_enabled(self.config):
                 log_span(
@@ -494,9 +488,7 @@ class VoiceService:
         except Exception:
             pass
 
-    async def finish_live_stt(
-        self, *, deliver: str = "turn", strip_wake: bool = False
-    ) -> str:
+    async def finish_live_stt(self, *, deliver: str = "turn", strip_wake: bool = False) -> str:
         """End the live session and publish like ingest_audio."""
         bridge = self._live_bridge
         self._live_bridge = None
@@ -581,15 +573,11 @@ class VoiceService:
         from arelis.voice.prepare import missing_voice_parts, prepare_voice_files
 
         missing = missing_voice_parts(self.config, allowed_only=True)
-        need_warm = bool(
-            self.stt_enabled and self.stt.available() and not self.stt.loaded()
-        )
+        need_warm = bool(self.stt_enabled and self.stt.available() and not self.stt.loaded())
         announced = False
         if missing or need_warm:
             await self._status(
-                "Getting the voice files — then I'll hear you."
-                if missing
-                else "Warming the ear…"
+                "Getting the voice files — then I'll hear you." if missing else "Warming the ear…"
             )
             announced = True
         if missing:
@@ -615,15 +603,11 @@ class VoiceService:
         # turn. Voice ingest runs before any turn exists and can fail while an
         # unrelated typed turn is mid-flight, so the UI must not read it as
         # that turn's terminal event. See EventType.ERROR.
-        await self.bus.publish(
-            Event(EventType.ERROR, {"message": message, "scope": "voice"})
-        )
+        await self.bus.publish(Event(EventType.ERROR, {"message": message, "scope": "voice"}))
 
     def _prune_clips(self) -> None:
         try:
-            clips = sorted(
-                self._out_dir.glob("reply_*.wav"), key=lambda p: p.stat().st_mtime
-            )
+            clips = sorted(self._out_dir.glob("reply_*.wav"), key=lambda p: p.stat().st_mtime)
         except OSError:
             return
         for stale in clips[:-_KEEP_CLIPS]:

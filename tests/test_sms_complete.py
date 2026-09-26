@@ -231,12 +231,8 @@ def test_openx_com_does_not_become_sms_body() -> None:
 
     assert looks_like_browser_or_url("OpenX.com")
     assert looks_like_browser_or_url("open x.com")
-    assert (
-        complete_sms_draft("OpenX.com", history=history, contacts=book) is None
-    )
-    assert (
-        complete_sms_draft("open x.com", history=history, contacts=book) is None
-    )
+    assert complete_sms_draft("OpenX.com", history=history, contacts=book) is None
+    assert complete_sms_draft("open x.com", history=history, contacts=book) is None
 
 
 def test_resolve_first_name_to_alias() -> None:
@@ -260,10 +256,7 @@ def test_fill_send_sms_args_from_draft() -> None:
 def test_text_message_to_wife_is_not_to_message() -> None:
     """STT often drops 'send a' and hears 'in a text message to my wife'."""
     book = _book(wife={"name": "Robin", "aliases": ("wife", "robbie")})
-    spoken = (
-        "in a text message to my wife and just tell her "
-        "good nights, sweet dreams"
-    )
+    spoken = "in a text message to my wife and just tell her good nights, sweet dreams"
     draft = parse_sms_utterance(spoken)
     assert draft is not None
     assert draft.to.lower() == "wife"
@@ -369,9 +362,7 @@ def test_list_goals_does_not_become_sms_body() -> None:
         ChatMessage(role="assistant", content="What should I say?"),
     ]
     book = _book(wife={"name": "M", "aliases": ("wife",)})
-    assert (
-        complete_sms_draft("list my goals", history=history, contacts=book) is None
-    )
+    assert complete_sms_draft("list my goals", history=history, contacts=book) is None
 
 
 def test_analyze_followup_does_not_become_sms_body() -> None:
@@ -457,9 +448,7 @@ async def _allow(*_a: Any, **_k: Any) -> str:
 async def test_loop_nudges_when_model_skips_complete_sms(monkeypatch) -> None:
     """With pre-inject off, a model that only talks about texting gets nudged."""
     book = _book(brian={"name": "Brian", "aliases": ("brian",)})
-    monkeypatch.setattr(
-        "arelis.core.sms_complete.load_contacts", lambda: book
-    )
+    monkeypatch.setattr("arelis.core.sms_complete.load_contacts", lambda: book)
     monkeypatch.setattr(
         "arelis.core.preflight.complete_sms_draft",
         lambda text, history=None, contacts=None: complete_sms_draft(
@@ -539,9 +528,7 @@ async def test_loop_nudges_when_model_skips_complete_sms(monkeypatch) -> None:
     starts = [e.payload.get("tool") for e in events if e.type == EventType.TOOL_START]
     assert starts == ["send_sms"]
     thinking = " ".join(
-        str(e.payload.get("text") or "")
-        for e in events
-        if e.type == EventType.THINKING
+        str(e.payload.get("text") or "") for e in events if e.type == EventType.THINKING
     )
     assert "SMS draft ready" in thinking
     assert sms.calls
@@ -627,9 +614,7 @@ async def test_a_complete_draft_raises_allow_before_any_model_round(
     assert sms.calls and sms.calls[0]["to"] == "wife"
     assert router.i == 0, "the model was asked before the Allow card"
     thinking = " ".join(
-        str(e.payload.get("text") or "")
-        for e in events
-        if e.type == EventType.THINKING
+        str(e.payload.get("text") or "") for e in events if e.type == EventType.THINKING
     )
     assert "pre-model" in thinking
     done = [e for e in events if e.type == EventType.ASSISTANT_DONE]
@@ -711,19 +696,14 @@ def test_greeting_does_not_revive_prior_sms_draft() -> None:
     assert looks_like_stale_sms_skip("how are you today?")
     assert not sms_intent_this_turn("how are you today?")
     assert sms_intent_this_turn("Text wife: grocery run going?")
-    assert sms_intent_this_turn(
-        "chillin, chillin, i want you to text 5551112222 and tell him hey"
-    )
+    assert sms_intent_this_turn("chillin, chillin, i want you to text 5551112222 and tell him hey")
     assert sms_intent_this_turn("text 555-111-2222 and tell him hey")
     history = [
         ChatMessage(role="user", content="Text wife: Hey, how's the grocery run going?"),
         ChatMessage(role="assistant", content="Okay — I did not send that."),
     ]
     book = _book(wife={"name": "Robin", "aliases": ("wife",)})
-    assert (
-        complete_sms_draft("how are you today?", history=history, contacts=book)
-        is None
-    )
+    assert complete_sms_draft("how are you today?", history=history, contacts=book) is None
 
 
 def test_sent_text_does_not_turn_the_next_ask_into_a_body() -> None:
@@ -759,10 +739,7 @@ def test_contacts_utterance_includes_my_contacts_and_her_phone() -> None:
 
 def test_send_a_text_and_have_it_say() -> None:
     book = _book(wife={"name": "Robin", "aliases": ("wife", "robbie")})
-    spoken = (
-        "a conversation. Send a text to my wife and have it say "
-        "Arelis test via conversation"
-    )
+    spoken = "a conversation. Send a text to my wife and have it say Arelis test via conversation"
     draft = parse_sms_utterance(spoken)
     assert draft is not None
     assert "wife" in draft.to.lower()
@@ -830,8 +807,7 @@ def test_tell_her_i_love_her_is_i_love_you() -> None:
 def test_voice_preamble_text_wife_and_say() -> None:
     book = _book(wife={"name": "Robin", "aliases": ("wife", "robbie")})
     spoken = (
-        "I'm going to give you a new test. Text my wife and say, "
-        "hey, grocery test, please ignore"
+        "I'm going to give you a new test. Text my wife and say, hey, grocery test, please ignore"
     )
     draft = parse_sms_utterance(spoken)
     assert draft is not None
@@ -869,9 +845,7 @@ def test_look_and_calendar_are_stale_sms_skips() -> None:
     assert looks_like_stale_sms_skip("What's the git status of this repo?")
     assert looks_like_stale_sms_skip("Just describe it to me please")
     assert looks_like_stale_sms_skip("describe that")
-    assert not looks_like_stale_sms_skip(
-        "text my wife: Arelis allow-deny test - please ignore"
-    )
+    assert not looks_like_stale_sms_skip("text my wife: Arelis allow-deny test - please ignore")
 
 
 def test_markdown_text_fence_apart_is_not_sms() -> None:
@@ -941,9 +915,7 @@ def test_a_known_recipient_still_locks_the_body() -> None:
     draft = complete_sms_draft("Text Brian: Running 10 minutes late", contacts=book)
     assert draft is not None and draft.complete
 
-    filled = fill_send_sms_args(
-        {"to": "brian", "body": "See you tomorrow"}, draft, contacts=book
-    )
+    filled = fill_send_sms_args({"to": "brian", "body": "See you tomorrow"}, draft, contacts=book)
     assert filled["body"] == "Running 10 minutes late"
 
 

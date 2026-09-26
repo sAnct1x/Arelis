@@ -66,7 +66,8 @@ def test_every_non_python_file_in_the_package_is_declared() -> None:
     """
     globs = _declared_globs()
     undeclared = [
-        str(rel) for rel in _shipped_data_files()
+        str(rel)
+        for rel in _shipped_data_files()
         if not any(rel.match(pattern) for pattern in globs)
     ]
     assert not undeclared, (
@@ -102,9 +103,7 @@ def test_nothing_reads_the_icon_from_outside_the_package() -> None:
     for path in sorted(paths.PACKAGE_ROOT.rglob("*.py")):
         if path.name == "paths.py":
             continue
-        for line_no, line in enumerate(
-            path.read_text(encoding="utf-8").splitlines(), 1
-        ):
+        for line_no, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
             if "arelis.ico" in line:
                 rel = path.relative_to(paths.PACKAGE_ROOT).as_posix()
                 hits.append(f"  arelis/{rel}:{line_no}")

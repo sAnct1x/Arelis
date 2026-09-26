@@ -52,7 +52,7 @@ async def build_briefing(
 ) -> str:
     """Return markdown for today's briefing."""
     config = config or load_config()
-    briefing_cfg = ((config.get("tools") or {}).get("briefing") or {})
+    briefing_cfg = (config.get("tools") or {}).get("briefing") or {}
     mail_limit = int(briefing_cfg.get("mail_limit", 10))
     fact_limit = int(briefing_cfg.get("fact_limit", 8))
     task_limit = int(briefing_cfg.get("task_limit", 12))
@@ -74,9 +74,7 @@ async def build_briefing(
         if weather_block:
             sections.extend(["## Weather", weather_block, ""])
 
-        mail_block, mail_messages = await _mail_section(
-            config, inbox=inbox, limit=mail_limit
-        )
+        mail_block, mail_messages = await _mail_section(config, inbox=inbox, limit=mail_limit)
         sections.extend(["## Unread mail", mail_block, ""])
 
         agenda_events = load_briefing_events(config, now=now)
@@ -185,7 +183,7 @@ def load_briefing_events(
 
 
 def _calendar_missing_message(config: dict[str, Any]) -> str:
-    briefing_cfg = ((config.get("tools") or {}).get("briefing") or {})
+    briefing_cfg = (config.get("tools") or {}).get("briefing") or {}
     raw_path = str(briefing_cfg.get("calendar_path") or "data/calendar.ics").strip()
     return (
         "No calendar data. Authorize Google/Outlook "

@@ -31,6 +31,7 @@ class PinchClick:
     y: float
     travel: float
 
+
 TrackState = Literal["idle", "fist", "pinch", "lost"]
 GestureState = Literal["idle", "fist", "pinch", "both", "lost"]
 PoseReading = Literal["open", "fist", "pinch", "ambiguous"]
@@ -177,11 +178,7 @@ class HandTrack:
     @property
     def coasting(self) -> bool:
         """Last closed pose, MediaPipe blinked. Overlay keeps this hand."""
-        return (
-            self._miss > 0
-            and self.state in ("fist", "pinch")
-            and self.hand is not None
-        )
+        return self._miss > 0 and self.state in ("fist", "pinch") and self.hand is not None
 
     def reset(self) -> None:
         self.state = "idle"
@@ -261,10 +258,7 @@ class HandTrack:
             self._held = 0
             self._want = ""
             return self.state
-        moving = (
-            prev_wrist is not None
-            and _xy_dist(hand.xy(0), prev_wrist) >= p.still_wrist
-        )
+        moving = prev_wrist is not None and _xy_dist(hand.xy(0), prev_wrist) >= p.still_wrist
         self._remember(hand)
         reading = read_pose(hand, p)
         if self.state == "lost" and locked and not was_coasting:
@@ -430,9 +424,7 @@ class GestureMachine:
             self.tracks.append(track)
         self._collapse_twins()
         self.tracks = [
-            track
-            for track in self.tracks
-            if track.hand is not None or track.state != "idle"
+            track for track in self.tracks if track.hand is not None or track.state != "idle"
         ]
         self._collect_clicks(frame.t_capture)
         return self.state

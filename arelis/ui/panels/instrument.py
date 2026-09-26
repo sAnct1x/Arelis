@@ -54,9 +54,7 @@ class InstrumentPanel(GlassFrame):
         head.setSpacing(0)
         self.title_label = QLabel(title)
         self.title_label.setObjectName("InstrumentTitle")
-        self.title_label.setAlignment(
-            Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft
-        )
+        self.title_label.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
         self.title_label.setCursor(Qt.CursorShape.OpenHandCursor)
         self.title_label.setToolTip("drag to undock · double-click to dock/float")
         head.addWidget(self.title_label)

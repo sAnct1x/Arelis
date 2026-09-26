@@ -44,12 +44,8 @@ class QuietPythonHighlighter(QSyntaxHighlighter):
         self._number = _fmt("accent2")
         self._rules: list[tuple[QRegularExpression, QTextCharFormat]] = []
         for word in _KEYWORDS:
-            self._rules.append(
-                (QRegularExpression(rf"\b{word}\b"), self._keyword)
-            )
-        self._rules.append(
-            (QRegularExpression(r"\b[0-9]+(?:\.[0-9]+)?\b"), self._number)
-        )
+            self._rules.append((QRegularExpression(rf"\b{word}\b"), self._keyword))
+        self._rules.append((QRegularExpression(r"\b[0-9]+(?:\.[0-9]+)?\b"), self._number))
         self._string_rx = QRegularExpression(
             r"'''(?:\\.|[^'\\])*'''|\"\"\"(?:\\.|[^\"\\])*\"\"\""
             r"|'(?:\\.|[^'\\])*'|\"(?:\\.|[^\"\\])*\""

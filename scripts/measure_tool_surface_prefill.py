@@ -34,8 +34,9 @@ def _chat(base: str, payload: dict) -> dict:
         return json.loads(resp.read().decode("utf-8"))
 
 
-def _run(base: str, model: str, messages: list[dict], tools: list[dict],
-         num_ctx: int) -> tuple[int, float]:
+def _run(
+    base: str, model: str, messages: list[dict], tools: list[dict], num_ctx: int
+) -> tuple[int, float]:
     body: dict = {
         "model": model,
         "messages": messages,
@@ -70,10 +71,20 @@ def main() -> int:
     names = sorted(registry.names())
 
     # Two plausible per-turn subsets, the way _skill_subset would produce them.
-    subset_a = registry.ollama_tools({n for n in names if n in {
-        "weather", "user_location", "web_fetch", "calculator", "cas", "units"}})
-    subset_b = registry.ollama_tools({n for n in names if n in {
-        "workspace", "git_info", "analyze", "calculator", "cas", "units"}})
+    subset_a = registry.ollama_tools(
+        {
+            n
+            for n in names
+            if n in {"weather", "user_location", "web_fetch", "calculator", "cas", "units"}
+        }
+    )
+    subset_b = registry.ollama_tools(
+        {
+            n
+            for n in names
+            if n in {"workspace", "git_info", "analyze", "calculator", "cas", "units"}
+        }
+    )
 
     system = [
         {"role": "system", "content": load_persona(config)},
@@ -90,12 +101,13 @@ def main() -> int:
         return [*system, *history, {"role": "user", "content": q}]
 
     print(f"model={args.model}  num_ctx={num_ctx:,}")
-    print(f"full surface: {len(all_tools)} tools; subsets: "
-          f"{len(subset_a)} and {len(subset_b)} tools\n")
+    print(
+        f"full surface: {len(all_tools)} tools; subsets: "
+        f"{len(subset_a)} and {len(subset_b)} tools\n"
+    )
 
     print("A. constant full surface, same shape every turn")
-    for i, q in enumerate(["What's the weather?", "Summarise the readme.",
-                           "What's the weather?"]):
+    for i, q in enumerate(["What's the weather?", "Summarise the readme.", "What's the weather?"]):
         processed, dur = _run(args.base, args.model, turn(q), all_tools, num_ctx)
         print(f"   turn {i + 1}: prefilled {processed:>6,} tokens in {dur:>6.2f}s")
 

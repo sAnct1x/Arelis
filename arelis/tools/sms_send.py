@@ -95,8 +95,7 @@ class SendSmsTool:
             return ToolResult(
                 ok=False,
                 output=(
-                    f"[fail:send_sms] {explain_sms_error(exc)} "
-                    "Do not claim the text was sent."
+                    f"[fail:send_sms] {explain_sms_error(exc)} Do not claim the text was sent."
                 ),
             )
 
@@ -104,8 +103,7 @@ class SendSmsTool:
         return ToolResult(
             ok=True,
             output=(
-                f"Sent SMS to {resolved.label} "
-                f"({resolved.phone_display}) from your phone.{note}"
+                f"Sent SMS to {resolved.label} ({resolved.phone_display}) from your phone.{note}"
             ),
             data={
                 "to": resolved.label,

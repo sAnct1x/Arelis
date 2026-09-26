@@ -83,9 +83,7 @@ _ALLOWED_IMPORTS = frozenset(
     }
 )
 
-_CHART_IMPORTS = frozenset(
-    {"matplotlib", "pyplot", "pylab", "seaborn", "plotly"}
-)
+_CHART_IMPORTS = frozenset({"matplotlib", "pyplot", "pylab", "seaborn", "plotly"})
 
 
 def _import_refusal(name: str) -> str:
@@ -96,10 +94,8 @@ def _import_refusal(name: str) -> str:
             "then call plot with those series and out='name.png'. "
             "path= is a CSV table, not the PNG."
         )
-    return (
-        f"import {name!r} is not allowed. "
-        "math/sympy/numpy are preloaded; os/subprocess are not."
-    )
+    return f"import {name!r} is not allowed. math/sympy/numpy are preloaded; os/subprocess are not."
+
 
 _FORBIDDEN_CALLS = frozenset(
     {
@@ -250,8 +246,7 @@ class PythonTool:
             "code": {
                 "type": "string",
                 "description": (
-                    "Python source. Example: g=9.81; v=5; th=radians(45); "
-                    "then print the range."
+                    "Python source. Example: g=9.81; v=5; th=radians(45); then print the range."
                 ),
             },
             "source": {
@@ -267,9 +262,7 @@ class PythonTool:
     }
 
     async def run(self, **kwargs: Any) -> ToolResult:
-        code = str(
-            kwargs.get("code") or kwargs.get("source") or kwargs.get("script") or ""
-        ).strip()
+        code = str(kwargs.get("code") or kwargs.get("source") or kwargs.get("script") or "").strip()
         if not code:
             return ToolResult(
                 ok=False,
@@ -504,9 +497,7 @@ def _run_cell(code: str) -> str:
         if out and not out.endswith("\n"):
             out += "\n"
         out += shown
-    text = (out or "").strip() or (
-        "(no output — print the result, or leave a final expression)"
-    )
+    text = (out or "").strip() or ("(no output — print the result, or leave a final expression)")
     if len(text) > _MAX_OUTPUT:
         text = text[:_MAX_OUTPUT] + "\n…(truncated)"
     return text

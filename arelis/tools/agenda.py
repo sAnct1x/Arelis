@@ -26,9 +26,7 @@ log = logging.getLogger(__name__)
 
 _MAX_RANGE_DAYS = 31
 AGENDA_WRITE_ACTIONS = frozenset({"create", "update", "delete"})
-_READ_ACTIONS = frozenset(
-    {"today", "tomorrow", "range", "list", "sync", "free", "busy"}
-)
+_READ_ACTIONS = frozenset({"today", "tomorrow", "range", "list", "sync", "free", "busy"})
 _DEFAULT_DURATION_MIN = 30
 _DEFAULT_WORK_START = (9, 0)
 _DEFAULT_WORK_END = (17, 0)
@@ -128,8 +126,7 @@ class AgendaTool:
             "duration_min": {
                 "type": "integer",
                 "description": (
-                    "Minimum free-slot length in minutes (default 30). "
-                    "Used by action=free."
+                    "Minimum free-slot length in minutes (default 30). Used by action=free."
                 ),
             },
             "work_start": {
@@ -189,11 +186,7 @@ class AgendaTool:
 
     async def run(self, **kwargs: Any) -> ToolResult:
         action = str(kwargs.get("action") or "").strip().lower()
-        if (
-            action in _READ_ACTIONS
-            or action in AGENDA_WRITE_ACTIONS
-            or action in {"open", "close"}
-        ):
+        if action in _READ_ACTIONS or action in AGENDA_WRITE_ACTIONS or action in {"open", "close"}:
             pass
         else:
             return ToolResult(
@@ -428,21 +421,14 @@ class AgendaTool:
     async def _free(self, action: str, kwargs: dict[str, Any]) -> ToolResult:
         """Read-only find-time. One local day. Never writes."""
         now = _local_now()
-        raw_day = (
-            kwargs.get("date")
-            or kwargs.get("day")
-            or kwargs.get("start")
-            or ""
-        )
+        raw_day = kwargs.get("date") or kwargs.get("day") or kwargs.get("start") or ""
         try:
             day = _parse_free_day(raw_day, now=now)
             duration_min = _parse_duration_min(kwargs.get("duration_min"))
             work_h0, work_m0 = _parse_work_clock(
                 kwargs.get("work_start"), default=_DEFAULT_WORK_START
             )
-            work_h1, work_m1 = _parse_work_clock(
-                kwargs.get("work_end"), default=_DEFAULT_WORK_END
-            )
+            work_h1, work_m1 = _parse_work_clock(kwargs.get("work_end"), default=_DEFAULT_WORK_END)
         except ValueError as exc:
             return ToolResult(ok=False, output=str(exc))
         if (work_h1, work_m1) <= (work_h0, work_m0):
@@ -467,10 +453,7 @@ class AgendaTool:
                 if block["all_day"]:
                     when = "all day"
                 else:
-                    when = (
-                        f"{_format_clock(block['start'], tz)}–"
-                        f"{_format_clock(block['end'], tz)}"
-                    )
+                    when = f"{_format_clock(block['start'], tz)}–{_format_clock(block['end'], tz)}"
                 lines.append(f"- {when} — {block['summary']}")
         else:
             lines.append("- (none)")
@@ -480,16 +463,13 @@ class AgendaTool:
                 lines.append(f"Free slots ({duration_min} min):")
                 for slot in free:
                     lines.append(
-                        f"- {_format_clock(slot['start'], tz)}–"
-                        f"{_format_clock(slot['end'], tz)}"
+                        f"- {_format_clock(slot['start'], tz)}–{_format_clock(slot['end'], tz)}"
                     )
             else:
                 lines.append(f"no open slot of {duration_min} min on {day_label}")
             lines.append("")
         lines.append(f"Source: {loaded['source']}")
-        lines.append(
-            "Cite these times. Do not invent a free slot that is not listed."
-        )
+        lines.append("Cite these times. Do not invent a free slot that is not listed.")
         return ToolResult(
             ok=True,
             output="\n".join(lines),
@@ -556,9 +536,7 @@ class AgendaTool:
         store = CalendarStore()
         try:
             day = starts_at.date()
-            cached = store.list_range(
-                day, day, provider=provider or None
-            )
+            cached = store.list_range(day, day, provider=provider or None)
             for hit in cached:
                 if _same_event(summary, starts_at, hit):
                     return ToolResult(
@@ -596,10 +574,7 @@ class AgendaTool:
             extra = " It will sync to Google or Outlook when that calendar is connected."
         return ToolResult(
             ok=True,
-            output=(
-                f"Created on {where}: {ev.summary} @ {ev.starts_at.isoformat()}."
-                f"{extra}"
-            ),
+            output=(f"Created on {where}: {ev.summary} @ {ev.starts_at.isoformat()}.{extra}"),
             data={"event": ev.as_dict(), "action": "create"},
         )
 
@@ -664,9 +639,7 @@ class AgendaTool:
 
     async def _delete_resolved(self, kwargs: dict[str, Any]) -> ToolResult:
         """Delete by title/time. Never require the user to paste a Google id."""
-        needle = str(
-            kwargs.get("summary") or kwargs.get("query") or ""
-        ).strip()
+        needle = str(kwargs.get("summary") or kwargs.get("query") or "").strip()
         keep_raw = kwargs.get("keep")
         try:
             keep = int(keep_raw) if keep_raw is not None and str(keep_raw) != "" else None
@@ -678,22 +651,20 @@ class AgendaTool:
             matches = [
                 ev
                 for ev in matches
-                if key in (ev.summary or "").casefold()
-                or key in (ev.description or "").casefold()
+                if key in (ev.summary or "").casefold() or key in (ev.description or "").casefold()
             ]
         start_raw = str(kwargs.get("start") or "").strip()
         if start_raw:
             try:
                 when = _parse_dt(start_raw, field="start")
-                has_clock = bool(
-                    re.search(r"T\d{2}:|\bat\s+\d", start_raw, re.I)
-                ) or bool(when.hour or when.minute)
+                has_clock = bool(re.search(r"T\d{2}:|\bat\s+\d", start_raw, re.I)) or bool(
+                    when.hour or when.minute
+                )
                 if has_clock:
                     matches = [
                         ev
                         for ev in matches
-                        if ev.starts_at.date() == when.date()
-                        and ev.starts_at.hour == when.hour
+                        if ev.starts_at.date() == when.date() and ev.starts_at.hour == when.hour
                     ]
             except ValueError:
                 pass
@@ -768,10 +739,7 @@ class AgendaTool:
         extra = f" Errors: {'; '.join(errors)}" if errors else ""
         return ToolResult(
             ok=True,
-            output=(
-                f"Deleted {len(deleted)} event(s) on calendar ({titles})."
-                f"{extra}"
-            ),
+            output=(f"Deleted {len(deleted)} event(s) on calendar ({titles}).{extra}"),
             data={
                 "action": "delete",
                 "count": len(deleted),
@@ -828,9 +796,7 @@ class AgendaTool:
             )
         try:
             svc = CalendarService(self._config, client_factory=self._client)
-            await svc.delete(
-                event_id, provider=provider, calendar_id=calendar_id
-            )
+            await svc.delete(event_id, provider=provider, calendar_id=calendar_id)
         except Exception as exc:
             return ToolResult(ok=False, output=f"delete failed: {exc}")
         return ToolResult(
@@ -860,9 +826,7 @@ class AgendaTool:
         if action in {"range", "list"}:
             if action == "range" and not kwargs.get("start"):
                 raise ValueError("action=range requires start=YYYY-MM-DD.")
-            start = _parse_iso_date(
-                kwargs.get("start") or today.isoformat(), field="start"
-            )
+            start = _parse_iso_date(kwargs.get("start") or today.isoformat(), field="start")
             end = _parse_iso_date(
                 kwargs.get("end") or kwargs.get("start") or today.isoformat(),
                 field="end",
@@ -871,9 +835,7 @@ class AgendaTool:
                 start, end = end, start
             span = (end - start).days + 1
             if span > _MAX_RANGE_DAYS:
-                raise ValueError(
-                    f"Range too long ({span} days). Cap is {_MAX_RANGE_DAYS} days."
-                )
+                raise ValueError(f"Range too long ({span} days). Cap is {_MAX_RANGE_DAYS} days.")
             return start, end
         return today, today
 
@@ -903,9 +865,7 @@ def _parse_free_day(raw: Any, *, now: datetime) -> date:
             if next_week and delta == 0:
                 delta = 7
             return today + timedelta(days=delta)
-    raise ValueError(
-        f"Invalid date {text!r}; use YYYY-MM-DD, a weekday, today, or tomorrow."
-    )
+    raise ValueError(f"Invalid date {text!r}; use YYYY-MM-DD, a weekday, today, or tomorrow.")
 
 
 def _parse_duration_min(raw: Any) -> int:
@@ -1152,10 +1112,7 @@ _MONTHS = {
     "nov": 11,
     "dec": 12,
 }
-_WEEKDAYS = (
-    "monday|tuesday|wednesday|thursday|friday|saturday|sunday|"
-    "mon|tue|wed|thu|fri|sat|sun"
-)
+_WEEKDAYS = "monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tue|wed|thu|fri|sat|sun"
 _NAMED_DT = re.compile(
     rf"(?ix)(?:(?:{_WEEKDAYS})\s+)?"
     r"(?P<month>january|february|march|april|may|june|july|august|"

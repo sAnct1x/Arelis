@@ -112,9 +112,7 @@ def test_an_absolute_path_outside_every_root_is_refused(
         resolve_image(roots, str(outside))
 
 
-def test_dot_dot_cannot_climb_out_of_the_workspace(
-    tmp_path: Path, roots: WorkspaceRoots
-) -> None:
+def test_dot_dot_cannot_climb_out_of_the_workspace(tmp_path: Path, roots: WorkspaceRoots) -> None:
     _png(tmp_path / "elsewhere" / "private.png")
     with pytest.raises((PermissionError, ValueError)):
         resolve_image(roots, "project:../elsewhere/private.png")

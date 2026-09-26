@@ -190,22 +190,16 @@ def test_preflight_open_youtube_stays_browser() -> None:
 def test_policy_desktop_confirm_and_destructive() -> None:
     set_confirm_mode("card")
     assert evaluate_capability("desktop", {"action": "open"}) == "SIDE_EFFECT_LOCAL"
-    assert evaluate_confirm(
-        "desktop", {"action": "open", "target": "notepad"}, risk="side_effect"
-    )
+    assert evaluate_confirm("desktop", {"action": "open", "target": "notepad"}, risk="side_effect")
     assert not evaluate_confirm(
         "desktop",
         {"action": "open", "target": "notepad"},
         asked=True,
         risk="side_effect",
     )
-    assert action_is_destructive(
-        "desktop", {"action": "click", "text": "Empty Recycle Bin"}
-    )
+    assert action_is_destructive("desktop", {"action": "click", "text": "Empty Recycle Bin"})
     assert action_is_destructive("desktop", {"action": "click", "text": "Pay now"})
-    assert not action_is_destructive(
-        "desktop", {"action": "open", "target": "notepad"}
-    )
+    assert not action_is_destructive("desktop", {"action": "open", "target": "notepad"})
     assert evaluate_confirm(
         "desktop",
         {"action": "click", "text": "Delete"},
@@ -216,9 +210,7 @@ def test_policy_desktop_confirm_and_destructive() -> None:
     assert not evaluate_confirm(
         "desktop", {"action": "open", "target": "notepad"}, risk="side_effect"
     )
-    assert evaluate_confirm(
-        "desktop", {"action": "click", "text": "Uninstall"}, risk="side_effect"
-    )
+    assert evaluate_confirm("desktop", {"action": "click", "text": "Uninstall"}, risk="side_effect")
     set_confirm_mode("card")
 
 
@@ -627,8 +619,16 @@ def test_screen_for_window_falls_back_to_primary_when_rect_misses(
 
     rows = [
         DeskScreen(
-            1, "", True, 0, 0, 800, 800, "only",
-            handle="p", device=r"\\.\DISPLAY2",
+            1,
+            "",
+            True,
+            0,
+            0,
+            800,
+            800,
+            "only",
+            handle="p",
+            device=r"\\.\DISPLAY2",
         ),
     ]
     monkeypatch.setattr(pix, "monitor_device_for_hwnd", lambda _hwnd: None)
@@ -649,9 +649,7 @@ def test_screen_for_window_device_beats_misleading_center() -> None:
             DeskScreen(2, r"\\.\DISPLAY2", False, 1920, 0, 1920, 1080, "right", handle="o"),
         ]
     )
-    hit = screen_for_window(
-        9, rows, center=(100, 40), device=r"\\.\DISPLAY2"
-    )
+    hit = screen_for_window(9, rows, center=(100, 40), device=r"\\.\DISPLAY2")
     assert hit is not None
     assert hit.index == 2
     assert hit.handle == "o"
@@ -662,16 +660,40 @@ def test_screen_for_window_device_when_model_names_collide() -> None:
 
     rows = [
         DeskScreen(
-            1, "Odyssey G5 (2)", True, 0, 0, 2560, 1440, "center",
-            handle="p", device=r"\\.\DISPLAY2",
+            1,
+            "Odyssey G5 (2)",
+            True,
+            0,
+            0,
+            2560,
+            1440,
+            "center",
+            handle="p",
+            device=r"\\.\DISPLAY2",
         ),
         DeskScreen(
-            2, "Odyssey G5 (1)", False, 2560, 0, 2560, 1440, "right",
-            handle="r", device=r"\\.\DISPLAY1",
+            2,
+            "Odyssey G5 (1)",
+            False,
+            2560,
+            0,
+            2560,
+            1440,
+            "right",
+            handle="r",
+            device=r"\\.\DISPLAY1",
         ),
         DeskScreen(
-            3, "Odyssey G5 (2)", False, -2560, 0, 2560, 1440, "left",
-            handle="l", device=r"\\.\DISPLAY3",
+            3,
+            "Odyssey G5 (2)",
+            False,
+            -2560,
+            0,
+            2560,
+            1440,
+            "left",
+            handle="l",
+            device=r"\\.\DISPLAY3",
         ),
     ]
     hit = screen_for_window(1, rows, center=(80, 40), device=r"\\.\DISPLAY3")
@@ -737,9 +759,7 @@ def test_observe_miss_is_honest(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_screenshot_reads_the_still(
-    tmp_path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_screenshot_reads_the_still(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
     from PIL import Image
 
     from arelis.desktop import session as session_mod

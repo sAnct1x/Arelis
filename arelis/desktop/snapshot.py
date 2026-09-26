@@ -88,9 +88,7 @@ def _walk_uia(limit: int = SNAPSHOT_LIMIT) -> list[DeskRef]:
         except Exception:
             name = ""
         try:
-            auto_id = str(
-                el.GetCurrentPropertyValue(UIA_AutomationIdPropertyId) or ""
-            ).strip()
+            auto_id = str(el.GetCurrentPropertyValue(UIA_AutomationIdPropertyId) or "").strip()
         except Exception:
             auto_id = ""
         label = name or auto_id

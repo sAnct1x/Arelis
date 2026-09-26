@@ -42,12 +42,8 @@ def test_city_goto_opens_city_band() -> None:
     assert earth_goto_alt_m("home") == CITY_LOOK_ALT_M
     assert earth_goto_alt_m("address") == 350.0
     assert earth_goto_alt_m("address") < _NEAR_ALT_M
-    assert band_from_view(
-        alt_m=earth_goto_alt_m("address"), px_r=800.0, locked=True
-    ) == "city"
-    assert band_from_view(
-        alt_m=earth_goto_alt_m("continent"), px_r=80.0, locked=True
-    ) == "space"
+    assert band_from_view(alt_m=earth_goto_alt_m("address"), px_r=800.0, locked=True) == "city"
+    assert band_from_view(alt_m=earth_goto_alt_m("continent"), px_r=80.0, locked=True) == "space"
 
 
 def test_earth_inspect_floor_opens_city_band() -> None:
@@ -55,9 +51,7 @@ def test_earth_inspect_floor_opens_city_band() -> None:
     inspect, _ = inspect_stop_m("Earth")
     assert inspect < karman
     assert EARTH_INSPECT_MIN_AGL_M < _NEAR_ALT_M
-    assert band_from_view(
-        alt_m=EARTH_INSPECT_MIN_AGL_M, px_r=800.0, locked=True
-    ) == "city"
+    assert band_from_view(alt_m=EARTH_INSPECT_MIN_AGL_M, px_r=800.0, locked=True) == "city"
 
 
 def test_earth_wasd_is_walkable_near_the_ground() -> None:
@@ -105,13 +99,8 @@ def test_scorecard_lists_the_audit_ids() -> None:
 
 
 def test_locked_eye_bands_from_altitude_not_disc() -> None:
-    assert (
-        band_from_view(alt_m=_SPACE_ALT_M + 1.0, px_r=900.0, locked=True) == "space"
-    )
-    assert (
-        band_from_view(alt_m=EARTH_INSPECT_MIN_AGL_M, px_r=40.0, locked=True)
-        == "city"
-    )
+    assert band_from_view(alt_m=_SPACE_ALT_M + 1.0, px_r=900.0, locked=True) == "space"
+    assert band_from_view(alt_m=EARTH_INSPECT_MIN_AGL_M, px_r=40.0, locked=True) == "city"
 
 
 def test_field_line_is_distance_to_earth() -> None:
@@ -141,12 +130,9 @@ def test_gibs_zoom_stays_capped() -> None:
     assert zoom_for_ground(900.0, "city") <= 8
     assert zoom_for_disc(900.0, "city") == 19
     overlay = (
-        Path(__file__).resolve().parents[1]
-        / "arelis"
-        / "ui"
-        / "earth_overlay.py"
+        Path(__file__).resolve().parents[1] / "arelis" / "ui" / "earth_overlay.py"
     ).read_text(encoding="utf-8")
-    assert "radius = 2 if view.band in {\"near\", \"city\"} else 1" in overlay
+    assert 'radius = 2 if view.band in {"near", "city"} else 1' in overlay
 
 
 def test_clock_honest_when_not_wall_locked() -> None:
@@ -274,13 +260,9 @@ def test_one_planet_painter_skips_qt_tiles_when_cesium_live() -> None:
     from pathlib import Path
 
     src = (
-        Path(__file__).resolve().parents[1]
-        / "arelis"
-        / "ui"
-        / "panels"
-        / "solar_paint.py"
+        Path(__file__).resolve().parents[1] / "arelis" / "ui" / "panels" / "solar_paint.py"
     ).read_text(encoding="utf-8")
-    live = src.split("if getattr(panel, \"_earth_globe_live\"", 1)[1]
+    live = src.split('if getattr(panel, "_earth_globe_live"', 1)[1]
     branch, rest = live.split("else:", 1)
     assert "sync_earth_view" in branch
     assert "if not chrome_only" in branch
@@ -291,7 +273,7 @@ def test_one_planet_painter_skips_qt_tiles_when_cesium_live() -> None:
 def test_solar_idle_skips_fbo_readback() -> None:
     from pathlib import Path
 
-    src = (
-        Path(__file__).resolve().parents[1] / "arelis" / "ui" / "solar_gl.py"
-    ).read_text(encoding="utf-8")
+    src = (Path(__file__).resolve().parents[1] / "arelis" / "ui" / "solar_gl.py").read_text(
+        encoding="utf-8"
+    )
     assert "if key == self._frame_key and self._frame is not None" in src

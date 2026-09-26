@@ -76,8 +76,7 @@ class SearchBackend(Protocol):
 
     async def search(
         self, query: str, *, limit: int, recency: str | None
-    ) -> list[SearchResult]:
-        ...
+    ) -> list[SearchResult]: ...
 
 
 def _unwrap_ddg(href: str) -> str:
@@ -190,9 +189,7 @@ class DuckDuckGoBackend:
     def __init__(self, timeout_s: float = 20.0) -> None:
         self.timeout_s = timeout_s
 
-    async def search(
-        self, query: str, *, limit: int, recency: str | None
-    ) -> list[SearchResult]:
+    async def search(self, query: str, *, limit: int, recency: str | None) -> list[SearchResult]:
         params = {"q": query, "kl": "us-en"}
         if recency in _DDG_RECENCY:
             params["df"] = _DDG_RECENCY[recency]
@@ -215,9 +212,7 @@ class DuckDuckGoLiteBackend:
     def __init__(self, timeout_s: float = 20.0) -> None:
         self.timeout_s = timeout_s
 
-    async def search(
-        self, query: str, *, limit: int, recency: str | None
-    ) -> list[SearchResult]:
+    async def search(self, query: str, *, limit: int, recency: str | None) -> list[SearchResult]:
         params = {"q": query}
         if recency in _DDG_RECENCY:
             params["df"] = _DDG_RECENCY[recency]
@@ -241,9 +236,7 @@ class WikipediaBackend:
     def skip_for_recency(self, recency: str | None) -> bool:
         return recency in _NEWS_RECENCY
 
-    async def search(
-        self, query: str, *, limit: int, recency: str | None
-    ) -> list[SearchResult]:
+    async def search(self, query: str, *, limit: int, recency: str | None) -> list[SearchResult]:
         if self.skip_for_recency(recency):
             return []
         params = {
@@ -369,11 +362,7 @@ class WebSearchTool:
             # lesson mining / replan (same shape as scrape [fail:…]).
             tag = classify_search_failure("", errors)
             detail = f" ({'; '.join(errors)})" if errors else ""
-            hint = (
-                "The engine may be rate limiting. "
-                if tag == "fail:rate_limit"
-                else ""
-            )
+            hint = "The engine may be rate limiting. " if tag == "fail:rate_limit" else ""
             if tag == "fail:empty" and any("no results" in e for e in errors):
                 # Empty organic hits often are rate-limit shaped on DDG HTML.
                 hint = "The engine may be rate limiting. "
@@ -398,8 +387,7 @@ class WebSearchTool:
             data={
                 "query": query,
                 "results": [
-                    {"title": r.title, "url": r.url, "snippet": r.snippet}
-                    for r in results
+                    {"title": r.title, "url": r.url, "snippet": r.snippet} for r in results
                 ],
             },
         )

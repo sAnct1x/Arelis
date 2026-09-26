@@ -182,9 +182,7 @@ def _entity_from_sigmet(feat: dict[str, Any], *, prefix: str) -> Entity | None:
     )
 
 
-def _sigmet_ll(
-    geom: dict[str, Any], props: dict[str, Any]
-) -> tuple[float | None, float | None]:
+def _sigmet_ll(geom: dict[str, Any], props: dict[str, Any]) -> tuple[float | None, float | None]:
     lat = _num(props.get("lat") or props.get("latitude"))
     lon = _num(props.get("lon") or props.get("longitude"))
     if lat is not None and lon is not None:

@@ -35,8 +35,7 @@ from arelis.tools.html_text import thin_readable
 
 # Chrome-ish enough that a few CDNs stop serving the "please enable JS" stub.
 BROWSER_ACCEPT = (
-    "text/html,application/xhtml+xml,application/xml;q=0.9,"
-    "image/avif,image/webp,*/*;q=0.8"
+    "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8"
 )
 BROWSER_ACCEPT_LANGUAGE = "en-US,en;q=0.9"
 
@@ -245,10 +244,7 @@ def extract_article(html: str, *, base_url: str = "") -> ArticleExtract:
     best.feed_urls = list(meta.feed_urls)
     # Re-score after scrub — paywall CTAs shouldn't inflate length.
     best.score = _score(best.text, best.strategy.split("+")[0])
-    if (
-        best.strategy.split("+")[0] == "og-description"
-        and not thin_readable(best.text)
-    ):
+    if best.strategy.split("+")[0] == "og-description" and not thin_readable(best.text):
         best.score = max(best.score, 40.0)
     if not best.ok:
         best.diagnosis = _diagnose(html, best.text)
@@ -371,16 +367,13 @@ def parse_feed(xml: str, *, page_url: str = "", limit: int = 8) -> ArticleExtrac
             href = ""
             if link_el is not None:
                 href = str(link_el.get("href") or "").strip() or _xml_text(link_el)
-            summary = _xml_text(item.find(f"{ns}summary")) or _xml_text(
-                item.find(f"{ns}content")
-            )
+            summary = _xml_text(item.find(f"{ns}summary")) or _xml_text(item.find(f"{ns}content"))
             entries.append(
                 (
                     _xml_text(item.find(f"{ns}title")),
                     href,
                     _strip_xml_tags(summary),
-                    _xml_text(item.find(f"{ns}updated"))
-                    or _xml_text(item.find(f"{ns}published")),
+                    _xml_text(item.find(f"{ns}updated")) or _xml_text(item.find(f"{ns}published")),
                 )
             )
     if not entries:
@@ -464,9 +457,7 @@ def _pack(
 
 def _meta_content(soup: BeautifulSoup, *keys: str) -> str:
     for key in keys:
-        tag = soup.find("meta", attrs={"property": key}) or soup.find(
-            "meta", attrs={"name": key}
-        )
+        tag = soup.find("meta", attrs={"property": key}) or soup.find("meta", attrs={"name": key})
         if tag and tag.get("content"):
             return str(tag["content"]).strip()
     return ""
@@ -476,9 +467,7 @@ def _meta_bundle(soup: BeautifulSoup, *, base_url: str) -> _Meta:
     title = _meta_content(soup, "og:title", "twitter:title")
     if not title and soup.title and soup.title.string:
         title = soup.title.string.strip()
-    description = _meta_content(
-        soup, "og:description", "twitter:description", "description"
-    )
+    description = _meta_content(soup, "og:description", "twitter:description", "description")
     byline = _meta_content(soup, "author", "article:author", "og:article:author")
     published = _meta_content(
         soup,
@@ -591,10 +580,7 @@ def _from_json_ld(html: str, meta: _Meta) -> ArticleExtract | None:
         if isinstance(author, dict):
             byline = str(author.get("name") or byline)
         elif isinstance(author, list) and author:
-            names = [
-                str(a.get("name") if isinstance(a, dict) else a).strip()
-                for a in author
-            ]
+            names = [str(a.get("name") if isinstance(a, dict) else a).strip() for a in author]
             byline = ", ".join(n for n in names if n) or byline
         elif isinstance(author, str):
             byline = author
@@ -615,9 +601,7 @@ def _from_json_ld(html: str, meta: _Meta) -> ArticleExtract | None:
     return best
 
 
-def _from_microdata(
-    soup: BeautifulSoup, meta: _Meta, *, base_url: str
-) -> ArticleExtract | None:
+def _from_microdata(soup: BeautifulSoup, meta: _Meta, *, base_url: str) -> ArticleExtract | None:
     nodes = soup.find_all(attrs={"itemprop": re.compile(r"articleBody|text", re.I)})
     best: ArticleExtract | None = None
     for node in nodes:
@@ -715,9 +699,7 @@ def _from_paragraph_lattice(
     )
 
 
-def _from_density(
-    soup: BeautifulSoup, meta: _Meta, *, base_url: str
-) -> ArticleExtract | None:
+def _from_density(soup: BeautifulSoup, meta: _Meta, *, base_url: str) -> ArticleExtract | None:
     body = soup.body
     if body is None:
         return None
@@ -751,9 +733,7 @@ def _from_density(
     )
 
 
-def _from_noscript(
-    soup: BeautifulSoup, meta: _Meta, *, base_url: str
-) -> ArticleExtract | None:
+def _from_noscript(soup: BeautifulSoup, meta: _Meta, *, base_url: str) -> ArticleExtract | None:
     """Some publishers dump the real article into ``<noscript>`` for crawlers."""
     chunks: list[str] = []
     for tag in soup.find_all("noscript"):
@@ -804,11 +784,7 @@ def _strip_noise(node: Tag) -> Tag:
         if isinstance(tag, Tag):
             tag.decompose()
     # Snapshot first — decomposing while iterating can leave half-dead tags.
-    noisy = [
-        tag
-        for tag in root.find_all(True)
-        if isinstance(tag, Tag) and _looks_noisy(tag)
-    ]
+    noisy = [tag for tag in root.find_all(True) if isinstance(tag, Tag) and _looks_noisy(tag)]
     for tag in noisy:
         tag.decompose()
     return root  # type: ignore[return-value]
@@ -1015,7 +991,4 @@ def _diagnose(html: str, text: str) -> str:
             "link if available, or browser(action=open) with this URL. "
             "Do not invent what the page says."
         )
-    return (
-        "Extraction was weak (nav noise or short body). "
-        "Try a different URL for the same story."
-    )
+    return "Extraction was weak (nav noise or short body). Try a different URL for the same story."

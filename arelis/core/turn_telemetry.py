@@ -267,11 +267,7 @@ class TurnTimer:
                 done_fields["model_prefill_ms"] = self.model_prefill_ms
             if self.model_decode_ms:
                 done_fields["model_decode_ms"] = self.model_decode_ms
-            actions = [
-                str(r.get("action") or "")
-                for r in self.tool_records
-                if r.get("action")
-            ]
+            actions = [str(r.get("action") or "") for r in self.tool_records if r.get("action")]
             if actions:
                 done_fields["actions"] = ",".join(actions)
             self.mark("done", **done_fields)

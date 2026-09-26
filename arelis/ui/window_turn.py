@@ -262,12 +262,7 @@ class WindowTurn:
         # Recovery for a live turn that dies without ASSISTANT_DONE. Idle
         # Stop must not arm this — a later "excellent job" is a new turn,
         # and an 8s leftover timer used to unlock it mid-generation.
-        if (
-            not hung
-            and self._turn_busy
-            and not self._force_quit
-            and not self._disposed
-        ):
+        if not hung and self._turn_busy and not self._force_quit and not self._disposed:
             self._stop_busy_epoch = self._busy_epoch
             self._busy_watchdog.start(_BUSY_WATCHDOG_MS)
 

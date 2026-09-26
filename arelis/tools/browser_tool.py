@@ -206,8 +206,7 @@ class BrowserTool:
             "seconds": {
                 "type": "number",
                 "description": (
-                    "wait: cap 0.2-8s. Default 1s to sleep, 8s when "
-                    "url/text/heading is set"
+                    "wait: cap 0.2-8s. Default 1s to sleep, 8s when url/text/heading is set"
                 ),
             },
             "destination": {
@@ -270,15 +269,11 @@ class BrowserTool:
             },
             "x": {
                 "type": "number",
-                "description": (
-                    "Pixel X. Only after screenshot then vision this turn."
-                ),
+                "description": ("Pixel X. Only after screenshot then vision this turn."),
             },
             "y": {
                 "type": "number",
-                "description": (
-                    "Pixel Y. Only after screenshot then vision this turn."
-                ),
+                "description": ("Pixel Y. Only after screenshot then vision this turn."),
             },
             "to": {
                 "type": "string",
@@ -337,17 +332,13 @@ class BrowserTool:
         if action not in _ACTIONS:
             return ToolResult(
                 ok=False,
-                output=(
-                    f"Unknown action {action!r}. Use: " + ", ".join(_ACTIONS) + "."
-                ),
+                output=(f"Unknown action {action!r}. Use: " + ", ".join(_ACTIONS) + "."),
             )
 
         self._revived = False
 
         if action == "relaunch":
-            ensured = await self.session.ensure(
-                browser, private=private, relaunch=True
-            )
+            ensured = await self.session.ensure(browser, private=private, relaunch=True)
             self._emit(
                 "browser_relaunch",
                 browser=self.session.last_browser or browser,
@@ -381,15 +372,9 @@ class BrowserTool:
                         data=dict(ensured.data or {}),
                     )
                 return ensured
-            result = await self.session.snapshot(
-                focus=str(kwargs.get("focus") or "").strip()
-            )
-            if not result.ok and await self._revive_once(
-                browser, private, _to_tool(result)
-            ):
-                result = await self.session.snapshot(
-                    focus=str(kwargs.get("focus") or "").strip()
-                )
+            result = await self.session.snapshot(focus=str(kwargs.get("focus") or "").strip())
+            if not result.ok and await self._revive_once(browser, private, _to_tool(result)):
+                result = await self.session.snapshot(focus=str(kwargs.get("focus") or "").strip())
             self._emit("browser_snapshot", ok=result.ok)
             tool = _to_tool(result)
             if invented_note:
@@ -444,14 +429,11 @@ class BrowserTool:
                 return ToolResult(
                     ok=False,
                     output=(
-                        "click needs ref, text (the visible label), or nth=1 "
-                        "for the first result."
+                        "click needs ref, text (the visible label), or nth=1 for the first result."
                     ),
                 )
             result = await self.session.click(ref, text=text, nth=nth)
-            if not result.ok and await self._revive_once(
-                browser, private, _to_tool(result)
-            ):
+            if not result.ok and await self._revive_once(browser, private, _to_tool(result)):
                 result = await self.session.click(ref, text=text, nth=nth)
             self._emit("browser_click", ref=ref or text or f"nth={nth}", ok=result.ok)
             return _to_tool(result)
@@ -483,9 +465,7 @@ class BrowserTool:
             result = await self.session.type_text(ref, text, into=into)
             if result.ok and fill_data:
                 data = dict(result.data or {})
-                data.update(
-                    {k: v for k, v in fill_data.items() if k != "error"}
-                )
+                data.update({k: v for k, v in fill_data.items() if k != "error"})
                 result.data = data
             self._emit("browser_type", ref=ref or into or "field", ok=result.ok)
             return _to_tool(result)
@@ -509,9 +489,7 @@ class BrowserTool:
             full_page = bool(kwargs.get("full_page"))
             out_dir = str(outputs_dir() / "images")
             stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-            path = os.path.join(
-                out_dir, f"browser_{stamp}_{uuid4().hex[:8]}.png"
-            )
+            path = os.path.join(out_dir, f"browser_{stamp}_{uuid4().hex[:8]}.png")
             result = await self.session.screenshot(path, full_page=full_page)
             self._emit(
                 "browser_screenshot",
@@ -580,9 +558,7 @@ class BrowserTool:
             want_heading = str(kwargs.get("heading") or "").strip()
             from arelis.browser.wait_for import has_wait_needle
 
-            has = has_wait_needle(
-                url=want_url, text=want_text, heading=want_heading
-            )
+            has = has_wait_needle(url=want_url, text=want_text, heading=want_heading)
             try:
                 seconds = float(
                     kwargs.get("seconds")
@@ -663,9 +639,7 @@ class BrowserTool:
                 text or ref or "download",
                 fallback=f"browser_{stamp}_{uuid4().hex[:8]}",
             )
-            result = await self.session.download(
-                str(dest), ref=ref, text=text, nth=nth
-            )
+            result = await self.session.download(str(dest), ref=ref, text=text, nth=nth)
             self._emit("browser_download", ok=result.ok, path=str(dest))
             return _to_tool_file(result)
 
@@ -676,9 +650,7 @@ class BrowserTool:
             from arelis.browser.files import resolve_upload_path
 
             raw_path = str(kwargs.get("path") or kwargs.get("url") or "").strip()
-            allowed, err = resolve_upload_path(
-                raw_path, workspace=self.workspace
-            )
+            allowed, err = resolve_upload_path(raw_path, workspace=self.workspace)
             if allowed is None:
                 return ToolResult(
                     ok=False,
@@ -689,9 +661,7 @@ class BrowserTool:
             into = str(kwargs.get("into") or kwargs.get("text") or "").strip()
             if ref and not _looks_like_ref(ref) and not into:
                 into, ref = ref, ""
-            result = await self.session.upload(
-                ref, str(allowed), into=into
-            )
+            result = await self.session.upload(ref, str(allowed), into=into)
             self._emit("browser_upload", ok=result.ok, path=str(allowed))
             return _to_tool(result)
 
@@ -731,17 +701,11 @@ class BrowserTool:
             except (TypeError, ValueError):
                 nth = 0
             if action == "hover":
-                result = await self.session.hover(
-                    ref, text=text, nth=nth, x=x, y=y
-                )
+                result = await self.session.hover(ref, text=text, nth=nth, x=x, y=y)
             elif action == "dblclick":
-                result = await self.session.dblclick(
-                    ref, text=text, nth=nth, x=x, y=y
-                )
+                result = await self.session.dblclick(ref, text=text, nth=nth, x=x, y=y)
             elif action == "right_click":
-                result = await self.session.right_click(
-                    ref, text=text, nth=nth, x=x, y=y
-                )
+                result = await self.session.right_click(ref, text=text, nth=nth, x=x, y=y)
             else:
                 to_x, to_y = parse_to_xy(kwargs)
                 result = await self.session.drag(
@@ -766,16 +730,12 @@ class BrowserTool:
             want_url = str(kwargs.get("url") or kwargs.get("target") or "").strip()
             want_text = str(kwargs.get("text") or "").strip()
             want_heading = str(kwargs.get("heading") or "").strip()
-            if not has_wait_needle(
-                url=want_url, text=want_text, heading=want_heading
-            ):
+            if not has_wait_needle(url=want_url, text=want_text, heading=want_heading):
                 return ToolResult(
                     ok=False,
                     output="watch needs url, text, or heading to poll for.",
                 )
-            result = await self.session.watch(
-                url=want_url, text=want_text, heading=want_heading
-            )
+            result = await self.session.watch(url=want_url, text=want_text, heading=want_heading)
             self._emit(
                 "browser_watch",
                 ok=result.ok,
@@ -805,13 +765,9 @@ class BrowserTool:
                 current_url=self.session.tab_url(),
             )
             url = search_url(query, site=site)
-            opened = await self._open_or_navigate(
-                "open", url, browser=browser, private=private
-            )
+            opened = await self._open_or_navigate("open", url, browser=browser, private=private)
             if not opened.ok and await self._revive_once(browser, private, opened):
-                opened = await self._open_or_navigate(
-                    "open", url, browser=browser, private=private
-                )
+                opened = await self._open_or_navigate("open", url, browser=browser, private=private)
             self._emit("browser_search", query=query, site=site, ok=opened.ok)
             if not opened.ok:
                 return opened
@@ -864,12 +820,8 @@ class BrowserTool:
             party = normalize_party(kwargs.get("party") or kwargs.get("covers") or 2)
             date = normalize_date(str(kwargs.get("date") or ""))
             clock = normalize_time(str(kwargs.get("time") or ""))
-            url = reserve_url(
-                place, site=site, party=party, date=date or "", time=clock or ""
-            )
-            opened = await self._open_or_navigate(
-                "open", url, browser=browser, private=private
-            )
+            url = reserve_url(place, site=site, party=party, date=date or "", time=clock or "")
+            opened = await self._open_or_navigate("open", url, browser=browser, private=private)
             self._emit(
                 "browser_reserve",
                 place=place,
@@ -896,9 +848,7 @@ class BrowserTool:
                     "After you pick a time, type remaining non-secret fields "
                     "(name/phone/notes). I do not type passwords or card numbers."
                 )
-            extra_bits.append(
-                "You click Book / Reserve / Confirm. I stop on that screen."
-            )
+            extra_bits.append("You click Book / Reserve / Confirm. I stop on that screen.")
             extra = "\n".join(extra_bits)
             data = dict(opened.data or {})
             data.update(
@@ -940,9 +890,7 @@ class BrowserTool:
             mode = str(kwargs.get("mode") or kwargs.get("travelmode") or "driving")
             url = maps_directions_url(dest, origin=origin, mode=mode)
             phone = maps_phone_link(dest, mode=mode)
-            opened = await self._open_or_navigate(
-                "open", url, browser=browser, private=private
-            )
+            opened = await self._open_or_navigate("open", url, browser=browser, private=private)
             self._emit(
                 "browser_maps",
                 destination=dest,
@@ -973,15 +921,11 @@ class BrowserTool:
 
         if action == "open":
             target = str(kwargs.get("url") or kwargs.get("target") or "").strip()
-            return await self._open_or_navigate(
-                "open", target, browser=browser, private=private
-            )
+            return await self._open_or_navigate("open", target, browser=browser, private=private)
 
         if action == "navigate":
             target = str(kwargs.get("url") or kwargs.get("target") or "").strip()
-            return await self._open_or_navigate(
-                action, target, browser=browser, private=private
-            )
+            return await self._open_or_navigate(action, target, browser=browser, private=private)
 
         return ToolResult(ok=False, output=f"Unhandled action {action!r}.")
 
@@ -1034,9 +978,7 @@ class BrowserTool:
                     url=url,
                     reason="PROFILE_LOCKED",
                 )
-                relaunched = await self.session.ensure(
-                    browser, private=private, relaunch=True
-                )
+                relaunched = await self.session.ensure(browser, private=private, relaunch=True)
                 self._emit(
                     "browser_relaunch",
                     browser=self.session.last_browser or browser,
@@ -1045,11 +987,7 @@ class BrowserTool:
                 )
                 if not relaunched.ok:
                     fail = _to_tool(relaunched)
-                    fail.output = (
-                        ensured.output
-                        + "\n\nAuto-relaunch failed:\n"
-                        + fail.output
-                    )
+                    fail.output = ensured.output + "\n\nAuto-relaunch failed:\n" + fail.output
                     data = dict(fail.data or {})
                     data["code"] = str(data.get("code") or "RELAUNCH_FAILED")
                     data["prior_code"] = "PROFILE_LOCKED"
@@ -1100,9 +1038,7 @@ class BrowserTool:
                 parts.append(note)
         return ToolResult(ok=True, output="\n\n".join(parts), data=data)
 
-    async def _revive_once(
-        self, browser: str, private: bool, prior: ToolResult
-    ) -> bool:
+    async def _revive_once(self, browser: str, private: bool, prior: ToolResult) -> bool:
         """One auto-relaunch of her Chrome after mid-turn CDP death. Not OS-open."""
         code = str((prior.data or {}).get("code") or "")
         if prior.ok or code not in {"CDP_DEAD", "CDP_TIMEOUT"}:
@@ -1115,9 +1051,7 @@ class BrowserTool:
             browser=browser,
             reason=code,
         )
-        relaunched = await self.session.ensure(
-            browser, private=private, relaunch=True
-        )
+        relaunched = await self.session.ensure(browser, private=private, relaunch=True)
         self._emit(
             "browser_relaunch",
             browser=self.session.last_browser or browser,
@@ -1133,7 +1067,7 @@ class BrowserTool:
                 output=(
                     "Playwright is not installed, so this session cannot "
                     "drive or read the page. Open still works via the OS. "
-                    "Install: pip install -e \".[browser]\" && playwright "
+                    'Install: pip install -e ".[browser]" && playwright '
                     "install chromium firefox"
                 ),
                 data={"code": "NO_PLAYWRIGHT"},

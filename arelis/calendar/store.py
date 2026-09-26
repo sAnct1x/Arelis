@@ -133,12 +133,8 @@ class CalendarStore:
     ) -> list[CachedEvent]:
         # Inclusive date window → UTC-ish ISO bounds using local midnight.
         zone = tz or datetime.now().astimezone().tzinfo
-        start_dt = datetime(
-            start_day.year, start_day.month, start_day.day, tzinfo=zone
-        )
-        end_exclusive = datetime(
-            end_day.year, end_day.month, end_day.day, tzinfo=zone
-        )
+        start_dt = datetime(start_day.year, start_day.month, start_day.day, tzinfo=zone)
+        end_exclusive = datetime(end_day.year, end_day.month, end_day.day, tzinfo=zone)
         from datetime import timedelta
 
         end_exclusive = end_exclusive + timedelta(days=1)
@@ -170,9 +166,7 @@ class CalendarStore:
         self._conn.commit()
 
 
-def _event_row(
-    ev: CachedEvent, now: str, *, sync_state: str | None = None
-) -> tuple[Any, ...]:
+def _event_row(ev: CachedEvent, now: str, *, sync_state: str | None = None) -> tuple[Any, ...]:
     return (
         ev.id,
         ev.provider,

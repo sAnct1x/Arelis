@@ -207,9 +207,7 @@ class ClipboardTool:
             "action": {
                 "type": "string",
                 "enum": ["read", "write"],
-                "description": (
-                    "read the clipboard (default), or write replaces it"
-                ),
+                "description": ("read the clipboard (default), or write replaces it"),
             },
             "text": {
                 "type": "string",

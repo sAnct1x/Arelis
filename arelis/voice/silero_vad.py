@@ -26,10 +26,7 @@ _DEFAULT_MODEL = models_dir() / "silero" / "silero_vad.onnx"
 
 # Upstream Silero ONNX (opset 16). Vendored under models/silero/; this URL is
 # the documented fallback when the file is missing.
-_MODEL_URL = (
-    "https://github.com/snakers4/silero-vad/raw/master/"
-    "src/silero_vad/data/silero_vad.onnx"
-)
+_MODEL_URL = "https://github.com/snakers4/silero-vad/raw/master/src/silero_vad/data/silero_vad.onnx"
 
 
 class SileroUnavailableError(RuntimeError):
@@ -62,8 +59,7 @@ class SileroOnnxVad:
             import onnxruntime as ort
         except ImportError as exc:
             raise SileroUnavailableError(
-                "onnxruntime is not installed. "
-                'Run: pip install -e ".[voice]"'
+                'onnxruntime is not installed. Run: pip install -e ".[voice]"'
             ) from exc
 
         path = Path(model_path) if model_path else _DEFAULT_MODEL
@@ -109,9 +105,9 @@ class SileroOnnxVad:
 
     def _infer_frame(self, frame: np.ndarray) -> float:
         # frame: (512,) float32 at 16 kHz
-        x = np.concatenate(
-            [self._context, frame.reshape(1, FRAME_SAMPLES)], axis=1
-        ).astype(np.float32)
+        x = np.concatenate([self._context, frame.reshape(1, FRAME_SAMPLES)], axis=1).astype(
+            np.float32
+        )
         feeds: dict[str, Any] = {
             "input": x,
             "state": self._state,

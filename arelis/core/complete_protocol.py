@@ -12,9 +12,7 @@ from typing import Protocol
 
 from arelis.history_view import history_pairs
 
-SEND_ALLOW_CLOSER = (
-    "Chatting is not sending. The confirm card will ask the user to Allow."
-)
+SEND_ALLOW_CLOSER = "Chatting is not sending. The confirm card will ask the user to Allow."
 CREATE_ALLOW_CLOSER = (
     "Do not send_sms. Do not web_search. Chatting is not creating. "
     "The confirm card will ask the user to Allow."

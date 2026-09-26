@@ -47,12 +47,11 @@ def test_ci_cancels_leftover_runs_and_cannot_sit_six_hours() -> None:
 def test_ci_ruff_pin_matches_pyproject() -> None:
     workflow = CI_YML.read_text(encoding="utf-8")
     pyproject = PYPROJECT.read_text(encoding="utf-8")
-    wf_match = re.search(r'ruff==(\d+\.\d+\.\d+)', workflow)
+    wf_match = re.search(r"ruff==(\d+\.\d+\.\d+)", workflow)
     py_match = re.search(r'"ruff==(\d+\.\d+\.\d+)"', pyproject)
     assert wf_match and py_match, "ruff pin missing from ci.yml or pyproject.toml"
     assert wf_match.group(1) == py_match.group(1), (
-        f"ci.yml installs ruff=={wf_match.group(1)}, "
-        f"pyproject pins ruff=={py_match.group(1)}"
+        f"ci.yml installs ruff=={wf_match.group(1)}, pyproject pins ruff=={py_match.group(1)}"
     )
 
 
@@ -74,7 +73,7 @@ def test_mypy_reports_on_the_repo_and_gates_only_the_clean_packages() -> None:
     assert pin, "dev extra must pin mypy==x.y.z the same way it pins ruff"
     assert "[tool.mypy]" in pyproject, "permissive mypy config lives in pyproject.toml"
     assert "ignore_missing_imports = true" in pyproject
-    wf_pin = re.search(r'mypy==(\d+\.\d+\.\d+)', workflow)
+    wf_pin = re.search(r"mypy==(\d+\.\d+\.\d+)", workflow)
     assert wf_pin, "types job must install the same mypy pin"
     assert wf_pin.group(1) == pin.group(1)
     assert re.search(r"(?m)^  types:", workflow), "CI lost the types report job"
@@ -184,6 +183,5 @@ def test_no_windows_only_import_at_module_level() -> None:
                     if hit:
                         offenders.append(f"{rel}: from ctypes import {sorted(hit)}")
     assert not offenders, (
-        "Windows-only names at module level abort Ubuntu collection:\n  "
-        + "\n  ".join(offenders)
+        "Windows-only names at module level abort Ubuntu collection:\n  " + "\n  ".join(offenders)
     )

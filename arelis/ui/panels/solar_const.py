@@ -47,8 +47,7 @@ SOLAR_SPAWN: tuple[tuple[str, str, str], ...] = (
 HELP_HOTKEYS: tuple[str, ...] = (
     "WASD/QE fly  wheel dolly  click inspect  right/dblclick travel  "
     "Home/R reset  Return travel  / find on Earth",
-    "Space pause  1–4 [ ] rate  \\ warp  O orbits  L Lagrange  T trails  "
-    "` graphs",
+    "Space pause  1–4 [ ] rate  \\ warp  O orbits  L Lagrange  T trails  ` graphs",
     "G gravity  M magnetic  P wind  ; grid  H this plate  "
     "⋯ Gravity/Magnetic/Wind/Grid + spawn. Spoken flags match. "
     "Travel to is any body. Enter appears after you arrive at Earth. No F.",
@@ -125,6 +124,8 @@ def _wash(name: str, alpha: int) -> QColor:
     tint = QColor(color(name))
     tint.setAlpha(max(0, min(255, int(alpha))))
     return tint
+
+
 _cache: dict[str, np.ndarray] = {}
 _TINT: dict[str, tuple[int, int, int]] = {
     "Sun": (255, 236, 210),
@@ -213,9 +214,7 @@ def _sample_albedo(albedo: np.ndarray, lon: np.ndarray, lat: np.ndarray) -> np.n
     s10 = tex[v0, u1]
     s01 = tex[v1, u0]
     s11 = tex[v1, u1]
-    return (s00 * (1.0 - fu) + s10 * fu) * (1.0 - fv) + (
-        s01 * (1.0 - fu) + s11 * fu
-    ) * fv
+    return (s00 * (1.0 - fu) + s10 * fu) * (1.0 - fv) + (s01 * (1.0 - fu) + s11 * fu) * fv
 
 
 def _on_frame(
@@ -277,9 +276,7 @@ def _globe(
         samp = samp + (core - samp) * np.power(mu, 0.65)[..., None]
         samp = samp * ld[..., None]
         samp = samp * 1.08
-        samp = samp + np.array((255.0, 245.0, 210.0)) * (0.28 * np.power(mu, 6.0))[
-            ..., None
-        ]
+        samp = samp + np.array((255.0, 245.0, 210.0)) * (0.28 * np.power(mu, 6.0))[..., None]
         if granulate and size >= 32:
             scale = 28.0
             gx = np.floor(nx * scale)
@@ -306,9 +303,7 @@ def _globe(
             gran = 0.90 + 0.16 * cells
             samp = samp * gran[..., None]
             samp = samp * (1.0 + 0.05 * amp[..., None] * (edge * 2.0 - 1.0)[..., None])
-            samp = samp + np.array((210.0, 90.0, 18.0)) * (0.36 * np.power(one, 3.2))[
-                ..., None
-            ]
+            samp = samp + np.array((210.0, 90.0, 18.0)) * (0.36 * np.power(one, 3.2))[..., None]
         lit = np.clip(samp, 0, 255).astype(np.uint8)
         rgb[..., :3] = lit
         rgb[..., 3] = np.where(mask, 255, 0).astype(np.uint8)

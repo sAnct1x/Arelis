@@ -161,12 +161,8 @@ def test_earth_gl_cache_ignores_spin_micro_moves() -> None:
     far = earth_gl_cache_key(eye=(1_000_200.0, 0.0, 0.0), t=1.2, **base)
     later = earth_gl_cache_key(eye=(1_000_000.0, 0.0, 0.0), t=1.8, **base)
     next_s = earth_gl_cache_key(eye=(1_000_000.0, 0.0, 0.0), t=2.1, **base)
-    hour = earth_gl_cache_key(
-        eye=(1_000_000.0, 0.0, 0.0), t=29.0, t_step=30.0, **base
-    )
-    hour_near = earth_gl_cache_key(
-        eye=(1_000_000.0, 0.0, 0.0), t=1.2, t_step=30.0, **base
-    )
+    hour = earth_gl_cache_key(eye=(1_000_000.0, 0.0, 0.0), t=29.0, t_step=30.0, **base)
+    hour_near = earth_gl_cache_key(eye=(1_000_000.0, 0.0, 0.0), t=1.2, t_step=30.0, **base)
     assert a == near
     assert a != far
     assert a == later
@@ -238,9 +234,7 @@ def test_front_face_matches_the_winding_the_matrices_actually_produce() -> None:
         n = rows[i, 3:6]
         wx, wy, wz = world(i)
         return (
-            float(n[0]) * (eye[0] - wx)
-            + float(n[1]) * (eye[1] - wy)
-            + float(n[2]) * (eye[2] - wz)
+            float(n[0]) * (eye[0] - wx) + float(n[1]) * (eye[1] - wy) + float(n[2]) * (eye[2] - wz)
         ) > 0.0
 
     def screen(i: int) -> tuple[float, float]:

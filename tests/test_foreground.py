@@ -23,9 +23,7 @@ def test_seal_marks_the_plate_for_click_to_front(qt_app) -> None:
         plate.deleteLater()
 
 
-def test_claim_foreground_raises_owner_when_another_app_is_front(
-    qt_app, monkeypatch
-) -> None:
+def test_claim_foreground_raises_owner_when_another_app_is_front(qt_app, monkeypatch) -> None:
     from arelis.ui import foreground as fg
 
     monkeypatch.setattr(fg, "process_owns_foreground", lambda: False)
@@ -119,9 +117,7 @@ def test_claim_foreground_raises_the_tile(qt_app) -> None:
         front.deleteLater()
 
 
-def test_click_on_tile_child_claims_when_another_app_is_in_front(
-    qt_app, monkeypatch
-) -> None:
+def test_click_on_tile_child_claims_when_another_app_is_in_front(qt_app, monkeypatch) -> None:
     from arelis.ui import foreground as fg
     from arelis.ui.glass import seal_tool_window
 

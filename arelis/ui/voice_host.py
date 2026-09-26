@@ -136,8 +136,8 @@ def voice_settings_plan(
             notices=notices,
         )
     heading = "Restart required"
-    message = " ".join(notices) if notices else (
-        "Restart Arelis before this voice change takes effect."
+    message = (
+        " ".join(notices) if notices else ("Restart Arelis before this voice change takes effect.")
     )
     if not restart_confirmed:
         return VoiceSettingsPlan(
@@ -180,9 +180,7 @@ def _voice_direction_live(window) -> tuple[bool, bool]:
     voice = getattr(window, "voice", None)
     if voice is None:
         return False, False
-    return bool(getattr(voice, "stt_enabled", False)), bool(
-        getattr(voice, "tts_enabled", False)
-    )
+    return bool(getattr(voice, "stt_enabled", False)), bool(getattr(voice, "tts_enabled", False))
 
 
 def commit_voice_directions(
@@ -281,9 +279,7 @@ def build_voice(window) -> None:
     window._speech_watchdog = QTimer(window)
     window._speech_watchdog.setSingleShot(True)
     window._speech_watchdog.timeout.connect(lambda: on_speech_watchdog(window))
-    window.utterance_settled.connect(
-        lambda became_turn: on_utterance_settled(window, became_turn)
-    )
+    window.utterance_settled.connect(lambda became_turn: on_utterance_settled(window, became_turn))
     window.wake_detected.connect(lambda remainder: on_wake_detected(window, remainder))
     if window.voice is None:
         window.conversation.set_voice_available(False, "")
@@ -301,9 +297,7 @@ def build_voice(window) -> None:
                 )
             )
             controller.provisional.connect(
-                lambda pcm, rate, channels: on_provisional_pcm(
-                    window, pcm, rate, channels
-                )
+                lambda pcm, rate, channels: on_provisional_pcm(window, pcm, rate, channels)
             )
             controller.live_started.connect(lambda: on_live_started(window))
             controller.live_pcm.connect(
@@ -345,7 +339,9 @@ def build_voice(window) -> None:
             player.finished.connect(lambda: on_playback(window, False))
             player.failed.connect(lambda message: on_playback_failed(window, message))
 
+
 # ------------------------------------------------------------------ voice
+
 
 def on_provisional_pcm(window, pcm: bytes, rate: int, channels: int) -> None:
     """Mid-utterance peek: STT for weather/SMS intent only (no turn start)."""
@@ -363,9 +359,8 @@ def on_provisional_pcm(window, pcm: bytes, rate: int, channels: int) -> None:
         ingest_provisional(window, str(target), generation),
         window.loop,
     )
-    future.add_done_callback(
-        lambda fut, gen=generation: provisional_resolved(window, fut, gen)
-    )
+    future.add_done_callback(lambda fut, gen=generation: provisional_resolved(window, fut, gen))
+
 
 async def ingest_provisional(window, path: str, generation: int) -> str:
     from arelis.voice.speculate import provisional_intents
@@ -383,10 +378,9 @@ async def ingest_provisional(window, path: str, generation: int) -> str:
     if intent is None:
         return ""
     window._provisional_intent = intent
-    await window.bus.publish(
-        Event(EventType.STATUS, {"message": intent.summary})
-    )
+    await window.bus.publish(Event(EventType.STATUS, {"message": intent.summary}))
     return intent.summary
+
 
 def provisional_resolved(window, future, generation: int) -> None:
     try:
@@ -400,6 +394,7 @@ def provisional_resolved(window, future, generation: int) -> None:
             window.thinking.append(str(summary), kind="status")
         except RuntimeError:
             pass
+
 
 def on_utterance(window, pcm: bytes, rate: int, channels: int, deliver: str) -> None:
     """Hand a recorded utterance to the async side.
@@ -437,9 +432,7 @@ def on_utterance(window, pcm: bytes, rate: int, channels: int, deliver: str) -> 
     try:
         write_wav(target, pcm, sample_rate=rate, channels=channels)
     except OSError as exc:
-        window.chat.add_system(
-            f"I could not save the recording. {plain_reason(exc)}"
-        )
+        window.chat.add_system(f"I could not save the recording. {plain_reason(exc)}")
         window.thinking.append(f"capture write failed: {exc!r}", kind="status")
         on_utterance_settled(window, False)
         return
@@ -465,9 +458,7 @@ def on_utterance(window, pcm: bytes, rate: int, channels: int, deliver: str) -> 
             ingest_wake(window, str(target), generation),
             window.loop,
         )
-        future.add_done_callback(
-            lambda fut, gen=generation: wake_resolved(window, fut, gen)
-        )
+        future.add_done_callback(lambda fut, gen=generation: wake_resolved(window, fut, gen))
         return
     if deliver != "dictate":
         window.thinking.append("transcribing", kind="status")
@@ -479,12 +470,11 @@ def on_utterance(window, pcm: bytes, rate: int, channels: int, deliver: str) -> 
     if peel:
         window._peel_wake_next = False
     future = asyncio.run_coroutine_threadsafe(
-        window.voice.ingest_audio(
-            str(target), deliver=deliver, strip_wake=peel
-        ),
+        window.voice.ingest_audio(str(target), deliver=deliver, strip_wake=peel),
         window.loop,
     )
     future.add_done_callback(lambda fut: utterance_resolved(window, fut))
+
 
 def on_live_started(window) -> None:
     """Conversation/dictate onset: feed Sherpa while they talk, if the pack is ready."""
@@ -493,18 +483,22 @@ def on_live_started(window) -> None:
         return
     window._live_stt_active = window.voice.start_live_stt()
 
+
 def on_live_pcm(window, pcm: bytes, rate: int, channels: int) -> None:
     if window.voice is None or not window._live_stt_active or not pcm:
         return
     window.voice.feed_live_stt(pcm, rate, channels)
 
+
 def invalidate_wake(window) -> None:
     window._wake_generation += 1
     window._wake_inflight = False
 
+
 def invalidate_provisional(window) -> None:
     window._prov_generation += 1
     window._provisional_intent = None
+
 
 async def ingest_wake(window, path: str, generation: int) -> WakeResult | None:
     """Transcribe an idle clip; return wake classification (or None if superseded)."""
@@ -518,6 +512,7 @@ async def ingest_wake(window, path: str, generation: int) -> WakeResult | None:
     if generation != window._wake_generation:
         return None
     return classify_wake(text or "")
+
 
 def wake_resolved(window, future, generation: int) -> None:
     try:
@@ -560,7 +555,7 @@ def wake_resolved(window, future, generation: int) -> None:
             if len(snippet) > 60:
                 snippet = snippet[:57] + "…"
             window.thinking.append(
-                f'heard “{snippet}” — say “Hey Arelis” to wake',
+                f"heard “{snippet}” — say “Hey Arelis” to wake",
                 kind="status",
             )
     except RuntimeError:
@@ -627,6 +622,7 @@ def on_wake_detected(window, remainder: object) -> None:
         window.loop,
     )
 
+
 def utterance_resolved(window, future) -> None:
     """Report back whether the recording produced anything. Async thread."""
     try:
@@ -639,12 +635,14 @@ def utterance_resolved(window, future) -> None:
         # The window went away while transcription was still running.
         pass
 
+
 def on_utterance_settled(window, became_turn: bool) -> None:
     if became_turn or window.voice_controller is None:
         return
     # No turn will start, so no terminal event is coming. Conversation mode
     # has to be told, or it waits for one forever and stops listening.
     window.voice_controller.notify_utterance_dropped()
+
 
 def _mark_voice_preparing(window, on: bool) -> None:
     idle = getattr(window.conversation.chat, "empty", None)
@@ -662,9 +660,7 @@ def preload_voice(window) -> None:
     if getattr(window, "_voice_preload_future", None) is not None:
         return
 
-    wake_future = asyncio.run_coroutine_threadsafe(
-        window.voice.warm_wake(), window.loop
-    )
+    wake_future = asyncio.run_coroutine_threadsafe(window.voice.warm_wake(), window.loop)
 
     def _wake_done(fut) -> None:
         try:
@@ -677,9 +673,7 @@ def preload_voice(window) -> None:
             window.voice.preload(), window.loop
         )
 
-    wake_future.add_done_callback(
-        lambda fut: QTimer.singleShot(0, lambda: _wake_done(fut))
-    )
+    wake_future.add_done_callback(lambda fut: QTimer.singleShot(0, lambda: _wake_done(fut)))
     window._voice_preload_future = wake_future
 
 
@@ -696,6 +690,7 @@ def on_voice_ear_ready(window, future) -> None:
     from arelis.ui.idle_host import sync_idle_voice_mode
 
     sync_idle_voice_mode(window)
+
 
 def on_voice_mode(window, mode: str) -> None:
     window.conversation.set_dictating(mode == "dictate")
@@ -724,8 +719,10 @@ def on_voice_mode(window, mode: str) -> None:
     if mode != "conversation":
         stop_speech(window)
 
+
 def on_voice_status(window, message: str) -> None:
     window.thinking.append(message, kind="status")
+
 
 def on_capture_failed(window, message: str) -> None:
     """The microphone side failed, so leave the mode rather than fake it.
@@ -743,10 +740,12 @@ def on_capture_failed(window, message: str) -> None:
     window.conversation.set_dictating(False)
     window.conversation.set_conversing(False)
 
+
 def on_playback_failed(window, message: str) -> None:
     """A clip failed to play — abandon speech so conversation can listen again."""
     window.thinking.append(f"playback: {message}", kind="status")
     stop_speech(window)
+
 
 def on_barge_in(window) -> None:
     """Talking over her. Cut playback now.
@@ -757,6 +756,7 @@ def on_barge_in(window) -> None:
     """
     window.thinking.append("interrupted", kind="status")
     stop_speech(window)
+
 
 def arm_speech(window) -> None:
     """A spoken reply is in flight (or about to be).
@@ -776,16 +776,19 @@ def arm_speech(window) -> None:
     trace_voice(window, "speech_armed")
     update_speaking(window)
 
+
 def on_speech_synthesized(window, clips: int) -> None:
     """VOICE_SPEECH_DONE: no more clips are coming for this reply."""
     window._speech_expected = False
     trace_voice(window, "speech_synthesized", clips=clips)
     update_speaking(window)
 
+
 def on_playback(window, playing: bool) -> None:
     window._speech_playing = playing
     trace_voice(window, "playback")
     update_speaking(window)
+
 
 def update_speaking(window) -> None:
     # Include the player queue so VOICE_SPEECH_DONE cannot reopen the mic in
@@ -806,6 +809,7 @@ def update_speaking(window) -> None:
 
         flush_held_inbound(window)
 
+
 def on_speech_watchdog(window) -> None:
     player_busy = window.speech_player is not None and window.speech_player.has_work()
     stuck = window._speech_expected or window._speech_playing or player_busy
@@ -815,6 +819,7 @@ def on_speech_watchdog(window) -> None:
         return
     window.thinking.append("speech never reported finishing; listening again", kind="status")
     stop_speech(window)
+
 
 def stop_speech(window) -> None:
     # Cancelling synthesis matters as much as stopping the player. The
@@ -828,6 +833,7 @@ def stop_speech(window) -> None:
     window._speech_expected = False
     window._speech_playing = False
     update_speaking(window)
+
 
 def trace_voice(window, event: str, **fields: Any) -> None:
     if window.voice_controller is None:

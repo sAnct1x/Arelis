@@ -113,9 +113,7 @@ def sun_lit_at(
 ) -> float:
     return float(
         np.asarray(
-            sun_lit_fraction(
-                point[0], point[1], point[2], sun, occluders, sun_radius=sun_radius
-            )
+            sun_lit_fraction(point[0], point[1], point[2], sun, occluders, sun_radius=sun_radius)
         )
     )
 

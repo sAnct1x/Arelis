@@ -239,9 +239,7 @@ def test_cold_start_is_orbit_idle(qt_app) -> None:
         assert window.chat.empty.idle_placeholder.text() == "what are we working on"
         assert window.chat.empty.listen_word.isHidden()
         assert window.conversation.input.placeholderText() == ""
-        ghost_text = [
-            w.text() for w in window.chat.empty._ghosts.findChildren(QLabel)
-        ]
+        ghost_text = [w.text() for w in window.chat.empty._ghosts.findChildren(QLabel)]
         assert "TOOLS" in ghost_text
         assert TOOLS_CHIP_TITLE in ghost_text
         assert any(ask in ghost_text for ask in FIRST_RUN_ASKS)
@@ -321,12 +319,7 @@ def test_inbound_notify_status_does_not_leave_orbit(qt_app) -> None:
         window._on_event(
             Event(
                 EventType.STATUS,
-                {
-                    "message": (
-                        "Phone notifications: "
-                        "http://127.0.0.1:8765"
-                    )
-                },
+                {"message": ("Phone notifications: http://127.0.0.1:8765")},
             )
         )
         sync_idle_mode(window)
@@ -364,9 +357,7 @@ def test_parked_orbit_sits_in_a_chat_gutter(qt_app) -> None:
         assert not orbit.isHidden()
         _l, _t, right, _b = chat.layout().getContentsMargins()
         assert right >= orbit.width()
-        view_right = chat.view.mapTo(
-            window.conversation, QPoint(chat.view.width(), 0)
-        ).x()
+        view_right = chat.view.mapTo(window.conversation, QPoint(chat.view.width(), 0)).x()
         assert orbit.x() >= view_right
     finally:
         window.hide()

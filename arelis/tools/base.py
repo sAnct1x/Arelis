@@ -30,9 +30,7 @@ _PLACEHOLDER_TOKEN = (
     r"user_phone_number|your_phone|phone_number_here|"
     r"your_email|user_email|email_here|TODO|TBD|xxx+"
 )
-_PLACEHOLDER_ARG = re.compile(
-    rf"(?i)<(?:{_PLACEHOLDER_TOKEN})>|\b(?:{_PLACEHOLDER_TOKEN})\b"
-)
+_PLACEHOLDER_ARG = re.compile(rf"(?i)<(?:{_PLACEHOLDER_TOKEN})>|\b(?:{_PLACEHOLDER_TOKEN})\b")
 
 
 def confirm_args_blocked(name: str, args: dict[str, Any] | None) -> str | None:
@@ -47,10 +45,7 @@ def confirm_args_blocked(name: str, args: dict[str, Any] | None) -> str | None:
         if not text:
             continue
         if _PLACEHOLDER_ARG.search(text):
-            return (
-                f"Placeholder argument {key}={_short(text)!r} "
-                "— fill a real value first."
-            )
+            return f"Placeholder argument {key}={_short(text)!r} — fill a real value first."
     if tool == "workspace" and action == "write":
         content = str(args.get("content") or "")
         if not content.strip():
@@ -60,12 +55,7 @@ def confirm_args_blocked(name: str, args: dict[str, Any] | None) -> str | None:
         rows = str(args.get("rows") or "")
         title = str(args.get("title") or "")
         from_path = str(args.get("from_path") or "")
-        if (
-            not body.strip()
-            and not rows.strip()
-            and not title.strip()
-            and not from_path.strip()
-        ):
+        if not body.strip() and not rows.strip() and not title.strip() and not from_path.strip():
             return "document has empty body — nothing to Allow."
     if tool == "contacts" and action in CONTACTS_WRITE_ACTIONS:
         phone = str(args.get("phone") or args.get("number") or "").strip()
@@ -85,9 +75,7 @@ def confirm_args_blocked(name: str, args: dict[str, Any] | None) -> str | None:
     return None
 
 
-def capability_class(
-    name: str, args: dict[str, Any] | None = None
-) -> CapabilityClass:
+def capability_class(name: str, args: dict[str, Any] | None = None) -> CapabilityClass:
     """Blast-radius class for a concrete tool call (argument-aware)."""
     return evaluate_capability(name, args)
 
@@ -105,8 +93,7 @@ class Tool(Protocol):
     parameters_schema: dict[str, Any]
     risk: ToolRisk
 
-    async def run(self, **kwargs: Any) -> ToolResult:
-        ...
+    async def run(self, **kwargs: Any) -> ToolResult: ...
 
 
 class ToolRegistry:
@@ -210,9 +197,7 @@ class ToolRegistry:
 
     def describe_call(self, name: str, args: dict[str, Any]) -> str:
         """A fuller rendering of a pending call, for the confirm card."""
-        return render_confirm_detail(
-            name, args, lookup=self.get, summarize=self.summarize_call
-        )
+        return render_confirm_detail(name, args, lookup=self.get, summarize=self.summarize_call)
 
     async def call(self, name: str, /, **kwargs: Any) -> ToolResult:
         """Invoke a tool by name.

@@ -207,9 +207,7 @@ def test_coach_and_deaf_copy() -> None:
     for layer in list(earth.layers):
         earth.layers[layer] = False
     assert deaf_line(earth) is not None
-    assert "deaf" in (deaf_line(earth) or "").lower() or "hole" in (
-        deaf_line(earth) or ""
-    ).lower()
+    assert "deaf" in (deaf_line(earth) or "").lower() or "hole" in (deaf_line(earth) or "").lower()
 
 
 def test_camera_chip_on_empty_look_is_a_hole() -> None:
@@ -289,10 +287,7 @@ def test_inspect_card_skips_the_legal_cite() -> None:
     from arelis.earth.entity import Coverage, Entity
     from arelis.ui.earth_overlay import inspect_card_text
 
-    cite = (
-        "CelesTrak GP TLE + SGP4. TEME→ECEF via GMST. "
-        "Classified objects are absent."
-    )
+    cite = "CelesTrak GP TLE + SGP4. TEME→ECEF via GMST. Classified objects are absent."
     pos = lla_to_ecef(40.0, -83.0, 550_000.0)
     text = inspect_card_text(
         Entity(
@@ -411,9 +406,7 @@ def test_plate_find_and_live_click(qt_app, monkeypatch: pytest.MonkeyPatch) -> N
     assert earth.live is True
     open_find(panel)
     assert panel._earth_find_hits == []
-    letter = QKeyEvent(
-        QEvent.Type.KeyPress, Qt.Key.Key_T, Qt.KeyboardModifier.NoModifier, ""
-    )
+    letter = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_T, Qt.KeyboardModifier.NoModifier, "")
     assert panel._earth_key_event(letter) is True
     assert panel._earth_find_q.lower().startswith("t")
     type_find(panel, "okyo")
@@ -426,9 +419,7 @@ def test_plate_find_and_live_click(qt_app, monkeypatch: pytest.MonkeyPatch) -> N
     panel._earth_find_q = "Tokyo"
     assert apply_goto(panel)
     assert panel._place["name"] == "Tokyo"
-    slash = QKeyEvent(
-        QEvent.Type.KeyPress, Qt.Key.Key_Slash, Qt.KeyboardModifier.NoModifier, "/"
-    )
+    slash = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Slash, Qt.KeyboardModifier.NoModifier, "/")
     panel._earth_find_on = False
     assert panel._earth_key_event(slash) is True
     assert panel._earth_find_on is True

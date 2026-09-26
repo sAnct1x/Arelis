@@ -171,9 +171,7 @@ async def execute_call(
             if name == "browser":
                 b_act = str(args.get("action") or "").strip().lower()
                 if b_act == "snapshot" or (
-                    b_act in {"open", "navigate"}
-                    and data_dict
-                    and data_dict.get("snapshot")
+                    b_act in {"open", "navigate"} and data_dict and data_dict.get("snapshot")
                 ):
                     ctx.last_browser_snapshot = str(result.output or "")
                 if data_dict:
@@ -237,9 +235,7 @@ async def execute_call(
             if loop._look is not None and name == "camera":
                 loop._look.camera_snaps += 1
         if (not result.ok) and (
-            name == "browser"
-            and data_dict
-            and str(data_dict.get("code") or "") == "PROFILE_LOCKED"
+            name == "browser" and data_dict and str(data_dict.get("code") or "") == "PROFILE_LOCKED"
         ):
             # Attempted browser counts for routing_gap (R9).
             loop.tools_used.add(name)
@@ -257,9 +253,7 @@ async def execute_call(
             action = str(args.get("action") or "").strip()
             if action:
                 bits.append(action)
-            await loop.bus.publish(
-                Event(EventType.THINKING, {"text": "  ".join(bits)})
-            )
+            await loop.bus.publish(Event(EventType.THINKING, {"text": "  ".join(bits)}))
             if (
                 code
                 in {
@@ -272,12 +266,8 @@ async def execute_call(
                 and bool(agent_cfg.get("browser_relaunch_force", True))
             ):
                 ctx.browser_relaunch_nudge_used = True
-                pending_url = str(
-                    args.get("url") or args.get("target") or ""
-                ).strip()
-                url_bit = (
-                    f", url={pending_url!r}" if pending_url else ""
-                )
+                pending_url = str(args.get("url") or args.get("target") or "").strip()
+                url_bit = f", url={pending_url!r}" if pending_url else ""
                 messages.append(
                     {
                         "role": "user",
@@ -297,21 +287,12 @@ async def execute_call(
                 await loop.bus.publish(
                     Event(
                         EventType.THINKING,
-                        {
-                            "text": (
-                                f"browser {code}; one-shot "
-                                "relaunch-then-open nudge"
-                            )
-                        },
+                        {"text": (f"browser {code}; one-shot relaunch-then-open nudge")},
                     )
                 )
                 if loop._timer is not None:
-                    loop._timer.mark(
-                        "exactness", gate="browser_relaunch", action="nudge"
-                    )
-        loop._trace.append(
-            tool_trace_entry(name, args, result.ok, resolved_path=resolved)
-        )
+                    loop._timer.mark("exactness", gate="browser_relaunch", action="nudge")
+        loop._trace.append(tool_trace_entry(name, args, result.ok, resolved_path=resolved))
         ledger.record_tool(
             name,
             ok=result.ok,
@@ -338,9 +319,7 @@ async def execute_call(
                     action=str(receipt.get("action") or name),
                     ok=True,
                 )
-            await loop.bus.publish(
-                Event(EventType.THINKING, {"text": receipt_line})
-            )
+            await loop.bus.publish(Event(EventType.THINKING, {"text": receipt_line}))
             session_id = None
             sink = getattr(loop.memory, "sink", None)
             if sink is not None:
@@ -355,12 +334,9 @@ async def execute_call(
                 and str(args.get("action") or "").strip().lower() == "read"
             )
         ) and result.ok:
-            url = str(
-                (data_dict or {}).get("url") or args.get("url") or ""
-            ).strip()
-            if (
-                (url.startswith("http://") or url.startswith("https://"))
-                and all(url != known for _, known in sources)
+            url = str((data_dict or {}).get("url") or args.get("url") or "").strip()
+            if (url.startswith("http://") or url.startswith("https://")) and all(
+                url != known for _, known in sources
             ):
                 title = str((data_dict or {}).get("title") or "").strip()
                 sources.append((title, url))
@@ -369,9 +345,7 @@ async def execute_call(
                 if not isinstance(item, dict):
                     continue
                 url = str(item.get("url") or "").strip()
-                if not (
-                    url.startswith("http://") or url.startswith("https://")
-                ):
+                if not (url.startswith("http://") or url.startswith("https://")):
                     continue
                 if any(url == known for _, known in sources):
                     continue
@@ -410,26 +384,18 @@ async def execute_call(
                         "text": (
                             f"tool_summary  {name}  "
                             f"{prepared.original_chars} chars → card"
-                            + (
-                                f"  ref={prepared.full_ref}"
-                                if prepared.full_ref
-                                else ""
-                            )
+                            + (f"  ref={prepared.full_ref}" if prepared.full_ref else "")
                         )
                     },
                 )
             )
             if data_dict is not None and prepared.full_ref:
                 data_dict = {**data_dict, "full_ref": prepared.full_ref}
-        out, trunc = truncate_tool_output(
-            prepared.inject, loop.tool_output_chars
-        )
+        out, trunc = truncate_tool_output(prepared.inject, loop.tool_output_chars)
         out = frame_external_tool_output(
             name,
             out,
-            action=str(args.get("action") or "")
-            if isinstance(args, dict)
-            else "",
+            action=str(args.get("action") or "") if isinstance(args, dict) else "",
         )
         if (
             loop._look is not None
@@ -451,8 +417,7 @@ async def execute_call(
                     EventType.THINKING,
                     {
                         "text": (
-                            f"truncated  {name}  "
-                            f"{trunc.original_chars}->{trunc.kept_chars} chars"
+                            f"truncated  {name}  {trunc.original_chars}->{trunc.kept_chars} chars"
                         )
                     },
                 )
@@ -484,8 +449,7 @@ async def execute_call(
                         {
                             "reason": "your_turn",
                             "kind": str(
-                                wall_kind
-                                or ("login" if wall_code == "SECRET_FIELD" else "")
+                                wall_kind or ("login" if wall_code == "SECRET_FIELD" else "")
                             ),
                         },
                     )
@@ -540,9 +504,7 @@ async def execute_call(
                     ctx,
                     text,
                     snapshot=str(result.output or ""),
-                    landed_url=str(
-                        (data_dict or {}).get("url") or ctx.last_browser_url
-                    ),
+                    landed_url=str((data_dict or {}).get("url") or ctx.last_browser_url),
                     sources=sources,
                 )
                 if ended:
@@ -558,15 +520,8 @@ async def execute_call(
                 },
             )
         )
-        if (
-            name in {"image", "image_edit"}
-            and result.ok
-            and data_dict
-            and data_dict.get("path")
-        ):
-            await loop.bus.publish(
-                Event(EventType.IMAGE_READY, {"path": data_dict["path"]})
-            )
+        if name in {"image", "image_edit"} and result.ok and data_dict and data_dict.get("path"):
+            await loop.bus.publish(Event(EventType.IMAGE_READY, {"path": data_dict["path"]}))
             # Finish now — otherwise the 7B often re-calls image and
             # spams Allow (same class of bug as double-SMS). image_edit
             # joins it because the round after a finished edit is where
@@ -606,12 +561,7 @@ async def execute_call(
                     },
                 )
             )
-        if (
-            name in {"document", "plot"}
-            and result.ok
-            and data_dict
-            and data_dict.get("abs_path")
-        ):
+        if name in {"document", "plot"} and result.ok and data_dict and data_dict.get("abs_path"):
             await loop.bus.publish(
                 Event(
                     EventType.FILE_READY,
@@ -628,14 +578,10 @@ async def execute_call(
                 )
             )
         if name == "research_report" and result.ok and data_dict:
-            raw_path = str(
-                data_dict.get("abs_path") or data_dict.get("path") or ""
-            ).strip()
+            raw_path = str(data_dict.get("abs_path") or data_dict.get("path") or "").strip()
             if raw_path:
                 report = Path(raw_path)
-                abs_report = (
-                    str(report.resolve()) if report.exists() else str(report)
-                )
+                abs_report = str(report.resolve()) if report.exists() else str(report)
                 await loop.bus.publish(
                     Event(
                         EventType.FILE_READY,
@@ -653,8 +599,7 @@ async def execute_call(
         if (
             name == "schedule"
             and result.ok
-            and str(args.get("action") or "").lower()
-            in {"create", "create_briefing"}
+            and str(args.get("action") or "").lower() in {"create", "create_briefing"}
         ):
             # Keep [job.id] in the transcript. The 7B otherwise
             # paraphrases the tool output and the id vanishes.
@@ -709,9 +654,7 @@ async def execute_call(
                 )
             else:
                 weather_ok_places.add(wx_key)
-                missing = weather_places_missing(
-                    text, weather_ok_places, ctx.weather_failed_places
-                )
+                missing = weather_places_missing(text, weather_ok_places, ctx.weather_failed_places)
                 # A two-city fanout already has the sibling in this batch.
                 # Steering "call the other city" here leaves a stale user
                 # line after the second reading, and 9b re-calls until
@@ -733,9 +676,7 @@ async def execute_call(
                             "without place for the user's own location. "
                             "Then answer from every reading."
                         )
-                    messages.append(
-                        {"role": "user", "content": more_msg}
-                    )
+                    messages.append({"role": "user", "content": more_msg})
                 elif not later_weather:
                     # Keep the tool array byte-stable. Stripping weather
                     # here used to re-prefill the whole 23k prefix (~50s)
@@ -772,12 +713,7 @@ async def execute_call(
                 )
         # Successful SMS to every draft recipient → confirm and stop.
         # Otherwise the model re-opens Allow and double-texts.
-        if (
-            name == "send_sms"
-            and result.ok
-            and sms_draft is not None
-            and sms_draft.complete
-        ):
+        if name == "send_sms" and result.ok and sms_draft is not None and sms_draft.complete:
             sent_l = {s.lower() for s in sms_sent}
             still = [
                 a
@@ -792,12 +728,7 @@ async def execute_call(
                     streamed="",
                 )
                 return True
-        if (
-            name == "send_email"
-            and result.ok
-            and email_draft is not None
-            and email_draft.complete
-        ):
+        if name == "send_email" and result.ok and email_draft is not None and email_draft.complete:
             from arelis.core.email_complete import email_remaining
 
             still = email_remaining(email_draft, ctx.email_sent)
@@ -811,11 +742,7 @@ async def execute_call(
                     streamed="",
                 )
                 return True
-        if (
-            name == "rooms"
-            and result.ok
-            and str(args.get("action") or "").lower() == "forget"
-        ):
+        if name == "rooms" and result.ok and str(args.get("action") or "").lower() == "forget":
             await loop._finish(
                 str(result.output or "").strip() or "The room is gone.",
                 sources,
@@ -828,9 +755,7 @@ async def execute_call(
             and "send_sms" not in loop._expected_tools
             and (
                 looks_like_contacts_utterance(text)
-                or looks_like_contacts_followup(
-                    text, loop.memory.messages
-                )
+                or looks_like_contacts_followup(text, loop.memory.messages)
                 or "contacts" in loop._expected_tools
             )
         ):
@@ -877,20 +802,12 @@ async def execute_call(
                 streamed="",
             )
             return True
-        if (
-            not result.ok
-            and not loop._fail_replan_used
-        ):
-            replan = tool_fail_replan_notice(
-                name, redacted, ok=False
-            )
+        if not result.ok and not loop._fail_replan_used:
+            replan = tool_fail_replan_notice(name, redacted, ok=False)
             if (
                 replan
                 and name == "web_search"
-                and (
-                    exact_need.needs_weather
-                    or "weather" in loop._expected_tools
-                )
+                and (exact_need.needs_weather or "weather" in loop._expected_tools)
             ):
                 replan += (
                     " If they asked about the weather/forecast, call "
@@ -959,9 +876,7 @@ async def _login_check_hop(
 
     ctx.browser_login_hop = True
     hop = login_check_hop_args(snapshot, landed_url)
-    await loop.bus.publish(
-        Event(EventType.THINKING, {"text": "login check; opening sign-in"})
-    )
+    await loop.bus.publish(Event(EventType.THINKING, {"text": "login check; opening sign-in"}))
     await loop.bus.publish(Event(EventType.TOOL_START, {"tool": "browser", "args": hop}))
     t0 = time.perf_counter()
     result = await loop.tools.call("browser", **hop)
@@ -1010,9 +925,9 @@ async def _login_check_hop(
         await loop._finish(errand.reply, sources, streamed="")
         return True
     await loop._finish(
-        LOGIN_READY_REPLY if result.ok else (
-            "I could not open the login page. The tab is still there."
-        ),
+        LOGIN_READY_REPLY
+        if result.ok
+        else ("I could not open the login page. The tab is still there."),
         sources,
         streamed="",
     )

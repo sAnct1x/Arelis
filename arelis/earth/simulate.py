@@ -109,9 +109,7 @@ SITES: tuple[tuple[str, float, float, str], ...] = (
 )
 
 
-def _slerp_lla(
-    a: tuple[float, float], b: tuple[float, float], u: float
-) -> tuple[float, float]:
+def _slerp_lla(a: tuple[float, float], b: tuple[float, float], u: float) -> tuple[float, float]:
     """Great-circle interpolation in degrees. u in [0, 1]."""
     lat1, lon1 = math.radians(a[0]), math.radians(a[1])
     lat2, lon2 = math.radians(b[0]), math.radians(b[1])
@@ -142,10 +140,7 @@ def _gcd_m(a: tuple[float, float], b: tuple[float, float]) -> float:
     lat1, lon1 = math.radians(a[0]), math.radians(a[1])
     lat2, lon2 = math.radians(b[0]), math.radians(b[1])
     dlat, dlon = lat2 - lat1, lon2 - lon1
-    h = (
-        math.sin(dlat / 2) ** 2
-        + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
-    )
+    h = math.sin(dlat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
     return 2.0 * MEAN_R * math.asin(min(1.0, math.sqrt(h)))
 
 
@@ -179,9 +174,7 @@ def _circle_ecef(
 
 
 def iss_entity(unix: float) -> Entity:
-    pos, vel = _circle_ecef(
-        ISS_ALT_M, ISS_INCL, ISS_PERIOD_S, unix, 0.35, 1.12
-    )
+    pos, vel = _circle_ecef(ISS_ALT_M, ISS_INCL, ISS_PERIOD_S, unix, 0.35, 1.12)
     return Entity(
         id=f"norad:{ISS_NORAD}",
         cls="satellite",
@@ -230,9 +223,7 @@ def _flights(unix: float, rng: random.Random, n: int = 280) -> list[Entity]:
         pos = lla_to_ecef(lat, lon, alt)
         lat2, lon2 = _slerp_lla((a[1], a[2]), (b[1], b[2]), min(1.0, u + 0.002))
         nxt = lla_to_ecef(lat2, lon2, alt)
-        vx, vy, vz = (nxt[0] - pos[0]) / 20.0, (nxt[1] - pos[1]) / 20.0, (
-            nxt[2] - pos[2]
-        ) / 20.0
+        vx, vy, vz = (nxt[0] - pos[0]) / 20.0, (nxt[1] - pos[1]) / 20.0, (nxt[2] - pos[2]) / 20.0
         mil = i % 37 == 0
         layer = "military" if mil else "flights"
         out.append(
@@ -301,9 +292,7 @@ def _satellites(unix: float, n_leo: int = 96, n_gps: int = 24) -> list[Entity]:
         slot = i // 8
         raan = plane * (math.pi / 4.0)
         phase = slot * (2.0 * math.pi / max(n_leo // 8, 1))
-        pos, vel = _circle_ecef(
-            LEO_ALT_M, math.radians(53.0), LEO_PERIOD_S, unix, phase, raan
-        )
+        pos, vel = _circle_ecef(LEO_ALT_M, math.radians(53.0), LEO_PERIOD_S, unix, phase, raan)
         out.append(
             Entity(
                 id=f"sim-leo:{i:03d}",
@@ -329,9 +318,7 @@ def _satellites(unix: float, n_leo: int = 96, n_gps: int = 24) -> list[Entity]:
         slot = i // 6
         raan = plane * (math.pi / 3.0)
         phase = slot * (math.pi / 2.0) + 0.2
-        pos, vel = _circle_ecef(
-            GPS_ALT_M, math.radians(55.0), GPS_PERIOD_S, unix, phase, raan
-        )
+        pos, vel = _circle_ecef(GPS_ALT_M, math.radians(55.0), GPS_PERIOD_S, unix, phase, raan)
         out.append(
             Entity(
                 id=f"sim-gps:{i:02d}",
@@ -613,9 +600,7 @@ def populate(store: EntityStore, unix: float, *, seed: int = SEED) -> None:
         store.upsert(e)
 
 
-_FEED_TAGS = frozenset(
-    {"live", "delayed", "interpolated", "dead-reckoned", "stale"}
-)
+_FEED_TAGS = frozenset({"live", "delayed", "interpolated", "dead-reckoned", "stale"})
 
 
 def _feed_owns(store: EntityStore, *layers: str) -> bool:
@@ -633,9 +618,7 @@ _DR_LAYERS = frozenset({"flights", "drones", "military", "vessels"})
 _ORBIT_LAYERS = frozenset({"satellites", "iss"})
 
 
-def refresh_moving(
-    store: EntityStore, unix: float, *, seed: int = SEED, dt: float = 0.0
-) -> None:
+def refresh_moving(store: EntityStore, unix: float, *, seed: int = SEED, dt: float = 0.0) -> None:
     """Update ISS, flights, vessels, satellites in place. Pins stay.
 
     Live-owned layers are skipped so OpenSky / AISStream are not clobbered
@@ -705,9 +688,7 @@ def advance_live(store: EntityStore, unix: float, dt: float) -> None:
         e.meta = {**e.meta, "lat": lat, "lon": lon, "_pose_unix": unix}
 
 
-def entities(
-    unix: float, *, seed: int = SEED, layers: Iterable[str] | None = None
-) -> list[Entity]:
+def entities(unix: float, *, seed: int = SEED, layers: Iterable[str] | None = None) -> list[Entity]:
     store = EntityStore()
     populate(store, unix, seed=seed)
     if layers is None:

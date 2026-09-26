@@ -121,13 +121,9 @@ class ScrapeTool:
                     word_count=len(body.split()),
                 )
             elif looks_like_feed(html, ctype):
-                extract = await asyncio.to_thread(
-                    parse_feed, html, page_url=final
-                )
+                extract = await asyncio.to_thread(parse_feed, html, page_url=final)
             else:
-                extract = await asyncio.to_thread(
-                    extract_article, html, base_url=final
-                )
+                extract = await asyncio.to_thread(extract_article, html, base_url=final)
         except BlockedUrlError as exc:
             return ToolResult(ok=False, output=_fail_output(str(exc)))
         except Exception as exc:
@@ -150,14 +146,16 @@ class ScrapeTool:
                 except Exception:
                     continue
                 if looks_like_feed(alt_html, alt_ctype):
-                    alt_extract = await asyncio.to_thread(
-                        parse_feed, alt_html, page_url=alt_final
-                    )
-                elif content_type_main({"content-type": alt_ctype}) not in {
-                    "",
-                    "text/html",
-                    "application/xhtml+xml",
-                } and "<html" not in alt_html[:500].lower():
+                    alt_extract = await asyncio.to_thread(parse_feed, alt_html, page_url=alt_final)
+                elif (
+                    content_type_main({"content-type": alt_ctype})
+                    not in {
+                        "",
+                        "text/html",
+                        "application/xhtml+xml",
+                    }
+                    and "<html" not in alt_html[:500].lower()
+                ):
                     continue
                 else:
                     alt_extract = await asyncio.to_thread(
@@ -230,9 +228,7 @@ class ScrapeTool:
             },
         )
 
-    def _reject_non_html(
-        self, ctype: str, body: str, url: str
-    ) -> ToolResult | None:
+    def _reject_non_html(self, ctype: str, body: str, url: str) -> ToolResult | None:
         main = content_type_main({"content-type": ctype})
         sample = body.lstrip()[:300].lower()
         looks_html = (

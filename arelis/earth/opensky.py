@@ -29,8 +29,7 @@ from arelis.paths import state_dir
 
 OPENSKY_STATES = "https://opensky-network.org/api/states/all"
 OPENSKY_TOKEN = (
-    "https://auth.opensky-network.org/auth/realms/opensky-network/"
-    "protocol/openid-connect/token"
+    "https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token"
 )
 OPENSKY_HOST = "opensky-network.org"
 OPENSKY_AUTH_HOST = "auth.opensky-network.org"
@@ -131,9 +130,7 @@ def _opensky_row(row: list[Any] | tuple[Any, ...], unix: float) -> Entity | None
     track = _row_float(row, 10)
     climb = _row_float(row, 11)
     vx, vy, vz = (
-        ecef_vel_from_track(lat_f, lon_f, vel, track, climb)
-        if vel > 0.5
-        else (0.0, 0.0, 0.0)
+        ecef_vel_from_track(lat_f, lon_f, vel, track, climb) if vel > 0.5 else (0.0, 0.0, 0.0)
     )
     try:
         cat = int(row[17]) if len(row) > 17 and row[17] is not None else 0
@@ -257,9 +254,7 @@ def _bearer() -> str:
                 },
             )
             resp.raise_for_status()
-            if not _host_pinned(
-                urlparse(str(resp.url)).hostname, OPENSKY_AUTH_HOST
-            ):
+            if not _host_pinned(urlparse(str(resp.url)).hostname, OPENSKY_AUTH_HOST):
                 return ""
             data = resp.json()
     except Exception:
@@ -386,9 +381,7 @@ def _load_budget() -> dict[str, Any]:
 def _save_budget(budget: dict[str, Any]) -> None:
     try:
         BUDGET_PATH.parent.mkdir(parents=True, exist_ok=True)
-        BUDGET_PATH.write_text(
-            json.dumps(budget, sort_keys=True) + "\n", encoding="utf-8"
-        )
+        BUDGET_PATH.write_text(json.dumps(budget, sort_keys=True) + "\n", encoding="utf-8")
     except OSError:
         return
 

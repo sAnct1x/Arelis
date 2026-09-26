@@ -86,9 +86,7 @@ def match_window(target: str, rows: list[DeskWindow] | None = None) -> DeskWindo
     return hits[0] if hits else None
 
 
-def match_reader_window(
-    target: str, rows: list[DeskWindow] | None = None
-) -> DeskWindow | None:
+def match_reader_window(target: str, rows: list[DeskWindow] | None = None) -> DeskWindow | None:
     """Title match, then a small reader alias (book → Kindle / Acrobat)."""
     rows = rows if rows is not None else list_windows()
     hit = match_window(target, rows)

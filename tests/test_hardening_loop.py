@@ -2,6 +2,7 @@
 down, json fallback, scrape/agenda empty-after-tool, role commands, stop
 interrupt, stream paint/retract, and tool trace.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -171,9 +172,7 @@ async def test_empty_after_unsolicited_cas_asks_for_a_writeup() -> None:
         loop.run("alright we are going to try some hard math tonight", "fast"),
     )
     thinking = " ".join(
-        str(e.payload.get("text") or "")
-        for e in events
-        if e.type == EventType.THINKING
+        str(e.payload.get("text") or "") for e in events if e.type == EventType.THINKING
     )
     assert "empty after algebra; asking for a write-up" in thinking
     done = next(e for e in events if e.type == EventType.ASSISTANT_DONE)
@@ -215,9 +214,7 @@ async def test_calculator_filler_without_the_number_ships_the_result() -> None:
     )
     events = await _collect(bus, loop.run("what is 1+1?", "fast"))
     thinking = " ".join(
-        str(e.payload.get("text") or "")
-        for e in events
-        if e.type == EventType.THINKING
+        str(e.payload.get("text") or "") for e in events if e.type == EventType.THINKING
     )
     assert "algebra result missing from chat" in thinking
     done = next(e for e in events if e.type == EventType.ASSISTANT_DONE)
@@ -258,9 +255,7 @@ async def test_calculator_reply_that_states_the_number_is_kept() -> None:
     )
     events = await _collect(bus, loop.run("what is 1+1?", "fast"))
     thinking = " ".join(
-        str(e.payload.get("text") or "")
-        for e in events
-        if e.type == EventType.THINKING
+        str(e.payload.get("text") or "") for e in events if e.type == EventType.THINKING
     )
     assert "algebra result missing from chat" not in thinking
     done = next(e for e in events if e.type == EventType.ASSISTANT_DONE)
@@ -314,15 +309,11 @@ async def test_cas_same_call_asks_for_a_writeup_not_three_retries() -> None:
         ),
     )
     starts = [
-        e
-        for e in events
-        if e.type == EventType.TOOL_START and e.payload.get("tool") == "cas"
+        e for e in events if e.type == EventType.TOOL_START and e.payload.get("tool") == "cas"
     ]
     assert len(starts) == 1
     thinking = " ".join(
-        str(e.payload.get("text") or "")
-        for e in events
-        if e.type == EventType.THINKING
+        str(e.payload.get("text") or "") for e in events if e.type == EventType.THINKING
     )
     assert "same-call algebra; asking for a write-up" in thinking
     done = next(e for e in events if e.type == EventType.ASSISTANT_DONE)
@@ -351,9 +342,7 @@ async def test_empty_after_think_asks_for_a_write_up() -> None:
     )
     events = await _collect(bus, loop.run("explain Gettier in two sentences", "fast"))
     thinking = " ".join(
-        str(e.payload.get("text") or "")
-        for e in events
-        if e.type == EventType.THINKING
+        str(e.payload.get("text") or "") for e in events if e.type == EventType.THINKING
     )
     assert "empty after think; asking for a write-up" in thinking
     done = next(e for e in events if e.type == EventType.ASSISTANT_DONE)
@@ -374,9 +363,7 @@ async def test_ollama_down_chat_is_human_not_traceback() -> None:
     assert "ConnectError" not in err.payload["message"]
     assert "ConnectError" in (err.payload.get("detail") or "")
     thinking = " ".join(
-        str(e.payload.get("text") or "")
-        for e in events
-        if e.type == EventType.THINKING
+        str(e.payload.get("text") or "") for e in events if e.type == EventType.THINKING
     )
     assert "ConnectError" in thinking
     assert "native tools failed" not in thinking
@@ -385,17 +372,13 @@ async def test_ollama_down_chat_is_human_not_traceback() -> None:
 
 @pytest.mark.asyncio
 async def test_missing_model_does_not_json_fallback() -> None:
-    router = _BoomRouter(
-        RuntimeError("Ollama returned HTTP 404 for model `qwen2.5:7b`: not found")
-    )
+    router = _BoomRouter(RuntimeError("Ollama returned HTTP 404 for model `qwen2.5:7b`: not found"))
     loop = _loop_with_tools(router)
     events = await _collect(loop.bus, loop.run("list the workspace", "fast"))
     err = next(e for e in events if e.type == EventType.ERROR)
     assert err.payload["message"] == OLLAMA_MODEL_NOTICE.format(model="qwen2.5:7b")
     thinking = " ".join(
-        str(e.payload.get("text") or "")
-        for e in events
-        if e.type == EventType.THINKING
+        str(e.payload.get("text") or "") for e in events if e.type == EventType.THINKING
     )
     assert "native tools failed" not in thinking
     assert router.calls == 1
@@ -408,9 +391,7 @@ async def test_http_400_on_tools_still_json_falls_back() -> None:
     events = await _collect(loop.bus, loop.run("list the workspace", "fast"))
     assert EventType.ERROR not in [e.type for e in events]
     thinking = " ".join(
-        str(e.payload.get("text") or "")
-        for e in events
-        if e.type == EventType.THINKING
+        str(e.payload.get("text") or "") for e in events if e.type == EventType.THINKING
     )
     assert "JSON fallback" in thinking
     done = next(e for e in events if e.type == EventType.ASSISTANT_DONE)
@@ -461,9 +442,7 @@ async def test_empty_after_successful_tool_skips_json_fallback() -> None:
     )
     events = await _collect(bus, loop.run("what is SPCX trading at?", "fast"))
     thinking = " ".join(
-        str(e.payload.get("text") or "")
-        for e in events
-        if e.type == EventType.THINKING
+        str(e.payload.get("text") or "") for e in events if e.type == EventType.THINKING
     )
     assert "JSON fallback" not in thinking
     assert "empty after tool; answering from result" in thinking
@@ -491,9 +470,7 @@ async def test_empty_after_long_scrape_asks_for_a_writeup() -> None:
         ),
     )
     thinking = " ".join(
-        str(e.payload.get("text") or "")
-        for e in events
-        if e.type == EventType.THINKING
+        str(e.payload.get("text") or "") for e in events if e.type == EventType.THINKING
     )
     assert "empty after page; asking for a write-up" in thinking
     assert "JSON fallback" not in thinking
@@ -513,13 +490,9 @@ async def test_empty_after_long_scrape_twice_ships_lede_not_article() -> None:
         ]
     )
     bus, loop = _long_scrape_loop(router)
-    events = await _collect(
-        bus, loop.run("deep dive piezo hysteresis", "fast")
-    )
+    events = await _collect(bus, loop.run("deep dive piezo hysteresis", "fast"))
     thinking = " ".join(
-        str(e.payload.get("text") or "")
-        for e in events
-        if e.type == EventType.THINKING
+        str(e.payload.get("text") or "") for e in events if e.type == EventType.THINKING
     )
     assert "empty after page; asking for a write-up" in thinking
     assert "empty after tool; answering from result" in thinking
@@ -579,13 +552,9 @@ async def test_empty_after_agenda_create_answers_from_result() -> None:
         request_confirm=_deny,
         is_cancelled=lambda: False,
     )
-    events = await _collect(
-        bus, loop.run('create a calendar event for tomorrow at 10am', "fast")
-    )
+    events = await _collect(bus, loop.run("create a calendar event for tomorrow at 10am", "fast"))
     thinking = " ".join(
-        str(e.payload.get("text") or "")
-        for e in events
-        if e.type == EventType.THINKING
+        str(e.payload.get("text") or "") for e in events if e.type == EventType.THINKING
     )
     assert "empty after tool; answering from result" in thinking
     assert "JSON fallback" not in thinking
@@ -621,9 +590,7 @@ async def test_empty_first_round_still_json_falls_back() -> None:
     )
     events = await _collect(bus, loop.run("search the web for hello", "fast"))
     thinking = " ".join(
-        str(e.payload.get("text") or "")
-        for e in events
-        if e.type == EventType.THINKING
+        str(e.payload.get("text") or "") for e in events if e.type == EventType.THINKING
     )
     assert "empty tool response; JSON fallback" in thinking
     assert "empty after tool" not in thinking
@@ -674,9 +641,7 @@ async def test_role_research_unloads_conversation_model() -> None:
     )
     assert router.prepared == ["research"]
     status = [
-        str((e.payload or {}).get("message") or "")
-        for e in events
-        if e.type == EventType.STATUS
+        str((e.payload or {}).get("message") or "") for e in events if e.type == EventType.STATUS
     ]
     assert any("Unloading conversation model" in m for m in status)
     done = next(e for e in events if e.type == EventType.ASSISTANT_DONE)
@@ -704,9 +669,7 @@ async def test_role_research_skips_unload_when_same_weights() -> None:
     )
     assert router.prepared == []
     status = [
-        str((e.payload or {}).get("message") or "")
-        for e in events
-        if e.type == EventType.STATUS
+        str((e.payload or {}).get("message") or "") for e in events if e.type == EventType.STATUS
     ]
     assert not any("Unloading conversation model" in m for m in status)
     done = next(e for e in events if e.type == EventType.ASSISTANT_DONE)
@@ -827,9 +790,7 @@ async def test_chitchat_streams_while_schemas_stay_on() -> None:
     )
     events = await _collect(bus, loop.run("how are you today?", "fast"))
     thinking = " ".join(
-        str(e.payload.get("text") or "")
-        for e in events
-        if e.type == EventType.THINKING
+        str(e.payload.get("text") or "") for e in events if e.type == EventType.THINKING
     )
     assert "hold_paint=0" in thinking
     deltas = [e for e in events if e.type == EventType.ASSISTANT_DELTA]
@@ -860,9 +821,7 @@ async def test_tool_ask_still_holds_paint_when_schemas_are_always_on() -> None:
     )
     events = await _collect(bus, loop.run("what is in this folder?", "fast"))
     thinking = " ".join(
-        str(e.payload.get("text") or "")
-        for e in events
-        if e.type == EventType.THINKING
+        str(e.payload.get("text") or "") for e in events if e.type == EventType.THINKING
     )
     assert "hold_paint=1" in thinking
     deltas = [e for e in events if e.type == EventType.ASSISTANT_DELTA]

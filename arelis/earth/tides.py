@@ -17,10 +17,7 @@ from arelis import __source_url__, __version__
 from arelis.earth.entity import Coverage, Entity
 from arelis.earth.frames import lla_to_ecef
 
-COOPS = (
-    "https://api.tidesandcurrents.noaa.gov/mdapi/prod/webapi/"
-    "stations.json?type=tidepredictions"
-)
+COOPS = "https://api.tidesandcurrents.noaa.gov/mdapi/prod/webapi/stations.json?type=tidepredictions"
 COOPS_HOST = "api.tidesandcurrents.noaa.gov"
 IOC = "https://www.ioc-sealevelmonitoring.org/service.php?query=stationlist&format=json"
 IOC_HOST = "www.ioc-sealevelmonitoring.org"

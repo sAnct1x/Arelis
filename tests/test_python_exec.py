@@ -51,8 +51,7 @@ async def _run(code: str) -> tuple[bool, str]:
 @pytest.mark.asyncio
 async def test_a_kinematics_cell_runs() -> None:
     ok, out = await _run(
-        "g = 9.81\nv = 20.0\nth = radians(45)\n"
-        "rng = v*v*sin(2*th)/g\nprint(round(rng, 2))"
+        "g = 9.81\nv = 20.0\nth = radians(45)\nrng = v*v*sin(2*th)/g\nprint(round(rng, 2))"
     )
     assert ok, out
     assert "40.77" in out
@@ -68,9 +67,7 @@ async def test_the_last_expression_is_shown() -> None:
 @pytest.mark.asyncio
 async def test_sympy_still_does_symbolic_work() -> None:
     """The hardening must not cost the reason the tool exists."""
-    ok, out = await _run(
-        "import sympy as sp\nx = sp.Symbol('x')\nprint(sp.diff(x**3, x))"
-    )
+    ok, out = await _run("import sympy as sp\nx = sp.Symbol('x')\nprint(sp.diff(x**3, x))")
     assert ok, out
     assert "3*x**2" in out
 
@@ -89,9 +86,7 @@ async def test_sympy_solve_and_integrate_survive() -> None:
 
 @pytest.mark.asyncio
 async def test_numpy_arithmetic_survives() -> None:
-    ok, out = await _run(
-        "import numpy as np\nprint(np.array([1.0, 2.0, 3.0]).mean())"
-    )
+    ok, out = await _run("import numpy as np\nprint(np.array([1.0, 2.0, 3.0]).mean())")
     assert ok, out
     assert "2.0" in out
 
@@ -111,16 +106,14 @@ async def test_a_regex_can_still_be_compiled() -> None:
 
 @pytest.mark.asyncio
 async def test_sympify_cannot_be_used_as_an_eval_gadget() -> None:
-    ok, out = await _run("import sympy as s\nprint(s.sympify(\"1+1\"))")
+    ok, out = await _run('import sympy as s\nprint(s.sympify("1+1"))')
     assert not ok, f"sympify still runs: {out}"
 
 
 @pytest.mark.asyncio
 async def test_sympify_cannot_import_os() -> None:
     """The live escape. This returned 'nt' before the fix."""
-    ok, out = await _run(
-        "import sympy as s\nprint(s.sympify(\"__import__('os').name\"))"
-    )
+    ok, out = await _run("import sympy as s\nprint(s.sympify(\"__import__('os').name\"))")
     assert not ok, f"ARBITRARY IMPORT REACHED: {out}"
     assert "nt" not in out and "posix" not in out
 
@@ -160,9 +153,7 @@ async def test_sympy_singletons_still_work() -> None:
 
 @pytest.mark.asyncio
 async def test_attrgetter_cannot_smuggle_a_dunder() -> None:
-    ok, out = await _run(
-        "import operator\nprint(operator.attrgetter('__class__')([]))"
-    )
+    ok, out = await _run("import operator\nprint(operator.attrgetter('__class__')([]))")
     assert not ok, f"dunder reached through a string: {out}"
 
 
@@ -199,9 +190,7 @@ async def test_the_direct_dunder_route_is_still_shut() -> None:
 @pytest.mark.asyncio
 async def test_numpy_cannot_write_a_file(tmp_path: Path) -> None:
     target = tmp_path / "escape.txt"
-    ok, out = await _run(
-        f"import numpy as n\nn.savetxt(r'{target}', [1.0])\nprint('wrote')"
-    )
+    ok, out = await _run(f"import numpy as n\nn.savetxt(r'{target}', [1.0])\nprint('wrote')")
     assert not ok, f"the cell wrote to disk: {out}"
     assert not target.exists(), "a file was created by a tool that forbids files"
 

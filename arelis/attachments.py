@@ -452,9 +452,7 @@ def session_title_from_turn(content: str, *, max_len: int = 80) -> str:
     return first[:max_len]
 
 
-_DESCRIBE_OFFER = re.compile(
-    r"(?i)\b(describe|caption|tell\s+me\s+about|what\s+do\s+you\s+see)\b"
-)
+_DESCRIBE_OFFER = re.compile(r"(?i)\b(describe|caption|tell\s+me\s+about|what\s+do\s+you\s+see)\b")
 
 
 def continue_prior_image_describe(
@@ -852,9 +850,7 @@ def format_attachments_block(
     if "data" in kinds and not emailing:
         rules.append("Tables (csv/xlsx/json): call analyze.")
     if "text" in kinds and not emailing:
-        rules.append(
-            "Text/markdown/logs (txt, md, log, yaml, …): call workspace action=read."
-        )
+        rules.append("Text/markdown/logs (txt, md, log, yaml, …): call workspace action=read.")
     if rules:
         lines.append("Rules: " + " ".join(rules))
     return "\n".join(lines)

@@ -174,9 +174,7 @@ class IpcClient:
                     # that means never reaching the port our own core is actually
                     # listening on. A timeout here is what turns "stuck" into
                     # "next candidate".
-                    line = await asyncio.wait_for(
-                        reader.readline(), timeout=HANDSHAKE_TIMEOUT_S
-                    )
+                    line = await asyncio.wait_for(reader.readline(), timeout=HANDSHAKE_TIMEOUT_S)
                 if not line:
                     break
                 try:
@@ -193,8 +191,7 @@ class IpcClient:
                         # interface. Attaching would republish their inbound
                         # texts and confirmation prompts onto this user's bus.
                         log.info(
-                            "Core on %s:%s belongs to another account; "
-                            "not attaching",
+                            "Core on %s:%s belongs to another account; not attaching",
                             self.host,
                             port,
                         )
@@ -206,8 +203,7 @@ class IpcClient:
                     ack_role = str(msg.get("role") or "core").strip().lower()
                     if ack_role != "core":
                         log.info(
-                            "IPC on %s:%s is a glass activate listener; "
-                            "not a core",
+                            "IPC on %s:%s is a glass activate listener; not a core",
                             self.host,
                             port,
                         )
@@ -219,8 +215,7 @@ class IpcClient:
                             EventType.STATUS,
                             {
                                 "message": (
-                                    f"Live bridge attached to core IPC "
-                                    f"{self.host}:{port}."
+                                    f"Live bridge attached to core IPC {self.host}:{port}."
                                 ),
                                 "_from_ipc": True,
                             },

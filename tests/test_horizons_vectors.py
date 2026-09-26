@@ -43,9 +43,7 @@ async def test_horizons_vectors_asks_ssb_eclipj2000() -> None:
     tool = CatalogTool(
         client=httpx.AsyncClient(transport=httpx.MockTransport(handler), timeout=5.0)
     )
-    result = await tool.run(
-        action="horizons", target="399", date="2000-01-01", table="vectors"
-    )
+    result = await tool.run(action="horizons", target="399", date="2000-01-01", table="vectors")
     assert result.ok, result.output
     assert seen
     url = seen[0].upper()
@@ -87,9 +85,7 @@ async def test_horizons_quotes_command() -> None:
     tool = CatalogTool(
         client=httpx.AsyncClient(transport=httpx.MockTransport(handler), timeout=5.0)
     )
-    result = await tool.run(
-        action="horizons", target="399", date="2000-01-01", table="vectors"
-    )
+    result = await tool.run(action="horizons", target="399", date="2000-01-01", table="vectors")
     assert result.ok, result.output
     assert "COMMAND='399'" in seen[0]
 
@@ -111,8 +107,6 @@ async def test_horizons_retries_503_then_succeeds(monkeypatch) -> None:
     tool = CatalogTool(
         client=httpx.AsyncClient(transport=httpx.MockTransport(handler), timeout=5.0)
     )
-    result = await tool.run(
-        action="horizons", target="10", date="2000-01-01", table="vectors"
-    )
+    result = await tool.run(action="horizons", target="10", date="2000-01-01", table="vectors")
     assert result.ok, result.output
     assert hits["n"] == 2

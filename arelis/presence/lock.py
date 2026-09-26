@@ -70,9 +70,9 @@ class PresenceLock:
                 kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
                 name = (
                     "Local\\ArelisLock_"
-                    + hashlib.sha1(
-                        str(self.path.resolve()).encode("utf-8", "replace")
-                    ).hexdigest()[:16]
+                    + hashlib.sha1(str(self.path.resolve()).encode("utf-8", "replace")).hexdigest()[
+                        :16
+                    ]
                 )
                 kernel32.SetLastError(0)
                 # bInitialOwner=True so this process owns the mutex immediately.

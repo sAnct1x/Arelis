@@ -144,8 +144,7 @@ def _commit_job(job: Job, *, created: bool) -> ToolResult:
     tail = (
         "It runs once and then removes itself."
         if job.one_off
-        else "It runs whether or not Arelis is open, and catches up if the "
-        "machine was asleep."
+        else "It runs whether or not Arelis is open, and catches up if the machine was asleep."
     )
     verb = "Scheduled" if created else "Updated"
     return ToolResult(
@@ -301,8 +300,7 @@ class ScheduleTool:
         return ToolResult(
             ok=False,
             output=(
-                f"Unknown action {action!r}. Use create, create_briefing, "
-                "list, delete, or run_now."
+                f"Unknown action {action!r}. Use create, create_briefing, list, delete, or run_now."
             ),
         )
 
@@ -342,8 +340,7 @@ class ScheduleTool:
             result = ToolResult(
                 ok=True,
                 output=(
-                    result.output
-                    + " Each run emails the fixed briefing (weather, unread mail, "
+                    result.output + " Each run emails the fixed briefing (weather, unread mail, "
                     "open loops, recent chats) — not a free-form research prompt."
                 ),
                 data={**result.data, "kind": "briefing"},
@@ -396,15 +393,10 @@ class ScheduleTool:
         if existing is None:
             return ToolResult(
                 ok=False,
-                output=(
-                    f"No scheduled job with id {job_id!r}. "
-                    "Use action='list' to see them."
-                ),
+                output=(f"No scheduled job with id {job_id!r}. Use action='list' to see them."),
             )
 
-        supplied = {
-            key for key, _attr in self._UPDATE_FIELDS if str(kwargs.get(key) or "").strip()
-        }
+        supplied = {key for key, _attr in self._UPDATE_FIELDS if str(kwargs.get(key) or "").strip()}
         if not supplied:
             return ToolResult(
                 ok=False,

@@ -207,9 +207,7 @@ async def test_reply_does_not_mark_the_source_read(
     assert result.ok, result.output
     assert fake.fetches
     assert all("BODY.PEEK" in spec for _uid, spec in fake.fetches)
-    assert not any(
-        "BODY[]" in spec.replace("BODY.PEEK", "") for _uid, spec in fake.fetches
-    )
+    assert not any("BODY[]" in spec.replace("BODY.PEEK", "") for _uid, spec in fake.fetches)
     assert fake.readonly is True
     assert fake.writable_connect is False
     assert "12" not in fake.seen

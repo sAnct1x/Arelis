@@ -101,9 +101,7 @@ def main() -> int:
     print("\n" + "=" * 74)
     print("FLICKERS — sampling, not a defect. Do not chase these.")
     print("=" * 74)
-    flickers = [
-        (u, b, t) for u, b, t in ranked if t and FLICKER <= b / t < STUBBORN
-    ]
+    flickers = [(u, b, t) for u, b, t in ranked if t and FLICKER <= b / t < STUBBORN]
     for utterance, bad, total in flickers:
         armlist = ", ".join(sorted(by_config[utterance]))
         print(f"\n  {utterance!r}")

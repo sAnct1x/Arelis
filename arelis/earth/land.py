@@ -322,11 +322,7 @@ def _fetch_one(name: str, url: str) -> None:
         dest = _CACHE / f"{name}.json"
         dest.parent.mkdir(parents=True, exist_ok=True)
         if name.startswith("places") or name == "admin1":
-            found = (
-                admin1_from_geojson(data)
-                if name == "admin1"
-                else places_from_geojson(data)
-            )
+            found = admin1_from_geojson(data) if name == "admin1" else places_from_geojson(data)
             if not found:
                 return
             dest.write_text(json.dumps(found), encoding="utf-8")
@@ -338,11 +334,7 @@ def _fetch_one(name: str, url: str) -> None:
                 _places = found
             n = len(found)
         else:
-            rings = (
-                exteriors_from_geojson(data)
-                if name == "fills"
-                else rings_from_geojson(data)
-            )
+            rings = exteriors_from_geojson(data) if name == "fills" else rings_from_geojson(data)
             if not rings:
                 return
             dest.write_text(json.dumps(rings), encoding="utf-8")
@@ -350,9 +342,7 @@ def _fetch_one(name: str, url: str) -> None:
             if name == "fills":
                 labels = names_from_geojson(data)
                 if len(labels) == len(rings):
-                    (_CACHE / "fills_names.json").write_text(
-                        json.dumps(labels), encoding="utf-8"
-                    )
+                    (_CACHE / "fills_names.json").write_text(json.dumps(labels), encoding="utf-8")
                     _names["fills"] = labels
             n = len(rings)
         try:
@@ -503,9 +493,7 @@ def _prop_name(props: Any) -> str:
     return ""
 
 
-def _point_in_ring(
-    lat: float, lon: float, ring: list[tuple[float, float]]
-) -> bool:
+def _point_in_ring(lat: float, lon: float, ring: list[tuple[float, float]]) -> bool:
     if len(ring) < 3:
         return False
     inside = False

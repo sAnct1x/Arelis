@@ -40,9 +40,7 @@ def test_price_stays_a_dollar_and_inline_math_flattens() -> None:
 
 
 def test_integral_delimiters_leave() -> None:
-    out = flatten_latex(
-        r"The integral of \( x^2 \) is \[\int x^2 \, dx = \frac{x^3}{3} + C\]"
-    )
+    out = flatten_latex(r"The integral of \( x^2 \) is \[\int x^2 \, dx = \frac{x^3}{3} + C\]")
     assert r"\(" not in out
     assert r"\[" not in out
     assert "x²" in out
@@ -243,8 +241,7 @@ async def test_pdf_word_csv_md_all_flatten_tex(doc_tool) -> None:
     from pypdf import PdfReader
 
     from_text = "\n".join(
-        page.extract_text() or ""
-        for page in PdfReader(str(Path(exported.data["abs_path"]))).pages
+        page.extract_text() or "" for page in PdfReader(str(Path(exported.data["abs_path"]))).pages
     )
     assert r"\frac" not in from_text
     assert "log" in from_text

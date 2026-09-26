@@ -11,6 +11,7 @@ from arelis.memory.store_sessions import keep_history_row
 
 log = logging.getLogger(__name__)
 
+
 def bind_mobile_hub(window) -> None:
     """Let the phone ask whether this window can think."""
     ingest = window.sms_ingest
@@ -179,9 +180,7 @@ def bind_mobile_hub(window) -> None:
         return view_chat(sid)
 
     ingest.mobile.bind(
-        warmup=lambda: bool(
-            getattr(window.router, "warmup_pending", lambda: False)()
-        ),
+        warmup=lambda: bool(getattr(window.router, "warmup_pending", lambda: False)()),
         busy=lambda: bool(window._turn_busy),
         model=lambda: str(getattr(window, "_current_model", "") or ""),
         session_ready=lambda: True,
@@ -208,4 +207,3 @@ def bind_mobile_hub(window) -> None:
                 for row in store.get_messages(sid)
             ]
         )
-

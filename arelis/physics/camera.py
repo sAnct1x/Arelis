@@ -559,9 +559,7 @@ class CameraWarp:
         sun: tuple[float, float, float] | None,
     ) -> CameraWarp:
         end = sunlit_standoff(tx, ty, tz, radius, sun=sun, speed=cam.speed)
-        dist = math.sqrt(
-            (end.x - cam.x) ** 2 + (end.y - cam.y) ** 2 + (end.z - cam.z) ** 2
-        )
+        dist = math.sqrt((end.x - cam.x) ** 2 + (end.y - cam.y) ** 2 + (end.z - cam.z) ** 2)
         return cls(
             name=name,
             origin=(cam.x, cam.y, cam.z),

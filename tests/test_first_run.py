@@ -35,9 +35,7 @@ def fresh_install(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
     """
     root = tmp_path / "state"
     monkeypatch.setenv(paths.DATA_DIR_ENV, str(root))
-    monkeypatch.setattr(
-        "arelis.config.LOCAL_CONFIG_PATH", root / "data" / "config.local.yaml"
-    )
+    monkeypatch.setattr("arelis.config.LOCAL_CONFIG_PATH", root / "data" / "config.local.yaml")
     home = tmp_path / "home"
     (home / "Documents").mkdir(parents=True)
     monkeypatch.setattr(paths, "INSTALL_PARENT", tmp_path / "site-packages")
@@ -73,7 +71,7 @@ def test_answering_settles_it_for_good(fresh_install: Path) -> None:
 
 
 def test_clearing_history_does_not_reopen_the_question(fresh_install: Path) -> None:
-    """"First run" is the marker, not an empty data directory.
+    """ "First run" is the marker, not an empty data directory.
 
     Someone who deletes their conversation database to reclaim space has not
     become a new user, and being re-asked to grant filesystem access would read

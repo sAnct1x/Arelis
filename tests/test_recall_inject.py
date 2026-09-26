@@ -49,9 +49,7 @@ from tests.test_no_call_path import _ctx, _FakeLoop, _scratch
         ("from our chat about the eval harness yesterday", "eval harness"),
     ],
 )
-def test_the_search_terms_survive_the_question_wrapper(
-    utterance: str, expected: str
-) -> None:
+def test_the_search_terms_survive_the_question_wrapper(utterance: str, expected: str) -> None:
     """The trigger phrase and the time reference are not search terms.
 
     Handing recall the whole sentence would search for "what did i say about",

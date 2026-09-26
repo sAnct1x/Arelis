@@ -29,9 +29,7 @@ def main() -> int:
     from arelis.tools import build_tool_registry
 
     config = load_config()
-    num_ctx = args.num_ctx or int(
-        ((config.get("ollama") or {}).get("num_ctx")) or 16384
-    )
+    num_ctx = args.num_ctx or int(((config.get("ollama") or {}).get("num_ctx")) or 16384)
 
     persona = load_persona(config)
     registry = build_tool_registry(config)
@@ -56,16 +54,17 @@ def main() -> int:
     print()
     biggest = max(_tok(c.body) for c in SKILL_CARDS.values())
     total_cards = sum(_tok(c.body) for c in SKILL_CARDS.values())
-    print(f"{len(SKILL_CARDS)} skill cards, {total_cards:,} tokens total, "
-          f"largest {biggest:,}")
+    print(f"{len(SKILL_CARDS)} skill cards, {total_cards:,} tokens total, largest {biggest:,}")
 
     live = _tok(persona) + _tok(STATIC_TOOL_POLICY) + _tok(schema_json)
     old = _tok(persona) + _tok(essay_union) + _tok(schema_json)
     print()
     print(f"{'today (persona + telegraph + schemas)':<38}{live:>9,}{live / num_ctx * 100:>9.1f}%")
     print(f"{'old essay union + fat schemas (ref)':<38}{old:>9,}{old / num_ctx * 100:>9.1f}%")
-    print(f"{'left for history and reply':<38}{num_ctx - live:>9,}"
-          f"{(num_ctx - live) / num_ctx * 100:>9.1f}%")
+    print(
+        f"{'left for history and reply':<38}{num_ctx - live:>9,}"
+        f"{(num_ctx - live) / num_ctx * 100:>9.1f}%"
+    )
     return 0
 
 

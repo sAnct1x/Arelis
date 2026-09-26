@@ -57,9 +57,7 @@ _SUCCESS_FOOTER = re.compile(
 )
 
 _WORKSPACE_LISTING_LINE = re.compile(r"(?m)^\[(?:dir|file)\]\s")
-_PAGE_META = re.compile(
-    r"(?i)^(site|by|published|length|url|sources|#+\s*sources)\s*:"
-)
+_PAGE_META = re.compile(r"(?i)^(site|by|published|length|url|sources|#+\s*sources)\s*:")
 _SEARCH_TITLE = re.compile(r"(?i)^\s*\d+\.\s*Title:\s*(.+)$")
 _PAGE_TOOLS = frozenset({"scrape", "web_fetch", "browser"})
 _SEARCH_TOOLS = frozenset({"web_search"})
@@ -80,9 +78,7 @@ _PAGE_CHAT_CHARS = 420
 # A scraped article or a SERP must not — ask the model to write first.
 _PAGE_WRITE_NUDGE_CHARS = 400
 # They typed an equation. "hard math tonight" is not that.
-_TYPED_EQUATION = re.compile(
-    r"(?i)[a-z][a-z0-9]*\s*(?:\*\*|\^|²|[+\-*/]).{0,48}="
-)
+_TYPED_EQUATION = re.compile(r"(?i)[a-z][a-z0-9]*\s*(?:\*\*|\^|²|[+\-*/]).{0,48}=")
 
 
 def _algebra_was_asked(ask: str) -> bool:
@@ -95,6 +91,7 @@ def _algebra_was_asked(ask: str) -> bool:
         or detect_units_ask(raw)
         or bool(_TYPED_EQUATION.search(raw))
     )
+
 
 # Human copy for the tools whose failures reach the transcript, used when the raw
 # output turns out to be model-directed. Keyed by tool name.
@@ -253,9 +250,7 @@ def _token_in_reply(token: str, text: str) -> bool:
         return False
     if re.fullmatch(r"-?\d+(?:\.\d+)?", tok):
         # "2." is the answer plus a period. "2.5" is a different number.
-        return bool(
-            re.search(rf"(?<![\d.]){re.escape(tok)}(?!\d)(?!\.\d)", text)
-        )
+        return bool(re.search(rf"(?<![\d.]){re.escape(tok)}(?!\d)(?!\.\d)", text))
     return tok in text
 
 
@@ -283,20 +278,11 @@ def chat_followup_from_tool(tool: str, output: str, *, ask: str = "") -> str:
     """
     body = (output or "").strip()
     name = (tool or "").strip()
-    if (
-        name in _ALGEBRA_WRITE_TOOLS
-        and name != "plot"
-        and not _algebra_was_asked(ask)
-    ):
+    if name in _ALGEBRA_WRITE_TOOLS and name != "plot" and not _algebra_was_asked(ask):
         return "Ready when you are. What problem do you want to start with?"
     if not body:
-        return (
-            "The tool finished, but I could not write a follow-up. "
-            "Send the same ask again."
-        )
-    listing = _WORKSPACE_LISTING_LINE.search(body) or body.lstrip().startswith(
-        ("[dir]", "[file]")
-    )
+        return "The tool finished, but I could not write a follow-up. Send the same ask again."
+    listing = _WORKSPACE_LISTING_LINE.search(body) or body.lstrip().startswith(("[dir]", "[file]"))
     if name == "workspace" and listing:
         return "That listing is in Workspace."
     if listing and name in {"", "workspace"}:

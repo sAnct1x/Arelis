@@ -64,9 +64,7 @@ def _start_activation_listener(
             bus,
             host=str(presence_cfg.get("ipc_host") or "127.0.0.1"),
             port=int(presence_cfg.get("ipc_port") or 8766),
-            on_open_ui=lambda _reason: QTimer.singleShot(
-                0, window._on_activation_request
-            ),
+            on_open_ui=lambda _reason: QTimer.singleShot(0, window._on_activation_request),
             seat="ui",
         )
     except ValueError as exc:
@@ -110,9 +108,7 @@ def force_windows_qt_platform(env: MutableMapping[str, str]) -> None:
         env["QT_QPA_PLATFORM"] = "windows"
 
 
-async def _drain_event_loop(
-    loop: asyncio.AbstractEventLoop, *, budget_s: float
-) -> None:
+async def _drain_event_loop(loop: asyncio.AbstractEventLoop, *, budget_s: float) -> None:
     """Stop what is still running before the loop is taken out from under it.
 
     Stopping the loop with work in flight is not free, whatever the exit code
@@ -143,9 +139,7 @@ async def _drain_event_loop(
     if pending:
         _done, still = await asyncio.wait(pending, timeout=budget_s)
         if still:
-            log.info(
-                "loop drain: %d task(s) did not stop within %.2fs", len(still), budget_s
-            )
+            log.info("loop drain: %d task(s) did not stop within %.2fs", len(still), budget_s)
     # asyncio.wait rather than wait_for throughout, and that is the whole reason
     # the ceilings above are real. wait_for cancels what it is waiting on and then
     # waits for *that* to finish, so a task which swallows CancelledError — a bare
@@ -214,8 +208,7 @@ def _raise_running_instance(config: dict[str, Any]) -> int:
         notice(
             None,
             "Arelis is already running",
-            "Arelis is already open, but it did not answer the request to come "
-            "to the front.",
+            "Arelis is already open, but it did not answer the request to come to the front.",
             detail=(
                 "Look for the Arelis icon in the notification area — Windows "
                 "often keeps it in the overflow behind the chevron — and choose "
@@ -328,9 +321,7 @@ def run_ui(config: dict[str, Any] | None = None) -> int:
     from arelis.ui.solar_gl import gl_wanted
 
     if gl_wanted():
-        QApplication.setAttribute(
-            Qt.ApplicationAttribute.AA_UseDesktopOpenGL, True
-        )
+        QApplication.setAttribute(Qt.ApplicationAttribute.AA_UseDesktopOpenGL, True)
     # Cesium is a child process when the solar lab uses GPU. Do not create
     # a Qt share group or import QWebEngineView here — that is the AMD abort
     # (globalShareContext stays alive after park()). In-process WebEngine
@@ -385,9 +376,7 @@ def run_ui(config: dict[str, Any] | None = None) -> int:
     if transcribe is not None:
         transcribe._stt = voice.stt
     config["_stt"] = voice.stt
-    embed_model = str(
-        (config.get("memory") or {}).get("embed_model") or DEFAULT_EMBED_MODEL
-    )
+    embed_model = str((config.get("memory") or {}).get("embed_model") or DEFAULT_EMBED_MODEL)
     docs_cfg = (config.get("memory") or {}).get("docs") or {}
     mail_cfg = (config.get("memory") or {}).get("mail") or {}
     email_cfg = (config.get("tools") or {}).get("email") or {}
@@ -438,13 +427,9 @@ def run_ui(config: dict[str, Any] | None = None) -> int:
     async def _startup_models() -> None:
         try:
             await run_model_preflight(bus, router.provider, config.get("models"))
-            await run_model_warmup(
-                bus, router, prefix=prefix_warmup_for(config, tools)
-            )
+            await run_model_warmup(bus, router, prefix=prefix_warmup_for(config, tools))
             agent_cfg = config.get("agent") or {}
-            await run_auto_lessons(
-                bus, enabled=bool(agent_cfg.get("auto_lessons", True))
-            )
+            await run_auto_lessons(bus, enabled=bool(agent_cfg.get("auto_lessons", True)))
         finally:
             router.mark_warmup_done()
 
@@ -496,9 +481,7 @@ def run_ui(config: dict[str, Any] | None = None) -> int:
                     bus,
                     host=str(presence_cfg.get("ipc_host") or "127.0.0.1"),
                     port=int(presence_cfg.get("ipc_port") or 8766),
-                    on_open_ui=lambda _msg: QTimer.singleShot(
-                        0, window._on_activation_request
-                    ),
+                    on_open_ui=lambda _msg: QTimer.singleShot(0, window._on_activation_request),
                     # Our own core may have fallen forward past the configured
                     # port because another account on this PC holds it. The
                     # handshake names the account, so scanning cannot attach us

@@ -221,9 +221,7 @@ def _photo_pixmap(path: str) -> QPixmap | None:
     if pix.isNull():
         return None
     if pix.width() > MAX_IMAGE_WIDTH:
-        pix = pix.scaledToWidth(
-            MAX_IMAGE_WIDTH, Qt.TransformationMode.SmoothTransformation
-        )
+        pix = pix.scaledToWidth(MAX_IMAGE_WIDTH, Qt.TransformationMode.SmoothTransformation)
     return pix
 
 
@@ -359,9 +357,7 @@ class SmsChatWindow(QWidget):
         # AlignBottom keeps a short thread on the composer. Do not put a
         # stretch in this layout: QScrollArea then lets you scroll past the
         # last bubble into empty space, and _scroll_to_end follows that void.
-        self._scroll.setAlignment(
-            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignBottom
-        )
+        self._scroll.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignBottom)
         host = QWidget()
         host.setObjectName("SmsChatThread")
         host.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
@@ -493,9 +489,7 @@ class SmsChatWindow(QWidget):
         box = QWidget()
         _apply_bubble_chrome(box, message.direction)
         layout = QVBoxLayout(box)
-        layout.setContentsMargins(
-            SPACE["gap"], SPACE["gap"], SPACE["gap"], SPACE["gap"]
-        )
+        layout.setContentsMargins(SPACE["gap"], SPACE["gap"], SPACE["gap"], SPACE["gap"])
         layout.setSpacing(6)
         pixmap = _photo_pixmap(message.media_path) if has_image else None
         if pixmap is not None:
@@ -705,9 +699,7 @@ class SmsChatRegistry:
             contacts=contacts,
         )
         if not e164:
-            key = self.resolve_key(
-                alias=found_alias or alias, phone=phone, sender=sender
-            )
+            key = self.resolve_key(alias=found_alias or alias, phone=phone, sender=sender)
             stored = str((self._meta.get(key) or {}).get("phone") or "")
             e164 = to_e164(stored)
         if not e164:
@@ -741,9 +733,7 @@ class SmsChatRegistry:
         )
         window.set_messages(self.messages(key))
         window.send_requested.connect(
-            lambda body, k=key, a=window.alias, p=window.phone: self._emit_send(
-                k, body, a, p
-            )
+            lambda body, k=key, a=window.alias, p=window.phone: self._emit_send(k, body, a, p)
         )
         window.retry_requested.connect(
             lambda body, k=key, a=window.alias, p=window.phone: self._emit_send(

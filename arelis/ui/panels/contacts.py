@@ -284,8 +284,7 @@ class ContactsPanel(QWidget):
             )
             return
         self.card_hint.setText(
-            "Click Save to keep this card. Add a mobile number when you want "
-            "Arelis to text them."
+            "Click Save to keep this card. Add a mobile number when you want Arelis to text them."
         )
 
     def save_card(self) -> bool:
@@ -392,9 +391,7 @@ class ContactsPanel(QWidget):
         if not phone:
             self.card_hint.setText("Add a mobile number before texting.")
             return
-        self.chat_requested.emit(
-            contact.alias, phone, contact.display_name
-        )
+        self.chat_requested.emit(contact.alias, phone, contact.display_name)
 
     def _confirm_remove(self) -> None:
         alias = self._editing_alias

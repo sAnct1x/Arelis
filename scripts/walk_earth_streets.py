@@ -51,7 +51,11 @@ def _grab(win, name: str) -> Path:
         return dest
     geo = top.frameGeometry()
     full = screen.grabWindow(0)
-    img = full.copy(geo).toImage() if not full.isNull() else screen.grabWindow(int(top.winId())).toImage()
+    img = (
+        full.copy(geo).toImage()
+        if not full.isNull()
+        else screen.grabWindow(int(top.winId())).toImage()
+    )
     img.save(str(dest), "PNG")
     print(f"wrote {dest}  {img.width()}x{img.height()}", flush=True)
     return dest

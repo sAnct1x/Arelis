@@ -4,6 +4,7 @@ SolarSpaceView, stars_only, and the desktop-GL opt-in stay in solar_gl.py.
 A photoreal miss must not set host.failed — that contract lives on the
 widget / host side, not here.
 """
+
 from __future__ import annotations
 
 import math
@@ -45,15 +46,15 @@ def uniform_is_int(value: object) -> bool:
     """True only for Python int. 4e14 as float must not take the int uniform path."""
     return type(value) is int
 
+
 _GL_CCW = 0x0901
 _GL_CW = 0x0900
 _FOV_Y = 0.70
 _FAR_M = 4.0e14
 _FB_CAP = 2560
 
-def framebuffer_size(
-    width: int, height: int, *, cap: int = _FB_CAP
-) -> tuple[int, int]:
+
+def framebuffer_size(width: int, height: int, *, cap: int = _FB_CAP) -> tuple[int, int]:
     """Readback size. Full window toImage at 4K is the 5 Hz path."""
     w, h = max(int(width), 1), max(int(height), 1)
     long_edge = max(w, h)
@@ -73,9 +74,7 @@ def projection(fb_w: int, fb_h: int, *, fov_y: float | None = None) -> QMatrix4x
     """
     fov = float(fov_y) if fov_y is not None else _FOV_Y
     proj = QMatrix4x4()
-    proj.perspective(
-        math.degrees(fov), fb_w / max(fb_h, 1), 1.0e3, _FAR_M
-    )
+    proj.perspective(math.degrees(fov), fb_w / max(fb_h, 1), 1.0e3, _FAR_M)
     proj.scale(1.0, -1.0, 1.0)
     return proj
 
@@ -236,4 +235,3 @@ def make_ring(inner: float, outer: float, steps: int = 96) -> np.ndarray:
         verts.extend((inner * c, inner * s, 0.0, 0.0, 0.0, 1.0, 0.0, 0.5))
         verts.extend((outer * c, outer * s, 0.0, 0.0, 0.0, 1.0, 1.0, 0.5))
     return np.asarray(verts, dtype=np.float32)
-

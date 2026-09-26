@@ -138,9 +138,7 @@ def _body(painter: QPainter, ink: QColor) -> None:
     painter.setPen(_pen(ink))
 
 
-def _line(
-    painter: QPainter, x0: float, y0: float, x1: float, y1: float
-) -> None:
+def _line(painter: QPainter, x0: float, y0: float, x1: float, y1: float) -> None:
     painter.drawLine(QPointF(x0, y0), QPointF(x1, y1))
 
 

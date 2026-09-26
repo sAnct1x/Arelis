@@ -376,9 +376,7 @@ def test_celestrak_bands_include_near_and_city() -> None:
     """Pin today's code. Phase 1.4 decides whether docs or lod is the lie."""
     from arelis.earth.lod import ADAPTER_BANDS
 
-    assert ADAPTER_BANDS["celestrak"] == frozenset(
-        {"space", "approach", "near", "city"}
-    )
+    assert ADAPTER_BANDS["celestrak"] == frozenset({"space", "approach", "near", "city"})
     assert ADAPTER_BANDS["opensky"] == frozenset({"approach", "near", "city"})
     assert "space" not in ADAPTER_BANDS["opensky"]
     assert "space" not in ADAPTER_BANDS["cameras"]
@@ -490,9 +488,7 @@ def test_spoken_leave_earth_uses_plate_teardown(
         thinking=Notes(),
         world_window=SimpleNamespace(solar=Solar()),
     )
-    monkeypatch.setattr(
-        "arelis.ui.world_host.touch_solar", lambda *_a, **_k: hits.append("touch")
-    )
+    monkeypatch.setattr("arelis.ui.world_host.touch_solar", lambda *_a, **_k: hits.append("touch"))
     apply_physics_act(window, PhysicsAct(verb="leave_earth"))
     assert hits[0] == "teardown"
     assert "touch" in hits
@@ -531,9 +527,7 @@ def test_opensky_fail_is_none_empty_states_is_quiet(
     monkeypatch.setattr(opensky, "_credits_ok", lambda: True)
     monkeypatch.setattr(opensky, "_states", lambda *_a, **_k: None)
     assert opensky.fetch_opensky() is None
-    monkeypatch.setattr(
-        opensky, "_states", lambda *_a, **_k: {"time": 1, "states": []}
-    )
+    monkeypatch.setattr(opensky, "_states", lambda *_a, **_k: {"time": 1, "states": []})
     assert opensky.fetch_opensky() == []
 
 
@@ -548,9 +542,7 @@ def test_traffic_fetch_module_pins_wzdx_and_rejects_evil_hosts() -> None:
             "features": [
                 {
                     "geometry": {"type": "Point", "coordinates": [-111.9, 40.8]},
-                    "properties": {
-                        "core_details": {"event_type": "work-zone", "name": "I-15"}
-                    },
+                    "properties": {"core_details": {"event_type": "work-zone", "name": "I-15"}},
                 }
             ]
         },
@@ -823,18 +815,10 @@ def test_cesium_reveal_waits_for_tiles_not_a_timer() -> None:
     from pathlib import Path
 
     earth = (
-        Path(__file__).resolve().parents[1]
-        / "arelis"
-        / "ui"
-        / "panels"
-        / "solar_earth.py"
+        Path(__file__).resolve().parents[1] / "arelis" / "ui" / "panels" / "solar_earth.py"
     ).read_text(encoding="utf-8")
     js = (
-        Path(__file__).resolve().parents[1]
-        / "arelis"
-        / "ui"
-        / "earth_globe"
-        / "bridge.js"
+        Path(__file__).resolve().parents[1] / "arelis" / "ui" / "earth_globe" / "bridge.js"
     ).read_text(encoding="utf-8")
     assert "singleShot(900" not in earth
     assert "Chromium actually fetches GIBS" in earth

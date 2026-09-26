@@ -10,6 +10,7 @@ from arelis.memory.store import _utc_now
 if TYPE_CHECKING:
     from arelis.memory.store import MemoryStore
 
+
 def start_session(store: MemoryStore, session_id: str | None = None, *, room_id: str = "") -> str:
     """Begin a new session and make it the sink target for later writes."""
     sid = session_id or uuid4().hex
@@ -23,6 +24,7 @@ def start_session(store: MemoryStore, session_id: str | None = None, *, room_id:
     store._title_set = False
     return sid
 
+
 def mint_session(store: MemoryStore, *, room_id: str = "") -> str:
     """Create a conversation without making it this process's open seat."""
     sid = uuid4().hex
@@ -32,6 +34,7 @@ def mint_session(store: MemoryStore, *, room_id: str = "") -> str:
     )
     store._conn.commit()
     return sid
+
 
 def start_glass_session(store: MemoryStore) -> str:
     """Cold glass launch: sit on the unused general shell, or mint one.
@@ -68,6 +71,7 @@ def start_or_reuse_empty_session(store: MemoryStore, *, room_id: str) -> str:
         store.open_session(keep)
         return keep
     return store.start_session(room_id=room_id)
+
 
 def _session_has_messages(store: MemoryStore, session_id: str) -> bool:
     row = store._conn.execute(
@@ -110,6 +114,7 @@ def keep_history_row(row: dict[str, Any], *, current_id: str = "") -> bool:
         return True
     return bool(row.get("has_user"))
 
+
 def open_session(store: MemoryStore, session_id: str) -> bool:
     """Point the sink at an existing session. False if it is not in the archive."""
     session = store.get_session(session_id)
@@ -123,6 +128,7 @@ def open_session(store: MemoryStore, session_id: str) -> bool:
     store._ordinal = int(row["n"] if row is not None else 0)
     store._title_set = bool(str(session.get("title") or "").strip())
     return True
+
 
 def on_message(store: MemoryStore, role: str, content: str, note: str = "") -> None:
     """Persist one message. Called from SessionMemory.add when a sink is set."""
@@ -147,6 +153,7 @@ def on_message(store: MemoryStore, role: str, content: str, note: str = "") -> N
             )
             store._title_set = True
     store._conn.commit()
+
 
 def append_to_session(
     store: MemoryStore, session_id: str, role: str, content: str, note: str = ""
@@ -180,6 +187,7 @@ def append_to_session(
     store._conn.commit()
     return True
 
+
 def on_summary(store: MemoryStore, text: str) -> None:
     if store.session_id is None or not text:
         return
@@ -194,6 +202,7 @@ def on_summary(store: MemoryStore, text: str) -> None:
         (store.session_id, text, _utc_now()),
     )
     store._conn.commit()
+
 
 def latest_session_id(
     store: MemoryStore, *, require_messages: bool = True, room_id: str | None = None
@@ -227,6 +236,7 @@ def latest_session_id(
     ).fetchone()
     return str(row["id"]) if row is not None else None
 
+
 def list_sessions(
     store: MemoryStore, *, limit: int = 50, room_id: str | None = None
 ) -> list[dict[str, Any]]:
@@ -254,6 +264,7 @@ def list_sessions(
         out.append(item)
     return out
 
+
 def delete_session(store: MemoryStore, session_id: str) -> bool:
     """Remove a conversation and cascaded messages/summaries. True if deleted."""
     sid = (session_id or "").strip()
@@ -268,6 +279,7 @@ def delete_session(store: MemoryStore, session_id: str) -> bool:
         store._title_set = False
     return removed
 
+
 def get_session(store: MemoryStore, session_id: str) -> dict[str, Any] | None:
     row = store._conn.execute(
         """
@@ -278,6 +290,7 @@ def get_session(store: MemoryStore, session_id: str) -> dict[str, Any] | None:
         (session_id,),
     ).fetchone()
     return dict(row) if row else None
+
 
 def get_messages(store: MemoryStore, session_id: str) -> list[dict[str, Any]]:
     rows = store._conn.execute(
@@ -290,6 +303,7 @@ def get_messages(store: MemoryStore, session_id: str) -> list[dict[str, Any]]:
         (session_id,),
     ).fetchall()
     return [dict(row) for row in rows]
+
 
 def get_summary(store: MemoryStore, session_id: str) -> str:
     row = store._conn.execute(

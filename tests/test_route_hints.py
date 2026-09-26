@@ -72,6 +72,4 @@ def test_bare_words_are_not_research(text: str) -> None:
 
 
 def test_derive_is_not_a_research_hint() -> None:
-    assert not is_research_hint(
-        "derive the equation for F=ma. show me how it was derived."
-    )
+    assert not is_research_hint("derive the equation for F=ma. show me how it was derived.")

@@ -96,9 +96,7 @@ def test_hiding_the_camera_tile_keeps_a_live_session(monkeypatch) -> None:
         set_preview_wanted=lambda on: wanted.append(bool(on)),
     )
     window = SimpleNamespace(camera_dock=dock, camera=camera, spatial=spatial)
-    monkeypatch.setattr(
-        "arelis.ui.camera_host.chrome_applying", lambda _dock: False
-    )
+    monkeypatch.setattr("arelis.ui.camera_host.chrome_applying", lambda _dock: False)
     monkeypatch.setattr("arelis.ui.camera_host.refresh_camera_capture_hook", lambda _w: None)
     on_camera_dock_visibility(window, False)
     assert stopped == []

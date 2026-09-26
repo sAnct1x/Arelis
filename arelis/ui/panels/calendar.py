@@ -717,9 +717,7 @@ class TasksPage(QWidget):
         self.list.clear()
         show_done = self.show_done.isChecked()
         rows = [
-            row
-            for row in self._tasks
-            if show_done or str(row.get("status") or "open") == "open"
+            row for row in self._tasks if show_done or str(row.get("status") or "open") == "open"
         ]
         if not rows:
             item = QListWidgetItem("no open tasks")
@@ -759,9 +757,7 @@ class TasksPage(QWidget):
             line.addWidget(remove)
             item = QListWidgetItem()
             item.setSizeHint(
-                widget.sizeHint().expandedTo(
-                    QSize(100, METRICS["row"] + SPACE["micro"] * 2)
-                )
+                widget.sizeHint().expandedTo(QSize(100, METRICS["row"] + SPACE["micro"] * 2))
             )
             self.list.addItem(item)
             self.list.setItemWidget(item, widget)
@@ -1171,9 +1167,7 @@ class CalendarPanel(QWidget):
             from arelis.mail import load_account
 
             if load_account() is None:
-                self.jobs_page.set_note(
-                    "Jobs that email you need mail in Settings → notify."
-                )
+                self.jobs_page.set_note("Jobs that email you need mail in Settings → notify.")
         except Exception:
             pass
 

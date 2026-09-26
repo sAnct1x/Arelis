@@ -249,8 +249,7 @@ class Watch:
                 self._locked_until[host] = now + self.auth_lock_s
                 retry = int(self.auth_lock_s)
                 self._note_alert_locked(
-                    f"Watch: locked inbound from {host} after {len(bucket)} "
-                    f"bad tokens"
+                    f"Watch: locked inbound from {host} after {len(bucket)} bad tokens"
                 )
                 return Admit(ok=False, retry_after=retry, reason="locked")
             return Admit(ok=True)
@@ -373,10 +372,7 @@ class Watch:
             else:
                 level = "ok"
                 if listeners:
-                    bits = [
-                        f"{item['name']} :{item['port']} {item['bind']}"
-                        for item in listeners
-                    ]
+                    bits = [f"{item['name']} :{item['port']} {item['bind']}" for item in listeners]
                     detail = ", ".join(bits) + ". Quiet."
                 else:
                     detail = "No house listeners yet. Quiet."

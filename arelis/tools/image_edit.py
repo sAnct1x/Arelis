@@ -110,17 +110,12 @@ def _parse_crop_box(value: Any) -> tuple[int, int, int, int] | None:
         try:
             left, top, right, bottom = (int(item) for item in value)
         except (TypeError, ValueError):
-            raise ValueError(
-                "crop_box needs four numbers: left, top, right, bottom."
-            ) from None
+            raise ValueError("crop_box needs four numbers: left, top, right, bottom.") from None
     else:
-        raise ValueError(
-            "crop_box must be an object or four numbers: left, top, right, bottom."
-        )
+        raise ValueError("crop_box must be an object or four numbers: left, top, right, bottom.")
     if right <= left or bottom <= top or min(left, top) < 0:
         raise ValueError(
-            "crop_box must be a valid rectangle inside the image "
-            "(left < right, top < bottom)."
+            "crop_box must be a valid rectangle inside the image (left < right, top < bottom)."
         )
     return left, top, right, bottom
 
@@ -128,8 +123,7 @@ def _parse_crop_box(value: Any) -> tuple[int, int, int, int] | None:
 def _reject_huge(width: int, height: int) -> None:
     if max(width, height) > _MAX_EDGE or (width * height) > _MAX_PIXELS:
         raise ValueError(
-            f"{width}x{height} is larger than this tool will produce "
-            f"(max edge {_MAX_EDGE}px)."
+            f"{width}x{height} is larger than this tool will produce (max edge {_MAX_EDGE}px)."
         )
 
 
@@ -204,8 +198,7 @@ class ImageEditTool:
                 "type": "string",
                 "enum": list(CROP_SIDES),
                 "description": (
-                    "Keep that half of the picture. center keeps the middle 50% "
-                    "on both axes."
+                    "Keep that half of the picture. center keeps the middle 50% on both axes."
                 ),
             },
             "crop_box": {
@@ -229,15 +222,12 @@ class ImageEditTool:
             "pad": {
                 "type": "integer",
                 "description": (
-                    "Border in pixels on every side (0–512). Black, or "
-                    "transparent on PNG."
+                    "Border in pixels on every side (0–512). Black, or transparent on PNG."
                 ),
             },
             "warmth": {
                 "type": "number",
-                "description": (
-                    "Colour temperature. -1.0 cooler, +1.0 warmer. 0 is unchanged."
-                ),
+                "description": ("Colour temperature. -1.0 cooler, +1.0 warmer. 0 is unchanged."),
             },
             "vibrance": {
                 "type": "number",
@@ -350,10 +340,7 @@ class ImageEditTool:
         if overlay and align not in TEXT_ALIGNS:
             return ToolResult(
                 ok=False,
-                output=(
-                    f"[fail:image_edit] text_align must be one of "
-                    f"{', '.join(TEXT_ALIGNS)}."
-                ),
+                output=(f"[fail:image_edit] text_align must be one of {', '.join(TEXT_ALIGNS)}."),
             )
         rotate = None
         if kwargs.get("rotate") is not None:
@@ -380,9 +367,7 @@ class ImageEditTool:
             if flip not in FLIP_MODES:
                 return ToolResult(
                     ok=False,
-                    output=(
-                        f"[fail:image_edit] flip must be one of {', '.join(FLIP_MODES)}."
-                    ),
+                    output=(f"[fail:image_edit] flip must be one of {', '.join(FLIP_MODES)}."),
                 )
         else:
             flip = ""
@@ -393,9 +378,7 @@ class ImageEditTool:
             try:
                 blur = float(kwargs.get("blur"))
             except (TypeError, ValueError):
-                return ToolResult(
-                    ok=False, output="[fail:image_edit] blur must be a number."
-                )
+                return ToolResult(ok=False, output="[fail:image_edit] blur must be a number.")
             if blur != blur or blur <= 0:
                 blur = None
             else:
@@ -405,9 +388,7 @@ class ImageEditTool:
             if crop not in CROP_SIDES:
                 return ToolResult(
                     ok=False,
-                    output=(
-                        f"[fail:image_edit] crop must be one of {', '.join(CROP_SIDES)}."
-                    ),
+                    output=(f"[fail:image_edit] crop must be one of {', '.join(CROP_SIDES)}."),
                 )
         else:
             crop = ""
@@ -420,13 +401,9 @@ class ImageEditTool:
             try:
                 scale = float(kwargs.get("scale"))
             except (TypeError, ValueError):
-                return ToolResult(
-                    ok=False, output="[fail:image_edit] scale must be a number."
-                )
+                return ToolResult(ok=False, output="[fail:image_edit] scale must be a number.")
             if scale != scale:
-                return ToolResult(
-                    ok=False, output="[fail:image_edit] scale must be a number."
-                )
+                return ToolResult(ok=False, output="[fail:image_edit] scale must be a number.")
             scale = max(_MIN_SCALE, min(_MAX_SCALE, scale))
             if abs(scale - 1.0) < 1e-6:
                 scale = None
@@ -444,13 +421,9 @@ class ImageEditTool:
             try:
                 warmth = float(kwargs.get("warmth"))
             except (TypeError, ValueError):
-                return ToolResult(
-                    ok=False, output="[fail:image_edit] warmth must be a number."
-                )
+                return ToolResult(ok=False, output="[fail:image_edit] warmth must be a number.")
             if warmth != warmth:
-                return ToolResult(
-                    ok=False, output="[fail:image_edit] warmth must be a number."
-                )
+                return ToolResult(ok=False, output="[fail:image_edit] warmth must be a number.")
             warmth = max(-1.0, min(1.0, warmth))
             if abs(warmth) < 1e-6:
                 warmth = None
@@ -491,9 +464,7 @@ class ImageEditTool:
         if fmt in {"jpeg"}:
             fmt = "jpg"
         if fmt not in {"png", "jpg"}:
-            return ToolResult(
-                ok=False, output="[fail:image_edit] format must be png or jpg."
-            )
+            return ToolResult(ok=False, output="[fail:image_edit] format must be png or jpg.")
 
         try:
             result = await asyncio.to_thread(
@@ -571,9 +542,7 @@ class ImageEditTool:
             notes.append("flipped vertical")
         if crop_box is not None:
             frame = _apply_crop_box(frame, crop_box)
-            notes.append(
-                f"cropped {crop_box[0]},{crop_box[1]}–{crop_box[2]},{crop_box[3]}"
-            )
+            notes.append(f"cropped {crop_box[0]},{crop_box[1]}–{crop_box[2]},{crop_box[3]}")
         elif crop:
             frame = _crop_side(frame, crop)
             notes.append(f"cropped {crop}")
@@ -664,9 +633,7 @@ class ImageEditTool:
 
         changes: list[str] = []
         if size is not None:
-            arrow = (
-                f"{original[0]}x{original[1]} to {frame.width}x{frame.height}"
-            )
+            arrow = f"{original[0]}x{original[1]} to {frame.width}x{frame.height}"
             if cropped:
                 arrow += " (centre-cropped to that shape)"
             elif fit == "contain" and original != (frame.width, frame.height):
@@ -765,8 +732,7 @@ def _apply_crop_box(frame: Any, box: tuple[int, int, int, int]) -> Any:
     width, height = frame.size
     if left < 0 or top < 0 or right > width or bottom > height or right <= left or bottom <= top:
         raise ValueError(
-            f"crop_box {left},{top},{right},{bottom} is outside the image "
-            f"({width}x{height})."
+            f"crop_box {left},{top},{right},{bottom} is outside the image ({width}x{height})."
         )
     return frame.crop(box)
 
@@ -782,9 +748,7 @@ def _apply_warmth(frame: Any, warmth: float) -> Any:
     cooler = [max(0, min(255, i - lift)) for i in range(256)]
     if frame.mode == "RGBA":
         red, green, blue, alpha = frame.split()
-        return Image.merge(
-            "RGBA", (red.point(warmer), green, blue.point(cooler), alpha)
-        )
+        return Image.merge("RGBA", (red.point(warmer), green, blue.point(cooler), alpha))
     red, green, blue = frame.convert("RGB").split()
     out = Image.merge("RGB", (red.point(warmer), green, blue.point(cooler)))
     return out

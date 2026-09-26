@@ -111,7 +111,5 @@ def _num(value: Any) -> float | None:
 def _get_json() -> dict[str, Any] | list[Any] | None:
     from arelis.earth.http import get_json
 
-    data = get_json(
-        NDBC_STATIONS, NDBC_HOST, timeout=_TIMEOUT, headers={"User-Agent": _UA}
-    )
+    data = get_json(NDBC_STATIONS, NDBC_HOST, timeout=_TIMEOUT, headers={"User-Agent": _UA})
     return data if isinstance(data, (dict, list)) else None

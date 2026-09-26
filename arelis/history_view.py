@@ -26,7 +26,5 @@ def history_pairs(history: list[Any] | None) -> list[tuple[str, str]]:
         if hasattr(item, "role") and hasattr(item, "content"):
             out.append((str(item.role), str(item.content or "")))
         elif isinstance(item, dict):
-            out.append(
-                (str(item.get("role") or ""), str(item.get("content") or ""))
-            )
+            out.append((str(item.get("role") or ""), str(item.get("content") or "")))
     return out

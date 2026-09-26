@@ -49,11 +49,7 @@ CHANNELS = ("sms", "email", "agenda")
 
 
 def _who_accepts(text: str) -> set[str]:
-    return {
-        name
-        for name, pattern in zip(CHANNELS, CONFIRMS, strict=True)
-        if pattern.match(text)
-    }
+    return {name for name, pattern in zip(CHANNELS, CONFIRMS, strict=True) if pattern.match(text)}
 
 
 # Ordinary agreement. Every channel has to take all of it — this is the list

@@ -179,10 +179,7 @@ class ResearchReportTool:
             search_result = await self._search(**retry_args)
             urls = _search_urls(search_result, max_sources)
         if not urls:
-            detail = (
-                search_result.output
-                or "web_search returned no usable http(s) URLs to scrape."
-            )
+            detail = search_result.output or "web_search returned no usable http(s) URLs to scrape."
             if retried_as and retried_as != query:
                 detail = (
                     f"{detail} Retried as {retried_as!r}. "
@@ -208,13 +205,14 @@ class ResearchReportTool:
                 max_chars=self.max_chars_per_source,
             )
             if scrape_result.ok:
-                title = str(
-                    (scrape_result.data or {}).get("title")
-                    or title_for_url(url, search_result.data)
-                ).strip() or url
-                final_url = str(
-                    (scrape_result.data or {}).get("url") or url
-                ).strip() or url
+                title = (
+                    str(
+                        (scrape_result.data or {}).get("title")
+                        or title_for_url(url, search_result.data)
+                    ).strip()
+                    or url
+                )
+                final_url = str((scrape_result.data or {}).get("url") or url).strip() or url
                 hits.append(
                     SourceHit(
                         title=title,
@@ -240,10 +238,7 @@ class ResearchReportTool:
                     hits.append(
                         SourceHit(
                             title=title,
-                            url=str(
-                                (fetch_result.data or {}).get("url") or url
-                            ).strip()
-                            or url,
+                            url=str((fetch_result.data or {}).get("url") or url).strip() or url,
                             excerpt=excerpt_text(
                                 fetch_result.output,
                                 max_chars=min(2000, self.max_chars_per_source),
@@ -267,9 +262,8 @@ class ResearchReportTool:
             f"({ok_count} source{'s' if ok_count != 1 else ''} scraped)."
         )
         if not ok:
-            summary = (
-                f"No pages scraped successfully. Report stub at {path}. "
-                + (failed[0] if failed else "")
+            summary = f"No pages scraped successfully. Report stub at {path}. " + (
+                failed[0] if failed else ""
             )
         return ToolResult(
             ok=ok,

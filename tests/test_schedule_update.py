@@ -95,9 +95,7 @@ async def test_the_history_survives_an_edit(scheduled: ScheduleTool) -> None:
 async def test_the_prompt_can_change_without_moving_the_time(
     scheduled: ScheduleTool,
 ) -> None:
-    result = await scheduled.run(
-        action="update", id="morning-briefing", prompt="Just the weather."
-    )
+    result = await scheduled.run(action="update", id="morning-briefing", prompt="Just the weather.")
     assert result.ok, result.output
 
     job = get_job("morning-briefing")
@@ -108,9 +106,7 @@ async def test_the_prompt_can_change_without_moving_the_time(
 
 @pytest.mark.asyncio
 async def test_the_days_can_change(scheduled: ScheduleTool) -> None:
-    result = await scheduled.run(
-        action="update", id="morning-briefing", days="weekdays"
-    )
+    result = await scheduled.run(action="update", id="morning-briefing", days="weekdays")
     assert result.ok, result.output
 
     job = get_job("morning-briefing")

@@ -261,9 +261,7 @@ class WorkspaceRoots:
 
     def resolve_read(self, path_str: str) -> ResolvedPath:
         """Like resolve() for reads, but also accepts session-granted absolutes."""
-        return self._resolve_inner(
-            path_str, for_create=False, allow_external=True, for_write=False
-        )
+        return self._resolve_inner(path_str, for_create=False, allow_external=True, for_write=False)
 
     def _resolve_inner(
         self,
@@ -299,11 +297,7 @@ class WorkspaceRoots:
             try:
                 return self._contain_any(path, for_write=for_write)
             except PermissionError:
-                if (
-                    allow_external
-                    and not for_create
-                    and self._external_covers(path)
-                ):
+                if allow_external and not for_create and self._external_covers(path):
                     return ResolvedPath(
                         path=path,
                         root_name="external",
@@ -340,8 +334,7 @@ class WorkspaceRoots:
         if len(hits) > 1:
             labels = ", ".join(f"{h.root_name}:{path.as_posix()}" for h in hits)
             raise AmbiguousPathError(
-                f"Path `{raw}` matches more than one project ({labels}); "
-                "qualify it as name:path"
+                f"Path `{raw}` matches more than one project ({labels}); qualify it as name:path"
             )
 
         # Zero hits: new files and missing reads anchor to the active project.
@@ -353,9 +346,7 @@ class WorkspaceRoots:
             anchored = _soften_existing(anchored)
         return self._contain(anchored, entry, for_write=for_write)
 
-    def _contain(
-        self, path: Path, entry: RootEntry, *, for_write: bool = False
-    ) -> ResolvedPath:
+    def _contain(self, path: Path, entry: RootEntry, *, for_write: bool = False) -> ResolvedPath:
         try:
             path.relative_to(entry.path)
         except ValueError as exc:

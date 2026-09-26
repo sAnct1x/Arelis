@@ -25,9 +25,7 @@ from arelis.llm.startup import model_is_available
 log = logging.getLogger(__name__)
 
 DEFAULT_BASE = "http://127.0.0.1:11434"
-OLLAMA_SETUP_URL = (
-    "https://github.com/ollama/ollama/releases/latest/download/OllamaSetup.exe"
-)
+OLLAMA_SETUP_URL = "https://github.com/ollama/ollama/releases/latest/download/OllamaSetup.exe"
 Progress = Callable[[str, int, int], None]
 
 
@@ -117,11 +115,7 @@ def already_pulled(tag: str, base_url: str = DEFAULT_BASE) -> bool:
     models = payload.get("models") if isinstance(payload, dict) else None
     if not isinstance(models, list):
         return False
-    names = [
-        str(item.get("name") or "")
-        for item in models
-        if isinstance(item, dict)
-    ]
+    names = [str(item.get("name") or "") for item in models if isinstance(item, dict)]
     return model_is_available(names, name)
 
 
@@ -202,7 +196,5 @@ def run_ollama_setup(setup_exe: Path) -> str | None:
             subprocess.Popen([str(setup_exe)], **hidden_kwargs())
         except OSError as exc:
             return f"Ollama setup did not finish (code {result.returncode}): {exc}"
-        return (
-            "The Ollama installer is open. Finish it, then come back and continue."
-        )
+        return "The Ollama installer is open. Finish it, then come back and continue."
     return None

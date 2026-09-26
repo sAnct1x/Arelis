@@ -146,10 +146,7 @@ class ModelSetupDialog(GlassDialog):
         detect_l.setContentsMargins(0, 8, 0, 8)
         looking = QLabel("Looking at this PC…")
         looking.setObjectName("DialogHeading")
-        note = QLabel(
-            "Graphics memory, system memory, and free disk. This stays on "
-            "this machine."
-        )
+        note = QLabel("Graphics memory, system memory, and free disk. This stays on this machine.")
         note.setObjectName("DialogNote")
         note.setWordWrap(True)
         detect_l.addWidget(looking)

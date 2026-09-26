@@ -104,9 +104,7 @@ def fetch_celestrak(*, unix: float | None = None) -> list[Entity] | None:
         if group in _SAMPLE_GROUPS:
             n = len(parse_tle_blocks(text))
             stride = max(1, n // max(budget, 1))
-        for entity in entities_from_tle_text(
-            text, unix=now, cap=budget, stride=stride
-        ):
+        for entity in entities_from_tle_text(text, unix=now, cap=budget, stride=stride):
             norad = int(entity.meta.get("norad") or 0)
             if norad in seen:
                 continue
@@ -151,11 +149,7 @@ def parse_tle_blocks(text: str) -> list[tuple[str, str, str]]:
             out.append(("unknown", a, lines[i + 1]))
             i += 2
             continue
-        if (
-            i + 2 < len(lines)
-            and lines[i + 1].startswith("1 ")
-            and lines[i + 2].startswith("2 ")
-        ):
+        if i + 2 < len(lines) and lines[i + 1].startswith("1 ") and lines[i + 2].startswith("2 "):
             out.append((a.strip(), lines[i + 1], lines[i + 2]))
             i += 3
             continue
@@ -241,9 +235,7 @@ def propagate_entity(entity: Entity, unix: float) -> bool:
     line2 = str(meta.get("_tle2") or "")
     if not line1.startswith("1 ") or not line2.startswith("2 "):
         return False
-    nxt = _entity_from_lines(
-        str(meta.get("name") or entity.label), line1, line2, unix
-    )
+    nxt = _entity_from_lines(str(meta.get("name") or entity.label), line1, line2, unix)
     if nxt is None:
         return False
     entity.x, entity.y, entity.z = nxt.x, nxt.y, nxt.z

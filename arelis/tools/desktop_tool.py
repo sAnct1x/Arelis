@@ -142,9 +142,7 @@ class DesktopTool:
         if action not in _ACTIONS:
             return ToolResult(
                 ok=False,
-                output="Unknown action {!r}. Use: {}.".format(
-                    action, ", ".join(_ACTIONS)
-                ),
+                output="Unknown action {!r}. Use: {}.".format(action, ", ".join(_ACTIONS)),
             )
         target = str(kwargs.get("target") or kwargs.get("url") or "").strip()
         try:

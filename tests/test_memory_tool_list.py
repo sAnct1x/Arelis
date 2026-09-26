@@ -98,9 +98,8 @@ async def test_forget_drops_pasted_episode_list(tmp_path: Path) -> None:
         )
         for stamp in stamps:
             await tool.run(action="episode", summary=f"e2e episode {stamp}")
-        blob = (
-            "all of those episodes, Episodes:\n"
-            + "\n".join(f"e2e episode {stamp}" for stamp in stamps)
+        blob = "all of those episodes, Episodes:\n" + "\n".join(
+            f"e2e episode {stamp}" for stamp in stamps
         )
         result = await tool.run(action="forget", fact=blob)
         assert result.ok, result.output

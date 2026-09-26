@@ -49,9 +49,7 @@ def test_tabs_list_and_select_by_title() -> None:
         await tool.run(action="open", url="https://x.com/home")
         session._driver.title = "Home / X"  # type: ignore[attr-defined]
         session._driver._sync_active_tab()  # type: ignore[attr-defined]
-        opened = await tool.run(
-            action="tabs", tab="new", url="https://mail.google.com"
-        )
+        opened = await tool.run(action="tabs", tab="new", url="https://mail.google.com")
         assert opened.ok
         session._driver.title = "Inbox - Gmail"  # type: ignore[attr-defined]
         session._driver._sync_active_tab()  # type: ignore[attr-defined]

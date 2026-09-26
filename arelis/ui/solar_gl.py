@@ -126,6 +126,7 @@ def arm_fault_log() -> None:
         log.exception("faulthandler failed")
         trace("faulthandler failed")
 
+
 # Khronos enums. Avoid a PyOpenGL extra; Qt functions take these ints.
 _GL_COLOR_BUFFER_BIT = 0x4000
 _GL_DEPTH_BUFFER_BIT = 0x0100
@@ -500,7 +501,6 @@ void main() {
 """
 
 
-
 def gl_wanted() -> bool:
     """GPU space is opt-in. Three driver aborts; software globes stay the default."""
     raw = os.environ.get("ARELIS_SOLAR_GL", "0").strip().lower()
@@ -606,9 +606,7 @@ def solar_gl_clock_step(panel: object, system: object) -> float:
     return clock_step_s(worst)
 
 
-def _earth_lock_scale(
-    panel: object, eye: tuple[float, float, float]
-) -> tuple[float, float]:
+def _earth_lock_scale(panel: object, eye: tuple[float, float, float]) -> tuple[float, float]:
     """Altitude + disc px for the visibility budget. Last view wins."""
     try:
         from arelis.earth.runtime import get_earth
@@ -635,8 +633,6 @@ _ATMO: dict[str, tuple[tuple[float, float, float], float, float]] = {
     "Titan": ((0.82, 0.60, 0.32), 1.03, 0.55),
 }
 _GAS = {"Jupiter", "Saturn", "Uranus", "Neptune"}
-
-
 
 
 class SolarSpaceView(QOpenGLFunctions):
@@ -775,9 +771,7 @@ class SolarSpaceView(QOpenGLFunctions):
             stars = make_stars()
             trace("upload stars")
             self._star_vao, self._star_n = self._points(stars)
-            glow = np.array(
-                [-1.0, -1.0, 1.0, -1.0, -1.0, 1.0, 1.0, 1.0], dtype=np.float32
-            )
+            glow = np.array([-1.0, -1.0, 1.0, -1.0, -1.0, 1.0, 1.0, 1.0], dtype=np.float32)
             trace("upload glow quad")
             self._glow_vao = self._vec2(glow)
             trace("make_ring")
@@ -789,9 +783,7 @@ class SolarSpaceView(QOpenGLFunctions):
             img = QImage(4, 4, QImage.Format.Format_RGBA8888)
             img.fill(Qt.GlobalColor.white)
             self._white = QOpenGLTexture(img)
-            self._white.setMinMagFilters(
-                QOpenGLTexture.Filter.Linear, QOpenGLTexture.Filter.Linear
-            )
+            self._white.setMinMagFilters(QOpenGLTexture.Filter.Linear, QOpenGLTexture.Filter.Linear)
             self.gl_ok = True
             trace("realize ok")
         except Exception:
@@ -814,9 +806,7 @@ class SolarSpaceView(QOpenGLFunctions):
         trace(f"linked {name}")
         return prog
 
-    def _mesh(
-        self, verts: np.ndarray, idx: np.ndarray
-    ) -> tuple[QOpenGLVertexArrayObject, int]:
+    def _mesh(self, verts: np.ndarray, idx: np.ndarray) -> tuple[QOpenGLVertexArrayObject, int]:
         vao = QOpenGLVertexArrayObject()
         if not vao.create():
             raise RuntimeError("sphere VAO")
@@ -944,9 +934,7 @@ class SolarSpaceView(QOpenGLFunctions):
             return self._white, 0
         width, height, pixels = rgb
         image = QImage(pixels, width, height, width * 3, QImage.Format.Format_RGB888)
-        image = image.copy().convertToFormat(QImage.Format.Format_RGBA8888).mirrored(
-            False, True
-        )
+        image = image.copy().convertToFormat(QImage.Format.Format_RGBA8888).mirrored(False, True)
         tex = QOpenGLTexture(image)
         if not tex.isCreated() or tex.textureId() == 0:
             trace(f"tex create failed {name}")
@@ -969,17 +957,11 @@ class SolarSpaceView(QOpenGLFunctions):
 
     def _ensure_fbo(self, width: int, height: int) -> QOpenGLFramebufferObject:
         w, h = max(int(width), 1), max(int(height), 1)
-        if (
-            self._fbo is not None
-            and self._fbo.width() == w
-            and self._fbo.height() == h
-        ):
+        if self._fbo is not None and self._fbo.width() == w and self._fbo.height() == h:
             return self._fbo
         trace(f"fbo resize {w}x{h}")
         fmt = QOpenGLFramebufferObjectFormat()
-        fmt.setAttachment(
-            QOpenGLFramebufferObject.Attachment.CombinedDepthStencil
-        )
+        fmt.setAttachment(QOpenGLFramebufferObject.Attachment.CombinedDepthStencil)
         self._fbo = QOpenGLFramebufferObject(w, h, fmt)
         if not self._fbo.isValid():
             raise RuntimeError("FBO invalid")
@@ -999,12 +981,7 @@ class SolarSpaceView(QOpenGLFunctions):
             step = solar_gl_clock_step(panel, system)
             t = int(float(system.t) // step) * step
         osc = bool(system is not None and system.show_osculating)
-        beads = (
-            osc
-            and system is not None
-            and not system.paused
-            and bool(panel._inspect)
-        )
+        beads = osc and system is not None and not system.paused and bool(panel._inspect)
         mag = bool(system is not None and system.overlay.show_magnetic)
         if system is None:
             live = 0
@@ -1089,9 +1066,7 @@ class SolarSpaceView(QOpenGLFunctions):
             # Qt flips for us here, and the scene is already rendered flipped.
             return fbo.toImage().mirrored(False, True)
 
-    def render(
-        self, width: int, height: int, *, stars_only: bool = False
-    ) -> QImage | None:
+    def render(self, width: int, height: int, *, stars_only: bool = False) -> QImage | None:
         if getattr(self, "_parked", False):
             return self._frame
         if not self.gl_ok or self._ctx is None or self._surface is None:
@@ -1127,11 +1102,7 @@ class SolarSpaceView(QOpenGLFunctions):
                     else QVector3D(0, 0, 0)
                 )
                 self.glEnable(_GL_DEPTH_TEST)
-                bodies = [
-                    b
-                    for b in views
-                    if not b.tracer and b.kind not in {"probe", "lagrange"}
-                ]
+                bodies = [b for b in views if not b.tracer and b.kind not in {"probe", "lagrange"}]
                 bodies.sort(key=lambda b: -self._cam_z(b, eye, fz))
                 skip_sun = self._planet_fills_view(panel, bodies, eye, fz)
                 for body in bodies:
@@ -1214,9 +1185,11 @@ class SolarSpaceView(QOpenGLFunctions):
             return
         ctx = getattr(self, "_ctx", None)
         surface = getattr(self, "_surface", None)
-        needs_current = bool(getattr(self, "_textures", None)) or getattr(
-            self, "_fbo", None
-        ) is not None or getattr(self, "_white", None) is not None
+        needs_current = (
+            bool(getattr(self, "_textures", None))
+            or getattr(self, "_fbo", None) is not None
+            or getattr(self, "_white", None) is not None
+        )
         if (
             needs_current
             and ctx is not None
@@ -1405,11 +1378,7 @@ class SolarSpaceView(QOpenGLFunctions):
         raise TypeError(f"uniform {name} arity {len(values)}")
 
     def _cam_z(self, body: BodyView, eye: tuple[float, float, float], fz) -> float:
-        return (
-            (body.x - eye[0]) * fz[0]
-            + (body.y - eye[1]) * fz[1]
-            + (body.z - eye[2]) * fz[2]
-        )
+        return (body.x - eye[0]) * fz[0] + (body.y - eye[1]) * fz[1] + (body.z - eye[2]) * fz[2]
 
     def _planet_fills_view(self, panel, bodies, eye, fz) -> bool:
         """True when a globe owns the frame — hide the distant Sun speck."""
@@ -1882,20 +1851,14 @@ class SolarSpaceView(QOpenGLFunctions):
             for i in range(steps):
                 pts.extend(position_at_true_anomaly(el, 2.0 * math.pi * i / steps))
             groups.append((body.name, about, start, steps))
-        self._orbit_local = (
-            np.asarray(pts, dtype=np.float64).reshape(-1, 3) if pts else None
-        )
+        self._orbit_local = np.asarray(pts, dtype=np.float64).reshape(-1, 3) if pts else None
         self._orbit_groups = groups
-        self._orbit_n = 0 if self._orbit_local is None else int(
-            self._orbit_local.shape[0]
-        )
+        self._orbit_n = 0 if self._orbit_local is None else int(self._orbit_local.shape[0])
         self._orbit_scratch = (
             np.empty((self._orbit_n, 3), dtype=np.float32) if self._orbit_n else None
         )
 
-    def _draw_orbits(
-        self, system, views, eye, fz, view: QMatrix4x4, proj: QMatrix4x4
-    ) -> None:
+    def _draw_orbits(self, system, views, eye, fz, view: QMatrix4x4, proj: QMatrix4x4) -> None:
         if self._prog_line is None:
             return
         inspect = self._panel._inspect
@@ -1903,9 +1866,7 @@ class SolarSpaceView(QOpenGLFunctions):
         key = (inspect or "", tuple(b.name for b in drawn))
         now = time.perf_counter()
         moved = float(system.t) != self._orbit_t
-        if key != self._orbit_key or (
-            moved and now - self._orbit_built >= _ORBIT_REBUILD_S
-        ):
+        if key != self._orbit_key or (moved and now - self._orbit_built >= _ORBIT_REBUILD_S):
             self._rebuild_orbits(system, drawn)
             self._orbit_key = key
             self._orbit_t = float(system.t)
@@ -2026,9 +1987,7 @@ class SolarSpaceView(QOpenGLFunctions):
             el = osculating(r, v, mu)
             if el is None or el.e >= 0.95:
                 continue
-            for k, nu in enumerate(
-                bead_true_anomalies(el.true_anomaly, phase=phase)
-            ):
+            for k, nu in enumerate(bead_true_anomalies(el.true_anomaly, phase=phase)):
                 px, py, pz = position_at_true_anomaly(el, nu)
                 packed.extend(
                     (
@@ -2125,9 +2084,7 @@ class SolarSpaceView(QOpenGLFunctions):
             px = self._panel._true_px(hill, depth)
             if px < 4.0 or px > 72.0:
                 continue
-            self._draw_bubble(
-                rel, hill, view, proj, sun_p, (1.0, 0.52, 0.16), 0.20, hi=px >= 22.0
-            )
+            self._draw_bubble(rel, hill, view, proj, sun_p, (1.0, 0.52, 0.16), 0.20, hi=px >= 22.0)
         if inspect_body is not None:
             self._draw_well_mesh(system, inspect_body, eye, view, proj)
         self.glEnable(_GL_CULL_FACE)
@@ -2151,9 +2108,7 @@ class SolarSpaceView(QOpenGLFunctions):
         idx = self._well_idx
         if local is None or idx is None or self._well_n < 2 or self._prog_line is None:
             return
-        offset = np.array(
-            (body.x - eye[0], body.y - eye[1], body.z - eye[2]), dtype=np.float64
-        )
+        offset = np.array((body.x - eye[0], body.y - eye[1], body.z - eye[2]), dtype=np.float64)
         world = (local + offset).astype(np.float32)
         self._well_vao, self._well_buf, self._well_ibo, self._well_cap = self._indexed(
             world,
@@ -2170,9 +2125,7 @@ class SolarSpaceView(QOpenGLFunctions):
         self._uni(self._prog_line, "uEye", QVector3D(0.0, 0.0, 0.0))
         self._uni(self._prog_line, "uColor", 1.0, 0.70, 0.22, 0.22)
         self._well_vao.bind()
-        self.glDrawElements(
-            int(_GL_LINES), self._well_n, int(_GL_UNSIGNED_INT), gl_offset(0)
-        )
+        self.glDrawElements(int(_GL_LINES), self._well_n, int(_GL_UNSIGNED_INT), gl_offset(0))
         self._well_vao.release()
         self._prog_line.release()
 
@@ -2202,9 +2155,7 @@ class SolarSpaceView(QOpenGLFunctions):
         if sun is not None:
             sl = math.hypot(sun.x - earth.x, sun.y - earth.y, sun.z - earth.z) or AU_M
             p_npa = dynamic_pressure_npa(sl)
-            ux, uy, uz = sunward_basis(
-                (earth.x, earth.y, earth.z), (sun.x, sun.y, sun.z)
-            )
+            ux, uy, uz = sunward_basis((earth.x, earth.y, earth.z), (sun.x, sun.y, sun.z))
         else:
             p_npa = dynamic_pressure_npa(AU_M)
             ux, uy, uz = (1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0)
@@ -2240,17 +2191,10 @@ class SolarSpaceView(QOpenGLFunctions):
             self._mag_key = key
         local = self._mag_local
         idx = self._mag_idx
-        offset = np.array(
-            (earth.x - eye[0], earth.y - eye[1], earth.z - eye[2]), dtype=np.float64
-        )
+        offset = np.array((earth.x - eye[0], earth.y - eye[1], earth.z - eye[2]), dtype=np.float64)
         pulse = 0.72 + 0.28 * (0.5 + 0.5 * math.sin(time.perf_counter() * 0.11))
         r0_px = self._panel._true_px(r0_m, depth)
-        fill = (
-            local is not None
-            and idx is not None
-            and self._mag_n >= 3
-            and 12.0 <= r0_px <= 96.0
-        )
+        fill = local is not None and idx is not None and self._mag_n >= 3 and 12.0 <= r0_px <= 96.0
         dip = self._dip_local
         if self._prog_line is None:
             return

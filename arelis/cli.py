@@ -153,20 +153,14 @@ async def run_cli_async(
             from arelis.presence.readiness import probe_readiness
 
             snap = await probe_readiness(config, router=router)
-            await bus.publish(
-                Event(EventType.STATUS, {"message": snap.status_line()})
-            )
+            await bus.publish(Event(EventType.STATUS, {"message": snap.status_line()}))
         except Exception:
             pass
         try:
             await run_model_preflight(bus, router.provider, config.get("models"))
-            await run_model_warmup(
-                bus, router, prefix=prefix_warmup_for(config, tools)
-            )
+            await run_model_warmup(bus, router, prefix=prefix_warmup_for(config, tools))
             agent_cfg = config.get("agent") or {}
-            await run_auto_lessons(
-                bus, enabled=bool(agent_cfg.get("auto_lessons", True))
-            )
+            await run_auto_lessons(bus, enabled=bool(agent_cfg.get("auto_lessons", True)))
         finally:
             router.mark_warmup_done()
 

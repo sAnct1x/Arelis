@@ -85,10 +85,7 @@ def test_blank_phone_is_skipped(tmp_path) -> None:
 def test_load_and_resolve_strips_my_and_matches_case(tmp_path) -> None:
     path = _contacts_file(
         tmp_path,
-        "contacts:\n"
-        "  wife:\n"
-        "    name: Partner\n"
-        "    phone: '+1 (555) 111-2222'\n",
+        "contacts:\n  wife:\n    name: Partner\n    phone: '+1 (555) 111-2222'\n",
     )
     book = load_contacts(path)
     assert resolve_contact("my Wife", book) is book["wife"]
@@ -213,9 +210,7 @@ async def test_operator_send_hits_the_radio_without_confirm() -> None:
             sent.append((phone, body))
             return "op-1"
 
-    message_id = await send_operator_sms(
-        phone="+15551112222", body="good night", provider=_Prov()
-    )
+    message_id = await send_operator_sms(phone="+15551112222", body="good night", provider=_Prov())
     assert message_id == "op-1"
     assert sent == [("+15551112222", "good night")]
 
@@ -244,9 +239,7 @@ def test_load_sms_account_missing_is_none(tmp_path) -> None:
 
 
 def test_load_sms_account_incomplete_is_none(tmp_path) -> None:
-    path = _secrets_file(
-        tmp_path, sms={"base_url": "http://192.168.1.10:8080", "username": "u"}
-    )
+    path = _secrets_file(tmp_path, sms={"base_url": "http://192.168.1.10:8080", "username": "u"})
     assert load_sms_account(path) is None
 
 
@@ -266,9 +259,7 @@ def test_load_sms_account_ok(tmp_path, monkeypatch) -> None:
 
 
 def test_messages_url_does_not_double_messages() -> None:
-    account = SmsGateAccount(
-        "https://api.sms-gate.app/3rdparty/v1/messages", "u", "p"
-    )
+    account = SmsGateAccount("https://api.sms-gate.app/3rdparty/v1/messages", "u", "p")
     assert account.messages_url == "https://api.sms-gate.app/3rdparty/v1/messages"
 
 
@@ -314,12 +305,8 @@ async def test_android_provider_posts_text_message(monkeypatch) -> None:
 @pytest.mark.asyncio
 async def test_live_provider_posts_to_fresh_companion_url(monkeypatch) -> None:
     transport = _Transport()
-    stale = SmsGateAccount(
-        "http://192.168.1.10:8080", "arelis", "old", via="companion"
-    )
-    fresh = SmsGateAccount(
-        "http://192.168.1.99:8080", "arelis", "new", via="companion"
-    )
+    stale = SmsGateAccount("http://192.168.1.10:8080", "arelis", "old", via="companion")
+    fresh = SmsGateAccount("http://192.168.1.99:8080", "arelis", "new", via="companion")
     provider = AndroidSmsProvider(stale, timeout_s=5, live=True)
     monkeypatch.setattr("arelis.sms_android.load_sms_account", lambda: fresh)
     original = httpx.AsyncClient
@@ -355,9 +342,7 @@ async def test_android_provider_companion_401_does_not_blame_smsgate(
     monkeypatch,
 ) -> None:
     transport = _Transport(status=401, body={"error": "unauthorized"})
-    account = SmsGateAccount(
-        "http://192.168.1.10:8080", "arelis", "key", via="companion"
-    )
+    account = SmsGateAccount("http://192.168.1.10:8080", "arelis", "key", via="companion")
     provider = AndroidSmsProvider(account, timeout_s=5)
     original = httpx.AsyncClient
 
@@ -377,9 +362,7 @@ async def test_android_provider_companion_401_does_not_blame_smsgate(
 @pytest.mark.asyncio
 async def test_android_provider_sms_grant_is_not_credentials(monkeypatch) -> None:
     transport = _Transport(status=403, body={"error": "SEND_SMS not granted"})
-    account = SmsGateAccount(
-        "http://192.168.1.10:8080", "arelis", "key", via="companion"
-    )
+    account = SmsGateAccount("http://192.168.1.10:8080", "arelis", "key", via="companion")
     provider = AndroidSmsProvider(account, timeout_s=5)
     original = httpx.AsyncClient
 
@@ -492,9 +475,7 @@ def test_no_sms_secrets_means_no_sms_tool(tmp_path, monkeypatch) -> None:
     from arelis.workspace import WorkspaceRoots
 
     monkeypatch.setattr(tools_pkg, "load_sms_account", lambda: None)
-    monkeypatch.setattr(
-        tools_pkg, "load_account", lambda: MailAccount("me@example.com", "pw")
-    )
+    monkeypatch.setattr(tools_pkg, "load_account", lambda: MailAccount("me@example.com", "pw"))
     workspace = WorkspaceRoots.from_config({"workspace": {"roots": [str(tmp_path)]}})
     registry = tools_pkg.build_tool_registry({"tools": {}, "agent": {}}, workspace)
     assert "send_email" in registry.names()
@@ -542,9 +523,7 @@ def test_sms_can_be_disabled_in_config(tmp_path, monkeypatch) -> None:
     from arelis.mail import MailAccount
     from arelis.workspace import WorkspaceRoots
 
-    monkeypatch.setattr(
-        tools_pkg, "load_account", lambda: MailAccount("me@example.com", "pw")
-    )
+    monkeypatch.setattr(tools_pkg, "load_account", lambda: MailAccount("me@example.com", "pw"))
     monkeypatch.setattr(
         tools_pkg,
         "load_sms_account",
@@ -587,9 +566,7 @@ contacts:
     assert contacts_prompt_line(tmp_path / "missing.yaml") == ""
 
 
-def test_contacts_prompt_line_does_not_offer_send_when_disconnected(
-    tmp_path, monkeypatch
-) -> None:
+def test_contacts_prompt_line_does_not_offer_send_when_disconnected(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr("arelis.sms_android.load_sms_account", lambda: None)
     monkeypatch.setattr("arelis.mail.load_account", lambda: None)
     path = _contacts_file(

@@ -68,9 +68,7 @@ def run_relay(host: str, port: int, token: str) -> ThreadingHTTPServer:
         raise ValueError("relay token is empty")
     state = RelayState(token.strip())
     httpd = ThreadingHTTPServer((host, int(port)), _handler(state))
-    thread = threading.Thread(
-        target=httpd.serve_forever, name="arelis-relay", daemon=True
-    )
+    thread = threading.Thread(target=httpd.serve_forever, name="arelis-relay", daemon=True)
     thread.start()
     httpd.relay_thread = thread  # type: ignore[attr-defined]
     log.info("Arelis mailbox on %s:%s", host, port)

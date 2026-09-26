@@ -28,16 +28,12 @@ _KROKO_PACK = "sherpa-onnx-streaming-zipformer-en-kroko-2025-08-06"
 _LEGACY_PACK = "sherpa-onnx-streaming-zipformer-en-2023-06-26"
 _PACK_NAME = _KROKO_PACK
 _ARCHIVE = f"{_PACK_NAME}.tar.bz2"
-_MODEL_URL = (
-    "https://github.com/k2-fsa/sherpa-onnx/releases/download/"
-    f"asr-models/{_ARCHIVE}"
-)
+_MODEL_URL = f"https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/{_ARCHIVE}"
 # Streaming zipformers need ~0.66 s of tail pad to flush the last chunk.
 _TAIL_S = 0.66
 
 _NO_PACKAGE = (
-    "Speech recognition needs sherpa-onnx, which is not installed. "
-    'Run: pip install -e ".[voice]"'
+    'Speech recognition needs sherpa-onnx, which is not installed. Run: pip install -e ".[voice]"'
 )
 
 
@@ -224,9 +220,7 @@ class SherpaSpeechToText:
             return self._recognizer
         if not sherpa_package_available():
             raise SherpaUnavailableError(_NO_PACKAGE)
-        files = ensure_sherpa_files(
-            self.model_dir, allow_download=self.allow_download
-        )
+        files = ensure_sherpa_files(self.model_dir, allow_download=self.allow_download)
         import sherpa_onnx
 
         pack = str(files.get("pack") or Path(files["encoder"]).parent.name)
@@ -301,9 +295,7 @@ class LiveSherpaBridge:
     def start(self) -> None:
         import threading
 
-        self._thread = threading.Thread(
-            target=self._run, name="arelis-sherpa-live", daemon=True
-        )
+        self._thread = threading.Thread(target=self._run, name="arelis-sherpa-live", daemon=True)
         self._thread.start()
 
     def feed(self, pcm: bytes, sample_rate: int, channels: int) -> None:
@@ -331,9 +323,7 @@ class LiveSherpaBridge:
                 if kind == "end":
                     self._text = session.finish()
                     return
-                self._partial = session.feed_pcm(
-                    pcm, sample_rate=rate, channels=channels
-                )
+                self._partial = session.feed_pcm(pcm, sample_rate=rate, channels=channels)
         except Exception as exc:
             log.exception("Live Sherpa failed")
             self._error = str(exc)
@@ -376,14 +366,11 @@ def ensure_sherpa_files(
     except SherpaUnavailableError:
         raise
     except Exception as exc:
-        raise SherpaUnavailableError(
-            f"Could not unpack Sherpa model {archive}: {exc}"
-        ) from exc
+        raise SherpaUnavailableError(f"Could not unpack Sherpa model {archive}: {exc}") from exc
     found = find_transducer_files(root)
     if found is None:
         raise SherpaUnavailableError(
-            f"Sherpa archive extracted but encoder/decoder/joiner/tokens "
-            f"were not found in {root}."
+            f"Sherpa archive extracted but encoder/decoder/joiner/tokens were not found in {root}."
         )
     return found
 

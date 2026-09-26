@@ -62,11 +62,7 @@ def test_no_shipped_config_value_points_into_someones_home_directory() -> None:
 
 def test_no_shipped_config_value_is_an_absolute_path() -> None:
     """Relative paths resolve per install; absolute ones point at one computer."""
-    bad = [
-        f"{key} -> {value}"
-        for key, value in _config_values()
-        if ABSOLUTE.match(value.strip())
-    ]
+    bad = [f"{key} -> {value}" for key, value in _config_values() if ABSOLUTE.match(value.strip())]
     assert not bad, (
         "An absolute path in default.yaml cannot be right on a machine that is "
         "not this one:\n  " + "\n  ".join(bad)
@@ -81,8 +77,7 @@ def test_no_shipped_config_value_carries_an_email_address() -> None:
         if MAIL.search(value) and "example.com" not in value.lower()
     ]
     assert not bad, (
-        "An address in default.yaml would ship as a stranger's default:\n  "
-        + "\n  ".join(bad)
+        "An address in default.yaml would ship as a stranger's default:\n  " + "\n  ".join(bad)
     )
 
 

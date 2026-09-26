@@ -50,27 +50,21 @@ async def test_action_docs_does_not_search_chat(tmp_path: Path) -> None:
     store = MemoryStore(tmp_path / "memory.db")
     try:
         store.start_session()
-        SessionMemory(sink=store).add(
-            "user", f"{_TOKEN} was only in last night's chat."
-        )
+        SessionMemory(sink=store).add("user", f"{_TOKEN} was only in last night's chat.")
         _index_file(store, "deck.pdf", f"{_TOKEN} lives in the deck plans.")
 
         leaked = await RecallTool(store).run(action="search", query=_TOKEN)
         assert leaked.ok, leaked.output
         assert any(hit["source"] == "chat" for hit in leaked.data["hits"])
 
-        found = await RecallTool(store).run(
-            action="docs", query=_TOKEN, source="chat"
-        )
+        found = await RecallTool(store).run(action="docs", query=_TOKEN, source="chat")
         assert found.ok, found.output
         assert found.data.get("source") == "docs"
         assert found.data.get("mode") == "keyword"
         hits = found.data["hits"]
         assert hits, found.output
         assert all(hit["source"] == "doc" for hit in hits)
-        assert all(
-            str(hit.get("path") or "").endswith(".pdf") for hit in hits
-        )
+        assert all(str(hit.get("path") or "").endswith(".pdf") for hit in hits)
         assert "session=" not in found.output
         assert _TOKEN in found.output
     finally:
@@ -90,9 +84,7 @@ async def test_kind_pdf_does_not_return_a_markdown_hit(tmp_path: Path) -> None:
         assert any(path.endswith(".md") for path in paths), paths
         assert any(path.endswith(".pdf") for path in paths), paths
 
-        pdf = await RecallTool(store).run(
-            action="docs", query=_TOKEN, kind="pdf"
-        )
+        pdf = await RecallTool(store).run(action="docs", query=_TOKEN, kind="pdf")
         assert pdf.ok, pdf.output
         assert pdf.data.get("kind") == "pdf"
         pdf_paths = [str(hit.get("path") or "") for hit in pdf.data["hits"]]
@@ -110,9 +102,7 @@ async def test_kind_pdf_against_only_markdown_is_a_miss(tmp_path: Path) -> None:
     store = MemoryStore(tmp_path / "memory.db")
     try:
         _index_file(store, "notes.md", f"{_TOKEN} is only in markdown.")
-        result = await RecallTool(store).run(
-            action="docs", query=_TOKEN, kind="pdf"
-        )
+        result = await RecallTool(store).run(action="docs", query=_TOKEN, kind="pdf")
         assert result.ok, result.output
         assert result.data["hits"] == []
         assert "miss" in result.output.lower()
@@ -143,9 +133,7 @@ async def test_docs_miss_says_it_is_a_miss(tmp_path: Path) -> None:
     store = MemoryStore(tmp_path / "memory.db")
     try:
         _index_file(store, "other.pdf", "unrelated homework text")
-        result = await RecallTool(store).run(
-            action="docs", query="NO_SUCH_TOKEN_zzq"
-        )
+        result = await RecallTool(store).run(action="docs", query="NO_SUCH_TOKEN_zzq")
         assert result.ok is True
         assert result.data["hits"] == []
         assert "miss" in result.output.lower()

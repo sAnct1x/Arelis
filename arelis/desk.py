@@ -403,8 +403,7 @@ def write_note(
         raise ValueError("keep needs something to write down.")
     if len(body) > _NOTE_LIMIT:
         raise ValueError(
-            f"That note is too long ({len(body)} characters). "
-            f"Keep it under {_NOTE_LIMIT}."
+            f"That note is too long ({len(body)} characters). Keep it under {_NOTE_LIMIT}."
         )
     heading = (title or "").strip() or note_title(body)
     entry = workspace.active_root()

@@ -315,9 +315,7 @@ _WEATHER_NOISE = re.compile(
     r"\d{1,2}(?::\d{2})?\s*(?:a\.?m\.?|p\.?m\.?)"
     r")\b"
 )
-_LEADING_CHAT = re.compile(
-    r"(?i)^(oh|hey|hay|hi|yo|well|yeah|yep|yes|so|um+|uh+)\b[\s,]+"
-)
+_LEADING_CHAT = re.compile(r"(?i)^(oh|hey|hay|hi|yo|well|yeah|yep|yes|so|um+|uh+)\b[\s,]+")
 _PLACE_PROSE = frozenset(
     {
         "does",
@@ -455,17 +453,13 @@ def _is_place_candidate(candidate: str) -> bool:
     if len(tokens) == 1 and tokens[0].lower() in _US_STATE_NAME_TO_ABBR:
         return False
     substance = [
-        t
-        for t in tokens
-        if t.lower() not in _PLACE_PROSE and t.lower() not in _HOMEISH_PLACE
+        t for t in tokens if t.lower() not in _PLACE_PROSE and t.lower() not in _HOMEISH_PLACE
     ]
     if not substance:
         return False
     # 'to morrow' is prose + one leftover token, not a city. Real places
     # with a function word in them still have two substance tokens.
-    if any(t.lower() in _PLACE_PROSE for t in tokens) and (
-        len(tokens) >= 3 or len(substance) < 2
-    ):
+    if any(t.lower() in _PLACE_PROSE for t in tokens) and (len(tokens) >= 3 or len(substance) < 2):
         return False
     return True
 
@@ -551,11 +545,7 @@ def weather_places_missing(
 ) -> list[str]:
     """Named (or home) places not yet covered by a successful weather call."""
     skip = set(ok_keys or ()) | set(failed_keys or ())
-    return [
-        place
-        for place in weather_places_wanted(text)
-        if weather_place_key(place) not in skip
-    ]
+    return [place for place in weather_places_wanted(text) if weather_place_key(place) not in skip]
 
 
 def extract_weather_place(text: str) -> str:

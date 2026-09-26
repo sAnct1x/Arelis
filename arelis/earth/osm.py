@@ -105,9 +105,7 @@ _CITE = (
 )
 
 
-def _box_hits(
-    box: tuple[float, float, float, float], bbox: Any
-) -> bool:
+def _box_hits(box: tuple[float, float, float, float], bbox: Any) -> bool:
     south, west, north, east = box
     try:
         return not (
@@ -233,7 +231,7 @@ def _host_pinned(host: str | None, pin: str) -> bool:
 def _query_box(box: tuple[float, float, float, float]) -> dict[str, Any] | None:
     south, west, north, east = box
     query = (
-        f'[out:json][timeout:15];'
+        f"[out:json][timeout:15];"
         f'nwr["camera:type"="webcam"]({south},{west},{north},{east});'
         f"out center {_PER_BOX};"
     )

@@ -1,4 +1,4 @@
-""""Create a pdf about X" has to end in a file, not a chat message.
+""" "Create a pdf about X" has to end in a file, not a chat message.
 
 Found 2026-09-17 by adding the board's first `document` scenario. The
 `document` ForceGate in gates.py has always existed and `needs_document` arms
@@ -71,9 +71,7 @@ def test_the_title_comes_from_the_ask(ask: str, title: str) -> None:
 
 
 def test_an_ask_with_no_subject_still_gets_a_title() -> None:
-    assert document_title_from_ask("make me a pdf", fallback="Document") == (
-        "Document"
-    )
+    assert document_title_from_ask("make me a pdf", fallback="Document") == ("Document")
 
 
 def test_a_long_ask_does_not_become_a_long_filename() -> None:
@@ -136,7 +134,7 @@ async def test_prose_that_should_have_been_a_file_becomes_one() -> None:
 
 @pytest.mark.asyncio
 async def test_a_short_acknowledgement_is_not_turned_into_a_document() -> None:
-    """"Sure, I'll put that together" is not a document.
+    """ "Sure, I'll put that together" is not a document.
 
     An empty or near-empty answer is the force gate nudge's job. Writing a PDF
     containing one sentence of filler would be a worse outcome than the bug.

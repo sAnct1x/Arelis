@@ -174,9 +174,9 @@ def paint_earth_say(panel: Any, painter: QPainter) -> QRect:
     if line:
         painter.setFont(line_font)
         wrap = int(Qt.AlignmentFlag.AlignLeft | Qt.TextFlag.TextWordWrap)
-        line_h = painter.fontMetrics().boundingRect(
-            QRect(0, 0, width - 28, 80), wrap, line
-        ).height() + 4
+        line_h = (
+            painter.fontMetrics().boundingRect(QRect(0, 0, width - 28, 80), wrap, line).height() + 4
+        )
     h = 16 + title_h + line_h + 8
     nav = getattr(panel, "_earth_compass_box", QRect())
     bottom = int(panel.height()) - 16
@@ -222,9 +222,7 @@ def paint_coach(painter: QPainter, left: int, top: int, width: int, zone: Any) -
     return box
 
 
-def layout_key_chips(
-    fm, left: int, top: int, width: int
-) -> list[tuple[str, QRect, str]]:
+def layout_key_chips(fm, left: int, top: int, width: int) -> list[tuple[str, QRect, str]]:
     missing = missing_picture_keys()
     if not missing:
         return []

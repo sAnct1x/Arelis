@@ -174,10 +174,7 @@ def _convert(quantity: str, to_unit: str) -> ToolResult:
     extra = ""
     dest_l = dest.lower()
     if "degc" in dest_l or "celsius" in dest_l or dest_l in {"c"}:
-        extra = (
-            " Temperature conversions use an offset (degC vs kelvin), "
-            "not a scale factor."
-        )
+        extra = " Temperature conversions use an offset (degC vs kelvin), not a scale factor."
     return ToolResult(
         ok=True,
         output=shown + extra,

@@ -60,9 +60,7 @@ async def test_invalid_priority_fails_and_does_not_coerce(tmp_path: Path) -> Non
         assert listed.data["tasks"] == []
 
         added = await tool.run(action="add", title="buy milk")
-        bad = await tool.run(
-            action="update", id=added.data["id"], priority="urgent"
-        )
+        bad = await tool.run(action="update", id=added.data["id"], priority="urgent")
         assert not bad.ok
         assert store.get_task(added.data["id"])["priority"] == "normal"
     finally:
@@ -137,9 +135,7 @@ async def test_parent_done_fails_while_a_child_is_open(tmp_path: Path) -> None:
     try:
         parent = await tool.run(action="add", title="ship 0.2.8")
         parent_id = parent.data["id"]
-        child = await tool.run(
-            action="add", title="write the notes", parent_id=parent_id
-        )
+        child = await tool.run(action="add", title="write the notes", parent_id=parent_id)
         assert child.ok
         assert child.data["parent_id"] == parent_id
 
@@ -158,9 +154,7 @@ async def test_parent_done_after_children_are_done(tmp_path: Path) -> None:
     try:
         parent = await tool.run(action="add", title="ship 0.2.8")
         parent_id = parent.data["id"]
-        child = await tool.run(
-            action="add", title="write the notes", parent_id=parent_id
-        )
+        child = await tool.run(action="add", title="write the notes", parent_id=parent_id)
         done_child = await tool.run(action="done", id=child.data["id"])
         assert done_child.ok
         result = await tool.run(action="done", id=parent_id)
@@ -200,7 +194,7 @@ async def test_hostile_title_is_just_a_title(tmp_path: Path) -> None:
         payloads = (
             "'; DROP TABLE tasks; --",
             "../../etc/passwd",
-            '1; DELETE FROM tasks WHERE title != \'',
+            "1; DELETE FROM tasks WHERE title != '",
         )
         ids = []
         for title in payloads:

@@ -121,8 +121,6 @@ def _read_marker() -> dict[str, Any] | None:
 def _write_marker(payload: dict[str, Any]) -> None:
     try:
         ensure(state_dir())
-        marker_path().write_text(
-            json.dumps(payload, indent=2) + "\n", encoding="utf-8"
-        )
+        marker_path().write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     except OSError as exc:
         log.warning("Could not record model setup: %s", exc)

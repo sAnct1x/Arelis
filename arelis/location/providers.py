@@ -11,6 +11,7 @@ Windows Location Service at 80, which despite the name resolves position by
 sending the Wi-Fi networks in range to Microsoft and is a cloud call wearing an
 operating system API for a costume.
 """
+
 from __future__ import annotations
 
 import datetime as dt
@@ -34,8 +35,7 @@ class LocalProvider(Protocol):
     name: str
     precedence: int
 
-    def resolve(self) -> UserLocation | None:
-        ...
+    def resolve(self) -> UserLocation | None: ...
 
 
 class NetworkProvider(Protocol):
@@ -44,8 +44,7 @@ class NetworkProvider(Protocol):
     name: str
     precedence: int
 
-    async def resolve(self) -> UserLocation | None:
-        ...
+    async def resolve(self) -> UserLocation | None: ...
 
 
 class ManualProfileProvider:
@@ -151,9 +150,7 @@ class IPGeolocationProvider:
         from arelis.location import UserLocation
 
         async with httpx.AsyncClient(timeout=self.timeout_s) as client:
-            response = await client.get(
-                self.url, headers={"Accept": "application/json"}
-            )
+            response = await client.get(self.url, headers={"Accept": "application/json"})
             response.raise_for_status()
             payload = response.json()
         if not isinstance(payload, dict):

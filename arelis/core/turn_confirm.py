@@ -57,8 +57,7 @@ async def _emit_skip_repeat_fail(
     # busts the prefix cache and the next round pays ~50s to
     # re-read the persona. fail_counts already drops the call.
     stop_msg = (
-        f"Stop calling `{name}` with those same arguments — it "
-        "already failed twice this turn."
+        f"Stop calling `{name}` with those same arguments — it already failed twice this turn."
     )
     if (
         "weather" in loop._expected_tools
@@ -154,20 +153,13 @@ async def confirm_call(
         asked=asked,
         ask_is_grant=bool(getattr(loop, "ask_is_grant", True)),
     )
-    if (
-        loop._look is not None
-        and name in {"ocr", "vision"}
-        and not needs
-    ):
+    if loop._look is not None and name in {"ocr", "vision"} and not needs:
         loop._look.grant_minted = True
 
     summary = loop.tools.summarize_call(name, args)
     if loop._look is not None and name in {"ocr", "vision"}:
         look_path = str(args.get("path") or loop._look.path or "")
-        summary = (
-            f"look ({loop._look.intent.act}) at {look_path} — "
-            "one still, no further actions"
-        )
+        summary = f"look ({loop._look.intent.act}) at {look_path} — one still, no further actions"
     if needs:
         confirm_id = uuid4().hex
         confirm_t0 = time.perf_counter()
@@ -179,13 +171,9 @@ async def confirm_call(
         )
         # Heartbeat while the card is open (L10) so wall-clock wait
         # is not mistaken for a hung model.
-        heartbeat = asyncio.create_task(
-            loop._confirm_wait_heartbeat(name, confirm_t0)
-        )
+        heartbeat = asyncio.create_task(loop._confirm_wait_heartbeat(name, confirm_t0))
         try:
-            decision = await loop.request_confirm(
-                confirm_id, name, args, summary
-            )
+            decision = await loop.request_confirm(confirm_id, name, args, summary)
         finally:
             heartbeat.cancel()
             with contextlib.suppress(asyncio.CancelledError):
@@ -202,12 +190,7 @@ async def confirm_call(
         await loop.bus.publish(
             Event(
                 EventType.THINKING,
-                {
-                    "text": (
-                        f"phase=confirm ms={confirm_ms} "
-                        f"decision={decision}"
-                    )
-                },
+                {"text": (f"phase=confirm ms={confirm_ms} decision={decision}")},
             )
         )
         if decision == "allow_always":
@@ -217,52 +200,28 @@ async def confirm_call(
             ctx.allow_writes_this_turn = True
             decision = "allow"
         if decision != "allow":
-            await loop.bus.publish(
-                Event(EventType.THINKING, {"text": f"skip  {summary}"})
-            )
+            await loop.bus.publish(Event(EventType.THINKING, {"text": f"skip  {summary}"}))
             skip_counts[call_fp] = skip_counts.get(call_fp, 0) + 1
-            drop = (
-                name not in loop._expected_tools
-                or skip_counts[call_fp] >= 2
-            )
+            drop = name not in loop._expected_tools or skip_counts[call_fp] >= 2
             if drop:
                 notice = (
                     f"The user declined `{name}` and it is not "
                     "available for the rest of this turn. Do not "
                     "call it again."
                 )
-                if (
-                    "send_sms" in loop._expected_tools
-                    and name != "send_sms"
-                ):
-                    notice += (
-                        " If to and body are known, call send_sms."
-                    )
-                elif (
-                    "send_email" in loop._expected_tools
-                    and name != "send_email"
-                ):
-                    notice += (
-                        " Call send_email if the draft is complete."
-                    )
+                if "send_sms" in loop._expected_tools and name != "send_sms":
+                    notice += " If to and body are known, call send_sms."
+                elif "send_email" in loop._expected_tools and name != "send_email":
+                    notice += " Call send_email if the draft is complete."
                 messages.append(loop._tool_message(name, notice))
                 drop_wander(name)
                 loop._trace.append(f"{name} skipped and dropped")
                 if loop._timer is not None:
-                    loop._timer.mark(
-                        "skip_drop", tool=name, action="drop_tool"
-                    )
+                    loop._timer.mark("skip_drop", tool=name, action="drop_tool")
             else:
-                messages.append(
-                    loop._tool_message(
-                        name, _SKIP_NOTICE.format(tool=name)
-                    )
-                )
+                messages.append(loop._tool_message(name, _SKIP_NOTICE.format(tool=name)))
                 loop._trace.append(f"{name} declined by user")
-            if (
-                name in {"send_sms", "send_email"}
-                and name in loop._expected_tools
-            ):
+            if name in {"send_sms", "send_email"} and name in loop._expected_tools:
                 ctx.skip_finish_text = "Okay — I did not send that."
                 return STOP, summary, call_fp
             return SKIP, summary, call_fp

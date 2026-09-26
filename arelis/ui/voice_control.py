@@ -29,6 +29,7 @@ next turn. Speakers with barge_in_as_turn false keep the old path: the mixed
 clip is deliver "control" so stop / allow / deny still land and soup does not
 start a question.
 """
+
 from __future__ import annotations
 
 import logging
@@ -155,9 +156,7 @@ class VoiceController(QObject):
             from arelis.voice.openwake import openwake_available
 
             self._wake_engine = (
-                "openwakeword"
-                if openwake_available(self._wake_model_path or None)
-                else "whisper"
+                "openwakeword" if openwake_available(self._wake_model_path or None) else "whisper"
             )
         else:
             self._wake_engine = raw_engine
@@ -354,9 +353,7 @@ class VoiceController(QObject):
                 self.live_started.emit()
                 peeked = self.recorder.peek() if hasattr(self.recorder, "peek") else b""
                 if peeked:
-                    self.live_pcm.emit(
-                        peeked, self.recorder.sample_rate, self.recorder.channels
-                    )
+                    self.live_pcm.emit(peeked, self.recorder.sample_rate, self.recorder.channels)
             if mode == WAKE and self._openwake is not None:
                 self._openwake.reset()
                 self._openwake.set_device_rate(self.recorder.sample_rate)
@@ -407,9 +404,7 @@ class VoiceController(QObject):
         if mode == DICTATE:
             self.status.emit("Dictating. Talk as long as you like, then toggle the mic off.")
         elif mode == CONVERSATION:
-            self.status.emit(
-                "Conversation mode on. Start talking whenever you are ready."
-            )
+            self.status.emit("Conversation mode on. Start talking whenever you are ready.")
         else:
             self.status.emit("Listening for Hey Arelis.")
 
@@ -432,9 +427,7 @@ class VoiceController(QObject):
             self.status.emit("Voice input off.")
 
     def _apply_detector_for_mode(self) -> None:
-        defaults = (
-            self._wake_detector_defaults if self._mode == WAKE else self._detector_defaults
-        )
+        defaults = self._wake_detector_defaults if self._mode == WAKE else self._detector_defaults
         cfg = DetectorConfig(
             sample_rate=self.recorder.sample_rate or self.recorder.requested_rate,
             channels=max(1, self.recorder.channels),
@@ -457,9 +450,7 @@ class VoiceController(QObject):
             and not self._vad_fallback_announced
         ):
             self._vad_fallback_announced = True
-            self.status.emit(
-                "Silero VAD unavailable — using energy onset (see models/silero)."
-            )
+            self.status.emit("Silero VAD unavailable — using energy onset (see models/silero).")
         self._detector = detector
         self.trace.record(
             "vad_ready",
@@ -486,10 +477,7 @@ class VoiceController(QObject):
                 model_path=self._wake_model_path or None,
                 threshold=self._wake_threshold,
                 cooldown_ms=self._wake_cooldown_ms,
-                sample_rate=int(
-                    (self.recorder.sample_rate if self.recorder else 0)
-                    or 16000
-                ),
+                sample_rate=int((self.recorder.sample_rate if self.recorder else 0) or 16000),
             )
         except Exception as exc:
             log.warning("openWakeWord failed to load (%s); using whisper wake", exc)
@@ -609,9 +597,7 @@ class VoiceController(QObject):
             if self._mode == CONVERSATION:
                 self._mic_retries += 1
                 if self._mic_retries <= 3:
-                    self.status.emit(
-                        "Microphone dropped. Conversation is still on — retrying."
-                    )
+                    self.status.emit("Microphone dropped. Conversation is still on — retrying.")
                     QTimer.singleShot(400, self._retry_conversation_mic)
                 else:
                     self.status.emit(
@@ -698,9 +684,7 @@ class VoiceController(QObject):
         event = self._detector.feed(block)
         if event is None:
             if self._live_feeding:
-                self.live_pcm.emit(
-                    block, self.recorder.sample_rate, self.recorder.channels
-                )
+                self.live_pcm.emit(block, self.recorder.sample_rate, self.recorder.channels)
             return
         if event == STARTED:
             self._on_speech_started()
@@ -736,9 +720,7 @@ class VoiceController(QObject):
                 self.live_started.emit()
                 peeked = self.recorder.peek() if hasattr(self.recorder, "peek") else b""
                 if peeked:
-                    self.live_pcm.emit(
-                        peeked, self.recorder.sample_rate, self.recorder.channels
-                    )
+                    self.live_pcm.emit(peeked, self.recorder.sample_rate, self.recorder.channels)
             return
         if (
             self._speculate_preflight

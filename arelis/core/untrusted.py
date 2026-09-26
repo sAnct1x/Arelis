@@ -45,9 +45,7 @@ UNTRUSTED_BANNER = (
 )
 
 
-def frame_external_tool_output(
-    name: str, content: str, *, action: str = ""
-) -> str:
+def frame_external_tool_output(name: str, content: str, *, action: str = "") -> str:
     """Prefix outside-world tool bodies so they are data, not orders.
 
     ``browser`` is only framed on ``action=read`` (compact tab text). Open /

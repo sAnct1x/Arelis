@@ -70,9 +70,7 @@ async def test_add_writes_a_file_through_write_note(tmp_path: Path) -> None:
 @pytest.mark.asyncio
 async def test_list_shows_title_date_and_path(tmp_path: Path) -> None:
     tool, _project, _store = _tool(tmp_path)
-    added = await tool.run(
-        action="add", title="lab hours", text="doors lock at 9"
-    )
+    added = await tool.run(action="add", title="lab hours", text="doors lock at 9")
     assert added.ok
     listed = await tool.run(action="list")
     assert listed.ok
@@ -112,9 +110,7 @@ async def test_search_matches_body_not_just_title(tmp_path: Path) -> None:
 async def test_read_refuses_path_escape(tmp_path: Path) -> None:
     """Mutant: `../` is joined and a sibling file is returned."""
     tool, project, _store = _tool(tmp_path)
-    secret = _write_outside(
-        project, "secret.md", "do not leak the vault code 9911"
-    )
+    secret = _write_outside(project, "secret.md", "do not leak the vault code 9911")
     planted = project.parent / "outside.md"
     planted.write_text("drive-level secret 7733", encoding="utf-8")
     added = await tool.run(action="add", title="safe", text="this stays inside")
@@ -148,9 +144,7 @@ async def test_read_refuses_path_escape(tmp_path: Path) -> None:
 @pytest.mark.asyncio
 async def test_read_by_id_returns_the_page(tmp_path: Path) -> None:
     tool, _project, _store = _tool(tmp_path)
-    added = await tool.run(
-        action="add", title="pin code", text="drawer combo is 2468"
-    )
+    added = await tool.run(action="add", title="pin code", text="drawer combo is 2468")
     assert added.ok
     note_id = added.data["id"]
     read = await tool.run(action="read", id=note_id)

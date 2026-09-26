@@ -42,9 +42,7 @@ def test_tool_loop_routes_fast() -> None:
 
 
 def test_research_hint() -> None:
-    role, reason = _orch().classify_role(
-        "Investigate recent battery recycling and write a report"
-    )
+    role, reason = _orch().classify_role("Investigate recent battery recycling and write a report")
     assert role == "research"
     assert reason == "research_hint"
 
@@ -67,9 +65,7 @@ def test_short_factual_stays_on_fast() -> None:
 def test_fast_chip_does_not_pin_deep_language() -> None:
     """The composer defaults to fast. That is not a pin — 'deeply research'
     still routes. Bare look-ups stay on fast (H2)."""
-    role, reason = _orch().classify_role(
-        "Investigate and write a report on fusion", "fast"
-    )
+    role, reason = _orch().classify_role("Investigate and write a report on fusion", "fast")
     assert role == "research"
     assert reason == "research_hint"
     role, reason = _orch().classify_role(
@@ -105,8 +101,6 @@ def test_comms_bypasses_coder_sticky() -> None:
     from arelis.core.orchestrator import comms_bypasses_sticky
 
     assert comms_bypasses_sticky("text my wife that I'll be late")
-    assert comms_bypasses_sticky(
-        "send an email to bob@example.com about dinner: see you at 7"
-    )
+    assert comms_bypasses_sticky("send an email to bob@example.com about dinner: see you at 7")
     assert not comms_bypasses_sticky("how are you tonight")
     assert not comms_bypasses_sticky("please edit the python file and lint it")

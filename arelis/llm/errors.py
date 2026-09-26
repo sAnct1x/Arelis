@@ -16,9 +16,7 @@ _MODEL_IN_EXC = re.compile(r"model `([^`]+)`")
 OLLAMA_DOWN_NOTICE = (
     "Ollama stopped responding. Check the Ollama chip in the title bar, then send again."
 )
-OLLAMA_MODEL_NOTICE = (
-    "Ollama does not have `{model}` pulled. Pull it, then send again."
-)
+OLLAMA_MODEL_NOTICE = "Ollama does not have `{model}` pulled. Pull it, then send again."
 OLLAMA_REJECT_NOTICE = (
     "Ollama returned an error. Check the Ollama chip in the title bar, then send again."
 )
@@ -55,6 +53,7 @@ def is_vram_failure(exc: BaseException | str) -> bool:
     """True when a 14B load lost the VRAM fight — never JSON-fallback this."""
     lower = (str(exc) if not isinstance(exc, str) else exc).lower()
     return any(marker in lower for marker in _VRAM_MARKERS)
+
 
 # Reachability and mid-stream drops. HTTP 4xx from Ollama is RuntimeError, not these.
 _UNREACHABLE = (httpx.NetworkError, httpx.TimeoutException)

@@ -310,9 +310,7 @@ class WorkspacePanel(QWidget):
         mode_row.addStretch(1)
         self.desk_hint = QLabel("this project's papers")
         self.desk_hint.setObjectName("DeskHint")
-        self.desk_hint.setAlignment(
-            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
-        )
+        self.desk_hint.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         mode_row.addWidget(self.desk_hint)
         layout.addLayout(mode_row)
 
@@ -419,9 +417,7 @@ class WorkspacePanel(QWidget):
         self.editor_stack = QStackedWidget()
         self.editor = QPlainTextEdit()
         self.editor.setObjectName("Editor")
-        self.editor.setPlaceholderText(
-            "Pick something on the desk, or keep a note."
-        )
+        self.editor.setPlaceholderText("Pick something on the desk, or keep a note.")
         self.editor.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.editor.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
         self._highlight = QuietPythonHighlighter(self.editor.document())
@@ -448,9 +444,7 @@ class WorkspacePanel(QWidget):
         # Image is the hero when present; otherwise this column collapses.
         self.image_label = QLabel()
         self.image_label.setMinimumHeight(220)
-        self.image_label.setSizePolicy(
-            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
-        )
+        self.image_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.image_label.setObjectName(WELL_NAME)
         self.image_label.hide()
@@ -469,9 +463,7 @@ class WorkspacePanel(QWidget):
         self.image_caption = QLabel("")
         self.image_caption.setObjectName(CAPTION_NAME)
         self.image_caption.setWordWrap(True)
-        self.image_caption.setAlignment(
-            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
-        )
+        self.image_caption.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         self.image_caption.hide()
         caption_row.addWidget(self.image_open_btn)
         caption_row.addWidget(self.image_caption, stretch=1)
@@ -480,26 +472,16 @@ class WorkspacePanel(QWidget):
         self.image_strip = QScrollArea()
         self.image_strip.setObjectName(STRIP_NAME)
         self.image_strip.setWidgetResizable(False)
-        self.image_strip.setHorizontalScrollBarPolicy(
-            Qt.ScrollBarPolicy.ScrollBarAsNeeded
-        )
-        self.image_strip.setVerticalScrollBarPolicy(
-            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
-        )
+        self.image_strip.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.image_strip.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.image_strip.setFrameShape(QScrollArea.Shape.NoFrame)
-        self.image_strip.setAlignment(
-            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
-        )
+        self.image_strip.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         self.image_strip.setFixedHeight(_THUMB_LONG + SPACE["inset"])
-        self.image_strip.setSizePolicy(
-            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
-        )
+        self.image_strip.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.image_strip.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.image_strip.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self._image_strip_host = QWidget()
-        self._image_strip_host.setAttribute(
-            Qt.WidgetAttribute.WA_TranslucentBackground, True
-        )
+        self._image_strip_host.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self._image_strip_row = QHBoxLayout(self._image_strip_host)
         self._image_strip_row.setContentsMargins(0, 0, 0, 0)
         self._image_strip_row.setSpacing(SPACE["gap"])
@@ -671,9 +653,7 @@ class WorkspacePanel(QWidget):
         self.browse_label.setToolTip(str(cwd))
         self.browse_list.clear()
         try:
-            entries = sorted(
-                cwd.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower())
-            )
+            entries = sorted(cwd.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower()))
         except OSError:
             return
         visible = [entry for entry in entries if not _browse_junk(entry)]
@@ -860,9 +840,7 @@ class WorkspacePanel(QWidget):
         self._loaded_abs = abs_path
         self._loaded_label = path
         self.editor.setPlainText(content)
-        self._highlight.set_enabled(
-            Path(abs_path or display).suffix.lower() in {".py", ".pyw"}
-        )
+        self._highlight.set_enabled(Path(abs_path or display).suffix.lower() in {".py", ".pyw"})
         self._apply_page_mode(abs_path or display, content)
         self._sync_dirty()
         self._sync_chrome()
@@ -1134,9 +1112,7 @@ class WorkspacePanel(QWidget):
                 is_current = image.resolve() == current.resolve()
             except OSError:
                 is_current = image.name == current.name
-            self._image_strip_row.addWidget(
-                self._make_strip_thumb(image, current=is_current)
-            )
+            self._image_strip_row.addWidget(self._make_strip_thumb(image, current=is_current))
         self._fit_image_strip()
         self.image_strip.show()
 
@@ -1251,10 +1227,7 @@ class WorkspacePanel(QWidget):
         room_id = (self._room_id or "").strip()
         # Reality is a zone, not a papers room. The combo already names
         # the project; do not stamp the physics plate onto this chrome.
-        if (
-            room_id == PHYSICS_ROOM_ID
-            or room.casefold() == PHYSICS_DISPLAY_NAME.casefold()
-        ):
+        if room_id == PHYSICS_ROOM_ID or room.casefold() == PHYSICS_DISPLAY_NAME.casefold():
             room = ""
         project = self.project_combo.currentText() or self._root_name
         peek = None
@@ -1278,12 +1251,16 @@ class WorkspacePanel(QWidget):
         self.recent_combo.setVisible(files_mode)
         suffix = Path(self._loaded_abs or self.path_edit.text()).suffix.lower()
         md = suffix == ".md"
-        _binary = has_file and not is_text_kind(
-            infer_kind(self._loaded_abs or "", source=""),
-            self._loaded_abs,
-        ) and not is_image_kind(
-            infer_kind(self._loaded_abs or "", source=""),
-            self._loaded_abs,
+        _binary = (
+            has_file
+            and not is_text_kind(
+                infer_kind(self._loaded_abs or "", source=""),
+                self._loaded_abs,
+            )
+            and not is_image_kind(
+                infer_kind(self._loaded_abs or "", source=""),
+                self._loaded_abs,
+            )
         )
         self.read_btn.setVisible(md and has_file and not self._image_mode)
         self.edit_btn.setVisible(md and has_file and not self._image_mode)

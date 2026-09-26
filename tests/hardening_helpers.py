@@ -94,9 +94,7 @@ class _ToolsRejectThenOk(_ScriptedRouter):
     async def stream(self, role, messages, **kwargs):
         self.calls += 1
         if self.calls == 1:
-            raise RuntimeError(
-                "Ollama returned HTTP 400 for model `mock`: invalid tools"
-            )
+            raise RuntimeError("Ollama returned HTTP 400 for model `mock`: invalid tools")
         async for item in super().stream(role, messages, **kwargs):
             yield item
 
@@ -154,8 +152,7 @@ class _LongScrapeStub:
             ok=True,
             output=(
                 "# What is Single Crystal Piezo or PMN-PT?\n"
-                "Site: piezo.com\n\n"
-                + ("PMN-PT single crystals have a high d33. " * 40)
+                "Site: piezo.com\n\n" + ("PMN-PT single crystals have a high d33. " * 40)
             ),
         )
 

@@ -101,9 +101,7 @@ async def test_solar_dump_writes_under_outputs(tmp_path, monkeypatch) -> None:
     if not rebound_available():
         pytest.skip("REBOUND is not installed")
     monkeypatch.setenv("ARELIS_DATA_DIR", str(tmp_path))
-    set_system(
-        SolarSystem.from_states(sun_and_planet(), tracers=0, ic_date="2000-01-01")
-    )
+    set_system(SolarSystem.from_states(sun_and_planet(), tracers=0, ic_date="2000-01-01"))
     tool = SolarTool()
     result = await tool.run(action="dump")
     assert result.ok, result.output

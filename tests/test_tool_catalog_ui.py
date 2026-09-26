@@ -78,9 +78,7 @@ def test_catalog_does_not_dump_essays() -> None:
 
 def test_partial_registry_still_keeps_tools_that_exist() -> None:
     """Passing weather-only must not drop cas/remind. They still exist."""
-    text = format_tool_catalog(
-        [{"name": "weather", "description": "forecast. defaults to home"}]
-    )
+    text = format_tool_catalog([{"name": "weather", "description": "forecast. defaults to home"}])
     _named_line(text, "cas")
     _named_line(text, "remind")
     _named_line(text, "weather")
@@ -88,7 +86,7 @@ def test_partial_registry_still_keeps_tools_that_exist() -> None:
 
 @pytest.mark.asyncio
 async def test_slash_tools_publishes_the_catalog() -> None:
-    """ /tools is the same formatter, not a name dump and not a model turn."""
+    """/tools is the same formatter, not a name dump and not a model turn."""
 
     class _Bus:
         def __init__(self) -> None:

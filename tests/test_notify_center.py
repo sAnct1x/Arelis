@@ -47,12 +47,8 @@ def test_clear_leaves_the_overlay_quiet() -> None:
 def test_same_sms_body_does_not_stack_twice() -> None:
     """Ticker plus the same body used to bump the count as a second text."""
     center = NotificationCenter({"ui": {"notifications": {"channels": {"sms": "visual"}}}})
-    first = center.add(
-        new_notice(kind="sms", title="Robin", body="hi", group_key="sms:robin")
-    )
-    second = center.add(
-        new_notice(kind="sms", title="Robin", body="hi", group_key="sms:robin")
-    )
+    first = center.add(new_notice(kind="sms", title="Robin", body="hi", group_key="sms:robin"))
+    second = center.add(new_notice(kind="sms", title="Robin", body="hi", group_key="sms:robin"))
     assert first is not None and second is not None
     assert first.id == second.id
     assert second.count == 1

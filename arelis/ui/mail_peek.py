@@ -84,9 +84,7 @@ class MailPeekWindow(QWidget):
         self.from_label = QLabel(sender)
         self.from_label.setObjectName("InstrumentHint")
         self.from_label.setWordWrap(True)
-        self.from_label.setTextInteractionFlags(
-            Qt.TextInteractionFlag.TextSelectableByMouse
-        )
+        self.from_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         root.addWidget(self.from_label)
 
         self.body = QPlainTextEdit()

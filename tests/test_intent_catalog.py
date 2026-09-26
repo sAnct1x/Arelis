@@ -181,9 +181,7 @@ def test_unmatched_chat_fails_open() -> None:
 
 
 def test_research_extras_add_inbox_on_deep_dive() -> None:
-    extra = research_extras_for_text(
-        "Deep dive the budget and check my inbox"
-    )
+    extra = research_extras_for_text("Deep dive the budget and check my inbox")
     assert "inbox" in extra
     assert "send_email" in extra
 
@@ -216,13 +214,9 @@ def test_diagnostics_catalog_is_phrase_only() -> None:
     assert not DIAGNOSTICS.matches("don't run diagnostics")
     assert not DIAGNOSTICS.matches("don't ever run diagnostics")
     assert not DIAGNOSTICS.matches("do not ever run diagnostics")
-    assert not any(
-        h.kind == "diagnostics" for h in detect_intents("don't ever run diagnostics")
-    )
+    assert not any(h.kind == "diagnostics" for h in detect_intents("don't ever run diagnostics"))
     assert any(h.kind == "diagnostics" for h in detect_intents("run diagnostics"))
-    assert not any(
-        h.kind == "diagnostics" for h in detect_intents("run diagnostics on my car")
-    )
+    assert not any(h.kind == "diagnostics" for h in detect_intents("run diagnostics on my car"))
     extra = research_extras_for_text("run diagnostics")
     assert "diagnostics" in extra
     assert "diagnostics" not in research_extras_for_text("what's the weather")
@@ -325,13 +319,14 @@ def test_source_inspect_catalog_and_path_map() -> None:
     assert INSPECT_WRITE in AUTO_HINTS
     assert inspect_read_path("how do you work") == "docs/architecture.md"
     assert inspect_read_path("show me your source") == "docs/architecture.md"
-    assert inspect_read_path("what's in orchestrator.py") == (
-        "arelis/core/orchestrator.py"
-    )
+    assert inspect_read_path("what's in orchestrator.py") == ("arelis/core/orchestrator.py")
     assert inspect_read_path("read docs/architecture.md") == "docs/architecture.md"
-    assert inspect_read_path(
-        "look at the files for an accurate assessment of the solar system simulation"
-    ) == "arelis/physics/engine.py"
+    assert (
+        inspect_read_path(
+            "look at the files for an accurate assessment of the solar system simulation"
+        )
+        == "arelis/physics/engine.py"
+    )
     assert looks_like_source_inspect("how do you work")
     assert looks_like_source_write("edit policy.py")
     assert not looks_like_source_inspect("edit policy.py")

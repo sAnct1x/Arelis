@@ -29,18 +29,10 @@ PhysicsVerb = Literal[
     "inspect",
 ]
 
-_HEAVIER = re.compile(
-    r"(?i)^\s*(?:make (?:it|this|that) )?(?:heavier|heavy)\s*[.!]?\s*$"
-)
-_LIGHTER = re.compile(
-    r"(?i)^\s*(?:make (?:it|this|that) )?lighter\s*[.!]?\s*$"
-)
-_FREEZE = re.compile(
-    r"(?i)^\s*(?:freeze(?:\s+it)?|hold still)\s*[.!]?\s*$"
-)
-_UNFREEZE = re.compile(
-    r"(?i)^\s*(?:unfreeze(?:\s+it)?|thaw)\s*[.!]?\s*$"
-)
+_HEAVIER = re.compile(r"(?i)^\s*(?:make (?:it|this|that) )?(?:heavier|heavy)\s*[.!]?\s*$")
+_LIGHTER = re.compile(r"(?i)^\s*(?:make (?:it|this|that) )?lighter\s*[.!]?\s*$")
+_FREEZE = re.compile(r"(?i)^\s*(?:freeze(?:\s+it)?|hold still)\s*[.!]?\s*$")
+_UNFREEZE = re.compile(r"(?i)^\s*(?:unfreeze(?:\s+it)?|thaw)\s*[.!]?\s*$")
 _UNDO = re.compile(r"(?i)^\s*(?:undo(?:\s+that)?)\s*[.!]?\s*$")
 _PAUSE = re.compile(
     r"(?i)^\s*pause(?:\s+(?:it|the\s+(?:sim(?:ulation)?|lab|solar\s+system)))?"
@@ -58,37 +50,19 @@ _SLOWER = re.compile(
     r"(?i)^\s*(?:slower|slow\s+down(?:\s+time)?|go\s+slower|"
     r"decrease\s+(?:the\s+)?(?:speed|rate)|slow\s+time\s+down)\s*[.!]?\s*$"
 )
-_REALTIME = re.compile(
-    r"(?i)^\s*(?:real\s*time|realtime|1x|real[- ]time)(?:\s+speed)?\s*[.!]?\s*$"
-)
-_HOUR = re.compile(
-    r"(?i)^\s*(?:one\s+|an\s+)?hour(?:\s+(?:per|a)\s+second)?\s*[.!]?\s*$"
-)
-_DAY = re.compile(
-    r"(?i)^\s*(?:one\s+|a\s+)?day(?:\s+(?:per|a)\s+second)?\s*[.!]?\s*$"
-)
-_YEAR = re.compile(
-    r"(?i)^\s*(?:one\s+|a\s+)?year(?:\s+(?:per|a)\s+second)?\s*[.!]?\s*$"
-)
-_FLY = re.compile(
-    r"(?i)^\s*(?:fly|craft|pilot|board)\s*[.!]?\s*$"
-)
-_INSPECT = re.compile(
-    r"(?i)^\s*(?:inspect|look|orbit\s+view)\s*[.!]?\s*$"
-)
-_RESET_VIEW = re.compile(
-    r"(?i)^\s*(?:reset(?:\s+the)?\s+view|back\s+up)\s*[.!]?\s*$"
-)
-_ENTER_EARTH = re.compile(
-    r"(?i)^\s*(?:enter\s+earth|earth\s+zone|go\s+into\s+earth)\s*[.!]?\s*$"
-)
+_REALTIME = re.compile(r"(?i)^\s*(?:real\s*time|realtime|1x|real[- ]time)(?:\s+speed)?\s*[.!]?\s*$")
+_HOUR = re.compile(r"(?i)^\s*(?:one\s+|an\s+)?hour(?:\s+(?:per|a)\s+second)?\s*[.!]?\s*$")
+_DAY = re.compile(r"(?i)^\s*(?:one\s+|a\s+)?day(?:\s+(?:per|a)\s+second)?\s*[.!]?\s*$")
+_YEAR = re.compile(r"(?i)^\s*(?:one\s+|a\s+)?year(?:\s+(?:per|a)\s+second)?\s*[.!]?\s*$")
+_FLY = re.compile(r"(?i)^\s*(?:fly|craft|pilot|board)\s*[.!]?\s*$")
+_INSPECT = re.compile(r"(?i)^\s*(?:inspect|look|orbit\s+view)\s*[.!]?\s*$")
+_RESET_VIEW = re.compile(r"(?i)^\s*(?:reset(?:\s+the)?\s+view|back\s+up)\s*[.!]?\s*$")
+_ENTER_EARTH = re.compile(r"(?i)^\s*(?:enter\s+earth|earth\s+zone|go\s+into\s+earth)\s*[.!]?\s*$")
 _LEAVE_EARTH = re.compile(
     r"(?i)^\s*(?:leave\s+earth|exit\s+earth|leave\s+the\s+earth\s+zone)"
     r"\s*[.!]?\s*$"
 )
-_RIDE_ISS = re.compile(
-    r"(?i)^\s*ride(?:\s+(?:the\s+)?iss)?\s*[.!]?\s*$"
-)
+_RIDE_ISS = re.compile(r"(?i)^\s*ride(?:\s+(?:the\s+)?iss)?\s*[.!]?\s*$")
 _TRAVEL_THERE = re.compile(
     r"(?i)^\s*(?:take\s+me\s+there|go\s+there|fly\s+there|take\s+me\s+to\s+it)"
     r"\s*[.!]?\s*$"
@@ -104,12 +78,8 @@ _GOTO_PLACE = re.compile(
     r"zoom\s+to|fall\s+toward|i\s+want\s+to\s+see"
     r")\s+(?P<place>.+?)\s*[.!]?\s*$"
 )
-_TAKE_HOME = re.compile(
-    r"(?i)^\s*(?:take\s+(?:me|us)\s+home|go\s+home|fly\s+home)\s*[.!]?\s*$"
-)
-_INSPECT_BODY = re.compile(
-    r"(?i)^\s*(?:inspect|look\s+at)\s+(?P<body>.+?)\s*[.!]?\s*$"
-)
+_TAKE_HOME = re.compile(r"(?i)^\s*(?:take\s+(?:me|us)\s+home|go\s+home|fly\s+home)\s*[.!]?\s*$")
+_INSPECT_BODY = re.compile(r"(?i)^\s*(?:inspect|look\s+at)\s+(?P<body>.+?)\s*[.!]?\s*$")
 _NOT_BODY = re.compile(
     r"(?i)https?://|www\.|\.com\b|\.org\b|\.net\b|\.io\b|"
     r"\blogin\b|\bsign\s*in\b|\bcalendar\b|\bcamera\b|\bwebcam\b|\bweb\s*cam\b"
@@ -131,9 +101,7 @@ _OVERLAY_ALIASES: tuple[tuple[str, str], ...] = (
 _OVERLAY_UNION = "|".join(f"(?P<{name}>{pat})" for name, pat in _OVERLAY_ALIASES)
 _OVERLAY_ON = re.compile(
     r"(?i)^\s*(?:show(?:\s+me)?|display|enable|turn\s+on|switch\s+on|"
-    r"put\s+on)\s+(?:the\s+)?(?:"
-    + _OVERLAY_UNION
-    + r")\s*[.!]?\s*$"
+    r"put\s+on)\s+(?:the\s+)?(?:" + _OVERLAY_UNION + r")\s*[.!]?\s*$"
 )
 _OVERLAY_OFF = re.compile(
     r"(?i)^\s*(?:hide|disable|turn\s+off|switch\s+off)\s+(?:the\s+)?(?:"
@@ -141,9 +109,7 @@ _OVERLAY_OFF = re.compile(
     + r")\s*[.!]?\s*$"
 )
 _OVERLAY_PUT_ON = re.compile(
-    r"(?i)^\s*put\s+(?:the\s+)?(?:"
-    + _OVERLAY_UNION
-    + r")\s+on\s*[.!]?\s*$"
+    r"(?i)^\s*put\s+(?:the\s+)?(?:" + _OVERLAY_UNION + r")\s+on\s*[.!]?\s*$"
 )
 _OVERLAY_TURN = re.compile(
     r"(?i)^\s*(?:turn|switch)\s+(?:the\s+)?(?:"
@@ -166,20 +132,14 @@ _EARTH_LAYER_ALIASES: tuple[tuple[str, str], ...] = (
     ("fires", r"fires?"),
     ("quakes", r"quakes?|earthquakes?"),
 )
-_EARTH_LAYER_UNION = "|".join(
-    f"(?P<el_{name}>{pat})" for name, pat in _EARTH_LAYER_ALIASES
-)
+_EARTH_LAYER_UNION = "|".join(f"(?P<el_{name}>{pat})" for name, pat in _EARTH_LAYER_ALIASES)
 _EARTH_LAYER_ON = re.compile(
     r"(?i)^\s*(?:show(?:\s+me)?|display|enable|turn\s+on|switch\s+on)\s+"
-    r"(?:the\s+)?(?:"
-    + _EARTH_LAYER_UNION
-    + r")\s*[.!]?\s*$"
+    r"(?:the\s+)?(?:" + _EARTH_LAYER_UNION + r")\s*[.!]?\s*$"
 )
 _EARTH_LAYER_OFF = re.compile(
     r"(?i)^\s*(?:hide|disable|turn\s+off|switch\s+off)\s+(?:the\s+)?"
-    r"(?:"
-    + _EARTH_LAYER_UNION
-    + r")\s*[.!]?\s*$"
+    r"(?:" + _EARTH_LAYER_UNION + r")\s*[.!]?\s*$"
 )
 _EARTH_LAYER_TURN = re.compile(
     r"(?i)^\s*(?:turn|switch)\s+(?:the\s+)?(?:"
@@ -191,9 +151,7 @@ _LOOK_SPACE = re.compile(
     r"(?i)^\s*(?:zoom\s+out(?:\s+to\s+space)?|pull\s+back(?:\s+to\s+space)?|"
     r"show\s+me\s+the\s+whole\s+planet|from\s+space)\s*[.!]?\s*$"
 )
-_LOOK_APPROACH = re.compile(
-    r"(?i)^\s*(?:come\s+in\s+from\s+space|approaching)\s*[.!]?\s*$"
-)
+_LOOK_APPROACH = re.compile(r"(?i)^\s*(?:come\s+in\s+from\s+space|approaching)\s*[.!]?\s*$")
 _LOOK_NEAR = re.compile(
     r"(?i)^\s*(?:get\s+closer(?:\s+to\s+the\s+ground)?|near\s+the\s+ground|"
     r"come\s+down\s+some)\s*[.!]?\s*$"
@@ -304,9 +262,7 @@ def speech_body_names() -> tuple[str, ...]:
     except Exception:
         system = None
     if system is not None:
-        names = tuple(
-            p.name for p in system.nbody.particles if not getattr(p, "tracer", False)
-        )
+        names = tuple(p.name for p in system.nbody.particles if not getattr(p, "tracer", False))
         if names:
             return names
     from arelis.physics.constants import BODIES

@@ -63,12 +63,8 @@ def _grab_screen(app: QApplication, window, name: str) -> Path:
 
 
 def _key(panel, key: int) -> None:
-    panel.keyPressEvent(
-        QKeyEvent(QEvent.Type.KeyPress, key, Qt.KeyboardModifier.NoModifier)
-    )
-    panel.keyReleaseEvent(
-        QKeyEvent(QEvent.Type.KeyRelease, key, Qt.KeyboardModifier.NoModifier)
-    )
+    panel.keyPressEvent(QKeyEvent(QEvent.Type.KeyPress, key, Qt.KeyboardModifier.NoModifier))
+    panel.keyReleaseEvent(QKeyEvent(QEvent.Type.KeyRelease, key, Qt.KeyboardModifier.NoModifier))
 
 
 def _write_atlas(app: QApplication) -> Path:
@@ -176,7 +172,17 @@ def _seed_marks(zone, lat: float = 39.78, lon: float = -89.65) -> None:
         alt = 10_000.0
         if layer in {"satellites", "iss"}:
             alt = 400_000.0
-        elif layer in {"vessels", "cameras", "traffic", "sites", "fires", "weather", "radio", "radar", "quakes"}:
+        elif layer in {
+            "vessels",
+            "cameras",
+            "traffic",
+            "sites",
+            "fires",
+            "weather",
+            "radio",
+            "radar",
+            "quakes",
+        }:
             alt = 80.0
         x, y, z = lla_to_ecef(lat + dlat, lon + dlon, alt)
         heading = 35.0 * i
@@ -338,8 +344,7 @@ def _report_cluster(panel, zone) -> None:
             flush=True,
         )
     print(
-        f"flights_near_nadir={near}/{flights} "
-        f"(dist < 45% of half-frame)",
+        f"flights_near_nadir={near}/{flights} (dist < 45% of half-frame)",
         flush=True,
     )
 
@@ -616,8 +621,7 @@ def main() -> int:
 
     zone = get_earth()
     print(
-        f"left active={zone is not None and zone.active} "
-        f"globe_live={solar._earth_globe_live()}",
+        f"left active={zone is not None and zone.active} globe_live={solar._earth_globe_live()}",
         flush=True,
     )
 

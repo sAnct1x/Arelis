@@ -268,9 +268,7 @@ def apply_physics_act(window, act: PhysicsAct) -> None:
             if not name:
                 name = str(system.lock or "")
         if not name:
-            window.thinking.append(
-                "Name a body, or inspect one first.", kind="status"
-            )
+            window.thinking.append("Name a body, or inspect one first.", kind="status")
             return
         if system.nbody.find(name) is None:
             window.thinking.append(f"No body named {name!r}", kind="status")
@@ -354,13 +352,9 @@ def apply_physics_act(window, act: PhysicsAct) -> None:
         hit = resolve_place(query, zone)
         if hit is None:
             if query.casefold() in {"home", "here"}:
-                window.thinking.append(
-                    "Set a home city in your profile first.", kind="status"
-                )
+                window.thinking.append("Set a home city in your profile first.", kind="status")
                 return
-            window.thinking.append(
-                f"I don't know a place named {query!r}.", kind="status"
-            )
+            window.thinking.append(f"I don't know a place named {query!r}.", kind="status")
             return
         if not world_available():
             window.thinking.append(

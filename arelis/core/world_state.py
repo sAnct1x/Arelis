@@ -163,7 +163,7 @@ def _attention_count_part(store: Any, config: dict[str, Any]) -> str:
     """
     if store is None:
         return ""
-    briefing_cfg = ((config.get("tools") or {}).get("briefing") or {})
+    briefing_cfg = (config.get("tools") or {}).get("briefing") or {}
     attention_cfg = briefing_cfg.get("attention") or {}
     if not bool(attention_cfg.get("enabled", True)):
         return ""

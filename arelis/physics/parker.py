@@ -50,9 +50,7 @@ def dynamic_pressure_npa(r_m: float, *, v_m_s: float = V_SLOW_M_S) -> float:
 def shue_standoff(p_npa: float, *, bz_nt: float = 0.0) -> tuple[float, float]:
     """Shue 1998 r0 (Earth radii) and flaring α. Bz in nT, P in nPa."""
     p = max(float(p_npa), 0.15)
-    r0 = (10.22 + 1.29 * math.tanh(0.184 * (float(bz_nt) + 8.14))) * p ** (
-        -1.0 / 6.6
-    )
+    r0 = (10.22 + 1.29 * math.tanh(0.184 * (float(bz_nt) + 8.14))) * p ** (-1.0 / 6.6)
     alpha = (0.58 - 0.007 * float(bz_nt)) * (1.0 + 0.024 * math.log(p))
     return r0, alpha
 

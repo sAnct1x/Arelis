@@ -177,11 +177,7 @@ def format_agenda_section(
             if ev.all_day:
                 when = "all day"
             else:
-                when = (
-                    ev.starts_at.astimezone(tz)
-                    .strftime("%I:%M %p")
-                    .lstrip("0")
-                )
+                when = ev.starts_at.astimezone(tz).strftime("%I:%M %p").lstrip("0")
             lines.append(f"- {when} — {ev.summary}")
             loc = (ev.location or "").strip()
             if loc:
@@ -206,12 +202,7 @@ def _unfold_lines(lines: Iterable[str]) -> list[str]:
 
 
 def _unescape_text(value: str) -> str:
-    return (
-        value.replace("\\n", "\n")
-        .replace("\\,", ",")
-        .replace("\\;", ";")
-        .replace("\\\\", "\\")
-    )
+    return value.replace("\\n", "\n").replace("\\,", ",").replace("\\;", ";").replace("\\\\", "\\")
 
 
 def _parse_dtstart(

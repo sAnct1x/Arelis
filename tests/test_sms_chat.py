@@ -188,11 +188,7 @@ def test_open_seeds_and_inbound_appends(qt_app) -> None:
             alias="coach",
             phone="5551112222",
         )
-        incoming = [
-            item.body
-            for item in registry.messages(window.key)
-            if item.direction == "in"
-        ]
+        incoming = [item.body for item in registry.messages(window.key) if item.direction == "in"]
         assert incoming == ["hey", "later"]
         window.close()
     finally:
@@ -243,9 +239,7 @@ def test_cannot_open_a_dead_composer(qt_app) -> None:
         host.deleteLater()
 
 
-def test_nameless_sms_notice_opens_the_inbox(
-    arelis_window, qt_app, monkeypatch
-) -> None:
+def test_nameless_sms_notice_opens_the_inbox(arelis_window, qt_app, monkeypatch) -> None:
     """A click must still surface the pile when the notice has no number."""
     from arelis.ui import sms_chat as sms_chat_mod
     from arelis.ui.notify_host import on_notice_activated
@@ -363,9 +357,7 @@ def test_thread_scroll_stops_at_the_last_message(qt_app) -> None:
         window.show()
         qt_app.processEvents()
         for i in range(18):
-            window.append_message(
-                SmsChatMessage(direction="in", body=f"line {i} is a bit of text")
-            )
+            window.append_message(SmsChatMessage(direction="in", body=f"line {i} is a bit of text"))
         qt_app.processEvents()
         window._scroll_to_end()
         qt_app.processEvents()
@@ -409,9 +401,7 @@ def test_attention_when_qt_still_thinks_the_tile_is_active(qt_app, monkeypatch) 
         window.deleteLater()
 
 
-def test_append_inbound_pulses_when_another_app_owns_foreground(
-    qt_app, monkeypatch
-) -> None:
+def test_append_inbound_pulses_when_another_app_owns_foreground(qt_app, monkeypatch) -> None:
     monkeypatch.setattr("arelis.ui.sms_chat.process_owns_foreground", lambda: False)
     host = QWidget()
     host.show()
@@ -477,9 +467,7 @@ def test_hidden_tile_badges_instead_of_pulse(qt_app) -> None:
         host.deleteLater()
 
 
-def test_visible_room_skips_notice_other_sender_still_doorbells(
-    arelis_window, qt_app
-) -> None:
+def test_visible_room_skips_notice_other_sender_still_doorbells(arelis_window, qt_app) -> None:
     win = arelis_window()
     tile = win.sms_chats.open(alias="wife", phone="5551112222", title="Robin")
     assert tile is not None
@@ -576,9 +564,7 @@ def test_inbox_open_hides_overlay_pill(arelis_window, qt_app) -> None:
 
     win = arelis_window()
     win.show()
-    win.notify_center.add(
-        new_notice(kind="sms", title="Robin", body="hi", group_key="sms:robin")
-    )
+    win.notify_center.add(new_notice(kind="sms", title="Robin", body="hi", group_key="sms:robin"))
     win.notify_inbox.show()
     qt_app.processEvents()
     win._sync_notify_surface()
@@ -625,9 +611,7 @@ def test_https_url_becomes_an_anchor(qt_app) -> None:
 def test_www_url_becomes_an_https_anchor(qt_app) -> None:
     window = SmsChatWindow(key="k", title="Robin", alias="wife", phone="+15550100")
     try:
-        window.append_message(
-            SmsChatMessage(direction="in", body="park at www.example.com/lot")
-        )
+        window.append_message(SmsChatMessage(direction="in", body="park at www.example.com/lot"))
         html = bubble_plain_text(window._last_bubble())
         assert 'href="https://www.example.com/lot"' in html
     finally:
@@ -658,9 +642,7 @@ def test_photo_without_bytes_is_a_chip(qt_app) -> None:
 
     window = SmsChatWindow(key="k", title="Alex", alias="coach", phone="+15550100")
     try:
-        window.append_message(
-            SmsChatMessage(direction="in", body="Photo", media_kind="photo_chip")
-        )
+        window.append_message(SmsChatMessage(direction="in", body="Photo", media_kind="photo_chip"))
         bubble = window._last_bubble()
         assert bubble is not None
         chips = [w for w in bubble.findChildren(QLabel) if w.objectName() == "SmsPhotoChip"]

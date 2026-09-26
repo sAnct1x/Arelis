@@ -236,16 +236,19 @@ def _sidecar_cache_path(apk: Path) -> Path:
 
 def _sidecar_payload(offer: ApkOffer) -> str:
     """JSON payload for sidecar metadata."""
-    return json.dumps(
-        {
-            "versionCode": offer.version_code,
-            "versionName": offer.version_name,
-            "sha256": offer.sha256,
-            "signed": offer.signed,
-            "applicationId": "app.arelis",
-        },
-        indent=2,
-    ) + "\n"
+    return (
+        json.dumps(
+            {
+                "versionCode": offer.version_code,
+                "versionName": offer.version_name,
+                "sha256": offer.sha256,
+                "signed": offer.signed,
+                "applicationId": "app.arelis",
+            },
+            indent=2,
+        )
+        + "\n"
+    )
 
 
 def sidecar_path(apk: Path) -> Path:
@@ -329,15 +332,7 @@ def apk_candidates() -> list[Path]:
         found.append(installed / APK_NAME)
     if is_source_checkout():
         found.append(INSTALL_PARENT / "companion" / APK_NAME)
-        android = (
-            INSTALL_PARENT
-            / "android"
-            / "arelis-notify"
-            / "app"
-            / "build"
-            / "outputs"
-            / "apk"
-        )
+        android = INSTALL_PARENT / "android" / "arelis-notify" / "app" / "build" / "outputs" / "apk"
         found.append(android / "release" / "app-release.apk")
         found.append(android / "debug" / "app-debug.apk")
     unique: list[Path] = []
@@ -525,8 +520,8 @@ def landing_html(
             f'<p><a href="{escape(pair_href)}">Already installed? Pair</a></p>'
         )
     return (
-        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">"
-        "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
+        '<!doctype html><html lang="en"><head><meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width, initial-scale=1">'
         f"<title>{title}</title>"
         "<style>"
         "body{font:16px/1.45 'Times New Roman',serif;background:#16110d;color:#f3e6d4;"

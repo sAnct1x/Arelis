@@ -124,9 +124,7 @@ def _host_pinned(host: str | None) -> bool:
 
 
 def _get_csv(key: str) -> str | None:
-    url = (
-        f"{FIRMS_SITE}/api/area/csv/{key}/VIIRS_NOAA20_NRT/world/1"
-    )
+    url = f"{FIRMS_SITE}/api/area/csv/{key}/VIIRS_NOAA20_NRT/world/1"
     if not _host_pinned(urlparse(FIRMS_SITE).hostname):
         return None
     try:

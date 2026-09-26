@@ -357,7 +357,9 @@ def _place_earth(panel: Any, lat: float, lon: float, alt_m: float) -> None:
 
 def _earth_ready(panel: Any) -> bool:
     host = getattr(panel, "_globe_host", None)
-    return bool(host is not None and (getattr(host, "ready", False) or getattr(host, "failed", False)))
+    return bool(
+        host is not None and (getattr(host, "ready", False) or getattr(host, "failed", False))
+    )
 
 
 def _wait_earth(panel: Any, app: Any, timeout_s: float = 90) -> bool:
@@ -527,7 +529,9 @@ def _physical_earth(window: Any, app: Any, out: Path) -> list[dict[str, Any]]:
     return rows
 
 
-def _write_report(out: Path, rows: list[dict[str, Any]], extra: list[dict[str, Any]], token: str) -> None:
+def _write_report(
+    out: Path, rows: list[dict[str, Any]], extra: list[dict[str, Any]], token: str
+) -> None:
     passed = sum(1 for r in rows if r.get("ok"))
     failed = sum(1 for r in rows if r.get("ok") is False)
     lines = [
@@ -543,14 +547,12 @@ def _write_report(out: Path, rows: list[dict[str, Any]], extra: list[dict[str, A
     for i, row in enumerate(rows, 1):
         mark = "PASS" if row.get("ok") else "FAIL"
         tools = ", ".join(row.get("tools") or []) or "—"
-        why = _snip("; ".join(row.get("reasons") or []) or row.get("final") or row.get("detail") or "", 80)
-        lines.append(
-            f"| {i} | `{row.get('id')}` | {mark} | {row.get('ms', 0)} | {tools} | {why} |"
+        why = _snip(
+            "; ".join(row.get("reasons") or []) or row.get("final") or row.get("detail") or "", 80
         )
+        lines.append(f"| {i} | `{row.get('id')}` | {mark} | {row.get('ms', 0)} | {tools} | {why} |")
     math_fails = [
-        r
-        for r in rows
-        if r.get("ok") is False and str(r.get("id") or "").startswith("M")
+        r for r in rows if r.get("ok") is False and str(r.get("id") or "").startswith("M")
     ]
     if math_fails:
         lines.extend(["", "## Math misses (thinking + gold)", ""])
@@ -628,9 +630,7 @@ def _open_glass(config: dict[str, Any], cap: _Cap) -> tuple[Any, Any, Any, Any, 
     async def _startup() -> None:
         try:
             await run_model_preflight(bus, seat.router.provider, config.get("models"))
-            await run_model_warmup(
-                bus, seat.router, prefix=prefix_warmup_for(config, seat.tools)
-            )
+            await run_model_warmup(bus, seat.router, prefix=prefix_warmup_for(config, seat.tools))
         finally:
             seat.router.mark_warmup_done()
 
@@ -770,7 +770,9 @@ def main() -> int:
     if str(prog.get("token") or "") != token:
         done_ids = set()
         prog = {"done": [], "notes": [], "token": token}
-    print(f"live fifty  {datetime.now(UTC).strftime('%Y-%m-%d %H:%M UTC')}  token={token}", flush=True)
+    print(
+        f"live fifty  {datetime.now(UTC).strftime('%Y-%m-%d %H:%M UTC')}  token={token}", flush=True
+    )
 
     config = load_config()
     ui_lock = PresenceLock(ui_lock_path(config))
@@ -817,11 +819,7 @@ def main() -> int:
         turns = live_fifty_turns(token=token)
         if args.only:
             want = {x.strip() for x in args.only.split(",") if x.strip()}
-            turns = [
-                t
-                for t in turns
-                if t.id in want or any(t.id.startswith(w) for w in want)
-            ]
+            turns = [t for t in turns if t.id in want or any(t.id.startswith(w) for w in want)]
         for i, turn in enumerate(turns, 1):
             if turn.id in done_ids:
                 print(f"\n[{i}/{len(turns)}] {turn.id}  skip (breadcrumb)", flush=True)

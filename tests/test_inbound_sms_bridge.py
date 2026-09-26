@@ -1,4 +1,4 @@
-""""No new messages" was being said when nothing could have been heard.
+""" "No new messages" was being said when nothing could have been heard.
 
 The user named SMS as their worst-behaving feature, and specifically "the
 mobile side, because of our approach". The approach is: the phone is the
@@ -110,7 +110,7 @@ async def test_even_a_live_bridge_keeps_the_caveat() -> None:
 
 @pytest.mark.asyncio
 async def test_a_stale_bridge_says_how_stale() -> None:
-    """"Checked in three hours ago" is a different answer from "moments ago",
+    """ "Checked in three hours ago" is a different answer from "moments ago",
     and the user is the one who can judge which matters."""
     COMPANION_PRESENCE.touch("/mobile/status")
     COMPANION_PRESENCE._last = time.time() - (3 * 3600)

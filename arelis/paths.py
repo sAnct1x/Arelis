@@ -69,9 +69,7 @@ def is_source_checkout() -> bool:
     else's source tree. ``tests/`` is not packaged into a wheel, so an installed
     copy cannot have both no matter where it was installed.
     """
-    return (INSTALL_PARENT / "pyproject.toml").is_file() and (
-        INSTALL_PARENT / "tests"
-    ).is_dir()
+    return (INSTALL_PARENT / "pyproject.toml").is_file() and (INSTALL_PARENT / "tests").is_dir()
 
 
 def user_data_dir() -> Path:

@@ -272,12 +272,8 @@ class EarthRuntime:
     def _sync_ground_detail(self, prev: EarthView | None) -> None:
         """Streets and footprints follow altitude. Zooming out drops them."""
         view = self.last_view
-        now_s = view is not None and ground_streets_on(
-            band=view.band, alt_m=view.alt_m
-        )
-        was_s = prev is not None and ground_streets_on(
-            band=prev.band, alt_m=prev.alt_m
-        )
+        now_s = view is not None and ground_streets_on(band=view.band, alt_m=view.alt_m)
+        was_s = prev is not None and ground_streets_on(band=prev.band, alt_m=prev.alt_m)
         if now_s and not was_s:
             self.tiles = True
         elif not now_s:
@@ -285,9 +281,7 @@ class EarthRuntime:
         self.buildings = False
         if view is None:
             return
-        if self.tiles and (
-            (now_s and not was_s) or look_shifted(prev, view)
-        ):
+        if self.tiles and ((now_s and not was_s) or look_shifted(prev, view)):
             try:
                 from arelis.earth.roads import roads_for_view
 
@@ -339,9 +333,7 @@ class EarthRuntime:
         hits = [
             e
             for e in self.store.all()
-            if self.layers.get(e.layer, False)
-            and e.layer in wanted
-            and self._paint_contact(e)
+            if self.layers.get(e.layer, False) and e.layer in wanted and self._paint_contact(e)
         ]
         view = self.last_view
         return tuple(organize(filter_to_view(hits, view), view))
@@ -555,8 +547,7 @@ class EarthRuntime:
         return tuple(
             key
             for key in ADAPTER_BANDS
-            if adapter_allowed(key, view.band, self.layers)
-            and key not in self.last_fetch_unix
+            if adapter_allowed(key, view.band, self.layers) and key not in self.last_fetch_unix
         )
 
     def _maybe_refresh_live(self, now: float) -> None:
@@ -584,9 +575,7 @@ class EarthRuntime:
             return
         self._start_live_merge(moved=moved, due=due)
 
-    def _start_live_merge(
-        self, *, moved: bool, due: tuple[str, ...] | None = None
-    ) -> None:
+    def _start_live_merge(self, *, moved: bool, due: tuple[str, ...] | None = None) -> None:
         view = self.last_view or EarthView(band="space")
         if due is None:
             now = time.time()

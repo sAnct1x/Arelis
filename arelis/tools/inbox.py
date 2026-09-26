@@ -58,8 +58,18 @@ INBOX_WRITE_ACTIONS = frozenset(
 )
 _ALL_ACTIONS = INBOX_READ_ACTIONS | INBOX_WRITE_ACTIONS
 _MONTHS = (
-    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun",
+    "Jul",
+    "Aug",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dec",
 )
 
 
@@ -182,13 +192,9 @@ def _inbox_description(*, mutate: bool) -> str:
         "Delivered mail cannot be edited — send a new message instead."
     )
     if not mutate:
-        return (
-            head
-            + " This session cannot change the mailbox (jobs are read-only)."
-        )
+        return head + " This session cannot change the mailbox (jobs are read-only)."
     return (
-        head
-        + " Changes need Allow: `trash` (delete is the same — Gmail Bin, not "
+        head + " Changes need Allow: `trash` (delete is the same — Gmail Bin, not "
         "permanent), `archive` (leave Inbox), `mark_read` / `mark_unread`, "
         "`move` to a folder/label, `create_folder`. Call list or search first "
         "and pass the id number (digits only; comma-separated is fine). Never "
@@ -241,9 +247,7 @@ class InboxTool:
                 )
             extra = ""
             if action == "edit":
-                extra = (
-                    " Delivered mail cannot be edited. Trash it or send a new message."
-                )
+                extra = " Delivered mail cannot be edited. Trash it or send a new message."
             verbs = ", ".join(sorted(allowed))
             return ToolResult(
                 ok=False,
@@ -332,10 +336,7 @@ class InboxTool:
         chosen = [u.decode() for u in uids[-limit:]][::-1]
         rows = [self._headers(conn, uid) for uid in chosen]
         found = [r for r in rows if r is not None]
-        self.last_hits = [
-            {"id": r.uid, "from": r.sender, "subject": r.subject}
-            for r in found
-        ]
+        self.last_hits = [{"id": r.uid, "from": r.sender, "subject": r.subject} for r in found]
 
         lines: list[str] = []
         for item in found:
@@ -449,10 +450,7 @@ class InboxTool:
         if not _parse_uids(uid_raw):
             return ToolResult(
                 ok=False,
-                output=(
-                    "reply needs a message id from list or search. "
-                    "Nothing was drafted."
-                ),
+                output=("reply needs a message id from list or search. Nothing was drafted."),
             )
         fetched = self._fetch_message(conn, uid_raw)
         if isinstance(fetched, ToolResult):
@@ -466,9 +464,7 @@ class InboxTool:
         if not reply_to:
             return ToolResult(
                 ok=False,
-                output=(
-                    f"Message {uid} has no reply address. Nothing was drafted."
-                ),
+                output=(f"Message {uid} has no reply address. Nothing was drafted."),
             )
         source_subject = _decode(message.get("Subject")) or "(no subject)"
         subject = _reply_subject(source_subject)
@@ -476,11 +472,7 @@ class InboxTool:
         original = redact_secrets(original).strip()
         date = _format_date(message.get("Date"))
         quoted = _quote_original(original)
-        composed = (
-            f"{reply_text}\n\n"
-            f"On {date}, {sender} wrote:\n"
-            f"{quoted}"
-        )
+        composed = f"{reply_text}\n\nOn {date}, {sender} wrote:\n{quoted}"
         self.last_hits = [{"id": uid, "from": sender, "subject": source_subject}]
         return ToolResult(
             ok=True,
@@ -519,9 +511,7 @@ class InboxTool:
             return ToolResult(ok=False, output=f"No message with id {uid}.")
         return uid, email.message_from_bytes(data[0][1])
 
-    def _download(
-        self, conn: imaplib.IMAP4_SSL, uid_raw: str, wanted: str
-    ) -> ToolResult:
+    def _download(self, conn: imaplib.IMAP4_SSL, uid_raw: str, wanted: str) -> ToolResult:
         """Save attachments under outputs/mail/<id>/.
 
         The filename comes from the sender, so it goes through
@@ -547,8 +537,7 @@ class InboxTool:
                 return ToolResult(
                     ok=False,
                     output=(
-                        f"Message {uid} has no attachment called {wanted!r}. "
-                        f"Attached: {names}."
+                        f"Message {uid} has no attachment called {wanted!r}. Attached: {names}."
                     ),
                 )
             parts = picked
@@ -564,9 +553,7 @@ class InboxTool:
                         f"{self.max_attachment_bytes:,}). Nothing was saved."
                     ),
                 )
-        dest_dir = outputs_dir() / "mail" / safe_attachment_name(
-            uid, fallback="message"
-        )
+        dest_dir = outputs_dir() / "mail" / safe_attachment_name(uid, fallback="message")
         dest_dir.mkdir(parents=True, exist_ok=True)
         saved: list[str] = []
         for index, (name, blob) in enumerate(parts, start=1):
@@ -638,9 +625,7 @@ class InboxTool:
             if snippet:
                 lines.append(f"      {snippet}")
 
-        self.last_hits = [
-            {"id": r["id"], "from": r["from"], "subject": r["subject"]} for r in rows
-        ]
+        self.last_hits = [{"id": r["id"], "from": r["from"], "subject": r["subject"]} for r in rows]
         lines.append("")
         scope = "unread" if unread_only else "matching"
         lines.append(
@@ -713,9 +698,7 @@ class InboxTool:
             data={"folder": folder, "action": "create_folder"},
         )
 
-    def _change(
-        self, conn: imaplib.IMAP4_SSL, action: str, kwargs: dict[str, Any]
-    ) -> ToolResult:
+    def _change(self, conn: imaplib.IMAP4_SSL, action: str, kwargs: dict[str, Any]) -> ToolResult:
         uids = _parse_uids(str(kwargs.get("id") or ""))
         if not uids:
             return ToolResult(
@@ -1003,8 +986,7 @@ def _list_criteria(action: str, kwargs: dict[str, Any]) -> list[str]:
         return criteria
     if action == "summarize":
         has_filter = any(
-            str(kwargs.get(k) or "").strip()
-            for k in ("sender", "subject", "text", "since")
+            str(kwargs.get(k) or "").strip() for k in ("sender", "subject", "text", "since")
         )
         if has_filter:
             criteria = _build_criteria(kwargs)

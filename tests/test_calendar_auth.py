@@ -21,9 +21,12 @@ def test_token_refresh_is_a_reauth() -> None:
 def test_authorize_without_secrets_does_not_open_a_browser(tmp_path, monkeypatch) -> None:
     blank = tmp_path / "secrets.yaml"
     blank.write_text("calendar: {}\n", encoding="utf-8")
-    monkeypatch.setattr("arelis.calendar.auth.load_calendar_secrets", lambda: __import__(
-        "arelis.calendar.secrets", fromlist=["CalendarSecrets"]
-    ).CalendarSecrets(google=None, outlook=None))
+    monkeypatch.setattr(
+        "arelis.calendar.auth.load_calendar_secrets",
+        lambda: __import__("arelis.calendar.secrets", fromlist=["CalendarSecrets"]).CalendarSecrets(
+            google=None, outlook=None
+        ),
+    )
     result = authorize_calendar("google")
     assert isinstance(result, AuthResult)
     assert result.ok is False

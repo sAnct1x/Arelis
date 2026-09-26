@@ -98,9 +98,7 @@ def paint_overlay(panel, painter: QPainter, *, software: bool, chrome_only: bool
             panel._empty_caption(),
         )
         plate_w = panel._hud_plate_width()
-        used = panel._paint_keys_chrome(
-            painter, QRect(10, 8, plate_w, 280)
-        )
+        used = panel._paint_keys_chrome(painter, QRect(10, 8, plate_w, 280))
         panel._hud_box = QRect(10, 8, plate_w, used)
         panel._hud_bottom = panel._hud_box.bottom()
         panel._paint_tools(painter)
@@ -125,9 +123,7 @@ def paint_overlay(panel, painter: QPainter, *, software: bool, chrome_only: bool
     sun = system.nbody.find("Sun")
     dist_sun = 0.0
     if sun is not None:
-        dist_sun = math.hypot(
-            panel._eye[0] - sun.x, panel._eye[1] - sun.y, panel._eye[2] - sun.z
-        )
+        dist_sun = math.hypot(panel._eye[0] - sun.x, panel._eye[1] - sun.y, panel._eye[2] - sun.z)
     shots: list[tuple[float, BodyView, tuple[float, float, float] | None]] = []
     for body in system.views():
         if not software and body.tracer:
@@ -185,18 +181,10 @@ def paint_overlay(panel, painter: QPainter, *, software: bool, chrome_only: bool
         panel._paint_wind(painter, system)
     if not chrome_only and system.overlay.show_grid:
         panel._paint_grid(painter, system)
-    if (
-        software
-        and not chrome_only
-        and sun is not None
-        and not close_globe(panel)
-        and not zone_on
-    ):
+    if software and not chrome_only and sun is not None and not close_globe(panel) and not zone_on:
         sp = panel._proj((sun.x, sun.y, sun.z))
         if sp is not None:
-            panel._sun_limb(
-                painter, sp[0], sp[1], panel._true_px(sun.radius, sp[2])
-            )
+            panel._sun_limb(painter, sp[0], sp[1], panel._true_px(sun.radius, sp[2]))
     panel._paint_free_markers(painter, system)
     if getattr(panel, "_earth_globe_live", lambda: False)():
         if not chrome_only:
@@ -423,9 +411,7 @@ def paint_body(
                 )
         dim = 0.06 + 0.94 * frac
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(
-            QColor(int(tint[0] * dim), int(tint[1] * dim), int(tint[2] * dim))
-        )
+        painter.setBrush(QColor(int(tint[0] * dim), int(tint[1] * dim), int(tint[2] * dim)))
         painter.drawEllipse(QPoint(int(sx), int(sy)), max(1, int(px_r)), max(1, int(px_r)))
     panel._label_body(painter, body, sx, sy, px_r)
 
@@ -437,6 +423,7 @@ def chrome_rects(panel) -> list[QRect]:
     re-sort the roster and re-derive the inspect tile for each probe.
     """
     system = get_system()
+
     def _box_key(name: str) -> tuple:
         box = getattr(panel, name, QRect())
         if box is None or box.isEmpty():
@@ -598,10 +585,7 @@ def label_body(
     for x, y in candidates:
         if panel._chrome_covers(x, y):
             continue
-        if any(
-            abs(ox - x) < 48 and abs(oy - y) < 13
-            for _name, ox, oy, _w in panel._drawn_labels
-        ):
+        if any(abs(ox - x) < 48 and abs(oy - y) < 13 for _name, ox, oy, _w in panel._drawn_labels):
             continue
         chosen = (x, y)
         break
@@ -693,9 +677,7 @@ def sun_limb(panel, painter: QPainter, sx: float, sy: float, px_r: float) -> Non
     )
     for dx, dy, gain in axes:
         length = reach * gain
-        painter.setPen(
-            QPen(QColor(255, 220, 120, int(90 * look.spike_gain * gain)), 1)
-        )
+        painter.setPen(QPen(QColor(255, 220, 120, int(90 * look.spike_gain * gain)), 1))
         painter.drawLine(
             QPoint(int(sx - dx * length), int(sy - dy * length)),
             QPoint(int(sx + dx * length), int(sy + dy * length)),
@@ -703,9 +685,7 @@ def sun_limb(panel, painter: QPainter, sx: float, sy: float, px_r: float) -> Non
     painter.setCompositionMode(old)
 
 
-def paint_sun_loops(
-    panel, painter: QPainter, system: SolarSystem, body: BodyView
-) -> None:
+def paint_sun_loops(panel, painter: QPainter, system: SolarSystem, body: BodyView) -> None:
     from arelis.physics.corona import loops, off_limb_segments
 
     disc = panel._proj((body.x, body.y, body.z))
@@ -751,9 +731,7 @@ def paint_saturn_rings(panel, painter: QPainter, body: BodyView) -> None:
     painter.setBrush(Qt.BrushStyle.NoBrush)
     painter.setPen(QPen(QColor(220, 200, 160, 110), 1))
     disc = panel._proj((body.x, body.y, body.z))
-    hide_r = (
-        panel._true_px(body.radius, disc[2]) if disc is not None else 0.0
-    )
+    hide_r = panel._true_px(body.radius, disc[2]) if disc is not None else 0.0
     for radius in (
         SATURN_RING_INNER_M,
         SATURN_CASSINI_INNER_M,
@@ -773,9 +751,7 @@ def paint_saturn_rings(panel, painter: QPainter, body: BodyView) -> None:
             )
             if proj is None:
                 continue
-            if disc is not None and math.hypot(
-                proj[0] - disc[0], proj[1] - disc[1]
-            ) < hide_r:
+            if disc is not None and math.hypot(proj[0] - disc[0], proj[1] - disc[1]) < hide_r:
                 continue
             pts.append(QPoint(int(proj[0]), int(proj[1])))
         if len(pts) > 2:
@@ -829,9 +805,7 @@ def paint_heliocentric_orbits(panel, painter: QPainter, system: SolarSystem) -> 
             phase = 0.0
         else:
             phase = (time.perf_counter() / BEAD_LAP_S) * 2.0 * math.pi
-        for k, nu_b in enumerate(
-            bead_true_anomalies(el.true_anomaly, phase=phase)
-        ):
+        for k, nu_b in enumerate(bead_true_anomalies(el.true_anomaly, phase=phase)):
             bx, by, bz = position_at_true_anomaly(el, nu_b)
             hit = panel._proj((origin[0] + bx, origin[1] + by, origin[2] + bz))
             if hit is None:
@@ -890,9 +864,9 @@ def paint_ecliptic(panel, painter: QPainter, sun) -> None:
 
 
 def facing(panel, cx: float, cy: float, cz: float, x: float, y: float, z: float) -> bool:
-    return (x - cx) * (panel._eye[0] - x) + (y - cy) * (panel._eye[1] - y) + (
-        z - cz
-    ) * (panel._eye[2] - z) > 0.0
+    return (x - cx) * (panel._eye[0] - x) + (y - cy) * (panel._eye[1] - y) + (z - cz) * (
+        panel._eye[2] - z
+    ) > 0.0
 
 
 def stroke_world(
@@ -982,9 +956,7 @@ def paint_magnetopause(
     if sun is not None:
         sl = math.hypot(sun.x - earth.x, sun.y - earth.y, sun.z - earth.z) or AU_M
         p_npa = dynamic_pressure_npa(sl)
-        ux, uy, uz = sunward_basis(
-            (earth.x, earth.y, earth.z), (sun.x, sun.y, sun.z)
-        )
+        ux, uy, uz = sunward_basis((earth.x, earth.y, earth.z), (sun.x, sun.y, sun.z))
     else:
         p_npa = dynamic_pressure_npa(AU_M)
         ux, uy, uz = (1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0)
@@ -997,9 +969,7 @@ def paint_magnetopause(
             panel._stroke_world(painter, world)
         painter.setPen(QPen(QColor(150, 200, 255, 80), 1))
         for loop in dipole_L_polylines(earth.radius, ux, uy, uz, n_lon=8):
-            world = [
-                (host[0] + p[0], host[1] + p[1], host[2] + p[2]) for p in loop
-            ]
+            world = [(host[0] + p[0], host[1] + p[1], host[2] + p[2]) for p in loop]
             panel._stroke_world(painter, world)
     nose = (host[0] + r0_m * ux[0], host[1] + r0_m * ux[1], host[2] + r0_m * ux[2])
     proj = panel._proj(nose)
@@ -1073,9 +1043,7 @@ def paint_g(panel, painter: QPainter, system: SolarSystem) -> None:
     painter.drawText(int(b[0]) + 6, int(b[1]), f"|g|={g:.3e} m/s² at centre")
 
 
-def paint_wells(
-    panel, painter: QPainter, system: SolarSystem, *, strokes: bool = True
-) -> None:
+def paint_wells(panel, painter: QPainter, system: SolarSystem, *, strokes: bool = True) -> None:
     inspect = system.nbody.find(panel._inspect) if panel._inspect else None
     painter.setBrush(Qt.BrushStyle.NoBrush)
     if strokes:
@@ -1190,13 +1158,11 @@ def paint_grid(panel, painter: QPainter, system: SolarSystem) -> None:
         panel._stroke_world(painter, parallel, closed=True, host=host)
 
 
-
 def spark(panel, painter: QPainter, system: SolarSystem) -> None:
     box = QRect(panel.width() - 220, 18, 200, 56)
     panel._paint_plate(painter, box, radius=4)
     vals = [
-        abs(e - system.energy0) / max(abs(system.energy0), 1e-30)
-        for _t, e in system.energy_hist
+        abs(e - system.energy0) / max(abs(system.energy0), 1e-30) for _t, e in system.energy_hist
     ]
     if not vals:
         return
@@ -1235,9 +1201,5 @@ def paint_free_markers(panel, painter: QPainter, system: SolarSystem) -> None:
             ink=ink_for_kind(body.kind),
         )
         painter.setPen(color("text_dim"))
-        note = (
-            "massless"
-            if body.kind == "probe"
-            else "CR3BP L-point, not N-body eq."
-        )
+        note = "massless" if body.kind == "probe" else "CR3BP L-point, not N-body eq."
         painter.drawText(int(sx) + 10, int(sy) - 4, f"{body.name} ({note})")

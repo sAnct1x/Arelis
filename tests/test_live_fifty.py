@@ -192,15 +192,10 @@ def test_board_cleanup_drops_token_junk_only(tmp_path) -> None:
     (files / "report.md").write_text("keep", encoding="utf-8")
     (files / "real-notes.md").write_text("keep", encoding="utf-8")
 
-    counts = cleanup_board_token(
-        "F50-TEST99", calendar=cal, memory=mem, files_root=files
-    )
+    counts = cleanup_board_token("F50-TEST99", calendar=cal, memory=mem, files_root=files)
     assert counts["events"] == 2
     assert counts["tasks"] == 1
-    leftover = [
-        ev.summary
-        for ev in cal.list_range(now.date(), now.date() + timedelta(days=7))
-    ]
+    leftover = [ev.summary for ev in cal.list_range(now.date(), now.date() + timedelta(days=7))]
     assert "Dinner keep" in leftover
     assert all("F50" not in title for title in leftover)
     titles = [row["title"] for row in mem.list_tasks(status=None)]

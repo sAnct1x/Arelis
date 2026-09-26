@@ -72,9 +72,7 @@ def _drop_events(token: str, store: CalendarStore | None) -> int:
     return _run_async(_delete_remote(svc, events))
 
 
-def _drop_cached_events(
-    token: str, store: CalendarStore, start: date, end: date
-) -> int:
+def _drop_cached_events(token: str, store: CalendarStore, start: date, end: date) -> int:
     n = 0
     for ev in store.list_range(start, end):
         title = f"{ev.summary or ''} {ev.description or ''}"
@@ -97,9 +95,7 @@ async def _delete_remote(svc: Any, events: list[CachedEvent]) -> int:
     n = 0
     for ev in events:
         try:
-            await svc.delete(
-                ev.id, provider=ev.provider, calendar_id=ev.calendar_id
-            )
+            await svc.delete(ev.id, provider=ev.provider, calendar_id=ev.calendar_id)
             n += 1
         except Exception:
             store, owns = svc._open_store()

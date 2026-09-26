@@ -46,7 +46,10 @@ def main() -> int:
     gradle = ANDROID / "app" / "build.gradle.kts"
     expected = parse_gradle_version(gradle.read_text(encoding="utf-8"))
     if expected is None:
-        print("Could not read versionCode from android/arelis-notify/app/build.gradle.kts", file=sys.stderr)
+        print(
+            "Could not read versionCode from android/arelis-notify/app/build.gradle.kts",
+            file=sys.stderr,
+        )
         return 2
     signed = env_keystore_configured()
     task = ":app:assembleRelease" if signed else ":app:assembleDebug"
@@ -56,15 +59,7 @@ def main() -> int:
     result = subprocess.run(cmd, cwd=str(ANDROID))
     if result.returncode != 0:
         return result.returncode
-    built = (
-        ANDROID
-        / "app"
-        / "build"
-        / "outputs"
-        / "apk"
-        / kind
-        / f"app-{kind}.apk"
-    )
+    built = ANDROID / "app" / "build" / "outputs" / "apk" / kind / f"app-{kind}.apk"
     if not built.is_file():
         print(f"Gradle finished but {built} is missing.", file=sys.stderr)
         return 2

@@ -119,8 +119,7 @@ async def claim_orphan_ingest(
             EventType.STATUS,
             {
                 "message": (
-                    "No detached core answered, so this window opened the "
-                    "phone door itself."
+                    "No detached core answered, so this window opened the phone door itself."
                 )
             },
         )
@@ -205,9 +204,7 @@ def start_orphan_watch(
             ),
             core_lock=lambda: lock_held_by_other(core_lock_path(config)),
             our_ingest_up=lambda: find_my_ingest_port(config) is not None,
-            claim=lambda: claim_orphan_ingest(
-                window, bus, loop, config, hint=hint
-            ),
+            claim=lambda: claim_orphan_ingest(window, bus, loop, config, hint=hint),
             stop=stop,
         )
 

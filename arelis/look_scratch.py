@@ -131,11 +131,7 @@ def prune_look_scratch(
 
 def _prune_prefix(root: Path, prefixes: tuple[str, ...], keep: int) -> int:
     try:
-        files = [
-            p
-            for p in root.iterdir()
-            if p.is_file() and p.name.lower().startswith(prefixes)
-        ]
+        files = [p for p in root.iterdir() if p.is_file() and p.name.lower().startswith(prefixes)]
     except OSError:
         return 0
     files.sort(key=lambda p: p.stat().st_mtime)

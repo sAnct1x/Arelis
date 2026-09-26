@@ -109,9 +109,7 @@ class TitleBar(QWidget):
         self.rooms_btn.setText("rooms")
         self.rooms_btn.setAccessibleName("Rooms")
         self.rooms_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.rooms_btn.clicked.connect(
-            lambda: self.rooms_menu_requested.emit(self.rooms_btn)
-        )
+        self.rooms_btn.clicked.connect(lambda: self.rooms_menu_requested.emit(self.rooms_btn))
         layout.addWidget(self.rooms_btn)
 
         self.settings_btn = QToolButton()
@@ -458,11 +456,7 @@ class FloatingDockTitleBar(QWidget):
             from arelis.ui.theme import active_theme
 
             dock = self._dock()
-            if (
-                dock is not None
-                and dock.isFloating()
-                and active_theme() != "filament"
-            ):
+            if dock is not None and dock.isFloating() and active_theme() != "filament":
                 dock.setFloating(False)
             event.accept()
         else:

@@ -152,9 +152,7 @@ def _parse_rows(raw: str, *, body: str) -> list[list[str]]:
             return rows
         reader = csv.reader(io.StringIO(text))
         return [
-            [_clean(c) for c in row[:_MAX_COLS]]
-            for row in reader
-            if any(c.strip() for c in row)
+            [_clean(c) for c in row[:_MAX_COLS]] for row in reader if any(c.strip() for c in row)
         ][:_MAX_ROWS]
     table = _markdown_table(body)
     if table:
@@ -165,9 +163,7 @@ def _parse_rows(raw: str, *, body: str) -> list[list[str]]:
     if any("," in ln or "\t" in ln for ln in lines[:3]):
         reader = csv.reader(io.StringIO("\n".join(lines)))
         return [
-            [_clean(c) for c in row[:_MAX_COLS]]
-            for row in reader
-            if any(c.strip() for c in row)
+            [_clean(c) for c in row[:_MAX_COLS]] for row in reader if any(c.strip() for c in row)
         ][:_MAX_ROWS]
     return [[_clean(ln)] for ln in lines[:_MAX_ROWS]]
 
@@ -176,19 +172,13 @@ def _dejavu_paths() -> tuple[str, str, str | None]:
     from matplotlib import font_manager
 
     regular = Path(
-        font_manager.findfont(
-            font_manager.FontProperties(family="DejaVu Sans", weight="normal")
-        )
+        font_manager.findfont(font_manager.FontProperties(family="DejaVu Sans", weight="normal"))
     )
     bold = Path(
-        font_manager.findfont(
-            font_manager.FontProperties(family="DejaVu Sans", weight="bold")
-        )
+        font_manager.findfont(font_manager.FontProperties(family="DejaVu Sans", weight="bold"))
     )
     italic = Path(
-        font_manager.findfont(
-            font_manager.FontProperties(family="DejaVu Sans", style="italic")
-        )
+        font_manager.findfont(font_manager.FontProperties(family="DejaVu Sans", style="italic"))
     )
     sibling = regular.with_name("DejaVuSans-Bold.ttf")
     if sibling.is_file():
@@ -231,9 +221,7 @@ def _pdf_table(pdf: Any, rows: list[list[str]]) -> None:
         bottom = y0
         for cell in data_row:
             pdf.set_xy(x, y0)
-            pdf.multi_cell(
-                col_w, 5, str(cell), border=1, new_x="RIGHT", new_y="TOP"
-            )
+            pdf.multi_cell(col_w, 5, str(cell), border=1, new_x="RIGHT", new_y="TOP")
             bottom = max(bottom, pdf.get_y())
             x += col_w
         pdf.set_xy(pdf.l_margin, max(bottom, y0 + 5))
@@ -379,9 +367,7 @@ _FORMAT_WORDS: tuple[tuple[str, str], ...] = (
 _TITLE_LEAD = re.compile(
     r"(?i)^.*?\b(?:about|on|titled|called|for|of)\s+",
 )
-_TITLE_NOISE = re.compile(
-    r"(?i)\b(?:please|for\s+me|as\s+a\s+\w+|in\s+\w+\s+format)\b"
-)
+_TITLE_NOISE = re.compile(r"(?i)\b(?:please|for\s+me|as\s+a\s+\w+|in\s+\w+\s+format)\b")
 _DOCUMENT_TITLE_CHARS = 80
 
 

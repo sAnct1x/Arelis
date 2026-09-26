@@ -61,7 +61,9 @@ def _grab(top: Any, dest: Path) -> Path:
         if screen is not None:
             pix = screen.grabWindow(int(top.winId()))
     pix.save(str(dest), "PNG")
-    print(f"  shot {dest.name}  {pix.width()}x{pix.height()}  {dest.stat().st_size} bytes", flush=True)
+    print(
+        f"  shot {dest.name}  {pix.width()}x{pix.height()}  {dest.stat().st_size} bytes", flush=True
+    )
     return dest
 
 

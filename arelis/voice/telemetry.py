@@ -17,6 +17,7 @@ Off by default. Arelis configures no logging at all, so turning this on also
 attaches the file handler that makes it visible, at logs/voice.log, rather than
 depending on how the app was launched.
 """
+
 from __future__ import annotations
 
 import logging

@@ -83,8 +83,7 @@ def test_a_local_store_turn_hides_everything_it_redirects() -> None:
         hidden = _hidden_for({store})
         missing = _LOCAL_STORE_REDIRECTED - hidden
         assert not missing, (
-            f"on a {store} turn these are redirected but still offered: "
-            f"{sorted(missing)}"
+            f"on a {store} turn these are redirected but still offered: {sorted(missing)}"
         )
 
 

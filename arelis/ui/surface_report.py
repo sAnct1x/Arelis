@@ -29,6 +29,7 @@ cause or removes it from the list. Positions are mapped to window coordinates,
 because the offsets seen on screen match parent-chain origins and that is the
 thing to compare against.
 """
+
 from __future__ import annotations
 
 import logging
@@ -122,11 +123,7 @@ def report_lines(window: QWidget) -> list[str]:
 
     # Native child windows. A child with its own HWND is composited on its own,
     # so this list should be empty or contain only deliberate cases.
-    natives = [
-        w
-        for w in window.findChildren(QWidget)
-        if w.internalWinId() and w.window() is not w
-    ]
+    natives = [w for w in window.findChildren(QWidget) if w.internalWinId() and w.window() is not w]
     out.append(f"native child windows: {len(natives)}")
     for w in natives:
         out.append(f"  native {_where(w, window)} attrs={_attrs(w)} {_chain(w)}")
@@ -137,18 +134,13 @@ def report_lines(window: QWidget) -> list[str]:
     out.append(f"widgets carrying a graphics effect: {len(effects)}")
     for w in effects:
         out.append(
-            f"  effect {type(w.graphicsEffect()).__name__} on "
-            f"{_where(w, window)} {_chain(w)}"
+            f"  effect {type(w.graphicsEffect()).__name__} on {_where(w, window)} {_chain(w)}"
         )
 
     # Duplicate instances. More than one of any of these is the answer on its own.
     out.append("instance counts:")
     for name in _WATCHED:
-        found = [
-            w
-            for w in window.findChildren(QWidget)
-            if type(w).__name__ == name
-        ]
+        found = [w for w in window.findChildren(QWidget) if type(w).__name__ == name]
         if type(window).__name__ == name:
             found.insert(0, window)
         if not found:
@@ -156,10 +148,7 @@ def report_lines(window: QWidget) -> list[str]:
         out.append(f"  {name}: {len(found)}")
         if len(found) > 1:
             for w in found:
-                out.append(
-                    f"    #{len(out)} {_where(w, window)} "
-                    f"hidden={w.isHidden()} {_chain(w)}"
-                )
+                out.append(f"    #{len(out)} {_where(w, window)} hidden={w.isHidden()} {_chain(w)}")
     return out
 
 

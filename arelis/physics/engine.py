@@ -42,12 +42,10 @@ class NBody:
     t: float = 0.0
 
     @classmethod
-    def from_particles(
-        cls, particles: list[Particle], *, integrator: str = "IAS15"
-    ) -> NBody:
+    def from_particles(cls, particles: list[Particle], *, integrator: str = "IAS15") -> NBody:
         if not rebound_available():
             raise RuntimeError(
-                "REBOUND is not installed. From a checkout: pip install -e \".[astro]\"."
+                'REBOUND is not installed. From a checkout: pip install -e ".[astro]".'
             )
         import rebound
 

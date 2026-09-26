@@ -27,8 +27,18 @@ _WEEKDAYS = DAY_NAMES[:5]
 _WEEKENDS = DAY_NAMES[5:]
 
 MONTH_NAMES = (
-    "january", "february", "march", "april", "may", "june",
-    "july", "august", "september", "october", "november", "december",
+    "january",
+    "february",
+    "march",
+    "april",
+    "may",
+    "june",
+    "july",
+    "august",
+    "september",
+    "october",
+    "november",
+    "december",
 )
 
 # How a job recurs. Every mode can also carry every_minutes, which repeats it
@@ -349,8 +359,7 @@ def normalize_days_of_month(value: Any) -> list[int]:
             continue
         if text in {"last", "end", "eom"}:
             raise JobError(
-                "'last day of the month' is not supported; name a number. "
-                "28 fires in every month."
+                "'last day of the month' is not supported; name a number. 28 fires in every month."
             )
         # 1st, 22nd, 3rd, 4th. A character set rather than a suffix list
         # because only those six letters can appear here.

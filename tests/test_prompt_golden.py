@@ -279,6 +279,4 @@ def test_the_static_prefix_is_first_and_identical_across_every_case(pinned) -> N
     """
     rows = _capture()
     heads = {r["messages"][0]["content"] for r in rows}
-    assert heads == {"PERSONA"}, (
-        f"case-dependent content reached the front of the prompt: {heads}"
-    )
+    assert heads == {"PERSONA"}, f"case-dependent content reached the front of the prompt: {heads}"

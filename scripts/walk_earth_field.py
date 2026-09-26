@@ -168,8 +168,7 @@ def _grab(app: QApplication, panel, name: str) -> tuple[Path, dict[str, object]]
         }
     )
     print(
-        f"wrote {dest}  {out.width()}x{out.height()}  "
-        f"luma_ok={meta['luma_ok']}  src={source}",
+        f"wrote {dest}  {out.width()}x{out.height()}  luma_ok={meta['luma_ok']}  src={source}",
         flush=True,
     )
     return dest, meta
@@ -229,9 +228,7 @@ def _place(
 
     panel._cesium_lla = None
     panel._globe_hpr = (0.0, -90.0)
-    panel._select_earth_place(
-        {"lat": lat, "lon": lon, "kind": "city", "alt_m": alt_m}
-    )
+    panel._select_earth_place({"lat": lat, "lon": lon, "kind": "city", "alt_m": alt_m})
     deadline = time.perf_counter() + seconds
     ok = False
     got_lat = got_lon = got_alt = None
@@ -295,9 +292,7 @@ def _note(tag: str) -> dict[str, object]:
         "fetch": sorted((getattr(zone, "last_fetch_unix", {}) or {}).keys()),
         "visible": counts,
         "visible_n": sum(counts.values()),
-        "fresh": dict(
-            Counter(e.freshness for e in (zone.visible() if zone is not None else []))
-        ),
+        "fresh": dict(Counter(e.freshness for e in (zone.visible() if zone is not None else []))),
     }
     print(
         f"{tag} band={row['band']} cesium_alt={row['alt_m']} "
@@ -326,9 +321,7 @@ def _wait_fetch(app: QApplication, *keys: str, seconds: float = 20.0) -> bool:
     return False
 
 
-def _wait_visible(
-    app: QApplication, layer: str, n: int = 1, seconds: float = 24.0
-) -> int:
+def _wait_visible(app: QApplication, layer: str, n: int = 1, seconds: float = 24.0) -> int:
     from arelis.earth.runtime import get_earth
 
     deadline = time.perf_counter() + seconds
@@ -549,10 +542,7 @@ def main() -> int:
     beat(
         "01-enter-space",
         ok=space_ready and vis_sats >= 1 and hud_chips,
-        why=(
-            f"cesium={_pose(solar)} celestrak={celestrak} "
-            f"sats={vis_sats} hud_chips={hud_chips}"
-        ),
+        why=(f"cesium={_pose(solar)} celestrak={celestrak} sats={vis_sats} hud_chips={hud_chips}"),
         place={
             "landed": space_ready,
             "got_alt_m": _pose(solar)[2],
@@ -636,10 +626,7 @@ def main() -> int:
     beat(
         "02-iss-card",
         ok=iss is not None and "ISS" in card and card_on and rode,
-        why=(
-            f"iss={iss is not None} card_has_ISS={'ISS' in card} "
-            f"hud_card={card_on} rode={rode}"
-        ),
+        why=(f"iss={iss is not None} card_has_ISS={'ISS' in card} hud_card={card_on} rode={rode}"),
         place=iss_place,
         card_excerpt=card[:160],
         hud_card=card_on,
@@ -676,9 +663,7 @@ def main() -> int:
             _pump(app, 700)
         later = zone.get("norad:25544")
         if later is not None:
-            drift = (
-                (later.x - x0) ** 2 + (later.y - y0) ** 2 + (later.z - z0) ** 2
-            ) ** 0.5
+            drift = ((later.x - x0) ** 2 + (later.y - y0) ** 2 + (later.z - z0) ** 2) ** 0.5
             print(f"iss-coast drift_m={drift:.0f}", flush=True)
     look1 = getattr(solar, "_cesium_look", None)
     look_deg = 0.0
@@ -689,16 +674,14 @@ def main() -> int:
         and look1[0] is not None
     ):
         look_deg = (
-            (float(look1[0]) - float(look0[0])) ** 2
-            + (float(look1[1]) - float(look0[1])) ** 2
+            (float(look1[0]) - float(look0[0])) ** 2 + (float(look1[1]) - float(look0[1])) ** 2
         ) ** 0.5
         print(f"iss-coast look_deg={look_deg:.4f}", flush=True)
     cam1 = _pose(solar)
     cam_deg = 0.0
     if cam0[0] is not None and cam1[0] is not None:
         cam_deg = (
-            (float(cam1[0]) - float(cam0[0])) ** 2
-            + (float(cam1[1]) - float(cam0[1])) ** 2
+            (float(cam1[0]) - float(cam0[0])) ** 2 + (float(cam1[1]) - float(cam0[1])) ** 2
         ) ** 0.5
         print(f"iss-coast cam_deg={cam_deg:.4f} {cam0} -> {cam1}", flush=True)
     beat(
@@ -808,8 +791,7 @@ def main() -> int:
                 break
         status = str(getattr(solar, "_look_status", "") or "")
         print(
-            f"look id={cam.id} handle={handle is not None} "
-            f"status={status!r} frame={frame}",
+            f"look id={cam.id} handle={handle is not None} status={status!r} frame={frame}",
             flush=True,
         )
     beat(
@@ -862,11 +844,7 @@ def main() -> int:
     fires = _wait_visible(app, "fires", n=1, seconds=10.0)
     beat(
         "07-california-fires",
-        ok=(
-            bool(fire_place.get("landed"))
-            and fires >= 1
-            and not str(fire_id).startswith("hole:")
-        ),
+        ok=(bool(fire_place.get("landed")) and fires >= 1 and not str(fire_id).startswith("hole:")),
         why=f"firms_keyed={keyed} pin={fire_id} fires={fires}",
         place=fire_place,
         firms_keyed=keyed,

@@ -57,7 +57,5 @@ def _ensure_session(window) -> None:
     if not getattr(window.camera, "_running", False):
         from arelis.spatial.video import POSE_MAX_WIDTH, PREVIEW_CAPTURE_MAX_WIDTH
 
-        window.camera.start(
-            max_width=PREVIEW_CAPTURE_MAX_WIDTH if tile_up else POSE_MAX_WIDTH
-        )
+        window.camera.start(max_width=PREVIEW_CAPTURE_MAX_WIDTH if tile_up else POSE_MAX_WIDTH)
     window.spatial.start_track({"device": window.camera.current_device_name()})

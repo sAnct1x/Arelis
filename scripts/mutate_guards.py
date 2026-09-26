@@ -146,9 +146,7 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(
         name="inspect_force_call",
         overrides={"inspect_force_call": False},
-        guards=(
-            "no_call_steps inspect floor + call_redirects.redirect_inspect_wander"
-        ),
+        guards=("no_call_steps inspect floor + call_redirects.redirect_inspect_wander"),
     ),
     Mutation(
         name="scrape_after_search",
@@ -302,10 +300,7 @@ async def run(selected: str | None) -> int:
     if DEAD_KEYS:
         print(f"not measured (config key is read by nothing): {', '.join(DEAD_KEYS)}")
     print()
-    print(
-        f"RESULT: {len(covered)} covered, {len(holes)} holes, "
-        f"{len(blind)} blind spots."
-    )
+    print(f"RESULT: {len(covered)} covered, {len(holes)} holes, {len(blind)} blind spots.")
     return 1 if holes else 0
 
 

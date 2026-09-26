@@ -87,9 +87,7 @@ async def test_a_duplicate_is_refused_rather_than_merged(store: RoomStore) -> No
 async def test_an_update_changes_only_what_was_passed(store: RoomStore) -> None:
     store.update("physics", purpose="The original.", root="Lab Notes")
 
-    result = await RoomsTool(store).run(
-        action="update", name="physics", purpose="Sharper now."
-    )
+    result = await RoomsTool(store).run(action="update", name="physics", purpose="Sharper now.")
 
     assert result.ok
     room = store.get("physics")

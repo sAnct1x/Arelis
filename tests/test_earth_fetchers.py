@@ -42,12 +42,7 @@ def test_get_json_timeout_is_none(monkeypatch: pytest.MonkeyPatch) -> None:
     import arelis.earth.http as http_mod
 
     monkeypatch.setattr(http_mod.httpx, "Client", _TimeoutClient)
-    assert (
-        http_mod.get_json(
-            "https://api.weather.gov/alerts/active", "api.weather.gov"
-        )
-        is None
-    )
+    assert http_mod.get_json("https://api.weather.gov/alerts/active", "api.weather.gov") is None
 
 
 def test_get_json_http_error_is_none(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -78,12 +73,7 @@ def test_get_json_http_error_is_none(monkeypatch: pytest.MonkeyPatch) -> None:
             return BoomResp()
 
     monkeypatch.setattr(http_mod.httpx, "Client", Client)
-    assert (
-        http_mod.get_json(
-            "https://api.weather.gov/alerts/active", "api.weather.gov"
-        )
-        is None
-    )
+    assert http_mod.get_json("https://api.weather.gov/alerts/active", "api.weather.gov") is None
 
 
 def test_get_json_retries_once_then_returns(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -241,9 +231,7 @@ def test_usgs_recorded_empty_features_is_quiet(monkeypatch: pytest.MonkeyPatch) 
 
     from arelis.earth import live
 
-    body = json.loads(
-        (_FIXTURE_DIR / "usgs_all_day_empty.json").read_text(encoding="utf-8")
-    )
+    body = json.loads((_FIXTURE_DIR / "usgs_all_day_empty.json").read_text(encoding="utf-8"))
     monkeypatch.setattr(live.httpx, "Client", _client_with_body(body))
     assert live.fetch_usgs() == []
 
@@ -253,12 +241,8 @@ def test_opensky_recorded_states_shape() -> None:
 
     from arelis.earth.opensky import entities_from_opensky
 
-    one = json.loads(
-        (_FIXTURE_DIR / "opensky_states_one.json").read_text(encoding="utf-8")
-    )
-    empty = json.loads(
-        (_FIXTURE_DIR / "opensky_states_empty.json").read_text(encoding="utf-8")
-    )
+    one = json.loads((_FIXTURE_DIR / "opensky_states_one.json").read_text(encoding="utf-8"))
+    empty = json.loads((_FIXTURE_DIR / "opensky_states_empty.json").read_text(encoding="utf-8"))
     rows = entities_from_opensky(one)
     assert len(rows) == 1
     assert rows[0].id == "icao:abc123"

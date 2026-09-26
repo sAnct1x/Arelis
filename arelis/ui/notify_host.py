@@ -232,9 +232,7 @@ def sync_notify_surface(window) -> None:
     maximized = window.isMaximized() or window.isFullScreen()
     mailbox_open = window.notify_inbox.isVisible()
     overlay = window.conversation.notify_overlay
-    overlay.show_notice(
-        head, extra=extra, maximized=maximized, mailbox_open=mailbox_open
-    )
+    overlay.show_notice(head, extra=extra, maximized=maximized, mailbox_open=mailbox_open)
     chip_text = ""
     if head is not None:
         chip_text = head.pill_label()
@@ -274,9 +272,7 @@ def on_notice_dismiss(window, notice_id: str) -> None:
 
 def on_notice_snooze(window, notice_id: str, minutes: int = 15) -> None:
     hold = max(1, int(minutes))
-    window.notify_center.snooze(
-        notice_id, datetime.now().astimezone() + timedelta(minutes=hold)
-    )
+    window.notify_center.snooze(notice_id, datetime.now().astimezone() + timedelta(minutes=hold))
     sync_notify_surface(window)
 
 
@@ -306,24 +302,18 @@ def begin_job(window, tool: str) -> None:
     sync_notify_surface(window)
 
 
-def finish_job(
-    window, tool: str, *, ok: bool, output: str = "", path: str = ""
-) -> None:
+def finish_job(window, tool: str, *, ok: bool, output: str = "", path: str = "") -> None:
     window._job_tick.stop()
     window._job_t0 = None
     window._job_name = ""
     artifact = (path or "").strip()
     if ok:
-        window.notify_center.upsert_job(
-            tool, done=True, output=output, path=artifact
-        )
+        window.notify_center.upsert_job(tool, done=True, output=output, path=artifact)
         from arelis.ui.sms_host import push_mobile_notice
 
         push_mobile_notice(window, "job", f"{tool} finished", output or f"{tool} is ready.")
     else:
-        window.notify_center.upsert_job(
-            tool, failed=True, output=output, path=artifact
-        )
+        window.notify_center.upsert_job(tool, failed=True, output=output, path=artifact)
         from arelis.ui.sms_host import push_mobile_notice
 
         push_mobile_notice(window, "job", f"{tool} failed", output or f"{tool} failed.")
@@ -372,9 +362,7 @@ def on_job_tick(window) -> None:
     if window._job_t0 is None or not window._job_name:
         window._job_tick.stop()
         return
-    window.notify_center.upsert_job(
-        window._job_name, elapsed_s=time.monotonic() - window._job_t0
-    )
+    window.notify_center.upsert_job(window._job_name, elapsed_s=time.monotonic() - window._job_t0)
     sync_notify_surface(window)
 
 
@@ -398,20 +386,14 @@ def report_poll_state(window, key: str, message: str) -> None:
         window._poll_fail_streak[key] = window._poll_fail_streak.get(key, 0) + 1
         window._poll_ok_streak[key] = 0
         window._poll_state[key] = message
-        if (
-            window._poll_fail_streak[key] >= 2
-            and window._poll_spoken.get(key) != "down"
-        ):
+        if window._poll_fail_streak[key] >= 2 and window._poll_spoken.get(key) != "down":
             window._poll_spoken[key] = "down"
             _surface_status(window, message)
         return
     window._poll_ok_streak[key] = window._poll_ok_streak.get(key, 0) + 1
     window._poll_fail_streak[key] = 0
     window._poll_state[key] = ""
-    if (
-        window._poll_ok_streak[key] >= 2
-        and window._poll_spoken.get(key) == "down"
-    ):
+    if window._poll_ok_streak[key] >= 2 and window._poll_spoken.get(key) == "down":
         window._poll_spoken[key] = "up"
         _surface_status(window, f"{key} notifications are working again.")
 
@@ -437,9 +419,7 @@ def on_notify_poll(window) -> None:
             ):
                 window.notify_center.add(notice)
         except Exception as exc:
-            report_poll_state(
-                window, "task", f"Task due notices stopped: {plain_reason(exc)}"
-            )
+            report_poll_state(window, "task", f"Task due notices stopped: {plain_reason(exc)}")
         else:
             report_poll_state(window, "task", "")
     try:
@@ -455,9 +435,7 @@ def on_notify_poll(window) -> None:
                 _toast_reminder(window, notice.body or notice.title)
     except Exception as exc:
         # Poller must not die because one reminder file is corrupt.
-        report_poll_state(
-            window, "remind", f"Reminder notices stopped: {plain_reason(exc)}"
-        )
+        report_poll_state(window, "remind", f"Reminder notices stopped: {plain_reason(exc)}")
     else:
         report_poll_state(window, "remind", "")
     sync_notify_surface(window)
@@ -501,23 +479,15 @@ def on_mail_headers(window, rows: object) -> None:
 
 
 def bind_notify(window) -> None:
-    window.notifications.unread_changed.connect(
-        lambda count: on_notify_unread(window, count)
-    )
+    window.notifications.unread_changed.connect(lambda count: on_notify_unread(window, count))
     window.notify_inbox.closed.connect(lambda: on_notify_inbox_closed(window))
     overlay = window.conversation.notify_overlay
     overlay.dismiss_requested.connect(lambda nid: on_notice_dismiss(window, nid))
-    overlay.snooze_requested.connect(
-        lambda nid, mins=15: on_notice_snooze(window, nid, mins)
-    )
+    overlay.snooze_requested.connect(lambda nid, mins=15: on_notice_snooze(window, nid, mins))
     overlay.open_requested.connect(lambda nid: on_notice_open(window, nid))
-    overlay.artifact_requested.connect(
-        lambda nid, how: on_artifact_requested(window, nid, how)
-    )
+    overlay.artifact_requested.connect(lambda nid, how: on_artifact_requested(window, nid, how))
     overlay.pill_clicked.connect(lambda: on_notify_pill_clicked(window))
-    window.readiness_strip.notify_chip.clicked.connect(
-        lambda: on_notify_chip_clicked(window)
-    )
+    window.readiness_strip.notify_chip.clicked.connect(lambda: on_notify_chip_clicked(window))
     window.mail_headers_ready.connect(lambda rows: on_mail_headers(window, rows))
     window.notifications.opened.connect(lambda: on_inbox_opened(window))
     window.notifications.notice_activated.connect(
@@ -526,9 +496,6 @@ def bind_notify(window) -> None:
     window.notifications.artifact_requested.connect(
         lambda notice_id, how: on_artifact_requested(window, notice_id, how)
     )
-    window.notifications.mark_read_btn.clicked.connect(
-        lambda: on_notify_mark_all_read(window)
-    )
+    window.notifications.mark_read_btn.clicked.connect(lambda: on_notify_mark_all_read(window))
     window._notify_timer.timeout.connect(lambda: on_notify_poll(window))
     window._job_tick.timeout.connect(lambda: on_job_tick(window))
-

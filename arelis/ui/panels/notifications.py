@@ -117,9 +117,7 @@ class NotificationsPanel(QWidget):
             for n in notices
         ]
         self._unread = (
-            int(unread)
-            if unread is not None
-            else sum(1 for e in self._items if e.get("unread"))
+            int(unread) if unread is not None else sum(1 for e in self._items if e.get("unread"))
         )
         self._rebuild()
         self.unread_changed.emit(self._unread)

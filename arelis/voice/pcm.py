@@ -8,6 +8,7 @@ microphone or a model.
 audioop would cover most of this and is not used: it was deprecated in 3.11 and
 removed in 3.13, and the array module does the same work in a few lines.
 """
+
 from __future__ import annotations
 
 import math

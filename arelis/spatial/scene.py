@@ -116,9 +116,7 @@ def _remap_axis(u: float, gain: float) -> float:
     return 0.5 + 0.5 * math.tanh(k * (v - 0.5)) / scale
 
 
-def image_to_world(
-    x: float, y: float, *, reach: float = REACH_DEFAULT
-) -> tuple[float, float]:
+def image_to_world(x: float, y: float, *, reach: float = REACH_DEFAULT) -> tuple[float, float]:
     """Sensor x → operator x.
 
     The C920 is not a mirror. You face it, so image +x is your right.
@@ -160,9 +158,7 @@ class Disc:
     frozen: bool = False
     size_locked: bool = False
     axes_on: bool = False
-    _trail: deque[tuple[float, float, float]] = field(
-        default_factory=lambda: deque(maxlen=24)
-    )
+    _trail: deque[tuple[float, float, float]] = field(default_factory=lambda: deque(maxlen=24))
     _peak_vx: float = 0.0
     _peak_vy: float = 0.0
     _peak_speed: float = 0.0
@@ -274,8 +270,7 @@ class WorldScene:
             gx = 0.50 + 0.07 * ((step % 4) - 1.5)
             gy = 0.36 + 0.07 * (step // 4)
             if all(
-                math.hypot(gx - body.x, gy - body.y)
-                >= radius + self._touch_radius(body) + 0.01
+                math.hypot(gx - body.x, gy - body.y) >= radius + self._touch_radius(body) + 0.01
                 for body in self.bodies
             ):
                 x, y = gx, gy
@@ -779,9 +774,7 @@ class WorldScene:
     def _pinch_in_reach(self, x: float, y: float) -> bool:
         return self._sep(self.disc, x, y) <= self._touch_radius(self.disc) + SCALE_REACH
 
-    def _other_pinch(
-        self, owner: str, px: float, py: float
-    ) -> str | None:
+    def _other_pinch(self, owner: str, px: float, py: float) -> str | None:
         """A second pinch, far enough to be another hand, still on this disc."""
         for who, pose in self._grip_kind.items():
             if who == owner or pose != "pinch":
@@ -936,11 +929,7 @@ class WorldScene:
                 ty = self.disc.y + (ty - self.disc.y) * s
         self.disc.x = tx
         self.disc.y = ty
-        if (
-            self.disc.kind == "sphere"
-            and self._pz is not None
-            and not self.disc.size_locked
-        ):
+        if self.disc.kind == "sphere" and self._pz is not None and not self.disc.size_locked:
             # z is depth, not a plane radius. [r, 1-r] parked the ball mid-box.
             self.disc.z = min(1.0, max(0.0, self._pz + self._hold_dz))
 
@@ -1140,11 +1129,7 @@ class WorldScene:
     def _release(self, t: float) -> None:
         vx, vy = self._trail_velocity(t)
         speed = (vx * vx + vy * vy) ** 0.5
-        if (
-            self._peak_speed > speed
-            and self._peak_t > 0
-            and t - self._peak_t <= PEAK_HOLD
-        ):
+        if self._peak_speed > speed and self._peak_t > 0 and t - self._peak_t <= PEAK_HOLD:
             vx, vy, speed = self._peak_vx, self._peak_vy, self._peak_speed
         if speed < STILL_SPEED:
             vx, vy, speed = 0.0, 0.0, 0.0
@@ -1209,10 +1194,7 @@ class WorldScene:
 
     def _note_scale_hand(self, who: str, t: float) -> None:
         self._scale_seen.add(who)
-        if (
-            self.disc.holder in self._scale_seen
-            and self.disc.scaler in self._scale_seen
-        ):
+        if self.disc.holder in self._scale_seen and self.disc.scaler in self._scale_seen:
             self._update_scale(t)
             self._scale_seen.clear()
 
@@ -1238,9 +1220,7 @@ class WorldScene:
             ratio = span / self._scale_last
             ratio = min(SCALE_RATIO_MAX, max(SCALE_RATIO_MIN, ratio))
             if not self.disc.size_locked:
-                self.disc.radius = min(
-                    RADIUS_MAX, max(RADIUS_MIN, self.disc.radius * ratio)
-                )
+                self.disc.radius = min(RADIUS_MAX, max(RADIUS_MIN, self.disc.radius * ratio))
             self._scale_last = span
         elif span >= SCALE_SPAN_MIN:
             self._scale_last = span

@@ -24,8 +24,7 @@ _RAW: tuple[tuple[int, int, int, int, str], ...] = (
     (7800, 540, 8, 1, "white dwarf"),
 )
 _TRACK: tuple[tuple[float, float, float, float, str], ...] = tuple(
-    (a / 1000.0, b / 1000.0, c / 1000.0, d / 1000.0, phase)
-    for a, b, c, d, phase in _RAW
+    (a / 1000.0, b / 1000.0, c / 1000.0, d / 1000.0, phase) for a, b, c, d, phase in _RAW
 )
 
 GYR_MIN = _TRACK[0][0]

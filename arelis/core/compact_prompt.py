@@ -145,9 +145,7 @@ def skinny_parameters(schema: dict[str, Any] | None) -> dict[str, Any]:
     stripped = _strip_descriptions(schema)
     props = stripped.get("properties") if isinstance(stripped, dict) else None
     if isinstance(props, dict):
-        stripped["properties"] = {
-            key: value for key, value in props.items() if value != {}
-        }
+        stripped["properties"] = {key: value for key, value in props.items() if value != {}}
     return stripped
 
 

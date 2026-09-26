@@ -240,9 +240,7 @@ def test_find_null_island_query_does_not_goto() -> None:
         _earth_find_box=None,
         _earth_say=None,
         update=lambda: None,
-        _select_earth_place=lambda *_a, **_k: (_ for _ in ()).throw(
-            AssertionError("must not hop")
-        ),
+        _select_earth_place=lambda *_a, **_k: (_ for _ in ()).throw(AssertionError("must not hop")),
     )
     assert apply_goto(panel) is False
     earth.leave()

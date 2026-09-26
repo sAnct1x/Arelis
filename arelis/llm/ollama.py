@@ -320,9 +320,7 @@ class OllamaProvider:
                 raise RuntimeError(f"Ollama embed returned a malformed vector for `{model}`")
             out.append([float(x) for x in item])
         if len(out) != len(texts):
-            raise RuntimeError(
-                f"Ollama embed returned {len(out)} vectors for {len(texts)} inputs"
-            )
+            raise RuntimeError(f"Ollama embed returned {len(out)} vectors for {len(texts)} inputs")
         return out
 
     async def capabilities(self, model: str) -> frozenset[str]:
@@ -350,9 +348,7 @@ class OllamaProvider:
                 exc,
             )
             return frozenset()
-        found = frozenset(
-            str(item).strip().lower() for item in raw if str(item).strip()
-        )
+        found = frozenset(str(item).strip().lower() for item in raw if str(item).strip())
         self._capabilities[name] = found
         return found
 
@@ -393,9 +389,7 @@ class OllamaProvider:
         still: list[str] = []
         while True:
             running = await self.running_models()
-            still = [
-                name for name in running if same_ollama_model(name, *wanted)
-            ]
+            still = [name for name in running if same_ollama_model(name, *wanted)]
             if not still:
                 return []
             if time.monotonic() >= deadline:

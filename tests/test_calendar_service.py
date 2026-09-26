@@ -111,9 +111,9 @@ def test_stable_google_id_and_fingerprint_collapse_formats() -> None:
 
     naive = datetime(2026, 9, 8, 10, 0)
     offset = datetime(2026, 9, 8, 10, 0, tzinfo=datetime.now().astimezone().tzinfo)
-    assert stable_google_event_id(
-        summary="Dentist", starts_at=naive
-    ) == stable_google_event_id(summary="dentist", starts_at=offset)
+    assert stable_google_event_id(summary="Dentist", starts_at=naive) == stable_google_event_id(
+        summary="dentist", starts_at=offset
+    )
     assert create_fingerprint("google", "Dentist", naive.isoformat()) == (
         create_fingerprint("google", "dentist", offset.isoformat())
     )
@@ -171,10 +171,7 @@ async def test_google_token_failure_saves_locally(tmp_path: Path) -> None:
 
     class _DeadGoogle:
         async def create_event(self, **kwargs):
-            raise RuntimeError(
-                "Google token refresh failed (400). "
-                "Sign in on the calendar tile."
-            )
+            raise RuntimeError("Google token refresh failed (400). Sign in on the calendar tile.")
 
     svc = CalendarService({}, store=store, client_factory=lambda _p: _DeadGoogle())
     ev = await svc.create(

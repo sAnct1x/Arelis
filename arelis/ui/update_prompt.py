@@ -165,8 +165,7 @@ class UpdatePrompt(QObject):
             return
         self._progress.bar.setValue(int(received * 100 / total))
         self._progress.label.setText(
-            f"Downloading Arelis… {received / (1024 * 1024):.0f} of "
-            f"{total / (1024 * 1024):.0f}MB"
+            f"Downloading Arelis… {received / (1024 * 1024):.0f} of {total / (1024 * 1024):.0f}MB"
         )
 
     def _cancel(self) -> None:

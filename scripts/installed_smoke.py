@@ -124,9 +124,7 @@ def check_every_shipped_asset_arrived() -> None:
     fonts = [p for p in (paths.PACKAGE_ROOT / "ui" / "fonts").glob("*") if p.is_file()]
     assert fonts, "no typefaces shipped; every label falls back to a system font"
 
-    print(
-        f"  icon, config, {len(personas)} persona file(s) and {len(fonts)} font(s) present"
-    )
+    print(f"  icon, config, {len(personas)} persona file(s) and {len(fonts)} font(s) present")
 
 
 def check_nothing_writable_is_inside_the_program() -> None:
@@ -175,9 +173,7 @@ def check_startup_writes_nothing_into_the_package() -> None:
     # ignore_cleanup_errors because configure_logging() attaches a rotating file
     # handler to the root logger and Windows will not delete a file that is still
     # open. The handler is closed below; this covers anything else that opened one.
-    with tempfile.TemporaryDirectory(
-        prefix="arelis-smoke-", ignore_cleanup_errors=True
-    ) as tmp:
+    with tempfile.TemporaryDirectory(prefix="arelis-smoke-", ignore_cleanup_errors=True) as tmp:
         os.environ[paths.DATA_DIR_ENV] = tmp
 
         from arelis.config import load_config
@@ -258,8 +254,7 @@ def check_the_two_ways_in_both_work() -> None:
         check=False,
     )
     assert module.returncode == 0, (
-        f"`-m arelis` exited {module.returncode}: "
-        f"{(module.stderr or module.stdout).strip()[:400]}"
+        f"`-m arelis` exited {module.returncode}: {(module.stderr or module.stdout).strip()[:400]}"
     )
     assert "arelis" in module.stdout.lower(), f"unexpected --version output: {module.stdout!r}"
     print(f"  -m arelis --version -> {module.stdout.strip()}")
@@ -307,8 +302,7 @@ def check_the_two_ways_in_both_work() -> None:
     argv = ["cmd", "/c", str(runnable)] if runnable.suffix == ".cmd" else [str(runnable)]
     entry = subprocess.run([*argv, "--version"], capture_output=True, text=True, check=False)
     assert entry.returncode == 0, (
-        f"{runnable.name} exited {entry.returncode}: "
-        f"{(entry.stderr or entry.stdout).strip()[:400]}"
+        f"{runnable.name} exited {entry.returncode}: {(entry.stderr or entry.stdout).strip()[:400]}"
     )
     assert entry.stdout.strip() == module.stdout.strip(), (
         f"{runnable.name} and -m arelis disagree about the version: "

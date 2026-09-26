@@ -140,24 +140,21 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
     r.calls = fill_round_calls(loop, r.calls, text=r.text)
 
     fanout_results: dict[int, tuple[int, Any]] | None = None
-    if (
-        bool(r.agent_cfg.get("read_fanout", True))
-        and should_fanout_reads(
-            r.calls,
-            tool_names=r.tool_names,
-            expected_tools=loop._expected_tools,
-            tools=loop.tools,
-            confirm_writes=loop.confirm_writes,
-            confirm_image=loop.confirm_image,
-            confirm_send=loop.confirm_send,
-            confirm_browser=loop.confirm_browser,
-            confirm_desktop=getattr(loop, "confirm_desktop", True),
-            confirm_vision=loop.confirm_vision,
-            confirm_run=loop.confirm_run,
-            allow_writes_this_turn=ctx.allow_writes_this_turn,
-            tools_used=loop.tools_used,
-            web_search_ok=r.web_search_ok,
-        )
+    if bool(r.agent_cfg.get("read_fanout", True)) and should_fanout_reads(
+        r.calls,
+        tool_names=r.tool_names,
+        expected_tools=loop._expected_tools,
+        tools=loop.tools,
+        confirm_writes=loop.confirm_writes,
+        confirm_image=loop.confirm_image,
+        confirm_send=loop.confirm_send,
+        confirm_browser=loop.confirm_browser,
+        confirm_desktop=getattr(loop, "confirm_desktop", True),
+        confirm_vision=loop.confirm_vision,
+        confirm_run=loop.confirm_run,
+        allow_writes_this_turn=ctx.allow_writes_this_turn,
+        tools_used=loop.tools_used,
+        web_search_ok=r.web_search_ok,
     ):
         await loop.bus.publish(
             Event(
@@ -180,10 +177,7 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
                 for index, (tool_name, tool_args) in enumerate(r.calls)
             ]
         )
-        fanout_results = {
-            index: (elapsed, tool_result)
-            for index, elapsed, tool_result in gathered
-        }
+        fanout_results = {index: (elapsed, tool_result) for index, elapsed, tool_result in gathered}
         if loop._timer is not None:
             loop._timer.mark("fanout", n=len(r.calls))
 
@@ -205,12 +199,10 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
 
         if name not in r.tool_names:
             daily_miss = (
-                (
-                    name in _WEATHER_WANDER
-                    and "weather" in loop._expected_tools
-                )
+                (name in _WEATHER_WANDER and "weather" in loop._expected_tools)
                 or (
-                    name in {
+                    name
+                    in {
                         "web_search",
                         "contacts",
                         "user_location",
@@ -227,7 +219,8 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
                     and "analyze" not in loop._expected_tools
                 )
                 or (
-                    name in {
+                    name
+                    in {
                         "web_search",
                         "contacts",
                         "user_location",
@@ -236,25 +229,17 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
                     }
                     and "agenda" in loop._expected_tools
                 )
-                or (
-                    name in _BROWSER_WANDER
-                    and "browser" in loop._expected_tools
-                )
+                or (name in _BROWSER_WANDER and "browser" in loop._expected_tools)
             )
             if not daily_miss:
-                err = (
-                    f"Unknown tool `{name}`. "
-                    f"Available: {', '.join(sorted(r.tool_names))}"
-                )
+                err = f"Unknown tool `{name}`. Available: {', '.join(sorted(r.tool_names))}"
                 if name in {"comfyui", "search_images", "generate_image"}:
                     err += (
                         ". Image generation is the `image` tool. There is "
                         "no start-ComfyUI tool and no stock-photo search; "
                         "start ComfyUI yourself or set tools.image.auto_start."
                     )
-                await loop.bus.publish(
-                    Event(EventType.THINKING, {"text": f"reject  {err}"})
-                )
+                await loop.bus.publish(Event(EventType.THINKING, {"text": f"reject  {err}"}))
                 r.messages.append(loop._tool_message(name, err))
                 continue
 
@@ -268,22 +253,16 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
         cross = cross_tool_arg_error(
             name,
             args,
-            declared=schema_keys(
-                getattr(tool_obj, "parameters_schema", None)
-            )
+            declared=schema_keys(getattr(tool_obj, "parameters_schema", None))
             if tool_obj is not None
             else None,
             strict=bool(r.agent_cfg.get("strict_tool_args", True)),
         )
         if cross is not None:
-            await loop.bus.publish(
-                Event(EventType.THINKING, {"text": f"reject  {cross}"})
-            )
+            await loop.bus.publish(Event(EventType.THINKING, {"text": f"reject  {cross}"}))
             r.messages.append(loop._tool_message(name, cross))
             if loop._timer is not None:
-                loop._timer.mark(
-                    "exactness", gate="cross_tool_args", action="reject"
-                )
+                loop._timer.mark("exactness", gate="cross_tool_args", action="reject")
             continue
 
         redirected = await apply_redirects(loop, ctx, r, name, args, _drop_wander)
@@ -292,11 +271,7 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
         _, name, args = redirected
 
         # After a successful SMS this turn, do not web_search contacts.
-        if (
-            name == "web_search"
-            and r.sms_sent
-            and "send_sms" in loop.tools_used
-        ):
+        if name == "web_search" and r.sms_sent and "send_sms" in loop.tools_used:
             notice = (
                 "Blocked: SMS already sent this turn. Do not web_search "
                 "for the recipient. Answer the user and stop."
@@ -313,9 +288,7 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
         # A known contact is already in contacts.yaml — never search
         # the public web for their phone/email/identity.
         if name == "web_search":
-            hit = web_search_targets_known_contact(
-                str(args.get("query") or "")
-            )
+            hit = web_search_targets_known_contact(str(args.get("query") or ""))
             if hit is not None:
                 notice = (
                     f"Blocked: {hit.display_name} is already in the "
@@ -326,30 +299,22 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
                 await loop.bus.publish(
                     Event(
                         EventType.THINKING,
-                        {
-                            "text": (
-                                f"redirect  web_search → contacts "
-                                f"({hit.alias})"
-                            )
-                        },
+                        {"text": (f"redirect  web_search → contacts ({hit.alias})")},
                     )
                 )
                 r.messages.append(loop._tool_message(name, notice))
                 continue
 
         if name == "send_sms":
-            args = fill_send_sms_args(
-                args, r.sms_draft, already_sent=r.sms_sent
-            ) if r.sms_draft is not None else fill_send_sms_args(args, None)
+            args = (
+                fill_send_sms_args(args, r.sms_draft, already_sent=r.sms_sent)
+                if r.sms_draft is not None
+                else fill_send_sms_args(args, None)
+            )
             to_arg = str(args.get("to") or "").strip()
             if to_arg and to_arg.lower() in {s.lower() for s in r.sms_sent}:
-                notice = (
-                    f"Already sent SMS to {to_arg} earlier this turn; "
-                    "not sending a duplicate."
-                )
-                await loop.bus.publish(
-                    Event(EventType.THINKING, {"text": f"skip  {notice}"})
-                )
+                notice = f"Already sent SMS to {to_arg} earlier this turn; not sending a duplicate."
+                await loop.bus.publish(Event(EventType.THINKING, {"text": f"skip  {notice}"}))
                 r.messages.append(loop._tool_message(name, notice))
                 loop._trace.append(f"{name} duplicate send blocked")
                 continue
@@ -365,25 +330,18 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
                     "Already sent the drafted SMS this turn; not sending "
                     "a different follow-up body."
                 )
-                await loop.bus.publish(
-                    Event(EventType.THINKING, {"text": f"skip  {notice}"})
-                )
+                await loop.bus.publish(Event(EventType.THINKING, {"text": f"skip  {notice}"}))
                 r.messages.append(loop._tool_message(name, notice))
                 loop._trace.append(f"{name} extra body blocked")
                 continue
         if name == "send_email" and r.email_draft is not None:
-            args = fill_send_email_args(
-                args, r.email_draft, already_sent=ctx.email_sent
-            )
+            args = fill_send_email_args(args, r.email_draft, already_sent=ctx.email_sent)
             to_arg = str(args.get("to") or "").strip()
             if to_arg and to_arg.lower() in {s.lower() for s in ctx.email_sent}:
                 notice = (
-                    f"Already sent email to {to_arg} earlier this turn; "
-                    "not sending a duplicate."
+                    f"Already sent email to {to_arg} earlier this turn; not sending a duplicate."
                 )
-                await loop.bus.publish(
-                    Event(EventType.THINKING, {"text": f"skip  {notice}"})
-                )
+                await loop.bus.publish(Event(EventType.THINKING, {"text": f"skip  {notice}"}))
                 r.messages.append(loop._tool_message(name, notice))
                 loop._trace.append(f"{name} duplicate send blocked")
                 continue
@@ -417,9 +375,7 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
                         f"({args.get('summary')} @ {args.get('start')}); "
                         "not creating a duplicate."
                     )
-                    await loop.bus.publish(
-                        Event(EventType.THINKING, {"text": f"skip  {notice}"})
-                    )
+                    await loop.bus.publish(Event(EventType.THINKING, {"text": f"skip  {notice}"}))
                     r.messages.append(loop._tool_message(name, notice))
                     loop._trace.append(f"{name} duplicate create blocked")
                     continue
@@ -444,9 +400,7 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
                 user_text=r.text,
             )
             if loop._look is not None:
-                args["question"] = vision_question(
-                    loop._look.intent, r.text
-                )
+                args["question"] = vision_question(loop._look.intent, r.text)
                 if loop._look.path and not str(args.get("path") or "").strip():
                     args["path"] = loop._look.path
             elif wants_person_identify(r.text):
@@ -515,9 +469,7 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
                     "prior weather result in plain prose and stop, or "
                     "call weather for a city you have not fetched yet."
                 )
-                await loop.bus.publish(
-                    Event(EventType.THINKING, {"text": f"skip  {notice}"})
-                )
+                await loop.bus.publish(Event(EventType.THINKING, {"text": f"skip  {notice}"}))
                 r.messages.append(loop._tool_message(name, notice))
                 loop._trace.append(f"{name} duplicate fetch blocked")
                 continue
@@ -531,9 +483,7 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
                     "or scrape a different URL. Do not declare a winner "
                     "from a thin listicle."
                 )
-                await loop.bus.publish(
-                    Event(EventType.THINKING, {"text": f"skip  {notice}"})
-                )
+                await loop.bus.publish(Event(EventType.THINKING, {"text": f"skip  {notice}"}))
                 r.messages.append(loop._tool_message(name, notice))
                 loop._trace.append(f"{name} tool_cache blocked")
                 continue
@@ -548,9 +498,7 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
                     "were thin or listicles, say the sources were weak "
                     "— do not rank or declare a winner."
                 )
-                await loop.bus.publish(
-                    Event(EventType.THINKING, {"text": f"skip  {notice}"})
-                )
+                await loop.bus.publish(Event(EventType.THINKING, {"text": f"skip  {notice}"}))
                 r.messages.append(loop._tool_message(name, notice))
                 loop._trace.append(f"{name} page budget blocked")
                 continue
@@ -561,9 +509,7 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
                     "URL. Do not call scrape or web_fetch on the same "
                     "address a second time."
                 )
-                await loop.bus.publish(
-                    Event(EventType.THINKING, {"text": f"skip  {notice}"})
-                )
+                await loop.bus.publish(Event(EventType.THINKING, {"text": f"skip  {notice}"}))
                 r.messages.append(loop._tool_message(name, notice))
                 loop._trace.append(f"{name} duplicate url blocked")
                 continue
@@ -580,9 +526,7 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
                     "the hits were listicles, say so — do not declare a "
                     "winner."
                 )
-                await loop.bus.publish(
-                    Event(EventType.THINKING, {"text": f"skip  {notice}"})
-                )
+                await loop.bus.publish(Event(EventType.THINKING, {"text": f"skip  {notice}"}))
                 r.messages.append(loop._tool_message(name, notice))
                 loop._trace.append(f"{name} search budget blocked")
                 continue
@@ -592,9 +536,7 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
                     "not searching again. Answer from the prior result "
                     "or change the query."
                 )
-                await loop.bus.publish(
-                    Event(EventType.THINKING, {"text": f"skip  {notice}"})
-                )
+                await loop.bus.publish(Event(EventType.THINKING, {"text": f"skip  {notice}"}))
                 r.messages.append(loop._tool_message(name, notice))
                 loop._trace.append(f"{name} duplicate query blocked")
                 continue
@@ -604,17 +546,14 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
         if (
             name == "inbox"
             and ctx.inbox_empty_ok
-            and str(args.get("action") or "").strip().lower()
-            in INBOX_PEEK_ACTIONS
+            and str(args.get("action") or "").strip().lower() in INBOX_PEEK_ACTIONS
         ):
             notice = (
                 "Inbox list already came back empty this turn; not "
                 "listing again. Tell the user there is nothing there "
                 "and stop."
             )
-            await loop.bus.publish(
-                Event(EventType.THINKING, {"text": f"skip  {notice}"})
-            )
+            await loop.bus.publish(Event(EventType.THINKING, {"text": f"skip  {notice}"}))
             r.messages.append(loop._tool_message(name, notice))
             loop._trace.append(f"{name} empty peek blocked")
             continue
@@ -626,9 +565,7 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
                 "another. Tell the user the saved path from the prior "
                 "image result and stop."
             )
-            await loop.bus.publish(
-                Event(EventType.THINKING, {"text": f"skip  {notice}"})
-            )
+            await loop.bus.publish(Event(EventType.THINKING, {"text": f"skip  {notice}"}))
             r.messages.append(loop._tool_message(name, notice))
             loop._trace.append(f"{name} duplicate generate blocked")
             continue
@@ -636,9 +573,7 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
         # Same successful args this turn — a loop, not more work.
         same_notice = already_ran_same_call(ctx.same_ok, name, args)
         if same_notice:
-            await loop.bus.publish(
-                Event(EventType.THINKING, {"text": f"skip  {same_notice}"})
-            )
+            await loop.bus.publish(Event(EventType.THINKING, {"text": f"skip  {same_notice}"}))
             r.messages.append(loop._tool_message(name, same_notice))
             loop._trace.append(f"{name} same call blocked")
             key = same_call_key(name, args)
@@ -666,11 +601,7 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
                     await loop.bus.publish(
                         Event(
                             EventType.THINKING,
-                            {
-                                "text": (
-                                    "same-call algebra; asking for a write-up"
-                                )
-                            },
+                            {"text": ("same-call algebra; asking for a write-up")},
                         )
                     )
                 strip_tool_schemas(ctx, r)
@@ -719,9 +650,7 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
             round_i=round_i,
             call_i=call_i,
             fanout_results=fanout_results,
-            later_weather=any(
-                other == "weather" for other, _ in r.calls[call_i + 1 :]
-            ),
+            later_weather=any(other == "weather" for other, _ in r.calls[call_i + 1 :]),
         )
         if ended:
             return True
@@ -731,4 +660,3 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
         return True
 
     return False
-

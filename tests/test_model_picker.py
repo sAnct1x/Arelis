@@ -19,9 +19,7 @@ def _dialog_config(**models: str) -> dict:
             "vision": models.get("vision", "qwen2.5vl:3b"),
         },
         "workspace": {
-            "named_roots": [
-                {"name": "arelis", "path": str(Path.cwd()), "read_only": False}
-            ]
+            "named_roots": [{"name": "arelis", "path": str(Path.cwd()), "read_only": False}]
         },
         "tools": {"sms": {"inbound": {"ingest": {}}}},
     }

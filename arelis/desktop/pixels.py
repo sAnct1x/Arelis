@@ -164,11 +164,7 @@ def _attach_win_devices(rows: list[DeskScreen]) -> list[DeskScreen]:
     out: list[DeskScreen] = []
     for row in rows:
         hit = next(
-            (
-                m
-                for m in mons
-                if m[0] not in used and m[1] == row.x and m[2] == row.y
-            ),
+            (m for m in mons if m[0] not in used and m[1] == row.x and m[2] == row.y),
             None,
         )
         device = hit[0] if hit is not None else row.device
@@ -232,9 +228,7 @@ def format_screens(rows: list[DeskScreen]) -> str:
     return "\n".join(lines)
 
 
-def resolve_screen(
-    target: str, rows: list[DeskScreen] | None = None
-) -> DeskScreen | None:
+def resolve_screen(target: str, rows: list[DeskScreen] | None = None) -> DeskScreen | None:
     """Pick a monitor by index, primary, side, or 'other' (only when unique)."""
     needle = (target or "").strip().lower()
     if not needle:
@@ -307,15 +301,14 @@ def _resolve_side(needle: str, rows: list[DeskScreen]) -> DeskScreen | None:
     return None
 
 
-def screen_covering(
-    x: int, y: int, rows: list[DeskScreen]
-) -> DeskScreen | None:
+def screen_covering(x: int, y: int, rows: list[DeskScreen]) -> DeskScreen | None:
     """Screen whose geometry contains (x, y), else the nearest center."""
     if not rows:
         return None
     for row in rows:
         if row.x <= x < row.x + row.width and row.y <= y < row.y + row.height:
             return row
+
     def _dist(row: DeskScreen) -> float:
         cx = row.x + row.width / 2
         cy = row.y + row.height / 2
@@ -380,16 +373,12 @@ def screen_for_window(
     """Pick the window's QScreen by OS monitor name, then by center."""
     if not rows:
         return None
-    name = (device if device is not None else monitor_device_for_hwnd(hwnd) or "")
+    name = device if device is not None else monitor_device_for_hwnd(hwnd) or ""
     name = name.strip()
     if name:
         want = name.lower()
         hit = next(
-            (
-                s
-                for s in rows
-                if (s.device or "").lower() == want or s.name.lower() == want
-            ),
+            (s for s in rows if (s.device or "").lower() == want or s.name.lower() == want),
             None,
         )
         if hit is not None:
@@ -423,10 +412,7 @@ def grab_screen(
         else next((s for s in rows if s.primary), rows[0])
     )
     if chosen is None:
-        raise RuntimeError(
-            f"No monitor matching {target!r}. "
-            f"Connected: {format_screens(rows)}"
-        )
+        raise RuntimeError(f"No monitor matching {target!r}. Connected: {format_screens(rows)}")
     handle = chosen.handle
     if handle is None:
         from arelis.tools.ocr import capture_primary_screen
@@ -448,11 +434,7 @@ def grab_window(
 ) -> Path:
     """Grab one top-level window from the screen that owns it."""
     rows = screens if screens is not None else list_screens()
-    chosen = (
-        screen_for_window(hwnd, rows, center=center, device=device)
-        if rows
-        else None
-    )
+    chosen = screen_for_window(hwnd, rows, center=center, device=device) if rows else None
     handle = chosen.handle if chosen is not None else None
     if handle is not None:
         pix = handle.grabWindow(int(hwnd))
@@ -462,9 +444,7 @@ def grab_window(
 
     app = QApplication.instance() or QGuiApplication.instance()
     if app is None:
-        raise RuntimeError(
-            "No GUI application is running; cannot capture a window."
-        )
+        raise RuntimeError("No GUI application is running; cannot capture a window.")
     screen = QGuiApplication.primaryScreen()
     if screen is None:
         raise RuntimeError("No primary screen available.")

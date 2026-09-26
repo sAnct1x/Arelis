@@ -167,9 +167,7 @@ def _shell_open(verb_target: str) -> None:
         raise RuntimeError("Desktop launch is Windows-only.")
     import ctypes
 
-    hwnd = ctypes.windll.shell32.ShellExecuteW(
-        None, "open", verb_target, None, None, 1
-    )
+    hwnd = ctypes.windll.shell32.ShellExecuteW(None, "open", verb_target, None, None, 1)
     if int(hwnd) <= 32:
         raise OSError(f"ShellExecute failed ({hwnd}) for {verb_target!r}")
 

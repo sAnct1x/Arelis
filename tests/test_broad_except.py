@@ -96,8 +96,7 @@ def _surfaces_the_exception(handler: ast.ExceptHandler) -> bool:
         if not isinstance(node, ast.Call):
             continue
         reads = any(
-            isinstance(inner, ast.Name) and inner.id == handler.name
-            for inner in ast.walk(node)
+            isinstance(inner, ast.Name) and inner.id == handler.name for inner in ast.walk(node)
         )
         if not reads:
             continue
@@ -107,9 +106,7 @@ def _surfaces_the_exception(handler: ast.ExceptHandler) -> bool:
     if found:
         return not quiet_only
     # Bound and read outside any call at all — an f-string in a return, say.
-    return any(
-        isinstance(n, ast.Name) and n.id == handler.name for n in _walk_body(handler)
-    )
+    return any(isinstance(n, ast.Name) and n.id == handler.name for n in _walk_body(handler))
 
 
 def _comment_lines(src: str) -> set[int]:
@@ -127,9 +124,7 @@ def _has_comment(handler: ast.ExceptHandler, comments: set[int]) -> bool:
     last = handler.lineno
     for node in handler.body:
         last = max(last, getattr(node, "end_lineno", None) or node.lineno)
-    return any(
-        ln in comments for ln in range(handler.lineno - _COMMENT_REACH, last + 1)
-    )
+    return any(ln in comments for ln in range(handler.lineno - _COMMENT_REACH, last + 1))
 
 
 def unexplained_in_source(src: str) -> list[int]:
@@ -178,11 +173,7 @@ def test_no_new_silent_broad_excepts() -> None:
     """A file may not grow a handler that swallows without saying why."""
     found = scan()
     baseline = read_baseline()
-    worse = {
-        rel: (n, baseline.get(rel, 0))
-        for rel, n in found.items()
-        if n > baseline.get(rel, 0)
-    }
+    worse = {rel: (n, baseline.get(rel, 0)) for rel, n in found.items() if n > baseline.get(rel, 0)}
     assert not worse, (
         "new broad `except` with no diagnostic, no surfaced exception and no "
         "comment saying why silence is correct:\n"
@@ -207,9 +198,7 @@ def test_the_baseline_ratchets_down_and_never_goes_stale() -> None:
     found = scan()
     baseline = read_baseline()
     stale = {
-        rel: (found.get(rel, 0), was)
-        for rel, was in baseline.items()
-        if found.get(rel, 0) < was
+        rel: (found.get(rel, 0), was) for rel, was in baseline.items() if found.get(rel, 0) < was
     }
     assert not stale, (
         "broad_except_baseline.txt allows more than the tree contains, so the "

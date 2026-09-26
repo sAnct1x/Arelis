@@ -38,9 +38,7 @@ def real_tools() -> dict[str, Any]:
     in every real session.
     """
     router = SimpleNamespace(provider=SimpleNamespace(list_models=None))
-    registry = build_tool_registry(
-        load_config(), allow_send=True, attended=True, router=router
-    )
+    registry = build_tool_registry(load_config(), allow_send=True, attended=True, router=router)
     return {name: registry.get(name) for name in registry.names()}
 
 
@@ -118,11 +116,11 @@ def test_enum_values_are_not_invented(real_tools: dict[str, Any]) -> None:
         tool = real_tools.get(name)
         if tool is None:
             continue
-        real_action = ((_schema(tool).get("properties") or {}).get("action") or {})
+        real_action = (_schema(tool).get("properties") or {}).get("action") or {}
         real_enum = set(real_action.get("enum") or ())
         if not real_enum:
             continue
-        stub_action = ((_schema(stubs.get(name)) .get("properties") or {}).get("action") or {})
+        stub_action = (_schema(stubs.get(name)).get("properties") or {}).get("action") or {}
         stub_enum = set(stub_action.get("enum") or ())
         extra = sorted(stub_enum - real_enum)
         if extra:

@@ -55,15 +55,12 @@ class ContactsTool:
             },
             "who": {
                 "type": "string",
-                "description": (
-                    "Any nickname for get/update/remove (wife, brother, mom…)."
-                ),
+                "description": ("Any nickname for get/update/remove (wife, brother, mom…)."),
             },
             "name": {
                 "type": "string",
                 "description": (
-                    "Display name for add/update. Also accepted as who "
-                    "for get (alias or name)."
+                    "Display name for add/update. Also accepted as who for get (alias or name)."
                 ),
             },
             "phone": {
@@ -100,8 +97,7 @@ class ContactsTool:
             "replace_aliases": {
                 "type": "boolean",
                 "description": (
-                    "For update: if true, replace the alias list instead of "
-                    "merging. Default false."
+                    "For update: if true, replace the alias list instead of merging. Default false."
                 ),
             },
         },
@@ -116,14 +112,7 @@ class ContactsTool:
         if action == "list":
             return self._list()
         if action == "get":
-            return self._get(
-                str(
-                    kwargs.get("who")
-                    or kwargs.get("id")
-                    or kwargs.get("name")
-                    or ""
-                )
-            )
+            return self._get(str(kwargs.get("who") or kwargs.get("id") or kwargs.get("name") or ""))
         if action == "add":
             return self._add(kwargs)
         if action == "update":

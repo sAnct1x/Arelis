@@ -4,6 +4,7 @@ Earth zone is one Cesium globe. Solar lab is native GL. Never both live:
 park/destroy the offscreen context, then mount WebEngine. A photoreal
 miss must not set host.failed. Native disc is fallback only.
 """
+
 from __future__ import annotations
 
 import json
@@ -28,7 +29,7 @@ def earth_zoom_factor(delta: float) -> float:
         return 1.0
     notches = step / 120.0 if step >= 40.0 else step / 40.0
     notches = min(3.0, max(0.12, notches))
-    inward = 0.78 ** notches
+    inward = 0.78**notches
     return inward if delta > 0.0 else 1.0 / inward
 
 
@@ -213,9 +214,7 @@ class SolarEarthMixin:
         alt = earth_entity_look_alt_m(getattr(ent, "layer", ""))
         self._go_earth_lla(pair[0], pair[1], alt, leave=False)
 
-    def _go_earth_lla(
-        self, lat: float, lon: float, alt_m: float, *, leave: bool = True
-    ) -> bool:
+    def _go_earth_lla(self, lat: float, lon: float, alt_m: float, *, leave: bool = True) -> bool:
         """Fly here. A place hop drops the old contact. Dest is not the eye."""
         if leave:
             from arelis.earth.runtime import get_earth
@@ -762,9 +761,7 @@ class SolarEarthMixin:
             look_lon = float(payload["look_lon"])
         except (KeyError, TypeError, ValueError):
             look_lat = look_lon = None
-        self._cesium_look = (
-            (look_lat, look_lon) if look_lat is not None else None
-        )
+        self._cesium_look = (look_lat, look_lon) if look_lat is not None else None
         try:
             mpp = float(payload.get("mpp") or 0.0)
         except (TypeError, ValueError):
@@ -930,9 +927,7 @@ class SolarEarthMixin:
         gen = road_generation()
         view = zone.last_view
         look = (
-            cache_key(view.lat, view.lon, view.band, alt_m=view.alt_m)
-            if view is not None
-            else None
+            cache_key(view.lat, view.lon, view.band, alt_m=view.alt_m) if view is not None else None
         )
         if (
             want == getattr(self, "_streets_on", None)
@@ -964,11 +959,7 @@ class SolarEarthMixin:
         if host is None or host.failed or not host.isVisible():
             return
         now = time.perf_counter()
-        if (
-            (camera or force)
-            and not self._globe_flight_live()
-            and not self._earth_globe_live()
-        ):
+        if (camera or force) and not self._globe_flight_live() and not self._earth_globe_live():
             self._push_globe_camera()
         from arelis.earth.runtime import get_earth
         from arelis.ui.earth_globe_host import entity_rows, place_rows
@@ -1071,9 +1062,7 @@ class SolarEarthMixin:
             return
         sun = system.nbody.find("Sun")
         sun_p = (sun.x, sun.y, sun.z) if sun is not None else None
-        flying = flight.step(
-            self.cam, body.x, body.y, body.z, body.radius, sun_p, dt
-        )
+        flying = flight.step(self.cam, body.x, body.y, body.z, body.radius, sun_p, dt)
         if not flying:
             name = flight.name
             self._warp = None
@@ -1253,9 +1242,7 @@ class SolarEarthMixin:
                     earth.radius,
                     self.cam.speed,
                 )
-        dist = math.hypot(
-            self.cam.x - earth.x, self.cam.y - earth.y, self.cam.z - earth.z
-        )
+        dist = math.hypot(self.cam.x - earth.x, self.cam.y - earth.y, self.cam.z - earth.z)
         return earth_zone_speed(dist, earth.radius, self.cam.speed)
 
     def _remember_earth_eye(self, system: SolarSystem | None = None) -> None:
@@ -1471,4 +1458,3 @@ class SolarEarthMixin:
             return
         self._earth_id = hit.id
         self._open_earth_look(hit)
-

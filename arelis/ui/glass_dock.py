@@ -1,4 +1,5 @@
 """Frameless glass QDockWidget — edge resize while floating (matches main shell)."""
+
 from __future__ import annotations
 
 from PySide6.QtCore import QEvent, Qt

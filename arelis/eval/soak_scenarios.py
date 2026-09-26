@@ -33,10 +33,7 @@ def production_bounce_turns() -> list[ConversationTurn]:
         ),
         ConversationTurn(
             id="sms_text_message_not_to_message",
-            user=(
-                "in a text message to my wife and just tell her "
-                "good nights, sweet dreams"
-            ),
+            user=("in a text message to my wife and just tell her good nights, sweet dreams"),
             expect_tools=("send_sms",),
             require_args=("to", "body"),
             expect_args={"to": "wife", "body": "sweet dreams"},
@@ -62,10 +59,7 @@ def production_bounce_turns() -> list[ConversationTurn]:
         ),
         ConversationTurn(
             id="agenda_create_anniversary",
-            user=(
-                "Create a calendar event on August 13th at 7am. "
-                "It is my anniversary"
-            ),
+            user=("Create a calendar event on August 13th at 7am. It is my anniversary"),
             expect_tools=("agenda",),
             require_args=("action", "summary", "start"),
             expect_args={"action": "create", "summary": "Anniversary"},
@@ -115,10 +109,7 @@ def production_bounce_turns() -> list[ConversationTurn]:
                                 "send_sms",
                                 {
                                     "to": "wife",
-                                    "body": (
-                                        "Our anniversary is in two days and "
-                                        "I will miss her"
-                                    ),
+                                    "body": ("Our anniversary is in two days and I will miss her"),
                                 },
                             )
                         ],
@@ -247,10 +238,7 @@ def production_bounce_turns() -> list[ConversationTurn]:
         ),
         ConversationTurn(
             id="email_with_attach",
-            user=(
-                "Email that image to you@example.com with subject "
-                "Farmhouse photo"
-            ),
+            user=("Email that image to you@example.com with subject Farmhouse photo"),
             expect_tools=("send_email",),
             require_args=("to", "subject"),
             expect_args={
@@ -334,8 +322,7 @@ def production_bounce_turns() -> list[ConversationTurn]:
                 [
                     (
                         "token",
-                        "Overcast in Springfield, Illinois. Inbox list came "
-                        "back from the stub.",
+                        "Overcast in Springfield, Illinois. Inbox list came back from the stub.",
                     )
                 ],
             ],

@@ -59,9 +59,7 @@ class HandPreview(QWidget):
             self._closed = frozenset(closed_labels)
             self._kinds = {name: "fist" for name in self._closed}
         elif closed:
-            self._closed = frozenset(
-                hand.label for hand in hands if getattr(hand, "label", "")
-            )
+            self._closed = frozenset(hand.label for hand in hands if getattr(hand, "label", ""))
             self._kinds = {name: "fist" for name in self._closed}
         else:
             self._closed = frozenset()

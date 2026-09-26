@@ -58,9 +58,7 @@ def run_core(config: dict[str, Any]) -> int:
             log.info("%s", payload.get("message") or "")
             return
         if event.type == EventType.SMS_RECEIVED:
-            who = payload.get("contact_name") or payload.get("contact_alias") or payload.get(
-                "from"
-            )
+            who = payload.get("contact_name") or payload.get("contact_alias") or payload.get("from")
             body = str(payload.get("body") or "")
             preview = body if len(body) <= 80 else body[:79] + "…"
             log.info("Inbound SMS from %s: %s", who, preview)
@@ -223,8 +221,7 @@ def run_core(config: dict[str, Any]) -> int:
             )
         else:
             ipc_message = (
-                f"Core IPC ready on {ipc_host}:{bound} "
-                "(UI may attach for live SMS/confirm events)."
+                f"Core IPC ready on {ipc_host}:{bound} (UI may attach for live SMS/confirm events)."
             )
         asyncio.run_coroutine_threadsafe(
             bus.publish(Event(EventType.STATUS, {"message": ipc_message})),

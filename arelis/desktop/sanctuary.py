@@ -79,9 +79,7 @@ _DELETE_LABEL = re.compile(
     r"turn off (the )?firewall"
     r")\s*$"
 )
-_UAC_LABEL = re.compile(
-    r"(?i)^\s*(yes|ok|allow|elevate|run as administrator|administrator)\s*$"
-)
+_UAC_LABEL = re.compile(r"(?i)^\s*(yes|ok|allow|elevate|run as administrator|administrator)\s*$")
 _PASSWORD_INTO = re.compile(r"(?i)\b(password|passwd|pin|otp|one[- ]?time|passcode)\b")
 
 
@@ -222,8 +220,5 @@ def password_field(into: str = "", name: str = "") -> bool:
 
 def refuse_secret_type(*, into: str = "", name: str = "", is_password: bool = False) -> str | None:
     if is_password or password_field(into, name):
-        return (
-            "Your turn — I do not type passwords, PINs, or OTP codes. "
-            "Hit Go when you are done."
-        )
+        return "Your turn — I do not type passwords, PINs, or OTP codes. Hit Go when you are done."
     return None

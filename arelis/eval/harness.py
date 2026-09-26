@@ -42,25 +42,71 @@ _STUB_SCHEMAS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     "agenda": (
         ("action",),
         (
-            "action", "all_day", "calendar_id", "description", "end", "event_id",
-            "keep", "location", "provider", "start", "summary",
+            "action",
+            "all_day",
+            "calendar_id",
+            "description",
+            "end",
+            "event_id",
+            "keep",
+            "location",
+            "provider",
+            "start",
+            "summary",
         ),
     ),
     "analyze": (("path",), ("action", "path", "rows")),
     "browser": (
         ("action",),
         (
-            "action", "amount", "browser", "date", "destination", "direction",
-            "focus", "full_page", "into", "key", "mode", "name", "notes", "nth",
-            "origin", "party", "phone", "place", "private", "query", "ref",
-            "seconds", "select", "site", "tab", "target", "text", "time", "url",
+            "action",
+            "amount",
+            "browser",
+            "date",
+            "destination",
+            "direction",
+            "focus",
+            "full_page",
+            "into",
+            "key",
+            "mode",
+            "name",
+            "notes",
+            "nth",
+            "origin",
+            "party",
+            "phone",
+            "place",
+            "private",
+            "query",
+            "ref",
+            "seconds",
+            "select",
+            "site",
+            "tab",
+            "target",
+            "text",
+            "time",
+            "url",
         ),
     ),
     "desktop": (
         ("action",),
         (
-            "action", "amount", "direction", "find", "into", "key", "keys", "nth",
-            "ref", "seconds", "target", "text", "x", "y",
+            "action",
+            "amount",
+            "direction",
+            "find",
+            "into",
+            "key",
+            "keys",
+            "nth",
+            "ref",
+            "seconds",
+            "target",
+            "text",
+            "x",
+            "y",
         ),
     ),
     "calculator": (("expression",), ("expression",)),
@@ -86,8 +132,19 @@ _STUB_SCHEMAS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     "solar": (
         ("action",),
         (
-            "action", "date", "dvx", "dvy", "dvz", "epoch_gyr", "flag", "name",
-            "r1_au", "r2_au", "rate", "refresh", "tracers",
+            "action",
+            "date",
+            "dvx",
+            "dvy",
+            "dvz",
+            "epoch_gyr",
+            "flag",
+            "name",
+            "r1_au",
+            "r2_au",
+            "rate",
+            "refresh",
+            "tracers",
         ),
     ),
     "earth": (
@@ -105,7 +162,13 @@ _STUB_SCHEMAS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     "inbox": (
         ("action",),
         (
-            "action", "id", "limit", "sender", "since", "subject", "text",
+            "action",
+            "id",
+            "limit",
+            "sender",
+            "since",
+            "subject",
+            "text",
             "unread_only",
         ),
     ),
@@ -254,9 +317,7 @@ class _FatScrapeStub(_StubTool):
             "",
         ]
         for i in range(60):
-            lines.append(
-                f"- Bullet {i}: concrete finding about topic {i} with supporting detail."
-            )
+            lines.append(f"- Bullet {i}: concrete finding about topic {i} with supporting detail.")
             lines.append(
                 f"Paragraph {i} expands the point with context, numbers, and caveats "
                 f"so the body stays well above the fat-tool threshold."
@@ -418,9 +479,7 @@ class _BrowserStub(_StubTool):
                 data={"query": query, "site": site, "mode": "attach"},
             )
         if action == "reserve":
-            place = str(
-                kwargs.get("place") or kwargs.get("query") or "the place"
-            ).strip()
+            place = str(kwargs.get("place") or kwargs.get("query") or "the place").strip()
             return ToolResult(
                 ok=True,
                 output=(
@@ -739,9 +798,7 @@ async def run_scripted_scenario(
     else:
         expected = set(scenario.expect_tools)
         if expected and tools_called[0] not in expected:
-            reasons.append(
-                f"first tool {tools_called[0]!r} not in {sorted(expected)}"
-            )
+            reasons.append(f"first tool {tools_called[0]!r} not in {sorted(expected)}")
         # Multi-expect: every listed tool must appear (order still checked via first),
         # unless expect_tools_any (OR set — e.g. agenda or briefing).
         if len(scenario.expect_tools) > 1 and not scenario.expect_tools_any:
@@ -812,9 +869,7 @@ async def run_scripted_scenario(
         else:
             for phrase in scenario.expect_tool_result_contains:
                 if phrase not in blob:
-                    reasons.append(
-                        f"TOOL_RESULT for {result_tool!r} missing {phrase!r}"
-                    )
+                    reasons.append(f"TOOL_RESULT for {result_tool!r} missing {phrase!r}")
 
     if scenario.expect_truncated is not None:
         if not tool_results:
@@ -824,31 +879,18 @@ async def run_scripted_scenario(
             # prepare_tool_output may shrink the card before the hard cap; treat
             # the summary-card marker as truncation evidence too.
             marked = any(
-                "truncated" in str(e.payload.get("output") or "").lower()
-                for e in tool_results
+                "truncated" in str(e.payload.get("output") or "").lower() for e in tool_results
             )
             saw = flagged or marked
             if scenario.expect_truncated and not saw:
-                reasons.append(
-                    f"expected truncated TOOL_RESULT for {result_tool!r}"
-                )
+                reasons.append(f"expected truncated TOOL_RESULT for {result_tool!r}")
             if scenario.expect_truncated is False and flagged:
-                reasons.append(
-                    f"unexpected truncated TOOL_RESULT for {result_tool!r}"
-                )
+                reasons.append(f"unexpected truncated TOOL_RESULT for {result_tool!r}")
 
-    model_switches = [
-        dict(e.payload)
-        for e in events
-        if e.type == EventType.MODEL_SWITCH
-    ]
+    model_switches = [dict(e.payload) for e in events if e.type == EventType.MODEL_SWITCH]
     if scenario.expect_model_switch_reason:
         want_reason = scenario.expect_model_switch_reason
-        matched = [
-            sw
-            for sw in model_switches
-            if str(sw.get("reason") or "") == want_reason
-        ]
+        matched = [sw for sw in model_switches if str(sw.get("reason") or "") == want_reason]
         if not matched:
             reasons.append(
                 f"missing MODEL_SWITCH reason={want_reason!r} "
@@ -869,10 +911,7 @@ async def run_scripted_scenario(
                 for sw in matched
                 if str(sw.get("role") or "") == want_role
             ):
-                reasons.append(
-                    f"MODEL_SWITCH to {want_role!r} did not change model "
-                    f"(from==to)"
-                )
+                reasons.append(f"MODEL_SWITCH to {want_role!r} did not change model (from==to)")
 
     return EvalResult(
         scenario_id=scenario.id,
@@ -887,9 +926,7 @@ async def run_scripted_scenario(
     )
 
 
-async def run_all_scripted(
-    *, agent_overrides: dict[str, Any] | None = None
-) -> list[EvalResult]:
+async def run_all_scripted(*, agent_overrides: dict[str, Any] | None = None) -> list[EvalResult]:
     return [
         await run_scripted_scenario(s, agent_overrides=agent_overrides)
         for s in SCENARIOS

@@ -60,9 +60,7 @@ async def _activate_any(host: str, ports: list[int]) -> bool:
 
 async def _activate(host: str, port: int) -> bool:
     try:
-        reader, writer = await asyncio.wait_for(
-            asyncio.open_connection(host, port), timeout=1.5
-        )
+        reader, writer = await asyncio.wait_for(asyncio.open_connection(host, port), timeout=1.5)
     except Exception:
         return False
     try:
@@ -78,9 +76,7 @@ async def _activate(host: str, port: int) -> bool:
             return False
         if not isinstance(ack, dict) or not is_mine(ack.get("instance")):
             return False
-        writer.write(
-            encode_line(open_ui_request_message(reason="second_instance"))
-        )
+        writer.write(encode_line(open_ui_request_message(reason="second_instance")))
         await writer.drain()
         writer.write(encode_line(bye_message()))
         await writer.drain()

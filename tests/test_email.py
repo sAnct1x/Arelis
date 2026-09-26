@@ -66,9 +66,7 @@ def test_the_spaces_google_shows_are_not_part_of_the_password(tmp_path) -> None:
 
 
 def test_the_environment_wins_over_the_file(tmp_path, monkeypatch) -> None:
-    path = _secrets(
-        tmp_path, "email:\n  address: me@example.com\n  app_password: fromfile\n"
-    )
+    path = _secrets(tmp_path, "email:\n  address: me@example.com\n  app_password: fromfile\n")
     monkeypatch.setenv(PASSWORD_ENV, "fromenv")
     account = load_account(path)
     assert account is not None and account.password == "fromenv"
@@ -105,21 +103,15 @@ def test_reply_address_strips_display_name() -> None:
 
 def test_recipient_uses_inbox_not_smtp_from(monkeypatch) -> None:
     monkeypatch.setattr("arelis.profile.load_profile_email", lambda **k: "")
-    account = MailAccount(
-        "bot@example.com", "pw", default_recipient="digest@example.com"
-    )
+    account = MailAccount("bot@example.com", "pw", default_recipient="digest@example.com")
     assert account.recipient("someone@else.com") == "someone@else.com"
     assert account.recipient("") == "digest@example.com"
     assert MailAccount("bot@example.com", "pw").recipient("") == ""
 
 
 def test_recipient_prefers_profile_email(monkeypatch) -> None:
-    monkeypatch.setattr(
-        "arelis.profile.load_profile_email", lambda **k: "you@example.com"
-    )
-    account = MailAccount(
-        "bot@example.com", "pw", default_recipient="digest@example.com"
-    )
+    monkeypatch.setattr("arelis.profile.load_profile_email", lambda **k: "you@example.com")
+    account = MailAccount("bot@example.com", "pw", default_recipient="digest@example.com")
     assert account.recipient("") == "you@example.com"
 
 
@@ -149,7 +141,7 @@ def test_message_carries_both_plain_text_and_html() -> None:
 
 def test_html_never_lets_source_markup_render() -> None:
     """An answer can quote a scraped page. That page must not render in a inbox."""
-    rendered = markdown_to_html('<script>alert(1)</script> and <b>bold</b>')
+    rendered = markdown_to_html("<script>alert(1)</script> and <b>bold</b>")
     assert "<script>" not in rendered
     assert "&lt;script&gt;" in rendered
 
@@ -189,9 +181,7 @@ class _FakeMailer:
         self.error = error
         self.sent: list[dict[str, str]] = []
 
-    async def send_async(
-        self, *, to: str, subject: str, body: str, attachments=None
-    ) -> str:
+    async def send_async(self, *, to: str, subject: str, body: str, attachments=None) -> str:
         if self.error:
             raise self.error
         self.sent.append({"to": to, "subject": subject, "body": body})
@@ -407,9 +397,11 @@ def test_inbox_exposes_mailbox_mutation_when_attended() -> None:
 def test_summarize_criteria_default_unread_like_list() -> None:
     assert _list_criteria("summarize", {}) == ["UNSEEN"]
     assert _list_criteria("summarize", {"unread_only": False}) == ["ALL"]
-    assert _list_criteria(
-        "summarize", {"sender": "a@b.c", "unread_only": True}
-    ) == ["FROM", '"a@b.c"', "UNSEEN"]
+    assert _list_criteria("summarize", {"sender": "a@b.c", "unread_only": True}) == [
+        "FROM",
+        '"a@b.c"',
+        "UNSEEN",
+    ]
 
 
 class _FakeImap:
@@ -473,9 +465,7 @@ async def test_summarize_returns_structured_peek_only(monkeypatch) -> None:
     assert "Snippet body" in messages[0]["snippet"]
     assert "Peek-only" in result.output
     assert all("BODY.PEEK" in spec for spec in fake.fetches)
-    assert not any(
-        "BODY[]" in spec.replace("BODY.PEEK", "PEEK") for spec in fake.fetches
-    )
+    assert not any("BODY[]" in spec.replace("BODY.PEEK", "PEEK") for spec in fake.fetches)
 
 
 class _FakeMutatingImap(_FakeImap):
@@ -593,10 +583,7 @@ def test_inbox_peek_was_empty_is_just_no_rows() -> None:
 
 def test_invisible_unicode_is_stripped_from_mail_bodies() -> None:
     sludge = "Hello\u034f\n\n\n\u200bWorld"
-    msg = _message(
-        "MIME-Version: 1.0\nContent-Type: text/plain; charset=utf-8\n\n"
-        f"{sludge}\n"
-    )
+    msg = _message(f"MIME-Version: 1.0\nContent-Type: text/plain; charset=utf-8\n\n{sludge}\n")
     body, _ = extract_body(msg)
     assert "\u034f" not in body
     assert "\u200b" not in body
@@ -621,9 +608,7 @@ def test_inbox_write_needs_confirm_and_an_id() -> None:
 
 
 def test_mailbox_list_line_parses_gmail_trash() -> None:
-    parsed = _parse_mailbox_list_line(
-        b'(\\HasNoChildren \\Trash) "/" "[Gmail]/Trash"'
-    )
+    parsed = _parse_mailbox_list_line(b'(\\HasNoChildren \\Trash) "/" "[Gmail]/Trash"')
     assert parsed is not None
     name, flags = parsed
     assert name == "[Gmail]/Trash"
@@ -678,9 +663,7 @@ def test_the_job_runner_gets_no_way_to_send(tmp_path, monkeypatch) -> None:
     from arelis.sms_android import SmsGateAccount
     from arelis.workspace import WorkspaceRoots
 
-    monkeypatch.setattr(
-        tools_pkg, "load_account", lambda: MailAccount("me@example.com", "pw")
-    )
+    monkeypatch.setattr(tools_pkg, "load_account", lambda: MailAccount("me@example.com", "pw"))
     monkeypatch.setattr(
         tools_pkg,
         "load_sms_account",

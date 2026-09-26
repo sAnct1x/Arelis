@@ -51,8 +51,8 @@ class EventBus:
         self._queue.put_nowait(event)
 
     async def _dispatch(self, event: Event) -> None:
-        handlers: Iterable[Handler] = (
-            list(self._subs.get(None, [])) + list(self._subs.get(event.type, []))
+        handlers: Iterable[Handler] = list(self._subs.get(None, [])) + list(
+            self._subs.get(event.type, [])
         )
         for handler in handlers:
             try:
@@ -68,7 +68,8 @@ class EventBus:
                 # was published, so the desktop UI stayed disabled and the only
                 # way out was restarting the app.
                 log.exception(
-                    "Event handler %r failed for %s", getattr(handler, "__qualname__", handler),
+                    "Event handler %r failed for %s",
+                    getattr(handler, "__qualname__", handler),
                     event.type.value,
                 )
 

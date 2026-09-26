@@ -264,9 +264,7 @@ def clamp_filament_span(value: object) -> int:
         return 1
 
 
-def filament_row_desks(
-    window: QWidget, home: QRect | None = None
-) -> tuple[list[QRect], QRect]:
+def filament_row_desks(window: QWidget, home: QRect | None = None) -> tuple[list[QRect], QRect]:
     """Monitors on the same horizontal band as home, left to right.
 
     Windows display numbers are ignored. The row is physical x-order, so a
@@ -280,9 +278,7 @@ def filament_row_desks(
     pinned = QRect(home) if home is not None else None
     if pinned is None:
         screen = app.primaryScreen() or window.screen()
-        pinned = (
-            QRect(screen.availableGeometry()) if screen is not None else QRect(fallback)
-        )
+        pinned = QRect(screen.availableGeometry()) if screen is not None else QRect(fallback)
     row: list[QRect] = []
     band = max(80, pinned.height() // 4)
     for screen in app.screens():
@@ -802,9 +798,7 @@ class FilamentField:
             )
             if fade < 0.14:
                 continue
-            along = (
-                max(0.0, 1.0 - abs(d["t"] - speak_head) / 0.07) if self.words else 0.0
-            )
+            along = max(0.0, 1.0 - abs(d["t"] - speak_head) / 0.07) if self.words else 0.0
             ndx, ndy = p.x() - cx, p.y() - cy
             nlen = math.hypot(ndx, ndy) or 1.0
             off = d["s"] * 18.0
@@ -997,14 +991,8 @@ class FilamentField:
         c2 = QPointF(start.x() + dx * 0.68 + px * 0.45, start.y() + dy * 0.68 + py * 0.45)
         omt = 1.0 - u
         return QPointF(
-            omt**3 * start.x()
-            + 3 * omt**2 * u * c1.x()
-            + 3 * omt * u**2 * c2.x()
-            + u**3 * end.x(),
-            omt**3 * start.y()
-            + 3 * omt**2 * u * c1.y()
-            + 3 * omt * u**2 * c2.y()
-            + u**3 * end.y(),
+            omt**3 * start.x() + 3 * omt**2 * u * c1.x() + 3 * omt * u**2 * c2.x() + u**3 * end.x(),
+            omt**3 * start.y() + 3 * omt**2 * u * c1.y() + 3 * omt * u**2 * c2.y() + u**3 * end.y(),
         )
 
     def _desk_width(self, w: float) -> float:
@@ -1064,10 +1052,10 @@ class FilamentField:
             return 0.0
         if local < m:
             t = max(0.0, local / m)
-            return t ** 1.6
+            return t**1.6
         if local > w - m:
             t = max(0.0, (w - local) / m)
-            return t ** 1.6
+            return t**1.6
         return 1.0
 
     @staticmethod

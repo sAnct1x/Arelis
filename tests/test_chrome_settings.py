@@ -58,9 +58,7 @@ def test_recent_workspace_files_roundtrip(tmp_path: Path, monkeypatch) -> None:
     from arelis.ui.layout_store import load_recent_workspace_files, push_recent_workspace_file
 
     ini = tmp_path / "ui_layout.ini"
-    monkeypatch.setattr(
-        "arelis.ui.layout_store._settings_path", lambda: ini
-    )
+    monkeypatch.setattr("arelis.ui.layout_store._settings_path", lambda: ini)
     assert load_recent_workspace_files() == []
     push_recent_workspace_file("arelis:README.md")
     push_recent_workspace_file("interferometer:notes.txt")
@@ -158,9 +156,7 @@ def test_settings_allow_tab(qt_app) -> None:
             "presence": {},
             "agent": {"confirm_browser": False, "confirm_send": True},
             "workspace": {
-                "named_roots": [
-                    {"name": "arelis", "path": str(Path.cwd()), "read_only": False}
-                ]
+                "named_roots": [{"name": "arelis", "path": str(Path.cwd()), "read_only": False}]
             },
             "tools": {"sms": {"inbound": {"ingest": {}}}},
         },
@@ -226,24 +222,16 @@ def test_hit_test_resize_corners(qt_app) -> None:
 
     geo = w.frameGeometry()
     try:
-        assert (
-            hit_test_resize_at(w, geo.left() + 2, geo.top() + 2) == HTTOPLEFT
-        )
-        assert (
-            hit_test_resize_at(w, geo.left() + 2, geo.center().y()) == HTLEFT
-        )
-        assert (
-            hit_test_resize_at(w, geo.center().x(), geo.bottom() - 2) == HTBOTTOM
-        )
+        assert hit_test_resize_at(w, geo.left() + 2, geo.top() + 2) == HTTOPLEFT
+        assert hit_test_resize_at(w, geo.left() + 2, geo.center().y()) == HTLEFT
+        assert hit_test_resize_at(w, geo.center().x(), geo.bottom() - 2) == HTBOTTOM
         assert hit_test_resize_at(w, geo.center().x(), geo.center().y()) is None
         # Cursor-based helper still works.
         from arelis.ui import window_resize as wr
 
         original = wr.QCursor.pos
         try:
-            wr.QCursor.pos = staticmethod(
-                lambda: QPoint(geo.left() + 2, geo.center().y())
-            )
+            wr.QCursor.pos = staticmethod(lambda: QPoint(geo.left() + 2, geo.center().y()))
             assert hit_test_resize(w) == HTLEFT
         finally:
             wr.QCursor.pos = original
@@ -343,9 +331,7 @@ def test_settings_has_no_theme_tab(qt_app) -> None:
             "voice": {},
             "presence": {},
             "workspace": {
-                "named_roots": [
-                    {"name": "arelis", "path": str(Path.cwd()), "read_only": False}
-                ]
+                "named_roots": [{"name": "arelis", "path": str(Path.cwd()), "read_only": False}]
             },
             "tools": {"sms": {"inbound": {"ingest": {}}}},
         },
@@ -410,9 +396,7 @@ def test_settings_opens_notify_tab(qt_app) -> None:
             "voice": {},
             "presence": {},
             "workspace": {
-                "named_roots": [
-                    {"name": "arelis", "path": str(Path.cwd()), "read_only": False}
-                ]
+                "named_roots": [{"name": "arelis", "path": str(Path.cwd()), "read_only": False}]
             },
             "tools": {"sms": {"inbound": {"ingest": {}}}},
         },

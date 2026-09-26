@@ -64,9 +64,7 @@ def _grab(top: Any, dest: Path) -> Path:
             for widget in extras:
                 extra = widget.grab()
                 if extra.isNull():
-                    screen = widget.screen() or (
-                        app.primaryScreen() if app is not None else None
-                    )
+                    screen = widget.screen() or (app.primaryScreen() if app is not None else None)
                     if screen is not None:
                         extra = screen.grabWindow(int(widget.winId()))
                 if extra.isNull():

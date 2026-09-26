@@ -203,9 +203,7 @@ def test_open_url_in_browser_launches_exe(monkeypatch) -> None:
 
     monkeypatch.setattr(launch_mod.subprocess, "Popen", _fake_popen)
     monkeypatch.setattr(launch_mod, "chrome_executable", lambda: r"C:\Chrome\chrome.exe")
-    ok, msg, data = launch_mod.open_url_in_browser(
-        "https://www.youtube.com", "chrome"
-    )
+    ok, msg, data = launch_mod.open_url_in_browser("https://www.youtube.com", "chrome")
     assert ok
     assert data["mode"] == "os_open"
     assert "youtube.com" in msg
@@ -444,9 +442,7 @@ def test_describe_browser_relaunch() -> None:
     read = reg.describe_call("browser", {"action": "read"})
     assert "compact" in read.lower()
     assert "scrape" in read.lower()
-    maps = reg.describe_call(
-        "browser", {"action": "maps", "destination": "Midway airport"}
-    )
+    maps = reg.describe_call("browser", {"action": "maps", "destination": "Midway airport"})
     assert "maps" in maps.lower()
     assert "Midway" in maps
     assert "phone" in maps.lower()
@@ -478,13 +474,9 @@ def test_prefer_cdp_skips_foreign_port(monkeypatch) -> None:
 
     monkeypatch.setattr(launch_mod, "cdp_is_up", _up)
     monkeypatch.setattr(launch_mod, "cdp_port_is_arelis", lambda _url: False)
-    assert launch_mod.prefer_cdp_url("http://127.0.0.1:9222") == (
-        "http://127.0.0.1:9333"
-    )
+    assert launch_mod.prefer_cdp_url("http://127.0.0.1:9222") == ("http://127.0.0.1:9333")
     monkeypatch.setattr(launch_mod, "cdp_port_is_arelis", lambda _url: True)
-    assert launch_mod.prefer_cdp_url("http://127.0.0.1:9222") == (
-        "http://127.0.0.1:9222"
-    )
+    assert launch_mod.prefer_cdp_url("http://127.0.0.1:9222") == ("http://127.0.0.1:9222")
 
 
 def test_empty_process_scan_keeps_preferred_port(monkeypatch) -> None:
@@ -494,9 +486,7 @@ def test_empty_process_scan_keeps_preferred_port(monkeypatch) -> None:
     monkeypatch.setattr(launch_mod, "_chrome_cmdlines", lambda: [])
     monkeypatch.setattr(launch_mod, "cdp_is_up", lambda _url, **_k: True)
     assert launch_mod.cdp_port_is_arelis("http://127.0.0.1:9222") is None
-    assert launch_mod.prefer_cdp_url("http://127.0.0.1:9222") == (
-        "http://127.0.0.1:9222"
-    )
+    assert launch_mod.prefer_cdp_url("http://127.0.0.1:9222") == ("http://127.0.0.1:9222")
 
 
 def test_ensure_keeps_attached_cdp_url(monkeypatch) -> None:
@@ -533,4 +523,3 @@ def test_ensure_keeps_attached_cdp_url(monkeypatch) -> None:
         assert hops == []
 
     asyncio.run(_run())
-

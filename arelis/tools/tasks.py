@@ -13,9 +13,7 @@ from arelis.core.events import Event, EventType
 from arelis.memory.store import MemoryStore
 from arelis.tools.base import ToolResult
 
-WRITE_ACTIONS = frozenset(
-    {"add", "update", "done", "reopen", "remove", "attach", "detach"}
-)
+WRITE_ACTIONS = frozenset({"add", "update", "done", "reopen", "remove", "attach", "detach"})
 
 
 def _notify_tasks(action: str, **extra: Any) -> None:
@@ -45,9 +43,7 @@ def _format_task(row: dict[str, Any]) -> str:
 
 def _format_forest(rows: list[dict[str, Any]]) -> list[str]:
     """Nest children under a parent that is also in this result set."""
-    by_id = {
-        int(row["id"]): row for row in rows if row.get("id") is not None
-    }
+    by_id = {int(row["id"]): row for row in rows if row.get("id") is not None}
     child_map: dict[int, list[dict[str, Any]]] = {}
     roots: list[dict[str, Any]] = []
     for row in rows:
@@ -142,15 +138,12 @@ class TasksTool:
             "parent_id": {
                 "type": "integer",
                 "description": (
-                    "Parent task id for add/update (subtask). Empty string "
-                    "on update clears it"
+                    "Parent task id for add/update (subtask). Empty string on update clears it"
                 ),
             },
             "goal_id": {
                 "type": "integer",
-                "description": (
-                    "Goal id: filter for list; set on add; required for attach"
-                ),
+                "description": ("Goal id: filter for list; set on add; required for attach"),
             },
             "status": {
                 "type": "string",
@@ -189,8 +182,7 @@ class TasksTool:
         return ToolResult(
             ok=False,
             output=(
-                "Unknown action. Use list, add, update, done, reopen, remove, "
-                "attach, or detach."
+                "Unknown action. Use list, add, update, done, reopen, remove, attach, or detach."
             ),
         )
 

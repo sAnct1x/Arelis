@@ -21,9 +21,7 @@ def episodes_prompt_line(store: _EpisodeStore, limit: int = 3) -> str:
     rows = store.list_episodes(limit=cap)
     if not rows:
         return ""
-    lines = [
-        "Recent episodes (explicit summaries the user stored; not a full history):"
-    ]
+    lines = ["Recent episodes (explicit summaries the user stored; not a full history):"]
     for row in rows:
         summary = " ".join(str(row.get("summary") or "").split())
         if not summary:

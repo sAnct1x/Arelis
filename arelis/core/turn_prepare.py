@@ -240,11 +240,7 @@ def _reconstruct_turn_drafts(loop: Any, text: str) -> _TurnDrafts:
         r"(?i)^\s*(?:text|sms|txt|send\s+(?:a\s+)?(?:text|sms|message))\b",
         text or "",
     )
-    sms_draft = (
-        None
-        if skip_sms
-        else complete_sms_draft(text, history=loop.memory.messages)
-    )
+    sms_draft = None if skip_sms else complete_sms_draft(text, history=loop.memory.messages)
     # Scheduled sends and mailbox operations can contain "email" without
     # being letter composition.
     skip_email = other_work and (
@@ -254,11 +250,7 @@ def _reconstruct_turn_drafts(loop: Any, text: str) -> _TurnDrafts:
         or looks_like_mailbox_mutate(text)
         or not looks_like_compose_email(text)
     )
-    email_draft = (
-        None
-        if skip_email
-        else complete_email_draft(text, history=loop.memory.messages)
-    )
+    email_draft = None if skip_email else complete_email_draft(text, history=loop.memory.messages)
     return _TurnDrafts(
         sms=sms_draft,
         email=email_draft,
@@ -282,9 +274,7 @@ def _context_limits(
     # Sticky for the turn so mid-escalate does not shrink under a built prompt.
     loop._turn_num_ctx = num_ctx
     tool_reserve_chars = (
-        min(loop.tool_output_chars, _SPEAK_TOOL_OUTPUT_CHARS)
-        if speak
-        else loop.tool_output_chars
+        min(loop.tool_output_chars, _SPEAK_TOOL_OUTPUT_CHARS) if speak else loop.tool_output_chars
     )
     # Spoken small-talk should not sacrifice history to a scrape slab.
     if speak and not loop._expected_tools and not skill_ids:

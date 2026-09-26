@@ -722,9 +722,7 @@ class InboundIngestServer:
                 source = str(data.get("source") or "notification")
                 try:
                     fut = asyncio.run_coroutine_threadsafe(
-                        publish_inbound(
-                            server.bus, msg, seen=server.seen, source=source
-                        ),
+                        publish_inbound(server.bus, msg, seen=server.seen, source=source),
                         server.loop,
                     )
                     published = bool(fut.result(timeout=10))
@@ -884,9 +882,7 @@ class InboundIngestServer:
                         )
                         return
                     session_id = str(data.get("session_id") or "").strip()
-                    current = str(
-                        (server.mobile.current_chat() or {}).get("id") or ""
-                    )
+                    current = str((server.mobile.current_chat() or {}).get("id") or "")
                     if not session_id:
                         mint = server.mobile.mint_chat_fn
                         if mint is not None:
@@ -909,9 +905,7 @@ class InboundIngestServer:
                                     {"ok": False, "error": err},
                                 )
                                 return
-                            session_id = str(
-                                (server.mobile.current_chat() or {}).get("id") or ""
-                            )
+                            session_id = str((server.mobile.current_chat() or {}).get("id") or "")
                     foreign = bool(session_id) and session_id != current
                     if foreign:
                         try:
@@ -997,9 +991,7 @@ class InboundIngestServer:
                         return
                 text = str(data.get("text") or "").strip()
                 attachments: list[dict[str, Any]] = []
-                image_raw = str(
-                    data.get("image_jpeg") or data.get("image_b64") or ""
-                ).strip()
+                image_raw = str(data.get("image_jpeg") or data.get("image_b64") or "").strip()
                 if image_raw:
                     from arelis.attachments import stage_image_bytes
 
@@ -1068,9 +1060,7 @@ class InboundIngestServer:
                     payload["session_id"] = session_id
                 if session_id and current and session_id != current:
                     try:
-                        result = await_session_load(
-                            {"session_id": session_id, "silent": True}
-                        )
+                        result = await_session_load({"session_id": session_id, "silent": True})
                     except Exception as exc:
                         self._reply(500, {"ok": False, "error": str(exc)})
                         return
@@ -1116,9 +1106,7 @@ class InboundIngestServer:
                             item = waiter.get(timeout=TURN_WAIT_S)
                         except queue.Empty:
                             self.wfile.write(
-                                ndjson_line(
-                                    {"type": "error", "message": "turn timed out"}
-                                )
+                                ndjson_line({"type": "error", "message": "turn timed out"})
                             )
                             break
                         if item is None:
@@ -1129,9 +1117,7 @@ class InboundIngestServer:
                     server.mobile.abandon_turn_wait()
                     if restore_id:
                         try:
-                            await_session_load(
-                                {"session_id": restore_id, "silent": True}
-                            )
+                            await_session_load({"session_id": restore_id, "silent": True})
                         except Exception:
                             log.exception("restore pc seat after phone turn failed")
 
@@ -1191,9 +1177,7 @@ class InboundIngestServer:
                     ticket = ""
                     if server.token:
                         try:
-                            ticket = make_ticket(
-                                server.token, server.port, rotate=False
-                            ).as_text()
+                            ticket = make_ticket(server.token, server.port, rotate=False).as_text()
                         except Exception:
                             # ticket creation failed — serve page without ticket
                             ticket = ""

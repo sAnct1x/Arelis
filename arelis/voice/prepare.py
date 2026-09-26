@@ -65,9 +65,7 @@ def missing_voice_parts(
 
     tts = voice.get("tts") if isinstance(voice.get("tts"), dict) else {}
     model = resolve_model_path(str(tts.get("kokoro_model") or "models/kokoro/kokoro-v1.0.onnx"))
-    voices = resolve_model_path(
-        str(tts.get("kokoro_voices") or "models/kokoro/voices-v1.0.bin")
-    )
+    voices = resolve_model_path(str(tts.get("kokoro_voices") or "models/kokoro/voices-v1.0.bin"))
     if not kokoro_files_present(model, voices):
         if not allowed_only or _allow(tts.get("allow_download"), True):
             missing.append("her voice")
@@ -136,9 +134,7 @@ def prepare_voice_files(
     if _allow(tts.get("allow_download"), True):
         from arelis.voice.kokoro_tts import ensure_kokoro_files, kokoro_files_present
 
-        model = resolve_model_path(
-            str(tts.get("kokoro_model") or "models/kokoro/kokoro-v1.0.onnx")
-        )
+        model = resolve_model_path(str(tts.get("kokoro_model") or "models/kokoro/kokoro-v1.0.onnx"))
         voices = resolve_model_path(
             str(tts.get("kokoro_voices") or "models/kokoro/voices-v1.0.bin")
         )

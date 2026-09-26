@@ -324,9 +324,7 @@ def test_sync_to_now_catches_up_from_the_ic() -> None:
     from arelis.physics.demo import sun_and_planet
     from arelis.physics.scene import SolarSystem
 
-    system = SolarSystem.from_states(
-        sun_and_planet(), tracers=0, epoch_jd=2_451_545.0
-    )
+    system = SolarSystem.from_states(sun_and_planet(), tracers=0, epoch_jd=2_451_545.0)
     system.sync_to_now(now_jd=2_451_545.0 + 1.0)
     assert system.t == pytest.approx(86_400.0, rel=1e-6)
     system.sync_to_now(now_jd=2_451_545.0 + 400.0, limit_s=86_400.0)
@@ -339,9 +337,7 @@ def test_go_realtime_locks_to_the_clock() -> None:
     from arelis.physics.demo import sun_and_planet
     from arelis.physics.scene import SolarSystem
 
-    system = SolarSystem.from_states(
-        sun_and_planet(), tracers=0, epoch_jd=2_451_545.0
-    )
+    system = SolarSystem.from_states(sun_and_planet(), tracers=0, epoch_jd=2_451_545.0)
     assert system.paused is True
     system.go_realtime(now_jd=2_451_545.0 + 1.0)
     assert system.paused is False
@@ -360,9 +356,7 @@ def test_go_realtime_after_a_year_warp_returns_to_now() -> None:
     from arelis.physics.demo import sun_and_planet
     from arelis.physics.scene import SolarSystem
 
-    system = SolarSystem.from_states(
-        sun_and_planet(), tracers=0, epoch_jd=2_451_545.0
-    )
+    system = SolarSystem.from_states(sun_and_planet(), tracers=0, epoch_jd=2_451_545.0)
     now_jd = 2_451_545.0 + 1.0
     system.sync_to_now(now_jd=now_jd, limit_s=YEAR_S)
     earth = system.nbody.find("Earth")
@@ -413,9 +407,7 @@ def test_go_realtime_does_not_lock_a_counterfactual() -> None:
     from arelis.physics.demo import sun_and_planet
     from arelis.physics.scene import SolarSystem
 
-    system = SolarSystem.from_states(
-        sun_and_planet(), tracers=0, epoch_jd=2_451_545.0
-    )
+    system = SolarSystem.from_states(sun_and_planet(), tracers=0, epoch_jd=2_451_545.0)
     system.nbody.integrate_to(YEAR_S)
     system.counterfactual = True
     t_warp = system.t
@@ -579,7 +571,7 @@ def test_belt_tracers_miss_kirkwood_gaps() -> None:
             assert abs(a_au - gap) >= 0.045
 
 
-@pytest.mark.skipif(not rebound_available(), reason="pip install -e \".[astro]\"")
+@pytest.mark.skipif(not rebound_available(), reason='pip install -e ".[astro]"')
 def test_circular_catalog_demo_has_planets_and_moons() -> None:
     from arelis.physics.demo import circular_system
     from arelis.physics.scene import SolarSystem
@@ -610,7 +602,7 @@ def test_circular_catalog_demo_has_planets_and_moons() -> None:
     assert "not Horizons" in two.ic_caption()
 
 
-@pytest.mark.skipif(not rebound_available(), reason="pip install -e \".[astro]\"")
+@pytest.mark.skipif(not rebound_available(), reason='pip install -e ".[astro]"')
 def test_ias15_two_body_energy_and_period() -> None:
     from arelis.physics.runtime import set_system
     from arelis.physics.scene import SolarSystem
@@ -630,7 +622,7 @@ def test_ias15_two_body_energy_and_period() -> None:
     set_system(None)
 
 
-@pytest.mark.skipif(not rebound_available(), reason="pip install -e \".[astro]\"")
+@pytest.mark.skipif(not rebound_available(), reason='pip install -e ".[astro]"')
 def test_probe_delta_v_on_massless_is_not_counterfactual() -> None:
     from arelis.physics.runtime import set_system
     from arelis.physics.scene import SolarSystem
@@ -654,7 +646,7 @@ def test_probe_delta_v_on_massless_is_not_counterfactual() -> None:
     set_system(None)
 
 
-@pytest.mark.skipif(not rebound_available(), reason="pip install -e \".[astro]\"")
+@pytest.mark.skipif(not rebound_available(), reason='pip install -e ".[astro]"')
 def test_spawn_probe_and_l4_are_massless() -> None:
     from arelis.physics.runtime import set_system
     from arelis.physics.scene import SolarSystem
@@ -707,7 +699,7 @@ def test_sun_track_present_and_subgiant() -> None:
     assert birth.r_sun < 1.0
 
 
-@pytest.mark.skipif(not rebound_available(), reason="pip install -e \".[astro]\"")
+@pytest.mark.skipif(not rebound_available(), reason='pip install -e ".[astro]"')
 def test_future_gyr_scales_a_and_restores() -> None:
     from arelis.physics.evolution import sample
     from arelis.physics.runtime import set_system
@@ -740,7 +732,7 @@ def test_future_gyr_scales_a_and_restores() -> None:
     set_system(None)
 
 
-@pytest.mark.skipif(not rebound_available(), reason="pip install -e \".[astro]\"")
+@pytest.mark.skipif(not rebound_available(), reason='pip install -e ".[astro]"')
 def test_prograde_impulse_is_counterfactual() -> None:
     from arelis.physics.runtime import set_system
     from arelis.physics.scene import SolarSystem

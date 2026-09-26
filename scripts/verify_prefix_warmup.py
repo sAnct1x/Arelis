@@ -49,8 +49,10 @@ async def main() -> int:
 
     prompt_chars = sum(len(m["content"]) for m in prefix.messages)
     print(f"model={router.model_for(router.default_role)}")
-    print(f"num_ctx={prefix.num_ctx:,}  tools={len(prefix.tools)}  "
-          f"prefix~{prompt_chars // 4:,} tokens\n")
+    print(
+        f"num_ctx={prefix.num_ctx:,}  tools={len(prefix.tools)}  "
+        f"prefix~{prompt_chars // 4:,} tokens\n"
+    )
 
     # Drop the model so the first measurement is genuinely cold.
     await router.provider.unload(router.model_for(router.default_role))

@@ -34,9 +34,7 @@ _ATOM_NS = "http://www.w3.org/2005/Atom"
 _SAFE_QUERY = re.compile(r"^[A-Za-z0-9_:+.\-\"' ]{1,200}$")
 _SAFE_TARGET = re.compile(r"^[A-Za-z0-9_@+.\-\s]{1,80}$")
 _DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
-_USER_AGENT = (
-    f"Arelis/{__version__} (+{__source_url__}; local research assistant)"
-)
+_USER_AGENT = f"Arelis/{__version__} (+{__source_url__}; local research assistant)"
 
 ARXIV_URL = "https://export.arxiv.org/api/query"
 HORIZONS_URL = "https://ssd.jpl.nasa.gov/api/horizons.api"
@@ -147,13 +145,9 @@ class CatalogTool:
         if headers:
             hdrs.update(headers)
         if self._client is not None:
-            return await self._client.get(
-                url, params=params, headers=hdrs, timeout=wait_s
-            )
+            return await self._client.get(url, params=params, headers=hdrs, timeout=wait_s)
         async with httpx.AsyncClient(timeout=_TIMEOUT_S) as client:
-            return await client.get(
-                url, params=params, headers=hdrs, timeout=wait_s
-            )
+            return await client.get(url, params=params, headers=hdrs, timeout=wait_s)
 
     async def _horizons_get(self, params: dict[str, Any]) -> httpx.Response:
         """One Horizons POST-equivalent GET at a time, with retry on 503/429."""
@@ -211,10 +205,7 @@ class CatalogTool:
         ]
         for item in entries:
             authors = item["authors"]
-            lines.append(
-                f"- {item['id']}: {item['title']} "
-                f"({authors}, {item['published']})"
-            )
+            lines.append(f"- {item['id']}: {item['title']} ({authors}, {item['published']})")
             if item["summary"]:
                 lines.append(f"  {item['summary']}")
             if item["pdf"]:
@@ -229,8 +220,7 @@ class CatalogTool:
         body = (target or "").strip()
         if not body or not _SAFE_TARGET.match(body):
             raise ValueError(
-                "horizons needs a target like Mars, Jupiter, or 499. "
-                "No email is sent."
+                "horizons needs a target like Mars, Jupiter, or 499. No email is sent."
             )
         start = _day_or_today(day)
         stop = start + timedelta(days=1)
@@ -379,8 +369,7 @@ class CatalogTool:
         if explain:
             bits.append(explain)
         bits.append(
-            "Source: api.nasa.gov. This is NASA's published caption, "
-            "not a picture I generated."
+            "Source: api.nasa.gov. This is NASA's published caption, not a picture I generated."
         )
         return ToolResult(
             ok=True,
@@ -484,15 +473,8 @@ def _clean_query(raw: str, *, name: str) -> str:
         raise ValueError(f"Missing {name}.")
     if len(text) > _MAX_QUERY:
         raise ValueError(f"{name} is too long (max {_MAX_QUERY} characters).")
-    if (
-        "__" in text
-        or "(" in text
-        or ")" in text
-        or not _SAFE_QUERY.match(text)
-    ):
-        raise ValueError(
-            f"{name} must be plain search words, not a URL or an expression."
-        )
+    if "__" in text or "(" in text or ")" in text or not _SAFE_QUERY.match(text):
+        raise ValueError(f"{name} must be plain search words, not a URL or an expression.")
     return text
 
 
@@ -520,10 +502,7 @@ def _parse_atom(xml_text: str) -> list[dict[str, str]]:
             summary = summary[:400] + "…"
         published = _atom_text(entry, "published")[:10]
         ident = _atom_text(entry, "id")
-        authors = [
-            _atom_text(author, "name")
-            for author in entry.findall(f"{{{_ATOM_NS}}}author")
-        ]
+        authors = [_atom_text(author, "name") for author in entry.findall(f"{{{_ATOM_NS}}}author")]
         authors = [a for a in authors if a]
         who = ", ".join(authors[:4])
         if len(authors) > 4:

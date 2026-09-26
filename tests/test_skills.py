@@ -39,9 +39,7 @@ def test_web_fallback_reports_itself() -> None:
 
 def test_clock_ask_does_not_take_the_web_fallback() -> None:
     tools = {"web_search", "scrape", "web_fetch", "workspace"}
-    ids, fallback = select_skill_ids_detailed(
-        "what time is it", available_tools=tools
-    )
+    ids, fallback = select_skill_ids_detailed("what time is it", available_tools=tools)
     assert "web" not in ids
     assert fallback is False
 
@@ -141,9 +139,7 @@ def test_analyze_ask_selects_analyze_card() -> None:
         "what's in the dataframe",
         "head of data/export.tsv",
     ):
-        assert "analyze" in select_skill_ids(
-            phrase, available_tools={"analyze", "workspace"}
-        )
+        assert "analyze" in select_skill_ids(phrase, available_tools={"analyze", "workspace"})
 
 
 def test_analyze_skipped_without_tool() -> None:
@@ -294,8 +290,10 @@ def test_calendar_reminder_to_text_selects_agenda() -> None:
         available_tools={"agenda", "schedule", "send_sms", "web_search"},
     )
     assert "agenda" in ids
-    assert ids.index("agenda") == 0 or ids[0] == "agenda" or (
-        "sms" in ids and ids.index("agenda") < ids.index("sms")
+    assert (
+        ids.index("agenda") == 0
+        or ids[0] == "agenda"
+        or ("sms" in ids and ids.index("agenda") < ids.index("sms"))
     )
 
 

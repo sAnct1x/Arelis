@@ -66,16 +66,13 @@ def fill_from_who(
         return "", data
     if is_address_into(into):
         data["error"] = (
-            "Contact has no street address. "
-            "who= fills name, phone, email, or work_phone only."
+            "Contact has no street address. who= fills name, phone, email, or work_phone only."
         )
         data["code"] = "NO_ADDRESS"
         return "", data
     field = contact_field_for(into)
     if not field:
-        data["error"] = (
-            "who= needs into=name, into=phone, into=email, or into=work_phone."
-        )
+        data["error"] = "who= needs into=name, into=phone, into=email, or into=work_phone."
         data["code"] = "WHO_FIELD"
         return "", data
     book = contacts if contacts is not None else load_contacts()
@@ -88,9 +85,7 @@ def fill_from_who(
     data["field"] = field
     data["contact"] = contact.alias
     if not value:
-        data["error"] = (
-            f"{contact.display_name} has no {field} in contacts.yaml."
-        )
+        data["error"] = f"{contact.display_name} has no {field} in contacts.yaml."
         data["code"] = "EMPTY_FIELD"
         return "", data
     return value, data

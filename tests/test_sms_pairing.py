@@ -21,7 +21,9 @@ from arelis.sms_pairing import (
 
 
 def test_qr_finders_for_pairing_text() -> None:
-    modules = qr_modules("A1|abcdef0123456789|token-token-token|pairsecret|http://192.168.1.10:8765")
+    modules = qr_modules(
+        "A1|abcdef0123456789|token-token-token|pairsecret|http://192.168.1.10:8765"
+    )
     assert qr_has_finders(modules)
     assert len(modules) == len(modules[0])
     assert len(modules) >= 21 + 8
@@ -237,9 +239,7 @@ def test_make_ticket_appends_mailbox_url(monkeypatch, tmp_path: Path) -> None:
     )
     monkeypatch.setattr(
         "arelis.relay.config.load_relay_settings",
-        lambda path=None: type(
-            "S", (), {"url": "https://relay.example.com", "token": "x"}
-        )(),
+        lambda path=None: type("S", (), {"url": "https://relay.example.com", "token": "x"})(),
     )
     ticket = make_ticket("ingest-token", 8765)
     assert ticket.relay == "https://relay.example.com"

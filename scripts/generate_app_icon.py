@@ -70,7 +70,9 @@ def _paint(size: int) -> QImage:
 
     bloom = QRadialGradient(QPointF(cx, cy), size * 0.38)
     inner_rgb = BLOOM["inner"][0][1]
-    bloom.setColorAt(0.0, QColor(inner_rgb[0], inner_rgb[1], inner_rgb[2], 64 if size >= 48 else 36))
+    bloom.setColorAt(
+        0.0, QColor(inner_rgb[0], inner_rgb[1], inner_rgb[2], 64 if size >= 48 else 36)
+    )
     bloom.setColorAt(0.55, _a(_AMBER, 16))
     bloom.setColorAt(1.0, _a(_VOID, 0))
     p.setBrush(bloom)

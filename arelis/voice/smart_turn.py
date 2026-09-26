@@ -5,6 +5,7 @@ Silero says there was a pause. This model looks at the last 8 s of audio
 thinking. Missing weights fall back to silence_ms. Apache-2.0 weights;
 inference stays local.
 """
+
 from __future__ import annotations
 
 import logging
@@ -22,10 +23,8 @@ SAMPLE_RATE = 16000
 WINDOW_S = 8
 _DEFAULT_MODEL = models_dir() / "smart_turn" / "smart-turn-v3.2-cpu.onnx"
 _MODEL_URLS = (
-    "https://huggingface.co/pipecat-ai/smart-turn-v3/resolve/main/"
-    "smart-turn-v3.2-cpu.onnx",
-    "https://huggingface.co/pipecat-ai/smart-turn-v3/resolve/main/"
-    "smart-turn-v3.1.onnx",
+    "https://huggingface.co/pipecat-ai/smart-turn-v3/resolve/main/smart-turn-v3.2-cpu.onnx",
+    "https://huggingface.co/pipecat-ai/smart-turn-v3/resolve/main/smart-turn-v3.1.onnx",
 )
 
 
@@ -82,8 +81,7 @@ class SmartTurnAnalyzer:
             import onnxruntime as ort
         except ImportError as exc:
             raise SmartTurnUnavailableError(
-                "onnxruntime is not installed. "
-                'Run: pip install -e ".[voice]"'
+                'onnxruntime is not installed. Run: pip install -e ".[voice]"'
             ) from exc
 
         path = Path(model_path) if model_path else _DEFAULT_MODEL

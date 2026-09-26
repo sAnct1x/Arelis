@@ -48,9 +48,7 @@ def test_fill_from_who_slots() -> None:
 
 
 def test_tool_type_who_email(monkeypatch) -> None:
-    monkeypatch.setattr(
-        "arelis.browser.fill.load_contacts", lambda: {"mom": _MOM}
-    )
+    monkeypatch.setattr("arelis.browser.fill.load_contacts", lambda: {"mom": _MOM})
     monkeypatch.setattr(
         "arelis.browser.fill.resolve_contact",
         lambda who, contacts=None: _MOM if str(who).strip().lower() == "mom" else None,
@@ -71,9 +69,7 @@ def test_tool_type_who_email(monkeypatch) -> None:
 
 
 def test_tool_type_who_refuses_address(monkeypatch) -> None:
-    monkeypatch.setattr(
-        "arelis.browser.fill.load_contacts", lambda: {"mom": _MOM}
-    )
+    monkeypatch.setattr("arelis.browser.fill.load_contacts", lambda: {"mom": _MOM})
     session = BrowserSession.fake()
     tool = BrowserTool(session)
 

@@ -152,9 +152,7 @@ def test_a_very_long_name_is_capped() -> None:
 
 def test_a_normal_name_is_left_recognisable() -> None:
     """Sanitising must not mangle the ordinary case into gibberish."""
-    assert safe_attachment_name("Invoice_2026-08.pdf", fallback="x") == (
-        "Invoice_2026-08.pdf"
-    )
+    assert safe_attachment_name("Invoice_2026-08.pdf", fallback="x") == ("Invoice_2026-08.pdf")
 
 
 # ------------------------------------------------------------------ the bytes
@@ -322,9 +320,7 @@ async def test_downloading_does_not_mark_the_mail_read(
 
 
 @pytest.mark.asyncio
-async def test_download_needs_an_id(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+async def test_download_needs_an_id(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     raw = _message([("a.txt", b"aaa")])
     tool, _ = _tool(monkeypatch, tmp_path, raw)
 

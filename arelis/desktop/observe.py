@@ -113,13 +113,9 @@ def read_still(
     found = [n for n in wanted if needle_in(whole, n)]
     missed = [n for n in wanted if n not in found]
     if wanted and not missed:
-        return ObserveRead(
-            text=whole, found=tuple(found), missed=(), tiled=False, source="whole"
-        )
+        return ObserveRead(text=whole, found=tuple(found), missed=(), tiled=False, source="whole")
     if not wanted and whole:
-        return ObserveRead(
-            text=whole, found=(), missed=(), tiled=False, source="whole"
-        )
+        return ObserveRead(text=whole, found=(), missed=(), tiled=False, source="whole")
     try:
         from PIL import Image
 
@@ -182,9 +178,5 @@ def format_observe(seen: ObserveRead) -> str:
     if seen.found:
         lines.append("Found: " + ", ".join(seen.found))
     if seen.missed:
-        lines.append(
-            "Could not resolve: "
-            + ", ".join(seen.missed)
-            + ". I will not invent it."
-        )
+        lines.append("Could not resolve: " + ", ".join(seen.missed) + ". I will not invent it.")
     return "\n".join(lines)

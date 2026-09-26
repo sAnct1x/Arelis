@@ -55,14 +55,30 @@ CHECKS: tuple[Check, ...] = (
     Check("inspect-reaches-city", "accuracy", "Inspect floor is below the city-band altitude"),
     Check("ecef-lock-holds-continents", "accuracy", "EarthCam rides ECEF so land stays put"),
     Check("earth-uses-gpu-cesium", "performance", "Enter Earth parks solar GL and mounts Cesium"),
-    Check("no-disable-gpu-without-share", "performance", "No --disable-gpu after the share group is gone"),
-    Check("solar-idle-skips-readback", "performance", "Unchanged solar view key skips FBO readback"),
-    Check("tile-budget-capped", "performance", "GIBS max zoom and look-box tile radius stay capped"),
+    Check(
+        "no-disable-gpu-without-share",
+        "performance",
+        "No --disable-gpu after the share group is gone",
+    ),
+    Check(
+        "solar-idle-skips-readback", "performance", "Unchanged solar view key skips FBO readback"
+    ),
+    Check(
+        "tile-budget-capped", "performance", "GIBS max zoom and look-box tile radius stay capped"
+    ),
     Check("one-planet-painter", "logic", "Cesium live skips Qt paint_earth tiles and places"),
-    Check("live-off-fetches-nothing", "logic", "Live off does not TTL-poll; Enter snapshots then coasts"),
+    Check(
+        "live-off-fetches-nothing",
+        "logic",
+        "Live off does not TTL-poll; Enter snapshots then coasts",
+    ),
     Check("leave-destroys-webengine", "logic", "Leave Earth drops the QWebEngineView"),
     Check("wheel-is-zoom-on-earth", "logic", "Wheel on Earth is radial zoom, not solar cruise"),
-    Check("field-is-distance-to-earth", "intuitiveness", "Field line is distance to Earth, not leftover cam.distance"),
+    Check(
+        "field-is-distance-to-earth",
+        "intuitiveness",
+        "Field line is distance to Earth, not leftover cam.distance",
+    ),
     Check("wasd-walk-near-ground", "intuitiveness", "WASD near the ground is walk speed"),
     Check("streets-chip-shows-streets", "friendly", "Streets chip is the OSM drape, not GIBS"),
 )

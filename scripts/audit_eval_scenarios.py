@@ -80,7 +80,9 @@ def independent_assertions(scenario: Scenario, handed: list[str]) -> list[str]:
     return found
 
 
-def classify() -> tuple[list[Scenario], list[tuple[Scenario, list[str]]], list[tuple[Scenario, list[str]]]]:
+def classify() -> tuple[
+    list[Scenario], list[tuple[Scenario, list[str]]], list[tuple[Scenario, list[str]]]
+]:
     tautology: list[Scenario] = []
     real: list[tuple[Scenario, list[str]]] = []
     mixed: list[tuple[Scenario, list[str]]] = []

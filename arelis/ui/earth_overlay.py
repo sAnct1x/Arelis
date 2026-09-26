@@ -209,21 +209,15 @@ def earth_jd(system: SolarSystem) -> float:
     return earth_spin_jd(system.epoch_jd, system.t)
 
 
-def entity_world(
-    system: SolarSystem, entity: Entity
-) -> tuple[float, float, float] | None:
+def entity_world(system: SolarSystem, entity: Entity) -> tuple[float, float, float] | None:
     earth = system.nbody.find("Earth")
     if earth is None:
         return None
     jd = earth_jd(system)
-    return ecef_to_ecliptic(
-        (earth.x, earth.y, earth.z), (entity.x, entity.y, entity.z), jd
-    )
+    return ecef_to_ecliptic((earth.x, earth.y, earth.z), (entity.x, entity.y, entity.z), jd)
 
 
-def _view_from_panel(
-    panel: Any, system: SolarSystem, globe: Any, px_r: float
-) -> EarthView:
+def _view_from_panel(panel: Any, system: SolarSystem, globe: Any, px_r: float) -> EarthView:
     pose = getattr(panel, "_earth_cam", None)
     eye_ecef = getattr(pose, "eye", None) if pose is not None else None
     look = getattr(pose, "look", None) if pose is not None else None
@@ -305,8 +299,11 @@ def _paint_borders(
                 disc,
                 globe.radius,
                 _pick_ecef(
-                    fills, ecef_rings("fills", fills), ring_boxes("fills", fills),
-                    view, eye_ecef,
+                    fills,
+                    ecef_rings("fills", fills),
+                    ring_boxes("fills", fills),
+                    view,
+                    eye_ecef,
                 ),
                 step,
                 fill,
@@ -329,8 +326,10 @@ def _paint_borders(
             country,
         )
     # States once the disc is close enough that a province can be a line.
-    if view.band in {"near", "city"} or view.px_r >= 180.0 or (
-        view.band == "approach" and view.bbox is not None
+    if (
+        view.band in {"near", "city"}
+        or view.px_r >= 180.0
+        or (view.band == "approach" and view.bbox is not None)
     ):
         states = state_rings()
         _stroke_rings(
@@ -352,18 +351,14 @@ def _paint_borders(
         )
 
 
-def _eye_ecef(
-    panel: Any, globe: Any, jd: float
-) -> tuple[float, float, float] | None:
+def _eye_ecef(panel: Any, globe: Any, jd: float) -> tuple[float, float, float] | None:
     pose = getattr(panel, "_earth_cam", None)
     if pose is not None and getattr(pose, "eye", None):
         return pose.eye
     eye = getattr(panel, "_eye", None)
     if not isinstance(eye, tuple) or len(eye) < 3:
         return None
-    return ecliptic_offset_to_ecef(
-        (eye[0] - globe.x, eye[1] - globe.y, eye[2] - globe.z), jd
-    )
+    return ecliptic_offset_to_ecef((eye[0] - globe.x, eye[1] - globe.y, eye[2] - globe.z), jd)
 
 
 def _ring_in_look(
@@ -381,9 +376,7 @@ def _ring_in_look(
     return not (east < box.west - pad or west > box.east + pad)
 
 
-def _on_sphere(
-    ecef: tuple[float, float, float], radius: float
-) -> tuple[float, float, float]:
+def _on_sphere(ecef: tuple[float, float, float], radius: float) -> tuple[float, float, float]:
     """Land caches unit directions; buildings still arrive in metres."""
     n = math.sqrt(ecef[0] * ecef[0] + ecef[1] * ecef[1] + ecef[2] * ecef[2])
     if n <= 1e-12:
@@ -509,17 +502,13 @@ def paint_earth(painter: QPainter, panel: Any, system: SolarSystem) -> None:
 
     draped = False
     if want_ground(px_r, view.band):
-        draped = _paint_ground_tiles(
-            painter, panel, system, globe, disc, px_r, view, source="gibs"
-        )
+        draped = _paint_ground_tiles(painter, panel, system, globe, disc, px_r, view, source="gibs")
     if not draped:
         _paint_borders(painter, panel, system, globe, disc, view)
     if px_r >= 140.0:
         _paint_places(painter, panel, system, globe, disc, view)
     if earth.tiles and view.band == "city":
-        _paint_ground_tiles(
-            painter, panel, system, globe, disc, px_r, view, source="osm"
-        )
+        _paint_ground_tiles(painter, panel, system, globe, disc, px_r, view, source="osm")
     if earth.grid and disc is not None:
         _paint_lonlat_grid(painter, panel, system, globe, disc, view)
     _paint_earth_trail(painter, panel, system, globe, disc, earth)
@@ -629,9 +618,7 @@ def screen_to_lla(
     return lat, lon
 
 
-def hit_geo(
-    panel: Any, system: SolarSystem, px: float, py: float
-) -> dict[str, Any] | None:
+def hit_geo(panel: Any, system: SolarSystem, px: float, py: float) -> dict[str, Any] | None:
     """Country or city under the click. Contacts still win in hit_entity."""
     pair = screen_to_lla(panel, system, px, py)
     if pair is None:
@@ -649,9 +636,7 @@ def hit_geo(
     return {"kind": "earth", "name": "Earth", "lat": lat, "lon": lon}
 
 
-def hit_entity(
-    panel: Any, system: SolarSystem, px: float, py: float
-) -> Entity | None:
+def hit_entity(panel: Any, system: SolarSystem, px: float, py: float) -> Entity | None:
     earth = get_earth()
     if earth is None or not earth.active:
         return None
@@ -673,11 +658,14 @@ def hit_entity(
 
 def ride_pose(
     system: SolarSystem, entity: Entity
-) -> tuple[
-    tuple[float, float, float],
-    tuple[float, float, float],
-    tuple[float, float, float],
-] | None:
+) -> (
+    tuple[
+        tuple[float, float, float],
+        tuple[float, float, float],
+        tuple[float, float, float],
+    ]
+    | None
+):
     """Eye, look-at, and Earth-radial up for sitting on a contact."""
     world = entity_world(system, entity)
     earth = system.nbody.find("Earth")
@@ -702,11 +690,14 @@ def ride_pose(
 
 def look_from_pose(
     system: SolarSystem, entity: Entity
-) -> tuple[
-    tuple[float, float, float],
-    tuple[float, float, float],
-    tuple[float, float, float],
-] | None:
+) -> (
+    tuple[
+        tuple[float, float, float],
+        tuple[float, float, float],
+        tuple[float, float, float],
+    ]
+    | None
+):
     """Stand in the published frustum. Eye at the pin, look along heading."""
     heading = entity.meta.get("heading_deg")
     lat = entity.meta.get("lat")
@@ -763,7 +754,7 @@ def _occulted(
 
 def inspect_caption(entity: Entity) -> str:
     lat, lon, alt = ecef_to_lla(entity.x, entity.y, entity.z)
-    bits = [f"{lat:.2f}°, {lon:.2f}°", f"{alt/1000.0:.0f} km"]
+    bits = [f"{lat:.2f}°, {lon:.2f}°", f"{alt / 1000.0:.0f} km"]
     spd = entity.speed()
     if spd >= 0.5:
         bits.append(f"{spd:.0f} m/s")
@@ -910,8 +901,9 @@ def _paint_places(
             sel_name = home.name or "home"
     ranked = sorted(
         found,
-        key=lambda row: (row[1] - view.lat) ** 2
-        + (((row[2] - view.lon + 180.0) % 360.0) - 180.0) ** 2,
+        key=lambda row: (
+            (row[1] - view.lat) ** 2 + (((row[2] - view.lon + 180.0) % 360.0) - 180.0) ** 2
+        ),
     )
     painter.setPen(color("text_dim"))
     n = 0
@@ -932,9 +924,7 @@ def _paint_places(
         painter.drawText(ix + 5, iy - 2, name)
 
 
-def _tile_image(
-    source: str, z: Any, x: Any, y: Any, blob: bytes | bytearray
-) -> QImage | None:
+def _tile_image(source: str, z: Any, x: Any, y: Any, blob: bytes | bytearray) -> QImage | None:
     try:
         key = (str(source), int(z), int(x), int(y))
     except (TypeError, ValueError):
@@ -982,7 +972,11 @@ def _paint_ground_tiles(
         opacity = 0.70
     drew = False
     for tile in tiles_for_view(
-        view.lat, view.lon, zoom, radius=radius, source=source  # type: ignore[arg-type]
+        view.lat,
+        view.lon,
+        zoom,
+        radius=radius,
+        source=source,  # type: ignore[arg-type]
     ):
         blob = tile.get("png")
         corners = tile.get("corners")
@@ -1079,13 +1073,9 @@ def _paint_lonlat_grid(
     rings: list[list[tuple[float, float, float]]] = []
     step = 30 if view.band in {"space", "approach"} else 20
     for lon in range(-180, 180, step):
-        rings.append(
-            [lla_to_ecef(float(lat), float(lon), 0.0) for lat in range(-75, 76, 15)]
-        )
+        rings.append([lla_to_ecef(float(lat), float(lon), 0.0) for lat in range(-75, 76, 15)])
     for lat in range(-60, 61, step):
-        rings.append(
-            [lla_to_ecef(float(lat), float(lon), 0.0) for lon in range(-180, 181, 15)]
-        )
+        rings.append([lla_to_ecef(float(lat), float(lon), 0.0) for lon in range(-180, 181, 15)])
     ink = QColor(color("dim"))
     ink.setAlpha(90)
     _stroke_rings(painter, panel, origin, jd, disc, globe.radius, rings, 1, ink, width=1)

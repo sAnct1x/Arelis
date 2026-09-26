@@ -424,9 +424,7 @@ def test_the_sphere_grabs_in_z() -> None:
     scene = WorldScene()
     sphere = scene.bodies[0]
     assert sphere.kind == "sphere"
-    scene.apply_pointer(
-        sphere.x, sphere.y, True, t=1.0, who="Left", kind="fist", z=sphere.z
-    )
+    scene.apply_pointer(sphere.x, sphere.y, True, t=1.0, who="Left", kind="fist", z=sphere.z)
     assert sphere.attached and sphere.holder == "Left"
 
 
@@ -435,9 +433,7 @@ def test_a_desk_z_still_grabs_without_a_leap() -> None:
     scene = WorldScene()
     sphere = scene.bodies[0]
     z0 = sphere.z
-    scene.apply_pointer(
-        sphere.x, sphere.y, True, t=1.0, who="Left", kind="fist", z=0.95
-    )
+    scene.apply_pointer(sphere.x, sphere.y, True, t=1.0, who="Left", kind="fist", z=0.95)
     assert sphere.attached and sphere.holder == "Left"
     assert abs(sphere.z - z0) < 1e-6
 
@@ -498,9 +494,7 @@ def test_a_sphere_on_the_floor_is_still_grabbable() -> None:
     sphere = scene.bodies[0]
     sphere.y = 1.0 - sphere.radius
     sphere.vy = 0.0
-    scene.apply_pointer(
-        sphere.x, sphere.y, True, t=1.0, who="Right", kind="fist", z=sphere.z
-    )
+    scene.apply_pointer(sphere.x, sphere.y, True, t=1.0, who="Right", kind="fist", z=sphere.z)
     assert sphere.attached
 
 
@@ -513,9 +507,7 @@ def test_a_near_sphere_rests_on_its_silhouette() -> None:
     scene.step(0.05)
     drawn = world_to_apparent(sphere.radius, 0.0)
     assert sphere.y <= 1.0 - drawn + 1e-9
-    scene.apply_pointer(
-        sphere.x, sphere.y, True, t=1.0, who="Left", kind="fist", z=0.0
-    )
+    scene.apply_pointer(sphere.x, sphere.y, True, t=1.0, who="Left", kind="fist", z=0.0)
     assert sphere.attached
 
 
@@ -566,9 +558,7 @@ def test_a_resume_after_a_hitch_does_not_teleport() -> None:
     sphere = scene.bodies[0]
     z = sphere.z
     scene.apply_pointer(sphere.x, sphere.y, True, t=1.00, who="Right", kind="fist", z=z)
-    scene.apply_pointer(
-        sphere.x + 0.02, sphere.y, True, t=1.02, who="Right", kind="fist", z=z
-    )
+    scene.apply_pointer(sphere.x + 0.02, sphere.y, True, t=1.02, who="Right", kind="fist", z=z)
     x0 = sphere.x
     scene.apply_pointer(0.95, sphere.y, True, t=1.17, who="Right", kind="fist", z=z)
     # 0.15 s × XY_SLEW 2.0 = 0.30 cap. Raw clamp jump is ~0.34.
@@ -594,17 +584,11 @@ def test_two_pinches_stretch_the_sphere() -> None:
 def test_a_held_sphere_follows_z() -> None:
     scene = WorldScene()
     sphere = scene.bodies[0]
-    scene.apply_pointer(
-        sphere.x, sphere.y, True, t=1.00, who="Right", kind="fist", z=sphere.z
-    )
-    scene.apply_pointer(
-        sphere.x, sphere.y, True, t=1.05, who="Right", kind="fist", z=0.22
-    )
+    scene.apply_pointer(sphere.x, sphere.y, True, t=1.00, who="Right", kind="fist", z=sphere.z)
+    scene.apply_pointer(sphere.x, sphere.y, True, t=1.05, who="Right", kind="fist", z=0.22)
     assert sphere.attached
     assert abs(sphere.z - 0.22) < 1e-6
-    scene.apply_pointer(
-        sphere.x, sphere.y, True, t=1.10, who="Right", kind="fist", z=0.05
-    )
+    scene.apply_pointer(sphere.x, sphere.y, True, t=1.10, who="Right", kind="fist", z=0.05)
     assert abs(sphere.z - 0.05) < 1e-6
 
 

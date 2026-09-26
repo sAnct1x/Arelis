@@ -27,7 +27,6 @@ COLORS = {
     "bubble_fill": "rgba(28, 16, 8, 130)",
     "bubble_wash": "rgba(24, 14, 8, 120)",  # transcript bubbles, written as HTML
     "menu_fill": "rgba(30, 18, 10, 242)",
-
     # --- surfaces the light falls on ------------------------------------
     "inset": "rgba(26, 16, 8, 150)",  # sunken well inside a plate
     "well": "rgba(38, 22, 12, 255)",  # text field at rest
@@ -54,7 +53,6 @@ COLORS = {
     "live_fill": "rgba(140, 76, 24, 150)",  # a latched capture control
     "selection": "rgba(140, 76, 24, 190)",
     "selection_strong": "rgba(150, 82, 26, 210)",
-
     # --- rims: the filament seen edge-on --------------------------------
     "rim": "rgba(255, 122, 34, 110)",
     "rim_glow": "rgba(255, 122, 34, 56)",
@@ -71,7 +69,6 @@ COLORS = {
     "edge_warm": "rgba(255, 192, 138, 96)",
     "edge_bright": "rgba(255, 192, 138, 140)",
     "catch": "rgba(255, 192, 138, 80)",
-
     # --- type: sodium-lit, still bright — hue shift, not a dimmer --------
     "text": "#fae8dc",
     "hint": "#f0c7a8",
@@ -84,7 +81,6 @@ COLORS = {
     "text_soft": "rgba(255, 210, 160, 200)",
     "text_muted": "rgba(255, 210, 160, 150)",
     "text_faint": "rgba(255, 210, 160, 96)",
-
     # --- the light itself: sodium orange, not harvest gold --------------
     "accent": "#ff7a22",
     "accent2": "#ffc08a",
@@ -93,7 +89,6 @@ COLORS = {
     # Attention without leaving the family: hotter and redder than the accent,
     # so a warn chip is not the same pixel value as an ok one.
     "warn": "#ff5e12",
-
     # --- alarm: the one thing allowed off the ramp ----------------------
     "danger": "#F0A0A8",
     "danger_edge_soft": "rgba(240, 160, 168, 90)",
@@ -101,7 +96,6 @@ COLORS = {
     "danger_fill_soft": "rgba(120, 40, 50, 120)",
     "danger_fill": "rgba(160, 60, 70, 180)",
     "danger_wash": "rgba(40, 16, 22, 90)",
-
     "user_bubble": "rgba(36, 24, 14, 0)",
     "assistant_bubble": "rgba(28, 18, 10, 0)",
 }
@@ -235,9 +229,8 @@ def space_allowed() -> frozenset[int]:
     0 is flush. 1 is a stroke, not a step. 6 is control_pad_y(). half is
     the dock gutter that makes two neighbors add up to inset.
     """
-    return frozenset(
-        {0, 1, control_pad_y(), SHELL["half"]} | set(SPACE.values())
-    )
+    return frozenset({0, 1, control_pad_y(), SHELL["half"]} | set(SPACE.values()))
+
 
 FONTS = {
     "display": '"IBM Plex Sans", "Segoe UI Semibold", "Segoe UI", sans-serif',
@@ -286,78 +279,80 @@ def _filament_colors() -> dict[str, str]:
     def hex6(rgb: tuple[int, int, int]) -> str:
         return f"#{rgb[0]:02x}{rgb[1]:02x}{rgb[2]:02x}"
 
-    c.update({
-        "bg0": hex6(void),
-        "bg1": "#101218",
-        "bg2": "#181c24",
-        "plate": rgba(plate, 255),
-        "panel_fill": rgba(plate, 255),
-        "veil": rgba(void, 36),
-        "scrim": rgba(void, 200),
-        "code_fill": rgba((12, 14, 18), 180),
-        "glass": rgba(void, 140),
-        "glass_strong": rgba((14, 16, 22), 176),
-        "glass_soft": rgba((32, 34, 42), 110),
-        "glass_fill": rgba(void, 248),
-        "glass_fill_float": rgba(void, 248),
-        "glass_fill_docked": rgba(void, 0),
-        "glass_fill_settings": rgba(void, 255),
-        "bubble_fill": rgba((24, 26, 32), 130),
-        "bubble_wash": rgba((20, 22, 28), 120),
-        "menu_fill": rgba((22, 24, 30), 242),
-        "inset": rgba((14, 16, 22), 150),
-        "well": rgba(well, 255),
-        "well_focus": rgba((40, 42, 52), 255),
-        "well_soft": rgba(well, 130),
-        "card_fill": rgba((32, 34, 42), 160),
-        "raised": rgba((36, 38, 46), 255),
-        "raised_warm": rgba((48, 42, 32), 255),
-        "sunk": rgba((16, 18, 24), 255),
-        "sunk_soft": rgba((16, 18, 24), 190),
-        "tab_selected": rgba((72, 58, 36), 255),
-        "groove": rgba((32, 34, 42), 170),
-        "chip": rgba((40, 36, 28), 110),
-        "chip_solid": rgba((40, 36, 28), 220),
-        "row_hover": rgba(gold, 80),
-        "row_selected": rgba(gold, 110),
-        "hover_soft": rgba(gold, 110),
-        "hover": rgba(gold, 150),
-        "hover_strong": rgba(gold, 210),
-        "button_fill": rgba((64, 52, 32), 170),
-        "button_hover": rgba(gold, 210),
-        "button_hover_hot": rgba((212, 168, 96), 220),
-        "button_hover_soft": rgba(gold, 150),
-        "live_fill": rgba(gold, 150),
-        "selection": rgba(gold, 190),
-        "selection_strong": rgba(gold, 210),
-        "rim": rgba(gold, 110),
-        "rim_glow": rgba(gold, 56),
-        "hairline_faint": rgba(gold, 44),
-        "hairline": rgba(gold, 68),
-        "hairline_mid": rgba(gold, 88),
-        "edge_soft": rgba(gold, 70),
-        "edge": rgba(gold, 96),
-        "edge_mid": rgba(gold, 130),
-        "edge_strong": rgba(gold, 165),
-        "edge_hot": rgba(gold, 210),
-        "edge_warm": rgba(cream, 96),
-        "edge_bright": rgba(cream, 140),
-        "catch": rgba(cream, 80),
-        "text": hex6(cream),
-        "hint": "#d4b888",
-        "thinking": "#c4a06a",
-        "text_dim": "#b89468",
-        "dim": "#a88858",
-        "status_white": hex6(cream),
-        "text_soft": rgba(cream, 200),
-        "text_muted": rgba(cream, 150),
-        "text_faint": rgba(cream, 96),
-        "accent": "#c4a06a",
-        "accent2": "#e4c896",
-        "amber": "#c4a06a",
-        "status_amber": "#c4a06a",
-        "warn": "#d4783c",
-    })
+    c.update(
+        {
+            "bg0": hex6(void),
+            "bg1": "#101218",
+            "bg2": "#181c24",
+            "plate": rgba(plate, 255),
+            "panel_fill": rgba(plate, 255),
+            "veil": rgba(void, 36),
+            "scrim": rgba(void, 200),
+            "code_fill": rgba((12, 14, 18), 180),
+            "glass": rgba(void, 140),
+            "glass_strong": rgba((14, 16, 22), 176),
+            "glass_soft": rgba((32, 34, 42), 110),
+            "glass_fill": rgba(void, 248),
+            "glass_fill_float": rgba(void, 248),
+            "glass_fill_docked": rgba(void, 0),
+            "glass_fill_settings": rgba(void, 255),
+            "bubble_fill": rgba((24, 26, 32), 130),
+            "bubble_wash": rgba((20, 22, 28), 120),
+            "menu_fill": rgba((22, 24, 30), 242),
+            "inset": rgba((14, 16, 22), 150),
+            "well": rgba(well, 255),
+            "well_focus": rgba((40, 42, 52), 255),
+            "well_soft": rgba(well, 130),
+            "card_fill": rgba((32, 34, 42), 160),
+            "raised": rgba((36, 38, 46), 255),
+            "raised_warm": rgba((48, 42, 32), 255),
+            "sunk": rgba((16, 18, 24), 255),
+            "sunk_soft": rgba((16, 18, 24), 190),
+            "tab_selected": rgba((72, 58, 36), 255),
+            "groove": rgba((32, 34, 42), 170),
+            "chip": rgba((40, 36, 28), 110),
+            "chip_solid": rgba((40, 36, 28), 220),
+            "row_hover": rgba(gold, 80),
+            "row_selected": rgba(gold, 110),
+            "hover_soft": rgba(gold, 110),
+            "hover": rgba(gold, 150),
+            "hover_strong": rgba(gold, 210),
+            "button_fill": rgba((64, 52, 32), 170),
+            "button_hover": rgba(gold, 210),
+            "button_hover_hot": rgba((212, 168, 96), 220),
+            "button_hover_soft": rgba(gold, 150),
+            "live_fill": rgba(gold, 150),
+            "selection": rgba(gold, 190),
+            "selection_strong": rgba(gold, 210),
+            "rim": rgba(gold, 110),
+            "rim_glow": rgba(gold, 56),
+            "hairline_faint": rgba(gold, 44),
+            "hairline": rgba(gold, 68),
+            "hairline_mid": rgba(gold, 88),
+            "edge_soft": rgba(gold, 70),
+            "edge": rgba(gold, 96),
+            "edge_mid": rgba(gold, 130),
+            "edge_strong": rgba(gold, 165),
+            "edge_hot": rgba(gold, 210),
+            "edge_warm": rgba(cream, 96),
+            "edge_bright": rgba(cream, 140),
+            "catch": rgba(cream, 80),
+            "text": hex6(cream),
+            "hint": "#d4b888",
+            "thinking": "#c4a06a",
+            "text_dim": "#b89468",
+            "dim": "#a88858",
+            "status_white": hex6(cream),
+            "text_soft": rgba(cream, 200),
+            "text_muted": rgba(cream, 150),
+            "text_faint": rgba(cream, 96),
+            "accent": "#c4a06a",
+            "accent2": "#e4c896",
+            "amber": "#c4a06a",
+            "status_amber": "#c4a06a",
+            "warn": "#d4783c",
+        }
+    )
     return c
 
 
@@ -461,4 +456,3 @@ def _install_palette(theme_id: str) -> None:
     HAIRLINE.update(pal["hairline"])
     TYPE.clear()
     TYPE.update(pal["type"])
-

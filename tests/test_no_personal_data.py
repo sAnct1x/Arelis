@@ -37,8 +37,24 @@ SCRUB_LIST = PROJECT_ROOT / "data" / "scrub-names.local.txt"
 SCRUB_ALLOW = PROJECT_ROOT / "data" / "scrub-allow.local.txt"
 
 BINARY_SUFFIXES = frozenset(
-    {".ico", ".png", ".jpg", ".jpeg", ".gif", ".pdf", ".ttf", ".otf", ".woff",
-     ".woff2", ".zip", ".db", ".onnx", ".bin", ".jar", ".keystore"}
+    {
+        ".ico",
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".gif",
+        ".pdf",
+        ".ttf",
+        ".otf",
+        ".woff",
+        ".woff2",
+        ".zip",
+        ".db",
+        ".onnx",
+        ".bin",
+        ".jar",
+        ".keystore",
+    }
 )
 
 # This file necessarily contains examples of every pattern it bans.
@@ -89,8 +105,21 @@ def _report(hits: list[str]) -> str:
 # whole point of a placeholder, so they are allowed by name.
 HOME_PATH = re.compile(r"(?i)[a-z]:[\\/]users[\\/]([a-z0-9._-]+)")
 HOME_PLACEHOLDERS = frozenset(
-    {"you", "your", "user", "username", "name", "x", "xxx", "someone", "example",
-     "public", "default", "all users", "%username%"}
+    {
+        "you",
+        "your",
+        "user",
+        "username",
+        "name",
+        "x",
+        "xxx",
+        "someone",
+        "example",
+        "public",
+        "default",
+        "all users",
+        "%username%",
+    }
 )
 
 
@@ -197,9 +226,28 @@ CONSUMER_MAIL = re.compile(
     r"ymail|icloud|me|aol|proton|protonmail|gmx|mail)\.[a-z.]{2,}\b"
 )
 MAILBOX_PLACEHOLDERS = frozenset(
-    {"you", "your", "user", "username", "name", "me", "someone", "somebody",
-     "example", "test", "sender", "recipient", "person", "first.last", "a", "b",
-     "x", "w", "no-reply", "noreply"}
+    {
+        "you",
+        "your",
+        "user",
+        "username",
+        "name",
+        "me",
+        "someone",
+        "somebody",
+        "example",
+        "test",
+        "sender",
+        "recipient",
+        "person",
+        "first.last",
+        "a",
+        "b",
+        "x",
+        "w",
+        "no-reply",
+        "noreply",
+    }
 )
 
 
@@ -292,9 +340,7 @@ COORD_CONTEXT = re.compile(
 # name rules still cover for the operator's own.
 COORDINATE = re.compile(r"\b(?!0\.)\d{1,3}\.\d{2,}\b")
 # A bare pair is unmistakable without any context word to help.
-COORD_PAIR = re.compile(
-    r"\b(?!0\.)\d{1,3}\.\d{2,}\s*,\s*-?(?!0\.)\d{1,3}\.\d{2,}\b"
-)
+COORD_PAIR = re.compile(r"\b(?!0\.)\d{1,3}\.\d{2,}\s*,\s*-?(?!0\.)\d{1,3}\.\d{2,}\b")
 # GLSL RGB / sample positions look like lat,lon pairs: vec3(1.42, 1.24, 0.90).
 # Strip those literals before the pair rule runs, or every shader commit fails
 # the place guard and CI goes red for a colour, not a house.
@@ -302,16 +348,56 @@ GLSL_VEC = re.compile(r"\bvec[234]\s*\([^)]*\)")
 
 US_STATES = frozenset(
     {
-        "alabama", "alaska", "arizona", "arkansas", "california", "colorado",
-        "connecticut", "delaware", "florida", "georgia", "hawaii", "idaho",
-        "illinois", "indiana", "iowa", "kansas", "kentucky", "louisiana",
-        "maine", "maryland", "massachusetts", "michigan", "minnesota",
-        "mississippi", "missouri", "montana", "nebraska", "nevada",
-        "new hampshire", "new jersey", "new mexico", "new york",
-        "north carolina", "north dakota", "ohio", "oklahoma", "oregon",
-        "pennsylvania", "rhode island", "south carolina", "south dakota",
-        "tennessee", "texas", "utah", "vermont", "virginia", "washington",
-        "west virginia", "wisconsin", "wyoming",
+        "alabama",
+        "alaska",
+        "arizona",
+        "arkansas",
+        "california",
+        "colorado",
+        "connecticut",
+        "delaware",
+        "florida",
+        "georgia",
+        "hawaii",
+        "idaho",
+        "illinois",
+        "indiana",
+        "iowa",
+        "kansas",
+        "kentucky",
+        "louisiana",
+        "maine",
+        "maryland",
+        "massachusetts",
+        "michigan",
+        "minnesota",
+        "mississippi",
+        "missouri",
+        "montana",
+        "nebraska",
+        "nevada",
+        "new hampshire",
+        "new jersey",
+        "new mexico",
+        "new york",
+        "north carolina",
+        "north dakota",
+        "ohio",
+        "oklahoma",
+        "oregon",
+        "pennsylvania",
+        "rhode island",
+        "south carolina",
+        "south dakota",
+        "tennessee",
+        "texas",
+        "utah",
+        "vermont",
+        "virginia",
+        "washington",
+        "west virginia",
+        "wisconsin",
+        "wyoming",
     }
 )
 
@@ -332,9 +418,7 @@ ANY_STATE = _state_pattern(US_STATES)
 FOREIGN_STATE = _state_pattern(frozenset(US_STATES - {FIXTURE_STATE.lower()}))
 
 # The key form, not the bare word, so Python's own zip() is left alone.
-POSTAL_KEY = re.compile(
-    r"(?i)(?<![a-z])(?:zip|postal|postcode|postal_code|post_code)[\"']?\s*[:=]"
-)
+POSTAL_KEY = re.compile(r"(?i)(?<![a-z])(?:zip|postal|postcode|postal_code|post_code)[\"']?\s*[:=]")
 POSTAL = re.compile(r"\b\d{5}(?:-\d{4})?\b")
 
 
@@ -355,31 +439,32 @@ def _public_globe(path: Path) -> bool:
     return (
         rel.startswith("arelis/earth/")
         or rel.startswith("tests/fixtures/earth/")
-        or rel in {
-        "tests/test_earth.py",
-        "tests/test_earth_goto.py",
-        "tests/test_egress.py",
-        "scripts/shot_reality_polish.py",
-        "scripts/probe_earth_ghost.py",
-        "scripts/walk_earth_lod.py",
-        "scripts/walk_earth_streets.py",
-        "scripts/walk_earth_globe.py",
-        "scripts/walk_earth_field.py",
-        "scripts/shot_earth_break.py",
-        "scripts/shot_earth_reality.py",
-        "tests/test_earth_inspect.py",
-        "tests/test_earth_field.py",
-        "tests/test_earth_polish.py",
-        "tests/test_earth_audit.py",
-        "tests/test_earth_break.py",
-        "tests/test_globe_stack.py",
-        "docs/roadmap/earth-reality.md",
-        "arelis/ui/earth_globe/bridge.js",
-        "docs/earth.md",
-        "data/secrets.example.yaml",
-        # Public US gazetteer: "Baltimore, OH" vs "baltimore ohio".
-        "arelis/tools/weather.py",
-        "tests/test_weather_tool.py",
+        or rel
+        in {
+            "tests/test_earth.py",
+            "tests/test_earth_goto.py",
+            "tests/test_egress.py",
+            "scripts/shot_reality_polish.py",
+            "scripts/probe_earth_ghost.py",
+            "scripts/walk_earth_lod.py",
+            "scripts/walk_earth_streets.py",
+            "scripts/walk_earth_globe.py",
+            "scripts/walk_earth_field.py",
+            "scripts/shot_earth_break.py",
+            "scripts/shot_earth_reality.py",
+            "tests/test_earth_inspect.py",
+            "tests/test_earth_field.py",
+            "tests/test_earth_polish.py",
+            "tests/test_earth_audit.py",
+            "tests/test_earth_break.py",
+            "tests/test_globe_stack.py",
+            "docs/roadmap/earth-reality.md",
+            "arelis/ui/earth_globe/bridge.js",
+            "docs/earth.md",
+            "data/secrets.example.yaml",
+            # Public US gazetteer: "Baltimore, OH" vs "baltimore ohio".
+            "arelis/tools/weather.py",
+            "tests/test_weather_tool.py",
         }
     )
 
@@ -390,10 +475,7 @@ def _is_allowed_coordinate(value: str) -> bool:
 
 def test_glsl_rgb_triplets_are_not_coordinates() -> None:
     """Shader colours look like lat,lon. They are not a house."""
-    line = (
-        "vec3 core = mix(alb * vec3(1.36, 1.12, 0.62), "
-        "vec3(1.42, 1.24, 0.90), 0.34);"
-    )
+    line = "vec3 core = mix(alb * vec3(1.36, 1.12, 0.62), vec3(1.42, 1.24, 0.90), 0.34);"
     assert _coordinates_on(line) == []
     assert _coordinates_on("vec3 hot = mix(uColor, vec3(1.50, 1.35, 1.05), 0.72);") == []
     # A real pair on the same line as a vec3 still counts once the vec is gone.
@@ -445,8 +527,7 @@ def test_no_tracked_file_names_a_us_state_other_than_the_fixture() -> None:
                 hits.append(f"{path.relative_to(PROJECT_ROOT)}:{line_no}")
     assert not hits, (
         f"A US state other than the fixture ({FIXTURE_STATE}) is named in a "
-        "tracked file. A state is a statement about where somebody is:\n"
-        + _report(hits)
+        "tracked file. A state is a statement about where somebody is:\n" + _report(hits)
     )
 
 
@@ -466,8 +547,7 @@ def test_no_tracked_file_carries_a_postal_code_other_than_the_fixture() -> None:
             if any(code != FIXTURE_POSTAL for code in POSTAL.findall(line)):
                 hits.append(f"{path.relative_to(PROJECT_ROOT)}:{line_no}")
     assert not hits, (
-        f"A postal code other than the fixture ({FIXTURE_POSTAL}) is tracked:\n"
-        + _report(hits)
+        f"A postal code other than the fixture ({FIXTURE_POSTAL}) is tracked:\n" + _report(hits)
     )
 
 
@@ -527,8 +607,7 @@ def test_nothing_from_the_operators_own_records_reaches_a_tracked_file() -> None
     # RAADS-R_Chris_Maddie.xlsx survived the first version of this rule, and it
     # carried two people and a medical inference in one string.
     patterns = [
-        (term, re.compile(rf"(?i)(?<![a-z0-9]){re.escape(term)}(?![a-z0-9])"))
-        for term in terms
+        (term, re.compile(rf"(?i)(?<![a-z0-9]){re.escape(term)}(?![a-z0-9])")) for term in terms
     ]
     hits = []
     for path, text in _readable_tracked():
@@ -551,8 +630,7 @@ def test_nothing_from_the_operators_own_records_reaches_a_tracked_file() -> None
                     # The term is redacted here too: this message can end up in
                     # a terminal that is being recorded or shared.
                     hits.append(
-                        f"{path.relative_to(PROJECT_ROOT)}:{line_no} "
-                        f"(term of length {len(term)})"
+                        f"{path.relative_to(PROJECT_ROOT)}:{line_no} (term of length {len(term)})"
                     )
                     break
     assert not hits, (
@@ -595,14 +673,11 @@ def test_no_binary_file_embeds_a_personal_term() -> None:
             continue
         for term, encodings in needles:
             if any(needle and needle in blob for needle in encodings):
-                hits.append(
-                    f"{path.relative_to(PROJECT_ROOT)} (term of length {len(term)})"
-                )
+                hits.append(f"{path.relative_to(PROJECT_ROOT)} (term of length {len(term)})")
                 break
 
     assert not hits, (
         "A binary file has a personal term inside it, most likely in metadata "
         "rather than anywhere visible. Re-export it from a clean source or "
-        "strip the metadata; editing the file in place usually will not:\n"
-        + _report(hits)
+        "strip the metadata; editing the file in place usually will not:\n" + _report(hits)
     )

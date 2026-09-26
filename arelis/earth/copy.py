@@ -91,15 +91,11 @@ def band_phrase(band: str) -> str:
     return BAND_PHRASE.get(band, "on Earth")
 
 
-_PUBLISHED = frozenset(
-    {"live", "delayed", "interpolated", "dead-reckoned", "stale"}
-)
+_PUBLISHED = frozenset({"live", "delayed", "interpolated", "dead-reckoned", "stale"})
 
 
 # ISS rides on a click. Double-click rides the rest. Ground pins fly-to.
-RIDE_LAYERS = frozenset(
-    {"cameras", "flights", "drones", "military", "vessels", "iss"}
-)
+RIDE_LAYERS = frozenset({"cameras", "flights", "drones", "military", "vessels", "iss"})
 
 
 def can_ride(layer: str) -> bool:
@@ -281,9 +277,7 @@ def layer_hole_line(zone: Any) -> str | None:
             # firms import or check may fail — treat as no key
             keyed = False
         if not keyed:
-            return (
-                "FIRMS needs a MAP_KEY. Simulated fires are not live published."
-            )
+            return "FIRMS needs a MAP_KEY. Simulated fires are not live published."
         if "firms" not in fetched:
             return None
         if "fires" not in have:

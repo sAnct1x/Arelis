@@ -165,8 +165,7 @@ def redact_data(value: Any, *, _depth: int = 0, _budget: list[int] | None = None
         return redact_secrets(value)
     if isinstance(value, dict):
         return {
-            key: redact_data(item, _depth=_depth + 1, _budget=budget)
-            for key, item in value.items()
+            key: redact_data(item, _depth=_depth + 1, _budget=budget) for key, item in value.items()
         }
     if isinstance(value, (list, tuple)):
         rebuilt = [redact_data(item, _depth=_depth + 1, _budget=budget) for item in value]
@@ -183,9 +182,7 @@ class TruncationInfo:
     kept_chars: int
 
 
-def truncate_tool_output(
-    text: str, max_chars: int
-) -> tuple[str, TruncationInfo]:
+def truncate_tool_output(text: str, max_chars: int) -> tuple[str, TruncationInfo]:
     """Cap a single tool result. The marker matters: without it the model
     cannot tell a short file from a clipped one and will summarize confidently
     over missing content.
@@ -196,10 +193,6 @@ def truncate_tool_output(
     raw = text or ""
     original = len(raw)
     if max_chars <= 0 or original <= max_chars:
-        return raw, TruncationInfo(
-            truncated=False, original_chars=original, kept_chars=original
-        )
+        return raw, TruncationInfo(truncated=False, original_chars=original, kept_chars=original)
     clipped = raw[:max_chars] + f"\n\n[truncated to {max_chars} chars]"
-    return clipped, TruncationInfo(
-        truncated=True, original_chars=original, kept_chars=max_chars
-    )
+    return clipped, TruncationInfo(truncated=True, original_chars=original, kept_chars=max_chars)

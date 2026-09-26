@@ -17,9 +17,7 @@ from typing import Any
 # Coarse horizon phrases → end of local day / week / month windows.
 _HORIZON_TODAY = re.compile(r"(?i)^(today|tonight)$")
 _HORIZON_WEEK = re.compile(r"(?i)^(this\s+week|end\s+of\s+(?:the\s+)?week)$")
-_HORIZON_MONTH = re.compile(
-    r"(?i)^(this\s+month|end\s+of\s+(?:the\s+)?month)$"
-)
+_HORIZON_MONTH = re.compile(r"(?i)^(this\s+month|end\s+of\s+(?:the\s+)?month)$")
 
 
 @dataclass(frozen=True)
@@ -161,9 +159,7 @@ def collect_attention(
                 )
             )
 
-    items.extend(
-        _inbox_rule_items(mail=mail or [], rules=inbox_rules or [])
-    )
+    items.extend(_inbox_rule_items(mail=mail or [], rules=inbox_rules or []))
     items.extend(
         _file_rule_items(
             now=ref,

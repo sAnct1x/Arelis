@@ -15,10 +15,7 @@ BLOOM_X = 0.50
 BLOOM_Y = 0.44
 
 _rng = random.Random(7)
-_GRAIN = [
-    (_rng.random(), _rng.random(), _rng.randint(5, 11))
-    for _ in range(280)
-]
+_GRAIN = [(_rng.random(), _rng.random(), _rng.randint(5, 11)) for _ in range(280)]
 
 
 def paint_atmosphere(

@@ -56,9 +56,7 @@ _RESERVED_IDS = frozenset({"", "general", "none", "new", "list", "leave", "help"
 # do not fork. Spoken "Reality" resolves here; it is not a second room.
 PHYSICS_ROOM_ID = "physics"
 PHYSICS_DISPLAY_NAME = "Reality"
-PHYSICS_ALIASES = frozenset(
-    {"physics", "reality", "world", "solar-lab", "solar-system"}
-)
+PHYSICS_ALIASES = frozenset({"physics", "reality", "world", "solar-lab", "solar-system"})
 
 PHYSICS_PURPOSE = (
     "Reality. True-scale solar system — JPL Horizons ICs, REBOUND, the laws "
@@ -365,9 +363,7 @@ _TEST_LEAD = re.compile(
     \s+
     """
 )
-_FOLDER_TRAIL = re.compile(
-    r"(?i)\s+(?:folder|project|root)$"
-)
+_FOLDER_TRAIL = re.compile(r"(?i)\s+(?:folder|project|root)$")
 _KIND_HINTS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("code", ("pytest", "unit test", "refactor", "codebase", "pull request")),
     (
@@ -435,12 +431,16 @@ def match_set_kind_intent(text: str) -> str | None:
     if found is None:
         return None
     kind = (
-        found.group("kind")
-        or found.group("make")
-        or found.group("this")
-        or found.group("lean")
-        or ""
-    ).strip().lower()
+        (
+            found.group("kind")
+            or found.group("make")
+            or found.group("this")
+            or found.group("lean")
+            or ""
+        )
+        .strip()
+        .lower()
+    )
     return kind if kind in KINDS else None
 
 
@@ -507,10 +507,7 @@ def setup_prompt(step: str, room: Room, projects: Iterable[str]) -> str:
         names = list(projects)
         if names:
             listed = ", ".join(f"`{item}`" for item in names)
-            return (
-                f"Which folder should the work live in? {listed}. "
-                "Say the name, or skip."
-            )
+            return f"Which folder should the work live in? {listed}. Say the name, or skip."
         return (
             "Which folder should the work live in? Add one in the workspace "
             "dock first, or say skip."
@@ -521,10 +518,7 @@ def setup_prompt(step: str, room: Room, projects: Iterable[str]) -> str:
             "two sentences in documents/? Or say skip."
         )
     if step == "test":
-        return (
-            "How will we know a run actually happened? "
-            "Or say skip."
-        )
+        return "How will we know a run actually happened? Or say skip."
     return ""
 
 
@@ -649,9 +643,7 @@ class Room:
                     "Excel are exports you ask for."
                 )
             else:
-                lines.append(
-                    "Files she creates land in this project's documents folder."
-                )
+                lines.append("Files she creates land in this project's documents folder.")
         lines.append(
             "Earlier turns in this room are yours to build on when the work "
             "is the topic. Casual talk stays casual — do not steer back to "
@@ -757,9 +749,7 @@ class RoomStore:
             return None
         kind = _clean(body.get("kind")).lower() or DEFAULT_KIND
         if kind not in KINDS:
-            log.warning(
-                "Room `%s` has unknown kind `%s`; using `%s`", slug, kind, DEFAULT_KIND
-            )
+            log.warning("Room `%s` has unknown kind `%s`; using `%s`", slug, kind, DEFAULT_KIND)
             kind = DEFAULT_KIND
         tools = body.get("tools") or ()
         if isinstance(tools, str):
@@ -804,15 +794,13 @@ class RoomStore:
             self.save()
 
     def save(self) -> None:
-        body = {
-            room_id: self._rooms[room_id].to_yaml() for room_id in sorted(self._rooms)
-        }
+        body = {room_id: self._rooms[room_id].to_yaml() for room_id in sorted(self._rooms)}
         header = (
             "# Arelis rooms — a named place to work on one thing.\n"
             "#\n"
             "# Each room keeps its own conversation thread, points at one\n"
             "# workspace project, and hands Arelis its purpose every turn.\n"
-            "# Enter one with `/room <name>` or by saying \"let's work on <name>\".\n"
+            '# Enter one with `/room <name>` or by saying "let\'s work on <name>".\n'
             "#\n"
             "# kind: " + " | ".join(sorted(KINDS)) + "\n"
             "# tools: optional. Leave it out and the room leans without\n"
@@ -935,7 +923,7 @@ class RoomStore:
         if slug in PHYSICS_ALIASES or slugify(name) in PHYSICS_ALIASES:
             raise ValueError(
                 "Reality already exists — it is the permanent room "
-                f"(`/room {PHYSICS_ROOM_ID}`). Say \"let's work on Reality\"."
+                f'(`/room {PHYSICS_ROOM_ID}`). Say "let\'s work on Reality".'
             )
         if slug in self._rooms:
             raise ValueError(f"A room called `{slug}` already exists.")
@@ -966,8 +954,7 @@ class RoomStore:
             raise ValueError(f"Cannot set {', '.join(sorted(unknown))} on a room.")
         if "kind" in fields and fields["kind"] not in KINDS:
             raise ValueError(
-                f"Unknown room kind `{fields['kind']}`. "
-                f"Choose one of: {', '.join(sorted(KINDS))}."
+                f"Unknown room kind `{fields['kind']}`. Choose one of: {', '.join(sorted(KINDS))}."
             )
         if "tools" in fields:
             fields["tools"] = tuple(sorted(set(fields["tools"] or ())))

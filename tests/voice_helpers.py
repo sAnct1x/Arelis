@@ -2,6 +2,7 @@
 
 Not collected (no test_ prefix). Copied once from the former test_voice.py.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -43,22 +44,25 @@ def _config(**overrides: Any) -> dict[str, Any]:
     voice.update(overrides)
     return {"voice": voice, "agent": {}, "_persona_path": "does-not-exist.md"}
 
+
 def _tone(seconds: float, *, rate: int = 16000, amplitude: float = 0.3) -> bytes:
     """A 220 Hz sine, which reads as speech to a level-based detector."""
     frames = int(rate * seconds)
     peak = int(amplitude * 32767)
     return b"".join(
-        struct.pack("<h", int(peak * math.sin(2 * math.pi * 220 * i / rate)))
-        for i in range(frames)
+        struct.pack("<h", int(peak * math.sin(2 * math.pi * 220 * i / rate))) for i in range(frames)
     )
+
 
 def _silence(seconds: float, *, rate: int = 16000) -> bytes:
     return b"\x00\x00" * int(rate * seconds)
+
 
 def _fake_clip(path: Path) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(b"RIFF")
     return path
+
 
 async def _collect(bus: EventBus, coro) -> list[Event]:
     events: list[Event] = []
@@ -73,6 +77,7 @@ async def _collect(bus: EventBus, coro) -> list[Event]:
     bus.stop()
     task.cancel()
     return events
+
 
 class _FakeSTT:
     def __init__(self, text: str = "hello there", *, ready: bool = True) -> None:
@@ -98,6 +103,7 @@ class _FakeSTT:
     async def preload(self) -> None:
         return None
 
+
 class _StubRouter:
     default_role = "fast"
     models = {"fast": "mock", "research": "mock", "code": "mock"}
@@ -116,6 +122,7 @@ class _StubRouter:
     async def stream(self, role, messages, **kwargs):
         yield ("token", "an answer")
 
+
 def _feed(detector: UtteranceDetector, pcm: bytes, *, block_ms: int = 100) -> list[str]:
     """Feed audio in realistic block sizes and collect what fired."""
     block = int(16000 * block_ms / 1000) * 2
@@ -125,6 +132,7 @@ def _feed(detector: UtteranceDetector, pcm: bytes, *, block_ms: int = 100) -> li
         if event:
             events.append(event)
     return events
+
 
 class _FakeSileroEngine:
     """Return high speech prob when the 512-frame has energy."""
@@ -157,6 +165,7 @@ class _FakeSileroEngine:
             offset += FRAME_SAMPLES
         self._pending = flat[offset:].copy()
         return probs
+
 
 class _FakeRecorder(QObject):
     """Stands in for MicRecorder without touching an audio device."""
@@ -215,6 +224,7 @@ class _FakeRecorder(QObject):
             self._buffer.extend(chunk)
             self.frames.emit(chunk)
 
+
 def _controller(qt_app):
     from arelis.ui.voice_control import VoiceController
 
@@ -223,6 +233,7 @@ def _controller(qt_app):
     controller.recorder = recorder
     recorder.frames.connect(controller._on_frames)
     return controller, recorder
+
 
 def _chord(kind, *, shift: bool, autorep: bool = False):
     from PySide6.QtCore import Qt as _Qt
@@ -233,6 +244,7 @@ def _chord(kind, *, shift: bool, autorep: bool = False):
         mods = mods | _Qt.KeyboardModifier.ShiftModifier
     return QKeyEvent(kind, _Qt.Key.Key_M, mods, "\r", autorep, 1)
 
+
 def _hotkey_window():
     from arelis.ui.app import ArelisWindow, BusBridge
 
@@ -242,12 +254,14 @@ def _hotkey_window():
     window._voice_hotkeys_allowed = lambda: True  # type: ignore[method-assign]
     return window
 
+
 def _sherpa_pack(root) -> None:
     pack = root / "sherpa-onnx-streaming-zipformer-en-2023-06-26"
     pack.mkdir(parents=True, exist_ok=True)
     (pack / "tokens.txt").write_text("a\n", encoding="utf-8")
     for part in ("encoder", "decoder", "joiner"):
         (pack / f"{part}-epoch-99-avg-1-chunk-16-left-128.onnx").write_bytes(b"x")
+
 
 def _sherpa_stt(tmp_path, monkeypatch):
     from arelis.voice.stt import SpeechToText
@@ -264,11 +278,10 @@ def _sherpa_stt(tmp_path, monkeypatch):
             }
         }
     )
-    monkeypatch.setattr(
-        "arelis.voice.sherpa_stt.sherpa_package_available", lambda: True
-    )
+    monkeypatch.setattr("arelis.voice.sherpa_stt.sherpa_package_available", lambda: True)
     monkeypatch.setattr(stt, "_whisper_installed", lambda: True)
     return stt
+
 
 class _SpyController:
     """Records what the window tells the voice controller, in order."""
@@ -303,6 +316,7 @@ class _SpyController:
     def said(self, name: str) -> list[Any]:
         return [value for call, value in self.calls if call == name]
 
+
 def _speech_window(spy: _SpyController):
     """A window with playback wired up and no microphone, plus a spy controller."""
     from arelis.ui.app import ArelisWindow, BusBridge
@@ -325,8 +339,10 @@ def _speech_window(spy: _SpyController):
     window.voice.speak_enabled = True
     return window
 
+
 def _speech_done(*, clips: int) -> Event:
     return Event(EventType.VOICE_SPEECH_DONE, {"utterance": 1, "clips": clips})
+
 
 def _answer(controller, recorder, *, echo: bool = True) -> None:
     """Play out a whole reply the way the window drives it."""

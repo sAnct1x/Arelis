@@ -173,9 +173,7 @@ def load_ui_prefs() -> dict[str, Any]:
         "chat_font_scale": scale,
         "world_reach": clamp_reach(reach),
         "away_rest": _as_bool(s.value("away_rest", False)),
-        "away_rest_min": clamp_away_rest_min(
-            s.value("away_rest_min", _DEFAULT_AWAY_REST_MIN)
-        ),
+        "away_rest_min": clamp_away_rest_min(s.value("away_rest_min", _DEFAULT_AWAY_REST_MIN)),
     }
 
 

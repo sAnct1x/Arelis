@@ -70,9 +70,7 @@ def spin_jd(epoch_jd: float, t_s: float) -> float:
     return _JD2000
 
 
-def earth_lonlat(
-    x: float, y: float, z: float, jd: float
-) -> tuple[float, float]:
+def earth_lonlat(x: float, y: float, z: float, jd: float) -> tuple[float, float]:
     """ECLIPJ2000 unit vector → Earth-fixed lon/lat (rad)."""
     lon, lat = earth_lonlat_grid(
         np.asarray(x, dtype=np.float64),
@@ -101,9 +99,7 @@ def moon_lonlat_grid(
     return lonlat_from_frame(x, y, z, _moon_frame(moon, earth))
 
 
-def equatorial_to_ecliptic(
-    x: float, y: float, z: float
-) -> tuple[float, float, float]:
+def equatorial_to_ecliptic(x: float, y: float, z: float) -> tuple[float, float, float]:
     """ICRF equatorial J2000 → ECLIPJ2000. Inverse of the Earth-grid first step."""
     return (
         x,

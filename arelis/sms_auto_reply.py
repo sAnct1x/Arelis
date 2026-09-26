@@ -193,9 +193,7 @@ class SmsAutoReply:
     def _kick_held_replies(self) -> None:
         if self._turn_held or not self._held_replies or self._drain_running:
             return
-        task = asyncio.create_task(
-            self._drain_held_replies(), name="sms-auto-reply-held"
-        )
+        task = asyncio.create_task(self._drain_held_replies(), name="sms-auto-reply-held")
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
 
@@ -296,9 +294,7 @@ class SmsAutoReply:
                 EventType.STATUS,
                 {
                     "message": (
-                        result.output
-                        if result.ok
-                        else f"Auto-reply failed: {result.output}"
+                        result.output if result.ok else f"Auto-reply failed: {result.output}"
                     )
                 },
             )

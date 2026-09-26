@@ -223,9 +223,7 @@ class GitInfoTool:
             return self._blame(cwd, toplevel, path_str, max_chars)
         return self._show(cwd, toplevel, rev, max_chars)
 
-    def _stage(
-        self, cwd: Path, toplevel: Path, path_str: str | None, max_chars: int
-    ) -> ToolResult:
+    def _stage(self, cwd: Path, toplevel: Path, path_str: str | None, max_chars: int) -> ToolResult:
         """git add. Scoped to a named path, or everything under cwd.
 
         Deliberately not `git add -A` from the toplevel: cwd is already
@@ -241,18 +239,12 @@ class GitInfoTool:
             return self._git_fail(completed, "add")
         after = self._git(cwd, "status", "--porcelain=v1")
         staged = [
-            line
-            for line in (after.stdout or "").splitlines()
-            if line[:1] not in {" ", "?", ""}
+            line for line in (after.stdout or "").splitlines() if line[:1] not in {" ", "?", ""}
         ]
         body = "\n".join(staged) if staged else "(nothing staged)"
-        return self._ok(
-            body, action="stage", cwd=cwd, toplevel=toplevel, max_chars=max_chars
-        )
+        return self._ok(body, action="stage", cwd=cwd, toplevel=toplevel, max_chars=max_chars)
 
-    def _commit(
-        self, cwd: Path, toplevel: Path, message: str, max_chars: int
-    ) -> ToolResult:
+    def _commit(self, cwd: Path, toplevel: Path, message: str, max_chars: int) -> ToolResult:
         """git commit of whatever is already staged.
 
         The message is passed as its own argv entry, so quotes, semicolons and
@@ -337,22 +329,16 @@ class GitInfoTool:
         if completed.returncode != 0:
             return self._git_fail(completed, "branch")
         body = (completed.stdout or "").rstrip() or "(no branches)"
-        return self._ok(
-            body, action="branch", cwd=cwd, toplevel=toplevel, max_chars=max_chars
-        )
+        return self._ok(body, action="branch", cwd=cwd, toplevel=toplevel, max_chars=max_chars)
 
     def _stash(self, cwd: Path, toplevel: Path, max_chars: int) -> ToolResult:
         completed = self._git(cwd, "stash", "list")
         if completed.returncode != 0:
             return self._git_fail(completed, "stash list")
         body = (completed.stdout or "").rstrip() or "(no stashes)"
-        return self._ok(
-            body, action="stash", cwd=cwd, toplevel=toplevel, max_chars=max_chars
-        )
+        return self._ok(body, action="stash", cwd=cwd, toplevel=toplevel, max_chars=max_chars)
 
-    def _blame(
-        self, cwd: Path, toplevel: Path, path_str: str | None, max_chars: int
-    ) -> ToolResult:
+    def _blame(self, cwd: Path, toplevel: Path, path_str: str | None, max_chars: int) -> ToolResult:
         assert path_str and str(path_str).strip()
         try:
             resolved = self.workspace.resolve(str(path_str).strip())
@@ -370,24 +356,16 @@ class GitInfoTool:
         if completed.returncode != 0:
             return self._git_fail(completed, "blame")
         body = (completed.stdout or "").rstrip() or "(empty blame)"
-        return self._ok(
-            body, action="blame", cwd=cwd, toplevel=toplevel, max_chars=max_chars
-        )
+        return self._ok(body, action="blame", cwd=cwd, toplevel=toplevel, max_chars=max_chars)
 
-    def _show(
-        self, cwd: Path, toplevel: Path, rev: str, max_chars: int
-    ) -> ToolResult:
+    def _show(self, cwd: Path, toplevel: Path, rev: str, max_chars: int) -> ToolResult:
         completed = self._git(cwd, "show", "--no-color", rev)
         if completed.returncode != 0:
             return self._git_fail(completed, "show")
         body = (completed.stdout or "").rstrip() or "(empty show)"
-        return self._ok(
-            body, action="show", cwd=cwd, toplevel=toplevel, max_chars=max_chars
-        )
+        return self._ok(body, action="show", cwd=cwd, toplevel=toplevel, max_chars=max_chars)
 
-    def _log(
-        self, cwd: Path, toplevel: Path, n: int, max_chars: int
-    ) -> ToolResult:
+    def _log(self, cwd: Path, toplevel: Path, n: int, max_chars: int) -> ToolResult:
         completed = self._git(
             cwd,
             "log",

@@ -46,9 +46,7 @@ async def sync_calendars(
                     str(cal_cfg.get("google_calendar_id") or "").strip()
                     or secrets.google.calendar_id
                 )
-                events = await client.list_events(
-                    time_min=start, time_max=end, calendar_id=cal_id
-                )
+                events = await client.list_events(time_min=start, time_max=end, calendar_id=cal_id)
                 extra_ids: list[str] = []
                 if bool(cal_cfg.get("include_holidays", True)):
                     try:
@@ -73,9 +71,7 @@ async def sync_calendars(
                         continue
                     seen.add(ev.id)
                     deduped.append(ev)
-                n = store.replace_provider_window(
-                    "google", deduped, start=start, end=end
-                )
+                n = store.replace_provider_window("google", deduped, start=start, end=end)
                 summary["providers"]["google"] = {
                     "count": n,
                     "ok": True,
@@ -98,9 +94,7 @@ async def sync_calendars(
                 events = await client.list_events(
                     time_min=start, time_max=end, calendar_id=cal_id or None
                 )
-                n = store.replace_provider_window(
-                    "outlook", events, start=start, end=end
-                )
+                n = store.replace_provider_window("outlook", events, start=start, end=end)
                 summary["providers"]["outlook"] = {"count": n, "ok": True}
             except Exception as exc:
                 log.warning("Outlook calendar sync failed: %s", exc)

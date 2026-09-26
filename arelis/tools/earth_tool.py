@@ -84,9 +84,7 @@ class EarthTool:
         if not stage_ok() and action not in {"status"}:
             return ToolResult(
                 ok=False,
-                output=(
-                    "The Earth zone is source-checkout only, same as the solar stage."
-                ),
+                output=("The Earth zone is source-checkout only, same as the solar stage."),
                 data={"fail_class": "fail:stage"},
             )
         earth = require_earth()
@@ -149,9 +147,7 @@ class EarthTool:
             try:
                 folder = dump_state(earth, trigger="dump")
             except OSError as exc:
-                return ToolResult(
-                    ok=False, output=str(exc), data={"fail_class": "fail:io"}
-                )
+                return ToolResult(ok=False, output=str(exc), data={"fail_class": "fail:io"})
             return ToolResult(
                 ok=True,
                 output=(

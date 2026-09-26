@@ -194,9 +194,7 @@ async def test_move_cannot_smuggle_a_file_out_of_the_sandbox(tmp_path: Path) -> 
     (root / "secret.txt").write_text("stays inside", encoding="utf-8")
 
     tool = CodeWorkspaceTool([str(root)])
-    result = await tool.run(
-        action="move", path="secret.txt", to=str(outside / "leaked.txt")
-    )
+    result = await tool.run(action="move", path="secret.txt", to=str(outside / "leaked.txt"))
     assert not result.ok
     assert not (outside / "leaked.txt").exists()
     assert (root / "secret.txt").exists()

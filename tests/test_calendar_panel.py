@@ -189,9 +189,7 @@ def test_month_chips_sit_below_the_date(qt_app) -> None:
 
         panel.month_view.paintEvent(QPaintEvent(panel.month_view.rect()))
         cell = next(
-            hit
-            for hit in panel.month_view._hits
-            if hit.kind == "cell" and hit.payload == day
+            hit for hit in panel.month_view._hits if hit.kind == "cell" and hit.payload == day
         )
         chip = next(hit for hit in panel.month_view._hits if hit.kind == "event")
         assert chip.rect.top() >= cell.rect.top() + SPACE["micro"] + 16
@@ -236,11 +234,7 @@ def test_month_grid_paints_an_event(qt_app) -> None:
         kinds = [hit.kind for hit in panel.month_view._hits]
         assert "event" in kinds
         assert "cell" in kinds
-        titles = [
-            hit.payload.summary
-            for hit in panel.month_view._hits
-            if hit.kind == "event"
-        ]
+        titles = [hit.payload.summary for hit in panel.month_view._hits if hit.kind == "event"]
         assert "Dentist" in titles
     finally:
         panel.hide()
@@ -284,9 +278,7 @@ def test_calendar_opens_as_a_chrome_sized_window(arelis_window, qt_app) -> None:
     assert win.height() >= CHROME_TILE_SIZE[1]
     assert not isinstance(win, QDockWidget)
     named = [
-        dock
-        for dock in window.findChildren(QDockWidget)
-        if dock.objectName() == "CalendarDock"
+        dock for dock in window.findChildren(QDockWidget) if dock.objectName() == "CalendarDock"
     ]
     assert named == []
     assert not win.testAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
@@ -310,9 +302,7 @@ def test_calendar_close_unchecks_view_action(arelis_window, qt_app) -> None:
     assert not window.act_calendar.isChecked()
 
 
-def test_agenda_open_tool_result_shows_the_calendar_window(
-    arelis_window, qt_app
-) -> None:
+def test_agenda_open_tool_result_shows_the_calendar_window(arelis_window, qt_app) -> None:
     from arelis.core.events import Event, EventType
 
     window = arelis_window()
@@ -333,9 +323,7 @@ def test_agenda_open_tool_result_shows_the_calendar_window(
     assert window.act_calendar.isChecked()
 
 
-def test_agenda_close_tool_result_hides_the_calendar_window(
-    arelis_window, qt_app
-) -> None:
+def test_agenda_close_tool_result_hides_the_calendar_window(arelis_window, qt_app) -> None:
     from arelis.core.events import Event, EventType
 
     window = arelis_window()

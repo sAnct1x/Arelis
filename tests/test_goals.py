@@ -53,9 +53,7 @@ async def test_invalid_priority_fails_and_does_not_coerce(tmp_path: Path) -> Non
         assert listed.data["goals"] == []
 
         added = await tool.run(action="add", title="ship 0.2.8")
-        bad = await tool.run(
-            action="update", id=added.data["id"], priority="urgent"
-        )
+        bad = await tool.run(action="update", id=added.data["id"], priority="urgent")
         assert not bad.ok
         assert store.get_goal(added.data["id"])["priority"] == "normal"
     finally:

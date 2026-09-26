@@ -70,9 +70,7 @@ def test_first_run_is_the_same_glass_as_everything_else(qt_app, tmp_path: Path) 
         assert str(tmp_path / "Arelis") in dialog._path_label.text()
         assert dialog._path_label.objectName() == "DialogPath"
         assert dialog.root == tmp_path / "Arelis"
-        notes = " ".join(
-            w.text() for w in dialog.findChildren(QLabel) if w.text()
-        ).lower()
+        notes = " ".join(w.text() for w in dialog.findChildren(QLabel) if w.text()).lower()
         assert "close this window" in notes
         assert "accepts this folder" in notes
     finally:

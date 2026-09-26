@@ -36,9 +36,7 @@ def is_reauth_error(text: str) -> bool:
     raw = (text or "").casefold()
     if "token refresh failed" in raw:
         return True
-    if "not authorized" in raw and (
-        "google" in raw or "outlook" in raw or "calendar" in raw
-    ):
+    if "not authorized" in raw and ("google" in raw or "outlook" in raw or "calendar" in raw):
         return True
     return False
 
@@ -80,9 +78,7 @@ def authorize_google() -> AuthResult:
         }
     }
     try:
-        flow = InstalledAppFlow.from_client_config(
-            client_config, scopes=GOOGLE_SCOPES
-        )
+        flow = InstalledAppFlow.from_client_config(client_config, scopes=GOOGLE_SCOPES)
         creds = flow.run_local_server(port=0, prompt="consent")
     except Exception as exc:
         log.warning("Google calendar sign-in failed: %s", exc)
@@ -120,9 +116,7 @@ def authorize_outlook() -> AuthResult:
 
     app = msal.PublicClientApplication(
         secrets.outlook.client_id,
-        authority=(
-            f"https://login.microsoftonline.com/{secrets.outlook.tenant or 'consumers'}"
-        ),
+        authority=(f"https://login.microsoftonline.com/{secrets.outlook.tenant or 'consumers'}"),
     )
     try:
         result = app.acquire_token_interactive(scopes=OUTLOOK_SCOPES)

@@ -501,17 +501,11 @@ class MobileHub:
                 pending_from_payload,
             )
 
-            confirm = pending_from_event_payload(payload) or pending_from_payload(
-                payload
-            )
+            confirm = pending_from_event_payload(payload) or pending_from_payload(payload)
             if not confirm.headline:
-                confirm.headline = str(
-                    payload.get("headline") or payload.get("summary") or "Allow"
-                )
+                confirm.headline = str(payload.get("headline") or payload.get("summary") or "Allow")
             self.set_confirm(confirm)
-            self._confirm_session_id = self._turn_session_id or str(
-                self._pc_chat().get("id") or ""
-            )
+            self._confirm_session_id = self._turn_session_id or str(self._pc_chat().get("id") or "")
             self._emit(
                 {
                     "type": "confirm",
@@ -551,13 +545,18 @@ class MobileHub:
             path = str(payload.get("abs_path") or payload.get("path") or "").strip()
             title = str(payload.get("title") or "").strip() or (Path(path).name if path else "file")
             if path:
-                kind: GlanceKind = "image" if Path(path).suffix.lower() in {
-                    ".png",
-                    ".jpg",
-                    ".jpeg",
-                    ".webp",
-                    ".gif",
-                } else "file"
+                kind: GlanceKind = (
+                    "image"
+                    if Path(path).suffix.lower()
+                    in {
+                        ".png",
+                        ".jpg",
+                        ".jpeg",
+                        ".webp",
+                        ".gif",
+                    }
+                    else "file"
+                )
                 glance = self.register_glance(title=title, kind=kind, path=path)
                 if glance is not None:
                     self._emit(
@@ -653,9 +652,7 @@ def decode_data_url_or_b64(raw: str) -> bytes:
 
 
 def ndjson_line(obj: dict[str, Any]) -> bytes:
-    return (json.dumps(obj, ensure_ascii=False, separators=(",", ":")) + "\n").encode(
-        "utf-8"
-    )
+    return (json.dumps(obj, ensure_ascii=False, separators=(",", ":")) + "\n").encode("utf-8")
 
 
 def _trim_transcript(items: deque[Bubble]) -> None:

@@ -12,10 +12,7 @@ from arelis.core.turn_goal import (
     receipt_serves_goal,
 )
 
-_X_ASK = (
-    "go to x.com and take me to the login page if it does not "
-    "automatically sign me in."
-)
+_X_ASK = "go to x.com and take me to the login page if it does not automatically sign me in."
 
 
 def test_x_home_without_signin_is_already_in() -> None:
@@ -94,15 +91,12 @@ def test_derive_browser_goal_is_a_login_check() -> None:
 
 def test_pay_wall_serves_browser_goal() -> None:
     goal = derive_turn_goal("add batteries to cart and checkout", kinds=["browser"])
-    assert receipt_serves_goal(
-        goal, "browser", "Stopped before Pay.", data={"wall": "pay"}
-    )
+    assert receipt_serves_goal(goal, "browser", "Stopped before Pay.", data={"wall": "pay"})
 
 
 def test_youtube_search_ask_keeps_driving_after_navigate() -> None:
     errand = browser_errand_done(
-        "Hay take me to you tube doc calm and do us search "
-        "for the organic chemistry tutor",
+        "Hay take me to you tube doc calm and do us search for the organic chemistry tutor",
         action="navigate",
         requested_url="https://www.youtube.com",
         landed_url="https://www.youtube.com/",
@@ -117,9 +111,7 @@ def test_search_site_follows_youtube_not_google() -> None:
 
     site = infer_search_site(query="organic chemistry tutor youtube")
     assert site == "youtube"
-    assert "youtube.com/results" in search_url(
-        "organic chemistry tutor youtube", site=site
-    )
+    assert "youtube.com/results" in search_url("organic chemistry tutor youtube", site=site)
     assert (
         infer_search_site(
             query="precalculus playlist",

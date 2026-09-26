@@ -200,7 +200,11 @@ def test_installed_inspect_root_renames_when_source_is_taken(
     monkeypatch.setattr(paths, "PACKAGE_ROOT", package)
 
     named = [
-        {"name": "source", "path": str((installed / "Documents" / "Arelis").resolve()), "read_only": False},
+        {
+            "name": "source",
+            "path": str((installed / "Documents" / "Arelis").resolve()),
+            "read_only": False,
+        },
     ]
     result = ensure_package_inspect_root(named)
     inspect = next(e for e in result if Path(e["path"]).resolve() == package.resolve())
@@ -216,7 +220,11 @@ def test_installed_forces_read_only_when_the_package_is_already_a_root(
     monkeypatch.setattr(paths, "PACKAGE_ROOT", package)
 
     named = [
-        {"name": "Arelis", "path": str((installed / "Documents" / "Arelis").resolve()), "read_only": False},
+        {
+            "name": "Arelis",
+            "path": str((installed / "Documents" / "Arelis").resolve()),
+            "read_only": False,
+        },
         {"name": "pkg", "path": str(package.resolve()), "read_only": False},
     ]
     result = ensure_package_inspect_root(named)
@@ -224,7 +232,9 @@ def test_installed_forces_read_only_when_the_package_is_already_a_root(
     pkg = next(e for e in result if Path(e["path"]).resolve() == package.resolve())
     assert pkg["read_only"] is True
     docs = next(
-        e for e in result if Path(e["path"]).resolve() == (installed / "Documents" / "Arelis").resolve()
+        e
+        for e in result
+        if Path(e["path"]).resolve() == (installed / "Documents" / "Arelis").resolve()
     )
     assert docs["read_only"] is False
 
