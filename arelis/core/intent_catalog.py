@@ -1076,15 +1076,60 @@ _RUN_SCRIPT_BARE = re.compile(
 )
 _RUN_IT_AGAIN = re.compile(r"(?i)(?<!n't )(?<!not )(?<!never )\brun\s+it\s+again\b")
 # "run it with run_script" / "then run it" / "and run the file"
+# Pattern for "run it" - will be combined with script context check in custom IntentSpec
 _RUN_IT = re.compile(
-    r"(?i)(?<!n't )(?<!not )(?<!never )\b(?:then\s+|and\s+)?(?:run|execute)\s+it\b"
+    r"(?i)(?<!n't )(?<!not )(?<!never )"
+    r"\b(?:then\s+|and\s+)?(?:run|execute)\s+it\b"
+)
+# Pattern to check if text has script context anywhere
+_HAS_SCRIPT_CONTEXT = re.compile(
+    r"(?i)\.py\b|run_script|\bscript\b"
 )
 # "call run_script on work/sq.py"
 _CALL_RUN_SCRIPT = re.compile(
     r"(?i)\bcall\s+run_script\b"
 )
 
-RUN_SCRIPT = IntentSpec(
+
+def _run_it_with_script_context(text: str) -> bool:
+    """True when text matches 'run it' AND has script context (.py / script / run_script)."""
+    raw = text or ""
+    if not raw.strip():
+        return False
+    # Must match "run it" pattern
+    if not _RUN_IT.search(raw):
+        return False
+    # AND must have script context somewhere in the text
+    return bool(_HAS_SCRIPT_CONTEXT.search(raw))
+
+
+@dataclass(frozen=True)
+class _RunScriptSpec(IntentSpec):
+    """RUN_SCRIPT with custom logic for _RUN_IT requiring script context."""
+
+    def matches(self, text: str) -> bool:
+        """Check all patterns; _RUN_IT additionally requires script context."""
+        raw = text or ""
+        if not raw.strip():
+            return False
+        
+        # Check each pattern
+        for pattern in self.patterns:
+            if pattern is _RUN_IT:
+                # Special handling: must also have script context
+                if _run_it_with_script_context(raw):
+                    hit = _RUN_IT.search(raw)
+                    if hit and (not self.veto_negation or _clause_not_negated(raw, hit.start())):
+                        return True
+            else:
+                # Normal pattern matching
+                hit = pattern.search(raw)
+                if hit and (not self.veto_negation or _clause_not_negated(raw, hit.start())):
+                    return True
+        return False
+
+
+RUN_SCRIPT = _RunScriptSpec(
     kind="run_script",
     patterns=(_RUN_SCRIPT_FILE, _RUN_SCRIPT_BARE, _RUN_IT_AGAIN, _RUN_IT, _CALL_RUN_SCRIPT),
     expected_tools=("run_script",),

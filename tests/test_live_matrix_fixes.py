@@ -200,19 +200,23 @@ async def test_run_script_intent_matches_run_it_and_call_run_script() -> None:
     
     The write→run chains in C05 and P05 say "run it with run_script" and 
     "call run_script on work/sq2.py" but weren't matching RUN_SCRIPT intent.
+    Note: bare "run it" requires script context to avoid false positives.
     """
     from arelis.core.intent_catalog import RUN_SCRIPT
     
-    # Explicit mentions that were failing
+    # Explicit mentions that were working in C05/P05 (with script context)
     assert RUN_SCRIPT.matches("run it with run_script")
-    assert RUN_SCRIPT.matches("then run it")
-    assert RUN_SCRIPT.matches("and run it")
     assert RUN_SCRIPT.matches("call run_script on work/sq.py")
     
     # Original patterns (already worked)
     assert RUN_SCRIPT.matches("run work/hello.py")
     assert RUN_SCRIPT.matches("execute the script")
     assert RUN_SCRIPT.matches("run it again")
+    
+    # Context-dependent: "run it" only matches with script context
+    assert RUN_SCRIPT.matches("write test.py then run it")
+    assert not RUN_SCRIPT.matches("then run it")  # No script context
+    assert not RUN_SCRIPT.matches("and run it")   # No script context
 
 
 @pytest.mark.asyncio
@@ -243,3 +247,35 @@ async def test_write_run_script_plan_matches_chains() -> None:
     assert plan.id == "write_run_script"
     assert "workspace" in plan.steps
     assert "run_script" in plan.steps
+
+
+@pytest.mark.asyncio
+async def test_run_it_requires_script_context() -> None:
+    """Issue 7 (S37b): bare 'run it' should only match RUN_SCRIPT with script context.
+    
+    The _RUN_IT pattern now requires the same message to also mention script
+    context (.py file, 'script', or 'run_script') to avoid false positives on
+    non-script phrases like 'run it by me', 'run it past the team'.
+    """
+    from arelis.core.intent_catalog import RUN_SCRIPT
+    
+    # Negative cases: "run it" without script context should NOT match
+    assert not RUN_SCRIPT.matches("run it by me")
+    assert not RUN_SCRIPT.matches("run it past the team tomorrow")
+    assert not RUN_SCRIPT.matches("can you run it")
+    assert not RUN_SCRIPT.matches("let me run it by the manager")
+    assert not RUN_SCRIPT.matches("I'll run it past Legal first")
+    
+    # Positive cases: "run it" WITH script context SHOULD match
+    assert RUN_SCRIPT.matches("write work/sq.py then run it")
+    assert RUN_SCRIPT.matches("I created a script, now run it")
+    assert RUN_SCRIPT.matches("after writing the .py file, run it")
+    assert RUN_SCRIPT.matches("use run_script to run it")
+    
+    # Edge case: "run it" far from script context still matches (same message)
+    assert RUN_SCRIPT.matches("I have a Python script in work/test.py. Can you run it?")
+    
+    # Other patterns should still work as before
+    assert RUN_SCRIPT.matches("run work/hello.py")
+    assert RUN_SCRIPT.matches("execute the script")
+    assert RUN_SCRIPT.matches("call run_script on work/sq.py")

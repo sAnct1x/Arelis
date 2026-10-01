@@ -387,10 +387,10 @@ SKILL_CARDS: dict[str, SkillCard] = {
   python cell is a formula, not their script.
 - When they name a .py to run, call run_script with that path. Not a shell.
   Not diagnostics (that is her tests/ only). Not schedule run_now.
-  Not run_task (that is for named project tasks from package.json or 
+  Not run_task (that is for named project tasks from package.json or
   arelis-tasks.json).
-- For write-then-run chains: after workspace writes a .py, call run_script 
-  with that same path. Do not use python (locked cell) or run_task for a 
+- For write-then-run chains: after workspace writes a .py, call run_script
+  with that same path. Do not use python (locked cell) or run_task for a
   file path.
 - A check the project already named is run_task. action=list shows pytest
   (when tests/ exists), package.json scripts, and arelis-tasks.json.
@@ -620,9 +620,9 @@ SKILL_CARDS: dict[str, SkillCard] = {
         ),
         body="""
 ### Local documents
-- For PDF, Word (.docx), or PowerPoint (.pptx) content or quotes, call 
-  doc_extract with the path (workspace, data/drops/ attachment, or granted 
-  absolute). Use page_start/page_end when the user names pages. Do not invent 
+- For PDF, Word (.docx), or PowerPoint (.pptx) content or quotes, call
+  doc_extract with the path (workspace, data/drops/ attachment, or granted
+  absolute). Use page_start/page_end when the user names pages. Do not invent
   document text.
 - If doc_extract returns source: look, that is the transcription of a
   scanned or handwritten PDF. Answer from it. If it still says source: ink,
