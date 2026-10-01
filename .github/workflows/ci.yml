@@ -27,7 +27,7 @@ jobs:
       # Ruff only. The pin lives in pyproject.toml; tests/test_ci_gate.py
       # fails if this line and that pin disagree.
       - name: Install ruff
-        run: python -m pip install "ruff==0.16.8"
+        run: python -m pip install "ruff==0.16.9"
       - name: Ruff
         run: python -m ruff check .
 

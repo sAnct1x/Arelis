@@ -34,7 +34,7 @@ fi
 echo "pre-commit: ruff…"
 # Ruff used to be CI-only. A solar-lab commit then failed eight GitHub jobs
 # on unsorted imports and the inbox saw eight mails. Catch it here, before
-# the commit exists. The pin is pyproject.toml / ruff==0.16.8.
+# the commit exists. The pin is pyproject.toml / ruff==0.16.9.
 #
 # Staged files only, not `ruff check .`. Several sittings edit this checkout
 # at once, and the whole-tree form meant one lane's half-written probe blocked
