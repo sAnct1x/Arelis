@@ -566,14 +566,20 @@ async def execute_call(
                 signed_in=bool((data_dict or {}).get("signed_in")),
             )
             if errand.done:
-                await loop.bus.publish(
-                    Event(
-                        EventType.THINKING,
-                        {"text": "browser errand done; stopping"},
+                # Don't finish if the ask named other tools we still owe (e.g.,
+                # "open and screenshot" or "open then call screenshot" shouldn't
+                # end after the open). Same pattern as the image_edit fix: check
+                # named_tools_owed to see if the chain continues.
+                owed = [n for n in named_tools_owed(loop, ctx) if n != "browser"]
+                if not owed:
+                    await loop.bus.publish(
+                        Event(
+                            EventType.THINKING,
+                            {"text": "browser errand done; stopping"},
+                        )
                     )
-                )
-                await loop._finish(errand.reply, sources, streamed="")
-                return True
+                    await loop._finish(errand.reply, sources, streamed="")
+                    return True
             if errand.status == NEED_LOGIN and not ctx.browser_login_hop:
                 ended = await _login_check_hop(
                     loop,
