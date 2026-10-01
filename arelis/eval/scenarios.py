@@ -240,13 +240,14 @@ SCENARIOS: list[Scenario] = [
     Scenario(
         id="math_refuses_without_calculator",
         user="What is 17.5% of 840?",
-        expect_tools=(),
-        allow_no_tools=True,
+        expect_tools=("calculator",),
         offline_only=True,
-        expect_answer_contains=("don't know",),
         forbid_claim_if_no_tool=("147",),
         failure_class="knowing_doing_gap",
-        notes="Exactness hard refuse: second bare invent after force must not ship.",
+        notes=(
+            "The route preinjects calculator before this scripted recital is read. "
+            "A turn that never got a calculator result still uses the refusal sentence."
+        ),
         script=[
             [("token", "That would be about 147.")],
             [("token", "I'm sure the answer is 147.")],
