@@ -205,7 +205,7 @@ class SqlTool:
             # check if it's a data-dir-relative path (though SQL typically uses
             # workspace paths, better to be defensive).
             from arelis.paths import user_data_dir
-            
+
             alt = (user_data_dir() / path_str).resolve()
             if alt.is_file() and alt.suffix.lower() in _TABLE_SUFFIXES:
                 # Use the data-dir-relative file if it exists

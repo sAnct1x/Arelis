@@ -67,6 +67,7 @@ async def validate_ocr_tool():
     print("\nValidating OCR tool...")
     
     from PIL import Image, ImageDraw, ImageFont
+
     from arelis.tools.ocr import OcrTool, tesseract_available
     from arelis.workspace import WorkspaceRoots
     
