@@ -409,10 +409,21 @@ _PATCH_PRE = re.compile(
 # expected tool at all. The noun has to be asked *about* — a bare "document" also
 # appears in "document this decision", which is not a read. The \b keeps
 # "documentation" out, since a word character follows there.
+#
+# Also matches file paths with document extensions (.pdf, .docx, .pptx) and
+# "read/extract the content/text of file.docx" phrasing to catch reworded asks
+# that avoid "extract the text" (SMS intent false positive).
 DOC_ASK = re.compile(
     r"(?i)\b(?:analys?[ez]e?|analyz|summari[sz]e|read|extract|"
     r"what(?:'s|\s+is)\s+in|what\s+does|go\s+through)\s+"
     r"(?:(?:this|the|that|my|those|these)\s+)?(?:documents?|pdfs?)\b"
+    r"|"
+    r"\b(?:read|extract|get|pull|show(?:\s+me)?)\s+"
+    r"(?:(?:the|its)\s+)?(?:content|text)?\s*"
+    r"(?:of|from|in)?\s*(?:\S+\.(?:pdf|docx|pptx)\b)"
+    r"|"
+    r"\b(?:read|open|check|look\s+at|show(?:\s+me)?)\s+"
+    r"(?:(?:the|this|that)\s+)?(?:file\s+)?\S+\.(?:pdf|docx|pptx)\b"
 )
 _INBOX_MENTION = re.compile(r"(?i)\b(inbox|in\s+box|email|e-?mail|gmail|mail|emiles?|emil)\b")
 
@@ -1064,16 +1075,25 @@ _RUN_SCRIPT_BARE = re.compile(
     r"(?!\s+now\b)(?!\s+job\b)"
 )
 _RUN_IT_AGAIN = re.compile(r"(?i)(?<!n't )(?<!not )(?<!never )\brun\s+it\s+again\b")
+# "run it with run_script" / "then run it" / "and run the file"
+_RUN_IT = re.compile(
+    r"(?i)(?<!n't )(?<!not )(?<!never )\b(?:then\s+|and\s+)?(?:run|execute)\s+it\b"
+)
+# "call run_script on work/sq.py"
+_CALL_RUN_SCRIPT = re.compile(
+    r"(?i)\bcall\s+run_script\b"
+)
 
 RUN_SCRIPT = IntentSpec(
     kind="run_script",
-    patterns=(_RUN_SCRIPT_FILE, _RUN_SCRIPT_BARE, _RUN_IT_AGAIN),
+    patterns=(_RUN_SCRIPT_FILE, _RUN_SCRIPT_BARE, _RUN_IT_AGAIN, _RUN_IT, _CALL_RUN_SCRIPT),
     expected_tools=("run_script",),
     veto_negation=True,
     nudge=(
         "Intent preflight: they asked to run a project program. "
         "Call run_script with the .py they named. Not a shell. "
-        "Not diagnostics. Not schedule run_now. "
+        "Not diagnostics. Not schedule run_now. Not run_task. "
+        "Not the python cell (locked formula). "
         "Allow still applies — do not ask permission in chat."
     ),
     schema_tools=frozenset({"run_script"}),

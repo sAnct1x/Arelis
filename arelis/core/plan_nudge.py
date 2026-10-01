@@ -98,6 +98,12 @@ _GIT = re.compile(
     r")\b"
 )
 
+# Write a .py then run it: "write ... then run" / "create ... call run_script"
+_WRITE_RUN_SCRIPT = re.compile(
+    r"(?i)\b(?:write|create|make)\b.{1,150}\.py\b.{1,80}"
+    r"\b(?:then|and|,)\s+(?:run|execute|call\s+run_script)\b"
+)
+
 _AGENDA = re.compile(
     r"(?i)\b("
     r"on\s+my\s+calendar|"
@@ -295,6 +301,17 @@ _PLAN_GIT = PlanSpec(
         "2) Report branch state from the tool — do not invent commits."
     ),
     steps=("git_info",),
+)
+
+_PLAN_WRITE_RUN_SCRIPT = PlanSpec(
+    id="write_run_script",
+    message=(
+        "Plan: 1) workspace(action=write) to create the .py file. "
+        "2) run_script with that same path. "
+        "3) Answer from the output or workspace(action=read) if they asked "
+        "to see the file contents. Not run_task. Not the python cell."
+    ),
+    steps=("workspace", "run_script"),
 )
 
 _PLAN_AGENDA_OPEN = PlanSpec(
@@ -575,6 +592,10 @@ def select_plan(
         or (raw and looks_like_source_write(raw))
     ):
         return _PLAN_INSPECT_WRITE
+
+    # Write→run_script chains: "write work/sq.py ... then run it"
+    if raw and _WRITE_RUN_SCRIPT.search(raw):
+        return _PLAN_WRITE_RUN_SCRIPT
 
     if "ocr" in skills or (raw and _OCR.search(raw)):
         return _PLAN_OCR
