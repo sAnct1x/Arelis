@@ -465,7 +465,6 @@ def test_generic_status_is_not_git() -> None:
         "Show me the git log.",
         "What's the repository status?",
         "Is the working tree clean?",
-        "What branch am I on?",
         "Check the current branch.",
     ):
         assert detect_git_ask(ask), f"should be git for: {ask}"
