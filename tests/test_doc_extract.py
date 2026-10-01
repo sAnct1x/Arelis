@@ -304,3 +304,29 @@ async def test_ocr_tool_accepts_pdf(tmp_path: Path) -> None:
     result = await tool.run(action="text", path=str(pdf))
     assert "not an image" not in result.output.lower()
     assert result.data.get("page_images") or "vision" in result.output.lower()
+
+
+@pytest.mark.asyncio
+async def test_ocr_reads_a_data_dir_relative_outputs_images_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """image_edit reports outputs/images/x.png relative to the data dir (live C15/P06)."""
+    from PIL import Image
+
+    from arelis.tools.ocr import OcrTool
+    from arelis.workspace import WorkspaceRoots
+
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    data = tmp_path / "data"
+    (data / "outputs" / "images").mkdir(parents=True)
+    Image.new("RGB", (8, 8), "white").save(data / "outputs" / "images" / "gray.png")
+    monkeypatch.setenv("ARELIS_DATA_DIR", str(data))
+    tool = OcrTool(
+        WorkspaceRoots.from_paths([str(ws)]),
+        output_dir=data / "outputs" / "images",
+        runner=lambda _path, _lang: "Amount due 1250",
+    )
+    result = await tool.run(action="text", path="outputs/images/gray.png")
+    assert result.ok, result.output
+    assert "1250" in result.output
