@@ -91,9 +91,29 @@ def test_units_with_wrong_action_fails() -> None:
     """Units called with action=constant for a conversion should fail."""
     tool = UnitsTool()
     
-    # If model calls units with wrong action
+    # If model calls units with wrong action BUT incomplete args, it should fail
+    result = asyncio.run(
+        tool.run(action="constant", name="90 degrees Fahrenheit")
+    )
+    assert not result.ok, "Units with action=constant should fail on partial conversion"
+    assert "not" in result.output.lower() and "constant" in result.output.lower()
+
+
+def test_units_fallback_recovers_from_wrong_action() -> None:
+    """Units tool should recover if action=constant but name looks like a conversion."""
+    tool = UnitsTool()
+    
+    # If model calls with action="constant" but provides full conversion string,
+    # tool should fall back to conversion
     result = asyncio.run(
         tool.run(action="constant", name="90 degrees Fahrenheit to Celsius")
     )
-    assert not result.ok, "Units with action=constant should fail on conversions"
-    assert "not" in result.output.lower() and "constant" in result.output.lower()
+    assert result.ok, f"Fallback should succeed: {result.output}"
+    assert "32.2" in result.output, "Should contain conversion result"
+    
+    # Also test with "in" instead of "to"
+    result2 = asyncio.run(
+        tool.run(action="constant", name="90 degrees Fahrenheit in Celsius")
+    )
+    assert result2.ok, f"Fallback with 'in' should succeed: {result2.output}"
+    assert "32.2" in result2.output, "Should contain conversion result"
