@@ -796,7 +796,9 @@ def test_a_browser_ask_arms_and_a_tile_calendar_weather_and_status_do_not() -> N
 async def test_a_preinjected_browser_call_is_spent_by_the_round_that_calls_it() -> None:
     """``browser_preinject`` is a one-shot. The scripted search never runs.
 
-    ``open x.com`` is not a sign-in click, so the answer round drops tools.
+    Browser calls don't automatically disable tools (chaining scenarios like
+    screenshot+vision need follow-up tools). Other factors control when the
+    turn ends.
     """
     loop = _RoundLoop(stream_calls=[("web_search", {"query": "x.com"})])
     ctx = _ctx(text=_BROWSER_ASK)
@@ -815,9 +817,10 @@ async def test_a_preinjected_browser_call_is_spent_by_the_round_that_calls_it() 
     assert ctx.browser_ok is True
 
     await run_round(loop, ctx, 2)
-    assert ctx.offer_tools is False
-    assert ctx.ollama_tools == []
-    assert ctx.tool_names == set()
+    # Browser success doesn't automatically disable tools; chaining scenarios
+    # like screenshot+vision need follow-up tools available.
+    assert ctx.offer_tools is True
+    assert "browser" in ctx.tool_names or "web_search" in ctx.tool_names
 
 
 # Existing tile line. match_tile_intent already accepts it as an open of workspace.

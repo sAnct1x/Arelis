@@ -529,7 +529,6 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
             or ctx.agenda_open_read_ok
             or ctx.calculator_ok
             or ctx.units_ok
-            or ctx.browser_ok
             or ctx.tile_ok
             or ctx.inspect_ok
             or ctx.run_script_ok
