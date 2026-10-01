@@ -509,6 +509,8 @@ def apply_language(window: Any, raw: Any) -> str:
             else:
                 app.setFont(app_font())
     except Exception:
+        # Styling is cosmetic: a failed font or stylesheet must not stop the
+        # language switch, and the text below is still translated.
         family = None
     localize(window)
     _refresh_live_copy(window)
@@ -536,4 +538,5 @@ def _refresh_live_copy(window: Any) -> None:
         idle.set_sessions(sessions)
         window._idle_ghosts = sessions
     except Exception:
+        # The idle screen is a nicety; a failure here must not break the switch.
         return
