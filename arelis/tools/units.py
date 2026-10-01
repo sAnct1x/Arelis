@@ -69,7 +69,18 @@ class UnitsTool:
                 data={"fail_class": "fail:action"},
             )
         if action == "constant":
-            return _lookup(str(kwargs.get("name") or ""))
+            name = str(kwargs.get("name") or "")
+            # Try constant lookup first
+            result = _lookup(name)
+            # If constant not found but name looks like a conversion (has "to"), try convert
+            if not result.ok and ("to" in name.lower() or "in" in name.lower()):
+                # Parse as conversion: "90 degrees Fahrenheit to Celsius"
+                match = _TO_SPLIT.search(name)
+                if match:
+                    parts = _TO_SPLIT.split(name, maxsplit=1)
+                    if len(parts) == 2:
+                        return _convert(parts[0].strip(), parts[1].strip())
+            return result
         return _convert(
             str(kwargs.get("quantity") or ""),
             str(kwargs.get("to") or ""),
@@ -108,7 +119,7 @@ def _lookup(name: str) -> ToolResult:
     )
 
 
-_TO_SPLIT = re.compile(r"(?i)\s+(?:to|into)\s+")
+_TO_SPLIT = re.compile(r"(?i)\s+(?:to|into|in)\s+")
 
 
 def _split_convert_args(quantity: str, to_unit: str) -> tuple[str, str]:
