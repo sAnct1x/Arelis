@@ -154,6 +154,11 @@ _UNITS_FORCE = (
         rf"(?i)\b\d+(?:\.\d+)?(?:\s*[a-zA-Zµμ/%]+)?\s+"
         rf"(?:in|into|to)\s+(?:{_UNIT_NAMES})\b",
     ),
+    # Temperature conversions with "degrees": "90 degrees Fahrenheit in Celsius"
+    re.compile(
+        r"(?i)\b\d+(?:\.\d+)?\s+degrees?\s+(?:fahrenheit|celsius|kelvin|f|c|k)\b.{0,20}\b(?:in|into|to)\s+"
+        r"(?:degrees?\s+)?(?:fahrenheit|celsius|kelvin|f|c|k)\b",
+    ),
     re.compile(r"(?i)\b\d+(?:\.\d+)?\s*(?:ft|feet)\s+\d+(?:\.\d+)?\s*(?:in|inches)\b"),
     re.compile(rf"(?i)\bhow\s+many\s+(?:{_UNIT_NAMES})\b"),
 )
