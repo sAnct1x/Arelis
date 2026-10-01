@@ -447,6 +447,30 @@ def test_log_base_10_is_math_not_git() -> None:
     assert detect_exactness_need("factor x^3 - 8").needs_cas
 
 
+def test_generic_status_is_not_git() -> None:
+    """Bug regression: S52, S54 - generic status questions should not trigger git gate."""
+    from arelis.core.claims import detect_git_ask
+
+    for ask in (
+        "What's the status of the solar simulation?",
+        "What is the status of the Earth view?",
+        "What's the status of the simulation?",
+        "Is the solar system loaded?",
+        "Which Reality view are we in right now?",
+    ):
+        assert not detect_git_ask(ask), f"git check failed for: {ask}"
+
+    for ask in (
+        "What's the git status of this project?",
+        "Show me the git log.",
+        "What's the repository status?",
+        "Is the working tree clean?",
+        "What branch am I on?",
+        "Check the current branch.",
+    ):
+        assert detect_git_ask(ask), f"should be git for: {ask}"
+
+
 def test_kilometers_in_miles_is_units_not_calculator() -> None:
     ask = "What is 3 kilometers in miles? Use the units tool. Do not change anything."
     need = detect_exactness_need(ask)
