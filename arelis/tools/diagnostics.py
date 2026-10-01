@@ -54,11 +54,11 @@ class DiagnosticsTool:
         "Run Arelis's own pytest suite and return a factual summary: "
         "passed/failed/skipped, failed names, short traces. target= a path or "
         "pytest nodeid under tests/ (bare names resolve there). Omit target "
-        "or pass suite=all for the full tree. Call this only when the user "
-        "asks to run diagnostics. Do not invent results. After it returns, "
-        "report the counts, name the failures, and say what they likely "
-        "mean. A failing suite is a real issue — do not claim everything "
-        "is fine."
+        "or pass suite=all for the full tree. Use this for test, pytest, or "
+        "diagnostics asks that target Arelis's own tests/ directory. Do not "
+        "invent results. After it returns, report the counts, name the "
+        "failures, and say what they likely mean. A failing suite is a real "
+        "issue — do not claim everything is fine."
     )
     risk = "read"
     parameters_schema: dict[str, Any] = {
