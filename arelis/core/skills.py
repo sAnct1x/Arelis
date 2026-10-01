@@ -365,6 +365,12 @@ SKILL_CARDS: dict[str, SkillCard] = {
             ".py",
             "python file",
             "run the program",
+            "run the script",
+            "run it with run_script",
+            "call run_script",
+            "then run",
+            "write and run",
+            "create and run",
         ),
         negative_hints=(
             "run diagnostics",
@@ -381,6 +387,11 @@ SKILL_CARDS: dict[str, SkillCard] = {
   python cell is a formula, not their script.
 - When they name a .py to run, call run_script with that path. Not a shell.
   Not diagnostics (that is her tests/ only). Not schedule run_now.
+  Not run_task (that is for named project tasks from package.json or
+  arelis-tasks.json).
+- For write-then-run chains: after workspace writes a .py, call run_script
+  with that same path. Do not use python (locked cell) or run_task for a
+  file path.
 - A check the project already named is run_task. action=list shows pytest
   (when tests/ exists), package.json scripts, and arelis-tasks.json.
   action=run needs name= one of those. args is a list of strings.
@@ -591,6 +602,13 @@ SKILL_CARDS: dict[str, SkillCard] = {
             "pages of the pdf",
             "read this pdf",
             "analyze this pdf",
+            ".docx",
+            ".pptx",
+            "read the content",
+            "read the text",
+            "what's in the document",
+            "memo.docx",
+            "presentation.pptx",
         ),
         requires_tool="doc_extract",
         negative_hints=(
@@ -602,9 +620,10 @@ SKILL_CARDS: dict[str, SkillCard] = {
         ),
         body="""
 ### Local documents
-- For PDF content or quotes, call doc_extract with the path (workspace,
-  data/drops/ attachment, or granted absolute). Use page_start/page_end when
-  the user names pages. Do not invent PDF text.
+- For PDF, Word (.docx), or PowerPoint (.pptx) content or quotes, call
+  doc_extract with the path (workspace, data/drops/ attachment, or granted
+  absolute). Use page_start/page_end when the user names pages. Do not invent
+  document text.
 - If doc_extract returns source: look, that is the transcription of a
   scanned or handwritten PDF. Answer from it. If it still says source: ink,
   call vision once with paths= (every page). She looks one page at a time.
