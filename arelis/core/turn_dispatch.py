@@ -30,7 +30,11 @@ from arelis.core.image_refs import (
     fill_vision_args,
 )
 from arelis.core.look import PASTED_IDENTIFY_QUESTION, look_call_blocked, vision_question
-from arelis.core.preflight import looks_like_browser_click_signin, rewrite_desktop_calls
+from arelis.core.preflight import (
+    looks_like_browser_click_signin,
+    looks_like_browser_open_ask,
+    rewrite_desktop_calls,
+)
 from arelis.core.read_fanout import should_fanout_reads
 from arelis.core.same_call import (
     already_ran_same_call,
@@ -770,8 +774,10 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
                     )
                 strip_tool_schemas(ctx, r)
                 continue
-            stop_open = is_browser_nav_call(name, args) and (
-                ctx.goal.kind == "browser" or looks_like_browser_click_signin(r.text)
+            stop_open = (
+                is_browser_nav_call(name, args)
+                and (ctx.goal.kind == "browser" or looks_like_browser_click_signin(r.text))
+                and looks_like_browser_open_ask(r.text)
             )
             owes_file = (
                 ctx.exact_need.needs_document

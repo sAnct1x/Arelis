@@ -33,7 +33,7 @@ from arelis.core.sms_complete import (
 from arelis.core.tool_results import PreparedToolOutput, prepare_tool_output
 from arelis.core.turn_context import TurnContext
 from arelis.core.turn_goal import NEED_LOGIN, browser_errand_done
-from arelis.core.turn_scratch import RoundScratch
+from arelis.core.turn_scratch import RoundScratch, named_tools_owed
 from arelis.core.untrusted import frame_external_tool_output
 from arelis.tools.inbox import INBOX_PEEK_ACTIONS, inbox_peek_was_empty
 from arelis.tools.safety import redact_data, redact_secrets, truncate_tool_output
@@ -614,16 +614,21 @@ async def execute_call(
             # calculator to verify the pixel count.
             path = str(data_dict["path"])
             if name == "image_edit":
-                # Its own sentence already names the sizes and the
-                # adjustments, which is the part worth reading.
-                await loop._finish(str(result.output).strip(), sources, streamed="")
+                # Not when the ask goes on to a tool it named (OCR the new
+                # file, vision on it): that chain still owes its second step,
+                # so fall through to the normal tool-message path.
+                if not [n for n in named_tools_owed(loop, ctx) if n != "image_edit"]:
+                    # Its own sentence already names the sizes and the
+                    # adjustments, which is the part worth reading.
+                    await loop._finish(str(result.output).strip(), sources, streamed="")
+                    return True
+            else:
+                await loop._finish(
+                    f"Image ready — open in Workspace ({path}).",
+                    sources,
+                    streamed="",
+                )
                 return True
-            await loop._finish(
-                f"Image ready — open in Workspace ({path}).",
-                sources,
-                streamed="",
-            )
-            return True
         if (
             name == "browser"
             and result.ok
