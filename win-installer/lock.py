@@ -50,6 +50,7 @@ tests against what it produced.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import subprocess
@@ -73,6 +74,18 @@ PLATFORM = "win_amd64"
 
 # Resolved instead of a list repeated here. See the `installer` extra in pyproject.
 EXTRA = "installer"
+
+# Pure-Python projects that publish no wheel at all, and so cannot satisfy
+# `--only-binary=:all:`. jieba (Mandarin word segmentation, pulled in by misaki[zh])
+# is the only one: 0.42.1 is an sdist and nothing else on PyPI. This is an allowlist
+# of names, not a switch, so a new dependency that lacks a wheel still fails the lock.
+#
+# For these the lock records the sha256 of the SDIST. At resolution time the sdist is
+# built into a wheel here, and the build must come out `py3-none-any`: if it is
+# anything else it is not pure Python, is not what this exception is for, and the
+# lock refuses. At install time build.py passes `--no-binary` for exactly these names,
+# so pip builds from the hashed sdist under `--require-hashes`.
+SDIST_ONLY = frozenset({"jieba"})
 
 # Arelis itself is installed from the wheel the build just made, which has no hash on
 # any index and no business in a file of third-party pins.
@@ -120,7 +133,44 @@ def build_wheel(destination: Path) -> Path:
     return wheels[0]
 
 
-def resolve(wheel: Path, scratch: Path) -> list[dict]:
+def sdist_wheelhouse(scratch: Path) -> tuple[Path, dict[str, tuple[str, str]]]:
+    """Build the allowlisted sdists into pure wheels so the resolver can see them.
+
+    Returns the directory to pass as ``--find-links`` and, per name, the version and
+    sha256 of the sdist, which is what the lock records for it.
+    """
+    house = scratch / "sdist-wheelhouse"
+    sources = scratch / "sdists"
+    house.mkdir()
+    sources.mkdir()
+    pinned: dict[str, tuple[str, str]] = {}
+    for name in sorted(SDIST_ONLY):
+        run(
+            [sys.executable, "-m", "pip", "download", "--no-deps", "--no-binary", name,
+             "--dest", str(sources), name],
+            f"Downloading the {name} sdist",
+        )
+        archives = sorted(sources.glob(f"{name}-*"))
+        if len(archives) != 1 or not archives[0].name.endswith((".tar.gz", ".zip")):
+            raise SystemExit(f"expected exactly one {name} sdist, found {archives}")
+        archive = archives[0]
+        run(
+            [sys.executable, "-m", "pip", "wheel", "--no-deps", "--wheel-dir", str(house),
+             str(archive)],
+            f"Building the {name} sdist",
+        )
+        built = sorted(house.glob(f"{name}-*.whl"))
+        if len(built) != 1 or not built[0].name.endswith("-py3-none-any.whl"):
+            raise SystemExit(
+                f"{name} did not build to a py3-none-any wheel (got {built}). "
+                "SDIST_ONLY is for pure-Python projects only."
+            )
+        version = built[0].name.split("-")[1]
+        pinned[normalise(name)] = (version, hashlib.sha256(archive.read_bytes()).hexdigest())
+    return house, pinned
+
+
+def resolve(wheel: Path, scratch: Path, find_links: Path | None = None) -> list[dict]:
     """Ask pip what it would install on Windows for cp314, and to fail if it cannot.
 
     `--only-binary=:all:` is the point rather than an optimisation: the installer build
@@ -140,6 +190,7 @@ def resolve(wheel: Path, scratch: Path) -> list[dict]:
             # written to it, but it still has to name somewhere.
             "--target", str(scratch / "unused"),
             "--report", str(report),
+            *(["--find-links", str(find_links)] if find_links else []),
             f"{wheel}[{EXTRA}]",
         ],
         f"Resolving the {EXTRA} extra for {PLATFORM} on Python {PYTHON_VERSION}",
@@ -149,7 +200,10 @@ def resolve(wheel: Path, scratch: Path) -> list[dict]:
     return json.loads(report.read_text(encoding="utf-8"))["install"]
 
 
-def lock_lines(entries: list[dict]) -> list[str]:
+def lock_lines(
+    entries: list[dict], sdists: dict[str, tuple[str, str]] | None = None
+) -> list[str]:
+    sdists = sdists or {}
     lines: list[str] = []
     missing: list[str] = []
     for entry in sorted(entries, key=lambda e: normalise(e["metadata"]["name"])):
@@ -157,6 +211,12 @@ def lock_lines(entries: list[dict]) -> list[str]:
         if normalise(name) == SELF:
             continue
         version = entry["metadata"]["version"]
+        if normalise(name) in sdists:
+            sdist_version, sdist_digest = sdists[normalise(name)]
+            if version != sdist_version:
+                raise SystemExit(f"{name}: resolved {version} but built sdist {sdist_version}")
+            lines.append(f"{name}=={version} --hash=sha256:{sdist_digest}")
+            continue
         digest = entry.get("download_info", {}).get("archive_info", {}).get("hashes", {}).get(
             "sha256"
         )
@@ -256,8 +316,9 @@ def generate() -> int:
         print("Building the wheel, so extras resolve from real metadata...")
         wheel = build_wheel(scratch)
         print(f"Resolving {wheel.name}[{EXTRA}] for {PLATFORM}, Python {PYTHON_VERSION}...")
-        entries = resolve(wheel, scratch)
-        lines = lock_lines(entries)
+        house, sdists = sdist_wheelhouse(scratch)
+        entries = resolve(wheel, scratch, house)
+        lines = lock_lines(entries, sdists)
 
     header = [
         "# Generated by win-installer/lock.py. Do not edit by hand.",
@@ -273,6 +334,11 @@ def generate() -> int:
         "#",
         "# Installed with --require-hashes, so a mirror serving a different archive",
         "# than the one resolved here fails the build rather than reaching anybody.",
+        "#",
+        "# "
+        + ", ".join(sorted(SDIST_ONLY))
+        + ": pure Python with no wheel on PyPI. Its hash is the sdist's,",
+        "# and build.py builds it from that sdist (see SDIST_ONLY in lock.py).",
         "",
     ]
     LOCK_PATH.write_text("\n".join(header + lines) + "\n", encoding="utf-8", newline="\n")

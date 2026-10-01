@@ -67,6 +67,8 @@ BUILD = HERE / "build"
 DIST = HERE / "dist"
 TREE = DIST / "Arelis"
 LOCK = HERE / "requirements-win-amd64-cp314.txt"
+# Pure-Python projects that ship no wheel; see SDIST_ONLY in lock.py.
+SDIST_ONLY = ("jieba",)
 
 PYTHON_VERSION = "3.14.7"
 PYTHON_TAG = "314"
@@ -297,6 +299,10 @@ def install_locked_dependencies() -> None:
         [str(python_exe()), "-m", "pip", "install",
          "--require-hashes",
          "--only-binary", ":all:",
+         # After --only-binary on purpose: ":all:" clears the no-binary set, a named
+         # --no-binary that follows it is the exception. Pure-Python projects with no
+         # wheel, built from the hashed sdist. Same list as SDIST_ONLY in lock.py.
+         *[arg for name in SDIST_ONLY for arg in ("--no-binary", name)],
          "--no-warn-script-location",
          "-r", str(LOCK)],
         "Installing the locked dependency set",
