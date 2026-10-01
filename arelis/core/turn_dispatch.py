@@ -30,7 +30,11 @@ from arelis.core.image_refs import (
     fill_vision_args,
 )
 from arelis.core.look import PASTED_IDENTIFY_QUESTION, look_call_blocked, vision_question
-from arelis.core.preflight import looks_like_browser_click_signin, rewrite_desktop_calls
+from arelis.core.preflight import (
+    looks_like_browser_click_signin,
+    looks_like_browser_open_ask,
+    rewrite_desktop_calls,
+)
 from arelis.core.read_fanout import should_fanout_reads
 from arelis.core.same_call import (
     already_ran_same_call,
@@ -57,7 +61,6 @@ from arelis.core.turn_confirm import RUN, STOP, confirm_call
 from arelis.core.turn_context import TurnContext
 from arelis.core.turn_execute import execute_call
 from arelis.core.turn_goal import LOGIN_READY_REPLY, browser_open_done_reply
-from arelis.core.preflight import looks_like_browser_open_ask
 from arelis.core.turn_scratch import RoundScratch, strip_tool_schemas
 from arelis.tools.inbox import INBOX_PEEK_ACTIONS, fill_inbox_args
 from arelis.tools.weather import (
