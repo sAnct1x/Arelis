@@ -2,9 +2,15 @@
 
 Tests that the routing and path handling fixes from cursor/fix-live-matrix-routing-0e78
 remain correct. Each test corresponds to a specific live matrix problem that was reported.
+
+These tests are marked with 'no_ui' to skip UI-related fixtures.
 """
 
 from __future__ import annotations
+
+import pytest
+
+pytestmark = pytest.mark.no_ui
 
 from io import BytesIO
 from pathlib import Path

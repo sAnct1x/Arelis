@@ -220,7 +220,7 @@ class PdfAssembleTool:
         except Exception as exc:
             return ToolResult(ok=False, output=f"Could not assemble PDF: {exc}")
 
-        resolved = self.workspace.resolve(dest, for_write=False)
+        resolved = self.workspace.resolve(str(dest), for_write=False)
         shown = resolved.qualified(multi=len(self.workspace) > 1)
         extra = f", rotated {degrees}" if degrees else ""
         return ToolResult(
@@ -237,7 +237,7 @@ class PdfAssembleTool:
                 "n_pages": n_pages,
                 "degrees": degrees,
                 "sources": [
-                    self.workspace.resolve(path, for_write=False).qualified(
+                    self.workspace.resolve(str(path), for_write=False).qualified(
                         multi=len(self.workspace) > 1
                     )
                     for path in sources
