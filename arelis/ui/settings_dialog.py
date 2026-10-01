@@ -15,15 +15,18 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QFileDialog,
     QFormLayout,
+    QFrame,
     QGridLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QListWidget,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
     QSlider,
     QStyleFactory,
+    QTabBar,
     QTabWidget,
     QToolButton,
     QVBoxLayout,
@@ -31,12 +34,15 @@ from PySide6.QtWidgets import (
 )
 
 from arelis.core.failure_copy import plain_reason
+from arelis.i18n import localize, tr
 from arelis.llm.ollama import list_installed_models
 from arelis.notify.center import CHANNELS, load_channels
 from arelis.presence.lock import find_my_ingest_port
 from arelis.sms_ingest import format_ingest_listen_urls, load_ingest_token
 from arelis.sms_pairing import load_companion, make_ticket
+from arelis.talk_language import session_code
 from arelis.ui.audio import list_audio_input_names, list_audio_output_names
+from arelis.ui.caption_fade import CaptionTool, watch_caption
 from arelis.ui.glass import GlassFrame, advance_rim_pulse, seal_tool_window
 from arelis.ui.icons import window_close_icon
 from arelis.ui.panels.memory import ActiveFactsPanel
@@ -49,6 +55,27 @@ from arelis.ui.scale import (
     scale_preset_label,
 )
 from arelis.ui.theme import GLASS, SPACE, polish_combo_popup, space_box
+
+
+class _PageCombo(QComboBox):
+    """A closed dropdown does not take the wheel. That scrolls the page."""
+
+    def wheelEvent(self, event) -> None:  # type: ignore[override]
+        event.ignore()
+
+
+class _PageSlider(QSlider):
+    """A slider does not take the wheel. Drag it, or scroll the page."""
+
+    def wheelEvent(self, event) -> None:  # type: ignore[override]
+        event.ignore()
+
+
+class _PageTabBar(QTabBar):
+    """The tab strip does not take the wheel. That scrolls the open page."""
+
+    def wheelEvent(self, event) -> None:  # type: ignore[override]
+        event.ignore()
 
 
 class SettingsDialog(QDialog):
@@ -136,7 +163,7 @@ class SettingsDialog(QDialog):
         heading.setToolTip("Drag to move")
         heading.installEventFilter(self)
         head.addWidget(heading, stretch=1)
-        close_btn = QToolButton()
+        close_btn = CaptionTool()
         close_btn.setObjectName("SettingsClose")
         close_btn.setIcon(window_close_icon(12))
         close_btn.setFixedSize(28, 28)
@@ -146,9 +173,28 @@ class SettingsDialog(QDialog):
         close_btn.setAccessibleDescription("Close settings")
         close_btn.clicked.connect(self.reject)
         head.addWidget(close_btn)
+        watch_caption(self, close_btn)
         root.addLayout(head)
 
+        lang_row = QHBoxLayout()
+        lang_row.setSpacing(8)
+        lang_label = QLabel(tr("Language"))
+        lang_label.setObjectName("SettingsHint")
+        self.language_combo = _PageCombo()
+        self.language_combo.setObjectName("LanguageChoice")
+        polish_combo_popup(self.language_combo)
+        self.language_combo.addItem("English", "en")
+        self.language_combo.addItem("简体中文", "zh")
+        lang_index = self.language_combo.findData(session_code(config))
+        if lang_index >= 0:
+            self.language_combo.setCurrentIndex(lang_index)
+        self.language_combo.setToolTip(tr("Chat, the window, and her voice follow this."))
+        lang_row.addWidget(lang_label)
+        lang_row.addWidget(self.language_combo, stretch=1)
+        root.addLayout(lang_row)
+
         tabs = QTabWidget()
+        tabs.setTabBar(_PageTabBar())
         tabs.setObjectName("SettingsTabs")
         tabs.setAccessibleName("Settings tabs")
         tabs.setDocumentMode(True)
@@ -177,7 +223,7 @@ class SettingsDialog(QDialog):
             Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
         )
 
-        self.mic_combo = QComboBox()
+        self.mic_combo = _PageCombo()
         self.mic_combo.setObjectName("SettingsField")
         polish_combo_popup(self.mic_combo)
         self.mic_combo.addItem("System default", "")
@@ -185,7 +231,7 @@ class SettingsDialog(QDialog):
             self.mic_combo.addItem(name, name)
         self._select_by_data(self.mic_combo, str(voice.get("input_device") or ""))
 
-        self.speaker_combo = QComboBox()
+        self.speaker_combo = _PageCombo()
         self.speaker_combo.setObjectName("SettingsField")
         polish_combo_popup(self.speaker_combo)
         self.speaker_combo.addItem("System default", "")
@@ -193,7 +239,7 @@ class SettingsDialog(QDialog):
             self.speaker_combo.addItem(name, name)
         self._select_by_data(self.speaker_combo, str(voice.get("output_device") or ""))
 
-        self.volume_slider = QSlider(Qt.Orientation.Horizontal)
+        self.volume_slider = _PageSlider(Qt.Orientation.Horizontal)
         self.volume_slider.setObjectName("SettingsSlider")
         self.volume_slider.setRange(0, 100)
         vol = float(voice.get("output_volume", 1.0))
@@ -285,7 +331,7 @@ class SettingsDialog(QDialog):
             "History and Thinking fold away. Click or talk brings them back. "
             "Mouse movement does not count."
         )
-        self.away_rest_min = QComboBox()
+        self.away_rest_min = _PageCombo()
         self.away_rest_min.setObjectName("SettingsField")
         polish_combo_popup(self.away_rest_min, compact=True)
         for mins in (30, 45, 60):
@@ -296,7 +342,7 @@ class SettingsDialog(QDialog):
         self.away_rest_min.setEnabled(self.away_rest.isChecked())
         self.away_rest.toggled.connect(self.away_rest_min.setEnabled)
 
-        self.ui_scale = QComboBox()
+        self.ui_scale = _PageCombo()
         self.ui_scale.setObjectName("SettingsField")
         polish_combo_popup(self.ui_scale, compact=True)
         for step in SCALE_PRESETS:
@@ -310,7 +356,7 @@ class SettingsDialog(QDialog):
             "Needs a restart. Chat text size is just the transcript."
         )
 
-        self.font_slider = QSlider(Qt.Orientation.Horizontal)
+        self.font_slider = _PageSlider(Qt.Orientation.Horizontal)
         self.font_slider.setObjectName("SettingsSlider")
         self.font_slider.setRange(75, 175)
         self.font_slider.setSingleStep(5)
@@ -475,68 +521,28 @@ class SettingsDialog(QDialog):
         tabs.addTab(allow_tab, "allow")
 
         # --- Notify ---
+        # The page used to be a manual: listen URL, four pair buttons, two
+        # build-script paragraphs, then mail. That stack was taller than the
+        # dialog, so the layout crushed the QR and the URL plate painted over
+        # the bottom of the code. A person pairing a phone needs the code,
+        # the notice choices, and mail. The rest stays behind one disclosure,
+        # and the page scrolls instead of clipping.
         notify = QWidget()
         notify.setObjectName("SettingsTabBody")
         notify.setAccessibleName("notify")
+        notify.setSizePolicy(
+            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum
+        )
         notify_l = QVBoxLayout(notify)
         notify_l.setContentsMargins(*space_box("plate", "plate", "plate", "inset"))
         notify_l.setSpacing(SPACE["gap"])
-
-        notices_h = QLabel("Notices")
-        notices_h.setObjectName("SettingsSection")
-        notices_blurb = QLabel(
-            "How the glass tells you. Voice only when idle — never mid-turn."
-        )
-        notices_blurb.setObjectName("SettingsHint")
-        notices_blurb.setWordWrap(True)
-        notices_blurb.setSizePolicy(
-            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum
-        )
-        notify_l.addWidget(notices_h)
-        notify_l.addWidget(notices_blurb)
-        channel_grid = QGridLayout()
-        channel_grid.setContentsMargins(0, 4, 0, 8)
-        channel_grid.setHorizontalSpacing(16)
-        channel_grid.setVerticalSpacing(8)
-        channel_grid.setColumnStretch(1, 1)
-        labels = {
-            "sms": "SMS",
-            "calendar": "Calendar",
-            "email": "Email (contacts)",
-            "job": "Long jobs",
-            "task": "Tasks",
-            "allow": "Allow",
-        }
-        current = load_channels(config)
-        self._notify_channels: dict[str, QComboBox] = {}
-        for row, key in enumerate(CHANNELS):
-            name = QLabel(labels.get(key, key))
-            name.setObjectName("SettingsFieldLabel")
-            combo = QComboBox()
-            combo.setObjectName("SettingsField")
-            polish_combo_popup(combo, compact=True)
-            combo.addItem("Off", "off")
-            combo.addItem("Visual", "visual")
-            combo.addItem("Visual + voice", "voice")
-            self._select_by_data(combo, current.get(key, "visual"))
-            channel_grid.addWidget(
-                name, row, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
-            )
-            channel_grid.addWidget(combo, row, 1)
-            self._notify_channels[key] = combo
-        notify_l.addLayout(channel_grid)
+        notify_l.setSizeConstraint(QVBoxLayout.SizeConstraint.SetMinimumSize)
 
         phone_h = QLabel("Phone")
         phone_h.setObjectName("SettingsSection")
-        phone_blurb = QLabel(
-            "Point the Arelis app at this code (same Wi-Fi). That is the pair. "
-            "Google Messages stays your messenger."
-        )
+        phone_blurb = QLabel("Scan with the Arelis app. Same Wi-Fi.")
         phone_blurb.setObjectName("SettingsHint")
         phone_blurb.setWordWrap(True)
-        phone_blurb.setSizePolicy(
-            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum
-        )
         notify_l.addWidget(phone_h)
         notify_l.addWidget(phone_blurb)
 
@@ -554,79 +560,97 @@ class SettingsDialog(QDialog):
         qr_row.setContentsMargins(0, SPACE["gap"], 0, SPACE["gap"])
         notify_l.addLayout(qr_row)
 
-        self.notify_url = QLabel(self._notify_url_text(config))
-        self.notify_url.setObjectName("SettingsNotifyUrl")
-        self.notify_url.setWordWrap(True)
-        self.notify_url.setTextInteractionFlags(
-            Qt.TextInteractionFlag.TextSelectableByMouse
-        )
-        notify_l.addWidget(self.notify_url)
-
         self.pair_status = QLabel("")
         self.pair_status.setObjectName("SettingsHint")
         self.pair_status.setWordWrap(True)
         self.pair_status.setSizePolicy(
             QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum
         )
-        copy_url = QPushButton("Copy URL")
-        copy_url.clicked.connect(lambda: self._copy_notify_url(config))
-        copy_pair = QPushButton("Copy for paste")
-        copy_pair.setToolTip(
-            "Clipboard. On the phone, use Paste instead of Scan if the camera cannot read this."
-        )
-        copy_pair.clicked.connect(self._copy_pairing_text)
-        refresh_qr = QPushButton("New QR")
-        refresh_qr.clicked.connect(lambda: self._refresh_pairing_qr(config, rotate=True))
-        pair_btns = QHBoxLayout()
-        pair_btns.setSpacing(8)
-        pair_btns.addWidget(refresh_qr)
-        pair_btns.addWidget(copy_url)
-        pair_btns.addWidget(copy_pair)
-        self.make_token_btn = QPushButton("Create phone token")
-        self.make_token_btn.setToolTip(
-            "Writes a token so the phone can pair — no secrets.yaml edit."
-        )
-        self.make_token_btn.clicked.connect(self._create_ingest_token)
-        pair_btns.addWidget(self.make_token_btn)
-        pair_btns.addStretch(1)
-        notify_l.addLayout(pair_btns)
         notify_l.addWidget(self.pair_status)
 
-        get_app_h = QLabel("Get the app")
+        self.make_token_btn = QPushButton("Create a pairing code")
+        self.make_token_btn.clicked.connect(self._create_ingest_token)
+        notify_l.addWidget(self.make_token_btn, alignment=Qt.AlignmentFlag.AlignLeft)
+
+        self.install_block = QWidget()
+        install_l = QVBoxLayout(self.install_block)
+        install_l.setContentsMargins(0, SPACE["gap"], 0, 0)
+        install_l.setSpacing(SPACE["gap"])
+        get_app_h = QLabel("Install the app")
         get_app_h.setObjectName("SettingsSection")
         self.install_blurb = QLabel("")
         self.install_blurb.setObjectName("SettingsHint")
         self.install_blurb.setWordWrap(True)
-        notify_l.addWidget(get_app_h)
-        notify_l.addWidget(self.install_blurb)
-
         self.install_qr = QLabel()
         self.install_qr.setObjectName("SettingsInstallQr")
         self.install_qr.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.install_qr.setSizePolicy(
             QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed
         )
+        self.install_qr.setScaledContents(False)
         install_qr_row = QHBoxLayout()
         install_qr_row.addStretch(1)
         install_qr_row.addWidget(self.install_qr)
         install_qr_row.addStretch(1)
-        install_qr_row.setContentsMargins(0, SPACE["gap"], 0, SPACE["gap"])
-        notify_l.addLayout(install_qr_row)
+        install_l.addWidget(get_app_h)
+        install_l.addWidget(self.install_blurb)
+        install_l.addLayout(install_qr_row)
+        self.install_block.hide()
+        notify_l.addWidget(self.install_block)
 
+        self.pair_more_btn = QToolButton()
+        self.pair_more_btn.setObjectName("SettingsDisclosure")
+        self.pair_more_btn.setText("If the scan doesn't work")
+        self.pair_more_btn.setCheckable(True)
+        self.pair_more_btn.setChecked(False)
+        self.pair_more_btn.setAutoRaise(True)
+        self.pair_more_btn.setToolButtonStyle(
+            Qt.ToolButtonStyle.ToolButtonTextBesideIcon
+        )
+        self.pair_more_btn.setArrowType(Qt.ArrowType.RightArrow)
+        self.pair_more_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.pair_more_btn.toggled.connect(self._toggle_pair_more)
+        notify_l.addWidget(
+            self.pair_more_btn, alignment=Qt.AlignmentFlag.AlignLeft
+        )
+
+        self.pair_more = QWidget()
+        more_l = QVBoxLayout(self.pair_more)
+        more_l.setContentsMargins(0, 0, 0, 0)
+        more_l.setSpacing(SPACE["gap"])
+        self.notify_url = QLabel(self._notify_url_text(config))
+        self.notify_url.setObjectName("SettingsNotifyUrl")
+        self.notify_url.setWordWrap(True)
+        self.notify_url.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
+        more_l.addWidget(self.notify_url)
+        copy_url = QPushButton("Copy link")
+        copy_url.clicked.connect(lambda: self._copy_notify_url(config))
+        copy_pair = QPushButton("Copy for the phone")
+        copy_pair.setToolTip("On the phone, tap Paste instead of Scan.")
+        copy_pair.clicked.connect(self._copy_pairing_text)
+        refresh_qr = QPushButton("New code")
+        refresh_qr.clicked.connect(
+            lambda: self._refresh_pairing_qr(config, rotate=True)
+        )
+        pair_btns = QHBoxLayout()
+        pair_btns.setSpacing(8)
+        pair_btns.addWidget(refresh_qr)
+        pair_btns.addWidget(copy_url)
+        pair_btns.addWidget(copy_pair)
+        pair_btns.addStretch(1)
+        more_l.addLayout(pair_btns)
         self.companion_status = QLabel("")
         self.companion_status.setObjectName("SettingsHint")
         self.companion_status.setWordWrap(True)
-        notify_l.addWidget(self.companion_status)
-
-        copy_install = QPushButton("Copy install URL")
-        copy_install.setToolTip(
-            "Camera or browser on the phone — not the Arelis scanner."
-        )
+        more_l.addWidget(self.companion_status)
+        copy_install = QPushButton("Copy install link")
+        copy_install.setToolTip("Opens in the phone's browser, not the scanner.")
         copy_install.clicked.connect(self._copy_install_url)
-        self.fetch_gemma_btn = QPushButton("Fetch offline brain")
+        self.fetch_gemma_btn = QPushButton("Download offline copy")
         self.fetch_gemma_btn.setToolTip(
-            "Downloads ~2.6 GB onto this PC so phones take it from here "
-            "instead of Hugging Face."
+            "Saves a large copy on this PC so the phone can take it from here."
         )
         self.fetch_gemma_btn.clicked.connect(self._fetch_gemma_for_phones)
         install_btns = QHBoxLayout()
@@ -634,18 +658,49 @@ class SettingsDialog(QDialog):
         install_btns.addWidget(copy_install)
         install_btns.addWidget(self.fetch_gemma_btn)
         install_btns.addStretch(1)
-        notify_l.addLayout(install_btns)
+        more_l.addLayout(install_btns)
+        self.pair_more.hide()
+        notify_l.addWidget(self.pair_more)
+
+        notices_h = QLabel("Notices")
+        notices_h.setObjectName("SettingsSection")
+        notify_l.addWidget(notices_h)
+        channel_grid = QGridLayout()
+        channel_grid.setContentsMargins(0, 0, 0, 0)
+        channel_grid.setHorizontalSpacing(16)
+        channel_grid.setVerticalSpacing(6)
+        channel_grid.setColumnStretch(1, 1)
+        labels = {
+            "sms": "Texts",
+            "calendar": "Calendar",
+            "email": "Mail",
+            "job": "Jobs",
+            "task": "Tasks",
+            "remind": "Reminders",
+            "allow": "Permission",
+        }
+        current = load_channels(config)
+        self._notify_channels: dict[str, QComboBox] = {}
+        for row, key in enumerate(CHANNELS):
+            name = QLabel(labels.get(key, key))
+            name.setObjectName("SettingsFieldLabel")
+            combo = _PageCombo()
+            combo.setObjectName("SettingsField")
+            polish_combo_popup(combo, compact=True)
+            combo.addItem("Off", "off")
+            combo.addItem("Show", "visual")
+            combo.addItem("Show and speak", "voice")
+            self._select_by_data(combo, current.get(key, "visual"))
+            channel_grid.addWidget(
+                name, row, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+            )
+            channel_grid.addWidget(combo, row, 1)
+            self._notify_channels[key] = combo
+        notify_l.addLayout(channel_grid)
 
         mail_h = QLabel("Mail")
         mail_h.setObjectName("SettingsSection")
-        mail_blurb = QLabel(
-            "Gmail app password. Jobs and 'email me' use this. The password "
-            "is never shown again after Apply."
-        )
-        mail_blurb.setObjectName("SettingsHint")
-        mail_blurb.setWordWrap(True)
         notify_l.addWidget(mail_h)
-        notify_l.addWidget(mail_blurb)
         self.mail_address = QLineEdit()
         self.mail_address.setObjectName("SettingsField")
         self.mail_address.setPlaceholderText("you@example.com")
@@ -669,7 +724,19 @@ class SettingsDialog(QDialog):
         notify_l.addLayout(mail_form)
 
         notify_l.addStretch(1)
-        tabs.addTab(notify, "notify")
+        notify_scroll = QScrollArea()
+        notify_scroll.setObjectName("SettingsNotifyScroll")
+        notify_scroll.setWidgetResizable(True)
+        notify_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        notify_scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+        notify_scroll.setWidget(notify)
+        viewport = notify_scroll.viewport()
+        viewport.setObjectName("SettingsNotifyViewport")
+        viewport.setAutoFillBackground(False)
+        self.notify_scroll = notify_scroll
+        tabs.addTab(notify_scroll, "notify")
         self._pairing_text = ""
         self._install_url = ""
         self._gemma_thread: QThread | None = None
@@ -761,6 +828,7 @@ class SettingsDialog(QDialog):
         buttons.accepted.connect(self._accept)
         buttons.rejected.connect(self.reject)
         root.addWidget(buttons)
+        localize(self)
 
     def showEvent(self, event) -> None:  # type: ignore[override]
         super().showEvent(event)
@@ -823,7 +891,7 @@ class SettingsDialog(QDialog):
         return names, True
 
     def _model_combo(self, current: str, installed: list[str]) -> QComboBox:
-        combo = QComboBox()
+        combo = _PageCombo()
         combo.setObjectName("SettingsField")
         polish_combo_popup(combo)
         seen: set[str] = set()
@@ -896,7 +964,7 @@ class SettingsDialog(QDialog):
             self.pair_status.setText(f"Could not create a token: {exc}")
             return
         self._refresh_pairing_qr(self._settings_config, rotate=False)
-        self.pair_status.setText("Phone token ready. Scan the code with the Arelis app.")
+        self.pair_status.setText("Pairing code ready. Scan it with the Arelis app.")
 
     def _copy_notify_url(self, config: dict[str, Any]) -> None:
         _, primary = self._notify_urls(config)
@@ -905,7 +973,7 @@ class SettingsDialog(QDialog):
         clip = QApplication.clipboard()
         if clip is not None:
             clip.setText(primary)
-        self.pair_status.setText(f"Copied {primary}")
+        self.pair_status.setText("Copied the link.")
 
     def _copy_pairing_text(self) -> None:
         if not self._pairing_text:
@@ -914,9 +982,7 @@ class SettingsDialog(QDialog):
         clip = QApplication.clipboard()
         if clip is not None:
             clip.setText(self._pairing_text)
-        self.pair_status.setText(
-            "Copied. On the phone, tap Paste instead of Scan."
-        )
+        self.pair_status.setText("Copied. On the phone, tap Paste instead of Scan.")
 
     def _set_pair_qr(self, pixmap) -> None:
         self.pair_qr.setPixmap(pixmap)
@@ -929,9 +995,8 @@ class SettingsDialog(QDialog):
             self._pairing_text = ""
             self.pair_qr.clear()
             self.pair_qr.setFixedSize(0, 0)
-            self.pair_status.setText(
-                "No phone token yet. Click Create phone token."
-            )
+            self.make_token_btn.setVisible(True)
+            self.pair_status.setText("No pairing code yet.")
             self._refresh_companion_panel(None, "")
             return
         _, primary = self._notify_urls(config)
@@ -950,81 +1015,86 @@ class SettingsDialog(QDialog):
             self._pairing_text = ""
             self.pair_qr.clear()
             self.pair_qr.setFixedSize(0, 0)
-            self.pair_status.setText(f"Could not build a pairing ticket: {exc}")
+            self.make_token_btn.setVisible(True)
+            self.pair_status.setText(f"Could not build a pairing code: {exc}")
             self._refresh_companion_panel(None, primary)
             return
         self._pairing_text = ticket.as_text()
         companion = load_companion()
+        self.make_token_btn.setVisible(False)
         if companion and companion.get("device_key"):
-            radio = companion.get("base_url") or "talk only"
-            self.pair_status.setText(
-                f"Paired. Radio at {radio}. The phone finds this PC after Wi-Fi "
-                "or DHCP moves — no new QR. New QR only for a different phone."
-            )
+            self.pair_status.setText("Phone is paired.")
         else:
-            self.pair_status.setText(
-                "Not paired yet. Scan with the Arelis app — that writes sms.companion."
-            )
+            self.pair_status.setText("Not paired yet.")
         try:
             from arelis.ui.qr_image import pairing_pixmap
 
-            self._set_pair_qr(pairing_pixmap(self._pairing_text, scale=4, pad=16))
+            self._set_pair_qr(
+                pairing_pixmap(self._pairing_text, scale=4, pad=16, max_side=232)
+            )
         except Exception:
             # QR generation failed, user can copy text instead
             self.pair_qr.clear()
             self.pair_qr.setFixedSize(0, 0)
-            self.pair_status.setText("Could not draw the QR. Use Copy for paste.")
+            self.pair_status.setText("Could not draw the code. Open the scan help and copy it.")
         self._refresh_companion_panel(ticket, primary)
+
+    def _toggle_pair_more(self, open_: bool) -> None:
+        self.pair_more.setVisible(open_)
+        self.pair_more_btn.setArrowType(
+            Qt.ArrowType.DownArrow if open_ else Qt.ArrowType.RightArrow
+        )
 
     def _refresh_companion_panel(self, ticket, primary: str) -> None:
         from arelis.companion_pack import install_page_url
         from arelis.companion_pack import status as companion_status
 
         current = companion_status()
-        self.companion_status.setText(current.hint())
         self._install_url = ""
         self.install_qr.clear()
         self.install_qr.setFixedSize(0, 0)
+        self.install_block.hide()
         if current.apk is None:
-            self.install_blurb.setText(
-                "The phone camera cannot download an app that is not here yet. "
-                + current.hint()
-            )
+            line = "The phone app isn't on this computer."
+            self.install_blurb.setText(line)
+            self.companion_status.setText(line)
             return
+        ready = f"App {current.apk.version_name} is on this computer."
+        if current.gemma is None:
+            ready += " Offline copy isn't saved here yet."
+        else:
+            ready += " Offline copy is saved here."
+        self.companion_status.setText(ready)
         if not ticket or not primary:
-            self.install_blurb.setText(
-                f"Companion APK {current.apk.version_name} is ready. "
-                "Create a phone token to grow a download QR."
-            )
+            self.install_blurb.setText("Create a pairing code to get an install link.")
             return
         self._install_url = install_page_url(primary, ticket.pair)
-        self.install_blurb.setText(
-            "No Arelis on the phone yet? Scan this with the camera — not the "
-            "app. It opens a page on this PC. Download, install, then pair "
-            "with the code above."
-        )
+        self.install_blurb.setText("Scan this with the phone camera.")
         try:
             from arelis.ui.qr_image import pairing_pixmap
 
-            pixmap = pairing_pixmap(self._install_url, scale=4, pad=16)
+            pixmap = pairing_pixmap(self._install_url, scale=4, pad=16, max_side=232)
             self.install_qr.setPixmap(pixmap)
             self.install_qr.setContentsMargins(0, 0, 0, 0)
             self.install_qr.setFixedSize(pixmap.size())
+            self.install_block.show()
         except Exception:
             # QR generation failed, hide install QR
             self.install_qr.clear()
             self.install_qr.setFixedSize(0, 0)
+            self.install_block.hide()
 
     def _copy_install_url(self) -> None:
         if not self._install_url:
             self.companion_status.setText(
-                "No install URL yet. Need a companion APK and a phone token."
+                "No install link yet. The app has to be on this computer, "
+                "and you need a pairing code."
             )
             return
         clip = QApplication.clipboard()
         if clip is not None:
             clip.setText(self._install_url)
-        self.companion_status.setText(f"Copied {self._install_url}")
+        self.companion_status.setText("Copied the install link.")
 
     def _fetch_gemma_for_phones(self) -> None:
         if self._gemma_thread is not None and self._gemma_thread.isRunning():
@@ -1032,10 +1102,10 @@ class SettingsDialog(QDialog):
         from arelis.companion_pack import fetch_gemma, gemma_ready
 
         if gemma_ready():
-            self.companion_status.setText("Offline brain is already cached on this PC.")
+            self.companion_status.setText("Offline copy is already saved on this PC.")
             return
         self.fetch_gemma_btn.setEnabled(False)
-        self.companion_status.setText("Fetching the offline brain onto this PC…")
+        self.companion_status.setText("Downloading the offline copy…")
 
         class _Fetch(QThread):
             progressed = Signal(int, int)
@@ -1057,19 +1127,19 @@ class SettingsDialog(QDialog):
             if total:
                 pct = int(got * 100 / total)
                 self.companion_status.setText(
-                    f"Fetching the offline brain… {pct}%"
+                    f"Downloading the offline copy… {pct}%"
                 )
             else:
                 mb = got / 1_000_000
                 self.companion_status.setText(
-                    f"Fetching the offline brain… {mb:.0f} MB"
+                    f"Downloading the offline copy… {mb:.0f} MB"
                 )
 
         def on_done(result: object) -> None:
             self.fetch_gemma_btn.setEnabled(True)
             if isinstance(result, Exception):
                 self.companion_status.setText(
-                    f"Could not fetch the offline brain: {result}"
+                    f"Could not download the offline copy: {result}"
                 )
                 return
             from arelis.sms_pairing import make_ticket
@@ -1085,9 +1155,7 @@ class SettingsDialog(QDialog):
                     # ticket creation failed, skip panel refresh
                     ticket = None
             self._refresh_companion_panel(ticket, primary)
-            self.companion_status.setText(
-                "Offline brain is cached. Phones take it from this PC."
-            )
+            self.companion_status.setText("Offline copy is saved on this PC.")
 
         thread.progressed.connect(on_progress)
         thread.finished_with.connect(on_done)
@@ -1301,30 +1369,30 @@ class SettingsDialog(QDialog):
             )
             return
         if grant:
-            self.ask_is_grant.setToolTip(
+            self.ask_is_grant.setToolTip(tr(
                 "When on, a job you already named does not open Allow — "
                 "except mail, texts, deletes, Pay, and programs."
-            )
-            self._allow_grant_blurb.setText(
+            ))
+            self._allow_grant_blurb.setText(tr(
                 "A job you named skips Allow for pictures, files, seeing, "
                 "and her window. Mail, texts, deletes, Pay, and programs "
                 "still pause."
-            )
-            self._allow_local_h.setText("On her own")
-            self._allow_local_blurb.setText(
+            ))
+            self._allow_local_h.setText(tr("On her own"))
+            self._allow_local_blurb.setText(tr(
                 "Pause if she does this without you naming it. Uncheck to never ask."
-            )
+            ))
         else:
-            self.ask_is_grant.setToolTip(
+            self.ask_is_grant.setToolTip(tr(
                 "Off: every checked class shows Allow, even a job you named."
-            )
-            self._allow_grant_blurb.setText(
+            ))
+            self._allow_grant_blurb.setText(tr(
                 "Every checked class shows Allow, even a job you named."
-            )
-            self._allow_local_h.setText("Pause every time")
-            self._allow_local_blurb.setText(
+            ))
+            self._allow_local_h.setText(tr("Pause every time"))
+            self._allow_local_blurb.setText(tr(
                 "A checked class always shows Allow. Uncheck to never ask."
-            )
+            ))
 
     def _preset_allow_everything(self) -> None:
         self.confirm_writes.setChecked(True)
@@ -1379,6 +1447,7 @@ class SettingsDialog(QDialog):
                 ]
             },
             "ui": {
+                "language": str(self.language_combo.currentData() or "en"),
                 "scale": float(self.ui_scale.currentData() or 1.0),
                 "notifications": {
                     "channels": {

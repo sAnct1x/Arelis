@@ -7,9 +7,12 @@ from typing import Any
 
 from arelis.config import shipped_num_ctx
 from arelis.core.agenda_complete import (
+    agenda_read_action,
     complete_agenda_draft,
+    looks_like_calendar_close,
     looks_like_calendar_create,
     looks_like_calendar_delete,
+    looks_like_calendar_open,
     looks_like_calendar_read,
 )
 from arelis.core.agent_loop import (
@@ -21,10 +24,21 @@ from arelis.core.agent_loop import (
     turn_expects_tool_round,
     wants_fresh_page_ask,
 )
-from arelis.core.claims import apply_research_web_need, detect_exactness_need
+from arelis.core.claims import (
+    _CONSTANT_CONCEPT,
+    _CONSTANT_FORCE,
+    apply_research_web_need,
+    detect_cas_ask,
+    detect_exactness_need,
+    detect_math_ask,
+    detect_units_ask,
+)
 from arelis.core.context import context_budget
 from arelis.core.email_complete import (
     complete_email_draft,
+    draft_send_email_args,
+    email_files_still_owed,
+    email_remaining,
     looks_like_compose_email,
     looks_like_mailbox_mutate,
     looks_like_schedule_manage,
@@ -32,9 +46,19 @@ from arelis.core.email_complete import (
 )
 from arelis.core.events import Event, EventType
 from arelis.core.image_refs import CAMERA_FRESH_S, latest_camera_image_file
+from arelis.core.intent_catalog import (
+    EARTH_STATUS,
+    RESEARCH,
+    RUN_SCRIPT,
+    SOLAR_STATUS,
+    inspect_read_path,
+    looks_like_source_inspect,
+    run_script_path,
+    weather_intent_matches,
+)
 from arelis.core.look import LookTurn, classify_look, frame_sha256
 from arelis.core.other_work import looks_like_other_work
-from arelis.core.preflight import looks_like_room_create
+from arelis.core.preflight import draft_browser_args, looks_like_room_create
 from arelis.core.prompt_sections import (
     append_delivery_context,
     append_operating_context,
@@ -48,9 +72,11 @@ from arelis.core.skills import select_skill_ids_detailed
 from arelis.core.sms_complete import (
     complete_sms_draft,
     draft_send_sms_args,
+    looks_like_browser_or_url,
     looks_like_closing_chitchat,
     sms_intent_this_turn,
 )
+from arelis.core.tile_complete import match_tile_intent, tile_tool_args
 from arelis.core.tool_subset import (
     is_research_mode,
     turn_round_budget,
@@ -59,6 +85,8 @@ from arelis.core.tool_surface import apply_expected, base_surface, cap_to_room
 from arelis.core.turn_context import TurnContext
 from arelis.core.turn_telemetry import TurnTimer, turn_telemetry_enabled
 from arelis.llm.router import ModelRole
+from arelis.science.constants import _ALIASES, CONSTANTS, lookup_constant
+from arelis.tools.weather import draft_weather_args
 
 
 @dataclass
@@ -351,6 +379,221 @@ async def _prepare_sms_first_move(
                 ctx.sms_preinject = inj
 
 
+def _prepare_email_first_move(
+    ctx: TurnContext,
+    agent_cfg: dict[str, Any],
+) -> None:
+    """Arm a send_email call before the model, the same one-shot as an SMS.
+
+    A complete draft already has its arguments in ``draft_send_email_args``.
+    The round spends that dict and does not ask the model. Files still owed
+    stay on the write path. An incomplete draft does not arm.
+    """
+    if not bool(agent_cfg.get("email_force_call", True)):
+        return
+    draft = ctx.email_draft
+    if draft is None or not draft.complete:
+        return
+    if not email_remaining(draft, ctx.email_sent):
+        return
+    if "send_email" not in ctx.tool_names:
+        return
+    if email_files_still_owed(draft):
+        return
+    ctx.email_preinject = draft_send_email_args(draft, already_sent=ctx.email_sent)
+
+
+def _prepare_weather_first_move(
+    ctx: TurnContext,
+    text: str,
+    agent_cfg: dict[str, Any],
+) -> None:
+    """Arm a weather call before the model, the same one-shot as an SMS.
+
+    A high-confidence forecast already has its arguments in
+    ``draft_weather_args``. The round spends that dict and does not ask
+    the model. A scheduled send names the forecast and runs it later.
+    """
+    if not bool(agent_cfg.get("weather_force_call", True)):
+        return
+    if "weather" not in ctx.tool_names:
+        return
+    # A timer, or a word in a job title, is not a forecast this turn.
+    if looks_like_scheduled_send(text) or looks_like_schedule_manage(text):
+        return
+    # A deep dive owns the turn. The forecast word is the topic, not the call.
+    if RESEARCH.matches(text) or not weather_intent_matches(text):
+        return
+    ctx.weather_preinject = draft_weather_args(text)
+
+
+def _prepare_agenda_first_move(
+    ctx: TurnContext,
+    text: str,
+    agent_cfg: dict[str, Any],
+) -> None:
+    """Arm an agenda open or read before the model.
+
+    Create, delete, and close stay on the draft and the Allow card.
+    The round spends the dict once. A later round does not see it.
+    """
+    if not bool(agent_cfg.get("agenda_force_call", True)):
+        return
+    if "agenda" not in ctx.tool_names:
+        return
+    if looks_like_calendar_open(text):
+        ctx.agenda_preinject = {"action": "open"}
+    elif looks_like_calendar_read(text):
+        ctx.agenda_preinject = {"action": agenda_read_action(text)}
+
+
+def _prepare_calculator_first_move(ctx: TurnContext, text: str) -> None:
+    """Arm a calculator call before the model.
+
+    The tool normalizes the line. A units ask or a CAS ask is not this
+    call. The round spends the dict once. A later round does not see it.
+    """
+    if not detect_math_ask(text):
+        return
+    if detect_units_ask(text) or detect_cas_ask(text):
+        return
+    if "calculator" not in ctx.tool_names:
+        return
+    ctx.calculator_preinject = {"expression": text}
+
+
+def _fold_constant_phrase(text: str) -> str:
+    folded = (text or "").replace("'", "").replace("\u2019", "")
+    return " ".join(folded.lower().split())
+
+
+def _published_constant_name(text: str) -> str | None:
+    """A phrase ``lookup_constant`` resolves. The value stays in the tool."""
+    raw = text or ""
+    spans = [m.group(0) for p in _CONSTANT_FORCE if (m := p.search(raw))]
+    if not spans:
+        return None
+    blob = " ".join(spans)
+    folded_blob = _fold_constant_phrase(blob)
+    for alias in sorted(_ALIASES, key=len, reverse=True):
+        if _fold_constant_phrase(alias) not in folded_blob:
+            continue
+        if lookup_constant(alias) is not None:
+            return alias
+        ident = _ALIASES[alias]
+        if lookup_constant(ident) is not None:
+            return ident
+    for ident in CONSTANTS:
+        if lookup_constant(ident) is None:
+            continue
+        if re.search(
+            rf"(?i)(?<![A-Za-z0-9_]){re.escape(ident)}(?![A-Za-z0-9_])",
+            blob,
+        ):
+            return ident
+    return None
+
+
+def _prepare_units_first_move(ctx: TurnContext, text: str) -> None:
+    """Arm a published-constant lookup before the model.
+
+    The tool looks the number up. A concept line stays unarmed.
+    Conversions stay on the units force gate. The round spends the
+    dict once. A later round does not see it.
+    """
+    if not detect_units_ask(text):
+        return
+    if "units" not in ctx.tool_names:
+        return
+    if _CONSTANT_CONCEPT.search(text or ""):
+        return
+    name = _published_constant_name(text)
+    if name is None:
+        return
+    ctx.units_preinject = {"action": "constant", "name": name}
+
+
+def _prepare_browser_first_move(
+    ctx: TurnContext,
+    text: str,
+    expected_tools: set[str] | None = None,
+) -> None:
+    """Arm a browser call before the model, the same one-shot as weather.
+
+    ``draft_browser_args`` already has the open, search, or read. The round
+    spends that dict and does not ask the model. Calendar, a tile, and a
+    solar or earth status stay on their own tools.
+    """
+    if "browser" not in ctx.tool_names:
+        return
+    expected = expected_tools or set()
+    if not ("browser" in expected or looks_like_browser_or_url(text)):
+        return
+    if looks_like_calendar_open(text) or looks_like_calendar_close(text):
+        return
+    if match_tile_intent(text):
+        return
+    if SOLAR_STATUS.matches(text) or EARTH_STATUS.matches(text):
+        return
+    ctx.browser_preinject = draft_browser_args(text)
+
+
+def _prepare_tile_first_move(ctx: TurnContext, text: str) -> None:
+    """Arm a tile call before the model, the same one-shot as browser.
+
+    ``tile_tool_args`` already has the open or close. Calendar stays on
+    agenda when that tool is registered. A bare close with no name does
+    not arm. A browser URL is not a tile name, so this stays unset.
+    """
+    if "tile" not in ctx.tool_names:
+        return
+    hit = match_tile_intent(text)
+    if hit is None:
+        return
+    if hit[1] == "calendar" and "agenda" in ctx.tool_names:
+        return
+    args = tile_tool_args(text)
+    if args is None:
+        return
+    ctx.tile_preinject = args
+
+
+def _prepare_inspect_first_move(ctx: TurnContext, text: str) -> None:
+    """Arm a workspace read before the model, the same one-shot as a tile.
+
+    The path is already mapped. The round spends that dict and does not
+    ask the model. A tile ask stays on tile. No mapped path means no read.
+    """
+    if not bool(ctx.agent_cfg.get("inspect_force_call", True)):
+        return
+    if not looks_like_source_inspect(text):
+        return
+    if "workspace" not in ctx.tool_names:
+        return
+    if match_tile_intent(text) is not None:
+        return
+    path = inspect_read_path(text)
+    if not path:
+        return
+    ctx.workspace_preinject = {"action": "read", "path": path}
+
+
+def _prepare_run_script_first_move(ctx: TurnContext, text: str) -> None:
+    """Arm a run_script call before the model when they named a .py.
+
+    The path is already on the ask. The round spends that dict and does not
+    ask the model. A match with no file stays unset.
+    """
+    if not RUN_SCRIPT.matches(text):
+        return
+    if "run_script" not in ctx.tool_names:
+        return
+    path = run_script_path(text)
+    if not path:
+        return
+    ctx.run_script_preinject = {"path": path}
+
+
 async def prepare_turn(
     loop: Any,
     text: str,
@@ -574,4 +817,13 @@ async def prepare_turn(
         ollama_tools=ollama_tools,
     )
     await _prepare_sms_first_move(loop, ctx, text, agent_cfg)
+    _prepare_email_first_move(ctx, agent_cfg)
+    _prepare_weather_first_move(ctx, text, agent_cfg)
+    _prepare_agenda_first_move(ctx, text, agent_cfg)
+    _prepare_calculator_first_move(ctx, text)
+    _prepare_units_first_move(ctx, text)
+    _prepare_browser_first_move(ctx, text, loop._expected_tools)
+    _prepare_tile_first_move(ctx, text)
+    _prepare_inspect_first_move(ctx, text)
+    _prepare_run_script_first_move(ctx, text)
     return ctx

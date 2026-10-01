@@ -156,7 +156,9 @@ def turn_failed_notice(exc: BaseException) -> tuple[str, str]:
     except Exception:
         # Copy is not worth an exception inside the handler of an exception.
         pass
-    return TURN_FAILED_NOTICE, detail
+    from arelis.i18n import tr
+
+    return tr(TURN_FAILED_NOTICE), detail
 
 
 def is_model_directed(text: str) -> bool:

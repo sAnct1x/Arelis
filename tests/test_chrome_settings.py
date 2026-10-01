@@ -296,6 +296,175 @@ def test_title_bar_is_view_rooms_settings(qt_app) -> None:
         bar.close()
 
 
+def test_window_buttons_fade_in_when_the_cursor_is_near(qt_app) -> None:
+    """Sodium and filament share TitleBar. The three buttons stay out until
+    the pointer is in their corner, and they stay in the layout either way.
+    """
+    from PySide6.QtCore import QPoint, Qt
+    from PySide6.QtWidgets import QVBoxLayout, QWidget
+
+    from arelis.ui import caption_fade as fade_mod
+    from arelis.ui.chrome import TitleBar
+
+    saved = (
+        fade_mod._CAPTION_FADE_IN_MS,
+        fade_mod._CAPTION_FADE_OUT_MS,
+        fade_mod._CAPTION_HIDE_MS,
+        fade_mod._CAPTION_POLL_MS,
+    )
+    fade_mod._CAPTION_FADE_IN_MS = 1
+    fade_mod._CAPTION_FADE_OUT_MS = 1
+    fade_mod._CAPTION_HIDE_MS = 5_000
+    fade_mod._CAPTION_POLL_MS = 60_000
+    cursor = {"at": QPoint(-4000, -4000)}
+    original_pos = fade_mod.QCursor.pos
+    fade_mod.QCursor.pos = staticmethod(lambda: cursor["at"])
+
+    bar = TitleBar()
+    host = QWidget()
+    lay = QVBoxLayout(host)
+    lay.setContentsMargins(0, 0, 0, 0)
+    lay.addWidget(bar)
+    host.resize(960, 80)
+    try:
+        host.show()
+        qt_app.processEvents()
+        assert bar._caption.width() > 40
+        assert not bar.min_btn.isHidden()
+        assert not bar.max_btn.isHidden()
+        assert not bar.close_btn.isHidden()
+        assert bar._caption_poll.isActive()
+        assert bar._caption.testAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+
+        origin = bar._caption.mapToGlobal(QPoint(0, bar._caption.height() // 2))
+        cursor["at"] = QPoint(origin.x() - 40, origin.y())
+        assert bar._cursor_near_caption()
+        cursor["at"] = QPoint(origin.x() - 80, origin.y())
+        assert not bar._cursor_near_caption()
+
+        on_close = bar.close_btn.mapToGlobal(bar.close_btn.rect().center())
+        cursor["at"] = on_close
+        bar._drag_pos = QPoint(1, 1)
+        assert not bar._cursor_near_caption()
+        bar._drag_pos = None
+        assert bar._cursor_near_caption()
+
+        bar._sync_caption_hover()
+        _settle_caption(bar, qt_app)
+        assert bar._caption_opacity == 1.0
+        assert not bar._caption.testAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+
+        bar.set_slim(True)
+        qt_app.processEvents()
+        cursor["at"] = bar.close_btn.mapToGlobal(bar.close_btn.rect().center())
+        bar._sync_caption_hover()
+        _settle_caption(bar, qt_app)
+        assert bar._caption_opacity == 1.0
+        assert bar.height() == 32
+
+        cursor["at"] = QPoint(-4000, -4000)
+        bar.title.setFocus()
+        assert not bar._caption_pinned()
+        bar._sync_caption_hover()
+        _settle_caption(bar, qt_app)
+        assert bar._caption_opacity == 0.0
+        assert bar._caption.testAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+
+        bar.close_btn.set_strength(0.35)
+        assert bar.close_btn._fade_buffer is not None
+        assert not bar.close_btn._fade_buffer.isNull()
+        bar.close_btn.repaint()
+        bar.close_btn.set_strength(0.0)
+        assert bar.close_btn._fade_buffer is None
+
+        host.hide()
+        qt_app.processEvents()
+        assert not bar._caption_poll.isActive()
+    finally:
+        fade_mod.QCursor.pos = original_pos
+        (
+            fade_mod._CAPTION_FADE_IN_MS,
+            fade_mod._CAPTION_FADE_OUT_MS,
+            fade_mod._CAPTION_HIDE_MS,
+            fade_mod._CAPTION_POLL_MS,
+        ) = saved
+        host.close()
+        bar.close()
+
+
+def test_plate_close_fades_until_the_cursor_is_near(qt_app) -> None:
+    """A tile that only has a close still uses the same corner fade."""
+    from PySide6.QtCore import QAbstractAnimation, QPoint, Qt
+    from PySide6.QtWidgets import QHBoxLayout, QWidget
+
+    from arelis.ui import caption_fade as fade_mod
+    from arelis.ui.caption_fade import CaptionTool, watch_caption
+
+    saved = (fade_mod._CAPTION_FADE_IN_MS, fade_mod._CAPTION_POLL_MS)
+    fade_mod._CAPTION_FADE_IN_MS = 1
+    fade_mod._CAPTION_POLL_MS = 60_000
+    cursor = {"at": QPoint(-4000, -4000)}
+    original_pos = fade_mod.QCursor.pos
+    fade_mod.QCursor.pos = staticmethod(lambda: cursor["at"])
+    host = QWidget()
+    btn = CaptionTool()
+    btn.setFixedSize(28, 28)
+    lay = QHBoxLayout(host)
+    lay.addStretch(1)
+    lay.addWidget(btn)
+    hover = watch_caption(host, btn)
+    host.resize(420, 48)
+    try:
+        host.show()
+        qt_app.processEvents()
+        assert btn.testAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        assert hover.opacity == 0.0
+        cursor["at"] = btn.mapToGlobal(btn.rect().center())
+        hover.sync()
+        if hover.anim.state() == QAbstractAnimation.State.Running:
+            hover.anim.setCurrentTime(max(hover.anim.duration(), 0))
+        qt_app.processEvents()
+        assert hover.opacity == 1.0
+        assert not btn.testAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+    finally:
+        fade_mod.QCursor.pos = original_pos
+        fade_mod._CAPTION_FADE_IN_MS, fade_mod._CAPTION_POLL_MS = saved
+        host.close()
+
+
+def test_every_plate_watches_its_window_buttons() -> None:
+    """Sodium tiles and the filament chat plate share the corner fade."""
+    from pathlib import Path
+
+    root = Path("arelis/ui")
+    for name in (
+        "chrome.py",
+        "dialog.py",
+        "settings_dialog.py",
+        "contacts_inbox.py",
+        "notify_inbox.py",
+        "mail_peek.py",
+        "sms_chat.py",
+        "calendar_window.py",
+        "world_window.py",
+        "filament_field.py",
+    ):
+        text = (root / name).read_text(encoding="utf-8")
+        assert "watch_caption(" in text, name
+
+
+def _settle_caption(bar, qt_app) -> None:
+    from PySide6.QtCore import QAbstractAnimation
+
+    if bar._caption_hide_timer.isActive():
+        bar._caption_hide_timer.stop()
+        bar._hide_caption_if_idle()
+    anim = bar._caption_anim
+    if anim.state() == QAbstractAnimation.State.Running:
+        anim.setCurrentTime(max(anim.duration(), 0))
+    qt_app.processEvents()
+
+
 def test_every_dock_keeps_an_object_name() -> None:
     """No QSS targets these names, which makes them look deletable. They are not.
 
@@ -330,7 +499,8 @@ def test_view_menu_omits_settings() -> None:
     assert "act_thinking" in body
     assert "act_settings" not in body
     assert "menu.addAction(self.act_settings)" not in body
-    assert 'addMenu("themes")' in body
+    assert 'addMenu(tr("themes"))' in body
+    assert 'addMenu(tr("Language"))' in body
     # Ctrl+, wiring stays on the window action list.
     assert 'QAction("settings…"' in src or "settings…" in src
 
@@ -366,10 +536,13 @@ def test_settings_has_no_theme_tab(qt_app) -> None:
         assert "theme" not in dlg.values().get("ui", {})
         assert dlg.mail_address.placeholderText()
         assert dlg.mail_password.echoMode() != 0
-        assert dlg.make_token_btn.text() == "Create phone token"
+        assert dlg.make_token_btn.text() == "Create a pairing code"
         assert dlg.install_blurb.text()
+        assert "Gradle" not in dlg.install_blurb.text()
         assert dlg.companion_status.text()
-        assert dlg.fetch_gemma_btn.text() == "Fetch offline brain"
+        assert "Gradle" not in dlg.companion_status.text()
+        assert dlg.fetch_gemma_btn.text() == "Download offline copy"
+        assert dlg.pair_more.isHidden()
         assert "Apply" in dlg.stt_enabled.toolTip()
         assert "Apply" in dlg.tts_enabled.toolTip()
         assert "restart" not in dlg.stt_enabled.toolTip().lower()
@@ -424,5 +597,101 @@ def test_settings_opens_notify_tab(qt_app) -> None:
         assert dlg.pair_qr.sizePolicy().horizontalPolicy() == QSizePolicy.Policy.Fixed
         assert dlg.pair_qr.hasScaledContents() is False
         assert dlg.pair_status.wordWrap() is True
+        texts = dlg._notify_channels["sms"]
+        assert isinstance(texts, type(dlg.language_combo))
+        before = texts.currentIndex()
+        scrolled = dlg.notify_scroll.verticalScrollBar().value()
+        from PySide6.QtCore import QPoint, QPointF, Qt
+        from PySide6.QtGui import QWheelEvent
+
+        from arelis.ui.qr_image import pairing_pixmap
+
+        dlg.resize(560, 640)
+        dlg.show()
+        pix = pairing_pixmap(
+            "http://192.168.1.2:8765/" + ("k" * 80),
+            scale=4,
+            pad=16,
+            max_side=232,
+        )
+        dlg._set_pair_qr(pix)
+        qt_app.processEvents()
+        assert dlg.notify_scroll.verticalScrollBar().maximum() > 0
+        wheel = QWheelEvent(
+            QPointF(4, 4),
+            QPointF(4, 4),
+            QPoint(0, 0),
+            QPoint(0, -120),
+            Qt.MouseButton.NoButton,
+            Qt.KeyboardModifier.NoModifier,
+            Qt.ScrollPhase.NoScrollPhase,
+            False,
+        )
+        qt_app.sendEvent(texts, wheel)
+        assert texts.currentIndex() == before
+        assert not wheel.isAccepted()
+        # The window delivers an unaccepted wheel to parents. sendEvent does not.
+        target = texts.parentWidget()
+        while target is not None and not wheel.isAccepted():
+            qt_app.sendEvent(target, wheel)
+            target = target.parentWidget()
+        qt_app.processEvents()
+        assert dlg.notify_scroll.verticalScrollBar().value() != scrolled
+    finally:
+        dlg.close()
+
+
+def test_notify_qr_keeps_its_full_square(qt_app) -> None:
+    """The link plate used to paint over the bottom of the code."""
+    from PySide6.QtCore import QRect
+
+    from arelis.ui.qr_image import pairing_pixmap
+    from arelis.ui.settings_dialog import SettingsDialog
+
+    dlg = SettingsDialog(
+        {
+            "voice": {},
+            "presence": {},
+            "workspace": {
+                "named_roots": [
+                    {"name": "arelis", "path": str(Path.cwd()), "read_only": False}
+                ]
+            },
+            "tools": {"sms": {"inbound": {"ingest": {}}}},
+        },
+        initial_tab="notify",
+        list_models=lambda: [],
+    )
+    try:
+        dlg.resize(560, 700)
+        dlg.show()
+        pix = pairing_pixmap(
+            "http://192.168.86.248:8765/" + ("k" * 160),
+            scale=4,
+            pad=16,
+            max_side=232,
+        )
+        dlg._set_pair_qr(pix)
+        qt_app.processEvents()
+        assert pix.width() <= 232
+        assert dlg.pair_qr.width() == pix.width()
+        assert dlg.pair_qr.height() == pix.height()
+        assert not dlg.notify_url.isVisible()
+        dlg.pair_more_btn.setChecked(True)
+        qt_app.processEvents()
+
+        def box(widget) -> QRect:
+            origin = widget.mapTo(dlg, QPoint(0, 0))
+            return QRect(origin, widget.size())
+
+        assert dlg.notify_url.isVisible()
+        assert not box(dlg.pair_qr).intersects(box(dlg.notify_url))
+        grabbed = dlg.pair_qr.grab()
+        assert grabbed.size() == pix.size()
+        corner = grabbed.toImage().pixelColor(8, grabbed.height() - 8)
+        source = pix.toImage().pixelColor(8, pix.height() - 8)
+        assert abs(corner.red() - source.red()) < 8
+        assert abs(corner.green() - source.green()) < 8
+        assert abs(corner.blue() - source.blue()) < 8
     finally:
         dlg.close()

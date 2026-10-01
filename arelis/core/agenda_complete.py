@@ -252,6 +252,9 @@ def normalize_calendar_speech(text: str) -> str:
 _SEND_CONFIRM = send_confirm_pattern(
     r"please\s+(?:do|proceed|create)",
     r"proceed(?:\s+with\s+(?:creating|it))?",
+    "创建",
+    "建吧",
+    "加到日历",
     affirmations=("please",),
 )
 

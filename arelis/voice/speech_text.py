@@ -62,9 +62,12 @@ _ABBREVIATIONS = {
     "no", "approx", "al", "inc", "ltd", "jr", "sr",
 }
 _SENTENCE_END = re.compile(r"(?<=[.!?])[\"')\]]*\s+")
+# Chinese prose often has no space after 。！？. English still requires whitespace
+# so an abbreviation like "Dr." is not cut in half.
+_SENTENCE_END_ZH = re.compile(r"(?<=[。！？.!?])[\"'\"')\]]*\s*")
 
 
-def prepare_spoken_text(text: str, *, max_chars: int = 0) -> str:
+def prepare_spoken_text(text: str, *, max_chars: int = 0, language: str = "en") -> str:
     """Reduce an answer to plain speakable prose.
 
     max_chars of 0 means no limit. A positive value cuts at the last sentence
@@ -85,14 +88,20 @@ def prepare_spoken_text(text: str, *, max_chars: int = 0) -> str:
             lines.append(line)
 
     spoken = "\n".join(lines)
-    spoken = scrub_cjk_runs(spoken)
+    chinese = str(language or "").lower().startswith("zh")
+    if not chinese:
+        spoken = scrub_cjk_runs(spoken)
     spoken = _MULTI_NEWLINE.sub("\n\n", spoken)
     # A single newline inside a paragraph is a wrap, not a pause.
     spoken = re.sub(r"(?<!\n)\n(?!\n)", " ", spoken)
     spoken = _MULTI_SPACE.sub(" ", spoken)
     spoken = "\n\n".join(part.strip() for part in spoken.split("\n\n") if part.strip())
     # Phonetic spelling for Piper (persona text never reaches TTS).
-    spoken = _ARELIS_NAME.sub(_ARELIS_SPOKEN, spoken)
+    # Mandarin Kokoro gets a spoken name; "Uh-rell-iss" is an English mouth trick.
+    if chinese:
+        spoken = _ARELIS_NAME.sub("阿瑞丽丝", spoken)
+    else:
+        spoken = _ARELIS_NAME.sub(_ARELIS_SPOKEN, spoken)
 
     if max_chars > 0:
         spoken = _cap(spoken, max_chars)
@@ -107,7 +116,7 @@ _SHORT_CLIP_CHARS = 72
 _PACK_TARGET_CHARS = 160
 
 
-def split_sentences(text: str) -> list[str]:
+def split_sentences(text: str, *, language: str = "en") -> list[str]:
     """Split prepared text on sentence ends.
 
     The voice service packs these into breaths before synthesis so a period
@@ -121,7 +130,11 @@ def split_sentences(text: str) -> list[str]:
         if not block:
             continue
         pending = ""
-        for piece in _SENTENCE_END.split(block):
+        zh = str(language or "").lower().startswith("zh") or bool(
+            re.search(r"[。！？]", block)
+        )
+        pattern = _SENTENCE_END_ZH if zh else _SENTENCE_END
+        for piece in pattern.split(block):
             if not piece:
                 continue
             candidate = f"{pending} {piece}".strip() if pending else piece
@@ -137,11 +150,15 @@ def split_sentences(text: str) -> list[str]:
 
 def _sentence_complete(chunk: str) -> bool:
     trailing = (chunk or "").rstrip()
-    return bool(trailing) and trailing[-1:] in ".!?" and not _ends_on_abbreviation(trailing)
+    if not trailing:
+        return False
+    if trailing[-1:] in "。！？":
+        return True
+    return trailing[-1:] in ".!?" and not _ends_on_abbreviation(trailing)
 
 
 def next_speakable_units(
-    prepared: str, already: int, *, finalize: bool
+    prepared: str, already: int, *, finalize: bool, language: str = "en"
 ) -> tuple[list[str], int]:
     """Return new clips and how many sentences have now been handed off.
 
@@ -156,7 +173,7 @@ def next_speakable_units(
     raw = (prepared or "").strip()
     if not raw:
         return [], already
-    sentences = split_sentences(raw) or ([raw] if finalize else [])
+    sentences = split_sentences(raw, language=language) or ([raw] if finalize else [])
     if already >= len(sentences):
         return [], already
 
@@ -182,7 +199,8 @@ def next_speakable_units(
     for sentence in pending:
         buf.append(sentence)
         size += len(sentence) + 1
-        if size >= _PACK_TARGET_CHARS:
+        pack_at = 64 if _CJK_RUN.search(prepared or "") else _PACK_TARGET_CHARS
+        if size >= pack_at:
             clips.append(" ".join(buf))
             consumed += len(buf)
             buf = []

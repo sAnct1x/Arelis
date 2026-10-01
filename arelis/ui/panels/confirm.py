@@ -34,7 +34,9 @@ class ConfirmCard(QWidget):
         layout.setContentsMargins(*space_box("gap"))
         layout.setSpacing(SPACE["gap"])
 
-        self.summary = QLabel("confirm tool")
+        from arelis.i18n import tr
+
+        self.summary = QLabel(tr("confirm tool"))
         self.summary.setObjectName("ConfirmSummary")
         self.summary.setWordWrap(True)
 
@@ -53,16 +55,16 @@ class ConfirmCard(QWidget):
         self.note.setWordWrap(True)
         self.note.hide()
 
-        self.allow_turn = QCheckBox("rest of this ask")
+        self.allow_turn = QCheckBox(tr("rest of this ask"))
         self.allow_turn.setObjectName("ConfirmAllowTurn")
-        self.allow_always = QCheckBox("don't ask again")
+        self.allow_always = QCheckBox(tr("don't ask again"))
         self.allow_always.setObjectName("ConfirmAllowAlways")
         self.allow_always.hide()
 
         row = QHBoxLayout()
         row.setSpacing(8)
-        self.allow_btn = QPushButton("allow")
-        self.skip_btn = QPushButton("deny")
+        self.allow_btn = QPushButton(tr("allow"))
+        self.skip_btn = QPushButton(tr("deny"))
         self.allow_btn.setObjectName("ConfirmAllow")
         self.skip_btn.setObjectName("ConfirmSkip")
         self.allow_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -96,8 +98,10 @@ class ConfirmCard(QWidget):
         headline: str = "",
     ) -> None:
         self._confirm_id = confirm_id
+        from arelis.i18n import tr
+
         title = (headline or "").strip() or confirm_headline(tool, {})
-        self.summary.setText(title)
+        self.summary.setText(tr(title))
 
         body = (detail or "").strip()
         summary_line = (summary or "").strip()
@@ -114,12 +118,12 @@ class ConfirmCard(QWidget):
         # silently widen the next approval to the whole turn.
         self.allow_turn.setChecked(False)
         self.allow_turn.setVisible(batch_ok)
-        self.allow_turn.setText("rest of this ask")
-        self.allow_turn.setToolTip("further steps in this reply, not forever")
+        self.allow_turn.setText(tr("rest of this ask"))
+        self.allow_turn.setToolTip(tr("further steps in this reply, not forever"))
         self.allow_always.setChecked(False)
-        label = (persist_label or "").strip() or "don't ask again"
+        label = (persist_label or "").strip() or tr("don't ask again")
         self.allow_always.setText(label)
-        self.allow_always.setToolTip("turn off this Allow gate in Settings")
+        self.allow_always.setToolTip(tr("turn off this Allow gate in Settings"))
         self.allow_always.setVisible(persist_ok)
         self.show()
         self.allow_btn.setFocus()

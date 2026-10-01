@@ -27,7 +27,13 @@ from arelis.spatial.scene import (
     polygon_xy,
 )
 from arelis.ui.stage import paint_corner_ticks
-from arelis.ui.theme import color
+from arelis.ui.theme import FILAMENT, color
+
+
+def _wash(name: str, alpha: int) -> QColor:
+    ink = QColor(color(name))
+    ink.setAlpha(alpha)
+    return ink
 
 
 def make_reach_control(parent: QWidget | None, reach: float) -> tuple[QSlider, QLabel]:
@@ -181,7 +187,7 @@ class WorldPanel(QWidget):
             self._paint_sphere(painter, disc, cx, cy, radius, ring, width)
         else:
             poly = polygon_xy(disc)
-            fill = QColor(255, 122, 34, 36 if disc.attached else 22)
+            fill = _wash("accent", 36 if disc.attached else 22)
             pen = QPen(ring)
             pen.setWidth(width)
             painter.setPen(pen)
@@ -288,9 +294,9 @@ class WorldPanel(QWidget):
         hy = float(cy) - radius * 0.34
         ball = QRadialGradient(QPointF(hx, hy), float(max(radius, 8)) * 1.2)
         # Opaque. Alpha on the fill read as a ring; the spec read as a dot.
-        lit = QColor(255, 220, 160) if disc.attached else QColor(255, 206, 128)
-        mid = QColor(255, 138, 42) if disc.attached else QColor(255, 122, 34)
-        dark = QColor(72, 28, 6)
+        lit = QColor(*FILAMENT["core"]) if disc.attached else color("accent2")
+        mid = color("accent")
+        dark = QColor(64, 28, 10)
         ball.setColorAt(0.0, lit)
         ball.setColorAt(0.42, mid)
         ball.setColorAt(1.0, dark)
@@ -298,7 +304,7 @@ class WorldPanel(QWidget):
         painter.setBrush(ball)
         painter.drawEllipse(QPoint(cx, cy), radius, radius)
         spec = max(3, int(radius * 0.16))
-        painter.setBrush(QColor(255, 240, 210))
+        painter.setBrush(QColor(*FILAMENT["core"]))
         painter.drawEllipse(QPoint(int(hx), int(hy)), spec, spec)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
@@ -517,7 +523,7 @@ class WorldPanel(QWidget):
         if not self._tools_open:
             return
         panel = self._tools_rect()
-        painter.setBrush(QColor(22, 13, 7, 230))
+        painter.setBrush(_wash("bg0", 230))
         painter.setPen(QPen(color("edge"), 1))
         painter.drawRoundedRect(panel, 6, 6)
         painter.setPen(color("text_dim"))
@@ -535,7 +541,7 @@ class WorldPanel(QWidget):
         r = min(rect.width(), rect.height()) * 0.32
         ink = color("accent")
         painter.setPen(QPen(ink, 1))
-        painter.setBrush(QColor(255, 122, 34, 40))
+        painter.setBrush(_wash("accent", 40))
         if kind == "sphere":
             painter.drawEllipse(QPoint(cx, cy), int(r), int(r))
             return
@@ -554,7 +560,7 @@ class WorldPanel(QWidget):
         if body is None:
             return
         sheet = self._sheet_rect()
-        painter.setBrush(QColor(22, 13, 7, 230))
+        painter.setBrush(_wash("bg0", 230))
         painter.setPen(QPen(color("edge"), 1))
         painter.drawRoundedRect(sheet, 6, 6)
         painter.setPen(color("text_dim"))

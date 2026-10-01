@@ -25,6 +25,7 @@ class OrchestratorConfirm:
         loop = asyncio.get_running_loop()
         fut: asyncio.Future[str] = loop.create_future()
         self._confirm_waiters[confirm_id] = fut
+        self._confirm_latest = confirm_id
         self._confirm_live[confirm_id] = {
             "tool": tool,
             "args": args,
@@ -97,6 +98,9 @@ class OrchestratorConfirm:
         finally:
             self._confirm_waiters.pop(confirm_id, None)
             self._confirm_live.pop(confirm_id, None)
+            # An older card finishing must not forget the one on screen.
+            if self._confirm_latest == confirm_id:
+                self._confirm_latest = ""
 
     def _confirm_note(self, tool: str) -> str:
         """A warning to put on the card, when this particular call deserves one.

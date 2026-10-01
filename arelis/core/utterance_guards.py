@@ -289,6 +289,39 @@ def looks_like_greeting(text: str) -> bool:
     return bool(_GREETING.match((text or "").strip()))
 
 
+# A check-in is about the conversation, not a fact to go fetch.
+# "hey i got some questions and testing to do, ready?" is one of these.
+# Anchored so "are you ready to explain the result" stays a real ask.
+_CHECK_IN = re.compile(
+    r"(?i)^\s*"
+    r"(?:(?:hey|hi|hello|yo|howdy|sup|ok|okay|alright|so)\b[\s,!.]*)?"
+    r"(?:"
+    r"how\s+are\s+you\b.*|"
+    r"how'?s\s+it\s+going\b.*|"
+    r"what'?s\s+up[\s?.!]*|"
+    r"(?:i\s+)?(?:got|have)\s+(?:some\s+)?questions\b.*\bready\b[\s?.!]*|"
+    r"(?:are\s+you\s+)?ready(?:\s+when\s+you\s+are)?[\s?.!]*|"
+    r"you\s+(?:there|around|up|with\s+me)[\s?.!]*|"
+    r"(?:just\s+)?(?:checking|testing)(?:\s+(?:you|this|things))?[\s?.!]*|"
+    r"let(?:'s|\s+us)\s+(?:go|start|begin)[\s?.!]*|"
+    r"(?:i(?:'m| am)\s+)?(?:here|back)[\s?.!]*"
+    r")"
+    r"$"
+)
+
+
+def looks_like_chat_turn(text: str) -> bool:
+    """True for hello, thanks, or a readiness check. Not a page to retrieve."""
+    raw = (text or "").strip()
+    if not raw:
+        return False
+    return bool(
+        looks_like_greeting(raw)
+        or looks_like_closing_chitchat(raw)
+        or _CHECK_IN.match(raw)
+    )
+
+
 def looks_like_math_ask(text: str) -> bool:
     """True for arithmetic turns that must not revive or feed an SMS draft."""
     return bool(_MATH_ASK.match(soften_caps((text or "").strip())))

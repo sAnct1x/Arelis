@@ -7,12 +7,11 @@ from PySide6.QtGui import QKeySequence, QMouseEvent, QShortcut
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
-    QPushButton,
-    QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
+from arelis.ui.caption_fade import CaptionButton, CaptionTool, watch_caption
 from arelis.ui.glass import GlassFrame, advance_rim_pulse, seal_tool_window
 from arelis.ui.icons import (
     window_close_icon,
@@ -30,8 +29,8 @@ from arelis.ui.window_resize import (
 )
 
 
-def _chrome_btn(obj: str, icon, slot, *, tooltip: str = "") -> QPushButton:
-    btn = QPushButton()
+def _chrome_btn(obj: str, icon, slot, *, tooltip: str = "") -> CaptionButton:
+    btn = CaptionButton()
     btn.setObjectName(obj)
     btn.setIcon(icon)
     btn.setFixedSize(METRICS["chrome"] + 4, METRICS["chrome"] - 2)
@@ -94,7 +93,7 @@ class CalendarWindow(QWidget):
         head.addWidget(heading, stretch=1)
         self.min_btn = _chrome_btn("ChromeMin", window_minimize_icon(14), self._minimize)
         self.max_btn = _chrome_btn("ChromeMax", window_maximize_icon(14), self._maximize)
-        close_btn = QToolButton()
+        close_btn = CaptionTool()
         close_btn.setObjectName("SettingsClose")
         close_btn.setIcon(window_close_icon(12))
         close_btn.setFixedSize(METRICS["row"], METRICS["row"])
@@ -104,6 +103,7 @@ class CalendarWindow(QWidget):
         head.addWidget(self.min_btn)
         head.addWidget(self.max_btn)
         head.addWidget(close_btn)
+        watch_caption(self, self.min_btn, self.max_btn, close_btn)
         root.addLayout(head)
 
         self.panel = panel

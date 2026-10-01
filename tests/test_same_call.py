@@ -214,6 +214,32 @@ def test_same_call_finish_line_ships_the_prior_result() -> None:
     assert "tab is open" in same_call_finish_line("browser", "").lower()
 
 
+def test_document_repeat_is_the_title_not_the_body() -> None:
+    first = {
+        "format": "pdf",
+        "title": "JWST and the atmosphere of K2-18 b",
+        "body": "section one",
+    }
+    second = {
+        "format": "pdf",
+        "title": "JWST and the atmosphere of K2-18 b",
+        "filename": "JWST-and-the-atmosphere-of-K2-18-b.pdf",
+        "body": "section one, rewritten",
+        "replace": True,
+    }
+    assert same_call_key("document", first) == same_call_key("document", second)
+    same_ok: set[str] = set()
+    record_same_call(same_ok, "document", first)
+    notice = already_ran_same_call(same_ok, "document", second)
+    assert notice is not None
+    assert "Do not paste the report into chat" in notice
+    other = same_call_key(
+        "document",
+        {"format": "pdf", "title": "A different report", "body": "x"},
+    )
+    assert other != same_call_key("document", first)
+
+
 def test_same_call_cas_does_not_finish_the_turn() -> None:
     assert same_call_finishes_turn("calculator")
     assert not same_call_finishes_turn("cas")

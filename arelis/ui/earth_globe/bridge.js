@@ -97,16 +97,16 @@
       drones: Cesium.Color.fromCssColorString("#ff5e12"),
       military: Cesium.Color.fromCssColorString("#ff5e12"),
       vessels: Cesium.Color.fromCssColorString("#ffc08a"),
-      satellites: Cesium.Color.fromCssColorString("#d8a482"),
-      iss: Cesium.Color.fromCssColorString("#fae8dc"),
+      satellites: Cesium.Color.fromCssColorString("#d4a484"),
+      iss: Cesium.Color.fromCssColorString("#f8f1ea"),
       cameras: Cesium.Color.fromCssColorString("#ff7a22"),
       quakes: Cesium.Color.fromCssColorString("#ff5e12"),
       fires: Cesium.Color.fromCssColorString("#ff5e12"),
       weather: Cesium.Color.fromCssColorString("#ffc08a"),
-      radio: Cesium.Color.fromCssColorString("#fae8dc"),
-      traffic: Cesium.Color.fromCssColorString("#d8a482"),
-      sites: Cesium.Color.fromCssColorString("#d8a482"),
-      radar: Cesium.Color.fromCssColorString("#d8a482")
+      radio: Cesium.Color.fromCssColorString("#f8f1ea"),
+      traffic: Cesium.Color.fromCssColorString("#d4a484"),
+      sites: Cesium.Color.fromCssColorString("#d4a484"),
+      radar: Cesium.Color.fromCssColorString("#d4a484")
     };
     return map[layer] || Cesium.Color.fromCssColorString("#ff7a22");
   }
@@ -555,7 +555,7 @@
     if (key === lastBuildingsKey) return;
     lastBuildingsKey = key;
     clearBuildings();
-    var ink = Cesium.Color.fromCssColorString("#d8a482").withAlpha(0.85);
+    var ink = Cesium.Color.fromCssColorString("#d4a484").withAlpha(0.85);
     list.forEach(function (ring, i) {
       if (!ring || ring.length < 3) return;
       var flat = [];
@@ -1224,16 +1224,16 @@
         position: pos,
         point: {
           pixelSize: 16,
-          color: Cesium.Color.fromCssColorString("#fae8dc"),
-          outlineColor: Cesium.Color.fromCssColorString("#160d07"),
+          color: Cesium.Color.fromCssColorString("#f8f1ea"),
+          outlineColor: Cesium.Color.fromCssColorString("#100d0b"),
           outlineWidth: 2,
           disableDepthTestDistance: Number.POSITIVE_INFINITY
         },
         label: {
           text: text,
           font: "15px sans-serif",
-          fillColor: Cesium.Color.fromCssColorString("#fae8dc"),
-          outlineColor: Cesium.Color.fromCssColorString("#160d07"),
+          fillColor: Cesium.Color.fromCssColorString("#f8f1ea"),
+          outlineColor: Cesium.Color.fromCssColorString("#100d0b"),
           outlineWidth: 4,
           style: Cesium.LabelStyle.FILL_AND_OUTLINE,
           pixelOffset: new Cesium.Cartesian2(10, -14),
@@ -1360,8 +1360,8 @@
           label: {
             text: row.label || "",
             font: row.layer === "iss" ? "16px sans-serif" : "13px sans-serif",
-            fillColor: Cesium.Color.fromCssColorString("#fae8dc"),
-            outlineColor: Cesium.Color.fromCssColorString("#160d07"),
+            fillColor: Cesium.Color.fromCssColorString("#f8f1ea"),
+            outlineColor: Cesium.Color.fromCssColorString("#100d0b"),
             outlineWidth: 4,
             style: Cesium.LabelStyle.FILL_AND_OUTLINE,
             pixelOffset: new Cesium.Cartesian2(12, -12),
@@ -1465,8 +1465,8 @@
         label: {
           text: row.name,
           font: "12px sans-serif",
-          fillColor: Cesium.Color.fromCssColorString("#d8a482"),
-          outlineColor: Cesium.Color.fromCssColorString("#160d07"),
+          fillColor: Cesium.Color.fromCssColorString("#d4a484"),
+          outlineColor: Cesium.Color.fromCssColorString("#100d0b"),
           outlineWidth: 2,
           pixelOffset: new Cesium.Cartesian2(6, -4),
           disableDepthTestDistance: Number.POSITIVE_INFINITY

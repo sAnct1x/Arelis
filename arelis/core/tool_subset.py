@@ -149,10 +149,20 @@ def is_deep_dive_ask(text: str) -> bool:
 
 
 def is_research_mode(role: str, text: str) -> bool:
-    """True for research role or deep-dive language."""
+    """True when this turn is a research task.
+
+    The research chip used to make every sentence one, including
+    "ready?". A check-in stays chat. A sourced file or a real question
+    on that chip still takes the research loop.
+    """
+    from arelis.core.route_hints import is_sourced_file_ask, research_chip_needs_a_page
+    from arelis.core.utterance_guards import looks_like_chat_turn
+
+    if looks_like_chat_turn(text):
+        return False
     if (role or "").strip().lower() == "research":
-        return True
-    return is_deep_dive_ask(text)
+        return research_chip_needs_a_page(text)
+    return is_deep_dive_ask(text) or is_sourced_file_ask(text)
 
 
 def turn_round_budget(

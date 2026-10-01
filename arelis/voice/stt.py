@@ -369,11 +369,19 @@ class SpeechToText:
     """Local STT adapter. Sherpa-ONNX by default; faster-whisper as fallback."""
 
     def __init__(self, config: dict[str, Any]) -> None:
+        self._app_config = config
         self.config = config.get("voice", {}).get("stt", {})
         self._model = None
         self._sherpa = None
         self._sherpa_failed = False
+        self._sherpa_lang = ""
         self._lock = asyncio.Lock()
+
+    def _ear_language(self) -> str:
+        """Conversation ear. Wake stays on the English phrase matcher."""
+        from arelis.talk_language import session_code
+
+        return "zh" if session_code(self._app_config) == "zh" else "en"
 
     def requested_backend(self) -> str:
         raw = str(self.config.get("backend") or "sherpa").strip().lower()
@@ -501,13 +509,17 @@ class SpeechToText:
 
     def _transcribe_whisper(self, audio_path: str, purpose: str = "turn") -> str:
         model = self._ensure_model()
-        language = self.config.get("language") or None
-        prompt = str(self.config.get("initial_prompt") or "").strip() or None
-        # Do not prime idle wake clips with "Hey Arelis." — Whisper then
-        # regurgitates the prompt from Discord / room noise and we treat that
-        # as a real wake. Conversation turns may still use the seed.
+        # Wake is the English phrase "Hey Arelis". Conversation follows the
+        # session language, including a Mandarin Whisper fallback.
         if purpose == "wake":
+            language = self.config.get("language") or "en"
             prompt = None
+        elif self._ear_language() == "zh":
+            language = "zh"
+            prompt = "简体中文。"
+        else:
+            language = self.config.get("language") or None
+            prompt = str(self.config.get("initial_prompt") or "").strip() or None
         segments, _info = model.transcribe(
             audio_path,
             language=language,
@@ -581,16 +593,25 @@ class SpeechToText:
         return self._model
 
     def _sherpa_engine(self):
-        if self._sherpa is None:
-            from arelis.voice.sherpa_stt import SherpaSpeechToText
+        from arelis.voice.sherpa_stt import SherpaSpeechToText
 
-            self._sherpa = SherpaSpeechToText(self.config)
+        lang = self._ear_language()
+        if self._sherpa is not None and self._sherpa_lang != lang:
+            self._sherpa = None
+            self._sherpa_failed = False
+        if self._sherpa is None:
+            cfg = dict(self.config)
+            cfg["pack_language"] = lang
+            self._sherpa = SherpaSpeechToText(cfg)
+            self._sherpa_lang = lang
         return self._sherpa
 
     def _sherpa_usable(self) -> bool:
         from arelis.voice.sherpa_stt import sherpa_usable
 
-        return sherpa_usable(self.config)
+        cfg = dict(self.config)
+        cfg["pack_language"] = self._ear_language()
+        return sherpa_usable(cfg)
 
     def _whisper_installed(self) -> bool:
         try:

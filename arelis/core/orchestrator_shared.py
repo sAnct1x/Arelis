@@ -25,6 +25,68 @@ _ABS_PATH_TOKEN = re.compile(
 
 ROLES: set[str] = {"fast", "research"}
 
+# "switch roles to research, then I got a prompt" is the chip, not a tile
+# and not a room. The word role/mode/chip has to be in the sentence, or the
+# line has to be only the switch. "switch to research the muon papers" stays
+# a normal turn.
+_ROLE_SWITCH = re.compile(
+    r"""(?ix)
+    ^\s*
+    (?:hey[\s,!.]*)?
+    (?:please\s+)?
+    (?:can\s+you\s+|could\s+you\s+)?
+    (?:
+        switch(?:\s+the)?\s+roles?\s+to\s+
+      | switch\s+to\s+(?:the\s+)?
+      | (?:change|set)(?:\s+the)?\s+(?:role|mode|chip)\s+to\s+
+      | (?:use|pick)\s+(?:the\s+)?
+    )
+    (?P<role>fast|research)
+    (?:\s+(?:role|mode|chip))?
+    \b
+    (?P<rest>.*)
+    $
+    """
+)
+_ROLE_HANDOFF = re.compile(
+    r"""(?ix)
+    ^(?:i(?:\s+'?ve|\s+have|\s+got)?|got|there(?:'s|\s+is))\s+
+    (?:a\s+|some\s+)?(?:good\s+|new\s+)?
+    (?:prompt|question|questions|ask|task)\b
+    """
+)
+
+
+def _role_rest(rest: str | None) -> str:
+    cleaned = re.sub(r"(?i)^[\s,.]+(?:and|then)?[\s,.]*", "", rest or "")
+    cleaned = re.sub(r"(?i)^(?:and|then)[\s,.]+", "", cleaned)
+    return cleaned.strip()
+
+
+def match_role_switch(text: str) -> tuple[str, str] | None:
+    """Return ``(role, remainder)`` when the line asks to change the chip.
+
+    Remainder is what to run after the switch. Empty when the rest is only
+    "I have a prompt coming". None when the line is a normal request that
+    happens to say "switch to".
+    """
+    raw = (text or "").strip()
+    found = _ROLE_SWITCH.match(raw)
+    if found is None:
+        return None
+    role = found.group("role").lower()
+    rest = _role_rest(found.group("rest"))
+    head = raw[: found.end("role")]
+    after = raw[found.end("role") :]
+    named = bool(re.search(r"(?i)\b(?:roles?|mode|chip)\b", head)) or bool(
+        re.match(r"(?i)\s+(?:role|mode|chip)\b", after)
+    )
+    if named:
+        return role, rest
+    if rest and not _ROLE_HANDOFF.match(rest):
+        return None
+    return role, ""
+
 
 def research_needs_vram_swap(router: object) -> bool:
     """True when research is a different Ollama tag from fast."""

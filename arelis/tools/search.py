@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import html
 import json
 import re
 from dataclasses import dataclass
@@ -31,6 +32,51 @@ _WIKI_API = "https://en.wikipedia.org/w/api.php"
 _DDG_RECENCY = {"day": "d", "week": "w", "month": "m", "year": "y"}
 _NEWS_RECENCY = frozenset({"day", "week"})
 _TAG_RE = re.compile(r"<[^>]+>")
+_CITE_START = re.compile(r"\{\{\s*cite\b", re.I)
+_ARXIV_ID = re.compile(r"(\d{4}\.\d{4,5})(?:v\d+)?", re.I)
+_WIKI_LINK = re.compile(r"\[\[(?:[^|\]]+\|)?([^\]]+)\]\]")
+_QUERY_TOKEN = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*", re.I)
+# One shared word is not a match. "the" and "paper" would otherwise
+# pull every citation on the page into a six-row result list.
+_QUERY_STOP = frozenset(
+    {
+        "the",
+        "and",
+        "for",
+        "from",
+        "with",
+        "that",
+        "this",
+        "what",
+        "when",
+        "where",
+        "which",
+        "have",
+        "has",
+        "was",
+        "were",
+        "are",
+        "not",
+        "but",
+        "you",
+        "your",
+        "into",
+        "about",
+        "its",
+        "how",
+        "who",
+        "why",
+        "can",
+        "all",
+        "any",
+        "new",
+        "paper",
+        "papers",
+        "using",
+        "use",
+        "via",
+    }
+)
 
 _MAX_RESULTS = 10
 _SNIPPET_CHARS = 300
@@ -169,7 +215,7 @@ def parse_wikipedia_search(payload: dict[str, Any], limit: int) -> list[SearchRe
             continue
         slug = quote(title.replace(" ", "_"), safe="()_,!'*")
         snippet = _TAG_RE.sub(" ", str(row.get("snippet") or ""))
-        snippet = " ".join(snippet.split())
+        snippet = " ".join(html.unescape(snippet).split())
         out.append(
             SearchResult(
                 title=title,
@@ -180,6 +226,196 @@ def parse_wikipedia_search(payload: dict[str, Any], limit: int) -> list[SearchRe
         if len(out) >= limit:
             break
     return out
+
+
+def query_tokens(query: str) -> set[str]:
+    """Words worth matching against a page title. Drops stopwords."""
+    return {
+        token.casefold()
+        for token in _QUERY_TOKEN.findall(query or "")
+        if len(token) >= 3 and token.casefold() not in _QUERY_STOP
+    }
+
+
+def _cite_bodies(wikitext: str) -> list[str]:
+    text = wikitext or ""
+    bodies: list[str] = []
+    for match in _CITE_START.finditer(text):
+        start = match.start()
+        depth = 0
+        i = start
+        while i < len(text) - 1:
+            pair = text[i : i + 2]
+            if pair == "{{":
+                depth += 1
+                i += 2
+                continue
+            if pair == "}}":
+                depth -= 1
+                i += 2
+                if depth == 0:
+                    bodies.append(text[start:i])
+                    break
+                continue
+            i += 1
+    return bodies
+
+
+def _template_fields(body: str) -> dict[str, str]:
+    inner = body[2:-2] if body.startswith("{{") and body.endswith("}}") else body
+    fields: dict[str, str] = {}
+    buf: list[str] = []
+    curly = 0
+    square = 0
+
+    def flush() -> None:
+        chunk = "".join(buf).strip()
+        buf.clear()
+        if "=" not in chunk:
+            return
+        name, value = chunk.split("=", 1)
+        key = name.strip().casefold()
+        if key and key not in fields:
+            fields[key] = value.strip()
+
+    for ch in inner:
+        if ch == "{":
+            curly += 1
+        elif ch == "}":
+            curly = max(0, curly - 1)
+        elif ch == "[":
+            square += 1
+        elif ch == "]":
+            square = max(0, square - 1)
+        elif ch == "|" and curly == 0 and square == 0:
+            flush()
+            continue
+        buf.append(ch)
+    flush()
+    return fields
+
+
+def _plain_title(raw: str) -> str:
+    text = _WIKI_LINK.sub(r"\1", raw or "")
+    text = text.replace("''", "")
+    return " ".join(text.split())
+
+
+def _citation_url(fields: dict[str, str]) -> str:
+    arxiv = fields.get("arxiv") or fields.get("eprint") or ""
+    ident = _ARXIV_ID.search(arxiv)
+    if ident:
+        return f"https://arxiv.org/abs/{ident.group(1)}"
+    url = (fields.get("url") or "").strip()
+    if url.startswith(("http://", "https://")):
+        return url.split()[0]
+    doi = (fields.get("doi") or "").strip()
+    if doi and " " not in doi:
+        return "https://doi.org/" + doi
+    return ""
+
+
+def parse_wiki_citations(wikitext: str) -> list[SearchResult]:
+    """Title and URL from each ``{{cite ...}}`` template on a wiki page."""
+    out: list[SearchResult] = []
+    seen: set[str] = set()
+    for body in _cite_bodies(wikitext):
+        fields = _template_fields(body)
+        title = _plain_title(fields.get("title") or "")
+        url = _citation_url(fields)
+        if not title or not url:
+            continue
+        if result_is_mill(url, title):
+            continue
+        key = url.casefold().rstrip("/")
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(SearchResult(title=title, url=url))
+    return out
+
+
+def rank_matching_citations(
+    citations: list[SearchResult],
+    query: str,
+    *,
+    article: str = "",
+    limit: int,
+) -> list[SearchResult]:
+    """Citations whose titles share at least two query words, best first.
+
+    The encyclopedia fallback used to return only the article URL. The
+    references on that article are the pages worth opening. One shared
+    word matches half the page, and a word that is in every title is a
+    weaker match than a word that is in one title.
+    """
+    tokens = query_tokens(query)
+    if len(tokens) < 2 or limit < 1:
+        return []
+    # A word that is in every title (the subject name) is a weak match.
+    # A word that is in one title (the instrument, the molecule) is the match.
+    folded = [item.title.casefold() for item in citations]
+    weights: dict[str, float] = {}
+    for token in tokens:
+        found = sum(1 for title in folded if token in title)
+        if found:
+            weights[token] = 1.0 / found
+    scored: list[tuple[float, int, SearchResult]] = []
+    for index, item in enumerate(citations):
+        hay = folded[index]
+        matched = [token for token in tokens if token in hay]
+        if len(matched) < 2:
+            continue
+        score = sum(weights[token] for token in matched)
+        scored.append((score, index, item))
+    scored.sort(key=lambda row: (-row[0], row[1]))
+    fallback = f"Reference cited on {article}" if article else ""
+    return [
+        SearchResult(
+            title=item.title,
+            url=item.url,
+            snippet=item.snippet or fallback,
+        )
+        for _score, _index, item in scored[:limit]
+    ]
+
+
+def _revision_wikitext(payload: dict[str, Any]) -> list[tuple[str, str]]:
+    """``(title, wikitext)`` from a revisions query. Empty when the shape drifts."""
+    pages = ((payload or {}).get("query") or {}).get("pages") or {}
+    if isinstance(pages, dict):
+        rows = list(pages.values())
+    elif isinstance(pages, list):
+        rows = pages
+    else:
+        return []
+    out: list[tuple[str, str]] = []
+    for page in rows:
+        if not isinstance(page, dict) or page.get("missing") is not None:
+            continue
+        title = str(page.get("title") or "").strip()
+        revisions = page.get("revisions") or []
+        if not revisions or not isinstance(revisions[0], dict):
+            continue
+        slot = ((revisions[0].get("slots") or {}).get("main") or {})
+        text = slot.get("*")
+        if text is None:
+            text = slot.get("content")
+        if text is None:
+            text = revisions[0].get("*")
+        if not title or not isinstance(text, str) or not text.strip():
+            continue
+        out.append((title, text))
+    return out
+
+
+def merge_citations(
+    cited: list[SearchResult], pages: list[SearchResult], limit: int
+) -> list[SearchResult]:
+    """Citations first, then the encyclopedia pages, capped at ``limit``."""
+    if not cited:
+        return pages[:limit]
+    return _dedupe([*cited, *pages])[:limit]
 
 
 class DuckDuckGoBackend:
@@ -231,7 +467,12 @@ class DuckDuckGoLiteBackend:
 
 
 class WikipediaBackend:
-    """Encyclopedia fallback. Not news — skipped for recency=day/week."""
+    """Encyclopedia fallback. Not news — skipped for recency=day/week.
+
+    When the web engines miss, the article URL alone is a dead end: the
+    pages worth opening are the references on that article. Those are
+    pulled in here, and only the ones whose titles match the query.
+    """
 
     name = "wikipedia"
 
@@ -263,7 +504,61 @@ class WikipediaBackend:
             response = await guarded_get(client, url, headers=headers)
             response.raise_for_status()
             payload = json.loads(response.text)
-        return parse_wikipedia_search(payload, limit)
+            pages = parse_wikipedia_search(payload, limit)
+            if not pages or len(query_tokens(query)) < 2:
+                return pages
+            try:
+                cited = await self._citations(client, pages, query, limit, headers)
+            except Exception:
+                return pages
+        return merge_citations(cited, pages, limit)
+
+    async def _citations(
+        self,
+        client: httpx.AsyncClient,
+        pages: list[SearchResult],
+        query: str,
+        limit: int,
+        headers: dict[str, str],
+    ) -> list[SearchResult]:
+        titles = [page.title for page in pages[:2] if page.title and "|" not in page.title]
+        if not titles:
+            return []
+        params = {
+            "action": "query",
+            "titles": "|".join(titles),
+            "prop": "revisions",
+            "rvprop": "content",
+            "rvslots": "main",
+            "redirects": "1",
+            "format": "json",
+            "utf8": "1",
+        }
+        url = str(httpx.URL(_WIKI_API, params=params))
+        response = await guarded_get(client, url, headers=headers)
+        response.raise_for_status()
+        payload = json.loads(response.text)
+        blobs = await asyncio.to_thread(_revision_wikitext, payload)
+        by_title = {title.casefold(): text for title, text in blobs}
+        ordered: list[tuple[str, str]] = []
+        for page in pages[:2]:
+            text = by_title.get(page.title.casefold())
+            if text:
+                ordered.append((page.title, text))
+        for title, text in blobs:
+            if title.casefold() not in {name.casefold() for name, _text in ordered}:
+                ordered.append((title, text))
+        citations: list[SearchResult] = []
+        seen: set[str] = set()
+        for title, wikitext in ordered:
+            note = f"Reference cited on {title}"
+            for item in parse_wiki_citations(wikitext):
+                key = item.url.casefold().rstrip("/")
+                if key in seen:
+                    continue
+                seen.add(key)
+                citations.append(SearchResult(title=item.title, url=item.url, snippet=note))
+        return rank_matching_citations(citations, query, limit=limit)
 
 
 class WebSearchTool:
@@ -410,6 +705,8 @@ def build_search_tool(cfg: dict[str, Any], *, timeout_s: float = 20.0) -> WebSea
     # Fixed order, no keys, no container. DuckDuckGo HTML first; Lite when that
     # page is empty or the anomaly stub; Wikipedia only when both miss, and
     # never for recency=day/week (that is news, not an encyclopedia stub).
+    # The encyclopedia step also returns references on the top hit whose
+    # titles match the query. The article URL alone is not a source list.
     return WebSearchTool(
         [
             DuckDuckGoBackend(timeout_s=timeout),

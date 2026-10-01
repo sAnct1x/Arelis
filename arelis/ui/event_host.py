@@ -150,6 +150,10 @@ def dispatch_event(window: Any, event: Event) -> None:
         if window.voice_controller is not None:
             window.voice_controller.notify_utterance_dropped()
         window._hang_up_conversation()
+    elif t == EventType.LANGUAGE:
+        from arelis.ui.settings_host import apply_session_language
+
+        apply_session_language(window, p.get("language"))
     elif t == EventType.VOICE_AUDIO_READY:
         # Streaming TTS can deliver the first clip before ASSISTANT_DONE.
         # Arm here so the mic stays deaf across that early Piper work too.

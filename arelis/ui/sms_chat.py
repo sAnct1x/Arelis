@@ -17,7 +17,6 @@ from PySide6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSizePolicy,
-    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -37,6 +36,7 @@ from arelis.sms_media import (
     looks_like_photo_body,
     sms_body_html,
 )
+from arelis.ui.caption_fade import CaptionTool, watch_caption
 from arelis.ui.foreground import process_owns_foreground
 from arelis.ui.glass import GlassFrame, advance_rim_pulse, seal_tool_window
 from arelis.ui.icons import window_close_icon, window_minimize_icon
@@ -333,14 +333,14 @@ class SmsChatWindow(QWidget):
         self.heading.setCursor(Qt.CursorShape.OpenHandCursor)
         self.heading.setToolTip("Drag to move")
         head.addWidget(self.heading, stretch=1)
-        min_btn = QToolButton()
+        min_btn = CaptionTool()
         min_btn.setObjectName("SettingsMinimize")
         min_btn.setIcon(window_minimize_icon(12))
         min_btn.setFixedSize(METRICS["chrome"], METRICS["chrome"])
         min_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         min_btn.setToolTip("Minimize")
         min_btn.clicked.connect(self.minimize)
-        close_btn = QToolButton()
+        close_btn = CaptionTool()
         close_btn.setObjectName("SettingsClose")
         close_btn.setIcon(window_close_icon(12))
         close_btn.setFixedSize(METRICS["chrome"], METRICS["chrome"])
@@ -349,6 +349,7 @@ class SmsChatWindow(QWidget):
         close_btn.clicked.connect(self.close)
         head.addWidget(min_btn)
         head.addWidget(close_btn)
+        watch_caption(self, min_btn, close_btn)
         root.addLayout(head)
 
         self._scroll = QScrollArea()

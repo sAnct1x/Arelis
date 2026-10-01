@@ -80,13 +80,15 @@ class DriveStrip(GlassFrame):
         self._paused = bool(paused)
         if not self._paused:
             self._your_turn = False
+        from arelis.i18n import tr
+
         if self._paused:
-            self.pause_btn.setText("go")
-            self.pause_btn.setToolTip("continue from here")
+            self.pause_btn.setText(tr("go"))
+            self.pause_btn.setToolTip(tr("continue from here"))
             self.pause_btn.setObjectName("GoButton")
         else:
-            self.pause_btn.setText("pause")
-            self.pause_btn.setToolTip("freeze mid-drive — the page stays")
+            self.pause_btn.setText(tr("pause"))
+            self.pause_btn.setToolTip(tr("freeze mid-drive — the page stays"))
             self.pause_btn.setObjectName("PauseButton")
         self.pause_btn.style().unpolish(self.pause_btn)
         self.pause_btn.style().polish(self.pause_btn)
@@ -108,10 +110,12 @@ class DriveStrip(GlassFrame):
             self.hide()
 
     def _paint_status(self) -> None:
+        from arelis.i18n import tr
+
         if self._your_turn and self._paused:
-            self.status.setText(self._line or "your turn — page stays")
+            self.status.setText(self._line or tr("your turn — page stays"))
         elif self._paused:
-            self.status.setText("paused — page stays")
+            self.status.setText(tr("paused — page stays"))
         else:
             self.status.setText(self._line)
 

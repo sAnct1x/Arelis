@@ -425,6 +425,9 @@ _SEND_CONFIRM = send_confirm_pattern(
     r"send\s+(?:the\s+)?(?:e-?mail|mail|it|that)",
     r"send\s+it\s+(?:now|please)",
     r"please\s+send(?:\s+it)?",
+    "发邮件",
+    "发送邮件",
+    "发吧",
     affirmations=(r"ship\s+it",),
 )
 

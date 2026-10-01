@@ -824,7 +824,7 @@ def _ink(mode: str, rgb: tuple[int, int, int]) -> Any:
 
 
 def _draw_overlay_text(frame: Any, text: str, align: str) -> Any:
-    """Stamp cream glyphs with a dark stroke so they read on any background."""
+    """Stamp paper glyphs with a room-dark stroke so they read on any background."""
     from PIL import ImageDraw
 
     draw = ImageDraw.Draw(frame)
@@ -856,8 +856,8 @@ def _draw_overlay_text(frame: Any, text: str, align: str) -> Any:
         (x, y),
         text,
         font=best,
-        fill=_ink(frame.mode, (250, 232, 220)),
+        fill=_ink(frame.mode, (248, 241, 234)),
         stroke_width=stroke,
-        stroke_fill=_ink(frame.mode, (22, 13, 7)),
+        stroke_fill=_ink(frame.mode, (16, 13, 11)),
     )
     return frame

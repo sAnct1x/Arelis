@@ -67,6 +67,11 @@ _YEAR_RANGE = re.compile(r"\b(?:1\d{3}|20\d{2})\s*[-–—]\s*(?:1\d{3}|20\d{2})
 # "2-3 hours" / "1-2 days" is a span in a story. Live 2026-09-21: a rant
 # about Grok 4.6 that mentioned those ranges was refused with
 # "this needs a calculator result".
+# A numbered outline is not an operand. Live 2026-09-26: "what is
+# speculation …\n5. Sources" on a JWST report ask refused the turn
+# with the calculator sentence. The what-is window is DOTALL, so the
+# section number counted.
+_OUTLINE_ITEM = re.compile(r"(?m)^\s*\d{1,2}\.\s+")
 _QUANTITY_RANGE = re.compile(
     r"(?i)\b\d+(?:\.\d+)?\s*[-–—]\s*\d+(?:\.\d+)?\s+"
     r"(?:hours?|hrs?|days?|weeks?|months?|years?|"
@@ -575,6 +580,7 @@ def detect_math_ask(text: str) -> bool:
     cleaned = _COMPACT_STAMP.sub(" ", cleaned)
     cleaned = _YEAR_RANGE.sub(" ", cleaned)
     cleaned = _QUANTITY_RANGE.sub(" ", cleaned)
+    cleaned = _OUTLINE_ITEM.sub(" ", cleaned)
     hits = [p for p in _MATH_PATTERNS if p.search(cleaned)]
     if not hits:
         return False
@@ -904,6 +910,11 @@ def apply_research_web_need(
         return need
     raw = text or ""
     if _PEDAGOGICAL_DERIVE.search(raw) and not _REPORT_FILE_ASK.search(raw):
+        return need
+    # The research chip is not a warrant. "ready?" has nothing to retrieve.
+    from arelis.core.route_hints import research_chip_needs_a_page
+
+    if not research_chip_needs_a_page(raw):
         return need
     kinds = list(need.kinds)
     if "web" not in kinds:

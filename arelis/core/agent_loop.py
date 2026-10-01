@@ -1395,9 +1395,11 @@ class AgentLoop:
         await self.bus.publish(Event(EventType.STATUS, {"message": label}))
 
     async def _publish_delta(self, text: str) -> None:
+        from arelis.talk_language import keeps_cjk
         from arelis.voice.speech_text import scrub_cjk_runs
 
-        text = scrub_cjk_runs(text, strip=False) if text else text
+        if text and not keeps_cjk(self.config):
+            text = scrub_cjk_runs(text, strip=False)
         if not text:
             return
         self._painted += text
@@ -1609,7 +1611,10 @@ class AgentLoop:
         self.terminal_sent = True
         partial = self._painted.strip()
         self._painted = ""
-        text = f"{partial}\n\n_Stopped._" if partial else "Stopped."
+        from arelis.i18n import tr
+
+        word = tr("Stopped.")
+        text = f"{partial}\n\n_{word}_" if partial else word
         # publish_nowait, not publish: this also runs while a CancelledError is
         # propagating, and anything that suspends there can be interrupted
         # again, which would lose the terminal event and hang the composer.

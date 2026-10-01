@@ -437,22 +437,27 @@ class OrbitIdle(QWidget):
                 widget.setParent(None)
                 widget.deleteLater()
         if not sessions:
+            from arelis.i18n import tr
+
             for ask in FIRST_RUN_ASKS:
-                row = _GhostRow(ask, ask, self._ghosts, key_text="TRY")
+                shown = tr(ask)
+                row = _GhostRow(ask, shown, self._ghosts, key_text="TRY")
                 row.clicked.connect(
-                    lambda text=ask: self.suggestion_clicked.emit(text)
+                    lambda text=shown: self.suggestion_clicked.emit(text)
                 )
                 self._ghost_layout.addWidget(row)
                 row.adjustSize()
             self._add_tools_chip()
             self._layout_idle()
             return
-        fresh = _GhostRow("new", "new chat", self._ghosts, key_text="NEW")
+        from arelis.i18n import tr
+
+        fresh = _GhostRow("new", tr("new chat"), self._ghosts, key_text="NEW")
         fresh.clicked.connect(self.new_requested.emit)
         self._ghost_layout.addWidget(fresh)
         fresh.adjustSize()
         for sid, title in sessions[:3]:
-            row = _GhostRow(sid, title or "new chat", self._ghosts)
+            row = _GhostRow(sid, title or tr("new chat"), self._ghosts)
             row.clicked.connect(lambda s=sid: self.session_clicked.emit(s))
             self._ghost_layout.addWidget(row)
             row.adjustSize()
@@ -461,8 +466,10 @@ class OrbitIdle(QWidget):
 
     def _add_tools_chip(self) -> None:
         """TOOLS ghost — same shape as TRY / RECENT. Fills `/tools`."""
+        from arelis.i18n import tr
+
         row = _GhostRow(
-            TOOLS_SLASH, TOOLS_CHIP_TITLE, self._ghosts, key_text="TOOLS"
+            TOOLS_SLASH, tr(TOOLS_CHIP_TITLE), self._ghosts, key_text="TOOLS"
         )
         row.clicked.connect(lambda: self.suggestion_clicked.emit(TOOLS_SLASH))
         self._ghost_layout.addWidget(row)
@@ -486,16 +493,18 @@ class OrbitIdle(QWidget):
         """
         if self._voice_preparing and mode != "preparing":
             mode = "preparing"
+        from arelis.i18n import tr
+
         if mode == "conversation":
-            text, live = _LISTEN_TALKING, True
+            text, live = tr(_LISTEN_TALKING), True
         elif mode == "dictate":
-            text, live = _LISTEN_DICTATING, True
+            text, live = tr(_LISTEN_DICTATING), True
         elif mode == "ack":
-            text, live = _LISTEN_ACK, True
+            text, live = tr(_LISTEN_ACK), True
         elif mode == "preparing":
-            text, live = _LISTEN_PREPARING, True
+            text, live = tr(_LISTEN_PREPARING), True
         else:
-            text, live = _LISTEN_IDLE, False
+            text, live = tr(_LISTEN_IDLE), False
         changed = self.listen_word.text() != text
         if changed:
             self.listen_word.setText(text)

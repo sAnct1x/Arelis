@@ -244,6 +244,10 @@ async def try_file_answer(loop: Any, ctx: TurnContext, r: RoundScratch, round_i:
 
 
 async def try_quote_first(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: int) -> str:
+    if r.exact_need.needs_document and r.ledger.has_ok("document"):
+        # The report is already in the file. Quote-first is what pasted
+        # the K2-18 b sources into chat after the PDF was saved.
+        return SKIP
     if not (
         r.evidence_gate
         and r.ledger.has_ok("web")

@@ -40,8 +40,8 @@ an in-process timer (tray + notify), not a Windows scheduled job.
 voice engine at a file and will not load Whisper mid-turn. `workspace
 patch` applies a unified diff. `sql` is read-only SELECT on memory.db
 or a CSV. `agenda free` answers when Thursday is open. `pdf` merges,
-splits, and rotates. A turn that hangs unlocks after 90s with a
-countdown on the shimmer. Export conversation sits next to copy ·
+splits, and rotates. A turn that hangs unlocks after 90s. The
+shimmer says what she is doing, without a countdown. Export conversation sits next to copy ·
 again. History search hits message bodies. Workspace Ctrl+Z reaches
 the editor. Voice Listen/Speak asks you to restart instead of a
 footer nobody sees. Failures land in chat, not only in a closed

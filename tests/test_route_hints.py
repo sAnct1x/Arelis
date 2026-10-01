@@ -71,6 +71,48 @@ def test_bare_words_are_not_research(text: str) -> None:
     assert not is_research_hint(text)
 
 
+def test_a_sourced_pdf_is_a_research_hint() -> None:
+    text = (
+        "Research what the lab measured. "
+        "Write the result as a PDF. Search the web, then open the papers."
+    )
+    assert is_research_hint(text)
+
+
+def test_a_pdf_with_no_search_is_not_a_research_hint() -> None:
+    assert not is_research_hint("Write the result as a PDF I can open.")
+
+
+def test_a_check_in_does_not_need_a_page() -> None:
+    from arelis.core.claims import apply_research_web_need, detect_exactness_need
+    from arelis.core.route_hints import research_chip_needs_a_page
+    from arelis.core.tool_subset import is_research_mode
+    from arelis.core.turn_goal import derive_turn_goal
+
+    ask = "hey i got some questions and testing to do, ready?"
+    assert not research_chip_needs_a_page(ask)
+    assert not is_research_mode("research", ask)
+    need = apply_research_web_need(
+        detect_exactness_need(ask), research_mode=True, text=ask
+    )
+    assert not need.needs_web_evidence
+    assert "web" not in need.kinds
+    goal = derive_turn_goal(ask, role="research", research_mode=True)
+    assert goal.kind == "none"
+
+
+def test_a_real_question_on_the_research_chip_still_needs_a_page() -> None:
+    from arelis.core.route_hints import research_chip_needs_a_page
+    from arelis.core.tool_subset import is_research_mode
+    from arelis.core.turn_goal import derive_turn_goal
+
+    ask = "What did the lab actually measure, and which paper states it?"
+    assert research_chip_needs_a_page(ask)
+    assert is_research_mode("research", ask)
+    goal = derive_turn_goal(ask, role="research", research_mode=True)
+    assert goal.kind == "research"
+
+
 def test_derive_is_not_a_research_hint() -> None:
     assert not is_research_hint(
         "derive the equation for F=ma. show me how it was derived."

@@ -318,7 +318,8 @@ tools:
     enabled: true
     # Silent lookup, no API key, no container, not a Settings picker.
     # Order is fixed in search.py: DuckDuckGo HTML, DuckDuckGo Lite, then
-    # Wikipedia (Wikipedia is skipped when recency is day or week).
+    # Wikipedia (skipped when recency is day or week). That last step
+    # includes references on the top hit that match the query.
     max_results: 10
     timeout_s: 20
   research:
@@ -659,7 +660,9 @@ voice:
     # int8 on CPU is about three times faster than float32 here for a
     # negligible accuracy cost, and the GPU is reserved for the chat models.
     compute_type: "int8"
-    language: "en"      # "" to auto-detect, at the cost of a beat on short clips
+    language: "en"      # Whisper fallback. "" auto-detects. Session ui.language
+                        # zh uses a bilingual Sherpa pack and Whisper language zh.
+                        # Wake clips stay English so "Hey Arelis" still matches.
     beam_size: 1
     # Post-hoc Silero inside faster-whisper. Off while live Silero already
     # end-points the clip — a second trim ate last words ("hobbies" → "hub").
@@ -679,6 +682,7 @@ voice:
     kokoro_model: "models/kokoro/kokoro-v1.0.onnx"
     kokoro_voices: "models/kokoro/voices-v1.0.bin"
     kokoro_voice: "af_heart"   # American female; bf_emma for British
+    kokoro_voice_zh: "zf_xiaobei"  # Mandarin female when ui.language is zh
     speed: 1.0                 # Kokoro tempo; 1.0 is the voice's own pace
     allow_download: true
     # Piper fallback. Both the .onnx and sibling .onnx.json must be present.
@@ -770,6 +774,10 @@ ui:
   # Room look. View → themes. sodium is the shipped lamp — the default face.
   # filament is a test desk for a row of monitors; three is the intended layout.
   theme: sodium
+  # en | zh. zh is Simplified Chinese: the window, her replies, and
+  # conversation voice (she hears Mandarin and speaks it). Wake stays
+  # "Hey Arelis".
+  language: en
   # Filament desk span: 1 / 2 / 3 desks from the OS primary. Starts on one;
   # press 3 when the row is there. Not Windows monitor numbers.
   filament_span: 1

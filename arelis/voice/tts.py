@@ -78,6 +78,7 @@ class TextToSpeech:
             model_path=_resolve_model(voice.get("kokoro_model") or "") or None,
             voices_path=_resolve_model(voice.get("kokoro_voices") or "") or None,
             voice=str(voice.get("kokoro_voice") or "af_heart"),
+            voice_zh=str(voice.get("kokoro_voice_zh") or "zf_xiaobei"),
             speed=voice.get("speed", 1.0),
             allow_download=bool(voice.get("allow_download", True)),
         )
@@ -133,22 +134,31 @@ class TextToSpeech:
             return _NO_BINARY
         return None
 
-    async def synthesize(self, text: str, out_path: str | Path) -> Path:
+    async def synthesize(
+        self, text: str, out_path: str | Path, *, language: str = ""
+    ) -> Path:
         out = Path(out_path)
         out.parent.mkdir(parents=True, exist_ok=True)
+        lang = "zh" if str(language or "").lower().startswith("zh") else "en"
         if self._use_kokoro():
             try:
-                return await asyncio.to_thread(self._kokoro.synthesize, text, out)
+                return await asyncio.to_thread(
+                    self._kokoro.synthesize, text, out, language=lang
+                )
             except KokoroUnavailableError as exc:
-                if self.backend == "kokoro":
+                if lang == "zh" or self.backend == "kokoro":
                     raise RuntimeError(str(exc)) from exc
                 log.warning("Kokoro TTS failed (%s); falling back to Piper.", exc)
                 self._kokoro_failed = True
             except Exception as exc:
-                if self.backend == "kokoro":
+                if lang == "zh" or self.backend == "kokoro":
                     raise
                 log.warning("Kokoro TTS failed (%s); falling back to Piper.", exc)
                 self._kokoro_failed = True
+        if lang == "zh":
+            raise RuntimeError(
+                "简体中文语音需要 Kokoro（zf_xiaobei）。当前英语 Piper 声音不会读中文。"
+            )
         problem = self._piper_problem()
         if problem:
             raise RuntimeError(problem)

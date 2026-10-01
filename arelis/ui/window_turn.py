@@ -28,9 +28,7 @@ from arelis.ui.turn_watchdog import (
     HUNG_MESSAGE,
     arm_hung_turn,
     disarm_hung_turn,
-    on_hung_tick,
     on_hung_turn,
-    paint_hung_countdown,
     pause_hung_turn,
     resume_hung_turn,
 )
@@ -274,9 +272,6 @@ class WindowTurn:
     def _on_hung_turn(self) -> None:
         on_hung_turn(self)
 
-    def _on_hung_tick(self) -> None:
-        on_hung_tick(self)
-
     def _on_stop_declined(self) -> None:
         """Esc on a turn that has painted nothing. Explain instead of cancelling.
 
@@ -395,8 +390,6 @@ class WindowTurn:
             self.chat.show_progress(self._busy_status_line())
             if not was:
                 arm_hung_turn(self)
-            else:
-                paint_hung_countdown(self)
         else:
             disarm_hung_turn(self)
             self.chat.clear_progress()

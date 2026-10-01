@@ -569,6 +569,10 @@ def run_ui(config: dict[str, Any] | None = None) -> int:
             loop,
         )
 
+    from arelis.i18n import apply_language
+    from arelis.talk_language import session_code
+
+    apply_language(window, session_code(config))
     window.show()
     window.raise_()
     window.activateWindow()

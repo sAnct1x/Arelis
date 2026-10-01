@@ -89,6 +89,8 @@ ALLOWED: dict[str, str] = {
     # Science catalogs, on a turn the user started. arXiv and Horizons need
     # no key. NASA APOD and ADS fire only after the user pastes a free key.
     "export.arxiv.org": "catalog arXiv search, on a turn the user started",
+    "arxiv.org": "links to arXiv paper pages a research search returned, on a turn the user started",
+    "doi.org": "links to a paper DOI page a research search returned, on a turn the user started",
     "ssd.jpl.nasa.gov": "catalog JPL Horizons ephemerides, on a turn the user started",
     "earthquake.usgs.gov": "Earth-zone live quakes, only when earth action=live",
     "opensky-network.org": "Earth-zone live ADS-B, only when earth action=live",
