@@ -548,7 +548,8 @@ def _prepare_browser_first_move(
     if re.search(r"(?:[,;]\s+then\b|,\s+and\s+then\b)", text, re.I):
         return
     # If browser is expected along with other non-search tools, likely chaining
-    if "browser" in expected and len(expected - {"browser", "web_search", "scrape", "web_fetch"}) > 0:
+    non_search = expected - {"browser", "web_search", "scrape", "web_fetch"}
+    if "browser" in expected and len(non_search) > 0:
         return
     ctx.browser_preinject = draft_browser_args(text)
 
