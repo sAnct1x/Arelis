@@ -76,3 +76,35 @@ async def test_sql_fails_when_path_missing_and_no_memory_db(tmp_path: Path) -> N
     
     assert not result.ok
     assert "missing" in result.output.lower() or "not" in result.output.lower()
+
+
+@pytest.mark.asyncio
+async def test_sql_handles_data_dir_relative_paths(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """SQL tool should check data dir if workspace resolution fails (defensive)."""
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    data = tmp_path / "data"
+    data.mkdir()
+    
+    # Create CSV in data dir (not workspace)
+    (data / "data_file.csv").write_text(
+        "id,value\n1,100\n2,200\n",
+        encoding="ascii",
+    )
+    
+    # Set data dir
+    monkeypatch.setenv("ARELIS_DATA_DIR", str(data))
+    
+    tool = SqlTool(WorkspaceRoots.from_paths([str(ws)]))
+    
+    # Try to query with a path that doesn't exist in workspace but does in data dir
+    result = await tool.run(
+        sql="SELECT MAX(value) as max_val FROM data",
+        path="data_file.csv",
+    )
+    
+    # Should succeed by falling back to data dir
+    assert result.ok, f"SQL should fall back to data dir: {result.output}"
+    assert "200" in result.output
