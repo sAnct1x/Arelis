@@ -293,7 +293,7 @@ _AGENDA_PATTERNS: tuple[re.Pattern[str], ...] = (
 _GIT_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(
         r"\b(?:what(?:'s|\s+is)|show(?:\s+me)?|check|get)\s+"
-        r"(?:the\s+)?(?:git\s+(?:status|diff|log)|(?:status|diff))\b",
+        r"(?:the\s+)?git\s+(?:status|diff|log)\b",
         re.I,
     ),
     re.compile(
