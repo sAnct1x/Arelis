@@ -400,6 +400,10 @@ def _prepare_email_first_move(
         return
     if email_files_still_owed(draft):
         return
+    # Multi-step chaining: "X, then Y" or "X, and then Y" patterns suggest
+    # the second step shouldn't be preinjected
+    if re.search(r"(?:[,;]\s+then\b|,\s+and\s+then\b)", ctx.text, re.I):
+        return
     ctx.email_preinject = draft_send_email_args(draft, already_sent=ctx.email_sent)
 
 
@@ -458,6 +462,11 @@ def _prepare_calculator_first_move(ctx: TurnContext, text: str) -> None:
     if detect_units_ask(text) or detect_cas_ask(text):
         return
     if "calculator" not in ctx.tool_names:
+        return
+    # Multi-step chaining: "X, then Y" or "X and then Y" patterns suggest
+    # the second step shouldn't be preinjected. Requires comma/semicolon before
+    # "then", or comma before "and then" to avoid false matches like "now and then"
+    if re.search(r"(?:[,;]\s+then\b|,\s+and\s+then\b)", text, re.I):
         return
     ctx.calculator_preinject = {"expression": text}
 
@@ -534,6 +543,13 @@ def _prepare_browser_first_move(
     if match_tile_intent(text):
         return
     if SOLAR_STATUS.matches(text) or EARTH_STATUS.matches(text):
+        return
+    # Multi-step chaining: "X, then Y" or "X, and then Y" patterns suggest chaining
+    if re.search(r"(?:[,;]\s+then\b|,\s+and\s+then\b)", text, re.I):
+        return
+    # If browser is expected along with other non-search tools, likely chaining
+    non_search = expected - {"browser", "web_search", "scrape", "web_fetch"}
+    if "browser" in expected and len(non_search) > 0:
         return
     ctx.browser_preinject = draft_browser_args(text)
 
