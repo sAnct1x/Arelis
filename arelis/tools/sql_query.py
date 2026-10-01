@@ -201,17 +201,7 @@ class SqlTool:
         resolved = self.workspace.resolve_read(path_str)
         path = resolved.path
         if not path.is_file():
-            # Similar to OCR: if workspace resolution returns a non-existent path,
-            # check if it's a data-dir-relative path (though SQL typically uses
-            # workspace paths, better to be defensive).
-            from arelis.paths import user_data_dir
-
-            alt = (user_data_dir() / path_str).resolve()
-            if alt.is_file() and alt.suffix.lower() in _TABLE_SUFFIXES:
-                # Use the data-dir-relative file if it exists
-                path = alt
-            else:
-                return ToolResult(ok=False, output=f"Not a file: {path}")
+            return ToolResult(ok=False, output=f"Not a file: {path}")
         suffix = path.suffix.lower()
         if suffix not in _TABLE_SUFFIXES:
             return ToolResult(
