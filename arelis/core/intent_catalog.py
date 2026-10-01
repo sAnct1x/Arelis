@@ -1013,7 +1013,7 @@ SCIENCE_CATALOG = IntentSpec(
 # "tests" is allowed so "run the inbox tests" is still her suite (target=).
 _DIAGNOSTICS_ASK = re.compile(
     r"(?i)(?<!n't )(?<!not )(?<!never )\b(?:"
-    r"run\s+diagnostics(?!\s+on\b)|"
+    r"(?:run|call|use)\s+(?:the\s+)?diagnostics(?:\s+tool)?(?!\s+on\b)|"
     r"run\s+(?:the\s+)?(?:\w+\s+)?tests?\b(?!\s+on\b)|"
     r"run\s+(?:the\s+)?test\s+suite\b|"
     r"run\s+pytest\b|"
