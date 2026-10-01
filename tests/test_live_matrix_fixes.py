@@ -8,10 +8,6 @@ These tests are marked with 'no_ui' to skip UI-related fixtures.
 
 from __future__ import annotations
 
-import pytest
-
-pytestmark = pytest.mark.no_ui
-
 from io import BytesIO
 from pathlib import Path
 
@@ -23,6 +19,8 @@ from arelis.tools.doc_extract import DocExtractTool, build_simple_pdf_bytes
 from arelis.tools.pdf_assemble import PdfAssembleTool
 from arelis.tools.run_task import RunTaskTool
 from arelis.workspace import RootEntry, WorkspaceRoots
+
+pytestmark = pytest.mark.no_ui
 
 
 def _workspace(tmp_path: Path) -> tuple[WorkspaceRoots, Path]:
@@ -64,7 +62,7 @@ async def test_run_task_unknown_suggests_run_script_for_paths(tmp_path: Path) ->
     When a task name contains path separators (like 'sq.py' or 'work/sq'), the error
     should suggest using run_script instead.
     """
-    workspace, project = _workspace(tmp_path)
+    workspace, _project = _workspace(tmp_path)
     tool = RunTaskTool(workspace)
     
     result = await tool.run(action="run", name="sq.py")
@@ -76,7 +74,7 @@ async def test_run_task_unknown_suggests_run_script_for_paths(tmp_path: Path) ->
 @pytest.mark.asyncio
 async def test_run_task_unknown_does_not_suggest_run_script_for_simple_names(tmp_path: Path) -> None:
     """Issue 2 continuation: simple task names should not get the run_script hint."""
-    workspace, project = _workspace(tmp_path)
+    workspace, _project = _workspace(tmp_path)
     tool = RunTaskTool(workspace)
     
     result = await tool.run(action="run", name="build")
@@ -90,7 +88,7 @@ async def test_workspace_write_missing_content_is_actionable(tmp_path: Path) -> 
     """Issue 2 (empty content): workspace write error should explain how to pass content."""
     from arelis.tools.code_workspace import CodeWorkspaceTool
     
-    workspace, project = _workspace(tmp_path)
+    workspace, _project = _workspace(tmp_path)
     tool = CodeWorkspaceTool(workspace)
     
     result = await tool.run(action="write", path="test.txt")
