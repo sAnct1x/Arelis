@@ -400,6 +400,9 @@ def _prepare_email_first_move(
         return
     if email_files_still_owed(draft):
         return
+    # Multi-step / chaining: "do X, then Y" should not preinject the second step
+    if re.search(r"\bthen\b", ctx.text, re.I):
+        return
     ctx.email_preinject = draft_send_email_args(draft, already_sent=ctx.email_sent)
 
 
@@ -458,6 +461,9 @@ def _prepare_calculator_first_move(ctx: TurnContext, text: str) -> None:
     if detect_units_ask(text) or detect_cas_ask(text):
         return
     if "calculator" not in ctx.tool_names:
+        return
+    # Multi-step / chaining: "do X, then Y" should not preinject the second step
+    if re.search(r"\bthen\b", text, re.I):
         return
     ctx.calculator_preinject = {"expression": text}
 
@@ -534,6 +540,12 @@ def _prepare_browser_first_move(
     if match_tile_intent(text):
         return
     if SOLAR_STATUS.matches(text) or EARTH_STATUS.matches(text):
+        return
+    # Multi-step / chaining: "do X, then Y" or multiple expected tools suggests chaining
+    if re.search(r"\bthen\b", text, re.I):
+        return
+    # If browser is expected along with other non-search tools, likely chaining
+    if "browser" in expected and len(expected - {"browser", "web_search", "scrape", "web_fetch"}) > 0:
         return
     ctx.browser_preinject = draft_browser_args(text)
 

@@ -637,6 +637,12 @@ def draft_browser_args(text: str) -> dict[str, str]:
             piece = (hit.group("n") or hit.group("n2") or "first").strip()
             nth = parse_ordinal(piece) or 1
         return {"action": "click", "nth": str(nth)}
+    if _BROWSER_SCREENSHOT.search(raw):
+        return {"action": "screenshot"}
+    if BROWSER_RESERVE.search(raw):
+        return {"action": "reserve"}
+    if BROWSER_MAPS.search(raw):
+        return {"action": "maps"}
     if BROWSER_READ.search(raw):
         return {"action": "read"}
     if BROWSER_SEARCH.search(raw) and not re.search(
