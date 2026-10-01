@@ -11,6 +11,9 @@ when the ask required multiple tools in sequence (chains).
 from __future__ import annotations
 
 import asyncio
+import sys
+
+import pytest
 
 from arelis.config import shipped_num_ctx
 from arelis.core.agent_loop import AgentLoop
@@ -145,7 +148,7 @@ def test_weather_then_units_chain() -> None:
                 ],
             )
         ],
-        [("token", "Today's high is 65°F which is about 18°C.")],
+        [("token", "Today's high is 65Â°F which is about 18Â°C.")],
     ]
 
     final_text, tool_results = asyncio.run(
@@ -240,7 +243,9 @@ def test_units_calculator_memory_chain() -> None:
 
     assert len(tool_results) == 3, f"Expected 3 tool calls, got {len(tool_results)}: {tool_results}"
     assert tool_results[0] == ("units", True), f"Expected units ok=True, got {tool_results[0]}"
-    assert tool_results[1] == ("calculator", True), f"Expected calculator ok=True, got {tool_results[1]}"
+    assert tool_results[1] == ("calculator", True), (
+        f"Expected calculator ok=True, got {tool_results[1]}"
+    )
     assert tool_results[2] == ("memory", True), f"Expected memory ok=True, got {tool_results[2]}"
 
     assert "don't know" not in final_text.lower(), f"Got refusal: {final_text}"
@@ -302,7 +307,41 @@ def test_weather_document_chain() -> None:
 
     assert len(tool_results) == 2, f"Expected 2 tool calls, got {len(tool_results)}: {tool_results}"
     assert tool_results[0] == ("weather", True), f"Expected weather ok=True, got {tool_results[0]}"
-    assert tool_results[1] == ("document", True), f"Expected document ok=True, got {tool_results[1]}"
+    assert tool_results[1] == ("document", True), (
+        f"Expected document ok=True, got {tool_results[1]}"
+    )
 
     assert "don't know" not in final_text.lower(), f"Got refusal: {final_text}"
     assert "springfield" in final_text.lower(), f"Missing document mention in: {final_text}"
+
+
+def test_image_edit_then_ocr_chain_does_not_finish_after_the_edit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Live C15/P06: 'grayscale it, then OCR the new image' ended on image_edit."""
+    from arelis.eval.harness import _StubTool
+
+    reg = foundation_registry()
+    reg.register(_StubTool("image_edit", risk="write"))
+    monkeypatch.setattr(sys.modules[__name__], "_tools_registry", lambda names: reg)
+
+    def call(name: str, args: dict) -> list[tuple[str, object]]:
+        return [
+            ("tool_calls", [{"type": "function", "function": {"name": name, "arguments": args}}])
+        ]
+
+    script = [
+        call("image_edit", {"path": "work/invoice.png", "op": "grayscale"}),
+        call("ocr", {"path": "outputs/images/invoice-gray.png", "action": "text"}),
+        [("token", "Amount due 1250")],
+    ]
+    text, results = asyncio.run(
+        _run_agent_with_script(
+            "Convert work/invoice.png to grayscale with image_edit, then OCR the new "
+            "grayscale image and tell me the amount due.",
+            script,
+            ["image_edit", "ocr"],
+        )
+    )
+    assert [n for n, _ in results] == ["image_edit", "ocr"]
+    assert "1250" in text
