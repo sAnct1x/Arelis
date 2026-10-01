@@ -954,3 +954,22 @@ def test_a_draft_with_no_body_still_takes_the_models_words() -> None:
         pytest.skip("no bodyless draft from this phrasing")
     filled = fill_send_sms_args({"to": "brian", "body": "On my way"}, draft)
     assert filled["body"] == "On my way"
+
+
+def test_extract_text_from_document_is_not_sms() -> None:
+    """Bug regression: S37, S38, C12, C24 - extract/copy/read the text of a file is not SMS."""
+    from arelis.core.sms_complete import sms_intent_this_turn
+
+    for spoken in (
+        "Extract the text of work/memo.docx and tell me the project codename.",
+        "Extract the text of work/a.pdf and tell me the code written on it.",
+        "Copy the text from work/memo.docx.",
+        "Get the text of work/report.pdf.",
+        "Read the text of work/notes.txt.",
+        "Extract the content of work/data.csv.",
+    ):
+        assert parse_sms_utterance(spoken) is None, f"parse failed for: {spoken}"
+        assert not sms_intent_this_turn(spoken), f"intent check failed for: {spoken}"
+
+    assert sms_intent_this_turn("text Brian: Running 10 minutes late")
+    assert sms_intent_this_turn("send a text to my wife saying hello")

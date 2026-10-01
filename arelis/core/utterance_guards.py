@@ -206,7 +206,8 @@ _LOOK_OR_FILE = re.compile(
     r"summarize (?:the|this|that) file|"
     r"git status|"
     r"what(?:'s| is) on my clipboard|"
-    r"generate (?:a |an |me )?(?:simple )?image"
+    r"generate (?:a |an |me )?(?:simple )?image|"
+    r"(?:extract|copy|get|read) (?:the )?(?:text|content) (?:of|from)"
     r")\b"
 )
 
