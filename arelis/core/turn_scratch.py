@@ -22,6 +22,7 @@ so the shared type cannot live in either one.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -142,3 +143,36 @@ def strip_tool_schemas(ctx: TurnContext, r: RoundScratch) -> None:
     ctx.ollama_tools = []
     ctx.tool_names.clear()
     r.tool_names = ctx.tool_names
+
+
+# A tool the user asks for by verb rather than by name. "remember that result as my
+# weekly distance" never says "memory".
+_OWED_TOOL_VERBS: dict[str, re.Pattern[str]] = {
+    "memory": re.compile(r"\bremember\s+(?:that|this|it|the|my)\b"),
+}
+
+
+def named_tools_owed(loop: Any, ctx: TurnContext) -> list[str]:
+    """Tools the user named in the ask that have not run yet this turn.
+
+    ``exact_need.kinds`` only knows the exactness tools (units, calculator,
+    weather, ...). "convert with units, then calculator, then remember it" owes
+    ``memory`` and ``document`` chains that no kind covers, so the first success
+    stripped the tool array and the rest of the chain never ran. A tool is owed
+    when its name is a whole word in the text, it is on this turn's menu, and it
+    has not succeeded. ``max_rounds`` still bounds a model that will not call it.
+    """
+    text = (ctx.text or "").lower()
+    owed: list[str] = []
+    for name in sorted(ctx.available_all):
+        if name in loop.tools_used:
+            continue
+        spoken = name.replace("_", " ")
+        pattern = _OWED_TOOL_VERBS.get(name)
+        if (
+            re.search(rf"\b{re.escape(spoken)}\b", text)
+            or ("_" in name and re.search(rf"\b{re.escape(name)}\b", text))
+            or (pattern is not None and pattern.search(text))
+        ):
+            owed.append(name)
+    return owed

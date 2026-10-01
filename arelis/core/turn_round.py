@@ -65,7 +65,7 @@ from arelis.core.turn_goal import (
     goal_unlock_notice,
     receipt_serves_goal,
 )
-from arelis.core.turn_scratch import RoundScratch, strip_tool_schemas
+from arelis.core.turn_scratch import RoundScratch, named_tools_owed, strip_tool_schemas
 from arelis.llm.errors import classify_ollama_failure, is_vram_failure
 from arelis.tools.pdf_pages import ink_vision_walk
 from arelis.tools.weather import weather_places_missing
@@ -537,12 +537,16 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
             or ctx.algebra_write_nudge_used
             or _weather_answer_ready(ctx)
         ):
-            offer_tools = False
-            ollama_tools = []
-            ctx.offer_tools = False
-            ctx.ollama_tools = []
-            ctx.tool_names.clear()
-            tool_names = ctx.tool_names
+            # Only strip tools if all exactness needs are satisfied.
+            # Multi-step asks (chains) need tools until all required kinds complete.
+            missing_kinds = ctx.ledger.missing_kinds(ctx.exact_need.kinds)
+            if not missing_kinds and not named_tools_owed(loop, ctx):
+                offer_tools = False
+                ollama_tools = []
+                ctx.offer_tools = False
+                ctx.ollama_tools = []
+                ctx.tool_names.clear()
+                tool_names = ctx.tool_names
 
         await loop.bus.publish(
             Event(
