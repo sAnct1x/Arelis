@@ -45,6 +45,13 @@ class Scenario:
     expect_model_switch_reason: str = ""
     # When set with expect_model_switch_reason, require payload role match.
     expect_escalate_to_role: str = ""
+    # Stub tools that answer ok=False, so a scenario can test what the loop does
+    # when the tool it routed to fails. Offline only; the live board uses real tools.
+    failing_tools: tuple[str, ...] = ()
+    # Tools removed from the offline registry, for "the tool does not exist this
+    # turn" scenarios. Without this the route preinjects the stub and the
+    # refusal path is never reached.
+    absent_tools: tuple[str, ...] = ()
     # Skip live Ollama matrix (scripted refuse / edge cases only).
     offline_only: bool = False
     # Research / FAMA-style failure class this guards.
@@ -240,13 +247,38 @@ SCENARIOS: list[Scenario] = [
     Scenario(
         id="math_refuses_without_calculator",
         user="What is 17.5% of 840?",
-        expect_tools=("calculator",),
+        expect_tools=(),
+        allow_no_tools=True,
+        absent_tools=("calculator",),
         offline_only=True,
+        expect_answer_contains=("don't know",),
         forbid_claim_if_no_tool=("147",),
         failure_class="knowing_doing_gap",
         notes=(
-            "The route preinjects calculator before this scripted recital is read. "
-            "A turn that never got a calculator result still uses the refusal sentence."
+            "Exactness hard refuse: second bare invent after force must not ship. "
+            "Unchanged intent. The route now preinjects calculator whenever it is "
+            "registered, so the scenario removes it from the registry "
+            "(absent_tools) to keep reaching the refusal path."
+        ),
+        script=[
+            [("token", "That would be about 147.")],
+            [("token", "I'm sure the answer is 147.")],
+        ],
+    ),
+    Scenario(
+        id="math_refuses_when_calculator_fails",
+        user="What is 17.5% of 840?",
+        expect_tools=("calculator",),
+        failing_tools=("calculator",),
+        offline_only=True,
+        expect_answer_contains=("calculator couldn't evaluate",),
+        forbid_claim_if_no_tool=("147",),
+        failure_class="knowing_doing_gap",
+        notes=(
+            "The real guarantee behind math_refuses_without_calculator, kept "
+            "after the route began preinjecting calculator: the calculator is "
+            "called, it errors, and the model's recited 147 (never a tool "
+            "result) must not ship. The answer is the calculator-failed refusal."
         ),
         script=[
             [("token", "That would be about 147.")],

@@ -70,16 +70,14 @@ class UnitsTool:
             )
         if action == "constant":
             name = str(kwargs.get("name") or "")
-            # Try constant lookup first
             result = _lookup(name)
-            # If constant not found but name looks like a conversion (has "to"), try convert
-            if not result.ok and ("to" in name.lower() or "in" in name.lower()):
-                # Parse as conversion: "90 degrees Fahrenheit to Celsius"
-                match = _TO_SPLIT.search(name)
-                if match:
-                    parts = _TO_SPLIT.split(name, maxsplit=1)
-                    if len(parts) == 2:
-                        return _convert(parts[0].strip(), parts[1].strip())
+            if result.ok:
+                return result
+            # A model that picks action=constant for "90 degrees Fahrenheit in
+            # Celsius" has asked for a conversion. Retry it as one.
+            pair = _split_conversion(name)
+            if pair is not None:
+                return _convert(*pair)
             return result
         return _convert(
             str(kwargs.get("quantity") or ""),
@@ -119,7 +117,40 @@ def _lookup(name: str) -> ToolResult:
     )
 
 
-_TO_SPLIT = re.compile(r"(?i)\s+(?:to|into|in)\s+")
+_TO_SPLIT = re.compile(r"(?i)\s+(?:to|into)\s+")
+# "in" is also the inch. It only separates a quantity from a unit when no
+# to/into is present, and only where the right-hand side is a real unit.
+# The lookahead lets "10 in in cm" offer both " in " candidates.
+_IN_SPLIT = re.compile(r"(?i)\s+in(?=\s)")
+
+
+def _is_unit(text: str) -> bool:
+    try:
+        _UREG.parse_units(_normalize_unit(text))
+    except Exception:
+        # Silence is the answer: pint raises a different error type for an
+        # unknown word, a bad token and an empty string, and every one of them
+        # means "this is not a unit", so the caller tries the next split.
+        return False
+    return True
+
+
+def _split_conversion(text: str) -> tuple[str, str] | None:
+    """Split 'QTY to UNIT' / 'QTY into UNIT' / 'QTY in UNIT' into (qty, unit).
+
+    ``to`` and ``into`` win, so '10 in to cm' is 10 inches. ``in`` is the
+    fallback and is tried from the right: the last ' in ' whose right side
+    parses as a unit, so '5 ft 8 in in cm' keeps its inches.
+    """
+    qty = (text or "").strip()
+    parts = _TO_SPLIT.split(qty, maxsplit=1)
+    if len(parts) == 2 and parts[0].strip() and parts[1].strip():
+        return parts[0].strip(), parts[1].strip()
+    for hit in reversed(list(_IN_SPLIT.finditer(qty))):
+        left, right = qty[: hit.start()].strip(), qty[hit.end() :].strip()
+        if left and right and _is_unit(right):
+            return left, right
+    return None
 
 
 def _split_convert_args(quantity: str, to_unit: str) -> tuple[str, str]:
@@ -128,10 +159,7 @@ def _split_convert_args(quantity: str, to_unit: str) -> tuple[str, str]:
     dest = (to_unit or "").strip()
     if dest or not qty:
         return qty, dest
-    parts = _TO_SPLIT.split(qty, maxsplit=1)
-    if len(parts) == 2 and parts[0].strip() and parts[1].strip():
-        return parts[0].strip(), parts[1].strip()
-    return qty, dest
+    return _split_conversion(qty) or (qty, dest)
 
 
 def _convert(quantity: str, to_unit: str) -> ToolResult:
