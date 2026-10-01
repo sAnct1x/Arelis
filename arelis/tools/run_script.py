@@ -34,9 +34,10 @@ class RunScriptTool:
     name = "run_script"
     description = (
         "Run a .py file under a workspace root. Not a shell. Not diagnostics. "
-        "Not schedule run_now. path is relative or name:relative/path. "
-        "args is an argv list of strings. Prefer print or a CSV so the "
-        "result can be read back."
+        "Not schedule run_now. Not run_task. Use this to execute a Python "
+        "script file that exists in the workspace. path is relative or "
+        "name:relative/path. args is an argv list of strings. Prefer print "
+        "or a CSV so the result can be read back."
     )
     risk = "side_effect"
     parameters_schema: dict[str, Any] = {

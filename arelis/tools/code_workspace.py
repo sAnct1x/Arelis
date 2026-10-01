@@ -512,7 +512,13 @@ class CodeWorkspaceTool:
             if action == "write":
                 content = kwargs.get("content")
                 if content is None:
-                    return ToolResult(ok=False, output="Missing content")
+                    return ToolResult(
+                        ok=False,
+                        output=(
+                            "Missing content. Pass content= with the file body. "
+                            "An empty file needs content with an empty string."
+                        ),
+                    )
                 return await asyncio.to_thread(self._write, str(path_str), str(content))
             if action == "edit":
                 old = kwargs.get("old")

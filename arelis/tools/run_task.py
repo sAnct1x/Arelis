@@ -163,9 +163,14 @@ class RunTaskTool:
         task = task_named(root.path, name)
         if task is None:
             known = ", ".join(item.name for item in load_tasks(root.path)) or "(none)"
+            hint = (
+                " If you need to run a .py file, use run_script instead."
+                if name and any(c in name for c in "./\\")
+                else ""
+            )
             return ToolResult(
                 ok=False,
-                output=f"Unknown task `{name}`. Declared: {known}",
+                output=f"Unknown task `{name}`. Declared: {known}.{hint}",
             )
         interpreter = resolve_interpreter(root.path, self.python)
         argv, err = resolve_argv(task, extra, root=root.path, interpreter=interpreter)
