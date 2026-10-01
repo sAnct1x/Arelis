@@ -9,7 +9,7 @@ from __future__ import annotations
 # 2026-09-18 — scripted foundation scenarios that test_eval_board runs.
 # Keep the exact-count assert against SCENARIOS; this pin is so adding one
 # is a one-line raise rather than a silent extra green.
-SCRIPTED_BOARD_COUNT = 84
+SCRIPTED_BOARD_COUNT = 85
 
 # 2026-09-18 — skill retrieval board. passed == total still required;
 # these pins catch the board shrinking or a case disappearing.
