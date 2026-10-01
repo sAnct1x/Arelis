@@ -452,3 +452,39 @@ def test_kilometers_in_miles_is_units_not_calculator() -> None:
     need = detect_exactness_need(ask)
     assert need.needs_units
     assert not need.needs_calculator
+
+
+def test_report_outline_is_not_a_calculator_ask() -> None:
+    """Live 2026-09-26: section "5. Sources" after "what is speculation"
+    refused a JWST report with the calculator sentence.
+    """
+    from arelis.core.claims import detect_document_ask, detect_math_ask
+    from arelis.core.plan_nudge import select_plan
+
+    outline = (
+        "4. Three piles, kept separate: what is measured, what is inferred "
+        "(including the hycean-ocean idea), and what is speculation "
+        "(including biosignatures).\n"
+        "5. Sources. For every paper or page you used: title, authors, year."
+    )
+    assert not detect_math_ask(outline)
+    assert not detect_exactness_need(outline).needs_calculator
+    assert detect_math_ask("What is 12.5% of 640?")
+    assert detect_math_ask("what is 17-3")
+
+    ask = (
+        "Research what JWST has actually measured in the atmosphere of "
+        "the exoplanet K2-18 b. Write the result as a PDF I can open. "
+        "Put the report in the file, not in chat.\n"
+        "Search the web, then open the papers.\n"
+        + outline
+    )
+    assert not detect_math_ask(ask)
+    need = detect_exactness_need(ask)
+    assert not need.needs_calculator
+    assert need.needs_document
+    assert detect_document_ask(ask)
+    plan = select_plan(ask, skill_ids=["web", "workspace"])
+    assert plan is not None
+    assert plan.id != "document"
+    assert "document" in select_plan("Write the result as a PDF I can open.").steps

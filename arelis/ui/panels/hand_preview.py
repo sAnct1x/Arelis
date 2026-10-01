@@ -130,7 +130,9 @@ class HandPreview(QWidget):
         label = " · ".join(bits) if bits else self._state.upper()
         text = f"{n} HAND{'S' if n != 1 else ''}   {self._fps:.0f} FPS   {label}"
         bar = QRect(dest.x(), dest.bottom() - 36, dest.width(), 36)
-        painter.fillRect(bar, QColor(22, 13, 7, 210))
+        bar_fill = QColor(color("bg0"))
+        bar_fill.setAlpha(210)
+        painter.fillRect(bar, bar_fill)
         painter.setPen(color("text"))
         font = QFont(painter.font())
         font.setPixelSize(18)

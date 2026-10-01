@@ -276,6 +276,7 @@ def test_every_tile_dock_and_line_is_in_the_stylesheet() -> None:
         "#DriveStrip",
         "#RoomStrip",
         "#TitleBar",
+        "#ChromeCaption",
         "#ChromeTitle",
         "#ChromeHandsBtn",
         "#ChromeSpanBtn",

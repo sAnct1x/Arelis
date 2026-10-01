@@ -5,7 +5,15 @@ from typing import Any
 from uuid import uuid4
 
 from PySide6.QtCore import Qt, QTimer, QUrl, QUrlQuery, Signal
-from PySide6.QtGui import QDesktopServices, QGuiApplication, QMouseEvent, QTextCursor
+from PySide6.QtGui import (
+    QBrush,
+    QDesktopServices,
+    QGuiApplication,
+    QMouseEvent,
+    QTextCursor,
+    QTextFormat,
+    QTextTable,
+)
 from PySide6.QtWidgets import (
     QGraphicsOpacityEffect,
     QLabel,
@@ -23,7 +31,7 @@ from arelis.core.document_refs import files_in_turn
 from arelis.local_open import open_local_file, reveal_local_file
 from arelis.ui.attach_bar import ATTACH_TILE
 from arelis.ui.markdown import render_markdown
-from arelis.ui.theme import COLORS, SPACE
+from arelis.ui.theme import COLORS, SPACE, color
 from arelis.ui.void_idle import OrbitIdle
 
 
@@ -48,39 +56,64 @@ def _assistant_label() -> str:
     )
 
 
-def _bubble_plate() -> str:
-    """One opaque color for a transcript cell.
+_BUBBLE_MARK = "bubble"
 
-    Qt paints a cell's CSS ``background-color`` and then paints it again on
-    the paragraph inside. An rgba wash therefore goes down twice under the
-    words and once on the empty rest of the bar, which is the two-tone
-    highlight. ``bgcolor`` is a single rectangle, and it does not take
-    alpha, so this is the wash's rgb with the alpha dropped.
+
+def _marked_bubble(fmt) -> bool:
+    name = fmt.property(QTextFormat.Property.AnchorName)
+    if isinstance(name, str):
+        return name == _BUBBLE_MARK
+    if isinstance(name, (list, tuple)):
+        return _BUBBLE_MARK in name
+    return False
+
+
+def wash_message_cells(document) -> None:
+    """One translucent coat behind each message.
+
+    A CSS background paints again on every line under the words. ``bgcolor``
+    is a single rectangle and it drops alpha, which is the hard black plate.
+    The cell brush keeps the wash's alpha, so something bright behind the
+    transcript dims and the type stays readable.
     """
-    raw = _ink("bubble_wash").strip()
-    if raw.startswith("#") and len(raw) >= 7:
-        return raw[:7]
-    if raw.lower().startswith("rgb"):
-        inner = raw[raw.find("(") + 1 : raw.find(")")]
-        parts = [int(float(p.strip())) for p in inner.split(",")[:3]]
-        return f"#{parts[0]:02x}{parts[1]:02x}{parts[2]:02x}"
-    return "#180e08"
+    wash = color("bubble_wash")
+    want = wash.getRgb()
+
+    def walk(frame) -> None:
+        it = frame.begin()
+        while not it.atEnd():
+            child = it.currentFrame()
+            it += 1
+            if not isinstance(child, QTextTable):
+                continue
+            for row in range(child.rows()):
+                for col in range(child.columns()):
+                    cell = child.cellAt(row, col)
+                    fmt = cell.format()
+                    if not _marked_bubble(fmt):
+                        continue
+                    if fmt.background().color().getRgb() != want:
+                        fmt.setBackground(QBrush(wash))
+                        cell.setFormat(fmt)
+            walk(child)
+
+    walk(document.rootFrame())
 
 
 def _assistant_open() -> str:
-    """Open the assistant plate.
+    """Open the assistant message.
 
-    Qt paints ``background`` on a ``<div>`` once per layout line, which is
-    the barcode on long answers. A table cell is one rectangle. The fill
-    is ``bgcolor`` only — a CSS background on this cell stacks a second
-    coat on the paragraph. See ``_bubble_plate``.
+    A table cell is one block, so the answer stays a column instead of a
+    full-width bar. The cell is marked and left unfilled here; the wash is
+    a brush applied once, because a CSS background paints per line and
+    ``bgcolor`` cannot carry alpha.
     """
     pad = SPACE["gap"]
     inset = SPACE["inset"]
     return (
         '<table width="100%" cellspacing="0" cellpadding="0" style="margin:0 0 8px 0;">'
         "<tr>"
-        f'<td valign="top" bgcolor="{_bubble_plate()}" width="82%" '
+        f'<td id="{_BUBBLE_MARK}" valign="top" width="82%" '
         f'style="color:{_ink("text")};">'
         f'<div style="padding:{pad}px {inset}px;">'
     )
@@ -182,6 +215,8 @@ class ChatPanel(QWidget):
         self.view.setOpenExternalLinks(False)
         self.view.setOpenLinks(False)
         self.view.anchorClicked.connect(self._on_anchor)
+        self._washing = False
+        self.view.document().contentsChange.connect(self._wash_bubbles)
         self.view.hide()
         layout.addWidget(self.view, stretch=1)
 
@@ -236,6 +271,19 @@ class ChatPanel(QWidget):
     @property
     def has_messages(self) -> bool:
         return self._has_messages
+
+    def _wash_bubbles(self, *_args) -> None:
+        if self._washing:
+            return
+        self._washing = True
+        try:
+            wash_message_cells(self.view.document())
+        finally:
+            self._washing = False
+
+    def refresh_bubble_wash(self) -> None:
+        """Repaint message scrims after a theme change."""
+        self._wash_bubbles()
 
     def _on_idle_session(self, session_id: str) -> None:
         self.session_clicked.emit(session_id)
@@ -435,7 +483,7 @@ class ChatPanel(QWidget):
         return (
             f'<table width="100%" cellspacing="0" cellpadding="0" style="margin:2px 0 12px 0;">'
             "<tr>"
-            f'<td valign="top" bgcolor="{_bubble_plate()}" width="82%" '
+            f'<td id="{_BUBBLE_MARK}" valign="top" width="82%" '
             f'style="color:{_ink("text")};">'
             f'<div style="padding:{SPACE["gap"]}px {SPACE["inset"]}px;">'
             f'<div style="color:{_ink("text")};font-size:13px;margin-bottom:4px;">'
@@ -516,7 +564,9 @@ class ChatPanel(QWidget):
     def show_progress(self, text: str = "✦ making a picture…") -> None:
         """Shimmering status gate while a long tool (e.g. Comfy) runs."""
         self._ensure_view()
-        self.progress.setText(text)
+        from arelis.i18n import tr
+
+        self.progress.setText(tr(text) if text else text)
         appearing = not self.progress.isVisible()
         self.progress.show()
         if appearing:
@@ -818,7 +868,7 @@ def _user_bubble_html(
         f'align="right">you</div>'
         f'<table cellspacing="0" cellpadding="{SPACE["gap"]}" align="right">'
         "<tr>"
-        f'<td bgcolor="{_bubble_plate()}" align="left" '
+        f'<td id="{_BUBBLE_MARK}" align="left" '
         f'style="color:{_ink("text_dim")};text-align:left;">'
         f"{inner}</td></tr></table>"
         "</td></tr></table>"

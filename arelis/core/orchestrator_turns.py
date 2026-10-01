@@ -20,9 +20,11 @@ from arelis.core.events import Event, EventType
 from arelis.core.failure_copy import turn_failed_notice
 from arelis.core.orchestrator_shared import (
     _ABS_PATH_TOKEN,
+    _ROLE_HANDOFF,
     ROLES,
     TOOL_CMD,
     comms_bypasses_sticky,
+    match_role_switch,
     research_needs_vram_swap,
 )
 from arelis.desk import match_keep_last, match_keep_note, write_note
@@ -201,6 +203,26 @@ class OrchestratorTurns:
                 await self._set_role(text)
                 return
 
+            switched = match_role_switch(text)
+            if switched:
+                wanted, rest = switched
+                if not rest or _ROLE_HANDOFF.match(rest):
+                    await self._set_role(f"/role {wanted}")
+                    return
+                await self._set_role(f"/role {wanted}", announce=False)
+                text = rest
+                role = wanted
+
+            from arelis.talk_language import match_language_switch
+
+            switched_lang = match_language_switch(text)
+            if switched_lang:
+                code, rest = switched_lang
+                await self._set_language(code, announce=not bool(rest))
+                if not rest:
+                    return
+                text = rest
+
             # Typo /roll must not silently route to research/14b (R14).
             if re.match(r"(?i)^/roll\b", text):
                 await self.bus.publish(
@@ -300,21 +322,6 @@ class OrchestratorTurns:
                     await self._say(f"Opening {name}.")
                 return
 
-        # Typed absolute paths outside roots need an Allow (read-only session grant).
-        if text and not await self._ensure_external_path_grants(text):
-            await self.bus.publish(
-                Event(
-                    EventType.ASSISTANT_DONE,
-                    {
-                        "text": (
-                            "Skipped — I was not allowed to read the outside-"
-                            "workspace path you named."
-                        )
-                    },
-                )
-            )
-            return
-
         turn_text = text
         if attachments:
             block = format_attachments_block(attachments, user_text=text)
@@ -334,7 +341,12 @@ class OrchestratorTurns:
         language = str(event.payload.get("language") or "")
         phone_speak = source == "mobile" and bool(event.payload.get("speak"))
         await self._run_turn(
-            turn_text, role, source=source, language=language, phone_speak=phone_speak
+            turn_text,
+            role,
+            source=source,
+            language=language,
+            phone_speak=phone_speak,
+            grant_text=text,
         )
 
     async def _ensure_external_path_grants(self, text: str) -> bool:
@@ -382,14 +394,40 @@ class OrchestratorTurns:
         source: str = "chat",
         language: str = "",
         phone_speak: bool = False,
+        grant_text: str | None = None,
     ) -> None:
         async with self._turn_lock:
+            # Typed absolute paths outside roots need an Allow (read-only
+            # session grant). Scan the typed line: the turn text may already
+            # have been rewritten with an attachment block. The lock stays
+            # held across that confirm wait on purpose: confirm_timeout_s
+            # defaults to 300 seconds, and the second turn should wait until
+            # this check and the rest of the turn finish.
+            scanned = text if grant_text is None else grant_text
+            if scanned and not await self._ensure_external_path_grants(scanned):
+                from arelis.i18n import tr
+
+                await self.bus.publish(
+                    Event(
+                        EventType.ASSISTANT_DONE,
+                        {
+                            "text": tr(
+                                "Skipped — I was not allowed to read the outside-"
+                                "workspace path you named."
+                            ),
+                        },
+                    )
+                )
+                return
             self._cancel = False
             self._pause = False
             set_paused(False)
             self._last_ask = {"text": text, "role": role, "source": source}
             self.config["_phone_turn"] = source == "mobile"
             self.config["_phone_speak"] = bool(phone_speak)
+            from arelis.talk_language import turn_language
+
+            language = turn_language(self.config, language)
             self.config["_reply_language"] = language
             stopped_ask = str((self._stopped_ask or {}).get("text") or "")
             self._stopped_ask = None
@@ -441,7 +479,11 @@ class OrchestratorTurns:
                 # get that far, so the turn still ends with one terminal event.
                 if not loop.terminal_sent:
                     await self.bus.publish(Event(EventType.THINKING, {"text": "cancelled"}))
-                    await self.bus.publish(Event(EventType.ASSISTANT_DONE, {"text": "Stopped."}))
+                    from arelis.i18n import tr
+
+                    await self.bus.publish(
+                        Event(EventType.ASSISTANT_DONE, {"text": tr("Stopped.")})
+                    )
             except Exception as exc:
                 # Last line of defence. Anything unhandled here would otherwise
                 # end the turn with no terminal event at all.
@@ -466,7 +508,25 @@ class OrchestratorTurns:
                 self.config["_reply_language"] = ""
                 set_paused(False)
 
-    async def _set_role(self, text: str) -> None:
+    async def _set_language(self, code: str, *, announce: bool = True) -> None:
+        """Session language. The glass hears LANGUAGE and swaps the window."""
+        from arelis.config import merge_local_config
+        from arelis.talk_language import normalize, session_code
+
+        code = normalize(code)
+        same = session_code(self.config) == code
+        self.config.setdefault("ui", {})["language"] = code
+        merge_local_config({"ui": {"language": code}})
+        await self.bus.publish(Event(EventType.LANGUAGE, {"language": code}))
+        if not announce:
+            return
+        if code == "zh":
+            line = "已经是简体中文。" if same else "好，换成简体中文了。"
+        else:
+            line = "Already English." if same else "Okay, English."
+        await self._say(line)
+
+    async def _set_role(self, text: str, *, announce: bool = True) -> None:
         parts = text.split(maxsplit=1)
         wanted = parts[1].strip().lower() if len(parts) > 1 else ""
         if wanted in ROLES:
@@ -507,7 +567,8 @@ class OrchestratorTurns:
         else:
             message = f"Unknown role `{wanted}`. Choose one of: fast, research."
         await self.bus.publish(Event(EventType.STATUS, {"message": message}))
-        await self.bus.publish(Event(EventType.ASSISTANT_DONE, {"text": message}))
+        if announce:
+            await self.bus.publish(Event(EventType.ASSISTANT_DONE, {"text": message}))
 
     async def _keep_from_speech(self, text: str) -> bool:
         """Handle /keep, 'keep this: …', and a bare 'pin that'. True if consumed."""

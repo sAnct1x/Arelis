@@ -13,13 +13,17 @@ from arelis.core.evidence import classify_fetch_failure
 from arelis.core.fail_tags import tool_fail_replan_notice
 from arelis.core.look import LOOKING_STATUS, format_see_record
 from arelis.core.memory import tool_trace_entry
-from arelis.core.preflight import login_check_hop_args
+from arelis.core.preflight import (
+    login_check_hop_args,
+    looks_like_browser_click_signin,
+)
 from arelis.core.receipts import (
     action_receipt,
     append_action_ledger,
     format_action_receipt,
 )
 from arelis.core.same_call import record_same_call
+from arelis.core.search_loop import mark_page_opened, note_search_hits
 from arelis.core.sms_complete import (
     looks_like_contact_email_ask,
     looks_like_contact_phone_ask,
@@ -169,6 +173,12 @@ async def execute_call(
             ):
                 ctx.inbox_empty_ok = True
             if name == "browser":
+                # Captured before a click flips the flag. A sign-in line
+                # that has not clicked yet stays open so try_browser_signin
+                # can still run on a later round.
+                signin_needs_later_round = (
+                    looks_like_browser_click_signin(text) and not ctx.browser_clicked
+                )
                 b_act = str(args.get("action") or "").strip().lower()
                 if b_act == "snapshot" or (
                     b_act in {"open", "navigate"}
@@ -184,6 +194,9 @@ async def execute_call(
                     ctx.browser_clicked = True
                 if b_act == "screenshot":
                     ctx.browser_screenshot_ok = True
+                if not signin_needs_later_round:
+                    ctx.browser_ok = True
+                    r.browser_ok = True
             if name == "vision":
                 ctx.vision_ok = True
             if name == "desktop":
@@ -202,10 +215,12 @@ async def execute_call(
                 q = str(args.get("query") or "").strip().casefold()
                 if q:
                     web_search_ok.add(q)
+                note_search_hits(ctx, (data_dict or {}).get("results") or [])
             if name in {"scrape", "web_fetch"}:
                 page = str(args.get("url") or "").strip().casefold()
                 if page:
                     page_ok.add(page)
+                    mark_page_opened(ctx, page)
             if name == "send_sms":
                 sent_to = str(args.get("to") or "").strip()
                 if sent_to:
@@ -228,6 +243,31 @@ async def execute_call(
                     )
                 )
                 ctx.agenda_create_ok = True
+            if (
+                name == "agenda"
+                and str(args.get("action") or "").lower()
+                in {"open", "today", "tomorrow", "list"}
+            ):
+                ctx.agenda_open_read_ok = True
+                r.agenda_open_read_ok = True
+            if name == "calculator":
+                ctx.calculator_ok = True
+                r.calculator_ok = True
+            if name == "units":
+                ctx.units_ok = True
+                r.units_ok = True
+            if name == "tile":
+                ctx.tile_ok = True
+                r.tile_ok = True
+            if (
+                name == "workspace"
+                and str(args.get("action") or "").strip().lower() == "read"
+            ):
+                ctx.inspect_ok = True
+                r.inspect_ok = True
+            if name == "run_script":
+                ctx.run_script_ok = True
+                r.run_script_ok = True
             if loop._look is not None:
                 loop._note_look_tool(name, args, result, data_dict)
         else:
@@ -737,9 +777,12 @@ async def execute_call(
                         {"role": "user", "content": more_msg}
                     )
                 elif not later_weather:
-                    # Keep the tool array byte-stable. Stripping weather
-                    # here used to re-prefill the whole 23k prefix (~50s)
-                    # for "answer from the reading you already have."
+                    # Keep this round's tool array byte-stable. Stripping
+                    # weather here used to re-prefill the whole 23k prefix
+                    # (~50s) for "answer from the reading you already have."
+                    # The next model round offers no tools at all
+                    # (_weather_answer_ready in run_round). That empty
+                    # array is the other stable shape. A shorter list is not.
                     messages.append(
                         {
                             "role": "user",

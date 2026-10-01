@@ -46,7 +46,7 @@ from arelis.ui.theme import color
 _TILE_IMAGES: dict[tuple[str, int, int, int], QImage] = {}
 _TILE_IMAGE_CAP = 64
 
-# Theme sodium, not harvest gold. Hue lock is #ff7a22; gold was the yellow wash.
+# Theme sodium. Lamp is #ff7a22. Room and type come from the evening tokens.
 _INK_ROLE: dict[str, str] = {
     "flights": "amber",
     "drones": "warn",

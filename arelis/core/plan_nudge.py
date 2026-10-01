@@ -68,7 +68,22 @@ _DOCUMENT = re.compile(
     r"(?:pdf|docx|xlsx|csv|spreadsheet|"
     r"word\s+doc(?:ument)?|markdown(?:\s+file)?|text\s+file)|"
     r"(?:save|export)\s+(?:(?:it|this|that)\s+)?(?:as|to)\s+(?:a\s+)?"
-    r"(?:pdf|docx|xlsx|csv|excel|word|markdown)"
+    r"(?:pdf|docx|xlsx|csv|excel|word|markdown)|"
+    r"(?:write|put|save|export)\b.{0,48}\bas\s+(?:a\s+|an\s+)?pdf|"
+    r"put\s+the\s+(?:report|result)\s+in\s+the\s+file"
+    r")\b"
+)
+
+# A file ask that still has to open sources. The document plan says
+# "call document now", which skips the search. Live 2026-09-26: a JWST
+# report ("search the web" / "write the result as a PDF") took that plan
+# slot only after exactness had already misread the outline as math.
+_NEEDS_SOURCES_FIRST = re.compile(
+    r"(?i)\b("
+    r"search\s+the\s+web|"
+    r"open\s+the\s+(?:papers|pages|sources)|"
+    r"research\s+(?:what|how|why|whether)|"
+    r"cite\s+sources"
     r")\b"
 )
 
@@ -507,7 +522,16 @@ def select_plan(
     if raw and looks_like_local_clock_ask(raw):
         return None
 
-    if "document" in kinds or "document" in skills or (raw and _DOCUMENT.search(raw)):
+    wants_file = (
+        "document" in kinds or "document" in skills or (raw and _DOCUMENT.search(raw))
+    )
+    needs_sources = (
+        "research" in kinds
+        or "research" in skills
+        or (raw and RESEARCH.matches(raw))
+        or (raw and _NEEDS_SOURCES_FIRST.search(raw))
+    )
+    if wants_file and not needs_sources:
         return _PLAN_DOCUMENT
 
     # Local source beats a web report. "Investigate the sim files" is a

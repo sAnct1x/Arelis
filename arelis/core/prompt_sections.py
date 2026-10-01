@@ -235,29 +235,12 @@ def append_delivery_context(
 ) -> None:
     """Append spoken-answer policy, language, then the volatile clock line."""
     if speak:
+        from arelis.talk_language import spoken_policy
+
         messages.append(
             {
                 "role": "system",
-                "content": (
-                    "You are speaking aloud in conversation mode. Prefer "
-                    "1-3 short sentences unless the user asked for detail, "
-                    "code, steps, or a list. Their text is a speech "
-                    "transcript — messy, filled with ah/um, and wrong on "
-                    "names. Hear what they meant from the last few turns. "
-                    "Do not correct the transcript and do not ask them to "
-                    "repeat themselves. If they said they missed what you "
-                    "said, say the last answer again — do not ask what they "
-                    "wanted repeated. Small talk is talk: what are you "
-                    "doing tonight is not a calendar, and what did I say "
-                    "without a topic is not a recall search. Do not "
-                    "interview; one follow-up is enough and none is fine. "
-                    "When they asked you to do something (text, email, "
-                    "write, search, weather, scrape, remember), call the "
-                    "tool first — do not only talk about doing it, and do "
-                    "not ask permission in chat. send_sms and send_email "
-                    "open a confirm card; that is how the message is "
-                    "approved."
-                ),
+                "content": spoken_policy(loop.config.get("_reply_language")),
             }
         )
     from arelis.talk_language import reply_instruction

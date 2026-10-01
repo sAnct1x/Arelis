@@ -960,6 +960,8 @@ class ConversationStage(GlassFrame):
         return bool(getattr(self.confirm, "_confirm_id", "") or "")
 
     def _sync_composer_buttons(self) -> None:
+        from arelis.i18n import tr
+
         blocked = self._busy or self.confirm_open()
         self.send_btn.setEnabled(not blocked)
         self.attach_btn.setEnabled(not blocked)
@@ -970,21 +972,21 @@ class ConversationStage(GlassFrame):
             from arelis.ui.theme import active_theme
 
             if active_theme() == "filament":
-                self.input.setPlaceholderText("say yes · or type allow")
+                self.input.setPlaceholderText(tr("say yes · or type allow"))
             else:
-                self.input.setPlaceholderText("Enter = allow · Esc = deny…")
+                self.input.setPlaceholderText(tr("Enter = allow · Esc = deny…"))
         elif self._idle_mode:
             # Idle prompt is the centered VoidIdlePlaceholder label; Qt's own
             # placeholder paints left-aligned and shoves the line off-axis.
             self.input.setPlaceholderText("")
         elif self._wake_acking:
-            self.input.setPlaceholderText("listening")
+            self.input.setPlaceholderText(tr("listening"))
         elif self._speaking:
-            self.input.setPlaceholderText("talking — esc to cut")
+            self.input.setPlaceholderText(tr("talking — esc to cut"))
         elif self.conversation_btn.isChecked():
-            self.input.setPlaceholderText("listening")
+            self.input.setPlaceholderText(tr("listening"))
         else:
-            self.input.setPlaceholderText("message Arelis…")
+            self.input.setPlaceholderText(tr("message Arelis…"))
 
     def _apply_talk_mark_size(self) -> None:
         mark, box = _talk_mark_px()

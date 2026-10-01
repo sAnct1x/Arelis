@@ -95,10 +95,81 @@ def test_derive_stays_on_fast() -> None:
     assert reason != "research_hint"
 
 
+def test_sourced_pdf_on_the_fast_chip_is_research() -> None:
+    """Search, open the sources, write the file. The default chip is not a pin."""
+    text = (
+        "Research what the lab measured. "
+        "Write the result as a PDF I can open. Put the report in the file. "
+        "Search the web, then open the papers."
+    )
+    role, reason = _orch().classify_role(text, "fast")
+    assert role == "research"
+    assert reason == "research_hint"
+
+
+def test_pdf_without_a_search_stays_on_the_fast_chip() -> None:
+    role, reason = _orch().classify_role("Write the result as a PDF I can open.", "fast")
+    assert role == "fast"
+    assert reason == "chip"
+
+
 def test_weather_is_tool_loop() -> None:
     role, reason = _orch().classify_role("what's the weather today")
     assert role == "fast"
     assert reason == "tool_loop"
+
+
+def test_switch_roles_sentence_is_the_chip() -> None:
+    from arelis.core.orchestrator_shared import match_role_switch
+
+    spoken = "switch roles to research, then I got a good prompt for you to look into"
+    assert match_role_switch(spoken) == (
+        "research",
+        "I got a good prompt for you to look into",
+    )
+    assert match_role_switch("switch to research") == ("research", "")
+    assert match_role_switch("set the role to fast") == ("fast", "")
+    assert match_role_switch("switch to research the muon papers") is None
+    assert match_role_switch("make it a research room") is None
+
+
+async def test_switch_roles_sentence_sets_the_chip() -> None:
+    from arelis.core.events import Event, EventType
+
+    router = _StubRouter()
+
+    def same_chat_weights(_a: str, _b: str) -> bool:
+        return True
+
+    router.same_chat_weights = same_chat_weights  # type: ignore[attr-defined]
+    orch = Orchestrator(
+        EventBus(),
+        router,  # type: ignore[arg-type]
+        ToolRegistry(),
+        {"workspace": {"roots": ["."]}, "_persona_path": "persona.md"},
+        SessionMemory(),
+    )
+    await orch.on_user_message(
+        Event(
+            EventType.USER_MESSAGE,
+            {
+                "text": (
+                    "switch roles to research, then I got a good prompt "
+                    "for you to look into"
+                )
+            },
+        )
+    )
+    queued = []
+    while not orch.bus._queue.empty():
+        queued.append(orch.bus._queue.get_nowait())
+    assert orch.router.default_role == "research"
+    assert any(
+        event.type == EventType.ASSISTANT_DONE
+        and "Role set to `research`" in str(event.payload.get("text") or "")
+        for event in queued
+    )
+    assert orch._turn_task is None
 
 
 def test_comms_bypasses_coder_sticky() -> None:

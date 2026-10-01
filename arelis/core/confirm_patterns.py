@@ -63,12 +63,19 @@ _AFFIRMATIONS = (
     "okay",
     r"go\s+ahead",
     r"do\s+it",
+    "好",
+    "好的",
+    "可以",
+    "行",
+    "嗯",
+    "同意",
+    "没问题",
 )
 
 # "yes, please" / "yes please" / "yes." / "yes," — one word of agreement with
 # manners attached, and none of it changes what was agreed to.
 _TRAILING_PLEASE = r"(?:\s*,?\s*please)?"
-_TRAILING_PUNCT = r"\s*[,.!]?$"
+_TRAILING_PUNCT = r"\s*[，,.!?。！？]?$"
 
 
 def _whole_utterance(*alternatives: str) -> re.Pattern[str]:

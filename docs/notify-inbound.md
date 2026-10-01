@@ -69,8 +69,8 @@ are not flooded with backlog.
    if that is the only IPv4.
 5. After pair, install the offline brain (~2.6 GB) so she still talks
    if the PC is down. The phone asks this PC first; Hugging Face is the
-   fallback if the house has not cached it. **Fetch offline brain** on
-   Notify pulls it onto the PC. Wait for Wi-Fi, or use mobile data on
+   fallback if the house has not cached it. **Download offline copy**, under
+   If the scan doesn't work on Notify, pulls it onto the PC. Wait for Wi-Fi, or use mobile data on
    purpose.
 6. Optional, only if you want the text hose: **Settings → Texts**, then
    Allow restricted settings, SMS, notification access, Battery
@@ -147,7 +147,7 @@ on the phone and retry when the PC is back. A 429 is "slow down", not
 |---------|--------|
 | No inbound texts | Arelis still running? Paired? Can the PC reach the phone? |
 | STATUS missing | `tools.sms.inbound` / `ingest` enabled. Token set. A bind/poll failure also lands in chat now; the listen URL stays in Thinking (`Ctrl+1`) so orbit does not hide |
-| Companion 401 | Wrong or missing `sms.ingest_token`. New QR |
+| Companion 401 | Wrong or missing `sms.ingest_token`. New code |
 | Companion timeout | Firewall / wrong IP. Wait for the phone to find the LAN beacon, or open Settings → Notify if this is a new PC |
 | Worked, then died after a quiet week | Not pairing expiry. Old APK posted a stale PC IP and never rediscovered unless you opened the companion. Sideload this checkout. Battery Unrestricted. Open the app once to kick the new keepalive. |
 | Pairing 409 | QR was for a different Windows account's Arelis |

@@ -60,8 +60,9 @@ from arelis.core.orchestrator_slash import (  # noqa: F401
 from arelis.core.orchestrator_turns import OrchestratorTurns
 from arelis.core.route_hints import (
     FILE_LOOP_HINT,
-    RESEARCH_HINTS,
+    RESEARCH_HINTS,  # noqa: F401  re-exported; classify_role uses is_research_hint
     TOOL_LOOP_HINT,
+    is_research_hint,
 )
 from arelis.desk import DeskStore
 from arelis.llm.router import ModelRole, ModelRouter
@@ -126,6 +127,10 @@ class Orchestrator(OrchestratorTurns, OrchestratorSlash, OrchestratorConfirm):
         self._cancel = False
         self._pause = False
         self._confirm_waiters: dict[str, asyncio.Future[str]] = {}
+        # None until a card registers. The panel keeps one id and ask()
+        # replaces it, so the card on screen is the latest TOOL_CONFIRM, not
+        # the oldest waiter. "" means that card already left.
+        self._confirm_latest: str | None = None
         # Live args for an open card so a spoken edit mutates what Allow runs.
         self._confirm_live: dict[str, dict[str, Any]] = {}
         self._last_ask: dict[str, Any] | None = None
@@ -162,9 +167,8 @@ class Orchestrator(OrchestratorTurns, OrchestratorSlash, OrchestratorConfirm):
         # route — there is no way to tell "they chose fast" from "nothing".
         # Deep research-shaped asks before tool/file loops: "write a report"
         # must not lose to the bare "write" file hint.
-        for pattern in RESEARCH_HINTS:
-            if pattern.search(text):
-                return "research", "research_hint"
+        if is_research_hint(text):
+            return "research", "research_hint"
         if explicit == "fast":
             return "fast", "chip"
         if TOOL_LOOP_HINT.search(text):
@@ -287,6 +291,22 @@ class Orchestrator(OrchestratorTurns, OrchestratorSlash, OrchestratorConfirm):
 
         return bool(self._pause or is_paused())
 
+    def _screen_confirm_id(self) -> str:
+        """Confirm id spoken allow, deny, and edit should hit.
+
+        The latest registration, while that waiter is still pending. Dict
+        order is the oldest card, which the panel has already replaced.
+        None means no card has registered, so a test that armed one waiter
+        directly still resolves. After the on-screen card is popped, "" must
+        not fall through to a hidden older waiter.
+        """
+        latest = self._confirm_latest
+        if latest and latest in self._confirm_waiters:
+            return latest
+        if latest is None:
+            return next(iter(self._confirm_waiters), "")
+        return ""
+
     async def _voice_control(self, text: str, *, deliver: str) -> bool:
         """Stop / allow / deny / pause / go from any listen path. True = handled."""
         from arelis.browser.hold import is_paused
@@ -307,7 +327,7 @@ class Orchestrator(OrchestratorTurns, OrchestratorSlash, OrchestratorConfirm):
             return False
 
         if waiting and act in {"allow", "skip", "allow_turn"}:
-            confirm_id = next(iter(self._confirm_waiters), "")
+            confirm_id = self._screen_confirm_id()
             if confirm_id:
                 await self.bus.publish(
                     Event(
@@ -338,7 +358,7 @@ class Orchestrator(OrchestratorTurns, OrchestratorSlash, OrchestratorConfirm):
 
     async def _apply_voice_confirm_edit(self, text: str) -> bool:
         """Rewrite the open send draft. True when the card was refreshed."""
-        confirm_id = next(iter(self._confirm_waiters), "")
+        confirm_id = self._screen_confirm_id()
         live = self._confirm_live.get(confirm_id) if confirm_id else None
         if not live:
             return False

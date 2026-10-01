@@ -813,6 +813,14 @@ _DOCUMENT_CREATE = (
         r"(?:\d+\s*[-\s]?\s*page\s+)?(?:pdf\s+)?report\b"
         r".{0,40}\b(?:pdf|docx|word)\b"
     ),
+    # "Write the result as a PDF" / "Put the report in the file" never
+    # said "write a pdf", so a sourced report was allowed to finish in chat.
+    re.compile(
+        r"(?i)\b(?:write|put|save|export)\b.{0,48}\bas\s+(?:a\s+|an\s+)?pdf\b"
+    ),
+    re.compile(
+        r"(?i)\bput\s+the\s+(?:report|result)\s+in\s+the\s+file\b"
+    ),
 )
 
 DOCUMENT = IntentSpec(

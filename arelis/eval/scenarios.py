@@ -71,10 +71,10 @@ SCENARIOS: list[Scenario] = [
         forbid_tools=("scrape",),
         failure_class="contextual_misinterpretation",
         notes=(
-            "Must call weather, not scrape AccuWeather — so the script does "
-            "the wrong thing and redirect_weather has to fix it. Before "
-            "2026-09-17 this scripted the weather call itself and asserted "
-            "weather was called, which no amount of broken redirect could fail."
+            "Must call weather, not scrape AccuWeather. The route preinjects "
+            "weather before this scripted scrape is read. Before 2026-09-17 "
+            "this scripted the weather call itself and asserted weather was "
+            "called, which no amount of broken routing could fail."
         ),
         script=[
             [
@@ -318,13 +318,14 @@ SCENARIOS: list[Scenario] = [
     Scenario(
         id="constant_refuses_without_units",
         user="what is the gravitational constant?",
-        expect_tools=(),
-        allow_no_tools=True,
+        expect_tools=("units",),
         offline_only=True,
-        expect_answer_contains=("don't know",),
         forbid_claim_if_no_tool=("6.674",),
         failure_class="knowing_doing_gap",
-        notes="Exactness hard refuse: recited CODATA must not ship.",
+        notes=(
+            "The route preinjects units before this scripted recital is read. "
+            "A turn that never got a units result still uses the refusal sentence."
+        ),
         script=[
             [("token", "G is 6.674e-11 in SI units.")],
             [("token", "It's 6.67430e-11 m^3/kg/s^2.")],
@@ -1913,7 +1914,7 @@ SCENARIOS: list[Scenario] = [
         category="tool_select",
         notes=(
             "Guards weather_force_call. The model reaches for a search engine; "
-            "redirect_weather has to block it and inject the weather call."
+            "the weather preinject runs weather before that call is read."
         ),
         script=[
             [

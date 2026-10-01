@@ -17,9 +17,7 @@ def _short_ceiling(window, seconds: float = 0.08) -> None:
 def test_countdown_is_not_armed_when_idle(arelis_window) -> None:
     window = arelis_window()
     timer = getattr(window, "_hung_watchdog", None)
-    tick = getattr(window, "_hung_tick", None)
     assert timer is None or not timer.isActive()
-    assert tick is None or not tick.isActive()
     assert window.chat.progress.isHidden()
     assert "left" not in window.chat.progress.text()
 
@@ -30,8 +28,8 @@ def test_hung_ceiling_unlocks_without_stop(arelis_window, qt_app) -> None:
     window._set_busy(True)
     assert window._turn_busy
     assert window._hung_watchdog.isActive()
-    assert window._hung_tick.isActive()
-    assert "left" in window.chat.progress.text()
+    assert "left" not in window.chat.progress.text()
+    assert window.chat.progress.text().strip()
     assert not window.chat.progress.isHidden()
 
     QTest.qWait(250)
@@ -55,7 +53,6 @@ def test_stop_cancels_the_hung_ceiling(arelis_window, qt_app) -> None:
     window._on_stop()
 
     assert not window._hung_watchdog.isActive()
-    assert not window._hung_tick.isActive()
     assert window._turn_busy
     assert window._busy_watchdog.isActive()
     assert "stop requested" in window.thinking.footer.text()
@@ -75,7 +72,6 @@ def test_clearing_busy_disarms_the_countdown(arelis_window) -> None:
     assert window._hung_watchdog.isActive()
     window._set_busy(False)
     assert not window._hung_watchdog.isActive()
-    assert not window._hung_tick.isActive()
     assert "left" not in window.chat.progress.text()
     assert window.chat.progress.isHidden()
 

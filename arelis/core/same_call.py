@@ -58,6 +58,8 @@ def same_call_key(name: str, args: dict[str, Any] | None) -> str | None:
         return _workspace_key(payload)
     if n == "research_report":
         return _research_report_key(payload)
+    if n == "document":
+        return _document_key(payload)
     if n == "browser":
         return _browser_nav_key(payload)
     return _generic_key(n, payload)
@@ -108,6 +110,13 @@ def same_call_notice(name: str, args: dict[str, Any]) -> str:
             "Already ran research_report on that query this turn; not "
             "researching it again. Answer from the report you have, or "
             "change the question."
+        )
+    if name == "document":
+        title = " ".join(str(args.get("title") or "").split())
+        shown = title or "that file"
+        return (
+            f"Already wrote “{shown}” this turn. It is on the desk. "
+            "Do not call document again. Do not paste the report into chat."
         )
     if name == "browser":
         action = str(args.get("action") or "").strip().lower()
@@ -196,6 +205,20 @@ def _browser_nav_key(args: dict[str, Any]) -> str | None:
         return None
     url = url.split("#", 1)[0].rstrip("/")
     return f"browser|go|{url}"
+
+
+def _document_key(args: dict[str, Any]) -> str:
+    """Same title and format is one file, even if the body is rewritten.
+
+    Live 2026-09-26: she called document twice for the K2-18 b PDF.
+    The second call only added a filename, so the full-args key missed
+    it and she spent another minute regenerating the same file.
+    """
+    title = " ".join(str(args.get("title") or "").split()).casefold()
+    fmt = str(args.get("format") or "").strip().casefold() or "pdf"
+    if not title:
+        return _generic_key("document", args)
+    return f"document|{fmt}|{title}"
 
 
 def _research_report_key(args: dict[str, Any]) -> str:

@@ -14,13 +14,11 @@ from arelis.core.agenda_complete import (
     lock_agenda_delete_args,
 )
 from arelis.core.agent_loop import (
-    _BROWSER_WANDER,
     _MAX_THINKING_SNIPPET,
-    _WEATHER_WANDER,
     write_after_algebra_notice,
 )
 from arelis.core.call_redirects import apply_redirects
-from arelis.core.claims import lock_memory_forget_args
+from arelis.core.claims import document_force_notice, lock_memory_forget_args
 from arelis.core.document_refs import fill_doc_extract_args, fill_document_args
 from arelis.core.email_complete import (
     fill_send_email_args,
@@ -41,6 +39,13 @@ from arelis.core.same_call import (
     same_call_finishes_turn,
     same_call_key,
     same_call_strips_tools,
+)
+from arelis.core.search_loop import (
+    guessed_url_notice,
+    hits_waiting,
+    open_hit_notice,
+    page_key,
+    url_is_a_hit,
 )
 from arelis.core.sms_complete import (
     fill_send_sms_args,
@@ -97,6 +102,84 @@ def fill_round_calls(
             )
         out.append((name, payload))
     return out
+
+
+_FETCH_LOOP = frozenset({"scrape", "web_fetch", "web_search"})
+
+
+# Browser and research_report stay on the menu if only search/scrape
+# drop. Live 2026-09-26: after the search cap she wrote a markdown
+# report, then drove Chrome, and the second open of the same URL
+# shipped the Google click as the chat answer.
+_SIDETRACK = frozenset({"browser", "research_report"})
+_GATHER = _FETCH_LOOP | _SIDETRACK
+# A hit list or an encyclopedia is not the paper they asked her to open.
+_THIN_PAGE = (
+    "wikipedia.org",
+    "wikimedia.org",
+    "google.com/search",
+    "bing.com/search",
+    "duckduckgo.com",
+    "arxiv.org/search",
+)
+
+
+def _drop_named(loop: Any, r: RoundScratch, names: frozenset[str]) -> None:
+    r.tool_names.difference_update(names)
+    if isinstance(getattr(r, "visible", None), set):
+        r.visible.difference_update(names)
+    if isinstance(getattr(r, "available", None), set):
+        r.available.difference_update(names)
+    # Schema bytes stay the list from the start of the turn. The names
+    # are already off tool_names, so a later call is rejected in the
+    # execute path with the unknown-tool message.
+
+
+def _thin_page(url: str) -> bool:
+    folded = (url or "").casefold()
+    return any(mark in folded for mark in _THIN_PAGE)
+
+
+def _opened_a_source(ctx: TurnContext) -> bool:
+    """True when a fetched page is a paper or an agency page.
+
+    Wikipedia counted as 'a page is open' on the K2-18 b turn, so the
+    search cap told her to write the PDF before she had opened one.
+    """
+    for item in ctx.ledger.items:
+        if not item.ok or item.kind != "web":
+            continue
+        if _thin_page(item.source):
+            continue
+        return True
+    return False
+
+
+def _hand_off_to_document(
+    loop: Any,
+    ctx: TurnContext,
+    r: RoundScratch,
+    *,
+    require_paper: bool = True,
+) -> None:
+    """A real source is open and they asked for a file. Stop gathering.
+
+    ``require_paper`` is off when she is already looping on one URL or
+    has spent the page budget. A search cap with only Wikipedia does
+    not count: scrape has to stay so she can open a paper.
+    """
+    if not ctx.exact_need.needs_document:
+        return
+    if require_paper:
+        if not _opened_a_source(ctx):
+            return
+    elif not ctx.ledger.has_ok("web"):
+        return
+    _drop_named(loop, r, _GATHER)
+    if ctx.document_nudge_used or "document" not in r.tool_names:
+        return
+    ctx.document_nudge_used = True
+    r.messages.append({"role": "user", "content": document_force_notice()})
 
 
 async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: int) -> bool:
@@ -196,8 +279,9 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
         ctx.tool_names.clear()
         ctx.tool_names.update(r.visible)
         r.tool_names = ctx.tool_names
-        if r.offer_tools:
-            r.ollama_tools = loop.tools.ollama_tools(r.visible)
+        # Same as _drop_named: leave ollama_tools untouched. A later
+        # call to a hidden name misses tool_names and gets the
+        # unknown-tool message.
 
     for name, args in r.calls:
         call_i += 1
@@ -206,10 +290,6 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
         if name not in r.tool_names:
             daily_miss = (
                 (
-                    name in _WEATHER_WANDER
-                    and "weather" in loop._expected_tools
-                )
-                or (
                     name in {
                         "web_search",
                         "contacts",
@@ -235,10 +315,6 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
                         "schedule",
                     }
                     and "agenda" in loop._expected_tools
-                )
-                or (
-                    name in _BROWSER_WANDER
-                    and "browser" in loop._expected_tools
                 )
             )
             if not daily_miss:
@@ -539,7 +615,16 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
                 continue
 
         if name in {"scrape", "web_fetch"}:
-            page = str(args.get("url") or "").strip().casefold()
+            raw_url = str(args.get("url") or "")
+            if not url_is_a_hit(ctx, raw_url):
+                notice = guessed_url_notice(list(ctx.last_hit_urls))
+                await loop.bus.publish(
+                    Event(EventType.THINKING, {"text": f"skip  {notice}"})
+                )
+                r.messages.append(loop._tool_message(name, notice))
+                loop._trace.append(f"{name} url not in search hits")
+                continue
+            page = page_key(raw_url)
             _, scrape_cap = web_read_caps(r.research_mode, r.agent_cfg)
             if len(r.page_ok) >= scrape_cap:
                 notice = (
@@ -548,6 +633,9 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
                     "were thin or listicles, say the sources were weak "
                     "— do not rank or declare a winner."
                 )
+                if ctx.exact_need.needs_document and ctx.ledger.has_ok("web"):
+                    notice += " Call document now. Do not scrape another page."
+                    _hand_off_to_document(loop, ctx, r, require_paper=False)
                 await loop.bus.publish(
                     Event(EventType.THINKING, {"text": f"skip  {notice}"})
                 )
@@ -555,11 +643,10 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
                 loop._trace.append(f"{name} page budget blocked")
                 continue
             if page and page in r.page_ok:
+                ctx.duplicate_page_skips += 1
                 notice = (
-                    "Already fetched that URL this turn; not fetching "
-                    "again. Use the prior result, or pick a different "
-                    "URL. Do not call scrape or web_fetch on the same "
-                    "address a second time."
+                    "Already fetched that URL this turn. Open a different "
+                    "URL from the search results."
                 )
                 await loop.bus.publish(
                     Event(EventType.THINKING, {"text": f"skip  {notice}"})
@@ -573,12 +660,20 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
         if name == "web_search":
             q = str(args.get("query") or "").strip().casefold()
             search_cap, _ = web_read_caps(r.research_mode, r.agent_cfg)
+            waiting = hits_waiting(ctx)
+            if waiting:
+                notice = open_hit_notice(waiting)
+                await loop.bus.publish(
+                    Event(EventType.THINKING, {"text": f"skip  {notice}"})
+                )
+                r.messages.append(loop._tool_message(name, notice))
+                loop._trace.append(f"{name} open a hit first")
+                continue
             if len(r.web_search_ok) >= search_cap:
                 notice = (
                     f"Already ran {len(r.web_search_ok)} searches this turn; "
-                    "not searching again. Answer from what you have. If "
-                    "the hits were listicles, say so — do not declare a "
-                    "winner."
+                    "not searching again. Open a URL from the results you "
+                    "have, or write the file if those pages are enough."
                 )
                 await loop.bus.publish(
                     Event(EventType.THINKING, {"text": f"skip  {notice}"})
@@ -678,6 +773,30 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
             stop_open = is_browser_nav_call(name, args) and (
                 ctx.goal.kind == "browser" or looks_like_browser_click_signin(r.text)
             )
+            owes_file = (
+                ctx.exact_need.needs_document
+                and not ctx.ledger.has_ok("document")
+            )
+            if (repeat or stop_open) and (name or "").strip() == "browser" and owes_file:
+                # A repeated browser open used to end the turn and paint
+                # the last page. On the K2-18 b ask that page was a
+                # Google results click, not the PDF.
+                _drop_named(loop, r, _SIDETRACK)
+                if _opened_a_source(ctx):
+                    _hand_off_to_document(loop, ctx, r)
+                r.messages.append(
+                    loop._tool_message(
+                        name,
+                        "Do not paste this page into chat. "
+                        + (
+                            "Call document with the report."
+                            if _opened_a_source(ctx)
+                            else "Scrape a paper or a NASA or ESA page from the hits you have."
+                        ),
+                    )
+                )
+                loop._trace.append(f"{name} repeat held for the file")
+                continue
             if repeat or stop_open:
                 if stop_open and is_login_url(ctx.last_browser_url):
                     line = LOGIN_READY_REPLY

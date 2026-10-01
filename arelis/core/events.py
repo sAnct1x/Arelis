@@ -38,6 +38,10 @@ class EventType(str, Enum):
     listening). The glass unlatches the two-arcs toggle the same way the
     chord does. It never starts a turn. The room you were in stays put.
 
+    LANGUAGE is the session language (en or zh). The orchestrator has
+    already stored it. The glass swaps the face, the copy, and the live
+    ear. It is not a turn.
+
     The voice events are a chain, not a group. VOICE_TRANSCRIPT enters the
     pipeline and the orchestrator turns it into a USER_MESSAGE. While an answer
     is streaming, ASSISTANT_DELTA also feeds the voice service: completed
@@ -114,6 +118,7 @@ class EventType(str, Enum):
     PHYSICS_VERB = "physics_verb"
     TILE_VERB = "tile_verb"
     CONVERSATION_END = "conversation_end"
+    LANGUAGE = "language"
     VOICE_SPEAK = "voice_speak"
     VOICE_AUDIO_READY = "voice_audio_ready"
     VOICE_SPEECH_DONE = "voice_speech_done"

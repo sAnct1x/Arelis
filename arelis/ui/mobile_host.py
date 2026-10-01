@@ -28,21 +28,25 @@ def bind_mobile_hub(window) -> None:
         )
         return str(fut.result(timeout=90) or "")
 
-    def speak_for_phone(text: str) -> bytes | None:
+    def speak_for_phone(text: str, language: str = "en") -> bytes | None:
         voice = window.voice
         if voice is None or not voice.tts_enabled:
             return None
         from arelis.paths import outputs_dir
+        from arelis.talk_language import normalize
         from arelis.voice.speech_text import prepare_spoken_text
 
-        spoken = prepare_spoken_text(text or "", max_chars=voice.max_spoken_chars)
+        lang = normalize(language) if str(language or "").strip() else "en"
+        spoken = prepare_spoken_text(
+            text or "", max_chars=voice.max_spoken_chars, language=lang
+        )
         if not spoken:
             return None
         dest = outputs_dir() / "voice" / "mobile-speak.wav"
         try:
             dest.parent.mkdir(parents=True, exist_ok=True)
             fut = asyncio.run_coroutine_threadsafe(
-                voice.tts.synthesize(spoken, dest),
+                voice.tts.synthesize(spoken, dest, language=lang),
                 window.loop,
             )
             path = fut.result(timeout=90)

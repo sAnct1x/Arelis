@@ -89,6 +89,40 @@ class RoundScratch:
     calls: list[tuple[str, dict[str, Any]]]
     tool_calls: list[dict[str, Any]]
     round_ms: int
+    # Same one-shot as sms_preinject. Defaulted so a scratch built by a
+    # caller that lists fields by name still constructs; run_round passes it.
+    weather_preinject: dict[str, Any] | None = None
+    agenda_preinject: dict[str, Any] | None = None
+    # Open or a today/tomorrow/list read returned ok this turn. Create,
+    # delete, and close do not set it. Defaulted like the one-shots above.
+    agenda_open_read_ok: bool = False
+    # Same one-shot as the drafts above. A successful calculator call sets
+    # calculator_ok. Units and the CAS do not.
+    calculator_preinject: dict[str, Any] | None = None
+    calculator_ok: bool = False
+    # Same one-shot. A successful units call sets units_ok.
+    units_preinject: dict[str, Any] | None = None
+    units_ok: bool = False
+    # Same one-shot as sms_preinject. Defaulted so a scratch built by a
+    # caller that lists fields by name still constructs; run_round passes it.
+    email_preinject: dict[str, Any] | None = None
+    # Same one-shot. A successful browser call sets browser_ok. A sign-in
+    # line that has not clicked yet does not: try_browser_signin still
+    # needs a later round.
+    browser_preinject: dict[str, Any] | None = None
+    browser_ok: bool = False
+    # Same one-shot. A successful tile call sets tile_ok. Calendar stays
+    # on agenda when that tool is registered, so this stays unset.
+    tile_preinject: dict[str, Any] | None = None
+    tile_ok: bool = False
+    # Same one-shot. A successful workspace read sets inspect_ok.
+    # A write or an edit does not.
+    workspace_preinject: dict[str, Any] | None = None
+    inspect_ok: bool = False
+    # Same one-shot. A successful run_script call sets run_script_ok.
+    # A match with no named .py stays unset.
+    run_script_preinject: dict[str, Any] | None = None
+    run_script_ok: bool = False
 
 
 FIELD_NAMES: tuple[str, ...] = tuple(RoundScratch.__dataclass_fields__)

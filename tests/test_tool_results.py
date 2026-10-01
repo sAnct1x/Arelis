@@ -51,3 +51,7 @@ def test_a_fat_scrape_still_becomes_a_card(tmp_path, monkeypatch) -> None:
     assert prepared.summarized is True
     assert "tool_summary" in prepared.inject
     assert "full_ref:" in prepared.inject
+    assert "Plant opened last week." in prepared.inject
+    assert "excerpt:" in prepared.inject
+    assert "scrape a different URL" not in prepared.inject
+    assert "untrusted external data" in prepared.inject

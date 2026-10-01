@@ -88,6 +88,10 @@ def stylesheet() -> str:
         background-color: {c['veil']};
         border-bottom: 1px solid {c['hairline_faint']};
     }}
+    #ChromeCaption {{
+        background: transparent;
+        border: none;
+    }}
     #FloatingTitleBar {{
         background: transparent;
         border: none;
@@ -212,6 +216,23 @@ def stylesheet() -> str:
         border-radius: 0;
         padding: 0;
         margin: 0;
+    }}
+    #SettingsNotifyScroll, #SettingsNotifyViewport {{
+        background: {c['panel_fill']};
+        border: none;
+    }}
+    #SettingsDisclosure {{
+        color: {c['hint']};
+        background: transparent;
+        border: none;
+        padding: 2px 0;
+        font-family: {f['body']};
+        font-size: {FONT_PX}px;
+        font-weight: {t['body_weight']};
+    }}
+    #SettingsDisclosure:hover {{
+        color: {c['accent2']};
+        background: transparent;
     }}
     #SettingsSection {{
         color: {c['accent2']};

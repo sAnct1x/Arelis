@@ -22,6 +22,8 @@ log = logging.getLogger(__name__)
 SAMPLE_RATE = 24000
 MAX_PHONEME_LENGTH = 510
 DEFAULT_VOICE = "af_heart"
+# Feminine Mandarin voice in the same v1.0 pack as af_heart.
+DEFAULT_VOICE_ZH = "zf_xiaobei"
 _DEFAULT_MODEL = models_dir() / "kokoro" / "kokoro-v1.0.onnx"
 _DEFAULT_VOICES = models_dir() / "kokoro" / "voices-v1.0.bin"
 _MODEL_URL = (
@@ -102,12 +104,14 @@ class KokoroSynthesizer:
         model_path: Path | str | None = None,
         voices_path: Path | str | None = None,
         voice: str = DEFAULT_VOICE,
+        voice_zh: str = DEFAULT_VOICE_ZH,
         speed: float = 1.0,
         allow_download: bool = True,
     ) -> None:
         self.model_path = Path(model_path) if model_path else _DEFAULT_MODEL
         self.voices_path = Path(voices_path) if voices_path else _DEFAULT_VOICES
         self.voice = (voice or DEFAULT_VOICE).strip() or DEFAULT_VOICE
+        self.voice_zh = (voice_zh or DEFAULT_VOICE_ZH).strip() or DEFAULT_VOICE_ZH
         self.speed = _clean_speed(speed)
         self.allow_download = allow_download
         self._session = None
@@ -115,6 +119,7 @@ class KokoroSynthesizer:
         self._voices: dict[str, np.ndarray] = {}
         self._phoneme_lang = "en-us"
         self._speed_dtype = np.float32
+        self._zh_g2p = None
 
     def problem(self) -> str | None:
         if not importlib_ok("onnxruntime"):
@@ -171,18 +176,29 @@ class KokoroSynthesizer:
         self._phoneme_lang = "en-gb" if british else "en-us"
         _configure_espeak()
 
-    def synthesize(self, text: str, out_path: Path) -> Path:
+    def synthesize(self, text: str, out_path: Path, *, language: str = "en") -> Path:
         self.ensure_loaded()
         assert self._session is not None
+        lang = "zh" if str(language or "").lower().startswith("zh") else "en"
         spoken = prepare_kokoro_text(text).strip()
         if not spoken:
             raise KokoroUnavailableError("Nothing to speak.")
-        phonemes = _phonemize(spoken, self._phoneme_lang)
+        voice_name = self.voice_zh if lang == "zh" else self.voice
+        if voice_name not in self._voices:
+            known = ", ".join(sorted(self._voices)[:12]) or "(none)"
+            raise KokoroUnavailableError(
+                f"Kokoro voice {voice_name!r} is not in {self.voices_path}. "
+                f"Known (first): {known}"
+            )
+        if lang == "zh":
+            phonemes = _phonemize_zh(spoken, self)
+        else:
+            phonemes = _phonemize(spoken, self._phoneme_lang)
         phonemes = "".join(ch for ch in phonemes if ch in _VOCAB)
         if not phonemes.strip():
             raise KokoroUnavailableError("Kokoro G2P produced no speakable phonemes.")
         chunks = _split_phonemes(phonemes)
-        style = self._voices[self.voice]
+        style = self._voices[voice_name]
         audio_parts: list[np.ndarray] = []
         for chunk in chunks:
             part = self._infer_chunk(chunk, style)
@@ -224,6 +240,53 @@ def _configure_espeak() -> None:
 
     EspeakWrapper.set_data_path(espeakng_loader.get_data_path())
     EspeakWrapper.set_library(espeakng_loader.get_library_path())
+
+
+_ZH_PAUSE = str.maketrans({
+    "。": ".",
+    "！": "!",
+    "？": "?",
+    "，": ",",
+    "、": ",",
+    "；": ";",
+    "：": ":",
+    "「": '"',
+    "」": '"',
+    "『": '"',
+    "』": '"',
+    "（": "(",
+    "）": ")",
+})
+
+
+def _phonemize_zh(text: str, synth: KokoroSynthesizer) -> str:
+    """Mandarin IPA for Kokoro v1.0. Bopomofo is a different model; refuse it."""
+    if synth._zh_g2p is None:
+        synth._zh_g2p = _load_zh_g2p()
+    result = synth._zh_g2p(text)
+    phonemes = result[0] if isinstance(result, tuple) else result
+    phonemes = str(phonemes or "")
+    if any("\u3105" <= ch <= "\u312f" for ch in phonemes):
+        raise KokoroUnavailableError(
+            "Chinese phonemizer emitted bopomofo. Kokoro v1.0 needs misaki "
+            "zh IPA (ZHG2P version 1.0), not the v1.1 bopomofo model."
+        )
+    # Kokoro's vocab has ASCII pauses, not fullwidth punctuation.
+    return phonemes.translate(_ZH_PAUSE)
+
+
+def _load_zh_g2p() -> Any:
+    try:
+        from misaki.zh import ZHG2P
+    except ImportError as exc:
+        raise KokoroUnavailableError(
+            "Chinese speech needs misaki. "
+            'Run: pip install -e ".[voice]"  (inside the Arelis virtualenv).'
+        ) from exc
+    try:
+        return ZHG2P(version="1.0")
+    except TypeError:
+        return ZHG2P()
 
 
 def _phonemize(text: str, lang: str) -> str:

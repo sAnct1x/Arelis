@@ -109,7 +109,7 @@ your approval regardless of which path she took to get there.
 The confirmation card itself is written in plain human language —
 "text wife," "write note.txt" — nothing cryptic. **Deny** only
 blocks that one step. **Stop** ends the whole turn. A busy turn has a ceiling
-(`ui.hung_turn_s`, 90s) with a countdown on the shimmer. If she already
+(`ui.hung_turn_s`, 90s). If she already
 has tool results, that ceiling tells her to close from what she has,
 and a shorter second clock hard-stops only if that close never comes
 back. If she has nothing yet, it cancels like Stop, worded as a hang.

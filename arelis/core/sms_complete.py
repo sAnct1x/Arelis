@@ -281,6 +281,10 @@ _SEND_VERBS = (
     r"send\s+(?:the\s+)?(?:text|sms|message|it|that)",
     r"send\s+it\s+(?:now|please)",
     r"please\s+send(?:\s+it)?",
+    "发送",
+    "发吧",
+    "发出去",
+    "发短信",
 )
 _SEND_CONFIRM = send_confirm_pattern(*_SEND_VERBS, affirmations=("please",))
 # The half that stands on its own. See `core.confirm_patterns`.

@@ -7,19 +7,19 @@ import androidx.compose.ui.graphics.Color
 
 /** Desktop sodium tokens from arelis/ui/theme.py COLORS — keep in lockstep. */
 object Campfire {
-    val bg0 = Color(0xFF160D07)
-    val bg1 = Color(0xFF221408)
-    val bg2 = Color(0xFF321C0E)
-    val well = Color(0xFF26160C)
-    val raised = Color(0xFF2E1A0C)
+    val bg0 = Color(0xFF100D0B)
+    val bg1 = Color(0xFF2A221C)
+    val bg2 = Color(0xFF40342B)
+    val well = Color(0xFF4A3C32)
+    val raised = Color(0xFF3A3028)
     val accent = Color(0xFFFF7A22)
     val accent2 = Color(0xFFFFC08A)
-    val text = Color(0xFFFAE8DC)
-    val hint = Color(0xFFF0C7A8)
+    val text = Color(0xFFF8F1EA)
+    val hint = Color(0xFFE6B892)
     val dim = Color(0xFFC4906E)
-    val coal = Color(0xFF8C5C3C)
+    val coal = Color(0xFF946848)
     val danger = Color(0xFFF0A0A8)
-    val rim = Color(0x6EFF7A22)
+    val rim = Color(0x96FF7A22)
 }
 
 @Composable

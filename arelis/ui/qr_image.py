@@ -8,10 +8,24 @@ from arelis.qr import qr_modules
 from arelis.ui.theme import color
 
 
-def pairing_pixmap(text: str, *, scale: int = 5, pad: int = 12) -> QPixmap:
-    """QR on ivory, with extra quiet margin so a camera can find the edge."""
+def pairing_pixmap(
+    text: str,
+    *,
+    scale: int = 5,
+    pad: int = 12,
+    max_side: int | None = None,
+) -> QPixmap:
+    """QR on ivory, with extra quiet margin so a camera can find the edge.
+
+    ``max_side`` picks a smaller whole-module scale so the code stays sharp
+    and still fits the page. A smooth shrink would blur the modules.
+    """
     modules = qr_modules(text)
     n = len(modules)
+    if max_side is not None and n:
+        room = max_side - 2 * pad
+        if room > 0:
+            scale = max(2, min(scale, room // n))
     inner = n * scale
     side = inner + 2 * pad
     img = QImage(side, side, QImage.Format.Format_RGB32)

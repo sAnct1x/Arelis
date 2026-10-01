@@ -21,8 +21,10 @@ from arelis.core.preflight import (
     looks_like_browser_open_ask,
     signin_ref_from_snapshot,
 )
+from arelis.core.route_hints import research_chip_needs_a_page
 from arelis.core.sms_complete import sms_intent_this_turn
 from arelis.core.tool_subset import is_deep_dive_ask, is_research_mode
+from arelis.core.utterance_guards import looks_like_chat_turn
 
 _BOT_WALL = re.compile(
     r"(?i)\b("
@@ -116,7 +118,10 @@ def derive_turn_goal(
             forbid=frozenset({"weather", "research_report", "web_search"}),
             done_tools=frozenset({"send_email"}),
         )
-    if research and (is_deep_dive_ask(raw) or not exact_wx):
+    if looks_like_chat_turn(raw):
+        return NONE
+    # research_mode alone is the chip. A check-in must not owe research_report.
+    if research and not exact_wx and research_chip_needs_a_page(raw):
         return TurnGoal(
             kind="research",
             line=_LINES["research"],
