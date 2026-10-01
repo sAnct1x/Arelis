@@ -400,8 +400,9 @@ def _prepare_email_first_move(
         return
     if email_files_still_owed(draft):
         return
-    # Multi-step / chaining: "do X, then Y" should not preinject the second step
-    if re.search(r"\bthen\b", ctx.text, re.I):
+    # Multi-step chaining: "X, then Y" or "X, and then Y" patterns suggest
+    # the second step shouldn't be preinjected
+    if re.search(r"(?:[,;]\s+then\b|,\s+and\s+then\b)", ctx.text, re.I):
         return
     ctx.email_preinject = draft_send_email_args(draft, already_sent=ctx.email_sent)
 
@@ -462,8 +463,10 @@ def _prepare_calculator_first_move(ctx: TurnContext, text: str) -> None:
         return
     if "calculator" not in ctx.tool_names:
         return
-    # Multi-step / chaining: "do X, then Y" should not preinject the second step
-    if re.search(r"\bthen\b", text, re.I):
+    # Multi-step chaining: "X, then Y" or "X and then Y" patterns suggest
+    # the second step shouldn't be preinjected. Requires comma/semicolon before
+    # "then", or comma before "and then" to avoid false matches like "now and then"
+    if re.search(r"(?:[,;]\s+then\b|,\s+and\s+then\b)", text, re.I):
         return
     ctx.calculator_preinject = {"expression": text}
 
@@ -541,8 +544,8 @@ def _prepare_browser_first_move(
         return
     if SOLAR_STATUS.matches(text) or EARTH_STATUS.matches(text):
         return
-    # Multi-step / chaining: "do X, then Y" or multiple expected tools suggests chaining
-    if re.search(r"\bthen\b", text, re.I):
+    # Multi-step chaining: "X, then Y" or "X, and then Y" patterns suggest chaining
+    if re.search(r"(?:[,;]\s+then\b|,\s+and\s+then\b)", text, re.I):
         return
     # If browser is expected along with other non-search tools, likely chaining
     if "browser" in expected and len(expected - {"browser", "web_search", "scrape", "web_fetch"}) > 0:
