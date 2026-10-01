@@ -526,12 +526,6 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
         if round_i > 1 and (
             ctx.email_sent_ok
             or ctx.agenda_create_ok
-            or ctx.agenda_open_read_ok
-            or ctx.calculator_ok
-            or ctx.units_ok
-            or ctx.tile_ok
-            or ctx.inspect_ok
-            or ctx.run_script_ok
             or bool(ctx.sms_sent)
             or ctx.page_write_nudge_used
             or ctx.algebra_write_nudge_used
