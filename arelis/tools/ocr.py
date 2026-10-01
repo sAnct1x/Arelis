@@ -355,6 +355,14 @@ class OcrTool:
         try:
             resolved = self.workspace.resolve_read(raw)
             path = resolved.path
+            if not path.is_file():
+                # image_edit / browser report "outputs/images/x.png" relative to
+                # the data dir, but a relative path resolves against the first
+                # workspace root without raising. Look under the data dir too.
+                alt = (user_data_dir() / raw).resolve()
+                images = (outputs_dir() / "images").resolve()
+                if alt.is_file() and alt.is_relative_to(images):
+                    path = alt
         except Exception:
             candidate = Path(raw)
             if not candidate.is_absolute():
