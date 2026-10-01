@@ -510,6 +510,8 @@ class WikipediaBackend:
             try:
                 cited = await self._citations(client, pages, query, limit, headers)
             except Exception:
+                # Citation enrichment is optional: fall back to the plain
+                # search hits rather than fail a search that already worked.
                 return pages
         return merge_citations(cited, pages, limit)
 
