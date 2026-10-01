@@ -57,6 +57,7 @@ from arelis.core.turn_confirm import RUN, STOP, confirm_call
 from arelis.core.turn_context import TurnContext
 from arelis.core.turn_execute import execute_call
 from arelis.core.turn_goal import LOGIN_READY_REPLY, browser_open_done_reply
+from arelis.core.preflight import looks_like_browser_open_ask
 from arelis.core.turn_scratch import RoundScratch, strip_tool_schemas
 from arelis.tools.inbox import INBOX_PEEK_ACTIONS, fill_inbox_args
 from arelis.tools.weather import (
@@ -770,8 +771,10 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
                     )
                 strip_tool_schemas(ctx, r)
                 continue
-            stop_open = is_browser_nav_call(name, args) and (
-                ctx.goal.kind == "browser" or looks_like_browser_click_signin(r.text)
+            stop_open = (
+                is_browser_nav_call(name, args)
+                and (ctx.goal.kind == "browser" or looks_like_browser_click_signin(r.text))
+                and looks_like_browser_open_ask(r.text)
             )
             owes_file = (
                 ctx.exact_need.needs_document
