@@ -133,6 +133,24 @@ _OPEN_ASK_MORE_WORK = re.compile(
     r")\b"
 )
 
+# The ask goes on past the tab loading: it wants something read off the page, a
+# picture of it, or a file made from it. "open example.com and tell me the
+# heading" is not finished by "The page is open." The older patterns above only
+# knew "read this page"; this is the wording that actually shows up after "and".
+_OPEN_ASK_WANTS_PAGE = re.compile(
+    r"(?i)\b("
+    r"tell\s+me|show\s+me|let\s+me\s+know|"
+    r"what(?:'s|\s+is|\s+does|\s+do)\b|"
+    r"heading|headline|title|summari[sz]e|summary|describe|"
+    r"screen\s*shot|screenshot|"
+    r"read\s+(?:it|the|that)|"
+    r"extract|copy\s+(?:the|its)|"
+    r"(?:save|write|put|store)\s+(?:it|that|its|the)\b|"
+    r"(?:text|markdown|pdf)\s+document|"
+    r"then\s+(?:call|use|run|read|save|write|take|describe|summari[sz]e)"
+    r")"
+)
+
 # Screenshot the open page then describe via vision (two tools).
 # Their monitors / a book on a display are desktop_look, not this.
 _BROWSER_SCREENSHOT = re.compile(
@@ -373,6 +391,7 @@ def looks_like_browser_open_ask(text: str) -> bool:
         or BROWSER_READ.search(raw)
         or _BROWSER_SCREENSHOT.search(raw)
         or _OPEN_ASK_MORE_WORK.search(raw)
+        or _OPEN_ASK_WANTS_PAGE.search(raw)
     ):
         return False
     return user_asked_for_browser(raw) or looks_like_browser_or_url(raw)

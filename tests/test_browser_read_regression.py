@@ -27,6 +27,8 @@ class _StubBrowserTool:
     def __init__(self) -> None:
         self.name = "browser"
         self.description = "Stub browser for testing."
+        self.risk = "read"
+        self.calls: list[dict] = []
         self.parameters_schema = {
             "type": "object",
             "properties": {
@@ -35,7 +37,8 @@ class _StubBrowserTool:
             },
         }
 
-    async def call(self, **kwargs) -> ToolResult:
+    async def run(self, **kwargs) -> ToolResult:
+        self.calls.append(dict(kwargs))
         action = str(kwargs.get("action", "open")).lower()
         url = str(kwargs.get("url", ""))
 
@@ -66,6 +69,11 @@ def _tools_registry() -> ToolRegistry:
     reg.register(_StubBrowserTool())
     reg.register(DocumentTool())
     return reg
+
+
+async def _allow(*_args, **_kwargs) -> str:
+    """request_confirm is awaited by the loop, so it must be a coroutine."""
+    return "allow"
 
 
 async def _run_agent_with_script(
@@ -104,7 +112,7 @@ async def _run_agent_with_script(
             "agent": agent_cfg,
             "ollama": {"num_ctx": shipped_num_ctx()},
         },
-        request_confirm=lambda *args, **kwargs: "allow",
+        request_confirm=_allow,
         is_cancelled=lambda: False,
     )
 
