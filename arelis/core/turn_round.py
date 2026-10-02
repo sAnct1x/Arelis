@@ -844,7 +844,10 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
             ):
                 text_call = parse_text_tool_call(content, registered_tools=tool_names)
                 if text_call and text_call.get("kind") == "tool":
-                    calls = [(text_call["name"], text_call["args"])]
+                    name = text_call["name"]
+                    args = text_call["args"]
+                    calls = [(name, args)]
+                    tool_calls = [_native_tool_call(name, args)]
 
         if not calls and loop.json_fallback:
             # strict while native tool calling is working: only a trailing

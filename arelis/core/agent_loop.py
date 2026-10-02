@@ -793,7 +793,6 @@ class AgentLoop:
             numeric_gate=ctx.numeric_gate,
             evidence_gate=ctx.evidence_gate,
             send_path=ctx.is_send_path(self._expected_tools),
-            agent_cfg=ctx.agent_cfg,
         )
         if refuse is None:
             refuse = self._look_refuse(final_content)
