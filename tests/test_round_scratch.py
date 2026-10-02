@@ -74,7 +74,7 @@ def _augment(loop: _FakeLoop) -> _FakeLoop:
     loop.config = {}
     loop.tools.needs_confirm = lambda *a, **k: False
     loop.tools.summarize_call = lambda name, args: f"{name} {sorted(args)}"
-    loop.tools.ollama_tools = lambda names: sorted(str(n) for n in names)
+    loop.tools.ollama_tools = lambda names, *, param_hints=False: sorted(str(n) for n in names)
     return loop
 
 

@@ -47,7 +47,7 @@ class _FakeLoop:
         self.memory = SimpleNamespace(messages=[])
         self.tools = SimpleNamespace(
             get=lambda _name: None,
-            ollama_tools=lambda _names: [],
+            ollama_tools=lambda _names, *, param_hints=False: [],
             call=self._call,
         )
         self._trace: list[str] = []
@@ -347,7 +347,7 @@ async def test_search_cap_with_a_page_open_keeps_scrape_for_the_rest() -> None:
     from arelis.core.claims import ExactnessNeed
 
     loop = _FakeLoop()
-    loop.tools.ollama_tools = lambda names: [{"name": n} for n in sorted(names)]
+    loop.tools.ollama_tools = lambda names, *, param_hints=False: [{"name": n} for n in sorted(names)]
     r = _scratch(
         calls=[("web_search", {"query": "yet another reanalysis"})],
         content="",
@@ -402,7 +402,7 @@ async def test_search_cap_on_wikipedia_keeps_scrape_and_drops_the_browser() -> N
     from arelis.core.claims import ExactnessNeed
 
     loop = _FakeLoop()
-    loop.tools.ollama_tools = lambda names: [{"name": n} for n in sorted(names)]
+    loop.tools.ollama_tools = lambda names, *, param_hints=False: [{"name": n} for n in sorted(names)]
     r = _scratch(
         calls=[("web_search", {"query": "one more madhusudhan query"})],
         content="",
@@ -508,7 +508,7 @@ async def test_repeated_browser_open_does_not_paint_the_page_when_a_pdf_is_owed(
     from arelis.core.same_call import record_same_call, same_call_key
 
     loop = _FakeLoop()
-    loop.tools.ollama_tools = lambda names: [{"name": n} for n in sorted(names)]
+    loop.tools.ollama_tools = lambda names, *, param_hints=False: [{"name": n} for n in sorted(names)]
     args = {"action": "open", "url": "https://arxiv.org/abs/2309.16758"}
     r = _scratch(
         calls=[("browser", args)],
@@ -549,7 +549,7 @@ async def test_second_duplicate_page_does_not_force_the_file() -> None:
     loop = _FakeLoop()
     offered: list[set[str]] = []
 
-    def _schemas(names: set[str]) -> list[dict[str, str]]:
+    def _schemas(names: set[str], *, param_hints: bool = False) -> list[dict[str, str]]:
         offered.append(set(names))
         return [{"name": n} for n in sorted(names)]
 
