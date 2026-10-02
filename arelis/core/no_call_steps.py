@@ -69,6 +69,7 @@ from arelis.core.intent_catalog import (
     solar_status_action,
 )
 from arelis.core.look import next_look_call
+from arelis.core.native_tool_calling import native_tool_calling
 from arelis.core.preflight import (
     draft_browser_args,
     draft_desktop_screenshot_args,
@@ -1014,6 +1015,9 @@ INJECT_STEPS: tuple[StepFn, ...] = (
 
 async def run_inject_steps(loop: Any, ctx: TurnContext, r: RoundScratch) -> str:
     """First matching step wins. ``nudge`` / ``inject`` / ``none``."""
+    # When native_tool_calling is enabled, skip all inject steps
+    if native_tool_calling(r.agent_cfg):
+        return "none"
     for step in INJECT_STEPS:
         hit = await step(loop, ctx, r)
         if hit != SKIP:

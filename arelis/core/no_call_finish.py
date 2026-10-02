@@ -31,6 +31,7 @@ from arelis.core.failure_copy import (
 )
 from arelis.core.gates import FORCE_GATE_KINDS, apply_force_gates
 from arelis.core.loop_helpers import _answer_has_quote_span, _exactness_finish_refuse
+from arelis.core.native_tool_calling import native_tool_calling
 from arelis.core.plan_nudge import plan_progress_notice
 from arelis.core.turn_context import TurnContext
 from arelis.core.turn_scratch import RoundScratch
@@ -331,10 +332,12 @@ FINISH_STEPS: tuple[StepFn, ...] = (
 
 
 async def run_finish_steps(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: int) -> str:
-    for step in FINISH_STEPS:
-        hit = await step(loop, ctx, r, round_i)
-        if hit != SKIP:
-            return hit
+    # When native_tool_calling is enabled, skip the nudge steps but keep the final refuse logic
+    if not native_tool_calling(r.agent_cfg):
+        for step in FINISH_STEPS:
+            hit = await step(loop, ctx, r, round_i)
+            if hit != SKIP:
+                return hit
     refuse = _exactness_finish_refuse(
         r.content,
         exact_need=ctx.exact_need,

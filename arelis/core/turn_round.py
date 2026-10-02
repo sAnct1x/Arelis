@@ -46,6 +46,7 @@ from arelis.core.json_tools import (
 from arelis.core.loop_helpers import (
     _MALFORMED_CALL_NOTICE,
 )
+from arelis.core.native_tool_calling import native_tool_calling
 from arelis.core.no_call_finish import NUDGE as FINISH_NUDGE
 from arelis.core.no_call_finish import run_finish_steps
 from arelis.core.no_call_steps import NUDGE, run_inject_steps
@@ -540,7 +541,10 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
             # Only strip tools if all exactness needs are satisfied.
             # Multi-step asks (chains) need tools until all required kinds complete.
             missing_kinds = ctx.ledger.missing_kinds(ctx.exact_need.kinds)
-            if not missing_kinds and not named_tools_owed(loop, ctx):
+            # Skip named_tools_owed check when native_tool_calling is enabled
+            if not missing_kinds and (
+                native_tool_calling(ctx.agent_cfg) or not named_tools_owed(loop, ctx)
+            ):
                 offer_tools = False
                 ollama_tools = []
                 ctx.offer_tools = False

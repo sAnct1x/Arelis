@@ -201,10 +201,10 @@ Arelis is heavily tuned around qwen3.5:9b with a large regex/intent routing laye
 that shortcuts tool selection based on patterns in the user's text. That layer was
 built because smaller models (7B-9B) need help picking the right tool from 34 options.
 
-**The problem:** Larger local models (Qwen3 30B-A3B, later Qwen3.6-27B) underperformed
-partly because the regex layer fights native tool calling. A model with strong tool-calling
-ability doesn't need prompt nudges forcing specific tools — those hints can override better
-native choices.
+**The hypothesis:** Larger local models (Qwen3 30B-A3B, later Qwen3.6-27B) may underperform
+when the regex layer fights native tool calling. This is a hypothesis being tested, not a measured
+result. A model with strong tool-calling ability may not need prompt nudges forcing specific tools
+— those hints could override better native choices.
 
 **The experiment:** `agent.native_tool_calling` (config flag) disables the regex/intent
 routing layer so the model uses native tool calling exclusively:

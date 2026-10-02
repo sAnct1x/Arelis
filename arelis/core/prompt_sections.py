@@ -6,6 +6,7 @@ from arelis.contacts import contacts_prompt_line
 from arelis.core.agent_loop import _wants_project_context, now_line
 from arelis.core.episodes import episodes_prompt_line
 from arelis.core.lessons import format_lessons, select_lessons
+from arelis.core.native_tool_calling import native_tool_calling
 from arelis.core.plan_nudge import select_plan
 from arelis.core.preflight import detect_intents, preflight_system_message
 from arelis.core.sms_complete import (
@@ -46,7 +47,7 @@ def append_preflight_guidance(
     """Append deterministic intent guidance and settle expected tool names."""
     preflight_kinds: list[str] = []
     # native_tool_calling disables regex/intent routing layer entirely
-    if bool(agent_cfg.get("native_tool_calling", False)):
+    if native_tool_calling(agent_cfg):
         return preflight_kinds
     if not bool(agent_cfg.get("intent_preflight", True)):
         return preflight_kinds

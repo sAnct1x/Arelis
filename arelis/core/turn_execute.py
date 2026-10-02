@@ -13,6 +13,7 @@ from arelis.core.evidence import classify_fetch_failure
 from arelis.core.fail_tags import tool_fail_replan_notice
 from arelis.core.look import LOOKING_STATUS, format_see_record
 from arelis.core.memory import tool_trace_entry
+from arelis.core.native_tool_calling import native_tool_calling
 from arelis.core.preflight import (
     login_check_hop_args,
     looks_like_browser_click_signin,
@@ -543,7 +544,8 @@ async def execute_call(
                     snapshot=str(result.output or ""),
                     signed_in=bool(data_dict.get("signed_in")),
                 )
-                if errand.done:
+                # Skip errand-done shortcut when native_tool_calling is enabled
+                if errand.done and not native_tool_calling(agent_cfg):
                     await loop.bus.publish(
                         Event(
                             EventType.THINKING,
@@ -565,7 +567,8 @@ async def execute_call(
                 snapshot=str(result.output or ""),
                 signed_in=bool((data_dict or {}).get("signed_in")),
             )
-            if errand.done:
+            # Skip errand-done shortcut when native_tool_calling is enabled
+            if errand.done and not native_tool_calling(agent_cfg):
                 # Don't finish if the ask named other tools we still owe (e.g.,
                 # "open and screenshot" or "open then call screenshot" shouldn't
                 # end after the open). Same pattern as the image_edit fix: check
@@ -623,7 +626,10 @@ async def execute_call(
                 # Not when the ask goes on to a tool it named (OCR the new
                 # file, vision on it): that chain still owes its second step,
                 # so fall through to the normal tool-message path.
-                if not [n for n in named_tools_owed(loop, ctx) if n != "image_edit"]:
+                # Skip named_tools_owed check when native_tool_calling is enabled
+                if not native_tool_calling(agent_cfg) and not [
+                    n for n in named_tools_owed(loop, ctx) if n != "image_edit"
+                ]:
                     # Its own sentence already names the sizes and the
                     # adjustments, which is the part worth reading.
                     await loop._finish(str(result.output).strip(), sources, streamed="")
@@ -1060,7 +1066,8 @@ async def _login_check_hop(
         snapshot=str(result.output or ""),
         signed_in=bool(data.get("signed_in")),
     )
-    if errand.done:
+    # Skip errand-done shortcut when native_tool_calling is enabled
+    if errand.done and not native_tool_calling(loop.agent_cfg):
         await loop._finish(errand.reply, sources, streamed="")
         return True
     await loop._finish(
