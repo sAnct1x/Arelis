@@ -103,3 +103,82 @@ def test_matrix_expected_tools_exist_in_production_registry(items_mod, known_too
 def test_matrix_banned_tools_are_real_tool_names(items_mod, known_tools):
     unknown = sorted(items_mod.BANNED - known_tools)
     assert not unknown, f"BANNED names no tool in the registry any more: {unknown}"
+
+
+def _gate_args(spec: str) -> tuple[str, dict]:
+    tool, _, action = spec.partition(":")
+    if tool == "web_fetch":
+        return tool, {"method": "DELETE"}
+    return tool, ({"action": action} if action else {})
+
+
+def test_matrix_gate_claims_match_policy(items_mod):
+    """An item that asserts a confirm card must name a call policy really pauses on.
+
+    always_pause() is the 'even when asked' rule, so a gate item stays valid
+    when the user's typed request already counts as the grant.
+    """
+    from arelis.tools.policy import always_pause
+
+    checked = 0
+    for item in [*items_mod.ITEMS, *items_mod.COMMS_ITEMS]:
+        for spec in item.gate:
+            tool, args = _gate_args(spec)
+            assert always_pause(tool, args), f"{item.id}: {spec} does not always pause"
+            checked += 1
+        assert set(item.decline) <= set(item.gate), f"{item.id}: decline without gate"
+    assert checked >= 6
+
+
+def test_matrix_path_checks_stay_inside_work_folder(items_mod):
+    for item in [*items_mod.ITEMS, *items_mod.COMMS_ITEMS]:
+        for rel in (*item.keep, *item.gone):
+            assert rel.startswith("work/") and ".." not in rel, f"{item.id}: {rel}"
+
+
+def test_matrix_gone_and_keep_targets_are_fixtures_or_created(items_mod):
+    """scratch_* files are recreated by make_fixtures; the others are made by the item."""
+    import re
+
+    text = (_ROOT / "scripts" / "live_matrix.py").read_text(encoding="utf-8")
+    for item in items_mod.ITEMS:
+        for rel in item.gone:
+            name = rel.rsplit("/", 1)[-1]
+            assert name in text or any(name in p for p in item.prompts), f"{item.id}: {rel}"
+        assert not re.search(r"[^\x00-\x7f]", " ".join(item.prompts)), item.id
+
+
+def test_comms_items_never_join_the_main_matrix(items_mod):
+    main_ids = {item.id for item in items_mod.ITEMS}
+    for item in items_mod.COMMS_ITEMS:
+        assert item.id not in main_ids
+        assert not item.id.startswith(("S", "C", "P", "X", "R", "G"))
+    # The main matrix may not send anything, ever.
+    assert all(item.live_sends == 0 for item in items_mod.ITEMS)
+    for item in items_mod.ITEMS:
+        assert not ({"send_sms", "send_email"} & {n for g in item.tools for n in g}), item.id
+
+
+def test_comms_plan_sends_exactly_three_tagged_messages(items_mod):
+    sends = [item for item in items_mod.COMMS_ITEMS if item.live_sends]
+    assert sum(item.live_sends for item in items_mod.COMMS_ITEMS) == 3
+    assert sorted(i.tool for i in sends) == ["send_email", "send_sms", "send_sms"]
+    for item in sends:
+        assert item.recipients, item.id
+        assert items_mod.COMMS_TAG in item.prompts[0], item.id
+    for item in items_mod.COMMS_ITEMS:
+        if not item.live_sends:
+            assert not item.recipients or item.decline or item.id.endswith("_stub"), item.id
+
+
+def test_comms_items_are_inert_and_carry_no_personal_data(items_mod):
+    """The runner only imports ITEMS and keeps the send tools BANNED, so the
+    comms plan cannot send anything; and no address or number is in the repo."""
+    import re
+
+    runner = (_ROOT / "scripts" / "live_matrix.py").read_text(encoding="utf-8")
+    assert "COMMS_ITEMS" not in runner
+    assert {"send_sms", "send_email"} <= items_mod.BANNED
+    blob = " ".join(p for i in items_mod.COMMS_ITEMS for p in i.prompts)
+    assert not re.search(r"\+?\d[\d\s().-]{8,}\d", blob)
+    assert "@gmail.com" not in blob and "@example.invalid" in blob

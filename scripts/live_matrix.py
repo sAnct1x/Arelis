@@ -58,8 +58,30 @@ def snip(text: str, n: int = 300) -> str:
 
 
 # ---------------------------------------------------------------- fixtures
+# Files that items create or delete. Removed and rebuilt each run so a rerun
+# does not trip "an existing file is never overwritten" (workspace copy/move,
+# pdf split/rotate) and delete probes always have something to delete.
+RUN_ARTIFACTS = (
+    "slash_a.txt",
+    "slash_b.txt",
+    "slash_c.txt",
+    "a_rot.pdf",
+    "m2.pdf",
+    "p2.pdf",
+    "scratch_decline.txt",
+    "scratch_allow.txt",
+)
+
+
 def make_fixtures() -> None:
     WORK.mkdir(parents=True, exist_ok=True)
+    for name in RUN_ARTIFACTS:
+        try:
+            (WORK / name).unlink()
+        except FileNotFoundError:
+            pass
+    (WORK / "scratch_decline.txt").write_text("keep me\n", encoding="ascii")
+    (WORK / "scratch_allow.txt").write_text("delete me\n", encoding="ascii")
     (DATA / "data").mkdir(parents=True, exist_ok=True)
     (DATA / "data" / "profile.yaml").write_text(
         "location:\n  city: Springfield\n  region: Illinois\n  country: US\n"
@@ -230,6 +252,7 @@ class Cap:
         self.error = ""
         self.done = asyncio.Event()
         self.confirms: list[str] = []
+        self.confirm_keys: list[str] = []
         self.timed_out = False
 
 
@@ -261,7 +284,7 @@ async def run_matrix(args) -> int:
 
     bus = EventBus()
     cap = Cap()
-    state = {"violation": ""}
+    state = {"violation": "", "decline": frozenset()}
 
     async def on_start(ev: Event) -> None:
         name = str((ev.payload or {}).get("tool") or "")
@@ -296,6 +319,10 @@ async def run_matrix(args) -> int:
         banned = tool in BANNED or tool == "external_read"
         if tool in BANNED:
             state["violation"] = tool
+        act = str((p.get("args") or {}).get("action") or "").strip().lower()
+        declined = tool in state["decline"] or f"{tool}:{act}" in state["decline"]
+        banned = banned or declined
+        cap.confirm_keys.append(f"{tool}:{act}" if act else tool)
         await bus.publish(
             Event(
                 EventType.TOOL_CONFIRM_REPLY,
@@ -337,6 +364,8 @@ async def run_matrix(args) -> int:
         before = snapshot()
         all_tools: list[str] = []
         all_results: list[tuple[str, bool | None]] = []
+        all_confirms: list[str] = []
+        state["decline"] = frozenset(x.lower() for x in item.decline)
         trace: list[str] = []
         finals: list[str] = []
         errors: list[str] = []
@@ -360,6 +389,7 @@ async def run_matrix(args) -> int:
             await asyncio.sleep(1.5)
             all_tools += cap.tools
             all_results += cap.results
+            all_confirms += cap.confirm_keys
             trace += cap.trace
             finals.append(cap.final)
             if cap.error:
@@ -394,6 +424,21 @@ async def run_matrix(args) -> int:
                 reasons.append(f"answer missing {needle!r}")
         if item.ans_any and not any(fold(n) in low for n in item.ans_any):
             reasons.append(f"answer missing any of {list(item.ans_any)!r}")
+        for needle in item.ans_none:
+            if fold(needle) in low:
+                reasons.append(f"answer contains forbidden {needle!r}")
+        for want in item.gate:
+            w = want.lower()
+            if not any(k == w or k.startswith(w + ":") for k in all_confirms):
+                reasons.append(
+                    f"no confirm card raised for {want!r} (cards: {all_confirms or '-'})"
+                )
+        for rel in item.keep:
+            if not (MATRIX / rel).exists():
+                reasons.append(f"expected {rel} to exist")
+        for rel in item.gone:
+            if (MATRIX / rel).exists():
+                reasons.append(f"expected {rel} to be gone")
         f_reasons, found = check_files(item, before, after)
         reasons += f_reasons
         reasons += check_db(item, db_path)
@@ -405,7 +450,7 @@ async def run_matrix(args) -> int:
             "secs": secs,
             "files": found,
             "trace": trace,
-            "confirms": list(cap.confirms),
+            "confirms": all_confirms,
         }
 
     out_json = MATRIX / "results.json"
@@ -567,6 +612,14 @@ def emit_matrix() -> None:
                 exp.append(f"new {suf or 'any'} file" + (f" containing {nd!r}" if nd else ""))
             for t, c, nd in it.db:
                 exp.append(f"memory.db {t}.{c} contains {nd!r}")
+            for g in it.gate:
+                exp.append(f"confirm card for {g}" + (" (declined)" if g in it.decline else ""))
+            for x in it.ans_none:
+                exp.append(f"answer lacks {x!r}")
+            for x in it.keep:
+                exp.append(f"{x} still exists")
+            for x in it.gone:
+                exp.append(f"{x} removed")
             if it.skip:
                 exp.append("SKIPPED: " + it.skip)
             prompt = " || ".join(it.prompts).replace("|", "/")
