@@ -41,6 +41,7 @@ from arelis.core.failure_copy import (
 from arelis.core.json_tools import (
     extract_native_tool_calls,
     parse_fallback_payload,
+    parse_text_tool_call,
     strip_thinking_text,
 )
 from arelis.core.loop_helpers import (
@@ -832,6 +833,18 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
 
             content = strip_thinking_text(raw_content)
             calls = extract_native_tool_calls(tool_calls)
+            
+            # When native_tool_calling is enabled and the model wrote a text-form
+            # tool call (e.g. <tool_call>{"name":..., "arguments":...}</tool_call>),
+            # parse and execute it.
+            if (
+                not calls
+                and native_tool_calling(agent_cfg)
+                and content
+            ):
+                text_call = parse_text_tool_call(content, registered_tools=tool_names)
+                if text_call and text_call.get("kind") == "tool":
+                    calls = [(text_call["name"], text_call["args"])]
 
         if not calls and loop.json_fallback:
             # strict while native tool calling is working: only a trailing

@@ -8,6 +8,9 @@ _FENCE = re.compile(r"```(?:json)?\s*([\s\S]*?)```", re.IGNORECASE)
 _THINK_BLOCK = re.compile(r"<think>[\s\S]*?</think>", re.IGNORECASE)
 _THINK_OPEN = re.compile(r"<think>", re.IGNORECASE)
 _THINK_CLOSE = re.compile(r"</think>", re.IGNORECASE)
+_TEXT_TOOL_CALL = re.compile(
+    r"<tool_call>\s*(\{[\s\S]*?\})\s*</tool_call>", re.IGNORECASE
+)
 
 
 def strip_thinking_text(text: str) -> str:
@@ -311,3 +314,45 @@ def extract_native_tool_calls(calls: list[dict[str, Any]]) -> list[tuple[str, di
         seen.add(fingerprint)
         out.append((name, args))
     return out
+
+
+def parse_text_tool_call(text: str, *, registered_tools: set[str] | None = None) -> dict[str, Any] | None:
+    """Parse text-form tool calls like <tool_call>{"name":"...", "arguments":...}</tool_call>.
+    
+    When native_tool_calling is enabled, some models emit tool calls as literal text
+    instead of using the structured API. This parser extracts and validates them.
+    
+    Returns normalized dict {"kind": "tool", "name": str, "args": dict} or None.
+    Validates against registered_tools when provided.
+    """
+    if not text or not text.strip():
+        return None
+    
+    # Look for the last text-form tool call in the message
+    matches = list(_TEXT_TOOL_CALL.finditer(text))
+    if not matches:
+        return None
+    
+    # Use the last match (models typically put the actual call at the end)
+    match = matches[-1]
+    json_str = match.group(1).strip()
+    
+    try:
+        data = json.loads(json_str)
+    except json.JSONDecodeError:
+        return None
+    
+    if not isinstance(data, dict):
+        return None
+    
+    normalized = _normalize_tool_dict(data)
+    if not normalized or normalized.get("kind") != "tool":
+        return None
+    
+    # Validate against registered tools if provided
+    if registered_tools is not None:
+        tool_name = normalized.get("name", "")
+        if tool_name not in registered_tools:
+            return None
+    
+    return normalized

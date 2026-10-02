@@ -32,6 +32,27 @@ _EVIDENCE_KINDS = frozenset(
 )
 
 
+def _kind_to_ledger_type(kind: str) -> str:
+    """Map exactness kind to ledger evidence type for successful tool checks.
+    
+    Used by native_tool_calling path to check if a tool succeeded before
+    refusing an answer.
+    """
+    # Direct mappings
+    kind_map = {
+        "math": "calc",
+        "symbolic": "cas",
+        "analyze": "analyze",
+        "catalog": "catalog",
+        "document": "document",
+        "plot": "plot",
+        "units": "units",
+        "memory": "memory",
+        "goals": "goals",
+    }
+    return kind_map.get(kind, kind)
+
+
 _PROJECT_CONTEXT_SKILLS = frozenset({"workspace", "analyze", "docs", "document", "science"})
 _PROJECT_CONTEXT_TOOLS = frozenset(
     {"workspace", "analyze", "git_info", "doc_extract", "plot", "document"}
@@ -251,8 +272,13 @@ def _exactness_finish_refuse(
     numeric_gate: bool,
     evidence_gate: bool,
     send_path: bool = False,
+    agent_cfg: dict[str, Any] | None = None,
 ) -> str | None:
-    """Return a refusal when finishing would ship an unsupported exact claim."""
+    """Return a refusal when finishing would ship an unsupported exact claim.
+    
+    When native_tool_calling is enabled and tools succeeded, respect the results
+    instead of replacing answers with canned refusals.
+    """
     # Side-effect honesty runs before refusal escape so hedge-then-claim
     # ("I don't know, but I sent…") cannot ship a fake send.
     if evidence_gate:
@@ -280,6 +306,23 @@ def _exactness_finish_refuse(
         ]
     if not evidence_gate:
         missing = [k for k in missing if k not in _EVIDENCE_KINDS]
+    
+    # When native_tool_calling is enabled and the answer looks reasonable
+    # (not empty, not obviously refusing), trust that the model used successful
+    # tool results properly, even if exactness gates would normally refuse.
+    from arelis.core.native_tool_calling import native_tool_calling
+    if (
+        native_tool_calling(agent_cfg)
+        and content
+        and content.strip()
+        and not answer_looks_like_refusal(content)
+    ):
+        # Check if we have successful tool results for any of the missing kinds
+        has_results = any(ledger.has_ok(_kind_to_ledger_type(k)) for k in missing)
+        if has_results:
+            # Tools succeeded; let the model's answer through
+            return None
+    
     if not missing:
         return None
     if "math" in missing:
