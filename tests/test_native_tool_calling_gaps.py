@@ -13,12 +13,23 @@ from __future__ import annotations
 
 import pytest
 
+from arelis.core.claims import ExactnessNeed
 from arelis.core.evidence import EvidenceLedger
 from arelis.core.json_tools import parse_text_tool_call
 from arelis.core.loop_helpers import _exactness_finish_refuse
-from arelis.core.turn_scratch import ExactNeed
 
 pytestmark = pytest.mark.no_ui
+
+
+def _need(kinds: tuple[str, ...]) -> ExactnessNeed:
+    """Helper to build ExactnessNeed with required fields."""
+    return ExactnessNeed(
+        needs_calculator=False,
+        needs_web_evidence=False,
+        needs_weather=False,
+        needs_recall=False,
+        kinds=kinds,
+    )
 
 
 # ============================================================================
@@ -325,7 +336,7 @@ def test_record_tool_memory_empty_output_records_nothing() -> None:
 def test_exactness_refuse_with_sql_warrant_from_native_tools() -> None:
     """When sql records analyze warrant, exactness doesn't refuse."""
     content = "The table has 250 rows according to the sql query."
-    exact_need = ExactNeed(kinds=["analyze"])
+    exact_need = _need(kinds=("analyze",))
     ledger = EvidenceLedger()
     
     # Simulate sql tool with native_tools=True
@@ -353,7 +364,7 @@ def test_exactness_refuse_with_sql_warrant_from_native_tools() -> None:
 def test_exactness_refuse_with_memory_warrant_from_native_tools() -> None:
     """When memory records recall warrant, exactness doesn't refuse."""
     content = "Your favorite color is teal."
-    exact_need = ExactNeed(kinds=["recall"])
+    exact_need = _need(kinds=("recall",))
     ledger = EvidenceLedger()
     
     # Simulate memory tool with native_tools=True
@@ -380,7 +391,7 @@ def test_exactness_refuse_with_memory_warrant_from_native_tools() -> None:
 def test_exactness_refuse_without_native_tools_still_refuses() -> None:
     """Without native_tools, sql/memory don't record warrants and exactness refuses."""
     content = "The table has 250 rows."
-    exact_need = ExactNeed(kinds=["analyze"])
+    exact_need = _need(kinds=("analyze",))
     ledger = EvidenceLedger()
     
     # Simulate sql tool with native_tools=False (default)
@@ -428,7 +439,7 @@ def test_scenario_s27_sql_with_native_tools() -> None:
     # Now exactness won't refuse
     refuse = _exactness_finish_refuse(
         "The table has 250 rows.",
-        exact_need=ExactNeed(kinds=["analyze"]),
+        exact_need=_need(kinds=("analyze",)),
         ledger=ledger,
         numeric_gate=True,
         evidence_gate=True,
@@ -453,7 +464,7 @@ def test_scenario_s18_memory_with_native_tools() -> None:
     # Now exactness won't refuse
     refuse = _exactness_finish_refuse(
         "Your favorite color is teal.",
-        exact_need=ExactNeed(kinds=["recall"]),
+        exact_need=_need(kinds=("recall",)),
         ledger=ledger,
         numeric_gate=True,
         evidence_gate=True,
