@@ -83,8 +83,14 @@ class EvidenceLedger:
         output: str,
         data: dict[str, Any] | None,
         args: dict[str, Any] | None = None,
+        native_tools: bool = False,
     ) -> None:
-        """Map a tool result into zero or more warrants."""
+        """Map a tool result into zero or more warrants.
+        
+        When native_tools=True, additional tool mappings for native tool calling:
+        - sql → analyze warrant (when successful with non-empty output)
+        - memory read actions → recall warrant (when successful)
+        """
         data = data or {}
         args = args or {}
         if name == "calculator":
@@ -317,6 +323,33 @@ class EvidenceLedger:
             path = str(data.get("path") or args.get("path") or "ocr")
             span = (output or "")[:300] if ok else (output or "ocr failed")[:300]
             self.add(source=path[:200], kind="vision", span=span, ok=ok)
+            return
+        # Native tool calling: sql → analyze warrant
+        if native_tools and name == "sql":
+            if not ok:
+                return
+            output_text = (output or "").strip()
+            if not output_text:
+                return
+            path = str(args.get("database") or "memory.db")
+            query = str(args.get("query") or "")[:100]
+            head = output_text.splitlines()[0] if output_text else ""
+            parts = [p for p in (path, query, head) if p]
+            span = " | ".join(parts) if parts else "sql"
+            self.add(source=path[:200], kind="analyze", span=span[:300], ok=True)
+            return
+        # Native tool calling: memory read → recall warrant
+        if native_tools and name == "memory":
+            if not ok:
+                return
+            action = str(data.get("action") or args.get("action") or "").lower()
+            # Only read-type actions record recall warrants
+            if action not in {"recall", "search", "list"}:
+                return
+            output_text = (output or "").strip()
+            if not output_text:
+                return
+            self.add(source="memory", kind="recall", span=output_text[:300], ok=True)
             return
 
     def has_ok(self, kind: str) -> bool:
