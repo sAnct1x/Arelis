@@ -127,6 +127,9 @@ async def execute_call(
             action = str(args.get("action") or "").strip()
             if action:
                 tool_fields["action"] = action
+            # Add arg_keys in native mode for telemetry
+            if native_tool_calling(agent_cfg):
+                tool_fields["arg_keys"] = sorted(args.keys()) if args else []
             loop._timer.mark("tool", **tool_fields)
         data_dict = result.data if isinstance(result.data, dict) else None
         if name in {"scrape", "web_fetch"} and not result.ok:
@@ -150,7 +153,10 @@ async def execute_call(
                         ctx.tool_names.update(visible)
                         tool_names = ctx.tool_names
                         if offer_tools:
-                            ollama_tools = loop.tools.ollama_tools(visible)
+                            ollama_tools = loop.tools.ollama_tools(
+                                visible,
+                                param_hints=native_tool_calling(agent_cfg),
+                            )
         if result.ok:
             loop.tools_used.add(name)
             fail_counts.pop(call_fp, None)
@@ -473,6 +479,12 @@ async def execute_call(
             if isinstance(args, dict)
             else "",
         )
+        
+        # Apply native tool calling hints to output
+        if native_tool_calling(agent_cfg):
+            from arelis.core.native_tool_calling import append_native_task_hint
+            out = append_native_task_hint(name, args, result.ok, out)
+        
         if (
             loop._look is not None
             and name in {"ocr", "vision"}

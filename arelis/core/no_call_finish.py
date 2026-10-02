@@ -87,7 +87,10 @@ async def try_js_shell_browser(loop: Any, ctx: TurnContext, r: RoundScratch, rou
         ctx.tool_names.update(r.visible)
         r.tool_names = ctx.tool_names
         if r.offer_tools:
-            r.ollama_tools = loop.tools.ollama_tools(r.visible)
+            r.ollama_tools = loop.tools.ollama_tools(
+                r.visible,
+                param_hints=native_tool_calling(r.agent_cfg),
+            )
     await loop._retract()
     r.messages.append({"role": "assistant", "content": r.content})
     r.messages.append(

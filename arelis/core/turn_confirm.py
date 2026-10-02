@@ -11,6 +11,7 @@ from uuid import uuid4
 
 from arelis.core.events import Event, EventType
 from arelis.core.loop_helpers import _SKIP_NOTICE, _tool_fail_fingerprint
+from arelis.core.native_tool_calling import native_arg_problem, native_tool_calling
 from arelis.core.preflight import user_asked_for_browser, user_asked_for_desktop
 from arelis.core.turn_context import TurnContext
 from arelis.tools.base import confirm_args_blocked
@@ -114,6 +115,30 @@ async def confirm_call(
                 tool_names=tool_names,
             )
         return SKIP, "", call_fp
+
+    # Check native-mode-specific argument problems
+    if native_tool_calling(ctx.agent_cfg):
+        native_blocked = native_arg_problem(name, args)
+        if native_blocked:
+            fail_counts[call_fp] = fail_counts.get(call_fp, 0) + 1
+            clipped = _clip_confirm_reason(native_blocked)
+            await loop.bus.publish(
+                Event(
+                    EventType.THINKING,
+                    {"text": f"phase=confirm native_blocked  {clipped}"},
+                )
+            )
+            messages.append(loop._tool_message(name, f"[fail:other] {clipped}"))
+            loop._trace.append(f"{name} native_blocked: {clipped}")
+            if fail_counts[call_fp] >= 2:
+                return await _emit_skip_repeat_fail(
+                    loop,
+                    name,
+                    call_fp,
+                    messages=messages,
+                    tool_names=tool_names,
+                )
+            return SKIP, "", call_fp
 
     if fail_counts.get(call_fp, 0) >= 2:
         return await _emit_skip_repeat_fail(

@@ -134,21 +134,52 @@ def skinny_description(name: str, fallback: str = "") -> str:
     return cut
 
 
-def skinny_parameters(schema: dict[str, Any] | None) -> dict[str, Any]:
+def skinny_parameters(
+    schema: dict[str, Any] | None,
+    *,
+    tool_name: str = "",
+    param_hints: bool = False,
+) -> dict[str, Any]:
     """Keep types, enums, required, property names. Drop description essays.
 
     A property that was only an essay becomes ``{}`` after the strip, which
     is worse than omitting it — the model sees a named hole with no type.
     Drop those. Give the field a type in the source schema if it should stay.
+
+    When param_hints is True and tool_name is in the allowlist, keep specific
+    parameter descriptions that help the model use the correct arguments.
     """
     if not isinstance(schema, dict):
         return {"type": "object", "properties": {}}
+
+    # Strip all descriptions first
     stripped = _strip_descriptions(schema)
     props = stripped.get("properties") if isinstance(stripped, dict) else None
+
     if isinstance(props, dict):
-        stripped["properties"] = {
+        # Filter out empty properties
+        filtered = {
             key: value for key, value in props.items() if value != {}
         }
+
+        # Apply hints at top level when param_hints is enabled
+        if param_hints and tool_name:
+            from arelis.core.native_tool_calling import NATIVE_NOTES_ONLY_TEXT, NATIVE_PARAM_HINTS
+
+            # Add descriptions for hinted parameters
+            for (tn, pn), desc in NATIVE_PARAM_HINTS.items():
+                if tn == tool_name and pn in filtered:
+                    filtered[pn]["description"] = desc
+
+            # For notes tool in native mode, only expose 'text' parameter (not aliases)
+            if tool_name == "notes" and NATIVE_NOTES_ONLY_TEXT:
+                # Remove content and body aliases, keep only text
+                filtered = {
+                    key: value for key, value in filtered.items()
+                    if key not in ("content", "body")
+                }
+
+        stripped["properties"] = filtered
     return stripped
 
 
@@ -156,18 +187,25 @@ def skinny_ollama_tool(
     name: str,
     description: str,
     parameters_schema: dict[str, Any] | None,
+    *,
+    param_hints: bool = False,
 ) -> dict[str, Any]:
     return {
         "type": "function",
         "function": {
             "name": name,
             "description": skinny_description(name, description),
-            "parameters": skinny_parameters(parameters_schema),
+            "parameters": skinny_parameters(
+                parameters_schema,
+                tool_name=name,
+                param_hints=param_hints,
+            ),
         },
     }
 
 
 def _strip_descriptions(node: Any) -> Any:
+    """Strip descriptions recursively."""
     if isinstance(node, dict):
         return {
             key: _strip_descriptions(value)

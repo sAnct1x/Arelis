@@ -516,7 +516,10 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
             available, visible = apply_expected(
                 loop, available, text=text, available_all=available_all
             )
-            ollama_tools = loop.tools.ollama_tools(visible)
+            ollama_tools = loop.tools.ollama_tools(
+                visible,
+                param_hints=native_tool_calling(agent_cfg),
+            )
             ctx.tool_names.clear()
             ctx.tool_names.update(visible)
             ctx.ollama_tools = ollama_tools
@@ -562,7 +565,10 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
 
         if getattr(loop, "_in_close", False):
             if loop.tools.get("document") is not None:
-                ollama_tools = loop.tools.ollama_tools({"document"})
+                ollama_tools = loop.tools.ollama_tools(
+                    {"document"},
+                    param_hints=native_tool_calling(agent_cfg),
+                )
                 offer_tools = True
             else:
                 ollama_tools = []

@@ -98,7 +98,7 @@ async def test_prepare_turn_wires_sections_expected_tools_budget_and_history(mon
 
     loop._messages_for_turn = messages_for_turn
     loop.tools = SimpleNamespace(
-        ollama_tools=lambda visible: [{"name": sorted(visible)[0]}],
+        ollama_tools=lambda visible, *, param_hints=False: [{"name": sorted(visible)[0]}],
     )
 
     async def begin(*_args, **_kwargs):
