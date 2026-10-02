@@ -57,6 +57,7 @@ from arelis.core.intent_catalog import (
     weather_intent_matches,
 )
 from arelis.core.look import LookTurn, classify_look, frame_sha256
+from arelis.core.native_tool_calling import native_tool_calling
 from arelis.core.other_work import looks_like_other_work
 from arelis.core.preflight import draft_browser_args, looks_like_room_create
 from arelis.core.prompt_sections import (
@@ -815,7 +816,14 @@ async def prepare_turn(
         wants_fresh_page=wants_fresh_page,
         active_plan=active_plan,
     )
-    ollama_tools = loop.tools.ollama_tools(visible) if offer_tools else []
+    ollama_tools = (
+        loop.tools.ollama_tools(
+            visible,
+            param_hints=native_tool_calling(agent_cfg),
+        )
+        if offer_tools
+        else []
+    )
     if loop._timer is not None and not offer_tools:
         loop._timer.mark("chat_fast_path", tools=0)
     await _attach_tool_schemas_and_history(
