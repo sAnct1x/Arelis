@@ -182,6 +182,9 @@ class TurnTimer:
             action = str(fields.get("action") or "").strip()
             if action:
                 rec["action"] = action
+            # Include arg_keys when present (native mode)
+            if "arg_keys" in fields:
+                rec["arg_keys"] = fields["arg_keys"]
             self.tool_records.append(rec)
         gate = str(fields.get("gate") or "").strip()
         if gate:
