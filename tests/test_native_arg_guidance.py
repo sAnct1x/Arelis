@@ -17,7 +17,7 @@ from typing import Any
 
 import pytest
 
-from arelis.core.compact_prompt import skinny_ollama_tool, skinny_parameters
+from arelis.core.compact_prompt import skinny_ollama_tool
 from arelis.core.native_tool_calling import (
     NATIVE_PARAM_HINTS,
     append_native_task_hint,
@@ -551,7 +551,7 @@ async def test_confirm_call_native_blocked_workspace():
     def drop_wander(name: str) -> None:
         pass
 
-    action, _summary, fp = await confirm_call(
+    action, _summary, _fp = await confirm_call(
         loop,
         ctx,
         "workspace",
