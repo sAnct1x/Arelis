@@ -359,6 +359,7 @@ async def execute_call(
             output=str(result.output or ""),
             data=data_dict,
             args=args if isinstance(args, dict) else None,
+            native_tools=native_tool_calling(r.agent_cfg),
         )
         receipt = action_receipt(
             name,
