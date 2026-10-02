@@ -31,6 +31,7 @@ from arelis.core.intent_catalog import (
     earth_status_action,
     solar_status_action,
 )
+from arelis.core.native_tool_calling import native_tool_calling
 from arelis.core.sms_complete import draft_send_sms_args
 from arelis.core.turn_context import TurnContext
 from arelis.core.turn_scratch import RoundScratch
@@ -268,6 +269,9 @@ async def apply_redirects(
     drop_wander: Any,
 ) -> tuple[Any, ...]:
     """Return ``(\"run\", name, args)`` or ``(\"skip\",)``."""
+    # When native_tool_calling is enabled, skip all redirects
+    if native_tool_calling(r.agent_cfg):
+        return ("run", name, args)
     for step in REDIRECT_STEPS:
         hit = await step(loop, ctx, r, name, args, drop_wander)
         if hit is not None:

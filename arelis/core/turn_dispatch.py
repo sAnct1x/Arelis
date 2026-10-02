@@ -30,6 +30,7 @@ from arelis.core.image_refs import (
     fill_vision_args,
 )
 from arelis.core.look import PASTED_IDENTIFY_QUESTION, look_call_blocked, vision_question
+from arelis.core.native_tool_calling import native_tool_calling
 from arelis.core.preflight import (
     looks_like_browser_click_signin,
     looks_like_browser_open_ask,
@@ -292,7 +293,8 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
         await loop._hold_if_paused()
 
         if name not in r.tool_names:
-            daily_miss = (
+            # Skip daily_miss check when native_tool_calling is enabled
+            daily_miss = not native_tool_calling(r.agent_cfg) and (
                 (
                     name in {
                         "web_search",

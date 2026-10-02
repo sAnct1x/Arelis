@@ -147,6 +147,14 @@ agent:
   tool_round_temperature: 0.1
   # Deterministic nudges for clear weather / SMS intents. Never skips Allow.
   intent_preflight: true
+  # EXPERIMENT: Disable regex/intent routing layer so models use native tool
+  # calling instead. When true, skips regex-based intent detection and preflight
+  # nudges that shortcut tool selection. Safety gates (SMS/email bans,
+  # confirm-before-write) stay active. Default false = current qwen3.5:9b
+  # tuned behavior (regex routing ON). Set true for models with strong native
+  # tool calling (Qwen3 30B-A3B, Qwen3.6-27B+) to avoid regex layer fighting
+  # native selection. See docs/models.md.
+  native_tool_calling: false
   # Inject short failure lessons (data/lessons.yaml + built-in seed).
   lessons: true
   # At UI/CLI start, mine logs/turns.log and append curated lessons by signature.

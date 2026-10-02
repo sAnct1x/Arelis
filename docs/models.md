@@ -194,3 +194,37 @@ on the same PC.
 
 For how the router, rooms, and vision unloading tie into everything
 else, see [architecture.md](architecture.md).
+
+## Experiment: Native Tool Calling
+
+Arelis is heavily tuned around qwen3.5:9b with a large regex/intent routing layer
+that shortcuts tool selection based on patterns in the user's text. That layer was
+built because smaller models (7B-9B) need help picking the right tool from 34 options.
+
+**The hypothesis:** Larger local models (Qwen3 30B-A3B, later Qwen3.6-27B) may underperform
+when the regex layer fights native tool calling. This is a hypothesis being tested, not a measured
+result. A model with strong tool-calling ability may not need prompt nudges forcing specific tools
+— those hints could override better native choices.
+
+**The experiment:** `agent.native_tool_calling` (config flag) disables the regex/intent
+routing layer so the model uses native tool calling exclusively:
+- Default: `false` (current qwen3.5:9b tuned behavior with regex routing ON)
+- Set to `true` for models with strong native tool calling (Qwen3 30B+, future Qwen3.6-27B+)
+
+When enabled:
+- Skips regex-based intent detection (`detect_intents()`)
+- Skips preflight system nudges that force tool choices
+- Model selects tools through native function calling only
+- Safety gates stay active (SMS/email bans, confirm-before-write, etc.)
+
+This is a **staged experiment**, not a deletion of the regex layer. The flag lets you measure
+performance with and without regex routing. Eventually the regex layer may become a small-model
+fallback only, but that decision waits on measured results from Atria benches.
+
+To try it, add to `data/config.local.yaml`:
+```yaml
+agent:
+  native_tool_calling: true
+```
+
+Then run your comparison tests. The Chief of Staff will run the full compare matrices after merge.

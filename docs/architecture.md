@@ -141,6 +141,13 @@ recipient should not read, and refuse to finish on a receipt that
 does not serve the goal (a captcha is not a research report). The
 regex layer still picks the first tool; the goal is the unlock.
 
+**Experiment:** `agent.native_tool_calling` (config flag, default `false`)
+disables the regex/intent routing layer for models with strong native
+tool calling. When enabled, skips `detect_intents()` and preflight
+nudges; the model selects tools through native function calling only.
+Safety gates (SMS/email bans, confirm-before-write) stay active. See
+[models.md](models.md) for details.
+
 Every launch after the first pins the chat model, then seeds
 Ollama's prefix cache (`arelis/llm/startup.py`) with the persona, the
 telegraph policy, and the skinny tool schema array — about 5,500
