@@ -45,6 +45,9 @@ def append_preflight_guidance(
 ) -> list[str]:
     """Append deterministic intent guidance and settle expected tool names."""
     preflight_kinds: list[str] = []
+    # native_tool_calling disables regex/intent routing layer entirely
+    if bool(agent_cfg.get("native_tool_calling", False)):
+        return preflight_kinds
     if not bool(agent_cfg.get("intent_preflight", True)):
         return preflight_kinds
 
