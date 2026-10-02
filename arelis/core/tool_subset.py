@@ -49,6 +49,7 @@ from arelis.core.intent_catalog import (
     must_keep_full_surface_text,
     research_extras_for_text,
 )
+from arelis.core.native_tool_calling import native_tool_calling
 from arelis.core.preflight import detect_intents
 from arelis.core.skills import (
     select_skill_ids_detailed,
@@ -253,14 +254,18 @@ def _skill_subset(
     history: list[Any] | None = None,
     skill_ids: Iterable[str] | None = None,
     extra_skill_ids: Iterable[str] | None = None,
+    agent_cfg: dict[str, Any] | None = None,
 ) -> set[str]:
     """Shrink to skill + preflight tools, or return *available* when unsure."""
     expected: set[str] = set()
+    # When native_tool_calling is enabled, skip regex-based intent detection
+    use_intent_routing = not native_tool_calling(agent_cfg)
     veto_sms = sms_negative_hit(text or "")
-    for hint in detect_intents(text, history=history):
-        if veto_sms and hint.kind in {"sms_send", "inbound_sms", "sms"}:
-            continue
-        expected.update(hint.expected_tools)
+    if use_intent_routing:
+        for hint in detect_intents(text, history=history):
+            if veto_sms and hint.kind in {"sms_send", "inbound_sms", "sms"}:
+                continue
+            expected.update(hint.expected_tools)
     extra = [sid for sid in (extra_skill_ids or ()) if sid]
     if skill_ids is not None:
         ids = list(skill_ids)
@@ -345,6 +350,7 @@ def filter_tool_names(
     history: list[Any] | None = None,
     skill_ids: Iterable[str] | None = None,
     extra_skill_ids: Iterable[str] | None = None,
+    agent_cfg: dict[str, Any] | None = None,
 ) -> set[str]:
     """Return the tool names the model may see this turn.
 
@@ -356,22 +362,27 @@ def filter_tool_names(
     """
     names = set(available)
     extra = set(tools_for_skill_ids(extra_skill_ids or ()))
+    use_intent_routing = not native_tool_calling(agent_cfg)
     if not enabled and not skill_subset:
         # The full surface still owes the authorization filter. Skipping it here
         # is what let a stale SMS draft ride an unrelated turn.
-        expected = {
-            t
-            for hint in detect_intents(text, history=history)
-            for t in hint.expected_tools
-        }
+        expected: set[str] = set()
+        if use_intent_routing:
+            expected = {
+                t
+                for hint in detect_intents(text, history=history)
+                for t in hint.expected_tools
+            }
         return _without_unauthorized_sends(names, text, expected, history=history)
     if _must_keep_full_surface(text, history):
-        expected = {
-            t
-            for hint in detect_intents(text, history=history)
-            for t in hint.expected_tools
-        }
-        return _without_unauthorized_sends(names, text, expected, history=history)
+        expected_full: set[str] = set()
+        if use_intent_routing:
+            expected_full = {
+                t
+                for hint in detect_intents(text, history=history)
+                for t in hint.expected_tools
+            }
+        return _without_unauthorized_sends(names, text, expected_full, history=history)
     if enabled and should_apply_research_subset(role, text, history=history):
         allow = set(RESEARCH_TOOL_ALLOWLIST) | _extras_for_text(text) | extra
         return {n for n in names if n in allow}
@@ -389,4 +400,5 @@ def filter_tool_names(
         history=history,
         skill_ids=skill_ids,
         extra_skill_ids=extra_skill_ids,
+        agent_cfg=agent_cfg,
     )

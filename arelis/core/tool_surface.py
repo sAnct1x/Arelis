@@ -105,6 +105,7 @@ def base_surface(
         skill_subset=bool(agent_cfg.get("skill_tool_subset", False)),
         history=loop.memory.messages,
         extra_skill_ids=room_skills,
+        agent_cfg=agent_cfg,
     )
     available = visible
     if loop._look is not None:
