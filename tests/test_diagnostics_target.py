@@ -257,3 +257,18 @@ async def test_traversal_escape_still_refused_with_bare_name(
     assert not result.ok
     assert result.data.get("fail_class") == "fail:target"
     assert not calls
+
+
+async def test_bare_name_with_nodeid_resolves(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Bare 'test_units_temp::test_function' should resolve to tests/test_units_temp.py::test_function."""
+    calls = _patch_pytest(monkeypatch)
+    result = await DiagnosticsTool().run(
+        target="test_units_temp::test_fahrenheit_to_celsius_spoken"
+    )
+    assert result.ok, result.output
+    assert calls, "bare name with nodeid should resolve and start pytest"
+    seen = _norm(_pytest_target(calls[0]))
+    assert "test_units_temp.py::test_fahrenheit_to_celsius_spoken" in seen
+    assert "tests/" in seen

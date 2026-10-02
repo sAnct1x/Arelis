@@ -152,7 +152,7 @@ def resolve_diagnostics_target(raw: str, *, tests_dir: Path, root: Path) -> str 
         )
 
     # Try .py suffix if bare name doesn't exist
-    if not resolved.exists() and not resolved.suffix and not node:
+    if not resolved.exists() and not resolved.suffix:
         py_variant = resolved.with_suffix(".py")
         if py_variant.exists() and _contained(py_variant, tests_root):
             resolved = py_variant

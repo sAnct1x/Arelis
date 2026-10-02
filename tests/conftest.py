@@ -121,15 +121,11 @@ def _reset_theme(request: pytest.FixtureRequest):
     if "no_ui" in request.keywords:
         yield
         return
-    try:
-        from arelis.ui.theme import apply_theme
+    from arelis.ui.theme import apply_theme
 
-        apply_theme("sodium")
-        yield
-        apply_theme("sodium")
-    except (ImportError, OSError):
-        # Qt libraries not available, skip theme setup
-        yield
+    apply_theme("sodium")
+    yield
+    apply_theme("sodium")
 
 
 @pytest.fixture
