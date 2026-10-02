@@ -51,19 +51,25 @@ def native_arg_problem(name: str, args: dict[str, Any] | None) -> str | None:
     args = args or {}
     action = str(args.get("action") or "").strip().lower()
     
-    # notes add needs text
+    # notes add needs text (or content/body/fact aliases)
     if tool == "notes" and action == "add":
-        text = str(args.get("text") or args.get("content") or args.get("body") or "")
+        text = str(
+            args.get("text")
+            or args.get("content")
+            or args.get("body")
+            or args.get("fact")
+            or ""
+        )
         if not text.strip():
             return (
                 "notes add needs text=<the note body>. "
                 "Call notes again with action=add, title, text."
             )
     
-    # workspace write needs content
+    # workspace write needs content (None is invalid, empty string is valid)
     if tool == "workspace" and action == "write":
-        content = str(args.get("content") or "")
-        if not content.strip():
+        content = args.get("content")
+        if content is None:
             return (
                 "workspace write needs content=<the exact file text>. "
                 "Call workspace again with action=write, path, content."

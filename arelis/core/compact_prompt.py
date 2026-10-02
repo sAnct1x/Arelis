@@ -145,37 +145,40 @@ def skinny_parameters(
     A property that was only an essay becomes ``{}`` after the strip, which
     is worse than omitting it — the model sees a named hole with no type.
     Drop those. Give the field a type in the source schema if it should stay.
-    
+
     When param_hints is True and tool_name is in the allowlist, keep specific
     parameter descriptions that help the model use the correct arguments.
     """
     if not isinstance(schema, dict):
         return {"type": "object", "properties": {}}
-    
-    # Determine which parameters should keep their descriptions
-    keep_hints: dict[str, str] = {}
-    if param_hints and tool_name:
-        from arelis.core.native_tool_calling import NATIVE_NOTES_ONLY_TEXT, NATIVE_PARAM_HINTS
-        for (tn, pn), desc in NATIVE_PARAM_HINTS.items():
-            if tn == tool_name:
-                keep_hints[pn] = desc
-    
-    stripped = _strip_descriptions(schema, keep_hints=keep_hints)
+
+    # Strip all descriptions first
+    stripped = _strip_descriptions(schema)
     props = stripped.get("properties") if isinstance(stripped, dict) else None
+
     if isinstance(props, dict):
         # Filter out empty properties
         filtered = {
             key: value for key, value in props.items() if value != {}
         }
-        # For notes tool in native mode, only expose 'text' parameter (not aliases)
-        if param_hints and tool_name == "notes" and keep_hints:
-            from arelis.core.native_tool_calling import NATIVE_NOTES_ONLY_TEXT
-            if NATIVE_NOTES_ONLY_TEXT:
+
+        # Apply hints at top level when param_hints is enabled
+        if param_hints and tool_name:
+            from arelis.core.native_tool_calling import NATIVE_NOTES_ONLY_TEXT, NATIVE_PARAM_HINTS
+
+            # Add descriptions for hinted parameters
+            for (tn, pn), desc in NATIVE_PARAM_HINTS.items():
+                if tn == tool_name and pn in filtered:
+                    filtered[pn]["description"] = desc
+
+            # For notes tool in native mode, only expose 'text' parameter (not aliases)
+            if tool_name == "notes" and NATIVE_NOTES_ONLY_TEXT:
                 # Remove content and body aliases, keep only text
                 filtered = {
                     key: value for key, value in filtered.items()
                     if key not in ("content", "body")
                 }
+
         stripped["properties"] = filtered
     return stripped
 
@@ -201,36 +204,14 @@ def skinny_ollama_tool(
     }
 
 
-def _strip_descriptions(node: Any, *, keep_hints: dict[str, str] | None = None) -> Any:
-    """Strip descriptions recursively, but keep specific ones from keep_hints.
-    
-    keep_hints maps parameter names to their descriptions that should be kept.
-    """
-    keep_hints = keep_hints or {}
-    
+def _strip_descriptions(node: Any) -> Any:
+    """Strip descriptions recursively."""
     if isinstance(node, dict):
-        result = {}
-        for key, value in node.items():
-            if key == "description":
-                # If this is a description field, check if we should keep it
-                # We're at the property level, need to check parent context
-                if isinstance(value, dict):
-                    # Description is itself a dict (unusual), recurse
-                    result[key] = _strip_descriptions(value, keep_hints=keep_hints)
-                # else: strip the description (don't include it)
-            else:
-                result[key] = _strip_descriptions(value, keep_hints=keep_hints)
-        
-        # Special handling: if this dict has both 'properties' and we're at the schema level,
-        # we need to inject kept descriptions back into the properties
-        if "properties" in result and isinstance(result["properties"], dict):
-            for prop_name, prop_spec in result["properties"].items():
-                if prop_name in keep_hints and isinstance(prop_spec, dict):
-                    prop_spec["description"] = keep_hints[prop_name]
-        
-        return result
-    
+        return {
+            key: _strip_descriptions(value)
+            for key, value in node.items()
+            if key != "description" or isinstance(value, dict)
+        }
     if isinstance(node, list):
-        return [_strip_descriptions(item, keep_hints=keep_hints) for item in node]
-    
+        return [_strip_descriptions(item) for item in node]
     return node
