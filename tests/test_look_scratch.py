@@ -5,6 +5,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+import pytest
+
 from arelis.look_scratch import (
     clear_look_pending,
     forget_look_scratch,
@@ -17,6 +19,7 @@ from arelis.look_scratch import (
 )
 
 
+@pytest.mark.no_ui
 def test_look_scratch_prefixes(tmp_path: Path, monkeypatch) -> None:
     images = tmp_path / "images"
     images.mkdir()
@@ -36,6 +39,7 @@ def test_look_scratch_prefixes(tmp_path: Path, monkeypatch) -> None:
     assert not is_look_scratch(tmp_path / "other.png")
 
 
+@pytest.mark.no_ui
 def test_forget_and_sweep(tmp_path: Path, monkeypatch) -> None:
     images = tmp_path / "images"
     images.mkdir()
@@ -61,6 +65,7 @@ def test_forget_and_sweep(tmp_path: Path, monkeypatch) -> None:
     clear_look_pending()
 
 
+@pytest.mark.no_ui
 def test_hold_skips_forget(tmp_path: Path, monkeypatch) -> None:
     images = tmp_path / "images"
     images.mkdir()
@@ -75,9 +80,8 @@ def test_hold_skips_forget(tmp_path: Path, monkeypatch) -> None:
     clear_look_pending()
 
 
-def test_sweep_means_followup_needs_a_new_grab(
-    tmp_path: Path, monkeypatch
-) -> None:
+@pytest.mark.no_ui
+def test_sweep_means_followup_needs_a_new_grab(tmp_path: Path, monkeypatch) -> None:
     """A later 'third paragraph' cannot reuse the deleted still."""
     images = tmp_path / "images"
     images.mkdir()
@@ -92,13 +96,20 @@ def test_sweep_means_followup_needs_a_new_grab(
     clear_look_pending()
 
 
+@pytest.mark.no_ui
 def test_keep_ask() -> None:
     assert keep_look_files("save that screenshot")
     assert keep_look_files("keep the screen shot please")
     assert not keep_look_files("what's on the screen")
     assert not keep_look_files("open notepad and look at it")
+    assert keep_look_files("take a screenshot of the page")
+    assert keep_look_files("call the browser tool with action=screenshot")
+    assert keep_look_files("capture a screenshot")
+    assert keep_look_files("grab a screenshot of the current page")
+    assert not keep_look_files("look at the page and tell me what you see")
 
 
+@pytest.mark.no_ui
 def test_prune_keeps_newest(tmp_path: Path) -> None:
     images = tmp_path / "images"
     images.mkdir()

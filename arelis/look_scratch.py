@@ -26,7 +26,10 @@ _KEEP_ASK = re.compile(
     r"(?:save|keep|don't delete|do not delete)\b.{0,48}\b"
     r"(?:screenshot|screen ?shot|capture|still)\b|"
     r"(?:screenshot|screen ?shot|capture|still)\b.{0,48}\b"
-    r"(?:save|keep)\b"
+    r"(?:save|keep)\b|"
+    r"(?:take|capture|grab|get)\b.{0,48}\b"
+    r"(?:screenshot|screen ?shot)\b|"
+    r"action\s*=\s*['\"]?screenshot['\"]?"
     r")"
 )
 
@@ -131,11 +134,7 @@ def prune_look_scratch(
 
 def _prune_prefix(root: Path, prefixes: tuple[str, ...], keep: int) -> int:
     try:
-        files = [
-            p
-            for p in root.iterdir()
-            if p.is_file() and p.name.lower().startswith(prefixes)
-        ]
+        files = [p for p in root.iterdir() if p.is_file() and p.name.lower().startswith(prefixes)]
     except OSError:
         return 0
     files.sort(key=lambda p: p.stat().st_mtime)
