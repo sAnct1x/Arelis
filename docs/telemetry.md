@@ -52,14 +52,14 @@ Full state-machine vector when `voice.debug: true`. `tts_first` and live
 
 **`logs/hands.log`** and **`logs/hands.jsonl`** (always on while a hands
 session is live). Session start/stop, 1 Hz pose sample, click / click_miss /
-click_hit, grab / drop / flick, scroll, span_edge. Numbers only — no
+click_hit, grab / drop / flick, scroll, span_edge. Numbers only, no
 frames. Pytest writes nothing unless a test points
 `arelis.spatial.hands_log` at a temp dir.
 
 **`logs/reality.log`** and **`logs/reality.jsonl`** (always on while we
 tune Reality). Enter/leave Earth, band changes, live merge, each
 adapter (ms / n / err), OpenSky spend, land/OSM/buildings fetches, travel, lock,
-look-from (id/kind/media only — never a URL), dumps, overlay chips,
+look-from (id/kind/media only; never a URL), dumps, overlay chips,
 Cesium host ready/failed (photoreal miss is not a host fail),
 and a 1 Hz paint sample (ms, band, n). Pytest writes nothing unless a
 test points the module at a temp dir. Clean this firehose up once the
