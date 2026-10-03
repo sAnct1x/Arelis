@@ -29,6 +29,9 @@ _last_arelis_proc: subprocess.Popen[bytes] | None = None
 
 BrowserName = Literal["chrome", "edge", "firefox"]
 
+# Where a new window lands when nothing is being restored.
+FRESH_START_URL = "https://www.google.com"
+
 _CHROME_PROG_IDS = {
     "chromehtml",
     "chromehtm",
@@ -369,8 +372,13 @@ def _intro_marker(user_data: Path) -> Path:
     return user_data / ".arelis-intro-shown"
 
 
-def first_run_note(user_data: Path | None = None) -> str:
-    """Once per profile — Chrome writes Preferences on first launch, so that is not the signal."""
+def first_run_note(user_data: Path | None = None, *, fresh: bool = False) -> str:
+    """Once per profile — Chrome writes Preferences on first launch, so that is not the signal.
+
+    A fresh-profile window keeps no sign-ins, so there is nothing to explain.
+    """
+    if fresh:
+        return ""
     root = Path(user_data) if user_data is not None else arelis_user_data_dir()
     if _intro_marker(root).is_file():
         return ""
@@ -435,13 +443,32 @@ def open_url_in_browser(
         return False, f"Could not open {url}: {exc}", {"code": "OPEN_FAILED"}
 
 
+def reset_arelis_profile(user_data: Path | None = None) -> bool:
+    """Delete her Chrome profile so the next window has no tabs, cookies or history.
+
+    Only ever removes a directory named ``browser-profile``. The caller must have
+    stopped (or never started) the Chrome that holds it.
+    """
+    root = Path(user_data) if user_data is not None else arelis_user_data_dir()
+    if root.name != "browser-profile":
+        log.warning("refusing to wipe unexpected browser profile path %s", root)
+        return False
+    shutil.rmtree(root, ignore_errors=True)
+    return not root.exists()
+
+
 def launch_chromium_cdp(
     browser: BrowserName,
     *,
     cdp_url: str,
     restore_session: bool = True,
+    fresh_profile: bool = False,
 ) -> subprocess.Popen[bytes] | None:
-    """Start Arelis Chrome/Edge with her profile + CDP. Never the daily profile."""
+    """Start Arelis Chrome/Edge with her profile + CDP. Never the daily profile.
+
+    ``fresh_profile`` wipes that profile first and starts on google.com: no
+    restored tabs, history, cookies or autofill from an earlier run.
+    """
     global _last_arelis_proc
     if browser == "firefox":
         return None
@@ -450,6 +477,9 @@ def launch_chromium_cdp(
         return None
     port = parse_cdp_port(cdp_url)
     user_data = arelis_user_data_dir()
+    if fresh_profile:
+        restore_session = False
+        reset_arelis_profile(user_data)
     user_data.mkdir(parents=True, exist_ok=True)
     x, y, w, h = window_placement()
     args = [
@@ -464,6 +494,9 @@ def launch_chromium_cdp(
     ]
     if restore_session and profile_has_sign_in(user_data):
         args.append("--restore-last-session")
+    if not restore_session:
+        args.extend(["--disable-session-crashed-bubble", "--hide-crash-restore-bubble"])
+        args.append(FRESH_START_URL)
     log.info("Launching Arelis %s with CDP on port %s profile=%s", browser, port, user_data)
     proc = subprocess.Popen(
         args,
