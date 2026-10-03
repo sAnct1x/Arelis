@@ -12,6 +12,11 @@ from uuid import uuid4
 
 from arelis.history_view import history_pairs
 from arelis.paths import display_path, state_dir, user_data_dir
+from arelis.workspace import (
+    UNSAFE_WINDOWS_PATH_MSG,
+    is_unsafe_windows_path,
+    safe_resolve,
+)
 
 MAX_ATTACHMENTS = 10
 MAX_BYTES = 25 * 1024 * 1024  # 25 MiB
@@ -587,9 +592,13 @@ def resolve_staged_path(stored: str) -> Path | None:
     ``Attachment.path`` is workspace-relative posix under ``user_data_dir()``.
     Tests and clipboard pastes may also pass an absolute path. The composer
     rail and the sent bubble share this so they cannot disagree.
+
+    Unsafe Windows prefixes return None and are never resolved.
     """
     raw = (stored or "").strip()
     if not raw:
+        return None
+    if is_unsafe_windows_path(raw):
         return None
     path = Path(raw)
     candidates: list[Path] = []
@@ -637,9 +646,14 @@ def stage_files(
         if len(ok) >= room:
             errors.append(f"Attachment limit is {max_attachments} per message.")
             break
-        src = Path(raw)
+        if is_unsafe_windows_path(str(raw)):
+            errors.append(UNSAFE_WINDOWS_PATH_MSG)
+            continue
         try:
-            src = src.expanduser().resolve()
+            src = safe_resolve(raw)
+        except PermissionError:
+            errors.append(UNSAFE_WINDOWS_PATH_MSG)
+            continue
         except OSError as exc:
             errors.append(f"Could not resolve {raw}: {exc}")
             continue

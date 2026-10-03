@@ -7,6 +7,11 @@ from pathlib import Path
 from typing import Any
 
 from arelis.paths import outputs_dir
+from arelis.workspace import (
+    UNSAFE_WINDOWS_PATH_MSG,
+    is_unsafe_windows_path,
+    safe_resolve,
+)
 
 _SAFE_NAME = re.compile(r"[^A-Za-z0-9._-]+")
 _FAKE_PDF = b"%PDF-1.1\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n"
@@ -50,8 +55,10 @@ def resolve_upload_path(
     text = str(raw or "").strip()
     if not text:
         return None, "upload needs path (a file under workspace roots or outputs/)."
+    if is_unsafe_windows_path(text):
+        return None, UNSAFE_WINDOWS_PATH_MSG
     try:
-        resolved = Path(text).expanduser().resolve()
+        resolved = safe_resolve(text)
     except OSError:
         return None, f"Bad upload path: {text}"
     if not resolved.is_file():

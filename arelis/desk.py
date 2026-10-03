@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from arelis.paths import state_dir
-from arelis.workspace import WorkspaceRoots
+from arelis.workspace import WorkspaceRoots, is_unsafe_windows_path
 
 log = logging.getLogger(__name__)
 
@@ -447,6 +447,8 @@ def _slug(title: str) -> str:
 def _normalize_abs(path: str) -> str:
     raw = (path or "").strip()
     if not raw:
+        return ""
+    if is_unsafe_windows_path(raw):
         return ""
     try:
         return str(Path(raw).expanduser().resolve())
