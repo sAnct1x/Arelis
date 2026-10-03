@@ -534,3 +534,81 @@ def test_ensure_keeps_attached_cdp_url(monkeypatch) -> None:
 
     asyncio.run(_run())
 
+
+
+def _fake_chrome(monkeypatch, tmp_path):  # type: ignore[no-untyped-def]
+    from arelis.browser import launch as launch_mod
+
+    calls: list[list[str]] = []
+
+    class _Proc:
+        pid = 1
+
+        def poll(self):
+            return None
+
+    profile = tmp_path / "browser-profile"
+    (profile / "Default").mkdir(parents=True)
+    (profile / "Default" / "Preferences").write_text("{}", encoding="utf-8")
+    (profile / "Default" / "Cookies").write_text("session", encoding="utf-8")
+    monkeypatch.setattr(launch_mod, "arelis_user_data_dir", lambda: profile)
+    monkeypatch.setattr(launch_mod, "chrome_executable", lambda: "chrome")
+    monkeypatch.setattr(
+        launch_mod.subprocess, "Popen", lambda args, **_k: calls.append(list(args)) or _Proc()
+    )
+    return launch_mod, profile, calls
+
+
+def test_fresh_profile_wipes_old_session_and_opens_google(monkeypatch, tmp_path) -> None:
+    launch_mod, profile, calls = _fake_chrome(monkeypatch, tmp_path)
+    launch_mod.launch_chromium_cdp("chrome", cdp_url="http://127.0.0.1:9222", fresh_profile=True)
+    argv = calls[0]
+    assert "--restore-last-session" not in argv
+    assert argv[-1] == "https://www.google.com"
+    assert not (profile / "Default" / "Cookies").exists()
+
+
+def test_persistent_profile_is_opt_in(monkeypatch, tmp_path) -> None:
+    launch_mod, profile, calls = _fake_chrome(monkeypatch, tmp_path)
+    launch_mod.launch_chromium_cdp("chrome", cdp_url="http://127.0.0.1:9222", fresh_profile=False)
+    argv = calls[0]
+    assert "--restore-last-session" in argv
+    assert "https://www.google.com" not in argv
+    assert (profile / "Default" / "Cookies").exists()
+
+
+def test_driver_starts_fresh_once_then_keeps_the_window(monkeypatch) -> None:
+    from arelis.browser import launch as launch_mod
+    from arelis.browser.actions import ActionResult, PlaywrightDriver
+
+    seen: list[dict[str, Any]] = []
+
+    def _launch(_browser, **kwargs):  # type: ignore[no-untyped-def]
+        seen.append(kwargs)
+        return object()
+
+    monkeypatch.setattr(launch_mod, "playwright_available", lambda: True)
+    monkeypatch.setattr(launch_mod, "prefer_cdp_url", lambda url: url)
+    monkeypatch.setattr(launch_mod, "cdp_is_up", lambda _u, **_k: False)
+    monkeypatch.setattr(launch_mod, "profile_appears_locked", lambda _b: False)
+    monkeypatch.setattr(launch_mod, "wait_for_cdp", lambda *_a, **_k: True)
+    monkeypatch.setattr(launch_mod, "terminate_browser_processes", lambda _b: None)
+    monkeypatch.setattr(launch_mod, "launch_chromium_cdp", _launch)
+    driver = PlaywrightDriver()
+
+    async def _attach(*, mode: str) -> ActionResult:
+        return ActionResult(ok=True, output=mode)
+
+    async def _close() -> None:
+        return None
+
+    driver._attach_cdp = _attach  # type: ignore[method-assign]
+    driver._close_pw = _close  # type: ignore[method-assign]
+
+    async def _run() -> None:
+        await driver.ensure("chrome")
+        await driver.ensure("chrome", relaunch=True)
+
+    asyncio.run(_run())
+    assert seen[0] == {"cdp_url": "http://127.0.0.1:9222", "restore_session": False, "fresh_profile": True}
+    assert seen[1]["fresh_profile"] is False and seen[1]["restore_session"] is True

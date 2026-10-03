@@ -27,11 +27,14 @@ class BrowserSession:
         driver: BrowserDriver | None = None,
         max_snapshot_chars: int = 6000,
         max_read_chars: int = 3500,
+        fresh_profile: bool = True,
     ) -> None:
         self.cdp_url = cdp_url
         self.max_snapshot_chars = max_snapshot_chars
         self.max_read_chars = max_read_chars
-        self._driver: BrowserDriver = driver or PlaywrightDriver(cdp_url=cdp_url)
+        self._driver: BrowserDriver = driver or PlaywrightDriver(
+            cdp_url=cdp_url, fresh_profile=fresh_profile
+        )
         self.last_mode: str = ""
         self.last_browser: str = ""
         self._click_misses = 0
@@ -40,6 +43,11 @@ class BrowserSession:
         self._watch_done.set()
         self._watch_result: ActionResult | None = None
         self._watch_id = 0
+
+    @property
+    def fresh_profile(self) -> bool:
+        """True when her window starts empty each run (tools.browser.fresh_profile)."""
+        return bool(getattr(self._driver, "fresh_profile", False))
 
     @classmethod
     def fake(cls, **kwargs: Any) -> BrowserSession:

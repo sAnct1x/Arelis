@@ -1343,8 +1343,15 @@ class FakeDriver:
 class PlaywrightDriver:
     """Drive a real browser via Playwright CDP or Firefox launch."""
 
-    def __init__(self, *, cdp_url: str = "http://127.0.0.1:9222") -> None:
+    def __init__(
+        self, *, cdp_url: str = "http://127.0.0.1:9222", fresh_profile: bool = True
+    ) -> None:
         self.cdp_url = cdp_url.rstrip("/")
+        # tools.browser.fresh_profile: the first window this process opens starts
+        # empty (no restored tabs, cookies or history). Later relaunches in the
+        # same run keep that window's state.
+        self.fresh_profile = bool(fresh_profile)
+        self._window_opened = False
         self._pw: Any = None
         self._browser: Any = None
         self._context: Any = None
@@ -1400,13 +1407,25 @@ class PlaywrightDriver:
             )
             self.cdp_url = chosen
 
+        fresh = self.fresh_profile and not self._window_opened
+        if (
+            fresh
+            and not relaunch
+            and launch_mod.cdp_is_up(self.cdp_url)
+            and launch_mod.cdp_port_is_arelis(self.cdp_url) is True
+        ):
+            # Her window from an earlier run is still open. Its tabs and cookies
+            # are not this session's: replace it rather than attach to it.
+            relaunch = True
+
         if relaunch:
             launch_mod.terminate_browser_processes(browser)  # type: ignore[arg-type]
             await self._close_pw()
             proc = launch_mod.launch_chromium_cdp(
                 browser,  # type: ignore[arg-type]
                 cdp_url=self.cdp_url,
-                restore_session=True,
+                restore_session=not fresh,
+                fresh_profile=fresh,
             )
             if proc is None:
                 return ActionResult(
@@ -1421,10 +1440,12 @@ class PlaywrightDriver:
                     data={"code": "CDP_TIMEOUT"},
                 )
             self._fresh_launch = True
+            self._window_opened = True
             self._placed = False
             return await self._attach_cdp(mode="relaunch")
 
         if launch_mod.cdp_is_up(self.cdp_url):
+            self._window_opened = True
             return await self._attach_cdp(mode="attach")
 
         # Try launch with user profile.
@@ -1443,7 +1464,8 @@ class PlaywrightDriver:
         proc = launch_mod.launch_chromium_cdp(
             browser,  # type: ignore[arg-type]
             cdp_url=self.cdp_url,
-            restore_session=True,
+            restore_session=not fresh,
+            fresh_profile=fresh,
         )
         if proc is None:
             return ActionResult(
@@ -1469,6 +1491,7 @@ class PlaywrightDriver:
                 data={"code": "CDP_TIMEOUT"},
             )
         self._fresh_launch = True
+        self._window_opened = True
         self._placed = False
         return await self._attach_cdp(mode="launch")
 
