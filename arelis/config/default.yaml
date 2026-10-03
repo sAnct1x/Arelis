@@ -747,6 +747,17 @@ location:
   # (name, answer style, work, …) are injected every turn; `location:` wins
   # over automatic place sources below. Keep `user:` short — not a 50-field form.
   profile_path: "data/profile.yaml"
+  privacy:
+    # How much of the saved place the model sees every turn. Whatever is in the
+    # prompt can show up in its visible reasoning (the Thinking dock).
+    #   off   timezone only; the weather tool uses the saved place itself and
+    #         user_location returns it when something else needs it (default)
+    #   city  city, region, country; no postal code or coordinates
+    #   full  everything the resolver knows
+    prompt_detail: "off"
+    # Replace the saved city, postal code and coordinates with [location] in
+    # streamed reasoning and in logs/*.log and turns.jsonl.
+    redact_display: true
   # Timezone and country from the operating system. No network, no permission.
   use_system: true
   network:

@@ -39,6 +39,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
+from arelis.location.privacy import prompt_detail
 from arelis.location.providers import (
     IPGeolocationProvider,
     LocalProvider,
@@ -105,15 +106,36 @@ class UserLocation:
             return ""
         return f"{self.latitude:.4f}, {self.longitude:.4f}"
 
-    def prompt_line(self) -> str | None:
+    def prompt_line(self, detail: str = "full") -> str | None:
         """The system line injected into every turn, or None when nothing is known.
 
         Kept to one sentence of facts plus one of instruction. It is paid for on
         every turn, and a 7B model given a paragraph about location starts
         mentioning the user's city in answers that have nothing to do with it.
+
+        ``detail`` is location.privacy.prompt_detail. "off" says nothing about
+        where the user is, so it cannot surface in the model's visible reasoning;
+        "city" drops the postal code and coordinates; "full" is everything.
         """
         if not self.known():
             return None
+        if detail == "off":
+            clock = self.timezone or self.utc_offset
+            return (
+                (f"The user's timezone is {clock}. " if clock else "")
+                + "Their home place is saved but not shown here. For weather "
+                "omit place; for anything else place-sensitive call "
+                "user_location instead of guessing or asking."
+            )
+        if detail == "city":
+            where = ", ".join(p for p in (self.city, self.region, self.country) if p)
+            clock = self.timezone or self.utc_offset
+            return (
+                f"The user is in {where or 'an unnamed place'}"
+                + (f" in timezone {clock}" if clock else "")
+                + ". Use that for anything place-sensitive, such as weather or "
+                "local time, instead of asking, unless the user names somewhere else."
+            )
         facts = [f"The user is in {self.place() or 'an unnamed place'}"]
         if self.has_coordinates():
             facts.append(f"at latitude {self.latitude:.4f}, longitude {self.longitude:.4f}")
@@ -183,7 +205,9 @@ class LocationResolver:
         *,
         cache_path: Path | None = None,
         ttl_s: int = _DEFAULT_TTL_S,
+        prompt_detail: str = "off",
     ) -> None:
+        self._prompt_detail = prompt_detail
         self._local = sorted(local, key=lambda p: -p.precedence)
         self._network = network
         self._ttl_s = max(0, int(ttl_s))
@@ -213,7 +237,7 @@ class LocationResolver:
         return merge_locations(candidates)
 
     def prompt_line(self) -> str | None:
-        return self.snapshot().prompt_line()
+        return self.snapshot().prompt_line(self._prompt_detail)
 
     def network_enabled(self) -> bool:
         return self._network is not None
@@ -314,6 +338,7 @@ def build_location(config: dict[str, Any]) -> LocationResolver:
         local,
         network,
         ttl_s=int(network_cfg.get("cache_hours", 24)) * 3600,
+        prompt_detail=prompt_detail(config),
     )
 
 
