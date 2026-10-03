@@ -65,7 +65,7 @@ DefaultDirName={autopf}\{#AppName}
 DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
 AllowNoIcons=yes
-UninstallDisplayName={#AppName} {#AppVersion}
+UninstallDisplayName={#AppName}
 UninstallDisplayIcon={app}\Lib\site-packages\arelis\assets\arelis.ico
 
 ; The bundled interpreter and every wheel in the lock are win_amd64. Refusing to install
