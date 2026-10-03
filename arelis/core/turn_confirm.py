@@ -95,6 +95,14 @@ async def confirm_call(
     """
     call_fp = _tool_fail_fingerprint(name, args)
     blocked = confirm_args_blocked(name, args)
+    # Flag-off keeps the empty-content block. Native mode allows content=""
+    # (empty file); missing content still fails via native_arg_problem below.
+    if (
+        blocked
+        and native_tool_calling(ctx.agent_cfg)
+        and blocked.startswith("workspace write has empty content")
+    ):
+        blocked = None
     if blocked:
         fail_counts[call_fp] = fail_counts.get(call_fp, 0) + 1
         clipped = _clip_confirm_reason(blocked)
