@@ -94,7 +94,33 @@ async def confirm_call(
     call), ``stop`` (break the call loop), or ``run`` (execute).
     """
     call_fp = _tool_fail_fingerprint(name, args)
-    blocked = confirm_args_blocked(name, args)
+    
+    # In native mode, allow workspace write with empty string (empty file is valid)
+    # but still block None via native_arg_problem. Skip the generic empty-content
+    # check from confirm_args_blocked for workspace write in native mode.
+    native_mode = native_tool_calling(ctx.agent_cfg)
+    if native_mode and name == "workspace" and args.get("action") == "write":
+        # Check for placeholder args only, skip the empty content check
+        content = args.get("content")
+        placeholder_blocked = None
+        for key, value in (args or {}).items():
+            if value is None:
+                continue
+            text = str(value).strip()
+            if not text:
+                continue
+            if key != "content":  # Don't apply placeholder check to content in native mode
+                from arelis.tools.base import _PLACEHOLDER_ARG, _short
+                if _PLACEHOLDER_ARG.search(text):
+                    placeholder_blocked = (
+                        f"Placeholder argument {key}={_short(text)!r} "
+                        "— fill a real value first."
+                    )
+                    break
+        blocked = placeholder_blocked
+    else:
+        blocked = confirm_args_blocked(name, args)
+    
     if blocked:
         fail_counts[call_fp] = fail_counts.get(call_fp, 0) + 1
         clipped = _clip_confirm_reason(blocked)

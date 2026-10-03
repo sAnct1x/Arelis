@@ -271,30 +271,13 @@ def test_placeholder_phone_still_blocks_allow_card() -> None:
     assert "placeholder" in reason.lower() or "user_phone" in reason.lower()
 
 
-def test_empty_workspace_write_allows_empty_files() -> None:
-    """Empty string content is allowed for writing empty files."""
+def test_empty_workspace_write_still_blocks() -> None:
     reason = confirm_args_blocked(
         "workspace",
         {"action": "write", "path": "tmp.txt", "content": ""},
     )
-    # Empty string is allowed - the tool accepts it for empty files
-    assert reason is None
-
-
-def test_missing_workspace_write_content_not_blocked_at_confirm() -> None:
-    """Missing content (None) is not blocked by confirm_args_blocked.
-    
-    In native mode, native_arg_problem provides a better error.
-    In flag-off mode, the tool itself rejects it.
-    """
-    reason = confirm_args_blocked(
-        "workspace",
-        {"action": "write", "path": "tmp.txt"},
-    )
-    # confirm_args_blocked doesn't check for missing content anymore
-    # Native mode: native_arg_problem provides clear guidance
-    # Flag-off mode: tool itself fails with appropriate message
-    assert reason is None
+    assert reason is not None
+    assert "empty" in reason.lower()
 
 
 def test_math_comparison_text_is_not_a_placeholder() -> None:
