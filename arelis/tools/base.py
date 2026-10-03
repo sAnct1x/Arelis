@@ -51,6 +51,10 @@ def confirm_args_blocked(name: str, args: dict[str, Any] | None) -> str | None:
                 f"Placeholder argument {key}={_short(text)!r} "
                 "— fill a real value first."
             )
+    if tool == "workspace" and action == "write":
+        content = str(args.get("content") or "")
+        if not content.strip():
+            return "workspace write has empty content — nothing to Allow."
     if tool == "document":
         body = str(args.get("body") or "")
         rows = str(args.get("rows") or "")
