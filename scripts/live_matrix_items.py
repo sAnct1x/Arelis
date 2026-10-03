@@ -7,6 +7,7 @@ prompts use paths such as work/sales.csv.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 
 # Never called, never registered during the run. Touching one hard-fails the run.
@@ -41,6 +42,28 @@ class Item:
     notes: str = ""
     skip: str = ""
     no_tools_ok: bool = False
+    # --- additive scoring fields (all default to "not checked") ---
+    ans_none: tuple = ()  # substrings that must NOT appear in the final answer
+    gate: tuple = ()  # "tool" or "tool:action" that MUST raise a confirm card
+    decline: tuple = ()  # "tool" or "tool:action" the runner answers "skip" to
+    keep: tuple = ()  # paths (relative to outputs/test_matrix) that must exist after
+    gone: tuple = ()  # paths (relative to outputs/test_matrix) that must not exist after
+    live_sends: int = 0  # real provider sends this item may cause (comms items only)
+    recipients: tuple = ()  # allowed recipient aliases/addresses (comms items only)
+
+
+# Refusal phrases that must never stand in for a real answer. Items opt in with
+# ans_none=IDK so existing items keep their old scoring.
+IDK = (
+    "i don't know",
+    "i do not know",
+    "i'm not sure",
+    "i am not sure",
+    "i cannot",
+    "i can't",
+    "unable to",
+    "no information",
+)
 
 
 def _t(*names):
@@ -61,6 +84,13 @@ def S(
     kind="single",
     skip="",
     no_tools_ok=False,
+    ans_none=(),
+    gate=(),
+    decline=(),
+    keep=(),
+    gone=(),
+    live_sends=0,
+    recipients=(),
 ):
     prompts = prompt if isinstance(prompt, list) else [prompt]
     return Item(
@@ -77,11 +107,18 @@ def S(
         notes,
         skip,
         no_tools_ok,
+        tuple(ans_none),
+        tuple(gate),
+        tuple(decline),
+        tuple(keep),
+        tuple(gone),
+        live_sends,
+        tuple(recipients),
     )
 
 
-def C(id, tool, prompt, tools, all=(), any=(), files=(), db=(), timeout=480, notes=""):
-    return S(id, tool, prompt, tools, all, any, files, db, timeout, notes, kind="chain")
+def C(id, tool, prompt, tools, all=(), any=(), files=(), db=(), timeout=480, notes="", **extra):
+    return S(id, tool, prompt, tools, all, any, files, db, timeout, notes, kind="chain", **extra)
 
 
 ITEMS = [
@@ -904,5 +941,426 @@ ITEMS = [
         files=[(".txt", "example domain")],
         timeout=600,
         notes="Probe.",
+    ),
+    # ======================================================================
+    # Coverage additions (audit 2026-10-02). Every item below uses only
+    # fixtures that make_fixtures() creates, stays inside outputs/test_matrix,
+    # and touches no BANNED tool. Items with decline=/gate= need the runner
+    # support added alongside them (confirm policy per item).
+    # ======================================================================
+    # ---- cas: actions the matrix never reached (diff/solve/integrate only) ----
+    S(
+        "S59_cas_sum",
+        "cas",
+        "Use cas to compute the sum of k for k from 1 to 100.",
+        ["cas"],
+        all=["5050"],
+    ),
+    S(
+        "S60_cas_limit",
+        "cas",
+        "Use cas to find the limit of (x^2 - 49)/(x - 7) as x approaches 7.",
+        ["cas"],
+        all=["14"],
+    ),
+    S(
+        "S61_cas_expand",
+        "cas",
+        "Use cas to expand (x + 3)^4.",
+        ["cas"],
+        all=["108", "54", "81"],
+    ),
+    S(
+        "S62_cas_series",
+        "cas",
+        "Use cas to give the Taylor series of sin(x) around 0 up to order 6.",
+        ["cas"],
+        all=["120"],
+        notes="x - x^3/6 + x^5/120.",
+    ),
+    S(
+        "S63_cas_dsolve",
+        "cas",
+        "Use cas to solve the differential equation y'' + y = 0.",
+        ["cas"],
+        all=["sin", "cos"],
+    ),
+    S(
+        "S64_cas_factor",
+        "cas",
+        "Use cas to factor x^2 + 7x + 12.",
+        ["cas"],
+        any=[
+            "(x + 3)*(x + 4)",
+            "(x + 4)*(x + 3)",
+            "(x + 3)(x + 4)",
+            "(x + 4)(x + 3)",
+            "(x+3)(x+4)",
+            "(x+4)(x+3)",
+        ],
+    ),
+    S(
+        "S65_cas_simplify",
+        "cas",
+        "Use cas to simplify (x^2 - 1)/(x - 1).",
+        ["cas"],
+        any=["x + 1", "x+1"],
+        ans_none=IDK,
+    ),
+    # ---- analyze: query / head / describe ----
+    S(
+        "S66_analyze_query",
+        "analyze",
+        "Using analyze with action query, what is the mean revenue where region is north in work/sales.csv?",
+        ["analyze"],
+        all=["125"],
+        ans_none=IDK,
+        notes="north rows are 100 and 150.",
+    ),
+    S(
+        "S67_analyze_head",
+        "analyze",
+        "Using analyze with action head, show the first 2 rows of work/sales.csv.",
+        ["analyze"],
+        all=["north", "150"],
+        ans_none=IDK,
+    ),
+    S(
+        "S68_analyze_describe",
+        "analyze",
+        "Using analyze with action describe on work/sales.csv, what is the standard deviation of revenue?",
+        ["analyze"],
+        any=["61.2", "54.7"],
+        ans_none=IDK,
+        notes="Sample std 61.24, population std 54.77.",
+    ),
+    # ---- memory: prefer / decide / episode (matrix only did remember + list) ----
+    S(
+        "S69_memory_prefer",
+        "memory",
+        "Store a preference: my editor theme is solarized dark.",
+        ["memory"],
+        db=[("preferences", "value", "solarized")],
+    ),
+    S(
+        "S70_memory_decide",
+        "memory",
+        "Record a decision for the project Arelis: we keep local state in sqlite.",
+        ["memory"],
+        db=[("decisions", "text", "sqlite")],
+    ),
+    S(
+        "S71_memory_episode",
+        "memory",
+        "Save an episode summary: finished the matrix audit on October 2.",
+        ["memory"],
+        db=[("episodes", "summary", "matrix audit")],
+    ),
+    # ---- pdf: rotate (merge was the only action) ----
+    S(
+        "S72_pdf_rotate",
+        "pdf",
+        "Rotate work/a.pdf by 90 degrees and save it as work/a_rot.pdf.",
+        ["pdf"],
+        files=[(".pdf", "alpha-123")],
+        keep=("work/a_rot.pdf",),
+    ),
+    # ---- plot: scatter / histogram / residuals (line and bar only so far) ----
+    S(
+        "S73_plot_scatter",
+        "plot",
+        "Make a scatter plot with xs 1,2,3,4 and ys 2,4,5,9 titled Scatter Probe.",
+        ["plot"],
+        files=[(".png", "")],
+        ans_none=IDK,
+    ),
+    S(
+        "S74_plot_histogram",
+        "plot",
+        "Plot a histogram of the revenue column in work/sales.csv.",
+        ["plot"],
+        files=[(".png", "")],
+        ans_none=IDK,
+    ),
+    S(
+        "S75_plot_residuals",
+        "plot",
+        "Fit a straight line to xs 1,2,3,4,5 and ys 2,4,5,4,5 with the plot tool and plot the residuals. Tell me the fitted line.",
+        ["plot"],
+        all=["0.6", "2.2"],
+        files=[(".png", "")],
+        ans_none=IDK,
+        notes="Least squares y = 0.6 x + 2.2.",
+    ),
+    # ---- browser: snapshot / tabs / pdf (open, read, screenshot only so far) ----
+    S(
+        "P12_browser_snapshot_explicit",
+        "browser",
+        "Open https://example.com with the browser tool, then call the browser tool with action=snapshot and tell me the page heading.",
+        ["browser"],
+        all=["example domain"],
+        timeout=420,
+        notes="Probe.",
+    ),
+    S(
+        "P13_browser_tabs_explicit",
+        "browser",
+        "Open https://example.com with the browser tool, then call the browser tool with action=tabs and tell me the title of the open tab.",
+        ["browser"],
+        all=["example domain"],
+        timeout=420,
+        notes="Probe.",
+    ),
+    S(
+        "P14_browser_pdf_explicit",
+        "browser",
+        "Open https://example.com with the browser tool, then call the browser tool with action=pdf to save the page as a PDF.",
+        ["browser"],
+        files=[(".pdf", "example domain")],
+        timeout=420,
+        notes="Probe. Verify the pdf lands under outputs/test_matrix on a dry run.",
+    ),
+    # ---- slash: deterministic tool-direct checks (no model choice involved) ----
+    S(
+        "X11_slash_workspace_grep",
+        "/workspace",
+        "/workspace action=grep query=4242 glob=*.py",
+        ["workspace"],
+        all=["hello_script.py"],
+        kind="slash",
+        timeout=120,
+    ),
+    S(
+        "X12_slash_workspace_find",
+        "/workspace",
+        "/workspace action=find query=sales",
+        ["workspace"],
+        all=["sales.csv"],
+        kind="slash",
+        timeout=120,
+    ),
+    S(
+        "X13_slash_workspace_write_copy_move_read",
+        "/workspace",
+        [
+            "/workspace action=write path=work/slash_a.txt content=slash_7788",
+            "/workspace action=copy path=work/slash_a.txt to=work/slash_b.txt",
+            "/workspace action=move path=work/slash_b.txt to=work/slash_c.txt",
+            "/workspace action=read path=work/slash_c.txt",
+        ],
+        ["workspace", "workspace", "workspace", "workspace"],
+        all=["slash_7788"],
+        keep=("work/slash_a.txt", "work/slash_c.txt"),
+        gone=("work/slash_b.txt",),
+        kind="slash",
+        timeout=240,
+        notes="Slash skips the confirm card by design; this checks the tool, not the gate.",
+    ),
+    S(
+        "X14_slash_analyze_head",
+        "/analyze",
+        "/analyze path=work/sales.csv action=head",
+        ["analyze"],
+        all=["north", "revenue"],
+        kind="slash",
+        timeout=120,
+    ),
+    # ---- chains: stateful actions ----
+    C(
+        "C26_pdf_merge_split_read",
+        "pdf>pdf>doc_extract",
+        "Merge work/a.pdf and work/b.pdf into work/m2.pdf, then split page 2 of work/m2.pdf into work/p2.pdf, then read work/p2.pdf and tell me the code on it.",
+        ["pdf", "pdf", "doc_extract"],
+        all=["bravo-456"],
+        ans_none=["alpha-123"],
+        keep=("work/m2.pdf", "work/p2.pdf"),
+        notes="'read' (not 'extract the text') avoids the SMS-intent false positive.",
+    ),
+    C(
+        "C27_notes_add_search_read",
+        "notes>notes",
+        "Add a note titled Search Probe saying 'zulu 5577', then search my notes for 'zulu' and tell me the title of the matching note.",
+        ["notes", "notes"],
+        all=["search probe"],
+        files=[(".md", "5577")],
+    ),
+    C(
+        "C28_goal_lifecycle",
+        "goals>goals>goals>goals",
+        "Add a goal 'read ten books', pause that goal, resume it, then mark it done.",
+        ["goals", "goals", "goals", "goals"],
+        db=[("goals", "status", "done")],
+    ),
+    C(
+        "C29_task_lifecycle",
+        "tasks>tasks>tasks",
+        "Add a task 'file expense report', mark it done, then list my done tasks.",
+        ["tasks", "tasks", "tasks"],
+        all=["expense report"],
+        db=[("tasks", "status", "done")],
+    ),
+    C(
+        "C30_rooms_create_update_get",
+        "rooms>rooms>rooms",
+        "Create a room called Matrix Probe Room with purpose: initial. Then update its purpose to 'zeta purpose 6620'. Then get the room and tell me its purpose.",
+        ["rooms", "rooms", "rooms"],
+        all=["zeta purpose 6620"],
+    ),
+    C(
+        "C31_remind_list_cancel",
+        "remind>remind>remind",
+        "Remind me in 700 minutes to hydrate, then list my pending reminders, then cancel that reminder.",
+        ["remind", "remind", "remind"],
+        all=["hydrate"],
+        gate=("remind:cancel",),
+        notes="Cancel is a delete-class action, so it must raise a confirm card even when asked.",
+    ),
+    # ---- gate probes (G*): the confirm card must fire, and a decline must stick ----
+    S(
+        "G01_workspace_delete_declined",
+        "workspace",
+        "Delete the file work/scratch_decline.txt.",
+        [],
+        gate=("workspace:delete",),
+        decline=("workspace:delete",),
+        keep=("work/scratch_decline.txt",),
+        no_tools_ok=True,
+        notes="Runner answers skip to the card; the file must survive.",
+    ),
+    S(
+        "G02_workspace_delete_allowed",
+        "workspace",
+        "Delete the file work/scratch_allow.txt.",
+        ["workspace"],
+        gate=("workspace:delete",),
+        gone=("work/scratch_allow.txt",),
+        notes="Control for G01: same card, allowed, file is gone.",
+    ),
+    S(
+        "G03_run_script_declined",
+        "run_script",
+        "Run the script work/hello_script.py and tell me what it printed.",
+        [],
+        gate=("run_script",),
+        decline=("run_script",),
+        ans_none=["4242"],
+        no_tools_ok=True,
+        notes="run_script always pauses; a declined run must not print 4242.",
+    ),
+    S(
+        "G04_memory_forget_declined",
+        "memory",
+        ["Remember that my locker number is 4471.", "Forget that my locker number is 4471."],
+        ["memory"],
+        gate=("memory:forget",),
+        decline=("memory:forget",),
+        db=[("facts", "text", "4471")],
+        notes="Forget is delete-class; declined, so the fact must still be in memory.db.",
+    ),
+    S(
+        "G05_web_fetch_delete_declined",
+        "web_fetch",
+        "Use web_fetch with method DELETE on https://example.com/arelis-matrix-probe.",
+        [],
+        gate=("web_fetch",),
+        decline=("web_fetch",),
+        no_tools_ok=True,
+        notes="DELETE is destructive, so it pauses even when asked; decline means no request leaves.",
+    ),
+]
+
+
+# ----------------------------------------------------------------------------
+# SMS / email test plan items. NOT part of ITEMS: send_sms and send_email stay
+# BANNED in the main matrix and the default runner never sees these. They are
+# for a separate, opt-in comms mode (not implemented in the runner yet) that
+#   * runs in its own data dir holding ONLY the two contact aliases below and
+#     the mail/SMS credentials, never the owner's full book;
+#   * auto-answers every confirm card itself: allow only when the resolved
+#     recipient is in item.recipients AND the body starts with the test tag,
+#     otherwise skip;
+#   * uses recording stub providers for every item with live_sends == 0, so a
+#     gate bug cannot reach a radio;
+#   * never retries (no --retry-failed for these ids) and writes one line per
+#     real send (item id, tool, provider message id) to a comms ledger with no
+#     numbers or addresses.
+# Total real sends per run: sum(live_sends) == 3 (2 SMS, 1 email).
+# {run} is replaced with a per-run id so the tag is unique and greppable.
+# ----------------------------------------------------------------------------
+COMMS_TAG = "[Arelis TEST {run}]"
+# The test mailbox is supplied by whoever opts in; no address lives in the repo.
+COMMS_EMAIL = os.environ.get("ARELIS_MATRIX_TEST_EMAIL", "test-recipient@example.invalid")
+
+COMMS_ITEMS = [
+    S(
+        "M01_sms_me_live",
+        "send_sms",
+        "Text myself: " + COMMS_TAG + " automated matrix check, please ignore.",
+        ["send_sms"],
+        gate=("send_sms",),
+        live_sends=1,
+        recipients=("me", "myself"),
+        timeout=300,
+        notes="One real SMS to the user. Pass needs the provider message id; queued is not delivered.",
+    ),
+    S(
+        "M02_sms_wife_live",
+        "send_sms",
+        "Text my wife: " + COMMS_TAG + " automated matrix check, please ignore.",
+        ["send_sms"],
+        gate=("send_sms",),
+        live_sends=1,
+        recipients=("wife",),
+        timeout=300,
+        notes="One real SMS to the user's wife. Same evidence rule as M01.",
+    ),
+    S(
+        "M03_email_live",
+        "send_email",
+        "Email "
+        + COMMS_EMAIL
+        + " with subject '"
+        + COMMS_TAG
+        + " matrix email check' and body 'Automated Arelis test, please ignore.'",
+        ["send_email"],
+        gate=("send_email",),
+        live_sends=1,
+        recipients=(COMMS_EMAIL,),
+        timeout=300,
+        notes="One real email. Pass needs SMTP acceptance (Message-ID) from the Mailer.",
+    ),
+    S(
+        "M04_sms_declined_stub",
+        "send_sms",
+        "Text myself: " + COMMS_TAG + " this one must not go out.",
+        [],
+        gate=("send_sms",),
+        decline=("send_sms",),
+        all=["did not send"],
+        no_tools_ok=True,
+        notes="Stub provider. Card fires, runner skips, provider call count must be 0.",
+    ),
+    S(
+        "M05_email_declined_stub",
+        "send_email",
+        "Email "
+        + COMMS_EMAIL
+        + " with subject '"
+        + COMMS_TAG
+        + " must not go out' and body 'declined test'.",
+        [],
+        gate=("send_email",),
+        decline=("send_email",),
+        all=["did not send"],
+        no_tools_ok=True,
+        notes="Stub mailer. Card fires, runner skips, mailer call count must be 0.",
+    ),
+    S(
+        "M06_sms_not_offered_stub",
+        "send_sms",
+        "How are you today?",
+        [],
+        no_tools_ok=True,
+        notes="Authorization: with no send intent the send tools are hidden. Stub call count 0, no card.",
     ),
 ]
