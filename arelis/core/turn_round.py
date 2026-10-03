@@ -544,11 +544,10 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
         ):
             # Only strip tools if all exactness needs are satisfied.
             # Multi-step asks (chains) need tools until all required kinds complete.
+            # named_tools_owed still applies in native_tool_calling mode: the flag
+            # drops regex injects/nudges, not the "user named these tools" hold.
             missing_kinds = ctx.ledger.missing_kinds(ctx.exact_need.kinds)
-            # Skip named_tools_owed check when native_tool_calling is enabled
-            if not missing_kinds and (
-                native_tool_calling(ctx.agent_cfg) or not named_tools_owed(loop, ctx)
-            ):
+            if not missing_kinds and not named_tools_owed(loop, ctx):
                 offer_tools = False
                 ollama_tools = []
                 ctx.offer_tools = False

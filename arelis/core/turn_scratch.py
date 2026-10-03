@@ -176,3 +176,20 @@ def named_tools_owed(loop: Any, ctx: TurnContext) -> list[str]:
         ):
             owed.append(name)
     return owed
+
+
+def named_tools_owed_runnable(
+    loop: Any, ctx: TurnContext, fail_counts: dict[str, int]
+) -> list[str]:
+    """``named_tools_owed`` minus tools that already failed twice this turn.
+
+    Same fingerprint rule as confirm/execute: after two identical failures the
+    tool is not runnable again, so it must not block finishing the turn.
+    """
+    out: list[str] = []
+    for name in named_tools_owed(loop, ctx):
+        prefix = f"{name}|"
+        if any(count >= 2 and fp.startswith(prefix) for fp, count in fail_counts.items()):
+            continue
+        out.append(name)
+    return out

@@ -34,7 +34,7 @@ from arelis.core.loop_helpers import _answer_has_quote_span, _exactness_finish_r
 from arelis.core.native_tool_calling import native_tool_calling
 from arelis.core.plan_nudge import plan_progress_notice
 from arelis.core.turn_context import TurnContext
-from arelis.core.turn_scratch import RoundScratch
+from arelis.core.turn_scratch import RoundScratch, named_tools_owed_runnable
 
 SKIP = "skip"
 NUDGE = "nudge"
@@ -335,12 +335,39 @@ FINISH_STEPS: tuple[StepFn, ...] = (
 
 
 async def run_finish_steps(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: int) -> str:
-    # When native_tool_calling is enabled, skip the nudge steps but keep the final refuse logic
+    # When native_tool_calling is enabled, skip the regex finish nudges but keep
+    # refuse logic — and still hold the turn when the user named tools that
+    # have not run (and are not twice-failed / exhausted).
     if not native_tool_calling(r.agent_cfg):
         for step in FINISH_STEPS:
             hit = await step(loop, ctx, r, round_i)
             if hit != SKIP:
                 return hit
+    else:
+        from arelis.core.agent_loop import _MAX_TOOL_NUDGES
+
+        owed = named_tools_owed_runnable(loop, ctx, r.fail_counts)
+        if owed and ctx.nudges < _MAX_TOOL_NUDGES:
+            ctx.nudges += 1
+            await loop._retract()
+            r.messages.append({"role": "assistant", "content": r.content})
+            r.messages.append(
+                {
+                    "role": "user",
+                    "content": (
+                        "You still need to call these tools the user named: "
+                        + ", ".join(owed)
+                        + ". Call them now before answering."
+                    ),
+                }
+            )
+            await loop.bus.publish(
+                Event(
+                    EventType.THINKING,
+                    {"text": "named tools owed; asking to continue"},
+                )
+            )
+            return NUDGE
     refuse = _exactness_finish_refuse(
         r.content,
         exact_need=ctx.exact_need,
