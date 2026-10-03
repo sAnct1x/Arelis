@@ -807,7 +807,11 @@ class AgentLoop:
             final_content,
             ctx.sources,
             streamed=streamed,
-            fallback_text=_ROUND_LIMIT_NOTICE,
+            fallback_text=round_limit_notice(
+                self.max_rounds,
+                last_fail_tool=ctx.last_fail_tool_name,
+                last_fail_error=ctx.last_fail_tool_out,
+            ),
         )
 
     def _look_refuse(self, content: str) -> str | None:
@@ -1658,6 +1662,7 @@ from arelis.core.loop_helpers import (  # noqa: E402, F401
     _wants_project_context,
     decide_mid_turn_escalate,
     disconnected_integration_reply,
+    round_limit_notice,
     should_offer_tools,
     turn_expects_tool_round,
     wants_fresh_page_ask,
