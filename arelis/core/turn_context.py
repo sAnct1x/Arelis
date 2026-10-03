@@ -104,6 +104,8 @@ class TurnContext:
     memory_nudge_used: int = 0
     last_ok_tool_out: str = ""
     last_ok_tool_name: str = ""
+    last_fail_tool_name: str = ""
+    last_fail_tool_out: str = ""
     inbox_mutated_ok: bool = False
     inbox_empty_ok: bool = False
     last_browser_snapshot: str = ""

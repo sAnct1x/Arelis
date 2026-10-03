@@ -279,6 +279,8 @@ async def execute_call(
                 loop._note_look_tool(name, args, result, data_dict)
         else:
             fail_counts[call_fp] = fail_counts.get(call_fp, 0) + 1
+            ctx.last_fail_tool_name = name
+            ctx.last_fail_tool_out = str(result.output or "")
             if name == "send_sms":
                 ctx.sms_failed = True
             if loop._look is not None and name == "camera":

@@ -349,7 +349,31 @@ _EMPTY_REPLY_NOTICE = (
     "crash or an unload. Say continue, or ask a smaller piece."
 )
 
-_ROUND_LIMIT_NOTICE = "I hit the tool-step limit before finishing. Try a narrower ask."
+def round_limit_notice(
+    rounds: int,
+    *,
+    last_fail_tool: str = "",
+    last_fail_error: str = "",
+) -> str:
+    """User-facing text when the turn burns its model/tool step budget."""
+    n = max(1, int(rounds or 1))
+    text = f"I hit the tool-step limit ({n}/{n}) before finishing. Try a narrower ask."
+    tool = str(last_fail_tool or "").strip()
+    if not tool:
+        return text
+    err = str(last_fail_error or "").strip()
+    if err:
+        return (
+            f"I hit the tool-step limit ({n}/{n}) before finishing. "
+            f"Last failing tool: {tool}: {err} Try a narrower ask."
+        )
+    return (
+        f"I hit the tool-step limit ({n}/{n}) before finishing. "
+        f"Last failing tool: {tool}. Try a narrower ask."
+    )
+
+
+_ROUND_LIMIT_NOTICE = round_limit_notice(8)
 
 # Sent when a model announces a call in prose rather than making one. Observed
 # from qwen2.5:7b: "Let's start by reading the file:" then a fenced JSON object,
