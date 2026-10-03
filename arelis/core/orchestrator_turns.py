@@ -37,7 +37,7 @@ from arelis.rooms import (
     match_set_kind_intent,
     match_set_root_intent,
 )
-from arelis.workspace import _WINDOWS_DRIVE
+from arelis.workspace import _WINDOWS_DRIVE, is_unsafe_windows_path
 
 log = logging.getLogger(__name__)
 
@@ -355,6 +355,8 @@ class OrchestratorTurns:
         for match in _ABS_PATH_TOKEN.finditer(text):
             raw = match.group("path").rstrip(".,);]")
             if not raw:
+                continue
+            if is_unsafe_windows_path(raw):
                 continue
             if not (_WINDOWS_DRIVE.match(raw) or raw.startswith("/")):
                 continue

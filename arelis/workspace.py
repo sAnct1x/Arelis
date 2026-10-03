@@ -15,6 +15,37 @@ _ACTIVE_PROJECT_FILE = state_dir() / "active_project"
 # Windows drive paths use a colon; never treat "C:\..." as project "C".
 _WINDOWS_DRIVE = re.compile(r"^[A-Za-z]:(?:[\\/]|$)")
 
+# Plain language for the model to relay when a path is refused before any
+# filesystem call. UNC and NT device prefixes can trigger outbound SMB auth
+# on Windows merely by being resolved; a local-first assistant has no need
+# for network shares, so every such prefix is refused (no config opt-in).
+UNSAFE_WINDOWS_PATH_MSG = (
+    "That path points at a network location; I only work in your workspace folder"
+)
+
+
+def is_unsafe_windows_path(raw: str) -> bool:
+    """True when ``raw`` is a UNC or NT device path that must not be resolved.
+
+    Checked on the string before Path.resolve / exists / stat / open so Windows
+    never starts SMB authentication for prefixes like ``\\\\server\\share`` or
+    ``\\??\\UNC\\...``. Also catches forward-slash forms Windows accepts.
+    """
+    text = (raw or "").strip()
+    if not text:
+        return False
+    if text.startswith("\\\\") or text.startswith("//"):
+        return True
+    if text.startswith("\\??\\") or text.startswith("/??/"):
+        return True
+    return False
+
+
+def refuse_unsafe_windows_path(raw: str) -> None:
+    """Raise PermissionError when ``raw`` is an unsafe Windows path prefix."""
+    if is_unsafe_windows_path(raw):
+        raise PermissionError(UNSAFE_WINDOWS_PATH_MSG)
+
 
 class AmbiguousPathError(ValueError):
     """Bare path matched more than one configured root."""
@@ -195,6 +226,8 @@ class WorkspaceRoots:
         raw = str(path or "").strip()
         if not raw:
             return None
+        if is_unsafe_windows_path(raw):
+            return None
         try:
             resolved = Path(raw).expanduser().resolve()
         except OSError:
@@ -230,6 +263,9 @@ class WorkspaceRoots:
         return path.parent if path.is_file() else path
 
     def has_external_read(self, path: Path | str) -> bool:
+        raw = str(path or "").strip()
+        if is_unsafe_windows_path(raw):
+            return False
         try:
             resolved = Path(path).expanduser().resolve()
         except OSError:
@@ -276,6 +312,7 @@ class WorkspaceRoots:
         raw = (path_str or "").strip()
         if not raw:
             raise ValueError("Missing path")
+        refuse_unsafe_windows_path(raw)
 
         qualified = _split_qualified(raw, set(self._by_name))
         if qualified is not None:
