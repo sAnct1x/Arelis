@@ -43,7 +43,7 @@ If a copy has already pinned `models.fast` in `config.local.yaml`, you
 won't be asked again.
 
 Every launch after that pins the chosen tag, then seeds Ollama's
-prefix cache with the persona, the tool policy, and every tool schema,
+prefix cache with the persona, the tool policy, and every tool schema:
 roughly 5,500 tokens' worth. While that's happening, the window
 just says **loading the model…** Once it's done, a warm hello takes
 about a second. More detail in
@@ -56,7 +56,7 @@ From `arelis/config/default.yaml`:
 | Role | Tag | What it actually is |
 |---|---|---|
 | `fast` | `qwen3.5:9b` | Day-to-day driver. Thinking on. Can see images itself. File and git work always stays here. |
-| `research` | `qwen3.5:9b` | Same weights, thinking on, just a deeper loop: more rounds, dual web hits, research tools. Same underlying model. |
+| `research` | `qwen3.5:9b` | Same weights, thinking on. Just a deeper loop: more rounds, dual web hits, research tools. Same underlying model. |
 | `vision` | `qwen2.5vl:3b` | Fallback only, for when the chat model in use can't see images itself. |
 | embed | `nomic-embed-text` | Recall and document search. |
 
@@ -203,8 +203,8 @@ built because smaller models (7B-9B) need help picking the right tool from 34 op
 
 **The hypothesis:** Larger local models (Qwen3 30B-A3B, later Qwen3.6-27B) may underperform
 when the regex layer fights native tool calling. This is a hypothesis being tested, not a measured
-result. A model with strong tool-calling ability may not need prompt nudges forcing specific tools,
-those hints could override better native choices.
+result. A model with strong tool-calling ability may not need prompt nudges forcing specific tools.
+Those hints could override better native choices.
 
 **The experiment:** `agent.native_tool_calling` (config flag) disables the regex/intent
 routing layer so the model uses native tool calling exclusively:

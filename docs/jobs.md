@@ -5,7 +5,7 @@ answer. Windows Task Scheduler is what actually fires it. You can
 manage jobs from the calendar tile's **jobs** tab (Ctrl+7), or just
 ask her to set one up for you.
 
-"Remind me in 20 minutes" is not a job. That is the `remind` tool,
+"Remind me in 20 minutes" is not a job. That is the `remind` tool:
 in-process, a tray toast when it is due, no email, no Task Scheduler.
 Jobs are for later today / every Tuesday / a digest in your inbox.
 
@@ -53,15 +53,15 @@ session, with no room context carried over.
 
 ## How it's stored
 
-Jobs live in `data/jobs.yaml`, under your records folder,
-`%LOCALAPPDATA%\Arelis\data` if installed, or `data\` in the
-repository if you're running from source. It's meant to be
+Jobs live in `data/jobs.yaml`, under your records folder
+(`%LOCALAPPDATA%\Arelis\data` if installed, or `data\` in the
+repository if you're running from source). It's meant to be
 hand-editable.
 
 Windows keeps a matching scheduled task at `\Arelis\<job-id>`.
 Creating or deleting a job through Arelis updates both sides at once.
 If you ever end up with a task that has no matching yaml row, or a
-yaml row with no task, that's drift, `arelis/jobs/schedule.py` can
+yaml row with no task, that's drift: `arelis/jobs/schedule.py` can
 tell you what Task Scheduler actually has registered.
 
 The task itself runs `pythonw.exe -m arelis --run-job <id>` (using

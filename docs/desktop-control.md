@@ -37,7 +37,7 @@ work the same as a browser drive.
   missing, snapshot grabs the screen instead of lecturing a pip
   install.
 - `click(text="7")` or `click(ref=d3)`. `x,y` only after
-  `screenshot` then `vision` this turn. The PNG is a look still,
+  `screenshot` then `vision` this turn. The PNG is a look still:
   deleted after she reads it, unless you asked to save it.
 - `type` into the focused field. Password / PIN / OTP are refused.
 - Checkout / Pay / Empty Recycle Bin / Uninstall / Format stop.

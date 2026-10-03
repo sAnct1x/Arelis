@@ -18,7 +18,7 @@ permission.
 | Window (`.\scripts\run_ui.ps1`) | Normal day-to-day use: chat, docks, Settings |
 | CLI (`arelis --cli`) | Same brain, just in a terminal |
 | Core (`.\scripts\run_core.ps1`) | Background only: phone messages, jobs, no window at all |
-| Tray | Window's hidden but she's still running. The taskbar X and the title bar's close button just hide her, **Quit Arelis** in the tray is the actual exit |
+| Tray | Window's hidden but she's still running. The taskbar X and the title bar's close button just hide her. **Quit Arelis** in the tray is the actual exit |
 | Job (`arelis --run-job <id>`) | One unattended turn, then an email with the result. See [jobs.md](jobs.md) |
 
 Core and the UI talk to each other over a small loopback bridge, which
@@ -32,8 +32,8 @@ exist until the window is actually opened.
 The phone app is a LAN companion, not a second copy of Arelis. The
 app itself is `android/arelis-notify/`. When your PC is reachable,
 chat on the phone is literally the same live session. When it isn't,
-the phone keeps its own seat and just picks up the conversation,
-any Gemma-generated words from that time sync back once the PC is up
+the phone keeps its own seat and just picks up the conversation.
+Any Gemma-generated words from that time sync back once the PC is up
 again. The APK and the offline brain come from this PC when they are
 here (`/companion/*` on ingest). Off the LAN, phone and PC meet
 through `arelis/relay/`, a mailbox that cannot read the bytes. If the
@@ -42,7 +42,7 @@ house is not holding a poll, the phone is told to use Gemma. See
 
 ## First open
 
-It's not really a tour, just two questions, and only in the window:
+It's not really a tour: just two questions, and only in the window:
 
 1. Which folder is she allowed to read, create, change, and delete
    in?
@@ -66,10 +66,10 @@ The core process is separate: it holds the lock and `:8765`, and the
 window attaches over loopback.
 
 1. Your text (or a voice transcript) hits the orchestrator
-   (`arelis/core/orchestrator.py`). That class is three mixins,
-   turns, slash, and confirm, so a reply, a `/room`, and an Allow
+   (`arelis/core/orchestrator.py`). That class is three mixins
+   (turns, slash, and confirm), so a reply, a `/room`, and an Allow
    can land while a turn is already running. Typed and spoken input
-   share this exact same path once the transcript exists, only one
+   share this exact same path once the transcript exists. Only one
    turn runs at a time.
 2. Slash commands (`/role`, `/room`, `/leave`) and spoken room names
    get handled right here. Entering a room, notably, is not itself a
@@ -88,8 +88,8 @@ window attaches over loopback.
    doesn't need to pause again. On **sodium** mail and texts always
    pause, no exceptions. The **filament** desk is the one exception in
    the app: there the spoken ask is the grant, so a send goes without a
-   card and only destructive calls: delete, forget, Pay, Checkout,
-   a UAC prompt on the desk, plus `run_script` stop and wait. See
+   card and only destructive calls (delete, forget, Pay, Checkout,
+   a UAC prompt on the desk), plus `run_script` stop and wait. See
    Themes below.
 5. Tool results flow back into the turn, and she answers based on
    what she actually got back, not what she expects to get back.
@@ -106,7 +106,7 @@ with empty chat content, she just answers from that existing result
 rather than dropping into JSON mode. Writes and sends still wait for
 your approval regardless of which path she took to get there.
 
-The confirmation card itself is written in plain human language,
+The confirmation card itself is written in plain human language:
 "text wife," "write note.txt". Nothing cryptic. **Deny** only
 blocks that one step. **Stop** ends the whole turn. A busy turn has a ceiling
 (`ui.hung_turn_s`, 90s). If she already
@@ -126,8 +126,8 @@ piggyback on approval for something else.
 Even a tiny ask (the time, a greeting, a "thanks," "who are you")
 still sends the full tool schema array, so the prefix cache stays
 intact. What it skips is the unmatched-web floor, the "call a tool
-first" nudge, and holding back the answer until a tool round finishes,
-those small turns just stream straight through. "Who is this"
+first" nudge, and holding back the answer until a tool round finishes.
+Those small turns just stream straight through. "Who is this"
 (pointed at a photo, or someone on TV) isn't treated as an identity
 question and may still trigger a search. Something like "what time
 is it in Tokyo" still needs an actual tool call. Anything that comes
@@ -183,11 +183,11 @@ started.
 | Location | `arelis/location/` | Where you are. A typed profile always wins. Timezone comes from the OS locale. Coordinates come from an opt-in IP lookup, and nothing here calls the network unless that lookup is on |
 | Research | `arelis/research/` | Deterministic multi-source report (excerpts, not an LLM synthesis). The tool is `research_report` |
 | Eval | `arelis/eval/` | Scripted board. Scores whether the guards still catch a canned mistake. It does not score live tool choice |
-| Voice | `arelis/voice/` | Listening and speaking; `prepare.py` is the first-open fetch, [voice-wake.md](voice-wake.md) |
+| Voice | `arelis/voice/` | Listening and speaking; `prepare.py` is the first-open fetch. See [voice-wake.md](voice-wake.md) |
 | Spatial | `arelis/spatial/` | World engine, grants, hand-tracking takes. Pose input is not a chat turn |
-| Earth | `arelis/earth/` | Earth view on Reality's globe, 109 shipped / 25 keyed / 3 coming later / 4 left out. Marks come from `arelis/ui/earth_marks.py`. See [earth.md](earth.md) |
-| Physics | `arelis/physics/` | Reality's solar system, Horizons initial conditions, REBOUND, IAU attitude |
-| Calendar | `arelis/calendar/` | Google / Outlook OAuth, see [calendar-oauth.md](calendar-oauth.md) |
+| Earth | `arelis/earth/` | Earth view on Reality's globe: 109 shipped / 25 keyed / 3 coming later / 4 left out. Marks come from `arelis/ui/earth_marks.py`. See [earth.md](earth.md) |
+| Physics | `arelis/physics/` | Reality's solar system: Horizons initial conditions, REBOUND, IAU attitude |
+| Calendar | `arelis/calendar/` | Google / Outlook OAuth. See [calendar-oauth.md](calendar-oauth.md) |
 | Memory | `arelis/memory/` | SQLite archive plus recall |
 | Config | `arelis/config/default.yaml` | Shipped defaults; overrides live under `data/` |
 | Paths | `arelis/paths.py` | Resolves installed vs. checkout roots. Always use this. Never hand-write a path for a write |
@@ -196,7 +196,7 @@ Only one chat model ever sits in graphics memory at a time. First
 open recommends a tag based on your hardware, pins both Fast and
 Research to it, and sizes the context window to whatever card it
 detected. The shipped last-resort in `default.yaml` is `qwen3.5:9b`
-for both Fast and Research, Research mode is just a deeper reasoning
+for both Fast and Research. Research mode is just a deeper reasoning
 loop on the same weights. File work always stays on Fast. That model
 can see images itself, so `models.vision` only exists as a fallback
 for a model that can't. Full details in [models.md](models.md).
@@ -246,7 +246,7 @@ docks.
 | Notifications | Inbound texts, shown while the UI is open |
 | Contacts | People you can text, under View → Contacts / Ctrl+6 |
 | Calendar | Local tile, Ctrl+7: month / week / day / agenda views, plus tasks and jobs. Empty of any Google events until you authorize |
-| Settings | Audio / window / allow / notify / roots / memory. Mail is a form on Notify: Gmail address and app password. The password is not shown again after Apply, and it is stored in `data/secrets.yaml`. Phone pairing (the QR and a token) is on that same tab. Calendar OAuth is not a Settings tab, `arelis --auth-calendar`, see [calendar-oauth.md](calendar-oauth.md) |
+| Settings | Audio / window / allow / notify / roots / memory. Mail is a form on Notify: Gmail address and app password. The password is not shown again after Apply, and it is stored in `data/secrets.yaml`. Phone pairing (the QR and a token) is on that same tab. Calendar OAuth is not a Settings tab. Use `arelis --auth-calendar` (see [calendar-oauth.md](calendar-oauth.md)) |
 | Themes | View → Themes. **sodium** is the shipped face. **filament (testing)** is a checkout experiment for a row of desks: three monitors is the intended layout; 1 and 2 still work. Saved to `data/config.local.yaml`. Confirms change with the face: sodium raises the Allow card, filament treats the spoken ask as the grant and only pauses on destructive calls (delete / forget / Pay / Checkout / a UAC prompt on the desk) and `run_script`. Switching theme switches that policy. A send that would have shown you a card on sodium does not on filament. Filament is a desk presence: coil at first rest or away-idle, unwrapped once in use. Slim title bar, say “hey arelis”, and 1 / 2 / 3 stay on the primary desk. 1 / 2 / 3 are desk counts, not Windows monitor numbers; default is one primary desk. Text lives on the chat plate. The thinking title breathes while a turn is running. Each title has its own particle on the current (same motion as the word). Click the bead or the word. HWND stays opaque; tiles are floating resizable plates. The field paints a horizontal band and remasks only on span / resize, not every atmosphere tick. Dust stamps live in RAM; camera preview convert is a worker, not the HWND thread |
 | Display | Same model as Chrome / VS Code / Office. Qt 6 per-monitor DPI: a 4K panel at 150% is ~2560×1440 logical, not a second 4K mode. First-launch size (1440×900) shrinks to the current work area so 1080p fits; 2K and 4K stay that size until you maximize. Restored geometry that landed on an unplugged monitor moves back. Settings → window → Interface scale is an optional zoom on top of the OS (`ui.scale`, default 1.0, needs a restart). Chat text size is just the transcript (Ctrl+= / − / 0). |
 | Reality | A floating 3D window. View → Reality / Ctrl+8. Only appears while the Reality room is active, and only on a source checkout (`world_stage_allowed`). Needs `pip install -e ".[spatial]"` for hand tracking and `.[astro]` for REBOUND. None of it ships in the installer. Default size 1280×800. The solar GPU path is `--solar-gl` / `ARELIS_SOLAR_GL=1` (an offscreen FBO). The Earth view renders the planet through Cesium, with Arelis handling stars and the HUD; contacts there use `earth_marks.py`. It's inspect-only: a WASD fly camera, with H reciting the live key bindings. There's no piloted chase-cam |
@@ -275,7 +275,7 @@ tile, research reports, agenda, plotting, documents, pdf, reminders,
 transcribe, and `run_script`. `image` and `image_edit` stay
 registered. The runner skips the Allow card instead of hiding them.
 `cas`, `units`, `catalog`, `python`, `calculator`, and `watch` run
-unattended, see [jobs.md](jobs.md).
+unattended. See [jobs.md](jobs.md).
 
 `send_email` / `inbox`, `send_sms` / `inbound_sms`, and `agenda` only
 get registered once mail, the phone, or a calendar source is actually
@@ -306,7 +306,7 @@ connected. Until then, if you ask, she'll just tell you she can't.
 | `document` | PDF, Word, Excel, CSV, markdown. Room → `documents/` inside the project; outside a room → `outputs/documents/` | Yes |
 | `catalog` | arXiv, Horizons; APOD / ADS once you add a free key | No |
 | `solar` | Reality's N-body sim (Horizons VECTORS + REBOUND IAS15). Source checkout only. Approach and orbit views, inspect-only fly camera, IAU spheres. No landing | Yes |
-| `earth` | The Earth view inside Reality. Inventory lives in `feeds.py` (109 shipped / 25 keyed / 3 coming later / 4 left out). Source checkout only, see [earth.md](earth.md) | No |
+| `earth` | The Earth view inside Reality. Inventory lives in `feeds.py` (109 shipped / 25 keyed / 3 coming later / 4 left out). Source checkout only. See [earth.md](earth.md) | No |
 | `clipboard` / `ocr` / `vision` / `camera` | Paste, read screen text, look at an image, use the webcam | Yes (webcam capture answers to the same vision toggle as looking at a still) |
 | `memory` / `recall` / `tasks` / `goals` | Remembering things, chores, "what needs my attention". `recall action=docs` searches indexed files / PDFs | Mutates: yes |
 | `inbox` / `send_email` / `schedule` | Mail and timed jobs | Sending: yes. Creating a job: yes. Listing the inbox is free; trash / archive / move / flag actions: yes |
@@ -332,7 +332,7 @@ to the writes toggle: same Allow card as any other local artifact.
 `external_read` is a session-grant confirm token for a typed
 outside-root file, not a registered tool. The model never sees it.
 
-ComfyUI is a separate app entirely, Arelis never starts it
+ComfyUI is a separate app entirely. Arelis never starts it
 automatically at launch. `tools.image.auto_start` ships set to false;
 if you set it to true and point `launch_cwd` at your ComfyUI install,
 the first image request may start it up for you. Until then, asking
@@ -344,7 +344,7 @@ to launch something that isn't there.
 `data/browser-profile/`. It's never your everyday Chrome. See
 [browser-control.md](browser-control.md).
 
-`desktop` drives **your** Windows session, Notepad, Explorer, the
+`desktop` drives **your** Windows session: Notepad, Explorer, the
 apps already signed in. That is not a shell and not a raw `.exe`
 path. A look at a monitor or window is a screenshot that already
 reads the page (tiled when a named problem is missing on a huge
@@ -353,7 +353,7 @@ not the webcam. See [desktop-control.md](desktop-control.md).
 
 ## Rooms
 
-A room is a named place to work on one thing. Its own thread, its
+A room is a named place to work on one thing: its own thread, its
 own folder, and a purpose she reads back at the start of every turn.
 `/room physics` takes you in, `/leave` takes you out, and launch
 resumes whichever room you last entered, on a new empty chat, not
@@ -364,14 +364,14 @@ view and C920 hand tracking actually run. See [rooms.md](rooms.md).
 ## Memory and safety
 
 - Chat history is a sliding window (`agent.history_max_messages`,
-  shipped at 120 (roughly 60 turns).
+  shipped at 120, roughly 60 turns).
 - The History dock shows past sessions plus any pending facts
   waiting for approval or rejection.
 - Active facts live in `memory.db`, managed under **Settings →
   Memory**. A page you want to reopen is a desk note (`keep this:` or
   the `notes` tool), not a fact.
-- Workspace roots are only the folders you've explicitly configured,
-  writes always wait for approval. A path you named in chat can
+- Workspace roots are only the folders you've explicitly configured.
+  Writes always wait for approval. A path you named in chat can
   get a read-only session grant (Allow). Granting a folder includes
   the files inside it. A deny does not mean she should list
   `Documents` or `C:\Users`.
@@ -384,7 +384,7 @@ view and C920 hand tracking actually run. See [rooms.md](rooms.md).
 - A Point-and-Ask look mints what's called a LookGrant: one still
   image, one allow / deny prompt, then it stops. Printed
   instructions in a photo can never turn into an actual send.
-- There's a loop cap on reasoning rounds (`agent.max_rounds`, 8
+- There's a loop cap on reasoning rounds (`agent.max_rounds`: 8
   normally, 32 in research mode, 16 when she is reading her own
   source / assessing the solar-system sim). Weather and SMS stay at 8.
   A busy turn has a separate ceiling (`ui.hung_turn_s`, 90s) so the
@@ -430,8 +430,8 @@ sending, and no captcha solver.
 ## Files that matter
 
 `data/`, `logs/`, `outputs/`, and `models/` all live under the user
-data root, `%LOCALAPPDATA%\Arelis` if installed, or the repository
-itself if you're running from source. They should always be resolved
+data root (`%LOCALAPPDATA%\Arelis` if installed, or the repository
+itself if you're running from source). They should always be resolved
 through `arelis/paths.py`; `tests/test_user_data_dir.py` enforces
 this.
 
@@ -445,12 +445,12 @@ this.
 | `data/jobs.yaml` | Scheduled jobs: hand-editable, paired with Task Scheduler entries at `\Arelis\<id>` |
 | `arelis/jobs/` | Job storage, Windows task XML generation, the unattended runner |
 | `arelis/physics/` | Reality's solar system |
-| `arelis/earth/` | The Earth view, see [earth.md](earth.md) |
+| `arelis/earth/` | The Earth view. See [earth.md](earth.md) |
 | `arelis/ui/earth_marks.py` | Drawn marks for Earth layers and solar object types |
 | `arelis/ui/earth_globe/` | The Cesium globe (planet rendering only) |
 | `arelis/ui/solar_gl.py` | Offscreen GL rendering for globes |
 | `arelis/spatial/` | The world engine (source checkout only) |
-| `outputs/physics/takes/` | Hand-tracking takes, if it's not saved in a take, it didn't happen |
+| `outputs/physics/takes/` | Hand-tracking takes: if it's not saved in a take, it didn't happen |
 | `data/memory.db` | Facts, goals, tasks |
 | `data/backups/` | Unused; housekeep deletes leftover dated copies |
 | `data/browser-profile/` | Her Chrome: caches pruned on launch; wipeable |

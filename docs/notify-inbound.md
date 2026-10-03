@@ -10,7 +10,7 @@ Play Store build. The house serves the APK: Settings → Notify grows a
 camera QR that downloads it from this PC, and a paired phone offers a
 newer one the same way. One tap to install. Not silent.
 
-When the PC is reachable, the first open of the local day is a new chat,
+When the PC is reachable, the first open of the local day is a new chat:
 empty orbit, same as glass cold launch. Yesterday stays under
 **chats**. Opening a thread later that day keeps it. Allow / Deny for
 sends she already does on the PC. **files** opens the current room or
@@ -21,8 +21,8 @@ it.
 When the PC is gone, chats and files wait. If you installed the offline
 brain at pair (Gemma 4 E2B, ~2.6 GB), she can talk and look at a photo
 you just took. No mail, no SMS, no PC files. You stay in the
-conversation already on screen. When Arelis is back, even during “At
-the house · loading”. Those words copy in, no prompt and no extra
+conversation already on screen. When Arelis is back (even during “At
+the house · loading”), those words copy in, no prompt and no extra
 line. If there was no house thread yet, they become a new conversation
 instead of landing in last week’s. Wi-Fi is the nicer download; mobile
 data is allowed if you choose it.

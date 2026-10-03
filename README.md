@@ -172,12 +172,12 @@ records.
 If you're running from source, records and workspace default to the
 repository itself (`data/`). An installed copy and a source checkout
 on the same machine never share a profile. You can point a checkout at
-a sandbox location instead using `ARELIS_DATA_DIR`,
+a sandbox location instead using `ARELIS_DATA_DIR`:
 `scripts\run_dev_ui.ps1` does exactly this, using
 `%LOCALAPPDATA%\Arelis-dev`.
 
 Uninstall from Apps & Features always removes the program and scheduled
-tasks. It asks whether to delete records too, **No** keeps
+tasks. It asks whether to delete records too: **No** keeps
 `%LOCALAPPDATA%\Arelis` for a later reinstall. **Yes** also takes her
 runtime folder and the default workspace, and never a source checkout
 or a system Ollama install.
@@ -197,10 +197,10 @@ her to use them, she'll tell you she can't.
 There's no Mail tab in Settings. Mail is configured through the
 `email:` block in `secrets.yaml` (that's a Gmail app password, not
 your actual Google password). For phone, go to Settings → Notify and
-scan the QR code, see [notify-inbound.md](docs/notify-inbound.md).
+scan the QR code. See [notify-inbound.md](docs/notify-inbound.md).
 For calendar, see [calendar-oauth.md](docs/calendar-oauth.md). Note
-that scheduled jobs need mail set up first, details in
-[jobs.md](docs/jobs.md).
+that scheduled jobs need mail set up first (details in
+[jobs.md](docs/jobs.md)).
 
 ## Using Arelis
 
@@ -223,7 +223,7 @@ More in [rooms.md](docs/rooms.md).
 **Roles.** There are two modes: `/role fast` and `/role research`.
 File and git work always stays on Fast. Once setup is done, both modes
 actually use the same model (`qwen3.5:9b`, unless you picked something
-else), Research just means a longer reasoning loop, not a bigger
+else). Research just means a longer reasoning loop, not a bigger
 model. See [models.md](docs/models.md).
 
 **Optional features:**
@@ -231,7 +231,7 @@ model. See [models.md](docs/models.md).
 - **Her browser:** Not your everyday Chrome: her own separate window that you can watch. She'll never type a password or click Book, Pay, or Checkout. See [browser-control.md](docs/browser-control.md).
 - **Phone app:** One sideloaded **Arelis** app, paired by scanning the QR code in Settings → Notify. Google Messages stays your everyday messenger. She sends texts from your SIM only after you approve the card. If the PC is off, the phone keeps its own conversation going; if you installed Gemma during pairing (~2.6 GB), she can keep talking on-device, and those messages sync back once the PC is up again. See [notify-inbound.md](docs/notify-inbound.md).
 - **Mail, calendar, texting:** All stay off until you connect them. Configuration lives in `data/secrets.yaml`. See [calendar-oauth.md](docs/calendar-oauth.md) and the optional extras section above.
-- **Jobs:** Found under the calendar tile (`Ctrl+7`). Set a prompt and a time, and she'll email you the answer. Requires mail to be set up, see [jobs.md](docs/jobs.md). "Remind me in 20 minutes" is a timer, not a job.
+- **Jobs:** Found under the calendar tile (`Ctrl+7`). Set a prompt and a time, and she'll email you the answer. Requires mail to be set up. See [jobs.md](docs/jobs.md). "Remind me in 20 minutes" is a timer, not a job.
 
 **Memory.** Managed under Settings → Memory. Dated backups are kept in
 `data\backups\` for two weeks.
@@ -289,6 +289,6 @@ repository. There's a test that enforces it.
 [GNU Affero General Public License, version 3 or later](LICENSE).
 
 You're free to use it, read it, change it, and share it. If you share
-a modified version, including by running it as a service other people
-connect to. You need to make your changes available under the same
+a modified version (including by running it as a service other people
+connect to), you need to make your changes available under the same
 license.

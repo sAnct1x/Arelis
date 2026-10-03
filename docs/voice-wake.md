@@ -4,7 +4,7 @@ Talking and listening both come bundled in the Windows installer. If
 you're running from a source checkout, you'll need
 `pip install -e ".[voice]"` first.
 
-There are exactly three listen modes, no fourth hiding somewhere:
+There are exactly three listen modes (no fourth hiding somewhere):
 
 | Control | Mode |
 |---|---|
@@ -17,7 +17,7 @@ There are exactly three listen modes, no fourth hiding somewhere:
 | You say | What happens |
 |---|---|
 | **Hey Arelis** or **Hey Arelis, what's the weather** | She enters conversation mode, same as pressing the two-arcs talk button. Anything after her name in that same clip counts as the first turn. |
-| **Goodbye**, **that's all**, **stop listening**, **go to sleep** | She hangs up. Wake detection stays on in the background, just say **Hey Arelis** again when you want her back. Whatever room you were in stays put. |
+| **Goodbye**, **that's all**, **stop listening**, **go to sleep** | She hangs up. Wake detection stays on in the background. Just say **Hey Arelis** again when you want her back. Whatever room you were in stays put. |
 | **Stop**, **be quiet**, **shut up** | She cuts off mid-turn. Works in conversation, on a one-shot wake, and while you are dictating, if a turn or a card is live. |
 | **Pause**, **hold on** | Freezes her Chrome drive. The page stays. In Reality with no live drive, **pause** is still the sim. |
 | **Go**, **resume**, **keep going** | Continues a held drive. After a stop, **keep going** is ordinary talk. |
@@ -27,20 +27,20 @@ There are exactly three listen modes, no fourth hiding somewhere:
 
 A real match is meant to be unmistakable: the talk button latches on,
 flares, and the composer or empty session shows **listening**. A bare
-**Hey Arelis** with nothing after it still latches, no new chat
+**Hey Arelis** with nothing after it still latches. No new chat
 starts; she waits for the next sentence with the two-arcs lit.
 Close-to-tray keeps that ear open (hangs up talk, stays on wake).
 Quit from the tray is what actually stops the mic.
 From there it's just ordinary conversation until you say goodbye (or
 toggle the button / Ctrl+Shift+M). If an allow / deny card is up on
-screen, the mic stays live specifically for **allow** or **deny**,
-anything else gets ignored, including a hangup attempt, until you've
+screen, the mic stays live specifically for **allow** or **deny**.
+Anything else gets ignored, including a hangup attempt, until you've
 actually decided on the card.
 
 Conversation speech-to-text runs on Sherpa-ONNX Zipformer, not
 Whisper. The default pack is Kroko 2025 (mixed case, with
 punctuation); the 2023 LibriSpeech pack is the fallback if Kroko
-isn't available. Sherpa has a habit of mishearing mail-related words,
+isn't available. Sherpa has a habit of mishearing mail-related words:
 "email" sometimes comes out as a French-sounding name, "inbox" as
 two separate words. Isolated ah / um / er get dropped, and a near-miss
 that matches a name from the last few turns (tighten / Titan, your
@@ -79,7 +79,7 @@ accepted name variants: arelis, airelyse, aurelis, arrelis, arilis,
 rellis, relus, relics, and a few mashed one-word spellings
 (Hierrallus, Hayorellus). Mid-clip matching only looks for **Hey** /
 **Hay** plus the name. A clip that *opens* with **Pay** / **Hair** /
-**Here** plus her name also counts, "Here we go" does not.
+**Here** plus her name also counts. "Here we go" does not.
 Near-miss cousins that overlap with normal speech ("or Ellis,"
 "air Elise") are deliberately not accepted.
 
