@@ -1069,7 +1069,7 @@ class BrowserTool:
         parts: list[str] = []
         from arelis.browser.launch import first_run_note, mark_intro_shown
 
-        sign_in = first_run_note()
+        sign_in = first_run_note(fresh=self.session.fresh_profile)
         if sign_in:
             parts.append(sign_in)
             mark_intro_shown()
