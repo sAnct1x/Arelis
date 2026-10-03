@@ -1,6 +1,6 @@
 # Desktop
 
-Arelis can drive **your Windows session** — open apps, switch
+Arelis can drive **your Windows session**. open apps, switch
 windows, type, click. This is separate from her Chrome browser. For web
 tasks, see [Browser Control](browser-control.md).
 
@@ -20,24 +20,24 @@ work the same as a browser drive.
 - `monitors` lists displays (`1|primary|3840x2160|left`).
 - `screenshot` without a target is the primary monitor. `target=left`
   / `right` / `2` / `top` picks a display. `target=Kindle` (a window
-  title) or `the book` (Kindle / Acrobat) grabs that window — not the
+  title) or `the book` (Kindle / Acrobat) grabs that window. Not the
   whole desk. The grab already reads the text (tiled on a huge page
   when they named a problem / paragraph). `vision` only for a
   diagram. She does not highlight in the other app. A follow-up
   ("now the third paragraph", "how do I solve this") grabs again;
   the still is deleted unless you said save/keep. "What's on the
   screen" is a monitor. "What's on this page / tab" is her Chrome.
-  If a tiny problem number cannot be resolved, she says so — she
+  If a tiny problem number cannot be resolved, she says so. she
   does not invent it. Protected / overlay / fullscreen grabs fail
   out loud. The window is captured from the monitor Windows says
   it is on (not always the primary).
 - `snapshot` ranks named controls in the focused window (`[d1]`…).
   Named-control click needs UI Automation (`comtypes`). A monitor
-  look never does — that is `screenshot`. If named controls are
+  look never does. That is `screenshot`. If named controls are
   missing, snapshot grabs the screen instead of lecturing a pip
   install.
 - `click(text="7")` or `click(ref=d3)`. `x,y` only after
-  `screenshot` then `vision` this turn. The PNG is a look still —
+  `screenshot` then `vision` this turn. The PNG is a look still.
   deleted after she reads it, unless you asked to save it.
 - `type` into the focused field. Password / PIN / OTP are refused.
 - Checkout / Pay / Empty Recycle Bin / Uninstall / Format stop.
@@ -53,7 +53,7 @@ Never started: `cmd`, PowerShell, `regedit`, `diskpart`, `format`,
 Never opened as files: `C:\Windows`, other users under `C:\Users`,
 `data/secrets.yaml`.
 
-`notepad.exe` lives in System32. That folder is not the ban — the
+`notepad.exe` lives in System32. That folder is not the ban. the
 job is.
 
 Unattended jobs do not get this tool.

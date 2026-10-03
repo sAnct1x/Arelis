@@ -30,14 +30,14 @@ Handoff prompt: `docs/roadmap/earth-reality-handoff.md`.
 - [The thesis](#the-thesis)
 - [Measured inventory](#measured-inventory)
 - [Doc vs code, found on the read](#doc-vs-code-found-on-the-read)
-- [Phase 0 — safety net](#phase-0--safety-net)
-- [Phase 1 — close in-flight lies](#phase-1--close-in-flight-lies)
-- [Phase 2 — measure any rip-it thesis](#phase-2--measure-any-rip-it-thesis)
-- [Phase 3 — cleanup and dedup](#phase-3--cleanup-and-dedup)
-- [Phase 4 — verb depth](#phase-4--verb-depth)
-- [Phase 5 — missing verbs / honest holes](#phase-5--missing-verbs--honest-holes)
-- [Phase 6 — usability](#phase-6--usability)
-- [Phase 7 — walk the plate](#phase-7--walk-the-plate)
+- [Phase 0. safety net](#phase-0--safety-net)
+- [Phase 1. close in-flight lies](#phase-1--close-in-flight-lies)
+- [Phase 2. measure any rip-it thesis](#phase-2--measure-any-rip-it-thesis)
+- [Phase 3. cleanup and dedup](#phase-3--cleanup-and-dedup)
+- [Phase 4. verb depth](#phase-4--verb-depth)
+- [Phase 5. missing verbs / honest holes](#phase-5--missing-verbs--honest-holes)
+- [Phase 6. usability](#phase-6--usability)
+- [Phase 7. walk the plate](#phase-7--walk-the-plate)
 - [Frozen the other way](#frozen-the-other-way)
 - [How to recover](#how-to-recover)
 
@@ -60,7 +60,7 @@ this checkout all say the opposite for the planet: **Earth zone is
 Cesium; solar lab is native GL; never both live; native NASA disc
 is fallback only.** Enter parks solar GL, then mounts Cesium in a
 child process when GPU solar was live. Travel to Earth does **not**
-mount Cesium — it is a solar-lab warp. That contract is implemented.
+mount Cesium. It is a solar-lab warp. That contract is implemented.
 Do not rip Cesium because a completed canvas said "skip." Verify
 pixels in Phase 7; do not reopen the host debate in Phase 2 unless
 a measurement says the child process is the GPU hole.
@@ -72,7 +72,7 @@ The wound that *does* look like last audit:
    is truthy (`if flights:`, `if vessels:`, `if pins:`, …). A miss
    (`None`) correctly keeps sim. A successful empty fetch (`[]`)
    also keeps the previous layer. Walking the look box drops TTL
-   (`LOOK_BOX_ADAPTERS`) so the next city refetches — and if that
+   (`LOOK_BOX_ADAPTERS`) so the next city refetches, and if that
    fetch is honestly empty, last city's planes/ships/cameras stay
    in the store. `visible()` may hide them. A dump receipt will
    not. This is "empty catalog looks like last sky," the Earth
@@ -115,7 +115,7 @@ and delete things:
   WebEngine is missing or Cesium boot fails. Do not delete
   `earth_globe/`, the host, or `choose_stack`.
 - Shipping Cesium in the installer. **Hard block.**
-  `world_stage_allowed()` — source checkout only. The Reality
+  `world_stage_allowed()`. source checkout only. The Reality
   *room* still exists in the installer for chat, CAS, Horizons.
 
 If Phase 2 measures this thesis wrong, check the box cancelled and
@@ -153,7 +153,7 @@ coverage lives in `test_earth_field.py` / `test_earth_inspect.py`
 Modules whose *filename* never appears in any `test_*.py`
 (cheap query; not "unreachable"):
 
-- `arelis/earth/traffic_fetch.py` (1,520 lines — the real 511/WZDx
+- `arelis/earth/traffic_fetch.py` (1,520 lines. The real 511/WZDx
   builders; tests hit the `traffic.py` façade)
 - `arelis/physics/corona.py`, `star_look.py`
 - `arelis/spatial/one_euro.py`
@@ -190,25 +190,25 @@ Frames: Earth store is ECEF metres; solar lab is ECLIPJ2000.
 
 The roadmap is a lead. These are already measured. Phase 1 closes
 them; do not silently "correct" the old sentences in git history
-— write the fix and the note here.
+. write the fix and the note here.
 
 | Claim | Where | Code |
 |-------|-------|------|
 | Live stays off by default | production canvas P1-7, "completed" | `EarthRuntime.enter` sets `live = True` outside pytest (`runtime.py:149-150`) |
 | Drop satellite refresh at near | `docs/earth.md:68`, `docs/whats-new.md:281` | `ADAPTER_BANDS` keeps `celestrak` / `spacetrack` / `tip` on near **and** city (`lod.py:138-141`). Runtime docstring: "CelesTrak keeps running after you leave space." |
-| Buildings chip / footprints | `docs/earth.md:159` table, `whats-new` building outlines | Runtime forces `buildings = False`. No Buildings chip on the bar. `test_earth_docs_inventory_matches_feeds` asserts `"**Buildings**" not in earth` — the table cell still says "when Buildings is on" without the bold |
+| Buildings chip / footprints | `docs/earth.md:159` table, `whats-new` building outlines | Runtime forces `buildings = False`. No Buildings chip on the bar. `test_earth_docs_inventory_matches_feeds` asserts `"**Buildings**" not in earth`. The table cell still says "when Buildings is on" without the bold |
 | GPU Travel keeps the native NASA disc / skip Cesium | production canvas P0 / P2 | Travel skips Cesium (**true**). Enter mounts Cesium (**true**). Native disc is fallback, not the live Earth planet |
 | "Live keeps pulling" on a coasting view | `copy.py:183-186` | That branch is `elif published` after `zone.live` was already False |
 | enter snapshots then coasts | `earth_tool.py:31-32` | Enter turns Live on |
 | Space = sats only; approach = planes only (chip bar) | production canvas P1-3/4 | `CHIP_LAYERS["approach"]` still includes satellites + ISS + flights + drones (`lod.py:187`) |
-| Failures keep sim | almost every fetcher docstring | True for `None`. **False for `[]`** if you wanted a quiet box to replace last city — `_apply_live` truthy-check |
+| Failures keep sim | almost every fetcher docstring | True for `None`. **False for `[]`** if you wanted a quiet box to replace last city. `_apply_live` truthy-check |
 
 When a ticket below is wrong, write that under the step. Do not
 edit the ticket until the code has been re-read.
 
 ---
 
-## Phase 0 — safety net
+## Phase 0. safety net
 
 Nothing else starts until this is green. Offline, no Ollama, no
 need to launch the GUI. Visual pass is Phase 7.
@@ -239,7 +239,7 @@ claims to guard. Disable the new guard; the suite must go red.
   and unlock clear the deque. Mutant: skip `forget_trails()` in
   `leave`; `test_leave_forgets_earth_trails` goes red.
 - [x] **0.7** `catalog.LAYERS` default_on is only satellites +
-  ISS. Closer band must not flip chips — kept the existing
+  ISS. Closer band must not flip chips. kept the existing
   `test_earth.py` pin.
 - [x] **0.8** Enter / leave / park / child-process isolation.
   Existing `test_globe_stack.py` covers park-before-Cesium and
@@ -247,7 +247,7 @@ claims to guard. Disable the new guard; the suite must go red.
   `_leave_earth_zone` as the chip (3.1). Photoreal vs cesium
   fail already had the companion that can go red.
 - [x] **0.9** Photoreal miss must not set `host.failed`. Kept
-  `test_globe_stack.py:172`. HUD copy "fancy map failed — NASA
+  `test_globe_stack.py:172`. HUD copy "fancy map failed. NASA
   ball" already pinned in polish.
 - [x] **0.10** `world_stage_allowed`: installer tree and
   non-checkout deny the plate. Existing
@@ -265,7 +265,7 @@ claims to guard. Disable the new guard; the suite must go red.
 
 ---
 
-## Phase 1 — close in-flight lies
+## Phase 1. close in-flight lies
 
 Code first, then the sentence in the doc. Surgical on
 `docs/earth.md`, `docs/whats-new.md`, `earth/__init__.py`.
@@ -291,14 +291,14 @@ Code first, then the sentence in the doc. Surgical on
 - [x] **1.6** Production canvas "GPU skip / Live off / Buildings
   chip" is a prior campaign. Noted on this audit canvas. Do not
   rewrite that board's history.
-- [x] **1.7** Photoreal miss vs `host.failed` — already pinned.
-  Native fallback HUD copy is loud (`fancy map failed — NASA ball`).
+- [x] **1.7** Photoreal miss vs `host.failed`. already pinned.
+  Native fallback HUD copy is loud (`fancy map failed. NASA ball`).
 - [x] **1.8** Keyed without a key stays quiet. APRS already
   pinned; later/out never in adapters (0.3).
 
 ---
 
-## Phase 2 — measure any rip-it thesis
+## Phase 2. measure any rip-it thesis
 
 Do not implement a cancelled phase. If the numbers say no, check
 cancelled and move.
@@ -328,7 +328,7 @@ same way last audit cancelled schema restore.
 
 ---
 
-## Phase 3 — cleanup and dedup
+## Phase 3. cleanup and dedup
 
 Duplication is where defects hide. Diff copies. The odd one out
 is the bug. Do not extract for neatness.
@@ -339,13 +339,13 @@ is the bug. Do not extract for neatness.
   Headless tool path still dumps then `zone.leave()`; the solar
   tick drops the globe when the zone is inactive.
   **Ticket was slightly wrong** that speech *only* waited on
-  the tick — it also dumped — but the globe teardown was the
+  the tick. It also dumped. but the globe teardown was the
   lazy copy. Test: `test_spoken_leave_earth_uses_plate_teardown`.
 - [x] **3.2** Park / unpark / `_cesium_off`. Travel does not
   park (02_travel_earth_door still NASA disc + Enter). Enter
   parks then mounts. Leave drops the globe then the solar HUD
   returns (10_leave_earth). Native Enter now calls
-  `_hold_earth_eye` immediately — waiting on the physics tick
+  `_hold_earth_eye` immediately. waiting on the physics tick
   left the Sun in the plate. Software `paint_overlay` no longer
   `reset_view()` (which leaves Earth) on a `_view_id` flap while
   the zone is on. Sun limb / other bodies skipped while the zone
@@ -366,7 +366,7 @@ is the bug. Do not extract for neatness.
   Still-pin URLs are `official_url_ok`. Every look host is named
   in `cameras_fetch` / `traffic_fetch` or `_STILL_PIN_URLS`
   (first pass missed `511la.org` because it is a tuple host,
-  not an `https://` literal — ticket was right, the scan was
+  not an `https://` literal. ticket was right, the scan was
   thin). `www.trafficnz.info` matches `trafficnz.info` via
   `_host_in` suffix.
 - [x] **3.7** Frames: Earth dump `FRAME = "ECEF"`, solar export
@@ -378,7 +378,7 @@ is the bug. Do not extract for neatness.
 
 ---
 
-## Phase 4 — verb depth
+## Phase 4. verb depth
 
 What the tool/schema promises vs what runs. Closed speech
 already skips the 9B for enter / leave / take me to.
@@ -387,7 +387,7 @@ already skips the 9B for enter / leave / take me to.
   ride, search, dump, live, coverage, goto. Goto miss is
   `fail:name`, not 0,0. Tokyo resolves; city look alt is 8 km.
   Module docstring still said "snapshots then coasts" after
-  1.3 — **that leftover was a lie.** Fixed.
+  1.3. **that leftover was a lie.** Fixed.
 - [x] **4.2** `solar action=craft` is inspect. Same mode as
   `inspect`. "no rideable craft." Does not grow a vehicle.
 - [x] **4.3** Travel arrives sunlit outside the body (existing).
@@ -403,14 +403,14 @@ already skips the 9B for enter / leave / take me to.
 
 ---
 
-## Phase 5 — missing verbs / honest holes
+## Phase 5. missing verbs / honest holes
 
 Stay-absent is a valid close.
 
 - [x] **5.1** Honest gap list after 4.x. Travel / enter / leave /
   find / take me to / ride / track / Live on/off / dump / copy
   view / solar inspect **all have homes**. Copy view is the
-  inspect-card chip (`view_receipt`), not a tool action — stay
+  inspect-card chip (`view_receipt`), not a tool action. stay
   that way. No new verb.
 - [x] **5.2** General "show me everything live from space."
   **Stay-absent.** Distance gate is the product. Space bar is
@@ -420,7 +420,7 @@ Stay-absent is a valid close.
 
 ---
 
-## Phase 6 — usability
+## Phase 6. usability
 
 Sodium HUD persists. Not a second UI theme.
 
@@ -442,7 +442,7 @@ Sodium HUD persists. Not a second UI theme.
 
 ---
 
-## Phase 7 — walk the plate
+## Phase 7. walk the plate
 
 You run this. Isolated `ARELIS_DATA_DIR`. HWND grab via
 `widget.grab()` / `grabWindow(winId)`, never
@@ -457,7 +457,7 @@ You run this. Isolated `ARELIS_DATA_DIR`. HWND grab via
   (native eye waited on a tick; software path still painted
   the Sun; `reset_view` on a `_view_id` flap left the zone).
   Fixed. 03 is now the zone: space chips, fetching satellites,
-  20000 km. Cesium Tool window is a sibling HWND —
+  20000 km. Cesium Tool window is a sibling HWND.
   `panel.grab()` misses it; shot composites a **ready** host
   only. Wait used to bail when `_globe_host` was still `None`,
   so Enter frames were native-or-black. Wait now holds until
@@ -532,7 +532,7 @@ commit `data/secrets.yaml`. Do not commit unless asked.
 
 If context dies: this file is the plan. Do not invent a new
 one on top of it. Mark steps as you close them, including
-where the ticket was wrong. The canvas is a view — rebuild it
+where the ticket was wrong. The canvas is a view. rebuild it
 from this markdown if it goes zero-byte again.
 
 Handoff text lives in `docs/roadmap/earth-reality-handoff.md`.

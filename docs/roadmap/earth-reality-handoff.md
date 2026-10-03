@@ -1,4 +1,4 @@
-# Handoff — same audit, Reality + Earth
+# Handoff. same audit, Reality + Earth
 
 Paste everything below the line into a new chat. The markdown
 roadmap you write is the source of truth. The canvas is a view over
@@ -20,7 +20,7 @@ already ships as 0.2.9 locally; last published installer is the
 draft until a human publishes it. 12 GB GPU. “Cost” means
 compute / tokens / VRAM / latency, not money. Talk like a person
 at this desk, not a ticket. Keep working until the plan is closed.
-Do not ask me to launch Arelis as your test loop — you run
+Do not ask me to launch Arelis as your test loop. You run
 pytest. I will test the plate myself when you say the code is
 ready, the same way I did for glass.
 
@@ -38,7 +38,7 @@ checkout-only. Last daily-driver commit that closed 0.2.8:
 **Closed phases (0–7):** eval floors +
 choice board; PDF raster lane (pypdfium2, loud miss); Phase 2
 **cancelled on measurement** (guards +6.0, full schema +1.0 vs ±2
-at 2.4× prefill — do not restore descriptions); cleanup/dedup that
+at 2.4× prefill. do not restore descriptions); cleanup/dedup that
 found wrong-person sends; tool depth; missing verbs; no general
 shell (stay-absent); Settings model picker; scoped a11y; Allow
 holes; SMS radio on cellular + background Allow + week-idle
@@ -53,7 +53,7 @@ the companion APK (I do that). Those are human / this desk.
 Context died more than once. That is why the markdown roadmap is
 checked in and the canvas is a view.
 
-## How we approached everything — copy this method
+## How we approached everything. copy this method
 
 This is the part that matters. The Earth/Reality work is not
 “make the globe prettier.” It is the same audit.
@@ -69,7 +69,7 @@ This is the part that matters. The Earth/Reality work is not
 
 2. **Two artifacts, immediately, before implementing.**
    - Checked-in markdown roadmap:
-     `docs/roadmap/earth-reality.md` — source of truth. Numbered
+     `docs/roadmap/earth-reality.md`. source of truth. Numbered
      steps so a sitting can say “I did 3.14” and mean something.
    - Interactive canvas beside the chat (same shape as
      `arelis-audit.canvas.tsx`). The canvas is a view. If the
@@ -129,11 +129,11 @@ This is the part that matters. The Earth/Reality work is not
     a feed miss that paints nothing and looks like “this region
     has no planes,” a photoreal miss that sets `host.failed`, a
     leave that looks like enter, a catalog chip on that fetches
-    nothing. Holes stay holes. Completeness is the anti-beacon —
+    nothing. Holes stay holes. Completeness is the anti-beacon.
     do not thin a region to hide a gap.
 
 11. **You run the visual pass.** HWND grab via `widget.grab()` /
-    `grabWindow(winId)`, never `screen.grabWindow(0)` — that
+    `grabWindow(winId)`, never `screen.grabWindow(0)`. That
     paints Cursor through translucent glass. Isolated
     `ARELIS_DATA_DIR`. Do not enter Earth from a glass-only
     script unless Earth is the point of that shot. Stitch a
@@ -143,7 +143,7 @@ This is the part that matters. The Earth/Reality work is not
     `docs/whats-new.md`, `docs/earth.md`, `solar_paint.py` HUD,
     `earth/__init__.py`. Do not remount Drive. Do not widen
     `policy.py`. Filament desk and voice/chrome sittings own
-    those faces — read `.cursor/rules/multi-agent-lanes.mdc`
+    those faces. read `.cursor/rules/multi-agent-lanes.mdc`
     before touching `conversation.py` or `launch.py`.
 
 13. **Do not implement a cancelled phase.** If you cancel
@@ -164,26 +164,26 @@ hide, and glass / tools / orchestrator / SMS / Allow stay
 frozen. Canvas `arelis-audit.canvas.tsx` was a view over that
 checklist. If it is empty, trust this handoff.
 
-**Earth / Reality — existing concept and production boards
+**Earth / Reality. existing concept and production boards
 (prior build campaigns, not this audit):**
 
-- `docs/earth.md` — inventory + legal line. Zone not title.
+- `docs/earth.md`. inventory + legal line. Zone not title.
   Labeled sim. Live replaces. Holes stay holes. 109 shipped /
   25 keyed / 3 later / 4 out. Stretch 1–8 of the year spine
   are **in the tree**. Later/out rows are refusals, not leftover
   build.
-- `docs/rooms.md` — room id `physics`, humans read Reality.
+- `docs/rooms.md`. room id `physics`, humans read Reality.
   Earth is a zone inside Reality, not its own room.
-- `docs/architecture.md` — Spatial / Earth / Physics table.
+- `docs/architecture.md`. Spatial / Earth / Physics table.
   Reality plate is source-checkout only (`world_stage_allowed`).
-- `docs/whats-new.md` **Reality** paragraph — Cesium vs native
+- `docs/whats-new.md` **Reality** paragraph. Cesium vs native
   GL contract, travel, Live bands.
-- `docs/telemetry.md` — Reality receipts under
+- `docs/telemetry.md`. Reality receipts under
   `outputs/physics/`.
-- Canvas: `reality-vs-concept.canvas.tsx` — concept thread
+- Canvas: `reality-vs-concept.canvas.tsx`. concept thread
   closed. Inventory mix. Do not reopen that chat to decide a
   host.
-- Canvas: `reality-production-plan.canvas.tsx` — GPU skip /
+- Canvas: `reality-production-plan.canvas.tsx`. GPU skip /
   park / chip-bar / trail / GIBS campaign, marked completed.
   Treat those items as “claimed done.” Your job is to **verify
   against the code and the pixels**, the same way we did not
@@ -196,7 +196,7 @@ checklist. If it is empty, trust this handoff.
   live.**
 - Enter Earth destroys the offscreen context (`park()`), then
   mounts Cesium in a **child process** when solar GL was live.
-- `globalShareContext()` survives park — do not construct
+- `globalShareContext()` survives park. do not construct
   `QWebEngineView` in the glass process next to that share
   group.
 - Do not add `--disable-gpu` unless a share group is still
@@ -212,7 +212,7 @@ checklist. If it is empty, trust this handoff.
 - Physics `pause` outside a live Drive is a Reality verb.
 
 **Hard block in code:**
-`arelis/spatial/grant.py` `world_stage_allowed()` — installer
+`arelis/spatial/grant.py` `world_stage_allowed()`. installer
 and wheels do not get the 3D plate. The Reality *room* still
 exists there for chat, CAS, Horizons. Do not “fix” that by
 shipping Cesium in the installer unless the audit measures
@@ -230,7 +230,7 @@ roadmap froze this on purpose:
 > errors. Thinnest per-fetcher test coverage in the tree.
 
 That freeze is lifted **for you**, for this work only. Glass,
-tools, orchestrator, SMS, Allow stay frozen the other way —
+tools, orchestrator, SMS, Allow stay frozen the other way.
 do not wander back.
 
 Pains to treat as named complaints (verify, do not assume):
@@ -241,7 +241,7 @@ Pains to treat as named complaints (verify, do not assume):
 - Slowness: Live on in space hammering every feed; GIBS;
   Cesium + solar GL both trying to live; prefix / VRAM on a
   12 GB card if you pull models into this sitting (you should
-  not — this plate is not an LLM problem first).
+  not. This plate is not an LLM problem first).
 - Wrong / missing verbs: travel, enter, leave, find, take me
   to, ride, track, Live on/off, dump, copy view.
 - Shallow tools: `earth` / `solar` / rooms actions that
@@ -262,7 +262,7 @@ Pains to treat as named complaints (verify, do not assume):
    `outputs/` (gitignored). Look at the frames.
 4. **Tests that would have failed before the fix.** Mutants.
 5. **Docs:** `docs/earth.md`, `docs/whats-new.md` Reality
-   paragraph, architecture table — surgical, after the code
+   paragraph, architecture table. surgical, after the code
    is true.
 6. Do not commit unless I ask. Do not push unless I ask.
 
@@ -270,28 +270,28 @@ Pains to treat as named complaints (verify, do not assume):
 
 This is a lead. Replace numbers after the full read.
 
-- **0 — safety net.** Inventory tests vs fetchers. Mutant for
+- **0. safety net.** Inventory tests vs fetchers. Mutant for
   “empty catalog looks like success.” Pin hosts. Pin
   enter/leave / park / child-process isolation. Wire anything
   that exists and is not in pytest.
-- **1 — close in-flight lies.** `docs/earth.md` vs
+- **1. close in-flight lies.** `docs/earth.md` vs
   `feeds.FEEDS` vs chips vs what actually fetches. Photoreal
   miss vs `host.failed`. Native disc as fallback only.
-- **2 — measure any “rip it” thesis.** If you want to kill
+- **2. measure any “rip it” thesis.** If you want to kill
   Cesium, merge GL, or thin feeds, measure first. Cancel
   yourself if the numbers say no.
-- **3 — cleanup / dedup.** Frames, park/unpark, enter/leave,
+- **3. cleanup / dedup.** Frames, park/unpark, enter/leave,
   trail vs ride vs track, Live vs chip. Diff copies. The odd
   one out is the bug.
-- **4 — verb depth.** Travel, enter, leave, find, ride, track,
+- **4. verb depth.** Travel, enter, leave, find, ride, track,
   dump, copy view, solar inspect. What the tool/schema
   promises vs what runs.
-- **5 — missing verbs / honest holes.** Things a person at the
+- **5. missing verbs / honest holes.** Things a person at the
   plate asks for that have no home. Stay-absent is a valid
   close (we did that for a general shell).
-- **6 — usability.** HUD copy, Find, Live-off default, band
+- **6. usability.** HUD copy, Find, Live-off default, band
   chip bar, receipts without stream URLs.
-- **7 — you walk the plate.** Screenshots + video. Receipts.
+- **7. You walk the plate.** Screenshots + video. Receipts.
   Notes in `docs/earth.md` / whats-new.
 
 ## Constraints that already cost us weeks
@@ -300,7 +300,7 @@ This is a lead. Replace numbers after the full read.
   Cesium after `park()`. This is not optional polish.
 - Do not thin a region. Do not add Unsecured / Insecam /
   global face index / VIN-plate trackers / paid satellite AIS
-  — those are documented refusals on the concept board.
+ . those are documented refusals on the concept board.
 - Do not extend Earth into a second UI theme. Sodium HUD
   persists.
 - Overlay Qt tests do not replace the Cesium planet.
