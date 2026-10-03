@@ -6,6 +6,7 @@ import asyncio
 
 import pytest
 
+from arelis.core.loop_helpers import round_limit_notice
 from arelis.eval import harness
 from arelis.eval.harness import run_scripted_scenario
 from arelis.eval.scenarios import Scenario, _tool_call
@@ -57,3 +58,38 @@ def test_an_open_then_read_ask_ends_when_the_model_answers(model_calls: list[int
     assert result.tools_called == ["browser", "browser"]
     assert "example domain" in result.final_text.lower()
     assert len(model_calls) <= 4, f"model asked {len(model_calls)} times"
+
+
+def test_round_limit_notice_includes_counts_and_last_fail() -> None:
+    plain = round_limit_notice(8)
+    assert "tool-step limit (8/8)" in plain
+    assert "Last failing tool" not in plain
+
+    with_fail = round_limit_notice(
+        6,
+        last_fail_tool="plot",
+        last_fail_error='Missing xs. Use xs="1,2,3" (or an xs list) together with ys.',
+    )
+    assert "tool-step limit (6/6)" in with_fail
+    assert "Last failing tool: plot:" in with_fail
+    assert "Missing xs" in with_fail
+
+
+def test_hitting_max_rounds_ships_counted_step_limit_with_last_fail() -> None:
+    """Force-final fallback must name the budget and the last tool error."""
+    call = _tool_call("plot", {"action": "line", "out": "x.png"})
+    scenario = Scenario(
+        id="t_round_limit_names_fail",
+        user="Plot y = x^2 for x = 1..8 as a line chart.",
+        expect_tools=("plot",),
+        expect_tools_any=True,
+        allow_no_tools=True,
+        failing_tools=("plot",),
+        agent_config={"max_rounds": 3, "exactness": False, "numeric_gate": False},
+        script=[[("tool_calls", [call])] for _ in range(8)],
+        offline_only=True,
+    )
+    result = asyncio.run(run_scripted_scenario(scenario))
+    assert "tool-step limit (3/3)" in result.final_text
+    assert "Last failing tool: plot:" in result.final_text
+    assert "plot failed (eval stub)" in result.final_text
