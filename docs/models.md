@@ -11,7 +11,7 @@ checkout draw from the same set of tags. Just be careful not to
 ## First open
 
 The first time you launch a new copy, she looks at what your PC
-actually has to offer — graphics memory, RAM, disk — and recommends
+actually has to offer (graphics memory, RAM, disk) and recommends
 one chat model, along with an explanation of why. You can confirm it
 or pick something else. Whatever you settle on ends up being used for
 both Fast and Research modes.
@@ -32,7 +32,7 @@ reasoning, not the default.
 
 If you don't have a dedicated graphics card, the recommendation sticks
 to 4B or 9B even if your system RAM could technically hold a 27B
-model — that combination would just crawl in practice.
+model. That combination would just crawl in practice.
 
 If Ollama isn't already installed, setup downloads the official
 Windows engine (about 1.4 GB) into `%LOCALAPPDATA%\Arelis-runtime`,
@@ -43,8 +43,8 @@ If a copy has already pinned `models.fast` in `config.local.yaml`, you
 won't be asked again.
 
 Every launch after that pins the chosen tag, then seeds Ollama's
-prefix cache with the persona, the tool policy, and every tool schema
-— roughly 5,500 tokens' worth. While that's happening, the window
+prefix cache with the persona, the tool policy, and every tool schema,
+roughly 5,500 tokens' worth. While that's happening, the window
 just says **loading the model…** Once it's done, a warm hello takes
 about a second. More detail in
 [architecture.md](architecture.md).
@@ -56,7 +56,7 @@ From `arelis/config/default.yaml`:
 | Role | Tag | What it actually is |
 |---|---|---|
 | `fast` | `qwen3.5:9b` | Day-to-day driver. Thinking on. Can see images itself. File and git work always stays here. |
-| `research` | `qwen3.5:9b` | Same weights, thinking on — just a deeper loop: more rounds, dual web hits, research tools. Same underlying model. |
+| `research` | `qwen3.5:9b` | Same weights, thinking on, just a deeper loop: more rounds, dual web hits, research tools. Same underlying model. |
 | `vision` | `qwen2.5vl:3b` | Fallback only, for when the chat model in use can't see images itself. |
 | embed | `nomic-embed-text` | Recall and document search. |
 
@@ -65,13 +65,13 @@ Measured on an AMD box with about 12 GB of memory, running Ollama
 parser 500s, tool-choice 30/30, and foundation 13/13. Qwen2.5 7B got
 to first token faster, but it lost ground on soak fanout and
 tool-choice. Gemma 4 12B passed the soak test too, but spent around
-five minutes thinking on a two-tool turn — which is why it was
+five minutes thinking on a two-tool turn, which is why it was
 rejected as a daily driver, despite technically passing.
 
 ## The context window
 
 `ollama.num_ctx` ships set to 65536, but setup actually overwrites
-that per machine (details below) — so that shipped number is really a
+that per machine (details below), so that shipped number is really a
 last resort, not the intended value.
 
 Qwen3.5 can technically accept a window as large as 262144, but we
@@ -94,16 +94,16 @@ window, on top of roughly 5.1 GiB just for the model weights.
 
 Setup actually derives the right window size from whatever card it
 detects (`arelis/setup/context.py`) and writes it into
-`config.local.yaml` — so a 24 GB card isn't stuck with a 12 GB-sized
+`config.local.yaml`, so a 24 GB card isn't stuck with a 12 GB-sized
 answer, and an 8 GB card isn't handed a window it can't actually hold.
 The floor is 32768, and that's not just being cautious: the persona,
 telegraph policy, and skinny schemas already add up to about 5,500
 tokens before you've even said anything, and history needs the rest.
-Ollama discards overflow from the front of the context — which is
-exactly where the persona lives — so this really matters.
+Ollama discards overflow from the front of the context, which is
+exactly where the persona lives, so this really matters.
 `tests/test_prompt_fits_window.py` holds that math in place.
 
-The old 14B dense-model niche is gone in Qwen3.5 — it jumps straight
+The old 14B dense-model niche is gone in Qwen3.5. It jumps straight
 from 9B to 27B. A 27B-with-offload setup wasn't kept, mainly because
 9B already outperformed 14B on the test gates anyway.
 
@@ -113,7 +113,7 @@ Gemma 4 12B / 26B / 31B, or DeepSeek R1 8B / 14B / 32B / 70B.
 Qwen3.5 can see images on its own, so a picture you send normally just
 goes straight to whatever chat model is already loaded in memory.
 `models.vision` only exists as a fallback, for a chat model that
-reports it has no vision capability at all — it's only pulled if that
+reports it has no vision capability at all. It's only pulled if that
 actually happens. Ollama gets asked directly what the current chat
 model can do (via `/api/show`), so if you swap tags, that's handled
 automatically without needing a config change. Large images are still
@@ -140,7 +140,7 @@ is Kokoro-82M (`af_heart`), Piper Jenny as fallback. More in
 
 Qwen3.5 streams its native thinking one token per SSE frame. The
 thinking dock on screen just joins all of those into one wrapping
-paragraph for you to read — housekeeping details sit below it rather
+paragraph for you to read. Housekeeping details sit below it rather
 than cluttering the actual thought process. A vision look uses that
 same stream, so the dock is not blank while she reads a page. Worth
 noting that's purely a UI choice, not a second model running
@@ -150,14 +150,14 @@ underneath.
 
 Only one chat model lives in graphics memory at a time. Switching to
 `/role research` doesn't actually swap out weights when both roles
-point at the same tag — it just changes the reasoning loop instead.
+point at the same tag. It just changes the reasoning loop instead.
 After a research-mode turn, she stays on that role for
 `router.rewarm_delay_s` (60 seconds by default), so a quick follow-up
 doesn't pay the cost of a cold reload, then pins back to Fast
 afterward. Since it's the same underlying tag, that pin is essentially
 free.
 
-Looking at a picture no longer costs a model swap, either — since the
+Looking at a picture no longer costs a model swap, either. Since the
 chat model can already see, the image just joins whatever turn it's
 part of, and nothing gets unloaded. The only case where a swap still
 happens is the fallback path: when the chat model genuinely has no
@@ -186,11 +186,11 @@ on the same PC.
 
 | Ambition | Why not |
 |---|---|
-| Best answers in the world | That means paid cloud or a 70B+ model — not something that runs at usable speed on 12 GB |
+| Best answers in the world | That means paid cloud or a 70B+ model, not something that runs at usable speed on 12 GB |
 | Speculative decoding | Ollama + Windows + AMD doesn't expose this |
 | 27B on a 12 GB card | Would require offloading. Gemma 12B already showed that "thinks longer" doesn't mean "smarter" |
 | Whisper large-v3 | Would eat the responsiveness that makes voice feel natural, running on CPU |
-| Thinking off, Fast mode only | Technically possible (`think: false` in Ollama) — just not wired up. 9B with thinking on is what's actually been tested and trusted day to day |
+| Thinking off, Fast mode only | Technically possible (`think: false` in Ollama), just not wired up. 9B with thinking on is what's actually been tested and trusted day to day |
 
 For how the router, rooms, and vision unloading tie into everything
 else, see [architecture.md](architecture.md).
@@ -203,8 +203,8 @@ built because smaller models (7B-9B) need help picking the right tool from 34 op
 
 **The hypothesis:** Larger local models (Qwen3 30B-A3B, later Qwen3.6-27B) may underperform
 when the regex layer fights native tool calling. This is a hypothesis being tested, not a measured
-result. A model with strong tool-calling ability may not need prompt nudges forcing specific tools
-— those hints could override better native choices.
+result. A model with strong tool-calling ability may not need prompt nudges forcing specific tools,
+those hints could override better native choices.
 
 **The experiment:** `agent.native_tool_calling` (config flag) disables the regex/intent
 routing layer so the model uses native tool calling exclusively:
