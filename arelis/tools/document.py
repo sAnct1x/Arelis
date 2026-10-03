@@ -21,7 +21,11 @@ from arelis.mathtext import display_math_plain, flatten_latex
 from arelis.paths import display_path, ensure, outputs_dir
 from arelis.rooms import RoomStore
 from arelis.tools.base import ToolResult
-from arelis.workspace import WorkspaceRoots
+from arelis.workspace import (
+    UNSAFE_WINDOWS_PATH_MSG,
+    WorkspaceRoots,
+    is_unsafe_windows_path,
+)
 
 _FORMATS = frozenset({"pdf", "docx", "xlsx", "csv", "md", "txt"})
 _SANS = "Zen Kaku Gothic New"
@@ -619,6 +623,8 @@ class DocumentTool:
         text = (raw or "").strip()
         if not text:
             raise ValueError("from_path is empty.")
+        if is_unsafe_windows_path(text):
+            raise PermissionError(UNSAFE_WINDOWS_PATH_MSG)
         path: Path | None = None
         if self.workspace is not None:
             try:

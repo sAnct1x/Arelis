@@ -10,7 +10,13 @@ from arelis import paths
 from arelis.config import load_config
 from arelis.tools.analyze import AnalyzeTool
 from arelis.tools.code_workspace import CodeWorkspaceTool
-from arelis.workspace import AmbiguousPathError, RootEntry, WorkspaceRoots
+from arelis.workspace import (
+    UNSAFE_WINDOWS_PATH_MSG,
+    AmbiguousPathError,
+    RootEntry,
+    WorkspaceRoots,
+    is_unsafe_windows_path,
+)
 
 
 def _two_projects(tmp_path: Path) -> WorkspaceRoots:
@@ -496,3 +502,94 @@ async def test_installed_package_inspect_root_workspace_tool_cannot_write(
     read = await tool.run(action="read", path=str(target))
     assert read.ok
     assert "# shipped" in read.output
+
+
+_UNSAFE_WINDOWS_PATHS = (
+    r"\\evil\share\x.txt",
+    r"\\?\UNC\evil\share",
+    r"\??\UNC\evil\share",
+    "//evil/share/x",
+)
+
+
+def _track_path_fs(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str]]:
+    """Record Path.resolve / exists / stat / open so UNC checks stay pre-FS."""
+    calls: list[tuple[str, str]] = []
+    real_resolve = Path.resolve
+    real_exists = Path.exists
+    real_stat = Path.stat
+    real_open = Path.open
+
+    def track_resolve(self: Path, *args, **kwargs):
+        calls.append(("resolve", str(self)))
+        return real_resolve(self, *args, **kwargs)
+
+    def track_exists(self: Path, *args, **kwargs):
+        calls.append(("exists", str(self)))
+        return real_exists(self, *args, **kwargs)
+
+    def track_stat(self: Path, *args, **kwargs):
+        calls.append(("stat", str(self)))
+        return real_stat(self, *args, **kwargs)
+
+    def track_open(self: Path, *args, **kwargs):
+        calls.append(("open", str(self)))
+        return real_open(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "resolve", track_resolve)
+    monkeypatch.setattr(Path, "exists", track_exists)
+    monkeypatch.setattr(Path, "stat", track_stat)
+    monkeypatch.setattr(Path, "open", track_open)
+    return calls
+
+
+@pytest.mark.parametrize("raw", _UNSAFE_WINDOWS_PATHS)
+def test_is_unsafe_windows_path_prefixes(raw: str) -> None:
+    assert is_unsafe_windows_path(raw)
+    assert not is_unsafe_windows_path("notes.txt")
+    assert not is_unsafe_windows_path(r"C:\Users\you\doc.txt")
+
+
+@pytest.mark.parametrize("raw", _UNSAFE_WINDOWS_PATHS)
+def test_resolve_refuses_unc_before_filesystem(
+    raw: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "proj"
+    root.mkdir()
+    ws = WorkspaceRoots.from_paths([str(root)])
+    calls = _track_path_fs(monkeypatch)
+    with pytest.raises(PermissionError, match="network location"):
+        ws.resolve(raw)
+    with pytest.raises(PermissionError, match="network location"):
+        ws.resolve_read(raw)
+    assert calls == []
+    assert ws.grant_external_read(raw) is None
+    assert calls == []
+    assert not ws.has_external_read(raw)
+    assert calls == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("raw", _UNSAFE_WINDOWS_PATHS)
+async def test_workspace_tool_refuses_unc_without_fs(
+    raw: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "proj"
+    root.mkdir()
+    (root / "ok.txt").write_text("safe", encoding="utf-8")
+    ws = WorkspaceRoots.from_paths([str(root)])
+    tool = CodeWorkspaceTool(ws)
+    calls = _track_path_fs(monkeypatch)
+    denied = await tool.run(action="read", path=raw)
+    assert not denied.ok
+    assert UNSAFE_WINDOWS_PATH_MSG in denied.output
+    assert calls == []
+    wrote = await tool.run(action="write", path=raw, content="nope")
+    assert not wrote.ok
+    assert UNSAFE_WINDOWS_PATH_MSG in wrote.output
+    assert calls == []
+    # Drive-letter and relative paths still resolve after the guard.
+    hit = ws.resolve("ok.txt")
+    assert hit.path == (root / "ok.txt").resolve()
+    drive = ws.resolve(str((root / "ok.txt").resolve()))
+    assert drive.path == (root / "ok.txt").resolve()
