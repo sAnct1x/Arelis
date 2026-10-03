@@ -51,6 +51,9 @@ from arelis.core.turn_context import TurnContext
 from arelis.core.turn_telemetry import TurnTimer
 from arelis.llm.errors import classify_ollama_failure
 from arelis.llm.router import ModelRole, ModelRouter
+from arelis.location.privacy import StreamRedactor
+from arelis.location.privacy import current as current_redactor
+from arelis.location.privacy import redact as redact_location
 from arelis.memory.store import MemoryStore
 from arelis.tools.base import ToolRegistry
 
@@ -1247,9 +1250,23 @@ class AgentLoop:
         if not text:
             return
         self._last_round_thinking = True
+        stream = getattr(self, "_think_redactor", None)
+        if stream is not None:
+            text = stream.feed(text)
+            if not text:
+                return
         await self.bus.publish(
             Event(EventType.THINKING, {"text": text, "stream": True})
         )
+
+    async def _flush_think_stream(self) -> None:
+        """Release a held half-word once the round's thinking has ended."""
+        stream = getattr(self, "_think_redactor", None)
+        tail = stream.flush() if stream is not None else ""
+        if tail:
+            await self.bus.publish(
+                Event(EventType.THINKING, {"text": tail, "stream": True})
+            )
 
     async def _stream_round(
         self,
@@ -1270,6 +1287,7 @@ class AgentLoop:
         content_parts: list[str] = []
         tool_calls: list[dict[str, Any]] = []
         self._last_round_thinking = False
+        self._think_redactor = StreamRedactor(current_redactor())
         model = self.router.model_for(role)
         # Hold paint on a real tool round so exactness nudges do not retract
         # a half-streamed answer (H5 / R13). Schemas can still ride a chitchat
@@ -1353,6 +1371,7 @@ class AgentLoop:
                     if updated is not None:
                         self.memory.chars_per_token = updated
 
+        await self._flush_think_stream()
         raw = "".join(content_parts).strip()
         if hold_paint:
             # Never paint here: raw may still be a JSON-fallback tool call that
@@ -1388,7 +1407,7 @@ class AgentLoop:
 
     async def _publish_tool_intent(self, tool_calls: list[dict[str, Any]]) -> None:
         """Surface a short status as soon as a tool call is parsed (felt latency)."""
-        label = _tool_intent_label(tool_calls)
+        label = redact_location(_tool_intent_label(tool_calls))
         if not label:
             return
         await self.bus.publish(Event(EventType.THINKING, {"text": label}))

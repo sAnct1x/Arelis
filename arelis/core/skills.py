@@ -127,7 +127,7 @@ SKILL_CARDS: dict[str, SkillCard] = {
   http). Never pass the title as url. Never invent a URL from a headline.
   Never ask the user to paste a URL that web_search already gave you.
 - Search in a few words. Pass recency=day or recency=week for news. Put the
-  user's city in the query when place matters.
+  place in the query when it matters; user_location has their saved one.
 - If the first search is thin, rephrase once before giving up. Then stop.
 - Prefer scrape for human-readable pages (news, docs, articles). It pulls the
   main article (JSON-LD / microdata / <article> / paragraph lattice / density),

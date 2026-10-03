@@ -12,6 +12,8 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from arelis.location.privacy import prompt_detail
+
 log = logging.getLogger(__name__)
 
 
@@ -122,7 +124,15 @@ def _place_part(config: dict[str, Any]) -> str:
     place_fn = getattr(snap, "place", None)
     if not callable(place_fn):
         return ""
-    place = " ".join(str(place_fn() or "").split())
+    detail = prompt_detail(config)
+    if detail == "off":
+        return ""
+    if detail == "city":
+        parts = (str(getattr(snap, n, "") or "") for n in ("city", "region", "country"))
+        place = ", ".join(p for p in parts if p)
+    else:
+        place = str(place_fn() or "")
+    place = " ".join(place.split())
     if not place:
         return ""
     return f"place {place}"
