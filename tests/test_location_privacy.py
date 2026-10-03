@@ -48,7 +48,7 @@ def test_prompt_detail_defaults_off_and_world_state_follows() -> None:
 def test_stream_redactor_catches_a_city_split_across_chunks() -> None:
     redactor = LocationRedactor(lambda: PLACE)
     stream = StreamRedactor(redactor)
-    chunks = ["Weather in Exam", "pleville for 99", "999 today, ", "then Exam"]
+    chunks = ["Weather in Exam", "pleville for 62", "701 today, ", "then Exam"]
     out = "".join(stream.feed(c) for c in chunks) + stream.flush()
     assert out == "Weather in [location] for [location] today, then Exam"
 
