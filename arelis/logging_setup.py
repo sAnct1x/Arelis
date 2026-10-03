@@ -59,6 +59,11 @@ def configure_logging(log_dir: Path | None = None) -> None:
     if not handlers:
         return
 
+    from arelis.location.privacy import LocationLogFilter
+
+    for handler in handlers:
+        handler.addFilter(LocationLogFilter())
+
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",

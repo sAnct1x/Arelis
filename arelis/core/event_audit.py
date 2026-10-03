@@ -15,6 +15,7 @@ from uuid import uuid4
 
 from arelis.core.bus import EventBus
 from arelis.core.events import Event, EventType
+from arelis.location.privacy import LocationLogFilter
 from arelis.paths import logs_dir
 
 log = logging.getLogger("arelis.event.audit")
@@ -100,6 +101,7 @@ def ensure_event_log(log_dir: Path | None = None) -> None:
     except OSError:
         return
     handler.setFormatter(logging.Formatter("%(message)s"))
+    handler.addFilter(LocationLogFilter())
     handler._arelis_tag = _HANDLER_TAG  # type: ignore[attr-defined]
     for existing in log.handlers:
         if getattr(existing, "_arelis_tag", "") == _HANDLER_TAG:

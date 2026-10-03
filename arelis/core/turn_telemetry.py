@@ -30,6 +30,8 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from arelis.location.privacy import LocationLogFilter
+from arelis.location.privacy import redact as redact_location
 from arelis.paths import logs_dir
 
 log = logging.getLogger("arelis.turn.trace")
@@ -75,6 +77,7 @@ def ensure_turn_log(log_dir: Path | None = None) -> None:
     except OSError:
         return
     handler.setFormatter(logging.Formatter("%(message)s"))
+    handler.addFilter(LocationLogFilter())
     handler._arelis_tag = _HANDLER_TAG  # type: ignore[attr-defined]
     # Avoid doubling if something re-called ensure.
     for existing in log.handlers:
@@ -347,7 +350,7 @@ def _append_jsonl(record: dict[str, Any]) -> None:
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+            handle.write(redact_location(json.dumps(record, ensure_ascii=False)) + "\n")
     except OSError:
         return
 
