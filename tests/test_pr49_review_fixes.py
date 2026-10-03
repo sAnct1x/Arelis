@@ -14,6 +14,8 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
+import pytest
+
 from arelis.core.bus import EventBus
 from arelis.core.turn_confirm import RUN, SKIP, confirm_call
 from arelis.core.turn_context import TurnContext
@@ -25,7 +27,7 @@ from arelis.tools.base import ToolRegistry
 from arelis.tools.code_workspace import CodeWorkspaceTool
 from arelis.tools.notes import NotesTool
 from arelis.tools.tasks import TasksTool
-from arelis.workspace import WorkspaceRoots
+from arelis.workspace import RootEntry, WorkspaceRoots
 
 
 # Mock classes for confirm_call tests
@@ -58,16 +60,17 @@ class MockLoop:
 
 
 # Test (a): confirm_call with flag OFF - workspace write behavior
+@pytest.mark.no_ui
 @pytest.mark.asyncio
 async def test_confirm_call_flag_off_workspace_write_empty_blocked() -> None:
     """With flag OFF, workspace write with content='' is blocked at confirm."""
     with tempfile.TemporaryDirectory() as tmpdir:
-        roots = WorkspaceRoots(code_root=Path(tmpdir), data_root=Path(tmpdir))
+        roots = WorkspaceRoots([RootEntry(name="proj", path=Path(tmpdir).resolve())])
         tools = ToolRegistry()
         tools.register(CodeWorkspaceTool(roots))
         
         loop = MockLoop(tools)
-        ctx = TurnContext(agent_cfg={})  # Flag OFF
+        ctx = TurnContext(agent_cfg={}, text="", role="test")  # Flag OFF
         
         action, _summary, _call_fp = await confirm_call(
             loop,
@@ -88,6 +91,7 @@ async def test_confirm_call_flag_off_workspace_write_empty_blocked() -> None:
         assert any("blocked" in t for t in loop._trace)
 
 
+@pytest.mark.no_ui
 @pytest.mark.asyncio
 async def test_confirm_call_flag_off_workspace_write_missing_blocked() -> None:
     """With flag OFF, workspace write without content is blocked at confirm."""
@@ -97,7 +101,7 @@ async def test_confirm_call_flag_off_workspace_write_missing_blocked() -> None:
         tools.register(CodeWorkspaceTool(roots))
         
         loop = MockLoop(tools)
-        ctx = TurnContext(agent_cfg={})  # Flag OFF
+        ctx = TurnContext(agent_cfg={}, text="", role="test")  # Flag OFF
         
         action, _summary, _call_fp = await confirm_call(
             loop,
@@ -118,6 +122,7 @@ async def test_confirm_call_flag_off_workspace_write_missing_blocked() -> None:
         assert any("blocked" in t for t in loop._trace)
 
 
+@pytest.mark.no_ui
 @pytest.mark.asyncio
 async def test_confirm_call_flag_off_notes_add_without_body_reaches_confirm() -> None:
     """With flag OFF, notes add without body reaches request_confirm."""
@@ -127,7 +132,7 @@ async def test_confirm_call_flag_off_notes_add_without_body_reaches_confirm() ->
         tools.register(NotesTool(store))
         
         loop = MockLoop(tools)
-        ctx = TurnContext(agent_cfg={})  # Flag OFF
+        ctx = TurnContext(agent_cfg={}, text="", role="test")  # Flag OFF
         
         action, _summary, _call_fp = await confirm_call(
             loop,
@@ -149,6 +154,7 @@ async def test_confirm_call_flag_off_notes_add_without_body_reaches_confirm() ->
 
 
 # Test (b): confirm_call with flag ON - workspace write behavior
+@pytest.mark.no_ui
 @pytest.mark.asyncio
 async def test_confirm_call_flag_on_workspace_write_empty_allowed() -> None:
     """With flag ON, workspace write with content='' passes the gate."""
@@ -158,7 +164,7 @@ async def test_confirm_call_flag_on_workspace_write_empty_allowed() -> None:
         tools.register(CodeWorkspaceTool(roots))
         
         loop = MockLoop(tools)
-        ctx = TurnContext(agent_cfg={"native_tool_calling": True})  # Flag ON
+        ctx = TurnContext(agent_cfg={"native_tool_calling": True}, text="", role="test")  # Flag ON
         
         action, _summary, _call_fp = await confirm_call(
             loop,
@@ -178,6 +184,7 @@ async def test_confirm_call_flag_on_workspace_write_empty_allowed() -> None:
         assert action == RUN
 
 
+@pytest.mark.no_ui
 @pytest.mark.asyncio
 async def test_confirm_call_flag_on_workspace_write_none_blocked() -> None:
     """With flag ON, workspace write with content=None is blocked with clear message."""
@@ -187,7 +194,7 @@ async def test_confirm_call_flag_on_workspace_write_none_blocked() -> None:
         tools.register(CodeWorkspaceTool(roots))
         
         loop = MockLoop(tools)
-        ctx = TurnContext(agent_cfg={"native_tool_calling": True})  # Flag ON
+        ctx = TurnContext(agent_cfg={"native_tool_calling": True}, text="", role="test")  # Flag ON
         
         action, _summary, _call_fp = await confirm_call(
             loop,
@@ -211,6 +218,7 @@ async def test_confirm_call_flag_on_workspace_write_none_blocked() -> None:
 
 
 # Test (c): tasks hint through execute_call
+@pytest.mark.no_ui
 @pytest.mark.asyncio
 async def test_tasks_hint_flag_on_appends_goal_id_hint() -> None:
     """With flag ON, tasks tool error with parent_id gets goal_id hint."""
@@ -234,7 +242,7 @@ async def test_tasks_hint_flag_on_appends_goal_id_hint() -> None:
         )
         loop_mock._trace = []
         
-        ctx = TurnContext(agent_cfg={"native_tool_calling": True})  # Flag ON
+        ctx = TurnContext(agent_cfg={"native_tool_calling": True}, text="", role="test")  # Flag ON
         
         # Create a RoundScratch with minimal fields
         r = RoundScratch(
@@ -285,6 +293,7 @@ async def test_tasks_hint_flag_on_appends_goal_id_hint() -> None:
             assert "goal_id=" in last_msg
 
 
+@pytest.mark.no_ui
 @pytest.mark.asyncio
 async def test_tasks_hint_flag_off_no_hint() -> None:
     """With flag OFF, tasks tool error is unchanged."""
@@ -307,7 +316,7 @@ async def test_tasks_hint_flag_off_no_hint() -> None:
         )
         loop_mock._trace = []
         
-        ctx = TurnContext(agent_cfg={})  # Flag OFF
+        ctx = TurnContext(agent_cfg={}, text="", role="test")  # Flag OFF
         
         # Create a RoundScratch
         r = RoundScratch(
@@ -358,6 +367,7 @@ async def test_tasks_hint_flag_off_no_hint() -> None:
 
 
 # Test (d): telemetry arg_keys
+@pytest.mark.no_ui
 @pytest.mark.asyncio
 async def test_telemetry_arg_keys_flag_on() -> None:
     """With flag ON, timer tool_records include sorted arg_keys."""
@@ -378,7 +388,7 @@ async def test_telemetry_arg_keys_flag_on() -> None:
         loop_mock._trace = []
         loop_mock.tools_used = set()
         
-        ctx = TurnContext(agent_cfg={"native_tool_calling": True})  # Flag ON
+        ctx = TurnContext(agent_cfg={"native_tool_calling": True}, text="", role="test")  # Flag ON
         
         # Create a RoundScratch
         r = RoundScratch(
@@ -426,6 +436,7 @@ async def test_telemetry_arg_keys_flag_on() -> None:
         assert record["arg_keys"] == ["action", "path"]
 
 
+@pytest.mark.no_ui
 @pytest.mark.asyncio
 async def test_telemetry_arg_keys_flag_off() -> None:
     """With flag OFF, timer tool_records do not include arg_keys."""
@@ -446,7 +457,7 @@ async def test_telemetry_arg_keys_flag_off() -> None:
         loop_mock._trace = []
         loop_mock.tools_used = set()
         
-        ctx = TurnContext(agent_cfg={})  # Flag OFF
+        ctx = TurnContext(agent_cfg={}, text="", role="test")  # Flag OFF
         
         # Create a RoundScratch
         r = RoundScratch(
@@ -494,12 +505,13 @@ async def test_telemetry_arg_keys_flag_off() -> None:
 
 
 # Test (e): startup warmup test
+@pytest.mark.no_ui
 def test_startup_warmup_param_hints() -> None:
     """Startup warmup passes param_hints equal to native_tool_calling(config['agent'])."""
     from arelis.llm.startup import prefix_warmup_for
     from arelis.tools import build_tool_registry
     
-    tools = build_tool_registry()
+    tools = build_tool_registry({})
     
     # Test with flag ON
     config_on = {"agent": {"native_tool_calling": True}}
@@ -521,6 +533,7 @@ def test_startup_warmup_param_hints() -> None:
 
 
 # Test (f): real scripted-model loop test
+@pytest.mark.no_ui
 @pytest.mark.asyncio
 async def test_scripted_loop_native_mode() -> None:
     """Native mode: notes add without text gets blocked, then succeeds with text."""
@@ -530,7 +543,7 @@ async def test_scripted_loop_native_mode() -> None:
         tools.register(NotesTool(store))
         
         loop = MockLoop(tools)
-        ctx = TurnContext(agent_cfg={"native_tool_calling": True})  # Flag ON
+        ctx = TurnContext(agent_cfg={"native_tool_calling": True}, text="", role="test")  # Flag ON
         
         # Round 1: notes add without text should be blocked by native_arg_problem
         messages1 = []
@@ -578,6 +591,7 @@ async def test_scripted_loop_native_mode() -> None:
         assert "alpha bravo charlie" in notes.output
 
 
+@pytest.mark.no_ui
 @pytest.mark.asyncio
 async def test_scripted_loop_flag_off() -> None:
     """Flag OFF: notes add without text reaches confirm, workspace write behavior unchanged."""
@@ -589,7 +603,7 @@ async def test_scripted_loop_flag_off() -> None:
         tools.register(CodeWorkspaceTool(roots))
         
         loop = MockLoop(tools)
-        ctx = TurnContext(agent_cfg={})  # Flag OFF
+        ctx = TurnContext(agent_cfg={}, text="", role="test")  # Flag OFF
         
         # notes add without text should reach request_confirm (not blocked at confirm gate)
         messages1 = []
