@@ -14,8 +14,6 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-import pytest
-
 from arelis.core.bus import EventBus
 from arelis.core.turn_confirm import RUN, SKIP, confirm_call
 from arelis.core.turn_context import TurnContext
