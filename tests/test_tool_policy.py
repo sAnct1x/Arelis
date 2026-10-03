@@ -271,6 +271,7 @@ def test_placeholder_phone_still_blocks_allow_card() -> None:
     assert "placeholder" in reason.lower() or "user_phone" in reason.lower()
 
 
+@pytest.mark.no_ui
 def test_empty_workspace_write_still_blocks() -> None:
     reason = confirm_args_blocked(
         "workspace",

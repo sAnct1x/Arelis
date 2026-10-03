@@ -101,7 +101,6 @@ async def confirm_call(
     native_mode = native_tool_calling(ctx.agent_cfg)
     if native_mode and name == "workspace" and args.get("action") == "write":
         # Check for placeholder args only, skip the empty content check
-        content = args.get("content")
         placeholder_blocked = None
         for key, value in (args or {}).items():
             if value is None:
