@@ -185,7 +185,7 @@ started.
 | Eval | `arelis/eval/` | Scripted board. Scores whether the guards still catch a canned mistake. It does not score live tool choice |
 | Voice | `arelis/voice/` | Listening and speaking; `prepare.py` is the first-open fetch. See [voice-wake.md](voice-wake.md) |
 | Spatial | `arelis/spatial/` | World engine, grants, hand-tracking takes. Pose input is not a chat turn |
-| Earth | `arelis/earth/` | Earth view on Reality's globe: 109 shipped / 25 keyed / 3 coming later / 4 left out. Marks come from `arelis/ui/earth_marks.py`. See [earth.md](earth.md) |
+| Earth | `arelis/earth/` | Earth view on Reality's globe: 109 shipped / 24 keyed / 3 coming later / 4 left out. Marks come from `arelis/ui/earth_marks.py`. See [earth.md](earth.md) |
 | Physics | `arelis/physics/` | Reality's solar system: Horizons initial conditions, REBOUND, IAU attitude |
 | Calendar | `arelis/calendar/` | Google / Outlook OAuth. See [calendar-oauth.md](calendar-oauth.md) |
 | Memory | `arelis/memory/` | SQLite archive plus recall |
@@ -306,7 +306,7 @@ connected. Until then, if you ask, she'll just tell you she can't.
 | `document` | PDF, Word, Excel, CSV, markdown. Room → `documents/` inside the project; outside a room → `outputs/documents/` | Yes |
 | `catalog` | arXiv, Horizons; APOD / ADS once you add a free key | No |
 | `solar` | Reality's N-body sim (Horizons VECTORS + REBOUND IAS15). Source checkout only. Approach and orbit views, inspect-only fly camera, IAU spheres. No landing | Yes |
-| `earth` | The Earth view inside Reality. Inventory lives in `feeds.py` (109 shipped / 25 keyed / 3 coming later / 4 left out). Source checkout only. See [earth.md](earth.md) | No |
+| `earth` | The Earth view inside Reality. Inventory lives in `feeds.py` (109 shipped / 24 keyed / 3 coming later / 4 left out). Source checkout only. See [earth.md](earth.md) | No |
 | `clipboard` / `ocr` / `vision` / `camera` | Paste, read screen text, look at an image, use the webcam | Yes (webcam capture answers to the same vision toggle as looking at a still) |
 | `memory` / `recall` / `tasks` / `goals` | Remembering things, chores, "what needs my attention". `recall action=docs` searches indexed files / PDFs | Mutates: yes |
 | `inbox` / `send_email` / `schedule` | Mail and timed jobs | Sending: yes. Creating a job: yes. Listing the inbox is free; trash / archive / move / flag actions: yes |

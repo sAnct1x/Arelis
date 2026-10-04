@@ -870,8 +870,7 @@ SKILL_CARDS: dict[str, SkillCard] = {
   adsb.lol military, AISStream (free key in data/secrets.yaml), Fintraffic
   Digitraffic AIS (no key), CelesTrak TLE + Starlink sample, Radio Browser,
   TfL JamCam, Caltrans D1-D12 CCTV + lane closures, Open-Meteo,
-  FIRMS (free key), Launch Library pads, APRS (free key), Shodan banners
-  (optional free key, not a login); failures keep sim.
+  FIRMS (free key), Launch Library pads, APRS (free key); failures keep sim.
   Mid-ocean AIS is a hole (VHF dies offshore; we do not buy satellite AIS).
   Sentinel-1 ocean frames (NASA ASF, no key) are pass footprints, not hull names.
   NASA EONET named events upsert onto sites. OSM webcam tags are positions only.

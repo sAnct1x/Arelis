@@ -77,7 +77,6 @@ ADAPTER_TTL_S: dict[str, float] = {
     "eonet": 180.0,
     "gdacs": 180.0,
     "cameras": 900.0,
-    "shodan": 900.0,
     "traffic": 900.0,
     "weather": 300.0,
     "nws": 300.0,
@@ -112,7 +111,6 @@ ADAPTER_LAYERS: dict[str, frozenset[str]] = {
     "radar": frozenset({"radar"}),
     "gfw": frozenset({"radar"}),
     "cameras": frozenset({"cameras"}),
-    "shodan": frozenset({"cameras"}),
     "traffic": frozenset({"traffic"}),
     "weather": frozenset({"weather"}),
     "nws": frozenset({"weather"}),
@@ -149,7 +147,6 @@ ADAPTER_BANDS: dict[str, frozenset[str]] = {
     "radar": frozenset({"city"}),
     "gfw": frozenset({"city"}),
     "cameras": frozenset({"city"}),
-    "shodan": frozenset({"city"}),
     "traffic": frozenset({"city"}),
     "weather": frozenset({"city"}),
     "nws": frozenset({"city"}),
@@ -256,7 +253,6 @@ def _sibs(*names: str) -> dict[str, tuple[str, ...]]:
 SIBLINGS: dict[str, tuple[str, ...]] = {
     **_sibs("celestrak", "spacetrack", "tip"),
     **_sibs("usgs", "emsc", "geonet"),
-    **_sibs("cameras", "shodan"),
     **_sibs("radar", "gfw"),
     **_sibs("radio", "aprs", "satnogs"),
     **_sibs(

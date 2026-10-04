@@ -35,7 +35,6 @@ _LIVE_FETCHERS = (
     "fetch_firms",
     "fetch_launches",
     "fetch_aprs",
-    "fetch_shodan",
     "fetch_traffic",
     "fetch_radar",
     "fetch_gfw",

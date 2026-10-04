@@ -46,7 +46,6 @@ from arelis.earth.radar import fetch_radar
 from arelis.earth.radio import fetch_radio
 from arelis.earth.rwis import fetch_rwis
 from arelis.earth.satnogs import fetch_satnogs
-from arelis.earth.shodan import fetch_shodan
 from arelis.earth.spacetrack import fetch_spacetrack, fetch_tip
 from arelis.earth.store import EntityStore
 from arelis.earth.swpc import fetch_swpc
@@ -83,7 +82,6 @@ def _adapter_fns() -> dict[str, Callable[[], Any]]:
         "aprs": fetch_aprs,
         "satnogs": fetch_satnogs,
         "cameras": fetch_cameras,
-        "shodan": fetch_shodan,
         "weather": fetch_weather,
         "nws": fetch_nws,
         "swpc": fetch_swpc,
@@ -187,9 +185,6 @@ def _jobs(
         elif key == "cameras" and view is not None and view.bbox is not None:
             box = view.bbox
             jobs[key] = lambda b=box: fetch_cameras(bbox=b)
-        elif key == "shodan" and view is not None and view.bbox is not None:
-            box = view.bbox
-            jobs[key] = lambda b=box: fetch_shodan(bbox=b)
         else:
             jobs[key] = fn
     return jobs
@@ -275,11 +270,9 @@ def _apply_live(
                 view,
             )
             _replace_layer(store, "radio", radio)
-    if {"cameras", "shodan"} & ran:
-        if _heard(got, "cameras", "shodan"):
-            pins = _capped(
-                (got.get("cameras") or []) + (got.get("shodan") or []), view
-            )
+    if "cameras" in ran:
+        if _heard(got, "cameras"):
+            pins = _capped(got.get("cameras") or [], view)
             _replace_layer(store, "cameras", pins)
     weather_keys = (
         "weather",
