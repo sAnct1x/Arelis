@@ -11,6 +11,7 @@ from typing import Any
 from arelis.core.agent_loop import (
     _FILE_ANSWER_TOOLS,
     _JS_SHELL_BROWSER_NOTICE,
+    _MAX_TOOL_NUDGES,
     _SCRAPE_AFTER_SEARCH_NOTICE,
     _WEB_TOOLS,
 )
@@ -34,7 +35,7 @@ from arelis.core.loop_helpers import _answer_has_quote_span, _exactness_finish_r
 from arelis.core.native_tool_calling import native_tool_calling
 from arelis.core.plan_nudge import plan_progress_notice
 from arelis.core.turn_context import TurnContext
-from arelis.core.turn_scratch import RoundScratch
+from arelis.core.turn_scratch import RoundScratch, named_tools_owed_runnable, negated_tool_mentions
 
 SKIP = "skip"
 NUDGE = "nudge"
@@ -132,9 +133,7 @@ async def try_plan_progress(loop: Any, ctx: TurnContext, r: RoundScratch, round_
 
 
 async def try_force_gates(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: int) -> str:
-    if await apply_force_gates(
-        loop, ctx, r.content, refused=answer_looks_like_refusal(r.content)
-    ):
+    if await apply_force_gates(loop, ctx, r.content, refused=answer_looks_like_refusal(r.content)):
         return NUDGE
     return SKIP
 
@@ -181,19 +180,13 @@ async def try_ink_vision(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
         ctx.ink_vision_nudge_used = True
         await loop._retract()
         r.messages.append({"role": "assistant", "content": r.content})
-        r.messages.append(
-            {"role": "user", "content": ink_vision_notice(ctx.ink_page_images)}
-        )
-        await loop.bus.publish(
-            Event(EventType.THINKING, {"text": "plan_progress  ink-vision"})
-        )
+        r.messages.append({"role": "user", "content": ink_vision_notice(ctx.ink_page_images)})
+        await loop.bus.publish(Event(EventType.THINKING, {"text": "plan_progress  ink-vision"}))
         return NUDGE
     return SKIP
 
 
-async def try_algebra_answer(
-    loop: Any, ctx: TurnContext, r: RoundScratch, round_i: int
-) -> str:
+async def try_algebra_answer(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: int) -> str:
     """Ship the calculator line when chat is filler without the number.
 
     Live dump: tool returns `14-6 = 8`, thinking has 8, bubble is
@@ -335,12 +328,42 @@ FINISH_STEPS: tuple[StepFn, ...] = (
 
 
 async def run_finish_steps(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: int) -> str:
-    # When native_tool_calling is enabled, skip the nudge steps but keep the final refuse logic
+    # When native_tool_calling is enabled, skip the regex finish nudges but keep
+    # refuse logic — and still hold the turn when the user named tools that
+    # have not run (and are not twice-failed / exhausted).
     if not native_tool_calling(r.agent_cfg):
         for step in FINISH_STEPS:
             hit = await step(loop, ctx, r, round_i)
             if hit != SKIP:
                 return hit
+    else:
+        owed = named_tools_owed_runnable(loop, ctx, r.fail_counts)
+        # Native-only: do not nudge for tools the user only mentioned under
+        # negation ("do not use the document tool"). Flag-off finish path
+        # is unchanged above.
+        negated = negated_tool_mentions(ctx.text, owed)
+        owed = [n for n in owed if n not in negated]
+        if owed and ctx.nudges < _MAX_TOOL_NUDGES:
+            ctx.nudges += 1
+            await loop._retract()
+            r.messages.append({"role": "assistant", "content": r.content})
+            r.messages.append(
+                {
+                    "role": "user",
+                    "content": (
+                        "You still need to call these tools the user named: "
+                        + ", ".join(owed)
+                        + ". Call them now before answering."
+                    ),
+                }
+            )
+            await loop.bus.publish(
+                Event(
+                    EventType.THINKING,
+                    {"text": "named tools owed; asking to continue"},
+                )
+            )
+            return NUDGE
     refuse = _exactness_finish_refuse(
         r.content,
         exact_need=ctx.exact_need,

@@ -176,3 +176,68 @@ def named_tools_owed(loop: Any, ctx: TurnContext) -> list[str]:
         ):
             owed.append(name)
     return owed
+
+
+_NEGATION_BEFORE_TOOL = re.compile(
+    r"(?:"
+    r"(?:\b(?:do\s+not|don't|dont|never|not)\s+(?:use|call)\b)"
+    r"|(?:\bwithout(?:\s+using)?\b)"
+    r"|(?:\bno\b)"
+    r")"
+    r"(?:\s+\w+){0,5}\s*$"
+)
+
+
+def _tool_mention_starts(text: str, name: str) -> list[int]:
+    """Start offsets of whole-word tool mentions (same rules as named_tools_owed)."""
+    spoken = name.replace("_", " ")
+    starts: list[int] = []
+    for m in re.finditer(rf"\b{re.escape(spoken)}\b", text):
+        starts.append(m.start())
+    if "_" in name:
+        for m in re.finditer(rf"\b{re.escape(name)}\b", text):
+            starts.append(m.start())
+    pattern = _OWED_TOOL_VERBS.get(name)
+    if pattern is not None:
+        for m in pattern.finditer(text):
+            starts.append(m.start())
+    return sorted(set(starts))
+
+
+def _mention_negated(text: str, start: int, *, window: int = 48) -> bool:
+    prefix = text[max(0, start - window) : start]
+    return _NEGATION_BEFORE_TOOL.search(prefix) is not None
+
+
+def negated_tool_mentions(prompt: str, names: list[str]) -> set[str]:
+    """Names whose every whole-word mention in ``prompt`` is preceded by negation.
+
+    Conservative: if any mention of a name is positive (not in a short negation
+    window), that name is not returned. Empty mentions are ignored.
+    """
+    text = (prompt or "").lower()
+    out: set[str] = set()
+    for name in names:
+        starts = _tool_mention_starts(text, name)
+        if not starts:
+            continue
+        if all(_mention_negated(text, s) for s in starts):
+            out.add(name)
+    return out
+
+
+def named_tools_owed_runnable(
+    loop: Any, ctx: TurnContext, fail_counts: dict[str, int]
+) -> list[str]:
+    """``named_tools_owed`` minus tools that already failed twice this turn.
+
+    Same fingerprint rule as confirm/execute: after two identical failures the
+    tool is not runnable again, so it must not block finishing the turn.
+    """
+    out: list[str] = []
+    for name in named_tools_owed(loop, ctx):
+        prefix = f"{name}|"
+        if any(count >= 2 and fp.startswith(prefix) for fp, count in fail_counts.items()):
+            continue
+        out.append(name)
+    return out
