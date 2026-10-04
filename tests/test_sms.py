@@ -457,7 +457,7 @@ def test_sms_is_gated_by_confirm_send() -> None:
     registry = _registry_with_sms()
     assert registry.needs_confirm("send_sms", {})
     assert registry.needs_confirm("send_sms", {}, confirm_image=False)
-    assert not registry.needs_confirm("send_sms", {}, confirm_send=False)
+    assert registry.needs_confirm("send_sms", {}, confirm_send=False)
 
 
 def test_sms_can_never_be_batch_approved() -> None:

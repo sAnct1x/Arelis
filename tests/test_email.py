@@ -264,7 +264,7 @@ def test_sending_is_gated_by_its_own_flag_not_the_image_one() -> None:
     registry = _registry_with_send()
     assert registry.needs_confirm("send_email", {})
     assert registry.needs_confirm("send_email", {}, confirm_image=False)
-    assert not registry.needs_confirm("send_email", {}, confirm_send=False)
+    assert registry.needs_confirm("send_email", {}, confirm_send=False)
 
 
 def test_sending_can_never_be_batch_approved() -> None:

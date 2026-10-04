@@ -470,7 +470,7 @@ class SettingsDialog(QDialog):
         self.confirm_writes = QCheckBox("files, memory, calendar, rooms")
         self.confirm_writes.setChecked(bool(agent.get("confirm_writes", True)))
         self.confirm_writes.setToolTip(
-            "Save, remember, calendar, rooms. Deletes still pause when this is on."
+            "Save, remember, calendar, rooms. Deletes always pause."
         )
         self.confirm_image = QCheckBox("pictures")
         self.confirm_image.setChecked(bool(agent.get("confirm_image", True)))
@@ -499,14 +499,17 @@ class SettingsDialog(QDialog):
 
         self._allow_always_h = _allow_section("Even when you named it")
         self._allow_always_blurb = _allow_hint(
-            "Naming the job is never enough. Uncheck to never ask."
+            "Naming the job is never enough for these. Mail and texts always "
+            "ask. Uncheck programs to never ask."
         )
         allow_l.addWidget(self._allow_always_h)
         allow_l.addWidget(self._allow_always_blurb)
         self.confirm_send = QCheckBox("mail and texts")
-        self.confirm_send.setChecked(bool(agent.get("confirm_send", True)))
+        self.confirm_send.setChecked(True)
+        self.confirm_send.setEnabled(False)
         self.confirm_send.setToolTip(
-            "Each mail or text still needs Allow when this is on."
+            "Every mail and text always asks. This cannot be turned off.\n"
+            "Filament (testing) is exempt."
         )
         self.confirm_run = QCheckBox("programs in the project")
         self.confirm_run.setChecked(bool(agent.get("confirm_run", True)))
