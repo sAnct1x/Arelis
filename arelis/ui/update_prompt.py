@@ -17,11 +17,14 @@ was worth.
 from __future__ import annotations
 
 import logging
+import threading
+from pathlib import Path
 
 from PySide6.QtCore import QObject, QThread, QTimer, Signal
 from PySide6.QtWidgets import QApplication, QProgressBar, QWidget
 
 from arelis import __version__
+from arelis.backup import backup_before_upgrade
 from arelis.ui.dialog import GlassDialog, confirm, notice
 from arelis.update import (
     Release,
@@ -201,7 +204,7 @@ class UpdatePrompt(QObject):
             return
 
         try:
-            start_installer(result)  # type: ignore[arg-type]
+            start_installer_with_pre_upgrade_backup(result)  # type: ignore[arg-type]
         except (UpdateError, OSError) as exc:
             log.warning("could not start the installer: %s", exc)
             notice(
@@ -217,6 +220,34 @@ class UpdatePrompt(QObject):
         # /relaunch=yes and starts the new version once the files are in place.
         log.info("quitting so the installer can replace this copy")
         QApplication.quit()
+
+
+# A slow disk must not hold the update dialog. The backup keeps running in the
+# background; the installer starts after this many seconds either way.
+_BACKUP_WAIT_S = 15.0
+
+
+def start_installer_with_pre_upgrade_backup(installer: Path) -> None:
+    """Copy allowlisted records, then start the installer.
+
+    A backup failure must not block the update. Someone who runs the setup
+    .exe by hand over an existing install gets no backup; there is no version
+    stamp on launch.
+    """
+    done = threading.Event()
+
+    def _run() -> None:
+        try:
+            backup_before_upgrade(__version__)
+        except Exception:
+            log.warning("pre-upgrade backup failed; the update will continue")
+        finally:
+            done.set()
+
+    threading.Thread(target=_run, name="pre-upgrade-backup", daemon=True).start()
+    if not done.wait(_BACKUP_WAIT_S):
+        log.warning("pre-upgrade backup is slow; starting the update without waiting")
+    start_installer(installer)
 
 
 def schedule_update_check(window: QWidget, delay_ms: int = _DELAY_MS) -> None:
