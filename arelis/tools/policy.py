@@ -144,8 +144,11 @@ def _http_method(args: dict[str, Any] | None) -> str:
     return str((args or {}).get("method") or "get").strip().lower()
 
 
+# Card mode (every theme except Filament): send and delete always pause.
 # Filament: the spoken ask is the grant. Only a destructive call pauses.
 _CONFIRM_MODE = "card"
+
+FLOOR_SEND_TOOLS = frozenset({"send_email", "send_sms"})
 
 DELETE_ACTIONS = {
     "contacts": frozenset({"remove"}),
@@ -162,7 +165,11 @@ DELETE_ACTIONS = {
 
 
 def set_confirm_mode(mode: str) -> None:
-    """card (sodium) or voice (filament). Tests reset this via apply_theme."""
+    """card (every theme except Filament) or voice (filament, testing).
+
+    The send/delete floor applies in card mode. Voice is exempt while
+    Filament is under testing. Tests reset this via apply_theme.
+    """
     global _CONFIRM_MODE
     _CONFIRM_MODE = "voice" if (mode or "").strip().lower() == "voice" else "card"
 
@@ -179,6 +186,14 @@ def action_is_delete(name: str, args: dict[str, Any] | None) -> bool:
     action = _inbox_action(args) if tool == "inbox" else _action(args)
     wanted = DELETE_ACTIONS.get(tool)
     return bool(wanted and action in wanted)
+
+
+def floor_call(name: str, args: dict[str, Any] | None = None) -> bool:
+    """True for outbound mail/texts and any delete. Card mode always pauses."""
+    tool = (name or "").strip()
+    if tool in FLOOR_SEND_TOOLS:
+        return True
+    return action_is_delete(name, args)
 
 
 def _browser_is_pay(args: dict[str, Any] | None) -> bool:
@@ -382,15 +397,19 @@ def evaluate_confirm(
     """Decide whether this call must go through the confirm card.
 
     Argument-dependent, not just risk-dependent. An unknown tool (no risk)
-    and a read action both return False — the loop rejects unknown names
+    and a read action both return False. The loop rejects unknown names
     before it reaches here.
 
     Voice mode (filament) skips the card: saying the ask is the grant.
     Destructive calls still pause so she can ask out loud. Running a
-    project program is not ordinary — it pauses on voice too.
+    project program is not ordinary; it pauses on voice too.
+    Filament is exempt from the send/delete floor while it is under testing.
 
-    Sodium: the typed ask is the grant for local work unless ``ask_is_grant``
-    is off. Send, pay, delete, and ``run_script`` still pause when asked.
+    Card mode (every theme except Filament): send and delete always pause,
+    ignoring confirm_send, confirm_writes, ask_is_grant, asked, and
+    allow_writes_this_turn. The typed ask is the grant for other local
+    work unless ``ask_is_grant`` is off. Pay and ``run_script`` still pause
+    when asked.
     """
     if _CONFIRM_MODE == "voice":
         if (name or "").strip() == "run_script":
@@ -398,6 +417,8 @@ def evaluate_confirm(
         if (name or "").strip() == "run_task" and _action(args) != "list":
             return True
         return action_is_destructive(name, args)
+    if floor_call(name, args):
+        return True
     toggle = confirm_toggle(name, args, risk=risk)
     if toggle == "send":
         gated = confirm_send
