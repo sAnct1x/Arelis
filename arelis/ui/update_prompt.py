@@ -17,11 +17,13 @@ was worth.
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 from PySide6.QtCore import QObject, QThread, QTimer, Signal
 from PySide6.QtWidgets import QApplication, QProgressBar, QWidget
 
 from arelis import __version__
+from arelis.backup import backup_before_upgrade
 from arelis.ui.dialog import GlassDialog, confirm, notice
 from arelis.update import (
     Release,
@@ -41,6 +43,15 @@ log = logging.getLogger(__name__)
 # is waiting for this, and an update that arrives eight seconds later arrives just as well.
 _DELAY_MS = 8000
 
+# Hung disk must not block the installer forever. The backup runs on a QThread;
+# this timer fires on the GUI thread and starts the installer anyway.
+_BACKUP_TIMEOUT_MS = 60_000
+
+BACKUP_FAILED_NOTICE = (
+    "A backup copy of your records could not be saved first. "
+    "The update will still go ahead, and your data folder is not touched by it."
+)
+
 
 class _CheckThread(QThread):
     """Ask GitHub, off the UI thread. Emits the release, or None for every other outcome."""
@@ -53,6 +64,21 @@ class _CheckThread(QThread):
 
     def run(self) -> None:  # pragma: no cover - exercised by hand, not in CI
         self.answered.emit(consider_automatic_update(self._config))
+
+
+class _BackupThread(QThread):
+    """Copy allowlisted records off the GUI thread. Emits the folder, or None."""
+
+    finished_with = Signal(object)
+
+    def run(self) -> None:
+        dest: Path | None
+        try:
+            dest = backup_before_upgrade(__version__)
+        except Exception:
+            log.warning("pre-upgrade backup failed; the update will continue")
+            dest = None
+        self.finished_with.emit(dest)
 
 
 class _DownloadThread(QThread):
@@ -102,7 +128,7 @@ class _DownloadDialog(GlassDialog):
 
 
 class UpdatePrompt(QObject):
-    """Owns the two threads and the dialogs, and keeps itself alive until it is done.
+    """Owns the worker threads and the dialogs, and keeps itself alive until it is done.
 
     A QObject with the window as its parent rather than a set of local variables, because a
     QThread that goes out of scope while running takes the process with it. Parented, so
@@ -115,6 +141,10 @@ class UpdatePrompt(QObject):
         self._check: _CheckThread | None = None
         self._download: _DownloadThread | None = None
         self._progress: _DownloadDialog | None = None
+        self._backup: _BackupThread | None = None
+        self._backup_timer: QTimer | None = None
+        self._installer: Path | None = None
+        self._install_started = False
 
     def start(self) -> None:
         config = getattr(self._window, "config", None)
@@ -209,8 +239,47 @@ class UpdatePrompt(QObject):
             )
             return
 
+        self._installer = result if isinstance(result, Path) else Path(result)  # type: ignore[arg-type]
+        self._install_started = False
+        self._backup = _BackupThread(self)
+        self._backup.finished_with.connect(self._on_backup_finished)
+        self._backup_timer = QTimer(self)
+        self._backup_timer.setSingleShot(True)
+        self._backup_timer.timeout.connect(self._on_backup_timeout)
+        self._backup_timer.start(_BACKUP_TIMEOUT_MS)
+        self._backup.start()
+
+    def _on_backup_finished(self, dest: object) -> None:
+        self._finish_backup_and_install(failed=dest is None)
+
+    def _on_backup_timeout(self) -> None:
+        if self._backup is not None:
+            try:
+                self._backup.finished_with.disconnect(self._on_backup_finished)
+            except (RuntimeError, TypeError):
+                pass
+        log.warning("pre-upgrade backup is slow; starting the update without waiting")
+        self._finish_backup_and_install(failed=True)
+
+    def _finish_backup_and_install(self, *, failed: bool) -> None:
+        if self._install_started:
+            return
+        self._install_started = True
+        if self._backup_timer is not None:
+            self._backup_timer.stop()
+            self._backup_timer = None
+        if failed:
+            notice(
+                self._window,
+                "Update Arelis",
+                BACKUP_FAILED_NOTICE,
+                warning=True,
+            )
+        installer = self._installer
+        if installer is None:
+            return
         try:
-            start_installer(result)  # type: ignore[arg-type]
+            start_installer(installer)
         except (UpdateError, OSError) as exc:
             log.warning("could not start the installer: %s", exc)
             notice(
