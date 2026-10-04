@@ -102,9 +102,9 @@ class ScrapeTool:
         download_error: str | None = None
 
         try:
-            html, final, ctype = await self._download(page_url)
+            html, final, ctype, status = await self._download(page_url)
             tried.append(final)
-            if looks_like_challenge_page(html):
+            if looks_like_challenge_page(html, status):
                 return self._challenge_result(page_url)
             non_html = self._reject_non_html(ctype, html, final)
             if non_html is not None:
@@ -154,10 +154,10 @@ class ScrapeTool:
                     continue
                 tried.append(alt)
                 try:
-                    alt_html, alt_final, alt_ctype = await self._download(alt)
+                    alt_html, alt_final, alt_ctype, alt_status = await self._download(alt)
                 except Exception:
                     continue
-                if looks_like_challenge_page(alt_html):
+                if looks_like_challenge_page(alt_html, alt_status):
                     continue
                 if looks_like_feed(alt_html, alt_ctype):
                     alt_extract = await asyncio.to_thread(
@@ -286,7 +286,7 @@ class ScrapeTool:
             data={"url": url, "fail_class": "fail:challenge"},
         )
 
-    async def _download(self, url: str) -> tuple[str, str, str]:
+    async def _download(self, url: str) -> tuple[str, str, str, int]:
         headers = scrape_headers(self.user_agent)
         # Referer from same host softens a few hotlink / bot gates.
         parsed = urlparse(url)
@@ -301,7 +301,8 @@ class ScrapeTool:
             )
             ctype = response.headers.get("content-type", "")
             body = response.text
-            if looks_like_challenge_page(body, response.status_code):
-                return body, str(response.url), ctype
+            status = response.status_code
+            if looks_like_challenge_page(body, status):
+                return body, str(response.url), ctype, status
             response.raise_for_status()
-            return body, str(response.url), ctype
+            return body, str(response.url), ctype, status

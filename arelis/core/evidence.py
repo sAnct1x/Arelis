@@ -480,16 +480,30 @@ def _has_challenge_hint(text: str) -> bool:
 _WALL_STATUSES = frozenset({401, 403, 429, 503})
 _THIN_VISIBLE_CHARS = 2000
 _TAGS = re.compile(r"<[^>]+>")
+# Drop script/style bodies and comments so inline JS cannot pad a wall, and so
+# class="h-captcha" is not wording. Closed tags first; unterminated ones run
+# to the end of the document. No nested quantifiers.
+_STRIP_NOISE = re.compile(
+    r"(?is)<script\b[^>]*>.*?</script\s*>|<script\b[^>]*>.*"
+    r"|<style\b[^>]*>.*?</style\s*>|<style\b[^>]*>.*"
+    r"|<!--.*?-->|<!--.*"
+)
+
+
+def _visible_text(html: str) -> str:
+    """Tag-stripped visible text: no script, style, or comment bodies."""
+    blob = _STRIP_NOISE.sub(" ", html or "")
+    blob = _TAGS.sub(" ", blob)
+    return " ".join(blob.split())
 
 
 def looks_like_challenge_page(body: str, status: int | None = None) -> bool:
     """For a fetched page: challenge wording AND (an error status or a thin page)."""
-    blob = body or ""
-    if not (looks_like_bot_wall(blob) or _has_challenge_hint(blob)):
+    visible = _visible_text(body)
+    if not (looks_like_bot_wall(visible) or _has_challenge_hint(visible)):
         return False
     if status in _WALL_STATUSES:
         return True
-    visible = " ".join(_TAGS.sub(" ", blob).split())
     return len(visible) < _THIN_VISIBLE_CHARS
 
 
