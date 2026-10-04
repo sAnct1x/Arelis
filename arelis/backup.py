@@ -9,8 +9,11 @@ names it here. ``secrets.yaml`` is refused even then.
 from __future__ import annotations
 
 import logging
+import os
 import re
 import shutil
+import stat
+import uuid
 from pathlib import Path
 
 from arelis.memory.backup import _sqlite_copy
@@ -43,7 +46,8 @@ def backup_before_upgrade(from_version: str, to_version: str | None = None) -> P
 
     Never raises. A failure is a log line and ``None`` so an in-app update
     still starts the installer. Keeps the newest ``PRE_UPGRADE_KEEP`` ``pre-*``
-    folders and only deletes inside ``state_dir()/backups``.
+    folders and only deletes inside ``state_dir()/backups``. Writes into a
+    temporary folder and renames it only when the copy is finished.
     """
     try:
         return _backup_before_upgrade(from_version, to_version)
@@ -58,20 +62,26 @@ def _backup_before_upgrade(from_version: str, to_version: str | None) -> Path:
     backups.mkdir(parents=True, exist_ok=True)
     if not _is_inside(backups, root):
         raise RuntimeError("pre-upgrade backup destination left the records folder")
+    _prune_stale_partial_folders(backups)
 
     folder_name = _safe_pre_folder_name(from_version)
     dest = backups / folder_name
-    dest.mkdir(parents=True, exist_ok=True)
-    if not _is_strictly_inside(dest, backups):
+    partial = backups / f".{folder_name}.{uuid.uuid4().hex}.partial"
+    partial.mkdir(parents=True, exist_ok=False)
+    if not _is_strictly_inside(partial, backups):
         raise RuntimeError("pre-upgrade backup destination left the backups folder")
 
     for name in PRE_UPGRADE_ALLOWLIST:
         try:
-            _copy_allowlisted(name, dest, root)
+            _copy_allowlisted(name, partial, root)
         except _BackupRefusedError:
             log.error("pre-upgrade backup refused to copy secrets.yaml")
-        except Exception:
-            log.warning("pre-upgrade backup skipped a file; the update will continue")
+
+    if dest.exists() or dest.is_symlink():
+        _delete_inside_backups(dest, backups)
+    os.replace(partial, dest)
+    if not _is_strictly_inside(dest, backups):
+        raise RuntimeError("pre-upgrade backup destination left the backups folder")
 
     _prune_pre_upgrade_folders(backups, keep=PRE_UPGRADE_KEEP)
 
@@ -87,11 +97,21 @@ def _backup_before_upgrade(from_version: str, to_version: str | None) -> Path:
 def _copy_allowlisted(name: str, dest_dir: Path, root: Path) -> None:
     _refuse_secrets_name(name)
     src = _source_path(name, root)
-    if src is None or not src.exists():
+    if src is None:
         return
-    if src.is_dir():
+    try:
+        info = src.lstat()
+    except OSError:
+        return
+    if stat.S_ISLNK(info.st_mode):
+        log.debug("pre-upgrade backup skipped a linked file")
+        return
+    if stat.S_ISDIR(info.st_mode):
         return
     _refuse_secrets_name(src.name)
+    if stat.S_ISREG(info.st_mode) and info.st_nlink > 1:
+        log.debug("pre-upgrade backup skipped a linked file")
+        return
     resolved = src.resolve()
     _refuse_secrets_name(resolved.name)
     if not _is_inside(resolved, root):
@@ -103,7 +123,12 @@ def _copy_allowlisted(name: str, dest_dir: Path, root: Path) -> None:
     if not _is_inside(target, dest_dir):
         return
     if name == "memory.db":
-        _sqlite_copy(resolved, target)
+        tmp_target = dest_dir / f".{src.name}.{uuid.uuid4().hex}.partial"
+        _refuse_secrets_name(tmp_target.name)
+        if not _is_inside(tmp_target, dest_dir):
+            return
+        _sqlite_copy(resolved, tmp_target)
+        os.replace(tmp_target, target)
         return
     shutil.copy2(resolved, target)
 
@@ -133,15 +158,35 @@ def _safe_pre_folder_name(version: str) -> str:
     return f"pre-{cleaned}"
 
 
+def _is_partial_backup(path: Path) -> bool:
+    name = path.name
+    if not (name.startswith(".") or name.endswith(".partial")):
+        return False
+    return path.is_dir() or path.is_symlink()
+
+
+def _prune_stale_partial_folders(backups: Path) -> None:
+    if not backups.is_dir():
+        return
+    if not _is_inside(backups, state_dir()):
+        return
+    for path in list(backups.iterdir()):
+        if _is_partial_backup(path):
+            _delete_inside_backups(path, backups)
+
+
 def _prune_pre_upgrade_folders(backups: Path, *, keep: int) -> None:
     if not backups.is_dir():
         return
     if not _is_inside(backups, state_dir()):
         return
+    _prune_stale_partial_folders(backups)
     folders = [
         path
         for path in backups.iterdir()
-        if path.name.startswith("pre-") and (path.is_dir() or path.is_symlink())
+        if path.name.startswith("pre-")
+        and not path.name.endswith(".partial")
+        and (path.is_dir() or path.is_symlink())
     ]
     folders.sort(key=lambda path: (path.stat().st_mtime, path.name), reverse=True)
     for stale in folders[max(0, int(keep)) :]:

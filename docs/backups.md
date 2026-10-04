@@ -4,9 +4,14 @@ Arelis does not take a daily copy of `memory.db`. That used to fill
 `data\backups\` on its own, so the dated memory snapshot stays off.
 
 What she does take is a small copy right before an in-app upgrade
-starts the installer. It lands in `data\backups\pre-<version>\` (the
-version you are leaving). Only these files, and only if they are
-already there:
+starts the installer. It is written under a temporary name in
+`data\backups\` first, and only renamed to `pre-<version>\` (the
+version you are leaving) when the copy is finished. A copy that
+stops halfway never has that final name. Leftover temporary folders
+are removed the next time a backup runs, and they do not count
+toward the two `pre-*` folders she keeps.
+
+Only these files, and only if they are already there:
 
 - `memory.db`
 - `rooms.yaml`
@@ -19,10 +24,16 @@ already there:
 Passwords and tokens in `secrets.yaml` are never copied. Pairing
 data, the browser profile, SMS threads and media, and the action
 ledger are not copied either. A later file added under `data\` stays
-out until someone puts its name on that list.
+out until someone puts its name on that list. A symbolic link, or a
+regular file with more than one hard link, is skipped even when its
+name is on that list, so `rooms.yaml` cannot pull in `secrets.yaml`
+by pointing at it.
 
 She keeps the newest two `pre-*` folders and deletes older ones
 inside `data\backups\` only.
+
+If the copy fails, she shows a short notice and still starts the
+installer. The update does not touch the data folder.
 
 Running the setup `.exe` by hand over an existing install does not
 write this copy. There is no restore command in this version.

@@ -5,6 +5,8 @@ from __future__ import annotations
 import logging
 import os
 import sqlite3
+import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -172,8 +174,10 @@ def test_does_not_follow_a_symlink_out_of_state(
 
 
 def test_backup_failure_does_not_block_the_installer(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    qt_app, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    from PySide6.QtWidgets import QWidget
+
     order: list[str] = []
 
     def boom(from_version: str, to_version: str | None = None) -> None:
@@ -186,16 +190,26 @@ def test_backup_failure_does_not_block_the_installer(
 
     monkeypatch.setattr(update_prompt, "backup_before_upgrade", boom)
     monkeypatch.setattr(update_prompt, "start_installer", fake_start)
+    monkeypatch.setattr(update_prompt, "notice", lambda *_a, **_k: order.append("notice"))
+    monkeypatch.setattr(update_prompt.QApplication, "quit", staticmethod(lambda: None))
 
     installer = tmp_path / "setup.exe"
     installer.write_bytes(b"MZ")
-    update_prompt.start_installer_with_pre_upgrade_backup(installer)
-    assert order == ["backup", "install"]
+    window = QWidget()
+    prompt = update_prompt.UpdatePrompt(window)
+    try:
+        prompt._on_downloaded(installer)
+        _pump_until(qt_app, lambda: "install" in order)
+        assert order == ["backup", "notice", "install"]
+    finally:
+        window.deleteLater()
 
 
 def test_update_flow_calls_backup_before_the_installer(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    qt_app, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    from PySide6.QtWidgets import QWidget
+
     order: list[str] = []
 
     def fake_backup(from_version: str, to_version: str | None = None) -> Path:
@@ -207,10 +221,19 @@ def test_update_flow_calls_backup_before_the_installer(
 
     monkeypatch.setattr(update_prompt, "backup_before_upgrade", fake_backup)
     monkeypatch.setattr(update_prompt, "start_installer", fake_start)
+    monkeypatch.setattr(update_prompt, "notice", lambda *_a, **_k: order.append("notice"))
+    monkeypatch.setattr(update_prompt.QApplication, "quit", staticmethod(lambda: None))
 
-    update_prompt.start_installer_with_pre_upgrade_backup(tmp_path / "setup.exe")
-    assert order[0].startswith("backup:")
-    assert order[1] == "install"
+    window = QWidget()
+    prompt = update_prompt.UpdatePrompt(window)
+    try:
+        prompt._on_downloaded(tmp_path / "setup.exe")
+        _pump_until(qt_app, lambda: "install" in order)
+        assert order[0].startswith("backup:")
+        assert order[1] == "install"
+        assert "notice" not in order
+    finally:
+        window.deleteLater()
 
 
 def test_optional_records_copy_when_present(
@@ -228,8 +251,11 @@ def test_optional_records_copy_when_present(
 
 
 def test_on_downloaded_handoff_is_the_backup_then_installer() -> None:
-    source = update_prompt.UpdatePrompt._on_downloaded.__code__.co_names
-    assert "start_installer_with_pre_upgrade_backup" in source
+    downloaded = update_prompt.UpdatePrompt._on_downloaded.__code__.co_names
+    finished = update_prompt.UpdatePrompt._finish_backup_and_install.__code__.co_names
+    assert "_BackupThread" in downloaded
+    assert "start_installer" not in downloaded
+    assert "start_installer" in finished
 
 
 def test_never_raises_into_the_caller(
@@ -240,3 +266,198 @@ def test_never_raises_into_the_caller(
 
     monkeypatch.setattr(backup, "_backup_before_upgrade", boom)
     assert backup.backup_before_upgrade("0.2.9") is None
+
+
+def _backup_names(backups: Path) -> set[str]:
+    if not backups.is_dir():
+        return set()
+    return {path.name for path in backups.iterdir()}
+
+
+def _pump_until(qt_app: object, predicate: object, timeout_s: float = 3.0) -> None:
+    deadline = time.monotonic() + timeout_s
+    while not predicate() and time.monotonic() < deadline:  # type: ignore[operator]
+        qt_app.processEvents()  # type: ignore[union-attr]
+        time.sleep(0.01)
+
+
+def test_interrupted_copy_leaves_only_a_temp_folder_then_next_run_removes_it(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    root = _isolate_state(monkeypatch, tmp_path)
+    _seed_records(root)
+    real_copy = backup._copy_allowlisted
+    seen = {"n": 0}
+
+    def boom(name: str, dest_dir: Path, records: Path) -> None:
+        seen["n"] += 1
+        if seen["n"] >= 2:
+            raise OSError("disk full mid-copy")
+        real_copy(name, dest_dir, records)
+
+    monkeypatch.setattr(backup, "_copy_allowlisted", boom)
+    dest = backup.backup_before_upgrade("0.2.9")
+    assert dest is None
+    backups = root / "backups"
+    names = _backup_names(backups)
+    assert not any(name.startswith("pre-") and not name.endswith(".partial") for name in names)
+    temps = [
+        path
+        for path in backups.iterdir()
+        if path.name.startswith(".") or path.name.endswith(".partial")
+    ]
+    assert len(temps) == 1
+    assert temps[0].is_dir()
+
+    monkeypatch.setattr(backup, "_copy_allowlisted", real_copy)
+    dest = backup.backup_before_upgrade("0.2.9")
+    assert dest is not None
+    assert dest.name == "pre-0.2.9"
+    leftover = [
+        path
+        for path in dest.parent.iterdir()
+        if path.name.startswith(".") or path.name.endswith(".partial")
+    ]
+    assert leftover == []
+
+
+def test_temp_folders_do_not_count_toward_retention(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    root = _isolate_state(monkeypatch, tmp_path)
+    (root / "rooms.yaml").write_text("rooms: []\n", encoding="utf-8")
+    first = backup.backup_before_upgrade("0.2.7")
+    assert first is not None
+    os.utime(first, (1_000_000, 1_000_000))
+    second = backup.backup_before_upgrade("0.2.8")
+    assert second is not None
+    os.utime(second, (2_000_000, 2_000_000))
+
+    backups = root / "backups"
+    zombie = backups / "pre-zombie.partial"
+    zombie.mkdir()
+    (zombie / "rooms.yaml").write_text("stale\n", encoding="utf-8")
+    os.utime(zombie, (9_000_000, 9_000_000))
+    dotted = backups / ".pre-stale.partial"
+    dotted.mkdir()
+    os.utime(dotted, (9_000_001, 9_000_001))
+
+    third = backup.backup_before_upgrade("0.2.9")
+    assert third is not None
+    remaining = sorted(p.name for p in backups.iterdir() if p.is_dir())
+    assert remaining == ["pre-0.2.8", "pre-0.2.9"]
+
+
+def test_hard_linked_allowlisted_file_is_skipped(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    root = _isolate_state(monkeypatch, tmp_path)
+    secrets = root / "secrets.yaml"
+    secrets.write_text(f"mail_password: {SENTINEL}\n", encoding="utf-8")
+    rooms = root / "rooms.yaml"
+    try:
+        os.link(secrets, rooms)
+    except OSError:
+        pytest.skip("hard links are not available here")
+    (root / "jobs.yaml").write_text("jobs: []\n", encoding="utf-8")
+
+    dest = backup.backup_before_upgrade("0.2.9")
+    assert dest is not None
+    assert not (dest / "rooms.yaml").exists()
+    haystack = b""
+    for path in dest.rglob("*"):
+        if path.is_file():
+            haystack += path.read_bytes()
+    assert SENTINEL.encode("utf-8") not in haystack
+
+
+def test_symlink_allowlisted_source_is_skipped(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    root = _isolate_state(monkeypatch, tmp_path)
+    (root / "jobs.yaml").write_text("jobs: []\n", encoding="utf-8")
+    link = root / "rooms.yaml"
+    try:
+        link.symlink_to(root / "jobs.yaml")
+    except OSError:
+        pytest.skip("symlinks are not available here")
+
+    dest = backup.backup_before_upgrade("0.2.9")
+    assert dest is not None
+    assert not (dest / "rooms.yaml").exists()
+    assert (dest / "jobs.yaml").read_text(encoding="utf-8") == "jobs: []\n"
+
+
+def test_update_prompt_has_no_done_wait() -> None:
+    text = Path(update_prompt.__file__).read_text(encoding="utf-8")
+    assert "done.wait" not in text
+
+
+def test_installer_waits_for_backup_thread(
+    qt_app, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from PySide6.QtWidgets import QWidget
+
+    monkeypatch.setattr(update_prompt, "_BACKUP_WAIT_S", 0.0, raising=False)
+    started: list[str] = []
+    gate = threading.Event()
+
+    def slow_backup(from_version: str, to_version: str | None = None) -> Path:
+        gate.wait(timeout=5)
+        return tmp_path / "backups" / "pre-x"
+
+    def fake_start(installer: Path) -> None:
+        started.append("install")
+
+    monkeypatch.setattr(update_prompt, "backup_before_upgrade", slow_backup)
+    monkeypatch.setattr(update_prompt, "start_installer", fake_start)
+    monkeypatch.setattr(update_prompt, "notice", lambda *_a, **_k: None)
+    monkeypatch.setattr(update_prompt.QApplication, "quit", staticmethod(lambda: None))
+
+    window = QWidget()
+    prompt = update_prompt.UpdatePrompt(window)
+    try:
+        prompt._on_downloaded(tmp_path / "setup.exe")
+        qt_app.processEvents()
+        assert started == []
+        gate.set()
+        _pump_until(qt_app, lambda: started == ["install"])
+        assert started == ["install"]
+    finally:
+        gate.set()
+        window.deleteLater()
+
+
+def test_failed_backup_shows_notice_once_then_starts_installer(
+    qt_app, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from PySide6.QtWidgets import QWidget
+
+    order: list[str] = []
+    notices: list[str] = []
+
+    def fail_backup(from_version: str, to_version: str | None = None) -> None:
+        order.append("backup")
+        return None
+
+    def fake_notice(*args: object, **kwargs: object) -> None:
+        order.append("notice")
+        notices.append(str(args[2]) if len(args) > 2 else str(kwargs.get("message", "")))
+
+    def fake_start(installer: Path) -> None:
+        order.append("install")
+
+    monkeypatch.setattr(update_prompt, "backup_before_upgrade", fail_backup)
+    monkeypatch.setattr(update_prompt, "notice", fake_notice)
+    monkeypatch.setattr(update_prompt, "start_installer", fake_start)
+    monkeypatch.setattr(update_prompt.QApplication, "quit", staticmethod(lambda: None))
+
+    window = QWidget()
+    prompt = update_prompt.UpdatePrompt(window)
+    try:
+        prompt._on_downloaded(tmp_path / "setup.exe")
+        _pump_until(qt_app, lambda: "install" in order)
+        assert order[:3] == ["backup", "notice", "install"]
+        assert notices == [update_prompt.BACKUP_FAILED_NOTICE]
+    finally:
+        window.deleteLater()
