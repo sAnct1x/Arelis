@@ -220,7 +220,11 @@ def test_mail_and_texts_checkbox_is_locked(qt_app) -> None:
         assert dlg.confirm_send.isEnabled() is False
         tip = dlg.confirm_send.toolTip()
         assert "Every mail and text always asks." in tip
-        assert "Filament (testing) is exempt" in tip
+        assert "Filament (testing) is exempt." in tip
+        assert "while it is under testing" not in tip
+        writes_tip = dlg.confirm_writes.toolTip()
+        assert "Deletes always pause." in writes_tip
+        assert "when this is on" not in writes_tip
     finally:
         dlg.close()
 

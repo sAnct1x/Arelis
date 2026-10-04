@@ -470,7 +470,7 @@ class SettingsDialog(QDialog):
         self.confirm_writes = QCheckBox("files, memory, calendar, rooms")
         self.confirm_writes.setChecked(bool(agent.get("confirm_writes", True)))
         self.confirm_writes.setToolTip(
-            "Save, remember, calendar, rooms. Deletes still pause when this is on."
+            "Save, remember, calendar, rooms. Deletes always pause."
         )
         self.confirm_image = QCheckBox("pictures")
         self.confirm_image.setChecked(bool(agent.get("confirm_image", True)))
@@ -509,7 +509,7 @@ class SettingsDialog(QDialog):
         self.confirm_send.setEnabled(False)
         self.confirm_send.setToolTip(
             "Every mail and text always asks. This cannot be turned off.\n"
-            "Filament (testing) is exempt while it is under testing."
+            "Filament (testing) is exempt."
         )
         self.confirm_run = QCheckBox("programs in the project")
         self.confirm_run.setChecked(bool(agent.get("confirm_run", True)))
