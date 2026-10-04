@@ -24,6 +24,7 @@ from arelis.core.contact_match import find_contact
 from arelis.core.history_revival import last_draft_before_confirm
 from arelis.history_view import history_pairs
 from arelis.mail import valid_address
+from arelis.workspace import is_unsafe_windows_path
 
 # Verb + recipient only. Subject/body are split in parse_email_utterance so
 # a bare "re" alternative cannot steal letters from "Dinner" / "Thursday".
@@ -850,6 +851,8 @@ def resolve_attach_path(raw: str, *, workspace: Any = None) -> str:
 
     text = (raw or "").strip().strip('"').strip("'")
     if not text:
+        return ""
+    if is_unsafe_windows_path(text):
         return ""
     if workspace is not None:
         try:

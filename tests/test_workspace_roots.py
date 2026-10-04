@@ -1,16 +1,28 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from pathlib import Path
 
 import pytest
 import yaml
 
 from arelis import paths
+from arelis.attachments import resolve_staged_path, stage_files
 from arelis.config import load_config
+from arelis.memory.docs import DocumentIndexer
 from arelis.tools.analyze import AnalyzeTool
 from arelis.tools.code_workspace import CodeWorkspaceTool
-from arelis.workspace import AmbiguousPathError, RootEntry, WorkspaceRoots
+from arelis.tools.document import DocumentTool
+from arelis.tools.image_io import _under_own_roots, resolve_image
+from arelis.tools.ocr import OcrTool
+from arelis.workspace import (
+    UNSAFE_WINDOWS_PATH_MSG,
+    AmbiguousPathError,
+    RootEntry,
+    WorkspaceRoots,
+    is_unsafe_windows_path,
+)
 
 
 def _two_projects(tmp_path: Path) -> WorkspaceRoots:
@@ -496,3 +508,248 @@ async def test_installed_package_inspect_root_workspace_tool_cannot_write(
     read = await tool.run(action="read", path=str(target))
     assert read.ok
     assert "# shipped" in read.output
+
+
+_UNSAFE_WINDOWS_PATHS = (
+    r"\\evil\share\x.txt",
+    r"\\?\UNC\evil\share",
+    r"\\.\evil\share",
+    r"\??\UNC\evil\share",
+    "//evil/share/x",
+    r"\\/server/share",
+    r"/\server\share",
+    r"\??/UNC/x",
+    r"/??\UNC\x",
+    r"//?/UNC/x",
+    r"\\?\UNC\x",
+    r"//server/share/x.txt",
+    r'  "\\evil\share\x.txt"  ',
+    r"  '\\server\share'  ",
+    "file://server/share/x.txt",
+    "file:////server/share",
+    r"file:\\server\share\x.txt",
+)
+
+_SAFE_WINDOWS_PATHS = (
+    "notes.txt",
+    r"C:\Users\someone\doc.txt",
+    r"C:/Users/someone/doc.txt",
+    "outputs/documents/x.md",
+    r"file:///C:/Users/someone/doc.txt",
+)
+
+
+def _track_path_fs(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str]]:
+    """Record Path.resolve / exists / stat / open so UNC checks stay pre-FS."""
+    calls: list[tuple[str, str]] = []
+    real_resolve = Path.resolve
+    real_exists = Path.exists
+    real_stat = Path.stat
+    real_open = Path.open
+
+    def track_resolve(self: Path, *args, **kwargs):
+        calls.append(("resolve", str(self)))
+        return real_resolve(self, *args, **kwargs)
+
+    def track_exists(self: Path, *args, **kwargs):
+        calls.append(("exists", str(self)))
+        return real_exists(self, *args, **kwargs)
+
+    def track_stat(self: Path, *args, **kwargs):
+        calls.append(("stat", str(self)))
+        return real_stat(self, *args, **kwargs)
+
+    def track_open(self: Path, *args, **kwargs):
+        calls.append(("open", str(self)))
+        return real_open(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "resolve", track_resolve)
+    monkeypatch.setattr(Path, "exists", track_exists)
+    monkeypatch.setattr(Path, "stat", track_stat)
+    monkeypatch.setattr(Path, "open", track_open)
+    return calls
+
+
+@pytest.mark.parametrize("raw", _UNSAFE_WINDOWS_PATHS)
+def test_is_unsafe_windows_path_prefixes(raw: str) -> None:
+    assert is_unsafe_windows_path(raw)
+
+
+@pytest.mark.parametrize("raw", _SAFE_WINDOWS_PATHS)
+def test_is_unsafe_windows_path_allows_local(raw: str) -> None:
+    assert not is_unsafe_windows_path(raw)
+
+
+@pytest.mark.parametrize("raw", _UNSAFE_WINDOWS_PATHS)
+def test_resolve_refuses_unc_before_filesystem(
+    raw: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "proj"
+    root.mkdir()
+    ws = WorkspaceRoots.from_paths([str(root)])
+    calls = _track_path_fs(monkeypatch)
+    with pytest.raises(PermissionError, match="network location"):
+        ws.resolve(raw)
+    with pytest.raises(PermissionError, match="network location"):
+        ws.resolve_read(raw)
+    assert calls == []
+    assert ws.grant_external_read(raw) is None
+    assert calls == []
+    assert not ws.has_external_read(raw)
+    assert calls == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("raw", _UNSAFE_WINDOWS_PATHS)
+async def test_workspace_tool_refuses_unc_without_fs(
+    raw: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "proj"
+    root.mkdir()
+    (root / "ok.txt").write_text("safe", encoding="utf-8")
+    ws = WorkspaceRoots.from_paths([str(root)])
+    tool = CodeWorkspaceTool(ws)
+    calls = _track_path_fs(monkeypatch)
+    denied = await tool.run(action="read", path=raw)
+    assert not denied.ok
+    assert UNSAFE_WINDOWS_PATH_MSG in denied.output
+    assert calls == []
+    wrote = await tool.run(action="write", path=raw, content="nope")
+    assert not wrote.ok
+    assert UNSAFE_WINDOWS_PATH_MSG in wrote.output
+    assert calls == []
+    # Drive-letter and relative paths still resolve after the guard.
+    hit = ws.resolve("ok.txt")
+    assert hit.path == (root / "ok.txt").resolve()
+    drive = ws.resolve(str((root / "ok.txt").resolve()))
+    assert drive.path == (root / "ok.txt").resolve()
+
+
+def _boom_fs(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Raise if resolve/exists/is_file/stat run on a UNC probe path."""
+    real_resolve = Path.resolve
+    real_exists = Path.exists
+    real_is_file = Path.is_file
+    real_stat = Path.stat
+    real_os_stat = os.stat
+
+    def probe(text: str) -> bool:
+        return (
+            is_unsafe_windows_path(text)
+            or "evil" in text
+            or "??" in text
+            or r"\server" in text.replace("/", "\\")
+        )
+
+    def boom_path(label: str, orig):
+        def wrapped(self: Path, *args, **kwargs):
+            if probe(str(self)):
+                raise AssertionError(f"{label} touched {self}")
+            return orig(self, *args, **kwargs)
+
+        return wrapped
+
+    def boom_os_stat(path, *args, **kwargs):
+        if probe(str(path)):
+            raise AssertionError(f"os.stat touched {path}")
+        return real_os_stat(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "resolve", boom_path("resolve", real_resolve))
+    monkeypatch.setattr(Path, "exists", boom_path("exists", real_exists))
+    monkeypatch.setattr(Path, "is_file", boom_path("is_file", real_is_file))
+    monkeypatch.setattr(Path, "stat", boom_path("stat", real_stat))
+    monkeypatch.setattr(os, "stat", boom_os_stat)
+
+
+_ENTRY_UNC = (
+    r"\\evil\share\x.txt",
+    r"\\/server/share",
+    r"\??/UNC/x",
+)
+
+
+@pytest.mark.parametrize("raw", _ENTRY_UNC)
+def test_image_io_refuses_unc_before_filesystem(
+    raw: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "proj"
+    root.mkdir()
+    ws = WorkspaceRoots.from_paths([str(root)])
+    _boom_fs(monkeypatch)
+    with pytest.raises(PermissionError, match="network location"):
+        _under_own_roots(raw)
+    with pytest.raises(PermissionError, match="network location"):
+        resolve_image(ws, raw)
+    with pytest.raises(PermissionError, match="network location"):
+        resolve_image(None, raw)
+
+
+@pytest.mark.parametrize("raw", _ENTRY_UNC)
+def test_ocr_refuses_unc_before_filesystem(
+    raw: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "proj"
+    root.mkdir()
+    ws = WorkspaceRoots.from_paths([str(root)])
+    tool = OcrTool(ws, runner=lambda p, lang: "x")
+    _boom_fs(monkeypatch)
+    with pytest.raises(PermissionError, match="network location"):
+        tool._resolve_image(raw)
+
+
+@pytest.mark.parametrize("raw", _ENTRY_UNC)
+def test_docs_resolve_under_refuses_unc_before_filesystem(
+    raw: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "proj"
+    root.mkdir()
+    ws = WorkspaceRoots.from_paths([str(root)])
+    indexer = DocumentIndexer(object(), ws)  # type: ignore[arg-type]
+    _boom_fs(monkeypatch)
+    with pytest.raises(PermissionError, match="network location"):
+        indexer._resolve_under(raw)
+
+
+@pytest.mark.parametrize("raw", _ENTRY_UNC)
+def test_attachments_refuse_unc_before_filesystem(
+    raw: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _boom_fs(monkeypatch)
+    assert resolve_staged_path(raw) is None
+    result = stage_files([raw])
+    assert result.ok == []
+    assert any(UNSAFE_WINDOWS_PATH_MSG in err for err in result.errors)
+
+
+@pytest.mark.parametrize("raw", _ENTRY_UNC)
+def test_document_read_source_refuses_unc_before_filesystem(
+    raw: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "proj"
+    root.mkdir()
+    ws = WorkspaceRoots.from_paths([str(root)])
+    tool = DocumentTool(ws)
+    _boom_fs(monkeypatch)
+    with pytest.raises(PermissionError, match="network location"):
+        tool._read_source(raw)
+    with pytest.raises(PermissionError, match="network location"):
+        tool._under_document_roots(raw)
+
+
+@pytest.mark.asyncio
+async def test_document_from_path_unc_message_reaches_user(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "proj"
+    root.mkdir()
+    ws = WorkspaceRoots.from_paths([str(root)])
+    tool = DocumentTool(ws)
+    _boom_fs(monkeypatch)
+    denied = await tool.run(
+        format="md",
+        from_path=r"\\evil\share\x.txt",
+        title="x",
+    )
+    assert not denied.ok
+    assert denied.output == UNSAFE_WINDOWS_PATH_MSG
+

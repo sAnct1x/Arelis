@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from arelis.workspace import is_unsafe_windows_path
+
 
 def sidecar_path(png_path: Path) -> Path:
     return Path(png_path).with_suffix(".json")
@@ -55,6 +57,8 @@ def read_named_sidecar(path_str: str) -> dict[str, Any]:
 
     raw = (path_str or "").strip().replace("\\", "/")
     if not raw:
+        return {}
+    if is_unsafe_windows_path(path_str or ""):
         return {}
     path = Path(raw)
     if not path.is_absolute():
