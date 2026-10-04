@@ -641,9 +641,10 @@ async def execute_call(
                 # Not when the ask goes on to a tool it named (OCR the new
                 # file, vision on it): that chain still owes its second step,
                 # so fall through to the normal tool-message path.
-                # Same hold in native_tool_calling mode — the flag drops regex
-                # injects/nudges, not the "user named these tools" guard.
-                if not [n for n in named_tools_owed(loop, ctx) if n != "image_edit"]:
+                # Skip named_tools_owed check when native_tool_calling is enabled
+                if not native_tool_calling(agent_cfg) and not [
+                    n for n in named_tools_owed(loop, ctx) if n != "image_edit"
+                ]:
                     # Its own sentence already names the sizes and the
                     # adjustments, which is the part worth reading.
                     await loop._finish(str(result.output).strip(), sources, streamed="")
