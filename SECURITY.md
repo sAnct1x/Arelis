@@ -21,9 +21,10 @@ your own paths or the text of your messages.
 
 ## What happens next
 
-This is a one-person project. I will look. I may take a few days. I will
-say whether I think it is a real hole, and if it is, I will fix it in a
-release rather than leaving you to guess.
+This is a one-person project. I will look. My target is to reply within
+7 days. That is a best-effort target, not a promise. I will say whether I
+think it is a real hole, and if it is, I will fix it in a release rather
+than leaving you to guess.
 
 There is no bounty. The thanks is genuine. The budget is not.
 
