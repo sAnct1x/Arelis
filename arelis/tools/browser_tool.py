@@ -855,14 +855,14 @@ class BrowserTool:
                 )
             from arelis.browser.reserve import (
                 normalize_date,
-                normalize_party,
                 normalize_reserve_site,
                 normalize_time,
                 reserve_url,
+                resolve_party,
             )
 
             site = normalize_reserve_site(str(kwargs.get("site") or "opentable"))
-            party = normalize_party(kwargs.get("party") or kwargs.get("covers") or 2)
+            party = resolve_party(kwargs.get("party"), kwargs.get("covers"))
             date = normalize_date(str(kwargs.get("date") or ""))
             clock = normalize_time(str(kwargs.get("time") or ""))
             url = reserve_url(
