@@ -95,16 +95,13 @@ licence. Sign off your commits:
 git commit -s -m "your message"
 ```
 
-Second, a licence grant. You keep the copyright. You also grant the
-maintainer a perpetual, worldwide, non-exclusive, irrevocable licence to
-use, reproduce, modify, and distribute the contribution, including the
-right to license it under different terms later. That is a licence, not
-an assignment. You can still use your own work however you like.
+Second, your contribution is licensed under the same terms as the project,
+the GNU Affero General Public License, version 3 or later (see
+[LICENSE](LICENSE)). You keep the copyright. You can still use your own
+work however you like.
 
-The grant is there so this project can adopt a later AGPL, or fix a
-licence clash with a dependency, without hunting down every person who
-ever landed a line. If you are not comfortable with that, open an issue
-instead. A clear bug report is genuinely useful.
+If you are not comfortable with that, open an issue instead. A clear bug
+report is genuinely useful.
 
 ## Pull request guidelines
 
