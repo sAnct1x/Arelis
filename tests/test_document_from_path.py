@@ -54,8 +54,23 @@ def test_from_path_rejects_outside_roots(drop_env) -> None:
 
 def test_from_path_rejects_traversal(drop_env) -> None:
     tool, _source, _docs, data, _project = drop_env
-    escape = data.parent / "escape.md"
+    # Escape lands just outside outputs/documents (data root), so
+    # outputs/documents/../../escape.md resolves to a real file.
+    escape = data / "escape.md"
     escape.write_text("pwned\n", encoding="utf-8")
+    probe = data / "outputs" / "documents" / ".." / ".." / "escape.md"
+    assert probe.resolve() == escape.resolve()
+    assert probe.resolve().is_file(), "probe must hit a real file or the reject is vacuous"
     with pytest.raises(ValueError, match="allowed root") as exc:
         tool._read_source("outputs/documents/../../escape.md")
     assert "outputs/documents" in str(exc.value)
+
+    # Deeper traversal: three levels up from outputs/documents.
+    escape_deep = data.parent / "escape_deep.md"
+    escape_deep.write_text("pwned deep\n", encoding="utf-8")
+    probe_deep = data / "outputs" / "documents" / ".." / ".." / ".." / "escape_deep.md"
+    assert probe_deep.resolve() == escape_deep.resolve()
+    assert probe_deep.resolve().is_file()
+    with pytest.raises(ValueError, match="allowed root") as exc_deep:
+        tool._read_source("outputs/documents/../../../escape_deep.md")
+    assert "outputs/documents" in str(exc_deep.value)
