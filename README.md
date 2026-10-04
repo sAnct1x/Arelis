@@ -196,9 +196,9 @@ her to use them, she'll tell you she can't.
 | `data/contacts.example.yaml` | `data/contacts.yaml` | People she can text or email |
 | `data/secrets.example.yaml` | `data/secrets.yaml` | Mail login, phone pairing, calendar |
 
-There's no Mail tab in Settings. Mail is configured through the
-`email:` block in `secrets.yaml` (that's a Gmail app password, not
-your actual Google password). For phone, go to Settings → Notify and
+Mail has no Settings tab of its own. Put the address and app password
+under Settings, Notify, or in the `email:` block of `secrets.yaml`.
+(That's a Gmail app password, not your actual Google password.) For phone, go to Settings → Notify and
 scan the QR code. See [notify-inbound.md](docs/notify-inbound.md).
 For calendar, see [calendar-oauth.md](docs/calendar-oauth.md). Note
 that scheduled jobs need mail set up first (details in
@@ -235,8 +235,9 @@ model. See [models.md](docs/models.md).
 - **Mail, calendar, texting:** All stay off until you connect them. Configuration lives in `data/secrets.yaml`. See [calendar-oauth.md](docs/calendar-oauth.md) and the optional extras section above.
 - **Jobs:** Found under the calendar tile (`Ctrl+7`). Set a prompt and a time, and she'll email you the answer. Requires mail to be set up. See [jobs.md](docs/jobs.md). "Remind me in 20 minutes" is a timer, not a job.
 
-**Memory.** Managed under Settings → Memory. Dated backups are kept in
-`data\backups\` for two weeks.
+**Memory.** Managed under Settings → Memory. Before an in-app upgrade she copies allowlisted records into
+`data/backups/pre-<version>/` and keeps the newest two. Daily dated
+memory copies stay off. See [backups.md](docs/backups.md).
 
 Type `/tools` in the chat for the full list of what she can do.
 

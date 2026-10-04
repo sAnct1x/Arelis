@@ -158,3 +158,30 @@ class TestReleaseNotesContent:
         idx_030 = text.index("## 0.3.0")
         idx_checkout = text.index("## This checkout")
         assert idx_030 < idx_checkout
+
+
+class TestReadmeStatements:
+    """README lines that were stale against the 0.3.0 behavior."""
+
+    def _readme(self) -> str:
+        text = (REPO / "README.md").read_text(encoding="utf-8")
+        return " ".join(text.split())
+
+    def test_mail_setup_sentence(self) -> None:
+        text = self._readme()
+        assert "Mail has no Settings tab of its own." in text
+        assert (
+            "Mail has no Settings tab of its own. Put the address and app password "
+            "under Settings, Notify, or in the `email:` block of `secrets.yaml`."
+        ) in text
+        assert "There's no Mail tab in Settings" not in text
+
+    def test_backup_sentence_matches_pre_upgrade_backup(self) -> None:
+        text = self._readme()
+        assert (
+            "Before an in-app upgrade she copies allowlisted records into "
+            "`data/backups/pre-<version>/` and keeps the newest two. "
+            "Daily dated memory copies stay off. See [backups.md](docs/backups.md)."
+        ) in text
+        assert "for two weeks" not in text
+        assert (REPO / "docs" / "backups.md").is_file()
