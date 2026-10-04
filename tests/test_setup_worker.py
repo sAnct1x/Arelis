@@ -19,13 +19,18 @@ import httpx
 import pytest
 
 from arelis.setup.catalog import EMBED_TAG
-from arelis.setup.engine import download_ollama_setup, pull_tag, run_ollama_setup
+from arelis.setup.engine import (
+    download_ollama_setup,
+    pull_tag,
+    run_ollama_setup,
+    start_ollama,
+)
 from arelis.ui.setup_wizard import ModelSetupDialog, _PrepareWorker, _ProbeWorker
 
 _REAL_HTTPX_CLIENT = httpx.Client
 _REAL_POPEN = subprocess.Popen
 _WIZARD = Path(__file__).resolve().parents[1] / "arelis" / "ui" / "setup_wizard.py"
-_SUFFIX = "Your files are fine. Try again."
+_SUFFIX = "Nothing was lost."
 _TAG = "qwen3.5:4b"
 _INSTALLER_STRINGS = (
     "The Ollama installer is missing.",
@@ -33,10 +38,19 @@ _INSTALLER_STRINGS = (
     "Ollama setup did not finish (code 1): Access denied",
     "The Ollama installer is open. Finish it, then come back and continue.",
 )
-_NETWORK_SENTENCE = (
-    "Arelis could not download the setup files. Check that this PC is online. "
-    "Your files are fine. Try again."
+_ENGINE_START_SENTENCE = (
+    "The local engine would not start. Wait a few seconds and try again. "
+    "If it keeps happening, restart your PC. Nothing was lost."
 )
+_PULL_SENTENCE = (
+    "The model download stopped. Check your internet connection and that "
+    "the disk has enough free space, then try again. Nothing was lost."
+)
+_NETWORK_SENTENCE = (
+    "Arelis could not download the setup files. Check that this PC is online, "
+    "then try again. Nothing was lost."
+)
+_ENGINE_MISSING_TEXT = "Ollama is not installed on this PC yet."
 
 
 def _no_client(*_args, **_kwargs):
@@ -502,7 +516,8 @@ class TestGroupB:
             pull_tag=MagicMock(side_effect=mid),
         )
         failed, ok, _progressed = _run_worker(_PrepareWorker(_TAG))
-        _assert_plain(failed, ok, caplog, "network", "peer closed")
+        _assert_plain(failed, ok, caplog, "engine_start", "peer closed")
+        assert "online" not in failed[0].lower()
 
     def test_b6_unexpected_does_not_leak_a_path(
         self,
@@ -643,7 +658,15 @@ class TestGroupC:
     def test_c4_message_hygiene(self) -> None:
         from arelis.setup.plain_errors import PLAIN, SUFFIX
 
-        kinds = {"network", "disk", "installer", "engine_start", "pull", "unknown"}
+        kinds = {
+            "network",
+            "disk",
+            "installer",
+            "engine_start",
+            "engine_missing",
+            "pull",
+            "unknown",
+        }
         assert set(PLAIN) == kinds
         banned = ("Traceback", "Errno", "httpx", "HTTP", "Exception", "\\", "\u2014")
         for text in PLAIN.values():
@@ -652,3 +675,249 @@ class TestGroupC:
             assert len(sentences) <= 4
             for word in banned:
                 assert word not in text
+
+
+# --- Group D: pinned wording and real-engine scenarios ---
+
+
+class TestGroupD:
+    def test_d1_pinned_sentences(self) -> None:
+        from arelis.setup.plain_errors import PLAIN, SUFFIX
+
+        assert SUFFIX == _SUFFIX
+        assert PLAIN["engine_start"] == _ENGINE_START_SENTENCE
+        assert PLAIN["pull"] == _PULL_SENTENCE
+        assert PLAIN["network"] == _NETWORK_SENTENCE
+        assert PLAIN["disk"].endswith("Free some space, then try again. " + SUFFIX)
+        assert PLAIN["installer"].endswith(
+            "finish it there, then try again. " + SUFFIX
+        )
+        assert PLAIN["unknown"] == (
+            "Setup hit a problem it did not expect. Try again. " + SUFFIX
+        )
+        assert "moment" not in PLAIN["engine_missing"].lower()
+        assert PLAIN["engine_missing"].endswith(SUFFIX)
+
+    def test_d2_enospace_errno_without_disk_words(self) -> None:
+        from arelis.setup.plain_errors import PLAIN, plain_failure
+
+        bare = OSError(errno.ENOSPC, "resource exhausted")
+        text = str(bare).lower()
+        assert "no space left" not in text
+        assert "not enough space" not in text
+        assert "disk full" not in text
+        assert plain_failure("download_engine", bare) == PLAIN["disk"]
+        assert plain_failure("pull_model", bare) == PLAIN["disk"]
+
+        win = OSError("write failed")
+        win.winerror = 112
+        win_text = str(win).lower()
+        assert "no space left" not in win_text
+        assert "not enough space" not in win_text
+        assert "disk full" not in win_text
+        assert plain_failure("download_engine", win) == PLAIN["disk"]
+        assert plain_failure("pull_model", win) == PLAIN["disk"]
+
+    def test_d3_pull_internet_down_and_registry_timeout(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from arelis.setup.plain_errors import PLAIN, plain_failure
+
+        # Phrases from reviewer memory, not a live Ollama capture.
+        host = (
+            'pull model manifest: Get "https://registry.ollama.ai/v2/library/'
+            'qwen3.5/manifests/9b": dial tcp: lookup registry.ollama.ai: no such host'
+        )
+        timeout = (
+            'pull model manifest: Get "https://registry.ollama.ai/v2/library/'
+            "qwen3.5/manifests/9b\": dial tcp 104.21.1.1:443: i/o timeout"
+        )
+
+        def host_handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, text=json.dumps({"error": host}))
+
+        def timeout_handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, text=json.dumps({"error": timeout}))
+
+        _patch_client(monkeypatch, host_handler)
+        with pytest.raises(RuntimeError) as caught:
+            pull_tag("qwen3.5:9b")
+        assert plain_failure("pull_model", caught.value) == PLAIN["network"]
+
+        _patch_client(monkeypatch, timeout_handler)
+        with pytest.raises(RuntimeError) as caught:
+            pull_tag("qwen3.5:9b")
+        assert plain_failure("pull_model", caught.value) == PLAIN["network"]
+
+    def test_d4_pull_tag_not_found_and_disk(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from arelis.setup.plain_errors import PLAIN, plain_failure
+
+        def missing(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                200,
+                text=json.dumps({"error": "pull model manifest: file does not exist"}),
+            )
+
+        _patch_client(monkeypatch, missing)
+        with pytest.raises(RuntimeError) as caught:
+            pull_tag("missing-tag")
+        assert plain_failure("pull_model", caught.value) == PLAIN["pull"]
+
+        def disk_linux(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                200,
+                text=json.dumps({"error": "write /x/blob: no space left on device"}),
+            )
+
+        def disk_win(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                200,
+                text=json.dumps(
+                    {"error": "write C:\\x\\blob: There is not enough space on the disk."}
+                ),
+            )
+
+        _patch_client(monkeypatch, disk_linux)
+        with pytest.raises(RuntimeError) as caught:
+            pull_tag("qwen3.5:9b")
+        assert plain_failure("pull_model", caught.value) == PLAIN["disk"]
+
+        _patch_client(monkeypatch, disk_win)
+        with pytest.raises(RuntimeError) as caught:
+            pull_tag("qwen3.5:9b")
+        assert plain_failure("pull_model", caught.value) == PLAIN["disk"]
+
+    def test_d5_local_engine_refused_or_dropped_mid_pull(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from arelis.setup.plain_errors import PLAIN, plain_failure
+
+        def refused(request: httpx.Request) -> httpx.Response:
+            raise httpx.ConnectError(
+                "[WinError 10061] connection refused",
+                request=request,
+            )
+
+        def dropped(request: httpx.Request) -> httpx.Response:
+            raise httpx.ReadError("peer closed", request=request)
+
+        _patch_client(monkeypatch, refused)
+        with pytest.raises(httpx.ConnectError) as caught:
+            pull_tag("qwen3.5:9b")
+        message = plain_failure("pull_model", caught.value)
+        assert message == PLAIN["engine_start"]
+        assert "online" not in message.lower()
+
+        _patch_client(monkeypatch, dropped)
+        with pytest.raises(httpx.ReadError) as caught:
+            pull_tag("qwen3.5:9b")
+        message = plain_failure("pull_model", caught.value)
+        assert message == PLAIN["engine_start"]
+        assert "online" not in message.lower()
+
+        message = plain_failure("pull_recall", httpx.RemoteProtocolError("broken"))
+        assert message == PLAIN["engine_start"]
+        assert "online" not in message.lower()
+
+    def test_d6_start_ollama_exe_missing_and_not_answering(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from arelis.setup.plain_errors import PLAIN, plain_failure
+
+        monkeypatch.setattr(
+            "arelis.setup.engine.ollama_reachable",
+            lambda *_args, **_kwargs: False,
+        )
+        monkeypatch.setattr("arelis.setup.engine.find_ollama_exe", lambda: None)
+        raw = start_ollama()
+        assert raw == _ENGINE_MISSING_TEXT
+        message = plain_failure("start_engine", raw)
+        assert message == PLAIN["engine_missing"]
+        assert "moment" not in message.lower()
+
+        monkeypatch.setattr(
+            "arelis.setup.engine.subprocess.Popen",
+            MagicMock(),
+        )
+        monkeypatch.setattr("arelis.setup.engine.time.sleep", lambda *_args: None)
+        raw = start_ollama(Path("/x/ollama"))
+        assert raw is not None
+        assert "not answering" in raw.lower()
+        assert plain_failure("start_engine", raw) == PLAIN["engine_start"]
+
+    def test_d7_installer_and_download_failures(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        from arelis.setup.plain_errors import PLAIN, plain_failure
+
+        setup = tmp_path / "OllamaSetup.exe"
+        setup.write_bytes(b"setup")
+
+        monkeypatch.setattr(
+            "arelis.setup.engine.hidden_run",
+            lambda *_args, **_kwargs: SimpleNamespace(returncode=1),
+        )
+        monkeypatch.setattr("arelis.setup.engine.subprocess.Popen", MagicMock())
+        opened = run_ollama_setup(setup)
+        assert opened is not None
+        assert plain_failure("install_engine", opened) == PLAIN["installer"]
+
+        monkeypatch.setattr(
+            "arelis.setup.engine.hidden_run",
+            MagicMock(side_effect=OSError("blocked by policy")),
+        )
+        blocked = run_ollama_setup(setup)
+        assert blocked is not None
+        assert plain_failure("install_engine", blocked) == PLAIN["installer"]
+
+        def dns_fail(request: httpx.Request) -> httpx.Response:
+            raise httpx.ConnectError("getaddrinfo failed", request=request)
+
+        def forbidden(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(403, text="forbidden")
+
+        dest = tmp_path / "dl" / "OllamaSetup.exe"
+        _patch_client(monkeypatch, dns_fail)
+        with pytest.raises(httpx.ConnectError) as caught:
+            download_ollama_setup(dest)
+        assert plain_failure("download_engine", caught.value) == PLAIN["network"]
+
+        _patch_client(monkeypatch, forbidden)
+        with pytest.raises(httpx.HTTPStatusError) as caught:
+            download_ollama_setup(tmp_path / "dl2" / "OllamaSetup.exe")
+        assert plain_failure("download_engine", caught.value) == PLAIN["network"]
+
+        def ok_body(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, content=b"x" * 10)
+
+        _patch_client(monkeypatch, ok_body)
+        monkeypatch.setattr(
+            Path,
+            "open",
+            MagicMock(side_effect=OSError(errno.ENOSPC, "No space left on device")),
+        )
+        with pytest.raises(OSError) as caught:
+            download_ollama_setup(tmp_path / "dl3" / "OllamaSetup.exe")
+        assert plain_failure("download_engine", caught.value) == PLAIN["disk"]
+
+    def test_d8_worker_engine_missing(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        qt_app,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        caplog.set_level(logging.WARNING, logger="arelis.ui.setup_wizard")
+        _patch_wizard(
+            monkeypatch,
+            tmp_path,
+            ollama_reachable=lambda: False,
+            find_ollama_exe=lambda: tmp_path / "ollama.exe",
+            start_ollama=MagicMock(return_value=_ENGINE_MISSING_TEXT),
+            already_pulled=lambda tag: True,
+        )
+        failed, ok, _progressed = _run_worker(_PrepareWorker(_TAG))
+        _assert_plain(failed, ok, caplog, "engine_missing", _ENGINE_MISSING_TEXT)
+        assert "moment" not in failed[0].lower()
