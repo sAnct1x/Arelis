@@ -169,7 +169,7 @@ checklist. If it is empty, trust this handoff.
 
 - `docs/earth.md` — inventory + legal line. Zone not title.
   Labeled sim. Live replaces. Holes stay holes. 109 shipped /
-  25 keyed / 3 later / 4 out. Stretch 1–8 of the year spine
+  24 keyed / 3 later / 4 out. Stretch 1–8 of the year spine
   are **in the tree**. Later/out rows are refusals, not leftover
   build.
 - `docs/rooms.md` — room id `physics`, humans read Reality.

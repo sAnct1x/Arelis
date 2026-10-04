@@ -47,7 +47,6 @@ _LIVE_FETCHERS = (
     "fetch_firms",
     "fetch_launches",
     "fetch_aprs",
-    "fetch_shodan",
     "fetch_traffic",
     "fetch_radar",
     "fetch_gfw",
@@ -1198,7 +1197,6 @@ def test_merge_live_stubs_every_fetcher() -> None:
         "fetch_cameras",
         "fetch_traffic",
         "fetch_aprs",
-        "fetch_shodan",
         "fetch_radar",
         "fetch_gfw",
         "fetch_eonet",
@@ -1251,29 +1249,6 @@ def test_aprs_skips_ais_and_credits_the_source() -> None:
         }
     )
     assert [p.id for p in pins] == ["aprs:w1aw"]
-
-
-def test_shodan_drops_ip_and_banner_body() -> None:
-    from arelis.earth.shodan import entities_from_matches
-
-    pins = entities_from_matches(
-        {
-            "matches": [
-                {
-                    "ip_str": "203.0.113.10",
-                    "data": "admin:admin rtsp://203.0.113.10/stream",
-                    "product": "IP Camera",
-                    "location": {"latitude": 37.8, "longitude": -122.4},
-                }
-            ]
-        }
-    )
-    assert len(pins) == 1
-    blob = str(pins[0].meta) + pins[0].cite + pins[0].id
-    assert "203.0.113.10" not in blob
-    assert "admin:admin" not in blob
-    assert "rtsp://" not in blob
-    assert pins[0].layer == "cameras"
 
 
 def test_caltrans_lcs_is_a_closure_not_a_car() -> None:
@@ -1426,14 +1401,12 @@ def test_look_from_allowlist_never_lands_on_the_pin(tmp_path: Path) -> None:
         forget,
         offer_official,
         official_url_ok,
-        remember,
     )
 
     still = "https://jamcams.tfl.gov.uk/00001.01251.jpg"
     assert official_url_ok(still)
     assert not official_url_ok("https://insecam.org/en/view/1/")
     assert not official_url_ok("https://example.com/cam.jpg")
-    assert remember("shodan:1.2.3.4", kind="official", source=still, media="still") is None
 
     handle = offer_official("tfl:look-test", still)
     assert handle is not None

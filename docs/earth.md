@@ -15,7 +15,7 @@ included. The globe itself only runs on a source checkout
 `pip install -e ".[astro]"` installed.
 
 Inventory currently stands at `arelis/earth/feeds.py`: **109 shipped**,
-**25 keyed**, **3 later**, **4 out**. Adapters are meant to replace a layer, not
+**24 keyed**, **3 later**, **4 out**. Adapters are meant to replace a layer, not
 invent coverage that isn't there — completeness is treated as the
 anti-beacon here, meaning we'd rather leave a region visibly sparse
 than quietly thin it out to hide a gap.
@@ -230,7 +230,8 @@ feeds you've pasted in yourself, and sensors you personally own.
 Clicking look-from plays back either the live stream you pasted in,
 or an official publisher still/stream sourced from that same JSON
 feed. An open port by itself is never treated as consent. Sites like
-Insecam, logging into a camera you don't own, any kind of global
+Insecam, device-search sites that index open ports by location, logging
+into a camera you don't own, any kind of global
 face-recognition index, or a VIN/license-plate dragnet are all
 explicitly out of bounds and won't be implemented.
 
@@ -252,7 +253,6 @@ to wait on these before using the no-key adapters that already ship.
 | `earth.waqi_token` | https://aqicn.org/data-platform/token/ | api.waqi.info (WAQI plus the originating EPA citation; treat it as a local observer, don't republish) |
 | `earth.opensky_client_id` / `_secret` | Account → API client → credentials.json | opensky-network.org + auth.opensky-network.org (OAuth2, Standard tier is 4,000 credits/day — we stay under that) |
 | `earth.openaq_key` | https://explore.openaq.org/register | api.openaq.org (OpenAQ plus originating provider; local observer, don't republish) |
-| `earth.shodan_key` | Hobby tier; IP and banner catalog only — never used to log in, never used for look-from | api.shodan.io |
 | `earth.drivetexas_key` | https://api.drivetexas.org/request-key — conditions and WZDx only, no cameras | api.drivetexas.org |
 | `earth.nsw_key` | https://opendata.transport.nsw.gov.au/user/register — Live Traffic cameras, sent as header `apikey TOKEN` | api.transport.nsw.gov.au |
 | `earth.wsdot_access_code` | https://wsdot.wa.gov/traffic/api/ — cameras plus highway alerts | wsdot.wa.gov |
