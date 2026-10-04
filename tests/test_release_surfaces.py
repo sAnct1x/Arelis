@@ -108,48 +108,118 @@ class TestVersionSurfacesAgree:
 
 
 class TestReleaseNotesContent:
+    def _notes(self) -> str:
+        return (REPO / "docs" / "releases" / "v0.3.0.md").read_text(encoding="utf-8")
+
+    def _section(self, heading: str) -> str:
+        text = self._notes()
+        body = text.split(heading, 1)[1]
+        return body.split("\n## ", 1)[0]
+
     def test_v030_notes_exist(self) -> None:
         assert (REPO / "docs" / "releases" / "v0.3.0.md").is_file()
 
     def test_no_em_or_en_dash(self) -> None:
-        text = (REPO / "docs" / "releases" / "v0.3.0.md").read_text(encoding="utf-8")
+        text = self._notes()
         assert "\u2014" not in text
         assert "\u2013" not in text
 
     def test_required_sections(self) -> None:
-        text = (REPO / "docs" / "releases" / "v0.3.0.md").read_text(encoding="utf-8")
-        for heading in (
-            "## Fixed",
-            "## Privacy and safety",
-            "## Changed, and you may notice",
-            "## Still true",
-        ):
+        text = self._notes()
+        for heading in ("## Fixed", "## New", "## Privacy and safety", "## Still true"):
             assert heading in text
+        # The fresh-profile line is not a "Changed" item: relative to 0.2.9
+        # nothing changes, only a new setting exists.
+        assert "## Changed" not in text
 
     def test_still_true_mentions(self) -> None:
-        text = (REPO / "docs" / "releases" / "v0.3.0.md").read_text(encoding="utf-8")
-        still = text.split("## Still true", 1)[1]
+        still = self._section("## Still true")
         assert "unsigned" in still or "not signed" in still
         assert ".sha256" in still
         assert "first run" in still
         assert "source checkout" in still
 
     def test_notes_mention_key_behaviors(self) -> None:
-        text = (REPO / "docs" / "releases" / "v0.3.0.md").read_text(encoding="utf-8")
+        text = self._notes()
         assert "updates.check" in text
-        assert "confirm" in text.lower() or "pauses for your OK" in text
+        assert "pauses for your OK" in " ".join(text.split())
         assert "backups" in text
-        assert "prove you are human" in text or "wall" in text
-        assert "keeps your sign-ins between runs again" in text
+        assert "prove you are human" in text
         assert "persistent" in text and "profile" in text
+        assert "Simplified Chinese" in text
+        assert "`run_task`" in text
+        assert "preview" in text
+
+    def test_fresh_profile_line_is_accurate_for_a_092_user(self) -> None:
+        text = " ".join(self._notes().split())
+        assert "keeps your sign-ins between runs (a new setting" in text
+        assert "tools.browser.fresh_profile" in text
+        assert "between runs again" not in text
+
+    def test_says_it_is_large_and_not_complete(self) -> None:
+        text = " ".join(self._notes().split())
+        assert "large release" in text
+        assert "not complete" in text
+        assert "mostly fixes and safety" not in text.lower()
+
+    def test_backup_claim_does_not_cover_the_092_upgrade(self) -> None:
+        text = " ".join(self._notes().split())
+        assert "From this version on, before an in-app upgrade" in text
+        assert "Upgrading from 0.2.9 to 0.3.0 itself is not covered" in text
+        assert "pre-<version>" in text
+        assert "dated folder" not in text
+        assert "Before an upgrade she copies" not in text
+        whats_new = " ".join((REPO / "docs" / "whats-new.md").read_text(encoding="utf-8").split())
+        section = whats_new.split("## 0.3.0", 1)[1].split("## This checkout", 1)[0]
+        assert "not made when upgrading from 0.2.9" in section
+
+    def test_toast_is_not_claimed_as_seen(self) -> None:
+        text = " ".join(self._notes().split())
+        assert "notification should say so" in text
+        assert "not yet seen" in text
+
+    def test_removed_or_corrected_claims(self) -> None:
+        text = " ".join(self._notes().split())
+        assert "Per the docs" not in text
+        assert "newer phone app" not in text
+        assert "device names" not in text
+        assert "device paths" in text
+        assert "stay out of what the model" not in text
+        assert "only when a question needs them" in text
+
+    def test_rc1_block_is_marked_for_removal(self) -> None:
+        text = self._notes()
+        assert "<!-- rc1-only: delete this block on the final release page -->" in text
+        assert "<!-- end rc1-only -->" in text
+        block = text.split("<!-- rc1-only", 1)[1].split("<!-- end rc1-only -->", 1)[0]
+        assert "Release candidate" in block
+        assert "pre-release" in block
+        assert "Release candidate" not in text.split("<!-- end rc1-only -->", 1)[1]
+
+    def test_night_line_is_not_under_privacy_and_safety(self) -> None:
+        assert "Night" not in self._section("## Privacy and safety")
+        assert "Night" in self._section("## New")
+
+    def test_new_items_are_in_the_code(self) -> None:
+        # Each user-facing item added in review exists in the tree.
+        from arelis.tools.run_task import RunTaskTool
+
+        assert RunTaskTool.name == "run_task"
+        assert (REPO / "arelis" / "tools" / "confirm_preview.py").is_file()
+        assert (REPO / "arelis" / "core" / "reliance" / "conflicts.py").is_file()
+        assert (REPO / "arelis" / "core" / "reliance" / "mail_reply.py").is_file()
+        assert (REPO / "arelis" / "core" / "search_loop.py").is_file()
+        assert (REPO / "arelis" / "ui" / "caption_fade.py").is_file()
+        settings = (REPO / "arelis" / "ui" / "settings_dialog.py").read_text(encoding="utf-8")
+        assert "language_combo.addItem(" in settings and '"zh"' in settings
 
     def test_no_hype_words(self) -> None:
-        text = (REPO / "docs" / "releases" / "v0.3.0.md").read_text(encoding="utf-8").lower()
+        text = self._notes().lower()
         for word in ("faster", "more reliable", "quicker"):
             assert word not in text
 
     def test_no_local_paths(self) -> None:
-        text = (REPO / "docs" / "releases" / "v0.3.0.md").read_text(encoding="utf-8")
+        text = self._notes()
         assert not re.search(r"[A-Za-z]:\\", text)
         assert "Users" not in text
 
@@ -158,6 +228,18 @@ class TestReleaseNotesContent:
         idx_030 = text.index("## 0.3.0")
         idx_checkout = text.index("## This checkout")
         assert idx_030 < idx_checkout
+
+    def test_whats_new_030_section_names_the_filament_exemption(self) -> None:
+        text = " ".join((REPO / "docs" / "whats-new.md").read_text(encoding="utf-8").split())
+        section = text.split("## 0.3.0", 1)[1].split("## This checkout", 1)[0]
+        assert "Filament" in section
+        assert "not complete" in section
+        assert "between runs again" not in section
+
+    def test_old_allow_paragraph_no_longer_contradicts_the_send_floor(self) -> None:
+        text = " ".join((REPO / "docs" / "whats-new.md").read_text(encoding="utf-8").split())
+        assert "Don't ask again turns that class off." not in text
+        assert "except mail, texts and deletes, which always show the card" in text
 
 
 class TestReadmeStatements:

@@ -12,15 +12,20 @@ Notes: [v0.3.0](releases/v0.3.0.md). Older:
 
 ## 0.3.0
 
-Mostly fixes and safety. Full notes: [v0.3.0](releases/v0.3.0.md).
-New for you: a switch for the daily update check, a confirm card
-that mail, texts and deletes cannot skip, a safety copy of your
-records before an upgrade, plain first-run error messages, and a
-captcha or login wall that hands the page to you with a notification
-if you take more than two minutes. Her Chrome keeps your sign-ins
-between runs (a setting starts her window empty every run); that
-leaves a persistent, possibly signed-in profile on disk. Earth lost
-its optional camera-search layer.
+A large release, and this list is not complete. Full notes:
+[v0.3.0](releases/v0.3.0.md).
+New for you: Simplified Chinese (Settings, Language), a `run_task`
+tool, confirm cards that preview writes and program runs, a switch for
+the daily update check, mail, texts and deletes that show the card
+whatever the confirm settings say (the Filament testing look is exempt
+for mail and texts), a safety
+copy of your records before an in-app upgrade (not made when upgrading
+from 0.2.9 itself), plain first-run error messages, and a captcha or
+login wall that hands the page to you, with a Windows notification that
+should appear after two minutes (not yet seen on a real PC). Her Chrome
+keeps your sign-ins between runs (a setting starts her window empty
+every run); that leaves a persistent, possibly signed-in profile on
+disk. Earth lost its optional camera-search layer.
 
 ## This checkout
 
@@ -63,7 +68,9 @@ Thinking dock. Type `/tools` if you forget any of that.
 **Allow.** Named local work is the grant — pictures, files, seeing, her
 window. Mail, texts, deletes, Pay, and programs still show the card.
 Settings splits that mode from the class boxes: uncheck a class to never
-ask. Don't ask again turns that class off. Ask me everything puts every
+ask, except mail, texts and deletes, which always show the card (the
+Filament testing look is exempt for mail and texts). Don't ask again
+turns a class off with the same exception. Ask me everything puts every
 card back.
 
 **Images.** Generation is Comfy: aspect (square / 16:9 / portrait),
