@@ -1,0 +1,101 @@
+name: PR text privacy
+
+# Fails when the title, body or a comment of a pull request or issue carries a local path,
+# a PC username, an email, a phone number, a token or a street address. The committed tree
+# is already guarded by tests/test_no_personal_data.py; this covers the text typed into
+# GitHub, which that test never sees.
+#
+# What this can and cannot block (the honest version, also in specs/pr-text-privacy-check.md):
+#   * pull_request runs attach a check to the PR head commit, so a leak in the PR title,
+#     body or in any comment present when the PR is opened, edited or pushed shows red on
+#     the PR and can be made a required check.
+#   * issues, issue_comment, pull_request_review and pull_request_review_comment runs do not
+#     attach to the PR head commit. They fail in the Actions tab and email the maintainer,
+#     and that is all. Nothing here can stop a comment being posted, or hide it.
+#   * Nothing here removes text that is already public. Edit the text, then check its edit
+#     history, and rotate any real secret.
+#
+# Untrusted text never passes through a shell or a `${{ }}` expression. The runner writes
+# the event payload to a file (GITHUB_EVENT_PATH) and the script reads that file. Passing
+# it as an env var would also be wrong here: the Actions log prints a step's env values, so
+# it would publish the leak this job exists to catch.
+#
+# The run name is fixed for the same reason: for pull_request runs GitHub's default run
+# name is the PR title, which would show the title in the Actions list.
+run-name: PR text privacy check
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+  pull_request_review:
+    types: [submitted, edited]
+  pull_request_review_comment:
+    types: [created, edited]
+  issues:
+    types: [opened, edited]
+  issue_comment:
+    types: [created, edited]
+
+# Read only. Nothing here writes a status, a label or a comment, so no write scope is
+# requested. issues and pull-requests are read so the job can list comments with the
+# built-in token.
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+
+jobs:
+  scan:
+    name: Scan PR and issue text
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # Only the script is checked out, and with no stored credentials. For a pull_request
+      # run this is the merge ref, so a PR that edits the script is checked by its own
+      # edit; fork PRs get a read-only token and no secrets, so that exposes nothing.
+      - name: Check out the check script
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/check_pr_text_privacy.py
+          sparse-checkout-cone-mode: false
+
+      # The event payload already holds the PR or issue title and body, or the single new
+      # comment. For a pull_request or issues run the comments already on the thread are
+      # fetched too, so a leak posted earlier keeps the check red until it is edited out.
+      # The responses go to files, never to the log.
+      - name: Fetch the comments already on this thread
+        if: github.event_name == 'pull_request' || github.event_name == 'issues'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/privacy"
+          gh api --paginate "repos/$REPO/issues/$NUMBER/comments" \
+            > "$RUNNER_TEMP/privacy/thread-comments.json"
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            gh api --paginate "repos/$REPO/pulls/$NUMBER/comments" \
+              > "$RUNNER_TEMP/privacy/review-comments.json"
+            gh api --paginate "repos/$REPO/pulls/$NUMBER/reviews" \
+              > "$RUNNER_TEMP/privacy/reviews.json"
+          fi
+
+      - name: Scan for personal data
+        env:
+          # Optional repo secret: PC usernames, comma separated. Absent on fork PRs and
+          # Dependabot runs, and when nobody has created it; the script says so and goes on.
+          PRIVACY_CHECK_USERNAMES: ${{ secrets.PRIVACY_CHECK_USERNAMES }}
+        run: |
+          set -euo pipefail
+          args=(--event-file "$GITHUB_EVENT_PATH" --event-name "$GITHUB_EVENT_NAME")
+          dir="$RUNNER_TEMP/privacy"
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            args+=(--stream "PR comment=$dir/thread-comments.json")
+            args+=(--stream "PR review comment=$dir/review-comments.json")
+            args+=(--stream "PR review=$dir/reviews.json")
+          elif [ "$GITHUB_EVENT_NAME" = "issues" ]; then
+            args+=(--stream "issue comment=$dir/thread-comments.json")
+          fi
+          python3 scripts/check_pr_text_privacy.py "${args[@]}"
