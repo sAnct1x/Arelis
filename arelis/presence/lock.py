@@ -191,36 +191,52 @@ def lock_file_pid(path: Path | str) -> int | None:
 
 
 def pid_is_alive(pid: int) -> bool:
-    """True when that OS process still exists."""
+    """True when that OS process still exists.
+
+    Windows does not treat signal 0 as a liveness probe, so this never uses
+    that call. The NT path queries the process object; POSIX uses procfs when
+    it is real, otherwise libc kill with a zero signo.
+    """
     if pid <= 0:
         return False
     if os.name == "nt":
-        import ctypes
+        return _win_pid_is_alive(int(pid))
+    return _posix_pid_is_alive(int(pid))
 
-        kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
-        process_query_limited = 0x1000
-        still_active = 259
-        access_denied = 5
-        kernel32.SetLastError(0)
-        handle = kernel32.OpenProcess(process_query_limited, False, int(pid))
-        if not handle:
-            return int(kernel32.GetLastError()) == access_denied
-        try:
-            code = ctypes.c_ulong()
-            if not kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
-                return True
-            return int(code.value) == still_active
-        finally:
-            kernel32.CloseHandle(handle)
+
+def _win_pid_is_alive(pid: int) -> bool:
+    import ctypes
+
+    kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+    process_query_limited = 0x1000
+    still_active = 259
+    access_denied = 5
+    kernel32.SetLastError(0)
+    handle = kernel32.OpenProcess(process_query_limited, False, int(pid))
+    if not handle:
+        return int(kernel32.GetLastError()) == access_denied
     try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
+        code = ctypes.c_ulong()
+        if not kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
+            return True
+        return int(code.value) == still_active
+    finally:
+        kernel32.CloseHandle(handle)
+
+
+def _posix_pid_is_alive(pid: int) -> bool:
+    import ctypes
+    import errno as errno_mod
+
+    procfs = Path("/proc")
+    if (procfs / "self" / "status").is_file():
+        return (procfs / str(pid)).is_dir()
+    libc = ctypes.CDLL(None, use_errno=True)
+    libc.kill.argtypes = [ctypes.c_int, ctypes.c_int]
+    libc.kill.restype = ctypes.c_int
+    if libc.kill(int(pid), 0) == 0:
         return True
-    except OSError:
-        return False
-    return True
+    return ctypes.get_errno() == errno_mod.EPERM
 
 
 def lock_held_by_other(path: Path | str) -> bool:

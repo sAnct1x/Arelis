@@ -159,6 +159,8 @@ jobs:
           python-version: "3.14"
       - name: Lock is complete, pinned and hashed
         run: python win-installer/lock.py --check
+      - name: No os.kill(pid, 0) in arelis
+        run: python scripts/check_windows_footguns.py
 
   # The job above installs with -e, which makes the directory above the package the
   # repository. So is_source_checkout() is true in every leg, and every rule that
