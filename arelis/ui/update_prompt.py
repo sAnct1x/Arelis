@@ -26,8 +26,9 @@ from arelis.ui.dialog import GlassDialog, confirm, notice
 from arelis.update import (
     Release,
     UpdateError,
-    available_update,
+    automatic_check_enabled,
     check_is_due,
+    consider_automatic_update,
     download,
     record_check,
     start_installer,
@@ -46,8 +47,12 @@ class _CheckThread(QThread):
 
     answered = Signal(object)
 
+    def __init__(self, parent: QObject | None = None, config: dict | None = None) -> None:
+        super().__init__(parent)
+        self._config = config
+
     def run(self) -> None:  # pragma: no cover - exercised by hand, not in CI
-        self.answered.emit(available_update())
+        self.answered.emit(consider_automatic_update(self._config))
 
 
 class _DownloadThread(QThread):
@@ -112,6 +117,10 @@ class UpdatePrompt(QObject):
         self._progress: _DownloadDialog | None = None
 
     def start(self) -> None:
+        config = getattr(self._window, "config", None)
+        if not automatic_check_enabled(config if isinstance(config, dict) else None):
+            log.debug("not checking for updates: updates.check is false")
+            return
         supported, why = updates_supported()
         if not supported:
             log.debug("not checking for updates: %s", why)
@@ -122,7 +131,7 @@ class UpdatePrompt(QObject):
         # retry on every launch: offline at 9am is offline at 9:05, and the failure is
         # cheap only the first time.
         record_check()
-        self._check = _CheckThread(self)
+        self._check = _CheckThread(self, config if isinstance(config, dict) else None)
         self._check.answered.connect(self._offer)
         self._check.start()
 
@@ -226,6 +235,9 @@ def schedule_update_check(window: QWidget, delay_ms: int = _DELAY_MS) -> None:
     and there is no version of "the update check raised" that should keep Arelis closed.
     """
     try:
+        config = getattr(window, "config", None)
+        if not automatic_check_enabled(config if isinstance(config, dict) else None):
+            return
         prompt = UpdatePrompt(window)
         QTimer.singleShot(delay_ms, prompt.start)
     except Exception as exc:

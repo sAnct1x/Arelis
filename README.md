@@ -64,7 +64,8 @@ anytime.
 
 Network access only happens when you've asked for it: web search,
 weather, mail, calendar, or your phone. An installed copy checks GitHub
-once a day for updates (source checkouts don't). Every host the program
+once a day for updates (source checkouts don't). Set updates.check to
+false to turn that daily check off. Every host the program
 can contact is pinned by a test, so adding a new destination fails the
 build.
 
