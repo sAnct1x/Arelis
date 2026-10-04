@@ -224,6 +224,7 @@ def build_tool_registry(
             user_agent=ua,
             timeout_s=web_cfg.get("timeout_s", 30),
             block_private_urls=block_private,
+            offer_browser=bool(attended),
         )
         registry.register(web_fetch_tool)
     scrape_tool: ScrapeTool | None = None
@@ -234,6 +235,7 @@ def build_tool_registry(
             max_chars=scrape_cfg.get("max_chars", 120000),
             block_private_urls=block_private,
             follow_siblings=bool(scrape_cfg.get("follow_siblings", True)),
+            offer_browser=bool(attended),
         )
         registry.register(scrape_tool)
     search_tool = None

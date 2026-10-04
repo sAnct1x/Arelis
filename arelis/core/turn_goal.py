@@ -15,6 +15,7 @@ from typing import Any
 
 from arelis.browser.walls import login_redirected_signed_in
 from arelis.core.email_complete import looks_like_compose_email
+from arelis.core.evidence import looks_like_bot_wall
 from arelis.core.intent_catalog import exactness_match
 from arelis.core.preflight import (
     looks_like_browser_click_signin,
@@ -26,16 +27,6 @@ from arelis.core.sms_complete import sms_intent_this_turn
 from arelis.core.tool_subset import is_deep_dive_ask, is_research_mode
 from arelis.core.utterance_guards import looks_like_chat_turn
 
-_BOT_WALL = re.compile(
-    r"(?i)\b("
-    r"are you a robot|"
-    r"captcha|"
-    r"access denied|"
-    r"sign in to continue|"
-    r"password-protected|"
-    r"verify you are human"
-    r")\b"
-)
 _REPORTED_AFFECT = re.compile(
     r"(?i)^(?:that\s+)?(?:i|we)\s+(?:just\s+)?"
     r"(?:love|miss|need|adore)\s+(?:her|him|them)\s*[.!?]*$"
@@ -188,16 +179,16 @@ def receipt_serves_goal(
     out = output or ""
     data = data or {}
     if goal.kind == "none":
-        return not _BOT_WALL.search(out)
+        return not looks_like_bot_wall(out)
     if name in goal.forbid:
         return False
-    if _BOT_WALL.search(out) and goal.kind != "browser":
+    if looks_like_bot_wall(out) and goal.kind != "browser":
         return False
     if goal.kind == "research":
         if name == "research_report":
             return True
         if name in {"scrape", "web_fetch"}:
-            return (not _BOT_WALL.search(out)) and len(out) >= 200
+            return (not looks_like_bot_wall(out)) and len(out) >= 200
         return False
     if goal.kind == "weather":
         return name == "weather"
@@ -208,12 +199,12 @@ def receipt_serves_goal(
     if goal.kind == "browser":
         if name != "browser":
             return False
-        if _BOT_WALL.search(out) and not _YOUR_TURN.search(out):
+        if looks_like_bot_wall(out) and not _YOUR_TURN.search(out):
             return False
         wall = str(data.get("wall") or data.get("code") or "").lower()
         if wall in {"login", "hands", "captcha", "your_turn", "pay"}:
             return True
-        return not _BOT_WALL.search(out)
+        return not looks_like_bot_wall(out)
     return name in goal.done_tools
 
 

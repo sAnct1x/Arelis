@@ -8,7 +8,11 @@ from urllib.parse import urlparse
 
 import httpx
 
-from arelis.core.evidence import classify_fetch_failure
+from arelis.core.evidence import (
+    challenge_fetch_notice,
+    classify_fetch_failure,
+    looks_like_challenge_page,
+)
 from arelis.tools.article import (
     ArticleExtract,
     extract_article,
@@ -64,12 +68,14 @@ class ScrapeTool:
         *,
         block_private_urls: bool = True,
         follow_siblings: bool = True,
+        offer_browser: bool = True,
     ) -> None:
         self.user_agent = user_agent
         self.timeout_s = timeout_s
         self.max_chars = max_chars
         self.block_private_urls = block_private_urls
         self.follow_siblings = follow_siblings
+        self.offer_browser = offer_browser
 
     async def run(self, **kwargs: Any) -> ToolResult:
         url = kwargs.get("url")
@@ -96,8 +102,10 @@ class ScrapeTool:
         download_error: str | None = None
 
         try:
-            html, final, ctype = await self._download(page_url)
+            html, final, ctype, status = await self._download(page_url)
             tried.append(final)
+            if looks_like_challenge_page(html, status):
+                return self._challenge_result(page_url)
             non_html = self._reject_non_html(ctype, html, final)
             if non_html is not None:
                 return non_html
@@ -146,8 +154,10 @@ class ScrapeTool:
                     continue
                 tried.append(alt)
                 try:
-                    alt_html, alt_final, alt_ctype = await self._download(alt)
+                    alt_html, alt_final, alt_ctype, alt_status = await self._download(alt)
                 except Exception:
+                    continue
+                if looks_like_challenge_page(alt_html, alt_status):
                     continue
                 if looks_like_feed(alt_html, alt_ctype):
                     alt_extract = await asyncio.to_thread(
@@ -268,7 +278,15 @@ class ScrapeTool:
             )
         return None
 
-    async def _download(self, url: str) -> tuple[str, str, str]:
+    def _challenge_result(self, url: str) -> ToolResult:
+        message = challenge_fetch_notice(url, offer_browser=self.offer_browser)
+        return ToolResult(
+            ok=False,
+            output=_fail_output(message),
+            data={"url": url, "fail_class": "fail:challenge"},
+        )
+
+    async def _download(self, url: str) -> tuple[str, str, str, int]:
         headers = scrape_headers(self.user_agent)
         # Referer from same host softens a few hotlink / bot gates.
         parsed = urlparse(url)
@@ -281,6 +299,10 @@ class ScrapeTool:
                 headers=headers,
                 block_private=self.block_private_urls,
             )
-            response.raise_for_status()
             ctype = response.headers.get("content-type", "")
-            return response.text, str(response.url), ctype
+            body = response.text
+            status = response.status_code
+            if looks_like_challenge_page(body, status):
+                return body, str(response.url), ctype, status
+            response.raise_for_status()
+            return body, str(response.url), ctype, status
