@@ -6,9 +6,29 @@ that news/weather/memory/price answers have at least one matching warrant.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
+
+# Shared by classify_fetch_failure, scrape/web_fetch copy, failure_copy, and
+# turn_goal. Captcha / verify-human wording only; cookie banners are not this.
+_BOT_WALL = re.compile(
+    r"(?i)\b("
+    r"are you a robot|"
+    r"captcha|"
+    r"access denied|"
+    r"sign in to continue|"
+    r"password-protected|"
+    r"verify you are human"
+    r")\b"
+)
+_CHALLENGE_HINTS = (
+    "just a moment",
+    "attention required",
+    "checking your browser",
+    "cf-browser-verification",
+)
 
 
 @dataclass(frozen=True)
@@ -440,9 +460,60 @@ class EvidenceLedger:
         return missing
 
 
+def looks_like_bot_wall(text: str, status: int | None = None) -> bool:
+    """True when the text uses captcha or verify-human wording.
+
+    Cookie-banner phrases do not count. ``status`` is accepted so callers can
+    pass the HTTP code; a 403 alone is not a wall (Cloudflare puts the
+    challenge words on that page too).
+    """
+    return bool(_BOT_WALL.search(text or ""))
+
+
+def _has_challenge_hint(text: str) -> bool:
+    lowered = (text or "").lower()
+    return any(hint in lowered for hint in _CHALLENGE_HINTS)
+
+
+# A real article can talk about captchas or say "just a moment". A challenge
+# page is either an error status or almost no visible text.
+_WALL_STATUSES = frozenset({401, 403, 429, 503})
+_THIN_VISIBLE_CHARS = 2000
+_TAGS = re.compile(r"<[^>]+>")
+
+
+def looks_like_challenge_page(body: str, status: int | None = None) -> bool:
+    """For a fetched page: challenge wording AND (an error status or a thin page)."""
+    blob = body or ""
+    if not (looks_like_bot_wall(blob) or _has_challenge_hint(blob)):
+        return False
+    if status in _WALL_STATUSES:
+        return True
+    visible = " ".join(_TAGS.sub(" ", blob).split())
+    return len(visible) < _THIN_VISIBLE_CHARS
+
+
+def challenge_fetch_notice(url: str, *, offer_browser: bool) -> str:
+    """Person-facing scrape/web_fetch copy when a page needs a human check."""
+    if offer_browser:
+        target = (url or "").strip() or "the page"
+        return (
+            "The site wants a human check (captcha or sign-in). "
+            "Do not fetch this URL again this turn. "
+            f"Offer to open it in her Chrome with "
+            f"browser(action=open, url={target}) so they can Allow the window "
+            "and clear it."
+        )
+    return (
+        "The page needs a human check (captcha or sign-in) and was skipped."
+    )
+
+
 def classify_fetch_failure(output: str) -> str:
     """Stable failure taxonomy tag for scrape/web_fetch outputs."""
     text = (output or "").lower()
+    if looks_like_bot_wall(output) or _has_challenge_hint(output):
+        return "fail:challenge"
     if "403" in text or "forbidden" in text:
         return "fail:http_403"
     if "404" in text or "not found" in text:

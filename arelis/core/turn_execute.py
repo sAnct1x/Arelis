@@ -138,14 +138,15 @@ async def execute_call(
                 tag = str(data_dict.get("fail_class") or "")
             if not tag:
                 tag = classify_fetch_failure(str(result.output or ""))
-            if tag == "fail:js_shell":
+            if tag in {"fail:js_shell", "fail:challenge"}:
                 url = ""
                 if isinstance(data_dict, dict):
                     url = str(data_dict.get("url") or "").strip()
                 if not url.startswith("http"):
                     url = str(args.get("url") or "").strip()
                 if url.startswith("http"):
-                    ctx.js_shell_url = url
+                    if tag == "fail:js_shell":
+                        ctx.js_shell_url = url
                     if "browser" in available_all:
                         visible = set(visible) | {"browser"}
                         available = set(available) | {"browser"}
