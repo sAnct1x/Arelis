@@ -7,6 +7,8 @@ people to dismiss without reading, and the recommendation is already on screen.
 
 from __future__ import annotations
 
+import logging
+
 from PySide6.QtCore import QThread, Signal
 from PySide6.QtWidgets import (
     QButtonGroup,
@@ -41,9 +43,12 @@ from arelis.setup.engine import (
     start_ollama,
 )
 from arelis.setup.hardware import HardwareSnapshot, probe_hardware
+from arelis.setup.plain_errors import plain_failure
 from arelis.setup.state import needs_model_setup, record_model_choice
 from arelis.ui.dialog import GlassDialog
 from arelis.ui.theme import SPACE
+
+log = logging.getLogger(__name__)
 
 
 class _ProbeWorker(QThread):
@@ -66,15 +71,25 @@ class _PrepareWorker(QThread):
         super().__init__(parent)
         self._tag = tag
         self._cancel = False
+        self._stage = "unexpected"
 
     def cancel(self) -> None:
         self._cancel = True
+
+    def _fail(self, stage: str, problem: BaseException | str) -> None:
+        log.warning(
+            "First-run setup failed at %s: %s",
+            stage,
+            problem,
+            exc_info=problem if isinstance(problem, BaseException) else None,
+        )
+        self.failed.emit(plain_failure(stage, problem))
 
     def run(self) -> None:
         try:
             self._run()
         except Exception as exc:
-            self.failed.emit(str(exc) or type(exc).__name__)
+            self._fail(self._stage, exc)
 
     def _report(self, status: str, done: int = 0, total: int = 0) -> None:
         if not self._cancel:
@@ -88,20 +103,24 @@ class _PrepareWorker(QThread):
             if exe is None:
                 self._report("Downloading the local engine…")
                 setup = runtime_dir() / "OllamaSetup.exe"
+                self._stage = "download_engine"
                 download_ollama_setup(setup, progress=self._report)
                 if self._cancel:
                     return
                 self._report("Installing the local engine…")
+                self._stage = "install_engine"
                 problem = run_ollama_setup(setup)
                 if problem:
-                    self.failed.emit(problem)
+                    self._fail("install_engine", problem)
                     return
+            self._stage = "start_engine"
             problem = start_ollama()
             if problem:
-                self.failed.emit(problem)
+                self._fail("start_engine", problem)
                 return
         if self._cancel:
             return
+        self._stage = "pull_model"
         if already_pulled(self._tag):
             self._report(f"{self._tag} is already on this PC.")
         else:
@@ -109,6 +128,7 @@ class _PrepareWorker(QThread):
             pull_tag(self._tag, progress=self._report)
         if self._cancel:
             return
+        self._stage = "pull_recall"
         if already_pulled(EMBED_TAG):
             self._report("The small recall model is already on this PC.")
         else:
@@ -122,9 +142,9 @@ class _PrepareWorker(QThread):
             if missing_voice_parts(allowed_only=True):
                 self._report("Getting the voice files…")
                 prepare_voice_files(progress=self._report)
-        except Exception:
+        except Exception as exc:
             # Typing still works. The window will try again and say so.
-            pass
+            log.warning("Voice files were not fetched: %s", exc)
         if self._cancel:
             return
         self.finished_ok.emit()
