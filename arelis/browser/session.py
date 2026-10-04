@@ -27,7 +27,7 @@ class BrowserSession:
         driver: BrowserDriver | None = None,
         max_snapshot_chars: int = 6000,
         max_read_chars: int = 3500,
-        fresh_profile: bool = True,
+        fresh_profile: bool = False,
     ) -> None:
         self.cdp_url = cdp_url
         self.max_snapshot_chars = max_snapshot_chars
