@@ -159,6 +159,17 @@ Why, in the imperative, with a short lowercase prefix: `voice:`, `ui:`,
 `tests:`. The body is the reasoning a reader cannot recover from the
 diff. Do not credit a tool in the message.
 
+## Releases
+
+This is a one-person project, so releases come when they are ready, not on a
+schedule. I make no promise about how often.
+
+Anything experimental is published as a pre-release on GitHub (for example a
+tag like `v0.3.0-rc1`). A pre-release is for people who want to try new things
+and tell me what broke. It is not the latest release, and installed copies of
+Arelis do not offer it as an update. A normal release is one I have tested on
+my own machine first.
+
 ## Reporting a bug
 
 A security hole is different. See [SECURITY.md](SECURITY.md). Private
