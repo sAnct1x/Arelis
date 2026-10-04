@@ -28,7 +28,7 @@ def normalize_reserve_site(site: str) -> str:
 
 
 def normalize_party(raw: object) -> int:
-    text = str(raw or "").strip()
+    text = "" if raw is None else str(raw).strip()
     match = re.search(r"\d+", text)
     if not match:
         return 2
@@ -37,6 +37,17 @@ def normalize_party(raw: object) -> int:
     except ValueError:
         return 2
     return max(1, min(20, n))
+
+
+def resolve_party(*candidates: object) -> int:
+    """The first party size that was actually given; 0 is a value, not 'missing'."""
+    for candidate in candidates:
+        if candidate is None:
+            continue
+        if isinstance(candidate, str) and not candidate.strip():
+            continue
+        return normalize_party(candidate)
+    return 2
 
 
 def normalize_date(raw: str) -> str | None:
