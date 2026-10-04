@@ -1,13 +1,26 @@
 # What's new
 
-This checkout is **0.2.9**. The published installer is **0.2.9**.
+This checkout is **0.3.0**. The latest published installer is **0.2.9** until v0.3.0 is published.
 
-Notes: [v0.2.9](releases/v0.2.9.md). Older:
+Notes: [v0.3.0](releases/v0.3.0.md). Older:
+[v0.2.9](releases/v0.2.9.md).
 [v0.2.8](releases/v0.2.8.md).
 [v0.2.7](releases/v0.2.7.md). [v0.2.6](releases/v0.2.6.md).
 [v0.2.5](releases/v0.2.5.md). [v0.2.4](releases/v0.2.4.md).
 [v0.2.3](releases/v0.2.3.md). [v0.2.2](releases/v0.2.2.md).
 [v0.2.1](releases/v0.2.1.md).
+
+## 0.3.0
+
+Mostly fixes and safety. Full notes: [v0.3.0](releases/v0.3.0.md).
+New for you: a switch for the daily update check, a confirm card
+that mail, texts and deletes cannot skip, a safety copy of your
+records before an upgrade, plain first-run error messages, and a
+captcha or login wall that hands the page to you with a notification
+if you take more than two minutes. Her Chrome keeps your sign-ins
+between runs (a setting starts her window empty every run); that
+leaves a persistent, possibly signed-in profile on disk. Earth lost
+its optional camera-search layer.
 
 ## This checkout
 
