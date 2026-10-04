@@ -1,7 +1,6 @@
 """Per-fetcher fail-soft. Timeout / 500 / unpinned host must not raise.
 
-Modeled on shodan.py's HTTP shape (except Exception → None, host pin)
-without touching shodan ethics or cameras_fetch internals.
+Modeled on the other self-contained fetchers' HTTP shape (except Exception to None, host pin).
 """
 
 from __future__ import annotations
@@ -189,7 +188,6 @@ _OWN_HTTPX = (
     ("arelis.earth.fdsn", "fetch_fdsn"),
     ("arelis.earth.tle", "fetch_celestrak"),
     ("arelis.earth.spacetrack", "fetch_spacetrack"),
-    ("arelis.earth.shodan", "fetch_shodan"),
     ("arelis.earth.live", "fetch_usgs"),
 )
 

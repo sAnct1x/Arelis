@@ -36,7 +36,7 @@ class EarthTool:
         "BarentsWatch if keyed, CelesTrak TLE samples, Radio Browser, published "
         "camera catalogs worldwide (TfL, Caltrans, NYC, Singapore, Finland, "
         "Hong Kong, OSM), named roads when Streets is on, Open-Meteo, FIRMS if keyed, "
-        "launches, EONET, OurAirports, NWS alerts, APRS, Shodan banners, "
+        "launches, EONET, OurAirports, NWS alerts, APRS, "
         "Sentinel-1 footprints, GFW SAR if keyed, national 511 catalogs, "
         "EMSC, METAR, SWPC aurora, SatNOGS, Space-Track if keyed, WAQI/OpenAQ if keyed. "
         "Owned RTSP/webcam look-from is live footage. Official publisher "

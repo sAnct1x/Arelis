@@ -80,8 +80,8 @@ The wound that *does* look like last audit:
    dark.
 
 2. **The inventory test counts statuses, not ids.**
-   `FEEDS` is 141 = 109 shipped / 25 keyed / 3 later / 4 out, and
-   that string is pinned in `docs/earth.md`. **102 of 141 feed ids
+   `FEEDS` is 140 = 109 shipped / 24 keyed / 3 later / 4 out, and
+   that string is pinned in `docs/earth.md`. **102 of 140 feed ids
    are never named in any `tests/test_*.py`.** 82 of those are
    shipped. A thinned region stays green as long as the four
    status counts hold. Same shape as a helper with 100% coverage
@@ -136,7 +136,7 @@ An earlier freeze note said ~16k / 70 files earth, ~3.1k spatial,
 | `arelis/spatial/` | **12** | **3,575** | ~3.1k |
 | **combined** | **104** | **26,085** | ~24k |
 
-`FEEDS`: **141** rows = **109 shipped / 25 keyed / 3 later / 4 out**.
+`FEEDS`: **140** rows = **109 shipped / 24 keyed / 3 later / 4 out**.
 Matches `earth/__init__.py` and `docs/earth.md`. **34** live
 adapter keys. Later/out are inventory-only: **none** appear in
 `live._adapter_fns()`.

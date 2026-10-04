@@ -151,7 +151,6 @@ FEEDS_PIN: dict[str, str] = {
     "openaq": "keyed",
     "earthdata": "later",
     "copernicus-dataspace": "later",
-    "shodan-banners": "keyed",
     "owned-rtsp": "shipped",
     "contacts": "shipped",
     "unsecured-cams": "out",
@@ -165,7 +164,7 @@ def test_every_feed_id_and_status_is_pinned() -> None:
 
     got = {spec.id: spec.status for spec in FEEDS}
     assert got == FEEDS_PIN
-    assert len(got) == 141
+    assert len(got) == 140
 
 
 def test_later_and_out_are_not_live_adapters() -> None:
