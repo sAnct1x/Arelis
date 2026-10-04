@@ -113,6 +113,22 @@ class TestTheOptOut:
         assert update.automatic_check_enabled({}) is True
         assert update.automatic_check_enabled(None) is True
 
+    def test_local_settings_file_turns_the_check_off(self, tmp_path, monkeypatch) -> None:
+        """The README tells people to set this in config.local.yaml."""
+        from arelis.config import load_config
+
+        local = tmp_path / "config.local.yaml"
+        local.write_text("updates:\n  check: false\n", encoding="utf-8")
+        monkeypatch.setattr("arelis.config.LOCAL_CONFIG_PATH", local)
+        assert update.automatic_check_enabled(load_config()) is False
+
+    def test_readme_names_the_key_and_the_local_settings_file(self) -> None:
+        from pathlib import Path
+
+        readme = (Path(__file__).resolve().parents[1] / "README.md").read_text(encoding="utf-8")
+        assert "`updates.check: false`" in readme
+        assert "`config.local.yaml`" in readme
+
     def test_shipped_default_leaves_the_check_on(self) -> None:
         import yaml
 
