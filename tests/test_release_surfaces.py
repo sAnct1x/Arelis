@@ -241,6 +241,37 @@ class TestReleaseNotesContent:
         assert "Don't ask again turns that class off." not in text
         assert "except mail, texts and deletes, which always show the card" in text
 
+    def test_backups_doc_says_the_backup_starts_with_030(self) -> None:
+        text = " ".join((REPO / "docs" / "backups.md").read_text(encoding="utf-8").split())
+        assert "This starts with 0.3.0." in text
+        assert "The 0.2.9 to 0.3.0 upgrade is made by 0.2.9" in text
+        assert "copy the data folder by hand first" in text
+
+    def test_second_review_wording(self) -> None:
+        text = " ".join(self._notes().split())
+        # run_task: the Settings box turns the card off, voice always asks.
+        assert "asks every time" not in text
+        assert 'allow box "programs in the project" is on by default' in text
+        assert "by voice it always asks" in text
+        # Fonts: PDFs embed Zen Kaku only; Word and mail only name the fonts.
+        assert "Documents and mail she writes" not in text
+        assert "PDFs she writes use Zen Kaku Gothic New" in text
+        assert "Word files and mail ask for them by name" in text
+        # Inbox reply: an instruction to the model, not a forced handoff.
+        assert "is handed to the send card" in text
+        assert "told not to ask again in chat" in text
+        assert "goes to the same send card" not in text
+        # Calendar: the event is still added.
+        assert "still adds it" in text
+        # Routing: the open-page fix stopped the turn ending early.
+        assert "no longer stops after the page opens" in text
+        assert "were sent to the wrong tool" not in text
+
+    def test_whats_new_chrome_line_says_still_keeps(self) -> None:
+        text = " ".join((REPO / "docs" / "whats-new.md").read_text(encoding="utf-8").split())
+        section = text.split("## 0.3.0", 1)[1].split("## This checkout", 1)[0]
+        assert "Her Chrome still keeps your sign-ins between runs" in section
+
 
 class TestReadmeStatements:
     """README lines that were stale against the 0.3.0 behavior."""
@@ -261,9 +292,13 @@ class TestReadmeStatements:
     def test_backup_sentence_matches_pre_upgrade_backup(self) -> None:
         text = self._readme()
         assert (
-            "Before an in-app upgrade she copies allowlisted records into "
-            "`data/backups/pre-<version>/` and keeps the newest two. "
-            "Daily dated memory copies stay off. See [backups.md](docs/backups.md)."
+            "Since 0.3.0, before an in-app upgrade she copies your memory and a "
+            "few settings files into `data/backups/pre-<version>/` (never "
+            "passwords or tokens) and keeps the newest two. Upgrading from "
+            "0.2.9 to 0.3.0 itself is not covered, so copy your data folder by "
+            "hand first. Daily dated memory copies stay off. See "
+            "[backups.md](docs/backups.md)."
         ) in text
+        assert "allowlisted" not in text
         assert "for two weeks" not in text
         assert (REPO / "docs" / "backups.md").is_file()

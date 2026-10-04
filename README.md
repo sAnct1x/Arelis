@@ -235,9 +235,12 @@ model. See [models.md](docs/models.md).
 - **Mail, calendar, texting:** All stay off until you connect them. Configuration lives in `data/secrets.yaml`. See [calendar-oauth.md](docs/calendar-oauth.md) and the optional extras section above.
 - **Jobs:** Found under the calendar tile (`Ctrl+7`). Set a prompt and a time, and she'll email you the answer. Requires mail to be set up. See [jobs.md](docs/jobs.md). "Remind me in 20 minutes" is a timer, not a job.
 
-**Memory.** Managed under Settings → Memory. Before an in-app upgrade she copies allowlisted records into
-`data/backups/pre-<version>/` and keeps the newest two. Daily dated
-memory copies stay off. See [backups.md](docs/backups.md).
+**Memory.** Managed under Settings → Memory. Since 0.3.0, before an
+in-app upgrade she copies your memory and a few settings files into
+`data/backups/pre-<version>/` (never passwords or tokens) and keeps the
+newest two. Upgrading from 0.2.9 to 0.3.0 itself is not covered, so copy
+your data folder by hand first. Daily dated memory copies stay off. See
+[backups.md](docs/backups.md).
 
 Type `/tools` in the chat for the full list of what she can do.
 

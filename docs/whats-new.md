@@ -23,7 +23,7 @@ copy of your records before an in-app upgrade (not made when upgrading
 from 0.2.9 itself), plain first-run error messages, and a captcha or
 login wall that hands the page to you, with a Windows notification that
 should appear after two minutes (not yet seen on a real PC). Her Chrome
-keeps your sign-ins between runs (a setting starts her window empty
+still keeps your sign-ins between runs (a setting starts her window empty
 every run); that leaves a persistent, possibly signed-in profile on
 disk. Earth lost its optional camera-search layer.
 
