@@ -836,4 +836,10 @@ ui:
     poll_s: 30
     mail_poll_s: 90
 
+# Installed copies ask GitHub once a day whether a newer release exists.
+# Off means that ping does not happen. `arelis --check-update` still asks
+# when you run it. Download and install still wait for a yes in the UI.
+updates:
+  check: true
+
 persona_file: "persona/arelis.md"

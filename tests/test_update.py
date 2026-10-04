@@ -77,6 +77,67 @@ class TestWhatCountsAsAnUpdate:
         assert update.available_update("0.1.0", fetch=unreachable) is None
 
 
+class TestTheOptOut:
+    def test_false_makes_zero_calls_to_github(self, monkeypatch) -> None:
+        """updates.check: false is a hard stop, not a quieter GET."""
+        import httpx
+
+        calls: list[str] = []
+
+        def forbidden(url, *args, **kwargs):  # type: ignore[no-untyped-def]
+            calls.append(str(url))
+            raise AssertionError(f"network was used: {url}")
+
+        monkeypatch.setattr(httpx, "get", forbidden)
+        result = update.consider_automatic_update({"updates": {"check": False}})
+        assert result is None
+        assert calls == []
+
+    def test_true_still_asks_github(self, monkeypatch) -> None:
+        import httpx
+
+        calls: list[str] = []
+
+        def stub(url, *args, **kwargs):  # type: ignore[no-untyped-def]
+            calls.append(str(url))
+            request = httpx.Request("GET", str(url))
+            return httpx.Response(404, request=request)
+
+        monkeypatch.setattr(httpx, "get", stub)
+        result = update.consider_automatic_update({"updates": {"check": True}})
+        assert result is None
+        assert calls
+        assert all("api.github.com" in url for url in calls)
+
+    def test_missing_key_keeps_the_old_default(self) -> None:
+        assert update.automatic_check_enabled({}) is True
+        assert update.automatic_check_enabled(None) is True
+
+    def test_local_settings_file_turns_the_check_off(self, tmp_path, monkeypatch) -> None:
+        """The README tells people to set this in config.local.yaml."""
+        from arelis.config import load_config
+
+        local = tmp_path / "config.local.yaml"
+        local.write_text("updates:\n  check: false\n", encoding="utf-8")
+        monkeypatch.setattr("arelis.config.LOCAL_CONFIG_PATH", local)
+        assert update.automatic_check_enabled(load_config()) is False
+
+    def test_readme_names_the_key_and_the_local_settings_file(self) -> None:
+        from pathlib import Path
+
+        readme = (Path(__file__).resolve().parents[1] / "README.md").read_text(encoding="utf-8")
+        assert "`updates.check: false`" in readme
+        assert "`config.local.yaml`" in readme
+
+    def test_shipped_default_leaves_the_check_on(self) -> None:
+        import yaml
+
+        from arelis.config import DEFAULT_CONFIG_PATH
+
+        data = yaml.safe_load(DEFAULT_CONFIG_PATH.read_text(encoding="utf-8")) or {}
+        assert ((data.get("updates") or {}).get("check")) is True
+
+
 class TestWhatIsIgnored:
     def test_a_draft_is_not_offered(self) -> None:
         """Drafts are where releases start, and publishing is meant to be the decision."""

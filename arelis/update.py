@@ -5,9 +5,10 @@ The shape of this
 
 An installed Arelis asks GitHub once a day whether there is a newer release, offers it, and
 on a yes downloads the setup .exe, checks it against the digest published beside it, runs it
-silently and lets it start the new version. The server half already existed: the release
-workflow uploads ``Arelis-<version>-win64-setup.exe`` and a ``.sha256`` next to it, which is
-exactly the pair this needs.
+silently and lets it start the new version. ``updates.check: false`` skips the daily ask
+entirely. The server half already existed: the release workflow uploads
+``Arelis-<version>-win64-setup.exe`` and a ``.sha256`` next to it, which is exactly the pair
+this needs.
 
 Only for copies that came from the installer
 ============================================
@@ -162,6 +163,21 @@ def record_check(when: datetime | None = None) -> None:
         log.debug("could not record the update check: %s", exc)
 
 
+def automatic_check_enabled(config: dict[str, Any] | None = None) -> bool:
+    """Whether the once-a-day GitHub ping is allowed.
+
+    Default true so current installs keep checking. A missing ``updates`` block
+    is the same as true: a settings file that never mentioned this is not an
+    opt-out. ``--check-update`` does not read this; that is an aimed request.
+    """
+    if not isinstance(config, dict):
+        return True
+    section = config.get("updates")
+    if not isinstance(section, dict):
+        return True
+    return bool(section.get("check", True))
+
+
 def check_is_due(now: datetime | None = None) -> bool:
     now = now or datetime.now(UTC)
     previous = last_checked()
@@ -249,6 +265,22 @@ def available_update(
         log.warning("this build's own version %r does not parse", current)
         return None
     return release
+
+
+def consider_automatic_update(
+    config: dict[str, Any] | None = None,
+    *,
+    current: str = __version__,
+    fetch: Callable[[], Release | None] = fetch_latest,
+) -> Release | None:
+    """The startup/daily check path, including the opt-out.
+
+    When ``updates.check`` is false this does not call ``fetch``, so nothing
+    reaches api.github.com. Download and install are not this function.
+    """
+    if not automatic_check_enabled(config):
+        return None
+    return available_update(current=current, fetch=fetch)
 
 
 def expected_digest(text: str) -> str:
