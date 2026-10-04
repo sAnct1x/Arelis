@@ -145,7 +145,10 @@ Vision uses `confirm_vision` separately. Never batches with mail or SMS.
 ## Config
 
 See `tools.browser` and `agent.confirm_browser` in
-`arelis/config/default.yaml`. Unattended jobs do not get this tool.
+`arelis/config/default.yaml`. `tools.browser.fresh_profile` is `false` by
+default, so her Chrome keeps your sign-ins between runs. Set it to `true`
+in `data/config.local.yaml` to start from an empty window every run.
+Unattended jobs do not get this tool.
 
 ## Your turn
 
