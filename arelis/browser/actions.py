@@ -1344,12 +1344,12 @@ class PlaywrightDriver:
     """Drive a real browser via Playwright CDP or Firefox launch."""
 
     def __init__(
-        self, *, cdp_url: str = "http://127.0.0.1:9222", fresh_profile: bool = True
+        self, *, cdp_url: str = "http://127.0.0.1:9222", fresh_profile: bool = False
     ) -> None:
         self.cdp_url = cdp_url.rstrip("/")
-        # tools.browser.fresh_profile: the first window this process opens starts
-        # empty (no restored tabs, cookies or history). Later relaunches in the
-        # same run keep that window's state.
+        # tools.browser.fresh_profile (default false): when true the first window
+        # this process opens starts empty; later relaunches in the same run keep
+        # that window's state.
         self.fresh_profile = bool(fresh_profile)
         self._window_opened = False
         self._pw: Any = None

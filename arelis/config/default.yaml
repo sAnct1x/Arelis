@@ -419,11 +419,12 @@ tools:
     # else's Chrome, she opens her window on 9333+ instead of attaching.
     enabled: true
     cdp_url: "http://127.0.0.1:9222"
-    # true: the first window Arelis opens in a run starts empty on google.com. Her
-    # profile is wiped first, so no tabs, history, cookies, autofill or sign-ins
-    # from an earlier run come back. false: keep data/browser-profile between
-    # runs and restore the last session, so you sign into Google/Maps once.
-    fresh_profile: true
+    # false (default): keep data/browser-profile between runs and restore the
+    # last session, so you sign into Google/Maps once. true: the first window
+    # Arelis opens in a run starts empty on google.com; her profile is wiped
+    # first, so no tabs, history, cookies, autofill or sign-ins come back
+    # (useful for recordings).
+    fresh_profile: false
     max_snapshot_chars: 6000
     max_read_chars: 3500
     aliases:
