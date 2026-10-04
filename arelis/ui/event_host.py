@@ -8,8 +8,11 @@ world_host.
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
+
+from PySide6.QtCore import QObject, QTimer
 
 from arelis.browser.hold import format_drive_done, format_drive_status
 from arelis.browser.walls import your_turn_status
@@ -28,6 +31,83 @@ from arelis.ui.world_host import should_offer_world
 # for one very long sentence synthesizing while the previous one plays.
 # Every clip and playback transition restarts it.
 SPEECH_WATCHDOG_MS = 45000
+
+log = logging.getLogger(__name__)
+
+
+def _arelis_window_is_active() -> bool:
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QApplication
+
+    app = QApplication.instance()
+    if app is None:
+        return False
+    return app.applicationState() == Qt.ApplicationState.ApplicationActive
+
+
+def _wall_toast_delay_ms(window: Any) -> int:
+    raw = (getattr(window, "config", None) or {}).get("agent") or {}
+    try:
+        seconds = float(raw.get("wall_toast_after_s", 120))
+    except (TypeError, ValueError):
+        return 0
+    if seconds <= 0:
+        return 0
+    return int(seconds * 1000)
+
+
+def _wall_toast_message(kind: str) -> str:
+    status = your_turn_status(kind).replace("\u2014", "-").replace("\u2013", "-")
+    return f"Still waiting on you: {status}."
+
+
+def _ensure_wall_toast_timer(window: Any) -> QTimer:
+    timer = getattr(window, "_wall_toast_timer", None)
+    if timer is not None:
+        return timer
+    parent = window if isinstance(window, QObject) else None
+    timer = QTimer(parent)
+    timer.setSingleShot(True)
+    timer.timeout.connect(lambda: _on_wall_toast_timeout(window))
+    window._wall_toast_timer = timer
+    return timer
+
+
+def _arm_wall_toast(window: Any, kind: str, url: str = "") -> None:
+    pending = getattr(window, "_wall_toast_pending", None)
+    if pending is not None:
+        return
+    delay_ms = _wall_toast_delay_ms(window)
+    if delay_ms <= 0:
+        return
+    window._wall_toast_pending = (str(kind or ""), str(url or ""))
+    window._wall_toast_sent = False
+    _ensure_wall_toast_timer(window).start(delay_ms)
+
+
+def _cancel_wall_toast(window: Any) -> None:
+    timer = getattr(window, "_wall_toast_timer", None)
+    if timer is not None:
+        timer.stop()
+    window._wall_toast_pending = None
+    window._wall_toast_sent = False
+
+
+def _on_wall_toast_timeout(window: Any) -> None:
+    pending = getattr(window, "_wall_toast_pending", None)
+    if not pending or getattr(window, "_wall_toast_sent", False):
+        return
+    window._wall_toast_sent = True
+    kind = pending[0] if pending else ""
+    if _arelis_window_is_active():
+        log.debug("wall toast skipped: Arelis is the active window")
+        return
+    if getattr(window, "_tray", None) is None:
+        log.debug("wall toast skipped: no system tray")
+        return
+    from arelis.ui.notify_host import _toast_reminder
+
+    _toast_reminder(window, _wall_toast_message(kind))
 
 
 def _browser_drive_done(data: dict[str, Any]) -> str:
@@ -201,6 +281,7 @@ def dispatch_event(window: Any, event: Event) -> None:
 
         stop_speech(window)
     elif t == EventType.ASSISTANT_DONE:
+        _cancel_wall_toast(window)
         if window._mobile_foreign:
             window._assistant_streaming = False
             window._mobile_foreign = False
@@ -500,6 +581,8 @@ def dispatch_event(window: Any, event: Event) -> None:
                 )
                 window.chat.add_system(note or stay)
                 window.thinking.append(f"your turn  {kind or code}", kind="status")
+                if p.get("tool") == "browser":
+                    _arm_wall_toast(window, kind, str(data.get("url") or ""))
             elif data.get("watch_hit"):
                 _watch_hit_ui(
                     window,
@@ -695,6 +778,7 @@ def dispatch_event(window: Any, event: Event) -> None:
 
         on_sms_received(window, p)
     elif t == EventType.TURN_CANCEL:
+        _cancel_wall_toast(window)
         # Voice stop publishes cancel from the orchestrator. The stop
         # button publishes it too — skip the echo so we do not double-cut.
         if window._ignore_cancel_echo:
@@ -707,14 +791,17 @@ def dispatch_event(window: Any, event: Event) -> None:
         if str(p.get("reason") or "") == "your_turn":
             kind = str(p.get("kind") or "")
             window.conversation.set_drive_your_turn(your_turn_status(kind))
+            _arm_wall_toast(window, kind, str(p.get("url") or ""))
         else:
             window.conversation.set_drive_paused(True)
     elif t == EventType.TURN_RESUME:
+        _cancel_wall_toast(window)
         window.conversation.set_drive_paused(False)
         if str(p.get("reason") or "") == "wall_cleared":
             window.conversation.set_drive_status("continuing…")
             window.thinking.append("wall gone — continuing", kind="status")
     elif t == EventType.ERROR:
+        _cancel_wall_toast(window)
         if window._mobile_foreign:
             window._mobile_foreign = False
             if p.get("scope") != "voice":

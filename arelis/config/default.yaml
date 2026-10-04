@@ -104,6 +104,8 @@ agent:
   # Pause when she *offers* her window. A drive you already typed or said is
   # the grant. rest of this ask covers further steps. Never batches with mail/SMS.
   confirm_browser: true
+  # Local tray balloon after a browser captcha/login wait. 0 = off.
+  wall_toast_after_s: 120
   # Pause when she offers to drive your Windows session. A desk ask you
   # already typed or said is the grant. Deletes / Pay / UAC still pause.
   confirm_desktop: true
