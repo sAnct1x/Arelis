@@ -9,6 +9,7 @@ world_host.
 from __future__ import annotations
 
 import logging
+import math
 from pathlib import Path
 from typing import Any
 
@@ -45,15 +46,38 @@ def _arelis_window_is_active() -> bool:
     return app.applicationState() == Qt.ApplicationState.ApplicationActive
 
 
+# Missing key defaults to 120 s. Invalid / non-finite / bool / sub-ms is off.
+# Values above 24 h clamp to 86_400_000 ms so QTimer.start cannot overflow.
+_WALL_TOAST_DEFAULT_S = 120
+_WALL_TOAST_MAX_MS = 86_400_000
+
+
 def _wall_toast_delay_ms(window: Any) -> int:
-    raw = (getattr(window, "config", None) or {}).get("agent") or {}
     try:
-        seconds = float(raw.get("wall_toast_after_s", 120))
-    except (TypeError, ValueError):
+        cfg = getattr(window, "config", None) or {}
+        raw = cfg.get("agent") or {}
+        if not isinstance(raw, dict):
+            return 0
+        if "wall_toast_after_s" not in raw:
+            seconds = float(_WALL_TOAST_DEFAULT_S)
+        else:
+            value = raw.get("wall_toast_after_s")
+            if value is None or isinstance(value, bool):
+                return 0
+            seconds = float(value)
+    except (AttributeError, TypeError, ValueError):
         return 0
-    if seconds <= 0:
+    if not math.isfinite(seconds) or seconds <= 0:
         return 0
-    return int(seconds * 1000)
+    try:
+        delay_ms = int(seconds * 1000)
+    except (OverflowError, ValueError):
+        return 0
+    if delay_ms < 1:
+        return 0
+    if delay_ms > _WALL_TOAST_MAX_MS:
+        return _WALL_TOAST_MAX_MS
+    return delay_ms
 
 
 def _wall_toast_message(kind: str) -> str:
@@ -80,9 +104,17 @@ def _arm_wall_toast(window: Any, kind: str, url: str = "") -> None:
     delay_ms = _wall_toast_delay_ms(window)
     if delay_ms <= 0:
         return
+    try:
+        _ensure_wall_toast_timer(window).start(delay_ms)
+    except Exception as exc:
+        # Optional reminder: a timer that cannot start must not take down
+        # dispatch_event or leave a stuck wait.
+        log.debug("wall toast timer failed to start: %s", exc)
+        window._wall_toast_pending = None
+        window._wall_toast_sent = False
+        return
     window._wall_toast_pending = (str(kind or ""), str(url or ""))
     window._wall_toast_sent = False
-    _ensure_wall_toast_timer(window).start(delay_ms)
 
 
 def _cancel_wall_toast(window: Any) -> None:

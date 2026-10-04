@@ -6,6 +6,8 @@ import ast
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from arelis.core.events import Event, EventType
 
 _UI = Path(__file__).resolve().parents[1] / "arelis" / "ui"
@@ -243,6 +245,122 @@ def test_default_config_has_wall_toast_after_s() -> None:
         Path(__file__).resolve().parents[1] / "arelis" / "config" / "default.yaml"
     ).read_text(encoding="utf-8")
     assert "wall_toast_after_s: 120" in text
+
+
+_DAY_MS = 86_400_000
+_DELAY_CASES = (
+    (float("nan"), 0),
+    (float("inf"), 0),
+    (float("-inf"), 0),
+    (-5, 0),
+    (0, 0),
+    ("abc", 0),
+    ("", 0),
+    (None, 0),
+    ([], 0),
+    ({}, 0),
+    (True, 0),
+    ("30", 30000),
+    (0.0001, 0),
+    (1e30, _DAY_MS),
+    (90000, _DAY_MS),
+    (86400, _DAY_MS),
+    (120, 120000),
+)
+_OFF_DELAYS = tuple(raw for raw, ms in _DELAY_CASES if ms == 0)
+
+
+def _set_delay(window, raw) -> None:
+    window.config = {"agent": {"wall_toast_after_s": raw}}
+
+
+def _pause_your_turn(*, kind: str = "captcha", url: str = "https://example.com/wall") -> Event:
+    return Event(
+        EventType.TURN_PAUSE,
+        {"reason": "your_turn", "kind": kind, "url": url},
+    )
+
+
+@pytest.mark.parametrize("raw, expected", _DELAY_CASES)
+def test_wall_toast_delay_ms_values(raw, expected) -> None:
+    from arelis.ui.event_host import _wall_toast_delay_ms
+
+    window = SimpleNamespace(config={"agent": {"wall_toast_after_s": raw}})
+    assert _wall_toast_delay_ms(window) == expected
+
+
+def test_wall_toast_delay_ms_missing_key_and_none_config_default_to_120s() -> None:
+    from arelis.ui.event_host import _wall_toast_delay_ms
+
+    assert _wall_toast_delay_ms(SimpleNamespace(config={"agent": {}})) == 120000
+    assert _wall_toast_delay_ms(SimpleNamespace(config=None)) == 120000
+    assert _wall_toast_delay_ms(SimpleNamespace()) == 120000
+
+
+@pytest.mark.parametrize("raw", _OFF_DELAYS)
+@pytest.mark.parametrize(
+    "make_event",
+    (_your_turn, _pause_your_turn),
+    ids=("YOUR_TURN", "TURN_PAUSE"),
+)
+def test_off_delay_does_not_raise_or_stick_pending(monkeypatch, raw, make_event) -> None:
+    from arelis.ui.event_host import dispatch_event
+
+    _arm_hooks(monkeypatch)
+    window = _window()
+    _set_delay(window, raw)
+    dispatch_event(window, make_event())
+    assert getattr(window, "_wall_toast_timer", None) is None or not window._wall_toast_timer.active
+    assert getattr(window, "_wall_toast_pending", None) is None
+    assert window.shown == []
+
+
+def test_timer_start_raises_does_not_stick_pending(monkeypatch) -> None:
+    from arelis.ui import event_host
+    from arelis.ui.event_host import dispatch_event
+
+    class BoomTimer(FakeTimer):
+        def start(self, ms: int = 0) -> None:
+            raise RuntimeError("start failed")
+
+    monkeypatch.setattr(event_host, "QTimer", BoomTimer, raising=False)
+    monkeypatch.setattr(
+        event_host, "_arelis_window_is_active", lambda: False, raising=False
+    )
+    window = _window()
+    dispatch_event(window, _your_turn())
+    assert getattr(window, "_wall_toast_pending", None) is None
+    assert window.shown == []
+
+
+def test_toast_skipped_when_arelis_is_the_active_window(monkeypatch) -> None:
+    from arelis.ui import event_host
+    from arelis.ui.event_host import dispatch_event
+
+    monkeypatch.setattr(event_host, "QTimer", FakeTimer, raising=False)
+    monkeypatch.setattr(
+        event_host, "_arelis_window_is_active", lambda: True, raising=False
+    )
+    window = _window()
+    dispatch_event(window, _your_turn())
+    timer = window._wall_toast_timer
+    assert timer.active
+    timer.fire()
+    assert window.shown == []
+
+
+def test_turn_pause_your_turn_arms_toast_on_its_own(monkeypatch) -> None:
+    from arelis.ui.event_host import dispatch_event
+
+    _arm_hooks(monkeypatch)
+    window = _window()
+    dispatch_event(window, _pause_your_turn(kind="login"))
+    timer = getattr(window, "_wall_toast_timer", None)
+    assert timer is not None
+    assert timer.active
+    timer.fire()
+    assert len(window.shown) == 1
+    assert "Still waiting on you" in window.shown[0]
 
 
 def test_toast_reminder_show_message_and_missing_tray() -> None:
