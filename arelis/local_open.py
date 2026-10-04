@@ -7,10 +7,13 @@ import subprocess
 import sys
 from pathlib import Path
 
+from arelis.workspace import refuse_unsafe_windows_path, safe_resolve
+
 
 def open_local_file(path: str | Path) -> None:
     """Open with whatever Windows (or the OS) already uses for that type."""
-    target = Path(path).expanduser().resolve()
+    refuse_unsafe_windows_path(str(path))
+    target = safe_resolve(path)
     if not target.is_file():
         raise FileNotFoundError(str(target))
     if sys.platform == "win32":
@@ -24,7 +27,8 @@ def open_local_file(path: str | Path) -> None:
 
 def open_local_file_as(path: str | Path) -> None:
     """Show the OS Open with… picker when the platform has one."""
-    target = Path(path).expanduser().resolve()
+    refuse_unsafe_windows_path(str(path))
+    target = safe_resolve(path)
     if not target.is_file():
         raise FileNotFoundError(str(target))
     if sys.platform == "win32":
@@ -35,7 +39,8 @@ def open_local_file_as(path: str | Path) -> None:
 
 def reveal_local_file(path: str | Path) -> None:
     """Show the file selected in Explorer / Finder / the file manager."""
-    target = Path(path).expanduser().resolve()
+    refuse_unsafe_windows_path(str(path))
+    target = safe_resolve(path)
     if not target.exists():
         raise FileNotFoundError(str(target))
     if sys.platform == "win32":

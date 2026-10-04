@@ -21,7 +21,12 @@ from arelis.mathtext import display_math_plain, flatten_latex
 from arelis.paths import display_path, ensure, outputs_dir, user_data_dir
 from arelis.rooms import RoomStore
 from arelis.tools.base import ToolResult
-from arelis.workspace import WorkspaceRoots
+from arelis.workspace import (
+    UNSAFE_WINDOWS_PATH_MSG,
+    WorkspaceRoots,
+    refuse_unsafe_windows_path,
+    safe_resolve,
+)
 
 _FORMATS = frozenset({"pdf", "docx", "xlsx", "csv", "md", "txt"})
 _SANS = "Zen Kaku Gothic New"
@@ -627,12 +632,16 @@ class DocumentTool:
         return roots
 
     def _under_document_roots(self, raw: str) -> Path | None:
-        """Absolute or data-root-relative path under the document drop / out dir."""
-        candidate = Path(raw)
-        if not candidate.is_absolute():
-            candidate = user_data_dir() / candidate
+        """Absolute or data-root-relative path under the document drop / out dir.
+
+        Raises PermissionError with UNSAFE_WINDOWS_PATH_MSG for UNC / NT device
+        strings (does not resolve them). Returns None when the path is safe
+        but not under a document root.
+        """
         try:
-            candidate = candidate.resolve()
+            candidate = safe_resolve(raw, base=user_data_dir())
+        except PermissionError:
+            raise
         except OSError:
             return None
         for root in self._source_roots():
@@ -644,11 +653,14 @@ class DocumentTool:
         text = (raw or "").strip()
         if not text:
             raise ValueError("from_path is empty.")
+        refuse_unsafe_windows_path(text)
         path: Path | None = None
         if self.workspace is not None:
             try:
                 path = self.workspace.resolve_read(text).path
-            except (ValueError, PermissionError, OSError):
+            except (ValueError, PermissionError, OSError) as exc:
+                if str(exc) == UNSAFE_WINDOWS_PATH_MSG:
+                    raise
                 path = None
         # Workspace may "resolve" a relative display path under the project even
         # when the real file lives in outputs/documents (outside roots). Prefer an

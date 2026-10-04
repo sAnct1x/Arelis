@@ -18,6 +18,7 @@ from arelis.core.image_refs import (
     path_from_text,
 )
 from arelis.paths import user_data_dir
+from arelis.workspace import is_unsafe_windows_path
 
 LookAct = Literal["identify", "read", "translate", "freshness"]
 
@@ -376,6 +377,8 @@ def frame_sha256(path: str) -> str:
     raw = (path or "").strip()
     if not raw:
         return ""
+    if is_unsafe_windows_path(raw):
+        return hashlib.sha256(raw.encode("utf-8")).hexdigest()
     candidate = Path(raw)
     if not candidate.is_absolute():
         candidate = (user_data_dir() / candidate).resolve()

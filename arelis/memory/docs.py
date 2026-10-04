@@ -13,7 +13,7 @@ from pathlib import Path
 
 from arelis.memory.store import MemoryStore
 from arelis.paths import INSTALL_PARENT, PACKAGE_ROOT, is_source_checkout
-from arelis.workspace import WorkspaceRoots
+from arelis.workspace import WorkspaceRoots, refuse_unsafe_windows_path, safe_resolve
 
 log = logging.getLogger(__name__)
 
@@ -305,15 +305,22 @@ class DocumentIndexer:
         return files, chunks
 
     def _resolve_under(self, under: str | Path | None) -> Path | None:
+        """Bound a user path to a workspace root, or None if it is outside.
+
+        Raises PermissionError with UNSAFE_WINDOWS_PATH_MSG for UNC / NT
+        device strings and does not resolve them. Other failures return None
+        (sync_now then raises ValueError).
+        """
         if under is None:
             return None
         raw = str(under).strip()
         if not raw:
             return None
-        path = Path(raw)
+        refuse_unsafe_windows_path(raw)
         try:
+            path = Path(raw)
             if path.is_absolute():
-                resolved = path.resolve()
+                resolved = safe_resolve(raw)
                 for root in self.workspace.roots:
                     try:
                         resolved.relative_to(root.path.resolve())
@@ -322,7 +329,9 @@ class DocumentIndexer:
                         continue
                 return None
             return self.workspace.resolve(raw).path
-        except (OSError, ValueError, PermissionError):
+        except PermissionError:
+            raise
+        except (OSError, ValueError):
             return None
 
     def _sync(
