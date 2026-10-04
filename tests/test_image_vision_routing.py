@@ -509,7 +509,7 @@ def test_add_text_overlay_expects_image_edit_not_sms() -> None:
             "role": "assistant",
             "content": (
                 "Image ready — open in Workspace "
-                "(C:\\Users\\origi\\Documents\\Arelis\\outputs\\images\\arelis_00021_.png)."
+                "(C:\\Users\\example\\Documents\\Arelis\\outputs\\images\\arelis_00021_.png)."
             ),
             "note": "",
         }
