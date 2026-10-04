@@ -107,6 +107,14 @@ def tool_fail_replan_notice(
             "Do not ask them to paste. Do not call ocr on the PDF. "
             "Do not invent PDF contents."
         )
+    if tool in {"scrape", "web_fetch"} and "fail:challenge" in tag:
+        return (
+            f"Tool replan: {tool} failed ({tag}). "
+            "That URL needs a human check. Do not fetch it again this turn. "
+            "If a person is here, offer browser(action=open) so they can Allow "
+            "her Chrome. Otherwise skip it and try a different source. "
+            "Do not invent page contents."
+        )
     return (
         f"Tool replan: {tool} failed ({tag}). "
         "Try a different URL once, or use web_fetch for APIs/JSON. "

@@ -25,6 +25,8 @@ from __future__ import annotations
 import json
 import re
 
+from arelis.core.evidence import looks_like_bot_wall
+
 TURN_FAILED_NOTICE = (
     "Something went wrong mid-turn, so I stopped rather than guess. "
     "The details are in Thinking (Ctrl+1). Try again, or rephrase."
@@ -65,16 +67,6 @@ _PAGE_TOOLS = frozenset({"scrape", "web_fetch", "browser"})
 _SEARCH_TOOLS = frozenset({"web_search"})
 _PAGE_WRITE_TOOLS = frozenset({"scrape", "web_search", "web_fetch", "browser"})
 _ALGEBRA_WRITE_TOOLS = frozenset({"cas", "calculator", "python", "units", "plot"})
-_BOT_WALL = re.compile(
-    r"(?i)\b("
-    r"are you a robot|"
-    r"captcha|"
-    r"access denied|"
-    r"sign in to continue|"
-    r"password-protected|"
-    r"verify you are human"
-    r")\b"
-)
 _PAGE_CHAT_CHARS = 420
 # Short fact lines (a price, a one-line hit) can ship as chat.
 # A scraped article or a SERP must not — ask the model to write first.
@@ -210,7 +202,7 @@ def should_nudge_write_after_page(tool: str, output: str) -> bool:
     if (tool or "").strip() not in _PAGE_WRITE_TOOLS:
         return False
     out = output or ""
-    if _BOT_WALL.search(out):
+    if looks_like_bot_wall(out):
         return True
     if "Site:" in out or out.lstrip().startswith("# "):
         return True
@@ -320,7 +312,7 @@ def chat_followup_from_tool(tool: str, output: str, *, ask: str = "") -> str:
     if name == "calculator":
         return pretty_calculator_chat(cleaned)
     if name in _PAGE_TOOLS:
-        if _BOT_WALL.search(cleaned):
+        if looks_like_bot_wall(cleaned):
             return (
                 "That page did not give a usable source (login, captcha, "
                 "or a bot check). I need another URL or a search — this "
