@@ -5,7 +5,7 @@ carry their own copy of "this is weather / SMS / email". A new phrase had to
 be taught in several files or a send tool would get hidden. Specs here own
 the matchers; callers decide whether to nudge, shrink schemas, or refuse.
 
-Draft reconstruction (complete_sms_draft, etc.) stays in those modules —
+Draft reconstruction (complete_sms_draft, etc.) stays in those modules, 
 this catalog does not send, confirm, or skip Allow.
 """
 
@@ -179,7 +179,7 @@ _RECALL_WHEN = re.compile(
     r"a\s+(?:while|few\s+days|couple\s+(?:of\s+)?days)\s+ago"
     r")\b\s*$"
 )
-# Spoken leftovers after "what did I say" — not a topic. Searching them
+# Spoken leftovers after "what did I say", not a topic. Searching them
 # ranks garbage and derails the turn (agenda + recall on small talk).
 _RECALL_MUSH = re.compile(
     r"(?i)\b(?:"
@@ -422,7 +422,7 @@ _PATCH_PRE = re.compile(
 )
 # A document ask rarely says "pdf". "analyze the document I gave you" and "what
 # does this document say" both used to match nothing, so the ask arrived with no
-# expected tool at all. The noun has to be asked *about* — a bare "document" also
+# expected tool at all. The noun has to be asked *about*, a bare "document" also
 # appears in "document this decision", which is not a read. The \b keeps
 # "documentation" out, since a word character follows there.
 #
@@ -445,7 +445,7 @@ _INBOX_MENTION = re.compile(r"(?i)\b(inbox|in\s+box|email|e-?mail|gmail|mail|emi
 
 # "There is a table in this ask." Preflight nudges toward the analyze tool on it,
 # plan_nudge builds a plan from it, and the exactness gate refuses invented row
-# counts because of it — three questions about one fact, so the fact lives here.
+# counts because of it, three questions about one fact, so the fact lives here.
 #
 # All three carried their own copy. The two in preflight and plan_nudge were
 # byte-identical; claims' differed by re.S, which is the only reason a
@@ -474,7 +474,7 @@ def mentions_tabular_data(text: str) -> bool:
 
 
 # "The file is at C:\\...\\books.xlsx" names a spreadsheet but is not a request to
-# read one — it is the user fixing a path Arelis got wrong. Answering it by
+# read one, it is the user fixing a path Arelis got wrong. Answering it by
 # analysing the file is how a correction turns into an unasked-for tool call.
 #
 # This lived, verbatim, in all three modules that ask about tables. It travels
@@ -506,7 +506,7 @@ def corrects_a_path(text: str) -> bool:
 #
 # The result was worse than either alone. Both are system messages on the same
 # turn, so the model was told to call browser(action=maps) and, in the next
-# breath, handed a plan for a different tool — or no plan at all where every
+# breath, handed a plan for a different tool, or no plan at all where every
 # other intent has one. Two matchers that disagree do not degrade gracefully;
 # they argue in the prompt.
 BROWSER_MAPS = re.compile(
@@ -586,7 +586,7 @@ BROWSER_READ = re.compile(
     r")\b"
 )
 
-# Click Sign in / Log in on the tab she is already on — not a fake action, not a
+# Click Sign in / Log in on the tab she is already on, not a fake action, not a
 # guessed accounts.google.com URL. These three were byte-identical in both files.
 LOGIN_NOUN = r"(?:sign[\s-]?in|log[\s-]?in|login)"
 BROWSER_CLICK_SIGNIN = re.compile(
@@ -727,7 +727,7 @@ DEADLINE = IntentSpec(
         "what is due. Call tasks(action=list) for open items, then "
         "agenda(action=list or range) for upcoming events, then "
         "summarize conflicts and stale tasks. Mutates still need "
-        "Allow — do not ask permission in chat."
+        "Allow, do not ask permission in chat."
     ),
     schema_tools=frozenset({"tasks", "agenda"}),
     auto_hint=True,
@@ -736,7 +736,7 @@ DEADLINE = IntentSpec(
 
 # "What needs my attention" is still a fair question; the tool that answered it
 # is gone. It only ever aggregated tasks, goals and the near calendar, so the ask
-# now goes to those directly. Expecting tasks alone keeps the round count honest —
+# now goes to those directly. Expecting tasks alone keeps the round count honest, 
 # the nudge invites the calendar when the ask is really about the day.
 ATTENTION = IntentSpec(
     kind="attention",
@@ -760,9 +760,9 @@ GOALS = IntentSpec(
         "Intent preflight: this message asks about goals or "
         "commitments. Call goals now (list, add, pause/resume, "
         "done/complete, or drop with id). Completed goals leave the "
-        "default active list — use status=done or status=all to see "
+        "default active list, use status=done or status=all to see "
         "them again. Do not invent goals. Chores stay on tasks; "
-        "identity prefs on memory. Allow still applies — do not ask "
+        "identity prefs on memory. Allow still applies, do not ask "
         "permission in chat."
     ),
     schema_tools=frozenset({"goals"}),
@@ -786,7 +786,7 @@ AGENDA = IntentSpec(
 
 # "Morning summary" / "what's going on today" used to have one tool that stitched
 # the day together. Without it the ask has to be assembled, so this widens the
-# surface rather than naming a single call — and stays a schema hint, not an
+# surface rather than naming a single call, and stays a schema hint, not an
 # expected tool, because there is no longer one right answer to expect.
 BRIEFING = IntentSpec(
     kind="briefing",
@@ -804,7 +804,7 @@ TASKS = IntentSpec(
     nudge=(
         "Intent preflight: this message asks about to-dos. Call tasks "
         "now (list, add, or remove). Do not invent tasks. Do not call "
-        "weather or web_search. Allow still applies — do not ask "
+        "weather or web_search. Allow still applies, do not ask "
         "permission in chat."
     ),
     schema_tools=frozenset({"tasks"}),
@@ -858,8 +858,8 @@ DOCUMENT = IntentSpec(
         "Intent preflight: this message asks for a file they can open. "
         "Call document now with format (pdf, docx, xlsx, csv, md, or txt), "
         "a title, and the full body. Do not dump the document into chat. "
-        "Do not call doc_extract — that reads an existing PDF. "
-        "Allow still applies — do not ask permission in chat."
+        "Do not call doc_extract, that reads an existing PDF. "
+        "Allow still applies, do not ask permission in chat."
     ),
     schema_tools=frozenset({"document"}),
     auto_hint=True,
@@ -1031,7 +1031,7 @@ SCIENCE_CATALOG = IntentSpec(
 # a request to execute this checkout's pytest tree.
 # Nobody says "run diagnostics". This matched that phrase and nothing else, so
 # "run the tests", "run pytest" and "do the tests pass?" armed no rule anywhere
-# — same class as the day-planning gap in `_TASKS_UTTERANCE`: written for the
+# same class as the day-planning gap in `_TASKS_UTTERANCE`: written for the
 # phrasing a developer types, not the one a person says.
 #
 # The trailing `(?!\s+on\b)` on both run-forms is doing real work: it keeps
@@ -1058,7 +1058,7 @@ DIAGNOSTICS = IntentSpec(
     nudge=(
         "Intent preflight: they asked to run diagnostics. "
         "Call diagnostics now. Do not invent pass/fail counts from memory. "
-        "Allow still applies — do not ask permission in chat."
+        "Allow still applies, do not ask permission in chat."
     ),
     schema_tools=frozenset({"diagnostics"}),
     auto_hint=True,
@@ -1155,7 +1155,7 @@ RUN_SCRIPT = _RunScriptSpec(
         "Call run_script with the .py they named. Not a shell. "
         "Not diagnostics. Not schedule run_now. Not run_task. "
         "Not the python cell (locked formula). "
-        "Allow still applies — do not ask permission in chat."
+        "Allow still applies, do not ask permission in chat."
     ),
     schema_tools=frozenset({"run_script"}),
     auto_hint=True,
@@ -1178,8 +1178,8 @@ WATCH = IntentSpec(
 
 # Spoken inspect: how she works / where a feature lives / read her source.
 # Not generic "how does X work" (pytest, physics, interference, sign-in).
-# Write verbs (fix/edit/patch/change) are excluded — those are inspect_write.
-# "your source" / "confirm gate" alone are not an ask — need a read/how verb.
+# Write verbs (fix/edit/patch/change) are excluded, those are inspect_write.
+# "your source" / "confirm gate" alone are not an ask, need a read/how verb.
 _SOURCE_WRITE = re.compile(
     r"(?i)\b(?:fix|edit|patch|change)\b.{0,48}(?:"
     r"confirm(?:\s+gate|\s+writes?)?|"
@@ -1227,7 +1227,7 @@ _INSPECT_HOW_YOU_WORK = re.compile(
 _INSPECT_EXPLICIT_PATH = re.compile(r"(?i)\b((?:arelis|docs)[/\\][A-Za-z0-9_./\\-]+)")
 # Path mention alone is not an inspect ask ("email me docs/…"). Need a read verb.
 _INSPECT_PATH_ASK = re.compile(r"(?i)" + _INSPECT_READ_VERB + r"\b.{0,80}\b(?:arelis|docs)[/\\]")
-# "look at the files" / "how accurate is the space sim" — a crawl, not a named path.
+# "look at the files" / "how accurate is the space sim", a crawl, not a named path.
 _INSPECT_CODEBASE = re.compile(
     r"(?i)(?:"
     r"(?:look\s+(?:at|through)|read|show(?:\s+me)?|inspect|review|assess|dig\s+into)\s+"
@@ -1289,7 +1289,7 @@ def looks_like_recall_utterance(text: str) -> bool:
     """True when they ask what was said before, not when they ask her to store something.
 
     `_RECALL_PRE` requires "do you remember", so the imperative "remember that
-    I climb on Tuesdays" — a memory write — does not match here. A trigger
+    I climb on Tuesdays", a memory write, does not match here. A trigger
     with no topic ("what did I say", or STT mush after it) is also not recall.
     """
     raw = text or ""
@@ -1307,7 +1307,7 @@ def recall_query(text: str) -> str:
     An empty return is meaningful: "do you remember?" names nothing to look
     for, and recall refuses a blank query, so the caller must not inject.
     Spoken leftovers ("said something how i don't remember what are you
-    doing tonight") are the same nothing — they are not a topic.
+    doing tonight") are the same nothing, they are not a topic.
     """
     raw = (text or "").strip()
     if not raw:
@@ -1319,7 +1319,7 @@ def recall_query(text: str) -> str:
     rest = _RECALL_LEAD.sub("", rest, count=1)
     rest = _RECALL_DETERMINER.sub("", rest, count=1)
     without_when = _RECALL_WHEN.sub("", rest, count=1)
-    # "what did I say yesterday" has no noun — keep the time so recall
+    # "what did I say yesterday" has no noun, keep the time so recall
     # still has something to search. Strip it only when a topic remains.
     rest = without_when if without_when.strip() else rest
     query = re.sub(r"\s+", " ", rest).strip().strip("?.!,;:").strip()
@@ -1399,7 +1399,7 @@ _INSPECT_PHYSICS_NUDGE = (
     "Do not list the workspace root. "
     "In one fanout, workspace(action=read) on " + ", ".join(PHYSICS_INSPECT_FANOUT) + ". "
     "Quote the integrator, GM/constant provenance, and IC source "
-    "(Horizons VECTORS — bodies where they are now, not a homemade catalog). "
+    "(Horizons VECTORS, bodies where they are now, not a homemade catalog). "
     "scene.py may truncate; horizons.py is the IC contract. "
     "Do not invent. Do not recall the package. Do not web_search. "
     "This is read-only. Writes still need Allow. "
@@ -1456,7 +1456,7 @@ RECALL_DOCS = IntentSpec(
         "Intent preflight: this message asks to search local documents. "
         "Call recall(action=docs) with the query. Pass kind=pdf when they "
         "said PDFs, kind=docx for Word, kind=md for notes/markdown. "
-        "A miss is a miss — do not invent excerpts."
+        "A miss is a miss, do not invent excerpts."
     ),
     schema_tools=frozenset({"recall"}),
     exactness=(_DOCS_SEARCH,),
@@ -1485,7 +1485,7 @@ REMIND = IntentSpec(
         "Intent preflight: this is an in-process timer, not a calendar "
         "event and not a Windows scheduled job. Call remind(action=in) "
         "with minutes/seconds and a message, or action=at with a local "
-        "time. Max 7 days — later is schedule or agenda."
+        "time. Max 7 days, later is schedule or agenda."
     ),
     schema_tools=frozenset({"remind"}),
     auto_hint=True,
@@ -1660,7 +1660,7 @@ def must_keep_full_surface_text(text: str) -> bool:
 
 
 def looks_like_local_clock_ask(text: str) -> bool:
-    """True when now_line already answers — local time/date, not a meeting."""
+    """True when now_line already answers, local time/date, not a meeting."""
     return bool(_LOCAL_CLOCK.match((text or "").strip()))
 
 
@@ -1670,7 +1670,7 @@ def looks_like_identity_ask(text: str) -> bool:
 
 
 def is_tiny_prompt_ask(text: str) -> bool:
-    """Clock, hello, thanks, or identity — no web fallback.
+    """Clock, hello, thanks, or identity, no web fallback.
 
     Unmatched real work still fail-opens. A place ("what time is it in Tokyo")
     does not match: that still needs a tool. "Who is this" is not identity.

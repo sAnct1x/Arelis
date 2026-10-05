@@ -2,7 +2,7 @@
 
 The model picks a name. This module turns that name into an argv list.
 npm scripts still run through npm, which shells the body the project
-already stored — the card shows that body. arelis-tasks.json is an argv
+already stored, the card shows that body. arelis-tasks.json is an argv
 array, started with shell off.
 """
 

@@ -61,7 +61,7 @@ class WatchSnapshot:
 
     def as_text(self) -> str:
         lines = [
-            f"Watch: {self.level} — {self.detail}",
+            f"Watch: {self.level}, {self.detail}",
             "",
             "## Listeners we bound",
         ]
@@ -229,7 +229,7 @@ class Watch:
             if len(bucket) >= self.inbound_burst:
                 retry = max(1, int(self.inbound_window_s))
                 self._note_alert_locked(
-                    f"Watch: inbound flood from {host} — {len(bucket)} requests "
+                    f"Watch: inbound flood from {host}, {len(bucket)} requests "
                     f"in {int(self.inbound_window_s)}s"
                 )
                 return Admit(ok=False, retry_after=retry, reason="rate")
@@ -316,7 +316,7 @@ class Watch:
                         else f"{len(self._egress)} in {int(self.egress_window_s)}s"
                     )
                 )
-                self._note_alert_locked(f"Watch: muted outbound APIs — {why}")
+                self._note_alert_locked(f"Watch: muted outbound APIs, {why}")
                 return False
             self._egress.append(now)
             self._egress_day.append(now)

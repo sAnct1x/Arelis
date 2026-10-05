@@ -1,4 +1,4 @@
-"""The house copy of the Android companion — APK and offline brain.
+"""The house copy of the Android companion, APK and offline brain.
 
 The phone is a window onto this PC. It should take its updates from this PC
 too, not from Play and not from a page the user has to hunt. That is the same
@@ -12,7 +12,7 @@ Why the house, not GitHub
 A store update can land a new phone against an old Arelis. A GitHub APK can
 do the same if the user has not installed the matching desktop release. The
 file this process serves is the one this Arelis actually has. Version numbers
-on the two sides stay independent — companion 0.3.x is not Arelis 0.2.x —
+on the two sides stay independent, companion 0.3.x is not Arelis 0.2.x
 and the comparison is the Android versionCode on the APK in this tree.
 
 Signing stays out of git
@@ -127,7 +127,7 @@ class CompanionStatus:
         )
         return (
             f"{want} No APK is sitting next to this Arelis. From a source "
-            "checkout run python scripts/build_companion.py — then this page "
+            "checkout run python scripts/build_companion.py, then this page "
             "grows a download QR. The UI will not shell out to Gradle."
         )
 
@@ -520,7 +520,7 @@ def landing_html(
             f"{escape(apk.version_name)} · {escape(apk.size_text)}</p>"
             f'<p><a class="btn" href="{escape(apk_href)}">Download the app</a></p>'
             "<p>Android will ask once. That is the install. Then open Arelis "
-            "and scan the pair code still on the PC — or tap below if the app "
+            "and scan the pair code still on the PC, or tap below if the app "
             "is already on this phone.</p>"
             f'<p><a href="{escape(pair_href)}">Already installed? Pair</a></p>'
         )

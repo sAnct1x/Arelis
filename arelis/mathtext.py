@@ -299,7 +299,7 @@ def tex_to_plain(src: str, *, unknown: str = "strip") -> str:
 
 
 def flatten_latex(text: str) -> str:
-    """Turn TeX delimiters — and leftover named commands — into unicode."""
+    """Turn TeX delimiters, and leftover named commands, into unicode."""
     if not text:
         return text
     parts: list[str] = []

@@ -1,4 +1,4 @@
-"""Asyncio IPC server (core side) — fan-out allowlisted bus events to UI clients."""
+"""Asyncio IPC server (core side), fan-out allowlisted bus events to UI clients."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""Per-turn evidence ledger — warrants for contingent claims.
+"""Per-turn evidence ledger, warrants for contingent claims.
 
 Tools register short spans when they succeed. The exactness finalizer checks
 that news/weather/memory/price answers have at least one matching warrant.

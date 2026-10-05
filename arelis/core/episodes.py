@@ -1,7 +1,7 @@
 """Format recent episodes for optional system-prompt injection.
 
 Episodes are explicit typed memories (manual or confirmed). They are never
-auto-written from every turn — callers choose when to pin them into context.
+auto-written from every turn, callers choose when to pin them into context.
 """
 
 from __future__ import annotations

@@ -1,4 +1,4 @@
-"""Win32 SendInput — type, press, hotkey, click, scroll. Pause-aware."""
+"""Win32 SendInput, type, press, hotkey, click, scroll. Pause-aware."""
 
 from __future__ import annotations
 

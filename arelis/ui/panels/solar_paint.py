@@ -786,7 +786,7 @@ def paint_saturn_rings(panel, painter: QPainter, body: BodyView) -> None:
 def paint_heliocentric_orbits(panel, painter: QPainter, system: SolarSystem) -> None:
     """Osculating ellipses. Not trails, not a radius cheat.
 
-    Placeholder IC still draws the rings — the HUD already says they are
+    Placeholder IC still draws the rings, the HUD already says they are
     not Horizons. Hiding them at 40 AU left a field of names.
     """
     inspect = panel._inspect
@@ -1008,7 +1008,7 @@ def paint_magnetopause(
         painter.drawText(
             int(proj[0]) + 8,
             int(proj[1]) - 4,
-            f"Shue r0={r0_re:.1f} Re  P={p_npa:.2f} nPa + dipole — not IGRF",
+            f"Shue r0={r0_re:.1f} Re  P={p_npa:.2f} nPa + dipole, not IGRF",
         )
 
 

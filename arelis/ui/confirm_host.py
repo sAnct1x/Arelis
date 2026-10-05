@@ -1,7 +1,7 @@
 """Restored Allow cards: execute the parked send and tell the bus.
 
 Live turns wait on the orchestrator. Core-parked / restored cards have no
-waiter — Allow has to run the tool here. One helper so the window only
+waiter, Allow has to run the tool here. One helper so the window only
 decides, and confirm_exec stays the only place a restored send is invoked.
 """
 

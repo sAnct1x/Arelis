@@ -205,7 +205,7 @@ def polish_combo_popup(combo, *, compact: bool = False) -> None:
     """Fill the combo popup plate. Windows leaves a black gutter otherwise.
 
     The item view is styled; the native container and the reserved scrollbar
-    lane are not. Transparent global scrollbars then show the unstyled frame —
+    lane are not. Transparent global scrollbars then show the unstyled frame
     a black strip down the right of *fast* / *research*. Same fill as QMenu.
     Two-item lists do not get a scrollbar.
     """

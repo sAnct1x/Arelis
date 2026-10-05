@@ -1,4 +1,4 @@
-"""Open and close Arelis tiles from speech — the View menu, in words."""
+"""Open and close Arelis tiles from speech, the View menu, in words."""
 
 from __future__ import annotations
 

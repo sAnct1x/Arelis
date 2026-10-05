@@ -1,7 +1,7 @@
 """Cesium in its own process. No solar GL, no Qt share group.
 
 The daily driver used to park the offscreen context and then construct
-QWebEngineView in the same process. On AMD that aborts — AA_ShareOpenGLContexts
+QWebEngineView in the same process. On AMD that aborts, AA_ShareOpenGLContexts
 leaves QOpenGLContext.globalShareContext() alive after park(). This process
 is Chromium only. Sodium HUD and the solar lab stay in the parent.
 """

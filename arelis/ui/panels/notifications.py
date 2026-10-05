@@ -22,7 +22,7 @@ _HINT_CAUGHT_UP = "caught up"
 
 
 class NotificationsPanel(QWidget):
-    """Pending notices. The badge is how many are still here — no read pile."""
+    """Pending notices. The badge is how many are still here, no read pile."""
 
     unread_changed = Signal(int)
     opened = Signal()
@@ -133,7 +133,7 @@ class NotificationsPanel(QWidget):
         self.unread_changed.emit(self._unread)
 
     def show_notice(self, notice_id: str) -> None:
-        """Select the row. The body already lives on the row — do not clone it."""
+        """Select the row. The body already lives on the row, do not clone it."""
         self._open_id = notice_id
         for i in range(self.list.count()):
             item = self.list.item(i)

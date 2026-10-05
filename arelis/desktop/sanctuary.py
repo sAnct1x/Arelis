@@ -1,4 +1,4 @@
-"""Hard refuses: shells, OS trees, elevation. Not a confirm — not her job."""
+"""Hard refuses: shells, OS trees, elevation. Not a confirm, not her job."""
 
 from __future__ import annotations
 
@@ -184,7 +184,7 @@ def refuse_launch_target(target: str) -> str | None:
     if looks_like_raw_path(raw):
         return (
             "Raw paths are refused. Use an app name (notepad, calculator) "
-            "or a Start Menu title — not an .exe path."
+            "or a Start Menu title, not an .exe path."
         )
     if is_denied_exe(raw):
         return f"{exe_basename(raw) or raw!r} is not something I start."
@@ -223,7 +223,7 @@ def password_field(into: str = "", name: str = "") -> bool:
 def refuse_secret_type(*, into: str = "", name: str = "", is_password: bool = False) -> str | None:
     if is_password or password_field(into, name):
         return (
-            "Your turn — I do not type passwords, PINs, or OTP codes. "
+            "Your turn: I do not type passwords, PINs, or OTP codes. "
             "Hit Go when you are done."
         )
     return None

@@ -6,7 +6,7 @@ from PySide6.QtWidgets import QLabel, QPlainTextEdit, QVBoxLayout, QWidget
 
 
 class ThinkingPanel(QWidget):
-    """The interesting part — how she thinks. Housekeeping sits under it."""
+    """The interesting part, how she thinks. Housekeeping sits under it."""
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)

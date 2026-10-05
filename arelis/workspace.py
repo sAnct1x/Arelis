@@ -340,10 +340,10 @@ class WorkspaceRoots:
     ) -> ResolvedPath:
         """Map a caller path to a real path inside an allowed root.
 
-        Qualifiers are config keys only — never joined into the filesystem path
+        Qualifiers are config keys only, never joined into the filesystem path
         before the name→root lookup. resolve() runs before the containment test
         so ".." and symlinks cannot escape. External read grants are never used
-        here — use resolve_read() for list/read/analyze/vision/doc_extract.
+        here, use resolve_read() for list/read/analyze/vision/doc_extract.
 
         for_create and for_write both reject read_only roots (edit uses for_write).
         """
@@ -499,7 +499,7 @@ def _soften_existing(path: Path) -> Path:
 
     Operators type `readme` or wrong-case stems; exact Path joins miss
     `README.md`. Only remaps when a unique sibling (or unique stem match)
-    exists — never invents a path for creates.
+    exists, never invents a path for creates.
     """
     if path.exists():
         return path
@@ -554,7 +554,7 @@ def compose_stt_initial_prompt(config: dict, workspace: WorkspaceRoots) -> str:
     """Bias Whisper toward wake/jargon seed, then at most two project names.
 
     Seed first so project names cannot bury "Hey Arelis". Keep the whole string
-    short — Whisper often regurgitates a long initial_prompt as the transcript.
+    short, Whisper often regurgitates a long initial_prompt as the transcript.
     """
     stt = (config.get("voice") or {}).get("stt") or {}
     seed = str(stt.get("initial_prompt") or "").strip() or "Hey Arelis."

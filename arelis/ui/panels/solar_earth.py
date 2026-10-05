@@ -878,7 +878,7 @@ class SolarEarthMixin:
         return True
 
     def _face_earth_north(self) -> None:
-        """Click the compass — heading 0, keep the current look."""
+        """Click the compass, heading 0, keep the current look."""
         pitch = -90.0
         if self._globe_hpr is not None:
             pitch = float(self._globe_hpr[1])
@@ -1358,7 +1358,7 @@ class SolarEarthMixin:
         )
 
     def _fly_ride_sit(self, ent) -> None:
-        """Leave 20 Mm the same way a place hop does — a fly, not a snap."""
+        """Leave 20 Mm the same way a place hop does, a fly, not a snap."""
         from arelis.earth.frames import MEAN_R, ecef_to_geodetic
 
         host = self._globe_host

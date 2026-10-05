@@ -662,7 +662,7 @@ async def try_diagnostics(loop: Any, ctx: TurnContext, r: RoundScratch) -> str:
     Found by generalising the document gate: `apply_force_gates` only nudges,
     and every row in that table wants an inject behind it. This one is the
     worst of them. A model that keeps answering in prose produced *"Yes, the
-    tests pass — the suite is green"* with **no tool call at all** — a claim the
+    tests pass, the suite is green"* with **no tool call at all**, a claim the
     user will act on, invented whole. That is the top complaint in the audit,
     in one line.
 
@@ -694,7 +694,7 @@ _DOCUMENT_MIN_BODY = 120
 async def try_document(loop: Any, ctx: TurnContext, r: RoundScratch) -> str:
     """ "Create a pdf about X" has to end in a file, not a chat message.
 
-    The `document` ForceGate in gates.py already covers this — and it only
+    The `document` ForceGate in gates.py already covers this, and it only
     *nudges*. `apply_force_gates` appends the notice and retries, once, and a
     nudge is a request the model can decline. Every other intent of this weight
     has an inject behind the nudge; document had nothing, so declining cost
@@ -705,7 +705,7 @@ async def try_document(loop: Any, ctx: TurnContext, r: RoundScratch) -> str:
     The body is her own prose, verbatim. That is the whole reason this is safe
     to inject: she wrote the content, she just put it in the wrong container,
     so converting it invents nothing. A guessed document body would be worse
-    than no document at all — hence the length floor below rather than a nudge
+    than no document at all, hence the length floor below rather than a nudge
     on an empty answer.
     """
     if not (
@@ -733,9 +733,9 @@ async def try_document(loop: Any, ctx: TurnContext, r: RoundScratch) -> str:
 async def try_recall(loop: Any, ctx: TurnContext, r: RoundScratch) -> str:
     """ "What did I say about X" must reach the transcripts, not a shrug.
 
-    Roadmap 4.0. The intent was already detected — the RECALL IntentSpec
-    matches, preflight writes a nudge, and `recall` lands in `_expected_tools`
-    — and nothing acted on it. If the model answered in prose, or reached for
+    Roadmap 4.0. The intent was already detected, the RECALL IntentSpec
+    matches, preflight writes a nudge, and `recall` lands in `_expected_tools`,
+    and nothing acted on it. If the model answered in prose, or reached for
     `web_search` (which is hidden before dispatch on a recall turn, so it never
     runs), the turn ended in *"I don't know"* with the right tool sitting
     there unused.
@@ -745,7 +745,7 @@ async def try_recall(loop: Any, ctx: TurnContext, r: RoundScratch) -> str:
     that path runs. This is the same shape as try_tasks and try_goals: a
     no-call backstop, one stage, because preflight has already done the asking.
 
-    Not `local_store_inject_args` either — that has no recall branch and would
+    Not `local_store_inject_args` either, that has no recall branch and would
     produce `{"action": "list"}`, which is not this tool's shape.
     """
     if not (
@@ -935,13 +935,13 @@ async def try_inspect(loop: Any, ctx: TurnContext, r: RoundScratch) -> str:
 
     Every other intent of this weight already has a step in this tuple. This
     one did not, so preflight could detect the ask, map it to a file, and write
-    a nudge naming that file — and ignoring all of it ended the turn in prose.
+    a nudge naming that file, and ignoring all of it ended the turn in prose.
     Measured 2026-09-17: six phrasings failed 50-70% of runs that way.
 
     Deliberately last in INJECT_STEPS. The failures are turns where no tool ran
     at all, so this only has to cover the floor, and running last means an ask
     that some other step recognises keeps its own handler. "show me the Drive
-    strip" is the live example — it is a tile ask and a source ask at once, and
+    strip" is the live example, it is a tile ask and a source ask at once, and
     try_tile should keep winning it.
 
     Requires a mapped path, because injecting a guessed one would be its own

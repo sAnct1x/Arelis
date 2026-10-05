@@ -92,11 +92,11 @@ async def run_job_async(job: Job, config: dict[str, Any] | None = None) -> int:
         status = "ok"
         try:
             body = await build_briefing(config)
-            subject = f"{job.name} — {stamp}"
+            subject = f"{job.name}, {stamp}"
         except Exception as exc:
             log.exception("Briefing job %s failed while building", job.id)
             status = f"failed: {exc}"[:120]
-            subject = f"{job.name} failed — {stamp}"
+            subject = f"{job.name} failed, {stamp}"
             body = (
                 f"The scheduled briefing **{job.name}** did not finish.\n\n{exc}"
             )
@@ -128,14 +128,14 @@ async def run_job_async(job: Job, config: dict[str, Any] | None = None) -> int:
 
     if collector.error:
         status = f"failed: {collector.error[:120]}"
-        subject = f"{job.name} failed — {stamp}"
+        subject = f"{job.name} failed, {stamp}"
         body = (
             f"The scheduled job **{job.name}** did not finish.\n\n"
             f"{collector.error}\n\n"
             f"Prompt: {job.prompt}"
         )
     else:
-        subject = f"{job.name} — {stamp}"
+        subject = f"{job.name}, {stamp}"
         body = collector.answer or "The turn produced no answer."
         if collector.refused:
             # Say so rather than silently dropping it. A job that keeps trying

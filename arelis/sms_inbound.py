@@ -99,7 +99,7 @@ def format_sms_chat_line(msg: InboundSms, *, max_body: int = CHAT_BODY_CHARS) ->
 
 
 def format_sms_voice_cue(msg: InboundSms) -> str:
-    """Short TTS cue — name only, never the full body."""
+    """Short TTS cue, name only, never the full body."""
     return f"Text from {msg.display_from}."
 
 
@@ -160,7 +160,7 @@ def format_held_inbound_flush(
 
 
 def format_held_inbound_voice_cue(messages: list[InboundSms]) -> str:
-    """One short TTS cue for a held batch — names only."""
+    """One short TTS cue for a held batch, names only."""
     msgs = [m for m in messages if m is not None]
     if not msgs:
         return ""

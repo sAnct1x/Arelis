@@ -1,4 +1,4 @@
-"""Throwaway stills she took to look — not pictures she made for you.
+"""Throwaway stills she took to look, not pictures she made for you.
 
 Browser / desk / OCR-screen captures live under outputs/images/ with a
 prefix. After vision or OCR reads one, it goes. Leftovers from a crashed
@@ -38,7 +38,7 @@ _hold = False
 
 
 def hold_look_files(on: bool) -> None:
-    """This turn asked to keep the capture — forget/sweep must not unlink it."""
+    """This turn asked to keep the capture, forget/sweep must not unlink it."""
     global _hold
     _hold = bool(on)
 

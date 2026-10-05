@@ -202,7 +202,7 @@ def _draw_flights(painter: QPainter, r: float, detail: int) -> None:
 
 
 def _draw_military(painter: QPainter, r: float, detail: int) -> None:
-    """Delta fighter, twin fins — not the airliner."""
+    """Delta fighter, twin fins, not the airliner."""
     del detail
     delta = QPolygonF(
         [
@@ -268,7 +268,7 @@ def _draw_satellites(painter: QPainter, r: float, detail: int, ink: QColor) -> N
 
 
 def _draw_iss(painter: QPainter, r: float, ink: QColor) -> None:
-    """Truss and four solar wings — the station, not a ring."""
+    """Truss and four solar wings, the station, not a ring."""
     del ink
     _line(painter, -r * 0.96, 0.0, r * 0.96, 0.0)
     painter.drawRect(QRectF(-r * 0.16, -r * 0.14, r * 0.32, r * 0.28))
@@ -305,7 +305,7 @@ def _draw_people(painter: QPainter, r: float, ink: QColor) -> None:
 
 
 def _draw_radar(painter: QPainter, r: float) -> None:
-    """Dish on a stem — a sweep, not a diamond."""
+    """Dish on a stem, a sweep, not a diamond."""
     _line(painter, 0.0, r * 0.86, 0.0, r * 0.04)
     _line(painter, -r * 0.24, r * 0.86, r * 0.24, r * 0.86)
     painter.drawArc(QRectF(-r * 0.72, -r * 0.78, r * 1.44, r * 1.20), 20 * 16, 140 * 16)

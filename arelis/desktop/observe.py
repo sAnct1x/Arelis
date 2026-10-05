@@ -1,7 +1,7 @@
 """A look is sight: grab, then read. Highlighting is not required.
 
 Whole-page OCR first. If they named a problem / paragraph and it is
-missing — or the page is huge and the first pass is empty — tile the
+missing, or the page is huge and the first pass is empty, tile the
 still and read again. Misses stay misses. Do not invent the page.
 """
 

@@ -1,7 +1,7 @@
 """Idle wake via openWakeWord (no Whisper on ambient clips).
 
 Requires a custom ONNX under models/wake/ (see models/wake/README.md). Runtime
-never trains — training is an offline Piper-synthetic pipeline.
+never trains, training is an offline Piper-synthetic pipeline.
 """
 
 from __future__ import annotations

@@ -1,7 +1,7 @@
 """Who did they mean? One answer, for every channel that has to address someone.
 
 `sms_complete` and `email_complete` both turn a spoken name into a person, and
-both then project that person onto their own channel — SMS wants the book
+both then project that person onto their own channel, SMS wants the book
 *alias* (the phone is resolved later, by the tool), email wants the literal
 address. The projection is genuinely different. The lookup was not, and having
 it written twice cost a real bug:
@@ -11,7 +11,7 @@ it written twice cost a real bug:
     "Sam Brightly"    brightley           you@example.com   ← the user
 
 One mistyped letter in a surname, and the email went to a different person.
-Not to a failure, not to a card saying "I don't have an address for them" — to
+Not to a failure, not to a card saying "I don't have an address for them", to
 a valid-looking mailbox the user recognises, on a confirm card that reads
 correctly, because `EmailDraft.complete` only asks whether *an* address was
 found. The SMS side had been immune for a year: `_fuzzy_person_match` tolerates
@@ -24,7 +24,7 @@ question asked once.
 
 The non-`me` preference is the third thing, and it had quietly stopped
 working. `resolve_sms_alias` carries a comment saying it prefers a real
-contact over the owner's own card when several match a first name — but
+contact over the owner's own card when several match a first name, but
 `match_contact_label` returns on a substring hit before that code is ever
 reached, so "text sam" resolved to the owner while a Sam sat in the book. The
 preference now applies across the whole loose tier, which is where it was
@@ -107,7 +107,7 @@ def find_contact(name: str, book: dict[str, Contact]) -> Contact | None:
     Three tiers, narrowest first, because the cost of a wrong answer here is a
     message delivered to someone who was never mentioned:
 
-    1. An exact key — alias, nickname, title, or a number they typed.
+    1. An exact key, alias, nickname, title, or a number they typed.
     2. A multi-token name, matched whole and then with a fuzzy last name. It
        stops here either way: "Sam Brightley" must never degrade into "sam",
        which is how a short alias on another card steals a full name.

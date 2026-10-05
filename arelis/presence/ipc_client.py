@@ -1,4 +1,4 @@
-"""Asyncio IPC client (UI side) — receive core events onto the local EventBus."""
+"""Asyncio IPC client (UI side), receive core events onto the local EventBus."""
 
 from __future__ import annotations
 

@@ -89,7 +89,7 @@ def record_model_setup_complete(*, tag: str) -> None:
 
 
 def _configured_fast() -> str:
-    """Only a tag this copy pinned locally — not the shipped default.yaml."""
+    """Only a tag this copy pinned locally, not the shipped default.yaml."""
     path = LOCAL_CONFIG_PATH
     if not path.is_file():
         return ""

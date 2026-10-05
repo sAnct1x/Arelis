@@ -5,7 +5,7 @@ confirm card. A wrong permanent fact or preference poisons every future answer,
 which is why the gate is a capability click rather than a prompt instruction.
 Proposed facts from the rolling summary are a separate path and stay pending
 until the History dock approves them. Episodes are never auto-written from
-every turn — only via this tool (or an explicit confirm path that calls
+every turn, only via this tool (or an explicit confirm path that calls
 add_episode with source=confirm).
 """
 
@@ -59,12 +59,12 @@ class MemoryTool:
     description = (
         "Read back, remember, or forget a durable fact, store a preference, "
         "record a project decision, or save a short episode summary. Use "
-        "action=list when they ask what you remember or know about them — "
+        "action=list when they ask what you remember or know about them"
         "that reads the stored facts directly and needs no confirmation; "
         "recall searches conversation transcripts, which is a different "
         "question. Use "
         "action=remember ONLY when the user explicitly asks to remember "
-        "something durable about them (e.g. 'remember that I climb') — never "
+        "something durable about them (e.g. 'remember that I climb'), never "
         "because you read a file or want to 'keep something in mind' for this "
         "turn. Use action=prefer (or remember with type=preference) for "
         "key/value prefs, action=decide for project-scoped decisions, "
@@ -193,7 +193,7 @@ class MemoryTool:
         )
 
     def _list(self, kwargs: dict[str, Any]) -> ToolResult:
-        """Read back what is stored. No confirm card — see MEMORY_WRITE_ACTIONS."""
+        """Read back what is stored. No confirm card, see MEMORY_WRITE_ACTIONS."""
         try:
             limit = int(kwargs.get("limit") or 20)
         except (TypeError, ValueError):
@@ -241,7 +241,7 @@ class MemoryTool:
                 # all-projects query. Saying "none" here would be a wrong
                 # answer to a question that was never asked.
                 lines.append(
-                    "Decisions are filed per project — name one to list them."
+                    "Decisions are filed per project, name one to list them."
                 )
 
         if not lines:

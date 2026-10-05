@@ -1,7 +1,7 @@
 """Desk notes: the tool behind `keep this:` / `/keep`.
 
 `write_note` in `arelis.desk` is the only store. add calls that. list / search /
-read stay inside each workspace root's `notes/` folder — no walk, no drive
+read stay inside each workspace root's `notes/` folder, no walk, no drive
 scan. Parent policy should treat add as a write:
 
     NOTES_WRITE_ACTIONS = frozenset({"add"})
@@ -35,7 +35,7 @@ _READ_CHARS = 8000
 class NotesTool:
     name = "notes"
     description = (
-        "Desk notes under the active project's notes/ folder — the same "
+        "Desk notes under the active project's notes/ folder, the same "
         "pages 'keep this' / /keep already write. add needs text (optional "
         "title) and calls the existing desk writer; list titles, dates, and "
         "paths; search note bodies by keyword; read one note by id or path. "
@@ -159,7 +159,7 @@ class NotesTool:
                 data={"notes": []},
             )
         lines = [
-            f"{row['date'] or '—'}  {row['title']}  {row['path']}" for row in rows
+            f"{row['date'] or '-'}  {row['title']}  {row['path']}" for row in rows
         ]
         lines.append(f"{len(rows)} note(s).")
         return ToolResult(ok=True, output="\n".join(lines), data={"notes": rows})

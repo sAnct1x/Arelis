@@ -1,4 +1,4 @@
-"""UI Automation snapshot of the focused window — refs like the browser DOM."""
+"""UI Automation snapshot of the focused window, refs like the browser DOM."""
 
 from __future__ import annotations
 

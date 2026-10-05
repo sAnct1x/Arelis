@@ -1,4 +1,4 @@
-"""Show or hide an Arelis View-menu tile. No Allow — it is the window itself."""
+"""Show or hide an Arelis View-menu tile. No Allow, it is the window itself."""
 
 from __future__ import annotations
 

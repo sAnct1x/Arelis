@@ -57,7 +57,7 @@ class WindowLifetime:
         the window is short-lived: the callback arrives later, touches widgets
         whose C++ halves have since been deleted, and takes the process with it.
 
-        ``QTimer.singleShot`` cannot be cancelled, so the shot still fires — it
+        ``QTimer.singleShot`` cannot be cancelled, so the shot still fires, it
         just finds a disposed window and returns. That is the whole mechanism.
         """
         QTimer.singleShot(
@@ -68,8 +68,8 @@ class WindowLifetime:
     def dispose(self) -> None:
         """Release everything that outlives a hidden window. Idempotent.
 
-        ``closeEvent`` is the app's teardown and does much more than this — layout
-        save, asyncio shutdown, tray, model unload — but it stops only four of the
+        ``closeEvent`` is the app's teardown and does much more than this, layout
+        save, asyncio shutdown, tray, model unload, but it stops only four of the
         nine timers and never removes the application-wide event filter, because
         the process was about to end anyway.
 
@@ -148,7 +148,7 @@ class WindowLifetime:
             self.hide()
             self._tray.showMessage(
                 "Arelis",
-                "Still running in the tray — inbound texts keep working. "
+                "Still running in the tray, inbound texts keep working. "
                 "Quit from the tray menu to stop fully.",
                 QSystemTrayIcon.MessageIcon.Information,
                 4000,
@@ -258,7 +258,7 @@ class WindowLifetime:
         """Take floating instruments with the glass when it leaves the screen.
 
         A docked instrument is a child widget and disappears with its parent. A
-        floating one is a top-level window of its own — ``apply_dock_chrome``
+        floating one is a top-level window of its own, ``apply_dock_chrome``
         gives it ``Qt.Window``, where every other companion surface here is a
         ``Qt.Tool`` and so is hidden by Qt along with its parent. The panel
         therefore stayed on screen with the glass in the tray, and the next launch
@@ -314,8 +314,8 @@ class WindowLifetime:
     def _remember_window_state(self) -> None:
         """Record maximized/full-screen before hiding, ignoring Minimized.
 
-        Minimized is never worth coming back to — somebody asking for the window
-        wants to see it — and it is also what the OS leaves set if the glass was
+        Minimized is never worth coming back to, somebody asking for the window
+        wants to see it, and it is also what the OS leaves set if the glass was
         minimized on its way to the tray.
         """
         state = self.windowState()

@@ -1,17 +1,17 @@
 """The pieces every "did they mention a file?" regex is built from.
 
-Two modules scan chat and tool notes for a path — `document_refs` for things
+Two modules scan chat and tool notes for a path, `document_refs` for things
 that can be opened or emailed, `image_refs` for things vision can look at. They
 were written separately, and the difference between them was a bug rather than
 a design:
 
-`document_refs` grew a POSIX-absolute branch with a comment explaining why —
+`document_refs` grew a POSIX-absolute branch with a comment explaining why
 "Windows CI never sees this hole: tmp_path is C:\\... and the drive-letter
 alternative matches. Ubuntu pytest writes /tmp/pytest-of-runner/... and the
 note was dropped." `image_refs` never got that branch. So on any machine
 without drive letters, `/tmp/x/arelis_1234.png` was not recognised as a path at
 all, and `latest_generated_image_path` fell through to "newest file in
-outputs/images" — which means she looks at *a different picture* than the one
+outputs/images", which means she looks at *a different picture* than the one
 that was named, and says nothing about the substitution.
 
 Both also matched inside URLs. `https://example.com/documents/report.pdf`
@@ -19,7 +19,7 @@ produced the local path `documents/report.pdf`, and the image one produced
 `s://example.com/outputs/images/cat.png`, having started the match at the `s`
 in `https`.
 
-The regexes stay separate — they look for different directories and different
+The regexes stay separate, they look for different directories and different
 suffixes, and merging them would mean one pattern with a suffix parameter,
 which is harder to read than either. What is shared here is the answer to
 "what does an absolute path look like, and where may one start", so that the

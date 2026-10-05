@@ -1,4 +1,4 @@
-"""Deterministic intent hints — close the knowing-doing gap for clear cases.
+"""Deterministic intent hints, close the knowing-doing gap for clear cases.
 
 Does **not** call tools or bypass confirm. It only injects a short system nudge
 when the user's text already names who/what clearly enough that a 7B still
@@ -125,7 +125,7 @@ _BROWSER = re.compile(
     r")\b"
 )
 
-# Work after the tab loads — not just "go to x.com / login if needed".
+# Work after the tab loads, not just "go to x.com / login if needed".
 _OPEN_ASK_MORE_WORK = re.compile(
     r"(?i)\b("
     r"add\s+\S.+\s+to\s+(?:(?:the|my)\s+)?(?:cart|bag)|"
@@ -163,7 +163,7 @@ _BROWSER_SCREENSHOT = re.compile(
     r")"
 )
 
-# Look at a monitor or a window on the desk — not her Chrome, not the webcam.
+# Look at a monitor or a window on the desk, not her Chrome, not the webcam.
 _DESK_SIDE = r"(?:left|right|other|second|2nd|vertical|top|bottom|upper|lower)"
 _DESK_ORD = (
     r"(?:\d+(?:st|nd|rd|th)|first|second|third|fourth|fifth|"
@@ -288,9 +288,9 @@ _EXPLICIT_SMS_VERB = re.compile(
     r"(?i)^\s*(?:text|sms|txt|send\s+(?:a\s+)?(?:text|sms|message))\b"
 )
 
-# See one local image (VL) — not Comfy generate.
-# "analyze" is in here because it is the word the user actually says for this —
-# "analyze the picture I sent you" — and it used to route nowhere. It is also the
+# See one local image (VL), not Comfy generate.
+# "analyze" is in here because it is the word the user actually says for this, 
+# "analyze the picture I sent you", and it used to route nowhere. It is also the
 # name of the table tool, so an image ask reached a pandas reader that answers
 # "Unsupported file type: .png". The verb only counts next to an image noun, which
 # leaves "analyze sales.csv" with the table tool where it belongs.
@@ -331,7 +331,7 @@ _BROWSER_ALIASES = (
 
 
 def looks_like_room_create(text: str) -> bool:
-    """True for 'make me a room for X' — not living rooms or 'make room'."""
+    """True for 'make me a room for X', not living rooms or 'make room'."""
     raw = text or ""
     if re.search(
         r"(?i)\b(?:living|dining|bed|hotel|guest)\s+room\b|"
@@ -368,7 +368,7 @@ def draft_rooms_create_args(text: str) -> dict[str, str]:
 
 
 def looks_like_browser_click_signin(text: str) -> bool:
-    """True for 'go to sign in' / 'click Sign in' — not 'how do I sign in'."""
+    """True for 'go to sign in' / 'click Sign in', not 'how do I sign in'."""
     raw = text or ""
     if HOWTO_SIGNIN.search(raw):
         return False
@@ -416,7 +416,7 @@ _DESKTOP = re.compile(
 
 
 def looks_like_desktop_ask(text: str) -> bool:
-    """True for 'open notepad' / 'use the computer' — not a browser URL."""
+    """True for 'open notepad' / 'use the computer', not a browser URL."""
     raw = text or ""
     if not _DESKTOP.search(raw):
         return False
@@ -461,7 +461,7 @@ def looks_like_desktop_look(
         matched = _prior_desk_look(history)
     if not matched:
         return False
-    # A camera noun is a camera look — "desk camera", "problem on the webcam".
+    # A camera noun is a camera look, "desk camera", "problem on the webcam".
     # "look at this book" has no camera word and stays the desk.
     if re.search(r"(?i)\b(?:cameras?|webcams?|cams?)\b", raw):
         return False
@@ -497,7 +497,7 @@ def user_asked_for_desktop(
 def user_asked_for_browser(text: str) -> bool:
     """True when this utterance is already a grant to drive her window.
 
-    Bare URLs in a scrape/summarize ask are not a grant — those still pause
+    Bare URLs in a scrape/summarize ask are not a grant, those still pause
     if she offers the window after a JS shell.
     """
     raw = text or ""
@@ -810,7 +810,7 @@ def detect_intents(
 
     # Only the narrow ask pattern forces doc_extract. The DOCS spec also matches a
     # bare mention of "pdf", which turns up in "email me the pdf" and "save it as
-    # a pdf" — neither is a request to read one, so that half stays a hint to the
+    # a pdf", neither is a request to read one, so that half stays a hint to the
     # subset rather than an expected call.
     if DOC_ASK.search(raw):
         hints.append(
@@ -819,15 +819,15 @@ def detect_intents(
                 expected_tools=("doc_extract",),
                 # The closing clause is not boilerplate. Written without it, this
                 # nudge routed correctly and the 7B still answered in prose three
-                # times out of three — it hedged about needing access instead of
+                # times out of three, it hedged about needing access instead of
                 # calling. Every sibling nudge in this file ends the same way.
                 nudge=(
                     "Intent preflight: this message asks about the contents of a "
                     "document. Call doc_extract now with the path. Do not call "
-                    "analyze — that reads spreadsheets only — and do not quote the "
+                    "analyze, that reads spreadsheets only, and do not quote the "
                     "document before the tool returns. Prefer the newest PDF in "
                     "outputs/documents/ that you wrote this session, not an older "
-                    "file from another chat. Allow still applies — do "
+                    "file from another chat. Allow still applies, do "
                     "not ask permission in chat."
                 ),
             )
@@ -844,12 +844,12 @@ def detect_intents(
                 expected_tools=("desktop",),
                 nudge=(
                     "Intent preflight: they want you to see something on a "
-                    "monitor or window on this PC — a book, a problem, a "
-                    "paragraph — not the webcam and not her Chrome. Call "
+                    "monitor or window on this PC, a book, a problem, a "
+                    "paragraph, not the webcam and not her Chrome. Call "
                     "desktop(action=screenshot, target=1|left|the window "
                     f"title).{find_bit} That grab already reads the text. "
                     "Answer from it. Call vision only for a diagram. Do not "
-                    "invent the page. Allow still applies — do not ask "
+                    "invent the page. Allow still applies, do not ask "
                     "permission in chat."
                 ),
             )
@@ -863,7 +863,7 @@ def detect_intents(
                     "Intent preflight: this message asks to see what is on the "
                     "open browser page. Call browser(action=screenshot) first, "
                     "then vision with the Saved path from that result. Do not "
-                    "invent pixel contents. Allow still applies — do not ask "
+                    "invent pixel contents. Allow still applies, do not ask "
                     "permission in chat."
                 ),
             )
@@ -879,12 +879,12 @@ def detect_intents(
                     "browser(action=maps, destination=the place). That opens "
                     "Google Maps in her window and returns a phone link. "
                     + (
-                        "They asked to text it — then send_sms to me/myself "
+                        "They asked to text it, then send_sms to me/myself "
                         "with that phone link. "
                         if send
                         else "Only call send_sms if they asked to text the link. "
                     )
-                    + "Do not scrape. Allow still applies — do not ask "
+                    + "Do not scrape. Allow still applies, do not ask "
                     "permission in chat."
                 ),
             )
@@ -900,8 +900,8 @@ def detect_intents(
                     "time=7pm, party=2, site=opentable). That opens the search "
                     "with party/date/time in the URL. Do not scrape. Type remaining "
                     "non-secret fields after they pick a time. Never click Book / "
-                    "Reserve / Confirm — that is their turn. Allow still applies "
-                    "— do not ask permission in chat."
+                    "Reserve / Confirm, that is their turn. Allow still applies, "
+                    "do not ask permission in chat."
                 ),
             )
         )
@@ -918,7 +918,7 @@ def detect_intents(
                     "youtube|google|amazon). That opens results in her window. "
                     "Do not scrape or web_search instead. Then click(nth=1) "
                     "if they asked to play/open the first result, or click "
-                    "by text. Allow still applies — do not ask permission "
+                    "by text. Allow still applies, do not ask permission "
                     "in chat."
                 ),
             )
@@ -931,8 +931,8 @@ def detect_intents(
                 nudge=(
                     "Intent preflight: this message asks to add something to "
                     "a cart. Call browser(action=click, text='Add to cart'). "
-                    "Do not click Checkout / Pay / Buy now — that is their "
-                    "turn. Allow still applies — do not ask permission in chat."
+                    "Do not click Checkout / Pay / Buy now, that is their "
+                    "turn. Allow still applies, do not ask permission in chat."
                 ),
             )
         )
@@ -944,14 +944,14 @@ def detect_intents(
                 nudge=(
                     "Intent preflight: this message asks to open Sign in on "
                     "the tab she is already on. Call "
-                    "browser(action=click, text='Sign in') — or snapshot then "
+                    "browser(action=click, text='Sign in'), or snapshot then "
                     "click the header Sign in by ref, not the sidebar pitch. "
                     "Do not stop after snapshot to list refs. There is no "
-                    "goto_sign_in or sign_in action — do not invent a URL or a "
+                    "goto_sign_in or sign_in action, do not invent a URL or a "
                     "receipt. If they give a username or email, type it into a "
                     "non-secret field after snapshot. "
-                    "Never type a password or OTP — that is their turn. Allow "
-                    "still applies — do not ask permission in chat."
+                    "Never type a password or OTP, that is their turn. Allow "
+                    "still applies, do not ask permission in chat."
                 ),
             )
         )
@@ -970,7 +970,7 @@ def detect_intents(
                 nudge=(
                     f"Intent preflight: they want result #{nth} on this tab. "
                     f"Call browser(action=click, nth={nth}). Do not invent a URL. "
-                    "Allow still applies — do not ask permission in chat."
+                    "Allow still applies, do not ask permission in chat."
                 ),
             )
         )
@@ -982,11 +982,11 @@ def detect_intents(
                 nudge=(
                     "Intent preflight: this message asks what is on the open "
                     "tab. Call browser(action=read) for compact text of that "
-                    "page as it is now. Answer from that text — describe the "
+                    "page as it is now. Answer from that text, describe the "
                     "tab (title, Sign in, ads, sidebar); do not recap a previous "
                     "search list unless the read still shows those titles. Do "
                     "not scrape or web_fetch instead. Use screenshot + vision "
-                    "only if they asked to see pixels. Allow still applies — "
+                    "only if they asked to see pixels. Allow still applies, "
                     "do not ask permission in chat."
                 ),
             )
@@ -999,10 +999,10 @@ def detect_intents(
                 nudge=(
                     "Intent preflight: this message asks to use an app on "
                     "the Windows session. Call desktop(action=open, "
-                    "target=notepad) — or the app they named — then type / "
+                    "target=notepad), or the app they named, then type / "
                     "click / press. Do not call browser for a native app. "
                     "Do not call run_script or a shell. Never start cmd or "
-                    "PowerShell. Allow still applies — do not ask "
+                    "PowerShell. Allow still applies, do not ask "
                     "permission in chat."
                 ),
             )
@@ -1015,12 +1015,12 @@ def detect_intents(
                 nudge=(
                     "Intent preflight: this message asks to open a site in "
                     "Arelis' Chrome. Call browser(action=open, url or "
-                    "alias like youtube) — that opens the URL in her window. "
+                    "alias like youtube), that opens the URL in her window. "
                     "Use browser=firefox and private=true only if they "
                     "asked for Firefox private; otherwise leave browser=default. "
                     "Do not scrape instead of opening. Do not call relaunch "
                     "unless they need click/screenshot control. Allow still "
-                    "applies — do not ask permission in chat."
+                    "applies, do not ask permission in chat."
                 ),
             )
         )
@@ -1063,7 +1063,7 @@ def detect_intents(
                     "image/screenshot/diagram. Call vision with the path (and "
                     "optional question). Do not invent pixel contents."
                     f"{path_hint} Use image only to generate via ComfyUI. "
-                    "Allow still applies — do not ask permission in chat."
+                    "Allow still applies, do not ask permission in chat."
                 ),
             )
         )
@@ -1082,7 +1082,7 @@ def detect_intents(
                     "Intent preflight: an image is attached and they asked "
                     "what is in it. Call vision with the staged path. Do not "
                     "send_sms. Do not invent pixel contents. Allow still "
-                    "applies — do not ask permission in chat."
+                    "applies, do not ask permission in chat."
                 ),
             )
         )
@@ -1100,13 +1100,13 @@ def detect_intents(
                     "picture (size, crop, strength, or a text overlay). Call "
                     "image_edit with the staged path or the latest "
                     "outputs/images/ file if they said 'the picture you just "
-                    "created'. For 'add text … that says X' pass text=X — that "
+                    "created'. For 'add text … that says X' pass text=X, that "
                     "is not send_sms. Crop the left/right half or crop to the "
                     "center is crop=left/right/center. Upscale / make it bigger "
                     "/ 2x is scale=2. Do not call the calculator for a "
-                    "resolution. Do not call image — that generates a new "
+                    "resolution. Do not call image, that generates a new "
                     "picture from a prompt. Do not call vision. Allow still "
-                    "applies — do not ask permission in chat."
+                    "applies, do not ask permission in chat."
                 ),
             )
         )
@@ -1128,7 +1128,7 @@ def detect_intents(
                     "picture is mask_region= + path. Do not web_search for "
                     "stock photos. Do not claim you cannot generate images. "
                     "Do not invent a file path for a new picture. Allow still "
-                    "applies — do not ask permission in chat."
+                    "applies, do not ask permission in chat."
                 ),
             )
         )
@@ -1146,7 +1146,7 @@ def detect_intents(
                     "Intent preflight: this message asks to create or edit a "
                     "file under the workspace. Call workspace with "
                     "action=write or action=edit (path + content/old/new). "
-                    "Do not use send_sms or contacts. Allow still applies — "
+                    "Do not use send_sms or contacts. Allow still applies, "
                     "do not ask permission in chat."
                 ),
             )
@@ -1155,7 +1155,7 @@ def detect_intents(
     if INBOX.matches(raw) and not _EMAIL_SEND_VERB.match(raw):
         hints.append(INBOX.to_hint())
 
-    # Affirmation after an attachment turn — keep the model on the prior file ask.
+    # Affirmation after an attachment turn, keep the model on the prior file ask.
     # Orchestrator may already have expanded "yea" into a Continue… block; match both.
     attachment_continue = (
         "Continue the prior request about these attachments" in raw
@@ -1197,7 +1197,7 @@ def detect_intents(
                 nudge=(
                     "Intent preflight: delete/cancel a calendar event now. "
                     "Call agenda with action=delete and the event title "
-                    "(and time if known). The tool resolves the id — do not "
+                    "(and time if known). The tool resolves the id, do not "
                     "ask the user to paste a Google event id. To remove the "
                     "named event, pass keep=0. Only pass keep=1 when they "
                     "asked to delete extra copies of the same title+time. "
@@ -1300,9 +1300,9 @@ def detect_intents(
                     "Intent preflight: this message asks to create an Arelis "
                     f"room named {name}. Call rooms(action=create) with that "
                     "name and a short purpose from the topic. Do not enter the "
-                    "room yourself — tell them to say let's work on "
+                    "room yourself, tell them to say let's work on "
                     f"{name} or type /room {name}. Do not design furniture. "
-                    "Allow still applies — do not ask permission in chat."
+                    "Allow still applies, do not ask permission in chat."
                 ),
             )
         )
@@ -1317,8 +1317,8 @@ def detect_intents(
                         "or on a timer. Call schedule now: create_briefing for the "
                         "canned morning digest, or create with a stand-alone prompt "
                         "for any other recurring job. Do not send_email, send_sms, "
-                        "or weather this turn — those run when the job fires. "
-                        "Allow still applies — do not ask permission in chat."
+                        "or weather this turn, those run when the job fires. "
+                        "Allow still applies, do not ask permission in chat."
                     ),
             )
         )
@@ -1443,7 +1443,7 @@ def detect_intents(
                     nudge=(
                         "Intent preflight: this message asks to list or change "
                         "a saved job. Call schedule (list or delete). Do not "
-                        "weather, send_email, or send_sms this turn — a word "
+                        "weather, send_email, or send_sms this turn, a word "
                         "in a job name is not the ask."
                     ),
                 )
