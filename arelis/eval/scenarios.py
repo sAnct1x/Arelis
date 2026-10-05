@@ -212,6 +212,31 @@ SCENARIOS: list[Scenario] = [
         ],
     ),
     Scenario(
+        id="orbit_year_days_forces_calculator",
+        user="don't guess, how many earth days is 11.86 years",
+        expect_tools=("calculator",),
+        failure_class="knowing_doing_gap",
+        notes=(
+            "Spoken years-to-days must force the calculator. Reciting 4307 "
+            "(11.8*365) without a tool is the night-theme defect."
+        ),
+        script=[
+            [("token", "That's about 4,307 days.")],
+            [
+                (
+                    "tool_calls",
+                    [
+                        _tool_call(
+                            "calculator",
+                            {"expression": "11.86 * 365.25"},
+                        )
+                    ],
+                )
+            ],
+            [("token", "About 4332 days.")],
+        ],
+    ),
+    Scenario(
         id="news_forces_web_evidence",
         user="What did the WSJ say about AI virus genomes?",
         expect_tools=("web_search", "scrape"),
