@@ -15,7 +15,9 @@ keeps.
 The finished folders live next to her data folder, not inside it, so
 an uninstall that wipes Arelis data does not take them with it. On a
 normal Windows install that is a sibling of `%LOCALAPPDATA%\Arelis`
-named `Arelis-backups`.
+named `Arelis-backups`. After a wipe uninstall, Arelis tells you those
+safety copies were kept and can open that folder for you. You can
+delete them any time.
 
 This starts with 0.3.0. The 0.2.9 to 0.3.0 upgrade is made by 0.2.9,
 which has no backup code, so copy the data folder by hand first.
