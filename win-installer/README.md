@@ -211,3 +211,12 @@ A scripted full removal: `unins000.exe /SILENT /wipe=yes`.
 
 Never removed: a system Ollama install, `%USERPROFILE%\.ollama`, or
 this repository.
+
+## Installer smoke test
+
+CI runs `.github/workflows/installer-smoke.yml` after the Windows installer
+build (and on demand via `workflow_dispatch`). It silent-installs the setup
+exe, probes `import arelis.ui.launch` / `arelis.ui.solar_gl`, looks for a real
+top-level window from `{app}\python.exe -m arelis --config ...`, then exercises
+upgrade, downgrade, and wipe uninstall. Logs land in the `installer-smoke-logs`
+artifact. See `scripts/installer_smoke.py`.

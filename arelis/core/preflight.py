@@ -59,6 +59,7 @@ from arelis.core.intent_catalog import (
     INBOX,
     IntentHint,
     corrects_a_path,
+    first_unnegated,
     inspect_preflight_nudge,
     mentions_tabular_data,
 )
@@ -78,6 +79,7 @@ from arelis.core.tile_complete import match_tile_intent
 
 __all__ = [
     "IntentHint",
+    "declined_desk_look",
     "detect_intents",
     "draft_browser_args",
     "draft_desktop_screenshot_args",
@@ -438,9 +440,15 @@ def _prior_desk_look(history: list[Any] | None) -> bool:
             continue
         if role != "user":
             continue
-        if _DESK_LOOK.search(content):
+        if first_unnegated(_DESK_LOOK, content):
             return True
     return False
+
+
+def declined_desk_look(text: str) -> bool:
+    """A desk phrase that was only ever declined ("don't look at my screen")."""
+    raw = text or ""
+    return bool(_DESK_LOOK.search(raw)) and not first_unnegated(_DESK_LOOK, raw)
 
 
 def looks_like_desktop_look(
@@ -448,8 +456,8 @@ def looks_like_desktop_look(
 ) -> bool:
     """True for 'look at my right monitor' / 'do you see problem 2.22'."""
     raw = text or ""
-    matched = bool(_DESK_LOOK.search(raw))
-    if not matched and history and _DESK_LOOK_FOLLOWUP.search(raw):
+    matched = bool(first_unnegated(_DESK_LOOK, raw))
+    if not matched and history and first_unnegated(_DESK_LOOK_FOLLOWUP, raw):
         matched = _prior_desk_look(history)
     if not matched:
         return False
@@ -496,7 +504,7 @@ def user_asked_for_browser(text: str) -> bool:
     if looks_like_browser_click_signin(raw):
         return True
     return bool(
-        _BROWSER.search(raw)
+        first_unnegated(_BROWSER, raw)
         or BROWSER_SEARCH.search(raw)
         or BROWSER_MAPS.search(raw)
         or BROWSER_CART.search(raw)
@@ -999,7 +1007,7 @@ def detect_intents(
                 ),
             )
         )
-    elif _BROWSER.search(raw) and not looks_like_calendar_open(raw):
+    elif first_unnegated(_BROWSER, raw) and not looks_like_calendar_open(raw):
         hints.append(
             IntentHint(
                 kind="browser",
