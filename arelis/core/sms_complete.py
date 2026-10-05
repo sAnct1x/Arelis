@@ -25,6 +25,7 @@ from arelis.core.confirm_patterns import (
     send_confirm_pattern,
 )
 from arelis.core.contact_match import find_contact
+from arelis.core.intent_catalog import first_unnegated
 
 # Re-exported, not merely imported. Fourteen modules and the test suite reach
 # for these through this module's name, so moving them to `utterance_guards`
@@ -549,7 +550,9 @@ def parse_sms_utterance(text: str) -> SmsDraft | None:
         return None
 
     # Pronoun recipient: "send her another text and tell her that …"
-    pro = _PRONOUN_SMS.search(raw)
+    # A send verb after "don't" / "no need to" / "why did you" in the same
+    # clause is a decline or a complaint, never a draft.
+    pro = first_unnegated(_PRONOUN_SMS, raw)
     if pro:
         pronoun = (pro.group("pronoun") or pro.group("pronoun2") or "her").lower()
         body = _clean_body(pro.group("body") or pro.group("body2") or "")
@@ -564,7 +567,7 @@ def parse_sms_utterance(text: str) -> SmsDraft | None:
             recipients=(pronoun,),
         )
 
-    match = _SMS_SEND.search(raw)
+    match = first_unnegated(_SMS_SEND, raw)
     if not match:
         return None
     to_raw = match.group("to") or ""
