@@ -113,6 +113,15 @@ class _PrepareWorker(QThread):
                 if problem:
                     self._fail("install_engine", problem)
                     return
+                # Exit code 0 is not enough. Prove ollama.exe is on the path
+                # before we claim install worked and try to pull.
+                if find_ollama_exe() is None:
+                    self._fail(
+                        "install_engine",
+                        "The engine installer finished but the local engine "
+                        "was not found.",
+                    )
+                    return
             self._stage = "start_engine"
             problem = start_ollama()
             if problem:
@@ -432,9 +441,13 @@ class ModelSetupDialog(GlassDialog):
 
 
 def prompt_for_model_setup(parent: QWidget | None = None) -> str | None:
-    """Show the model glass when needed. Returns the tag, or None if skipped."""
+    """Show the model glass when needed. Tag only after prepare succeeds."""
     if not needs_model_setup():
         return None
     dialog = ModelSetupDialog(parent)
     dialog.exec()
+    # Incomplete close must not look like success. _picked is set in __init__,
+    # so returning it always opened the mute main window with a failed chat model.
+    if needs_model_setup():
+        return None
     return dialog._picked.tag if dialog._picked else None
