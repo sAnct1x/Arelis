@@ -265,9 +265,9 @@ def has_look_context(
 ) -> bool:
     """True when this utterance is bound to a webcam still (not a file ask)."""
     raw = text or ""
-    from arelis.core.preflight import looks_like_desktop_look
+    from arelis.core.preflight import declined_desk_look, looks_like_desktop_look
 
-    if looks_like_desktop_look(raw, history=history):
+    if looks_like_desktop_look(raw, history=history) or declined_desk_look(raw):
         return False
     if mentions_camera_look(raw):
         return True

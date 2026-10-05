@@ -511,3 +511,48 @@ def test_report_outline_is_not_a_calculator_ask() -> None:
     assert plan is not None
     assert plan.id != "document"
     assert "document" in select_plan("Write the result as a PDF I can open.").steps
+
+
+def test_first_unnegated_skips_declined_hits() -> None:
+    import re
+
+    from arelis.core.intent_catalog import first_unnegated
+
+    pat = re.compile(r"(?i)look\s+at\s+the\s+book")
+    hit = first_unnegated(pat, "look at the book")
+    assert hit is not None and hit.group(0) == "look at the book"
+    assert first_unnegated(pat, "no need to look at the book") is None
+    assert first_unnegated(pat, "why did you look at the book") is None
+    assert first_unnegated(pat, "I shouldn't look at the book") is None
+    assert first_unnegated(pat, "") is None
+    # A negation in an earlier sentence does not carry over to a new request.
+    later = first_unnegated(pat, "no need to rush. look at the book")
+    assert later is not None and later.group(0) == "look at the book"
+    # The second hit counts when only the first one is declined.
+    both = first_unnegated(pat, "no need to look at the book. then look at the book")
+    assert both is not None and both.start() > 20
+
+
+def test_complaint_vocabulary_vetoes_diagnostics() -> None:
+    assert DIAGNOSTICS.matches("run diagnostics")
+    for text in (
+        "why did you run diagnostics",
+        "why would you run diagnostics",
+        "no need to run diagnostics",
+        "you shouldn't run diagnostics",
+        "you didn't need to run diagnostics",
+    ):
+        assert not DIAGNOSTICS.matches(text), text
+
+
+def test_clause_negation_word_list() -> None:
+    import re
+
+    from arelis.core.intent_catalog import first_unnegated
+
+    pat = re.compile(r"(?i)look\s+at\s+the\s+book")
+    assert first_unnegated(pat, "don\u2019t look at the book") is None
+    assert first_unnegated(pat, "why don't you look at the book") is not None
+    assert first_unnegated(pat, "never mind, look at the book") is not None
+    assert first_unnegated(pat, "I never look at the book") is None
+    assert not DIAGNOSTICS.matches("don\u2019t run diagnostics")
