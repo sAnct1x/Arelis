@@ -36,13 +36,13 @@ winget install -e --id JRSoftware.InnoSetup
 
 ## What it produces
 
-`win-installer/dist/Arelis/` is around 640 MB. A directory that runs
+`win-installer/dist/Arelis/` is around 0.9 GB. A directory that runs
 Arelis with nothing installed and nothing on PATH.
 
 `win-installer/dist/Arelis-0.3.0-win64-setup.exe` is the same tree,
 compressed, installing per-user into `%LOCALAPPDATA%\Programs\Arelis`.
 
-Where the 640 MB goes, largest first: Playwright's driver, Qt, PyAV's
+Where most of that goes, largest first: Playwright's driver, Qt, PyAV's
 FFmpeg, CTranslate2, ONNX Runtime, NumPy, pandas, sherpa-onnx,
 espeak-ng. That is the cost of speech, a browser, and dataframes on this
 PC instead of a server.
