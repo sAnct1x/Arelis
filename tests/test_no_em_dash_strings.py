@@ -1,8 +1,9 @@
 """Guard: user-facing / prompt string literals must not contain em dashes.
 
 Scans non-docstring string literals under arelis/ via ast, plus shipped
-persona and v0.3.0 release-note text the app shows. Comments, docstrings,
-and other docs (including CONTRIBUTING.md) are out of scope.
+persona text, project docs in scope of the public voice pass, and
+v0.3.0 release-note text the app shows. Comments and docstrings are
+out of scope. docs/earth.md and docs/roadmap/ stay frozen.
 """
 
 from __future__ import annotations
@@ -41,9 +42,15 @@ _TEXT_FILES = (
 )
 _TEXT_ALLOW = frozenset(
     {
-        "docs/whats-new.md",  # release history
         "docs/earth.md",  # frozen
     }
+)
+
+_DOC_FILES = (
+    "README.md",
+    "CONTRIBUTING.md",
+    "SECURITY.md",
+    "win-installer/README.md",
 )
 
 
@@ -117,10 +124,34 @@ def test_no_em_dash_in_shipped_prompt_and_release_text() -> None:
         rel = path.as_posix()
         if rel in _TEXT_ALLOW or rel.startswith("docs/roadmap/"):
             continue
-        if rel.startswith("docs/releases/") or rel in _TEXT_FILES:
+        for lineno in _scan_text(path):
+            bad.append(f"{rel}:{lineno}")
+    assert not bad, "em dash in shipped text:\n" + "\n".join(bad)
+
+
+def test_no_em_dash_in_project_docs() -> None:
+    """Public docs in the voice-pass scope must not grow an em dash back."""
+    bad: list[str] = []
+    for rel in _DOC_FILES:
+        path = Path(rel)
+        if not path.is_file():
+            continue
+        for lineno in _scan_text(path):
+            bad.append(f"{rel}:{lineno}")
+    for folder in (Path(".github") / "ISSUE_TEMPLATE", Path(".github") / "DISCUSSION_TEMPLATE"):
+        if not folder.is_dir():
+            continue
+        for path in folder.iterdir():
+            if path.suffix.lower() not in {".md", ".yml", ".yaml"}:
+                continue
+            rel = path.as_posix()
             for lineno in _scan_text(path):
                 bad.append(f"{rel}:{lineno}")
-    assert not bad, "em dash in shipped text:\n" + "\n".join(bad)
+    pr = Path(".github/pull_request_template.md")
+    if pr.is_file():
+        for lineno in _scan_text(pr):
+            bad.append(f"{pr.as_posix()}:{lineno}")
+    assert not bad, "em dash in project docs:\n" + "\n".join(bad)
 
 
 def test_scanner_flags_a_temp_file_with_an_em_dash() -> None:

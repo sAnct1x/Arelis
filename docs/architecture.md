@@ -1,9 +1,9 @@
 # How the code is put together
 
 This is a map of the tree as it exists right now. Install steps and
-day-to-day use live in the [README](../README.md). This doc is just
-the "how it actually works underneath" version. Living notes for
-whatever you've checked out are in [whats-new.md](whats-new.md).
+day-to-day use live in the [README](../README.md). This doc is how it
+actually works underneath. Living notes for whatever you've checked
+out are in [whats-new.md](whats-new.md).
 
 Arelis is a local tool-calling agent running on this PC. The model
 itself never leaves this machine. Everything outside it (the web,
@@ -34,8 +34,8 @@ app itself is `android/arelis-notify/`. When your PC is reachable,
 chat on the phone is literally the same live session. When it isn't,
 the phone keeps its own seat and just picks up the conversation.
 Any Gemma-generated words from that time sync back once the PC is up
-again. The APK and the offline brain come from this PC when they are
-here (`/companion/*` on ingest). Off the LAN, phone and PC meet
+again. The APK and the on-phone Gemma copy come from this PC when they
+are here (`/companion/*` on ingest). Off the LAN, phone and PC meet
 through `arelis/relay/`, a mailbox that cannot read the bytes. If the
 house is not holding a poll, the phone is told to use Gemma. See
 [notify-inbound.md](notify-inbound.md).
@@ -227,10 +227,9 @@ defaults it to false. Don't flip it on just to "go faster."
 (build, chrome, lifetime, turns, aliases). Docks are hosts, not
 methods on that file. Filament is a second GUI on the same window.
 
-An empty session is what we call orbit: a warm void, a ring, and a
-text box underneath it. Typing stays there until you actually send
-it. Once you do, you land in the full workbench: chat, composer, and
-docks.
+An empty session is orbit: a warm void, a ring, and a text box
+underneath it. Typing stays there until you actually send it. Once
+you do, you land in the full workbench: chat, composer, and docks.
 
 | Piece | Job |
 |---|---|

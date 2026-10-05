@@ -18,8 +18,8 @@ workspace. **chats** is the PC history plus a new conversation. Allow on
 the phone is the same card as the PC: one press on either side settles
 it.
 
-When the PC is gone, chats and files wait. If you installed the offline
-brain at pair (Gemma 4 E2B, ~2.6 GB), she can talk and look at a photo
+When the PC is gone, chats and files wait. If you installed Gemma
+on the phone at pair (Gemma 4 E2B, ~2.6 GB), she can talk and look at a photo
 you just took. No mail, no SMS, no PC files. You stay in the
 conversation already on screen. When Arelis is back (even during “At
 the house · loading”), those words copy in, no prompt and no extra
@@ -67,7 +67,7 @@ are not flooded with backlog.
    LAN so the PC can reach the phone. You can talk immediately. SMS
    grants are not required for talk. The radio still starts on cellular
    if that is the only IPv4.
-5. After pair, install the offline brain (~2.6 GB) so she still talks
+5. After pair, install Gemma on the phone (~2.6 GB) so she still talks
    if the PC is down. The phone asks this PC first; Hugging Face is the
    fallback if the house has not cached it. **Download offline copy**, under
    If the scan doesn't work on Notify, pulls it onto the PC. Wait for Wi-Fi, or use mobile data on

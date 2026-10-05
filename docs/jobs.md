@@ -26,7 +26,7 @@ mail simply won't run.
 A one-off job with a specific date runs exactly once, then deletes
 itself.
 
-Worth noting: a morning briefing isn't actually a model turn at all.
+A morning briefing isn't actually a model turn at all.
 Weather, unread mail, and open loops get pulled together through a
 fixed template (`schedule action create_briefing`), and the runner
 recognizes it via the sentinel prompt `__arelis_briefing__`.

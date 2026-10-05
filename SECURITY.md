@@ -1,6 +1,6 @@
 # Security
 
-If you think you have found a hole, thank you. Please tell me privately.
+If you think you have found a hole, thank you. Tell me privately.
 A public issue puts a vulnerability on the front page of a local-first
 program, and that helps nobody.
 

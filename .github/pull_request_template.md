@@ -1,14 +1,14 @@
 ## What this changes
 
-<!-- In plain words, what does this PR do? -->
+<!-- In plain words. What did you change? -->
 
 ## Why
 
-<!-- Why is this change needed? What problem does it solve? -->
+<!-- What was wrong, or what were you trying to do? -->
 
 ## Testing
 
-<!-- How did you test this? -->
+<!-- What did you run? What did you actually try? -->
 
 ## Checklist
 

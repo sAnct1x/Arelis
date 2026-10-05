@@ -1,6 +1,6 @@
 # Arelis
 
-Arelis is a personal research assistant for Windows that runs entirely
+Arelis is a personal research assistant for Windows. She runs entirely
 on your PC. There's no account, no cloud API, and no data leaving your
 machine. She thinks using a local model through
 [Ollama](https://ollama.com/download), searches the web, drives her
@@ -13,7 +13,7 @@ first.
 ## What it does
 
 - Search the web and read pages
-- Drive its own browser window (separate from yours)
+- Drive her own browser window (separate from yours)
 - Work in folders you approve, keeping projects organized in rooms
 - Listen and speak (wake word, voice conversations, dictation)
 - Handle images (look at them, edit them, generate with local ComfyUI)
@@ -59,14 +59,14 @@ added later. The core program works without them.
 
 ## About this project
 
-Arelis is maintained by one person (Christopher Sommers, a 4th-year
-astrophysics student at OSU) as a hobby project in spare time. It's
-been about a year of on-and-off work, with updates coming in bursts
-around the school calendar. Help and feedback are welcome. See
-[CONTRIBUTING.md](CONTRIBUTING.md) for how to help out.
+I maintain Arelis. I'm Christopher Sommers, a 4th-year astrophysics
+student at OSU. Hobby project, spare time. It's been about a year of
+on-and-off work, with updates coming in bursts around the school
+calendar. Help and feedback are welcome. See
+[CONTRIBUTING.md](CONTRIBUTING.md) for how to help.
 
-Arelis is licensed under AGPL-3.0-or-later. For technical details about
-how the code is organized, see [architecture.md](docs/architecture.md).
+Arelis is licensed under AGPL-3.0-or-later. How the code is put
+together is in [architecture.md](docs/architecture.md).
 
 ## Privacy and safety
 
@@ -275,10 +275,9 @@ don't ship in the installer.
 ## Known limitations
 
 Test coverage is good for most features, but voice timing, the phone
-app, and image generation have mainly been tested on the author's
-hardware. If something behaves oddly on yours, open an issue. Current
-release is **0.3.0** - see [whats-new.md](docs/whats-new.md) for
-changes.
+app, and image generation have mainly been tested on my hardware. If
+something behaves oddly on yours, open an issue. Current release is
+**0.3.0** - see [whats-new.md](docs/whats-new.md) for changes.
 
 ## Further reading
 
@@ -304,9 +303,9 @@ Questions about setting up or using Arelis go in
 [Discussions](https://github.com/sAnct1x/Arelis/discussions), and so do
 ideas. Bugs go in [Issues](https://github.com/sAnct1x/Arelis/issues).
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). Found a security hole? Please
-report it privately per [SECURITY.md](SECURITY.md) rather than opening
-a public issue.
+See [CONTRIBUTING.md](CONTRIBUTING.md). Found a security hole? Tell me
+privately, per [SECURITY.md](SECURITY.md). Don't open a public issue
+for that.
 
 Nothing that identifies a real person should ever go into this
 repository. There's a test that enforces it.
