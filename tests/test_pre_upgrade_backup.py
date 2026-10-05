@@ -13,7 +13,7 @@ import pytest
 
 from arelis import backup
 from arelis.memory.backup import prune_memory_backups
-from arelis.paths import DATA_DIR_ENV, state_dir
+from arelis.paths import DATA_DIR_ENV, pre_upgrade_backups_dir, state_dir, user_data_dir
 from arelis.ui import update_prompt
 
 SENTINEL = "p08-secrets-sentinel-do-not-copy-7f3a1c"
@@ -51,6 +51,66 @@ def _seed_records(root: Path) -> None:
     media = root / "sms_media"
     media.mkdir()
     (media / "clip.bin").write_bytes(b"clip")
+
+
+def test_pre_upgrade_backup_lands_outside_the_wipe_tree(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A successful copy must not sit under records or the uninstall wipe root."""
+    root = _isolate_state(monkeypatch, tmp_path)
+    (root / "rooms.yaml").write_text("rooms: []\n", encoding="utf-8")
+
+    dest = backup.backup_before_upgrade("0.2.9")
+    assert dest is not None
+    assert dest.name == "pre-0.2.9"
+    dest_resolved = dest.resolve()
+    assert not dest_resolved.is_relative_to(root.resolve())
+    assert not dest_resolved.is_relative_to(state_dir().resolve())
+    assert not dest_resolved.is_relative_to(user_data_dir().resolve())
+    assert (root / "backups" / "pre-0.2.9").exists() is False
+
+
+def test_failed_backup_stops_the_upgrade(
+    qt_app, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from PySide6.QtWidgets import QWidget
+
+    order: list[str] = []
+    notices: list[str] = []
+
+    def fail_backup(from_version: str, to_version: str | None = None) -> None:
+        order.append("backup")
+        return None
+
+    def fake_notice(*args: object, **kwargs: object) -> None:
+        order.append("notice")
+        notices.append(str(args[2]) if len(args) > 2 else str(kwargs.get("message", "")))
+
+    def fake_start(installer: Path) -> None:
+        order.append("install")
+
+    quits: list[str] = []
+
+    monkeypatch.setattr(update_prompt, "backup_before_upgrade", fail_backup)
+    monkeypatch.setattr(update_prompt, "notice", fake_notice)
+    monkeypatch.setattr(update_prompt, "start_installer", fake_start)
+    monkeypatch.setattr(
+        update_prompt.QApplication, "quit", staticmethod(lambda: quits.append("quit"))
+    )
+
+    window = QWidget()
+    prompt = update_prompt.UpdatePrompt(window)
+    try:
+        prompt._on_downloaded(tmp_path / "setup.exe")
+        _pump_until(qt_app, lambda: "notice" in order)
+        assert order == ["backup", "notice"]
+        assert "install" not in order
+        assert quits == []
+        assert notices == [update_prompt.BACKUP_FAILED_NOTICE]
+        assert "still go ahead" not in update_prompt.BACKUP_FAILED_NOTICE.lower()
+        assert "stopped" in update_prompt.BACKUP_FAILED_NOTICE.lower()
+    finally:
+        window.deleteLater()
 
 
 def test_pre_upgrade_backup_never_contains_the_secrets_sentinel(
@@ -128,9 +188,10 @@ def test_retention_keeps_newest_two_pre_folders_and_nothing_else(
     third = backup.backup_before_upgrade("0.2.9")
     assert third is not None
 
-    backups = root / "backups"
+    backups = pre_upgrade_backups_dir()
     remaining = sorted(p.name for p in backups.iterdir() if p.name.startswith("pre-"))
     assert remaining == ["pre-0.2.8", "pre-0.2.9"]
+    assert not (root / "backups").exists()
     assert marker_in_state.read_text(encoding="utf-8") == "stay"
     assert marker_outside.read_text(encoding="utf-8") == "stay"
     assert (sibling / "rooms.yaml").read_text(encoding="utf-8") == "keep\n"
@@ -143,14 +204,17 @@ def test_prune_memory_backups_leaves_pre_upgrade_folders(
     (root / "rooms.yaml").write_text("rooms: []\n", encoding="utf-8")
     dest = backup.backup_before_upgrade("0.2.9")
     assert dest is not None
-    leftover = root / "backups" / "memory-20200101.db"
+    memory_backups = root / "backups"
+    memory_backups.mkdir(parents=True, exist_ok=True)
+    leftover = memory_backups / "memory-20200101.db"
     leftover.write_bytes(b"old")
     nested = dest / "memory-nested.db"
     nested.write_bytes(b"nested")
 
-    removed = prune_memory_backups(dest_dir=root / "backups", keep=0)
+    removed = prune_memory_backups(dest_dir=memory_backups, keep=0)
     assert removed == 1
     assert dest.is_dir()
+    assert not dest.resolve().is_relative_to(root.resolve())
     assert (dest / "rooms.yaml").is_file()
     assert nested.is_file()
     assert not leftover.exists()
@@ -173,7 +237,7 @@ def test_does_not_follow_a_symlink_out_of_state(
     assert not (dest / "rooms.yaml").exists()
 
 
-def test_backup_failure_does_not_block_the_installer(
+def test_backup_failure_does_not_start_the_installer(
     qt_app, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     from PySide6.QtWidgets import QWidget
@@ -199,8 +263,9 @@ def test_backup_failure_does_not_block_the_installer(
     prompt = update_prompt.UpdatePrompt(window)
     try:
         prompt._on_downloaded(installer)
-        _pump_until(qt_app, lambda: "install" in order)
-        assert order == ["backup", "notice", "install"]
+        _pump_until(qt_app, lambda: "notice" in order)
+        assert order == ["backup", "notice"]
+        assert "install" not in order
     finally:
         window.deleteLater()
 
@@ -281,7 +346,7 @@ def _pump_until(qt_app: object, predicate: object, timeout_s: float = 3.0) -> No
         time.sleep(0.01)
 
 
-def test_interrupted_copy_leaves_only_a_temp_folder_then_next_run_removes_it(
+def test_interrupted_copy_removes_its_temp_folder_right_away(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     root = _isolate_state(monkeypatch, tmp_path)
@@ -298,7 +363,7 @@ def test_interrupted_copy_leaves_only_a_temp_folder_then_next_run_removes_it(
     monkeypatch.setattr(backup, "_copy_allowlisted", boom)
     dest = backup.backup_before_upgrade("0.2.9")
     assert dest is None
-    backups = root / "backups"
+    backups = pre_upgrade_backups_dir()
     names = _backup_names(backups)
     assert not any(name.startswith("pre-") and not name.endswith(".partial") for name in names)
     temps = [
@@ -306,8 +371,7 @@ def test_interrupted_copy_leaves_only_a_temp_folder_then_next_run_removes_it(
         for path in backups.iterdir()
         if path.name.startswith(".") or path.name.endswith(".partial")
     ]
-    assert len(temps) == 1
-    assert temps[0].is_dir()
+    assert temps == []
 
     monkeypatch.setattr(backup, "_copy_allowlisted", real_copy)
     dest = backup.backup_before_upgrade("0.2.9")
@@ -333,7 +397,7 @@ def test_temp_folders_do_not_count_toward_retention(
     assert second is not None
     os.utime(second, (2_000_000, 2_000_000))
 
-    backups = root / "backups"
+    backups = pre_upgrade_backups_dir()
     zombie = backups / "pre-zombie.partial"
     zombie.mkdir()
     (zombie / "rooms.yaml").write_text("stale\n", encoding="utf-8")
@@ -428,7 +492,7 @@ def test_installer_waits_for_backup_thread(
         window.deleteLater()
 
 
-def test_failed_backup_shows_notice_once_then_starts_installer(
+def test_failed_backup_shows_notice_once_and_does_not_start_installer(
     qt_app, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     from PySide6.QtWidgets import QWidget
@@ -456,8 +520,9 @@ def test_failed_backup_shows_notice_once_then_starts_installer(
     prompt = update_prompt.UpdatePrompt(window)
     try:
         prompt._on_downloaded(tmp_path / "setup.exe")
-        _pump_until(qt_app, lambda: "install" in order)
-        assert order[:3] == ["backup", "notice", "install"]
+        _pump_until(qt_app, lambda: "notice" in order)
+        assert order == ["backup", "notice"]
+        assert "install" not in order
         assert notices == [update_prompt.BACKUP_FAILED_NOTICE]
     finally:
         window.deleteLater()
