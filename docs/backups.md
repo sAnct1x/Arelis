@@ -41,9 +41,10 @@ by pointing at it.
 She keeps the newest two `pre-*` folders and deletes older ones
 inside that backups folder only.
 
-If the copy fails, she shows a short notice and stops the update. The
-installer is not started. Try again when the disk has room, or copy
-your records by hand first.
+If the copy fails, she shows a short notice and does not update.
+Nothing has changed. She'll offer the update again tomorrow. If this
+keeps happening, check that your disk has free space, or download the
+new version from the Arelis releases page.
 
 Running the setup `.exe` by hand over an existing install does not
 write this copy. There is no restore command in this version.

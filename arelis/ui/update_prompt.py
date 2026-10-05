@@ -49,9 +49,12 @@ _DELAY_MS = 8000
 _BACKUP_TIMEOUT_MS = 60_000
 
 BACKUP_FAILED_NOTICE = (
-    "A backup copy of your records could not be saved, so the update was stopped. "
-    "Try again when there is enough free space on the disk, or copy your records "
-    "by hand first."
+    "Arelis couldn't save a safety copy of your memory and settings, so she "
+    "didn't update. Nothing has changed. She'll offer the update again tomorrow."
+)
+BACKUP_FAILED_DETAIL = (
+    "If this keeps happening, check that your disk has free space, or download "
+    "the new version from the Arelis releases page."
 )
 
 
@@ -274,6 +277,7 @@ class UpdatePrompt(QObject):
                 self._window,
                 "Update Arelis",
                 BACKUP_FAILED_NOTICE,
+                detail=BACKUP_FAILED_DETAIL,
                 warning=True,
             )
             log.warning("pre-upgrade backup failed; not starting the installer")

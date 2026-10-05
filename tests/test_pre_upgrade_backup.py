@@ -85,11 +85,13 @@ def test_failed_backup_stops_the_upgrade(
     def fake_notice(*args: object, **kwargs: object) -> None:
         order.append("notice")
         notices.append(str(args[2]) if len(args) > 2 else str(kwargs.get("message", "")))
+        details.append(str(kwargs.get("detail", "")))
 
     def fake_start(installer: Path) -> None:
         order.append("install")
 
     quits: list[str] = []
+    details: list[str] = []
 
     monkeypatch.setattr(update_prompt, "backup_before_upgrade", fail_backup)
     monkeypatch.setattr(update_prompt, "notice", fake_notice)
@@ -107,8 +109,10 @@ def test_failed_backup_stops_the_upgrade(
         assert "install" not in order
         assert quits == []
         assert notices == [update_prompt.BACKUP_FAILED_NOTICE]
+        assert details == [update_prompt.BACKUP_FAILED_DETAIL]
+        assert "memory and settings" in update_prompt.BACKUP_FAILED_NOTICE
+        assert "tomorrow" in update_prompt.BACKUP_FAILED_NOTICE.lower()
         assert "still go ahead" not in update_prompt.BACKUP_FAILED_NOTICE.lower()
-        assert "stopped" in update_prompt.BACKUP_FAILED_NOTICE.lower()
     finally:
         window.deleteLater()
 
@@ -507,9 +511,12 @@ def test_failed_backup_shows_notice_once_and_does_not_start_installer(
     def fake_notice(*args: object, **kwargs: object) -> None:
         order.append("notice")
         notices.append(str(args[2]) if len(args) > 2 else str(kwargs.get("message", "")))
+        details.append(str(kwargs.get("detail", "")))
 
     def fake_start(installer: Path) -> None:
         order.append("install")
+
+    details: list[str] = []
 
     monkeypatch.setattr(update_prompt, "backup_before_upgrade", fail_backup)
     monkeypatch.setattr(update_prompt, "notice", fake_notice)
@@ -524,5 +531,66 @@ def test_failed_backup_shows_notice_once_and_does_not_start_installer(
         assert order == ["backup", "notice"]
         assert "install" not in order
         assert notices == [update_prompt.BACKUP_FAILED_NOTICE]
+        assert details == [update_prompt.BACKUP_FAILED_DETAIL]
     finally:
+        window.deleteLater()
+
+
+def test_backup_timeout_stops_the_upgrade_without_starting_installer(
+    qt_app, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Timeout must stop the update. Fails if the installer starts on timeout,
+    or if the backup timer is removed so the hung copy never finishes.
+    """
+    from PySide6.QtWidgets import QWidget
+
+    # The production constant must still be the 60s fallback; the test shortens it.
+    assert update_prompt._BACKUP_TIMEOUT_MS == 60_000
+    monkeypatch.setattr(update_prompt, "_BACKUP_TIMEOUT_MS", 50)
+
+    order: list[str] = []
+    notices: list[str] = []
+    details: list[str] = []
+    gate = threading.Event()
+
+    def hung_backup(from_version: str, to_version: str | None = None) -> Path | None:
+        order.append("backup")
+        gate.wait(timeout=5)
+        return None
+
+    def fake_notice(*args: object, **kwargs: object) -> None:
+        order.append("notice")
+        notices.append(str(args[2]) if len(args) > 2 else str(kwargs.get("message", "")))
+        details.append(str(kwargs.get("detail", "")))
+
+    def fake_start(installer: Path) -> None:
+        order.append("install")
+
+    quits: list[str] = []
+
+    monkeypatch.setattr(update_prompt, "backup_before_upgrade", hung_backup)
+    monkeypatch.setattr(update_prompt, "notice", fake_notice)
+    monkeypatch.setattr(update_prompt, "start_installer", fake_start)
+    monkeypatch.setattr(
+        update_prompt.QApplication, "quit", staticmethod(lambda: quits.append("quit"))
+    )
+
+    # Guard: the handoff must still arm a single-shot timer with the constant.
+    src = Path(update_prompt.__file__).read_text(encoding="utf-8")
+    assert "_backup_timer.start(_BACKUP_TIMEOUT_MS)" in src
+    assert "_on_backup_timeout" in src
+
+    window = QWidget()
+    prompt = update_prompt.UpdatePrompt(window)
+    try:
+        prompt._on_downloaded(tmp_path / "setup.exe")
+        _pump_until(qt_app, lambda: "notice" in order, timeout_s=3.0)
+        assert "backup" in order
+        assert order.count("notice") == 1
+        assert "install" not in order
+        assert quits == []
+        assert notices == [update_prompt.BACKUP_FAILED_NOTICE]
+        assert details == [update_prompt.BACKUP_FAILED_DETAIL]
+    finally:
+        gate.set()
         window.deleteLater()
