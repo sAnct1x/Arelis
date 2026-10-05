@@ -26,9 +26,9 @@ from arelis.ui.event_host import dispatch_event
 # English source. inbound_runtime.PHONE_NOTIFY_NEEDS_PAIRING must match once it exists.
 PHONE_NOTIFY_NEEDS_PAIRING = (
     "Phone notifications are turned on but not set up yet. "
-    "To finish, open Settings, go to Notify, pick Create a pairing code, then restart Arelis."
+    "To finish, open Settings, go to Notify, pick Create a pairing code."
 )
-PHONE_NOTIFY_NEEDS_PAIRING_ZH = "手机通知已经打开，但还没配对好。请打开设置，进入通知，点生成配对码，然后重启 Arelis。"
+PHONE_NOTIFY_NEEDS_PAIRING_ZH = "手机通知已经打开，但还没配对好。请打开设置，进入通知，点生成配对码。"
 
 PATH_IN_USER_TEXT = re.compile(
     r"(?i)(?:\bdata[/\\]|\.ya?ml\b|\b[a-z]:[\\/]|appdata|%localappdata%)"
