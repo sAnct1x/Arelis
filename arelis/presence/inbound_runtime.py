@@ -28,7 +28,7 @@ log = logging.getLogger(__name__)
 
 PHONE_NOTIFY_NEEDS_PAIRING = (
     "Phone notifications are turned on but not set up yet. "
-    "To finish, open Settings, go to Notify, and pick Create a pairing code."
+    "To finish, open Settings, go to Notify, pick Create a pairing code, then restart Arelis."
 )
 
 

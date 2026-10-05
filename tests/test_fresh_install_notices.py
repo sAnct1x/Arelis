@@ -26,8 +26,9 @@ from arelis.ui.event_host import dispatch_event
 # English source. inbound_runtime.PHONE_NOTIFY_NEEDS_PAIRING must match once it exists.
 PHONE_NOTIFY_NEEDS_PAIRING = (
     "Phone notifications are turned on but not set up yet. "
-    "To finish, open Settings, go to Notify, and pick Create a pairing code."
+    "To finish, open Settings, go to Notify, pick Create a pairing code, then restart Arelis."
 )
+PHONE_NOTIFY_NEEDS_PAIRING_ZH = "手机通知已经打开，但还没配对好。请打开设置，进入通知，点生成配对码，然后重启 Arelis。"
 
 PATH_IN_USER_TEXT = re.compile(
     r"(?i)(?:\bdata[/\\]|\.ya?ml\b|\b[a-z]:[\\/]|appdata|%localappdata%)"
@@ -284,6 +285,17 @@ def test_fresh_profile_window_shows_no_phone_notice(
             assert runtime.status_messages == [PHONE_NOTIFY_NEEDS_PAIRING]
             _flush_status(runtime)
             assert said == [tr(PHONE_NOTIFY_NEEDS_PAIRING)]
+            # Chinese UI: the chat line must be the translated text, so
+            # dropping tr() in event_host fails here.
+            from arelis.i18n import set_ui_language
+
+            said.clear()
+            set_ui_language("zh")
+            try:
+                _flush_status(runtime)
+                assert said == [PHONE_NOTIFY_NEEDS_PAIRING_ZH]
+            finally:
+                set_ui_language("en")
         finally:
             loop.run_until_complete(runtime.stop())
     finally:
