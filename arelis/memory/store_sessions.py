@@ -37,7 +37,7 @@ def start_glass_session(store: MemoryStore) -> str:
     """Cold glass launch: sit on the unused general shell, or mint one.
 
     Last night's real thread stays in History. An unused 'new chat' from
-    a short launch is reused — minting another is how three blank rows
+    a short launch is reused, minting another is how three blank rows
     stacked up. Extra unused general shells are pruned. Tray / un-minimize
     never call this.
 
@@ -56,7 +56,7 @@ def start_or_reuse_empty_session(store: MemoryStore, *, room_id: str) -> str:
     """Open the unused empty shell in this room, or mint one.
 
     Cold launch used to start a general 'new chat' and then swap to the
-    room's last filled thread — History showed both, and the old lecture
+    room's last filled thread, History showed both, and the old lecture
     was the one you landed in. Reuse the empty row so two 'new chat'
     titles do not fight. Extra unused shells in this room are deleted.
     """

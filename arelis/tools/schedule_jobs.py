@@ -212,7 +212,7 @@ class ScheduleTool:
         "weekdays, monthly, or every few hours. Use create_briefing for the "
         "fixed morning briefing (weather, unread mail, open loops). Use "
         "action=update with id plus whatever is changing to move a standing "
-        "job's time, days, or prompt — do not delete and recreate it, which "
+        "job's time, days, or prompt, do not delete and recreate it, which "
         "loses its id and run history. Also "
         "lists, deletes, and triggers saved jobs. Pass the user's own words "
         "for times and dates; this tool parses them, so never convert them "
@@ -327,7 +327,7 @@ class ScheduleTool:
         )
 
     def _create_briefing(self, kwargs: dict[str, Any]) -> ToolResult:
-        """Fixed morning digest — no free-form prompt for the model to invent."""
+        """Fixed morning digest, no free-form prompt for the model to invent."""
         payload = {
             **kwargs,
             "name": str(kwargs.get("name") or "Morning briefing").strip() or "Morning briefing",
@@ -344,7 +344,7 @@ class ScheduleTool:
                 output=(
                     result.output
                     + " Each run emails the fixed briefing (weather, unread mail, "
-                    "open loops, recent chats) — not a free-form research prompt."
+                    "open loops, recent chats), not a free-form research prompt."
                 ),
                 data={**result.data, "kind": "briefing"},
             )
@@ -409,7 +409,7 @@ class ScheduleTool:
             return ToolResult(
                 ok=False,
                 output=(
-                    "schedule update needs something to change — a time, "
+                    "schedule update needs something to change, a time, "
                     "days, prompt, name, or recipient."
                 ),
             )

@@ -1,7 +1,7 @@
 """Local task list in memory.db.
 
 list is free. add/update/done/reopen/remove/attach/detach need approval when
-confirm_writes is on — same argument-dependent gate as contacts.
+confirm_writes is on, same argument-dependent gate as contacts.
 """
 
 from __future__ import annotations
@@ -79,7 +79,7 @@ class TasksTool:
         "List, add, edit, complete, reopen, remove, or link local to-dos "
         "in memory.db. list open tasks (status=done|all; optional goal_id). "
         "add needs title. update needs id plus title/due/priority/"
-        "recurrence/parent_id — do not remove+add (loses id and goal). "
+        "recurrence/parent_id, do not remove+add (loses id and goal). "
         "priority high|normal|low. recurrence daily|weekly|weekdays|monthly "
         "with a YYYY-MM-DD due; done keeps the id and advances due. "
         "parent_id is a subtask; done fails while children are open. "

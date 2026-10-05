@@ -183,7 +183,7 @@ _TODAY_NEWS = re.compile(
 
 
 def wants_fresh_page_ask(text: str) -> bool:
-    """True for a current-events ask — not every sentence that says 'today'."""
+    """True for a current-events ask, not every sentence that says 'today'."""
     raw = text or ""
     low = raw.lower()
     if any(marker in low for marker in _NEWS_FRESH_MARKERS):
@@ -345,7 +345,7 @@ def _answer_has_quote_span(text: str) -> bool:
 
 
 _EMPTY_REPLY_NOTICE = (
-    "I thought through it and never wrote the answer — an empty reply, not a "
+    "I thought through it and never wrote the answer, an empty reply, not a "
     "crash or an unload. Say continue, or ask a smaller piece."
 )
 

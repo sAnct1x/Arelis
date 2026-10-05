@@ -3,7 +3,7 @@
 Small local models carry arguments across turns. After a cancelled SMS turn the
 7B answered "what is 17 times 19?" with ``calculator(to="wife", body="I love
 you.")``, and because tools accept ``**kwargs`` and read only the keys they
-declare, that landed as a bland "Missing expression." — a silent miss the model
+declare, that landed as a bland "Missing expression.", a silent miss the model
 retried instead of a correction it could act on.
 
 The judgement is schema-driven on purpose. An earlier keyword-only version
@@ -54,7 +54,7 @@ def cross_tool_arg_error(
 
     ``strict`` also corrects the partial case: valid arguments carrying one the
     tool never declared. Tools take ``**kwargs``, so that argument is dropped in
-    silence, and the reply is then built on a belief the tool never honoured —
+    silence, and the reply is then built on a belief the tool never honoured
     ``weather(days=2, latitude=39.7)`` answers for the profile location and says
     nothing about having ignored the coordinate. Being told beats being obeyed
     halfway.
@@ -91,7 +91,7 @@ def cross_tool_arg_error(
             f"It would be ignored rather than applied, so the answer would look "
             f"like it was honoured. Call `{tool}` again with only"
             f"{_own(declared)}"
-            + (f" — {', '.join(kept)} was fine — " if kept else " ")
+            + (f", {', '.join(kept)} was fine, " if kept else " ")
             + "or use the tool that does take it."
         )
     return None

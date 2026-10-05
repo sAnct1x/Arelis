@@ -82,7 +82,7 @@ def _write_round(ctx: TurnContext, r: RoundScratch) -> None:
 
     Goes through ``r``, not a local snapshot. A snapshot taken before a
     raise is how a wander-hide that already landed on the scratch could
-    still be undone when ``dispatch_calls`` blew up — next round would
+    still be undone when ``dispatch_calls`` blew up, next round would
     offer web_search again.
     """
     ctx.available = r.available
@@ -121,7 +121,7 @@ async def apply_no_call_path(
     Inject and finish decisions live in ``no_call_steps`` / ``no_call_finish``.
     Everything rebindable is a field on ``r``, so a nudge that takes the tool
     schemas away has already handed that decision to the next round by the
-    time this returns — or raises.
+    time this returns, or raises.
     """
     if not r.calls:
         # The model wrote a call as prose instead of making one, so the
@@ -399,7 +399,7 @@ async def apply_no_call_path(
         if stripped_run_now and not r.calls:
             await loop._finish(
                 "The job is already scheduled. It will run at the time "
-                "you set — no need to fire it now.",
+                "you set, no need to fire it now.",
                 r.sources,
                 streamed="",
             )

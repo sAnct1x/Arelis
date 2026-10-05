@@ -188,15 +188,15 @@ class Orchestrator(OrchestratorTurns, OrchestratorSlash, OrchestratorConfirm):
         goodbye hangs up the call, stop cancels the turn, a card hears
         allow / deny / rest-of-ask, and any other sentence on a send card
         rewrites the draft. Stop / allow / deny / pause / go also land
-        while she is mid-turn or a card is armed — conversation does not
+        while she is mid-turn or a card is armed, conversation does not
         have to be latched (filament one-shot yes, dictate while she
         drives).         After a stop, the next line is a normal turn with a
-        one-line note — the model decides. "What did you say" / "I didn't
-        hear that" replays the last spoken answer — no model turn, or she
+        one-line note, the model decides. "What did you say" / "I didn't
+        hear that" replays the last spoken answer, no model turn, or she
         asks what they wanted repeated. Headset barge-in arrives as a
         normal turn and cancels the running one first. Speakers with
         barge_in_as_turn false still send deliver ``control`` so only stop /
-        allow / deny / pause / go land — soup does not start a turn.
+        allow / deny / pause / go land, soup does not start a turn.
         """
         text = (event.payload.get("text") or "").strip()
         if not text:
@@ -529,7 +529,7 @@ class Orchestrator(OrchestratorTurns, OrchestratorSlash, OrchestratorConfirm):
 
         STATUS paints the line and ASSISTANT_DONE releases the composer; a
         branch that publishes only the first leaves the box disabled.
-        Setup questions stay off STATUS — that line is the thinking-dock
+        Setup questions stay off STATUS, that line is the thinking-dock
         footer, not her voice.
 
         Conversation mode speaks the same line. Slash-command dumps

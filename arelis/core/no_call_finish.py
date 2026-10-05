@@ -166,7 +166,7 @@ async def try_evidence(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: in
 
 
 async def try_ink_vision(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: int) -> str:
-    """Ink PDF extract is not an answer — vision the page images next."""
+    """Ink PDF extract is not an answer, vision the page images next."""
     if not (
         ctx.ink_page_images
         and "vision" not in loop.tools_used

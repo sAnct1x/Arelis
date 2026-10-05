@@ -2,15 +2,15 @@
 
 These are the "not that" guards. None of them decides what a turn *is*; each
 answers whether a turn is a greeting, arithmetic, a file write, a goals ask, a
-URL, an image generation — one of the things that must not be mistaken for the
+URL, an image generation, one of the things that must not be mistaken for the
 body of a half-finished message, or arm a tool surface that has nothing to do
 with it.
 
 They lived in ``sms_complete`` because SMS is where each one was first needed,
 and that is a bad address for them twice over. The smaller cost is that the
 fattest module in ``core`` got fatter every time a new phrasing turned up. The
-larger one is the import it forced: ``intent_catalog.is_tiny_prompt_ask`` —
-whose whole job is deciding that a turn needs no tools at all — reached into
+larger one is the import it forced: ``intent_catalog.is_tiny_prompt_ask``
+whose whole job is deciding that a turn needs no tools at all, reached into
 the SMS draft reconstructor to find out whether someone had said hello.
 
 Nothing here knows about SMS, and nothing here should learn. A guard that has
@@ -281,12 +281,12 @@ def looks_like_contacts_followup(text: str, history: list[Any] | None = None) ->
 
 
 def looks_like_look_or_file(text: str) -> bool:
-    """True for vision / OCR / attach / git / clipboard turns — not an SMS body."""
+    """True for vision / OCR / attach / git / clipboard turns, not an SMS body."""
     return bool(_LOOK_OR_FILE.search(text or ""))
 
 
 def looks_like_greeting(text: str) -> bool:
-    """True for hello / how-are-you — not an SMS body and not a news ask."""
+    """True for hello / how-are-you, not an SMS body and not a news ask."""
     return bool(_GREETING.match((text or "").strip()))
 
 
@@ -329,7 +329,7 @@ def looks_like_math_ask(text: str) -> bool:
 
 
 def looks_like_describe_followup(text: str) -> bool:
-    """True for 'just describe it' after a failed image — not an SMS body."""
+    """True for 'just describe it' after a failed image, not an SMS body."""
     return bool(_DESCRIBE_FOLLOWUP.match((text or "").strip()))
 
 

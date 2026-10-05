@@ -158,7 +158,7 @@ def attach_inbound(
                 else:
                     runtime.status_messages.append(
                         f"Port {ingest_port} was already in use, so inbound "
-                        f"notify is on {server.port} instead — update the phone "
+                        f"notify is on {server.port} instead, update the phone "
                         f"companion to {primary}"
                     )
                 try:

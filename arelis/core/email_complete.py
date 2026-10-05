@@ -2,7 +2,7 @@
 
 Small models often split "email Brian about dinner" and the body across turns,
 then invent a different subject on the confirm card. This module reconstructs a
-draft so preflight and the agent loop can nudge with concrete args — still never
+draft so preflight and the agent loop can nudge with concrete args, still never
 sends without Allow.
 """
 
@@ -49,7 +49,7 @@ _EMAIL_FILE_TO = re.compile(
     r"(?:to\s+)?(?P<to>[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})"
 )
 
-# Image/photo only — never use this to attach a random generated PNG to an
+# Image/photo only, never use this to attach a random generated PNG to an
 # "email this document / xlsx" turn.
 _IMAGE_ATTACH_CUE = re.compile(
     r"(?i)\b(?:that|the|this|an?)\s+(?:image|photo|picture|png)\b|"
@@ -174,7 +174,7 @@ def looks_like_schedule_manage(text: str) -> bool:
 
 
 def looks_like_mailbox_mutate(text: str) -> bool:
-    """True for delete/trash/archive that email — inbox, not send_email."""
+    """True for delete/trash/archive that email, inbox, not send_email."""
     return bool(_MAILBOX_MUTATE.search(text or ""))
 
 
@@ -238,7 +238,7 @@ _SCHEDULE_TIME = re.compile(
 
 
 def looks_like_bare_confirm(text: str) -> bool:
-    """A one-word 'confirm' after Allow already created the job — not run_now."""
+    """A one-word 'confirm' after Allow already created the job, not run_now."""
     return bool(_BARE_CONFIRM.match(text or ""))
 
 
@@ -377,7 +377,7 @@ _SKIP_TO = frozenset(
     }
 )
 
-# "email it to me" / model to="it to me" — pronoun, not a recipient name.
+# "email it to me" / model to="it to me", pronoun, not a recipient name.
 _IT_TO_PREFIX = re.compile(r"(?i)^it(?:\s+to)?\s+(?P<who>.+)$")
 
 
@@ -406,7 +406,7 @@ _ASKED_FOR_FIELDS = re.compile(
 # The assistant having offered to send. This module had no such pattern for a
 # year, because it had nothing to use one in: its Case C revived a draft on any
 # confirmation regardless of whether anything had been offered. Same verbs as
-# SMS — both of these are sends, and "shall I send it" reads the same whether
+# SMS, both of these are sends, and "shall I send it" reads the same whether
 # the thing being sent has a subject line.
 _PROCEED_ASK = proceed_ask_pattern("send", "sending", r"confirm(?:ation)?")
 
@@ -420,8 +420,8 @@ _EMAIL_VERB = re.compile(
 # Revive a prior complete draft when the user just confirms send (R4 / S10).
 #
 # This is where the copy-drift showed: the trailing allowance here was
-# `(?:\s+please)?`, so "yes, please" — which confirms a text and a calendar
-# event — confirmed nothing, and the user had to say it twice. Sharing the
+# `(?:\s+please)?`, so "yes, please", which confirms a text and a calendar
+# event, confirmed nothing, and the user had to say it twice. Sharing the
 # skeleton is what stops that being invisible.
 _SEND_CONFIRM = send_confirm_pattern(
     r"send\s+(?:the\s+)?(?:e-?mail|mail|it|that)",
@@ -492,7 +492,7 @@ class EmailDraft:
     def complete(self) -> bool:
         """Ready to force/send: body set, recipient resolvable (or self).
 
-        Subject may be empty — fill/force defaults it so a missing subject alone
+        Subject may be empty, fill/force defaults it so a missing subject alone
         does not skip the Allow card on the first ask. An attachment alone with
         a short body is also enough.
         """
@@ -624,7 +624,7 @@ def named_address_in_text(text: str) -> str:
 
 
 def looks_like_email_also_ask(text: str) -> bool:
-    """True for 'did you email X as well?' — not a new compose body."""
+    """True for 'did you email X as well?', not a new compose body."""
     return bool(_EMAIL_ALSO_ASK.search(text or ""))
 
 
@@ -752,7 +752,7 @@ def _clean_text(raw: str) -> str:
 
 
 def _self_email() -> str:
-    """The user's inbox for me/myself/empty — never Arelis's SMTP from-address."""
+    """The user's inbox for me/myself/empty, never Arelis's SMTP from-address."""
     from arelis.mail import owner_inbox
 
     return owner_inbox()
@@ -795,7 +795,7 @@ def _extract_file_path(text: str) -> str:
 
 
 def _looks_like_analyze_file_ask(text: str) -> bool:
-    """Summarize/analyze a local table or JSON — not compose, unless they said email."""
+    """Summarize/analyze a local table or JSON, not compose, unless they said email."""
     raw = text or ""
     if _EMAIL_VERB.search(raw):
         return False
@@ -935,7 +935,7 @@ def parse_email_utterance(text: str) -> EmailDraft | None:
         return None
     attach = _extract_file_path(raw)
 
-    # Prefer literal "email … to user@host" when a file/path/media cue is present —
+    # Prefer literal "email … to user@host" when a file/path/media cue is present, 
     # otherwise fall through to the normal compose parser.
     # A send verb after "don't" / "no need to" / "why did you" in the same
     # clause is a decline or a complaint, never a draft.
@@ -986,7 +986,7 @@ def parse_email_utterance(text: str) -> EmailDraft | None:
     to = strip_it_to_recipient(to)
     first = to.split()[0].lower() if to else ""
     if not to or first in _SKIP_TO:
-        # "Email that image to addr…" without a media match above — recover the
+        # "Email that image to addr…" without a media match above, recover the
         # literal address so we do not invent a name-shaped recipient.
         addr_m = re.search(
             r"(?i)\b(?P<to>[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})\b",
@@ -1029,7 +1029,7 @@ def parse_email_utterance(text: str) -> EmailDraft | None:
                 attach_path=attach,
             )
         return None
-    # "email a file …" — "a" / "file" must not become the recipient.
+    # "email a file …", "a" / "file" must not become the recipient.
     if first in {"a", "an", "the", "file", "pdf", "document", "attachment"}:
         return None
     if first in _SELF_TO and not named:
@@ -1062,7 +1062,7 @@ def parse_email_utterance(text: str) -> EmailDraft | None:
             attach_path=attach,
             recipients=recips,
         )
-    # "subject: test, body: hello" — must not treat "body:" as subject colon.
+    # "subject: test, body: hello", must not treat "body:" as subject colon.
     inline = re.match(
         r"(?i)^\s*subject\s*[:=]\s*(?P<subject>.+?)\s*,?\s+"
         r"body\s*[:=]\s*(?P<body>.+)$",
@@ -1083,7 +1083,7 @@ def parse_email_utterance(text: str) -> EmailDraft | None:
                 subject = _clean_text(left)
                 body = _clean_text(right)
             else:
-                # "email Sarah about the trip this weekend" — no colon used to
+                # "email Sarah about the trip this weekend", no colon used to
                 # leave body empty so force never fired until a second ask.
                 # Use the about-clause as body; short subject from the lead.
                 body = _clean_text(payload)
@@ -1102,7 +1102,7 @@ def parse_email_utterance(text: str) -> EmailDraft | None:
                     if re.match(r"(?i)^\s*(?:that|saying)\b", rest):
                         explicit_body = True
                 elif rest.strip():
-                    # Trailing text without a clear marker — treat as body when short.
+                    # Trailing text without a clear marker, treat as body when short.
                     # Drop a trailing path from the body when we already captured it.
                     body = _clean_text(rest)
                     if attach and attach in body:
@@ -1370,7 +1370,7 @@ def complete_email_draft(
         if incomplete is not None:
             return incomplete
 
-    # Case B: current text is NOT an email verb — treat as fields after a pending ask.
+    # Case B: current text is NOT an email verb, treat as fields after a pending ask.
     if current is None and user_text.strip() and not _EMAIL_VERB.match(user_text):
         if _SEND_CONFIRM.match(user_text):
             # Already handled in Case C; avoid treating "yes" as a body line.
@@ -1501,7 +1501,7 @@ def _with_attach_from_history(
                 body = f"Please see the attached file ({Path(path).name})."
             return _clone_draft(draft, body=body, attach_path=path)
 
-    # Generated-image fill only for explicit image/photo asks — never for
+    # Generated-image fill only for explicit image/photo asks, never for
     # "document" / "file" / spreadsheet turns.
     if not _IMAGE_ATTACH_CUE.search(user_text or ""):
         return draft
@@ -1553,7 +1553,7 @@ def email_draft_from_inbox(data: dict[str, Any] | None) -> EmailDraft | None:
     """Fill the existing send draft from an inbox reply payload.
 
     Inbox reply returns {to, subject, body} and does not send. The complete
-    path already reviews EmailDraft before send_email hits Allow — this is
+    path already reviews EmailDraft before send_email hits Allow, this is
     the hook, not a second draft type.
     """
     if not isinstance(data, dict):
@@ -1575,7 +1575,7 @@ def fill_send_email_args(
 ) -> dict[str, Any]:
     """Fill to/subject/body/attach on a tool call from a known draft.
 
-    When the draft is complete (subject+body), those fields are locked — the
+    When the draft is complete (subject+body), those fields are locked, the
     model cannot overwrite them with a different invent. Confirm cards therefore
     show the message that will actually send. For two named inboxes, `to` is
     the next address not already sent this turn.

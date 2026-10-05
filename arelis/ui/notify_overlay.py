@@ -295,7 +295,7 @@ class NotifyOverlay(QWidget):
             self.artifact_requested.emit(nid, "reveal")
 
     def _on_pill(self) -> None:
-        """Click the live pill — open the inbox on that notice."""
+        """Click the live pill, open the inbox on that notice."""
         notice_id = self._notice.id if self._notice is not None else ""
         if notice_id:
             self.open_requested.emit(notice_id)

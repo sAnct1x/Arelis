@@ -3,7 +3,7 @@
 Voice already has a state-machine trace under voice.debug. This is different:
 every agent turn (typed or spoken) writes stage timings to logs/turns.log so
 you can see whether a pause was summarize, the model, a tool, confirm wait,
-or STT — without turning on a special debug flag.
+or STT, without turning on a special debug flag.
 
 One line per stage, plus a done summary:
 

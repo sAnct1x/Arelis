@@ -108,9 +108,9 @@ def wait_output(
     if hit:
         line = f"Wait hit ({wanted})"
         if landed_url:
-            line += f" — {landed_url}"
+            line += f", {landed_url}"
         return line + ".", data
     line = f"Wait timeout ({wanted}, {seconds:.1f}s)"
     if landed_url:
-        line += f" — still {landed_url}"
+        line += f", still {landed_url}"
     return line + ".", data

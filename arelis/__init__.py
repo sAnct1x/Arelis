@@ -1,4 +1,4 @@
-"""Arelis — local-first personal research assistant.
+"""Arelis, local-first personal research assistant.
 
 The three facts the application states about itself live here, and nowhere
 else. `pyproject.toml` reads `__version__` from this file rather than carrying

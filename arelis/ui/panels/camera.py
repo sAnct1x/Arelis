@@ -1,7 +1,7 @@
 """Live webcam preview instrument (QtMultimedia).
 
 Preview + device pick + still snapshot. Soft-fails when QtMultimedia video
-or cameras are missing — same stance as arelis.ui.audio for the mic.
+or cameras are missing, same stance as arelis.ui.audio for the mic.
 
 Ask Arelis: snapshot then emit ask_arelis so the app submits an Identify look.
 Optional snapshot_blocking() for the camera tool while the dock is live.
@@ -84,7 +84,7 @@ def list_video_input_names() -> list[str]:
 
 
 def scale_qimage(image: QImage, max_width: int) -> QImage:
-    """Shrink for preview / pose. Smooth, not nearest — aliasing made tips crawl."""
+    """Shrink for preview / pose. Smooth, not nearest, aliasing made tips crawl."""
     if image.isNull() or image.width() <= max_width:
         return image
     height = max(1, round(image.height() * (max_width / image.width())))
@@ -104,7 +104,7 @@ def rgb_to_qimage(rgb: np.ndarray) -> QImage:
 
 
 def video_frame_to_rgb(frame, max_width: int) -> tuple[np.ndarray | None, int, int]:
-    """RGB at max_width. Prefer a mapped subsample — full toImage is the 5 Hz path."""
+    """RGB at max_width. Prefer a mapped subsample, full toImage is the 5 Hz path."""
     if frame is None or not frame.isValid():
         return None, 0, 0
     src_w, src_h = int(frame.width()), int(frame.height())
@@ -458,7 +458,7 @@ class CameraPanel(QWidget):
         self.track_btn.toggled.connect(self._on_track_toggled)
         self.record_btn.toggled.connect(self._on_record_toggled)
         self.ask_btn.setToolTip(
-            "One still, then Allow — Identify what is in frame. "
+            "One still, then Allow, Identify what is in frame. "
             "Typed chat can Read, Translate, or ask if food is still good."
         )
 
@@ -743,7 +743,7 @@ class CameraPanel(QWidget):
             self._set_hint("Start the camera before taking a snapshot.")
             return
         if not self._image_capture.isReadyForCapture():
-            self._set_hint("Camera not ready for capture yet — wait a moment.")
+            self._set_hint("Camera not ready for capture yet: wait a moment.")
             return
         out_dir = outputs_dir() / "images"
         out_dir.mkdir(parents=True, exist_ok=True)

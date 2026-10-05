@@ -51,7 +51,7 @@ def _pulse_rim_alpha(lo: int | None = None, hi: int | None = None) -> int:
 
 
 class GlassFrame(QFrame):
-    """Void plate — opaque warm fill on floats, amber hairline rim."""
+    """Void plate, opaque warm fill on floats, amber hairline rim."""
 
     def __init__(
         self,
@@ -90,7 +90,7 @@ class GlassFrame(QFrame):
         self.update()
 
     def _apply_seal(self) -> None:
-        """Opaque floats must not stay a translucent HWND — chat ghosts through.
+        """Opaque floats must not stay a translucent HWND, chat ghosts through.
 
         Skipped when the surface is owned elsewhere. Deriving translucency from
         fill alpha is a reasonable default for a lone plate, but on a dock it is

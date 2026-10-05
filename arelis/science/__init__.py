@@ -1,1 +1,1 @@
-"""Local science helpers — constants tables and optional catalog keys."""
+"""Local science helpers, constants tables and optional catalog keys."""

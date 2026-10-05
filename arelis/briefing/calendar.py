@@ -182,7 +182,7 @@ def format_agenda_section(
                     .strftime("%I:%M %p")
                     .lstrip("0")
                 )
-            lines.append(f"- {when} — {ev.summary}")
+            lines.append(f"- {when}, {ev.summary}")
             loc = (ev.location or "").strip()
             if loc:
                 lines.append(f"  {loc}")

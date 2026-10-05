@@ -1,7 +1,7 @@
 """Local OCR via system Tesseract (CPU). No cloud, no GPU.
 
-action=text — OCR an image under workspace roots or outputs/images/.
-action=screen — capture the primary display to outputs/images/, then OCR.
+action=text, OCR an image under workspace roots or outputs/images/.
+action=screen, capture the primary display to outputs/images/, then OCR.
 Always Allow (confirm_vision): screen/clipboard-adjacent privacy.
 """
 
@@ -59,13 +59,13 @@ def run_tesseract(path: Path, *, lang: str = "eng") -> str:
 
 
 def run_tesseract_inspect(path: Path, *, lang: str = "eng") -> OcrInspect:
-    """OCR plus exogenous TSV confidence — CPU only, no VL self-score."""
+    """OCR plus exogenous TSV confidence, CPU only, no VL self-score."""
     exe = _tesseract_exe()
     if not exe:
         raise RuntimeError(
             "tesseract is not on PATH. Install Tesseract OCR for Windows "
             "(UB Mannheim build) or set tools.ocr.enabled: false. "
-            "GPU chat models stay unloaded — this path is CPU-only."
+            "GPU chat models stay unloaded, this path is CPU-only."
         )
     if not path.is_file():
         raise FileNotFoundError(f"Image not found: {path}")

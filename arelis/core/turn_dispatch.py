@@ -191,7 +191,7 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
     """Confirm and execute ``r.calls``. True ends the turn.
 
     Wander redirects live in ``call_redirects``. Confirm/execute stay here
-    with the per-call skip guards, which share the round's tool surface —
+    with the per-call skip guards, which share the round's tool surface
     so they read and write it on ``r`` rather than on locals a ``finally``
     then has to copy back.
     """
@@ -637,7 +637,7 @@ async def dispatch_calls(loop: Any, ctx: TurnContext, r: RoundScratch, round_i: 
                     f"Already opened {len(r.page_ok)} pages this turn; "
                     "not fetching another. Answer from those. If they "
                     "were thin or listicles, say the sources were weak "
-                    "— do not rank or declare a winner."
+                    "- do not rank or declare a winner."
                 )
                 if ctx.exact_need.needs_document and ctx.ledger.has_ok("web"):
                     notice += " Call document now. Do not scrape another page."

@@ -188,12 +188,12 @@ class ReadinessStrip(QWidget):
             label = f"house · {warn_n} ▾"
         self.systems_btn.setText(label)
         tip_bits = [
-            f"{item.label}: {item.status.value} — {item.detail}"
+            f"{item.label}: {item.status.value}, {item.detail}"
             for item in self._systems_details.values()
             if not (item.key in _OPTIONAL_SYSTEMS and item.status == ChipLevel.OFF)
         ]
         if self._confirm_waiting:
-            tip_bits.insert(0, "Allow card open — Allow or Skip in the chat")
+            tip_bits.insert(0, "Allow card open: Allow or Skip in the chat")
         self.systems_btn.setToolTip(
             "\n".join(tip_bits) if tip_bits else "No system signals yet."
         )
@@ -209,7 +209,7 @@ class ReadinessStrip(QWidget):
         header.setEnabled(False)
         self._systems_menu.addAction(header)
         if self._confirm_waiting:
-            allow = QAction("card open — allow or deny in chat", self._systems_menu)
+            allow = QAction("card open: allow or deny in chat", self._systems_menu)
             allow.setEnabled(False)
             self._systems_menu.addAction(allow)
             self._systems_menu.addSeparator()
@@ -226,10 +226,10 @@ class ReadinessStrip(QWidget):
                     "confirm": "Allow gates",
                 }
                 name = labels.get(key, key)
-                text = f"{name}  ·  off  —  No signal."
+                text = f"{name}  ·  off, No signal."
                 tip = "No signal."
             else:
-                text = f"{item.label}  ·  {item.status.value}  —  {item.detail}"
+                text = f"{item.label}  ·  {item.status.value}, {item.detail}"
                 tip = item.detail
             action = QAction(text, self._systems_menu)
             action.setToolTip(tip)

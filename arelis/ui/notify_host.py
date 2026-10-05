@@ -379,7 +379,7 @@ def on_job_tick(window) -> None:
 
 
 def _surface_status(window, message: str) -> None:
-    """Thinking footer plus the transcript — Thinking is closed by default."""
+    """Thinking footer plus the transcript, Thinking is closed by default."""
     window.thinking.append(message, kind="status")
     talk = getattr(window, "chat", None)
     if talk is not None:

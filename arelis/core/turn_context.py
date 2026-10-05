@@ -3,7 +3,7 @@
 Those locals were the reason _run could not be split: prepare, each round,
 verify and finish all closed over the same names, so extracting a method
 meant a 20-argument signature that immediately grew. One object is the
-split. Nothing here survives the turn — AgentLoop still owns the timer,
+split. Nothing here survives the turn, AgentLoop still owns the timer,
 the look grant and the expected-tool set, because other methods already
 read those.
 """

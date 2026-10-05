@@ -98,7 +98,7 @@ def bind_mobile_hub(window) -> None:
             return None
         data = hit.path.read_bytes()
         if len(data) > GLANCE_MAX_BYTES:
-            raise ValueError("file is larger than 8 MB — open it on the PC")
+            raise ValueError("file is larger than 8 MB, open it on the PC")
         mime, _ = mimetypes.guess_type(hit.path.name)
         return data, mime or "application/octet-stream", hit.path.name
 

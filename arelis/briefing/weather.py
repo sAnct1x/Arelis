@@ -68,7 +68,7 @@ class ResolvedPlace:
 
 
 def _place_label(entry: dict[str, Any]) -> str:
-    """ "Springfield, Canterbury, New Zealand" — name, region, country."""
+    """ "Springfield, Canterbury, New Zealand", name, region, country."""
     bits = [str(entry.get("name") or "").strip()]
     for key in ("admin1", "country"):
         value = str(entry.get(key) or "").strip()
@@ -161,7 +161,7 @@ async def fetch_forecast(
 ) -> dict[str, Any]:
     """Current conditions, daily rows, and optionally hourly / past days.
 
-    ``hours`` answers "will it rain at three" — a daily row cannot, because
+    ``hours`` answers "will it rain at three", a daily row cannot, because
     ``precipitation_probability_max`` is the whole day's maximum and says
     nothing about when. ``past_days`` answers "what was it yesterday", which
     had no route at all: forecast rows start today.
@@ -237,7 +237,7 @@ def _first_upcoming_hour(stamps: list[Any], now: Any) -> int:
     """Index of the first hourly stamp at or after now. 0 when unknown.
 
     Open-Meteo stamps are local ISO strings ("2026-09-17T15:00") and sort
-    lexicographically, so this needs no date parsing — which also means a
+    lexicographically, so this needs no date parsing, which also means a
     format change degrades to "start at the beginning" rather than raising.
     """
     marker = str(now or "").strip()

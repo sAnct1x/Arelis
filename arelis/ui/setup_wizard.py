@@ -1,7 +1,7 @@
 """Glass: look at this PC, recommend one model, pull it, then a short how-to.
 
 Folder consent is a different dialog. This one is not a permission. Escape on
-the recommendation accepts it — same reason as first-run: re-asking trains
+the recommendation accepts it, same reason as first-run: re-asking trains
 people to dismiss without reading, and the recommendation is already on screen.
 """
 
@@ -261,7 +261,7 @@ class ModelSetupDialog(GlassDialog):
         t1.setObjectName("DialogHeading")
         t2 = QLabel(
             "Type in the box under the ring. The window will say when "
-            "she's listening — then say Hey Arelis.\n\n"
+            "she's listening, then say Hey Arelis.\n\n"
             "When she wants to send a text, send mail, or change a file, "
             "two buttons: allow and deny.\n\n"
             "Mail, phone, and calendar can wait. They live in Settings "

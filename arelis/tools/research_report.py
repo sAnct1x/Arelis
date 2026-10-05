@@ -255,7 +255,7 @@ class ResearchReportTool:
             reason = (scrape_result.output or "scrape failed").splitlines()[0][:160]
             if used_fetch:
                 reason = f"{reason} (fetch fallback also failed)"
-            failed.append(f"{url} — {reason}")
+            failed.append(f"{url}, {reason}")
 
         markdown = render_report(query, sources=hits, failed=failed)
         path = save_report(markdown, query=query, output_dir=self.output_dir)
