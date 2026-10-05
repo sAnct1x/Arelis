@@ -22,6 +22,7 @@ from arelis.core.complete_protocol import (
 from arelis.core.confirm_patterns import proceed_ask_pattern, send_confirm_pattern
 from arelis.core.contact_match import find_contact
 from arelis.core.history_revival import last_draft_before_confirm
+from arelis.core.intent_catalog import first_unnegated
 from arelis.history_view import history_pairs
 from arelis.mail import valid_address
 from arelis.workspace import is_unsafe_windows_path
@@ -936,7 +937,9 @@ def parse_email_utterance(text: str) -> EmailDraft | None:
 
     # Prefer literal "email … to user@host" when a file/path/media cue is present —
     # otherwise fall through to the normal compose parser.
-    file_to = _EMAIL_FILE_TO.search(raw)
+    # A send verb after "don't" / "no need to" / "why did you" in the same
+    # clause is a decline or a complaint, never a draft.
+    file_to = first_unnegated(_EMAIL_FILE_TO, raw)
     if file_to and valid_address(file_to.group("to") or ""):
         has_file_cue = bool(attach) or bool(_MEDIA_ATTACH_CUE.search(raw))
         if has_file_cue:
@@ -960,7 +963,10 @@ def parse_email_utterance(text: str) -> EmailDraft | None:
                 attach_path=attach,
             )
 
-    match = _EMAIL_SEND.search(raw)
+    match = first_unnegated(_EMAIL_SEND, raw)
+    if not match and (_EMAIL_SEND.search(raw) or _EMAIL_FILE_TO.search(raw)):
+        # Only declined verbs: do not fall back to a named address either.
+        return None
     if not match:
         named = named_address_in_text(raw)
         if named and (
