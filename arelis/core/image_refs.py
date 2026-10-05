@@ -7,6 +7,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from arelis.core.intent_catalog import first_unnegated
 from arelis.core.path_refs import ABS_PREFIX_OR_START, ABS_START, PATH_CHARS
 from arelis.paths import display_path, outputs_dir
 
@@ -57,8 +58,14 @@ _CAMERA_FILE_PREFIX = "camera_"
 CAMERA_FRESH_S = 30.0
 
 
-def mentions_camera_look(text: str) -> bool:
-    """True when the user asks Arelis to look via the webcam / camera dock."""
+def mentions_camera_look(text: str, *, unnegated: bool = False) -> bool:
+    """True when the user asks Arelis to look via the webcam / camera dock.
+
+    ``unnegated=True`` skips hits after "don't / no need to / why did you" in
+    the same clause. Trigger callers pass it; veto callers keep the default.
+    """
+    if unnegated:
+        return bool(first_unnegated(_CAMERA_LOOK, text or ""))
     return bool(_CAMERA_LOOK.search(text or ""))
 
 
