@@ -15,6 +15,7 @@ from arelis.calendar.secrets import load_calendar_secrets, load_ics_url
 from arelis.llm.startup import missing_models, model_is_available
 from arelis.mail import load_account
 from arelis.memory import DEFAULT_EMBED_MODEL
+from arelis.presence.inbound_runtime import ingest_enabled_mode
 from arelis.presence.lock import find_my_ingest_port, probe_ingest_health
 from arelis.sms_android import load_sms_account
 
@@ -346,28 +347,19 @@ def _calendar_chip(config: dict[str, Any]) -> ReadinessChip:
 
 def _sms_chip(config: dict[str, Any]) -> ReadinessChip:
     sms = (config.get("tools") or {}).get("sms") or {}
-    if not bool(sms.get("enabled", True)):
-        return ReadinessChip(
-            "sms",
-            "SMS",
-            ChipLevel.OFF,
-            "SMS tool disabled in config.",
-        )
     inbound = sms.get("inbound") or {}
-    if not bool(inbound.get("enabled", True)):
-        return ReadinessChip(
-            "sms",
-            "SMS",
-            ChipLevel.OFF,
-            "SMS inbound disabled in config.",
-        )
     ingest = inbound.get("ingest") or {}
-    if not bool(ingest.get("enabled", True)):
+    ingest_off = ingest_enabled_mode(ingest.get("enabled", True)) == "off"
+    if (
+        not bool(sms.get("enabled", True))
+        or not bool(inbound.get("enabled", True))
+        or ingest_off
+    ):
         return ReadinessChip(
             "sms",
             "SMS",
             ChipLevel.OFF,
-            "SMS ingest disabled in config.",
+            "Phone notifications are off.",
         )
     account = load_sms_account()
     if account is None:
@@ -384,24 +376,24 @@ def _sms_chip(config: dict[str, Any]) -> ReadinessChip:
     # ingest had never bound.
     mine = find_my_ingest_port(config)
     if mine is not None:
-        detail = (
-            f"Ingest healthy on :{mine}."
-            if mine == port
-            else f"Ingest healthy on :{mine} (:{port} was taken)."
+        return ReadinessChip(
+            "sms",
+            "SMS",
+            ChipLevel.OK,
+            "Phone notifications are running.",
         )
-        return ReadinessChip("sms", "SMS", ChipLevel.OK, detail)
     if probe_ingest_health(port=port):
         return ReadinessChip(
             "sms",
             "SMS",
             ChipLevel.WARN,
-            f":{port} is serving another Arelis on this PC; yours is not up.",
+            "Another Arelis on this PC is using the phone connection.",
         )
     return ReadinessChip(
         "sms",
         "SMS",
         ChipLevel.WARN,
-        f"Ingest not answering on :{port}.",
+        "Phone notifications aren't running. Restart Arelis to try again.",
     )
 
 

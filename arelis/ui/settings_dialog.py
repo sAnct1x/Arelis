@@ -959,10 +959,29 @@ class SettingsDialog(QDialog):
         return urls or "(no listen address)"
 
     def _create_ingest_token(self) -> None:
-        from arelis.sms_ingest import ensure_ingest_token
-
         try:
-            ensure_ingest_token()
+            from arelis.presence.inbound_runtime import create_pairing_code
+
+            parent = self.parent()
+            bus = getattr(parent, "bus", None)
+            loop = getattr(parent, "loop", None)
+            runtime = getattr(parent, "inbound_runtime", None)
+            config = getattr(parent, "config", None) or self._settings_config
+            if bus is not None and loop is not None:
+                runtime = create_pairing_code(bus, loop, config, runtime)
+                if parent is not None:
+                    parent.inbound_runtime = runtime
+                    parent.sms_ingest = runtime.ingest
+                    if hasattr(parent, "_turn_busy"):
+                        from arelis.ui.mobile_host import bind_mobile_hub
+
+                        bind_mobile_hub(parent)
+            else:
+                import secrets
+
+                from arelis.sms_ingest import save_ingest_token
+
+                save_ingest_token(secrets.token_urlsafe(24))
         except Exception as exc:
             self.pair_status.setText(f"Could not create a token: {exc}")
             return

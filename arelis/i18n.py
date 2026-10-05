@@ -66,8 +66,8 @@ _ZH: dict[str, str] = {
     "Create a pairing code": "生成配对码",
     (
         "Phone notifications are turned on but not set up yet. "
-        "To finish, open Settings, go to Notify, pick Create a pairing code, then restart Arelis."
-    ): "手机通知已经打开，但还没配对好。请打开设置，进入通知，点生成配对码，然后重启 Arelis。",
+        "To finish, open Settings, go to Notify, pick Create a pairing code."
+    ): "手机通知已经打开，但还没配对好。请打开设置，进入通知，点生成配对码。",
     "Install the app": "安装应用",
     "Copy link": "复制链接",
     "Copy for the phone": "复制给手机",

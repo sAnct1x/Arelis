@@ -429,7 +429,7 @@ class InboundIngestServer:
                     got = auth[7:].strip()
                 else:
                     got = (self.headers.get("X-Arelis-Token") or "").strip()
-                ok = bool(got) and got == server.token
+                ok = bool(got) and got == (load_ingest_token() or server.token)
                 if ok:
                     # Every authenticated request is evidence the phone can
                     # still reach this machine. Recorded here rather than on
