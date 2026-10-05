@@ -176,8 +176,11 @@ async def test_enabled_false_does_not_listen_and_stop_frees_the_port(
         runtime = sync_ingest_listener(bus, loop, off, runtime)
         assert runtime.ingest is None
         assert not probe_ingest_health(port=bound, timeout_s=0.5)
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-            sock.bind(("127.0.0.1", bound))
+        # Nothing accepts on the old port any more. A raw connect, not a
+        # bind: on Linux the health probe leaves a TIME_WAIT on this port
+        # that blocks a plain bind for about a minute even when it is free.
+        with pytest.raises(ConnectionRefusedError):
+            socket.create_connection(("127.0.0.1", bound), timeout=5.0).close()
     finally:
         await _shutdown(runtime, bus, task)
 
