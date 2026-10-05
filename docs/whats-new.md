@@ -1,6 +1,6 @@
 # What's new
 
-This checkout is **0.3.0**. The latest published installer, **0.2.9**, is broken: it closes at startup (so do 0.2.4 to 0.2.8). Please run from source until v0.3.0 is out and verified; see [Running from source](../README.md#running-from-source).
+This checkout is **0.3.0**, and the 0.3.0 installer is out: [download it here](https://github.com/sAnct1x/Arelis/releases/latest). I installed it on a fresh Windows account and it opened and answered. The 0.2.4 to 0.2.9 installers were broken (they closed at startup), so use 0.3.0 instead.
 
 Notes: [v0.3.0](releases/v0.3.0.md). Older:
 [v0.2.9](releases/v0.2.9.md).

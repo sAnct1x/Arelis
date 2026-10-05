@@ -187,14 +187,10 @@ class TestReleaseNotesContent:
         assert "stay out of what the model" not in text
         assert "only when a question needs them" in text
 
-    def test_rc1_block_is_marked_for_removal(self) -> None:
+    def test_rc1_block_is_gone_now_that_030_is_out(self) -> None:
         text = self._notes()
-        assert "<!-- rc1-only: delete this block on the final release page -->" in text
-        assert "<!-- end rc1-only -->" in text
-        block = text.split("<!-- rc1-only", 1)[1].split("<!-- end rc1-only -->", 1)[0]
-        assert "Release candidate" in block
-        assert "pre-release" in block
-        assert "Release candidate" not in text.split("<!-- end rc1-only -->", 1)[1]
+        assert "rc1-only" not in text
+        assert "Release candidate" not in text
 
     def test_night_line_is_not_under_privacy_and_safety(self) -> None:
         assert "Night" not in self._section("## Privacy and safety")

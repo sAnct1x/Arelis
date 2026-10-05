@@ -5,11 +5,9 @@ body:
   - type: markdown
     attributes:
       value: |
-        Known problem: the Windows installer for 0.2.4 through 0.2.9
-        closes at startup, before any window appears. You do not need
-        to file that again. Run from source instead (see the README,
-        "Running from source"). I will say here when a fixed installer
-        is out.
+        If you used a setup file from 0.2.4 to 0.2.9, those closed at
+        startup. Please try the [latest release](https://github.com/sAnct1x/Arelis/releases/latest)
+        first, and file this if it still breaks.
 
         She is supposed to ask which folder she may use, then which model
         to pull. If that never happened, or the window died, this is the
@@ -36,7 +34,7 @@ body:
     id: version
     attributes:
       label: Setup file
-      description: The name you downloaded. Example: Arelis-0.3.0-win64-setup.exe
+      description: "The name you downloaded. Example: Arelis-0.3.0-win64-setup.exe"
       placeholder: Arelis-0.3.0-win64-setup.exe
     validations:
       required: true
