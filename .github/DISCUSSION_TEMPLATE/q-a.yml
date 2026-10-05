@@ -4,6 +4,8 @@ body:
       value: |
         For help setting up or using Arelis. If something is broken, open an [issue](https://github.com/sAnct1x/Arelis/issues) instead.
 
+        Known: the Windows installer for 0.2.4 through 0.2.9 closes at startup. Run from source until 0.3.0 is out.
+
         Nothing that identifies a real person. No contacts, no real email, no home folder path.
   - type: textarea
     id: question
