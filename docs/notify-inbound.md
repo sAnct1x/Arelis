@@ -146,7 +146,7 @@ on the phone and retry when the PC is back. A 429 is "slow down", not
 | Symptom | Check |
 |---------|--------|
 | No inbound texts | Arelis still running? Paired? Can the PC reach the phone? |
-| STATUS missing | `tools.sms.inbound` / `ingest` enabled. Token set. A bind/poll failure also lands in chat now; the listen URL stays in Thinking (`Ctrl+1`) so orbit does not hide |
+| STATUS missing | `tools.sms.inbound` / `ingest` enabled. Ingest `enabled: auto` listens only after a pairing code exists. Token set. A bind/poll failure also lands in chat now; the listen URL stays in Thinking (`Ctrl+1`) so orbit does not hide |
 | Companion 401 | Wrong or missing `sms.ingest_token`. New code |
 | Companion timeout | Firewall / wrong IP. Wait for the phone to find the LAN beacon, or open Settings → Notify if this is a new PC |
 | Worked, then died after a quiet week | Not pairing expiry. Old APK posted a stale PC IP and never rediscovered unless you opened the companion. Sideload this checkout. Battery Unrestricted. Open the app once to kick the new keepalive. |
