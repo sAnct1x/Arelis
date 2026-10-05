@@ -31,7 +31,7 @@ that writes or sends shows you an approval card first.
 - **Ollama** (downloads automatically if missing, ~1.4 GB)
 - **A chat model** (downloads on first run - the recommended model is `qwen3.5:9b`)
 - **8-16 GB graphics card** recommended for good performance
-- **About 870 MB disk space** for the installed program (plus models)
+- **About 0.9 GB disk space** for the installed program (plus models)
 
 Optional extras like voice, browser control, and the phone app can be
 added later. The core program works without them.
@@ -78,7 +78,7 @@ deletes, payments, and running project scripts still ask.
 
 ## Installing
 
-Download the latest setup file from [GitHub releases](https://github.com/sAnct1x/arelis/releases/latest): `Arelis-0.3.0-win64-setup.exe` (about 245 MB download, about 870 MB installed). Run it. It installs per-user into `%LOCALAPPDATA%\Programs\Arelis`, so no administrator prompt.
+Download the latest setup file from [GitHub releases](https://github.com/sAnct1x/arelis/releases/latest): `Arelis-0.3.0-win64-setup.exe` (about 245 MB download, about 0.9 GB installed). Run it. It installs per-user into `%LOCALAPPDATA%\Programs\Arelis`, so no administrator prompt.
 
 ### First run
 

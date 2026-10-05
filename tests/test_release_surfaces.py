@@ -305,8 +305,8 @@ class TestReadmeStatements:
 
     def test_installer_size_numbers(self) -> None:
         text = self._readme()
-        assert "about 245 MB download, about 870 MB installed" in text
-        assert "About 870 MB disk space" in text
+        assert "about 245 MB download, about 0.9 GB installed" in text
+        assert "About 0.9 GB disk space" in text
         assert "186 MB" not in text
         assert "640 MB" not in text
         win = " ".join((REPO / "win-installer" / "README.md").read_text(encoding="utf-8").split())
