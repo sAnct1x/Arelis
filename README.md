@@ -8,7 +8,7 @@ own browser, and keeps longer projects organized in named rooms.
 Anything that writes a file or sends a message waits for your approval
 first.
 
-**Overview video:** https://youtu.be/TWZqnyHlh4M • **Latest release:** [v0.2.9](https://github.com/sAnct1x/arelis/releases/latest)
+**Overview video:** https://youtu.be/TWZqnyHlh4M • **Latest release:** [v0.3.0](https://github.com/sAnct1x/arelis/releases/latest)
 
 ## What it does
 
@@ -38,7 +38,7 @@ added later. The core program works without them.
 
 ## Quick start
 
-**To try it:** Download the latest installer from [GitHub releases](https://github.com/sAnct1x/arelis/releases/latest) (`Arelis-0.2.9-win64-setup.exe`, ~186 MB). Run it. The first time you open Arelis, she'll ask which folder she can use, then download Ollama and the chat model if needed. That's it.
+**To try it:** Download the latest installer from [GitHub releases](https://github.com/sAnct1x/arelis/releases/latest) (`Arelis-0.3.0-win64-setup.exe`, ~186 MB). Run it. The first time you open Arelis, she'll ask which folder she can use, then download Ollama and the chat model if needed. That's it.
 
 **To run from source:** See [Running from source](#running-from-source) below.
 
@@ -78,7 +78,7 @@ deletes, payments, and running project scripts still ask.
 
 ## Installing
 
-Download the latest setup file from [GitHub releases](https://github.com/sAnct1x/arelis/releases/latest): `Arelis-0.2.9-win64-setup.exe` (~186 MB download, ~640 MB installed). Run it. It installs per-user into `%LOCALAPPDATA%\Programs\Arelis`, so no administrator prompt.
+Download the latest setup file from [GitHub releases](https://github.com/sAnct1x/arelis/releases/latest): `Arelis-0.3.0-win64-setup.exe` (~186 MB download, ~640 MB installed). Run it. It installs per-user into `%LOCALAPPDATA%\Programs\Arelis`, so no administrator prompt.
 
 ### First run
 
@@ -99,8 +99,8 @@ The installer isn't code-signed, so SmartScreen will warn you. That's
 normal. To verify your download wasn't corrupted, check the SHA-256:
 
 ```powershell
-Get-FileHash .\Arelis-0.2.9-win64-setup.exe -Algorithm SHA256
-Get-Content .\Arelis-0.2.9-win64-setup.exe.sha256
+Get-FileHash .\Arelis-0.3.0-win64-setup.exe -Algorithm SHA256
+Get-Content .\Arelis-0.3.0-win64-setup.exe.sha256
 ```
 
 The two hashes should match. Both files are in the release.
@@ -196,9 +196,9 @@ her to use them, she'll tell you she can't.
 | `data/contacts.example.yaml` | `data/contacts.yaml` | People she can text or email |
 | `data/secrets.example.yaml` | `data/secrets.yaml` | Mail login, phone pairing, calendar |
 
-There's no Mail tab in Settings. Mail is configured through the
-`email:` block in `secrets.yaml` (that's a Gmail app password, not
-your actual Google password). For phone, go to Settings → Notify and
+Mail has no Settings tab of its own. Put the address and app password
+under Settings, Notify, or in the `email:` block of `secrets.yaml`.
+(That's a Gmail app password, not your actual Google password.) For phone, go to Settings → Notify and
 scan the QR code. See [notify-inbound.md](docs/notify-inbound.md).
 For calendar, see [calendar-oauth.md](docs/calendar-oauth.md). Note
 that scheduled jobs need mail set up first (details in
@@ -235,8 +235,12 @@ model. See [models.md](docs/models.md).
 - **Mail, calendar, texting:** All stay off until you connect them. Configuration lives in `data/secrets.yaml`. See [calendar-oauth.md](docs/calendar-oauth.md) and the optional extras section above.
 - **Jobs:** Found under the calendar tile (`Ctrl+7`). Set a prompt and a time, and she'll email you the answer. Requires mail to be set up. See [jobs.md](docs/jobs.md). "Remind me in 20 minutes" is a timer, not a job.
 
-**Memory.** Managed under Settings → Memory. Dated backups are kept in
-`data\backups\` for two weeks.
+**Memory.** Managed under Settings → Memory. Since 0.3.0, before an
+in-app upgrade she copies your memory and a few settings files into
+`data/backups/pre-<version>/` (never passwords or tokens) and keeps the
+newest two. Upgrading from 0.2.9 to 0.3.0 itself is not covered, so copy
+your data folder by hand first. Daily dated memory copies stay off. See
+[backups.md](docs/backups.md).
 
 Type `/tools` in the chat for the full list of what she can do.
 
@@ -252,7 +256,7 @@ don't ship in the installer.
 Test coverage is good for most features, but voice timing, the phone
 app, and image generation have mainly been tested on the author's
 hardware. If something behaves oddly on yours, open an issue. Current
-release is **0.2.9** - see [whats-new.md](docs/whats-new.md) for
+release is **0.3.0** - see [whats-new.md](docs/whats-new.md) for
 changes.
 
 ## Further reading
@@ -260,7 +264,7 @@ changes.
 | Document | What's in it |
 |---|---|
 | [Overview video](https://youtu.be/TWZqnyHlh4M) | Demo and walkthrough on the [Arelis Lab channel](https://www.youtube.com/@ArelisLab) |
-| [whats-new.md](docs/whats-new.md) | 0.2.9 checkout and installer |
+| [whats-new.md](docs/whats-new.md) | 0.3.0 checkout and installer |
 | [rooms.md](docs/rooms.md) | Named project spaces |
 | [jobs.md](docs/jobs.md) | Timed prompts, emailed |
 | [models.md](docs/models.md) | Which models, and why |
