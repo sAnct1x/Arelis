@@ -329,8 +329,7 @@ the look box instead of the whole continent. A public
 off the pin. An IP camera still does not. Earthquakes and fires paint as heat
 from space, not as icons, and only once that chip is on. A bigger
 quake or a hotter pixel is a bigger glow. Named storms and monitored
-volcanoes stay marks. Shodan (keyed) searches
-that same look. An empty Cameras chip is a hole, not every phone on
+volcanoes stay marks. An empty Cameras chip is a hole, not every phone on
 Wi-Fi. Walking the look box refetches those city catalogs, not only
 planes and ships - last city's pins do not occupy the next.
 

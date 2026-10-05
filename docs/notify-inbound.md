@@ -69,9 +69,9 @@ are not flooded with backlog.
    if that is the only IPv4.
 5. After pair, install Gemma on the phone (~2.6 GB) so she still talks
    if the PC is down. The phone asks this PC first; Hugging Face is the
-   fallback if the house has not cached it. **Download offline copy**, under
-   If the scan doesn't work on Notify, pulls it onto the PC. Wait for Wi-Fi, or use mobile data on
-   purpose.
+   fallback if this PC has not cached it. On the PC, open Settings, Notify,
+   open **If the scan doesn't work**, and pick **Download offline copy** to
+   save it here. Wait for Wi-Fi, or use mobile data on purpose.
 6. Optional, only if you want the text hose: **Settings → Texts**, then
    Allow restricted settings, SMS, notification access, Battery
    Unrestricted. Pairing and texts are once; chat is the home screen.
