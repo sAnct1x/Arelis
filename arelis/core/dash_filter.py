@@ -30,7 +30,6 @@ class DashFilter:
         self._bt_at_line = False
         self._fence = False
         self._inline = False
-        self._quote = False
         self._url = False
         self._url_buf = ""
 
@@ -126,7 +125,7 @@ class DashFilter:
                 self._emit(ch, out)
                 return
 
-        raw = self._fence or self._inline or self._quote
+        raw = self._fence or self._inline
         if ch == "`":
             self._resolve(ch, out)
             if self._bt == 0:
@@ -137,7 +136,6 @@ class DashFilter:
         if raw:
             self._emit(ch, out)
             if ch == "\n":
-                self._quote = False
                 self._inline = False
             return
         if ch == "\n":
@@ -157,11 +155,6 @@ class DashFilter:
             ):
                 self._resolve(ch, out)
             self._pend += ch
-            return
-        if ch == ">" and self._line_blank and not self._pend.strip():
-            self._resolve(ch, out)
-            self._quote = True
-            self._emit(ch, out)
             return
         self._resolve(ch, out)
         if self._url_start(ch):

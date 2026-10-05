@@ -46,8 +46,8 @@ def test_module_importable() -> None:
             "```py\nx = 1 " + EM + " 2\n```\nthen, after",
         ),
         (
-            "> quote " + EM + " kept\nnext " + EM + " gone",
-            "> quote " + EM + " kept\nnext, gone",
+            "> quote " + EM + " cleaned\nnext " + EM + " gone",
+            "> quote, cleaned\nnext, gone",
         ),
         (f"X {EM} y {EM} z", "X, y, z"),
         (f"A{EM}{EM}B", "A, B"),
@@ -83,6 +83,32 @@ def test_no_double_comma_double_space_or_leading_comma() -> None:
         assert not got.startswith(",")
         assert ",." not in got
         assert ",?" not in got
+
+
+def test_blockquote_prose_is_cleaned() -> None:
+    from arelis.core.dash_filter import DashFilter, clean_dashes
+
+    raw = "> she said " + EM + " then left\nnext " + EM + " gone"
+    expected = "> she said, then left\nnext, gone"
+    assert clean_dashes(raw) == expected
+    assert EM not in clean_dashes(raw)
+    # Nested quote marker, URL and inline code still exempt.
+    mixed = (
+        ">> cite " + EM + " here and `keep " + EM + " this` "
+        "see https://ex.test/a" + EM + "b done " + EM + " ok"
+    )
+    got = clean_dashes(mixed)
+    assert got.startswith(">> cite, here")
+    assert "`keep " + EM + " this`" in got
+    assert "https://ex.test/a" + EM + "b" in got
+    assert EM not in got.replace("`keep " + EM + " this`", "").replace(
+        "https://ex.test/a" + EM + "b", ""
+    )
+    parts = ["> quote ", EM, " then\nplain ", EM, " x"]
+    filt = DashFilter()
+    streamed = "".join(filt.feed(p) for p in parts) + filt.flush()
+    assert streamed == clean_dashes("".join(parts))
+    assert streamed == "> quote, then\nplain, x"
 
 
 def test_sms_and_email_bodies_cleaned() -> None:
