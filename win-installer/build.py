@@ -56,6 +56,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.request
 import zipfile
@@ -93,15 +94,16 @@ PIP_VERSION = "25.3"
 # would let an installed copy rewrite itself.
 BUILD_ONLY = ("pip", "setuptools", "wheel", "pkg_resources", "_distutils_hack")
 
-# Every Qt module imported anywhere in the codebase, which is the whole basis for the
-# prune being safe. Kept as data because the verification step imports exactly this
-# list, so a module added to the app and not added here fails the build.
+# Modules that must survive the prune. verify() imports exactly this list, so a
+# module the app needs that is missing here fails the build. tests/ checks the list
+# against every PySide6.Qt* import under arelis/.
 QT_MODULES = (
     "QtCore",
     "QtGui",
     "QtWidgets",
     "QtMultimedia",
     "QtMultimediaWidgets",
+    "QtOpenGL",
 )
 
 # One import per dependency this project declares, in the form that actually proves it
@@ -686,10 +688,13 @@ QT_DROP_PREFIXES = (
     # SQL, state machines, remote objects, Qt's own test framework.
     "Qt6Sql", "QtSql", "Qt6Scxml", "QtScxml", "Qt6StateMachine", "QtStateMachine",
     "Qt6RemoteObjects", "QtRemoteObjects", "Qt6Test", "QtTest",
-    # The Python QtOpenGL* bindings. The installer does not enter the solar plate, so
-    # it does not import them. Qt6OpenGL.dll itself stays: it is 1.9MB and Qt6Gui can
-    # reach for it.
-    "QtOpenGL",
+    # QtOpenGL used to be dropped here. Removed from this list: the app imports
+    # PySide6.QtOpenGL at startup via arelis.ui.solar_gl (the .pyd is about 8.7 MB),
+    # so prune_qt must leave QtOpenGL.pyd alone. Qt6OpenGL.dll was never matched
+    # (it starts with Qt6) and stays either way.
+    # QtOpenGLWidgets is unused under arelis/; drop it by this name so the prefix
+    # cannot match QtOpenGL.pyd.
+    "QtOpenGLWidgets",
 )
 
 # Plugins are a keep-list rather than a drop-list, the one place that inversion is
@@ -1111,6 +1116,69 @@ def verify() -> None:
         sys.stderr.write("\nQt cannot start in the built tree.\n\n")
         sys.stderr.write((result.stdout or "") + "\n" + (result.stderr or "") + "\n")
         raise SystemExit(1)
+
+    say("  the app's own modules import in the tree...")
+    # Catch a prune that deletes a binding the UI imports at startup (QtOpenGL via
+    # solar_gl) even when QT_MODULES still imports cleanly. Scratch data root so
+    # nothing touches a real profile.
+    data_root = tempfile.mkdtemp(prefix="arelis_verify_")
+    ui_env = dict(
+        os.environ,
+        QT_QPA_PLATFORM="offscreen",
+        ARELIS_ALLOW_OFFSCREEN="1",
+        ARELIS_DATA_DIR=data_root,
+    )
+    try:
+        module_probe = (
+            "import arelis.ui.solar_gl;"
+            "import arelis.ui.launch;"
+            "import arelis.ui.app;"
+            "print('modules ok')"
+        )
+        result = subprocess.run(
+            [str(python_exe()), "-c", module_probe],
+            capture_output=True,
+            text=True,
+            env=ui_env,
+        )
+        if result.returncode != 0 or "modules ok" not in result.stdout:
+            sys.stderr.write("\nApp UI modules do not import in the built tree.\n\n")
+            sys.stderr.write((result.stdout or "") + "\n" + (result.stderr or "") + "\n")
+            raise SystemExit(1)
+
+        say("  main window builds offscreen...")
+        # Same construction tests/conftest.py arelis_window uses. No core thread,
+        # no Ollama, no first-run prompts (those live in run_ui, not ArelisWindow).
+        window_probe = (
+            "import asyncio\n"
+            "from PySide6.QtWidgets import QApplication\n"
+            "from arelis.core.bus import EventBus\n"
+            "from arelis.ui.app import ArelisWindow, BusBridge\n"
+            "app = QApplication.instance() or QApplication([])\n"
+            "cfg = {"
+            "'ui': {'default_width': 800, 'default_height': 600}, "
+            "'router': {'default_role': 'fast'}, "
+            "'voice': {'enabled': False}"
+            "}\n"
+            "win = ArelisWindow(cfg, BusBridge(), asyncio.new_event_loop(), EventBus())\n"
+            "app.processEvents()\n"
+            "win.dispose()\n"
+            "win.loop.close()\n"
+            "app.quit()\n"
+            "print('window ok')\n"
+        )
+        result = subprocess.run(
+            [str(python_exe()), "-c", window_probe],
+            capture_output=True,
+            text=True,
+            env=ui_env,
+        )
+        if result.returncode != 0 or "window ok" not in result.stdout:
+            sys.stderr.write("\nMain window cannot build in the built tree.\n\n")
+            sys.stderr.write((result.stdout or "") + "\n" + (result.stderr or "") + "\n")
+            raise SystemExit(1)
+    finally:
+        shutil.rmtree(data_root, ignore_errors=True)
 
     say("  the ways Arelis is started...")
     # Every one of these is a real launch path: the shortcuts and the update relaunch use
