@@ -28,6 +28,7 @@ from arelis.presence.inbound_runtime import InboundRuntime
 from arelis.presence.ipc_client import IpcClient
 from arelis.presence.ipc_server import IpcServer
 from arelis.presence.lock import external_core_available
+from arelis.setup.state import needs_model_setup, try_quiet_complete_model_setup
 from arelis.ui.first_run import prompt_for_workspace_root
 from arelis.ui.foreground import show_without_activating
 from arelis.ui.scale import configure_display_scale
@@ -45,6 +46,81 @@ from arelis.voice import VoiceService
 from arelis.workspace import WorkspaceRoots
 
 log = logging.getLogger(__name__)
+
+
+def first_run_blocks_main() -> bool:
+    """True while model setup is still unfinished. Mute main glass must wait."""
+    return needs_model_setup()
+
+
+def _reload_after_first_run(
+    config: dict[str, Any], *, config_was_given: bool
+) -> dict[str, Any]:
+    """Pick up pins first-run glass wrote to config.local.yaml.
+
+    When the caller did not hand us a config, reload from disk (default + local).
+    When they did (tests, ``--config``), merge the on-disk local overlay into
+    that dict so we do not throw away the caller's base settings.
+    """
+    if not config_was_given:
+        return load_config()
+    from arelis.config import (
+        LOCAL_CONFIG_PATH,
+        _parse_workspace_roots,
+        deep_merge,
+        ensure_package_inspect_root,
+    )
+
+    if not LOCAL_CONFIG_PATH.is_file():
+        return config
+    try:
+        import yaml
+
+        local = yaml.safe_load(LOCAL_CONFIG_PATH.read_text(encoding="utf-8")) or {}
+    except Exception:
+        # Corrupt or unreadable local overlay: keep the caller's config rather
+        # than aborting launch after the person already finished first-run glass.
+        log.warning("could not re-read local config after first-run", exc_info=True)
+        return config
+    if not isinstance(local, dict) or not local:
+        return config
+    deep_merge(config, local)
+    named = _parse_workspace_roots(
+        (config.get("workspace") or {}).get("roots", ["."])
+    )
+    named = ensure_package_inspect_root(named)
+    config.setdefault("workspace", {})
+    config["workspace"]["named_roots"] = named
+    config["workspace"]["roots"] = [entry["path"] for entry in named]
+    return config
+
+
+def apply_first_run_glass(
+    config: dict[str, Any], *, config_was_given: bool = False
+) -> dict[str, Any] | None:
+    """Workspace then model glass. Always ask when needed, even if config was given.
+
+    Returns the (possibly refreshed) config when it is safe to open the main
+    window, or None when model setup is still unfinished after one dialog
+    attempt. Incomplete close shows the existing notice and exits; the next
+    launch asks again. No loop.
+    """
+    # Do not gate on config_was_given. Main always passes a config for the
+    # normal installer path; that flag only means "do not silently replace the
+    # caller dict" when refreshing after a prompt actually ran.
+    if prompt_for_workspace_root() is not None:
+        config = _reload_after_first_run(config, config_was_given=config_was_given)
+
+    # Upgraders who already have the engine and the shipped default model:
+    # mark complete quietly. Do not open the wizard or pull a different tag.
+    try_quiet_complete_model_setup()
+    if needs_model_setup():
+        tag = prompt_for_model_setup()
+        if tag is not None:
+            config = _reload_after_first_run(config, config_was_given=config_was_given)
+    if first_run_blocks_main():
+        return None
+    return config
 
 
 def _present_at_startup(window: Any) -> None:
@@ -276,7 +352,9 @@ def run_ui(config: dict[str, Any] | None = None) -> int:
     # this attribute is what stops one winId() from promoting every sibling.
     configure_native_windows()
     # Remembered because first run may need to reload from disk, and a config
-    # handed in by a caller (tests, harnesses) must not be silently replaced.
+    # handed in by a caller (tests, harnesses) must not be silently replaced
+    # when the glasses did not run. The glasses themselves always run when
+    # needed; this flag only controls how we refresh config afterward.
     config_was_given = config is not None
     config = config or load_config()
     # Per-monitor DPI + optional ui.scale. Must land before QApplication.
@@ -352,18 +430,23 @@ def run_ui(config: dict[str, Any] | None = None) -> int:
     app.setFont(app_font(families))
     app.setStyleSheet(stylesheet())
 
-    # First run: ask which folder Arelis may work in. It happens here rather than
-    # beside the other config work above because it needs a QApplication, and the
-    # QApplication cannot be created until the font and platform environment is
-    # set. Nothing between the two reads the workspace.
-    # Returns None when the question has already been answered, which is every
-    # launch after the first.
-    if not config_was_given and prompt_for_workspace_root() is not None:
-        config = load_config()
-        workspace = _bind_workspace(config)
-    if not config_was_given and prompt_for_model_setup() is not None:
-        config = load_config()
-        workspace = _bind_workspace(config)
+    # First run: workspace folder, then model setup. Needs QApplication.
+    # Always ask when needed. Do not skip because main passed a config dict.
+    refreshed = apply_first_run_glass(config, config_was_given=config_was_given)
+    if refreshed is None:
+        from arelis.ui.dialog import notice
+
+        notice(
+            None,
+            "Setup is not finished",
+            "Arelis needs a chat model on this PC before it can open.",
+            detail="Run Arelis again when you are ready to finish setup.",
+            warning=True,
+        )
+        _release_ui_lock()
+        return 1
+    config = refreshed
+    workspace = _bind_workspace(config)
     # Required so hiding the last window to the tray does not kill the process.
     presence_cfg_early = (config or {}).get("presence") or {}
     if bool(presence_cfg_early.get("close_to_tray", True)):

@@ -340,7 +340,17 @@ class TestGroupA:
             "arelis.setup.engine.hidden_run",
             lambda *_args, **_kwargs: SimpleNamespace(returncode=0),
         )
+        found = tmp_path / "ollama.exe"
+        found.write_bytes(b"x")
+        monkeypatch.setattr(
+            "arelis.setup.engine.find_ollama_exe",
+            lambda: found,
+        )
         assert run_ollama_setup(setup) is None
+
+        monkeypatch.setattr("arelis.setup.engine.find_ollama_exe", lambda: None)
+        missing_exe = run_ollama_setup(setup) or ""
+        assert "not found" in missing_exe.lower()
 
         monkeypatch.setattr(
             "arelis.setup.engine.hidden_run",

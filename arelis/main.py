@@ -183,7 +183,12 @@ def main(argv: list[str] | None = None) -> int:
 
     from arelis.ui.app import run_ui
 
-    return run_ui(config)
+    if args.config:
+        return run_ui(config)
+    # Normal installer / Start-menu path: load inside run_ui so first-run
+    # glass is not skipped by a pre-loaded config dict. --config still
+    # passes the loaded dict; prompts still run (see apply_first_run_glass).
+    return run_ui()
 
 
 if __name__ == "__main__":
