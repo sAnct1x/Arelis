@@ -942,13 +942,11 @@ def test_dispatch_tables_are_named_and_ordered() -> None:
     ("text", "tool"),
     [
         (
-            "no need to look at the book, its just fucking crazy that she wrote a "
-            "scenario, as fiction, and a few months later it literally might be happening",
+            "no need to look at the book, its just crazy that she wrote a scenario",
             "desktop",
         ),
         (
-            "i never asked you to do anything, why did you open your browser, "
-            "check the time, and talk about whatever the fuck shibuya room is?",
+            "i never asked you to do anything, why did you open your browser, check the time",
             "browser",
         ),
     ],

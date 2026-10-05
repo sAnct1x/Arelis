@@ -1157,8 +1157,7 @@ def test_a_browser_complaint_does_not_arm_the_pre_model_browser_read() -> None:
     from arelis.core.preflight import detect_intents
 
     complaint = (
-        "i never asked you to do anything, why did you open your browser, check "
-        "the time, and talk about whatever the fuck shibuya room is?"
+        "i never asked you to do anything, why did you open your browser, check the time"
     )
     for text in (complaint, "why did you open your browser"):
         expected = {t for h in detect_intents(text) for t in h.expected_tools}
