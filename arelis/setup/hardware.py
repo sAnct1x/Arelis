@@ -1,7 +1,7 @@
 """What this PC can actually hold.
 
 The existing GPU sampler reads *usage* (Task Manager counters). Setup needs
-*capacity* — how big the card is — so we do not recommend a 27B on a 4 GB
+*capacity*, how big the card is, so we do not recommend a 27B on a 4 GB
 laptop because Chrome happened to be idle.
 """
 

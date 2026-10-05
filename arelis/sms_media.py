@@ -1,4 +1,4 @@
-"""Inbound SMS links and pictures. No Qt — the tile renders what this returns."""
+"""Inbound SMS links and pictures. No Qt, the tile renders what this returns."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""Deterministic daily briefing — not a free-form model prompt."""
+"""Deterministic daily briefing, not a free-form model prompt."""
 
 from arelis.briefing.builder import (
     BRIEFING_PROMPT,

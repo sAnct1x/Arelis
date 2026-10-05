@@ -302,7 +302,7 @@ def looks_like_prompt_echo(text: str, prompt: str) -> bool:
     Short/noisy clips often come back as the bias prompt ("Arelis, Ollama,
     ComfyUI, Whisper…") rather than what the user said.
 
-    Never treats a compound wake phrase as echo — the prompt is *supposed* to
+    Never treats a compound wake phrase as echo, the prompt is *supposed* to
     bias toward "Hey Arelis", and scrubbing that broke wake entirely.
     """
     from arelis.voice.wake import match_wake
@@ -399,7 +399,7 @@ class SpeechToText:
         The choice is made from configuration and purpose only. An earlier
         version returned faster-whisper whenever its weights happened to be in
         memory, which meant the first idle wake clip loaded Whisper and every
-        conversation turn for the rest of the session quietly went there too —
+        conversation turn for the rest of the session quietly went there too
         Sherpa was configured, downloaded, and never used again.
         """
         whisper_loaded = self._model is not None
@@ -437,7 +437,7 @@ class SpeechToText:
 
         Wake is faster-whisper; turns are Sherpa. An earlier version only
         asked the turn backend, so the first "Hey Arelis" downloaded Whisper
-        with no status — loaded() was already true, and nothing said so.
+        with no status, loaded() was already true, and nothing said so.
         """
         turn = self.resolved_backend()
         if not self._backend_in_memory(turn):
@@ -543,7 +543,7 @@ class SpeechToText:
 
         Wake resolves to faster-whisper while turns run on Sherpa, so warming
         only the configured backend left Whisper to load inside the first wake
-        clip — tens of seconds on a cold profile, with no status, because
+        clip, tens of seconds on a cold profile, with no status, because
         loaded() reports the turn backend and it was already warm. The user
         says "Hey Arelis", nothing happens, and there is nothing to see.
         """

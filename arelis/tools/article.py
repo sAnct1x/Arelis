@@ -16,7 +16,7 @@ Strategies (best score wins; near-ties can merge unique paragraphs):
 7. Open Graph description as a short fallback
 8. Cleaned full-body text (worst, but better than nothing)
 
-No new dependencies — BeautifulSoup + lxml already in the project.
+No new dependencies, BeautifulSoup + lxml already in the project.
 """
 
 from __future__ import annotations
@@ -1010,7 +1010,7 @@ def _diagnose(html: str, text: str) -> str:
         )
     if thin_readable(text):
         return (
-            "Almost no readable HTML text — likely a JavaScript app shell. "
+            "Almost no readable HTML text, likely a JavaScript app shell. "
             "Scrape cannot run site JS. Prefer a different URL, an AMP/print "
             "link if available, or browser(action=open) with this URL. "
             "Do not invent what the page says."

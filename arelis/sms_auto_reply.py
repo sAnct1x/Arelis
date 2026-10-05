@@ -224,7 +224,7 @@ class SmsAutoReply:
                     "message": (
                         f"Auto-reply draft for {to_alias}"
                         + (f" (re: {inbound_id})" if inbound_id else "")
-                        + " — confirm to send."
+                        + "- confirm to send."
                     )
                 },
             )
@@ -257,7 +257,7 @@ class SmsAutoReply:
                     EventType.STATUS,
                     {
                         "message": (
-                            f"Auto-reply draft for {to_alias} saved — open Arelis "
+                            f"Auto-reply draft for {to_alias} saved, open Arelis "
                             "to allow or skip (nothing sent)."
                         )
                     },

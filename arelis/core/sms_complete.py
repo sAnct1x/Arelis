@@ -2,7 +2,7 @@
 
 Small models often split "text Brian" and "say I'm late" across turns, then
 re-ask for the body forever. This module reconstructs a draft so preflight and
-the agent loop can nudge with concrete args — still never sends without Allow.
+the agent loop can nudge with concrete args, still never sends without Allow.
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ from arelis.core.intent_catalog import first_unnegated
 
 # Re-exported, not merely imported. Fourteen modules and the test suite reach
 # for these through this module's name, so moving them to `utterance_guards`
-# had to keep this door open — the point of the move was to stop *new* callers
+# had to keep this door open, the point of the move was to stop *new* callers
 # arriving here for a greeting, not to break the ones that already had.
 from arelis.core.utterance_guards import (
     looks_like_browser_or_url,
@@ -119,7 +119,7 @@ _SMS_SEND = re.compile(
     r"(?:just\s+|please\s+)?tell(?:ing)?\s+(?:him|her|them))\s*(?P<body>.+))?"
 )
 
-# "Send her another text and tell her that …" — recipient is the pronoun.
+# "Send her another text and tell her that …", recipient is the pronoun.
 _PRONOUN_SMS = re.compile(
     r"(?i)\b(?:"
     r"send\s+(?P<pronoun>her|him|them)\s+(?:(?:an?\s+|another\s+|a\s+)?"
@@ -140,7 +140,7 @@ _HAVE_IT_SAY = re.compile(
     r"(?is)\s+(?:and\s+)?have\s+it\s+say\s+(.+)$"
 )
 
-# "text in that last picture" / "text this screenshot" — prepositions, not people.
+# "text in that last picture" / "text this screenshot", prepositions, not people.
 _SMS_TO_STOPWORDS = frozenset(
     {
         "in",
@@ -293,7 +293,7 @@ _SEND_COMMAND = send_command_pattern(*_SEND_VERBS)
 
 # Bare "confirm" is on this list and on no other. The Allow card says Confirm,
 # so on the send channels the word is as likely to be the user reading the
-# button back as it is a new offer — and treating it as an offer is what lets
+# button back as it is a new offer, and treating it as an offer is what lets
 # the next "yes" mean send.
 _PROCEED_ASK = proceed_ask_pattern("send", "sending", r"confirm(?:ation)?")
 
@@ -315,7 +315,7 @@ class SmsDraft:
         """Ready to send when body is set and every recipient has an address.
 
         An address is a book alias *or* a number they typed. Missing names
-        are not a gate — they mean ask for the number, not 'add them first'.
+        are not a gate, they mean ask for the number, not 'add them first'.
         """
         if not self.body.strip():
             return False
@@ -418,7 +418,7 @@ def resolve_sms_alias(to: str, contacts: dict[str, Contact] | None = None) -> st
     on a surname typo. What is left here is the SMS projection: the tool wants
     the book alias, not the number, so the number stays in one place.
 
-    `load_contacts` is read off this module deliberately — the SMS tests
+    `load_contacts` is read off this module deliberately, the SMS tests
     monkeypatch it here, so the default must resolve through this namespace
     rather than the shared module's.
     """
@@ -535,7 +535,7 @@ def parse_sms_utterance(text: str) -> SmsDraft | None:
     # Overlay / resize: "add text right in the middle that says Arelis".
     if looks_like_image_edit(raw) and not _EXPLICIT_SMS_VERB.match(raw):
         return None
-    # OCR / "read the text in this screenshot" / text-file — not a send.
+    # OCR / "read the text in this screenshot" / text-file, not a send.
     from arelis.core.skills import sms_negative_hit
 
     if sms_negative_hit(raw) and not _EXPLICIT_SMS_VERB.match(raw):
@@ -545,7 +545,7 @@ def parse_sms_utterance(text: str) -> SmsDraft | None:
 
     if looks_like_calendar_create(raw) and not _EXPLICIT_SMS_VERB.match(raw):
         return None
-    # "text to image …" matches _SMS_SEND as to="image" — never treat as SMS.
+    # "text to image …" matches _SMS_SEND as to="image", never treat as SMS.
     if re.search(r"(?i)\btext[\s\-]?to[\s\-]?image\b", raw):
         return None
 
@@ -657,10 +657,10 @@ def complete_sms_draft(
 
     # Include the current user text as the newest user turn for merging.
     # (AgentLoop adds the user message before we read history, so it may already
-    # be the last entry — dedupe by comparing content.)
+    # be the last entry, dedupe by comparing content.)
     pairs = history_with_current(history, user_text)
 
-    # Case A: current turn is a full SMS parse with to but empty body — keep looking
+    # Case A: current turn is a full SMS parse with to but empty body, keep looking
     # for a following body is N/A (this IS the current turn). Incomplete.
     if current and not current.body:
         names = _resolve_pronoun_names(list(current.all_tos))
@@ -676,7 +676,7 @@ def complete_sms_draft(
         # This walk is stricter than the shared one in `core.history_revival`:
         # it stops on any non-offer turn, and it has two exits the shared walk
         # does not model (a recipient-only draft below, and the bare-number
-        # address fill after it). It stays hand-written on purpose — four
+        # address fill after it). It stays hand-written on purpose, four
         # callbacks and a sentinel value is not an improvement in the function
         # that decides what text messages get sent.
         #
@@ -705,7 +705,7 @@ def complete_sms_draft(
                 prior = parse_sms_utterance(content)
                 if prior and prior.all_tos and prior.body:
                     # Bare "yes" after a non-SMS turn must not revive an older
-                    # complete draft — only confirm when the assistant just
+                    # complete draft, only confirm when the assistant just
                     # asked about sending.
                     if saw_ask or granted:
                         return _finalize_draft(
@@ -716,7 +716,7 @@ def complete_sms_draft(
                         )
                     break
                 if prior and prior.all_tos and not prior.body and (saw_ask or granted):
-                    # Affirm without body — still incomplete.
+                    # Affirm without body, still incomplete.
                     return _finalize_draft(
                         names=list(prior.all_tos),
                         body="",
@@ -754,7 +754,7 @@ def complete_sms_draft(
                     )
             break
 
-    # Case B: current text is NOT an SMS verb — treat as body after a pending ask.
+    # Case B: current text is NOT an SMS verb, treat as body after a pending ask.
     if current is None and user_text.strip() and not _SMS_VERB.match(user_text):
         if _SEND_CONFIRM.match(user_text or ""):
             return None
@@ -870,7 +870,7 @@ def fill_send_sms_args(
 ) -> dict[str, Any]:
     """Fill to/body on a tool call from a known draft.
 
-    Whenever the draft carries a body, that body is locked — the model cannot
+    Whenever the draft carries a body, that body is locked, the model cannot
     overwrite it with a different invent. Confirm cards therefore show the body
     that will actually send. For multi-recipient drafts, `to` is the next
     unresolved alias not already sent this turn.
@@ -927,7 +927,7 @@ def sms_preflight_nudge(draft: SmsDraft) -> str:
             "Intent preflight: the user wants to text "
             f"{miss}, but there is no number yet. Ask for the number, then "
             "call send_sms with that number and the body they already gave. "
-            "Contacts are a nickname hint, not a gate — do not require "
+            "Contacts are a nickname hint, not a gate, do not require "
             "contacts(action=add) before sending. Do not invent a number."
         )
     tos = ", ".join(draft.resolved_aliases) or draft.tool_to
@@ -960,7 +960,7 @@ def sms_force_call_notice(
     if draft.missing:
         miss = ", ".join(draft.missing)
         return (
-            f"Do not send yet — need a number for: {miss}. "
+            f"Do not send yet, need a number for: {miss}. "
             "Ask for it, then call send_sms. Do not invent a number. "
             "Saving them in contacts is optional."
         )

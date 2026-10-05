@@ -1,7 +1,7 @@
 """Hung-turn ceiling. The 8s busy watchdog only arms after Stop.
 
 A tool that never returns used to shimmer forever. This arms when the turn
-starts. The remaining time stays off the shimmer — "thinking…" is the
+starts. The remaining time stays off the shimmer, "thinking…" is the
 status, not a countdown. Confirm wait is a person, not a hang, so the
 ceiling pauses.
 

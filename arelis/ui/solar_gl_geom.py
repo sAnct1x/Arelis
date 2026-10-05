@@ -1,7 +1,7 @@
 """Mesh, projection, and Earth-frame helpers for solar GL.
 
 SolarSpaceView, stars_only, and the desktop-GL opt-in stay in solar_gl.py.
-A photoreal miss must not set host.failed — that contract lives on the
+A photoreal miss must not set host.failed, that contract lives on the
 widget / host side, not here.
 """
 from __future__ import annotations
@@ -100,7 +100,7 @@ def view_from_basis(
     """Eye-space matching Camera.project.
 
     look_basis is east-right. Rows fx, fy, -fz plus the clip-Y flip in
-    projection() set FRONT_FACE. Do not swap in Qt lookAt — that pair
+    projection() set FRONT_FACE. Do not swap in Qt lookAt, that pair
     disagrees with the overlay on X.
     """
     return QMatrix4x4(

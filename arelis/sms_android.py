@@ -4,7 +4,7 @@ The phone is the radio and Arelis is the brain. The Arelis companion (or
 SMSGate as a leftover) runs a small HTTP server on the handset, and a POST
 here becomes a normal SMS off the SIM already in it. So the text arrives from
 your number, the reply comes back to your phone, and it costs nothing beyond
-the plan you already pay for — which is the whole reason this replaced
+the plan you already pay for, which is the whole reason this replaced
 carrier email gateways.
 
 Credentials live in data/secrets.yaml beside the mail account and load the same
@@ -82,7 +82,7 @@ class SmsGateAccount:
 
     @property
     def inbox_refresh_url(self) -> str:
-        """Local Server POST /inbox/refresh — re-indexes device SMS into GET /inbox."""
+        """Local Server POST /inbox/refresh, re-indexes device SMS into GET /inbox."""
         inbox = self.inbox_url
         if inbox.endswith("/refresh"):
             return inbox
@@ -237,7 +237,7 @@ class AndroidSmsProvider:
             if account.via == "companion":
                 raise SmsSendError(
                     "The phone companion rejected this house's radio key. "
-                    "Talk being linked is not enough — scan the QR again from "
+                    "Talk being linked is not enough, scan the QR again from "
                     "Settings → Notify on this PC (same Wi-Fi)."
                 )
             raise SmsSendError(

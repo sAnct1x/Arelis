@@ -152,7 +152,7 @@ def hud_status_lines(panel, system: SolarSystem) -> list[str]:
     if alert:
         lines.append(alert)
     if not panel._space_live() and panel._gl is not None:
-        lines.append("OpenGL failed — software globes")
+        lines.append("OpenGL failed, software globes")
     from arelis.earth.runtime import get_earth
 
     zone = get_earth()
@@ -479,7 +479,7 @@ def start_earth_live(panel) -> None:
 
 
 def paint_earth_chrome(panel, painter: QPainter) -> None:
-    """Chips, find, and a contact card. Cesium owns the planet — no solar HUD."""
+    """Chips, find, and a contact card. Cesium owns the planet, no solar HUD."""
     painter.setFont(panel.font())
     panel._hud_box = QRect()
     panel._hud_bottom = 8
@@ -1003,14 +1003,14 @@ def build_inspect_lines(panel, system: SolarSystem) -> list[str]:
                 f"(~{gsd}), large-scale only."
             )
     elif info.path is None:
-        lines.append(f"albedo: none — {info.source}. Limb-lit sphere, no fake detail.")
+        lines.append(f"albedo: none, {info.source}. Limb-lit sphere, no fake detail.")
         lines.append(spin_caption(name))
     else:
         gsd = f"{info.km_per_px:g} km/px" if info.km_per_px else "?"
         extra = " " + spin_caption(name)
         src = info.source.lower()
         if any(word in src for word in ("mosaic", "voyager", "cassini")):
-            extra += " Coverage gaps stay tint — not invented fill."
+            extra += " Coverage gaps stay tint, not invented fill."
         lines.append(f"albedo: {info.source}  (~{gsd}).{extra}")
     if system.overlay.show_magnetic and name == "Sun":
         lines.append("Dipole loops are a centred-dipole sketch. Not MHD.")
@@ -1024,7 +1024,7 @@ def build_inspect_lines(panel, system: SolarSystem) -> list[str]:
         lines.append(WIND_CITE)
     if name == "Saturn":
         lines.append(
-            "Rings: IAU WGCCRE 2015 pole, C–A + Cassini (NASA/JPL km). "
+            "Rings: IAU WGCCRE 2015 pole, C-A + Cassini (NASA/JPL km). "
             "Sketch, not particles."
         )
     r_stop, cite = stop_radius_m(name)
@@ -1061,7 +1061,7 @@ def build_inspect_lines(panel, system: SolarSystem) -> list[str]:
             else:
                 label = stack.label()
             band = zone.last_view.band if zone.last_view is not None else "space"
-            live = "Live on" if zone.live else "Live off — published feeds"
+            live = "Live on" if zone.live else "Live off, published feeds"
             compact = [
                 lines[0],
                 f"{band} · {live}",

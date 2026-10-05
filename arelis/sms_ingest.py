@@ -162,7 +162,7 @@ class CompanionPresence:
     Inbound texts ride a notification listener on the phone. Doze, a muted
     conversation, or battery optimisation can stop that listener without
     telling anyone, and on the companion path there is no PC-side fallback
-    poll to notice — `AndroidSmsProvider.supports_inbox_poll` returns False
+    poll to notice, `AndroidSmsProvider.supports_inbox_poll` returns False
     unless an SMSGate inbox URL is also configured.
 
     So an empty inbox has two completely different meanings: nobody texted,
@@ -170,7 +170,7 @@ class CompanionPresence:
     "No inbound texts recorded this session", which makes the second one a
     confident wrong answer about someone's messages.
 
-    This does not prove the listener is alive — nothing here can, short of
+    This does not prove the listener is alive, nothing here can, short of
     the phone telling us, and the listener only posts when a message arrives.
     What it records is weaker and still worth having: the phone reached this
     machine at some point, on any authenticated endpoint. If it never has,
@@ -570,7 +570,7 @@ class InboundIngestServer:
                                 503,
                                 {
                                     "ok": False,
-                                    "error": "open Arelis on the PC — files live there",
+                                    "error": "open Arelis on the PC, files live there",
                                 },
                             )
                             return
@@ -601,7 +601,7 @@ class InboundIngestServer:
                             503,
                             {
                                 "ok": False,
-                                "error": "open Arelis on the PC — files live there",
+                                "error": "open Arelis on the PC, files live there",
                             },
                         )
                         return
@@ -979,7 +979,7 @@ class InboundIngestServer:
                         503,
                         {
                             "ok": False,
-                            "error": "open Arelis on the PC — the house is not thinking yet",
+                            "error": "open Arelis on the PC, the house is not thinking yet",
                         },
                     )
                     return
@@ -992,7 +992,7 @@ class InboundIngestServer:
                     if busy:
                         self._reply(
                             409,
-                            {"ok": False, "error": "already in a turn — wait or stop on the PC"},
+                            {"ok": False, "error": "already in a turn, wait or stop on the PC"},
                         )
                         return
                 text = str(data.get("text") or "").strip()
@@ -1030,7 +1030,7 @@ class InboundIngestServer:
                     if transcribe is None:
                         self._reply(
                             501,
-                            {"ok": False, "error": "voice is off on the PC — type instead"},
+                            {"ok": False, "error": "voice is off on the PC, type instead"},
                         )
                         return
                     clip = state_dir() / "drops" / "mobile-voice.wav"
@@ -1139,7 +1139,7 @@ class InboundIngestServer:
                 """Token, or the short-lived pair secret on first-install URLs.
 
                 A browser hitting /companion with no secret is not a guessed
-                token — do not count it toward the auth lock.
+                token, do not count it toward the auth lock.
                 """
                 from arelis.sms_pairing import pair_secret_ok
 

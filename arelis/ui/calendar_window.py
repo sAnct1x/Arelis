@@ -1,4 +1,4 @@
-"""Floating glass calendar — View → calendar / Ctrl+7. Not a dock."""
+"""Floating glass calendar, View → calendar / Ctrl+7. Not a dock."""
 
 from __future__ import annotations
 

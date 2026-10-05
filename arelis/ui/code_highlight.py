@@ -1,4 +1,4 @@
-"""Quiet Python highlighting — one lamp, not a rainbow IDE."""
+"""Quiet Python highlighting, one lamp, not a rainbow IDE."""
 
 from __future__ import annotations
 

@@ -1,6 +1,6 @@
 """Edge/corner resize for frameless windows on Windows.
 
-Uses WM_NCHITTEST so the OS owns the drag — same feel as a normal title-bar
+Uses WM_NCHITTEST so the OS owns the drag, same feel as a normal title-bar
 window, without fighting child widgets for mouse events. On show we add
 WS_THICKFRAME and zero out WM_NCCALCSIZE so Windows treats the window as
 resizable while it still paints frameless.
@@ -89,7 +89,7 @@ def configure_native_windows() -> None:
     """Stop Qt promoting every sibling when one widget goes native.
 
     Must run before QApplication is constructed. A native child under this
-    window is composited twice — once in the parent backing store, once as its
+    window is composited twice, once in the parent backing store, once as its
     own HWND, offset by the child's origin. That is the ghost. This attribute
     keeps a single winId() from cascading to the toolbar, the docks, the stage
     and the splitters.
@@ -102,7 +102,7 @@ def configure_native_windows() -> None:
 def _is_top_level(widget: QWidget) -> bool:
     """True only for a widget that already is its own window.
 
-    A QDockWidget that is floating qualifies. A docked one does not — its
+    A QDockWidget that is floating qualifies. A docked one does not, its
     window() is the main glass, and calling winId() on it would create a child
     HWND.
     """
@@ -153,7 +153,7 @@ def invalidate_window_surface(widget: QWidget) -> None:
     A frameless widget with WA_TranslucentBackground is a layered window, and Qt
     uploads its pixels with UpdateLayeredWindow. The uploaded bitmap belongs to
     the OS, not to Qt, so it survives ShowWindow(SW_HIDE) and is presented again
-    the instant the window comes back — before any paintEvent has run. Whatever
+    the instant the window comes back, before any paintEvent has run. Whatever
     the glass looked like when it went to the tray is therefore what appears
     first, which is wrong every time something changed while it was away: a text
     arrived, the status line moved, the window is a different size than it was.

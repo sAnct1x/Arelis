@@ -1,4 +1,4 @@
-"""Published constants for the units tool — cited, not measured this turn.
+"""Published constants for the units tool, cited, not measured this turn.
 
 Values are from public CODATA / IAU / cosmology papers. The tool result must
 name the source and year so a 9B cannot present them as a measurement it just
@@ -247,5 +247,5 @@ def format_constant(item: PublishedConstant) -> str:
     note = f" {item.notes}" if item.notes else ""
     return (
         f"{item.name} ({item.id}) = {item.value} {item.unit} "
-        f"— source: {item.source}; not measured this turn.{note}"
+        f", source: {item.source}; not measured this turn.{note}"
     )

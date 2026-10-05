@@ -1,7 +1,7 @@
 """Filament desk controller. Same HWND as sodium; second GUI, not a hue swap.
 
 Sodium is the shipped window. Filament is listed as ``filament (testing)``.
-One opaque desk — never ``WA_TranslucentBackground``. No second process.
+One opaque desk, never ``WA_TranslucentBackground``. No second process.
 Field stays paint (``filament_field``). Tiles stay tiles (``filament_tile``).
 ``apply_filament_desk`` and the conversation Drive strip stay on conversation.
 
@@ -200,7 +200,7 @@ class FilamentDesk:
 
     def _filament_toggle_span(self) -> None:
         """Maximize snaps back to the chosen 1 / 2 / 3. It does not cycle
-        desks and it does not fullscreen — F11 follows the HWND left."""
+        desks and it does not fullscreen, F11 follows the HWND left."""
         w = self.window
         if w.isFullScreen() or w.isMaximized():
             w.showNormal()

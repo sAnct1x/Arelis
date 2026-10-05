@@ -1,4 +1,4 @@
-"""Single Settings dialog — audio, window, allow, notify, roots, memory."""
+"""Single Settings dialog, audio, window, allow, notify, roots, memory."""
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -720,7 +720,7 @@ class SettingsDialog(QDialog):
             account = None
         if account is not None:
             self.mail_address.setText(account.address)
-            self.mail_password.setPlaceholderText("saved — type to replace")
+            self.mail_password.setPlaceholderText("saved: type to replace")
         mail_form = QFormLayout()
         mail_form.addRow("Address", self.mail_address)
         mail_form.addRow("App password", self.mail_password)
@@ -754,7 +754,7 @@ class SettingsDialog(QDialog):
         roots_l.setSpacing(SPACE["gap"])
         roots_hint = QLabel(
             "Folders Arelis may read and write. Default is this repo only. "
-            "Add another project when you actually work on it — workspace dock "
+            "Add another project when you actually work on it, workspace dock "
             "(add / new / remove) or edit here. Writes need Allow; read-only "
             "roots never accept write/edit. Saved to data/config.local.yaml."
         )
@@ -1292,7 +1292,7 @@ class SettingsDialog(QDialog):
 
     def _root_label(self, entry: dict[str, Any]) -> str:
         ro = " [read-only]" if entry.get("read_only") else ""
-        return f"{entry.get('name') or '?'} — {entry.get('path') or '?'}{ro}"
+        return f"{entry.get('name') or '?'}, {entry.get('path') or '?'}{ro}"
 
     def _refresh_roots_list(self) -> None:
         self.roots_list.blockSignals(True)
@@ -1392,7 +1392,7 @@ class SettingsDialog(QDialog):
             return
         if grant:
             self.ask_is_grant.setToolTip(tr(
-                "When on, a job you already named does not open Allow — "
+                "When on, a job you already named does not open Allow, "
                 "except mail, texts, deletes, Pay, and programs."
             ))
             self._allow_grant_blurb.setText(tr(

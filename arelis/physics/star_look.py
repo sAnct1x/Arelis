@@ -18,7 +18,7 @@ class StarFlare:
     disc_px: photosphere radius
     bloom_px: soft core around the disc (or the point)
     spike_px: diffraction length from the centre
-    spike_gain: 0..1, never zero — close-up still has hairlines
+    spike_gain: 0..1, never zero, close-up still has hairlines
     unresolved: 1 when the sun is a point, 0 when the disc fills the view
     """
 

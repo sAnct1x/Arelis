@@ -90,7 +90,7 @@ def force_windows_qt_platform(env: MutableMapping[str, str]) -> None:
     """Insist on the real Windows Qt backend, whatever the environment says.
 
     A stray QT_QPA_PLATFORM is a process that starts, runs, logs normally and
-    never shows a window — the worst shape a failure can take, because there is
+    never shows a window, the worst shape a failure can take, because there is
     nothing to look at while you work out why. offscreen is the value that
     actually gets set by accident, exported by a test run and inherited by the
     next launch from the same shell, but minimal and vnc go wrong identically.
@@ -116,10 +116,10 @@ async def _drain_event_loop(
     """Stop what is still running before the loop is taken out from under it.
 
     Stopping the loop with work in flight is not free, whatever the exit code
-    says. The visible symptom was tidy enough to ignore — "Task was destroyed but
+    says. The visible symptom was tidy enough to ignore, "Task was destroyed but
     it is pending" for EventBus.run and MemoryIndexer.run_batch, then an
     "Indexed 3 workspace file(s)" line arriving two and a half seconds after quit
-    had finished — but the second half of that is the part that matters. The
+    had finished, but the second half of that is the part that matters. The
     indexer does its writing in ``asyncio.to_thread``, so cancelling the task
     only abandons the *await*: the worker thread carries on into memory.db while
     the interpreter is shutting down around it. A process exiting during a SQLite
@@ -159,7 +159,7 @@ async def _drain_event_loop(
         # evil: a quit that never returns is a program the user has to kill, and
         # they will then be exiting mid-write anyway with no record of why.
         log.warning(
-            "loop drain: background writes still running after %.2fs — exiting anyway",
+            "loop drain: background writes still running after %.2fs, exiting anyway",
             budget_s,
         )
     try:
@@ -176,7 +176,7 @@ _HANDOFF_MAX_TRIES = 24
 def _raise_running_instance(config: dict[str, Any]) -> int:
     """Second launch: put the Arelis that is already running back on screen.
 
-    The UI lock is held, so this copy must not open a window — two glasses over
+    The UI lock is held, so this copy must not open a window, two glasses over
     one memory.db is not a thing anyone wants. But refusing quietly is worse than
     it sounds: the running instance is usually hidden in the tray, so the visible
     result of double-clicking Arelis was nothing at all, and the honest response
@@ -185,7 +185,7 @@ def _raise_running_instance(config: dict[str, Any]) -> int:
 
     A held lock always means a living process. Windows releases both the named
     mutex and the byte lock when a process ends, however it ends, so there is no
-    such thing here as a stale lock left by a crash — if the lock is held, someone
+    such thing here as a stale lock left by a crash, if the lock is held, someone
     is home. The wait-and-retry lives in ``_second_launch``; this function is the
     last-resort notice after that wait has already asked and the other copy still
     did not answer.
@@ -217,8 +217,8 @@ def _raise_running_instance(config: dict[str, Any]) -> int:
             "Arelis is already open, but it did not answer the request to come "
             "to the front.",
             detail=(
-                "Look for the Arelis icon in the notification area — Windows "
-                "often keeps it in the overflow behind the chevron — and choose "
+                "Look for the Arelis icon in the notification area, Windows "
+                "often keeps it in the overflow behind the chevron, and choose "
                 f"Open Arelis. If it is not responding at all, {logs_dir()}"
                 "\\arelis.log has the last thing it did."
             ),
@@ -560,7 +560,7 @@ def run_ui(config: dict[str, Any] | None = None) -> int:
                     EventType.STATUS,
                     {
                         "message": (
-                            f"{len(parked)} pending send confirm(s) waiting — "
+                            f"{len(parked)} pending send confirm(s) waiting, "
                             "allow or skip in the card (nothing was sent while away)."
                         )
                     },

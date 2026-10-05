@@ -386,7 +386,7 @@ class ModelRouter:
         return model
 
     def _schedule_rewarm(self, role: ModelRole) -> None:
-        """After research, pin `fast` again — delayed so follow-ups stay warm.
+        """After research, pin `fast` again, delayed so follow-ups stay warm.
 
         Immediate re-warm made every research turn pay a cold 14B load. Waiting
         `rewarm_delay_s` keeps the research model resident for back-to-back
@@ -438,7 +438,7 @@ class ModelRouter:
         Qwen 3.5 and Gemma 4 take images themselves. For those there is nothing
         to swap: the picture goes to the model that is already hot, at the
         window it is already loaded with, and the turn continues. That is worth
-        being deliberate about — the detour below costs an unload, a cold VL
+        being deliberate about, the detour below costs an unload, a cold VL
         load, a second unload and a re-warm, which is tens of seconds spent to
         reach a smaller model that answers worse.
 

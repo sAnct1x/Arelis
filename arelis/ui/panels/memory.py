@@ -1,4 +1,4 @@
-"""Active facts manager — durable memory audit + forget."""
+"""Active facts manager, durable memory audit + forget."""
 
 from __future__ import annotations
 

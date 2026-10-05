@@ -1,6 +1,6 @@
 """The desk: pages and artifacts that exist because you talked.
 
-Workspace roots are the sandbox — the legal boundary. The desk is the
+Workspace roots are the sandbox, the legal boundary. The desk is the
 inbox that sits on top of it: notes you asked to keep, files she wrote,
 plots, pictures. Pins stay at the top. A missing file drops off the list
 rather than becoming a dead row.

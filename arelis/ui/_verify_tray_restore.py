@@ -5,7 +5,7 @@ fix for one does nothing for the others, so all three are measured:
 
   - how many visible top-level windows this process owns, at every phase. A
     floating dock is its own top-level window, and one that stays behind when
-    the glass goes to the tray *is* a second Arelis on screen — no compositing
+    the glass goes to the tray *is* a second Arelis on screen, no compositing
     involved. That is what this counts.
   - what the window comes back as. Restoring a maximized glass at its
     restored-down size leaves the full-screen frame Windows kept underneath the

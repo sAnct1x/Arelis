@@ -31,6 +31,12 @@ PHONE_NOTIFY_NEEDS_PAIRING = (
     "Phone notifications are turned on but not set up yet. "
     "To finish, open Settings, go to Notify, pick Create a pairing code."
 )
+PHONE_NOTIFY_BIND_FAILED = (
+    "Phone notifications couldn't start. Restart Arelis to try again."
+)
+PHONE_NOTIFY_MOVED = (
+    "Phone notifications moved to a new spot. Pair your phone again in Settings, Notify."
+)
 
 # Distinct unrecognized ingest.enabled values already warned about this process.
 _INGEST_ENABLED_WARNED: set[str] = set()
@@ -224,10 +230,13 @@ def _bind_and_announce(
     )
     if server is None:
         tried = candidates(ingest_port)
-        runtime.status_messages.append(
-            f"Inbound notify could not bind any port from {tried[0]} to "
-            f"{tried[-1]}: {last_error}"
+        log.error(
+            "Inbound notify could not bind any port from %s to %s: %s",
+            tried[0],
+            tried[-1],
+            last_error,
         )
+        runtime.status_messages.append(PHONE_NOTIFY_BIND_FAILED)
         return
     runtime.ingest = server
     urls = format_ingest_listen_urls(server.port, host=ingest_host)
@@ -235,11 +244,14 @@ def _bind_and_announce(
     if server.port == ingest_port:
         runtime.status_messages.append(f"Phone notifications: {primary}")
     else:
-        runtime.status_messages.append(
-            f"Port {ingest_port} was already in use, so inbound "
-            f"notify is on {server.port} instead — update the phone "
-            f"companion to {primary}"
+        log.info(
+            "Port %s was already in use, so inbound notify is on %s instead; "
+            "update the phone companion to %s",
+            ingest_port,
+            server.port,
+            primary,
         )
+        runtime.status_messages.append(PHONE_NOTIFY_MOVED)
     _start_house(runtime, token, server.port)
 
 

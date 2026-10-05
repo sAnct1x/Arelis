@@ -39,7 +39,7 @@ SOLAR_OVERLAY: tuple[tuple[str, str, str], ...] = (
 SOLAR_SPAWN: tuple[tuple[str, str, str], ...] = (
     ("probe", "Particle", "Massless circular around the inspected body."),
     ("tracer", "Belt", "One main-belt tracer. Not a named rock."),
-    ("l4", "Earth L4", "Sun–Earth L4 sketch, not N-body rest."),
+    ("l4", "Earth L4", "Sun-Earth L4 sketch, not N-body rest."),
     ("impulse", "Kick", "Δv on the inspected body. Counterfactual."),
     ("planet", "Planet", "Add a circular planet. Counterfactual."),
     ("toy", "Toy", "Open the tabletop physics plate."),

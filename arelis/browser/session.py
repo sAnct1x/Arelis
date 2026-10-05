@@ -1,4 +1,4 @@
-"""One BrowserSession per Arelis process — attach, launch, or relaunch."""
+"""One BrowserSession per Arelis process, attach, launch, or relaunch."""
 
 from __future__ import annotations
 
@@ -78,7 +78,7 @@ class BrowserSession:
         return await self._with_wall(await self._driver.open_url(url))
 
     async def open_url_os(self, url: str, browser: str | None = None) -> ActionResult:
-        """Open URL like a normal browser click — no CDP attach or restart."""
+        """Open URL like a normal browser click, no CDP attach or restart."""
         name = resolve_browser_choice(browser)
         result = await self._driver.open_url_os(url, name)
         if result.ok:
@@ -389,7 +389,7 @@ class BrowserSession:
             self._watch_done.set()
 
     async def await_watch(self, timeout_s: float = 2.0) -> ActionResult | None:
-        """Test helper — wait until the live watch hits, cancels, or times out."""
+        """Test helper, wait until the live watch hits, cancels, or times out."""
         if self._watch_done.is_set():
             return self._watch_result
         try:

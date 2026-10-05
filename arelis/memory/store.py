@@ -474,7 +474,7 @@ class MemoryStore:
         """Which room a conversation belongs to. Empty string means general.
 
         A nullable column would make "general" and "unknown" the same value, and
-        every existing archive is general by definition — it predates rooms.
+        every existing archive is general by definition, it predates rooms.
         """
         cols = {
             str(row[1])
@@ -492,7 +492,7 @@ class MemoryStore:
         """Task/goal priority, named task recurrence, and task parent_id.
 
         Old archives have none of these. Defaults: priority=normal, the
-        rest NULL. parent_id is another task, not a second goal link —
+        rest NULL. parent_id is another task, not a second goal link
         goal_id stays the durable-outcome pointer.
         """
         self._conn.executescript(_SCHEMA_V4)

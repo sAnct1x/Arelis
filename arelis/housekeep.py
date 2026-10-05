@@ -4,7 +4,7 @@ Launch runs this once. Fat-tool writes prune the scrape cache on the way.
 Look stills she took to see a page or the desk are dropped after vision
 or OCR; leftovers are pruned here. Nothing here touches secrets, memory.db,
 rooms, or config. The browser
-profile is not wiped on launch — only its Cache / GPU / crash pads — so a
+profile is not wiped on launch, only its Cache / GPU / crash pads, so a
 sign-in survives. A full reset is ``python -m arelis.housekeep --reset-browser``.
 """
 

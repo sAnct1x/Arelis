@@ -67,7 +67,7 @@ def runner_command() -> tuple[str, str]:
     price of a job that runs at all.
 
     Every step after the first is guarded by exists(), so the entry naming a path
-    that only exists in a checkout is a preference rather than a requirement —
+    that only exists in a checkout is a preference rather than a requirement
     worth saying because it reads like a hardcoded dependency on a directory an
     install does not have.
     """
@@ -93,7 +93,7 @@ def working_directory() -> Path:
 
     The data root, not the install directory. Task Scheduler refuses to start an
     action whose working directory is missing, and reports that as 0x8007010B with
-    no mention of which path it meant — so pointing this at a directory an update
+    no mention of which path it meant, so pointing this at a directory an update
     replaces is a way to produce a job that ran for months and then stopped for
     reasons nobody can read. The data root is the one directory that definitely
     exists and is definitely writable, because it is where the job's own output is
@@ -130,7 +130,7 @@ def build_task_xml(job: Job, *, command: str = "", now: date | None = None) -> s
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo>
     <Author>Arelis</Author>
-    <Description>{escape(job.name)} — {escape(job.schedule_text())}</Description>
+    <Description>{escape(job.name)}, {escape(job.schedule_text())}</Description>
   </RegistrationInfo>
   <Triggers>
 {triggers}
@@ -288,7 +288,7 @@ def repoint_tasks_if_runner_moved(jobs: Iterable[Job]) -> list[str]:
     installing a packaged build after running from a checkout, moving the checkout,
     rebuilding the virtualenv, upgrading the interpreter. The task keeps its old
     command and either fails or, worse, quietly runs a copy of Arelis the user
-    stopped using — and nobody is watching at 7am either way.
+    stopped using, and nobody is watching at 7am either way.
 
     The check is a file read rather than a query, deliberately. Asking Task
     Scheduler what it holds means one subprocess per job, each able to take

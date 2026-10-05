@@ -1,7 +1,7 @@
 """Export a session transcript to markdown.
 
 The glass offers this next to per-reply copy. Tests drive the same helper
-with a list of role/text dicts — no Qt, no model-facing tool.
+with a list of role/text dicts, no Qt, no model-facing tool.
 """
 
 from __future__ import annotations
@@ -37,7 +37,7 @@ _WINDOWS_RESERVED = frozenset(
 
 
 class EmptyTranscriptError(ValueError):
-    """Nothing exportable — empty session, or only skipped tool JSON."""
+    """Nothing exportable, empty session, or only skipped tool JSON."""
 
 
 # Older name — keep so existing callers do not break if they imported it.
@@ -105,7 +105,7 @@ def render_transcript(messages: Sequence[Mapping[str, Any]]) -> str:
     """Markdown for the session. Raises ``EmptyTranscriptError`` when nothing to write."""
     blocks = _export_blocks(messages)
     if not blocks:
-        raise EmptyTranscriptError("Nothing to export — this conversation is empty.")
+        raise EmptyTranscriptError("Nothing to export: this conversation is empty.")
     return f"# {_HEADING}\n\n" + "\n".join(blocks)
 
 

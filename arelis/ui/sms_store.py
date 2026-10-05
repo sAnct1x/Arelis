@@ -1,4 +1,4 @@
-"""Persist SMS chat threads across launches. Bodies only — no secrets."""
+"""Persist SMS chat threads across launches. Bodies only, no secrets."""
 
 from __future__ import annotations
 

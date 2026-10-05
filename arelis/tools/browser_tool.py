@@ -57,14 +57,14 @@ class BrowserTool:
         "open / go to a site or click around a page. Use search/scrape when "
         "YOU need to read the web without opening a window. Never type "
         "passwords or OTP codes. If a captcha, sign-in, or Book/Pay/Order "
-        "screen appears, stop and tell the user it is their turn — do not "
+        "screen appears, stop and tell the user it is their turn, do not "
         "solve captchas or click Pay. "
         "Actions: open (alias or https URL in her window), navigate (same "
-        "window), snapshot (visible click targets, ranked — not footer "
-        "chrome), read (compact text of the tab she is on — not scrape), "
+        "window), snapshot (visible click targets, ranked, not footer "
+        "chrome), read (compact text of the tab she is on, not scrape), "
         "maps (directions in her window + a phone link), "
         "search (Google / YouTube / Amazon results in her window), "
-        "reserve (OpenTable / Resy / Google — fills party/date/time; you click Book), "
+        "reserve (OpenTable / Resy / Google, fills party/date/time; you click Book), "
         "click(ref) or click(text='Sign in') or click(nth=1) for the first "
         "result (clicks immediately; the result includes the new snapshot), "
         "type(text=…, into='search') or type(ref), "
@@ -75,22 +75,22 @@ class BrowserTool:
         "(poll the tab, cap 8s, then snapshot), "
         "back, forward, reload, find(text) lists matches, "
         "tabs (no args lists index|title|url; select=Gmail or select=0; "
-        "tab=new|close — close is the current tab only), "
-        "screenshot (PNG under outputs/images/ — then vision to describe), "
+        "tab=new|close, close is the current tab only), "
+        "screenshot (PNG under outputs/images/, then vision to describe), "
         "download (ref of the save link → outputs/downloads/), "
         "upload (path under workspace roots or outputs/, confirm; "
         "type=file is refused on type), "
         "pdf (this tab → outputs/documents/), "
         "hover / dblclick / right_click / drag on a snapshot ref "
         "(no glow wait; walls still apply). x,y only after screenshot "
-        "then vision this turn — not computer-use by default. "
+        "then vision this turn, not computer-use by default. "
         "watch (poll title/url/text while Arelis is open; Drive says "
         "Watching; Stop cancels; notify on hit), "
         "relaunch (restarts HER window only; optional url opens after). "
         "You plan the drive: search, click the first result, read, go back. "
         "Prefer open when they only asked to pull up a site. Prefer read "
         "when they ask what is on this tab/page. Prefer maps when they ask "
-        "for directions — opens Maps in her window and returns a phone link. "
+        "for directions, opens Maps in her window and returns a phone link. "
         "Do not scrape for directions. Prefer search when they ask to look "
         "something up on YouTube / Google / Amazon in her window. Add to "
         "cart is fine; stop before Checkout / Pay / Buy now. "
@@ -100,7 +100,7 @@ class BrowserTool:
         "or OTP. Prefer reserve when they ask to book a table. That opens "
         "OpenTable (or Resy / Google) with party, date, and time in the URL. "
         "Type remaining non-secret fields. Never click Book / Reserve / "
-        "Confirm reservation — that is their turn. "
+        "Confirm reservation, that is their turn. "
         "Optional browser=default|chrome|edge|firefox; "
         "private=true for Firefox private; full_page=true for screenshot."
     )
@@ -168,7 +168,7 @@ class BrowserTool:
                 "type": "string",
                 "description": (
                     "tabs: 0-based index or title substring. "
-                    "Close is the current tab only — not a title."
+                    "Close is the current tab only, not a title."
                 ),
             },
             "tab": {
@@ -501,7 +501,7 @@ class BrowserTool:
                         ok=False,
                         output=(
                             ensured.output
-                            + "\nScreenshot skipped — connect or Allow relaunch first "
+                            + "\nScreenshot skipped, connect or Allow relaunch first "
                             "(no image file written)."
                         ),
                         data=dict(ensured.data or {}),

@@ -3,7 +3,7 @@
 Whole utterance only for decisions and hangup. Room chat and "I don't know"
 must not allow a send. Stop is the turn, not deny-this-step. Hangup ends
 the hands-free call. Pause / go hold her Chrome drive. After a stop,
-ordinary talk goes to the model with a one-line note — no resume phrase list.
+ordinary talk goes to the model with a one-line note, no resume phrase list.
 """
 
 from __future__ import annotations
@@ -171,7 +171,7 @@ def classify_voice_act(text: str) -> str | None:
 
     Values: ``allow``, ``allow_turn``, ``skip`` (deny), ``stop``.
     Empty string is not a decision (Enter on an empty composer stays allow).
-    After a stop, ordinary talk goes to the model with a one-line note —
+    After a stop, ordinary talk goes to the model with a one-line note
     no resume phrase list.
     """
     raw = (text or "").strip()
@@ -192,7 +192,7 @@ def classify_drive_act(text: str) -> str | None:
     """``pause`` / ``resume`` for her Chrome drive, or None.
 
     Whole utterance only. Physics ``pause`` is classified first in the
-    orchestrator when Reality is open. ``go ahead`` is also allow — the
+    orchestrator when Reality is open. ``go ahead`` is also allow, the
     caller uses resume only while the drive is held.
     """
     raw = (text or "").strip()
