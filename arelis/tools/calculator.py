@@ -1,12 +1,12 @@
-"""Deterministic arithmetic — so the model does not invent numbers.
+"""Deterministic arithmetic, so the model does not invent numbers.
 
 Arithmetic runs on `Fraction`, not `float`. The docstring above has always said
 "exactly", and on binary floats it was not: `0.1 + 0.2` came back as
 `0.30000000000000004`, `100 * 1.1` as `110.00000000000001`, and
 `0.1 + 0.2 - 0.3` as `5.55e-17` rather than zero. Those are the answers this
 tool exists to stop the model producing, and it was producing them itself. A
-decimal literal is read as the decimal that was written — `Fraction(str(0.1))`
-is one tenth — so the sums come out right and money stops growing a tail.
+decimal literal is read as the decimal that was written, `Fraction(str(0.1))`
+is one tenth, so the sums come out right and money stops growing a tail.
 
 Floats are still used the moment a real function is involved: `sqrt`, `sin` and
 `log` have no rational answer and pretending otherwise would be a different
@@ -74,14 +74,14 @@ _SAFE_FUNCS: dict[str, Any] = {
 class CalculatorTool:
     name = "calculator"
     description = (
-        "Evaluate a math expression exactly — decimals are exact, so money "
+        'Evaluate a math expression exactly, decimals are exact, so money '
         "does not grow a floating-point tail. Use for arithmetic, percentages, "
         "units of count, and simple science functions (sqrt, sin, log, …). "
         "Understands '15% of 84', '30% off 59.99', '$4.50 + $2', '1,250 + 300'. "
         "Pass a plain expression like '2*(3+4)' or 'sqrt(2)*pi'. No import, no "
         "assignments. Unit conversion is the units tool, not this one. "
         "For a Python script (projectile motion, named variables) "
-        "use the python tool. This is not a CAS — it cannot integrate or solve "
+        'use the python tool. This is not a CAS, it cannot integrate or solve '
         "symbolically. Do not guess numeric answers when this tool can compute them."
     )
     risk = "read"
@@ -241,7 +241,7 @@ def evaluate_expression(expression: str) -> float | int:
         raise ValueError(
             "the result overflowed to "
             + ("infinity" if math.isinf(value) else "an undefined value")
-            + " — the numbers are too large for exact arithmetic. "
+            + '- the numbers are too large for exact arithmetic. '
             "Say the result is out of range; do not report a number."
         )
     return value

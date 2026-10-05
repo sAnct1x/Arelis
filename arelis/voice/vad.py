@@ -272,7 +272,7 @@ class SileroUtteranceDetector:
             reset()
 
     def reset_soft(self) -> None:
-        """Fresh neural state after TTS/deaf window — no energy floor."""
+        """Fresh neural state after TTS/deaf window, no energy floor."""
         self.reset()
 
     @property

@@ -1,4 +1,4 @@
-"""Frameless glass dialogs — the in-app answer to QMessageBox.
+"""Frameless glass dialogs, the in-app answer to QMessageBox.
 
 A native message box is a light grey Windows plate with a system font on it,
 and over a black void it reads as a different program interrupting this one.
@@ -7,7 +7,7 @@ looks like Arelis asking it.
 
 `GlassDialog` is the plate: frameless, draggable by its heading, closed by
 Escape. `confirm()` is the one-line question on top of it, and it is the only
-confirm in the app — three near-identical copies of this were what the delete
+confirm in the app, three near-identical copies of this were what the delete
 prompts used to be.
 """
 

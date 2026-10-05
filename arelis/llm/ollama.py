@@ -40,7 +40,7 @@ def list_installed_models(
     """Sync `/api/tags`. Raises if Ollama is not reachable.
 
     Same parse as `OllamaProvider.list_models`. Settings cannot await the
-    async client, so this is the dialog path — not a second HTTP stack.
+    async client, so this is the dialog path, not a second HTTP stack.
     """
     with httpx.Client(timeout=timeout_s) as client:
         response = client.get(f"{base_url.rstrip('/')}/api/tags")
@@ -259,7 +259,7 @@ class OllamaProvider:
     ) -> str:
         """Multimodal chat (VL). Returns assistant text; no tools.
 
-        Streams so native thinking reaches the dock while she looks — same
+        Streams so native thinking reaches the dock while she looks, same
         path as a text turn. Images are raw base64 (no data: URL prefix).
         keep_alive defaults to 0 so a VL detour does not sit on a 12GB card
         next to chat.
@@ -330,7 +330,7 @@ class OllamaProvider:
 
         Cached for the process. A tag's capabilities do not change without a
         re-pull, and this is on the path of every image, so asking once matters.
-        Returns an empty set when Ollama cannot say — callers must treat "we do
+        Returns an empty set when Ollama cannot say, callers must treat "we do
         not know" as "do not assume it can", not as "it cannot".
         """
         name = (model or "").strip()
@@ -408,7 +408,7 @@ class OllamaProvider:
         keep_alive=0 with an empty prompt is the documented way to evict without
         generating. This is what lets one 7B model be hot at a time on a 12GB
         card when roles switch. Callers that need the card empty before a 14B
-        load should poll `wait_until_unloaded` afterward — Ollama's 200 is not
+        load should poll `wait_until_unloaded` afterward, Ollama's 200 is not
         the same as VRAM actually freed.
         """
         await self.pin(model, keep_alive=0)

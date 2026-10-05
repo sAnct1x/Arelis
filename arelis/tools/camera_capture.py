@@ -132,7 +132,7 @@ class CameraTool:
             output=(
                 "No live camera session and no fresh camera_*.jpg under "
                 "outputs/images/. Open View → camera (or Ctrl+5), start the "
-                "preview, then use Ask Arelis or snapshot — or ask again while "
+                'preview, then use Ask Arelis or snapshot, or ask again while '
                 "the camera dock is open."
             ),
         )

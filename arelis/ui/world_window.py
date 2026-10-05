@@ -1,4 +1,4 @@
-"""Floating Reality plate — physics room only. Calendar-class chrome."""
+"""Floating Reality plate, physics room only. Calendar-class chrome."""
 
 from __future__ import annotations
 
@@ -136,7 +136,7 @@ class WorldChooser(QWidget):
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(title)
         hint = QLabel(
-            "Hands is the tracking sandbox — polygons, g = 2.4, not metres.\n"
+            'Hands is the tracking sandbox, polygons, g = 2.4, not metres.\n'
             "Solar system is the true-scale sim. The plate fills now; one "
             "Horizons fetch replaces the catalog if JPL answers."
         )

@@ -24,7 +24,7 @@ class CliPrinter:
 
     interactive decides whether writes are gated. On a terminal the user is
     asked, the same as in the desktop app. When stdin is a pipe there is nobody
-    to ask — absence of a human is not consent, so confirms are skipped
+    to ask, absence of a human is not consent, so confirms are skipped
     (denied) unless allow_write=True (`arelis --cli --allow-write`).
     """
 
@@ -171,7 +171,7 @@ async def run_cli_async(
             router.mark_warmup_done()
 
     preflight_task = asyncio.create_task(_startup_models())
-    print("Arelis CLI — type /help, or chat. Ctrl+C to exit.")
+    print('Arelis CLI, type /help, or chat. Ctrl+C to exit.')
     print("Pronunciation: ah-REL-is\n")
     try:
         while True:

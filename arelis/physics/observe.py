@@ -2,12 +2,12 @@
 
 Physics keeps the true state: IAS15, GMST, catalogs, clocks. Measure
 anything at any time. The plate only spends a frame when the observer
-would notice — `NOTICE_PX` of screen motion since the last commit.
+would notice, `NOTICE_PX` of screen motion since the last commit.
 
 Distance changes the rate (same ω, more pixels). Time accumulates:
 leave Reality open overnight and the terminator eventually crosses the
 budget, then one correct frame. Sleep the process and the first wake
-has a huge dt — same one frame, current physics.
+has a huge dt, same one frame, current physics.
 """
 
 from __future__ import annotations

@@ -10,8 +10,8 @@ Protocol (one JSON object per line), presence design 2026-08-08:
 - shutdown: UI/tray → core (full core quit; no silent send)
 - bye: either side, optional clean close
 
-Never bind 0.0.0.0. No silent send — confirm_reply only carries a human decision.
-No named pipes — loopback TCP is enough for open_ui.
+Never bind 0.0.0.0. No silent send, confirm_reply only carries a human decision.
+No named pipes, loopback TCP is enough for open_ui.
 """
 
 from __future__ import annotations

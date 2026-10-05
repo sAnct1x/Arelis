@@ -140,7 +140,7 @@ class WindowChrome:
         """Plates the 10 Hz tick may invalidate.
 
         Conversation is type in the void. A 10 Hz repaint on that
-        translucent surface — or on RoomStrip / DriveStrip sitting on it —
+        translucent surface, or on RoomStrip / DriveStrip sitting on it
         is the duplicate-orbit / ghost-tick path. Companion HWNDs
         (world, calendar) have their own timers.
         """
@@ -713,11 +713,11 @@ class WindowChrome:
             ok = confirm(
                 self,
                 "filament (testing)",
-                "a test face. it wants a row of desks — three is the intended layout.",
+                'a test face. it wants a row of desks, three is the intended layout.',
                 detail=(
                     "sodium is the app. filament is a checkout experiment for a "
                     "three-monitor desk; 1 and 2 still work. talk does not need a "
-                    "chat tile. plates float — drag them. right-click for themes. "
+                    'chat tile. plates float, drag them. right-click for themes. '
                     "sodium is one click."
                 ),
                 confirm_text="enter filament",

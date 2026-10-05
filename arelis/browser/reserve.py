@@ -1,4 +1,4 @@
-"""Reservation search URLs — fill party / date / time, never click Book."""
+"""Reservation search URLs, fill party / date / time, never click Book."""
 
 from __future__ import annotations
 

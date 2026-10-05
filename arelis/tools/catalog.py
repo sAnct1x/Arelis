@@ -1,4 +1,4 @@
-"""Named science catalogs — arXiv, Horizons, NASA APOD, NASA ADS.
+"""Named science catalogs, arXiv, Horizons, NASA APOD, NASA ADS.
 
 A 9B cannot be given "search the NASA website". This tool has four actions,
 hits only the hosts we pin, and never evals user code. arXiv and Horizons
@@ -51,8 +51,8 @@ class CatalogTool:
         "Actions: arxiv (no key; acknowledge arXiv in the answer), "
         "horizons (JPL ephemerides, no key, do not invent EMAIL; "
         "table=observer for sky, table=vectors for SSB ECLIPJ2000 state), "
-        "apod (NASA Astronomy Picture of the Day — needs nasa.api_key), "
-        "ads (NASA ADS paper search — needs ads.token). "
+        'apod (NASA Astronomy Picture of the Day, needs nasa.api_key), '
+        'ads (NASA ADS paper search, needs ads.token). '
         "Do not scrape NASA or arXiv JavaScript. Do not use web_search "
         "when the user named arXiv, Horizons, APOD, or ADS. "
         "Do not recite a bibcode or an ephemeris from memory."
@@ -445,7 +445,7 @@ class CatalogTool:
             abstract = " ".join(str(doc.get("abstract") or "").split())
             if len(abstract) > 400:
                 abstract = abstract[:400] + "…"
-            lines.append(f"- {bib} ({year}): {title} — {who}")
+            lines.append(f"- {bib} ({year}): {title}, {who}")
             if abstract:
                 lines.append(f"  {abstract}")
             hits.append({"bibcode": bib, "title": title, "year": year})

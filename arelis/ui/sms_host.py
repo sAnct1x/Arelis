@@ -161,7 +161,7 @@ def open_sms_chat(window, notice_id: str) -> bool:
         seed=seed_bodies(notice),
     )
     if chat is None:
-        line = "No number on that text — cannot open a chat."
+        line = 'No number on that text, cannot open a chat.'
         thinking = getattr(window, "thinking", None)
         if thinking is not None:
             thinking.append(line, kind="status")

@@ -201,7 +201,7 @@ class HistoryPanel(QWidget):
         self._apply_filter(self.search.text())
 
     def set_active(self, session_id: str) -> None:
-        """Keep the seated session marked — bold plus the selected wash."""
+        """Keep the seated session marked, bold plus the selected wash."""
         self._active_id = session_id
         current = None
         for i in range(self.list.count()):

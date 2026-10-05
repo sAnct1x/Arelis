@@ -30,12 +30,12 @@ def spawn_ui_subprocess() -> int | None:
     now = time.monotonic()
     if now - _LAST_SPAWN_MONO < _SPAWN_COOLDOWN_S:
         log.info(
-            "Skipping UI spawn — cooldown (%.0fs remaining).",
+            'Skipping UI spawn, cooldown (%.0fs remaining).',
             _SPAWN_COOLDOWN_S - (now - _LAST_SPAWN_MONO),
         )
         return None
     if ui_process_appears_running():
-        log.info("Skipping UI spawn — arelis-ui.lock already held.")
+        log.info('Skipping UI spawn, arelis-ui.lock already held.')
         return None
     try:
         env = os.environ.copy()
@@ -75,7 +75,7 @@ async def ensure_ui_open(
     # Lock held → UI is alive (maybe tray-hidden) but not on IPC yet; do not
     # spawn a second glass. Caller already broadcast open_ui to zero clients.
     if ui_process_appears_running(config):
-        log.info("UI lock held but no IPC client — not spawning another glass.")
+        log.info('UI lock held but no IPC client, not spawning another glass.')
         return {"attached": 0, "spawned": False, "pid": None, "ui_lock": True}
     pid: int | None = None
     spawned = False

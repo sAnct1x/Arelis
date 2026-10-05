@@ -1,6 +1,6 @@
 """Rooms: a named place to work on one thing, with its own thread.
 
-The general conversation is deliberately ephemeral — last night stays in
+The general conversation is deliberately ephemeral, last night stays in
 History. A room still opens on launch if you left inside it, but on a
 new empty chat, not last week's lecture. That is right for "what's the
 weather" and wrong for "we have been building an interferometry analysis
@@ -10,7 +10,7 @@ the work lives in, and that does not have to be re-explained every launch.
 
 A room is that place. It carries a thread, a folder, a lean, and a
 purpose. The first time you walk into an empty one she asks for those
-in the chat — typed or spoken, same path — and writes what you said.
+in the chat, typed or spoken, same path, and writes what you said.
 Slash commands still work. You can also say the fields later.
 
 What a room deliberately does *not* do is take capability away. The obvious
@@ -61,7 +61,7 @@ PHYSICS_ALIASES = frozenset(
 )
 
 PHYSICS_PURPOSE = (
-    "Reality. True-scale solar system — JPL Horizons ICs, REBOUND, the laws "
+    'Reality. True-scale solar system, JPL Horizons ICs, REBOUND, the laws '
     "as they are. Approach and orbit. No landing. Hands drive the camera, "
     "not metres in the ODE. Forces and periods come from the engine; you do "
     "not invent them. Earth is a zone on that globe, not another room. "
@@ -517,7 +517,7 @@ def setup_prompt(step: str, room: Room, projects: Iterable[str]) -> str:
         )
     if step == "result":
         return (
-            "What does a finished result look like — a plot, a dump, a table, "
+            'What does a finished result look like, a plot, a dump, a table, '
             "two sentences in documents/? Or say skip."
         )
     if step == "test":
@@ -593,7 +593,7 @@ def slugify(name: str) -> str:
     """Room id from a spoken name: 'Physics Lab' -> 'physics-lab'.
 
     Ids are typed into commands, so they stay ASCII, lowercase and hyphenated.
-    Accents are folded rather than dropped — 'Café' is 'cafe', not 'caf'.
+    Accents are folded rather than dropped, 'Café' is 'cafe', not 'caf'.
 
     A name with no ASCII letters at all slugs to nothing, and the caller rejects
     it. That is a real limit for a room named only in a non-Latin script, and
@@ -633,7 +633,7 @@ class Room:
         the world state in an already long system prompt, and a room that
         lectures for a paragraph buys its context out of the conversation.
         """
-        lines = [f"### Room — {self.name}"]
+        lines = [f"### Room, {self.name}"]
         if self.purpose:
             lines.append(self.purpose.strip())
         if self.result:
@@ -654,7 +654,7 @@ class Room:
                 )
         lines.append(
             "Earlier turns in this room are yours to build on when the work "
-            "is the topic. Casual talk stays casual — do not steer back to "
+            'is the topic. Casual talk stays casual, do not steer back to '
             "this work, recap the room, or ask what they want to build tonight."
         )
         return "\n".join(lines)
@@ -808,7 +808,7 @@ class RoomStore:
             room_id: self._rooms[room_id].to_yaml() for room_id in sorted(self._rooms)
         }
         header = (
-            "# Arelis rooms — a named place to work on one thing.\n"
+            '# Arelis rooms, a named place to work on one thing.\n'
             "#\n"
             "# Each room keeps its own conversation thread, points at one\n"
             "# workspace project, and hands Arelis its purpose every turn.\n"
@@ -848,7 +848,7 @@ class RoomStore:
         """Resolve what someone said to a room: id, name, or unique prefix.
 
         Spoken input arrives without punctuation and often without the exact
-        name — "physics" or "Reality" for the permanent room, "some physics"
+        name, "physics" or "Reality" for the permanent room, "some physics"
         for the same place. An ambiguous prefix returns None rather than a
         guess, because entering the wrong room silently swaps both the
         thread and the folder.
@@ -930,11 +930,11 @@ class RoomStore:
             raise ValueError("A room needs a name with letters or numbers in it.")
         if slug in _RESERVED_IDS:
             raise ValueError(
-                f"`{slug}` is reserved — it means 'no room' in commands. Pick another name."
+                f"`{slug}` is reserved, it means 'no room' in commands. Pick another name."
             )
         if slug in PHYSICS_ALIASES or slugify(name) in PHYSICS_ALIASES:
             raise ValueError(
-                "Reality already exists — it is the permanent room "
+                'Reality already exists, it is the permanent room '
                 f"(`/room {PHYSICS_ROOM_ID}`). Say \"let's work on Reality\"."
             )
         if slug in self._rooms:
@@ -991,7 +991,7 @@ class RoomStore:
             return False
         if is_perma(room.id):
             raise ValueError(
-                f"`{room.id}` is a permanent room — it comes back on launch. "
+                f"`{room.id}` is a permanent room, it comes back on launch. "
                 "You can leave it, but you cannot forget it."
             )
         del self._rooms[room.id]

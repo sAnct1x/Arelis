@@ -65,7 +65,7 @@ class RecallTool:
                 "description": (
                     "search finds chat, file, and/or mail excerpts by keyword; "
                     "docs searches indexed files only (same index as "
-                    "source=docs — keyword + embeddings if available); "
+                    'source=docs, keyword + embeddings if available); '
                     "session reads one conversation back by id; "
                     "index chunks newly added workspace files (and peeked "
                     "mail) for keyword search without loading the embed model"

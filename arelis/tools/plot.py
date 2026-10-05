@@ -1,4 +1,4 @@
-"""Named charts — a PNG on disk, not Python the model recites.
+"""Named charts, a PNG on disk, not Python the model recites.
 
 A 9B cannot be given matplotlib as a programming language. This tool draws
 named chart kinds (line, scatter, residuals, histogram, bar, subplots), reads
@@ -111,7 +111,7 @@ def _inline_parts(raw: Any, *, name: str, kind: str = "number") -> list[str]:
 
     Accepts a real list/tuple from native tool calling, a JSON array string,
     Python-ish ``[1, 4, 9]`` / ``(1, 4, 9)``, or the documented comma list.
-    Truncation with ``…`` / ``...`` stays refused — inventing the missing
+    Truncation with ``…`` / ``...`` stays refused, inventing the missing
     values is exactly what this tool exists to prevent.
     """
     if isinstance(raw, (list, tuple)):
@@ -218,7 +218,7 @@ def sample_expression(
 ) -> tuple[np.ndarray, np.ndarray]:
     """Evaluate a one-variable expression across [lo, hi] into plottable arrays.
 
-    `parse_cas_expr` does the parsing on purpose — it whitelists an AST and then
+    `parse_cas_expr` does the parsing on purpose, it whitelists an AST and then
     parses into a locked namespace with empty builtins. Nothing here may reach
     `eval` or bare `sympify`: this field is reachable from any turn, so a hole
     in it is remote code execution behind a chart request.
@@ -259,7 +259,7 @@ def sample_expression(
         ys = np.where(np.isfinite(ys), ys, np.nan)
     mask = np.isfinite(ys)
     if not mask.any():
-        raise ValueError(f"{text!r} has no finite values between {lo} and {hi} — check the range.")
+        raise ValueError(f"{text!r} has no finite values between {lo} and {hi}, check the range.")
     return xs[mask], ys[mask]
 
 
@@ -284,14 +284,14 @@ class PlotTool:
         "(or a JSON/[1,2,3] list; x/y are aliases for xs/ys when there is "
         "no path), or ys alone for histogram, or categories and values "
         "for bar. To draw a "
-        "formula (sin(x), x^2) pass expr with xmin and xmax — never type the "
-        "numbers out yourself. path= is the table, never the PNG — that name "
+        'formula (sin(x), x^2) pass expr with xmin and xmax, never type the '
+        'numbers out yourself. path= is the table, never the PNG, that name '
         "is out=. histogram takes one numeric series (y or ys) with optional "
         "bins. bar draws categories against values, not a line chart. "
-        "subplots combines two or more panels in one figure — pass panels as "
+        'subplots combines two or more panels in one figure, pass panels as '
         "comma-separated kinds (e.g. line,histogram) with the same data. "
         "residuals fits a straight line (least squares) and plots data+fit "
-        "plus residuals — do not invent a trend or draw an ASCII chart. This "
+        'plus residuals, do not invent a trend or draw an ASCII chart. This '
         "is not Python: do not pass code or matplotlib. Allow is required. Do "
         "not use image (Comfy) for data."
     )
@@ -315,7 +315,7 @@ class PlotTool:
                 "type": "string",
                 "description": (
                     "Table file under a workspace root (CSV/TSV/JSON/Excel). "
-                    "Not the PNG — that is out="
+                    'Not the PNG, that is out='
                 ),
             },
             "x": {
@@ -440,12 +440,12 @@ class PlotTool:
         if room is not None and room.root:
             return (
                 self.drop_dir(),
-                "the shared drop tray — this room's folder is not a project any more",
+                "the shared drop tray, this room's folder is not a project any more",
             )
         if room is not None:
             return (
                 self.drop_dir(),
-                "the shared drop tray — this room has no folder",
+                'the shared drop tray, this room has no folder',
             )
         return self.drop_dir(), "the shared drop tray (outputs/plots)"
 
@@ -565,7 +565,7 @@ class PlotTool:
         bits = [f"Wrote {shown} ({action}, {n} points) in {where}."]
         if extra:
             bits.append(extra)
-        bits.append("Open that file — that chart is from this turn, not a picture I imagined.")
+        bits.append('Open that file, that chart is from this turn, not a picture I imagined.')
         return ToolResult(
             ok=True,
             output=" ".join(bits),

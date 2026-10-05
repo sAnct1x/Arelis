@@ -1,4 +1,4 @@
-"""Provisional intent from early STT — weather/SMS only.
+"""Provisional intent from early STT, weather/SMS only.
 
 Conversation mode can transcribe a mid-utterance snapshot. If the provisional
 text clearly matches weather or SMS, surface it (STATUS). Tools still run only

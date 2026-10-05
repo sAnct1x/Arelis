@@ -1,6 +1,6 @@
 """Reality plate host. ArelisWindow only toggles this behind the stage grant.
 
-Offering the plate still goes through ``world_stage_allowed`` — installer
+Offering the plate still goes through ``world_stage_allowed``, installer
 trees and wheels must not show the chip, the View item, or the window.
 Attach lives here so the main window does not build the plate itself.
 Verb and tile handlers take ``window`` first so the integrator can drop
@@ -99,7 +99,7 @@ def toggle_world(window, checked: bool, page: str = "", *, force: bool = False) 
         window.act_world.setChecked(False)
         if checked:
             window.thinking.append(
-                "Reality's plate is a source-checkout stage — not in the installer.",
+                "Reality's plate is a source-checkout stage, not in the installer.",
                 kind="status",
             )
         return
@@ -405,7 +405,7 @@ def apply_physics_act(window, act: PhysicsAct) -> None:
             return
         if not world_available():
             window.thinking.append(
-                "Reality's plate is a source-checkout stage — not in the installer.",
+                "Reality's plate is a source-checkout stage, not in the installer.",
                 kind="status",
             )
             return
@@ -575,7 +575,7 @@ def apply_physics_act(window, act: PhysicsAct) -> None:
         window.thinking.append(
             "No discs in Reality. Spawn a particle, belt tracer, or L4 from "
             "the ⋯ menu. WASD flies the inspect camera. heavier/lighter would "
-            "change a mass — that is solar impulse/add_planet with Allow.",
+            'change a mass, that is solar impulse/add_planet with Allow.',
             kind="status",
         )
         return

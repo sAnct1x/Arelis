@@ -5,7 +5,7 @@ time: whatever they confirm is both fast and research. Vision stays the existing
 one-shot tag and is pulled later, the first time they look at a picture.
 
 Sizes are the ollama.com download (Q4-class, August 2026). min_vram_gb is the
-card we will auto-recommend on — download plus a little room for context, not
+card we will auto-recommend on, download plus a little room for context, not
 a guarantee the model is fast.
 """
 
@@ -91,7 +91,7 @@ CATALOG: tuple[CatalogModel, ...] = (
         "DeepSeek R1 · 8B",
         5.2,
         8.0,
-        "Reasoning. Good at math and careful think. Text only — pictures use a separate look.",
+        'Reasoning. Good at math and careful think. Text only, pictures use a separate look.',
     ),
     CatalogModel(
         "deepseek-r1:14b",
@@ -151,7 +151,7 @@ def recommend(hardware: HardwareSnapshot) -> CatalogModel:
 
     Gemma 4 12B is in the list but never auto-picked: on a 12 GB card here it
     sat thinking for minutes on a two-tool turn. DeepSeek is opt-in reasoning.
-    With no dedicated card, stay on 4B / 9B even if system RAM could hold 27B —
+    With no dedicated card, stay on 4B / 9B even if system RAM could hold 27B
     that machine would crawl.
     """
     qwen = [m for m in CATALOG if m.family == "Qwen"]

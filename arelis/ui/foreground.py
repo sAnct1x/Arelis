@@ -1,7 +1,7 @@
 """Whether this process owns the OS foreground window.
 
 Qt's ``isActiveWindow()`` and ``applicationState()`` can stay "active" after
-you click into another app — common on Windows with Tool windows. The SMS
+you click into another app, common on Windows with Tool windows. The SMS
 tile then skipped its attention rim. ``GetForegroundWindow`` is the actual
 "are they looking at us?"
 

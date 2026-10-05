@@ -2,8 +2,8 @@
 
 The installer is not rebuilt here. If Ollama is already on the PC we use it
 (an older installed copy and this one share tags). If it is missing we download
-the official Windows setup into %LOCALAPPDATA%\\Arelis-runtime — never into the
-git checkout — and run it. Models still land in the default Ollama store.
+the official Windows setup into %LOCALAPPDATA%\\Arelis-runtime, never into the
+git checkout, and run it. Models still land in the default Ollama store.
 """
 
 from __future__ import annotations

@@ -1,7 +1,7 @@
 """User-facing copy when Ollama dies or rejects a turn.
 
 Chat gets a short instruction. The exception, URL, and model tag belong in
-Thinking — not in the transcript as ``LLM error: ConnectError(...)``.
+Thinking, not in the transcript as ``LLM error: ConnectError(...)``.
 """
 
 from __future__ import annotations
@@ -33,7 +33,7 @@ def vram_notice(role: str = "") -> str:
     return (
         "The research model could not fit on the GPU. I parked ComfyUI and put "
         "the conversation model back so the machine stays usable. Close games "
-        "or extra Chrome if it still fails — or stay on `/role fast`."
+        'or extra Chrome if it still fails, or stay on `/role fast`.'
     )
 
 
@@ -52,7 +52,7 @@ _VRAM_MARKERS = (
 
 
 def is_vram_failure(exc: BaseException | str) -> bool:
-    """True when a 14B load lost the VRAM fight — never JSON-fallback this."""
+    """True when a 14B load lost the VRAM fight, never JSON-fallback this."""
     lower = (str(exc) if not isinstance(exc, str) else exc).lower()
     return any(marker in lower for marker in _VRAM_MARKERS)
 

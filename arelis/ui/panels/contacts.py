@@ -40,7 +40,7 @@ class ContactsPanel(QWidget):
     Every widget here is a plain child of the glass plate: no
     ``WA_OpaquePaintEvent``, no ``WA_TranslucentBackground``, no runtime
     attribute flips. ``WA_OpaquePaintEvent`` on a container is what produced
-    the Save-ghost — Qt skips both the palette fill and the stylesheet
+    the Save-ghost, Qt skips both the palette fill and the stylesheet
     background for such a widget, so a plain ``QWidget`` painted nothing while
     still telling Qt not to repaint the plate underneath. The old frame stayed
     in the backing store and survived even a window drag. Colour comes from

@@ -5,7 +5,7 @@ when the turn escalates to a bigger model. The two had the same seven steps in
 the same order, written twice, and they had drifted: the escalate copy did not
 pass `extra_skill_ids`, so the active room's skills were in reach on round one
 and gone on round two. The comment in `turn_prepare` explaining why room extras
-ride on `filter_tool_names` — "keep analyze/cas in reach" — was true for
+ride on `filter_tool_names`, "keep analyze/cas in reach", was true for
 exactly as long as the turn did not escalate.
 
 The roadmap called this "one function, called twice". It is two, and that is
@@ -40,7 +40,7 @@ log = logging.getLogger(__name__)
 def cap_to_room(available_all: set[str], active_room: Any) -> set[str]:
     """Apply a room's explicit `tools:` cage, and say so when it cannot hold.
 
-    Rooms lean rather than cage by default — `rooms.py` argues the point at
+    Rooms lean rather than cage by default, `rooms.py` argues the point at
     length, that a caged agent which has to refuse the time of day teaches you
     to stop asking. So a `tools:` list is not a side effect of naming a folder,
     it is a decision somebody made, and it is worth a line in the log when it
@@ -48,7 +48,7 @@ def cap_to_room(available_all: set[str], active_room: Any) -> set[str]:
 
     A name that is not installed drops out of the cage silently: a typo, a tool
     since renamed, a room written against a build that had it. When *every*
-    name drops out the cage disappears and the room gets the whole registry —
+    name drops out the cage disappears and the room gets the whole registry
     while the rooms tool goes on printing "limited to tools: …" either way.
 
     The fail-open is deliberate and stays. A room cut down to nothing could not
@@ -62,7 +62,7 @@ def cap_to_room(available_all: set[str], active_room: Any) -> set[str]:
     capped = available_all & named
     if not capped:
         log.warning(
-            "Room %r limits tools to %s, none of which are installed — the "
+            'Room %r limits tools to %s, none of which are installed, the '
             "limit cannot be applied and the room is leaning on the full tool "
             "set instead.",
             getattr(active_room, "name", "?"),
@@ -92,7 +92,7 @@ def base_surface(
 ) -> tuple[set[str], set[str]]:
     """The surface before this turn's intent narrows it. Returns (available, visible).
 
-    `active_room` is not optional in spirit — omitting it drops the room's
+    `active_room` is not optional in spirit, omitting it drops the room's
     skills, which is the bug this module exists to close. It is keyword-only
     and defaulted so the caller that has no room does not have to say so.
     """

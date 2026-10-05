@@ -71,7 +71,7 @@ class WindowTurn:
             item.tool,
             item.summary,
             detail=item.detail,
-            note=item.note or "Restored pending send — nothing was sent while you were away.",
+            note=item.note or 'Restored pending send, nothing was sent while you were away.',
             batch_ok=item.batch_ok,
         )
         self._set_confirm_pending(True)
@@ -122,7 +122,7 @@ class WindowTurn:
 
         store = self.store
         if store is None or not store.session_id:
-            self.chat.add_system("Nothing to export — this conversation is empty.")
+            self.chat.add_system('Nothing to export, this conversation is empty.')
             return
         rows = store.get_messages(store.session_id)
         try:
@@ -190,7 +190,7 @@ class WindowTurn:
         """Composer hint while waiting for first token (L1 cold TTFT)."""
         pending = getattr(self.router, "warmup_pending", None)
         if callable(pending) and pending():
-            tip = "loading the model — first reply after that is quick"
+            tip = 'loading the model, first reply after that is quick'
         else:
             model = str((self.config.get("models") or {}).get(role) or self._current_model or "")
             tip = f"thinking… ({role}" + (f":{model}" if model else "") + ")"
@@ -280,7 +280,7 @@ class WindowTurn:
         the send was cancelled before its Allow card existed.
         """
         message = (
-            "Still working — the answer is held back until the tools finish. "
+            'Still working, the answer is held back until the tools finish. '
             "Press stop to cancel it."
         )
         self.thinking.append(message, kind="status")

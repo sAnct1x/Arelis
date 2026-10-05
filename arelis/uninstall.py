@@ -3,7 +3,7 @@
 The installer already deletes ``%LOCALAPPDATA%\\Programs\\Arelis`` and
 deregisters scheduled tasks. Conversations, secrets, models, her Chrome
 profile, and the optional Ollama setup we downloaded live *beside* the
-program. Those stay unless the person asks — a reinstall should find
+program. Those stay unless the person asks, a reinstall should find
 them. This module is that ask.
 
 Never touches a source checkout. Never touches a system Ollama install
@@ -34,7 +34,7 @@ def looks_like_source_tree(path: Path) -> bool:
 
     ``Documents\\Arelis`` is the default workspace for an installed copy. It is
     also where a lot of people clone this repository. The running interpreter
-    is the published one, so ``is_source_checkout()`` is false — and rmtree
+    is the published one, so ``is_source_checkout()`` is false, and rmtree
     would erase the checkout. Refuse any target that looks like one.
     """
     try:

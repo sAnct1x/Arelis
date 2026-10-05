@@ -95,7 +95,7 @@ def tool_fail_replan_notice(
         return (
             f"Tool replan: image failed ({tag}). "
             "Tell the user ComfyUI is not running or image generation failed. "
-            "Do NOT call send_sms, send_email, comfyui, or search_images — those "
+            'Do NOT call send_sms, send_email, comfyui, or search_images, those '
             "tools do not exist or do not start ComfyUI. Do not fetch stock "
             "photos unless they asked for a description or a web search. "
             "They must start ComfyUI themselves (or set tools.image.auto_start)."

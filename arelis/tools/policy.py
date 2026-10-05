@@ -15,7 +15,7 @@ common case; write/edit still pause.
 Do not shrink the tool schema from here. Authorization (hide send unless
 this utterance asked) lives in ``tool_subset``. Jobs omit tools with
 ``build_tool_registry(attended=False)``; they do not consult this table
-to drop Comfy ``image`` — that registration is pinned by tests.
+to drop Comfy ``image``, that registration is pinned by tests.
 """
 
 from __future__ import annotations
@@ -197,7 +197,7 @@ def floor_call(name: str, args: dict[str, Any] | None = None) -> bool:
 
 
 def _browser_is_pay(args: dict[str, Any] | None) -> bool:
-    """Checkout / Pay / Buy — she stops. You click, or you say yes."""
+    """Checkout / Pay / Buy, she stops. You click, or you say yes."""
     from arelis.browser.walls import pay_cta_label
 
     action = _action(args)
@@ -209,7 +209,7 @@ def _browser_is_pay(args: dict[str, Any] | None) -> bool:
 
 
 def _desktop_is_destructive(args: dict[str, Any] | None) -> bool:
-    """Delete / Pay / UAC on the desk — she stops."""
+    """Delete / Pay / UAC on the desk, she stops."""
     action = _action(args)
     if action not in {"click", "press", "type", "hotkey"}:
         return False
@@ -232,7 +232,7 @@ def action_is_destructive(name: str, args: dict[str, Any] | None) -> bool:
 
 
 def always_pause(name: str, args: dict[str, Any] | None = None) -> bool:
-    """True when the ask is not enough — send, pay, delete, run, outside read."""
+    """True when the ask is not enough, send, pay, delete, run, outside read."""
     tool = (name or "").strip()
     if tool == "run_task" and _action(args) == "list":
         return False
@@ -563,19 +563,27 @@ def describe_call(
     appears at all, so there is nothing to actually approve.
     """
     if name == "send_email":
+        from arelis.core.dash_filter import clean_dashes
+
         to = str(args.get("to") or "").strip() or "(you)"
-        subject = str(args.get("subject") or "").strip() or "(no subject)"
-        body = redact_secrets(str(args.get("body") or "")).strip()
+        subject_raw = clean_dashes(str(args.get("subject") or "")).strip()
+        body = clean_dashes(redact_secrets(str(args.get("body") or ""))).strip()
+        # Card and send must agree: scrub the args the Allow path will run.
+        args["subject"] = subject_raw
+        args["body"] = body
+        subject = subject_raw or "(no subject)"
         attach = str(args.get("attach") or args.get("path") or "").strip()
         lines = [f"To:      {to}", f"Subject: {subject}"]
         if attach:
             lines.append(f"Attach:  {attach}")
         return "\n".join(lines) + f"\n\n{body}"
     if name == "send_sms":
+        from arelis.core.dash_filter import clean_dashes
         from arelis.sms import format_sms_confirm
 
         to = str(args.get("to") or "").strip()
-        body = redact_secrets(str(args.get("body") or "")).strip()
+        body = clean_dashes(redact_secrets(str(args.get("body") or ""))).strip()
+        args["body"] = body
         # Prefer the tool's loader so tests (and any future alternate book)
         # match what send_sms will actually resolve.
         contacts = None
@@ -685,7 +693,7 @@ def describe_call(
             lines.append("Question: (default describe)")
         lines.append(
             "Unloads the chat model briefly, runs the VL model, then "
-            "rewarms conversation. One still — seeing does not authorize "
+            'rewarms conversation. One still, seeing does not authorize '
             "sending or navigating."
         )
         return "\n".join(lines)
@@ -837,7 +845,7 @@ def describe_call(
             return "\n".join(lines)
         return (
             "Read system clipboard text\n"
-            "May include passwords or private notes — only if you "
+            'May include passwords or private notes, only if you '
             "intend to share what is currently copied."
         )
     if name == "ocr":
@@ -850,7 +858,7 @@ def describe_call(
         path = str(args.get("path") or "").strip() or "?"
         return (
             f"OCR local image (Tesseract CPU)\nPath: {path}\n"
-            "One still — seeing does not authorize sending or navigating."
+            'One still, seeing does not authorize sending or navigating.'
         )
     if name == "agenda":
         action = str(args.get("action") or "").strip().lower() or "?"

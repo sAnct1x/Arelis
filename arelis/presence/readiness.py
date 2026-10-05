@@ -1,6 +1,6 @@
 """Aggregate local readiness signals into a compact snapshot for UI/CLI.
 
-Reports only whether configured tags and integrations are present — never
+Reports only whether configured tags and integrations are present, never
 suggests alternate models or shopping for replacements.
 """
 
@@ -186,7 +186,7 @@ async def probe_readiness(
 
 
 def _watch_chip(config: dict[str, Any]) -> ReadinessChip:
-    """The doors Arelis opened — not a scan of the rest of the PC."""
+    """The doors Arelis opened, not a scan of the rest of the PC."""
     watch_cfg = ((config.get("agent") or {}).get("watch") or {})
     if not bool(watch_cfg.get("enabled", True)):
         return ReadinessChip(
@@ -262,7 +262,7 @@ def _role_chip(
                 "role",
                 "Model",
                 ChipLevel.WARN,
-                f"Model not pinned yet — cold {role}:{model}. "
+                f"Model not pinned yet, cold {role}:{model}. "
                 "Composer reply-role picker is separate.",
             )
         return ReadinessChip(

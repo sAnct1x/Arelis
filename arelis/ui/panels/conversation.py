@@ -314,11 +314,11 @@ class ConversationStage(GlassFrame):
         self.stop_btn.setFixedHeight(_btn)
         self.stop_btn.setMinimumWidth(52)
         self.stop_btn.setToolTip(
-            "stop current turn — Esc also stops once she has started answering"
+            'stop current turn, Esc also stops once she has started answering'
         )
         self.stop_btn.setAccessibleName("Stop")
         self.stop_btn.setAccessibleDescription(
-            "stop current turn — also the hung-turn unlock"
+            'stop current turn, also the hung-turn unlock'
         )
         self.stop_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.stop_btn.setAutoRaise(True)
@@ -719,7 +719,7 @@ class ConversationStage(GlassFrame):
         """Put the caret back after Allow or a tool turn stole focus.
 
         The confirm card focuses Allow. When it hides, Qt often leaves no
-        caret — the placeholder shows and typed-ahead text looks gone.
+        caret, the placeholder shows and typed-ahead text looks gone.
         """
         focus = QApplication.focusWidget()
         if focus is not None and focus is not self.input:
@@ -873,7 +873,7 @@ class ConversationStage(GlassFrame):
         """Top of the first visible bar under the transcript, in stage coords.
 
         Drive / Allow / attach / hairline / composer all live in this stack.
-        The parked orbit sits above whichever of them is showing — not over it.
+        The parked orbit sits above whichever of them is showing, not over it.
         """
         lay = self.layout()
         chat = getattr(self, "chat", None)
@@ -982,7 +982,7 @@ class ConversationStage(GlassFrame):
         elif self._wake_acking:
             self.input.setPlaceholderText(tr("listening"))
         elif self._speaking:
-            self.input.setPlaceholderText(tr("talking — esc to cut"))
+            self.input.setPlaceholderText(tr('talking, esc to cut'))
         elif self.conversation_btn.isChecked():
             self.input.setPlaceholderText(tr("listening"))
         else:
@@ -1033,7 +1033,7 @@ class ConversationStage(GlassFrame):
     def ack_wake(self, *, waiting: bool = False) -> None:
         """Receipt that the doorbell rang: icon flares, copy says listening.
 
-        *waiting* is a bare "Hey Arelis" — no first question yet. Stay on
+        *waiting* is a bare "Hey Arelis", no first question yet. Stay on
         listening copy after the flare so the two-arcs don't look idle while
         she is actually latched and waiting for the next sentence.
         """

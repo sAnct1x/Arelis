@@ -1,4 +1,4 @@
-"""Orbit idle face — empty session, not a dashboard.
+"""Orbit idle face, empty session, not a dashboard.
 
 The real composer lives in conversation.py. This widget is the void around it:
 orbit ring + tick + core, ghost recent sessions, and a live readiness readout.
@@ -150,7 +150,7 @@ class OrbitCanvas(QWidget):
         self._timer.timeout.connect(self._tick)
 
     def set_thinking(self, on: bool) -> None:
-        """Brighter, slower breath while a turn is in flight — never hide/show."""
+        """Brighter, slower breath while a turn is in flight, never hide/show."""
         want = bool(on)
         if want == self._thinking:
             return
@@ -197,7 +197,7 @@ class _GhostRow(QWidget):
 
     ``key`` is the small caps word above the title. On a machine with no history
     there are no recents to show and the column sits empty, so the same chip
-    carries the opening suggestions under TRY — same shape, same weight, nothing
+    carries the opening suggestions under TRY, same shape, same weight, nothing
     new to learn.
     """
 
@@ -355,7 +355,7 @@ class OrbitIdle(QWidget):
         read_l.setContentsMargins(0, 0, 0, 0)
         read_l.setSpacing(16)
         read_l.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        self._ollama_row = self._make_readout("ollama", "—")
+        self._ollama_row = self._make_readout("ollama", '-')
         self._listen_row = self._make_readout("listening", "off")
         read_l.addWidget(self._ollama_row, alignment=Qt.AlignmentFlag.AlignRight)
         read_l.addWidget(self._listen_row, alignment=Qt.AlignmentFlag.AlignRight)
@@ -366,7 +366,7 @@ class OrbitIdle(QWidget):
         self.apply_theme_face()
 
     def apply_theme_face(self) -> None:
-        """Sodium keeps the lamp. Filament hides it — the window paints the field."""
+        """Sodium keeps the lamp. Filament hides it, the window paints the field."""
         filament = active_theme() == "filament"
         orbit = getattr(self, "orbit", None)
         if orbit is not None:
@@ -465,7 +465,7 @@ class OrbitIdle(QWidget):
         self._layout_idle()
 
     def _add_tools_chip(self) -> None:
-        """TOOLS ghost — same shape as TRY / RECENT. Fills `/tools`."""
+        """TOOLS ghost, same shape as TRY / RECENT. Fills `/tools`."""
         from arelis.i18n import tr
 
         row = _GhostRow(
@@ -488,7 +488,7 @@ class OrbitIdle(QWidget):
 
         ``mode`` is the controller's mode: conversation, dictate, wake, or off.
         Wake and off are both "nothing is latched" as far as the operator is
-        concerned — idle is always listening for Hey Arelis. Preparing wins
+        concerned, idle is always listening for Hey Arelis. Preparing wins
         until the ear is loaded, so a first-run "say hey arelis" is not a lie.
         """
         if self._voice_preparing and mode != "preparing":
@@ -534,7 +534,7 @@ class OrbitIdle(QWidget):
         return self.listen_word.text()
 
     def set_readout(self, *, ollama: str, listening: str) -> None:
-        self._ollama_row._value.setText((ollama or "—").lower())  # type: ignore[attr-defined]
+        self._ollama_row._value.setText((ollama or '-').lower())  # type: ignore[attr-defined]
         self._listen_row._value.setText((listening or "off").lower())  # type: ignore[attr-defined]
 
     def fit_prompt(self, width: int, height: int, *, typing: bool) -> None:

@@ -266,7 +266,7 @@ def _paint_borders(
     disc: tuple[float, float, float] | None,
     view: EarthView,
 ) -> None:
-    """Country fill, then country and state lines. Landfall — not a feed."""
+    """Country fill, then country and state lines. Landfall, not a feed."""
     from arelis.earth.land import (
         country_fills,
         country_rings,
@@ -791,7 +791,7 @@ def inspect_caption(entity: Entity) -> str:
 
 
 def inspect_card_text(entity: Entity, *, riding: bool = False) -> str:
-    """Short plate for a click. No legal cite — that ate the HUD."""
+    """Short plate for a click. No legal cite, that ate the HUD."""
     lat, lon, alt = ecef_to_lla(entity.x, entity.y, entity.z)
     from arelis.earth.copy import group_phrase, inspect_kind_line
 

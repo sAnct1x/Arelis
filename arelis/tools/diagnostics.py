@@ -1,4 +1,4 @@
-"""Arelis's own test suite — the same pytest CI runs, not a guess.
+"""Arelis's own test suite, the same pytest CI runs, not a guess.
 
 The model must not invent pass/fail counts. This tool runs ``python -m pytest``
 on a path under tests/ (the full tree when no target is given). It is not a
@@ -58,7 +58,7 @@ class DiagnosticsTool:
         "diagnostics asks that target Arelis's own tests/ directory. Do not "
         "invent results. After it returns, report the counts, name the "
         "failures, and say what they likely mean. A failing suite is a real "
-        "issue — do not claim everything is fine."
+        'issue, do not claim everything is fine.'
     )
     risk = "read"
     parameters_schema: dict[str, Any] = {

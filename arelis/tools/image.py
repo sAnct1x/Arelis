@@ -204,7 +204,7 @@ class ImageTool:
         "remove_background (needs rembg). "
         "aspect is square, landscape, portrait, 16:9, 9:16, 4:3, 3:2, 21:9. "
         "style is photoreal, illustration, anime, watercolor, oil, sketch, cinematic. "
-        "This cannot do an exact resize, crop, rotate, or text overlay — those have "
+        'This cannot do an exact resize, crop, rotate, or text overlay, those have '
         "a right answer and belong on image_edit. Using this to 'resize' a file "
         "returns a different picture. To look at one use vision."
     )

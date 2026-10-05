@@ -25,7 +25,7 @@ def reject_non_http_url(url: str) -> str | None:
         return None
     return (
         f"Not an http(s) URL: {url!r}. Copy the URL: line from a web_search "
-        "result exactly — Titles are not URLs. Do not ask the user for a URL "
+        'result exactly, Titles are not URLs. Do not ask the user for a URL '
         "you already returned."
     )
 

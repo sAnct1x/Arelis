@@ -1,4 +1,4 @@
-"""In-process reminders. Persist + due logic — no Qt, no Task Scheduler.
+"""In-process reminders. Persist + due logic, no Qt, no Task Scheduler.
 
 ``schedule`` is Windows Task Scheduler plus email. This is the short timer:
 "remind me in 20 minutes" lands here, survives a restart, and returns a
@@ -208,7 +208,7 @@ class ReminderStore:
         """Unfired reminders whose due is at or before ``now``.
 
         Overdue items stay on disk until ``mark_fired``. A restart must
-        still return them — dropping them here would swallow a timer that
+        still return them, dropping them here would swallow a timer that
         matured while the process was down.
         """
         stamp = as_aware(now or local_now())

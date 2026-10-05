@@ -169,7 +169,7 @@ def load_contacts(path: Path | None = None) -> dict[str, Contact]:
     """Addressable contacts: a mobile number and/or an email.
 
     Name-only drafts stay in the file for the Contacts panel, but they are not
-    offered to send_sms / send_email — resolving then failing at send time is
+    offered to send_sms / send_email, resolving then failing at send time is
     worse than saying the person is not in the book yet.
     """
     return {
@@ -462,11 +462,11 @@ def contacts_prompt_line(path: Path | None = None) -> str:
     body = "; ".join(parts)
     if sms_ok:
         text = (
-            "Contacts — when the user asks to text someone, call send_sms with "
+            'Contacts, when the user asks to text someone, call send_sms with '
             f"to set to one of these aliases: {body}. "
         )
     else:
-        text = f"Contacts — known people: {body}. "
+        text = f"Contacts, known people: {body}. "
     if email_parts and mail_ok:
         emails = "; ".join(email_parts)
         text += (
@@ -474,12 +474,12 @@ def contacts_prompt_line(path: Path | None = None) -> str:
             "someone listed here, call send_email with to set to that alias "
             f"(email only: {emails}). "
             "When they ask who someone is, call contacts(action=get) and "
-            "read that tool's phone line — do not reuse another alias's email. "
+            "read that tool's phone line, do not reuse another alias's email. "
         )
     text += (
         "These aliases are hints. A number they typed is enough to text. "
         "If they name someone who is not listed and gave no number, ask for "
-        "the number — saving a nickname is optional. Never invent a phone "
+        'the number, saving a nickname is optional. Never invent a phone '
         "number or email address."
     )
     if len(text) > _MAX_CONTACTS_PROMPT_CHARS:

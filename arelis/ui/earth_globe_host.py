@@ -1,7 +1,7 @@
 """Earth-zone Cesium plate.
 
 Source-checkout + astro extra only. Missing WebEngine falls back to the
-Qt globe. Tokens stay in Python and ride QWebChannel — never written
+Qt globe. Tokens stay in Python and ride QWebChannel, never written
 into the HTML on disk.
 
 When the solar lab used GPU, Cesium is a child process
@@ -73,7 +73,7 @@ def globe_wants_own_process() -> bool:
     """Cesium leaves this process when solar GL / a share group is live.
 
     The child never nests. Pytest without ARELIS_SOLAR_GL stays in-process.
-    Daily driver (GPU solar lab) always goes out of process — park() cannot
+    Daily driver (GPU solar lab) always goes out of process, park() cannot
     kill QOpenGLContext.globalShareContext() while AA_ShareOpenGLContexts
     is an application attribute.
     """
@@ -214,7 +214,7 @@ def seal_globe_plate(widget: QWidget) -> None:
     """Same HWND rule as the main glass: opaque plate, no leftover frame.
 
     ``WA_TranslucentBackground`` on a native child is a layered window. The OS
-    keeps the last bitmap and composites it through Cesium — the double limb
+    keeps the last bitmap and composites it through Cesium, the double limb
     and night-side marks. ``winId()`` on a sibling is the offset ghost
     (``window_resize.top_level_hwnd``). HUD chrome stays a Qt overlay.
     """
@@ -270,7 +270,7 @@ def globe_key_payload(event: QKeyEvent) -> dict[str, Any]:
 
 
 class EarthHudGlass(QWidget):
-    """Same sodium HUD, parked over Cesium — not a second Earth UI.
+    """Same sodium HUD, parked over Cesium, not a second Earth UI.
 
     Cesium is a foreign HWND. A child of the solar plate paints *under*
     it (AA_DontCreateNativeWidgetSiblings). This is a Tool window of the
@@ -278,7 +278,7 @@ class EarthHudGlass(QWidget):
 
     Translucent on purpose: an opaque glass plus a Source fill of
     ``(0, 0, 0, 0)`` is a black plate on Windows. The Cesium host
-    (``seal_globe_plate``) stays opaque — that layered-window rule is
+    (``seal_globe_plate``) stays opaque, that layered-window rule is
     for native children, not this overlay.
     """
 
@@ -385,7 +385,7 @@ class EarthHudGlass(QWidget):
 
 
 def stack_chrome_over_globe(hud: QWidget | None, host: QWidget | None) -> None:
-    """Pin the sodium HUD over the globe. No child winId — that is the ghost."""
+    """Pin the sodium HUD over the globe. No child winId, that is the ghost."""
     if hud is None:
         return
     panel = getattr(hud, "_panel", None)
@@ -1152,7 +1152,7 @@ def pick_orbit_marks(
     cap: int = _CITY_ORBIT_MARKS,
     keep_ids: set[str] | None = None,
 ) -> list[dict[str, Any]]:
-    """Tracked marks always. City/near keep no sat swarm — only a hot ISS."""
+    """Tracked marks always. City/near keep no sat swarm, only a hot ISS."""
     held = keep_ids or set()
     orbit = [row for row in rows if row.get("layer") in {"satellites", "iss"}]
     ground = [row for row in rows if row.get("layer") not in {"satellites", "iss"}]

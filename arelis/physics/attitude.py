@@ -3,7 +3,7 @@
 Earth: mean obliquity + GMST so the terminator and continents roughly agree.
 Moon: mean Earth-facing (tidal lock); optical libration is ignored.
 Mapped planets: IAU WGCCRE 2015 linear W at J2000, no precession.
-Asteroids and other moons: no spin model — the HUD must say so.
+Asteroids and other moons: no spin model, the HUD must say so.
 """
 
 from __future__ import annotations
@@ -47,7 +47,7 @@ def gmst_rad(jd: float) -> float:
 def spin_omega_rad_s(name: str) -> float:
     """Sidereal spin the observer can see on a mapped globe. 0 if no model.
 
-    Earth is GMST. The Moon is Earth-facing — the map does not crawl vs
+    Earth is GMST. The Moon is Earth-facing, the map does not crawl vs
     the Earth–Moon line (libration is ignored). IAU W bodies use Wdot.
     Asteroids stay 0; the HUD already says the map is not body-fixed.
     """
@@ -158,7 +158,7 @@ def spin_caption(name: str) -> str:
         return "Mean Earth-facing. Optical libration ignored."
     if name in IAU_W:
         return "IAU W, J2000 (WGCCRE 2015). Map is body-fixed. No precession."
-    return "Map is not body-fixed — ecliptic-aligned sphere."
+    return 'Map is not body-fixed, ecliptic-aligned sphere.'
 
 
 def sun_pole_ecliptic() -> tuple[float, float, float]:

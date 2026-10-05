@@ -2,7 +2,7 @@
 
 A detached ``--core`` owns ``:8765``. A sibling window that already opened
 that door is not a core. If this window attached and the core never answers
-— or answers and then leaves — the glass binds ingest itself instead of
+, or answers and then leaves, the glass binds ingest itself instead of
 sitting mute until a restart.
 """
 
@@ -106,7 +106,7 @@ async def claim_orphan_ingest(
                 EventType.STATUS,
                 {
                     "message": (
-                        "Phone ingest is already up on this PC — this window "
+                        'Phone ingest is already up on this PC, this window '
                         "will not bind a second listener."
                     )
                 },

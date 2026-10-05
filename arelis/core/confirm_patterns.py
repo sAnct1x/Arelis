@@ -1,6 +1,6 @@
 """The two shapes every send-or-create conversation ends in.
 
-"Yes." and "Would you like me to send it?" — one from the user, one from the
+"Yes." and "Would you like me to send it?", one from the user, one from the
 assistant. SMS, email and agenda each wrote both out by hand, and the copies
 did what copies do: they drifted in ways nobody chose and nobody could see.
 
@@ -15,7 +15,7 @@ The drift, measured before this module existed:
     "ship it"         n     y      n
     "proceed"         n     n      y
 
-The "ship it" and "proceed" rows are the *point* — those verb lists are domain
+The "ship it" and "proceed" rows are the *point*, those verb lists are domain
 knowledge and they belong apart. Sending a text and creating a calendar event
 are different acts, confirmed with different words. The rest of the table is
 not domain knowledge. It is punctuation: email's trailing allowance was
@@ -40,7 +40,7 @@ Putting the three side by side turned up something none of them had right.
 Both modules conflated the two and so both were wrong, in opposite
 directions. Email required no offer for either, which is how a stale "yes"
 revived a sendable draft. SMS required one for *both*, which meant that when
-the model stalled and showed a draft without asking — "Ready when you are." —
+the model stalled and showed a draft without asking, "Ready when you are."
 a user saying "send the text" got nothing at all, over and over, with no
 way to find out why.
 
@@ -92,7 +92,7 @@ def _whole_utterance(*alternatives: str) -> re.Pattern[str]:
 def affirmation_pattern(*extra: str) -> re.Pattern[str]:
     """Match a content-free yes. Callers must gate this on a live offer.
 
-    ``extra`` adds a channel's own way of agreeing — email takes "ship it",
+    ``extra`` adds a channel's own way of agreeing, email takes "ship it",
     and SMS and agenda take a bare "please", which email never did.
     """
     return _whole_utterance("(?:" + "|".join([*_AFFIRMATIONS, *extra]) + ")" + _TRAILING_PLEASE)
@@ -136,7 +136,7 @@ def proceed_ask_pattern(
     ``offer`` is the verb as it appears after "to" / "shall I" ("send",
     "(?:proceed|create)"); ``gerund`` is the same verb after "proceed with".
     Agenda was missing "shall i proceed" from its own list while accepting
-    "would you like me to proceed" — sharing the skeleton is what fixed that.
+    "would you like me to proceed", sharing the skeleton is what fixed that.
     """
     alternatives = [
         rf"would\s+you\s+like\s+(?:me\s+)?to\s+{offer}",

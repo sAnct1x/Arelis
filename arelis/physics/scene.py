@@ -748,7 +748,7 @@ class SolarSystem:
     def go_realtime(self, *, now_jd: float | None = None) -> float:
         """1× locked to UTC now. Warp is discarded: restore the IC, then IAS15
         from that instant to this second. Placeholder Kepler and counterfactual
-        labs cannot lock — they are not the real solar system."""
+        labs cannot lock, they are not the real solar system."""
         if self.rate > 1.0 + 1e-9:
             self.last_warp = self.rate
         self.rate = 1.0

@@ -1,7 +1,7 @@
 """IMAP mailbox: peek to read, Allow to change.
 
 Looking does not mark mail read (readonly select + BODY.PEEK). `download`
-saves attachments under outputs/mail/ — the sender picks that filename, so
+saves attachments under outputs/mail/, the sender picks that filename, so
 see `safe_attachment_name` before touching that path. Trash / archive / move /
 flags need Allow, and unattended jobs do not get those actions. Delivered mail
 cannot be rewritten.
@@ -104,7 +104,7 @@ def _inbox_schema(*, mutate: bool) -> dict[str, Any]:
                     "list / search / read / summarize (peek-only), folders, "
                     "download to save a message's attached files, "
                     "reply to build a quoted draft from a message id "
-                    "(does not send — that is send_email + Allow), "
+                    '(does not send, that is send_email + Allow), '
                     "or with Allow: trash, archive, mark_read, mark_unread, "
                     "move, create_folder. delete is trash (Gmail Bin)."
                 ),
@@ -112,7 +112,7 @@ def _inbox_schema(*, mutate: bool) -> dict[str, Any]:
             "id": {
                 "type": "string",
                 "description": (
-                    "Message id from list or search — the digits only, not the "
+                    'Message id from list or search, the digits only, not the '
                     "[brackets]. Required for read, download, reply, trash, "
                     "archive, mark_read, mark_unread, move. Comma-separated ok."
                 ),
@@ -174,12 +174,12 @@ def _inbox_description(*, mutate: bool) -> str:
         "`summarize` returns a structured triage (subject/from/date/snippet) "
         "via BODY.PEEK only, and `folders` lists mailboxes/labels. Looking "
         "does not mark mail read. `download` saves a message's attached files "
-        "under outputs/mail/ and returns their paths — use it before analyze, "
+        'under outputs/mail/ and returns their paths, use it before analyze, '
         "doc_extract, or vision on something that arrived by mail. "
         "`reply` peeks one message and returns {to, subject, body} with the "
-        "original quoted — it does not send. Call send_email on that same turn "
+        'original quoted, it does not send. Call send_email on that same turn '
         "with those fields. Do not ask in chat. The Allow card is the permission. "
-        "Delivered mail cannot be edited — send a new message instead."
+        'Delivered mail cannot be edited, send a new message instead.'
     )
     if not mutate:
         return (
@@ -188,7 +188,7 @@ def _inbox_description(*, mutate: bool) -> str:
         )
     return (
         head
-        + " Changes need Allow: `trash` (delete is the same — Gmail Bin, not "
+        + ' Changes need Allow: `trash` (delete is the same, Gmail Bin, not '
         "permanent), `archive` (leave Inbox), `mark_read` / `mark_unread`, "
         "`move` to a folder/label, `create_folder`. Call list or search first "
         "and pass the id number (digits only; comma-separated is fine). Never "
@@ -348,7 +348,7 @@ class InboxTool:
             f"(mailbox: {total} messages, {unread} unread)."
         )
         lines.append(
-            "Open one with inbox(action='read', id='UID') — UID is the number "
+            "Open one with inbox(action='read', id='UID'), UID is the number "
             "shown in [brackets], without the brackets."
         )
 
@@ -536,7 +536,7 @@ class InboxTool:
         """Save attachments under outputs/mail/<id>/.
 
         The filename comes from the sender, so it goes through
-        `safe_attachment_name` before it touches the filesystem — see that
+        `safe_attachment_name` before it touches the filesystem, see that
         function for why that is not paranoia.
         """
         fetched = self._fetch_message(conn, uid_raw)
@@ -660,7 +660,7 @@ class InboxTool:
         )
         lines.append(
             "Peek-only (BODY.PEEK); nothing was marked read. "
-            "Open one with inbox(action='read', id='UID') — UID is the number "
+            "Open one with inbox(action='read', id='UID'), UID is the number "
             "shown in [brackets], without the brackets."
         )
         return ToolResult(
@@ -676,7 +676,7 @@ class InboxTool:
         )
 
     def _peek_snippet(self, conn: imaplib.IMAP4_SSL, uid: str) -> str:
-        """Short body preview via BODY.PEEK — never sets \\Seen."""
+        """Short body preview via BODY.PEEK, never sets \\Seen."""
         status, data = conn.uid("FETCH", uid, "(BODY.PEEK[])")
         if status != "OK" or not data or not isinstance(data[0], tuple):
             return ""

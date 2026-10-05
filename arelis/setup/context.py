@@ -13,8 +13,8 @@ card with ``qwen3.5:9b`` (see scripts/measure_context_ceiling.py):
 
 That is ~34 KiB per token of window, on top of ~5.1 GiB of resident weights.
 Scaling that cost by download size is a first-order approximation across the
-family — the KV cache actually grows with layers and KV heads rather than with
-file size — so the result is deliberately rounded down to a power of two and
+family, the KV cache actually grows with layers and KV heads rather than with
+file size, so the result is deliberately rounded down to a power of two and
 capped. Anyone who wants the true ceiling for a new tag should run the script.
 """
 

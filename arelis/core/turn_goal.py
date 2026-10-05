@@ -215,7 +215,7 @@ NEED_LOGIN = "need_login"
 OPEN = "open"
 
 LOGIN_READY_REPLY = (
-    "Login is up. Sign in in the window — I don't type passwords."
+    "Login is up. Sign in in the window, I don't type passwords."
 )
 
 

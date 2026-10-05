@@ -47,7 +47,7 @@ class EventType(str, Enum):
     is streaming, ASSISTANT_DELTA also feeds the voice service: completed
     sentences become VOICE_AUDIO_READY before the turn ends. ASSISTANT_RETRACT
     cancels that in-flight speech when the painted text was only a tool
-    preamble. VOICE_SPEAK is still the terminal hand-off — it flushes any
+    preamble. VOICE_SPEAK is still the terminal hand-off, it flushes any
     remainder from the final written answer (and is the whole path for
     non-stream producers such as SMS cues). VOICE_AUDIO_READY carries one
     synthesized clip and is the only one the UI plays, because audio devices
@@ -74,7 +74,7 @@ class EventType(str, Enum):
     watcher polls SMSGate Local Server GET /inbox and publishes one event per
     new message id. The UI always records it (Notifications unread + inbound_sms
     buffer). Chat/voice announcement waits while a turn owns the floor (model,
-    Allow, send, spoken reply), then flushes as one batched system note — not
+    Allow, send, spoken reply), then flushes as one batched system note, not
     into an agent turn, and not into the outbound draft.
 
     ROOM_CHANGED announces that the open room changed, which is a bigger event
@@ -82,7 +82,7 @@ class EventType(str, Enum):
     role all moved at once. It is published after the swap has happened, and it
     carries the whole new state rather than a delta, so a surface that missed an
     earlier one still paints the truth. An empty room id means the general
-    conversation. SESSION_LOADED still carries the messages — this event says
+    conversation. SESSION_LOADED still carries the messages, this event says
     which room they belong to.
 
     CALENDAR_CHANGED fires after a Google/Outlook write or a cache sync, from

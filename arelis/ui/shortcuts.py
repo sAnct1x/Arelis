@@ -1,7 +1,7 @@
 """Every chord in one place, and a sheet that shows them.
 
 The chords were only ever discoverable as two lines of small mono text on the
-idle orbit — "say hey arelis", "talk or type · esc to clear" — and a
+idle orbit, "say hey arelis", "talk or type · esc to clear", and a
 scatter of QAction shortcuts that appear in the View menu if you happen to open
 it. Eleven of the fifteen were written down nowhere the user would look.
 
@@ -29,18 +29,18 @@ from arelis.ui.theme import SPACE, space_box
 SHORTCUTS: tuple[tuple[str, str, str], ...] = (
     ("voice", "Ctrl+Shift+M", "start or stop talking"),
     ("voice", "Ctrl+M", "dictate into the composer without sending"),
-    ("conversation", "Enter", "send — or allow, when a card is open"),
+    ("conversation", "Enter", 'send, or allow, when a card is open'),
     ("conversation", "Esc", "stop the turn, clear the box, or go back to the orbit"),
     ("conversation", "Ctrl+Shift+A", "attach files"),
-    ("panels", "Ctrl+1", "thinking — what she is doing, in detail"),
-    ("panels", "Ctrl+2", "workspace — the desk: notes and files she made"),
-    ("panels", "Ctrl+3", "history — past conversations"),
+    ("panels", "Ctrl+1", 'thinking, what she is doing, in detail'),
+    ("panels", "Ctrl+2", 'workspace, the desk: notes and files she made'),
+    ("panels", "Ctrl+3", 'history, past conversations'),
     ("panels", "Ctrl+4", "notifications"),
     ("panels", "Ctrl+5", "camera"),
     ("panels", "Ctrl+6", "contacts"),
     ("panels", "Ctrl+7", "calendar"),
-    ("panels", "Ctrl+8", "Reality — plate"),
-    ("window", "Ctrl+,", "settings — audio, window scale, allow"),
+    ("panels", "Ctrl+8", 'Reality, plate'),
+    ("window", "Ctrl+,", 'settings, audio, window scale, allow'),
     ("window", "F11", "fullscreen"),
     ("window", "F1", "this sheet"),
     ("text", "Ctrl+=", "larger chat text"),

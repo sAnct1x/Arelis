@@ -1,4 +1,4 @@
-"""Symbolic algebra — deterministic CAS so the model does not recite integrals.
+"""Symbolic algebra, deterministic CAS so the model does not recite integrals.
 
 SymPy's parse_expr uses eval. evaluate=False is not a sandbox. This tool
 whitelists an AST first, then parses into a locked namespace with empty
@@ -162,11 +162,11 @@ class CasTool:
         "Pass a plain expression like 'x**2 * sin(x)' (use ** for powers). "
         "For solve, an equation is fine: '-4*x + 7 = 15'. "
         "gradient/directional take wrt='x,y,z', at='1,-1,2', dir='1,2,-2'. "
-        "Result includes ascii, a unicode pretty form, and a latex: line — "
+        'Result includes ascii, a unicode pretty form, and a latex: line'
         "quote that latex inside $$ $$; do not rewrite it. "
-        "This is the CAS — do not use calculator for integrals, derivatives, "
+        'This is the CAS, do not use calculator for integrals, derivatives, '
         "or symbolic algebra, and do not recite a closed form from memory. "
-        "A timeout or an unevaluated Integral is not a proof none exists — "
+        'A timeout or an unevaluated Integral is not a proof none exists'
         "do not invent a decimal or claim there is no closed form."
     )
     risk = "read"
@@ -335,7 +335,7 @@ class CasTool:
                 ok=False,
                 output=(
                     "The CAS left this unevaluated. That is not a proof none "
-                    "exists — I will not invent a closed form or a decimal."
+                    'exists, I will not invent a closed form or a decimal.'
                 ),
                 data={
                     "fail_class": "fail:no_closed_form",
@@ -568,10 +568,10 @@ def _run_timed(
     """Run SymPy in a child we can kill.
 
     A thread timeout cannot stop integrate(). The old pool then waited
-    for that thread on shutdown — glass froze, Stop did nothing, CPU
+    for that thread on shutdown, glass froze, Stop did nothing, CPU
     stayed at one core until SymPy finished or the process was killed.
     Cheap solve/diff stay in this process so a quadratic is not a 2s spawn.
-    Definite integrals try numeric+identify first — full integrate() often
+    Definite integrals try numeric+identify first, full integrate() often
     hunts the indefinite (dilogs) and never notices the bounds collapse.
     """
     if action == "integrate" and (lo is not None or hi is not None):
@@ -633,12 +633,12 @@ def _run_bounded(
 ) -> Any:
     """The in-process path, with the timeout the module docstring promises.
 
-    It did not have one. `_SPAWN_ACTIONS` — integrate, dsolve, sum — got a
+    It did not have one. `_SPAWN_ACTIONS`, integrate, dsolve, sum, got a
     killable child process, and every other action ran unbounded on the
     calling thread. Measured: `solve(x**40 - x**17 + 3*x**5 - 1)`, a nested
     `simplify`, and `series(exp(sin(tan(x))), n=40)` each ran past twenty
     seconds and were still going. None of those is an exotic input for
-    someone doing physics homework, and the failure is the worst kind — the
+    someone doing physics homework, and the failure is the worst kind, the
     glass stops answering and Stop does nothing.
 
     Two layers, as in python_exec: the tracer stops SymPy itself, and the

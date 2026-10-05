@@ -102,7 +102,7 @@ def build_tool_registry(
     When ``attended`` is omitted it follows ``allow_send``, so every existing
     caller keeps the same registry. Jobs pass ``allow_send=False`` and get
     ``attended=False`` for free. Comfy ``image`` and deterministic
-    ``image_edit`` stay registered unattended — tests pin that; the job
+    ``image_edit`` stay registered unattended, tests pin that; the job
     runner skips the card rather than hiding the tool.
 
     memory_store is the same archive SessionMemory writes through in the UI and

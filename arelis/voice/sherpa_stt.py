@@ -2,7 +2,7 @@
 
 Wave 1 fed a finished WAV into a streaming Zipformer (OnlineRecognizer).
 Wave 2 feeds live PCM into the same recognizer so finish() is cheap. CPU on
-purpose — the GPU stays on the chat model. Kroko 2025 is the default pack
+purpose, the GPU stays on the chat model. Kroko 2025 is the default pack
 (conversational English); the 2023 LibriSpeech pack remains a fallback.
 Nothing here phones home except the optional first-run download.
 """
@@ -145,7 +145,7 @@ _HOTWORDS = (
 
 
 def _hotwords_file(model_dir: Path) -> Path | None:
-    """Small bias list. Sites and her name — not a jargon dump Whisper would echo."""
+    """Small bias list. Sites and her name, not a jargon dump Whisper would echo."""
     try:
         model_dir.mkdir(parents=True, exist_ok=True)
         path = model_dir / "hotwords.txt"

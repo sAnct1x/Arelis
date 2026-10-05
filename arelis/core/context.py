@@ -66,7 +66,7 @@ def context_budget(
 
     ``schema_chars`` is the serialised tool array. It is prompt like any other,
     and leaving it out meant the budget handed history room the schemas had
-    already spent — on a full registry that is thousands of tokens, so the
+    already spent, on a full registry that is thousands of tokens, so the
     window overflowed at the front, which is the persona.
     """
     tool_reserve = estimate_tokens("x" * max(0, tool_output_chars), chars_per_token=chars_per_token)
@@ -166,7 +166,7 @@ def prompt_char_count(
     dropped that would have fit.
 
     Role framing and the chat template are still uncounted, which does leave the
-    estimate slightly conservative — in the safe direction.
+    estimate slightly conservative, in the safe direction.
     """
     total = 0
     for message in messages:

@@ -1,4 +1,4 @@
-"""Fetch a page and extract the article — not the whole chrome of the site."""
+"""Fetch a page and extract the article, not the whole chrome of the site."""
 
 from __future__ import annotations
 
@@ -45,7 +45,7 @@ class ScrapeTool:
         "paragraph lattice, density scoring, and noscript rescue; retries "
         "AMP/print twins when the main page is a JS shell. Pass a real URL "
         "from web_search (the URL: line), never a title. Do not use this for "
-        "weather — call the weather tool instead. For raw JSON/APIs use web_fetch."
+        'weather, call the weather tool instead. For raw JSON/APIs use web_fetch.'
     )
     risk = "read"
     parameters_schema: dict[str, Any] = {
@@ -271,7 +271,7 @@ class ScrapeTool:
             return ToolResult(
                 ok=False,
                 output=_fail_output(
-                    f"{url} returned {main or 'non-HTML'} — scrape needs an "
+                    f"{url} returned {main or 'non-HTML'}, scrape needs an "
                     "HTML article. Use web_fetch for binary/API responses."
                 ),
                 data={"url": url, "content_type": main, "fail_class": "fail:non_html"},

@@ -1,4 +1,4 @@
-"""Unit conversion and published constants — so numbers are not a vibe."""
+"""Unit conversion and published constants, so numbers are not a vibe."""
 
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ class UnitsTool:
         "(CODATA / IAU / Planck) with the source year in the result. "
         "Use convert for '5 ft 8 in in meters'. Use constant for G, c, sigma, "
         "Hubble, solar mass. This is not a unit conversion into a cosmological "
-        "frame — '2.7 K to the CMB frame' is a Doppler boost, not Pint. "
+        "frame'2.7 K to the CMB frame' is a Doppler boost, not Pint. "
         "Do not recite CODATA from memory."
     )
     risk = "read"
@@ -101,7 +101,7 @@ def _lookup(name: str) -> ToolResult:
     if len(items) > 1:
         lines.append(
             "Those are published figures, not a measurement this turn. "
-            "Cosmology still has a Hubble tension — pick a value with its source."
+            'Cosmology still has a Hubble tension, pick a value with its source.'
         )
     return ToolResult(
         ok=True,

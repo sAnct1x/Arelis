@@ -84,7 +84,7 @@ def pick_tab(
         return None, f"No tab matching {title!r}."
     if len(hits) > 1:
         return None, (
-            f"Ambiguous tab {title!r} — {len(hits)} matches. "
+            f"Ambiguous tab {title!r}, {len(hits)} matches. "
             "Pass select= as an index."
         )
     return hits[0], ""

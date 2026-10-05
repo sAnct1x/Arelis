@@ -412,7 +412,7 @@ class OrchestratorTurns:
                         EventType.ASSISTANT_DONE,
                         {
                             "text": tr(
-                                "Skipped — I was not allowed to read the outside-"
+                                'Skipped, I was not allowed to read the outside-'
                                 "workspace path you named."
                             ),
                         },

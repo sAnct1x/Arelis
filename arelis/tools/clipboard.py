@@ -1,4 +1,4 @@
-"""Read or replace the system clipboard text — always behind Allow.
+"""Read or replace the system clipboard text, always behind Allow.
 
 Reading is a privacy question: the clipboard may hold a password. Writing is a
 loss question: it calls EmptyClipboard first, so it destroys whatever was
@@ -184,7 +184,7 @@ class ClipboardTool:
     true of the card face and false everywhere else. In voice / filament mode
     `evaluate_confirm` pauses for `run_script` and for destructive actions
     only, and a clipboard read is neither, so it ran with no card at all. That
-    is a deliberate design — on that face, saying the ask is the grant — but
+    is a deliberate design, on that face, saying the ask is the grant, but
     "always" was still a promise the gate does not make.
 
     The wording is what changed, not the gate. `policy.py` stays
@@ -195,7 +195,7 @@ class ClipboardTool:
     name = "clipboard"
     description = (
         "Read the system clipboard as plain text, or write text onto it. "
-        "Asks for Allow first on the card face — reading may expose passwords "
+        'Asks for Allow first on the card face, reading may expose passwords '
         "or private notes, and writing replaces whatever the user had copied. "
         "action=read (default) for what is on the clipboard or to use pasted "
         "text; action=write with text to copy something for them."

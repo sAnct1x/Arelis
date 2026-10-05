@@ -76,7 +76,7 @@ def _walk_files(root: Path, *, glob: str = "") -> Iterator[Path]:
     """Every file under root, skipping the folders that only add noise.
 
     `os.walk` rather than `Path.rglob` specifically so `_SKIP_DIRS` can be
-    pruned in place — `rglob` would descend into `node_modules` in full and
+    pruned in place, `rglob` would descend into `node_modules` in full and
     then filter, which is the slow way to get the same list.
     """
     seen = 0
@@ -324,16 +324,16 @@ class CodeWorkspaceTool:
         "change files. "
         "To locate something you do not have the path for, use grep with "
         "query= (searches file contents, returns path:line) or find with "
-        "query= (searches file names) — do not walk the tree with repeated "
+        'query= (searches file names), do not walk the tree with repeated '
         "list calls. "
         "Use patch (or apply) with a unified diff in diff=/patch=/content= "
-        "when the change arrived as ---/+++ hunks — do not flatten it into "
+        'when the change arrived as ---/+++ hunks, do not flatten it into '
         "edit old/new. "
         "Use delete to remove a file they asked you to remove, and "
-        "move/rename/copy with to= for the new path — do not read a file and "
+        'move/rename/copy with to= for the new path, do not read a file and '
         "write it back under another name. "
         "Use keep when the user says keep this / put this on the desk "
-        "/ jot this down — that writes a short note into notes/ on the "
+        '/ jot this down, that writes a short note into notes/ on the '
         "active project. Do not use memory remember for a page they want "
         "to reopen. With multiple projects, qualify paths as name:relative/path."
     )
@@ -565,7 +565,7 @@ class CodeWorkspaceTool:
     def _search_root(self, path_str: str) -> tuple[Path, str]:
         """(folder to walk, label). Raises PermissionError outside the roots.
 
-        `resolve_read` is what keeps a search inside the sandbox — without it
+        `resolve_read` is what keeps a search inside the sandbox, without it
         `path="../.."` walks the drive, which would make this the widest hole
         in the tool rather than its most useful action.
         """
@@ -587,7 +587,7 @@ class CodeWorkspaceTool:
         """Search file contents. Roadmap 4.2.
 
         Without this, "where is X defined" had no route at all: the model had to
-        walk the tree with repeated `list` calls, and `same_call` blocks that —
+        walk the tree with repeated `list` calls, and `same_call` blocks that
         correctly, since from the outside it looks like a stuck loop. The guard
         was fighting a missing capability.
         """
@@ -659,7 +659,7 @@ class CodeWorkspaceTool:
         lines = list(hits)
         if truncated:
             lines.append(
-                f"[stopped at {cap} matches — narrow it with glob= or path=, or raise max_results]"
+                f"[stopped at {cap} matches, narrow it with glob= or path=, or raise max_results]"
             )
         return ToolResult(
             ok=True,
@@ -713,7 +713,7 @@ class CodeWorkspaceTool:
             )
         lines = list(found)
         if truncated:
-            lines.append(f"[stopped at {cap} names — narrow it with glob= or path=]")
+            lines.append(f"[stopped at {cap} names, narrow it with glob= or path=]")
         return ToolResult(
             ok=True,
             output="\n".join(lines),
@@ -812,7 +812,7 @@ class CodeWorkspaceTool:
     def _patch(self, diff_text: str) -> ToolResult:
         """Apply a unified diff under the sandbox. All files or none.
 
-        Paths come from the +++ / --- headers, not from the caller — a
+        Paths come from the +++ / --- headers, not from the caller, a
         multi-file diff would otherwise need a dummy path just to get past
         the action dispatcher. for_create is only used for a /dev/null add;
         everything else is for_write, so an external read grant cannot
@@ -886,7 +886,7 @@ class CodeWorkspaceTool:
 
     def _commit_patch_plan(self, planned: list[tuple[Any, str | None]]) -> None:
         """Write every file to a sibling temp, then replace. Failure before
-        the first replace leaves the tree untouched — that is the half-apply
+        the first replace leaves the tree untouched, that is the half-apply
         mutant. Deletes wait until every replace has landed.
         """
         staged: list[tuple[Path, Path]] = []
@@ -925,7 +925,7 @@ class CodeWorkspaceTool:
 
         for_write, not for_read: containment and read-only both apply, and an
         external read grant must not become licence to delete the file it
-        opened. There is deliberately no recursive form — emptying a tree is
+        opened. There is deliberately no recursive form, emptying a tree is
         the single mistake with no undo, so the model is not given a verb for
         it.
         """
@@ -940,7 +940,7 @@ class CodeWorkspaceTool:
                     ok=False,
                     output=(
                         f"{label} is a directory and is not empty. Delete the "
-                        "files inside it first — there is no recursive delete."
+                        'files inside it first, there is no recursive delete.'
                     ),
                 )
             path.rmdir()
@@ -973,7 +973,7 @@ class CodeWorkspaceTool:
                 ok=False,
                 output=(
                     f"{dst_label} already exists. Pick another name, or delete "
-                    f"it first — {verb} will not overwrite it."
+                    f"it first, {verb} will not overwrite it."
                 ),
             )
         if copy and src.path.is_dir():

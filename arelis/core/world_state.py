@@ -167,7 +167,7 @@ def _attention_count_part(store: Any, config: dict[str, Any]) -> str:
     ``inbox_rules`` a setting that only worked in an email nobody reads until
     7am. Both are now honoured, but only from what is already on this machine:
     the calendar cache the notify poller reads, and the headers the mail poller
-    last fetched. Nothing on this path opens a socket — it runs on every turn,
+    last fetched. Nothing on this path opens a socket, it runs on every turn,
     and an IMAP round trip between a question and its answer is not a price
     worth paying for one number.
     """

@@ -60,7 +60,7 @@ class VisionTool:
         "screenshot, photo, diagram, or handwritten PDF pages. "
         "Args: path for one image, or paths=[...] for several pages in one "
         "call (homework scans). Optional question. "
-        "This only looks — it cannot change an image. To resize, crop or adjust "
+        'This only looks, it cannot change an image. To resize, crop or adjust '
         "one use image_edit; to create a new one from a prompt use image."
     )
     risk = "side_effect"
@@ -335,7 +335,7 @@ class VisionTool:
                 ok=False,
                 output=(
                     "Vision timed out on every page. "
-                    "The images may be too heavy for this model — try again, "
+                    'The images may be too heavy for this model, try again, '
                     "or look at one page by name."
                 ),
                 data={"model": self.model, "code": "VISION_TIMEOUT", **prepared},

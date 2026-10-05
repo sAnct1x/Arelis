@@ -5,18 +5,18 @@ the exception and the URL go to Thinking. Two paths never got the same treatment
 
 The orchestrator's last line of defence published
 ``f"Turn failed: {exc.__class__.__name__}: {exc}"``, which the UI put straight in
-the transcript — so the worst moment the app has produced the least human sentence
+the transcript, so the worst moment the app has produced the least human sentence
 it could, ``Turn failed: ConnectError: [Errno 11001] getaddrinfo failed``.
 
 Failed tool output went to chat verbatim, up to 500 characters. That was a
 deliberate choice and half right: "Not a file: C:/typo.csv" is exactly what the
 user needs, and hiding it made a wrong path look like a silent no-op. What it did
-not anticipate is that tool failures are written *for the model* — the analyze tool
+not anticipate is that tool failures are written *for the model*, the analyze tool
 now answers a bad file type with "Call vision(path=…) for an image", which is an
 instruction to a 7B appearing in a human's chat window.
 
 So the rule here is not "hide the output". It is: pass through what a person can
-act on, and swap out anything addressed to the model. Detail is never lost — it
+act on, and swap out anything addressed to the model. Detail is never lost, it
 goes to Thinking and Workspace either way.
 """
 
@@ -116,8 +116,8 @@ def plain_reason(exc: BaseException) -> str:
     """The readable half of an exception: no class name, no errno bracket.
 
     ``open failed: [Errno 13] Permission denied: 'C:/x'`` becomes
-    ``Permission denied: 'C:/x'``. The refusal itself is usually the useful part —
-    a path outside the workspace roots, a file held open by something else — so
+    ``Permission denied: 'C:/x'``. The refusal itself is usually the useful part
+    a path outside the workspace roots, a file held open by something else, so
     this trims the machine framing rather than replacing the sentence.
     """
     text = str(exc).strip()
@@ -134,7 +134,7 @@ def turn_failed_notice(exc: BaseException) -> tuple[str, str]:
 
     An Ollama exception that reaches this far is still an Ollama exception, so it
     keeps the copy that names the chip in the title bar rather than the generic
-    line — the user's next action is different.
+    line, the user's next action is different.
     """
     detail = f"{type(exc).__name__}: {exc}"
     try:
@@ -161,7 +161,7 @@ def is_model_directed(text: str) -> bool:
 def tool_failure_notice(tool: str, output: str) -> str:
     """One line a person can act on, for a tool that failed.
 
-    Passes the tool's own first line through when it is plain — "Not a file:
+    Passes the tool's own first line through when it is plain, "Not a file:
     C:/typo.csv" is the whole answer and swapping it for something vaguer would
     undo the reason this was ever shown. Substitutes human copy when the line is
     addressed to the model, or when there is nothing to show.
@@ -196,7 +196,7 @@ def should_nudge_write_after_page(tool: str, output: str) -> bool:
     """True when empty-after-tool would paste an article instead of a fact.
 
     Qwen3.5 often leaves chat empty after scrape and puts the wrap-up in
-    thinking. Shipping a short price is fine. Shipping a blog is not —
+    thinking. Shipping a short price is fine. Shipping a blog is not
     the user asked for an answer, not the page.
     """
     if (tool or "").strip() not in _PAGE_WRITE_TOOLS:
@@ -258,7 +258,7 @@ def reply_states_algebra_result(content: str, tool: str, output: str) -> bool:
 
     Qwen3.5 often puts the number in thinking and ships 'What's next?' as
     the bubble. Empty-after-tool only catches a blank reply; this is the
-    filler case. CAS dumps stay on the write-up path — do not police them.
+    filler case. CAS dumps stay on the write-up path, do not police them.
     """
     name = (tool or "").strip()
     if name not in _RESULT_TOOLS:
@@ -315,7 +315,7 @@ def chat_followup_from_tool(tool: str, output: str, *, ask: str = "") -> str:
         if looks_like_bot_wall(cleaned):
             return (
                 "That page did not give a usable source (login, captcha, "
-                "or a bot check). I need another URL or a search — this "
+                'or a bot check). I need another URL or a search, this '
                 "is not the report."
             )
         return _page_talk(cleaned)
@@ -325,7 +325,7 @@ def chat_followup_from_tool(tool: str, output: str, *, ask: str = "") -> str:
         "source: ink" in cleaned.lower() or "no text layer" in cleaned.lower()
     ):
         return (
-            "That PDF is handwritten or scanned — I still need to look at "
+            'That PDF is handwritten or scanned, I still need to look at '
             "the page images. Ask me again if I stopped on the path list."
         )
     if len(cleaned) > 1600:
@@ -338,7 +338,7 @@ _CALC_NUMBER = re.compile(r"^-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?$")
 
 
 def pretty_calculator_chat(output: str) -> str:
-    """Chat line from a calculator receipt — not 15 decimals and a fraction.
+    """Chat line from a calculator receipt, not 15 decimals and a fraction.
 
     The model still sees the exact tool output. This is only what we ship
     when she leaves the bubble empty (or filler without the number).
@@ -394,8 +394,8 @@ def _is_json_body(text: str) -> bool:
     The last branch of `chat_followup_from_tool` pastes the tool's output into
     chat verbatim, which is right for a tool that answers in words and wrong
     for one that answers in data. `web_fetch` grew POST/PUT/PATCH/DELETE and
-    now returns API bodies, so an empty model reply put a raw response object —
-    tokens and all — in the bubble as if she had written it.
+    now returns API bodies, so an empty model reply put a raw response object
+    tokens and all, in the bubble as if she had written it.
 
     Parsed rather than pattern-matched, so a sentence that merely starts with a
     brace is still a sentence, and a body that only looks like JSON is still

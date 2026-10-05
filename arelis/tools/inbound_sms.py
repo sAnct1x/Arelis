@@ -4,7 +4,7 @@ An empty list here has two meanings and they are not interchangeable: nobody
 texted, or the bridge is dark and we cannot see. Inbound rides a notification
 listener on the phone, which Doze, a muted conversation or battery
 optimisation can stop without telling anyone, and on the companion path there
-is no PC-side fallback poll to notice — `supports_inbox_poll` returns False
+is no PC-side fallback poll to notice, `supports_inbox_poll` returns False
 unless an SMSGate inbox URL is configured as well.
 
 This tool used to answer both cases with "No inbound texts recorded this
@@ -27,9 +27,9 @@ class InboundSmsTool(Tool):
         "List recent inbound texts that arrived while Arelis was open "
         "(Google Messages notifications and SMSGate fallback). Everyone who "
         "texted, not only people in contacts. Use this when the user asks "
-        "whether someone texted back, what they said, or for recent SMS — "
+        'whether someone texted back, what they said, or for recent SMS'
         "do not web_search social media for private replies. If it reports "
-        "that the phone bridge has not checked in, say that — never turn it "
+        'that the phone bridge has not checked in, say that, never turn it '
         "into 'no new messages'."
     )
     risk = "read"
@@ -61,7 +61,7 @@ class InboundSmsTool(Tool):
                     output=(
                         "I cannot tell whether anyone texted. "
                         + COMPANION_PRESENCE.describe()
-                        + " Do not report this as 'no new messages' — check "
+                        + " Do not report this as 'no new messages'check "
                         "the phone is on the same network, that Arelis has "
                         "notification access, and that battery optimisation "
                         "is off for it."

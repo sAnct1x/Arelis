@@ -182,7 +182,7 @@ def _strip_when_from_title(title: str) -> str:
 
     A title that is *only* a when-clause is the user naming the event after
     the day ("add an event called Tomorrow"), and an empty summary is worse
-    than a redundant one — it is the difference between a confirm card and a
+    than a redundant one, it is the difference between a confirm card and a
     draft that cannot be created at all.
     """
     text = (title or "").strip()
@@ -653,7 +653,7 @@ def normalize_agenda_start(start: str, *, now: datetime | None = None) -> str:
     """Turn relative/local phrases into ISO datetime with local offset.
 
     Locked draft starts like `today at 11pm` must become real timestamps before
-    agenda.create — otherwise the model invents a naive UTC ISO and the event
+    agenda.create, otherwise the model invents a naive UTC ISO and the event
     lands at the wrong hour (S11).
     """
     text = (start or "").strip()
@@ -1025,7 +1025,7 @@ def agenda_preflight_nudge(draft: AgendaDraft | None) -> str:
             "Intent preflight: create a calendar event now. Call agenda "
             f'immediately with action=create provider="{draft.provider}" '
             f'summary="{draft.summary[:120]}" start="{draft.start}"{desc}. '
-            "Do not send_sms for a calendar reminder about texting someone — "
+            'Do not send_sms for a calendar reminder about texting someone'
             "put that in the event title/description. Do not only give manual "
             "calendar steps. The confirm card is the Allow step."
         )

@@ -1,7 +1,7 @@
 """Reply language for the pocket. English first, then a short major-language list.
 
 The phone stores a BCP-47 tag and sends the short code on each turn. The house
-injects a system line for that turn only — it does not flip PC conversation
+injects a system line for that turn only, it does not flip PC conversation
 mode, and it does not change the persona file.
 """
 
@@ -102,18 +102,18 @@ _SPOKEN_EN = (
     "You are speaking aloud in conversation mode. Prefer "
     "1-3 short sentences unless the user asked for detail, "
     "code, steps, or a list. Their text is a speech "
-    "transcript — messy, filled with ah/um, and wrong on "
+    'transcript, messy, filled with ah/um, and wrong on '
     "names. Hear what they meant from the last few turns. "
     "Do not correct the transcript and do not ask them to "
     "repeat themselves. If they said they missed what you "
-    "said, say the last answer again — do not ask what they "
+    'said, say the last answer again, do not ask what they '
     "wanted repeated. Small talk is talk: what are you "
     "doing tonight is not a calendar, and what did I say "
     "without a topic is not a recall search. Do not "
     "interview; one follow-up is enough and none is fine. "
     "When they asked you to do something (text, email, "
     "write, search, weather, scrape, remember), call the "
-    "tool first — do not only talk about doing it, and do "
+    'tool first, do not only talk about doing it, and do '
     "not ask permission in chat. send_sms and send_email "
     "open a confirm card; that is how the message is "
     "approved."

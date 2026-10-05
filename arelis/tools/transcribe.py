@@ -1,7 +1,7 @@
 """Transcribe a workspace audio file with the already-loaded voice engine.
 
 Sherpa / faster-whisper already sit behind voice. This tool only points them
-at a file. It never constructs a WhisperModel and never downloads weights —
+at a file. It never constructs a WhisperModel and never downloads weights
 on a 12 GB card that would evict qwen3.5:9b mid-turn.
 
 Parent injects `transcribe_fn` (preferred) or a warm `stt` instance. A cold
@@ -24,10 +24,10 @@ _VIDEO_SUFFIXES = frozenset({".mp4", ".mkv"})
 _MAX_BYTES = 50 * 1024 * 1024
 _DEFAULT_MAX_CHARS = 12_000
 _ENGINE_NOT_LOADED = (
-    "voice engine not loaded — I will not pull Whisper onto the GPU mid-turn."
+    'voice engine not loaded, I will not pull Whisper onto the GPU mid-turn.'
 )
 _VIDEO_REFUSED = (
-    "Video is not supported — this checkout has no ffmpeg/imageio to extract "
+    'Video is not supported, this checkout has no ffmpeg/imageio to extract '
     "audio. Use wav, mp3, flac, m4a, or ogg."
 )
 
@@ -50,7 +50,7 @@ class TranscribeTool:
         "Transcribe a local audio file under workspace roots with the already "
         "loaded voice engine (Sherpa / Whisper). action=file path=… "
         f"Audio only: {_suffix_list()}. Not video (no ffmpeg extract). "
-        "Will not load Whisper mid-turn — if the ear is cold, it says so."
+        'Will not load Whisper mid-turn, if the ear is cold, it says so.'
     )
     risk = "read"
     parameters_schema: dict[str, Any] = {

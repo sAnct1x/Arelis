@@ -72,9 +72,9 @@ class LookSession(QObject):
         self._thread.start()
         self.playing.emit(True)
         if handle.kind == "owned":
-            self.status.emit("Looking from owned camera — live.")
+            self.status.emit('Looking from owned camera, live.')
         elif handle.media == "still":
-            self.status.emit("Publisher still — refreshing.")
+            self.status.emit('Publisher still, refreshing.')
         else:
             self.status.emit("Publisher live.")
 
@@ -127,7 +127,7 @@ class LookSession(QObject):
             self.status.emit("Published stream failed.")
             return
         self.playing.emit(True)
-        self.status.emit("Listening — published stream.")
+        self.status.emit('Listening, published stream.')
 
     def _on_player_error(self, *_args: object) -> None:
         self.status.emit("Published stream failed.")

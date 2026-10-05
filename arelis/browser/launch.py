@@ -61,8 +61,8 @@ def pin_browsers_path() -> None:
     Not a correctness fix, and worth being clear about that: Playwright's default
     is a per-user cache under %LOCALAPPDATA%, which is writable and outside the
     install directory, so nothing breaks without this. It is so that everything
-    Arelis downloads after install lands under one root — beside the voice weights,
-    which already work this way — where a user can find it, count it, and delete it.
+    Arelis downloads after install lands under one root, beside the voice weights,
+    which already work this way, where a user can find it, count it, and delete it.
     Several hundred megabytes of browser in a directory nobody associates with this
     application is the kind of thing that gets discovered years later.
 
@@ -231,7 +231,7 @@ def set_arelis_anchor(
 ) -> None:
     """Remember Arelis so her Chrome can sit beside chat on the same desk.
 
-    ``screen`` is one monitor's work area — never the 1/2/3 span union.
+    ``screen`` is one monitor's work area, never the 1/2/3 span union.
     Chrome size comes from that desk, not from the Arelis HWND.
     """
     global _anchor, _screen
@@ -277,7 +277,7 @@ def raise_arelis_chrome(*, restore: bool = True) -> bool:
     """Put her Chrome above Arelis without taking the keyboard.
 
     Launch leaves Chrome behind the glass. Clicks go through CDP and do
-    not need the window focused — they need to see it. HWND_TOP +
+    not need the window focused, they need to see it. HWND_TOP +
     no-activate keeps the mic on Arelis.
     """
     if sys.platform != "win32":
@@ -340,7 +340,7 @@ def raise_arelis_chrome(*, restore: bool = True) -> bool:
 
 
 def window_placement() -> tuple[int, int, int, int]:
-    """x, y, w, h — ~60% of one monitor, never maximized across the span.
+    """x, y, w, h, ~60% of one monitor, never maximized across the span.
 
     Sits to the right (or left) of a single-desk Arelis window when that
     still fits. A 1/2/3 filament HWND is ignored for size; Chrome is
@@ -373,7 +373,7 @@ def _intro_marker(user_data: Path) -> Path:
 
 
 def first_run_note(user_data: Path | None = None, *, fresh: bool = False) -> str:
-    """Once per profile — Chrome writes Preferences on first launch, so that is not the signal.
+    """Once per profile, Chrome writes Preferences on first launch, so that is not the signal.
 
     A fresh-profile window keeps no sign-ins, so there is nothing to explain.
     """
@@ -383,7 +383,7 @@ def first_run_note(user_data: Path | None = None, *, fresh: bool = False) -> str
     if _intro_marker(root).is_file():
         return ""
     return (
-        "This is Arelis' Chrome — not your daily browser. "
+        "This is Arelis' Chrome, not your daily browser. "
         "Sign into Google and Maps here once; those logins stay in this window."
     )
 
@@ -401,7 +401,7 @@ def open_url_in_browser(
     url: str,
     browser: str | None = "default",
 ) -> tuple[bool, str, dict[str, str]]:
-    """Open a URL in Chrome/Edge/Firefox like a normal click — no CDP, no kill.
+    """Open a URL in Chrome/Edge/Firefox like a normal click, no CDP, no kill.
 
     If that browser is already running with the usual profile, the OS/browser
     typically adds a tab/window and keeps the user signed in.

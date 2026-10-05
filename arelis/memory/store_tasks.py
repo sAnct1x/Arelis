@@ -39,7 +39,7 @@ def resolve_priority(raw: Any) -> str:
 
 
 def resolve_recurrence(raw: Any) -> str | None:
-    """Named cadences only. None or blank clears. Unknown fails — no RRULE."""
+    """Named cadences only. None or blank clears. Unknown fails, no RRULE."""
     if raw is None:
         return None
     text = str(raw).strip().lower()
@@ -70,7 +70,7 @@ def parse_iso_due(due: str | None) -> str:
 
 
 def next_due_date(due: str | None, recurrence: str) -> str:
-    """Exactly one step. No catch-up loop — those hang on a bad clock."""
+    """Exactly one step. No catch-up loop, those hang on a bad clock."""
     cadence = resolve_recurrence(recurrence)
     if cadence is None:
         raise ValueError(f"unknown recurrence {recurrence!r}")
@@ -252,7 +252,7 @@ def set_task_status(store: MemoryStore, task_id: int, status: str) -> bool:
     """Mark a task open or done. True when a row changed.
 
     ``done`` on a parent with open children fails. ``done`` on a recurring
-    task keeps the same row, advances due one step, and leaves it open —
+    task keeps the same row, advances due one step, and leaves it open
     remove+add would mint a new id and drop the goal link.
     """
     if status not in {"open", "done"}:
@@ -308,7 +308,7 @@ def update_task(
     """Edit a task in place. True when a row changed.
 
     None means leave the column alone; an empty ``due`` or ``recurrence``
-    clears it. Keeping the row is the point — remove + add would issue a
+    clears it. Keeping the row is the point, remove + add would issue a
     new id and drop the goal link, which is what callers were doing before
     this existed.
     """

@@ -66,8 +66,10 @@ class SendEmailTool:
         self.workspace = workspace
 
     async def run(self, **kwargs: Any) -> ToolResult:
-        subject = str(kwargs.get("subject") or "").strip()
-        body = str(kwargs.get("body") or "").strip()
+        from arelis.core.dash_filter import clean_dashes
+
+        subject = clean_dashes(str(kwargs.get("subject") or "")).strip()
+        body = clean_dashes(str(kwargs.get("body") or "")).strip()
         attach_raw = str(kwargs.get("attach") or kwargs.get("path") or "").strip()
         if not body and not attach_raw:
             return ToolResult(

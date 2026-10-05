@@ -335,7 +335,7 @@ async def execute_call(
                             "Browser connect/control failed "
                             f"({code}). If the user only asked to "
                             "pull up a site, call browser(action=open"
-                            f"{url_bit}) — that is a plain OS open "
+                            f"{url_bit}), that is a plain OS open "
                             "(no Chrome restart). For click/snapshot/"
                             "navigate when CDP is down, call "
                             f"browser(action=relaunch{url_bit}) after "
@@ -652,7 +652,7 @@ async def execute_call(
                     return True
             else:
                 await loop._finish(
-                    f"Image ready — open in Workspace ({path}).",
+                    f"Image ready, open in Workspace ({path}).",
                     sources,
                     streamed="",
                 )
@@ -970,7 +970,7 @@ async def execute_call(
             ):
                 replan += (
                     " If they asked about the weather/forecast, call "
-                    "weather — do not web_search again."
+                    'weather, do not web_search again.'
                 )
             if replan:
                 loop._fail_replan_used = True

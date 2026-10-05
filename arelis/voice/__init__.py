@@ -186,7 +186,7 @@ class VoiceService:
         When deltas already streamed some sentences, this flushes the remainder
         from the authoritative final text and closes the cycle. When nothing
         was streamed (SMS cues, one-sentence answers held until the end), this
-        is the whole speak path — same contract as before.
+        is the whole speak path, same contract as before.
         """
         if not self.tts_enabled or not self.speak_enabled:
             return
@@ -559,7 +559,7 @@ class VoiceService:
             await self.bus.publish(Event(EventType.VOICE_TRANSCRIPT, {"text": text}))
 
     async def warm_wake(self) -> None:
-        """Sherpa + Kokoro. Whisper can finish later — it must not block speech."""
+        """Sherpa + Kokoro. Whisper can finish later, it must not block speech."""
         if self.stt_enabled and self.stt.available():
             async with self._preload_lock:
                 try:
@@ -603,7 +603,7 @@ class VoiceService:
         announced = False
         if missing or need_warm:
             await self._status(
-                "Getting the voice files — then I'll hear you."
+                "Getting the voice files, then I'll hear you."
                 if missing
                 else "Warming the ear…"
             )

@@ -37,7 +37,7 @@ def _wash(name: str, alpha: int) -> QColor:
 
 
 def make_reach_control(parent: QWidget | None, reach: float) -> tuple[QSlider, QLabel]:
-    """Feel slider. Hands only — mouse on this plane stays 1:1 pixels."""
+    """Feel slider. Hands only, mouse on this plane stays 1:1 pixels."""
     value = clamp_reach(reach)
     slider = QSlider(Qt.Orientation.Horizontal, parent)
     slider.setObjectName("SettingsSlider")
@@ -46,7 +46,7 @@ def make_reach_control(parent: QWidget | None, reach: float) -> tuple[QSlider, Q
     slider.setPageStep(10)
     slider.setFixedWidth(128)
     slider.setValue(round(value * 100))
-    slider.setToolTip("Reach — how far a small hand move goes. Like mouse DPI.")
+    slider.setToolTip('Reach, how far a small hand move goes. Like mouse DPI.')
     label = QLabel(f"{value:.2f}x", parent)
     label.setObjectName("InstrumentHint")
     label.setFixedWidth(42)
@@ -96,7 +96,7 @@ class WorldPanel(QWidget):
         items: list[tuple[tuple[float, float], tuple[float, float], bool]]
         | tuple[tuple[tuple[float, float], tuple[float, float], bool], ...],
     ) -> None:
-        """Glow is per close — left does not light with right."""
+        """Glow is per close, left does not light with right."""
         prev = [bool(row[4]) for row in self._hands]
         hands: list[tuple[float, float, float, float, bool]] = []
         flashes = list(self._flashes)
@@ -232,7 +232,7 @@ class WorldPanel(QWidget):
     ) -> None:
         """Rim pip + tick so a sphere can show spin the same as an n-gon.
 
-        Axes on: opposite pip (CW vs CCW) and a tilt meridian. Not XYZ —
+        Axes on: opposite pip (CW vs CCW) and a tilt meridian. Not XYZ
         only spin and tilt exist on this plane.
         """
         reach = max(6, int(radius * max(0.38, abs(math.cos(float(disc.tilt))))))

@@ -1,4 +1,4 @@
-"""In-process timers. ``remind me in 20 minutes`` — not ``schedule``.
+"""In-process timers. ``remind me in 20 minutes``, not ``schedule``.
 
 list is free. in / at / cancel change persisted state. The tool is
 registered as risk=read because list is the common case; parent policy
@@ -28,7 +28,7 @@ class RemindTool:
         "action=in needs a message plus minutes and/or seconds (hours ok); "
         "action=at needs a local ISO or YYYY-MM-DD HH:MM plus a message; "
         "action=list pending; action=cancel needs id. "
-        "Max 7 days — later than that is schedule or agenda, not this. "
+        'Max 7 days, later than that is schedule or agenda, not this. '
         "Does not use Windows Task Scheduler. in/at/cancel are writes."
     )
     # list dominates. Parent policy gates in/at/cancel via REMIND_WRITE_ACTIONS.

@@ -1,4 +1,4 @@
-"""One-message mail tile — open a notice, read the body, send a reply."""
+"""One-message mail tile, open a notice, read the body, send a reply."""
 
 from __future__ import annotations
 
