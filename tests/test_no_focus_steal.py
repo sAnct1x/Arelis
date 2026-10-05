@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import ast
+import ctypes
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import QSystemTrayIcon, QWidget
 
 from arelis.ui import foreground as fg
@@ -25,6 +27,7 @@ class _RecorderWidget:
         self._attrs: dict[Any, bool] = {}
         self._attr_at_show: bool | None = None
         self._window_state = Qt.WindowState.WindowMinimized
+        self._states_set: list[Qt.WindowState] = []
         self._force_quit = False
         self._disposed = False
         self.voice_controller = None
@@ -33,6 +36,7 @@ class _RecorderWidget:
         self._restoring_confirm_ids: set[str] = set()
         self._hidden = True
         self._visible = False
+        self.order: list[str] = []
         self.conversation = SimpleNamespace(
             confirm=SimpleNamespace(_confirm_id=""),
             ask_confirm=lambda *a, **k: None,
@@ -46,6 +50,7 @@ class _RecorderWidget:
         self._attrs[attr] = bool(on)
 
     def show(self) -> None:
+        self.order.append("show")
         self._attr_at_show = self.testAttribute(
             Qt.WidgetAttribute.WA_ShowWithoutActivating
         )
@@ -63,6 +68,8 @@ class _RecorderWidget:
         return self._window_state
 
     def setWindowState(self, state: Qt.WindowState) -> None:
+        self.order.append("setWindowState")
+        self._states_set.append(state)
         self._window_state = state
 
     def isVisible(self) -> bool:
@@ -284,3 +291,164 @@ def test_claim_foreground_still_activates(qt_app, monkeypatch) -> None:
         assert win32_calls == [widget]
     finally:
         widget.deleteLater()
+
+
+def test_present_at_startup_unminimizes_before_show_keeps_maximized() -> None:
+    from arelis.ui.launch import _present_at_startup
+
+    fake = _RecorderWidget()
+    fake._window_state = (
+        Qt.WindowState.WindowMinimized | Qt.WindowState.WindowMaximized
+    )
+    _present_at_startup(fake)
+    assert fake.order[:2] == ["setWindowState", "show"]
+    assert fake._states_set
+    state = fake._states_set[0]
+    assert not (state & Qt.WindowState.WindowMinimized)
+    assert state & Qt.WindowState.WindowMaximized
+
+
+def test_present_at_startup_maximizes_inactive_after_show(monkeypatch) -> None:
+    from arelis.ui.launch import _present_at_startup
+
+    max_calls: list[str] = []
+
+    def _max(widget: Any) -> None:
+        max_calls.append("max")
+        widget.order.append("max")
+
+    monkeypatch.setattr(fg, "_win32_maximize_inactive", _max)
+
+    maximized = _RecorderWidget()
+    maximized._window_state = Qt.WindowState.WindowMaximized
+    _present_at_startup(maximized)
+    assert max_calls == ["max"]
+    assert maximized.order == ["setWindowState", "show", "max"]
+
+    normal = _RecorderWidget()
+    normal._window_state = Qt.WindowState.WindowNoState
+    _present_at_startup(normal)
+    assert max_calls == ["max"]
+    assert "max" not in normal.order
+
+
+def test_show_from_tray_maximizes_inactive_when_not_activating(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "arelis.ui.window_lifetime.invalidate_window_surface",
+        lambda w: None,
+    )
+    max_calls: list[Any] = []
+
+    def _max(widget: Any) -> None:
+        max_calls.append(widget)
+        widget.order.append("max")
+
+    monkeypatch.setattr(fg, "_win32_maximize_inactive", _max)
+
+    fake = _RecorderWidget()
+    fake._tray_window_state = Qt.WindowState.WindowMaximized
+    fake.show_from_tray = WindowLifetime.show_from_tray.__get__(fake, type(fake))
+    WindowLifetime.show_from_tray(fake, activate=False)  # type: ignore[arg-type]
+    assert max_calls == [fake]
+    show_at = fake.order.index("show")
+    assert fake.order[show_at + 1] == "max"
+
+    other = _RecorderWidget()
+    other._tray_window_state = Qt.WindowState.WindowNoState
+    other.show_from_tray = WindowLifetime.show_from_tray.__get__(other, type(other))
+    WindowLifetime.show_from_tray(other, activate=False)  # type: ignore[arg-type]
+    assert max_calls == [fake]
+
+
+_ACTIVATING = ("ShowWindow", "SetForegroundWindow", "BringWindowToTop", "SetWindowPlacement")
+
+
+class _FakeUser32:
+    """Records calls. Activating calls are recorded too (the helper swallows
+    exceptions, so raising would hide them) and the tests assert none ran."""
+
+    def __init__(self, *, zoomed: int = 0) -> None:
+        self.zoomed = zoomed
+        self.calls: list[tuple[Any, ...]] = []
+
+    def __getattr__(self, name: str) -> Any:
+        if name in _ACTIVATING:
+            return lambda *a, **k: self.calls.append((name, *a))
+        raise AttributeError(name)
+
+    def IsZoomed(self, hwnd: Any) -> int:
+        self.calls.append(("IsZoomed", hwnd))
+        return self.zoomed
+
+    def MonitorFromWindow(self, hwnd: Any, flags: Any) -> int:
+        self.calls.append(("MonitorFromWindow", hwnd, flags))
+        return 1
+
+    def GetMonitorInfoW(self, hmon: Any, info_ref: Any) -> int:
+        self.calls.append(("GetMonitorInfoW", hmon))
+        obj = info_ref._obj
+        obj.rcWork.left = 100
+        obj.rcWork.top = 50
+        obj.rcWork.right = 2020
+        obj.rcWork.bottom = 1130
+        return 1
+
+    def GetWindowLongW(self, hwnd: Any, idx: Any) -> int:
+        self.calls.append(("GetWindowLongW", hwnd, idx))
+        return 0x00C00000
+
+    def SetWindowLongW(self, hwnd: Any, idx: Any, style: Any) -> int:
+        self.calls.append(("SetWindowLongW", hwnd, idx, style))
+        return 0
+
+    def SetWindowPos(
+        self,
+        hwnd: Any,
+        insert: Any,
+        x: Any,
+        y: Any,
+        cx: Any,
+        cy: Any,
+        flags: Any,
+    ) -> int:
+        self.calls.append(("SetWindowPos", hwnd, insert, x, y, cx, cy, flags))
+        return 1
+
+
+def _patch_win32_maximize(monkeypatch: Any, user32: _FakeUser32) -> None:
+    monkeypatch.setattr(fg.sys, "platform", "win32")
+    monkeypatch.setattr(
+        QGuiApplication, "platformName", staticmethod(lambda: "windows")
+    )
+    monkeypatch.setattr(
+        "arelis.ui.window_resize.top_level_hwnd", lambda widget: 1234
+    )
+    fake_windll = SimpleNamespace(user32=user32)
+    monkeypatch.setattr(ctypes, "windll", fake_windll, raising=False)
+
+
+def test_win32_maximize_inactive_sets_style_then_noactivate_pos(monkeypatch) -> None:
+    user32 = _FakeUser32(zoomed=0)
+    _patch_win32_maximize(monkeypatch, user32)
+    fg._win32_maximize_inactive(object())
+    names = [c[0] for c in user32.calls]
+    assert names.index("SetWindowLongW") < names.index("SetWindowPos")
+    long_call = next(c for c in user32.calls if c[0] == "SetWindowLongW")
+    assert long_call[3] & 0x01000000
+    pos = next(c for c in user32.calls if c[0] == "SetWindowPos")
+    assert pos[1] == 1234
+    assert pos[3] == 100
+    assert pos[4] == 50
+    assert pos[5] == 1920
+    assert pos[6] == 1080
+    flags = pos[7]
+    assert flags & 0x0010  # SWP_NOACTIVATE
+    assert flags & 0x0004  # SWP_NOZORDER
+    assert not set(names) & set(_ACTIVATING)
+
+
+def test_win32_maximize_inactive_skips_when_already_zoomed(monkeypatch) -> None:
+    user32 = _FakeUser32(zoomed=1)
+    _patch_win32_maximize(monkeypatch, user32)
+    fg._win32_maximize_inactive(object())
+    assert user32.calls == [("IsZoomed", 1234)]

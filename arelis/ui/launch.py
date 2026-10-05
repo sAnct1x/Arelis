@@ -49,8 +49,8 @@ log = logging.getLogger(__name__)
 
 def _present_at_startup(window: Any) -> None:
     """Show the glass at launch without taking keyboard focus."""
-    show_without_activating(window)
     window.setWindowState(window.windowState() & ~Qt.WindowState.WindowMinimized)
+    show_without_activating(window)
 
 
 def _start_activation_listener(

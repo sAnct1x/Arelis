@@ -20,6 +20,14 @@ from typing import Any
 _FLASHW_TRAY = 0x00000002
 _FLASHW_TIMERNOFG = 0x0000000C
 
+_MONITOR_DEFAULTTONEAREST = 2
+_GWL_STYLE = -16
+_WS_MAXIMIZE = 0x01000000
+_SWP_NOZORDER = 0x0004
+_SWP_NOACTIVATE = 0x0010
+_SWP_FRAMECHANGED = 0x0020
+_SWP_NOOWNERZORDER = 0x0200
+
 # Set on every sealed plate and floating dock so a click on a child still
 # raises the tile, not only a click on empty chrome.
 _CLICK_TO_FRONT = "_arelis_click_to_front"
@@ -78,6 +86,7 @@ def show_without_activating(widget: Any) -> None:
         return
     from PySide6.QtCore import Qt
 
+    wants_max = bool(widget.windowState() & Qt.WindowState.WindowMaximized)
     attr = Qt.WidgetAttribute.WA_ShowWithoutActivating
     previous = bool(widget.testAttribute(attr))
     widget.setAttribute(attr, True)
@@ -85,6 +94,8 @@ def show_without_activating(widget: Any) -> None:
         widget.show()
     finally:
         widget.setAttribute(attr, previous)
+    if wants_max:
+        _win32_maximize_inactive(widget)
 
 
 def claim_foreground(widget: Any) -> None:
@@ -120,6 +131,66 @@ def _owner_window(top: Any) -> Any | None:
     if owner is None or owner is top:
         return None
     return owner
+
+
+def _win32_maximize_inactive(widget: Any) -> None:
+    """Maximize without ShowWindow(SW_MAXIMIZE), which would activate.
+
+    Style bit plus a no-activate move gives a real maximized window, and
+    Windows then reports SIZE_MAXIMIZED so Qt's state follows.
+    """
+    if sys.platform != "win32":
+        return
+    try:
+        from PySide6.QtGui import QGuiApplication
+
+        if QGuiApplication.platformName() != "windows":
+            return
+        from arelis.ui.window_resize import top_level_hwnd
+
+        hwnd = top_level_hwnd(widget)
+        if not hwnd:
+            return
+        import ctypes
+        from ctypes import wintypes
+
+        class MONITORINFO(ctypes.Structure):
+            _fields_ = [
+                ("cbSize", wintypes.DWORD),
+                ("rcMonitor", wintypes.RECT),
+                ("rcWork", wintypes.RECT),
+                ("dwFlags", wintypes.DWORD),
+            ]
+
+        user32 = ctypes.windll.user32
+        if user32.IsZoomed(hwnd):
+            return
+        hmon = user32.MonitorFromWindow(hwnd, _MONITOR_DEFAULTTONEAREST)
+        info = MONITORINFO()
+        info.cbSize = ctypes.sizeof(MONITORINFO)
+        if not hmon or not user32.GetMonitorInfoW(hmon, ctypes.byref(info)):
+            return
+        style = user32.GetWindowLongW(hwnd, _GWL_STYLE)
+        # Style first so Windows keeps the current normal rect as restore.
+        # SW_MAXIMIZE activates; this plus a no-activate SetWindowPos does not.
+        user32.SetWindowLongW(hwnd, _GWL_STYLE, style | _WS_MAXIMIZE)
+        work = info.rcWork
+        user32.SetWindowPos(
+            hwnd,
+            None,
+            int(work.left),
+            int(work.top),
+            int(work.right - work.left),
+            int(work.bottom - work.top),
+            _SWP_NOZORDER
+            | _SWP_NOACTIVATE
+            | _SWP_FRAMECHANGED
+            | _SWP_NOOWNERZORDER,
+        )
+    # Best effort on purpose: if a win32 call fails the window is already
+    # shown without focus at its normal size, which is safe, just not maximized.
+    except Exception:
+        return
 
 
 def _win32_foreground(widget: Any) -> None:
