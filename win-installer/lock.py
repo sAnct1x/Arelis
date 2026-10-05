@@ -83,8 +83,9 @@ EXTRA = "installer"
 # For these the lock records the sha256 of the SDIST. At resolution time the sdist is
 # built into a wheel here, and the build must come out `py3-none-any`: if it is
 # anything else it is not pure Python, is not what this exception is for, and the
-# lock refuses. At install time build.py passes `--no-binary` for exactly these names,
-# so pip builds from the hashed sdist under `--require-hashes`.
+# lock refuses. At install time build.py builds that same hashed sdist into a
+# `py3-none-any` wheel on the runner (which has build isolation), then installs the
+# wheel into the embeddable tree with no building there.
 SDIST_ONLY = frozenset({"jieba"})
 
 # Arelis itself is installed from the wheel the build just made, which has no hash on
