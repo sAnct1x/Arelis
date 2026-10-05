@@ -26,6 +26,11 @@ from arelis.tools.sms_send import SendSmsTool
 
 log = logging.getLogger(__name__)
 
+PHONE_NOTIFY_NEEDS_PAIRING = (
+    "Phone notifications are turned on but not set up yet. "
+    "To finish, open Settings, go to Notify, pick Create a pairing code, then restart Arelis."
+)
+
 
 @dataclass
 class InboundRuntime:
@@ -172,11 +177,10 @@ def attach_inbound(
                             log.info("House tunnel started")
                 except Exception:
                     log.exception("Mailbox house tunnel failed to start")
-        else:
-            runtime.status_messages.append(
-                "Phone notifications need a token in data/secrets.yaml "
-                "(see secrets.example.yaml)."
-            )
+        elif ingest_cfg.get("enabled") is True:
+            # Only someone who switched ingest on by hand hears about the
+            # missing pairing code. "auto" (the shipped default) stays quiet.
+            runtime.status_messages.append(PHONE_NOTIFY_NEEDS_PAIRING)
 
         if inbound_cfg.get("fallback_smsgate", True):
             sms_account = load_sms_account()

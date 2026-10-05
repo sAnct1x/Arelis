@@ -17,6 +17,7 @@ from arelis.core.image_refs import (
     mentions_camera_look,
     path_from_text,
 )
+from arelis.core.intent_catalog import first_unnegated
 from arelis.paths import user_data_dir
 from arelis.workspace import is_unsafe_windows_path
 
@@ -269,11 +270,11 @@ def has_look_context(
 
     if looks_like_desktop_look(raw, history=history) or declined_desk_look(raw):
         return False
-    if mentions_camera_look(raw):
+    if mentions_camera_look(raw, unnegated=True):
         return True
     if camera_path_in_text(raw):
         return True
-    if (dock_live or bool(fresh_path)) and _DEICTIC.search(raw):
+    if (dock_live or bool(fresh_path)) and first_unnegated(_DEICTIC, raw):
         return True
     return False
 
@@ -295,7 +296,7 @@ def classify_look(
     path = camera_path_in_text(raw)
     lang = _target_lang(lowered)
     if any(p in lowered for p in _TRANSLATE) or (
-        "translate" in lowered and _DEICTIC.search(raw)
+        "translate" in lowered and first_unnegated(_DEICTIC, raw)
     ):
         return LookIntent("translate", path, lang)
     if any(p in lowered for p in _FRESHNESS):

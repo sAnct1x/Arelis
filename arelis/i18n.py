@@ -64,6 +64,10 @@ _ZH: dict[str, str] = {
     "Phone": "手机",
     "Scan with the Arelis app. Same Wi-Fi.": "用 Arelis 应用扫。要在同一个 Wi-Fi。",
     "Create a pairing code": "生成配对码",
+    (
+        "Phone notifications are turned on but not set up yet. "
+        "To finish, open Settings, go to Notify, pick Create a pairing code, then restart Arelis."
+    ): "手机通知已经打开，但还没配对好。请打开设置，进入通知，点生成配对码，然后重启 Arelis。",
     "Install the app": "安装应用",
     "Copy link": "复制链接",
     "Copy for the phone": "复制给手机",
