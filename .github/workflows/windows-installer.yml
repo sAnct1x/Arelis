@@ -11,6 +11,16 @@ name: Windows installer
 on:
   push:
     tags: ["v*"]
+  pull_request:
+    paths:
+      - "win-installer/**"
+      - "pyproject.toml"
+      - "arelis/main.py"
+      - "arelis/ui/launch.py"
+      - "arelis/ui/solar_gl.py"
+      - "scripts/installer_smoke.py"
+      - ".github/workflows/windows-installer.yml"
+      - ".github/workflows/installer-smoke.yml"
   workflow_dispatch:
 
 permissions:
@@ -155,3 +165,11 @@ jobs:
             gh release create $tag --draft --title "Arelis $tag" --notes "Draft. Unsigned installer; the .sha256 beside it is what to verify against."
           }
           gh release upload $tag (Get-ChildItem win-installer/dist/*-setup.exe*) --clobber
+
+  smoke:
+    needs: installer
+    permissions:
+      contents: read
+    uses: ./.github/workflows/installer-smoke.yml
+    with:
+      candidate_artifact: arelis-windows-installer
