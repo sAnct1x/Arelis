@@ -129,8 +129,8 @@ def ingest_enabled_mode(raw: Any) -> str:
     """Normalize tools.sms.inbound.ingest.enabled to auto, on, or off.
 
     YAML booleans (true/false/yes/no/on/off) arrive as bool. The only accepted
-    string is ``auto``. Quoted ``false`` / ``off`` and any other non-empty
-    string do not listen.
+    string is ``auto``. Quoted ``false`` / ``off``, ``None``, and any other
+    non-empty string do not listen.
     """
     if raw is True:
         return "on"
@@ -150,7 +150,7 @@ def ingest_enabled_mode(raw: Any) -> str:
             )
         return "off"
     if raw is None:
-        return "on"
+        return "off"
     key = f"{type(raw).__name__}:{raw!r}"
     if key not in _INGEST_ENABLED_WARNED:
         _INGEST_ENABLED_WARNED.add(key)

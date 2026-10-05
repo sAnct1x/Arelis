@@ -131,14 +131,13 @@ def test_phone_notify_bind_failure_lands_in_conversation(arelis_window) -> None:
             EventType.STATUS,
             {
                 "message": (
-                    "Inbound notify could not bind any port from 8765 to 8774: "
-                    "address already in use"
+                    "Phone notifications couldn't start. Restart Arelis to try again."
                 )
             },
         )
     )
-    assert any("could not bind" in line for line in said)
-    assert "could not bind" in window.thinking.footer.text()
+    assert any("couldn't start" in line.lower() for line in said)
+    assert "couldn't start" in window.thinking.footer.text().lower()
 
 
 def test_phone_notify_listen_url_stays_off_the_transcript(arelis_window) -> None:

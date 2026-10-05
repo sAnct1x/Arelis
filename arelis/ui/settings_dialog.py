@@ -1,6 +1,7 @@
 """Single Settings dialog, audio, window, allow, notify, roots, memory."""
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -55,6 +56,8 @@ from arelis.ui.scale import (
     scale_preset_label,
 )
 from arelis.ui.theme import GLASS, SPACE, polish_combo_popup, space_box
+
+log = logging.getLogger(__name__)
 
 
 class _PageCombo(QComboBox):
@@ -983,7 +986,8 @@ class SettingsDialog(QDialog):
 
                 save_ingest_token(secrets.token_urlsafe(24))
         except Exception as exc:
-            self.pair_status.setText(f"Could not create a token: {exc}")
+            log.exception("Could not create ingest pairing token: %s", exc)
+            self.pair_status.setText(tr("Couldn't make a pairing code. Try again."))
             return
         self._refresh_pairing_qr(self._settings_config, rotate=False)
         self.pair_status.setText("Pairing code ready. Scan it with the Arelis app.")

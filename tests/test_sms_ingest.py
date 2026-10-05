@@ -281,6 +281,46 @@ async def test_ingest_http_server(tmp_path: Path) -> None:
             await task
 
 
+async def test_token_ok_falls_back_to_memory_when_disk_read_raises(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A secrets.yaml read that throws must still honor the in-memory token."""
+    bus = EventBus()
+    loop = asyncio.get_running_loop()
+    task = asyncio.create_task(bus.run())
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        probe.bind(("127.0.0.1", 0))
+        port = int(probe.getsockname()[1])
+    server = InboundIngestServer(
+        bus,
+        loop,
+        token="memory-token",
+        host="127.0.0.1",
+        port=port,
+        seen=SeenMessageStore(tmp_path / "seen.json"),
+    )
+    server.start()
+
+    def _boom() -> str | None:
+        raise OSError("pairing code file unreadable")
+
+    monkeypatch.setattr("arelis.sms_ingest.load_ingest_token", _boom)
+    try:
+        async with httpx.AsyncClient() as client:
+            ping = await client.get(
+                f"http://127.0.0.1:{port}/inbound/ping",
+                headers={"X-Arelis-Token": "memory-token"},
+            )
+        assert ping.status_code == 200
+        assert ping.json()["ok"] is True
+    finally:
+        server.stop()
+        bus.stop()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+
 async def test_inbound_sms_tool_lists_recent() -> None:
     log = RecentInboundLog(limit=5)
     from arelis.sms_inbound import InboundSms

@@ -233,6 +233,7 @@ def test_ingest_enabled_mode_logs_unrecognized_once(caplog: pytest.LogCaptureFix
     caplog.set_level(logging.WARNING)
     assert ingest_enabled_mode(True) == "on"
     assert ingest_enabled_mode(False) == "off"
+    assert ingest_enabled_mode(None) == "off"
     assert ingest_enabled_mode("auto") == "auto"
     assert ingest_enabled_mode("false") == "off"
     assert ingest_enabled_mode("off") == "off"
