@@ -38,7 +38,9 @@ DEFAULT_WINDOW_WAIT_S = 60
 LOG_TAIL_BYTES = 2 * 1024 * 1024
 WINDOW_WARN_S = 30
 
-OUT = Path(os.environ.get("SMOKE_OUT", "smoke-out"))
+# Absolute on purpose: the app runs with cwd=install dir and the Inno uninstaller
+# re-launches itself from a temp dir, so a relative path would silently break.
+OUT = Path(os.environ.get("SMOKE_OUT", "smoke-out")).resolve()
 SUMMARY_PATH = OUT / "summary.json"
 META_PATH = OUT / "meta.json"
 
