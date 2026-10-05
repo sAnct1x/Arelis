@@ -22,13 +22,27 @@ from arelis.core.evidence import EvidenceLedger
 from arelis.core.loop_helpers import _exactness_finish_refuse
 from arelis.core.turn_context import TurnContext
 from arelis.core.turn_prepare import _prepare_calculator_first_move
-from arelis.tools.calculator import evaluate_expression
+from arelis.tools.calculator import (
+    evaluate_expression,
+    normalize_expression,
+    rewrite_spoken_duration,
+)
 
-# Mean heliocentric a (AU). Same Kepler-III rewrite the calculator must use;
-# tests compute days from this, they do not pin 4332 or 687 as literals.
-_MARS_A_AU = 1.523679
-_JUPITER_A_AU = 5.204267
+# Mean heliocentric a (AU) for anonymous "planet at N AU" Kepler-III only.
 _JULIAN_DAYS = 365.25
+_EARTH_SIDEREAL_DAYS = 365.256
+# NASA planetary fact sheet sidereal orbit periods, Earth days.
+# https://nssdc.gsfc.nasa.gov/planetary/factsheet/
+_NASA_SIDEREAL_DAYS: dict[str, float] = {
+    "mercury": 87.969,
+    "venus": 224.701,
+    "mars": 686.980,
+    "jupiter": 4332.589,
+    "saturn": 10759.22,
+    "uranus": 30685.4,
+    "neptune": 60189,
+    "pluto": 90560,
+}
 
 
 def _kepler_years(a_au: float) -> float:
@@ -63,6 +77,9 @@ def _ctx(text: str) -> TurnContext:
         "that days number was wrong last time, how many days is 11.86 years",
         "how long is a year on a planet that's 5.2 AU from the sun?",
         "how long is a year on mars?",
+        "11.86 years in days",
+        "how many days is 11.86 years",
+        "11.86 years to days",
     ],
 )
 def test_spoken_orbit_and_duration_asks_are_math(ask: str) -> None:
@@ -75,6 +92,21 @@ def test_spoken_orbit_and_duration_asks_are_math(ask: str) -> None:
     need = detect_exactness_need(ask)
     assert need.needs_calculator
     assert "math" in need.kinds
+
+
+@pytest.mark.parametrize(
+    "ask",
+    [
+        "I worked there 4 years, 5 days a week, write my resume summary",
+        "my laptop is 3 years old and these days it overheats",
+        "been at this job 6 years and some days it sucks",
+        "give me 2 years and 3 days to finish the draft",
+    ],
+)
+def test_years_and_days_in_ordinary_prose_are_not_math(ask: str) -> None:
+    """'N years ... days' is not a conversion unless the ask actually converts."""
+    assert not detect_math_ask(ask)
+    assert not detect_exactness_need(ask).needs_calculator
 
 
 def test_a_rant_about_days_is_still_not_math() -> None:
@@ -120,11 +152,7 @@ def test_kepler_days_at_five_point_two_au_come_from_sqrt() -> None:
     assert value == pytest.approx(_kepler_days(5.2), rel=1e-9)
 
 
-def test_a_named_planet_year_in_days_uses_kepler_not_a_memorized_count() -> None:
-    jupiter = float(evaluate_expression("how many days is a year on jupiter"))
-    mars_years = float(evaluate_expression("how long is a year on mars?"))
-    assert jupiter == pytest.approx(_kepler_days(_JUPITER_A_AU), rel=1e-6)
-    assert mars_years == pytest.approx(_kepler_years(_MARS_A_AU), rel=1e-6)
+def test_anonymous_au_year_still_uses_kepler() -> None:
     other = float(
         evaluate_expression(
             "how many days is a year on a planet that's 7.0 AU from the sun"
@@ -133,11 +161,40 @@ def test_a_named_planet_year_in_days_uses_kepler_not_a_memorized_count() -> None
     assert other == pytest.approx(_kepler_days(7.0), rel=1e-9)
 
 
-def test_mars_age_from_a_birthdate_divides_earth_years_by_the_kepler_year() -> None:
+def test_saturn_year_days_is_nasa_sidereal_not_kepler_mean_a() -> None:
+    """Mean-a Kepler is ~10833.7 d; NASA sidereal is 10759.22 d."""
+    saturn_a = 9.582017
+    kepler_days = _kepler_days(saturn_a)
+    value = float(evaluate_expression("how many days is a year on saturn"))
+    assert abs(kepler_days - 10759.22) > 50
+    assert abs(value - kepler_days) > 50
+    assert value == pytest.approx(10759.22, rel=1e-9)
+
+
+@pytest.mark.parametrize("name,days", list(_NASA_SIDEREAL_DAYS.items()))
+def test_named_planet_year_in_days_is_nasa_sidereal(name: str, days: float) -> None:
+    value = float(evaluate_expression(f"how many days is a year on {name}"))
+    assert value == pytest.approx(days, rel=1e-9)
+
+
+@pytest.mark.parametrize("name,days", list(_NASA_SIDEREAL_DAYS.items()))
+def test_named_planet_year_in_years_is_nasa_over_earth(name: str, days: float) -> None:
+    value = float(evaluate_expression(f"how long is a year on {name}?"))
+    assert value == pytest.approx(days / _EARTH_SIDEREAL_DAYS, rel=1e-9)
+
+
+def test_raw_math_expression_is_not_rewritten_by_spoken_duration() -> None:
+    assert rewrite_spoken_duration("11.86*365.25") is None
+    assert rewrite_spoken_duration("sqrt(5.2**3)") is None
+    assert normalize_expression("11.86*365.25") == "11.86*365.25"
+    assert normalize_expression("sqrt(5.2**3)") == "sqrt(5.2**3)"
+
+
+def test_mars_age_from_a_birthdate_divides_earth_days_by_nasa_mars_year() -> None:
     ask = "if i was born on march 3 2004 how old am i in mars years"
     value = float(evaluate_expression(ask))
     earth_days = (date.today() - date(2004, 3, 3)).days
-    expected = earth_days / (_JULIAN_DAYS * _kepler_years(_MARS_A_AU))
+    expected = earth_days / _NASA_SIDEREAL_DAYS["mars"]
     assert value == pytest.approx(expected, rel=1e-9)
 
 

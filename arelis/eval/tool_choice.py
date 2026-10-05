@@ -161,7 +161,7 @@ CHOICE_CASES: tuple[ChoiceCase, ...] = (
     ChoiceCase(
         "how many days is a year on jupiter",
         ("calculator",),
-        note="Orbital year in days is Kepler arithmetic, not a memorized 4332.",
+        note="Orbital year in days is the NASA sidereal period, not a guess.",
     ),
 )
 

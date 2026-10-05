@@ -186,19 +186,23 @@ _PERCENT_OF = re.compile(r"(?i)(\d+(?:\.\d+)?)\s*%\s*of\s+")
 _TIMES_X = re.compile(r"(?<=[\d)])\s*[xX]\s*(?=[\d(])")
 _THOUSANDS = re.compile(r"(?<=\d),(?=\d{3}(?!\d))")
 
-# Spoken year length / years↔days. Kepler III in AU and Julian years:
-# P^2 = a^3, so P_yr = sqrt(a^3). Days are that times 365.25, not a
-# memorized planetary period.
+# Spoken year length / years↔days. Anonymous "a planet at N AU" uses
+# Kepler III in AU and Julian years: P^2 = a^3, so P_yr = sqrt(a^3),
+# and days are that times 365.25. Named bodies use NASA sidereal
+# orbital periods (Earth days) from
+# https://nssdc.gsfc.nasa.gov/planetary/factsheet/ instead of mean-a
+# Kepler, which is tens of days off for the outer planets.
 _JULIAN_YEAR_DAYS = "365.25"
-_PLANET_A_AU: dict[str, str] = {
-    "mercury": "0.387099",
-    "venus": "0.723332",
-    "mars": "1.523679",
-    "jupiter": "5.204267",
-    "saturn": "9.582017",
-    "uranus": "19.191264",
-    "neptune": "30.068963",
-    "pluto": "39.482",
+_EARTH_SIDEREAL_DAYS = "365.256"
+_PLANET_SIDEREAL_DAYS: dict[str, str] = {
+    "mercury": "87.969",
+    "venus": "224.701",
+    "mars": "686.980",
+    "jupiter": "4332.589",
+    "saturn": "10759.22",
+    "uranus": "30685.4",
+    "neptune": "60189",
+    "pluto": "90560",
 }
 _PLANET_NAME = re.compile(
     r"(?i)\b(mercury|venus|mars|jupiter|saturn|uranus|neptune|pluto)\b"
@@ -206,8 +210,21 @@ _PLANET_NAME = re.compile(
 _AU_AMOUNT = re.compile(
     r"(?i)(\d+(?:\.\d+)?)\s*(?:au|astronomical\s+units?)\b"
 )
-_YEARS_AMOUNT = re.compile(r"(?i)(\d+(?:\.\d+)?)\s*years?\b")
 _WANTS_DAYS = re.compile(r"(?i)\b(?:earth\s+)?days?\b")
+_YEARS_IN_DAYS = re.compile(
+    r"(?i)(?<![\d.])(\d+(?:\.\d+)?)\s*years?\s*(?:in|to|into|as)\s+"
+    r"(?:earth\s+)?days?\b"
+)
+_HOW_MANY_DAYS_IS_YEARS = re.compile(
+    r"(?i)\b(?:how\s+many|how\s+long)\b.{0,48}\b(?:earth\s+)?days?\b"
+    r".{0,24}\b(?:is|in|are)\b.{0,24}(?<![\d.])(\d+(?:\.\d+)?)\s*years?\b"
+)
+_MATH_FUNC_NAMES = (
+    r"sqrt|sin|cos|tan|log|log10|ln|exp|abs|floor|ceil|factorial|"
+    r"min|max|round|pi|e|radians|degrees|asin|acos|atan|atan2|hypot"
+)
+_MATH_FUNCS = re.compile(rf"(?i)\b(?:{_MATH_FUNC_NAMES})\b")
+_RAW_MATH_REST = re.compile(r"^[\d\s+\-*/^().,]+$")
 _AGE_IN_PLANET = re.compile(
     r"(?i)\b(?:how\s+old|age|old\s+am\s+i)\b.{0,80}\b(?:mars|jupiter|mercury|"
     r"venus|saturn|uranus|neptune|pluto)\s+years?\b"
@@ -252,14 +269,24 @@ _MONTH_INDEX = {
 }
 
 
+def _is_raw_math_expression(text: str) -> bool:
+    """True when the model already passed arithmetic, not user prose."""
+    sample = (text or "").strip()
+    if not sample:
+        return False
+    stripped = _MATH_FUNCS.sub("", sample)
+    return bool(_RAW_MATH_REST.fullmatch(stripped))
+
+
 def rewrite_spoken_duration(text: str) -> str | None:
     """Turn a spoken year/day/orbit ask into one arithmetic expression.
 
     Returns None when the line is not that shape, so the ordinary
-    normaliser still runs.
+    normaliser still runs. Raw expressions the model wrote itself
+    (``11.86*365.25``, ``sqrt(5.2**3)``) are left alone.
     """
     raw = text or ""
-    if not raw.strip():
+    if not raw.strip() or _is_raw_math_expression(raw):
         return None
     age = _rewrite_planet_age(raw)
     if age is not None:
@@ -272,12 +299,16 @@ def rewrite_spoken_duration(text: str) -> str | None:
         period = f"sqrt({a}**3)"
         return f"{period}*{_JULIAN_YEAR_DAYS}" if wants_days else period
     if planet is not None and re.search(r"(?i)\b(?:year|orbit)\b", raw):
-        a = _PLANET_A_AU[planet.group(1).lower()]
-        period = f"sqrt({a}**3)"
-        return f"{period}*{_JULIAN_YEAR_DAYS}" if wants_days else period
-    years = _YEARS_AMOUNT.search(raw)
-    if years is not None and wants_days:
-        return f"{years.group(1)}*{_JULIAN_YEAR_DAYS}"
+        period_days = _PLANET_SIDEREAL_DAYS[planet.group(1).lower()]
+        if wants_days:
+            return period_days
+        return f"({period_days})/{_EARTH_SIDEREAL_DAYS}"
+    years_in = _YEARS_IN_DAYS.search(raw)
+    if years_in is not None:
+        return f"{years_in.group(1)}*{_JULIAN_YEAR_DAYS}"
+    how_many = _HOW_MANY_DAYS_IS_YEARS.search(raw)
+    if how_many is not None:
+        return f"{how_many.group(1)}*{_JULIAN_YEAR_DAYS}"
     return None
 
 
@@ -293,8 +324,8 @@ def _rewrite_planet_age(text: str) -> str | None:
     if planet is None or born is None:
         return None
     days = (date.today() - born).days
-    a = _PLANET_A_AU[planet.group(1).lower()]
-    return f"{days}/({_JULIAN_YEAR_DAYS}*sqrt({a}**3))"
+    period_days = _PLANET_SIDEREAL_DAYS[planet.group(1).lower()]
+    return f"{days}/{period_days}"
 
 
 def _parse_birthdate(text: str) -> date | None:

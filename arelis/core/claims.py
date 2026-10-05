@@ -119,10 +119,14 @@ _DURATION_MATH_PATTERNS: tuple[re.Pattern[str], ...] = (
     ),
     re.compile(
         r"(?i)\b(?:how\s+many|how\s+long)\b.{0,48}\b(?:earth\s+)?days?\b"
-        r".{0,48}\b\d+(?:\.\d+)?\s*years?\b"
+        r".{0,24}\b(?:is|in|are)\b.{0,24}(?<![\d.])\d+(?:\.\d+)?\s*years?\b"
     ),
     re.compile(
-        r"(?i)\b\d+(?:\.\d+)?\s*years?\b.{0,48}\b(?:earth\s+)?days?\b"
+        r"(?i)(?<![\d.])\d+(?:\.\d+)?\s*years?\b\s*(?:in|to|into|as)\s+"
+        r"(?:earth\s+)?days?\b"
+    ),
+    re.compile(
+        r"(?i)\b(?:earth\s+)?days?\s+is\s+(?<![\d.])\d+(?:\.\d+)?\s*years?\b"
     ),
     re.compile(
         rf"(?i)\b(?:how\s+old|age|old\s+am\s+i)\b.{{0,80}}"
