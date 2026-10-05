@@ -17,6 +17,8 @@ from arelis.core.email_complete import complete_email_draft, parse_email_utteran
 from arelis.core.memory import ChatMessage
 from arelis.core.preflight import detect_intents
 from arelis.core.sms_complete import complete_sms_draft, parse_sms_utterance
+from arelis.core.turn_prepare import _prepare_sms_first_move
+from tests.test_no_call_path import _ctx, _FakeLoop
 
 
 @pytest.fixture(autouse=True)
@@ -123,3 +125,59 @@ def test_a_declined_ask_in_history_does_not_complete_a_later_send() -> None:
     for follow in ("send it", "send the email"):
         mail = complete_email_draft(follow, history=mail_history, contacts=_book())
         assert mail is None or not mail.complete, follow
+
+
+def test_suggestion_and_never_mind_still_draft_a_text(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    book = _book()
+    for text in (
+        "why don't you text mom that I'm running late",
+        "never mind, text mom that I'm running late",
+    ):
+        draft = complete_sms_draft(text, history=[], contacts=book)
+        assert draft is not None and draft.complete
+        assert draft.body == "I'm running late"
+        monkeypatch.setattr("arelis.core.sms_complete.load_contacts", _book)
+        tools = {t for h in detect_intents(text) for t in h.expected_tools}
+        assert "send_sms" in tools, text
+
+
+@pytest.mark.asyncio
+async def test_curly_apostrophe_decline_does_not_arm_a_send(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sms_text = "don\u2019t text mom that I\u2019m running late"
+    email_text = "don\u2019t email mom saying I\u2019m running late"
+
+    assert parse_sms_utterance(sms_text) is None
+    sms_draft = complete_sms_draft(sms_text, history=[], contacts=_book())
+    assert sms_draft is None or not sms_draft.complete
+
+    assert parse_email_utterance(email_text) is None
+    email_draft = complete_email_draft(email_text, history=[], contacts=_book())
+    assert email_draft is None or not email_draft.complete
+
+    monkeypatch.setattr("arelis.core.sms_complete.load_contacts", _book)
+    monkeypatch.setattr("arelis.core.email_complete.load_contacts", _book)
+    for text in (sms_text, email_text):
+        tools = {t for h in detect_intents(text) for t in h.expected_tools}
+        assert "send_sms" not in tools, text
+        assert "send_email" not in tools, text
+
+    loop = _FakeLoop()
+    ctx = _ctx(text=sms_text)
+    ctx.tool_names = {"send_sms"}
+    ctx.available_all = {"send_sms"}
+    ctx.sms_draft = complete_sms_draft(sms_text, history=[], contacts=_book())
+    await _prepare_sms_first_move(loop, ctx, sms_text, {})
+    assert ctx.sms_preinject is None
+
+    # Control: the same arming path does arm for the real request.
+    real_text = "text mom that I'm running late"
+    real = _ctx(text=real_text)
+    real.tool_names = {"send_sms"}
+    real.available_all = {"send_sms"}
+    real.sms_draft = complete_sms_draft(real_text, history=[], contacts=_book())
+    await _prepare_sms_first_move(_FakeLoop(), real, real_text, {})
+    assert real.sms_preinject is not None
