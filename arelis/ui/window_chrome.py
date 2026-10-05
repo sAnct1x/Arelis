@@ -713,11 +713,11 @@ class WindowChrome:
             ok = confirm(
                 self,
                 "filament (testing)",
-                'a test face. it wants a row of desks, three is the intended layout.',
+                "a test face. it wants a row of desks, three is the intended layout.",
                 detail=(
                     "sodium is the app. filament is a checkout experiment for a "
                     "three-monitor desk; 1 and 2 still work. talk does not need a "
-                    'chat tile. plates float, drag them. right-click for themes. '
+                    "chat tile. plates float, drag them. right-click for themes. "
                     "sodium is one click."
                 ),
                 confirm_text="enter filament",

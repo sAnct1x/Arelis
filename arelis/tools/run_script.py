@@ -302,7 +302,7 @@ def _format_output(
         parts.extend(["", "stderr:", err])
     if not out and not err:
         parts.append("")
-        parts.append('(no output, print the result, or write a file I can read)')
+        parts.append("(no output, print the result, or write a file I can read)")
     return "\n".join(parts)
 
 

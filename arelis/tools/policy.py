@@ -693,7 +693,7 @@ def describe_call(
             lines.append("Question: (default describe)")
         lines.append(
             "Unloads the chat model briefly, runs the VL model, then "
-            'rewarms conversation. One still, seeing does not authorize '
+            "rewarms conversation. One still, seeing does not authorize "
             "sending or navigating."
         )
         return "\n".join(lines)
@@ -845,7 +845,7 @@ def describe_call(
             return "\n".join(lines)
         return (
             "Read system clipboard text\n"
-            'May include passwords or private notes, only if you '
+            "May include passwords or private notes, only if you "
             "intend to share what is currently copied."
         )
     if name == "ocr":
@@ -858,7 +858,7 @@ def describe_call(
         path = str(args.get("path") or "").strip() or "?"
         return (
             f"OCR local image (Tesseract CPU)\nPath: {path}\n"
-            'One still, seeing does not authorize sending or navigating.'
+            "One still, seeing does not authorize sending or navigating."
         )
     if name == "agenda":
         action = str(args.get("action") or "").strip().lower() or "?"

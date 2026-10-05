@@ -95,7 +95,7 @@ class SqlTool:
         "document_chunks, facts, tasks, goals, sessions, summaries, documents, "
         "mail_messages, decisions, episodes) or a workspace CSV/TSV/JSON "
         "loaded as table `data` (and the file stem). SELECT / WITH / EXPLAIN "
-        'only, no INSERT/UPDATE/DELETE/DROP/ATTACH/PRAGMA. For a simple '
+        "only, no INSERT/UPDATE/DELETE/DROP/ATTACH/PRAGMA. For a simple "
         "where/group_by/agg on one spreadsheet, use analyze action=query "
         "instead of writing SQL."
     )

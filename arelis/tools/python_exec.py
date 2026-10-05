@@ -201,7 +201,7 @@ _ATTR_CALL_ONLY = frozenset({"S"})
 _FORBIDDEN_ATTRS_ANYWHERE = _FORBIDDEN_ATTR_CALLS - _ATTR_CALL_ONLY
 
 _ATTR_REFUSAL = (
-    '{name!r} is not allowed here, it evaluates text or touches the disk. '
+    "{name!r} is not allowed here, it evaluates text or touches the disk. "
     "Compute with expressions, and use the workspace tool for files."
 )
 
@@ -234,12 +234,12 @@ class PythonTool:
         "a multi-step derivation. math is preloaded (sin, cos, radians, sqrt, "
         "pi). sympy is `sp`, numpy is `np` when installed. Assignments and "
         "print() work; the last expression is shown. Do not import os, "
-        'subprocess, or open files. sympify/lambdify/parse_expr are refused'
+        "subprocess, or open files. sympify/lambdify/parse_expr are refused"
         "build expressions from sp.Symbol, not from strings. Timeout 10s. "
         "Use calculator for a single "
         "arithmetic expression; use cas for one symbolic integrate/diff/solve; "
         "use this when you need a script (projectile range, quadratic time of "
-        'flight, systems of equations). matplotlib is not allowed, print '
+        "flight, systems of equations). matplotlib is not allowed, print "
         "comma-separated xs and ys, then call plot with those numbers and "
         "out='name.png' (path= is a CSV, not the picture)."
     )
@@ -505,7 +505,7 @@ def _run_cell(code: str) -> str:
             out += "\n"
         out += shown
     text = (out or "").strip() or (
-        '(no output, print the result, or leave a final expression)'
+        "(no output, print the result, or leave a final expression)"
     )
     if len(text) > _MAX_OUTPUT:
         text = text[:_MAX_OUTPUT] + "\n…(truncated)"

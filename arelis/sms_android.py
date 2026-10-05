@@ -237,7 +237,7 @@ class AndroidSmsProvider:
             if account.via == "companion":
                 raise SmsSendError(
                     "The phone companion rejected this house's radio key. "
-                    'Talk being linked is not enough, scan the QR again from '
+                    "Talk being linked is not enough, scan the QR again from "
                     "Settings → Notify on this PC (same Wi-Fi)."
                 )
             raise SmsSendError(

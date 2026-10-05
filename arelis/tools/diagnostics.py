@@ -58,7 +58,7 @@ class DiagnosticsTool:
         "diagnostics asks that target Arelis's own tests/ directory. Do not "
         "invent results. After it returns, report the counts, name the "
         "failures, and say what they likely mean. A failing suite is a real "
-        'issue, do not claim everything is fine.'
+        "issue, do not claim everything is fine."
     )
     risk = "read"
     parameters_schema: dict[str, Any] = {

@@ -50,7 +50,7 @@ class WeatherTool:
     description = (
         "Get current conditions and the next few days of forecast from Open-Meteo. "
         "Default is the user's profile location. For another city pass place "
-        '(a name this tool geocodes, never coordinates). '
+        "(a name this tool geocodes, never coordinates). "
         "days is how many daily rows including today: 1 is today only, "
         "tomorrow needs 2 or more, default 3, up to 16. "
         "For a time of day ('will it rain at 3pm', 'this afternoon') pass "

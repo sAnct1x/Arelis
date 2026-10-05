@@ -355,7 +355,7 @@ class OrbitIdle(QWidget):
         read_l.setContentsMargins(0, 0, 0, 0)
         read_l.setSpacing(16)
         read_l.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        self._ollama_row = self._make_readout("ollama", '-')
+        self._ollama_row = self._make_readout("ollama", "-")
         self._listen_row = self._make_readout("listening", "off")
         read_l.addWidget(self._ollama_row, alignment=Qt.AlignmentFlag.AlignRight)
         read_l.addWidget(self._listen_row, alignment=Qt.AlignmentFlag.AlignRight)
@@ -534,7 +534,7 @@ class OrbitIdle(QWidget):
         return self.listen_word.text()
 
     def set_readout(self, *, ollama: str, listening: str) -> None:
-        self._ollama_row._value.setText((ollama or '-').lower())  # type: ignore[attr-defined]
+        self._ollama_row._value.setText((ollama or "-").lower())  # type: ignore[attr-defined]
         self._listen_row._value.setText((listening or "off").lower())  # type: ignore[attr-defined]
 
     def fit_prompt(self, width: int, height: int, *, typing: bool) -> None:

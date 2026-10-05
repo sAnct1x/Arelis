@@ -106,7 +106,7 @@ async def claim_orphan_ingest(
                 EventType.STATUS,
                 {
                     "message": (
-                        'Phone ingest is already up on this PC, this window '
+                        "Phone ingest is already up on this PC, this window "
                         "will not bind a second listener."
                     )
                 },

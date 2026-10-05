@@ -399,7 +399,7 @@ async def apply_no_call_path(
         if stripped_run_now and not r.calls:
             await loop._finish(
                 "The job is already scheduled. It will run at the time "
-                'you set, no need to fire it now.',
+                "you set, no need to fire it now.",
                 r.sources,
                 streamed="",
             )

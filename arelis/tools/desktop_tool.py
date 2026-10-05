@@ -35,21 +35,21 @@ class DesktopTool:
         "type, click. Not a shell and not her Chrome (use browser for the web). "
         "Prefer this when they ask to open a Windows app, or to look at "
         "something on a monitor (a book, a problem, a window). "
-        'Actions: open (app name / Start Menu title, never a raw .exe path), '
+        "Actions: open (app name / Start Menu title, never a raw .exe path), "
         "windows (list titles), monitors (list displays), "
         "focus (bring one forward), "
-        'snapshot (named controls in the focused window, not a '
+        "snapshot (named controls in the focused window, not a "
         "monitor grab), "
         "read (compact visible names), "
         "click(ref or text or nth; x,y only after screenshot then vision "
         "this turn), type(text, optional into= field), press(key), "
-        'hotkey(ctrl+s), scroll, screenshot (monitor or window title'
+        "hotkey(ctrl+s), scroll, screenshot (monitor or window title"
         "grabs then reads text; use this when they ask to see the "
         "screen / a monitor; vision only for a diagram), wait. "
         "You plan the drive: open notepad, type hello. "
         "Never start cmd, PowerShell, regedit, or anything that wants "
         "Administrator. Never type passwords. Stop on Pay / delete / "
-        'Empty Recycle Bin / Uninstall / Format, that is their turn.'
+        "Empty Recycle Bin / Uninstall / Format, that is their turn."
     )
     risk = "side_effect"
     parameters_schema: dict[str, Any] = {

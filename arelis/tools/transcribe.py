@@ -24,10 +24,10 @@ _VIDEO_SUFFIXES = frozenset({".mp4", ".mkv"})
 _MAX_BYTES = 50 * 1024 * 1024
 _DEFAULT_MAX_CHARS = 12_000
 _ENGINE_NOT_LOADED = (
-    'voice engine not loaded, I will not pull Whisper onto the GPU mid-turn.'
+    "voice engine not loaded, I will not pull Whisper onto the GPU mid-turn."
 )
 _VIDEO_REFUSED = (
-    'Video is not supported, this checkout has no ffmpeg/imageio to extract '
+    "Video is not supported, this checkout has no ffmpeg/imageio to extract "
     "audio. Use wav, mp3, flac, m4a, or ogg."
 )
 
@@ -50,7 +50,7 @@ class TranscribeTool:
         "Transcribe a local audio file under workspace roots with the already "
         "loaded voice engine (Sherpa / Whisper). action=file path=… "
         f"Audio only: {_suffix_list()}. Not video (no ffmpeg extract). "
-        'Will not load Whisper mid-turn, if the ear is cold, it says so.'
+        "Will not load Whisper mid-turn, if the ear is cold, it says so."
     )
     risk = "read"
     parameters_schema: dict[str, Any] = {

@@ -296,7 +296,7 @@ async def confirm_call(
                 name in {"send_sms", "send_email"}
                 and name in loop._expected_tools
             ):
-                ctx.skip_finish_text = 'Okay, I did not send that.'
+                ctx.skip_finish_text = "Okay, I did not send that."
                 return STOP, summary, call_fp
             return SKIP, summary, call_fp
         if loop._look is not None and name in {"ocr", "vision"}:

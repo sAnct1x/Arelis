@@ -344,7 +344,7 @@ class ScheduleTool:
                 output=(
                     result.output
                     + " Each run emails the fixed briefing (weather, unread mail, "
-                    'open loops, recent chats), not a free-form research prompt.'
+                    "open loops, recent chats), not a free-form research prompt."
                 ),
                 data={**result.data, "kind": "briefing"},
             )
@@ -409,7 +409,7 @@ class ScheduleTool:
             return ToolResult(
                 ok=False,
                 output=(
-                    'schedule update needs something to change, a time, '
+                    "schedule update needs something to change, a time, "
                     "days, prompt, name, or recipient."
                 ),
             )

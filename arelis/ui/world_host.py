@@ -575,7 +575,7 @@ def apply_physics_act(window, act: PhysicsAct) -> None:
         window.thinking.append(
             "No discs in Reality. Spawn a particle, belt tracer, or L4 from "
             "the ⋯ menu. WASD flies the inspect camera. heavier/lighter would "
-            'change a mass, that is solar impulse/add_planet with Allow.',
+            "change a mass, that is solar impulse/add_planet with Allow.",
             kind="status",
         )
         return

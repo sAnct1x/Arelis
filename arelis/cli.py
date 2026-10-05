@@ -171,7 +171,7 @@ async def run_cli_async(
             router.mark_warmup_done()
 
     preflight_task = asyncio.create_task(_startup_models())
-    print('Arelis CLI, type /help, or chat. Ctrl+C to exit.')
+    print("Arelis CLI, type /help, or chat. Ctrl+C to exit.")
     print("Pronunciation: ah-REL-is\n")
     try:
         while True:

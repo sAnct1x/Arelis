@@ -251,7 +251,7 @@ def refresh_idle_face(window) -> None:
     if sessions != window._idle_ghosts:
         window._idle_ghosts = sessions
         idle.set_sessions(sessions)
-    ollama = '-'
+    ollama = "-"
     snap = window._readiness_snap
     if snap is not None:
         chip = snap.chip("ollama") if hasattr(snap, "chip") else None

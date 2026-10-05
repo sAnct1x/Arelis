@@ -59,7 +59,7 @@ class MemoryTool:
     description = (
         "Read back, remember, or forget a durable fact, store a preference, "
         "record a project decision, or save a short episode summary. Use "
-        'action=list when they ask what you remember or know about them'
+        "action=list when they ask what you remember or know about them"
         "that reads the stored facts directly and needs no confirmation; "
         "recall searches conversation transcripts, which is a different "
         "question. Use "
@@ -241,7 +241,7 @@ class MemoryTool:
                 # all-projects query. Saying "none" here would be a wrong
                 # answer to a question that was never asked.
                 lines.append(
-                    'Decisions are filed per project, name one to list them.'
+                    "Decisions are filed per project, name one to list them."
                 )
 
         if not lines:

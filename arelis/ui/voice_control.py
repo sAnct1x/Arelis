@@ -458,7 +458,7 @@ class VoiceController(QObject):
         ):
             self._vad_fallback_announced = True
             self.status.emit(
-                'Silero VAD unavailable, using energy onset (see models/silero).'
+                "Silero VAD unavailable, using energy onset (see models/silero)."
             )
         self._detector = detector
         self.trace.record(
@@ -610,7 +610,7 @@ class VoiceController(QObject):
                 self._mic_retries += 1
                 if self._mic_retries <= 3:
                     self.status.emit(
-                        'Microphone dropped. Conversation is still on, retrying.'
+                        "Microphone dropped. Conversation is still on, retrying."
                     )
                     QTimer.singleShot(400, self._retry_conversation_mic)
                 else:

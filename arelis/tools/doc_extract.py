@@ -48,7 +48,7 @@ class DocExtractTool:
         "Extract text from a local PDF, Word (.docx), or PowerPoint (.pptx) "
         "under workspace roots. Optional page_start/page_end (PDF pages or "
         "PPTX slides). DOCX tables are cell text. Scanned PDFs have no text "
-        'layer, this reads the page pictures. Do not invent quotes or ask '
+        "layer, this reads the page pictures. Do not invent quotes or ask "
         "them to paste. Not for images or .exe."
     )
     risk = "read"
@@ -404,7 +404,7 @@ class DocExtractTool:
             f"path: {display}\n"
             f"pages: {pages[0].page}-{pages[-1].page} of {n_pages}\n"
             f"source: ink\n"
-            'No text layer, scanned or handwritten PDF.\n'
+            "No text layer, scanned or handwritten PDF.\n"
             "Page images (call vision on each path; do not ask them to paste; "
             "do not give up):\n"
             f"{listing}{more}"
@@ -523,7 +523,7 @@ def _unsupported(path: Path, display: str) -> ToolResult:
     if suffix in _IMAGE_SUFFIXES:
         return _fail(
             "unsupported",
-            'This is an image, use vision to describe it, or ocr '
+            "This is an image, use vision to describe it, or ocr "
             "(action=text) to read text in it. doc_extract reads "
             ".pdf, .docx, and .pptx.",
             path=display,
@@ -576,7 +576,7 @@ def _tableish_note(layout_chunks: list[str], body: str) -> str:
     if len(hits) < 2:
         return ""
     return (
-        '[extracted text, not a guaranteed table parse]\n' + layout
+        "[extracted text, not a guaranteed table parse]\n" + layout
     )
 
 

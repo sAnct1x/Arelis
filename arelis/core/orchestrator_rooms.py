@@ -81,7 +81,7 @@ def rooms_overview(orch: Any) -> str:
     rooms = orch.rooms.all()
     if not rooms:
         return (
-            'No rooms yet. A room is a named place to work on one thing, it '
+            "No rooms yet. A room is a named place to work on one thing, it "
             "keeps its own conversation, points at one project folder, and "
             "remembers what it is for.\n\n"
             'Make one by saying "let\'s work on <name>", or `/room new '
@@ -412,7 +412,7 @@ def forget_room(orch: Any, rest: str) -> str:
         return str(exc)
     return (
         f"Forgot the `{room.id}` room. Its conversations are still in History "
-        '- only the room itself is gone.'
+        "- only the room itself is gone."
     )
 
 

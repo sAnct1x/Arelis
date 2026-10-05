@@ -30,7 +30,7 @@ class RoomsTool:
         "one workspace project, and carries a purpose that is given to you every "
         "turn inside it. Use create when the user asks for a room or a dedicated "
         "space for a project, and fill purpose and root from what they said "
-        'rather than asking twice. You cannot enter a room from here, tell the '
+        "rather than asking twice. You cannot enter a room from here, tell the "
         "user to say \"let's work on <name>\" or type /room <name>. Creating and "
         "changing rooms is confirmed by the user first."
     )
@@ -64,7 +64,7 @@ class RoomsTool:
             "result": {
                 "type": "string",
                 "description": (
-                    'What a finished result looks like, a plot, a dump, a '
+                    "What a finished result looks like, a plot, a dump, a "
                     "table, two sentences in documents/."
                 ),
             },
@@ -76,7 +76,7 @@ class RoomsTool:
                 "type": "string",
                 "description": (
                     "Name of the workspace project this room works in. Must "
-                    'already exist, call workspace or ask the user if unsure.'
+                    "already exist, call workspace or ask the user if unsure."
                 ),
             },
             "kind": {
@@ -264,7 +264,7 @@ class RoomsTool:
             ok=True,
             output=(
                 f"Forgot the `{room.id}` room. Its conversations are still in "
-                'History, only the room definition is gone.'
+                "History, only the room definition is gone."
             ),
             data={"id": room.id},
         )

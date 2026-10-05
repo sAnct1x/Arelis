@@ -115,7 +115,7 @@ def _degrees(raw: Any) -> int:
     except (TypeError, ValueError) as exc:
         raise ValueError("rotate degrees must be 90, 180, or 270.") from exc
     if value not in {90.0, 180.0, 270.0}:
-        raise ValueError('rotate degrees must be 90, 180, or 270, not 0 or 45.')
+        raise ValueError("rotate degrees must be 90, 180, or 270, not 0 or 45.")
     return int(value)
 
 
@@ -128,7 +128,7 @@ class PdfAssembleTool:
         "paths (comma list or JSON array) in that order. split needs path plus "
         "pages (1-based, e.g. 1-3,5). rotate needs path plus degrees 90/180/270 "
         "and optional pages (those pages only, rotated). Caps: 50 source pages "
-        'copied, 8 MB per file. Form fill is not supported, pypdf appearances '
+        "copied, 8 MB per file. Form fill is not supported, pypdf appearances "
         "are not reliable here; use document to make a new PDF. Allow is required. "
         "Do not use doc_extract (that reads) or document (that creates from text)."
     )

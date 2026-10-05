@@ -62,7 +62,7 @@ def cap_to_room(available_all: set[str], active_room: Any) -> set[str]:
     capped = available_all & named
     if not capped:
         log.warning(
-            'Room %r limits tools to %s, none of which are installed, the '
+            "Room %r limits tools to %s, none of which are installed, the "
             "limit cannot be applied and the room is leaning on the full tool "
             "set instead.",
             getattr(active_room, "name", "?"),

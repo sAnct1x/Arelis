@@ -462,7 +462,7 @@ def contacts_prompt_line(path: Path | None = None) -> str:
     body = "; ".join(parts)
     if sms_ok:
         text = (
-            'Contacts, when the user asks to text someone, call send_sms with '
+            "Contacts, when the user asks to text someone, call send_sms with "
             f"to set to one of these aliases: {body}. "
         )
     else:
@@ -479,7 +479,7 @@ def contacts_prompt_line(path: Path | None = None) -> str:
     text += (
         "These aliases are hints. A number they typed is enough to text. "
         "If they name someone who is not listed and gave no number, ask for "
-        'the number, saving a nickname is optional. Never invent a phone '
+        "the number, saving a nickname is optional. Never invent a phone "
         "number or email address."
     )
     if len(text) > _MAX_CONTACTS_PROMPT_CHARS:

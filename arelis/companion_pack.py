@@ -127,7 +127,7 @@ class CompanionStatus:
         )
         return (
             f"{want} No APK is sitting next to this Arelis. From a source "
-            'checkout run python scripts/build_companion.py, then this page '
+            "checkout run python scripts/build_companion.py, then this page "
             "grows a download QR. The UI will not shell out to Gradle."
         )
 
@@ -520,7 +520,7 @@ def landing_html(
             f"{escape(apk.version_name)} · {escape(apk.size_text)}</p>"
             f'<p><a class="btn" href="{escape(apk_href)}">Download the app</a></p>'
             "<p>Android will ask once. That is the install. Then open Arelis "
-            'and scan the pair code still on the PC, or tap below if the app '
+            "and scan the pair code still on the PC, or tap below if the app "
             "is already on this phone.</p>"
             f'<p><a href="{escape(pair_href)}">Already installed? Pair</a></p>'
         )

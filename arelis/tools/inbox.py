@@ -104,7 +104,7 @@ def _inbox_schema(*, mutate: bool) -> dict[str, Any]:
                     "list / search / read / summarize (peek-only), folders, "
                     "download to save a message's attached files, "
                     "reply to build a quoted draft from a message id "
-                    '(does not send, that is send_email + Allow), '
+                    "(does not send, that is send_email + Allow), "
                     "or with Allow: trash, archive, mark_read, mark_unread, "
                     "move, create_folder. delete is trash (Gmail Bin)."
                 ),
@@ -112,7 +112,7 @@ def _inbox_schema(*, mutate: bool) -> dict[str, Any]:
             "id": {
                 "type": "string",
                 "description": (
-                    'Message id from list or search, the digits only, not the '
+                    "Message id from list or search, the digits only, not the "
                     "[brackets]. Required for read, download, reply, trash, "
                     "archive, mark_read, mark_unread, move. Comma-separated ok."
                 ),
@@ -174,12 +174,12 @@ def _inbox_description(*, mutate: bool) -> str:
         "`summarize` returns a structured triage (subject/from/date/snippet) "
         "via BODY.PEEK only, and `folders` lists mailboxes/labels. Looking "
         "does not mark mail read. `download` saves a message's attached files "
-        'under outputs/mail/ and returns their paths, use it before analyze, '
+        "under outputs/mail/ and returns their paths, use it before analyze, "
         "doc_extract, or vision on something that arrived by mail. "
         "`reply` peeks one message and returns {to, subject, body} with the "
-        'original quoted, it does not send. Call send_email on that same turn '
+        "original quoted, it does not send. Call send_email on that same turn "
         "with those fields. Do not ask in chat. The Allow card is the permission. "
-        'Delivered mail cannot be edited, send a new message instead.'
+        "Delivered mail cannot be edited, send a new message instead."
     )
     if not mutate:
         return (
@@ -188,7 +188,7 @@ def _inbox_description(*, mutate: bool) -> str:
         )
     return (
         head
-        + ' Changes need Allow: `trash` (delete is the same, Gmail Bin, not '
+        + " Changes need Allow: `trash` (delete is the same, Gmail Bin, not "
         "permanent), `archive` (leave Inbox), `mark_read` / `mark_unread`, "
         "`move` to a folder/label, `create_folder`. Call list or search first "
         "and pass the id number (digits only; comma-separated is fine). Never "

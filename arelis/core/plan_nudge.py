@@ -212,7 +212,7 @@ _PLAN_INBOX = PlanSpec(
     message=(
         "Plan: 1) Call inbox(action='summarize') for triage. "
         "2) If they asked to reply or send, call send_email with the draft "
-        '(Allow still required, never skip the confirm card).'
+        "(Allow still required, never skip the confirm card)."
     ),
     steps=("inbox",),
 )
@@ -221,9 +221,9 @@ _PLAN_COMPOSE_EMAIL = PlanSpec(
     id="compose_email",
     message=(
         "Plan: 1) Call send_email with to/subject/body (and attach=path when "
-        'they named a file). Use the literal address they gave, do not '
+        "they named a file). Use the literal address they gave, do not "
         "web_search for contacts. "
-        '2) Allow still required, never skip the confirm card.'
+        "2) Allow still required, never skip the confirm card."
     ),
     steps=("send_email",),
     skip_progress=True,  # email_force_call owns nudge/inject
@@ -255,7 +255,7 @@ _PLAN_ANALYZE = PlanSpec(
     id="analyze",
     message=(
         "Plan: 1) Call analyze on the named table/CSV path. "
-        '2) Answer with computed stats from the tool only, do not invent rows.'
+        "2) Answer with computed stats from the tool only, do not invent rows."
     ),
     steps=("analyze",),
 )
@@ -289,7 +289,7 @@ _PLAN_ATTACH_VISION = PlanSpec(
     message=(
         "Plan: 1) Call vision on each attached image path (Allow). "
         "2) Answer from the vision result only. "
-        'Never call doc_extract on images, that tool is PDF-only.'
+        "Never call doc_extract on images, that tool is PDF-only."
     ),
     steps=("vision",),
 )
@@ -298,7 +298,7 @@ _PLAN_GIT = PlanSpec(
     id="git",
     message=(
         "Plan: 1) Call git_info (status/diff/log as asked). "
-        '2) Report branch state from the tool, do not invent commits.'
+        "2) Report branch state from the tool, do not invent commits."
     ),
     steps=("git_info",),
 )
@@ -358,7 +358,7 @@ _PLAN_AGENDA_DELETE = PlanSpec(
     message=(
         "Plan: 1) Call agenda with action=delete, keep=0, and the event "
         "title/time. keep=0 removes every matching copy. The tool resolves "
-        'the id, do not ask the user to paste a Google id. Do not list '
+        "the id, do not ask the user to paste a Google id. Do not list "
         "instead of deleting."
     ),
     steps=("agenda",),
@@ -371,7 +371,7 @@ _PLAN_AGENDA_CREATE = PlanSpec(
         "Plan: 1) Call agenda with action=create, provider=google "
         "(or outlook if asked), summary and start from the user's wording. "
         "2) A calendar reminder to text someone later is the event title/"
-        'description, do not call send_sms unless they asked to text now. '
+        "description, do not call send_sms unless they asked to text now. "
         "Allow required; do not give manual calendar-app steps only."
     ),
     steps=("agenda",),
@@ -391,7 +391,7 @@ _PLAN_BROWSER_SEE = PlanSpec(
 _PLAN_BROWSER_MAPS = PlanSpec(
     id="browser_maps",
     message=(
-        'Plan: 1) browser(action=maps, destination=the place), opens Maps '
+        "Plan: 1) browser(action=maps, destination=the place), opens Maps "
         "in her window and returns a phone link. Do not scrape. "
         "2) If they asked to text it, send_sms to me/myself with that link "
         "(Allow). Do not invent a maps URL."
@@ -415,9 +415,9 @@ _PLAN_BROWSER_RESERVE = PlanSpec(
     id="browser_reserve",
     message=(
         "Plan: 1) browser(action=reserve, place=the restaurant, date=YYYY-MM-DD, "
-        'time=7pm, party=2), opens OpenTable with those bits in the URL. '
+        "time=7pm, party=2), opens OpenTable with those bits in the URL. "
         "2) Snapshot and type remaining non-secret fields. "
-        'Never click Book / Reserve / Confirm, that is their turn.'
+        "Never click Book / Reserve / Confirm, that is their turn."
     ),
     steps=("browser",),
 )
@@ -441,7 +441,7 @@ _PLAN_BROWSER_CLICK = PlanSpec(
         "on (Allow), or snapshot then click by ref. "
         "There is no goto_sign_in action. Do not invent a URL or a receipt. "
         "Username they give can go in a non-secret field. Never type a "
-        'password or OTP, that is their turn.'
+        "password or OTP, that is their turn."
     ),
     steps=("browser",),
 )
@@ -449,7 +449,7 @@ _PLAN_BROWSER_CLICK = PlanSpec(
 _PLAN_CLIPBOARD = PlanSpec(
     id="clipboard",
     message=(
-        'Plan: 1) Call clipboard (Allow, may hold secrets). '
+        "Plan: 1) Call clipboard (Allow, may hold secrets). "
         "2) Use only the returned text; never invent clipboard contents."
     ),
     steps=("clipboard",),
@@ -468,7 +468,7 @@ _PLAN_GOALS = PlanSpec(
     id="goals",
     message=(
         "Plan: 1) Call goals with action=list. "
-        '2) Summarize active goals from the tool, do not invent titles.'
+        "2) Summarize active goals from the tool, do not invent titles."
     ),
     steps=("goals",),
 )

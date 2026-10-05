@@ -61,7 +61,7 @@ PHYSICS_ALIASES = frozenset(
 )
 
 PHYSICS_PURPOSE = (
-    'Reality. True-scale solar system, JPL Horizons ICs, REBOUND, the laws '
+    "Reality. True-scale solar system, JPL Horizons ICs, REBOUND, the laws "
     "as they are. Approach and orbit. No landing. Hands drive the camera, "
     "not metres in the ODE. Forces and periods come from the engine; you do "
     "not invent them. Earth is a zone on that globe, not another room. "
@@ -517,7 +517,7 @@ def setup_prompt(step: str, room: Room, projects: Iterable[str]) -> str:
         )
     if step == "result":
         return (
-            'What does a finished result look like, a plot, a dump, a table, '
+            "What does a finished result look like, a plot, a dump, a table, "
             "two sentences in documents/? Or say skip."
         )
     if step == "test":
@@ -654,7 +654,7 @@ class Room:
                 )
         lines.append(
             "Earlier turns in this room are yours to build on when the work "
-            'is the topic. Casual talk stays casual, do not steer back to '
+            "is the topic. Casual talk stays casual, do not steer back to "
             "this work, recap the room, or ask what they want to build tonight."
         )
         return "\n".join(lines)
@@ -808,7 +808,7 @@ class RoomStore:
             room_id: self._rooms[room_id].to_yaml() for room_id in sorted(self._rooms)
         }
         header = (
-            '# Arelis rooms, a named place to work on one thing.\n'
+            "# Arelis rooms, a named place to work on one thing.\n"
             "#\n"
             "# Each room keeps its own conversation thread, points at one\n"
             "# workspace project, and hands Arelis its purpose every turn.\n"
@@ -934,7 +934,7 @@ class RoomStore:
             )
         if slug in PHYSICS_ALIASES or slugify(name) in PHYSICS_ALIASES:
             raise ValueError(
-                'Reality already exists, it is the permanent room '
+                "Reality already exists, it is the permanent room "
                 f"(`/room {PHYSICS_ROOM_ID}`). Say \"let's work on Reality\"."
             )
         if slug in self._rooms:

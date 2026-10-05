@@ -74,14 +74,14 @@ _SAFE_FUNCS: dict[str, Any] = {
 class CalculatorTool:
     name = "calculator"
     description = (
-        'Evaluate a math expression exactly, decimals are exact, so money '
+        "Evaluate a math expression exactly, decimals are exact, so money "
         "does not grow a floating-point tail. Use for arithmetic, percentages, "
         "units of count, and simple science functions (sqrt, sin, log, …). "
         "Understands '15% of 84', '30% off 59.99', '$4.50 + $2', '1,250 + 300'. "
         "Pass a plain expression like '2*(3+4)' or 'sqrt(2)*pi'. No import, no "
         "assignments. Unit conversion is the units tool, not this one. "
         "For a Python script (projectile motion, named variables) "
-        'use the python tool. This is not a CAS, it cannot integrate or solve '
+        "use the python tool. This is not a CAS, it cannot integrate or solve "
         "symbolically. Do not guess numeric answers when this tool can compute them."
     )
     risk = "read"
@@ -241,7 +241,7 @@ def evaluate_expression(expression: str) -> float | int:
         raise ValueError(
             "the result overflowed to "
             + ("infinity" if math.isinf(value) else "an undefined value")
-            + '- the numbers are too large for exact arithmetic. '
+            + "- the numbers are too large for exact arithmetic. "
             "Say the result is out of range; do not report a number."
         )
     return value

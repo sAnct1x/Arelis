@@ -173,7 +173,7 @@ def _watch_hit_ui(window: Any, line: str, *, url: str = "") -> None:
         )
     )
     sync_notify_surface(window)
-    window.conversation.set_drive_status('Watching, hit')
+    window.conversation.set_drive_status("Watching, hit")
 
 
 def parse_role_set_message(message: str) -> str | None:
@@ -538,7 +538,7 @@ def dispatch_event(window: Any, event: Event) -> None:
             window.conversation.dismiss_confirm()
             window._set_confirm_pending(False)
             if p.get("reason") == "timeout":
-                window.thinking.append('confirm timed out, denied', kind="status")
+                window.thinking.append("confirm timed out, denied", kind="status")
             elif p.get("reason") == "voice":
                 said = "allow" if p.get("decision") == "allow" else "deny"
                 window.thinking.append(f"voice {said}", kind="status")
@@ -609,9 +609,9 @@ def dispatch_event(window: Any, event: Event) -> None:
                         note = raw.strip()
                         break
                 stay = (
-                    'Your turn, the window stays.'
+                    "Your turn, the window stays."
                     if p.get("tool") == "desktop"
-                    else 'Your turn, the page stays.'
+                    else "Your turn, the page stays."
                 )
                 window.chat.add_system(note or stay)
                 window.thinking.append(f"your turn  {kind or code}", kind="status")
@@ -629,7 +629,7 @@ def dispatch_event(window: Any, event: Event) -> None:
                     window.conversation.set_drive_status(done)
         if p.get("tool") in {"image", "image_edit"}:
             if p.get("ok"):
-                window.chat.add_system('Image ready, open in Workspace')
+                window.chat.add_system("Image ready, open in Workspace")
             else:
                 window.chat.add_system(
                     tool_failure_notice("image", str(p.get("output") or ""))
@@ -720,7 +720,7 @@ def dispatch_event(window: Any, event: Event) -> None:
                             window.chat.add_system(
                                 f"I wrote {display}, but you have unsaved edits open in the "
                                 "editor, so I left them alone. Open the file again to see my "
-                                'version, that replaces what is in the editor.'
+                                "version, that replaces what is in the editor."
                             )
                         window._reveal_dock(window.work_dock, window.act_workspace)
                     except Exception as exc:
@@ -742,7 +742,7 @@ def dispatch_event(window: Any, event: Event) -> None:
                     # screen looks like what is on disk.
                     window.chat.add_system(
                         f"I reported writing {display}, but could not read it "
-                        'back, nothing is at that path now. Treat the write as '
+                        "back, nothing is at that path now. Treat the write as "
                         "failed and check the file before relying on it."
                     )
                     window.thinking.append(
@@ -833,7 +833,7 @@ def dispatch_event(window: Any, event: Event) -> None:
         window.conversation.set_drive_paused(False)
         if str(p.get("reason") or "") == "wall_cleared":
             window.conversation.set_drive_status("continuing…")
-            window.thinking.append('wall gone, continuing', kind="status")
+            window.thinking.append("wall gone, continuing", kind="status")
     elif t == EventType.ERROR:
         _cancel_wall_toast(window)
         if window._mobile_foreign:

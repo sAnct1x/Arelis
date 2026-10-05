@@ -33,7 +33,7 @@ def vram_notice(role: str = "") -> str:
     return (
         "The research model could not fit on the GPU. I parked ComfyUI and put "
         "the conversation model back so the machine stays usable. Close games "
-        'or extra Chrome if it still fails, or stay on `/role fast`.'
+        "or extra Chrome if it still fails, or stay on `/role fast`."
     )
 
 

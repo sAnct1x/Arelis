@@ -29,7 +29,7 @@ class ContactsTool:
     description = (
         "List, look up, add, update, or remove people in data/contacts.yaml "
         "(used by send_sms). When the user wants to add someone, ask in chat "
-        'for anything still missing, at least a short id and a phone number'
+        "for anything still missing, at least a short id and a phone number"
         "plus name and other nicknames if they have them. Do not invent a "
         "number. Writes are confirmed by the user before they are saved."
     )

@@ -288,7 +288,7 @@ _WRITE_AFTER_THINK_NOTICE = (
 
 _WRITE_AFTER_ALGEBRA_NOTICE = (
     "You already have a tool result. Write the chat line now, in your own words. "
-    'If they have not given a problem, ask what they want, do not paste a '
+    "If they have not given a problem, ask what they want, do not paste a "
     "warmup. If they have, copy the latex: line into $$ $$ and walk the steps. "
     "Do not call another tool unless the ask still needs one."
 )
@@ -309,7 +309,7 @@ def write_after_algebra_notice(tool: str) -> str:
 
 
 _JS_SHELL_BROWSER_NOTICE = (
-    'That page is a JavaScript shell, scrape cannot read it. Call '
+    "That page is a JavaScript shell, scrape cannot read it. Call "
     "browser(action=open, url={url}) so they can Allow her window. "
     "Read the tab after it loads. Do not invent what the page says."
 )
@@ -764,7 +764,7 @@ class AgentLoop:
                 "content": (
                     "Stop calling tools. Provide your best final answer now "
                     "from the information gathered. If the pages you opened "
-                    'were listicles or thin, say the sources were weak, do '
+                    "were listicles or thin, say the sources were weak, do "
                     "not rank or declare a winner from them. If you lack a "
                     "tool warrant for a precise or contingent claim, say you "
                     "do not know."
@@ -1339,7 +1339,7 @@ class AgentLoop:
                     {
                         "text": (
                             "waiting for the conversation model to finish "
-                            'loading, first reply after that is quick'
+                            "loading, first reply after that is quick"
                         )
                     },
                 )
@@ -1409,7 +1409,7 @@ class AgentLoop:
         if "send_sms" in available_all:
             reason = (
                 "send_sms is registered but hidden for this turn by the tool "
-                'subset, the utterance did not read as an outbound send.'
+                "subset, the utterance did not read as an outbound send."
             )
         else:
             reason = (

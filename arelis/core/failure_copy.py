@@ -315,7 +315,7 @@ def chat_followup_from_tool(tool: str, output: str, *, ask: str = "") -> str:
         if looks_like_bot_wall(cleaned):
             return (
                 "That page did not give a usable source (login, captcha, "
-                'or a bot check). I need another URL or a search, this '
+                "or a bot check). I need another URL or a search, this "
                 "is not the report."
             )
         return _page_talk(cleaned)
@@ -325,7 +325,7 @@ def chat_followup_from_tool(tool: str, output: str, *, ask: str = "") -> str:
         "source: ink" in cleaned.lower() or "no text layer" in cleaned.lower()
     ):
         return (
-            'That PDF is handwritten or scanned, I still need to look at '
+            "That PDF is handwritten or scanned, I still need to look at "
             "the page images. Ask me again if I stopped on the path list."
         )
     if len(cleaned) > 1600:

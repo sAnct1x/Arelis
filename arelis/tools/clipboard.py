@@ -195,7 +195,7 @@ class ClipboardTool:
     name = "clipboard"
     description = (
         "Read the system clipboard as plain text, or write text onto it. "
-        'Asks for Allow first on the card face, reading may expose passwords '
+        "Asks for Allow first on the card face, reading may expose passwords "
         "or private notes, and writing replaces whatever the user had copied. "
         "action=read (default) for what is on the clipboard or to use pasted "
         "text; action=write with text to copy something for them."

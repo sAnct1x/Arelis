@@ -970,7 +970,7 @@ async def execute_call(
             ):
                 replan += (
                     " If they asked about the weather/forecast, call "
-                    'weather, do not web_search again.'
+                    "weather, do not web_search again."
                 )
             if replan:
                 loop._fail_replan_used = True

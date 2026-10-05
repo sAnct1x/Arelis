@@ -960,7 +960,7 @@ class FakeDriver:
                 ok=False,
                 output=(
                     "Refused to type into a password/OTP field. "
-                    'Arelis does not enter credentials, sign in yourself.'
+                    "Arelis does not enter credentials, sign in yourself."
                 ),
                 data={"code": "SECRET_FIELD", "ref": ref},
             )
@@ -1026,7 +1026,7 @@ class FakeDriver:
                 self._future.clear()
                 return ActionResult(
                     ok=True,
-                    output='Closed the last tab, blank tab stays.',
+                    output="Closed the last tab, blank tab stays.",
                     data={"tabs": list(self._tabs), "active": 0},
                 )
             self._tabs.pop(self._active)
@@ -1455,7 +1455,7 @@ class PlaywrightDriver:
                 output=(
                     "Arelis Chrome is open but not controllable "
                     f"(CDP down on {self.cdp_url}). Allow relaunch to restart "
-                    'HER window only, daily Chrome is left alone. '
+                    "HER window only, daily Chrome is left alone. "
                     "Do not screenshot until connected."
                 ),
                 data={"code": "PROFILE_LOCKED", "browser": browser},
@@ -2210,7 +2210,7 @@ class PlaywrightDriver:
                 ok=False,
                 output=(
                     "Refused to type into a password/OTP field. "
-                    'Arelis does not enter credentials, sign in yourself.'
+                    "Arelis does not enter credentials, sign in yourself."
                 ),
                 data={"code": "SECRET_FIELD", "ref": ref},
             )
@@ -2273,7 +2273,7 @@ class PlaywrightDriver:
                     await current.goto("about:blank", wait_until="domcontentloaded")
                     return ActionResult(
                         ok=True,
-                        output='Closed the last tab, blank tab stays.',
+                        output="Closed the last tab, blank tab stays.",
                         data={"url": current.url, "title": await current.title()},
                     )
                 close_i = pages.index(current) if current in pages else 0

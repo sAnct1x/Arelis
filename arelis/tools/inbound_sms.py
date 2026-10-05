@@ -27,9 +27,9 @@ class InboundSmsTool(Tool):
         "List recent inbound texts that arrived while Arelis was open "
         "(Google Messages notifications and SMSGate fallback). Everyone who "
         "texted, not only people in contacts. Use this when the user asks "
-        'whether someone texted back, what they said, or for recent SMS'
+        "whether someone texted back, what they said, or for recent SMS"
         "do not web_search social media for private replies. If it reports "
-        'that the phone bridge has not checked in, say that, never turn it '
+        "that the phone bridge has not checked in, say that, never turn it "
         "into 'no new messages'."
     )
     risk = "read"

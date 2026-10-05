@@ -65,7 +65,7 @@ def run_tesseract_inspect(path: Path, *, lang: str = "eng") -> OcrInspect:
         raise RuntimeError(
             "tesseract is not on PATH. Install Tesseract OCR for Windows "
             "(UB Mannheim build) or set tools.ocr.enabled: false. "
-            'GPU chat models stay unloaded, this path is CPU-only.'
+            "GPU chat models stay unloaded, this path is CPU-only."
         )
     if not path.is_file():
         raise FileNotFoundError(f"Image not found: {path}")

@@ -167,7 +167,7 @@ def remove_active_workspace_root(window) -> None:
 def open_file(window, path: str, line: int = 0) -> None:
     if not path:
         window.chat.add_system(
-            'open needs a path, pick a file or type one under the workspace roots'
+            "open needs a path, pick a file or type one under the workspace roots"
         )
         return
     window._reveal_dock(window.work_dock, window.act_workspace)

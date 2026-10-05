@@ -570,7 +570,7 @@ class InboundIngestServer:
                                 503,
                                 {
                                     "ok": False,
-                                    "error": 'open Arelis on the PC, files live there',
+                                    "error": "open Arelis on the PC, files live there",
                                 },
                             )
                             return
@@ -601,7 +601,7 @@ class InboundIngestServer:
                             503,
                             {
                                 "ok": False,
-                                "error": 'open Arelis on the PC, files live there',
+                                "error": "open Arelis on the PC, files live there",
                             },
                         )
                         return
@@ -979,7 +979,7 @@ class InboundIngestServer:
                         503,
                         {
                             "ok": False,
-                            "error": 'open Arelis on the PC, the house is not thinking yet',
+                            "error": "open Arelis on the PC, the house is not thinking yet",
                         },
                     )
                     return
@@ -992,7 +992,7 @@ class InboundIngestServer:
                     if busy:
                         self._reply(
                             409,
-                            {"ok": False, "error": 'already in a turn, wait or stop on the PC'},
+                            {"ok": False, "error": "already in a turn, wait or stop on the PC"},
                         )
                         return
                 text = str(data.get("text") or "").strip()
@@ -1030,7 +1030,7 @@ class InboundIngestServer:
                     if transcribe is None:
                         self._reply(
                             501,
-                            {"ok": False, "error": 'voice is off on the PC, type instead'},
+                            {"ok": False, "error": "voice is off on the PC, type instead"},
                         )
                         return
                     clip = state_dir() / "drops" / "mobile-voice.wav"

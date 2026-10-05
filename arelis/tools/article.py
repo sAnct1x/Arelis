@@ -1010,7 +1010,7 @@ def _diagnose(html: str, text: str) -> str:
         )
     if thin_readable(text):
         return (
-            'Almost no readable HTML text, likely a JavaScript app shell. '
+            "Almost no readable HTML text, likely a JavaScript app shell. "
             "Scrape cannot run site JS. Prefer a different URL, an AMP/print "
             "link if available, or browser(action=open) with this URL. "
             "Do not invent what the page says."

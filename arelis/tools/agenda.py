@@ -70,11 +70,11 @@ class AgendaTool:
         "create/update/delete events (writes need Allow). Local create "
         "works without Google; connecting later pushes pending events "
         "without another ask. Never invent "
-        'meetings or open slots, list or free first and cite the tool '
+        "meetings or open slots, list or free first and cite the tool "
         "(time, title, place, one-line notes). Never ask the user for a "
         "Google event id; delete "
         "by title/time. provider=google|outlook|local|all|ics. action=open shows "
-        'the local tile; action=close hides it, do not use the browser '
+        "the local tile; action=close hides it, do not use the browser "
         "calendar alias unless they asked for the website."
     )
     # Registered as read; write actions gated in ToolRegistry.needs_confirm.
@@ -160,7 +160,7 @@ class AgendaTool:
                 "type": "string",
                 "description": (
                     "Cached or provider event id for update/delete. Optional "
-                    'for delete, prefer summary (and start) and the tool '
+                    "for delete, prefer summary (and start) and the tool "
                     "resolves the id. Never ask the user to paste a Google id."
                 ),
             },
@@ -727,7 +727,7 @@ class AgendaTool:
                 ok=False,
                 output=(
                     "[fail:agenda] No matching calendar events to delete. "
-                    'Call agenda(action=list) and delete by title/time'
+                    "Call agenda(action=list) and delete by title/time"
                     "do not ask the user for a Google event id."
                 ),
                 data={"action": "delete", "count": 0},
@@ -768,7 +768,7 @@ class AgendaTool:
         if not to_delete:
             return ToolResult(
                 ok=True,
-                output='Nothing extra to delete, already a single copy.',
+                output="Nothing extra to delete, already a single copy.",
                 data={"action": "delete", "count": 0, "kept": len(matches)},
             )
         deleted: list[str] = []

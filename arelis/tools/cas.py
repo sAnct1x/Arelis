@@ -162,11 +162,11 @@ class CasTool:
         "Pass a plain expression like 'x**2 * sin(x)' (use ** for powers). "
         "For solve, an equation is fine: '-4*x + 7 = 15'. "
         "gradient/directional take wrt='x,y,z', at='1,-1,2', dir='1,2,-2'. "
-        'Result includes ascii, a unicode pretty form, and a latex: line'
+        "Result includes ascii, a unicode pretty form, and a latex: line"
         "quote that latex inside $$ $$; do not rewrite it. "
-        'This is the CAS, do not use calculator for integrals, derivatives, '
+        "This is the CAS, do not use calculator for integrals, derivatives, "
         "or symbolic algebra, and do not recite a closed form from memory. "
-        'A timeout or an unevaluated Integral is not a proof none exists'
+        "A timeout or an unevaluated Integral is not a proof none exists"
         "do not invent a decimal or claim there is no closed form."
     )
     risk = "read"
@@ -335,7 +335,7 @@ class CasTool:
                 ok=False,
                 output=(
                     "The CAS left this unevaluated. That is not a proof none "
-                    'exists, I will not invent a closed form or a decimal.'
+                    "exists, I will not invent a closed form or a decimal."
                 ),
                 data={
                     "fail_class": "fail:no_closed_form",

@@ -458,7 +458,7 @@ class CameraPanel(QWidget):
         self.track_btn.toggled.connect(self._on_track_toggled)
         self.record_btn.toggled.connect(self._on_record_toggled)
         self.ask_btn.setToolTip(
-            'One still, then Allow, Identify what is in frame. '
+            "One still, then Allow, Identify what is in frame. "
             "Typed chat can Read, Translate, or ask if food is still good."
         )
 
@@ -743,7 +743,7 @@ class CameraPanel(QWidget):
             self._set_hint("Start the camera before taking a snapshot.")
             return
         if not self._image_capture.isReadyForCapture():
-            self._set_hint('Camera not ready for capture yet, wait a moment.')
+            self._set_hint("Camera not ready for capture yet, wait a moment.")
             return
         out_dir = outputs_dir() / "images"
         out_dir.mkdir(parents=True, exist_ok=True)

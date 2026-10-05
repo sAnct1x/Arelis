@@ -33,7 +33,7 @@ log = logging.getLogger(__name__)
 
 # STATUS copy the UI matches so the first-turn shimmer is not "thinking…"
 # while the prefix seed is still running.
-WARMUP_PINNED = 'Chat model loaded, preparing the first reply.'
+WARMUP_PINNED = "Chat model loaded, preparing the first reply."
 WARMUP_READY = "Ready for the first reply."
 
 
@@ -150,7 +150,7 @@ async def run_auto_lessons(bus: EventBus, *, enabled: bool = True) -> None:
         )
         return
     if bits:
-        log.info('Trust mine, %s', "; ".join(bits))
+        log.info("Trust mine, %s", "; ".join(bits))
 
 
 async def run_model_warmup(

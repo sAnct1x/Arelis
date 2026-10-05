@@ -158,7 +158,7 @@ def spin_caption(name: str) -> str:
         return "Mean Earth-facing. Optical libration ignored."
     if name in IAU_W:
         return "IAU W, J2000 (WGCCRE 2015). Map is body-fixed. No precession."
-    return 'Map is not body-fixed, ecliptic-aligned sphere.'
+    return "Map is not body-fixed, ecliptic-aligned sphere."
 
 
 def sun_pole_ecliptic() -> tuple[float, float, float]:

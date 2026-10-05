@@ -46,7 +46,7 @@ def make_reach_control(parent: QWidget | None, reach: float) -> tuple[QSlider, Q
     slider.setPageStep(10)
     slider.setFixedWidth(128)
     slider.setValue(round(value * 100))
-    slider.setToolTip('Reach, how far a small hand move goes. Like mouse DPI.')
+    slider.setToolTip("Reach, how far a small hand move goes. Like mouse DPI.")
     label = QLabel(f"{value:.2f}x", parent)
     label.setObjectName("InstrumentHint")
     label.setFixedWidth(42)

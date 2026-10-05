@@ -345,7 +345,7 @@ def _answer_has_quote_span(text: str) -> bool:
 
 
 _EMPTY_REPLY_NOTICE = (
-    'I thought through it and never wrote the answer, an empty reply, not a '
+    "I thought through it and never wrote the answer, an empty reply, not a "
     "crash or an unload. Say continue, or ask a smaller piece."
 )
 

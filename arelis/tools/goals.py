@@ -56,7 +56,7 @@ class GoalsTool:
     description = (
         "List, add, update, pause, resume, complete, drop, or remove durable "
         "goals and commitments in memory.db. Use for outcomes and standing "
-        'promises, not chores (use tasks; link chores with tasks goal_id/'
+        "promises, not chores (use tasks; link chores with tasks goal_id/"
         "attach) and not identity prefs (use memory prefer/decide). "
         "action=list for active items (or status=paused|done|dropped|all); "
         "list shows open-task counts when linked. priority is high|normal|low "
@@ -346,7 +346,7 @@ class GoalsTool:
         note = ""
         if action == "done":
             note = (
-                ' (still stored, default goals list shows active only; '
+                " (still stored, default goals list shows active only; "
                 "call goals action=list status=done or status=all to see it)"
             )
         return ToolResult(

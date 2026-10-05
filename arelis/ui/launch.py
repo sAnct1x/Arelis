@@ -159,7 +159,7 @@ async def _drain_event_loop(
         # evil: a quit that never returns is a program the user has to kill, and
         # they will then be exiting mid-write anyway with no record of why.
         log.warning(
-            'loop drain: background writes still running after %.2fs, exiting anyway',
+            "loop drain: background writes still running after %.2fs, exiting anyway",
             budget_s,
         )
     try:
@@ -217,8 +217,8 @@ def _raise_running_instance(config: dict[str, Any]) -> int:
             "Arelis is already open, but it did not answer the request to come "
             "to the front.",
             detail=(
-                'Look for the Arelis icon in the notification area, Windows '
-                'often keeps it in the overflow behind the chevron, and choose '
+                "Look for the Arelis icon in the notification area, Windows "
+                "often keeps it in the overflow behind the chevron, and choose "
                 f"Open Arelis. If it is not responding at all, {logs_dir()}"
                 "\\arelis.log has the last thing it did."
             ),

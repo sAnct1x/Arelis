@@ -148,7 +148,7 @@ class WindowLifetime:
             self.hide()
             self._tray.showMessage(
                 "Arelis",
-                'Still running in the tray, inbound texts keep working. '
+                "Still running in the tray, inbound texts keep working. "
                 "Quit from the tray menu to stop fully.",
                 QSystemTrayIcon.MessageIcon.Information,
                 4000,

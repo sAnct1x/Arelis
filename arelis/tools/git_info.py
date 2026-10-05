@@ -50,7 +50,7 @@ class GitInfoTool:
         "commit needs message and only commits what is staged; stage takes an "
         "optional path; blame needs path; show takes optional rev (default HEAD). "
         "Never pushes, resets, cleans, checks out, rewrites history, or mutates "
-        'stash, say so rather than claiming you did.'
+        "stash, say so rather than claiming you did."
     )
     risk = "read"
     parameters_schema: dict[str, Any] = {
@@ -118,7 +118,7 @@ class GitInfoTool:
                 output=(
                     f"Unknown or forbidden action: {action}. "
                     "stash is list-only (git stash list). "
-                    'apply, pop, drop and push are deliberately unavailable'
+                    "apply, pop, drop and push are deliberately unavailable"
                     "tell the user to run it themselves rather than claiming "
                     "you did."
                 ),
@@ -131,14 +131,14 @@ class GitInfoTool:
                     "Allowed: status, diff, log, branch, stash, blame, show, "
                     "stage, commit. "
                     "Pushing, resetting, cleaning, checking out and rewriting "
-                    'history are deliberately unavailable, tell the user to '
+                    "history are deliberately unavailable, tell the user to "
                     "run it themselves rather than claiming you did."
                 ),
             )
         if action == "blame" and not str(kwargs.get("path") or "").strip():
             return ToolResult(
                 ok=False,
-                output='blame needs path, the file to annotate.',
+                output="blame needs path, the file to annotate.",
             )
         message = str(kwargs.get("message") or "").strip()
         if action == "commit" and not message:

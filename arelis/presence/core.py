@@ -36,7 +36,7 @@ def run_core(config: dict[str, Any]) -> int:
     lock = PresenceLock(core_lock_path(config))
     if not lock.acquire():
         log.error(
-            'Another Arelis core already holds %s, not starting a second ingest.',
+            "Another Arelis core already holds %s, not starting a second ingest.",
             lock.path,
         )
         return 2
@@ -84,7 +84,7 @@ def run_core(config: dict[str, Any]) -> int:
             if item is not None:
                 store.upsert(item)
             log.info(
-                'Confirm needed (%s): %s, open Arelis to allow/skip (no silent send).',
+                "Confirm needed (%s): %s, open Arelis to allow/skip (no silent send).",
                 payload.get("tool"),
                 payload.get("summary"),
             )
@@ -100,7 +100,7 @@ def run_core(config: dict[str, Any]) -> int:
             elif result.get("spawned"):
                 log.info("Spawned UI for confirm (pid=%s).", result.get("pid"))
             elif result.get("ui_lock"):
-                log.info('UI already running (lock held); confirm parked, open from tray.')
+                log.info("UI already running (lock held); confirm parked, open from tray.")
             else:
                 log.info("No UI attached; confirm parked on disk.")
             return

@@ -101,7 +101,7 @@ def _lookup(name: str) -> ToolResult:
     if len(items) > 1:
         lines.append(
             "Those are published figures, not a measurement this turn. "
-            'Cosmology still has a Hubble tension, pick a value with its source.'
+            "Cosmology still has a Hubble tension, pick a value with its source."
         )
     return ToolResult(
         ok=True,

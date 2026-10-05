@@ -284,14 +284,14 @@ class PlotTool:
         "(or a JSON/[1,2,3] list; x/y are aliases for xs/ys when there is "
         "no path), or ys alone for histogram, or categories and values "
         "for bar. To draw a "
-        'formula (sin(x), x^2) pass expr with xmin and xmax, never type the '
-        'numbers out yourself. path= is the table, never the PNG, that name '
+        "formula (sin(x), x^2) pass expr with xmin and xmax, never type the "
+        "numbers out yourself. path= is the table, never the PNG, that name "
         "is out=. histogram takes one numeric series (y or ys) with optional "
         "bins. bar draws categories against values, not a line chart. "
-        'subplots combines two or more panels in one figure, pass panels as '
+        "subplots combines two or more panels in one figure, pass panels as "
         "comma-separated kinds (e.g. line,histogram) with the same data. "
         "residuals fits a straight line (least squares) and plots data+fit "
-        'plus residuals, do not invent a trend or draw an ASCII chart. This '
+        "plus residuals, do not invent a trend or draw an ASCII chart. This "
         "is not Python: do not pass code or matplotlib. Allow is required. Do "
         "not use image (Comfy) for data."
     )
@@ -315,7 +315,7 @@ class PlotTool:
                 "type": "string",
                 "description": (
                     "Table file under a workspace root (CSV/TSV/JSON/Excel). "
-                    'Not the PNG, that is out='
+                    "Not the PNG, that is out="
                 ),
             },
             "x": {
@@ -445,7 +445,7 @@ class PlotTool:
         if room is not None:
             return (
                 self.drop_dir(),
-                'the shared drop tray, this room has no folder',
+                "the shared drop tray, this room has no folder",
             )
         return self.drop_dir(), "the shared drop tray (outputs/plots)"
 
@@ -565,7 +565,7 @@ class PlotTool:
         bits = [f"Wrote {shown} ({action}, {n} points) in {where}."]
         if extra:
             bits.append(extra)
-        bits.append('Open that file, that chart is from this turn, not a picture I imagined.')
+        bits.append("Open that file, that chart is from this turn, not a picture I imagined.")
         return ToolResult(
             ok=True,
             output=" ".join(bits),

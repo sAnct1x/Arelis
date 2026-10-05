@@ -91,7 +91,7 @@ CATALOG: tuple[CatalogModel, ...] = (
         "DeepSeek R1 · 8B",
         5.2,
         8.0,
-        'Reasoning. Good at math and careful think. Text only, pictures use a separate look.',
+        "Reasoning. Good at math and careful think. Text only, pictures use a separate look.",
     ),
     CatalogModel(
         "deepseek-r1:14b",

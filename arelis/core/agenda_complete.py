@@ -1025,7 +1025,7 @@ def agenda_preflight_nudge(draft: AgendaDraft | None) -> str:
             "Intent preflight: create a calendar event now. Call agenda "
             f'immediately with action=create provider="{draft.provider}" '
             f'summary="{draft.summary[:120]}" start="{draft.start}"{desc}. '
-            'Do not send_sms for a calendar reminder about texting someone'
+            "Do not send_sms for a calendar reminder about texting someone"
             "put that in the event title/description. Do not only give manual "
             "calendar steps. The confirm card is the Allow step."
         )

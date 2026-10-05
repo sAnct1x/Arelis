@@ -760,7 +760,7 @@ def _format(results: list[SearchResult]) -> str:
     lines.append(
         "Snippets are previews. Scrape the most relevant result before "
         "answering a cited fact (encyclopedia, journal, agency, newspaper) "
-        '- not a listicle. '
+        "- not a listicle. "
         "For a judgment or ranking, snippets plus what you know are enough; "
         "do not open mills or re-read tool_cache. "
         "Call scrape (HTML) or web_fetch (API/JSON) with the URL: value copied "

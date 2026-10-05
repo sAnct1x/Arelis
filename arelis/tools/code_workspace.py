@@ -324,16 +324,16 @@ class CodeWorkspaceTool:
         "change files. "
         "To locate something you do not have the path for, use grep with "
         "query= (searches file contents, returns path:line) or find with "
-        'query= (searches file names), do not walk the tree with repeated '
+        "query= (searches file names), do not walk the tree with repeated "
         "list calls. "
         "Use patch (or apply) with a unified diff in diff=/patch=/content= "
-        'when the change arrived as ---/+++ hunks, do not flatten it into '
+        "when the change arrived as ---/+++ hunks, do not flatten it into "
         "edit old/new. "
         "Use delete to remove a file they asked you to remove, and "
-        'move/rename/copy with to= for the new path, do not read a file and '
+        "move/rename/copy with to= for the new path, do not read a file and "
         "write it back under another name. "
         "Use keep when the user says keep this / put this on the desk "
-        '/ jot this down, that writes a short note into notes/ on the '
+        "/ jot this down, that writes a short note into notes/ on the "
         "active project. Do not use memory remember for a page they want "
         "to reopen. With multiple projects, qualify paths as name:relative/path."
     )
@@ -940,7 +940,7 @@ class CodeWorkspaceTool:
                     ok=False,
                     output=(
                         f"{label} is a directory and is not empty. Delete the "
-                        'files inside it first, there is no recursive delete.'
+                        "files inside it first, there is no recursive delete."
                     ),
                 )
             path.rmdir()

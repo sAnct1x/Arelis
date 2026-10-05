@@ -51,8 +51,8 @@ class CatalogTool:
         "Actions: arxiv (no key; acknowledge arXiv in the answer), "
         "horizons (JPL ephemerides, no key, do not invent EMAIL; "
         "table=observer for sky, table=vectors for SSB ECLIPJ2000 state), "
-        'apod (NASA Astronomy Picture of the Day, needs nasa.api_key), '
-        'ads (NASA ADS paper search, needs ads.token). '
+        "apod (NASA Astronomy Picture of the Day, needs nasa.api_key), "
+        "ads (NASA ADS paper search, needs ads.token). "
         "Do not scrape NASA or arXiv JavaScript. Do not use web_search "
         "when the user named arXiv, Horizons, APOD, or ADS. "
         "Do not recite a bibcode or an ephemeris from memory."
