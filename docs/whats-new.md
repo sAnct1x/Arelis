@@ -1,6 +1,6 @@
 # What's new
 
-This checkout is **0.3.0**. The latest published installer is **0.2.9** until v0.3.0 is published.
+This checkout is **0.3.0**. The latest published installer, **0.2.9**, is broken: it closes at startup (so do 0.2.4 to 0.2.8). Please run from source until v0.3.0 is out and verified; see [Running from source](../README.md#running-from-source).
 
 Notes: [v0.3.0](releases/v0.3.0.md). Older:
 [v0.2.9](releases/v0.2.9.md).
