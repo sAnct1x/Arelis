@@ -1,0 +1,104 @@
+name: Installer smoke
+
+# After-install check: silent install, import probe, real window probe,
+# upgrade, downgrade, uninstall. Catches prune bugs that build.py verify()
+# and scripts/installed_smoke.py miss (for example a missing PySide6.QtOpenGL).
+on:
+  workflow_call:
+    inputs:
+      candidate_artifact:
+        description: Artifact name from the calling run (e.g. arelis-windows-installer)
+        type: string
+        default: ""
+      candidate_tag:
+        description: Published release tag (e.g. v0.2.9)
+        type: string
+        default: ""
+      previous_tag:
+        description: Previous tag for upgrade/downgrade (empty = resolve)
+        type: string
+        default: ""
+      expect_failure:
+        description: Green only if import and window probes fail with QtOpenGL
+        type: boolean
+        default: false
+      window_probe_mode:
+        description: Gate on window, construct, or either (default window)
+        type: string
+        default: "window"
+  workflow_dispatch:
+    inputs:
+      candidate_artifact:
+        description: Artifact name from a prior run (leave empty when using a tag)
+        type: string
+        default: ""
+      candidate_tag:
+        description: Published release tag (e.g. v0.2.9)
+        type: string
+        default: ""
+      previous_tag:
+        description: Previous tag for upgrade/downgrade (empty = resolve)
+        type: string
+        default: ""
+      expect_failure:
+        description: Green only if import and window probes fail with QtOpenGL
+        type: boolean
+        default: false
+      window_probe_mode:
+        description: Gate on window, construct, or either (default window)
+        type: string
+        default: "window"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: installer-smoke-${{ github.workflow }}-${{ github.ref }}-${{ inputs.candidate_tag }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    runs-on: windows-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
+
+      - name: Download candidate artifact
+        if: ${{ inputs.candidate_artifact != '' }}
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ inputs.candidate_artifact }}
+          path: smoke-in
+
+      - name: Run installer smoke
+        env:
+          PYTHONUTF8: "1"
+          GH_TOKEN: ${{ github.token }}
+          EXPECT_FAILURE: ${{ inputs.expect_failure }}
+          WINDOW_PROBE_MODE: ${{ inputs.window_probe_mode }}
+          WINDOW_WAIT_S: "60"
+        run: >
+          python scripts/installer_smoke.py run
+          --candidate-artifact "${{ inputs.candidate_artifact }}"
+          --candidate-tag "${{ inputs.candidate_tag }}"
+          --previous-tag "${{ inputs.previous_tag }}"
+          --artifact-dir smoke-in
+          --window-probe-mode "${{ inputs.window_probe_mode }}"
+
+      - name: Write summary
+        if: always()
+        env:
+          PYTHONUTF8: "1"
+        run: python scripts/installer_smoke.py summary
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: installer-smoke-logs
+          path: smoke-out/**
+          if-no-files-found: warn
+          retention-days: 14
