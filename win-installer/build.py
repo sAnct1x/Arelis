@@ -52,6 +52,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -284,6 +285,123 @@ def installed_version() -> str:
     ).strip()
 
 
+def _normalise_dist_name(name: str) -> str:
+    """PyPI name equivalence: ``jieba`` and ``Jieba`` are the same distribution."""
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
+def is_pure_py3_wheel(filename: str) -> bool:
+    """True when a wheel filename is the pure-Python ``py3-none-any`` form.
+
+    Same purity rule lock.py documents for SDIST_ONLY: anything else is not what the
+    sdist-only exception is for.
+    """
+    return filename.endswith("-py3-none-any.whl")
+
+
+def pinned_requirement_for(lock_text: str, name: str) -> tuple[str, str]:
+    """Return ``(version, requirements body)`` for one hashed pin in the lock.
+
+    The body is that project's ``name==version`` line plus any ``--hash=sha256`` lines
+    belonging to it, suitable for a one-package ``pip wheel --require-hashes`` input.
+    """
+    want = _normalise_dist_name(name)
+    lines = lock_text.splitlines()
+    index = 0
+    while index < len(lines):
+        stripped = lines[index].strip()
+        if not stripped or stripped.startswith("#"):
+            index += 1
+            continue
+        block_lines = [lines[index]]
+        while block_lines[-1].rstrip().endswith("\\"):
+            index += 1
+            if index >= len(lines):
+                break
+            block_lines.append(lines[index])
+        logical = " ".join(part.rstrip().removesuffix("\\").strip() for part in block_lines)
+        match = re.match(r"([A-Za-z0-9._-]+)\s*==\s*([^\s]+)", logical)
+        if match and _normalise_dist_name(match.group(1)) == want:
+            return match.group(2), "\n".join(block_lines) + "\n"
+        index += 1
+    raise SystemExit(f"{name} is in SDIST_ONLY but missing from {LOCK.name}")
+
+
+def lock_without_sdist_only(lock_text: str, names: tuple[str, ...] = SDIST_ONLY) -> str:
+    """Lock text with SDIST_ONLY projects removed for the main hashed install.
+
+    Those are installed from a locally built wheel first. Leaving their sdist hashes
+    in the file would make ``--only-binary :all:`` refuse them, and pip under
+    ``--require-hashes`` accepts an already-installed dependency that is simply not
+    listed again.
+    """
+    drop = {_normalise_dist_name(name) for name in names}
+    lines = lock_text.splitlines()
+    kept: list[str] = []
+    index = 0
+    while index < len(lines):
+        stripped = lines[index].strip()
+        if not stripped or stripped.startswith("#"):
+            kept.append(lines[index])
+            index += 1
+            continue
+        block_lines = [lines[index]]
+        while block_lines[-1].rstrip().endswith("\\"):
+            index += 1
+            if index >= len(lines):
+                break
+            block_lines.append(lines[index])
+        logical = " ".join(part.rstrip().removesuffix("\\").strip() for part in block_lines)
+        match = re.match(r"([A-Za-z0-9._-]+)\s*==\s*", logical)
+        if match and _normalise_dist_name(match.group(1)) in drop:
+            index += 1
+            continue
+        kept.extend(block_lines)
+        index += 1
+    return "\n".join(kept) + ("\n" if lock_text.endswith("\n") else "")
+
+
+def install_sdist_only_wheels() -> None:
+    """Build SDIST_ONLY sdists into wheels on the runner, then install into the tree.
+
+    The embeddable tree has pip but no setuptools, so building an sdist there fails with
+    ``BackendUnavailable``. The runner's Python can use build isolation. The sdist hash
+    from the lock is enforced by ``--require-hashes`` at the wheel step; the tree then
+    gets a local ``py3-none-any`` wheel with ``--no-index`` and no building.
+    """
+    lock_text = LOCK.read_text(encoding="utf-8")
+    wheelhouse = BUILD / "sdist-wheels"
+    if wheelhouse.exists():
+        shutil.rmtree(wheelhouse)
+    wheelhouse.mkdir(parents=True, exist_ok=True)
+
+    for name in SDIST_ONLY:
+        version, body = pinned_requirement_for(lock_text, name)
+        req_path = BUILD / f"requirements-{name}.txt"
+        req_path.parent.mkdir(parents=True, exist_ok=True)
+        req_path.write_text(body, encoding="utf-8", newline="\n")
+        run(
+            [sys.executable, "-m", "pip", "wheel", "--no-deps", "--require-hashes",
+             "--no-binary", name, "-r", str(req_path), "--wheel-dir", str(wheelhouse)],
+            f"Building a wheel for {name} from the hashed sdist",
+        )
+        wheels = sorted(wheelhouse.glob(f"{name}-*.whl"))
+        if len(wheels) != 1:
+            raise SystemExit(f"expected one {name} wheel, found {wheels}")
+        if not is_pure_py3_wheel(wheels[0].name):
+            raise SystemExit(
+                f"{name} did not build to a py3-none-any wheel (got {wheels[0].name}). "
+                "SDIST_ONLY is for pure-Python projects only."
+            )
+        run(
+            [str(python_exe()), "-m", "pip", "install", "--no-deps", "--no-index",
+             "--find-links", str(wheelhouse), "--no-warn-script-location",
+             f"{name}=={version}"],
+            f"Installing {name} into the tree from the local wheel",
+        )
+        say(f"  installed {wheels[0].name} into the tree")
+
+
 def install_locked_dependencies() -> None:
     """Install the lock, with hashes enforced.
 
@@ -291,20 +409,29 @@ def install_locked_dependencies() -> None:
     contents are not the ones resolved and reviewed, so a mirror serving something else
     fails this build instead of being packaged into an installer and handed out.
 
+    SDIST_ONLY projects are wheeled on the runner and installed into the tree first; the
+    main install then uses a filtered lock without those lines so ``--only-binary :all:``
+    can stay strict for everything else.
+
     Bytecode is compiled on purpose. An installed copy under Program Files or a
     read-only directory cannot write .pyc, and without them every launch recompiles the
     same modules and throws the result away.
     """
+    install_sdist_only_wheels()
+
+    BUILD.mkdir(parents=True, exist_ok=True)
+    filtered = BUILD / "requirements-binary.txt"
+    filtered.write_text(
+        lock_without_sdist_only(LOCK.read_text(encoding="utf-8")),
+        encoding="utf-8",
+        newline="\n",
+    )
     run(
         [str(python_exe()), "-m", "pip", "install",
          "--require-hashes",
          "--only-binary", ":all:",
-         # After --only-binary on purpose: ":all:" clears the no-binary set, a named
-         # --no-binary that follows it is the exception. Pure-Python projects with no
-         # wheel, built from the hashed sdist. Same list as SDIST_ONLY in lock.py.
-         *[arg for name in SDIST_ONLY for arg in ("--no-binary", name)],
          "--no-warn-script-location",
-         "-r", str(LOCK)],
+         "-r", str(filtered)],
         "Installing the locked dependency set",
     )
     say(f"  installed the {LOCK.name} set")
