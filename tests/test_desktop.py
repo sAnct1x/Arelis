@@ -886,8 +886,7 @@ def test_grab_window_on_middle_and_right_only(tmp_path) -> None:
 # Session 2026-10-04: a declined or complaining message must not look at the
 # desk, and must not count as the user asking for it (no Allow card skip).
 DESK_LOOK_DECLINED = (
-    "no need to look at the book, its just fucking crazy that she wrote a "
-    "scenario, as fiction, and a few months later it literally might be happening",
+    "no need to look at the book, its just crazy that she wrote a scenario",
     "no need to look at the book",
     "why did you look at my screen",
     "I don't want you to look at the book",
@@ -924,3 +923,31 @@ def test_declined_look_does_not_arm_a_later_followup() -> None:
     ]
     assert not looks_like_desktop_look("explain that", history=history)
     assert not looks_like_desktop_look("can you explain that", history=history)
+
+
+def test_declined_screen_look_is_not_camera_either() -> None:
+    from arelis.core.look import classify_look
+
+    for text in (
+        "don't look at my screen, what do you see",
+        "why did you look at my screen? what do you see",
+    ):
+        assert classify_look(text) is None, text
+        assert classify_look(text, dock_live=True) is None, text
+        tools = {t for h in detect_intents(text) for t in h.expected_tools}
+        assert "camera" not in tools, text
+
+
+def test_curly_dont_declines_desk_look() -> None:
+    text = "don\u2019t look at my screen"
+    assert not looks_like_desktop_look(text)
+    assert not user_asked_for_desktop(text)
+    assert "desktop_look" not in {h.kind for h in detect_intents(text)}
+
+
+def test_suggestion_and_never_mind_still_fire_desk_look() -> None:
+    why = "why don't you look at my screen"
+    assert looks_like_desktop_look(why)
+    assert "desktop_look" in {h.kind for h in detect_intents(why)}
+    never = "never mind, look at my screen"
+    assert looks_like_desktop_look(never)

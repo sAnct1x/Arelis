@@ -552,8 +552,7 @@ def test_open_notepad_is_desktop_not_workspace_write() -> None:
 
 
 BROWSER_COMPLAINTS = (
-    "i never asked you to do anything, why did you open your browser, check the "
-    "time, and talk about whatever the fuck shibuya room is?",
+    "i never asked you to do anything, why did you open your browser, check the time",
     "why did you open your browser",
     "you shouldn't have opened your browser",
     "no need to open your browser",
@@ -584,3 +583,25 @@ def test_real_browser_requests_still_trigger() -> None:
         assert "browser" in {t for h in hints for t in h.expected_tools}, text
         assert user_asked_for_browser(text), text
     assert any(h.kind == "browser" for h in detect_intents("open your browser"))
+
+
+def test_curly_dont_declines_browser() -> None:
+    from arelis.core.preflight import user_asked_for_browser
+
+    text = "don\u2019t open your browser"
+    hints = detect_intents(text)
+    assert "browser" not in {h.kind for h in hints}
+    assert "browser" not in {t for h in hints for t in h.expected_tools}
+    assert not user_asked_for_browser(text)
+
+
+def test_suggestion_and_never_mind_still_fire_browser() -> None:
+    from arelis.core.preflight import user_asked_for_browser
+
+    for text in (
+        "never mind, open your browser",
+        "why don't you open your browser and go to x.com",
+    ):
+        hints = detect_intents(text)
+        assert "browser" in {t for h in hints for t in h.expected_tools}, text
+        assert user_asked_for_browser(text), text
