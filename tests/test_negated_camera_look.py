@@ -37,7 +37,7 @@ def test_declined_look_expects_no_camera(text: str) -> None:
     hints = detect_intents(text)
     tools = {t for h in hints for t in h.expected_tools}
     assert "camera" not in tools, text
-    assert "look" not in {h.kind for h in hints}, text
+    assert "vision" not in {h.kind for h in hints}, text
 
 
 def test_veto_callers_keep_the_old_answer() -> None:
@@ -59,5 +59,6 @@ def test_real_looks_still_fire() -> None:
         assert mentions_camera_look(text, unnegated=True), text
     tools = {t for h in detect_intents("look at this") for t in h.expected_tools}
     assert "camera" in tools
+    assert "vision" in {h.kind for h in detect_intents("look at this")}
     translate = classify_look("translate this", dock_live=True)
     assert translate is not None and translate.act == "translate"
