@@ -421,3 +421,15 @@ def test_the_installer_script_reads_the_relaunch_flag() -> None:
         "is only removed by --purge-user-data after a checkout check."
     )
     assert "--purge-user-data" in script
+    # Wipe keeps pre-upgrade safety copies and offers to open their folder.
+    assert "Name: \"{localappdata}\\Arelis-backups\"" not in script, (
+        "Arelis-backups must not be deleted on wipe"
+    )
+    assert "Your safety copies of memory and settings were kept" in script
+    assert "You can delete them any time." in script
+    assert "Arelis-backups folder in your user files" in script
+    assert "Open that folder now?" in script
+    assert "procedure CurUninstallStepChanged" in script
+    assert "ShellExec(" in script
+    assert "usPostUninstall" in script
+    assert "DirExists(BackupDir)" in script

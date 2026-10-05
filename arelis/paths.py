@@ -69,9 +69,7 @@ def is_source_checkout() -> bool:
     else's source tree. ``tests/`` is not packaged into a wheel, so an installed
     copy cannot have both no matter where it was installed.
     """
-    return (INSTALL_PARENT / "pyproject.toml").is_file() and (
-        INSTALL_PARENT / "tests"
-    ).is_dir()
+    return (INSTALL_PARENT / "pyproject.toml").is_file() and (INSTALL_PARENT / "tests").is_dir()
 
 
 def user_data_dir() -> Path:
@@ -110,6 +108,17 @@ def user_data_dir() -> Path:
 def state_dir() -> Path:
     """User records and durable state: contacts, profile, secrets, memory."""
     return user_data_dir() / "data"
+
+
+def pre_upgrade_backups_dir() -> Path:
+    """Pre-upgrade record copies. Sibling of the user data root, never inside it.
+
+    Uninstall wipe removes ``%LOCALAPPDATA%\\Arelis`` (and Arelis-runtime /
+    Arelis-dev). A folder named ``<data-root>-backups`` next to that root sits
+    outside the wipe list, so a wipe cannot take the upgrade copies with it.
+    """
+    data_root = user_data_dir()
+    return data_root.parent / f"{data_root.name}-backups"
 
 
 def logs_dir() -> Path:

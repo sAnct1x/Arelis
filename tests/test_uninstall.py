@@ -61,9 +61,7 @@ def test_purge_on_a_checkout_only_touches_tasks(
     (doomed / "keep.txt").write_text("x", encoding="utf-8")
 
     monkeypatch.setattr(wipe, "residue_dirs", lambda: [doomed])
-    monkeypatch.setattr(
-        "arelis.jobs.schedule.remove_all_tasks", lambda: ["news"]
-    )
+    monkeypatch.setattr("arelis.jobs.schedule.remove_all_tasks", lambda: ["news"])
 
     assert paths.is_source_checkout()
     gone = wipe.purge_user_state()
@@ -71,9 +69,7 @@ def test_purge_on_a_checkout_only_touches_tasks(
     assert (doomed / "keep.txt").is_file()
 
 
-def test_purge_removes_published_dirs(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_purge_removes_published_dirs(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     gone_dir = tmp_path / "Arelis"
     gone_dir.mkdir()
     (gone_dir / "secrets.yaml").write_text("x", encoding="utf-8")
@@ -87,9 +83,7 @@ def test_purge_removes_published_dirs(
     assert not gone_dir.exists()
 
 
-def test_purge_flag_runs_before_config(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_purge_flag_runs_before_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     from arelis import main as entry
 
     monkeypatch.setenv(paths.DATA_DIR_ENV, str(tmp_path / "state"))
@@ -102,3 +96,25 @@ def test_purge_flag_runs_before_config(
     monkeypatch.setattr("arelis.uninstall.purge_user_state", lambda: [r"C:\gone"])
 
     assert entry.main(["--purge-user-data"]) == 0
+
+
+def test_residue_does_not_include_pre_upgrade_backups(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    local = tmp_path / "Local"
+    local.mkdir()
+    profile = local / "Arelis"
+    profile.mkdir()
+    backups = local / "Arelis-backups"
+    backups.mkdir()
+    (backups / "pre-0.3.0").mkdir()
+
+    monkeypatch.setattr(wipe, "is_source_checkout", lambda: False)
+    monkeypatch.setenv("LOCALAPPDATA", str(local))
+    monkeypatch.delenv(paths.DATA_DIR_ENV, raising=False)
+    monkeypatch.setattr(wipe, "user_data_dir", lambda: profile)
+    monkeypatch.setattr(wipe, "default_workspace_root", lambda: tmp_path / "Documents" / "Arelis")
+
+    leftover = set(wipe.residue_dirs())
+    assert profile.resolve() in leftover
+    assert backups.resolve() not in leftover
