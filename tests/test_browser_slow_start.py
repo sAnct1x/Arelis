@@ -12,6 +12,7 @@ from typing import Any
 
 from arelis.browser.actions import ActionResult, PlaywrightDriver
 from arelis.browser.session import BrowserSession
+from arelis.tools.base import ToolResult
 from arelis.tools.browser_tool import BrowserTool
 
 _REFUSED = (
@@ -288,5 +289,69 @@ def test_open_falls_back_to_os_on_cdp_timeout(monkeypatch) -> None:
         assert got.ok is True
         assert got.data.get("mode") == "os_open"
         assert got.data.get("code") == "CDP_TIMEOUT"
+
+    asyncio.run(_run())
+
+
+def test_snapshot_connect_refused_does_not_relaunch(monkeypatch) -> None:
+    from arelis.browser import launch as launch_mod
+
+    _patch_launch(monkeypatch)
+    sleeps = _fake_clock(monkeypatch)
+    stops: list[int] = []
+    killed: list[object] = []
+
+    async def _connect(_url: str) -> Any:
+        raise Exception(_REFUSED)
+
+    _patch_playwright(monkeypatch, _connect, stops)
+    monkeypatch.setattr(
+        launch_mod,
+        "terminate_browser_processes",
+        lambda b: killed.append(b),
+    )
+    driver = PlaywrightDriver()
+    _stub_driver(driver)
+    session = BrowserSession(driver=driver)
+    orig_ensure = session.ensure
+    relaunch_ensures: list[bool] = []
+
+    async def _ensure(*args: Any, **kwargs: Any) -> ActionResult:
+        relaunch_ensures.append(bool(kwargs.get("relaunch")))
+        return await orig_ensure(*args, **kwargs)
+
+    monkeypatch.setattr(session, "ensure", _ensure)
+    tool = BrowserTool(session)
+
+    async def _run() -> None:
+        got = await tool.run(action="snapshot")
+        assert got.ok is False
+        assert got.data.get("code") == "CDP_TIMEOUT"
+        assert True not in relaunch_ensures
+        assert killed == []
+        assert sum(sleeps) <= 18.0 + 1e-9
+
+    asyncio.run(_run())
+
+
+def test_revive_once_still_relaunches_cdp_dead() -> None:
+    session = BrowserSession.fake()
+    seen: list[bool] = []
+
+    async def _ensure(*_a: Any, **kwargs: Any) -> ActionResult:
+        seen.append(bool(kwargs.get("relaunch")))
+        return ActionResult(ok=True, output="ok", data={})
+
+    session.ensure = _ensure  # type: ignore[method-assign]
+    tool = BrowserTool(session)
+
+    async def _run() -> None:
+        got = await tool._revive_once(
+            "chrome",
+            False,
+            ToolResult(ok=False, output="x", data={"code": "CDP_DEAD"}),
+        )
+        assert got is True
+        assert seen == [True]
 
     asyncio.run(_run())
