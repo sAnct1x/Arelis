@@ -1,11 +1,12 @@
 # Building the Windows installer
 
-> **Status: installers built from this script before the QtOpenGL fix are broken.**
-> `build.py` removes `PySide6.QtOpenGL` in its prune list, and the app
-> imports it at startup, so the installed app closes before a window
-> appears. This affects 0.2.4 through 0.2.9 (and 0.3.0 as built before the
-> fix). Do not hand these out. This note comes off once a fixed installer
-> has been installed on a clean account and seen to open.
+> **Status: installers built before the QtOpenGL fix are broken.**
+> Older builds of this script removed `PySide6.QtOpenGL` while the app
+> imports it at startup, so those installed apps close before a window
+> appears. That hit 0.2.4 through 0.2.9 (and 0.3.0 builds made before
+> the fix). Current `build.py` keeps QtOpenGL. Do not hand out the old
+> installers. This note comes off once a fixed installer has been
+> installed on a clean account and seen to open.
 
 A setup `.exe` that puts Arelis on a machine that has never had Python.
 Not a frozen blob: a real interpreter, so scheduled jobs can still say
