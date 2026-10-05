@@ -8,6 +8,7 @@ from typing import Any
 
 from arelis.core.claims import (
     answer_looks_like_refusal,
+    duration_days_claim_missing_kinds,
     send_claim_missing_kinds,
     unsupported_exactness_reply,
     unsupported_send_claim_reply,
@@ -263,6 +264,12 @@ def _exactness_finish_refuse(
         )
         if send_missing:
             return unsupported_send_claim_reply()
+    if numeric_gate:
+        warrant = " ".join(
+            w.span for w in ledger.items if w.ok and w.kind in {"calc", "units"}
+        )
+        if duration_days_claim_missing_kinds(content, warrant_text=warrant):
+            return unsupported_exactness_reply(["math"])
     if answer_looks_like_refusal(content):
         return None
     # Compose/send turns must not die on "no retrieved page warrant" (R4 / S10).

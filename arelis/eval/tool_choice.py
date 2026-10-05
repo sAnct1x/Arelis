@@ -153,6 +153,16 @@ CHOICE_CASES: tuple[ChoiceCase, ...] = (
         "analyze this screenshot outputs/images/receipt.png",
         ("vision", "ocr"),
     ),
+    ChoiceCase(
+        "don't guess, how many earth days is 11.86 years",
+        ("calculator", "units"),
+        note="Spoken years-to-days. Reciting 4307 without a tool is the defect.",
+    ),
+    ChoiceCase(
+        "how many days is a year on jupiter",
+        ("calculator",),
+        note="Orbital year in days is Kepler arithmetic, not a memorized 4332.",
+    ),
 )
 
 

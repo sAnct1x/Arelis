@@ -100,6 +100,39 @@ _MATH_PATTERNS: tuple[re.Pattern[str], ...] = (
     ),
 )
 
+# Spoken duration / orbital period / age-in-planet-years. Bare "how many days
+# until Friday" is a calendar wait, not this. A year at N AU or "11.86 years
+# in days" is arithmetic the calculator (or units) has to do.
+_PLANET_WORD = (
+    r"mercury|venus|mars|jupiter|saturn|uranus|neptune|pluto|"
+    r"planet"
+)
+_DURATION_MATH_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(
+        rf"(?i)\b(?:how\s+long|how\s+many\s+(?:earth\s+)?days|"
+        rf"year\s+(?:feel|last))\b.{{0,120}}\b(?:year|orbit)\b.{{0,80}}"
+        rf"\b(?:\bau\b|astronomical\s+units?|{_PLANET_WORD})\b"
+    ),
+    re.compile(
+        rf"(?i)\b(?:a\s+)?(?:year|orbit(?:al)?\s+period)\s+"
+        rf"(?:on|at|for)\b.{{0,60}}\b(?:\bau\b|astronomical\s+units?|{_PLANET_WORD})\b"
+    ),
+    re.compile(
+        r"(?i)\b(?:how\s+many|how\s+long)\b.{0,48}\b(?:earth\s+)?days?\b"
+        r".{0,48}\b\d+(?:\.\d+)?\s*years?\b"
+    ),
+    re.compile(
+        r"(?i)\b\d+(?:\.\d+)?\s*years?\b.{0,48}\b(?:earth\s+)?days?\b"
+    ),
+    re.compile(
+        rf"(?i)\b(?:how\s+old|age|old\s+am\s+i)\b.{{0,80}}"
+        rf"\b(?:{_PLANET_WORD})\s+years?\b"
+    ),
+    re.compile(
+        rf"(?i)\bborn\b.{{0,80}}\b(?:{_PLANET_WORD})\s+years?\b"
+    ),
+)
+
 # Integrals / derivatives are not calculator arithmetic — do not force calc.
 _SYMBOLIC_MATH = re.compile(
     r"(?i)\b("
@@ -571,6 +604,14 @@ def detect_units_ask(text: str) -> bool:
     return any(p.search(raw) for p in _UNITS_FORCE)
 
 
+def detect_duration_math_ask(text: str) -> bool:
+    """True for spoken year-length, years↔days, or age-in-planet-years asks."""
+    raw = text or ""
+    if not raw.strip():
+        return False
+    return any(p.search(raw) for p in _DURATION_MATH_PATTERNS)
+
+
 def detect_math_ask(text: str) -> bool:
     lowered = (text or "").strip()
     if not lowered:
@@ -581,6 +622,8 @@ def detect_math_ask(text: str) -> bool:
         return False
     if _SYMBOLIC_MATH.search(lowered):
         return False
+    if detect_duration_math_ask(lowered):
+        return True
     cleaned = _CLOCK.sub(" ", _ISO_DT.sub(" ", lowered))
     cleaned = _COMPACT_STAMP.sub(" ", cleaned)
     cleaned = _YEAR_RANGE.sub(" ", cleaned)
@@ -740,6 +783,48 @@ def detect_vision_ask(text: str) -> bool:
 def detect_send_success_claim(text: str) -> bool:
     """True when the answer asserts an outbound SMS/email already went out."""
     return bool(_SEND_SUCCESS_CLAIM.search(text or ""))
+
+
+# Answer-side: a years-to-days figure (or "about N Earth days" next to a year
+# length) must appear in a calculator/units warrant. The 4307 days on a 11.86
+# year Kepler result was 11.8*365, never a tool value.
+_YEAR_THEN_DAYS_CLAIM = re.compile(
+    r"(?i)(\d+(?:\.\d+)?)\s*years?\b[^.]{0,64}?"
+    r"(?:"
+    r"\(\s*(?:≈|~|=|about|roughly|approx(?:imately)?)?\s*"
+    r"([0-9][0-9,]{1,}(?:\.\d+)?)\s*(?:earth\s+)?days?\s*\)"
+    r"|"
+    r"(?:≈|~|=|about|roughly|approx(?:imately)?)\s*"
+    r"([0-9][0-9,]{1,}(?:\.\d+)?)\s*earth\s+days?\b"
+    r")",
+)
+
+
+def duration_days_claim_missing_kinds(text: str, *, warrant_text: str) -> list[str]:
+    """Which exactness kinds a years→days assertion still needs."""
+    claimed: list[float] = []
+    for match in _YEAR_THEN_DAYS_CLAIM.finditer(text or ""):
+        raw_days = match.group(2) or match.group(3)
+        days = float(raw_days.replace(",", ""))
+        if days >= 10:
+            claimed.append(days)
+    if not claimed:
+        return []
+    warrants = [
+        float(tok.replace(",", ""))
+        for tok in re.findall(r"\d[\d,]*(?:\.\d+)?", warrant_text or "")
+    ]
+    for days in claimed:
+        if not any(_duration_days_backed(days, value) for value in warrants):
+            return ["math"]
+    return []
+
+
+def _duration_days_backed(claimed: float, warrant: float) -> bool:
+    if abs(claimed - warrant) <= 0.6:
+        return True
+    scale = abs(warrant)
+    return scale >= 1.0 and abs(claimed - warrant) / scale <= 0.002
 
 
 def send_claim_missing_kinds(text: str, *, has_send_sms: bool, has_send_email: bool) -> list[str]:

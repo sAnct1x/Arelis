@@ -20,6 +20,7 @@ import ast
 import math
 import operator
 import re
+from datetime import date
 from fractions import Fraction
 from typing import Any
 
@@ -185,6 +186,141 @@ _PERCENT_OF = re.compile(r"(?i)(\d+(?:\.\d+)?)\s*%\s*of\s+")
 _TIMES_X = re.compile(r"(?<=[\d)])\s*[xX]\s*(?=[\d(])")
 _THOUSANDS = re.compile(r"(?<=\d),(?=\d{3}(?!\d))")
 
+# Spoken year length / years↔days. Kepler III in AU and Julian years:
+# P^2 = a^3, so P_yr = sqrt(a^3). Days are that times 365.25, not a
+# memorized planetary period.
+_JULIAN_YEAR_DAYS = "365.25"
+_PLANET_A_AU: dict[str, str] = {
+    "mercury": "0.387099",
+    "venus": "0.723332",
+    "mars": "1.523679",
+    "jupiter": "5.204267",
+    "saturn": "9.582017",
+    "uranus": "19.191264",
+    "neptune": "30.068963",
+    "pluto": "39.482",
+}
+_PLANET_NAME = re.compile(
+    r"(?i)\b(mercury|venus|mars|jupiter|saturn|uranus|neptune|pluto)\b"
+)
+_AU_AMOUNT = re.compile(
+    r"(?i)(\d+(?:\.\d+)?)\s*(?:au|astronomical\s+units?)\b"
+)
+_YEARS_AMOUNT = re.compile(r"(?i)(\d+(?:\.\d+)?)\s*years?\b")
+_WANTS_DAYS = re.compile(r"(?i)\b(?:earth\s+)?days?\b")
+_AGE_IN_PLANET = re.compile(
+    r"(?i)\b(?:how\s+old|age|old\s+am\s+i)\b.{0,80}\b(?:mars|jupiter|mercury|"
+    r"venus|saturn|uranus|neptune|pluto)\s+years?\b"
+)
+_MONTH_NAME = (
+    r"january|february|march|april|may|june|july|august|september|"
+    r"october|november|december|jan|feb|mar|apr|jun|jul|aug|sep|sept|"
+    r"oct|nov|dec"
+)
+_DATE_MDY = re.compile(
+    rf"(?i)\b({_MONTH_NAME})\s+(\d{{1,2}})(?:st|nd|rd|th)?,?\s+(\d{{4}})\b"
+)
+_DATE_DMY = re.compile(
+    rf"(?i)\b(\d{{1,2}})(?:st|nd|rd|th)?\s+({_MONTH_NAME})\s+(\d{{4}})\b"
+)
+_DATE_ISO = re.compile(r"\b(\d{4})-(\d{2})-(\d{2})\b")
+_MONTH_INDEX = {
+    "january": 1,
+    "jan": 1,
+    "february": 2,
+    "feb": 2,
+    "march": 3,
+    "mar": 3,
+    "april": 4,
+    "apr": 4,
+    "may": 5,
+    "june": 6,
+    "jun": 6,
+    "july": 7,
+    "jul": 7,
+    "august": 8,
+    "aug": 8,
+    "september": 9,
+    "sept": 9,
+    "sep": 9,
+    "october": 10,
+    "oct": 10,
+    "november": 11,
+    "nov": 11,
+    "december": 12,
+    "dec": 12,
+}
+
+
+def rewrite_spoken_duration(text: str) -> str | None:
+    """Turn a spoken year/day/orbit ask into one arithmetic expression.
+
+    Returns None when the line is not that shape, so the ordinary
+    normaliser still runs.
+    """
+    raw = text or ""
+    if not raw.strip():
+        return None
+    age = _rewrite_planet_age(raw)
+    if age is not None:
+        return age
+    au = _AU_AMOUNT.search(raw)
+    planet = _PLANET_NAME.search(raw)
+    wants_days = bool(_WANTS_DAYS.search(raw))
+    if au is not None and re.search(r"(?i)\b(?:year|orbit)\b", raw):
+        a = au.group(1)
+        period = f"sqrt({a}**3)"
+        return f"{period}*{_JULIAN_YEAR_DAYS}" if wants_days else period
+    if planet is not None and re.search(r"(?i)\b(?:year|orbit)\b", raw):
+        a = _PLANET_A_AU[planet.group(1).lower()]
+        period = f"sqrt({a}**3)"
+        return f"{period}*{_JULIAN_YEAR_DAYS}" if wants_days else period
+    years = _YEARS_AMOUNT.search(raw)
+    if years is not None and wants_days:
+        return f"{years.group(1)}*{_JULIAN_YEAR_DAYS}"
+    return None
+
+
+def _rewrite_planet_age(text: str) -> str | None:
+    if not _AGE_IN_PLANET.search(text) and not re.search(
+        r"(?i)\bborn\b.{0,80}\b(?:mercury|venus|mars|jupiter|saturn|"
+        r"uranus|neptune|pluto)\s+years?\b",
+        text,
+    ):
+        return None
+    planet = _PLANET_NAME.search(text)
+    born = _parse_birthdate(text)
+    if planet is None or born is None:
+        return None
+    days = (date.today() - born).days
+    a = _PLANET_A_AU[planet.group(1).lower()]
+    return f"{days}/({_JULIAN_YEAR_DAYS}*sqrt({a}**3))"
+
+
+def _parse_birthdate(text: str) -> date | None:
+    hit = _DATE_MDY.search(text or "")
+    if hit:
+        month = _MONTH_INDEX[hit.group(1).lower()]
+        try:
+            return date(int(hit.group(3)), month, int(hit.group(2)))
+        except ValueError:
+            return None
+    hit = _DATE_DMY.search(text or "")
+    if hit:
+        month = _MONTH_INDEX[hit.group(2).lower()]
+        try:
+            return date(int(hit.group(3)), month, int(hit.group(1)))
+        except ValueError:
+            return None
+    hit = _DATE_ISO.search(text or "")
+    if hit:
+        try:
+            return date(int(hit.group(1)), int(hit.group(2)), int(hit.group(3)))
+        except ValueError:
+            return None
+    return None
+
+
 # "5 miles in km" is a real question with a real tool behind it.
 _UNIT_ASK = re.compile(
     r"(?i)\b\d+(?:\.\d+)?\s*[a-z°]+\s*(?:in|to|into|as)\s+[a-z°]",
@@ -197,6 +333,9 @@ def normalize_expression(text: str) -> str:
     None of this changes what the arithmetic means. `15% of 84` has exactly one
     reading, and refusing it bought nothing except a wasted round trip.
     """
+    spoken = rewrite_spoken_duration(text)
+    if spoken is not None:
+        return spoken
     source = _LEAD_WORDS.sub("", text or "")
     source = _TRAILING_EQ.sub("", source)
     source = _CURRENCY.sub("", source)
