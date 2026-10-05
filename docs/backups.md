@@ -11,6 +11,9 @@ stops halfway never has that final name. Leftover temporary folders
 are removed the next time a backup runs, and they do not count
 toward the two `pre-*` folders she keeps.
 
+This starts with 0.3.0. The 0.2.9 to 0.3.0 upgrade is made by 0.2.9,
+which has no backup code, so copy the data folder by hand first.
+
 Only these files, and only if they are already there:
 
 - `memory.db`
