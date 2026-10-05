@@ -1108,6 +1108,9 @@ class BrowserTool:
         code = str((prior.data or {}).get("code") or "")
         if prior.ok or code not in {"CDP_DEAD", "CDP_TIMEOUT"}:
             return False
+        # Connect budget was already spent; do not kill Chrome and retry attach.
+        if str((prior.data or {}).get("reason") or "") == "connect_refused":
+            return False
         if self._revived:
             return False
         self._revived = True

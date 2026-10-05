@@ -258,6 +258,10 @@ _CDP_DEAD_TIPS = (
     "websocket",
     "cdp",
 )
+# How long to keep retrying the connect while Chrome starts.
+_CDP_CONNECT_BUDGET_S = 18.0
+_CDP_CONNECT_BACKOFF_S = 0.25
+_CDP_CONNECT_BACKOFF_CAP_S = 2.0
 SETTLE_S = 1.0
 SETTLE_POLL_S = 0.2
 
@@ -1428,15 +1432,21 @@ class PlaywrightDriver:
                 fresh_profile=fresh,
             )
             if proc is None:
+                log.warning("could not find %s executable", browser)
                 return ActionResult(
                     ok=False,
-                    output=f"Could not find {browser} executable.",
+                    output="I couldn't find the browser on this computer.",
                     data={"code": "NO_EXECUTABLE"},
                 )
             if not launch_mod.wait_for_cdp(self.cdp_url, timeout_s=20.0):
+                log.warning(
+                    "launched %s but CDP did not come up on %s",
+                    browser,
+                    self.cdp_url,
+                )
                 return ActionResult(
                     ok=False,
-                    output=f"Launched {browser} but CDP did not come up on {self.cdp_url}.",
+                    output="The browser didn't open properly. Try again in a moment.",
                     data={"code": "CDP_TIMEOUT"},
                 )
             self._fresh_launch = True
@@ -1468,9 +1478,10 @@ class PlaywrightDriver:
             fresh_profile=fresh,
         )
         if proc is None:
+            log.warning("could not find %s executable", browser)
             return ActionResult(
                 ok=False,
-                output=f"Could not find {browser} executable.",
+                output="I couldn't find the browser on this computer.",
                 data={"code": "NO_EXECUTABLE"},
             )
         if not launch_mod.wait_for_cdp(self.cdp_url, timeout_s=15.0):
@@ -1485,9 +1496,14 @@ class PlaywrightDriver:
                     ),
                     data={"code": "PROFILE_LOCKED", "browser": browser},
                 )
+            log.warning(
+                "launched %s but CDP did not come up on %s",
+                browser,
+                self.cdp_url,
+            )
             return ActionResult(
                 ok=False,
-                output=f"Launched {browser} but CDP did not come up on {self.cdp_url}.",
+                output="The browser didn't open properly. Try again in a moment.",
                 data={"code": "CDP_TIMEOUT"},
             )
         self._fresh_launch = True
@@ -1553,7 +1569,32 @@ class PlaywrightDriver:
 
         await self._close_pw()
         self._pw = await async_playwright().start()
-        self._browser = await self._pw.chromium.connect_over_cdp(self.cdp_url)
+        # Chrome can answer on the debug port, then refuse the connect for a
+        # few seconds while it starts. Retry with backoff before giving up.
+        deadline = time.monotonic() + _CDP_CONNECT_BUDGET_S
+        delay = _CDP_CONNECT_BACKOFF_S
+        browser: Any = None
+        while browser is None:
+            try:
+                browser = await self._pw.chromium.connect_over_cdp(self.cdp_url)
+            except Exception as exc:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    log.warning("browser did not accept a connection in time: %s", exc)
+                    await self._close_pw()
+                    return ActionResult(
+                        ok=False,
+                        output="The browser took too long to open. Try again in a moment.",
+                        data={
+                            "code": "CDP_TIMEOUT",
+                            "reason": "connect_refused",
+                            "mode": mode,
+                        },
+                    )
+                log.info("connect_over_cdp failed; retrying: %s", exc)
+                await asyncio.sleep(min(delay, remaining))
+                delay = min(delay * 2, _CDP_CONNECT_BACKOFF_CAP_S)
+        self._browser = browser
         contexts = self._browser.contexts
         self._context = contexts[0] if contexts else await self._browser.new_context()
         self._page = await self._pick_page()
