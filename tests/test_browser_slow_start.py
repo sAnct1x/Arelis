@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import socket
+import sys
 import threading
 import time
+import types
 from typing import Any
 
-from arelis.browser.actions import PlaywrightDriver
+from arelis.browser.actions import ActionResult, PlaywrightDriver
 from arelis.browser.session import BrowserSession
 from arelis.tools.browser_tool import BrowserTool
 
@@ -81,10 +83,13 @@ def _patch_launch(monkeypatch) -> None:  # type: ignore[no-untyped-def]
 
 
 def _patch_playwright(monkeypatch, connect: Any, stops: list[int]) -> _FakePW:
-    import playwright.async_api as pw_api
-
     pw = _FakePW(connect, stops)
-    monkeypatch.setattr(pw_api, "async_playwright", lambda: _FakeAsyncPlaywright(pw))
+    fake_pkg = types.ModuleType("playwright")
+    fake_api = types.ModuleType("playwright.async_api")
+    fake_api.async_playwright = lambda: _FakeAsyncPlaywright(pw)
+    fake_pkg.async_api = fake_api
+    monkeypatch.setitem(sys.modules, "playwright", fake_pkg)
+    monkeypatch.setitem(sys.modules, "playwright.async_api", fake_api)
     return pw
 
 
@@ -103,8 +108,6 @@ def _stub_driver(driver: PlaywrightDriver) -> None:
 
 def _fake_clock(monkeypatch) -> list[float]:  # type: ignore[no-untyped-def]
     """Real budget and backoff, but sleeps only move a fake clock."""
-    import types
-
     import arelis.browser.actions as actions_mod
 
     now = [0.0]
@@ -137,7 +140,7 @@ def test_tool_read_survives_cdp_refused(monkeypatch) -> None:
     async def _run() -> None:
         got = await tool.run(action="read")
         assert got.ok is False
-        assert got.data.get("code") == "BROWSER_START_TIMEOUT"
+        assert got.data.get("code") == "CDP_TIMEOUT"
         assert got.output == _TIMEOUT_MSG
         # It waited the full budget before giving up.
         assert abs(sum(sleeps) - 18.0) < 1e-9
@@ -187,7 +190,8 @@ def test_give_up_is_plain_and_closes_playwright(monkeypatch) -> None:
     async def _run() -> None:
         got = await driver._attach_cdp(mode="launch")
         assert got.ok is False
-        assert got.data.get("code") == "BROWSER_START_TIMEOUT"
+        assert got.data.get("code") == "CDP_TIMEOUT"
+        assert got.data.get("reason") == "connect_refused"
         assert got.data.get("mode") == "launch"
         assert got.output == _TIMEOUT_MSG
         lowered = got.output.lower()
@@ -212,8 +216,8 @@ def test_retry_picks_up_late_tcp_listener(monkeypatch) -> None:
 
     def _listen() -> None:
         time.sleep(0.05)
-        listener.listen(1)
         try:
+            listener.listen(1)
             conn, _addr = listener.accept()
             conn.close()
         except OSError:
@@ -258,3 +262,31 @@ def test_retry_picks_up_late_tcp_listener(monkeypatch) -> None:
             pass
         done.wait(timeout=1.0)
         thread.join(timeout=1.0)
+
+
+def test_open_falls_back_to_os_on_cdp_timeout(monkeypatch) -> None:
+    _patch_launch(monkeypatch)
+    _fake_clock(monkeypatch)
+    stops: list[int] = []
+
+    async def _connect(_url: str) -> Any:
+        raise Exception(_REFUSED)
+
+    _patch_playwright(monkeypatch, _connect, stops)
+    driver = PlaywrightDriver()
+    _stub_driver(driver)
+    session = BrowserSession(driver=driver)
+
+    async def _os_open(_url: str, _browser: str | None = None) -> ActionResult:
+        return ActionResult(ok=True, output="Opened.", data={"mode": "os_open"})
+
+    monkeypatch.setattr(session, "open_url_os", _os_open)
+    tool = BrowserTool(session)
+
+    async def _run() -> None:
+        got = await tool.run(action="open", target="https://example.com")
+        assert got.ok is True
+        assert got.data.get("mode") == "os_open"
+        assert got.data.get("code") == "CDP_TIMEOUT"
+
+    asyncio.run(_run())

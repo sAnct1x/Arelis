@@ -1432,15 +1432,21 @@ class PlaywrightDriver:
                 fresh_profile=fresh,
             )
             if proc is None:
+                log.warning("could not find %s executable", browser)
                 return ActionResult(
                     ok=False,
-                    output=f"Could not find {browser} executable.",
+                    output="I couldn't find the browser on this computer.",
                     data={"code": "NO_EXECUTABLE"},
                 )
             if not launch_mod.wait_for_cdp(self.cdp_url, timeout_s=20.0):
+                log.warning(
+                    "launched %s but CDP did not come up on %s",
+                    browser,
+                    self.cdp_url,
+                )
                 return ActionResult(
                     ok=False,
-                    output=f"Launched {browser} but CDP did not come up on {self.cdp_url}.",
+                    output="The browser didn't open properly. Try again in a moment.",
                     data={"code": "CDP_TIMEOUT"},
                 )
             self._fresh_launch = True
@@ -1472,9 +1478,10 @@ class PlaywrightDriver:
             fresh_profile=fresh,
         )
         if proc is None:
+            log.warning("could not find %s executable", browser)
             return ActionResult(
                 ok=False,
-                output=f"Could not find {browser} executable.",
+                output="I couldn't find the browser on this computer.",
                 data={"code": "NO_EXECUTABLE"},
             )
         if not launch_mod.wait_for_cdp(self.cdp_url, timeout_s=15.0):
@@ -1489,9 +1496,14 @@ class PlaywrightDriver:
                     ),
                     data={"code": "PROFILE_LOCKED", "browser": browser},
                 )
+            log.warning(
+                "launched %s but CDP did not come up on %s",
+                browser,
+                self.cdp_url,
+            )
             return ActionResult(
                 ok=False,
-                output=f"Launched {browser} but CDP did not come up on {self.cdp_url}.",
+                output="The browser didn't open properly. Try again in a moment.",
                 data={"code": "CDP_TIMEOUT"},
             )
         self._fresh_launch = True
@@ -1573,7 +1585,11 @@ class PlaywrightDriver:
                     return ActionResult(
                         ok=False,
                         output="The browser took too long to open. Try again in a moment.",
-                        data={"code": "BROWSER_START_TIMEOUT", "mode": mode},
+                        data={
+                            "code": "CDP_TIMEOUT",
+                            "reason": "connect_refused",
+                            "mode": mode,
+                        },
                     )
                 log.info("connect_over_cdp failed; retrying: %s", exc)
                 await asyncio.sleep(min(delay, remaining))
