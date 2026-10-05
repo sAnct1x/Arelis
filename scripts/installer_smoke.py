@@ -49,7 +49,9 @@ META_PATH = OUT / "meta.json"
 
 
 # Steps that are expected to fail when expect_failure is on.
-EXPECTED_RED_STEPS = frozenset({"import-probe", "window-probe", "construct-probe", "probe"})
+EXPECTED_RED_STEPS = frozenset(
+    {"import-probe", "window-probe", "construct-probe", "welcome-probe", "probe"}
+)
 
 
 def parse_version_from_filename(name: str) -> str:
@@ -677,6 +679,52 @@ def _write_smoke_config(install_dir: Path, dest: Path) -> Path:
     return dest
 
 
+def seed_completed_first_run_profile(
+    data_dir: Path, *, tag: str = "qwen3.5:9b", root: Path | None = None
+) -> Path:
+    """Pre-seed a profile so the main-window probe is not blocked by first-run.
+
+    Writes first-run.json (folder + model complete) and a local model pin.
+    Does not prove Welcome glass; use a fresh folder for that check separately.
+    """
+    data_dir = Path(data_dir)
+    data_dir.mkdir(parents=True, exist_ok=True)
+    state = data_dir / "data"
+    state.mkdir(parents=True, exist_ok=True)
+    workspace = Path(root) if root is not None else (data_dir / "workspace")
+    workspace.mkdir(parents=True, exist_ok=True)
+    now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    marker = {
+        "version": 1,
+        "workspace_root": str(workspace),
+        "answered_at": now,
+        "model_setup": {
+            "complete": True,
+            "tag": tag,
+            "completed_at": now,
+        },
+    }
+    (state / "first-run.json").write_text(
+        json.dumps(marker, indent=2) + "\n", encoding="utf-8"
+    )
+    # Hand-written YAML: this script stays stdlib-only.
+    local = (
+        "workspace:\n"
+        "  roots:\n"
+        f"    - {json.dumps(str(workspace))}\n"
+        "models:\n"
+        f"  fast: {json.dumps(tag)}\n"
+        f"  research: {json.dumps(tag)}\n"
+    )
+    (state / "config.local.yaml").write_text(local, encoding="utf-8")
+    return workspace
+
+
+def welcome_title_ok(title: str) -> bool:
+    """True when a window title is the first-run folder glass."""
+    return (title or "").strip() == "Welcome to Arelis"
+
+
 def cmd_install(args: argparse.Namespace) -> int:
     _require_windows("install")
     _ensure_out()
@@ -1120,6 +1168,23 @@ def cmd_probe(args: argparse.Namespace) -> int:
         **{k: imp[k] for k in ("exit_code", "qtopengl") if k in imp},
     )
 
+    # Separate check: a fresh folder still shows Welcome to Arelis.
+    # Do not treat Welcome alone as proof the main window opens.
+    welcome_dir = Path(tempfile.mkdtemp(prefix="arelis-smoke-welcome-"))
+    welcome = _window_probe(install_dir, welcome_dir, config_path, f"{label}-welcome")
+    welcome_title = str(welcome.get("title") or "")
+    welcome_ok = bool(welcome.get("ok")) and welcome_title_ok(welcome_title)
+    record(
+        "welcome-probe",
+        "PASS" if welcome_ok else "FAIL",
+        f"status={welcome.get('status')} title={welcome_title!r} "
+        f"(Welcome alone is not the main-window gate)",
+        title=welcome_title,
+        status_text=welcome.get("status"),
+    )
+
+    # Main-window / construct probes need a completed first-run profile.
+    seed_completed_first_run_profile(data_dir)
     win = _window_probe(install_dir, data_dir, config_path, label)
     detail = (
         f"status={win.get('status')} title={win.get('title')!r} "
@@ -1189,7 +1254,7 @@ def cmd_probe(args: argparse.Namespace) -> int:
                 f"window={'FOUND' if pyw_found else 'NOT FOUND'} title={title}",
             )
 
-    gated_ok = bool(imp["ok"]) and _gate_window_result(win, construct)
+    gated_ok = bool(imp["ok"]) and welcome_ok and _gate_window_result(win, construct)
     data = _summary()
 
     if expect_failure():
@@ -1217,6 +1282,8 @@ def cmd_probe(args: argparse.Namespace) -> int:
         reason = []
         if not imp["ok"]:
             reason.append("import-probe failed")
+        if not welcome_ok:
+            reason.append(f"welcome-probe failed title={welcome_title!r}")
         if not _gate_window_result(win, construct):
             reason.append(
                 f"window gate ({window_probe_mode()}) failed: "
@@ -1224,7 +1291,7 @@ def cmd_probe(args: argparse.Namespace) -> int:
             )
         record("probe", "FAIL", "; ".join(reason))
         return 1
-    record("probe", "PASS", f"import+{window_probe_mode()} gate ok")
+    record("probe", "PASS", f"import+welcome+{window_probe_mode()} gate ok")
     return 0
 
 

@@ -79,6 +79,10 @@ def _kind(stage: str, problem: BaseException | str) -> str:
     if isinstance(problem, httpx.HTTPStatusError) and stage == DOWNLOAD_ENGINE:
         return "network"
     if stage == INSTALL_ENGINE:
+        # Silent install reported success but ollama.exe never appeared.
+        # That is "engine missing after install", not "installer did not finish".
+        if "not found" in text:
+            return "engine_missing"
         return "installer"
     if stage == START_ENGINE:
         if str(problem) == _ENGINE_MISSING:

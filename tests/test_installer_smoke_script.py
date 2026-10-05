@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -44,3 +45,26 @@ def test_window_title_filter() -> None:
     assert m.window_title_ok("Arelis")
     assert not m.window_title_ok("")
     assert not m.window_title_ok("   ")
+
+
+def test_welcome_title_ok() -> None:
+    m = _mod()
+    assert m.welcome_title_ok("Welcome to Arelis")
+    assert not m.welcome_title_ok("Arelis")
+    assert not m.welcome_title_ok("")
+
+
+def test_seed_completed_first_run_profile(tmp_path: Path) -> None:
+    m = _mod()
+    data_dir = tmp_path / "profile"
+    root = m.seed_completed_first_run_profile(data_dir, tag="qwen3.5:9b")
+    marker = json.loads((data_dir / "data" / "first-run.json").read_text(encoding="utf-8"))
+    assert marker["model_setup"]["complete"] is True
+    assert marker["model_setup"]["tag"] == "qwen3.5:9b"
+    assert marker["workspace_root"] == str(root)
+    local = (data_dir / "data" / "config.local.yaml").read_text(encoding="utf-8")
+    assert "qwen3.5:9b" in local
+    assert json.dumps(str(root)) in local
+    # Welcome title is a separate check; seeding is for the main window only.
+    assert not m.welcome_title_ok("Arelis")
+

@@ -94,8 +94,15 @@ def prompt_for_workspace_root(parent: QWidget | None = None) -> Path | None:
     Documents, the sentence granting access is on screen beside it, and the
     alternative is re-asking on every single launch until the user engages, which
     trains people to dismiss dialogs without reading them.
+
+    If folders are already saved but the marker is missing (upgraders), write
+    the marker for the first saved root and skip the dialog. Roots stay as-is.
     """
     if not onboarding.needs_prompt():
+        return None
+    adopted = onboarding.adopt_existing_workspace_marker()
+    if adopted is not None:
+        # Marker only. Do not reload/replace roots.
         return None
     dialog = FirstRunDialog(onboarding.suggested_root(), parent)
     dialog.exec()

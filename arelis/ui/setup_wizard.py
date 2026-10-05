@@ -118,8 +118,7 @@ class _PrepareWorker(QThread):
                 if find_ollama_exe() is None:
                     self._fail(
                         "install_engine",
-                        "The engine installer finished but the local engine "
-                        "was not found.",
+                        "The local engine was not found after the install.",
                     )
                     return
             self._stage = "start_engine"
@@ -442,6 +441,10 @@ class ModelSetupDialog(GlassDialog):
 
 def prompt_for_model_setup(parent: QWidget | None = None) -> str | None:
     """Show the model glass when needed. Tag only after prepare succeeds."""
+    from arelis.setup.state import try_quiet_complete_model_setup
+
+    if try_quiet_complete_model_setup():
+        return None
     if not needs_model_setup():
         return None
     dialog = ModelSetupDialog(parent)

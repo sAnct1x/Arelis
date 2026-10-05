@@ -28,7 +28,7 @@ from arelis.presence.inbound_runtime import InboundRuntime
 from arelis.presence.ipc_client import IpcClient
 from arelis.presence.ipc_server import IpcServer
 from arelis.presence.lock import external_core_available
-from arelis.setup.state import needs_model_setup
+from arelis.setup.state import needs_model_setup, try_quiet_complete_model_setup
 from arelis.ui.first_run import prompt_for_workspace_root
 from arelis.ui.foreground import show_without_activating
 from arelis.ui.scale import configure_display_scale
@@ -101,9 +101,9 @@ def apply_first_run_glass(
     """Workspace then model glass. Always ask when needed, even if config was given.
 
     Returns the (possibly refreshed) config when it is safe to open the main
-    window, or None when model setup is still unfinished after the dialogs.
-    Incomplete model setup re-opens the model glass (no Not now). The refuse
-    return is the hard-gate belt if the loop ever exits while still needed.
+    window, or None when model setup is still unfinished after one dialog
+    attempt. Incomplete close shows the existing notice and exits; the next
+    launch asks again. No loop.
     """
     # Do not gate on config_was_given. Main always passes a config for the
     # normal installer path; that flag only means "do not silently replace the
@@ -111,12 +111,13 @@ def apply_first_run_glass(
     if prompt_for_workspace_root() is not None:
         config = _reload_after_first_run(config, config_was_given=config_was_given)
 
-    while needs_model_setup():
+    # Upgraders who already have the engine and the shipped default model:
+    # mark complete quietly. Do not open the wizard or pull a different tag.
+    try_quiet_complete_model_setup()
+    if needs_model_setup():
         tag = prompt_for_model_setup()
         if tag is not None:
             config = _reload_after_first_run(config, config_was_given=config_was_given)
-            break
-        # Incomplete close: show the model glass again. No Not now.
     if first_run_blocks_main():
         return None
     return config
