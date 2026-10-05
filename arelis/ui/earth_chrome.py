@@ -81,7 +81,7 @@ MARK_HINTS: tuple[tuple[str, str], ...] = (
 
 
 def paint_band_type(painter: QPainter, rect: QRect, band: str) -> None:
-    """Read-only distance. Not a chip — must not look toggleable."""
+    """Read-only distance. Not a chip, must not look toggleable."""
     painter.setPen(Qt.PenStyle.NoPen)
     painter.setBrush(Qt.BrushStyle.NoBrush)
     painter.setPen(color("text_dim"))

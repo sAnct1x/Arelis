@@ -18,6 +18,7 @@ from arelis.core.context import (
     prompt_char_count,
     split_recent_history,
 )
+from arelis.core.dash_filter import DashFilter, clean_dashes_counted
 from arelis.core.events import Event, EventType
 from arelis.core.facts import facts_prompt_line
 from arelis.core.json_tools import (
@@ -225,7 +226,7 @@ def _normalize_ollama_messages(messages: list[dict[str, Any]]) -> list[dict[str,
 
     Injected calls used to store ``arguments`` as a JSON string while native
     calls used a dict. Ollama then 400s with “can't find closing '}'” on the
-    next step — including the no-tools JSON fallback — and the turn dies.
+    next step, including the no-tools JSON fallback, and the turn dies.
     """
     out: list[dict[str, Any]] = []
     for msg in messages:
@@ -287,7 +288,7 @@ _WRITE_AFTER_THINK_NOTICE = (
 
 _WRITE_AFTER_ALGEBRA_NOTICE = (
     "You already have a tool result. Write the chat line now, in your own words. "
-    "If they have not given a problem, ask what they want — do not paste a "
+    "If they have not given a problem, ask what they want, do not paste a "
     "warmup. If they have, copy the latex: line into $$ $$ and walk the steps. "
     "Do not call another tool unless the ask still needs one."
 )
@@ -308,7 +309,7 @@ def write_after_algebra_notice(tool: str) -> str:
 
 
 _JS_SHELL_BROWSER_NOTICE = (
-    "That page is a JavaScript shell — scrape cannot read it. Call "
+    "That page is a JavaScript shell, scrape cannot read it. Call "
     "browser(action=open, url={url}) so they can Allow her window. "
     "Read the tab after it loads. Do not invent what the page says."
 )
@@ -340,7 +341,7 @@ New excerpt to fold in:
 Reply in exactly this form:
 SUMMARY: <one short paragraph, at most {max_chars} characters>
 FACTS:
-- <durable fact, or NONE if none — usual answer is NONE>"""
+- <durable fact, or NONE if none, usual answer is NONE>"""
 
 # Hard cap: even a chatty compress pass cannot flood the History review queue.
 _MAX_PROPOSED_FACTS = 2
@@ -481,6 +482,7 @@ class _LiveAnswer:
 
     def __init__(self) -> None:
         self._stripper = ThinkingStripper()
+        self._dashes = DashFilter()
         self._hold = ""
         self._decided = False
         self._suppressed = False
@@ -496,9 +498,15 @@ class _LiveAnswer:
 
     def flush(self) -> str:
         """Release held text once the stream is over."""
-        return self._absorb(self._stripper.flush(), final=True)
+        released = self._absorb(self._stripper.flush(), final=True)
+        tail = self._dashes.flush()
+        if tail:
+            self.published += tail
+            released += tail
+        return released
 
     def _reset(self) -> None:
+        self._dashes = DashFilter()
         self._hold = ""
         self._decided = False
         self._suppressed = False
@@ -518,6 +526,9 @@ class _LiveAnswer:
                 self._suppressed = True
                 return ""
             visible = candidate
+        if not visible:
+            return ""
+        visible = self._dashes.feed(visible)
         if not visible:
             return ""
         self.published += visible
@@ -753,7 +764,7 @@ class AgentLoop:
                 "content": (
                     "Stop calling tools. Provide your best final answer now "
                     "from the information gathered. If the pages you opened "
-                    "were listicles or thin, say the sources were weak — do "
+                    "were listicles or thin, say the sources were weak, do "
                     "not rank or declare a winner from them. If you lack a "
                     "tool warrant for a precise or contingent claim, say you "
                     "do not know."
@@ -1328,7 +1339,7 @@ class AgentLoop:
                     {
                         "text": (
                             "waiting for the conversation model to finish "
-                            "loading — first reply after that is quick"
+                            "loading: first reply after that is quick"
                         )
                     },
                 )
@@ -1398,7 +1409,7 @@ class AgentLoop:
         if "send_sms" in available_all:
             reason = (
                 "send_sms is registered but hidden for this turn by the tool "
-                "subset — the utterance did not read as an outbound send."
+                "subset, the utterance did not read as an outbound send."
             )
         else:
             reason = (
@@ -1497,6 +1508,11 @@ class AgentLoop:
             if parsed_final and parsed_final["kind"] == "final":
                 final = (parsed_final["text"] or "").strip() or final
                 streamed = ""
+        # Clean model prose before Sources so third-party titles stay intact.
+        if not passthrough_tool:
+            final, n_dash = clean_dashes_counted(final)
+            if n_dash > 0 and self._timer is not None:
+                self._timer.mark("dash_filter", replaced=n_dash)
         final = _append_sources(final, sources)
 
         # Preflight expected a tool but none of those succeeded this turn.
@@ -1601,7 +1617,7 @@ class AgentLoop:
         raise _StoppedError
 
     def _on_watch_hit(self, data: dict[str, Any]) -> None:
-        """Background watch hit — STATUS so Drive / notify update after the turn."""
+        """Background watch hit, STATUS so Drive / notify update after the turn."""
         line = str(data.get("output") or "Watch hit.")
         self.bus.publish_nowait(
             Event(

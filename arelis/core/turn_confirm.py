@@ -58,7 +58,7 @@ async def _emit_skip_repeat_fail(
     # busts the prefix cache and the next round pays ~50s to
     # re-read the persona. fail_counts already drops the call.
     stop_msg = (
-        f"Stop calling `{name}` with those same arguments — it "
+        f"Stop calling `{name}` with those same arguments, it "
         "already failed twice this turn."
     )
     if (
@@ -198,7 +198,7 @@ async def confirm_call(
     if loop._look is not None and name in {"ocr", "vision"}:
         look_path = str(args.get("path") or loop._look.path or "")
         summary = (
-            f"look ({loop._look.intent.act}) at {look_path} — "
+            f"look ({loop._look.intent.act}) at {look_path}, "
             "one still, no further actions"
         )
     if needs:
@@ -296,7 +296,7 @@ async def confirm_call(
                 name in {"send_sms", "send_email"}
                 and name in loop._expected_tools
             ):
-                ctx.skip_finish_text = "Okay — I did not send that."
+                ctx.skip_finish_text = "Okay, I did not send that."
                 return STOP, summary, call_fp
             return SKIP, summary, call_fp
         if loop._look is not None and name in {"ocr", "vision"}:

@@ -1,6 +1,6 @@
 """Hide window chrome until the pointer is in that corner.
 
-Minimize, maximize, and close — whatever subset a plate actually has — ease
+Minimize, maximize, and close, whatever subset a plate actually has, ease
 in together. Sodium and filament share the timing.
 """
 

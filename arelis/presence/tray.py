@@ -1,4 +1,4 @@
-"""Minimal core-owned system tray (Open UI / Quit) — Qt, no glass window."""
+"""Minimal core-owned system tray (Open UI / Quit), Qt, no glass window."""
 
 from __future__ import annotations
 

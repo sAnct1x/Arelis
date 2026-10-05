@@ -345,7 +345,7 @@ _SKIP_RESULT_HREF = re.compile(
 
 
 def href_is_result_page(href: str, text: str = "") -> bool:
-    """True for a watch / article link — not a channel chip, ad, or Sign in."""
+    """True for a watch / article link, not a channel chip, ad, or Sign in."""
     if not (href or "").startswith("http"):
         return False
     if _SKIP_RESULT_HREF.search(href or ""):
@@ -429,7 +429,7 @@ def match_type_targets(elements: Any, into: str) -> list[Any]:
 
 
 def format_result_lines(elements: Any, *, max_n: int = 12) -> str:
-    """Short result list for search — not the full control phone book."""
+    """Short result list for search, not the full control phone book."""
     lines = ["results:"]
     n = 0
     for info in _as_list(elements):

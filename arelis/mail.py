@@ -45,7 +45,7 @@ class MailAccount:
 
         "Email me" and jobs with a blank recipient use the user's inbox
         (profile ``user.email`` or ``default_recipient``), never the SMTP
-        from-address. That from-address is Arelis — a future user saying
+        from-address. That from-address is Arelis, a future user saying
         "email me" must not land in her mailbox.
         """
         asked = (requested or "").strip()

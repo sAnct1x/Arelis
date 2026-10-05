@@ -22,7 +22,7 @@ class InstrumentPanel(GlassFrame):
     """Glass dock body: docked drag header, floating continuous-plate chrome.
 
     Owns which header is showing and the margins around it. Does not own its own
-    translucency — ``arelis.ui.dock_surface`` writes that for the whole dock
+    translucency, ``arelis.ui.dock_surface`` writes that for the whole dock
     subtree at once, and this panel used to be one of six writers fighting it.
 
     The parent QDockWidget keeps a zero-height title bar always. Undocked window

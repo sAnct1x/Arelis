@@ -103,7 +103,7 @@ def arm_away_rest_timer(window) -> None:
 
 
 def note_engagement(window) -> None:
-    """A real use: click, type, send, wake, Allow — not mouse-move or STATUS."""
+    """A real use: click, type, send, wake, Allow, not mouse-move or STATUS."""
     if window._away_resting:
         wake_from_away_rest(window)
         return
@@ -251,7 +251,7 @@ def refresh_idle_face(window) -> None:
     if sessions != window._idle_ghosts:
         window._idle_ghosts = sessions
         idle.set_sessions(sessions)
-    ollama = "—"
+    ollama = "-"
     snap = window._readiness_snap
     if snap is not None:
         chip = snap.chip("ollama") if hasattr(snap, "chip") else None

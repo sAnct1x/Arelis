@@ -81,7 +81,7 @@ def rooms_overview(orch: Any) -> str:
     rooms = orch.rooms.all()
     if not rooms:
         return (
-            "No rooms yet. A room is a named place to work on one thing — it "
+            "No rooms yet. A room is a named place to work on one thing, it "
             "keeps its own conversation, points at one project folder, and "
             "remembers what it is for.\n\n"
             'Make one by saying "let\'s work on <name>", or `/room new '
@@ -97,7 +97,7 @@ def rooms_overview(orch: Any) -> str:
             ident = f"{room.name} (`{room.id}`)"
         else:
             ident = f"`{room.id}`"
-        lines.append(f"- {ident}{mark} — {detail}{where}")
+        lines.append(f"- {ident}{mark}, {detail}{where}")
     body = "Rooms:\n" + "\n".join(lines)
     if active:
         body += "\n\nLeave with `/leave`."
@@ -412,7 +412,7 @@ def forget_room(orch: Any, rest: str) -> str:
         return str(exc)
     return (
         f"Forgot the `{room.id}` room. Its conversations are still in History "
-        "— only the room itself is gone."
+        "- only the room itself is gone."
     )
 
 
@@ -454,7 +454,7 @@ async def enter_room(
     silent: bool = False,
     fresh: bool = False,
 ) -> None:
-    """Open a room: its thread, its folder, its role — all three at once.
+    """Open a room: its thread, its folder, its role, all three at once.
 
     Refused mid-turn for the same reason a session load is: the running turn
     owns SessionMemory, and swapping the thread underneath it would answer

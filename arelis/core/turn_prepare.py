@@ -203,7 +203,7 @@ async def _begin_turn(
                     EventType.STATUS,
                     {
                         "message": (
-                            f"Loading `{model}` — previous chat model was unloaded so it can fit."
+                            f"Loading `{model}`, previous chat model was unloaded so it can fit."
                         )
                     },
                 )

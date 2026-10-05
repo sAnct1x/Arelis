@@ -69,7 +69,7 @@ class OrchestratorConfirm:
                 await self.bus.publish(
                     Event(
                         EventType.STATUS,
-                        {"message": (f"Confirm timed out after {mins}m — skipped `{tool}`.")},
+                        {"message": (f"Confirm timed out after {mins}m, skipped `{tool}`.")},
                     )
                 )
                 await self.bus.publish(

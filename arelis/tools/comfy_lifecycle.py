@@ -239,7 +239,7 @@ def _format_exit_code(code: int | None) -> str:
         return "unknown"
     if code in _ACCESS_VIOLATION:
         return (
-            f"{code} (Windows access violation 0xC0000005 — usually the wrong "
+            f"{code} (Windows access violation 0xC0000005, usually the wrong "
             "Python: python_embeded ROCm/CUDA probing CUDA on AMD. Arelis should "
             "use venv_directml when run_directml.bat exists; open Comfy via "
             "run_directml.bat by hand if this persists)"
@@ -330,7 +330,7 @@ def park_comfy(comfy_url: str = "http://127.0.0.1:8188") -> bool:
     """Stop Arelis-owned Comfy, then anyone still listening on that local port.
 
     Image gen starts Comfy when needed. Chat / code / research cannot share a
-    12GB card with it, so parking is the default — the user should not have to
+    12GB card with it, so parking is the default, the user should not have to
     close a window by hand. Only loopback URLs are killed; a remote Comfy is left
     alone.
     """

@@ -24,7 +24,7 @@ loaded at tens of thousands of tokens, so it can take a longer edge.
 
 Measured against qwen2.5vl:3b, the cost of the picture alone: 1024px is 1,100
 tokens, 1280px is 1,221, 1600px is 1,849. All three answer correctly, so 1024
-is the fallback cap — margin on a 4096 window, not a quality target. When the
+is the fallback cap, margin on a 4096 window, not a quality target. When the
 chat model looks, 2048 is the cap: enough that a phone photo of a monitor
 still has readable chrome, without shipping a 4K paste as-is.
 

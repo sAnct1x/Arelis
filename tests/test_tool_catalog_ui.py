@@ -26,7 +26,7 @@ from arelis.tools.remind import RemindTool
 
 
 def _named_line(text: str, name: str) -> str:
-    marker = f"`{name}` — "
+    marker = f"`{name}`: "
     for line in text.splitlines():
         if line.startswith(marker):
             return line
@@ -59,12 +59,12 @@ def test_catalog_names_cas_and_remind_while_those_tools_exist() -> None:
 
 def test_catalog_is_name_plus_one_line() -> None:
     text = format_tool_catalog()
-    named = [line for line in text.splitlines() if " — " in line]
+    named = [line for line in text.splitlines() if re.match(r"`[a-z0-9_]+`: ", line)]
     assert len(named) >= 41
     for line in named:
         assert line.count("\n") == 0
         assert len(line) <= 220
-        assert re.match(r"`[a-z0-9_]+` — \S", line)
+        assert re.match(r"`[a-z0-9_]+`: \S", line)
 
 
 def test_catalog_does_not_dump_essays() -> None:
@@ -72,7 +72,9 @@ def test_catalog_does_not_dump_essays() -> None:
     text = format_tool_catalog()
     assert "parameters" not in text.lower()
     assert "properties" not in text.lower()
-    body = "\n".join(line for line in text.splitlines() if " — " in line)
+    body = "\n".join(
+        line for line in text.splitlines() if re.match(r"`[a-z0-9_]+`: ", line)
+    )
     assert "\n\n" not in body
 
 

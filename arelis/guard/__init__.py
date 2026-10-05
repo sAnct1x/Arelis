@@ -1,4 +1,4 @@
-"""House watch — the doors Arelis opened, not a security operations center.
+"""House watch, the doors Arelis opened, not a security operations center.
 
 The chat model cannot sit on the network. This module can: inbound rate
 limits, bad-token lockout, an outbound API budget, and a snapshot the

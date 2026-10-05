@@ -625,7 +625,7 @@ class FakeDriver:
             return ActionResult(
                 ok=False,
                 output=(
-                    f"{label} profile in use — already open without debugging. "
+                    f"{label} profile in use, already open without debugging. "
                     "open/navigate will restart with control after Allow, then "
                     f"open the URL. Or close {label} / Allow relaunch. "
                     "Do not screenshot until connected."
@@ -648,7 +648,7 @@ class FakeDriver:
         )
 
     async def open_url_os(self, url: str, browser: str = "chrome") -> ActionResult:
-        """Plain open for tests — no lock / relaunch path."""
+        """Plain open for tests, no lock / relaunch path."""
         self.browser = browser
         self.connected = True
         self.mode = "os_open"
@@ -960,7 +960,7 @@ class FakeDriver:
                 ok=False,
                 output=(
                     "Refused to type into a password/OTP field. "
-                    "Arelis does not enter credentials — sign in yourself."
+                    "Arelis does not enter credentials, sign in yourself."
                 ),
                 data={"code": "SECRET_FIELD", "ref": ref},
             )
@@ -1026,7 +1026,7 @@ class FakeDriver:
                 self._future.clear()
                 return ActionResult(
                     ok=True,
-                    output="Closed the last tab — blank tab stays.",
+                    output="Closed the last tab, blank tab stays.",
                     data={"tabs": list(self._tabs), "active": 0},
                 )
             self._tabs.pop(self._active)
@@ -1214,7 +1214,7 @@ class FakeDriver:
         if hit:
             return ActionResult(
                 ok=True,
-                output=f"Watch hit — {self.url}",
+                output=f"Watch hit, {self.url}",
                 data={
                     "hit": True,
                     "watch_hit": True,
@@ -1224,7 +1224,7 @@ class FakeDriver:
             )
         return ActionResult(
             ok=True,
-            output=f"Watch still waiting — {self.url}",
+            output=f"Watch still waiting, {self.url}",
             data={"hit": False, "url": self.url, "title": self.title},
         )
 
@@ -1455,7 +1455,7 @@ class PlaywrightDriver:
                 output=(
                     "Arelis Chrome is open but not controllable "
                     f"(CDP down on {self.cdp_url}). Allow relaunch to restart "
-                    "HER window only — daily Chrome is left alone. "
+                    "HER window only, daily Chrome is left alone. "
                     "Do not screenshot until connected."
                 ),
                 data={"code": "PROFILE_LOCKED", "browser": browser},
@@ -1574,7 +1574,7 @@ class PlaywrightDriver:
     async def _present_window(self) -> None:
         """Show her Chrome. Park only a window we just started.
 
-        After that the operator owns size and place. Clicks are CDP — the
+        After that the operator owns size and place. Clicks are CDP, the
         window does not need focus. It does need to be in front of Arelis
         the first time it opens, not behind the glass.
         """
@@ -2210,7 +2210,7 @@ class PlaywrightDriver:
                 ok=False,
                 output=(
                     "Refused to type into a password/OTP field. "
-                    "Arelis does not enter credentials — sign in yourself."
+                    "Arelis does not enter credentials, sign in yourself."
                 ),
                 data={"code": "SECRET_FIELD", "ref": ref},
             )
@@ -2273,7 +2273,7 @@ class PlaywrightDriver:
                     await current.goto("about:blank", wait_until="domcontentloaded")
                     return ActionResult(
                         ok=True,
-                        output="Closed the last tab — blank tab stays.",
+                        output="Closed the last tab, blank tab stays.",
                         data={"url": current.url, "title": await current.title()},
                     )
                 close_i = pages.index(current) if current in pages else 0
@@ -2555,7 +2555,7 @@ class PlaywrightDriver:
         if hit:
             return ActionResult(
                 ok=True,
-                output=f"Watch hit — {landed}",
+                output=f"Watch hit, {landed}",
                 data={
                     "hit": True,
                     "watch_hit": True,
@@ -2565,7 +2565,7 @@ class PlaywrightDriver:
             )
         return ActionResult(
             ok=True,
-            output=f"Watch still waiting — {landed}",
+            output=f"Watch still waiting, {landed}",
             data={
                 "hit": False,
                 "url": landed,

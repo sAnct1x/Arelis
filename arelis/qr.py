@@ -1,6 +1,6 @@
 """QR modules for the phone pairing ticket.
 
-Generated locally with segno — no network. The old hand-rolled encoder
+Generated locally with segno, no network. The old hand-rolled encoder
 looked like a QR (finders were in the right corners) but scanners would
 not decode it.
 """

@@ -6,7 +6,7 @@ a wake.
 
 The compound phrase is required: "Hey" (or Whisper's "Hay" / "Hair" /
 leading "Pay") plus the name. Bare "Arelis", "Hi Arelis", and
-"Okay Arelis" do not wake —
+"Okay Arelis" do not wake
 those fire too easily on Discord and room talk. Leading Whisper fillers
 ("and", "uh", …) are ignored. A long clip may still wake if it contains
 "Hey Arelis" later; a bare name later in the transcript does not.

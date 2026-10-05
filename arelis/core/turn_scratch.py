@@ -14,7 +14,7 @@ them to the next stage. Writing through one object is that contract.
 
 ``slots=True`` is load-bearing rather than a size tweak. The scratch was a
 ``SimpleNamespace``, so ``r.ollama_tolls = []`` was a new attribute and a
-silently dropped write — on this object it raises.
+silently dropped write, on this object it raises.
 
 This is a separate module because ``turn_round`` imports ``turn_dispatch``,
 so the shared type cannot live in either one.

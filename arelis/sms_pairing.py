@@ -3,7 +3,7 @@
 The phone scans a QR (or pastes the same text). That ticket carries ingest
 URLs, the ingest token, this instance id, and a short-lived pair secret.
 The phone then POSTs /inbound/pair with its radio listen URL and a device
-key. Phone DHCP is a second POST with the same device key — no new QR.
+key. Phone DHCP is a second POST with the same device key, no new QR.
 PC DHCP is a LAN beacon plus stored-URL failover; the phone adopts the new
 ingest address without scanning again.
 """

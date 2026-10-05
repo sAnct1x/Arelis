@@ -2,13 +2,13 @@
 
 A turn that calls tools paints nothing until the tools finish: the draft is
 retracted when a round turns out to be a preamble, so the thread is blank on
-purpose. Measured on 2026-08-14, a turn offering the full tool surface — which is
-every SMS turn — cost 34 to 36 seconds cold. Half a minute of blank thread is the
+purpose. Measured on 2026-08-14, a turn offering the full tool surface, which is
+every SMS turn, cost 34 to 36 seconds cold. Half a minute of blank thread is the
 single thing that made this app feel hung.
 
 The signals that existed were not enough. The composer placeholder said "model
 loading…", which stops being true the moment the model has loaded and is calling
-tools. The Thinking dock was told, in developer terms — ``weather {'days': 2}`` —
+tools. The Thinking dock was told, in developer terms, ``weather {'days': 2}``
 and it is closed by default, so the first tool call flung it open mid-turn as the
 only proof of life. And the honest "still working, the answer is held back" line
 was reactive: it fired when the user pressed Esc, meaning you had to try to cancel

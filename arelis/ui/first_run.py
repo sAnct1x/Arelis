@@ -43,8 +43,8 @@ class FirstRunDialog(GlassDialog):
         # the sentence that follows says exactly what it means, including delete.
         self.add_text(
             "Arelis can read, create, change and delete files inside this "
-            "folder, and nowhere else on your PC. Everything it makes for you — "
-            "reports, screenshots, voice clips — is saved here too.\n\n"
+            "folder, and nowhere else on your PC. Everything it makes for you"
+            "reports, screenshots, voice clips, is saved here too.\n\n"
             "You can change this later, or add more folders, in "
             "Settings → Roots."
         )

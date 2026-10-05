@@ -70,7 +70,7 @@ def test_format_agenda_section_labels_today_tomorrow() -> None:
     assert "Lab" in text
     assert "Standup notes" in text
     assert "**Tomorrow**" in text
-    assert "all day — All-day errand" in text
+    assert "all day, All-day errand" in text
 
 
 def test_missing_calendar_file_is_empty(tmp_path) -> None:

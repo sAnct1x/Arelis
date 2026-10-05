@@ -6,7 +6,7 @@ WA_TranslucentBackground is a Windows layered window, whose bitmap belongs to
 the OS rather than to Qt. The OS keeps that bitmap across hide, show and
 resize, and presents it again before Qt has run a single paintEvent. One frame
 of translucency on a float is therefore enough to buy a stale copy of the panel
-that outlives whatever caused it — the ghost.
+that outlives whatever caused it, the ghost.
 
 Six functions across three modules used to write WA_TranslucentBackground,
 WA_OpaquePaintEvent and autoFillBackground on the same four widgets (the dock,
@@ -23,7 +23,7 @@ of a drag.
 
 ``apply_dock_chrome`` swaps window flags, which destroys and re-creates the
 native window. That cannot happen mid-drag without dropping the mouse grab, so
-it is the half that sometimes has to wait — and it applies the surface first,
+it is the half that sometimes has to wait, and it applies the surface first,
 so waiting is never the same as being translucent.
 """
 from __future__ import annotations
@@ -99,7 +99,7 @@ def apply_dock_surface(dock: QDockWidget, floating: bool | None = None) -> None:
     """Set the whole dock subtree to the docked or floating surface.
 
     Idempotent and free of side effects on visibility, so it is always safe to
-    call — which is what lets it run unconditionally on every topLevelChanged
+    call, which is what lets it run unconditionally on every topLevelChanged
     even when the chrome swap below has to be deferred.
     """
     if floating is None:
@@ -138,7 +138,7 @@ def apply_dock_surface(dock: QDockWidget, floating: bool | None = None) -> None:
 def apply_dock_chrome(dock: QDockWidget, floating: bool | None = None) -> None:
     """Give a dock its floating window flags, or take them away.
 
-    Shell margins are not set here — ``_sync_panel_margins`` owns those, and it
+    Shell margins are not set here, ``_sync_panel_margins`` owns those, and it
     already zeroes them for a float.
     """
     if floating is None:

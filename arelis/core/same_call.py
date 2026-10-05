@@ -3,7 +3,7 @@
 The round cap is a fuse. This is the actual stop: a second list of the
 same folder, a second read of the same file, a second rooms get. A
 different path or different args still run. Failed calls do not count,
-so a retry after an error is allowed. Browser snapshots are not gated —
+so a retry after an error is allowed. Browser snapshots are not gated
 the page can change after a click.
 """
 
@@ -148,7 +148,7 @@ _STRIP_TOOLS_ON_REPEAT = frozenset({"cas", "python", "units", "plot"})
 def same_call_finishes_turn(name: str) -> bool:
     """True when the prior receipt can stand as the chat line.
 
-    Calculator 2+2 can. A CAS blob cannot — they still owe the write-up.
+    Calculator 2+2 can. A CAS blob cannot, they still owe the write-up.
     """
     return (name or "").strip() in _FINISH_ON_REPEAT
 
@@ -181,7 +181,7 @@ def same_call_finish_line(name: str, last_out: str) -> str:
 
 
 def is_browser_nav_call(name: str, args: dict[str, Any] | None) -> bool:
-    """True for open/navigate — the calls the same-URL fuse owns."""
+    """True for open/navigate, the calls the same-URL fuse owns."""
     if (name or "").strip() != "browser":
         return False
     action = str((args or {}).get("action") or "").strip().lower()

@@ -1,4 +1,4 @@
-"""Live tab watch — poll while Arelis is open. Stop cancels. Notify on hit."""
+"""Live tab watch, poll while Arelis is open. Stop cancels. Notify on hit."""
 
 from __future__ import annotations
 

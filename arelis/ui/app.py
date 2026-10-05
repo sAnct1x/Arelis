@@ -1,6 +1,6 @@
 """Sodium window. Mixins own construct, chrome, lifetime, and turns.
 
-Filament is a second GUI on this same HWND — ``filament (testing)``.
+Filament is a second GUI on this same HWND, ``filament (testing)``.
 """
 
 from __future__ import annotations

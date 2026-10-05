@@ -263,7 +263,7 @@ def latest_openable_path(
     history: list[Any] | None = None,
     receipts: list[Any] | None = None,
 ) -> str:
-    """Newest written file this thread can open — document or chart."""
+    """Newest written file this thread can open, document or chart."""
     return _latest_named_file(
         history,
         receipts,
@@ -276,7 +276,7 @@ def files_in_turn(content: str, note: str = "") -> list[tuple[str, str]]:
     """Existing written files named in this turn, oldest first.
 
     Used to rebuild the open / show-in-folder card when History or a room
-    comes back. Missing files are skipped — a dead link is worse than none.
+    comes back. Missing files are skipped, a dead link is worse than none.
     """
     seen: set[str] = set()
     out: list[tuple[str, str]] = []

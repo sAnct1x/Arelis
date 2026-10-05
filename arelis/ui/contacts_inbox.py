@@ -1,4 +1,4 @@
-"""Floating glass address book — View → contacts. Not a dock."""
+"""Floating glass address book, View → contacts. Not a dock."""
 
 from __future__ import annotations
 

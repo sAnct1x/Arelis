@@ -67,7 +67,7 @@ _SHORT_DESC: dict[str, str] = {
     # "defaults to their own place" earns its length: measured 7/13 runs
     # calling user_location first, which weather can never use because it
     # refuses coordinates. Only the arms carrying this sentence got it right.
-    "weather": "forecast. defaults to the user's own place — omit place for home, never look up their location first. place=city name, not coords",
+    "weather": "forecast. defaults to the user's own place, omit place for home, never look up their location first. place=city name, not coords",
     "web_fetch": "http(s) APIs / JSON. not pages. method=POST|PUT|PATCH|DELETE + headers/body for a real API; non-GET asks first",
     "web_search": "search first. never guess a url",
     "workspace": "sandbox files: list/read/grep/find/write/edit/patch/delete/move/rename/copy. patch=unified diff. writes confirm",
@@ -76,18 +76,18 @@ _SHORT_DESC: dict[str, str] = {
 
 # Shipped every turn. Telegraph. Keywords tests lock are intentional.
 COMPACT_TOOL_POLICY = """
-tools: call; don't invent results. Never ask "Would you like me to proceed / fetch / scrape / search / check?" when the ask is clear. Multi-part: keep calling until done. Fallback: {"tool":"<name>","args":{}} or {"final":"<answer>"}.
+tools: call; don't invent results. Never ask \"Would you like me to proceed / fetch / scrape / search / check?\" when the ask is clear. Multi-part: keep calling until done. Fallback: {\"tool\":\"<name>\",\"args\":{}} or {\"final\":\"<answer>\"}.
 confirm: writes/sends = card, not a chat ask. Never claim a side effect unless a tool this turn succeeded. Confirmation without a tool is a lie.
 browser: her Chrome; no password/OTP; stop captcha|Pay; click text|ref|nth. no goto_sign_in.
 desktop: your Windows session; look=screenshot (grabs+reads); no shell; no raw exe; no password; stop Pay|delete|UAC.
 web: web_search first; never guess a url; never answer from a snippet alone; never pass the title as url (copy the URL: value); Prefer scrape for pages; web_fetch for apis. After scrape, talk; do not paste the page.
 weather: call the weather tool; not search; not scrape; place=name; two cities = two calls.
-location: user_location; do not web-guess. not before weather — weather resolves its own place.
+location: user_location; do not web-guess. not before weather, weather resolves its own place.
 sms: call send_sms immediately when to+body are known (nickname or any number they typed); do not re-ask for the body. contacts are hints, not a gate. inbound_sms sees everyone.
 email: inbox list/search/trash/archive; send_email to send; never claim you deleted mail.
-workspace: workspace read/write/list; inspect source with workspace; writes confirm. Code assess: list one folder then fanout-read; do not list the repo root. Same list/read this turn is a loop — open a new path or answer. Outside roots: stop; do not list parents; Allow the path or Settings → roots.
+workspace: workspace read/write/list; inspect source with workspace; writes confirm. Code assess: list one folder then fanout-read; do not list the repo root. Same list/read this turn is a loop, open a new path or answer. Outside roots: stop; do not list parents; Allow the path or Settings → roots.
 attach: image→vision|ocr; pdf→doc_extract; csv→analyze; text→workspace. never invent file contents. never ask them to paste a PDF. ink pdf→one vision paths= (not 17 calls, not ocr).
-memory: recall before claiming you do not know; remember/forget via the memory tool. "what do you remember/know about me" = memory action=list, not recall.
+memory: recall before claiming you do not know; remember/forget via the memory tool. \"what do you remember/know about me\" = memory action=list, not recall.
 goals: goals. tasks: tasks. analyze: analyze. sql: sql. doc_extract: doc_extract. document: document. pdf: pdf. calculator: calculator. diagnostics: diagnostics. cas: cas. clipboard: clipboard. ocr: ocr.
 agenda: agenda (events; free=open slots). tile: tile (thinking|workspace|history|chat|…; filament chat = name=chat). rooms: rooms. schedule: schedule. remind: remind (in/at, not schedule). notes: notes.
 image: image. image_edit: image_edit. vision: vision. transcribe: transcribe. research_report: research_report.
@@ -117,7 +117,7 @@ def format_tool_catalog(tools: Sequence[Mapping[str, Any]] | None = None) -> str
         rows[name] = skinny_description(name, str(item.get("description") or ""))
     lines = ["What she can do. Ask by name.", ""]
     for name in sorted(rows, key=str.lower):
-        lines.append(f"`{name}` — {rows[name]}")
+        lines.append(f"`{name}`: {rows[name]}")
     return "\n".join(lines)
 
 
@@ -143,7 +143,7 @@ def skinny_parameters(
     """Keep types, enums, required, property names. Drop description essays.
 
     A property that was only an essay becomes ``{}`` after the strip, which
-    is worse than omitting it — the model sees a named hole with no type.
+    is worse than omitting it, the model sees a named hole with no type.
     Drop those. Give the field a type in the source schema if it should stay.
 
     When param_hints is True and tool_name is in the allowlist, keep specific

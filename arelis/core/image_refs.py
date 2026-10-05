@@ -20,7 +20,7 @@ _IMG_SUFFIX = r"\.(?:png|jpe?g|webp|gif)"
 # The shared pieces come from path_refs so the POSIX-absolute case cannot go
 # missing here again. It was missing: the third branch below used to be
 # drive-letter only, so on Linux a named /tmp/.../arelis_1234.png was not seen
-# as a path, and the caller fell back to "newest file in outputs/images" —
+# as a path, and the caller fell back to "newest file in outputs/images", 
 # looking at a different picture than the one the user named, silently.
 _PATH_MENTION = re.compile(
     r"(?i)("
@@ -331,7 +331,7 @@ def fill_image_gen_args(
             prompt = str(meta.get("prompt") or "").strip()
             asked = str(out.get("prompt") or "").strip()
             if prompt and (not asked or wants_same_seed(asked) or wants_same_seed(ask)):
-                # "Do that again" is not a new subject — reuse the last prompt.
+                # "Do that again" is not a new subject, reuse the last prompt.
                 if not re.search(r"(?i)\b(?:of|with)\s+a\b", ask):
                     out["prompt"] = prompt
             if not str(out.get("style") or "").strip() and meta.get("style"):
@@ -409,7 +409,7 @@ def fill_vision_args(
     """Fill missing vision path: this-turn paste, then camera, then last generate.
 
     A walk already listing ``paths=`` (ink PDF pages) must not pick up the
-    last generated picture — that is how a BOARD fox became page 1 of 18.
+    last generated picture, that is how a BOARD fox became page 1 of 18.
     """
     out = dict(args)
     raw_paths = out.get("paths")
