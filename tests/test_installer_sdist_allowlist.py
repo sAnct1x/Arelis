@@ -2,7 +2,7 @@
 
 lock.py resolves with --only-binary=:all:. A short allowlist of pure-Python projects
 that publish no wheel (jieba, for misaki[zh]) is the one exception, and build.py has
-to name exactly the same projects when it installs, or the hashed sdist is refused.
+to name exactly the same projects when it wheels them on the runner.
 """
 
 from __future__ import annotations
