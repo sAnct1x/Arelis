@@ -8,7 +8,7 @@ own browser, and keeps longer projects organized in named rooms.
 Anything that writes a file or sends a message waits for your approval
 first.
 
-**Overview video:** https://youtu.be/TWZqnyHlh4M • **Latest release:** [v0.3.0](https://github.com/sAnct1x/arelis/releases/latest)
+**Overview video:** https://youtu.be/TWZqnyHlh4M • **Installer:** broken right now, see [Quick start](#quick-start) • **Next release:** [v0.3.0](docs/releases/v0.3.0.md) (not out yet)
 
 ## What it does
 
@@ -38,7 +38,20 @@ added later. The core program works without them.
 
 ## Quick start
 
-**To try it:** Download the latest installer from [GitHub releases](https://github.com/sAnct1x/arelis/releases/latest) (`Arelis-0.3.0-win64-setup.exe`, about 245 MB). Run it. The first time you open Arelis, she'll ask which folder she can use, then download Ollama and the chat model if needed. That's it.
+> **The Windows installer is broken right now. Please do not use it yet.**
+> In a test on a clean Windows account, the installers for 0.2.4 through
+> 0.2.9 close at startup, before any window appears. A piece of the
+> window code was left out of the installer by mistake. The fix is for
+> 0.3.0, which is not out yet, and I will not call it fixed until I have
+> installed it on a clean account and watched it open. I think 0.2.0 to
+> 0.2.3 predate the mistake, but I have not tested them.
+>
+> What to do instead: use the [v0.2.3 installer](https://github.com/sAnct1x/Arelis/releases/tag/v0.2.3),
+> or [run it from source](#running-from-source). I have not re-tested 0.2.3
+> myself on a clean account for this notice, but that build predates the
+> mistake.
+
+**To try it once 0.3.0 is out:** Download the latest installer from [GitHub releases](https://github.com/sAnct1x/arelis/releases/latest) (`Arelis-0.3.0-win64-setup.exe`, about 245 MB). Run it. The first time you open Arelis, she'll ask which folder she can use, then download Ollama and the chat model if needed. That's it.
 
 **To run from source:** See [Running from source](#running-from-source) below.
 
@@ -78,7 +91,15 @@ deletes, payments, and running project scripts still ask.
 
 ## Installing
 
-Download the latest setup file from [GitHub releases](https://github.com/sAnct1x/arelis/releases/latest): `Arelis-0.3.0-win64-setup.exe` (about 245 MB download, about 0.9 GB installed). Run it. It installs per-user into `%LOCALAPPDATA%\Programs\Arelis`, so no administrator prompt.
+> The setup file is broken in 0.2.4 through 0.2.9 (it closes at startup)
+> and 0.3.0 is not out yet.
+>
+> What to do instead: use the [v0.2.3 installer](https://github.com/sAnct1x/Arelis/releases/tag/v0.2.3),
+> or [run it from source](#running-from-source). I have not re-tested 0.2.3
+> myself on a clean account for this notice, but that build predates the
+> mistake.
+
+When 0.3.0 is out, download the latest setup file from [GitHub releases](https://github.com/sAnct1x/arelis/releases/latest): `Arelis-0.3.0-win64-setup.exe` (about 245 MB download, about 0.9 GB installed). Run it. It installs per-user into `%LOCALAPPDATA%\Programs\Arelis`, so no administrator prompt.
 
 ### First run
 
