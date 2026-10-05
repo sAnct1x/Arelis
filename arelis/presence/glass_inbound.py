@@ -1,8 +1,8 @@
 """Glass-side inbound: own ingest, or attach to a core, or take over.
 
 A detached ``--core`` owns ``:8765``. A sibling window that already opened
-that door is not a core. If this window attached and the core never answers
-, or answers and then leaves, the glass binds ingest itself instead of
+that door is not a core. If this window attached and the core never answers,
+or answers and then leaves, the glass binds ingest itself instead of
 sitting mute until a restart.
 """
 

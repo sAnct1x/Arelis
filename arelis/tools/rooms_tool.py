@@ -49,7 +49,7 @@ class RoomsTool:
             "name": {
                 "type": "string",
                 "description": (
-                    "Room name, as the user would say it'Reality'. Required "
+                    "Room name, as the user would say it, 'Reality'. Required "
                     "for create; identifies the room for get/update/forget."
                 ),
             },

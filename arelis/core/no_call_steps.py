@@ -734,8 +734,8 @@ async def try_recall(loop: Any, ctx: TurnContext, r: RoundScratch) -> str:
     """ "What did I say about X" must reach the transcripts, not a shrug.
 
     Roadmap 4.0. The intent was already detected, the RECALL IntentSpec
-    matches, preflight writes a nudge, and `recall` lands in `_expected_tools`
-  , and nothing acted on it. If the model answered in prose, or reached for
+    matches, preflight writes a nudge, and `recall` lands in `_expected_tools`,
+    and nothing acted on it. If the model answered in prose, or reached for
     `web_search` (which is hidden before dispatch on a recall turn, so it never
     runs), the turn ended in *"I don't know"* with the right tool sitting
     there unused.

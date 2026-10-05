@@ -30,7 +30,7 @@ class UnitsTool:
         "(CODATA / IAU / Planck) with the source year in the result. "
         "Use convert for '5 ft 8 in in meters'. Use constant for G, c, sigma, "
         "Hubble, solar mass. This is not a unit conversion into a cosmological "
-        "frame'2.7 K to the CMB frame' is a Doppler boost, not Pint. "
+        "frame, and '2.7 K to the CMB frame' is a Doppler boost, not Pint. "
         "Do not recite CODATA from memory."
     )
     risk = "read"

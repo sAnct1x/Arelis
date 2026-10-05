@@ -12,6 +12,7 @@ _EN = "\u2013"
 _OPEN = ",;:([{\"'\u201c\u2018"
 _OPENERS = "([{\"'\u201c\u2018"
 _CLOSE = ",.;:!?)]}\"'\u201d\u2019"
+_QUOTE_OPEN = "'\"\u201c\u2018"
 
 
 def _cjk(ch: str) -> bool:
@@ -95,6 +96,13 @@ class DashFilter:
             self._emit("-", out)
         elif nxt in ("", "\n"):
             self._emit("", out)
+        elif (not tight) and nxt in _QUOTE_OPEN:
+            # Spaced dash then ' " or curly openers: those quotes are opening,
+            # not closing punctuation. Tight word—" / —' can still drop.
+            if prev in _OPEN:
+                self._emit("" if prev in _OPENERS else " ", out)
+            else:
+                self._emit(", ", out)
         elif prev in _OPEN or nxt in _CLOSE:
             self._emit("" if (nxt in _CLOSE or prev in _OPENERS) else " ", out)
         else:

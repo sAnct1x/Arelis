@@ -837,10 +837,10 @@ def format_attachments_block(
                 "size, adjustments, or text overlay asked for (e.g. "
                 "preset=youtube_thumbnail or width=1280 height=720, vibrance=1.3, "
                 "crop=left/right/center, scale=2, or text=Arelis). It writes a "
-                "new file and leaves the original alone. Do not call image"
+                "new file and leaves the original alone. Do not call image, "
                 "that generates a different picture from a text prompt and "
                 "cannot modify this file. Do not call vision, which can only "
-                "look at it. Do not call send_sms'add text' on a picture is "
+                "look at it. Do not call send_sms, 'add text' on a picture is "
                 "an overlay, not a message. Do not call the calculator for "
                 "the pixel dimensions."
             )

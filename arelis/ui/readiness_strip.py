@@ -226,10 +226,10 @@ class ReadinessStrip(QWidget):
                     "confirm": "Allow gates",
                 }
                 name = labels.get(key, key)
-                text = f"{name}  ·  off,  No signal."
+                text = f"{name}  ·  off, No signal."
                 tip = "No signal."
             else:
-                text = f"{item.label}  ·  {item.status.value},  {item.detail}"
+                text = f"{item.label}  ·  {item.status.value}, {item.detail}"
                 tip = item.detail
             action = QAction(text, self._systems_menu)
             action.setToolTip(tip)

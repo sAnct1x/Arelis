@@ -2,8 +2,8 @@
 
 When `Orchestrator` was split into mixins, this block went along for the ride
 into each new file. It ended up defined four times, in `orchestrator.py`,
-`orchestrator_turns.py`, `orchestrator_confirm.py` and `orchestrator_slash.py`
-, byte for byte, and used in exactly one of them.
+`orchestrator_turns.py`, `orchestrator_confirm.py` and `orchestrator_slash.py`,
+byte for byte, and used in exactly one of them.
 
 That is worse than untidy. `TOOL_CMD` decides which tools a typed slash command
 may run without a confirm card, and the comment on it explains at length why

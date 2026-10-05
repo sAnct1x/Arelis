@@ -237,3 +237,54 @@ def test_property_chunking_seeded() -> None:
             right = got[i + 1 :].lstrip(" \t")
             assert left.endswith(tuple("0123456789"))
             assert right[:1].isdigit()
+
+
+LDQ = "\u201c"
+RDQ = "\u201d"
+LSQ = "\u2018"
+RSQ = "\u2019"
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        (f'He said {EM} "stop"', 'He said, "stop"'),
+        (f"frame {EM} '2.7 K to the CMB frame' is a Doppler boost",
+         "frame, '2.7 K to the CMB frame' is a Doppler boost"),
+        (f"He said {EM} {LDQ}stop{RDQ}", f"He said, {LDQ}stop{RDQ}"),
+        (f"He said {EM} {LSQ}stop{RSQ}", f"He said, {LSQ}stop{RSQ}"),
+        (f'so, {EM} "then"', 'so, "then"'),
+        (f'word{EM}"end"', 'word"end"'),
+        (f"word{EM}'end'", "word'end'"),
+        (f"hello{EM}{RDQ}", f"hello{RDQ}"),
+        (f"hello{EM}{RSQ}", f"hello{RSQ}"),
+    ],
+)
+def test_spaced_dash_before_opening_quote(raw: str, expected: str) -> None:
+    from arelis.core.dash_filter import clean_dashes
+
+    assert clean_dashes(raw) == expected
+
+
+@pytest.mark.parametrize(
+    "parts",
+    [
+        ["He said ", EM, ' "stop"'],
+        ["He said " + EM, ' "stop"'],
+        ['He said ' + EM + " ", '"stop"'],
+        ["He said", f" {EM} ", '"stop"'],
+        ["frame ", EM, " '2.7 K'"],
+        ["frame " + EM + " ", "'2.7 K'"],
+        ["He said ", EM, f" {LDQ}stop{RDQ}"],
+        ["He said ", EM, f" {LSQ}stop{RSQ}"],
+    ],
+)
+def test_quote_after_dash_survives_stream_splits(parts: list[str]) -> None:
+    from arelis.core.dash_filter import DashFilter, clean_dashes
+
+    whole = "".join(parts)
+    filt = DashFilter()
+    got = "".join(filt.feed(p) for p in parts) + filt.flush()
+    assert got == clean_dashes(whole)
+    assert 'said"stop' not in got
+    assert "frame'" not in got or "frame, '" in got or "frame '" in got
