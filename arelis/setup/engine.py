@@ -205,4 +205,8 @@ def run_ollama_setup(setup_exe: Path) -> str | None:
         return (
             "The Ollama installer is open. Finish it, then come back and continue."
         )
+    if find_ollama_exe() is None:
+        return (
+            "The Ollama installer finished but ollama.exe was not found on this PC."
+        )
     return None
