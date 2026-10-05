@@ -935,3 +935,54 @@ def test_dispatch_tables_are_named_and_ordered() -> None:
     assert len(call_redirects.REDIRECT_STEPS) >= 4
     assert all(callable(step) for step in call_redirects.REDIRECT_STEPS)
 
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("text", "tool"),
+    [
+        (
+            "no need to look at the book, its just fucking crazy that she wrote a "
+            "scenario, as fiction, and a few months later it literally might be happening",
+            "desktop",
+        ),
+        (
+            "i never asked you to do anything, why did you open your browser, "
+            "check the time, and talk about whatever the fuck shibuya room is?",
+            "browser",
+        ),
+    ],
+)
+async def test_declined_or_complaining_text_injects_no_tool(text: str, tool: str) -> None:
+    loop = _FakeLoop()
+    r = _scratch(
+        text=text,
+        content="Sure.",
+        tool_names={tool},
+        available={tool},
+        visible={tool},
+        available_all={tool},
+    )
+    ctx = _ctx(text=text)
+    ctx.tool_names = {tool}
+    await apply_no_call_path(loop, ctx, r, 0)
+    assert r.calls == []
+    assert loop._expected_tools == set()
+
+
+@pytest.mark.asyncio
+async def test_real_look_request_still_injects_desktop_screenshot() -> None:
+    loop = _FakeLoop()
+    text = "look at the book on my right monitor"
+    r = _scratch(
+        text=text,
+        content="Sure.",
+        tool_names={"desktop"},
+        available={"desktop"},
+        visible={"desktop"},
+        available_all={"desktop"},
+    )
+    ctx = _ctx(text=text)
+    ctx.tool_names = {"desktop"}
+    assert await apply_no_call_path(loop, ctx, r, 0) is None
+    assert [name for name, _args in r.calls] == ["desktop"]

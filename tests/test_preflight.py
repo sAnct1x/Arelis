@@ -549,3 +549,38 @@ def test_open_notepad_is_desktop_not_workspace_write() -> None:
     assert any(h.kind == "desktop" for h in hints)
     assert not any(h.kind == "workspace_write" for h in hints)
     assert not any(h.kind == "browser" for h in hints)
+
+
+BROWSER_COMPLAINTS = (
+    "i never asked you to do anything, why did you open your browser, check the "
+    "time, and talk about whatever the fuck shibuya room is?",
+    "why did you open your browser",
+    "you shouldn't have opened your browser",
+    "no need to open your browser",
+    "I didn't ask you to open the browser",
+)
+
+
+def test_browser_complaint_does_not_trigger_the_browser() -> None:
+    from arelis.core.preflight import user_asked_for_browser
+
+    for text in BROWSER_COMPLAINTS:
+        hints = detect_intents(text)
+        assert "browser" not in {h.kind for h in hints}, text
+        assert "browser" not in {t for h in hints for t in h.expected_tools}, text
+        assert not user_asked_for_browser(text), text
+
+
+def test_real_browser_requests_still_trigger() -> None:
+    from arelis.core.preflight import user_asked_for_browser
+
+    for text in (
+        "open your browser",
+        "open the browser",
+        "Open YouTube in your browser.",
+        "ok, open your browser and go to x.com",
+    ):
+        hints = detect_intents(text)
+        assert "browser" in {t for h in hints for t in h.expected_tools}, text
+        assert user_asked_for_browser(text), text
+    assert any(h.kind == "browser" for h in detect_intents("open your browser"))

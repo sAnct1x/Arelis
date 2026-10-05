@@ -881,3 +881,46 @@ def test_grab_window_on_middle_and_right_only(tmp_path) -> None:
         assert owned.index == row.index, (row, owned)
         if row.device and device:
             assert device.lower() == row.device.lower(), (row, device)
+
+
+# Session 2026-10-04: a declined or complaining message must not look at the
+# desk, and must not count as the user asking for it (no Allow card skip).
+DESK_LOOK_DECLINED = (
+    "no need to look at the book, its just fucking crazy that she wrote a "
+    "scenario, as fiction, and a few months later it literally might be happening",
+    "no need to look at the book",
+    "why did you look at my screen",
+    "I don't want you to look at the book",
+    "you shouldn't have looked at my screen",
+)
+
+
+def test_declined_desk_look_does_not_fire() -> None:
+    for text in DESK_LOOK_DECLINED:
+        assert not looks_like_desktop_look(text), text
+        assert not user_asked_for_desktop(text), text
+        kinds = {h.kind for h in detect_intents(text)}
+        assert "desktop_look" not in kinds, text
+        assert "desktop" not in {t for h in detect_intents(text) for t in h.expected_tools}, text
+
+
+def test_real_desk_look_requests_still_fire() -> None:
+    for text in (
+        "look at the book on my right monitor",
+        "look at my screen",
+        "look at the screen",
+        "please look at the book",
+        "ok, no need to rush. look at my right monitor",
+    ):
+        assert looks_like_desktop_look(text), text
+        assert user_asked_for_desktop(text), text
+        assert "desktop_look" in {h.kind for h in detect_intents(text)}, text
+
+
+def test_declined_look_does_not_arm_a_later_followup() -> None:
+    history = [
+        {"role": "user", "content": "no need to look at the book"},
+        {"role": "assistant", "content": "ok"},
+    ]
+    assert not looks_like_desktop_look("explain that", history=history)
+    assert not looks_like_desktop_look("can you explain that", history=history)
