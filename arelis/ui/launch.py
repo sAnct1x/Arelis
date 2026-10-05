@@ -29,6 +29,7 @@ from arelis.presence.ipc_client import IpcClient
 from arelis.presence.ipc_server import IpcServer
 from arelis.presence.lock import external_core_available
 from arelis.ui.first_run import prompt_for_workspace_root
+from arelis.ui.foreground import show_without_activating
 from arelis.ui.scale import configure_display_scale
 from arelis.ui.setup_wizard import prompt_for_model_setup
 from arelis.ui.theme import (
@@ -44,6 +45,12 @@ from arelis.voice import VoiceService
 from arelis.workspace import WorkspaceRoots
 
 log = logging.getLogger(__name__)
+
+
+def _present_at_startup(window: Any) -> None:
+    """Show the glass at launch without taking keyboard focus."""
+    show_without_activating(window)
+    window.setWindowState(window.windowState() & ~Qt.WindowState.WindowMinimized)
 
 
 def _start_activation_listener(
@@ -64,8 +71,8 @@ def _start_activation_listener(
             bus,
             host=str(presence_cfg.get("ipc_host") or "127.0.0.1"),
             port=int(presence_cfg.get("ipc_port") or 8766),
-            on_open_ui=lambda _reason: QTimer.singleShot(
-                0, window._on_activation_request
+            on_open_ui=lambda reason: QTimer.singleShot(
+                0, lambda r=reason: window._on_activation_request(str(r or ""))
             ),
             seat="ui",
         )
@@ -497,8 +504,11 @@ def run_ui(config: dict[str, Any] | None = None) -> int:
                     bus,
                     host=str(presence_cfg.get("ipc_host") or "127.0.0.1"),
                     port=int(presence_cfg.get("ipc_port") or 8766),
-                    on_open_ui=lambda _msg: QTimer.singleShot(
-                        0, window._on_activation_request
+                    on_open_ui=lambda msg: QTimer.singleShot(
+                        0,
+                        lambda m=msg: window._on_activation_request(
+                            str((m or {}).get("reason") or "")
+                        ),
                     ),
                     # Our own core may have fallen forward past the configured
                     # port because another account on this PC holds it. The
@@ -573,10 +583,7 @@ def run_ui(config: dict[str, Any] | None = None) -> int:
     from arelis.talk_language import session_code
 
     apply_language(window, session_code(config))
-    window.show()
-    window.raise_()
-    window.activateWindow()
-    window.setWindowState(window.windowState() & ~Qt.WindowState.WindowMinimized)
+    _present_at_startup(window)
 
     def _deferred_memory_backup() -> None:
         try:

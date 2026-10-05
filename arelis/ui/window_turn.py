@@ -77,7 +77,8 @@ class WindowTurn:
         self._set_confirm_pending(True)
         self.thinking.append(f"confirm  {item.summary}", kind="tool")
         if self.isHidden():
-            self.show_from_tray()
+            self.show_from_tray(activate=False)
+            flash_taskbar(self)
 
     def _on_index_tick(self) -> None:
         if self._force_quit or self._disposed:

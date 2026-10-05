@@ -67,6 +67,26 @@ def bind_click_to_front(widget: Any) -> None:
     _install_app_filter()
 
 
+def show_without_activating(widget: Any) -> None:
+    """Map the widget without taking keyboard focus or the foreground.
+
+    Sets ``WA_ShowWithoutActivating`` for the ``show()`` call, then restores
+    the previous value. Never calls ``raise_``, ``activateWindow``, or
+    ``SetForegroundWindow``.
+    """
+    if widget is None:
+        return
+    from PySide6.QtCore import Qt
+
+    attr = Qt.WidgetAttribute.WA_ShowWithoutActivating
+    previous = bool(widget.testAttribute(attr))
+    widget.setAttribute(attr, True)
+    try:
+        widget.show()
+    finally:
+        widget.setAttribute(attr, previous)
+
+
 def claim_foreground(widget: Any) -> None:
     """Raise this plate (and its owner) in front of other apps."""
     if widget is None:
