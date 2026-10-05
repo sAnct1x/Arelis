@@ -98,7 +98,7 @@ def register_workspace_folder(window, path: Path, *, make_active: bool = True) -
             window.workspace_roots.set_active(entry.name)
             window.workspace.set_active_project(entry.name)
             window.thinking.append(
-                f"Already a root, active project `{entry.name}`.",
+                f"Already a root: active project `{entry.name}`.",
                 kind="status",
             )
             return
@@ -167,7 +167,7 @@ def remove_active_workspace_root(window) -> None:
 def open_file(window, path: str, line: int = 0) -> None:
     if not path:
         window.chat.add_system(
-            "open needs a path, pick a file or type one under the workspace roots"
+            "open needs a path: pick a file or type one under the workspace roots"
         )
         return
     window._reveal_dock(window.work_dock, window.act_workspace)

@@ -1314,7 +1314,7 @@ class FilamentChatWindow(QWidget):
         close_btn.setIcon(window_close_icon(12))
         close_btn.setFixedSize(METRICS["row"], METRICS["row"])
         close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        close_btn.setToolTip("hide chat, talk still works")
+        close_btn.setToolTip("hide chat: talk still works")
         close_btn.clicked.connect(self.close)
         head.addWidget(close_btn)
         watch_caption(self, close_btn)

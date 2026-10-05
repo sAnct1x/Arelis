@@ -193,7 +193,7 @@ class ReadinessStrip(QWidget):
             if not (item.key in _OPTIONAL_SYSTEMS and item.status == ChipLevel.OFF)
         ]
         if self._confirm_waiting:
-            tip_bits.insert(0, "Allow card open, Allow or Skip in the chat")
+            tip_bits.insert(0, "Allow card open: Allow or Skip in the chat")
         self.systems_btn.setToolTip(
             "\n".join(tip_bits) if tip_bits else "No system signals yet."
         )
@@ -209,7 +209,7 @@ class ReadinessStrip(QWidget):
         header.setEnabled(False)
         self._systems_menu.addAction(header)
         if self._confirm_waiting:
-            allow = QAction("card open, allow or deny in chat", self._systems_menu)
+            allow = QAction("card open: allow or deny in chat", self._systems_menu)
             allow.setEnabled(False)
             self._systems_menu.addAction(allow)
             self._systems_menu.addSeparator()

@@ -566,11 +566,11 @@ def describe_call(
         from arelis.core.dash_filter import clean_dashes
 
         to = str(args.get("to") or "").strip() or "(you)"
+        # Dash-clean and redact for the card only. Never write this back into
+        # args: send_email.run already clean_dashes, and a redacted body would
+        # go out as "[redacted]" after Allow.
         subject_raw = clean_dashes(str(args.get("subject") or "")).strip()
         body = clean_dashes(redact_secrets(str(args.get("body") or ""))).strip()
-        # Card and send must agree: scrub the args the Allow path will run.
-        args["subject"] = subject_raw
-        args["body"] = body
         subject = subject_raw or "(no subject)"
         attach = str(args.get("attach") or args.get("path") or "").strip()
         lines = [f"To:      {to}", f"Subject: {subject}"]
@@ -582,8 +582,9 @@ def describe_call(
         from arelis.sms import format_sms_confirm
 
         to = str(args.get("to") or "").strip()
+        # Card display only. prepare_body dash-cleans at send; redaction must
+        # not rewrite the approved payload.
         body = clean_dashes(redact_secrets(str(args.get("body") or ""))).strip()
-        args["body"] = body
         # Prefer the tool's loader so tests (and any future alternate book)
         # match what send_sms will actually resolve.
         contacts = None

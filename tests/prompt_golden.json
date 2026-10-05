@@ -236,7 +236,7 @@
         "role": "system"
       },
       {
-        "content": "Intent preflight: the user wants to text Brian, but there is no number yet. Ask for the number, then call send_sms with that number and the body they already gave. Contacts are a nickname hint, not a gate — do not require contacts(action=add) before sending. Do not invent a number.",
+        "content": "Intent preflight: the user wants to text Brian, but there is no number yet. Ask for the number, then call send_sms with that number and the body they already gave. Contacts are a nickname hint, not a gate, do not require contacts(action=add) before sending. Do not invent a number.",
         "role": "system"
       },
       {

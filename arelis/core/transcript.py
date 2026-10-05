@@ -105,7 +105,7 @@ def render_transcript(messages: Sequence[Mapping[str, Any]]) -> str:
     """Markdown for the session. Raises ``EmptyTranscriptError`` when nothing to write."""
     blocks = _export_blocks(messages)
     if not blocks:
-        raise EmptyTranscriptError("Nothing to export, this conversation is empty.")
+        raise EmptyTranscriptError("Nothing to export: this conversation is empty.")
     return f"# {_HEADING}\n\n" + "\n".join(blocks)
 
 

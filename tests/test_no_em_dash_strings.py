@@ -3,9 +3,6 @@
 Scans non-docstring string literals under arelis/ via ast, plus shipped
 persona and v0.3.0 release-note text the app shows. Comments, docstrings,
 and other docs (including CONTRIBUTING.md) are out of scope.
-
-Skip list (another open PR owns these, or the file must keep the character):
-see _SKIP_FILES / _SKIP_PREFIXES below.
 """
 
 from __future__ import annotations
@@ -18,16 +15,10 @@ EM = "\u2014"
 HB = "\u2015"
 _DASHES = EM + HB
 
-# Forbidden files owned by another open PR, plus modules that must keep the
-# character (filter alphabet, year-range regex, QSS comments, strip sets).
+# Modules that must keep the character (filter alphabet, year-range regex,
+# QSS comments, strip sets).
 _SKIP_FILES = frozenset(
     {
-        "arelis/core/intent_catalog.py",
-        "arelis/core/look.py",
-        "arelis/core/preflight.py",
-        "arelis/core/email_complete.py",
-        "arelis/core/sms_complete.py",
-        "arelis/core/image_refs.py",
         "arelis/core/dash_filter.py",  # filter alphabet
         "arelis/core/claims.py",  # year-range regex must match real dashes
         "arelis/core/skills.py",  # skill cards are not pasted into the prompt

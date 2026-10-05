@@ -652,7 +652,7 @@ async def execute_call(
                     return True
             else:
                 await loop._finish(
-                    f"Image ready, open in Workspace ({path}).",
+                    f"Image ready: open in Workspace ({path}).",
                     sources,
                     streamed="",
                 )

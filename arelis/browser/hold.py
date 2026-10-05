@@ -155,5 +155,5 @@ def format_drive_done(
     if act == "snapshot":
         return "read the page"
     if act == "watch":
-        return "Watching, hit" if data.get("watch_hit") else ""
+        return "Watching: hit" if data.get("watch_hit") else ""
     return ""

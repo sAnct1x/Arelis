@@ -743,7 +743,7 @@ class CameraPanel(QWidget):
             self._set_hint("Start the camera before taking a snapshot.")
             return
         if not self._image_capture.isReadyForCapture():
-            self._set_hint("Camera not ready for capture yet, wait a moment.")
+            self._set_hint("Camera not ready for capture yet: wait a moment.")
             return
         out_dir = outputs_dir() / "images"
         out_dir.mkdir(parents=True, exist_ok=True)

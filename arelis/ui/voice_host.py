@@ -618,7 +618,7 @@ def on_wake_detected(window, remainder: object) -> None:
         remainder=text[:80],
         **window.voice_controller.debug_state(),
     )
-    window.thinking.append("Wake heard, listening.", kind="status")
+    window.thinking.append("Wake heard: listening.", kind="status")
     if not text:
         return
     # Remainder that is only another wake / punctuation was already peeled.

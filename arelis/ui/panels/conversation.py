@@ -314,11 +314,11 @@ class ConversationStage(GlassFrame):
         self.stop_btn.setFixedHeight(_btn)
         self.stop_btn.setMinimumWidth(52)
         self.stop_btn.setToolTip(
-            "stop current turn, Esc also stops once she has started answering"
+            "stop current turn: Esc also stops once she has started answering"
         )
         self.stop_btn.setAccessibleName("Stop")
         self.stop_btn.setAccessibleDescription(
-            "stop current turn, also the hung-turn unlock"
+            "stop current turn: also the hung-turn unlock"
         )
         self.stop_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.stop_btn.setAutoRaise(True)
@@ -982,7 +982,7 @@ class ConversationStage(GlassFrame):
         elif self._wake_acking:
             self.input.setPlaceholderText(tr("listening"))
         elif self._speaking:
-            self.input.setPlaceholderText(tr("talking, esc to cut"))
+            self.input.setPlaceholderText(tr("talking: esc to cut"))
         elif self.conversation_btn.isChecked():
             self.input.setPlaceholderText(tr("listening"))
         else:

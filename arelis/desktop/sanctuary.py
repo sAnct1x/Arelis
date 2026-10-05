@@ -223,7 +223,7 @@ def password_field(into: str = "", name: str = "") -> bool:
 def refuse_secret_type(*, into: str = "", name: str = "", is_password: bool = False) -> str | None:
     if is_password or password_field(into, name):
         return (
-            "Your turn, I do not type passwords, PINs, or OTP codes. "
+            "Your turn: I do not type passwords, PINs, or OTP codes. "
             "Hit Go when you are done."
         )
     return None

@@ -65,37 +65,37 @@ class Wall:
 
 _MESSAGES = {
     "captcha": (
-        "Your turn, captcha. Tap it in her Chrome; I will continue when it is gone."
+        "Your turn: captcha. Tap it in her Chrome; I will continue when it is gone."
     ),
     "login": (
-        "Your turn, sign in. I do not type passwords. Hit Go when you are in."
+        "Your turn: sign in. I do not type passwords. Hit Go when you are in."
     ),
     "pay": (
-        "Your turn, you click Book / Pay / Order. I stop on this screen."
+        "Your turn: you click Book / Pay / Order. I stop on this screen."
     ),
     "stuck": (
-        "Your turn, I cannot find the next control. The page stays."
+        "Your turn: I cannot find the next control. The page stays."
     ),
     "hands": (
-        "Your turn, you have the mouse. I will not click over you. "
+        "Your turn: you have the mouse. I will not click over you. "
         "Hit Go when you want me to drive again."
     ),
 }
 
 
 def wall_message(kind: str) -> str:
-    return _MESSAGES.get(kind, "Your turn, the page stays.")
+    return _MESSAGES.get(kind, "Your turn: the page stays.")
 
 
 def your_turn_status(kind: str) -> str:
     labels = {
-        "captcha": "your turn, captcha",
-        "login": "your turn, sign in",
-        "pay": "your turn, you click Pay",
-        "stuck": "your turn, I am stuck",
-        "hands": "your turn, you have the mouse",
+        "captcha": "your turn: captcha",
+        "login": "your turn: sign in",
+        "pay": "your turn: you click Pay",
+        "stuck": "your turn: I am stuck",
+        "hands": "your turn: you have the mouse",
     }
-    return labels.get(kind, "your turn, page stays")
+    return labels.get(kind, "your turn: page stays")
 
 
 def checkout_receipt(
@@ -106,7 +106,7 @@ def checkout_receipt(
     body: str = "",
 ) -> str:
     """Short chat line after a pay wall. She does not click Pay."""
-    lines = ["Checkout is up, your turn to click Pay."]
+    lines = ["Checkout is up: your turn to click Pay."]
     head = (heading or title or "").strip()
     if head:
         lines.append(head[:80])

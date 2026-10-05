@@ -48,7 +48,7 @@ class DriveStrip(GlassFrame):
         self.pause_btn.setText("pause")
         self.pause_btn.setFixedHeight(28)
         self.pause_btn.setMinimumWidth(52)
-        self.pause_btn.setToolTip("freeze mid-drive, the page stays")
+        self.pause_btn.setToolTip("freeze mid-drive: the page stays")
         self.pause_btn.setAccessibleName("Pause drive")
         self.pause_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.pause_btn.setAutoRaise(True)
@@ -60,7 +60,7 @@ class DriveStrip(GlassFrame):
         self.stop_btn.setText("stop")
         self.stop_btn.setFixedHeight(28)
         self.stop_btn.setMinimumWidth(52)
-        self.stop_btn.setToolTip("abort this turn, the page stays")
+        self.stop_btn.setToolTip("abort this turn: the page stays")
         self.stop_btn.setAccessibleName("Stop drive")
         self.stop_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.stop_btn.setAutoRaise(True)
@@ -88,7 +88,7 @@ class DriveStrip(GlassFrame):
             self.pause_btn.setObjectName("GoButton")
         else:
             self.pause_btn.setText(tr("pause"))
-            self.pause_btn.setToolTip(tr("freeze mid-drive, the page stays"))
+            self.pause_btn.setToolTip(tr("freeze mid-drive: the page stays"))
             self.pause_btn.setObjectName("PauseButton")
         self.pause_btn.style().unpolish(self.pause_btn)
         self.pause_btn.style().polish(self.pause_btn)
@@ -113,9 +113,9 @@ class DriveStrip(GlassFrame):
         from arelis.i18n import tr
 
         if self._your_turn and self._paused:
-            self.status.setText(self._line or tr("your turn, page stays"))
+            self.status.setText(self._line or tr("your turn: page stays"))
         elif self._paused:
-            self.status.setText(tr("paused, page stays"))
+            self.status.setText(tr("paused: page stays"))
         else:
             self.status.setText(self._line)
 

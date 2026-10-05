@@ -1339,7 +1339,7 @@ class AgentLoop:
                     {
                         "text": (
                             "waiting for the conversation model to finish "
-                            "loading, first reply after that is quick"
+                            "loading: first reply after that is quick"
                         )
                     },
                 )

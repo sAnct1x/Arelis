@@ -556,7 +556,7 @@ class WorkspacePanel(QWidget):
         self.console_cwd.setToolTip("Commands you type start in this folder")
         self.console_edit = QLineEdit()
         self.console_edit.setObjectName("InstrumentSearch")
-        self.console_edit.setPlaceholderText("you type it, she cannot run this line")
+        self.console_edit.setPlaceholderText("you type it: she cannot run this line")
         self.console_edit.setFixedHeight(METRICS["row"])
         self.console_edit.setToolTip(
             "Runs in the active project. Arelis has no tool that presses enter."

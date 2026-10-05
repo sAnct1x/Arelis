@@ -720,7 +720,7 @@ class SettingsDialog(QDialog):
             account = None
         if account is not None:
             self.mail_address.setText(account.address)
-            self.mail_password.setPlaceholderText("saved, type to replace")
+            self.mail_password.setPlaceholderText("saved: type to replace")
         mail_form = QFormLayout()
         mail_form.addRow("Address", self.mail_address)
         mail_form.addRow("App password", self.mail_password)
