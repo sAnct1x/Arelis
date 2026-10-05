@@ -43,13 +43,18 @@ log = logging.getLogger(__name__)
 # is waiting for this, and an update that arrives eight seconds later arrives just as well.
 _DELAY_MS = 8000
 
-# Hung disk must not block the installer forever. The backup runs on a QThread;
-# this timer fires on the GUI thread and starts the installer anyway.
+# Hung disk must not leave the upgrade waiting forever. The backup runs on a
+# QThread; this timer fires on the GUI thread and stops the update if the copy
+# has not finished.
 _BACKUP_TIMEOUT_MS = 60_000
 
 BACKUP_FAILED_NOTICE = (
-    "A backup copy of your records could not be saved first. "
-    "The update will still go ahead, and your data folder is not touched by it."
+    "Arelis couldn't save a safety copy of your memory and settings, so she "
+    "didn't update. Nothing has changed. She'll offer the update again tomorrow."
+)
+BACKUP_FAILED_DETAIL = (
+    "If this keeps happening, check that your disk has free space, or download "
+    "the new version from the Arelis releases page."
 )
 
 
@@ -76,7 +81,7 @@ class _BackupThread(QThread):
         try:
             dest = backup_before_upgrade(__version__)
         except Exception:
-            log.warning("pre-upgrade backup failed; the update will continue")
+            log.warning("pre-upgrade backup failed; the update will not continue")
             dest = None
         self.finished_with.emit(dest)
 
@@ -204,8 +209,7 @@ class UpdatePrompt(QObject):
             return
         self._progress.bar.setValue(int(received * 100 / total))
         self._progress.label.setText(
-            f"Downloading Arelis… {received / (1024 * 1024):.0f} of "
-            f"{total / (1024 * 1024):.0f}MB"
+            f"Downloading Arelis… {received / (1024 * 1024):.0f} of {total / (1024 * 1024):.0f}MB"
         )
 
     def _cancel(self) -> None:
@@ -258,7 +262,7 @@ class UpdatePrompt(QObject):
                 self._backup.finished_with.disconnect(self._on_backup_finished)
             except (RuntimeError, TypeError):
                 pass
-        log.warning("pre-upgrade backup is slow; starting the update without waiting")
+        log.warning("pre-upgrade backup is slow; stopping the update")
         self._finish_backup_and_install(failed=True)
 
     def _finish_backup_and_install(self, *, failed: bool) -> None:
@@ -273,8 +277,11 @@ class UpdatePrompt(QObject):
                 self._window,
                 "Update Arelis",
                 BACKUP_FAILED_NOTICE,
+                detail=BACKUP_FAILED_DETAIL,
                 warning=True,
             )
+            log.warning("pre-upgrade backup failed; not starting the installer")
+            return
         installer = self._installer
         if installer is None:
             return

@@ -1,7 +1,8 @@
 """Pre-upgrade copy of a few records. Never copies secrets.
 
 Dated ``memory.db`` snapshots in ``arelis.memory.backup`` are a different
-thing, and they stay off. This writes ``backups/pre-<version>/`` with an
+thing, and they stay off. This writes ``pre-<version>/`` under a folder
+next to the user data root (outside the uninstall wipe tree) with an
 allowlist: a new file under the records folder is excluded until someone
 names it here. ``secrets.yaml`` is refused even then.
 """
@@ -17,7 +18,7 @@ import uuid
 from pathlib import Path
 
 from arelis.memory.backup import _sqlite_copy
-from arelis.paths import state_dir
+from arelis.paths import pre_upgrade_backups_dir, state_dir, user_data_dir
 
 log = logging.getLogger(__name__)
 
@@ -42,26 +43,26 @@ class _BackupRefusedError(ValueError):
 
 
 def backup_before_upgrade(from_version: str, to_version: str | None = None) -> Path | None:
-    """Copy allowlisted files to ``backups/pre-<from_version>/``.
+    """Copy allowlisted files to ``pre-<from_version>/`` outside the wipe tree.
 
-    Never raises. A failure is a log line and ``None`` so an in-app update
-    still starts the installer. Keeps the newest ``PRE_UPGRADE_KEEP`` ``pre-*``
-    folders and only deletes inside ``state_dir()/backups``. Writes into a
-    temporary folder and renames it only when the copy is finished.
+    Never raises. A failure is a log line and ``None`` so the caller can stop
+    the upgrade. Keeps the newest ``PRE_UPGRADE_KEEP`` ``pre-*`` folders and
+    only deletes inside the dedicated backups folder. Writes into a temporary
+    folder and renames it only when the copy is finished. A failed copy removes
+    its ``.partial`` folder right away.
     """
     try:
         return _backup_before_upgrade(from_version, to_version)
     except Exception:
-        log.warning("pre-upgrade backup failed; the update will continue")
+        log.warning("pre-upgrade backup failed; the update will not continue")
         return None
 
 
 def _backup_before_upgrade(from_version: str, to_version: str | None) -> Path:
     root = state_dir()
-    backups = root / "backups"
+    backups = pre_upgrade_backups_dir()
     backups.mkdir(parents=True, exist_ok=True)
-    if not _is_inside(backups, root):
-        raise RuntimeError("pre-upgrade backup destination left the records folder")
+    _require_outside_wipe_tree(backups)
     _prune_stale_partial_folders(backups)
 
     folder_name = _safe_pre_folder_name(from_version)
@@ -71,15 +72,22 @@ def _backup_before_upgrade(from_version: str, to_version: str | None) -> Path:
     if not _is_strictly_inside(partial, backups):
         raise RuntimeError("pre-upgrade backup destination left the backups folder")
 
-    for name in PRE_UPGRADE_ALLOWLIST:
-        try:
-            _copy_allowlisted(name, partial, root)
-        except _BackupRefusedError:
-            log.error("pre-upgrade backup refused to copy secrets.yaml")
+    renamed = False
+    try:
+        for name in PRE_UPGRADE_ALLOWLIST:
+            try:
+                _copy_allowlisted(name, partial, root)
+            except _BackupRefusedError:
+                log.error("pre-upgrade backup refused to copy secrets.yaml")
 
-    if dest.exists() or dest.is_symlink():
-        _delete_inside_backups(dest, backups)
-    os.replace(partial, dest)
+        if dest.exists() or dest.is_symlink():
+            _delete_inside_backups(dest, backups)
+        os.replace(partial, dest)
+        renamed = True
+    finally:
+        if not renamed and (partial.exists() or partial.is_symlink()):
+            _delete_inside_backups(partial, backups)
+
     if not _is_strictly_inside(dest, backups):
         raise RuntimeError("pre-upgrade backup destination left the backups folder")
 
@@ -165,10 +173,21 @@ def _is_partial_backup(path: Path) -> bool:
     return path.is_dir() or path.is_symlink()
 
 
+def _require_outside_wipe_tree(backups: Path) -> None:
+    data_root = user_data_dir()
+    if _is_inside(backups, data_root):
+        raise RuntimeError("pre-upgrade backup destination is inside the wipe tree")
+    expected = pre_upgrade_backups_dir()
+    if backups.resolve() != expected.resolve():
+        raise RuntimeError("pre-upgrade backup destination left the backups folder")
+
+
 def _prune_stale_partial_folders(backups: Path) -> None:
     if not backups.is_dir():
         return
-    if not _is_inside(backups, state_dir()):
+    try:
+        _require_outside_wipe_tree(backups)
+    except RuntimeError:
         return
     for path in list(backups.iterdir()):
         if _is_partial_backup(path):
@@ -178,7 +197,9 @@ def _prune_stale_partial_folders(backups: Path) -> None:
 def _prune_pre_upgrade_folders(backups: Path, *, keep: int) -> None:
     if not backups.is_dir():
         return
-    if not _is_inside(backups, state_dir()):
+    try:
+        _require_outside_wipe_tree(backups)
+    except RuntimeError:
         return
     _prune_stale_partial_folders(backups)
     folders = [

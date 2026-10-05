@@ -289,11 +289,11 @@ class TestReadmeStatements:
         text = self._readme()
         assert (
             "Since 0.3.0, before an in-app upgrade she copies your memory and a "
-            "few settings files into `data/backups/pre-<version>/` (never "
-            "passwords or tokens) and keeps the newest two. Upgrading from "
-            "0.2.9 to 0.3.0 itself is not covered, so copy your data folder by "
-            "hand first. Daily dated memory copies stay off. See "
-            "[backups.md](docs/backups.md)."
+            "few settings files into `pre-<version>/` next to her data folder "
+            "(never passwords or tokens) and keeps the newest two. A failed "
+            "copy stops the update. Upgrading from 0.2.9 to 0.3.0 itself is "
+            "not covered, so copy your data folder by hand first. Daily dated "
+            "memory copies stay off. See [backups.md](docs/backups.md)."
         ) in text
         assert "allowlisted" not in text
         assert "for two weeks" not in text
