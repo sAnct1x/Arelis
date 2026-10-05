@@ -56,8 +56,8 @@ click_hit, grab / drop / flick, scroll, span_edge. Numbers only, no
 frames. Pytest writes nothing unless a test points
 `arelis.spatial.hands_log` at a temp dir.
 
-**`logs/reality.log`** and **`logs/reality.jsonl`** (always on while we
-tune Reality). Enter/leave Earth, band changes, live merge, each
+**`logs/reality.log`** and **`logs/reality.jsonl`** (always on while
+Reality is being tuned). Enter/leave Earth, band changes, live merge, each
 adapter (ms / n / err), OpenSky spend, land/OSM/buildings fetches, travel, lock,
 look-from (id/kind/media only; never a URL), dumps, overlay chips,
 Cesium host ready/failed (photoreal miss is not a host fail),
