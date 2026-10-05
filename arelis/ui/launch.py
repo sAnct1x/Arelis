@@ -430,7 +430,7 @@ def run_ui(config: dict[str, Any] | None = None) -> int:
     app.setStyleSheet(stylesheet())
 
     # First run: workspace folder, then model setup. Needs QApplication.
-    # Always ask when needed — do not skip because main passed a config dict.
+    # Always ask when needed. Do not skip because main passed a config dict.
     refreshed = apply_first_run_glass(config, config_was_given=config_was_given)
     if refreshed is None:
         from arelis.ui.dialog import notice
