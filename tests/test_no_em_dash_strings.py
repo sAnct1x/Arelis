@@ -1,9 +1,8 @@
 """Guard: user-facing / prompt string literals must not contain em dashes.
 
 Scans non-docstring string literals under arelis/ via ast, plus shipped
-persona and release-note text the app shows. Comments and docstrings are
-out of scope (nobody sees them). Number-range en dashes are allowed; this
-guard flags U+2014 (em) and U+2015 (horizontal bar).
+persona and v0.3.0 release-note text the app shows. Comments, docstrings,
+and other docs (including CONTRIBUTING.md) are out of scope.
 
 Skip list (another open PR owns these, or the file must keep the character):
 see _SKIP_FILES / _SKIP_PREFIXES below.
@@ -47,7 +46,6 @@ _SKIP_PREFIXES = (
 
 _TEXT_FILES = (
     "arelis/persona/arelis.md",
-    "CONTRIBUTING.md",
     "docs/releases/v0.3.0.md",
 )
 _TEXT_ALLOW = frozenset(
