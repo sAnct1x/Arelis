@@ -37,8 +37,10 @@ class IntentSpec:
     research_extra: bool = False
     # Substrings that force the full tool registry (outbound / personal).
     surface_phrases: tuple[str, ...] = ()
-    # Don't / do not / never in the same clause vetoes the match. The
-    # four-character lookbehinds miss "don't ever run diagnostics".
+    # Don't/dont/don't (or curly) except "why don't you", do not, never
+    # except "never mind", no need, didn't, shouldn't, why did/would you
+    # in the same clause vetoes the match. The four-character lookbehinds
+    # miss "don't ever run diagnostics".
     veto_negation: bool = False
 
     def matches(self, text: str) -> bool:
@@ -60,13 +62,15 @@ class IntentSpec:
 
 
 _CLAUSE_NEGATION = re.compile(
-    r"(?i)\b(?:don't|dont|do\s+not|never|no\s+need|didn'?t|shouldn'?t"
-    r"|why\s+(?:did|would)\s+you)\b"
+    r"(?i)\b(?:(?<!why\s)don['\u2019]?t|do\s+not|never(?!\s+mind)|no\s+need"
+    r"|didn['\u2019]?t|shouldn['\u2019]?t|why\s+(?:did|would)\s+you)\b"
 )
 
 
 def _clause_not_negated(text: str, match_start: int) -> bool:
-    """False when don't / do not / never appears in the clause before the hit."""
+    """False when don't (or curly)/dont (except why don't you), do not, never
+    (except never mind), no need, didn't, shouldn't, or why did/would you
+    appears in the clause before the hit."""
     prefix = (text or "")[: max(0, match_start)]
     clause = re.split(r"[.!?;\n]", prefix)[-1]
     return not _CLAUSE_NEGATION.search(clause)

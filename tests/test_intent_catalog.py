@@ -543,3 +543,16 @@ def test_complaint_vocabulary_vetoes_diagnostics() -> None:
         "you didn't need to run diagnostics",
     ):
         assert not DIAGNOSTICS.matches(text), text
+
+
+def test_clause_negation_word_list() -> None:
+    import re
+
+    from arelis.core.intent_catalog import first_unnegated
+
+    pat = re.compile(r"(?i)look\s+at\s+the\s+book")
+    assert first_unnegated(pat, "don\u2019t look at the book") is None
+    assert first_unnegated(pat, "why don't you look at the book") is not None
+    assert first_unnegated(pat, "never mind, look at the book") is not None
+    assert first_unnegated(pat, "I never look at the book") is None
+    assert not DIAGNOSTICS.matches("don\u2019t run diagnostics")
