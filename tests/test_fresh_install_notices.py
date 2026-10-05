@@ -43,6 +43,34 @@ def _shipped_config() -> dict:
     return copy.deepcopy(load_config(DEFAULT_CONFIG_PATH))
 
 
+def _load_with_local_ingest(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    *,
+    enabled: bool | str,
+    host: str | None = None,
+    port: int | None = None,
+) -> dict:
+    """Startup path: default.yaml plus data/config.local.yaml in a temp seat."""
+    ingest: dict = {"enabled": enabled}
+    if host is not None:
+        ingest["host"] = host
+    if port is not None:
+        ingest["port"] = port
+    local = tmp_path / "data" / "config.local.yaml"
+    local.parent.mkdir(parents=True, exist_ok=True)
+    local.write_text(
+        yaml.safe_dump(
+            {"tools": {"sms": {"inbound": {"ingest": ingest}}}},
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("ARELIS_DATA_DIR", str(tmp_path))
+    monkeypatch.setattr("arelis.config.LOCAL_CONFIG_PATH", local)
+    return load_config()
+
+
 async def _attach(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -134,26 +162,30 @@ async def test_paired_profile_keeps_listening_on_the_default(
 async def test_explicit_true_on_existing_config_is_preserved(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """config.local.yaml with enabled true still listens when a token exists."""
+    """config.local.yaml with enabled true still loads as True and listens."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind(("127.0.0.1", 0))
         port = int(sock.getsockname()[1])
-    config = _shipped_config()
-    ingest = config["tools"]["sms"]["inbound"]["ingest"]
-    ingest["enabled"] = True
-    ingest["host"] = "127.0.0.1"
-    ingest["port"] = port
+    config = _load_with_local_ingest(
+        monkeypatch,
+        tmp_path,
+        enabled=True,
+        host="127.0.0.1",
+        port=port,
+    )
+    # Real merge must keep the bool True, not collapse it to the shipped "auto".
+    assert config["tools"]["sms"]["inbound"]["ingest"]["enabled"] is True
     runtime, bus, bus_task = await _attach(monkeypatch, tmp_path, config, token="test-token-xyz")
     try:
         assert runtime.ingest is not None
-        assert ingest["enabled"] is True
     finally:
         await _stop(runtime, bus, bus_task)
 
 
 async def test_explicit_false_stays_off(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    config = _shipped_config()
-    config["tools"]["sms"]["inbound"]["ingest"]["enabled"] = False
+    """config.local.yaml with enabled false loads as False and stays quiet."""
+    config = _load_with_local_ingest(monkeypatch, tmp_path, enabled=False)
+    assert config["tools"]["sms"]["inbound"]["ingest"]["enabled"] is False
     runtime, bus, bus_task = await _attach(monkeypatch, tmp_path, config, token="test-token-xyz")
     try:
         assert runtime.ingest is None
@@ -203,7 +235,7 @@ def test_pairing_notice_is_in_the_translation_catalog() -> None:
 def test_fresh_profile_window_shows_no_phone_notice(
     arelis_window, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """Offscreen glass: shipped config, empty data dir, no chat or thinking notice."""
+    """Offscreen glass: fresh default is silent; explicit true reaches chat."""
     import os
 
     assert os.environ.get("QT_QPA_PLATFORM") == "offscreen"
@@ -222,18 +254,36 @@ def test_fresh_profile_window_shows_no_phone_notice(
     window.chat.add_system = said.append  # type: ignore[method-assign]
     loop = asyncio.new_event_loop()
     bus_task = loop.create_task(window.bus.run())
+
+    def _flush_status(runtime) -> None:
+        for message in runtime.status_messages:
+            dispatch_event(
+                window,
+                Event(EventType.STATUS, {"message": message}),
+            )
+
     try:
+        # Fresh shipped default: nothing to dispatch, chat stays empty.
         runtime = attach_inbound(window.bus, loop, _shipped_config(), owned=True)
         try:
             assert runtime.status_messages == []
             assert runtime.ingest is None
-            for message in runtime.status_messages:
-                dispatch_event(
-                    window,
-                    Event(EventType.STATUS, {"message": message}),
-                )
+            _flush_status(runtime)
             assert said == []
             assert "Phone notifications" not in window.thinking.footer.text()
+        finally:
+            loop.run_until_complete(runtime.stop())
+
+        # Same harness with explicit true and no token: the friendly notice
+        # must land in chat, so an empty said list above is not vacuous.
+        config = _shipped_config()
+        config["tools"]["sms"]["inbound"]["ingest"]["enabled"] = True
+        said.clear()
+        runtime = attach_inbound(window.bus, loop, config, owned=True)
+        try:
+            assert runtime.status_messages == [PHONE_NOTIFY_NEEDS_PAIRING]
+            _flush_status(runtime)
+            assert said == [tr(PHONE_NOTIFY_NEEDS_PAIRING)]
         finally:
             loop.run_until_complete(runtime.stop())
     finally:
