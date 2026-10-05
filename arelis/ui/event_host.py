@@ -19,6 +19,7 @@ from arelis.browser.hold import format_drive_done, format_drive_status
 from arelis.browser.walls import your_turn_status
 from arelis.core.events import Event, EventType
 from arelis.core.failure_copy import plain_reason, tool_failure_notice
+from arelis.i18n import tr
 from arelis.llm.startup import WARMUP_READY
 from arelis.local_open import open_local_file, reveal_local_file
 from arelis.spatial import PHYSICS_ROOM_ID
@@ -452,14 +453,15 @@ def dispatch_event(window: Any, event: Event) -> None:
         if p.get("image_progress"):
             window.chat.show_progress(str(msg))
             return
-        window.thinking.append(msg, kind="status")
+        window.thinking.append(tr(msg), kind="status")
         # Listen URL stays in thinking — a system line on cold launch hid the
         # orbit. Bind / token / companion-port failures belong on the glass.
         text = str(msg)
+        shown = tr(text)
         if text.startswith(("Inbound notify", "Phone notifications")):
             window._inbound_banner = text
             if not text.startswith("Phone notifications: http"):
-                window.chat.add_system(text)
+                window.chat.add_system(shown)
         elif "update the phone companion" in text:
             window.chat.add_system(text)
         if msg.startswith("Active project set to"):

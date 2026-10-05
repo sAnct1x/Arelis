@@ -25,7 +25,9 @@ login wall that hands the page to you, with a Windows notification that
 should appear after two minutes (not yet seen on a real PC). Her Chrome
 still keeps your sign-ins between runs (a setting starts her window empty
 every run); that leaves a persistent, possibly signed-in profile on
-disk. Earth lost its optional camera-search layer.
+disk. Earth lost its optional camera-search layer. A new install no
+longer shows a phone notification warning at startup. Phone
+notifications start after you create a pairing code in Settings, Notify.
 
 ## This checkout
 
