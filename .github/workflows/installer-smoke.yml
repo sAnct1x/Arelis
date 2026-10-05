@@ -53,7 +53,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: installer-smoke-${{ github.workflow }}-${{ github.ref }}-${{ inputs.candidate_tag }}
+  group: installer-smoke-${{ github.workflow }}-${{ github.ref }}-${{ inputs.candidate_tag }}-${{ inputs.candidate_artifact }}-${{ inputs.expect_failure }}
   cancel-in-progress: true
 
 jobs:
@@ -93,12 +93,16 @@ jobs:
         if: always()
         env:
           PYTHONUTF8: "1"
+          EXPECT_FAILURE: ${{ inputs.expect_failure }}
+          WINDOW_PROBE_MODE: ${{ inputs.window_probe_mode }}
         run: python scripts/installer_smoke.py summary
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
           name: installer-smoke-logs
-          path: smoke-out/**
+          path: |
+            smoke-out/**
+            !smoke-out/*.exe
           if-no-files-found: warn
           retention-days: 14

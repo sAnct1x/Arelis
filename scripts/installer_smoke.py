@@ -46,6 +46,10 @@ META_PATH = OUT / "meta.json"
 # --- pure helpers (unit-tested on Linux) ---------------------------------
 
 
+# Steps that are expected to fail when expect_failure is on.
+EXPECTED_RED_STEPS = frozenset({"import-probe", "window-probe", "construct-probe", "probe"})
+
+
 def parse_version_from_filename(name: str) -> str:
     """Pull the version from Arelis-<ver>-win64-setup.exe."""
     base = Path(name).name
@@ -1077,7 +1081,12 @@ def cmd_probe(args: argparse.Namespace) -> int:
     label = (args.label or "candidate").strip()
     expected_version = str(meta.get(f"{label}_version") or meta.get("candidate_version") or "")
     desktop = detect_interactive_desktop()
-    record("desktop", "INFO", desktop.get("detail", ""), **desktop)
+    record(
+        "desktop",
+        "INFO",
+        desktop.get("detail", ""),
+        **{k: v for k, v in desktop.items() if k != "detail"},
+    )
     data_dir = Path(tempfile.mkdtemp(prefix="arelis-smoke-data-"))
     meta_update(last_probe_data_dir=str(data_dir))
     try:
@@ -1385,7 +1394,18 @@ def cmd_summary(_args: argparse.Namespace) -> int:
     data["meta"]["WINDOW_PROBE_MODE"] = window_probe_mode()
     _save_json(SUMMARY_PATH, data)
     _write_step_summary(data)
-    failed = [s for s in data.get("steps", []) if s.get("status") == "FAIL"]
+    steps = data.get("steps", [])
+    if expect_failure():
+        # Probe failures are the point in this mode; only the verdict step decides.
+        failed = [
+            s
+            for s in steps
+            if s.get("status") == "FAIL" and s.get("name") not in EXPECTED_RED_STEPS
+        ]
+        if not any(s.get("name") == "expect-failure" and s.get("status") == "PASS" for s in steps):
+            failed.append({"name": "expect-failure", "status": "FAIL"})
+    else:
+        failed = [s for s in steps if s.get("status") == "FAIL"]
     print(json.dumps(data, indent=2), flush=True)
     return 1 if failed else 0
 
