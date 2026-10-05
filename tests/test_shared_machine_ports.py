@@ -188,8 +188,9 @@ async def test_ingest_falls_forward_when_the_port_is_taken(
         assert runtime.ingest.running
         # The user has to learn that the URL already in their phone is stale.
         joined = " ".join(runtime.status_messages)
-        assert str(runtime.ingest.port) in joined
-        assert "already in use" in joined
+        assert "Phone notifications moved to a new spot" in joined
+        assert str(preferred) not in joined
+        assert str(runtime.ingest.port) not in joined
     finally:
         await runtime.stop()
         occupied.close()
