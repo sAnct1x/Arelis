@@ -25,8 +25,8 @@ reasoning, not the default.
 
 | This PC | Auto-pick |
 |---|---|
-| Modest laptop / ~6–7 GB or no dedicated card | `qwen3.5:4b` |
-| ~8–16 GB | `qwen3.5:9b` |
+| Modest laptop / ~6-7 GB or no dedicated card | `qwen3.5:4b` |
+| ~8-16 GB | `qwen3.5:9b` |
 | ~24 GB | `qwen3.5:27b` |
 | ~32 GB+ | `qwen3.5:35b` |
 
@@ -219,7 +219,7 @@ When enabled:
 
 This is a **staged experiment**, not a deletion of the regex layer. The flag lets you measure
 performance with and without regex routing. Eventually the regex layer may become a small-model
-fallback only, but that decision waits on measured results from Atria benches.
+fallback only, but that decision waits on measured results from my own benchmarks.
 
 To try it, add to `data/config.local.yaml`:
 ```yaml
@@ -227,4 +227,4 @@ agent:
   native_tool_calling: true
 ```
 
-Then run your comparison tests. The Chief of Staff will run the full compare matrices after merge.
+Then run your own comparison tests.

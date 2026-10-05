@@ -32,4 +32,4 @@ Lanes that landed, each in its own files:
 - `arelis/core/reliance/last_object.py` tested, not on the turn
 - `arelis/core/reliance/capture.py` tested, not on the turn
 
-Next pass, still one lane at a time: mount the plate, call `StickyDesk` from the turn, send `classify_capture` at the remind/task door. Do not put six agents on `orchestrator.py`, `skills.py`, or `policy.py` together.
+Next pass, still one lane at a time: mount the plate, call `StickyDesk` from the turn, send `classify_capture` at the remind/task door. Don't pile a bunch of unrelated edits into `orchestrator.py`, `skills.py`, or `policy.py` at once.

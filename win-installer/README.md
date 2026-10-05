@@ -203,7 +203,7 @@ and downloaded models under `%LOCALAPPDATA%\Arelis`.
 | Path | What it is |
 | --- | --- |
 | `%LOCALAPPDATA%\Arelis` | Profile, chats, secrets, models, her Chrome, Playwright browsers |
-| `%LOCALAPPDATA%\Arelis-runtime` | Ollama setup we downloaded (not a system Ollama install) |
+| `%LOCALAPPDATA%\Arelis-runtime` | Ollama setup she downloaded (not a system Ollama install) |
 | `%LOCALAPPDATA%\Arelis-dev` | Checkout sandbox from `run_dev_ui.ps1` |
 | `Documents\Arelis` | Default workspace, **only if it is not a source checkout** |
 

@@ -4,16 +4,16 @@ Thanks for looking.
 
 ## About this project
 
-Arelis is maintained by one person on the side of a full-time university degree
-(astrophysics). Roughly a year of on-and-off work. Re-released a month or two
-ago. Updates come in bursts around the school calendar.
+I maintain Arelis on the side of a full-time university degree
+(astrophysics). Roughly a year of on-and-off work. Re-released a month
+or two ago. Updates come in bursts around the school calendar.
 
 Help is welcome. The parts where it helps most:
 
-- **Windows testing** — more hardware, more edge cases.
-- **Documentation** — first-run confusion, setup pitfalls.
-- **Packaging and installer work** — the .exe, signing, dependencies.
-- **Reality/astro extras** — the optional spatial and astro features. Source only.
+- **Windows testing** - more hardware, more edge cases.
+- **Documentation** - first-run confusion, setup pitfalls.
+- **Packaging and installer work** - the .exe, signing, dependencies.
+- **Reality/astro extras** - the optional spatial and astro features. Source only.
 
 A clear bug report is useful even if you are not writing code. Follow the rest
 of this file for what works and what will not land.
@@ -65,10 +65,10 @@ the rest of the code.
 
 `tests/test_no_personal_data.py` fails the commit if you slip. Use
 `5555550123`, `you@example.com`, and `C:/Users/you/...`. Springfield and
-Metropolis, Illinois are the towns we keep.
+Metropolis, Illinois are the stand-in towns.
 
 A public repo cannot take a secret back. Deleting the file later does not
-erase the clones.
+erase the clones that already have it.
 
 ## What will not land
 

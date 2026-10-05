@@ -2,7 +2,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Ideas for Arelis. It's one person working on this, so no promises, but I do read these.
+        Ideas for Arelis. It's just me, so no promises, but I do read these.
 
         Ideas that send your data off your PC without you asking, or put a feature behind a payment, won't land. More in [CONTRIBUTING.md](https://github.com/sAnct1x/Arelis/blob/main/CONTRIBUTING.md).
   - type: textarea

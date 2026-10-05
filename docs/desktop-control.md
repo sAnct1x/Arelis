@@ -43,7 +43,7 @@ work the same as a browser drive.
 - Checkout / Pay / Empty Recycle Bin / Uninstall / Format stop.
   UAC Yes is refused.
 
-## Sanctuary
+## What she will not start
 
 Launch is an allow-resolver, not "run any path."
 
