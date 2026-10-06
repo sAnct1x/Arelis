@@ -116,7 +116,7 @@ async def test_percent_of_still_computes() -> None:
     [
         "what is 22/7?",
         "what is 3/4 as a fraction?",
-        "what is 3 divided by 4",
+        "what is 22 divided by 7",
     ],
 )
 def test_plain_fraction_ask_still_computes(ask: str) -> None:
@@ -128,3 +128,8 @@ def test_plain_fraction_ask_still_computes(ask: str) -> None:
 @pytest.mark.parametrize("ask", ["what is 10/5/2026", "10/5/2026", "what is 10/5/2026?"])
 def test_three_part_date_is_not_computed(ask: str) -> None:
     assert not _armed_division(ask), f"{ask!r} was armed as division"
+
+def test_spoken_divided_by_calendar_slash_is_refused() -> None:
+    with pytest.raises(ValueError, match='calendar date'):
+        evaluate_expression('9 divided by 11')
+

@@ -198,7 +198,7 @@ _CALENDAR_SLASH = re.compile(
 )
 _MATH_INTENT = re.compile(
     r"(?i)(?:%|\*|\^|\bof\b|\btimes\b|\bplus\b|\bminus\b|"
-    r"\bdivided\b|\bsqrt\b|\bas\s+a\s+(?:decimal|fraction|percent)\b|"
+    r"\bsqrt\b|\bas\s+a\s+(?:decimal|fraction|percent)\b|"
     r"[+\-](?=\s*\d))"
 )
 _AS_FORM = re.compile(r"(?i)\s+as\s+a\s+(?:decimal|fraction|percent)\s*$")
@@ -454,9 +454,19 @@ def evaluate_expression(expression: str) -> float | int:
         raise ValueError(
             "that looks like a calendar date or event, not a division. "
             "Ask about the date, or write the arithmetic with a clear math cue "
-            "such as 'divided by' or 'as a fraction'."
+            "such as 'as a fraction' or 'as a decimal'."
         )
     source = normalize_expression(expression)
+    # Spoken "divided by" rewrites to a slash. Bare calendar M/D stays refused
+    # unless the raw line had a strong math cue (as a fraction, %, of, …).
+    if _CALENDAR_SLASH.fullmatch((source or "").strip()) and not _MATH_INTENT.search(
+        expression or ""
+    ):
+        raise ValueError(
+            "that looks like a calendar date or event, not a division. "
+            "Ask about the date, or write the arithmetic with a clear math cue "
+            "such as 'as a fraction' or 'as a decimal'."
+        )
     try:
         tree = ast.parse(source, mode="eval")
     except SyntaxError as exc:

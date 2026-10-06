@@ -167,12 +167,12 @@ async def test_a_terminating_fraction_gets_no_note(calc):
 
 
 async def test_a_whole_answer_is_shown_as_a_whole_number(calc):
-    result = await calc.run(expression="10 divided by 5")
-    assert result.output == "10/5 = 2"
+    result = await calc.run(expression="15 divided by 3")
+    assert result.output == "15/3 = 5"
 
 
 def test_present_reduces_before_deciding():
-    shown, exact = present(evaluate_expression("2 divided by 4"))
+    shown, exact = present(evaluate_expression("15 divided by 30"))
     assert shown == 0.5
     assert exact == ""
 
