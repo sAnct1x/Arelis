@@ -38,7 +38,9 @@ _HEADING = re.compile(r"^(#{1,6})\s+(.*?)\s*#*$")
 _RULE = re.compile(r"^\s*(?:-{3,}|\*{3,}|_{3,})\s*$")
 _QUOTE = re.compile(r"^\s*>\s?(.*)$")
 _BULLET = re.compile(r"^(\s*)[-*+]\s+(.*)$")
-_NUMBER = re.compile(r"^(\s*)\d{1,9}[.)]\s+(.*)$")
+# Item text after the marker must be non-empty. "391. " (number, period,
+# trailing space, nothing else) is a bare answer, not an empty <li>.
+_NUMBER = re.compile(r"^(\s*)\d{1,9}[.)]\s+(\S.*)$")
 _TABLE_RULE = re.compile(r"^\s*\|?(?:\s*:?-+:?\s*\|)+\s*:?-+:?\s*\|?\s*$")
 
 # One pass over a line of prose. A single alternation rather than a chain of

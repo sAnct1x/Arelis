@@ -300,6 +300,12 @@ _WRITE_AFTER_CALC_NOTICE = (
     "Do not call the calculator again."
 )
 
+_WRITE_AFTER_TOOL_NOTICE = (
+    "You already have a tool result. Answer their question now in plain "
+    "words. Do not paste the raw tool output, a formula line, a data "
+    "header, or the word Done. Write one short sentence a person can read."
+)
+
 
 def write_after_algebra_notice(tool: str) -> str:
     """Write-up nudge after algebra. Calculator must state the number."""

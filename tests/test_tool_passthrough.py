@@ -121,7 +121,11 @@ def test_a_truncated_body_is_not_treated_as_json():
 def test_a_bare_number_is_json_but_is_not_swallowed():
     """`json.loads("7")` succeeds. A calculator answering 7 must survive."""
     assert _is_json_body("7") is False
-    assert chat_followup_from_tool("calculator", "7", ask="what is 3+4") == "7"
+    # #121: plain sentence, not a bare receipt digit alone.
+    line = chat_followup_from_tool("calculator", "7", ask="what is 3+4")
+    assert "7" in line
+    assert " = " not in line
+    assert "tool" not in line.lower()
 
 
 def test_a_quoted_string_is_json_but_is_not_swallowed():

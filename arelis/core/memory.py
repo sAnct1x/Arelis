@@ -313,11 +313,10 @@ def tool_passthrough_note(tool: str) -> str:
     """Mark an assistant turn that is a tool result rather than her words.
 
     When the model returns nothing after a tool succeeds, the turn still has to
-    end with something, so `_tool_followup_fallback` puts the tool's own output
-    in the bubble. That is the right call, the work was done and throwing the
-    result away would be worse, but `_finish` then writes it to memory as an
-    assistant turn, and from the next turn on it is indistinguishable from
-    something she composed.
+    end with something. Prefer a plain-language fallback; only mark passthrough
+    when the bubble still carries the tool's own prose (weather, agenda
+    receipt). `_finish` then writes it to memory as an assistant turn, and
+    from the next turn on it is indistinguishable from something she composed.
 
     That compounds. A pasted JSON body or a column of numbers becomes an
     example of how she talks, and the model reads its own history as a style
