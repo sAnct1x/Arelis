@@ -188,6 +188,20 @@ _TRAILING_FILLER = re.compile(
     r"(?i)\s+(?:please|thanks|thank\s+you|for\s+the\s+tip|for\s+me|"
     r"real\s+quick|quickly|back\s+then|now\s+and\s+then)\s*$"
 )
+# Calendar-shaped M/D and M/D/Y are dates or events, not division, unless the
+# ask carries an explicit math cue ("as a fraction", "times", "% of", …).
+_CALENDAR_SLASH = re.compile(
+    r"(?i)^\s*"
+    r"(0?[1-9]|1[0-2])/(0?[1-9]|[12]\d|3[01])"
+    r"(/(?:[1-9]\d{1,3}|0\d{2,3}))?"
+    r"\s*$"
+)
+_MATH_INTENT = re.compile(
+    r"(?i)(?:%|\*|\^|\bof\b|\btimes\b|\bplus\b|\bminus\b|"
+    r"\bdivided\b|\bsqrt\b|\bas\s+a\s+(?:decimal|fraction|percent)\b|"
+    r"[+\-](?=\s*\d))"
+)
+_AS_FORM = re.compile(r"(?i)\s+as\s+a\s+(?:decimal|fraction|percent)\s*$")
 _CURRENCY = re.compile(r"[$£€¥]")
 _PERCENT_OFF = re.compile(r"(?i)(\d+(?:\.\d+)?)\s*%\s*off\s+(\S+)")
 _PERCENT_OF = re.compile(r"(?i)(\d+(?:\.\d+)?)\s*%\s*of\s+")
@@ -372,6 +386,19 @@ _UNIT_ASK = re.compile(
 )
 
 
+def _calendar_slash_without_math(text: str) -> bool:
+    """True when the line is only a calendar slash and has no math cue."""
+    raw = text or ""
+    if _MATH_INTENT.search(raw):
+        return False
+    stripped = _LEAD_WORDS.sub("", raw)
+    stripped = _TRAILING_Q.sub("", stripped)
+    stripped = _TRAILING_FILLER.sub("", stripped)
+    stripped = _TRAILING_EQ.sub("", stripped)
+    stripped = _AS_FORM.sub("", stripped)
+    return bool(_CALENDAR_SLASH.fullmatch(stripped.strip()))
+
+
 def normalize_expression(text: str) -> str:
     """Rewrite the common surface forms into something ast can parse.
 
@@ -388,6 +415,7 @@ def normalize_expression(text: str) -> str:
     # Drop "?" before filler so "for the tip?" still matches.
     source = _TRAILING_Q.sub("", source)
     source = _TRAILING_FILLER.sub("", source)
+    source = _AS_FORM.sub("", source)
     source = _TRAILING_EQ.sub("", source)
     source = _CURRENCY.sub("", source)
     if "(" not in source:
@@ -422,6 +450,12 @@ def expression_is_evaluable(text: str) -> bool:
 
 def evaluate_expression(expression: str) -> float | int:
     """Eval a whitelist AST. Raises ValueError on anything unsafe."""
+    if _calendar_slash_without_math(expression):
+        raise ValueError(
+            "that looks like a calendar date or event, not a division. "
+            "Ask about the date, or write the arithmetic with a clear math cue "
+            "such as 'divided by' or 'as a fraction'."
+        )
     source = normalize_expression(expression)
     try:
         tree = ast.parse(source, mode="eval")

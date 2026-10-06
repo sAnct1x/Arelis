@@ -456,6 +456,13 @@ _SLASH_DATE = re.compile(r"(?<![\d/.])\d{1,2}/\d{1,2}/\d{2,4}(?![\d/])")
 _PAST_MONTH_DAY = re.compile(
     r"(?i)^\s*what\s+was\s+(?:0?[1-9]|1[0-2])/(?:0?[1-9]|[12]\d|3[01])\s*\??\s*$"
 )
+_WHAT_IS_MONTH_DAY = re.compile(
+    r"(?i)^\s*what\s+is\s+(0?[1-9]|1[0-2])/(0?[1-9]|[12]\d|3[01])\s*\??\s*$"
+)
+_HAPPENED_ON_MONTH_DAY = re.compile(
+    r"(?i)\b(?:what\s+happened|happened\s+on)\b.{0,40}"
+    r"(?<![\d/.])(0?[1-9]|1[0-2])/(0?[1-9]|[12]\d|3[01])(?:/\d{2,4})?(?![\d/])"
+)
 
 
 def _prepare_calculator_first_move(ctx: TurnContext, text: str) -> None:
@@ -476,8 +483,14 @@ def _prepare_calculator_first_move(ctx: TurnContext, text: str) -> None:
     # "then", or comma before "and then" to avoid false matches like "now and then"
     if re.search(r"(?:[,;]\s+then\b|,\s+and\s+then\b)", text, re.I):
         return
-    # "10/5/2026" and "what was 9/11" are a date or an event, not division.
-    if _SLASH_DATE.search(text) or _PAST_MONTH_DAY.match(text):
+    # "10/5/2026", "what was/is 9/11", and "what happened on 9/11" are a
+    # date or an event, not division.
+    if (
+        _SLASH_DATE.search(text)
+        or _PAST_MONTH_DAY.match(text)
+        or _WHAT_IS_MONTH_DAY.match(text)
+        or _HAPPENED_ON_MONTH_DAY.search(text)
+    ):
         return
     from arelis.tools.calculator import expression_is_evaluable
 
