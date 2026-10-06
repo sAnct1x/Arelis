@@ -794,14 +794,14 @@ def describe_call(
                 "stop before Checkout / Pay."
             )
         if action == "reserve":
+            from arelis.browser.reserve import resolve_party
+
             place = str(
                 args.get("place") or args.get("query") or args.get("destination") or ""
             ).strip()
             if place:
                 lines.append(f"Place: {place}")
-            party = args.get("party")
-            if party not in (None, ""):
-                lines.append(f"Party: {party}")
+            lines.append(f"Party: {resolve_party(args.get('party'), args.get('covers'))}")
             if str(args.get("date") or "").strip():
                 lines.append(f"Date: {args.get('date')}")
             if str(args.get("time") or "").strip():
