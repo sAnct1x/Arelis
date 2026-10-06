@@ -353,7 +353,10 @@ def _filament_colors() -> dict[str, str]:
         "text": hex6(cream),
         "hint": "#d4b888",
         "thinking": "#c4a06a",
-        "text_dim": "#b89468",
+        # User lines and role labels. Labels sit on the bare plate, and the
+        # sheen at the top of a tall chat tile put #b89468 at 3.27:1.
+        # Same cream hue as body type, one step down.
+        "text_dim": "#d4c1a1",
         "dim": "#a88858",
         "status_white": hex6(cream),
         "text_soft": rgba(cream, 200),
@@ -362,7 +365,9 @@ def _filament_colors() -> dict[str, str]:
         "accent": "#c4a06a",
         "accent2": "#e4c896",
         "amber": "#c4a06a",
-        "status_amber": "#c4a06a",
+        # Notices and the tool status line, on that same plate.
+        # The lamp accent stays #c4a06a.
+        "status_amber": "#d9bb93",
         "warn": "#d4783c",
     })
     return c
