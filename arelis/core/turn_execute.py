@@ -752,6 +752,34 @@ async def execute_call(
             # paraphrases the tool output and the id vanishes.
             await loop._finish(str(result.output).strip(), sources, streamed="")
             return True
+        if (
+            name == "catalog"
+            and result.ok
+            and isinstance(data_dict, dict)
+            and data_dict.get("mode") == "now"
+        ):
+            from arelis.tools.catalog import (
+                DISTANCE_MODEL_NOTE,
+                should_ship_distance_line,
+            )
+
+            summary = str(result.output or "").strip()
+            loop._horizons_distance_text = summary
+            loop._horizons_distance_ask = text
+            later = 0
+            calls = getattr(r, "calls", None) or []
+            if isinstance(calls, list):
+                later = max(0, len(calls) - call_i - 1)
+            if should_ship_distance_line(text, later_calls=later):
+                await loop._finish(
+                    summary,
+                    sources,
+                    streamed="",
+                    passthrough_tool="catalog",
+                )
+                return True
+            if DISTANCE_MODEL_NOTE not in out:
+                out = f"{out.rstrip()}\n\n{DISTANCE_MODEL_NOTE}"
         messages.append(loop._tool_message(name, out))
         if name == "weather" and not result.ok:
             asked = str(args.get("place") or "").strip()

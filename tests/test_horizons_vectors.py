@@ -33,11 +33,13 @@ def test_parse_refuses_a_blob_without_soe() -> None:
 
 
 @pytest.mark.asyncio
-async def test_horizons_vectors_asks_ssb_eclipj2000() -> None:
+async def test_horizons_vectors_uses_valid_ref_plane() -> None:
+    from urllib.parse import unquote
+
     seen: list[str] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
-        seen.append(str(request.url))
+        seen.append(unquote(str(request.url)))
         return httpx.Response(200, json={"result": _VECTOR_BLOB})
 
     tool = CatalogTool(
@@ -48,10 +50,12 @@ async def test_horizons_vectors_asks_ssb_eclipj2000() -> None:
     )
     assert result.ok, result.output
     assert seen
-    url = seen[0].upper()
-    assert "EMAIL" not in url
-    assert "VECTORS" in url
-    assert "ECLIPJ2000" in url
+    url = seen[0]
+    url_upper = url.upper()
+    assert "EMAIL" not in url_upper
+    assert "VECTORS" in url_upper
+    assert "REF_PLANE=ECLIPTIC" in url_upper
+    assert "REF_PLANE=ECLIPJ2000" not in url_upper
     assert result.data["center"] == "SSB"
     assert result.data["x"] == pytest.approx(1.495978707e11)
     assert result.data["jd"] == pytest.approx(2451545.0)
