@@ -178,12 +178,40 @@ _BANG_FACT = re.compile(r"(?<![\w.])(\d+)\s*!")
 # The shapes people and models actually type. Each one used to come back as
 # "invalid expression (invalid syntax)", which tells the model nothing it can
 # act on, so it either retried the same call or answered from its own head.
-_LEAD_WORDS = re.compile(r"(?i)^\s*(what\s+is|whats|what's|calculate|compute|eval)\b[:\s]*")
+_LEAD_WORDS = re.compile(
+    r"(?i)^\s*(?:what\s+is|what\s+was|whats|what's|how\s+much\s+is|"
+    r"how\s+much\s+does|calculate|compute|eval)\b[:\s]*"
+)
 _TRAILING_EQ = re.compile(r"\s*=\s*\??\s*$")
+_TRAILING_Q = re.compile(r"\?+\s*$")
+_TRAILING_FILLER = re.compile(
+    r"(?i)\s+(?:please|thanks|thank\s+you|for\s+the\s+tip|for\s+me|"
+    r"real\s+quick|quickly|back\s+then|now\s+and\s+then)\s*$"
+)
+# Calendar-shaped M/D and M/D/Y are dates or events, not division, unless the
+# ask carries an explicit math cue ("as a fraction", "times", "% of", …).
+_CALENDAR_SLASH = re.compile(
+    r"(?i)^\s*"
+    r"(0?[1-9]|1[0-2])/(0?[1-9]|[12]\d|3[01])"
+    r"(/(?:[1-9]\d{1,3}|0\d{2,3}))?"
+    r"\s*$"
+)
+_MATH_INTENT = re.compile(
+    r"(?i)(?:%|\*|\^|\bof\b|\btimes\b|\bplus\b|\bminus\b|"
+    r"\bsqrt\b|\bas\s+a\s+(?:decimal|fraction|percent)\b|"
+    r"[+\-](?=\s*\d))"
+)
+_AS_FORM = re.compile(r"(?i)\s+as\s+a\s+(?:decimal|fraction|percent)\s*$")
 _CURRENCY = re.compile(r"[$£€¥]")
 _PERCENT_OFF = re.compile(r"(?i)(\d+(?:\.\d+)?)\s*%\s*off\s+(\S+)")
 _PERCENT_OF = re.compile(r"(?i)(\d+(?:\.\d+)?)\s*%\s*of\s+")
 _TIMES_X = re.compile(r"(?<=[\d)])\s*[xX]\s*(?=[\d(])")
+_SPOKEN_TIMES = re.compile(r"(?i)(?<=[\d)])\s*(?:times|multiplied\s+by)\s*(?=[\d(])")
+_SPOKEN_PLUS = re.compile(r"(?i)(?<=[\d)])\s*plus\s*(?=[\d(])")
+_SPOKEN_MINUS = re.compile(r"(?i)(?<=[\d)])\s*minus\s*(?=[\d(])")
+_SPOKEN_DIV = re.compile(r"(?i)(?<=[\d)])\s*(?:divided\s+by|over)\s*(?=[\d(])")
+_SPOKEN_SQUARED = re.compile(r"(?i)(?<=[\d)])\s*squared\b")
+_SPOKEN_CUBED = re.compile(r"(?i)(?<=[\d)])\s*cubed\b")
 _THOUSANDS = re.compile(r"(?<=\d),(?=\d{3}(?!\d))")
 
 # Spoken year length / years↔days. Anonymous "a planet at N AU" uses
@@ -358,16 +386,36 @@ _UNIT_ASK = re.compile(
 )
 
 
+def _calendar_slash_without_math(text: str) -> bool:
+    """True when the line is only a calendar slash and has no math cue."""
+    raw = text or ""
+    if _MATH_INTENT.search(raw):
+        return False
+    stripped = _LEAD_WORDS.sub("", raw)
+    stripped = _TRAILING_Q.sub("", stripped)
+    stripped = _TRAILING_FILLER.sub("", stripped)
+    stripped = _TRAILING_EQ.sub("", stripped)
+    stripped = _AS_FORM.sub("", stripped)
+    return bool(_CALENDAR_SLASH.fullmatch(stripped.strip()))
+
+
 def normalize_expression(text: str) -> str:
     """Rewrite the common surface forms into something ast can parse.
 
     None of this changes what the arithmetic means. `15% of 84` has exactly one
     reading, and refusing it bought nothing except a wasted round trip.
+    Spoken operators ("times", "plus", "divided by") and tip/please filler
+    are stripped here so the first calculator call does not fail on ordinary
+    talk.
     """
     spoken = rewrite_spoken_duration(text)
     if spoken is not None:
         return spoken
     source = _LEAD_WORDS.sub("", text or "")
+    # Drop "?" before filler so "for the tip?" still matches.
+    source = _TRAILING_Q.sub("", source)
+    source = _TRAILING_FILLER.sub("", source)
+    source = _AS_FORM.sub("", source)
     source = _TRAILING_EQ.sub("", source)
     source = _CURRENCY.sub("", source)
     if "(" not in source:
@@ -378,14 +426,47 @@ def normalize_expression(text: str) -> str:
     source = _PERCENT_OFF.sub(r"(\2) * (1 - \1/100)", source)
     source = _PERCENT_OF.sub(r"(\1/100) * ", source)
     source = _TIMES_X.sub("*", source)
+    source = _SPOKEN_TIMES.sub("*", source)
+    source = _SPOKEN_PLUS.sub("+", source)
+    source = _SPOKEN_MINUS.sub("-", source)
+    source = _SPOKEN_DIV.sub("/", source)
+    source = _SPOKEN_SQUARED.sub("**2", source)
+    source = _SPOKEN_CUBED.sub("**3", source)
     # People write 17^2. Python wants **. This tool has no bitwise XOR.
     source = source.replace("^", "**")
     return _BANG_FACT.sub(r"factorial(\1)", source)
 
 
+def expression_is_evaluable(text: str) -> bool:
+    """True when normalize + whitelist eval would succeed for this line."""
+    try:
+        evaluate_expression(text)
+    # Silence is the answer here: any failure just means the line is not
+    # math we can arm up front, so the model writes the call itself.
+    except Exception:
+        return False
+    return True
+
+
 def evaluate_expression(expression: str) -> float | int:
     """Eval a whitelist AST. Raises ValueError on anything unsafe."""
+    if _calendar_slash_without_math(expression):
+        raise ValueError(
+            "that looks like a calendar date or event, not a division. "
+            "Ask about the date, or write the arithmetic with a clear math cue "
+            "such as percent-of, times, or plus."
+        )
     source = normalize_expression(expression)
+    # Spoken "divided by" rewrites to a slash. Bare calendar M/D stays refused
+    # unless the raw line had a strong math cue (as a fraction, %, of, …).
+    if _CALENDAR_SLASH.fullmatch((source or "").strip()) and not _MATH_INTENT.search(
+        expression or ""
+    ):
+        raise ValueError(
+            "that looks like a calendar date or event, not a division. "
+            "Ask about the date, or write the arithmetic with a clear math cue "
+            "such as percent-of, times, or plus."
+        )
     try:
         tree = ast.parse(source, mode="eval")
     except SyntaxError as exc:

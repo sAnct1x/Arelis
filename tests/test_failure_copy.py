@@ -125,18 +125,28 @@ def test_calculator_filler_does_not_count_as_stating_the_result() -> None:
 
 
 def test_calculator_chat_drops_the_exact_fraction_dump() -> None:
-    from arelis.core.failure_copy import chat_followup_from_tool, pretty_calculator_chat
+    from arelis.core.failure_copy import (
+        chat_followup_from_tool,
+        plain_algebra_chat,
+        pretty_calculator_chat,
+    )
 
     raw = (
         "((349.54 - 287.20) / 287.20) * 100 = 21.706128133704734 "
         "(exactly 15585/718)"
     )
+    # pretty_calculator_chat still shortens the receipt for other callers.
     chat = pretty_calculator_chat(raw)
     assert "15585" not in chat
     assert "21.706128" not in chat
     assert "21.7" in chat
     ask = "what is the percent difference from the price then versus the price now?"
-    assert chat_followup_from_tool("calculator", raw, ask=ask) == chat
+    # #121: empty-after-tool ships a plain sentence, not the formula line.
+    follow = chat_followup_from_tool("calculator", raw, ask=ask)
+    assert follow == plain_algebra_chat(raw, ask=ask)
+    assert "21.7" in follow
+    assert " = " not in follow
+    assert "15585" not in follow
     third = pretty_calculator_chat("1/3 = 0.3333333333333333 (exactly 1/3)")
     assert "exactly 1/3" in third
 
