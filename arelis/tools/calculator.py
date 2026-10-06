@@ -454,7 +454,7 @@ def evaluate_expression(expression: str) -> float | int:
         raise ValueError(
             "that looks like a calendar date or event, not a division. "
             "Ask about the date, or write the arithmetic with a clear math cue "
-            "such as 'as a fraction' or 'as a decimal'."
+            "such as percent-of, times, or plus."
         )
     source = normalize_expression(expression)
     # Spoken "divided by" rewrites to a slash. Bare calendar M/D stays refused
@@ -465,7 +465,7 @@ def evaluate_expression(expression: str) -> float | int:
         raise ValueError(
             "that looks like a calendar date or event, not a division. "
             "Ask about the date, or write the arithmetic with a clear math cue "
-            "such as 'as a fraction' or 'as a decimal'."
+            "such as percent-of, times, or plus."
         )
     try:
         tree = ast.parse(source, mode="eval")

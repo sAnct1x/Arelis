@@ -34,6 +34,7 @@ from arelis.core.sms_complete import (
 from arelis.core.tool_results import PreparedToolOutput, prepare_tool_output
 from arelis.core.turn_context import TurnContext
 from arelis.core.turn_goal import NEED_LOGIN, browser_errand_done
+from arelis.core.turn_prepare import calculator_blocked_for_date_ask
 from arelis.core.turn_scratch import RoundScratch, named_tools_owed
 from arelis.core.untrusted import frame_external_tool_output
 from arelis.tools.inbox import INBOX_PEEK_ACTIONS, inbox_peek_was_empty
@@ -111,8 +112,21 @@ async def execute_call(
                 ms, result = fanout_results[call_i]
             else:
                 t0 = time.perf_counter()
-                result = await loop.tools.call(name, **args)
-                ms = int((time.perf_counter() - t0) * 1000)
+                if name == "calculator":
+                    blocked = calculator_blocked_for_date_ask(
+                        text, str(args.get("expression") or "")
+                    )
+                    if blocked:
+                        from arelis.tools.base import ToolResult
+
+                        result = ToolResult(ok=False, output=blocked)
+                        ms = 0
+                    else:
+                        result = await loop.tools.call(name, **args)
+                        ms = int((time.perf_counter() - t0) * 1000)
+                else:
+                    result = await loop.tools.call(name, **args)
+                    ms = int((time.perf_counter() - t0) * 1000)
         finally:
             if unbind_image is not None:
                 unbind_image.set_progress(None)

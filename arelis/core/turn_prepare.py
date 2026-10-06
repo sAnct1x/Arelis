@@ -465,6 +465,49 @@ _HAPPENED_ON_MONTH_DAY = re.compile(
 )
 
 
+
+
+def _looks_like_date_or_event_ask(text: str) -> bool:
+    """True when the person is asking about a slash date or event, not math."""
+    raw = text or ""
+    if re.search(r"(?i)as\s+a\s+(?:decimal|fraction|percent)", raw):
+        return False
+    if _WHAT_IS_MONTH_DAY.match(raw) or _PAST_MONTH_DAY.match(raw):
+        return True
+    if re.search(
+        r"(?i)(?:what\s+happened|happened\s+on).{0,48}"
+        r"(?:0?[1-9]|1[0-2])/(?:0?[1-9]|[12]\d|3[01])(?!\d)",
+        raw,
+    ):
+        return True
+    return False
+
+
+def calculator_blocked_for_date_ask(user_text: str, expression: str) -> str | None:
+    """Refuse calculator when a date/event ask is being evaluated as that M/D."""
+    if not _looks_like_date_or_event_ask(user_text):
+        return None
+    hit = re.search(
+        r"(?<![\d/.])(0?[1-9]|1[0-2])/(0?[1-9]|[12]\d|3[01])(?![\d/])",
+        user_text or "",
+    )
+    if not hit:
+        return None
+    month, day = int(hit.group(1)), int(hit.group(2))
+    from arelis.tools.calculator import normalize_expression
+
+    try:
+        source = normalize_expression(expression or "")
+    except Exception:
+        return None
+    src = (source or "").strip()
+    if re.fullmatch(rf"0?{month}/0?{day}", src):
+        return (
+            "That looks like a date or event in the ask, not a division. "
+            "Answer in words about the date or event."
+        )
+    return None
+
 def _prepare_calculator_first_move(ctx: TurnContext, text: str) -> None:
     """Arm a calculator call before the model.
 
