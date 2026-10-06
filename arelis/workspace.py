@@ -23,6 +23,17 @@ UNSAFE_WINDOWS_PATH_MSG = (
     "That path points at a network location; I only work in your workspace folder"
 )
 
+# Same sentence on the welcome glass and on this error, so a new person
+# is not sent to a menu name.
+FOLDER_CHOICE_HELP = (
+    "When Arelis first opens, it asks you to choose the folder it may work in. "
+    "Later, open Settings and add a folder there."
+)
+
+NO_WORKSPACE_ROOTS_MSG = (
+    "No folder is set up yet. This is a setup step, not a bug. " + FOLDER_CHOICE_HELP
+)
+
 
 def _path_text(raw: str) -> str:
     """Whitespace and one pair of surrounding quotes off a caller path string."""
@@ -144,7 +155,7 @@ class WorkspaceRoots:
 
     def __init__(self, roots: list[RootEntry], active: str | None = None) -> None:
         if not roots:
-            raise ValueError("No workspace roots are configured")
+            raise ValueError(NO_WORKSPACE_ROOTS_MSG)
         seen: set[str] = set()
         for root in roots:
             if root.name in seen:
@@ -208,7 +219,7 @@ class WorkspaceRoots:
     ) -> None:
         """Hot-swap configured roots (Settings) while keeping session grants."""
         if not roots:
-            raise ValueError("No workspace roots are configured")
+            raise ValueError(NO_WORKSPACE_ROOTS_MSG)
         seen: set[str] = set()
         for root in roots:
             if root.name in seen:

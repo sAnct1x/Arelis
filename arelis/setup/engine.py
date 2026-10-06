@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import shutil
 import subprocess
 import time
@@ -84,6 +85,28 @@ def start_ollama(exe: Path | None = None) -> str | None:
             return None
         time.sleep(0.25)
     return "Ollama started but is not answering yet. Wait a moment and try again."
+
+
+# Ollama names a blob as "pulling 970aa74c0a90". That is not a sentence.
+_LAYER_ID = re.compile(
+    r"(?:pulling|downloading)\s+(?:sha256:)?[0-9a-f]{8,}\b",
+    re.IGNORECASE,
+)
+
+
+def downloading_model_label(size_gb: float | None = None) -> str:
+    """Plain download line. Size comes from the catalog when we know it."""
+    if size_gb is None or size_gb <= 0:
+        return "Downloading the model"
+    return f"Downloading the model ({size_gb:g} GB)"
+
+
+def plain_download_status(status: str, *, size_gb: float | None = None) -> str:
+    """Hide a raw blob id. Other engine statuses pass through."""
+    text = (status or "").strip()
+    if _LAYER_ID.search(text):
+        return downloading_model_label(size_gb)
+    return text
 
 
 def parse_pull_status(data: dict[str, object]) -> tuple[str, int, int]:
