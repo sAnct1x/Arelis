@@ -661,10 +661,198 @@ def test_core_spawned_ui_is_background(monkeypatch) -> None:
         return SimpleNamespace(pid=4242)
 
     monkeypatch.setattr(open_ui.subprocess, "Popen", fake_popen)
-    monkeypatch.setattr(open_ui, "ui_process_appears_running", lambda: False)
+    monkeypatch.setattr(open_ui, "ui_process_appears_running", lambda *a, **k: False)
     open_ui._LAST_SPAWN_MONO = 0.0
 
     pid = open_ui.spawn_ui_subprocess()
     assert pid == 4242
     assert captured, "Popen was not called"
     assert "--background" in captured[0]
+
+
+class _FakeOpenUiServer:
+    async def request_open_ui(self, **kw: Any) -> int:
+        return 0
+
+
+async def test_core_tray_open_spawns_without_background(monkeypatch) -> None:
+    import arelis.presence.open_ui as open_ui
+
+    captured: list[list[str]] = []
+
+    def fake_popen(**kwargs):
+        captured.append(list(kwargs["args"]))
+        return SimpleNamespace(pid=4242)
+
+    monkeypatch.setattr(open_ui.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(open_ui, "ui_process_appears_running", lambda *a, **k: False)
+    open_ui._LAST_SPAWN_MONO = 0.0
+
+    result = await open_ui.ensure_ui_open(
+        _FakeOpenUiServer(), spawn_if_detached=True, reason="core_tray"
+    )
+    assert result.get("spawned") is True
+    assert captured, "Popen was not called"
+    assert "--background" not in captured[0]
+
+
+async def test_allow_card_spawn_is_background(monkeypatch) -> None:
+    import arelis.presence.open_ui as open_ui
+
+    captured: list[list[str]] = []
+
+    def fake_popen(**kwargs):
+        captured.append(list(kwargs["args"]))
+        return SimpleNamespace(pid=4242)
+
+    monkeypatch.setattr(open_ui.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(open_ui, "ui_process_appears_running", lambda *a, **k: False)
+
+    open_ui._LAST_SPAWN_MONO = 0.0
+    await open_ui.ensure_ui_open(
+        _FakeOpenUiServer(), spawn_if_detached=True, reason="tool_confirm"
+    )
+    assert captured, "Popen was not called"
+    assert "--background" in captured[0]
+
+    captured.clear()
+    open_ui._LAST_SPAWN_MONO = 0.0
+    await open_ui.ensure_ui_open(_FakeOpenUiServer(), spawn_if_detached=True)
+    assert captured, "Popen was not called"
+    assert "--background" in captured[0]
+
+
+def test_spawn_user_reasons_match_window_lifetime() -> None:
+    from arelis.presence.open_ui import _USER_OPEN_REASONS
+    from arelis.ui.window_lifetime import USER_OPEN_REASONS
+
+    assert _USER_OPEN_REASONS | {""} == USER_OPEN_REASONS
+
+
+def test_background_flag_clears_on_first_activation(qt_app) -> None:
+    from arelis.ui.launch import _mark_launch
+
+    window = QWidget()
+    try:
+        _mark_launch(window, True)
+        assert window._launched_in_background is True
+        QGuiApplication.instance().applicationStateChanged.emit(  # type: ignore[union-attr]
+            Qt.ApplicationState.ApplicationInactive
+        )
+        qt_app.processEvents()
+        assert window._launched_in_background is True
+        QGuiApplication.instance().applicationStateChanged.emit(  # type: ignore[union-attr]
+            Qt.ApplicationState.ApplicationActive
+        )
+        qt_app.processEvents()
+        assert window._launched_in_background is False
+        QGuiApplication.instance().applicationStateChanged.emit(  # type: ignore[union-attr]
+            Qt.ApplicationState.ApplicationActive
+        )
+        qt_app.processEvents()
+        assert window._launched_in_background is False
+
+        other = QWidget()
+        try:
+            _mark_launch(other, False)
+            assert other._launched_in_background is False
+        finally:
+            other.deleteLater()
+    finally:
+        window.deleteLater()
+
+
+def test_offer_shows_after_user_has_used_a_background_window(qt_app, monkeypatch) -> None:
+    from arelis.ui.launch import _mark_launch
+    from arelis.ui.update_prompt import UpdatePrompt
+
+    confirms: list[int] = []
+    monkeypatch.setattr(
+        "arelis.ui.update_prompt.confirm",
+        lambda *a, **k: confirms.append(1) or False,
+    )
+    monkeypatch.setattr(
+        "arelis.ui.foreground.process_owns_foreground",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        "arelis.ui.update_prompt.process_owns_foreground",
+        lambda: True,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        "arelis.ui.foreground.flash_taskbar",
+        lambda w: None,
+    )
+    monkeypatch.setattr(
+        "arelis.ui.update_prompt.flash_taskbar",
+        lambda w: None,
+        raising=False,
+    )
+
+    window = QWidget()
+    try:
+        _mark_launch(window, True)
+        QGuiApplication.instance().applicationStateChanged.emit(  # type: ignore[union-attr]
+            Qt.ApplicationState.ApplicationActive
+        )
+        qt_app.processEvents()
+        prompt = UpdatePrompt(window)
+        prompt._offer(_sample_release())
+        assert confirms == [1]
+    finally:
+        window.deleteLater()
+
+
+def test_run_ui_wires_launch_flag_and_core_reason(qt_app) -> None:
+    import inspect
+
+    from arelis.ui.launch import _core_open_ui_handler, run_ui
+    from arelis.ui.window_lifetime import USER_OPEN_REASONS
+
+    tree = ast.parse(inspect.getsource(run_ui))
+    mark_ok = False
+    handler_ok = False
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        name = ""
+        if isinstance(func, ast.Name):
+            name = func.id
+        elif isinstance(func, ast.Attribute):
+            name = func.attr
+        if name == "_mark_launch" and len(node.args) >= 2:
+            second = node.args[1]
+            if isinstance(second, ast.Name) and second.id == "background":
+                mark_ok = True
+        if name == "IpcClient":
+            for kw in node.keywords:
+                if kw.arg != "on_open_ui":
+                    continue
+                val = kw.value
+                if (
+                    isinstance(val, ast.Call)
+                    and isinstance(val.func, ast.Name)
+                    and val.func.id == "_core_open_ui_handler"
+                    and val.args
+                    and isinstance(val.args[0], ast.Name)
+                    and val.args[0].id == "window"
+                ):
+                    handler_ok = True
+    assert mark_ok, "run_ui must pass the background parameter to _mark_launch"
+    assert handler_ok, "run_ui must wire on_open_ui through _core_open_ui_handler"
+
+    reasons: list[object] = []
+    window = QWidget()
+    try:
+        window._on_activation_request = lambda r: reasons.append(r)  # type: ignore[method-assign]
+        handler = _core_open_ui_handler(window)
+        handler({})
+        qt_app.processEvents()
+        assert reasons and reasons[-1] not in USER_OPEN_REASONS
+        handler({"reason": "core_tray"})
+        qt_app.processEvents()
+        assert reasons[-1] == "core_tray"
+    finally:
+        window.deleteLater()

@@ -12,7 +12,7 @@ from collections.abc import MutableMapping
 from typing import Any
 
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QIcon
+from PySide6.QtGui import QGuiApplication, QIcon
 from PySide6.QtWidgets import QApplication
 
 from arelis.config import load_config
@@ -139,6 +139,35 @@ def _open_ui_reason(msg: object) -> str:
         return "open_ui"
     reason = str(msg.get("reason") or "")
     return reason if reason else "open_ui"
+
+
+def _mark_launch(window: Any, background: bool) -> None:
+    """Remember a quiet launch, then drop the flag once the person uses the window."""
+    window._launched_in_background = bool(background)
+    if not background:
+        return
+    app = QGuiApplication.instance()
+    if app is None:
+        return
+
+    def _clear_on_active(state: object) -> None:
+        if state != Qt.ApplicationState.ApplicationActive:
+            return
+        window._launched_in_background = False
+        try:
+            app.applicationStateChanged.disconnect(_clear_on_active)
+        except (RuntimeError, TypeError):
+            pass
+
+    app.applicationStateChanged.connect(_clear_on_active)
+
+
+def _core_open_ui_handler(window: Any) -> Any:
+    """Core IPC open_ui callback: map the payload, then ask the window on the Qt thread."""
+    return lambda msg: QTimer.singleShot(
+        0,
+        lambda m=msg: window._on_activation_request(_open_ui_reason(m)),
+    )
 
 
 def _start_activation_listener(
@@ -568,7 +597,7 @@ def run_ui(config: dict[str, Any] | None = None, *, background: bool = False) ->
         logging.getLogger(__name__).exception("Arelis window failed to start")
         _release_ui_lock()
         raise
-    window._launched_in_background = bool(background)
+    _mark_launch(window, background)
     window.orchestrator = orchestrator
     asyncio.run_coroutine_threadsafe(orchestrator.resume_last_room(), loop)
     # Inbound: by default the UI owns ingest. Close-to-tray keeps it alive when
@@ -600,10 +629,7 @@ def run_ui(config: dict[str, Any] | None = None, *, background: bool = False) ->
                     bus,
                     host=str(presence_cfg.get("ipc_host") or "127.0.0.1"),
                     port=int(presence_cfg.get("ipc_port") or 8766),
-                    on_open_ui=lambda msg: QTimer.singleShot(
-                        0,
-                        lambda m=msg: window._on_activation_request(_open_ui_reason(m)),
-                    ),
+                    on_open_ui=_core_open_ui_handler(window),
                     # Our own core may have fallen forward past the configured
                     # port because another account on this PC holds it. The
                     # handshake names the account, so scanning cannot attach us
