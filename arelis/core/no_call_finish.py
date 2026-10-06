@@ -208,14 +208,13 @@ async def try_algebra_answer(loop: Any, ctx: TurnContext, r: RoundScratch, round
     await loop.bus.publish(
         Event(
             EventType.THINKING,
-            {"text": "algebra result missing from chat; shipping the tool line"},
+            {"text": "algebra result missing from chat; shipping a plain answer"},
         )
     )
     await loop._finish(
         line,
         r.sources,
         streamed="",
-        passthrough_tool=name,
     )
     return FINISH
 

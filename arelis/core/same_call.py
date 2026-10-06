@@ -166,10 +166,10 @@ def same_call_finish_line(name: str, last_out: str) -> str:
     """
     text = (last_out or "").strip()
     if text:
-        if (name or "").strip() == "calculator":
-            from arelis.core.failure_copy import pretty_calculator_chat
+        if (name or "").strip() in {"calculator", "units"}:
+            from arelis.core.failure_copy import plain_algebra_chat
 
-            return pretty_calculator_chat(text)
+            return plain_algebra_chat(text)
         if len(text) > 800:
             cut = text[:800]
             nl = cut.rfind("\n")

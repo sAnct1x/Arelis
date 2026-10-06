@@ -78,6 +78,9 @@ class TurnContext:
     scrape_nudge_used: bool = False
     page_write_nudge_used: bool = False
     algebra_write_nudge_used: bool = False
+    # One per turn: ask for plain words after any tool when page/algebra
+    # write-up did not already fire. Not gated by the tool-nudge budget.
+    tool_answer_nudge_used: bool = False
     think_write_nudge_used: bool = False
     js_shell_nudge_used: bool = False
     js_shell_url: str = ""

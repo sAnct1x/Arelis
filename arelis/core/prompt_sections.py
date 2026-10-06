@@ -36,6 +36,16 @@ def append_stopped_turn_note(
         messages.append({"role": "system", "content": hint})
 
 
+def append_nasa_fact_guidance(
+    messages: list[dict[str, str]],
+    text: str,
+) -> bool:
+    """Pin planet / Mars-moon numbers before the model answers. Native-safe."""
+    from arelis.physics.fact_sheet import append_reference_facts
+
+    return append_reference_facts(messages, text)
+
+
 def append_preflight_guidance(
     messages: list[dict[str, str]],
     loop: Any,
@@ -46,6 +56,9 @@ def append_preflight_guidance(
 ) -> list[str]:
     """Append deterministic intent guidance and settle expected tool names."""
     preflight_kinds: list[str] = []
+    # NASA fact pins are not routing: they stay on even when native tool
+    # calling skips the regex intent layer below.
+    append_nasa_fact_guidance(messages, text)
     # native_tool_calling disables regex/intent routing layer entirely
     if native_tool_calling(agent_cfg):
         return preflight_kinds
