@@ -204,15 +204,13 @@ def test_same_call_notice_names_the_path() -> None:
 def test_same_call_finish_line_ships_the_prior_result() -> None:
     # #121: a plain sentence with the number, not the formula line.
     plain = same_call_finish_line("calculator", "840 * 0.175 = 147")
-    assert "147" in plain
-    assert "840 * 0.175" not in plain
+    assert plain == "That works out to 147."
     ugly = (
         "((349.54 - 287.20) / 287.20) * 100 = 21.706128133704734 "
         "(exactly 15585/718)"
     )
     line = same_call_finish_line("calculator", ugly)
-    assert "15585" not in line
-    assert "21.7" in line
+    assert line == "That works out to about 21.7%."
     assert "already have that result" in same_call_finish_line("calculator", "").lower()
     assert "tab is open" in same_call_finish_line("browser", "").lower()
 

@@ -36,6 +36,7 @@ from arelis.core.email_complete import (
 )
 from arelis.core.events import Event, EventType
 from arelis.core.failure_copy import (
+    followup_passthrough_tool,
     should_nudge_write_after_algebra,
     should_nudge_write_after_page,
 )
@@ -350,10 +351,8 @@ async def apply_no_call_path(
                     )
                     return False
                 # Composed plain fallback is her words, not a tool paste.
-                passthrough = (
-                    ctx.last_ok_tool_name
-                    if line.strip() == raw or (raw and line.strip() in raw)
-                    else ""
+                passthrough = followup_passthrough_tool(
+                    ctx.last_ok_tool_name, line, raw
                 )
                 await loop.bus.publish(
                     Event(
@@ -581,7 +580,6 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
             or bool(ctx.sms_sent)
             or ctx.page_write_nudge_used
             or ctx.algebra_write_nudge_used
-            or ctx.tool_answer_nudge_used
             or _weather_answer_ready(ctx)
         ):
             # Only strip tools if all exactness needs are satisfied.
@@ -840,6 +838,11 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
                     and ctx.last_ok_tool_out
                     and "research_report" in loop.tools_used
                 ):
+                    vram_line = _tool_followup_fallback(
+                        ctx.last_ok_tool_out,
+                        ctx.last_ok_tool_name,
+                        ask=ctx.text,
+                    )
                     await loop.bus.publish(
                         Event(
                             EventType.THINKING,
@@ -847,17 +850,22 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
                         )
                     )
                     await loop._finish(
-                        _tool_followup_fallback(
-                            ctx.last_ok_tool_out,
-                            ctx.last_ok_tool_name,
-                            ask=ctx.text,
-                        ),
+                        vram_line,
                         sources,
                         streamed="",
-                        passthrough_tool=ctx.last_ok_tool_name,
+                        passthrough_tool=followup_passthrough_tool(
+                            ctx.last_ok_tool_name,
+                            vram_line,
+                            ctx.last_ok_tool_out,
+                        ),
                     )
                     return True
                 if ctx.last_ok_tool_out and _is_ollama_object_400(exc):
+                    four_line = _tool_followup_fallback(
+                        ctx.last_ok_tool_out,
+                        ctx.last_ok_tool_name,
+                        ask=ctx.text,
+                    )
                     await loop.bus.publish(
                         Event(
                             EventType.THINKING,
@@ -865,14 +873,14 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
                         )
                     )
                     await loop._finish(
-                        _tool_followup_fallback(
-                            ctx.last_ok_tool_out,
-                            ctx.last_ok_tool_name,
-                            ask=ctx.text,
-                        ),
+                        four_line,
                         sources,
                         streamed="",
-                        passthrough_tool=ctx.last_ok_tool_name,
+                        passthrough_tool=followup_passthrough_tool(
+                            ctx.last_ok_tool_name,
+                            four_line,
+                            ctx.last_ok_tool_out,
+                        ),
                     )
                     return True
                 await loop._publish_error(failure.chat, detail=failure.detail)

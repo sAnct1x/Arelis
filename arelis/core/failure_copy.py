@@ -23,6 +23,7 @@ goes to Thinking and Workspace either way.
 from __future__ import annotations
 
 import json
+import math
 import re
 
 from arelis.core.evidence import looks_like_bot_wall
@@ -292,6 +293,11 @@ _WANTS_EARTH_DAYS = re.compile(r"(?i)\b(?:earth\s+)?days?\b")
 # Calendar / reminder / task lists are already written for people.
 _PERSON_LIST_TOOLS = frozenset({"agenda", "remind", "tasks"})
 
+# Text pulled FROM a page, image, clipboard, or note is already the answer.
+_CONTENT_PASSTHROUGH_TOOLS = frozenset(
+    {"ocr", "clipboard", "transcribe", "notes", "doc_extract", "image"}
+)
+
 
 def chat_followup_from_tool(tool: str, output: str, *, ask: str = "") -> str:
     """Person-facing copy when the model leaves chat empty after a tool.
@@ -364,11 +370,58 @@ def chat_followup_from_tool(tool: str, output: str, *, ask: str = "") -> str:
         if len(cleaned) > 1600:
             cleaned = cleaned[:1597].rstrip() + "…"
         return cleaned
+    # Weather already answers in words (current-only lines look like key:value).
+    if name == "weather":
+        if len(cleaned) > 1600:
+            cleaned = cleaned[:1597].rstrip() + "…"
+        return cleaned
+    # OCR / clipboard / notes / PDF text: the content IS the answer.
+    if name in _CONTENT_PASSTHROUGH_TOOLS:
+        if len(cleaned) > 1600:
+            cleaned = cleaned[:1597].rstrip() + "…"
+        return cleaned
     if _looks_like_data_dump(cleaned):
         return _DATA_FOLLOWUP
     if len(cleaned) > 1600:
         cleaned = cleaned[:1597].rstrip() + "…"
     return cleaned
+
+
+def followup_passthrough_tool(tool: str, line: str, raw: str) -> str:
+    """Tool name for memory passthrough only when the shipped line is the tool's text."""
+    shipped = (line or "").strip()
+    source = (raw or "").strip()
+    if shipped and (shipped == source or (source and shipped in source)):
+        return (tool or "").strip()
+    return ""
+
+
+# The units tool appends a note for the model after a temperature
+# conversion. It is not part of the answer, so it is dropped before phrasing.
+_TEMP_NOTE = re.compile(r"\s*Temperature conversions use an offset\b.*$", re.S)
+_CLEAN_UNIT_RHS = re.compile(
+    r"^(?P<num>-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)\s+"
+    r"(?P<unit>[A-Za-z]+(?:_[A-Za-z]+)*)$"
+)
+_CLEAN_NUM_RHS = re.compile(
+    r"^(?P<num>-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)(?P<pct>%)?$"
+)
+_UNIT_WORDS: dict[str, tuple[str, str]] = {
+    "degree_celsius": ("degree Celsius", "degrees Celsius"),
+    "degree_fahrenheit": ("degree Fahrenheit", "degrees Fahrenheit"),
+    "centimeter": ("centimeter", "centimeters"),
+    "millimeter": ("millimeter", "millimeters"),
+    "kilometer": ("kilometer", "kilometers"),
+    "meter": ("meter", "meters"),
+    "inch": ("inch", "inches"),
+    "foot": ("foot", "feet"),
+    "mile": ("mile", "miles"),
+    "kilogram": ("kilogram", "kilograms"),
+    "gram": ("gram", "grams"),
+    "second": ("second", "seconds"),
+    "minute": ("minute", "minutes"),
+    "hour": ("hour", "hours"),
+}
 
 
 def plain_algebra_chat(output: str, *, ask: str = "") -> str:
@@ -388,37 +441,74 @@ def plain_algebra_chat(output: str, *, ask: str = "") -> str:
     main = right
     if " (exactly " in main:
         main = main.split(" (exactly ", 1)[0].strip()
-    # Units: "8.047 km" - keep the unit word.
-    parts = main.split()
-    if len(parts) >= 2 and parts[-1].isalpha():
-        magnitude = _pretty_number_token(parts[0], expr=expr)
-        unit = parts[-1]
-        return f"That works out to about {magnitude} {unit}."
-    number = _pretty_number_token(main, expr=expr)
-    if not number:
+    main = _TEMP_NOTE.sub("", main).strip()
+    unit_hit = _CLEAN_UNIT_RHS.fullmatch(main)
+    if unit_hit is not None:
+        shown, rounded = _format_magnitude(unit_hit.group("num"), expr=expr)
+        if not shown:
+            return _DATA_FOLLOWUP
+        unit = _humanize_unit(unit_hit.group("unit"), shown)
+        about = "about " if rounded else ""
+        return f"That works out to {about}{shown} {unit}."
+    num_hit = _CLEAN_NUM_RHS.fullmatch(main)
+    if num_hit is None:
         return _DATA_FOLLOWUP
+    shown, rounded = _format_magnitude(num_hit.group("num"), expr=expr)
+    if not shown:
+        return _DATA_FOLLOWUP
+    try:
+        raw_val = float(num_hit.group("num"))
+    except ValueError:
+        raw_val = 0.0
+    is_pct = bool(num_hit.group("pct")) or bool(
+        expr and re.search(r"\*\s*100\b", expr) and abs(raw_val) < 10000
+    )
     planet = _PLANET_IN_ASK.search(ask or "")
     if planet is not None and re.search(r"(?i)\byear\b", ask or ""):
         name = planet.group(1).capitalize()
         folded_expr = re.sub(r"\s+", "", expr)
         if _PERIOD_OVER_EARTH.fullmatch(folded_expr):
-            return f"A year on {name} is about {number} Earth years."
+            return f"A year on {name} is about {shown} Earth years."
         if _WANTS_EARTH_DAYS.search(ask or ""):
-            days = _round_day_count(number)
+            days = _round_day_count(shown)
             return f"A year on {name} is about {days} Earth days."
         # Age-in-planet-years and other shapes: just state the number.
-    if re.fullmatch(r"-?\d+", number):
-        return f"That works out to {number}."
-    return f"That works out to about {number}."
+    about = "about " if rounded else ""
+    suffix = "%" if is_pct else ""
+    return f"That works out to {about}{shown}{suffix}."
+
+
+def _humanize_unit(unit: str, magnitude: str) -> str:
+    """Turn Pint unit ids into plain spoken words; plural except for exactly 1."""
+    key = (unit or "").strip().lower()
+    try:
+        val = float((magnitude or "").replace(",", ""))
+        singular = abs(val - 1.0) < 1e-12 or abs(val + 1.0) < 1e-12
+    except ValueError:
+        singular = False
+    pair = _UNIT_WORDS.get(key)
+    if pair is not None:
+        return pair[0] if singular else pair[1]
+    spoken = (unit or "").replace("_", " ").strip()
+    if not spoken:
+        return spoken
+    if singular:
+        return spoken
+    if spoken.endswith("s"):
+        return spoken
+    return spoken + "s"
 
 
 def _round_day_count(number: str) -> str:
     """Sidereal days are quoted whole; 686.98 reads as about 687."""
     try:
-        val = float(number)
+        val = float((number or "").replace(",", ""))
     except ValueError:
         return number
     return str(round(val))
+
+
+_SENTENCE_ENDS = tuple(".!?。！？")
 
 
 def _looks_like_data_dump(text: str) -> bool:
@@ -442,7 +532,7 @@ def _looks_like_data_dump(text: str) -> bool:
         short = sum(
             1
             for ln in lines
-            if len(ln) < 90 and not ln.endswith((".", "!", "?"))
+            if len(ln) < 90 and not ln.endswith(_SENTENCE_ENDS)
         )
         if short >= 3:
             return True
@@ -478,31 +568,57 @@ def pretty_calculator_chat(output: str) -> str:
     return f"{left} = {pretty}"
 
 
-def _pretty_number_token(raw: str, *, expr: str = "") -> str:
+def _format_magnitude(raw: str, *, expr: str = "") -> tuple[str, bool]:
+    """Return (shown, rounded) for a clean numeric token."""
     text = (raw or "").strip()
     if not _CALC_NUMBER.fullmatch(text):
-        return text
-    if "." not in text and "e" not in text.lower():
-        return text
+        return "", False
     try:
         val = float(text)
     except ValueError:
-        return text
-    if val.is_integer() and abs(val) < 2**53:
-        return str(int(val))
-    # `((now-then)/then)*100` is a percent. One decimal, not 15.
+        return "", False
+    if not math.isfinite(val) and re.fullmatch(r"-?\d+", text):
+        # An exact integer too big for a float (1e308*10 is 310 digits).
+        # Say it in short scientific form instead of spelling it out.
+        from decimal import Decimal
+
+        return f"{Decimal(text):.4g}".lower(), True
+    if not math.isfinite(val):
+        # 1e308*10 overflows float; keep the short scientific token.
+        if "e" in text.lower():
+            return text.lower(), True
+        return "", False
     if expr and re.search(r"\*\s*100\b", expr) and abs(val) < 10000:
-        return f"{val:.1f}"
+        shown = f"{val:.1f}"
+        return shown, shown != text
+    # Ordinary integers (including millions) get thousands separators.
+    if val.is_integer() and abs(val) < 2**53:
+        n = int(val)
+        shown = f"{n:,}" if abs(n) >= 1000 else str(n)
+        return shown, False
+    # Non-integer huge / tiny: keep it short (never a 309-digit sentence).
+    if abs(val) >= 1e6 or (abs(val) > 0 and abs(val) < 1e-4):
+        return f"{val:.4g}", True
     decimals = 0
-    frac = text.split(".", 1)[1]
-    frac = re.split(r"[eE]", frac, maxsplit=1)[0]
-    decimals = len(frac)
+    if "." in text:
+        frac = text.split(".", 1)[1]
+        frac = re.split(r"[eE]", frac, maxsplit=1)[0]
+        decimals = len(frac)
+    elif "e" in text.lower():
+        return f"{val:.4g}", True
     if decimals > 4:
         if abs(val) < 1:
-            return f"{val:.4g}"
-        shown = f"{val:.2f}".rstrip("0").rstrip(".")
-        return shown or "0"
-    return text
+            shown = f"{val:.4g}"
+        else:
+            shown = f"{val:.2f}".rstrip("0").rstrip(".") or "0"
+        return shown, True
+    return text, False
+
+
+def _pretty_number_token(raw: str, *, expr: str = "") -> str:
+    text = (raw or "").strip()
+    shown, _rounded = _format_magnitude(text, expr=expr)
+    return shown if shown else text
 
 
 def _is_json_body(text: str) -> bool:
@@ -587,6 +703,7 @@ def _search_talk(output: str) -> str:
 __all__ = [
     "TURN_FAILED_NOTICE",
     "chat_followup_from_tool",
+    "followup_passthrough_tool",
     "is_model_directed",
     "plain_algebra_chat",
     "plain_reason",

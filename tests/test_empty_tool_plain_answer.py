@@ -194,6 +194,85 @@ async def test_empty_once_then_summarize_sentence_ships() -> None:
     assert "(686.980)/365.256" not in text
 
 
+class _RecordingRouter(_ScriptedRouter):
+    """Scripted router that records every stream() kwargs for tool-offer checks."""
+
+    def __init__(self, script: list[list[tuple[str, Any]]]) -> None:
+        super().__init__(script)
+        self.stream_kwargs: list[dict[str, Any]] = []
+
+    async def stream(self, role, messages, **kwargs):  # type: ignore[no-untyped-def]
+        self.stream_kwargs.append(dict(kwargs))
+        steps = self.script[min(self.i, len(self.script) - 1)]
+        self.i += 1
+        for item in steps:
+            yield item
+
+
+@pytest.mark.asyncio
+async def test_lookup_empty_then_sentence_retry_offers_no_tools() -> None:
+    """#121 retry: empty after a non-calc lookup, then a real sentence with tools off."""
+    ask = "how far away is the moon right now?"
+    good = "The Moon is about 402,000 kilometers away right now."
+    call = {
+        "type": "function",
+        "function": {
+            "name": "catalog",
+            "arguments": {
+                "action": "horizons",
+                "target": "Moon",
+                "table": "observer",
+            },
+        },
+    }
+    router = _RecordingRouter(
+        [
+            [("tool_calls", [call])],
+            [("token", "")],
+            [("token", good)],
+        ]
+    )
+    bus, loop = _loop(router, _HorizonsStub())
+    events = await _collect(bus, loop.run(ask, "fast"))
+    done = next(e for e in events if e.type == EventType.ASSISTANT_DONE)
+    assert done.payload["text"].strip() == good
+    assert len(router.stream_kwargs) == 3
+    retry_tools = router.stream_kwargs[2].get("tools")
+    assert not retry_tools, f"retry still offered tools: {retry_tools!r}"
+
+
+@pytest.mark.asyncio
+async def test_lookup_empty_twice_ships_fallback_without_fourth_call() -> None:
+    """Empty on the write-up round ends the turn; no fourth model call."""
+    ask = "how far away is the moon right now?"
+    call = {
+        "type": "function",
+        "function": {
+            "name": "catalog",
+            "arguments": {
+                "action": "horizons",
+                "target": "Moon",
+                "table": "observer",
+            },
+        },
+    }
+    router = _RecordingRouter(
+        [
+            [("tool_calls", [call])],
+            [("token", "")],
+            [("token", "")],
+            [("token", "should never ship")],
+        ]
+    )
+    bus, loop = _loop(router, _HorizonsStub())
+    events = await _collect(bus, loop.run(ask, "fast"))
+    done = next(e for e in events if e.type == EventType.ASSISTANT_DONE)
+    text = done.payload["text"]
+    assert "could not put it into words" in text.lower()
+    assert "should never ship" not in text
+    assert len(router.stream_kwargs) == 3
+
+
 # --- follow-up: planet-year wording + agenda lists -------------------------
 
 
