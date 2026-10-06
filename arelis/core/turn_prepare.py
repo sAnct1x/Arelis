@@ -526,6 +526,7 @@ def _date_ask_ratio_block(user_text: str, expression: str) -> str | None:
     try:
         source = normalize_expression(expression or "")
     except Exception:
+        # Not a date-ratio we can match; leave the tool call alone.
         return None
     src = (source or "").strip()
     if re.fullmatch(rf"0?{month}/0?{day}", src):
