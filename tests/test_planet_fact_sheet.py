@@ -295,6 +295,8 @@ def test_prompt_block_pins_exact_derived_wording() -> None:
         "jupiter size",
         "which is bigger, Saturn or Jupiter?",
         "how wide is Neptune",
+        "how heavy is Jupiter",
+        "how big is the planet Mars",
     ),
 )
 def test_more_planet_size_phrasings_get_the_facts(text: str) -> None:
@@ -321,6 +323,7 @@ def test_named_planet_in_new_phrasing_gets_its_own_numbers() -> None:
         "what moons orbit Mars",
         "can the Mars rover see Phobos?",
         "the Mars rover photographed Deimos",
+        "name the martian moons",
     ),
 )
 def test_more_mars_moon_phrasings_get_the_facts(text: str) -> None:
@@ -395,5 +398,8 @@ async def test_solar_body_exact_directions_and_mass_line() -> None:
     jupiter = (await SolarTool().run(action="body", name="Jupiter")).output
     assert "rises in the west and sets in the east about twice a day" in phobos.splitlines()
     assert "rises in the east and sets in the west, slowly" in deimos.splitlines()
+    assert "inner moon of Mars; size about 26 x 23 x 18 km" in phobos.splitlines()
+    assert "outer moon of Mars; size about 16 x 12 x 10 km" in deimos.splitlines()
+    assert not any("inner moon" in line for line in deimos.splitlines())
     assert "317.8 times Earth's mass (NASA ratio)" in jupiter.splitlines()
     assert "mean radius 69911.0 km" in jupiter.splitlines()
