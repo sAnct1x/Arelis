@@ -225,3 +225,117 @@ def test_exact_trillions_have_no_about() -> None:
     assert plain_algebra_chat("7*10**12 = 7000000000000") == (
         "That works out to 7 trillion."
     )
+
+
+def test_near_billion_keeps_about_when_rounded() -> None:
+    line = plain_algebra_chat("999999999.9")
+    _assert_no_e_notation(line)
+    assert line == "That works out to about 1,000,000,000."
+
+
+def test_speed_of_light_in_mph_keeps_about() -> None:
+    ask = "what is the speed of light in miles per hour?"
+    line = asyncio.run(_units_followup("convert", ask, quantity="c", to="mph"))
+    _assert_clean_spoken(line)
+    _assert_no_e_notation(line)
+    assert line == "That works out to about 670,616,629 miles per hour."
+
+
+def test_minus_forty_celsius_is_exactly_minus_forty_fahrenheit() -> None:
+    ask = "what is -40 degrees Celsius in Fahrenheit?"
+    line = asyncio.run(_units_followup("convert", ask, quantity="-40 degC", to="degF"))
+    _assert_clean_spoken(line)
+    assert line == "That works out to -40 degrees Fahrenheit."
+
+
+def test_two_to_the_100_is_a_digit_count() -> None:
+    from arelis.tools.calculator import CalculatorTool
+
+    result = asyncio.run(CalculatorTool().run(expression="2**100"))
+    assert result.ok, result.output
+    line = chat_followup_from_tool("calculator", result.output, ask="what is 2 to the 100?")
+    _assert_no_e_notation(line)
+    assert "followed by" not in line
+    assert line == "That works out to a number with 31 digits."
+
+
+def test_avogadro_number_is_said_in_sextillions() -> None:
+    from arelis.tools.calculator import CalculatorTool
+
+    result = asyncio.run(CalculatorTool().run(expression="6.02214076e23"))
+    assert result.ok, result.output
+    line = chat_followup_from_tool(
+        "calculator", result.output, ask="what is 6.02214076e23?"
+    )
+    _assert_no_e_notation(line)
+    assert "followed by" not in line
+    assert "602214076" not in line
+    assert line == "That works out to about 602.21 sextillion."
+
+
+def test_twenty_five_factorial_is_said_in_septillions() -> None:
+    from arelis.tools.calculator import CalculatorTool
+
+    result = asyncio.run(CalculatorTool().run(expression="25!"))
+    assert result.ok, result.output
+    line = chat_followup_from_tool("calculator", result.output, ask="what is 25 factorial?")
+    _assert_no_e_notation(line)
+    assert line == "That works out to about 15.51 septillion."
+
+
+def test_almost_a_thousand_quintillion_is_one_sextillion() -> None:
+    line = plain_algebra_chat("999.9999e18")
+    _assert_no_e_notation(line)
+    assert "1000 quintillion" not in line
+    assert line == "That works out to about 1 sextillion."
+
+
+def test_almost_a_thousand_septillion_is_not_1000_septillion() -> None:
+    line = plain_algebra_chat("999.9999e24")
+    _assert_no_e_notation(line)
+    assert "1000 septillion" not in line
+    assert line == "That works out to a number with 27 digits."
+
+
+def test_newtons_in_pound_force_says_pounds_of_force() -> None:
+    ask = "convert 10 newtons to pounds of force"
+    line = asyncio.run(_units_followup("convert", ask, quantity="10 N", to="lbf"))
+    _assert_clean_spoken(line)
+    assert "force pounds" not in line
+    assert line == "That works out to about 2.25 pounds of force."
+
+
+def test_negative_power_of_ten_says_minus() -> None:
+    from arelis.tools.calculator import CalculatorTool
+
+    result = asyncio.run(CalculatorTool().run(expression="-10**30"))
+    assert result.ok, result.output
+    line = chat_followup_from_tool("calculator", result.output, ask="what is -10 to the 30?")
+    _assert_no_e_notation(line)
+    assert line == "That works out to minus 1 followed by 30 zeros."
+
+
+def test_negative_huge_non_power_says_minus_a_number() -> None:
+    from arelis.tools.calculator import CalculatorTool
+
+    result = asyncio.run(CalculatorTool().run(expression="-2**100"))
+    assert result.ok, result.output
+    line = chat_followup_from_tool("calculator", result.output, ask="what is -2 to the 100?")
+    _assert_no_e_notation(line)
+    assert line == "That works out to minus a number with 31 digits."
+
+
+def test_tiny_km_to_m_has_no_about() -> None:
+    ask = "convert 0.0000001 kilometers to meters"
+    line = asyncio.run(
+        _units_followup("convert", ask, quantity="0.0000001 km", to="m")
+    )
+    _assert_clean_spoken(line)
+    assert line == "That works out to 0.0001 meters."
+
+
+def test_one_ten_millionth_is_written_out() -> None:
+    line = plain_algebra_chat("0.0000001")
+    _assert_no_e_notation(line)
+    assert _DATA not in line.lower()
+    assert line == "That works out to 0.0000001."

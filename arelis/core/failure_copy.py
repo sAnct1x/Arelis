@@ -433,6 +433,8 @@ _IRREGULAR_PLURALS: dict[str, str] = {
 _SAME_PLURAL_ENDINGS = ("hertz", "lux", "siemens", "celsius", "fahrenheit")
 # Big numbers are said with a scale word, never in e-notation.
 _SCALE_WORDS: tuple[tuple[int, str], ...] = (
+    (10**24, "septillion"),
+    (10**21, "sextillion"),
     (10**18, "quintillion"),
     (10**15, "quadrillion"),
     (10**12, "trillion"),
@@ -507,14 +509,20 @@ def _humanize_unit(unit: str, magnitude: str) -> str:
     if pair is not None:
         return pair[0] if singular else pair[1]
     spoken = " ".join((unit or "").replace("_", " ").split())
-    if not spoken or singular:
+    if not spoken:
+        return spoken
+    words = spoken.split(" ")
+    # Pint's force_pound (and "pound force") read as "pounds of force".
+    if len(words) == 2 and "force" in (words[0].lower(), words[1].lower()):
+        noun = words[1] if words[0].lower() == "force" else words[0]
+        body = noun if singular else _plural_word(noun)
+        return f"{body} of force"
+    if singular:
         return spoken
     # "mile per hour" becomes "miles per hour": only the part before "per".
     head, sep, tail = spoken.partition(" per ")
     words = head.split(" ")
-    # "pound force" becomes "pounds force".
-    at = len(words) - 2 if len(words) > 1 and words[-1].lower() == "force" else -1
-    words[at] = _plural_word(words[at])
+    words[-1] = _plural_word(words[-1])
     return " ".join(words) + sep + tail
 
 
@@ -553,43 +561,69 @@ def _spoken_number(raw: str, *, expr: str = "") -> tuple[str, bool]:
         return "", False
     if not value.is_finite():
         return "", False
-    sign = "-" if value < 0 else ""
+    dash = "-" if value < 0 else ""
+    minus = "minus " if value < 0 else ""
     size = abs(value)
     if size == 0:
         return "0", False
     nearest = size.to_integral_value()
+    snap_rounded = False
     # Float noise such as -39.99999999999997 is a whole number.
     if nearest != 0 and abs(size - nearest) <= Decimal("1e-9") * nearest:
+        if abs(size - nearest) > Decimal("1e-12") * nearest:
+            snap_rounded = True
         size = nearest
-    if size >= Decimal(10) ** 21:
+
+    def _is_rounded(shown_num: str) -> bool:
+        got = Decimal(shown_num.replace(",", ""))
+        if got == size:
+            return snap_rounded
+        if size != 0 and abs(got - size) <= Decimal("1e-12") * size:
+            return snap_rounded
+        return True
+
+    if size >= Decimal(10) ** 27:
         if size == size.to_integral_value():
             digits = str(int(size))
             lead = digits.rstrip("0")
             if len(lead) == 1:
                 zeros = len(digits) - 1
-                return f"{sign}{lead} followed by {zeros} zeros", False
+                return f"{minus}{lead} followed by {zeros} zeros", False
             count = len(digits)
         else:
             count = size.adjusted() + 1
-        kind = "a negative number" if sign else "a number"
-        return f"{kind} with {count} digits", False
+        return f"{minus}a number with {count} digits", False
     if size == size.to_integral_value() and size < 10**12:
-        return f"{sign}{int(size):,}", False
+        return f"{dash}{int(size):,}", snap_rounded
     if size >= 10**6:
         for i, (scale, word) in enumerate(_SCALE_WORDS):
             if size >= scale:
                 part = f"{size / scale:.2f}".rstrip("0").rstrip(".")
-                if part == "1000" and i > 0:
-                    scale, word = _SCALE_WORDS[i - 1]
-                    part = f"{size / scale:.2f}".rstrip("0").rstrip(".")
+                if part == "1000":
+                    if i > 0:
+                        scale, word = _SCALE_WORDS[i - 1]
+                        part = f"{size / scale:.2f}".rstrip("0").rstrip(".")
+                    else:
+                        count = (
+                            len(str(int(size)))
+                            if size == size.to_integral_value()
+                            else size.adjusted() + 1
+                        )
+                        return f"{minus}a number with {count} digits", False
                 exact = Decimal(part) * scale == size
-                return f"{sign}{part} {word}", not exact
+                return f"{dash}{part} {word}", snap_rounded or (not exact)
     if size < Decimal("1e-6"):
+        if size >= Decimal("1e-9"):
+            sig = len(size.normalize().as_tuple().digits)
+            if sig <= 3:
+                places = -int(size.adjusted()) + (sig - 1)
+                shown = f"{size:.{places}f}".rstrip("0")
+                return f"{dash}{shown}", _is_rounded(shown)
         return "", False
     if size < Decimal("1e-4"):
         places = -size.adjusted() + 2
         shown = f"{size:.{places}f}".rstrip("0")
-        return f"{sign}{shown}", Decimal(shown) != size
+        return f"{dash}{shown}", _is_rounded(shown)
     decimals = max(0, -size.as_tuple().exponent)
     if decimals > 4:
         if size < 1:
@@ -598,8 +632,7 @@ def _spoken_number(raw: str, *, expr: str = "") -> tuple[str, bool]:
             shown = f"{size:,.2f}".rstrip("0").rstrip(".")
     else:
         shown = f"{size:,.{decimals}f}"
-    rounded = Decimal(shown.replace(",", "")) != size
-    return f"{sign}{shown}", rounded
+    return f"{dash}{shown}", _is_rounded(shown)
 
 
 def _round_day_count(number: str) -> str:
