@@ -609,6 +609,9 @@ class SolarTool:
             lines.append(f"GM {gm:.6e} m^3/s^2")
         if g_surf is not None:
             lines.append(f"surface g {g_surf:.3f} m/s^2 (GM / R^2)")
+        from arelis.physics.fact_sheet import body_fact_lines
+
+        lines.extend(body_fact_lines(name or ""))
         data: dict[str, Any] = {
             "name": name,
             "radius_m": radius,
