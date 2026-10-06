@@ -9,6 +9,7 @@ from arelis.core.turn_context import TurnContext
 from arelis.core.turn_prepare import (
     _prepare_calculator_first_move,
     calculator_blocked_for_date_ask,
+    python_blocked_for_date_ask,
 )
 from arelis.tools.calculator import CalculatorTool, evaluate_expression
 
@@ -154,4 +155,12 @@ def test_date_ask_blocks_ratio_even_with_math_cue(ask: str, expr: str) -> None:
 
 def test_explicit_fraction_ask_is_not_blocked() -> None:
     assert calculator_blocked_for_date_ask("what is 9/11 as a decimal?", "9/11") is None
+
+def test_date_ask_blocks_python_print_ratio() -> None:
+    msg = python_blocked_for_date_ask("what is 9/11?", "print(9/11)")
+    assert msg
+    assert python_blocked_for_date_ask(
+        "what is 9/11?",
+        "from datetime import date\nprint(date(2001,9,11))",
+    ) is None
 

@@ -485,6 +485,33 @@ def _looks_like_date_or_event_ask(text: str) -> bool:
 
 def calculator_blocked_for_date_ask(user_text: str, expression: str) -> str | None:
     """Refuse calculator when a date/event ask is being evaluated as that M/D."""
+    return _date_ask_ratio_block(user_text, expression or "")
+
+
+def python_blocked_for_date_ask(user_text: str, code: str) -> str | None:
+    """Refuse a python one-liner that only divides the ask's month/day."""
+    if not _looks_like_date_or_event_ask(user_text):
+        return None
+    hit = re.search(
+        r"(?<![\d/.])(0?[1-9]|1[0-2])/(0?[1-9]|[12]\d|3[01])(?![\d/])",
+        user_text or "",
+    )
+    if not hit:
+        return None
+    month, day = int(hit.group(1)), int(hit.group(2))
+    blob = code or ""
+    # Allow real date math (datetime / month names / day-of-year loops).
+    if re.search(r"(?i)datetime|timedelta|date\(|September|October|memorial|attack", blob):
+        return None
+    if re.search(rf"(?<!\d){month}\s*/\s*{day}(?!\d)", blob) and len(blob) < 80:
+        return (
+            "That looks like a date or event in the ask, not a division. "
+            "Answer in words about the date or event."
+        )
+    return None
+
+
+def _date_ask_ratio_block(user_text: str, expression: str) -> str | None:
     if not _looks_like_date_or_event_ask(user_text):
         return None
     hit = re.search(
