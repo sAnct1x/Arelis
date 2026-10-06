@@ -41,7 +41,7 @@ def spawn_ui_subprocess() -> int | None:
         env = os.environ.copy()
         env["ARELIS_ATTACH_CORE"] = "1"
         kwargs: dict[str, Any] = {
-            "args": [sys.executable, "-m", "arelis"],
+            "args": [sys.executable, "-m", "arelis", "--background"],
             "close_fds": True,
             "env": env,
         }

@@ -433,3 +433,40 @@ def test_the_installer_script_reads_the_relaunch_flag() -> None:
     assert "ShellExec(" in script
     assert "usPostUninstall" in script
     assert "DirExists(BackupDir)" in script
+
+
+def test_updater_relaunch_is_a_background_launch() -> None:
+    """Updater restart opens quietly; the wizard 'Start now' click stays a normal launch."""
+    script = (Path(__file__).resolve().parent.parent / "win-installer" / "arelis.iss").read_text(
+        encoding="utf-8"
+    )
+    relaunch_at = script.index("Check: RelaunchRequested")
+    relaunch_chunk = script[max(0, relaunch_at - 220) : relaunch_at + 40]
+    assert "--background" in relaunch_chunk
+    post_at = script.index("Flags: nowait postinstall skipifsilent")
+    post_chunk = script[max(0, post_at - 220) : post_at]
+    assert 'Parameters: "-m arelis"' in post_chunk
+    assert "--background" not in post_chunk
+
+
+def test_main_accepts_background_flag(monkeypatch) -> None:
+    import arelis.ui.app as app_mod
+    from arelis.main import main
+
+    seen: dict[str, object] = {}
+
+    def fake_run_ui(config=None, **kwargs):
+        seen["config"] = config
+        seen["kwargs"] = dict(kwargs)
+        seen["called"] = True
+        return 0
+
+    monkeypatch.setattr(app_mod, "run_ui", fake_run_ui)
+    assert main(["--background"]) == 0
+    assert seen.get("called") is True
+    assert seen.get("kwargs") == {"background": True}
+
+    seen.clear()
+    assert main([]) == 0
+    assert seen.get("called") is True
+    assert seen.get("kwargs") == {}

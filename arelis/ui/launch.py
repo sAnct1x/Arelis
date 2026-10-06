@@ -129,6 +129,18 @@ def _present_at_startup(window: Any) -> None:
     show_without_activating(window)
 
 
+def _open_ui_reason(msg: object) -> str:
+    """Map a core open_ui payload to an activation reason.
+
+    Missing or empty reason is not a user open. Matches what IpcServer already
+    does for requests without a reason.
+    """
+    if not isinstance(msg, dict):
+        return "open_ui"
+    reason = str(msg.get("reason") or "")
+    return reason if reason else "open_ui"
+
+
 def _start_activation_listener(
     window: Any,
     bus: EventBus,
@@ -347,7 +359,7 @@ def _second_launch(config: dict[str, Any], ui_lock: Any) -> int | None:
     return _raise_running_instance(config)
 
 
-def run_ui(config: dict[str, Any] | None = None) -> int:
+def run_ui(config: dict[str, Any] | None = None, *, background: bool = False) -> int:
     # Before any QApplication — a native child HWND is the offset ghost, and
     # this attribute is what stops one winId() from promoting every sibling.
     configure_native_windows()
@@ -556,6 +568,7 @@ def run_ui(config: dict[str, Any] | None = None) -> int:
         logging.getLogger(__name__).exception("Arelis window failed to start")
         _release_ui_lock()
         raise
+    window._launched_in_background = bool(background)
     window.orchestrator = orchestrator
     asyncio.run_coroutine_threadsafe(orchestrator.resume_last_room(), loop)
     # Inbound: by default the UI owns ingest. Close-to-tray keeps it alive when
@@ -589,9 +602,7 @@ def run_ui(config: dict[str, Any] | None = None) -> int:
                     port=int(presence_cfg.get("ipc_port") or 8766),
                     on_open_ui=lambda msg: QTimer.singleShot(
                         0,
-                        lambda m=msg: window._on_activation_request(
-                            str((m or {}).get("reason") or "")
-                        ),
+                        lambda m=msg: window._on_activation_request(_open_ui_reason(m)),
                     ),
                     # Our own core may have fallen forward past the configured
                     # port because another account on this PC holds it. The

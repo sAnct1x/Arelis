@@ -452,3 +452,219 @@ def test_win32_maximize_inactive_skips_when_already_zoomed(monkeypatch) -> None:
     _patch_win32_maximize(monkeypatch, user32)
     fg._win32_maximize_inactive(object())
     assert user32.calls == [("IsZoomed", 1234)]
+
+
+def _sample_release():
+    from packaging.version import Version
+
+    from arelis.update import Release
+
+    return Release(
+        version=Version("0.2.0"),
+        tag="v0.2.0",
+        setup_name="Arelis-0.2.0-win64-setup.exe",
+        setup_url="https://example.invalid/setup.exe",
+        digest_url="https://example.invalid/setup.exe.sha256",
+        size=9,
+        page_url="https://example.invalid/releases",
+    )
+
+
+def test_update_offer_waits_when_another_app_is_front(qt_app, monkeypatch) -> None:
+    from arelis.ui.update_prompt import UpdatePrompt
+
+    confirms: list[int] = []
+    flashes: list[Any] = []
+    monkeypatch.setattr(
+        "arelis.ui.update_prompt.confirm",
+        lambda *a, **k: confirms.append(1) or False,
+    )
+    monkeypatch.setattr(
+        "arelis.ui.update_prompt.process_owns_foreground",
+        lambda: False,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        "arelis.ui.foreground.process_owns_foreground",
+        lambda: False,
+    )
+    monkeypatch.setattr(
+        "arelis.ui.update_prompt.flash_taskbar",
+        lambda w: flashes.append(w),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        "arelis.ui.foreground.flash_taskbar",
+        lambda w: flashes.append(w),
+    )
+
+    window = QWidget()
+    try:
+        prompt = UpdatePrompt(window)
+        prompt._offer(_sample_release())
+        assert confirms == []
+        assert len(flashes) == 1
+    finally:
+        window.deleteLater()
+
+
+def test_update_offer_waits_after_background_launch(qt_app, monkeypatch) -> None:
+    from arelis.ui.update_prompt import UpdatePrompt
+
+    confirms: list[int] = []
+    monkeypatch.setattr(
+        "arelis.ui.update_prompt.confirm",
+        lambda *a, **k: confirms.append(1) or False,
+    )
+    monkeypatch.setattr(
+        "arelis.ui.foreground.process_owns_foreground",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        "arelis.ui.update_prompt.process_owns_foreground",
+        lambda: True,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        "arelis.ui.foreground.flash_taskbar",
+        lambda w: None,
+    )
+    monkeypatch.setattr(
+        "arelis.ui.update_prompt.flash_taskbar",
+        lambda w: None,
+        raising=False,
+    )
+
+    window = QWidget()
+    try:
+        window._launched_in_background = True
+        prompt = UpdatePrompt(window)
+        prompt._offer(_sample_release())
+        assert confirms == []
+    finally:
+        window.deleteLater()
+
+
+def test_held_update_offer_shows_when_user_brings_arelis_front(qt_app, monkeypatch) -> None:
+    from arelis.ui.update_prompt import UpdatePrompt
+
+    confirms: list[int] = []
+    monkeypatch.setattr(
+        "arelis.ui.update_prompt.confirm",
+        lambda *a, **k: confirms.append(1) or False,
+    )
+    monkeypatch.setattr(
+        "arelis.ui.foreground.process_owns_foreground",
+        lambda: False,
+    )
+    monkeypatch.setattr(
+        "arelis.ui.update_prompt.process_owns_foreground",
+        lambda: False,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        "arelis.ui.foreground.flash_taskbar",
+        lambda w: None,
+    )
+    monkeypatch.setattr(
+        "arelis.ui.update_prompt.flash_taskbar",
+        lambda w: None,
+        raising=False,
+    )
+
+    window = QWidget()
+    try:
+        prompt = UpdatePrompt(window)
+        prompt._offer(_sample_release())
+        assert confirms == []
+
+        QGuiApplication.instance().applicationStateChanged.emit(  # type: ignore[union-attr]
+            Qt.ApplicationState.ApplicationActive
+        )
+        qt_app.processEvents()
+        assert confirms == [1]
+
+        QGuiApplication.instance().applicationStateChanged.emit(  # type: ignore[union-attr]
+            Qt.ApplicationState.ApplicationActive
+        )
+        qt_app.processEvents()
+        assert confirms == [1]
+    finally:
+        window.deleteLater()
+
+
+def test_update_offer_shows_when_arelis_is_front(qt_app, monkeypatch) -> None:
+    from arelis.ui.update_prompt import UpdatePrompt
+
+    confirms: list[int] = []
+    monkeypatch.setattr(
+        "arelis.ui.update_prompt.confirm",
+        lambda *a, **k: confirms.append(1) or False,
+    )
+    monkeypatch.setattr(
+        "arelis.ui.foreground.process_owns_foreground",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        "arelis.ui.update_prompt.process_owns_foreground",
+        lambda: True,
+        raising=False,
+    )
+
+    window = QWidget()
+    try:
+        prompt = UpdatePrompt(window)
+        prompt._offer(_sample_release())
+        assert confirms == [1]
+    finally:
+        window.deleteLater()
+
+
+def test_ipc_open_ui_without_reason_is_quiet(monkeypatch) -> None:
+    from arelis.ui.launch import _open_ui_reason
+    from arelis.ui.window_lifetime import USER_OPEN_REASONS
+
+    assert _open_ui_reason({}) not in USER_OPEN_REASONS
+    assert _open_ui_reason(None) not in USER_OPEN_REASONS
+
+    monkeypatch.setattr(
+        "arelis.ui.window_lifetime.invalidate_window_surface",
+        lambda w: None,
+    )
+    monkeypatch.setattr(
+        "arelis.ui.window_lifetime.flash_taskbar",
+        lambda w: None,
+    )
+    monkeypatch.setattr(
+        "arelis.ui.window_lifetime.show_without_activating",
+        lambda w: w.show(),
+    )
+
+    for msg in ({}, None):
+        fake = _RecorderWidget()
+        fake.show_from_tray = WindowLifetime.show_from_tray.__get__(fake, type(fake))
+        fake._on_activation_request = WindowLifetime._on_activation_request.__get__(
+            fake, type(fake)
+        )
+        WindowLifetime._on_activation_request(fake, _open_ui_reason(msg))  # type: ignore[arg-type]
+        assert fake.raises == []
+        assert fake.activates == []
+
+
+def test_core_spawned_ui_is_background(monkeypatch) -> None:
+    import arelis.presence.open_ui as open_ui
+
+    captured: list[list[str]] = []
+
+    def fake_popen(**kwargs):
+        captured.append(list(kwargs["args"]))
+        return SimpleNamespace(pid=4242)
+
+    monkeypatch.setattr(open_ui.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(open_ui, "ui_process_appears_running", lambda: False)
+    open_ui._LAST_SPAWN_MONO = 0.0
+
+    pid = open_ui.spawn_ui_subprocess()
+    assert pid == 4242
+    assert captured, "Popen was not called"
+    assert "--background" in captured[0]

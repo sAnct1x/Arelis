@@ -106,6 +106,13 @@ def main(argv: list[str] | None = None) -> int:
             "Writes refresh_token into data/secrets.yaml. See docs/calendar-oauth.md."
         ),
     )
+    parser.add_argument(
+        "--background",
+        action="store_true",
+        help=(
+            "Started by the updater or by Arelis itself. Open quietly without taking the keyboard."
+        ),
+    )
     # Before parse_args: --version exits inside argparse, and the GPU flag has to
     # be visible to prepare_desktop_gl before QApplication is constructed.
     if argv is None:
@@ -184,10 +191,14 @@ def main(argv: list[str] | None = None) -> int:
     from arelis.ui.app import run_ui
 
     if args.config:
+        if args.background:
+            return run_ui(config, background=True)
         return run_ui(config)
     # Normal installer / Start-menu path: load inside run_ui so first-run
     # glass is not skipped by a pre-loaded config dict. --config still
     # passes the loaded dict; prompts still run (see apply_first_run_glass).
+    if args.background:
+        return run_ui(background=True)
     return run_ui()
 
 
