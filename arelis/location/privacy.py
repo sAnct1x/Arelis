@@ -10,7 +10,8 @@ them. Two controls, both under ``location.privacy`` in config:
     full  everything the resolver knows (the old behaviour).
 
 ``redact_display``  replace the saved city, postal code and coordinates with
-    ``[location]`` in streamed reasoning and in the text logs.
+    ``[location]`` in streamed reasoning, in the Thinking dock (plain status
+    lines, tool arguments, and tool results shown there), and in the text logs.
 """
 
 from __future__ import annotations

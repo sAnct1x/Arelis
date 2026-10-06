@@ -763,7 +763,8 @@ location:
     #   full  everything the resolver knows
     prompt_detail: "off"
     # Replace the saved city, postal code and coordinates with [location] in
-    # streamed reasoning and in logs/*.log and turns.jsonl.
+    # the Thinking dock (plain status lines, tool arguments, and tool results
+    # shown there), in streamed reasoning, and in logs/*.log and turns.jsonl.
     redact_display: true
   # Timezone and country from the operating system. No network, no permission.
   use_system: true
