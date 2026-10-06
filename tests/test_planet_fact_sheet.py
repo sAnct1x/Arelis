@@ -264,3 +264,136 @@ async def test_solar_body_jupiter_includes_diameter_and_earth_width() -> None:
     low = result.output.lower()
     assert "142,984 km" in result.output
     assert "11.21 times earth's diameter" in low
+
+
+# --- review follow-ups: exact wording, wider triggers, skip list, negation ---
+
+
+def test_prompt_block_pins_exact_derived_wording() -> None:
+    from arelis.physics.fact_sheet import reference_facts_message
+
+    moons = reference_facts_message("tell me about the moons of Mars") or ""
+    assert moons.startswith(
+        "Reference facts from NASA fact sheets. Use these numbers and directions; "
+        "do not contradict them:\n"
+    )
+    assert "goes around about 3 times per Mars day;" in moons
+    assert "rises in the west and sets in the east about twice a day;" in moons
+    assert "size about 26 x 23 x 18 km." in moons
+    assert "size about 16 x 12 x 10 km." in moons
+    jupiter = reference_facts_message("what's the biggest planet?") or ""
+    assert "do not contradict them:" in jupiter
+    assert "About 1,300 Earths would fit inside Jupiter (volume ratio 1321.33)." in jupiter
+
+
+@pytest.mark.parametrize(
+    "text",
+    (
+        "how much bigger is Jupiter than Earth",
+        "is Jupiter bigger than Earth",
+        "how many Earths fit in Jupiter",
+        "jupiter size",
+        "which is bigger, Saturn or Jupiter?",
+        "how wide is Neptune",
+    ),
+)
+def test_more_planet_size_phrasings_get_the_facts(text: str) -> None:
+    from arelis.physics.fact_sheet import reference_facts_message
+
+    block = reference_facts_message(text) or ""
+    assert "about 11 times wider than Earth" in block
+
+
+def test_named_planet_in_new_phrasing_gets_its_own_numbers() -> None:
+    from arelis.physics.fact_sheet import reference_facts_message
+
+    block = reference_facts_message("how wide is Neptune") or ""
+    assert "Neptune equatorial diameter 49,528 km, 3.88 times Earth's diameter." in block
+
+
+@pytest.mark.parametrize(
+    "text",
+    (
+        "Mars's moons",
+        "Mars' moons",
+        "what are Mars\u2019s moons called?",
+        "does mars have moons",
+        "what moons orbit Mars",
+        "can the Mars rover see Phobos?",
+        "the Mars rover photographed Deimos",
+    ),
+)
+def test_more_mars_moon_phrasings_get_the_facts(text: str) -> None:
+    from arelis.physics.fact_sheet import reference_facts_message
+
+    block = reference_facts_message(text) or ""
+    assert "Phobos (inner, bigger) and Deimos (outer, smaller)" in block
+
+
+def test_mars_rover_mention_does_not_block_planet_size_facts() -> None:
+    from arelis.physics.fact_sheet import reference_facts_message
+
+    block = reference_facts_message(
+        "how big is Mars compared to Earth? I saw the Mars rover photos"
+    )
+    assert block is not None
+    assert "Mars equatorial diameter 6,792 km" in block
+
+
+# Each of these would hit a trigger if the skip list or the negation check
+# were gone, so they prove those guards still work.
+_GUARDED_NEGATIVES = (
+    "is Bruno Mars bigger than Earth Wind and Fire?",
+    "Mars bar diameter",
+    "how big is Jupiter, FL?",
+    "how big is Saturn Vue's trunk?",
+    "how big is Mars, PA?",
+    "what's my Mars moon sign?",
+    "how big is Mercury poisoning risk from tuna?",
+    "how big is Mars rover Curiosity?",
+    "don't tell me how big is Jupiter, I want to guess",
+    "no need to look up the moons of Mars, I already know",
+)
+
+
+@pytest.mark.parametrize("text", _GUARDED_NEGATIVES)
+def test_lookalike_names_and_negated_asks_get_no_block(text: str) -> None:
+    from arelis.physics import fact_sheet as fs
+
+    raw_hit = fs._PLANET_SIZE_ASK.search(text) or fs._MARS_MOONS_ASK.search(text)
+    assert raw_hit, f"control {text!r} no longer exercises a guard"
+    assert fs.reference_facts_message(text) is None
+
+
+@pytest.mark.parametrize(
+    "text",
+    (
+        "I'm a big Bruno Mars fan",
+        "can you grab me a Mars bar",
+        "weather in Jupiter FL this weekend",
+        "how big is my Jupyter notebook",
+        "is a Saturn car still worth buying",
+        "restaurants in Mars PA",
+        "what does my moon sign say",
+        "symptoms of Mercury poisoning",
+        "I don't want to know how big Jupiter is",
+    ),
+)
+def test_everyday_lookalikes_get_no_block(text: str) -> None:
+    from arelis.physics.fact_sheet import reference_facts_message
+
+    assert reference_facts_message(text) is None
+
+
+@pytest.mark.asyncio
+async def test_solar_body_exact_directions_and_mass_line() -> None:
+    from arelis.physics.runtime import set_system
+
+    set_system(None)
+    phobos = (await SolarTool().run(action="body", name="Phobos")).output
+    deimos = (await SolarTool().run(action="body", name="Deimos")).output
+    jupiter = (await SolarTool().run(action="body", name="Jupiter")).output
+    assert "rises in the west and sets in the east about twice a day" in phobos.splitlines()
+    assert "rises in the east and sets in the west, slowly" in deimos.splitlines()
+    assert "317.8 times Earth's mass (NASA ratio)" in jupiter.splitlines()
+    assert "mean radius 69911.0 km" in jupiter.splitlines()

@@ -604,7 +604,7 @@ class SolarTool:
             f"{name} from the Reality lab catalog "
             f"(IAU mean radius, DE440 / IAU 2015 GM)."
         ]
-        lines.append(f"radius {radius / 1000.0:.1f} km")
+        lines.append(f"mean radius {radius / 1000.0:.1f} km")
         if gm:
             lines.append(f"GM {gm:.6e} m^3/s^2")
         if g_surf is not None:

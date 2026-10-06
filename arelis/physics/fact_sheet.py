@@ -95,40 +95,59 @@ _PREFIX = (
     "do not contradict them:"
 )
 
+_P = r"(?:Mercury|Venus|Earth|Mars|Jupiter|Saturn|Uranus|Neptune)"
+_SIZE_WORD = r"(?:bigger|larger|smaller|wider|heavier|biggest|largest|smallest)"
+
 # Size / ranking asks about planets (not street names, candy, concerts).
 _PLANET_SIZE_ASK = re.compile(
     r"(?i)(?:"
     r"\b(?:largest|biggest|smallest|tiniest)\s+planet\b|"
     r"\bplanet\s+(?:is\s+)?(?:the\s+)?(?:largest|biggest|smallest)\b|"
     r"\bwhich\s+planet\b[^?]{0,40}\b(?:largest|biggest|smallest|size|wide|wider|big)\b|"
-    r"\bhow\s+big\s+is\s+(?:Mercury|Venus|Earth|Mars|Jupiter|Saturn|Uranus|Neptune)\b|"
-    r"\b(?:Mercury|Venus|Earth|Mars|Jupiter|Saturn|Uranus|Neptune)\s+"
-    r"(?:compared\s+to|vs\.?|versus)\s+(?:Earth|Mercury|Venus|Mars|Jupiter|"
-    r"Saturn|Uranus|Neptune)\b|"
-    r"\b(?:diameter|width|mass|size)\s+of\s+"
-    r"(?:Mercury|Venus|Earth|Mars|Jupiter|Saturn|Uranus|Neptune)\b|"
-    r"\b(?:Mercury|Venus|Earth|Mars|Jupiter|Saturn|Uranus|Neptune)\b[^?]{0,30}"
-    r"\b(?:diameter|how\s+wide|how\s+big|times\s+(?:wider|Earth))\b"
+    rf"\bhow\s+(?:big|wide|large|heavy|massive)\s+is\s+(?:the\s+planet\s+)?{_P}\b|"
+    rf"\bhow\s+much\s+{_SIZE_WORD}\s+is\s+{_P}\b|"
+    rf"\b{_P}\s+{_SIZE_WORD}\s+than\s+{_P}\b|"
+    rf"\b{_SIZE_WORD}\s*[,:]?\s+{_P}\s+or\s+{_P}\b|"
+    rf"\bhow\s+many\s+Earths\b[^?]{{0,30}}\b{_P}\b|"
+    rf"\b{_P}(?:['\u2019]s)?\s+size\b|"
+    rf"\b{_P}\s+(?:compared\s+to|vs\.?|versus)\s+{_P}\b|"
+    rf"\b(?:diameter|width|mass|size)\s+of\s+{_P}\b|"
+    rf"\b{_P}\b[^?]{{0,30}}\b(?:diameter|how\s+wide|how\s+big|times\s+(?:wider|Earth))\b"
     r")"
 )
 
-# Mars moons / Phobos / Deimos. Avoid Bruno Mars, Mars bar, Mars rover alone.
+# Mars moons / Phobos / Deimos. Avoid Bruno Mars, Mars bar.
 _MARS_MOONS_ASK = re.compile(
     r"(?i)(?:"
     r"\bmoons?\s+of\s+Mars\b|"
-    r"\bMars\s+(?:has\s+)?(?:how\s+many\s+)?moons?\b|"
+    r"\bMars(?:['\u2019]s?)?\s+(?:has\s+)?(?:how\s+many\s+)?moons?\b|"
     r"\bhow\s+many\s+moons\s+(?:does\s+)?Mars\b|"
+    r"\bdoes\s+Mars\s+have\s+(?:any\s+)?moons?\b|"
+    r"\bmoons?\s+(?:orbit|orbits|orbiting|around|circling)\s+Mars\b|"
+    r"\bmartian\s+moons?\b|"
     r"\bPhobos\b|"
     r"\bDeimos\b"
     r")"
 )
 
+# Names that look like a planet but are not one. Any of these vetoes the block.
 _FALSE_MARS = re.compile(
-    r"(?i)\b(?:bruno\s+mars|mars\s+bar|mars\s+rover|mars\s+inc|"
-    r"mars\s+candy|on\s+saturn\s+street|saturn\s+street)\b"
+    r"(?i)\b(?:bruno\s+mars|mars\s+bars?|mars\s+inc|mars\s+candy|mars\s+petcare|"
+    r"mars,?\s+pa|jupiter,?\s+fl|"
+    r"saturn\s+(?:car|vue|sky|ion|aura|outlook|relay)|"
+    r"mercury\s+(?:poisoning|levels?|exposure)|"
+    r"on\s+saturn\s+street|saturn\s+street)\b"
 )
 
-_FALSE_MOON = re.compile(r"(?i)\b(?:moon\s+icon|phone'?s\s+moon|emoji|half[\s-]?moon)\b")
+_FALSE_MOON = re.compile(
+    r"(?i)\b(?:moon\s+icon|phone'?s\s+moon|emoji|half[\s-]?moon|moon\s+sign)\b"
+)
+
+# Sizing the rover itself is not a planet-size ask.
+_ROVER_SIZE = re.compile(
+    r"(?i)\b(?:how\s+(?:big|wide|large|heavy)|size)\b[^?]{0,20}\bmars\s+rover\b|"
+    r"\bmars\s+rover(?:['\u2019]s)?\s+size\b"
+)
 
 
 def _fmt_int(n: int) -> str:
@@ -139,6 +158,19 @@ def _period_hours_minutes(days: float) -> tuple[int, int]:
     total_min = round(days * 24.0 * 60.0)
     hours, minutes = divmod(total_min, 60)
     return hours, minutes
+
+
+def _size_plain(radii_km: tuple[float, float, float]) -> str:
+    """Axis radii from the fact sheet as rounded diameters, e.g. 26 x 23 x 18 km."""
+    return "about " + " x ".join(str(round(2.0 * r)) for r in radii_km) + " km"
+
+
+def _earths_inside_jupiter_plain() -> str:
+    return f"About {int(round(JUPITER_VOLUME_RATIO_TO_EARTH, -2)):,} Earths"
+
+
+def _phobos_laps_per_mars_day() -> int:
+    return round(MARS_DAY_HOURS / (float(PHOBOS["orbit_period_days"]) * 24.0))
 
 
 def _mars_day_plain() -> str:
@@ -158,7 +190,7 @@ def _deimos_period_plain() -> str:
 
 def looks_like_planet_size_ask(text: str) -> bool:
     """True when the person asks which planet is biggest or how big one is."""
-    if _FALSE_MARS.search(text or ""):
+    if _FALSE_MARS.search(text or "") or _ROVER_SIZE.search(text or ""):
         return False
     return _first_unnegated(_PLANET_SIZE_ASK, text) is not None
 
@@ -206,7 +238,7 @@ def planet_size_reference_lines(text: str = "") -> list[str]:
             f"about {round(mass)} times heavier (mass ratio {mass:g})."
         ),
         (
-            f"About 1,300 Earths would fit inside Jupiter "
+            f"{_earths_inside_jupiter_plain()} would fit inside Jupiter "
             f"(volume ratio {JUPITER_VOLUME_RATIO_TO_EARTH:g})."
         ),
         f"Earth equatorial diameter {_fmt_int(EQUATORIAL_DIAMETER_KM['Earth'])} km.",
@@ -233,9 +265,9 @@ def mars_moons_reference_lines(text: str = "") -> list[str]:
             f"Phobos mean distance from Mars center {ph_dist} km; "
             f"orbit period {_phobos_period_plain()} "
             f"({PHOBOS['orbit_period_days']} days); "
-            "goes around about 3 times per Mars day; "
+            f"goes around about {_phobos_laps_per_mars_day()} times per Mars day; "
             "rises in the west and sets in the east about twice a day; "
-            "size about 26 x 23 x 18 km."
+            f"size {_size_plain(PHOBOS['axis_radii_km'])}."
         ),
         (
             f"Deimos mean distance from Mars center {de_dist} km; "
@@ -243,7 +275,7 @@ def mars_moons_reference_lines(text: str = "") -> list[str]:
             f"({DEIMOS['orbit_period_days']} days), "
             "longer than a Mars day; "
             "rises in the east and sets in the west, slowly; "
-            "size about 16 x 12 x 10 km."
+            f"size {_size_plain(DEIMOS['axis_radii_km'])}."
         ),
     ]
 
@@ -279,7 +311,7 @@ def body_fact_lines(name: str) -> list[str]:
         )
         lines.append(f"orbit period {_phobos_period_plain()} ({PHOBOS['orbit_period_days']} days)")
         lines.append("rises in the west and sets in the east about twice a day")
-        lines.append("inner moon of Mars; size about 26 x 23 x 18 km")
+        lines.append(f"inner moon of Mars; size {_size_plain(PHOBOS['axis_radii_km'])}")
     if key == "Deimos":
         lines.append(
             f"mean distance from Mars center {_fmt_int(int(DEIMOS['mean_distance_km']))} km"
@@ -289,7 +321,7 @@ def body_fact_lines(name: str) -> list[str]:
             "longer than a Mars day"
         )
         lines.append("rises in the east and sets in the west, slowly")
-        lines.append("outer moon of Mars; size about 16 x 12 x 10 km")
+        lines.append(f"outer moon of Mars; size {_size_plain(DEIMOS['axis_radii_km'])}")
     return lines
 
 
