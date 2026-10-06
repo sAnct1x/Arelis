@@ -147,7 +147,7 @@ Filename: "{app}\pythonw.exe"; Parameters: "-m arelis"; WorkingDir: "{app}"; \
 ; run -- correct for the wizard, and it would leave a self-update ending with Arelis
 ; closed and no explanation. arelis/update.py passes /relaunch=yes; nothing else does, so
 ; a person running the setup with /SILENT by hand still gets the old quiet behaviour.
-Filename: "{app}\pythonw.exe"; Parameters: "-m arelis"; WorkingDir: "{app}"; \
+Filename: "{app}\pythonw.exe"; Parameters: "-m arelis --background"; WorkingDir: "{app}"; \
     Flags: nowait; Check: RelaunchRequested
 
 [UninstallRun]
