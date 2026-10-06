@@ -131,10 +131,14 @@ def test_settings_folder_tab_uses_the_same_words(qt_app) -> None:
             if w.objectName() == "SettingsHint" and w.text()
         ]
         text = "\n".join(hints)
-        assert FOLDER_CHOICE in text
+        assert "Add a folder below." in text
+        assert "Later, open Settings and add a folder there." not in text
+        assert FOLDER_CHOICE not in text
         assert "config.local" not in text
         assert "Settings →" not in text
         assert "\\" not in text
+        assert "\u2014" not in text
+        assert "\u2013" not in text
     finally:
         dialog.close()
 
