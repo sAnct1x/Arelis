@@ -610,6 +610,10 @@ class AgentLoop:
         # One line per tool call, carried into memory so the next turn knows
         # which file was written or which page was read.
         self._trace: list[str] = []
+        # Last Horizons distance summary this turn. _finish uses it so a
+        # later reply cannot invent a closest or farthest.
+        self._horizons_distance_text = ""
+        self._horizons_distance_ask = ""
         # Learned chars-per-token per model. Starts at 4.0 and corrects from
         # prompt_eval_count so fit_messages does not stay a permanent guess.
         self._token_ratios = TokenRatios()
@@ -677,6 +681,8 @@ class AgentLoop:
         route_reason: str = "default",
         stopped_ask: str = "",
     ) -> None:
+        self._horizons_distance_text = ""
+        self._horizons_distance_ask = ""
         ctx = await self._prepare_turn(
             text,
             role,
@@ -1514,6 +1520,22 @@ class AgentLoop:
             if parsed_final and parsed_final["kind"] == "final":
                 final = (parsed_final["text"] or "").strip() or final
                 streamed = ""
+        locked_src = getattr(self, "_horizons_distance_text", "") or ""
+        if locked_src:
+            from arelis.tools.catalog import chat_line_for_distance
+
+            revised = chat_line_for_distance(
+                locked_src,
+                final,
+                ask=getattr(self, "_horizons_distance_ask", "") or "",
+            )
+            if revised != final:
+                final = revised
+                streamed = ""
+                if not passthrough_tool:
+                    passthrough_tool = "catalog"
+            self._horizons_distance_text = ""
+            self._horizons_distance_ask = ""
         # Clean model prose before Sources so third-party titles stay intact.
         if not passthrough_tool:
             final, n_dash = clean_dashes_counted(final)

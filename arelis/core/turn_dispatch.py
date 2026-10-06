@@ -92,6 +92,10 @@ def fill_round_calls(
         payload = dict(args or {})
         if name == "weather":
             payload = fill_weather_args(payload, text)
+        elif name == "catalog":
+            from arelis.tools.catalog import normalize_horizons_distance_args
+
+            payload = normalize_horizons_distance_args(payload, text)
         elif name == "inbox":
             payload = fill_inbox_args(
                 payload,

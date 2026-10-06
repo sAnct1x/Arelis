@@ -35,6 +35,11 @@ NATIVE_PARAM_HINTS: dict[tuple[str, str], str] = {
     ("workspace", "content"): "File body. REQUIRED for action=write.",
     ("tasks", "goal_id"): "Attach to a GOAL id (from goals).",
     ("tasks", "parent_id"): "ONLY a parent TASK id (subtask), never a goal id.",
+    ("catalog", "target"): "Body name only (Moon, Mars, 499). Not a sentence.",
+    ("catalog", "date"): (
+        "Omit for how far, closest, or farthest. APOD or one sky day only."
+    ),
+    ("catalog", "query"): "arxiv or ads search text only. Not a planet.",
 }
 
 # For notes tool, only expose 'text' in native mode, not the aliases
