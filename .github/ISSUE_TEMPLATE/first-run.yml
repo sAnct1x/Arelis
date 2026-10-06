@@ -16,6 +16,9 @@ body:
         Do not paste a real name, a home path, a phone number, or a
         consumer email. `C:/Users/you/...` and `you@example.com` are
         fine. The repo cannot take a secret back.
+
+        If you can, attach the Arelis log file (logs/arelis.log).
+        Remove personal paths and names from it first.
   - type: dropdown
     id: where
     attributes:
@@ -57,3 +60,9 @@ body:
     attributes:
       label: What you expected
       description: Optional. Skip if it is "it should have worked."
+  - type: textarea
+    id: log
+    attributes:
+      label: Log file
+      description: |
+        Attach logs/arelis.log if you can. Remove personal paths and names first.
