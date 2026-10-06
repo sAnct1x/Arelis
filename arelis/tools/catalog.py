@@ -52,6 +52,9 @@ class CatalogTool:
         "Actions: arxiv (no key; acknowledge arXiv in the answer), "
         "horizons (JPL ephemerides, no key, do not invent EMAIL; "
         "put the body in target, Moon is 301, Sun is 10; "
+        "how far, closest, or farthest: target=the body name only, "
+        "omit date and query, then repeat the tool sentences and do not "
+        "add a closest or farthest the tool did not state; "
         "table=observer for sky, table=vectors for SSB ECLIPJ2000 state), "
         "apod (NASA Astronomy Picture of the Day, needs nasa.api_key), "
         "ads (NASA ADS paper search, needs ads.token). "
@@ -70,17 +73,24 @@ class CatalogTool:
             },
             "query": {
                 "type": "string",
-                "description": "Search text for arxiv or ads",
+                "description": (
+                    "Search text for arxiv or ads only. "
+                    "Not a planet, and not a distance question."
+                ),
             },
             "target": {
                 "type": "string",
                 "description": (
-                    "Horizons body in target (Moon is 301, Sun is 10), e.g. Mars, Jupiter, 499"
+                    "Horizons body name only (Moon, Mars, Jupiter, 499). "
+                    "Not a sentence and not a date."
                 ),
             },
             "date": {
                 "type": "string",
-                "description": "APOD or Horizons day as YYYY-MM-DD (default today UTC)",
+                "description": (
+                    "APOD day, or one Horizons sky day (RA and Dec), as YYYY-MM-DD. "
+                    "Omit for how far, closest, or farthest."
+                ),
             },
             "table": {
                 "type": "string",
@@ -236,6 +246,13 @@ class CatalogTool:
 
     async def _horizons(self, target: str, day: str, table: str = "observer") -> ToolResult:
         raw = (target or "").strip()
+        # A sentence plus a date is the chat model freelancing. Pull the body
+        # and take the no-date distance summary. A bare name plus a date stays
+        # a one-day sky table.
+        pulled = _distance_phrase_body(raw)
+        if pulled:
+            raw = pulled
+            day = ""
         if not raw or not _SAFE_TARGET.match(raw):
             raise ValueError(
                 "horizons needs a target like Mars, Jupiter, or 499. "
@@ -553,6 +570,237 @@ class CatalogTool:
             output="\n".join(lines),
             data={"action": "ads", "n": len(hits), "query": q, "hits": hits},
         )
+
+
+# Chat calls. The 9B often stuffs a date or a sentence into Horizons, then
+# writes a closest the table did not contain. These helpers keep the call on
+# the no-date summary and the bubble on that summary.
+_DISTANCE_ASK = re.compile(
+    r"(?i)\b(?:how\s+far|how\s+close|distance|closest|farthest|furthest|nearest)\b"
+)
+_OTHER_WORK = re.compile(
+    r"(?i)\b(?:weather|forecast|arxiv|papers?|apod|ads|email|inbox|remind|calendar|agenda)\b"
+)
+_BODY_WORD = re.compile(
+    r"(?i)\b(mercury|venus|earth|mars|jupiter|saturn|uranus|neptune|"
+    r"pluto|moon|luna|sun|ceres)\b"
+)
+_BODY_CANON = {
+    "mercury": "Mercury",
+    "venus": "Venus",
+    "earth": "Earth",
+    "mars": "Mars",
+    "jupiter": "Jupiter",
+    "saturn": "Saturn",
+    "uranus": "Uranus",
+    "neptune": "Neptune",
+    "pluto": "Pluto",
+    "moon": "Moon",
+    "luna": "Moon",
+    "sun": "Sun",
+    "ceres": "Ceres",
+}
+_TURNING_WORD = re.compile(
+    r"(?i)\b(?:closest|farthest|furthest|nearest|apogee|perigee)\b"
+)
+_TURNING_DENIAL = re.compile(
+    r"(?i)\bno\s+closest\b|\bno\s+farthest\b|\bno\s+furthest\b|\bdoes not reach\b"
+)
+_DATE_TOKEN = re.compile(
+    r"(?i)\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+\d{1,2}\b"
+    r"|\b\d{4}-\d{2}-\d{2}\b"
+)
+_DIST_TOKEN = re.compile(
+    r"(?i)(?:~\s*)?\d[\d,]*(?:\.\d+)?\s*(?:million|m)?\s*(?:km|kilometers)\b"
+    r"|(?:~\s*)?\d[\d,]*(?:\.\d+)?\s*million\b"
+)
+DISTANCE_MODEL_NOTE = (
+    "Answer with the sentences above, unchanged. "
+    "Do not add a closest or farthest date or a distance "
+    "that is not written above."
+)
+
+
+def looks_like_distance_ask(text: str) -> bool:
+    """True for how far / closest / farthest about a named body."""
+    raw = text or ""
+    return bool(_DISTANCE_ASK.search(raw) and _BODY_WORD.search(raw))
+
+
+def _first_body(text: str) -> str:
+    match = _BODY_WORD.search(text or "")
+    if not match:
+        return ""
+    return _BODY_CANON.get(match.group(1).casefold(), "")
+
+
+def _clean_body_token(raw: str) -> str:
+    text = " ".join((raw or "").split())
+    if not text:
+        return ""
+    if text.isdigit():
+        return text
+    key = text.casefold()
+    if key == "the moon":
+        return "Moon"
+    if key == "the sun":
+        return "Sun"
+    return _BODY_CANON.get(key, "")
+
+
+def _distance_subjects(text: str) -> set[str]:
+    found: set[str] = set()
+    for match in _BODY_WORD.finditer(text or ""):
+        key = match.group(1).casefold()
+        if key == "luna":
+            key = "moon"
+        found.add(key)
+    if "earth" in found and len(found) > 1:
+        found.discard("earth")
+    return found
+
+
+def _distance_phrase_body(raw: str) -> str:
+    """Body name when `raw` is a distance sentence, else empty.
+
+    A bare 'Mars' is not a sentence. 'Mars closest Nov 4' is.
+    """
+    if not looks_like_distance_ask(raw):
+        return ""
+    if _clean_body_token(raw):
+        return ""
+    return _first_body(raw)
+
+
+def _pure_distance_ask(ask: str) -> bool:
+    if not looks_like_distance_ask(ask):
+        return False
+    if _OTHER_WORK.search(ask or ""):
+        return False
+    return len(_distance_subjects(ask)) <= 1
+
+
+def normalize_horizons_distance_args(
+    args: dict[str, Any] | None, user_text: str
+) -> dict[str, Any]:
+    """Drop a made-up date and a sentence query on a distance ask.
+
+    A one-day sky table (RA and Dec on a named day) is left alone. Vectors
+    stay when the user asked for vectors.
+    """
+    payload = dict(args or {})
+    action = str(payload.get("action") or "").strip().lower()
+    if action and action != "horizons":
+        return payload
+    if not looks_like_distance_ask(user_text):
+        return payload
+    if re.search(r"(?i)\bvectors?\b", user_text or ""):
+        return payload
+    # They named a day. Keep it. The bug is a date the model added on its own.
+    if _DATE_TOKEN.search(user_text or ""):
+        return payload
+    payload["action"] = "horizons"
+    table = str(payload.get("table") or "").strip().lower()
+    target = str(payload.get("target") or "").strip()
+    query = str(payload.get("query") or "").strip()
+    clean = _clean_body_token(target)
+    if not clean:
+        clean = _first_body(target) or _first_body(query) or _first_body(user_text)
+    if clean:
+        payload["target"] = clean
+    payload.pop("query", None)
+    payload.pop("date", None)
+    if table != "observer":
+        payload["table"] = "observer"
+    return payload
+
+
+def should_ship_distance_line(ask: str, *, later_calls: int = 0) -> bool:
+    """True when the distance summary is the whole answer."""
+    if later_calls > 0:
+        return False
+    return _pure_distance_ask(ask)
+
+
+def format_distance_for_model(summary: str) -> str:
+    """Tool text the model sees: the sentences, then a do-not-invent line."""
+    body = plain_distance_summary(summary)
+    if not body:
+        return (summary or "").strip()
+    return f"{body}\n\n{DISTANCE_MODEL_NOTE}"
+
+
+def plain_distance_summary(text: str) -> str:
+    """Person-facing distance sentences, or empty when this is not one."""
+    raw = (text or "").strip()
+    banner = "[untrusted external data"
+    if raw.startswith(banner):
+        parts = raw.split("\n\n", 1)
+        raw = parts[1].strip() if len(parts) == 2 else ""
+    if DISTANCE_MODEL_NOTE in raw:
+        raw = raw.replace(DISTANCE_MODEL_NOTE, "").strip()
+    if "from Earth right now" not in raw:
+        return ""
+    return raw
+
+
+def _tool_denies_turning(tool: str, word: str) -> bool:
+    low = (tool or "").lower()
+    kind = (word or "").lower()
+    if (
+        "no closest or farthest" in low
+        or "no closest or furthest" in low
+        or "does not reach a closest or farthest" in low
+    ):
+        return True
+    if kind in {"closest", "nearest", "perigee"}:
+        return "no closest" in low
+    if kind in {"farthest", "furthest", "apogee"}:
+        return "no farthest" in low or "no furthest" in low
+    return False
+
+
+def reply_invents_turning_point(tool_output: str, model_reply: str) -> bool:
+    """True when the reply names a closest or farthest the tool did not."""
+    tool = plain_distance_summary(tool_output) or (tool_output or "")
+    reply = (model_reply or "").replace(DISTANCE_MODEL_NOTE, "")
+    if not _TURNING_WORD.search(reply):
+        return False
+    for match in _TURNING_WORD.finditer(reply):
+        start = max(0, match.start() - 48)
+        end = min(len(reply), match.end() + 64)
+        window = reply[start:end]
+        if _TURNING_DENIAL.search(window):
+            continue
+        tokens = _DATE_TOKEN.findall(window) + _DIST_TOKEN.findall(window)
+        if not tokens:
+            if _tool_denies_turning(tool, match.group(0)):
+                return True
+            continue
+        folded = tool.casefold()
+        for tok in tokens:
+            if tok.casefold() not in folded:
+                return True
+    return False
+
+
+def chat_line_for_distance(
+    tool_output: str, model_reply: str, *, ask: str = ""
+) -> str:
+    """Use the tool sentences when a distance reply would freestyle.
+
+    A pure how-far / closest / farthest ask is the tool text. Any reply that
+    adds a closest or farthest the tool did not state is the tool text too.
+    """
+    summary = plain_distance_summary(tool_output)
+    if not summary:
+        return model_reply
+    reply = (model_reply or "").replace(DISTANCE_MODEL_NOTE, "").strip()
+    if reply == summary:
+        return summary
+    if _pure_distance_ask(ask) or reply_invents_turning_point(summary, reply):
+        return summary
+    return reply
 
 
 def _quoted_command(body: str) -> str:

@@ -217,6 +217,43 @@ $$EOE
 
 
 @pytest.mark.asyncio
+async def test_distance_sentence_with_a_date_still_uses_the_now_summary() -> None:
+    """A stuffed date and a sentence must not leave the no-date Mars summary."""
+    values = [1.63 - 0.001 * i for i in range(12)]
+    seen: list[str] = []
+    result = await _tool_blob(_hourly_from_now_minus_1h(values), seen).run(
+        action="horizons",
+        query="Mars closest Nov 4",
+        date="2026-11-04",
+    )
+    assert result.ok, result.output
+    assert result.data.get("mode") == "now"
+    url = seen[0]
+    assert "STEP_SIZE=1h" in url
+    assert "COMMAND='499'" in url
+    assert "no closest or farthest" in result.output
+    assert "Nov" not in result.output
+    assert "335" not in result.output
+    assert "2026-11-04" not in result.output
+
+
+@pytest.mark.asyncio
+async def test_a_named_day_is_still_a_sky_table() -> None:
+    """RA/Dec on a day the caller named stays the one-day table."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"result": "RA 12 Dec -4"})
+
+    result = await _tool(handler).run(
+        action="horizons", target="Mars", date="2026-10-01"
+    )
+    assert result.ok, result.output
+    assert result.data.get("mode") != "now"
+    assert result.data.get("date") == "2026-10-01"
+    assert "observer table" in result.output
+
+
+@pytest.mark.asyncio
 async def test_no_turning_point_in_window_does_not_invent_one() -> None:
     values = [1.63 - 0.001 * i for i in range(12)]
     seen: list[str] = []
