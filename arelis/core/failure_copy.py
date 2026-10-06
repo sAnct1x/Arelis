@@ -25,6 +25,7 @@ from __future__ import annotations
 import json
 import math
 import re
+from decimal import Decimal, InvalidOperation
 
 from arelis.core.evidence import looks_like_bot_wall
 
@@ -295,7 +296,7 @@ _PERSON_LIST_TOOLS = frozenset({"agenda", "remind", "tasks"})
 
 # Text pulled FROM a page, image, clipboard, or note is already the answer.
 _CONTENT_PASSTHROUGH_TOOLS = frozenset(
-    {"ocr", "clipboard", "transcribe", "notes", "doc_extract", "image"}
+    {"ocr", "clipboard", "transcribe", "notes", "doc_extract", "vision"}
 )
 
 
@@ -422,6 +423,22 @@ _UNIT_WORDS: dict[str, tuple[str, str]] = {
     "minute": ("minute", "minutes"),
     "hour": ("hour", "hours"),
 }
+# Plurals that do not just take an "s".
+_IRREGULAR_PLURALS: dict[str, str] = {
+    "foot": "feet",
+    "century": "centuries",
+    "henry": "henries",
+}
+# Unit names that read the same for one or many.
+_SAME_PLURAL_ENDINGS = ("hertz", "lux", "siemens", "celsius", "fahrenheit")
+# Big numbers are said with a scale word, never in e-notation.
+_SCALE_WORDS: tuple[tuple[int, str], ...] = (
+    (10**18, "quintillion"),
+    (10**15, "quadrillion"),
+    (10**12, "trillion"),
+    (10**9, "billion"),
+    (10**6, "million"),
+)
 
 
 def plain_algebra_chat(output: str, *, ask: str = "") -> str:
@@ -444,7 +461,7 @@ def plain_algebra_chat(output: str, *, ask: str = "") -> str:
     main = _TEMP_NOTE.sub("", main).strip()
     unit_hit = _CLEAN_UNIT_RHS.fullmatch(main)
     if unit_hit is not None:
-        shown, rounded = _format_magnitude(unit_hit.group("num"), expr=expr)
+        shown, rounded = _spoken_number(unit_hit.group("num"), expr=expr)
         if not shown:
             return _DATA_FOLLOWUP
         unit = _humanize_unit(unit_hit.group("unit"), shown)
@@ -453,7 +470,7 @@ def plain_algebra_chat(output: str, *, ask: str = "") -> str:
     num_hit = _CLEAN_NUM_RHS.fullmatch(main)
     if num_hit is None:
         return _DATA_FOLLOWUP
-    shown, rounded = _format_magnitude(num_hit.group("num"), expr=expr)
+    shown, rounded = _spoken_number(num_hit.group("num"), expr=expr)
     if not shown:
         return _DATA_FOLLOWUP
     try:
@@ -489,14 +506,100 @@ def _humanize_unit(unit: str, magnitude: str) -> str:
     pair = _UNIT_WORDS.get(key)
     if pair is not None:
         return pair[0] if singular else pair[1]
-    spoken = (unit or "").replace("_", " ").strip()
-    if not spoken:
+    spoken = " ".join((unit or "").replace("_", " ").split())
+    if not spoken or singular:
         return spoken
-    if singular:
-        return spoken
-    if spoken.endswith("s"):
-        return spoken
-    return spoken + "s"
+    # "mile per hour" becomes "miles per hour": only the part before "per".
+    head, sep, tail = spoken.partition(" per ")
+    words = head.split(" ")
+    # "pound force" becomes "pounds force".
+    at = len(words) - 2 if len(words) > 1 and words[-1].lower() == "force" else -1
+    words[at] = _plural_word(words[at])
+    return " ".join(words) + sep + tail
+
+
+def _plural_word(word: str) -> str:
+    """Plural of one unit word: centuries, feet, inches, and hertz unchanged."""
+    low = word.lower()
+    for single, many in _IRREGULAR_PLURALS.items():
+        if low.endswith(single):
+            return word[: len(word) - len(single)] + many
+    if low.endswith(_SAME_PLURAL_ENDINGS) or low.endswith("s"):
+        return word
+    if low.endswith("y") and len(low) > 1 and low[-2] not in "aeiou":
+        return word[:-1] + "ies"
+    if low.endswith(("x", "z", "ch", "sh")):
+        return word + "es"
+    return word + "s"
+
+
+def _spoken_number(raw: str, *, expr: str = "") -> tuple[str, bool]:
+    """Return (shown, rounded) for a number said to a person.
+
+    Never e-notation. Big numbers get a scale word (about 9.46 trillion),
+    very long ones a digit count, and tiny ones an empty string so the
+    caller ships the plain give-up line instead of something like 1.6e-19.
+    """
+    text = (raw or "").strip()
+    if not _CALC_NUMBER.fullmatch(text):
+        return "", False
+    if expr and re.search(r"\*\s*100\b", expr):
+        shown, rounded = _format_magnitude(text, expr=expr)
+        if shown and "e" not in shown.lower():
+            return shown, rounded
+    try:
+        value = Decimal(text)
+    except InvalidOperation:
+        return "", False
+    if not value.is_finite():
+        return "", False
+    sign = "-" if value < 0 else ""
+    size = abs(value)
+    if size == 0:
+        return "0", False
+    nearest = size.to_integral_value()
+    # Float noise such as -39.99999999999997 is a whole number.
+    if nearest != 0 and abs(size - nearest) <= Decimal("1e-9") * nearest:
+        size = nearest
+    if size >= Decimal(10) ** 21:
+        if size == size.to_integral_value():
+            digits = str(int(size))
+            lead = digits.rstrip("0")
+            if len(lead) == 1:
+                zeros = len(digits) - 1
+                return f"{sign}{lead} followed by {zeros} zeros", False
+            count = len(digits)
+        else:
+            count = size.adjusted() + 1
+        kind = "a negative number" if sign else "a number"
+        return f"{kind} with {count} digits", False
+    if size == size.to_integral_value() and size < 10**12:
+        return f"{sign}{int(size):,}", False
+    if size >= 10**6:
+        for i, (scale, word) in enumerate(_SCALE_WORDS):
+            if size >= scale:
+                part = f"{size / scale:.2f}".rstrip("0").rstrip(".")
+                if part == "1000" and i > 0:
+                    scale, word = _SCALE_WORDS[i - 1]
+                    part = f"{size / scale:.2f}".rstrip("0").rstrip(".")
+                exact = Decimal(part) * scale == size
+                return f"{sign}{part} {word}", not exact
+    if size < Decimal("1e-6"):
+        return "", False
+    if size < Decimal("1e-4"):
+        places = -size.adjusted() + 2
+        shown = f"{size:.{places}f}".rstrip("0")
+        return f"{sign}{shown}", Decimal(shown) != size
+    decimals = max(0, -size.as_tuple().exponent)
+    if decimals > 4:
+        if size < 1:
+            shown = f"{float(size):.4g}"
+        else:
+            shown = f"{size:,.2f}".rstrip("0").rstrip(".")
+    else:
+        shown = f"{size:,.{decimals}f}"
+    rounded = Decimal(shown.replace(",", "")) != size
+    return f"{sign}{shown}", rounded
 
 
 def _round_day_count(number: str) -> str:

@@ -273,6 +273,46 @@ async def test_lookup_empty_twice_ships_fallback_without_fourth_call() -> None:
     assert len(router.stream_kwargs) == 3
 
 
+@pytest.mark.asyncio
+async def test_retry_round_stays_toolless_when_model_switch_fires(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The mid-turn model switch rebuilds the tool list; the retry must still go out bare."""
+    import arelis.core.agent_loop as agent_loop_mod
+
+    monkeypatch.setattr(
+        agent_loop_mod,
+        "decide_mid_turn_escalate",
+        lambda **kw: (
+            "research"
+            if kw["round_i"] >= 3 and not kw["already_escalated"]
+            else None
+        ),
+    )
+    ask = "how far away is the moon right now?"
+    call = {
+        "type": "function",
+        "function": {
+            "name": "catalog",
+            "arguments": {"action": "horizons", "target": "Moon"},
+        },
+    }
+    empty = [("token", "")]
+    router = _RecordingRouter([[("tool_calls", [call])], empty, empty, empty, empty])
+    bus, loop = _loop(router, _HorizonsStub())
+    events = await _collect(bus, loop.run(ask, "fast"))
+    assert any(
+        "escalate" in str(e.payload.get("text"))
+        for e in events
+        if e.type == EventType.THINKING
+    ), "model switch did not fire, so this test proves nothing"
+    assert len(router.stream_kwargs) == 3
+    retry_tools = router.stream_kwargs[2].get("tools")
+    assert not retry_tools, f"retry after model switch offered tools: {retry_tools!r}"
+    done = next(e for e in events if e.type == EventType.ASSISTANT_DONE)
+    assert "could not put it into words" in done.payload["text"].lower()
+
+
 # --- follow-up: planet-year wording + agenda lists -------------------------
 
 

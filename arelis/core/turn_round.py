@@ -580,6 +580,7 @@ async def run_round(loop: Any, ctx: TurnContext, round_i: int) -> bool:
             or bool(ctx.sms_sent)
             or ctx.page_write_nudge_used
             or ctx.algebra_write_nudge_used
+            or ctx.tool_answer_nudge_used
             or _weather_answer_ready(ctx)
         ):
             # Only strip tools if all exactness needs are satisfied.

@@ -66,6 +66,14 @@ def test_haiku_from_ocr_ships() -> None:
     assert _DATA not in line.lower()
 
 
+def test_photo_description_from_vision_ships() -> None:
+    shopping = "Milk\nEggs\nBread\nCoffee"
+    assert _looks_like_data_dump(shopping) is True
+    line = chat_followup_from_tool("vision", shopping, ask="what's on this shopping list photo?")
+    assert line.strip() == shopping
+    assert _DATA not in line.lower()
+
+
 def test_recipe_from_clipboard_ships() -> None:
     assert _looks_like_data_dump(_RECIPE) is True
     line = chat_followup_from_tool("clipboard", _RECIPE, ask="what's on my clipboard?")

@@ -985,3 +985,50 @@ async def test_real_look_request_still_injects_desktop_screenshot() -> None:
     ctx.tool_names = {"desktop"}
     assert await apply_no_call_path(loop, ctx, r, 0) is None
     assert [name for name, _args in r.calls] == ["desktop"]
+
+
+_MOON_DUMP = (
+    "API VERSION: 1.2\n"
+    "Target body name: Moon (301)\n"
+    "Center body name: Earth (399)\n"
+)
+_CATALOG_TOOLS = [{"type": "function", "function": {"name": "catalog"}}]
+
+
+@pytest.mark.asyncio
+async def test_empty_after_data_dump_retry_turns_tools_off() -> None:
+    """Retry branch itself drops every tool, then a second empty ships the fallback."""
+    ask = "how far away is the moon right now?"
+    loop = _FakeLoop()
+    r = _scratch(
+        content="",
+        text=ask,
+        tool_names={"catalog"},
+        ollama_tools=list(_CATALOG_TOOLS),
+        offer_tools=True,
+    )
+    ctx = _ctx(
+        text=ask,
+        last_ok_tool_out=_MOON_DUMP,
+        last_ok_tool_name="catalog",
+        tool_names={"catalog"},
+        ollama_tools=list(_CATALOG_TOOLS),
+        offer_tools=True,
+    )
+    assert await apply_no_call_path(loop, ctx, r, 2) is False
+    assert ctx.tool_answer_nudge_used is True
+    assert r.ollama_tools == []
+    assert r.offer_tools is False
+    assert ctx.ollama_tools == []
+    assert ctx.offer_tools is False
+    assert not ctx.tool_names
+    assert loop.finished is None
+
+    r2 = _scratch(
+        content="", text=ask, tool_names=set(), ollama_tools=[], offer_tools=False
+    )
+    assert await apply_no_call_path(loop, ctx, r2, 3) is True
+    assert loop.finished is not None
+    shipped = loop.finished[0]
+    assert "could not put it into words" in shipped
+    assert "API VERSION" not in shipped
