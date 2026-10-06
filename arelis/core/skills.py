@@ -344,8 +344,8 @@ SKILL_CARDS: dict[str, SkillCard] = {
   ("remember that I climb").
 - Never write or edit under a read-only root (the prompt lists those names).
 - If workspace says outside allowed roots, stop. Do not list C:\\Users,
-  Documents, or any parent. Tell them to Allow the path or add the folder
-  in Settings → roots.
+  Documents, or any parent. Tell them to Allow the path, or open Settings
+  and add a folder there.
 - Never tell the user to run a shell command to do something a tool can do.
 - Do not claim you edited a file unless a write/edit tool succeeded.
 - Prefer git_info (status/diff/log) over inventing branch or dirty state.

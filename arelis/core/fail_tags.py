@@ -46,8 +46,8 @@ def tool_fail_replan_notice(
             return (
                 "Tool replan: workspace cannot read that path (outside roots). "
                 "Stop. Do not list C:\\Users, Documents, or any parent. "
-                "Tell them to Allow the path they named or add the folder in "
-                "Settings → roots. Answer from what you already have."
+                "Tell them to Allow the path they named, or open Settings and "
+                "add a folder there. Answer from what you already have."
             )
         return None
     if tool not in _REPLAN_TOOLS:

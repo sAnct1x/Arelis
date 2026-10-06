@@ -35,8 +35,10 @@ from arelis.setup.catalog import (
 from arelis.setup.engine import (
     already_pulled,
     download_ollama_setup,
+    downloading_model_label,
     find_ollama_exe,
     ollama_reachable,
+    plain_download_status,
     pull_tag,
     run_ollama_setup,
     runtime_dir,
@@ -49,6 +51,12 @@ from arelis.ui.dialog import GlassDialog
 from arelis.ui.theme import SPACE
 
 log = logging.getLogger(__name__)
+
+# Shown before the installer window can ask for an account.
+OLLAMA_SIGNIN_NOTE = (
+    "Ollama may ask you to sign in or connect other AI services. "
+    "You do not need to. Skip or close that and Arelis keeps going."
+)
 
 
 class _ProbeWorker(QThread):
@@ -95,6 +103,20 @@ class _PrepareWorker(QThread):
         if not self._cancel:
             self.progressed.emit(status, done, total)
 
+    def _size_gb(self, tag: str) -> float | None:
+        model = by_tag(tag)
+        if model is None:
+            return None
+        return float(model.download_gb)
+
+    def _pull(self, tag: str) -> None:
+        size_gb = self._size_gb(tag)
+
+        def on_progress(status: str, done: int = 0, total: int = 0) -> None:
+            self._report(plain_download_status(status, size_gb=size_gb), done, total)
+
+        pull_tag(tag, progress=on_progress)
+
     def _run(self) -> None:
         if self._cancel:
             return
@@ -107,7 +129,8 @@ class _PrepareWorker(QThread):
                 download_ollama_setup(setup, progress=self._report)
                 if self._cancel:
                     return
-                self._report("Installing the local engine…")
+                # Stays on screen while the installer is open.
+                self._report(OLLAMA_SIGNIN_NOTE)
                 self._stage = "install_engine"
                 problem = run_ollama_setup(setup)
                 if problem:
@@ -130,10 +153,10 @@ class _PrepareWorker(QThread):
             return
         self._stage = "pull_model"
         if already_pulled(self._tag):
-            self._report(f"{self._tag} is already on this PC.")
+            self._report("This model is already on this PC.")
         else:
-            self._report(f"Getting {self._tag}…")
-            pull_tag(self._tag, progress=self._report)
+            self._report(downloading_model_label(self._size_gb(self._tag)))
+            self._pull(self._tag)
         if self._cancel:
             return
         self._stage = "pull_recall"
@@ -141,7 +164,7 @@ class _PrepareWorker(QThread):
             self._report("The small recall model is already on this PC.")
         else:
             self._report("Getting the small recall model…")
-            pull_tag(EMBED_TAG, progress=self._report)
+            self._pull(EMBED_TAG)
         if self._cancel:
             return
         try:
@@ -413,7 +436,8 @@ class ModelSetupDialog(GlassDialog):
             extra = (
                 "The local engine (Ollama, free) is not on this PC yet. "
                 "Using this model will download it first, about 1.4 GB, "
-                "then the model itself."
+                "then the model itself. "
+                + OLLAMA_SIGNIN_NOTE
             )
             self._rec_why.setText(why(self._picked, self._hardware) + " " + extra)
         self._show_recommend()

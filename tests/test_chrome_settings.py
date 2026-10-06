@@ -560,7 +560,7 @@ def test_settings_has_no_theme_tab(qt_app) -> None:
             "window",
             "allow",
             "notify",
-            "roots",
+            "folders",
             "memory",
         ]
         assert "theme" not in labels

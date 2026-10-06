@@ -136,7 +136,26 @@ REQUIRED_IMPORTS = (
 
 
 def say(message: str) -> None:
-    print(message, flush=True)
+    """Print one build line. A cp1252 Windows console must not abort the build.
+
+    PYTHONUTF8 is not required. An arrow becomes ``->``. Anything else that
+    console cannot encode is replaced, and the line still prints.
+    """
+    text = str(message)
+    for src, dst in (("\u2192", "->"), ("\u2190", "<-"), ("\u2026", "...")):
+        text = text.replace(src, dst)
+    stream = sys.stdout
+    encoding = getattr(stream, "encoding", None) or "utf-8"
+    try:
+        text.encode(encoding)
+    except LookupError:
+        text = text.encode("ascii", errors="replace").decode("ascii")
+    except UnicodeEncodeError:
+        text = text.encode(encoding, errors="replace").decode(encoding, errors="replace")
+    try:
+        print(text, flush=True)
+    except UnicodeEncodeError:
+        print(text.encode("ascii", errors="replace").decode("ascii"), flush=True)
 
 
 def run(command: list[str], what: str, cwd: Path | None = None) -> str:
