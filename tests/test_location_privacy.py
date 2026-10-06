@@ -136,7 +136,7 @@ def test_thinking_dock_redacts_status_lines_and_tool_text(qt_app, tmp_path) -> N
                 },
             ),
         )
-        shown = _dock_text(panel)
+        shown = _dock_text(panel).replace("\\", "/")
         assert "Exampleville" not in shown
         assert "phase=model near [location]" in shown
         assert "running [location] digest" in shown
