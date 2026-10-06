@@ -12,12 +12,13 @@ import asyncio
 import re
 import threading
 import xml.etree.ElementTree as ET
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta, tzinfo
 from typing import Any
 
 import httpx
 
 from arelis import __source_url__, __version__
+from arelis.physics.constants import BODY_BY_NAME
 from arelis.science.keys import ScienceKeys, load_science_keys
 from arelis.tools.base import ToolResult
 
@@ -50,6 +51,7 @@ class CatalogTool:
         "Look up papers and solar-system data from named catalogs. "
         "Actions: arxiv (no key; acknowledge arXiv in the answer), "
         "horizons (JPL ephemerides, no key, do not invent EMAIL; "
+        "put the body in target, Moon is 301, Sun is 10; "
         "table=observer for sky, table=vectors for SSB ECLIPJ2000 state), "
         "apod (NASA Astronomy Picture of the Day, needs nasa.api_key), "
         "ads (NASA ADS paper search, needs ads.token). "
@@ -72,7 +74,9 @@ class CatalogTool:
             },
             "target": {
                 "type": "string",
-                "description": "Horizons body, e.g. Mars, Jupiter, 499",
+                "description": (
+                    "Horizons body in target (Moon is 301, Sun is 10), e.g. Mars, Jupiter, 499"
+                ),
             },
             "date": {
                 "type": "string",
@@ -111,8 +115,13 @@ class CatalogTool:
             if action == "arxiv":
                 return await self._arxiv(str(kwargs.get("query") or ""))
             if action == "horizons":
+                target = str(kwargs.get("target") or "").strip()
+                if not target:
+                    target = str(kwargs.get("query") or "").strip()
+                if not target:
+                    target = str(kwargs.get("name") or "").strip()
                 return await self._horizons(
-                    str(kwargs.get("target") or ""),
+                    target,
                     str(kwargs.get("date") or ""),
                     str(kwargs.get("table") or "observer"),
                 )
@@ -226,19 +235,22 @@ class CatalogTool:
         )
 
     async def _horizons(self, target: str, day: str, table: str = "observer") -> ToolResult:
-        body = (target or "").strip()
-        if not body or not _SAFE_TARGET.match(body):
+        raw = (target or "").strip()
+        if not raw or not _SAFE_TARGET.match(raw):
             raise ValueError(
                 "horizons needs a target like Mars, Jupiter, or 499. "
                 "No email is sent."
             )
-        start = _day_or_today(day)
-        stop = start + timedelta(days=1)
+        body = _horizons_body_id(raw)
         kind = (table or "observer").strip().lower()
         if kind not in {"observer", "vectors"}:
             raise ValueError("horizons table must be observer or vectors.")
+        day_text = (day or "").strip()
+        use_now = kind == "observer" and not day_text
         command = _quoted_command(body)
         if kind == "vectors":
+            start = _day_or_today(day_text)
+            stop = start + timedelta(days=1)
             params = {
                 "format": "json",
                 "COMMAND": command,
@@ -246,14 +258,32 @@ class CatalogTool:
                 "MAKE_EPHEM": "YES",
                 "EPHEM_TYPE": "VECTORS",
                 "CENTER": "@0",
-                "REF_PLANE": "ECLIPJ2000",
+                "REF_PLANE": "ECLIPTIC",
                 "OUT_UNITS": "KM-S",
                 "VEC_TABLE": "2",
                 "START_TIME": start.isoformat(),
                 "STOP_TIME": stop.isoformat(),
                 "STEP_SIZE": "1d",
             }
+        elif use_now:
+            start_dt = _utc_now().astimezone(UTC).replace(second=0, microsecond=0)
+            stop_dt = start_dt + timedelta(days=30)
+            start = start_dt.date()
+            params = {
+                "format": "json",
+                "COMMAND": command,
+                "OBJ_DATA": "NO",
+                "MAKE_EPHEM": "YES",
+                "EPHEM_TYPE": "OBSERVER",
+                "CENTER": "500@399",
+                "START_TIME": start_dt.strftime("%Y-%m-%d %H:%M"),
+                "STOP_TIME": stop_dt.strftime("%Y-%m-%d %H:%M"),
+                "STEP_SIZE": "1h",
+                "QUANTITIES": "20,23,24",
+            }
         else:
+            start = _day_or_today(day_text)
+            stop = start + timedelta(days=1)
             params = {
                 "format": "json",
                 "COMMAND": command,
@@ -271,15 +301,32 @@ class CatalogTool:
             raise RuntimeError("Horizons must not send EMAIL")
         response = await self._horizons_get(params)
         if response.status_code >= 400:
+            detail = _horizons_http_message(response)
+            output = f"Horizons returned HTTP {response.status_code}."
+            if detail:
+                output = f"{output} {detail}"
             return ToolResult(
                 ok=False,
-                output=f"Horizons returned HTTP {response.status_code}.",
+                output=output,
                 data={"fail_class": "fail:http", "http": response.status_code},
             )
         payload = response.json()
         blob = str(payload.get("result") or payload.get("error") or "").strip()
         if not blob:
             raise ValueError("Horizons returned an empty result.")
+        if "Multiple major-bodies match" in blob or "No matches found" in blob:
+            return ToolResult(
+                ok=False,
+                output=(
+                    f"Horizons could not pin down {raw!r}. "
+                    "Use a Horizons id: Moon is 301, Sun is 10."
+                ),
+                data={
+                    "fail_class": "fail:name",
+                    "action": "horizons",
+                    "target": raw,
+                },
+            )
         if kind == "vectors":
             from arelis.physics.horizons import parse_vector_table
 
@@ -307,6 +354,20 @@ class CatalogTool:
                     "frame": "ECLIPJ2000",
                     "center": "SSB",
                     "jd": state.epoch_jd,
+                },
+            )
+        if use_now:
+            rows = _parse_observer_delta_rows(blob)
+            summary = _distance_summary(raw, rows)
+            return ToolResult(
+                ok=True,
+                output=summary,
+                data={
+                    "action": "horizons",
+                    "table": "observer",
+                    "target": body,
+                    "date": start.isoformat(),
+                    "mode": "now",
                 },
             )
         clipped = blob if len(blob) <= 3500 else blob[:3500] + "\n[truncated]"
@@ -459,6 +520,138 @@ class CatalogTool:
 def _quoted_command(body: str) -> str:
     """Horizons COMMAND= wants a quoted id: '399', not 399."""
     return "'" + body.strip().strip("'\"") + "'"
+
+
+_AU_KM = 149_597_870.7
+_BODY_ALIASES: dict[str, str] = {
+    "the moon": "301",
+    "luna": "301",
+    "the sun": "10",
+}
+_OBSERVER_ROW = re.compile(
+    r"^\s*(\d{4}-[A-Za-z]{3}-\d{2})\s+(\d{2}:\d{2})"
+    r"(?:\s+[A-Za-z*/]+)?"
+    r"\s+([+-]?\d+(?:\.\d+)?(?:[Ee][+-]?\d+)?)"
+)
+
+
+def _utc_now() -> datetime:
+    return datetime.now(UTC)
+
+
+def _local_zone() -> tzinfo | None:
+    """Local zone for distance times. None means system local. Tests inject."""
+    return None
+
+
+def _horizons_body_id(raw: str) -> str:
+    """Map a body name to a Horizons id. Numeric targets pass through."""
+    text = " ".join((raw or "").split())
+    if not text:
+        return text
+    if text.isdigit():
+        return text
+    key = text.casefold()
+    alias = _BODY_ALIASES.get(key)
+    if alias is not None:
+        return alias
+    for name, spec in BODY_BY_NAME.items():
+        if name.casefold() == key:
+            return spec.horizons_id
+    return text
+
+
+def _horizons_http_message(response: httpx.Response) -> str:
+    try:
+        payload = response.json()
+    except (ValueError, TypeError):
+        return ""
+    if not isinstance(payload, dict):
+        return ""
+    return str(payload.get("message") or "").strip()
+
+
+def _parse_observer_delta_rows(blob: str) -> list[tuple[datetime, float]]:
+    """Parse $$SOE..$$EOE rows; first float after the clock is delta in AU."""
+    if "$$SOE" not in blob or "$$EOE" not in blob:
+        raise ValueError("Horizons returned no distance table.")
+    block = blob.split("$$SOE", 1)[1].split("$$EOE", 1)[0]
+    rows: list[tuple[datetime, float]] = []
+    for line in block.splitlines():
+        match = _OBSERVER_ROW.match(line)
+        if not match:
+            continue
+        stamp = datetime.strptime(f"{match.group(1)} {match.group(2)}", "%Y-%b-%d %H:%M").replace(
+            tzinfo=UTC
+        )
+        rows.append((stamp, float(match.group(3))))
+    if not rows:
+        raise ValueError("Horizons returned no distance rows.")
+    return rows
+
+
+def _to_local(stamp: datetime) -> datetime:
+    zone = _local_zone()
+    if zone is not None:
+        return stamp.astimezone(zone)
+    return stamp.astimezone()
+
+
+def _zone_label(local: datetime) -> str:
+    name = local.tzname() or ""
+    if name in {"EST", "EDT", "ET"}:
+        return "Eastern"
+    zone = _local_zone()
+    key = getattr(zone, "key", "") if zone is not None else ""
+    if key == "America/New_York":
+        return "Eastern"
+    return name or "local"
+
+
+def _format_local_stamp(stamp: datetime) -> str:
+    local = _to_local(stamp)
+    day = local.strftime("%b ") + str(local.day)
+    clock = local.strftime("%I:%M %p").lstrip("0")
+    return f"{day}, {local.year} {clock} {_zone_label(local)}"
+
+
+def _km_text(au: float) -> str:
+    return f"{round(au * _AU_KM):,}"
+
+
+def _next_turn(rows: list[tuple[datetime, float]], *, lowest: bool) -> tuple[datetime, float]:
+    """First closest (or farthest) point after now, not the extreme of the whole window.
+
+    If now sits right at a perigee, the window minimum is now itself; the next
+    perigee is the first later row where the distance stops falling.
+    """
+    values = [au for _, au in rows]
+    for i in range(1, len(values) - 1):
+        before, here, after = values[i - 1], values[i], values[i + 1]
+        if lowest and before > here <= after:
+            return rows[i]
+        if not lowest and before < here >= after:
+            return rows[i]
+    later = rows[1:] or rows
+    pick = min if lowest else max
+    return pick(later, key=lambda row: row[1])
+
+
+def _distance_summary(label: str, rows: list[tuple[datetime, float]]) -> str:
+    now_stamp, now_au = rows[0]
+    closest_stamp, closest_au = _next_turn(rows, lowest=True)
+    farthest_stamp, farthest_au = _next_turn(rows, lowest=False)
+    who = label.strip() or "body"
+    return (
+        f"{who} distance now: {_km_text(now_au)} km "
+        f"(as of {_format_local_stamp(now_stamp)}). "
+        f"Next closest: {_format_local_stamp(closest_stamp)}, "
+        f"{_km_text(closest_au)} km. "
+        f"Next farthest: {_format_local_stamp(farthest_stamp)}, "
+        f"{_km_text(farthest_au)} km. "
+        "Source: JPL Horizons (ssd.jpl.nasa.gov). "
+        "Not a measurement this turn."
+    )
 
 
 def _horizons_retryable(response: httpx.Response) -> bool:
