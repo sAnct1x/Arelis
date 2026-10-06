@@ -44,6 +44,7 @@ PLAIN: dict[str, str] = {
         "The local engine was not found after the install. Try again to install "
         "it again. If it keeps happening, restart your PC. " + SUFFIX
     ),
+    "engine_old": ("Your local engine is out of date. Update it, then try again. " + SUFFIX),
     "pull": (
         "The model download stopped. Check your internet connection and that "
         "the disk has enough free space, then try again. " + SUFFIX
@@ -60,6 +61,9 @@ _PULL_NETWORK_PHRASES = (
     "temporary failure in name resolution",
     "network is unreachable",
 )
+# Ollama 0.3.6, POST /api/pull of qwen3.5:4b. The registry answered 412 and
+# Ollama put this sentence in the error field. See tests/fixtures/ollama_pull_errors.json.
+_ENGINE_OLD_PHRASES = ("requires a newer version of ollama",)
 _ENGINE_MISSING = "Ollama is not installed on this PC yet."
 _PULL_STAGES = (PULL_MODEL, PULL_RECALL)
 
@@ -89,6 +93,8 @@ def _kind(stage: str, problem: BaseException | str) -> str:
             return "engine_missing"
         return "engine_start"
     if stage in _PULL_STAGES:
+        if any(phrase in text for phrase in _ENGINE_OLD_PHRASES):
+            return "engine_old"
         if any(phrase in text for phrase in _PULL_NETWORK_PHRASES):
             return "network"
         return "pull"

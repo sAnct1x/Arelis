@@ -56,7 +56,6 @@ from arelis.ui.scale import (
     scale_preset_label,
 )
 from arelis.ui.theme import GLASS, SPACE, polish_combo_popup, space_box
-from arelis.workspace import FOLDER_CHOICE_HELP
 
 log = logging.getLogger(__name__)
 
@@ -758,8 +757,9 @@ class SettingsDialog(QDialog):
         roots_l.setSpacing(SPACE["gap"])
         roots_hint = QLabel(
             "Folders Arelis may read and write. "
-            + FOLDER_CHOICE_HELP
-            + " Changing a file still asks you first. A read-only folder cannot be changed."
+            "When Arelis first opens, it asks you to choose the folder it may work in. "
+            "Add a folder below. "
+            "Changing a file still asks you first. A read-only folder cannot be changed."
         )
         roots_hint.setObjectName("SettingsHint")
         roots_hint.setWordWrap(True)

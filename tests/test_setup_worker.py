@@ -51,6 +51,17 @@ _NETWORK_SENTENCE = (
     "then try again. Nothing was lost."
 )
 _ENGINE_MISSING_TEXT = "Ollama is not installed on this PC yet."
+_ENGINE_OLD_SENTENCE = "Your local engine is out of date. Update it, then try again. " + _SUFFIX
+_OLLAMA = json.loads(
+    (Path(__file__).resolve().parent / "fixtures" / "ollama_pull_errors.json").read_text(
+        encoding="utf-8"
+    )
+)["errors"]
+_PULL_NETWORK_PHRASES = (
+    "tls handshake timeout",
+    "temporary failure in name resolution",
+    "network is unreachable",
+)
 
 
 def _no_client(*_args, **_kwargs):
@@ -256,9 +267,7 @@ class TestGroupA:
         assert failed == []
         assert ok == [True]
 
-    def test_a6_pull_tag_stream_and_errors(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_a6_pull_tag_stream_and_errors(self, monkeypatch: pytest.MonkeyPatch) -> None:
         seen: list[tuple[str, int, int]] = []
 
         def ok_handler(request: httpx.Request) -> httpx.Response:
@@ -271,7 +280,9 @@ class TestGroupA:
             return httpx.Response(200, text=payload)
 
         _patch_client(monkeypatch, ok_handler)
-        pull_tag("mistral:7b", progress=lambda status, done, total: seen.append((status, done, total)))
+        pull_tag(
+            "mistral:7b", progress=lambda status, done, total: seen.append((status, done, total))
+        )
         assert seen
 
         def not_found(request: httpx.Request) -> httpx.Response:
@@ -438,12 +449,10 @@ class TestGroupB:
             monkeypatch,
             tmp_path,
             ollama_reachable=lambda: True,
-            pull_tag=MagicMock(
-                side_effect=RuntimeError("write /x/blob: no space left on device")
-            ),
+            pull_tag=MagicMock(side_effect=RuntimeError(_OLLAMA["disk_full"])),
         )
         failed, ok, _progressed = _run_worker(_PrepareWorker(_TAG))
-        _assert_plain(failed, ok, caplog, "disk", "no space left on device")
+        _assert_plain(failed, ok, caplog, "disk", _OLLAMA["disk_full"])
 
     def test_b3_installer_fails(
         self,
@@ -674,6 +683,7 @@ class TestGroupC:
             "installer",
             "engine_start",
             "engine_missing",
+            "engine_old",
             "pull",
             "unknown",
         }
@@ -681,7 +691,9 @@ class TestGroupC:
         banned = ("Traceback", "Errno", "httpx", "HTTP", "Exception", "\\", "\u2014")
         for text in PLAIN.values():
             assert text.endswith(SUFFIX)
-            sentences = [part for part in text.replace("?", ".").replace("!", ".").split(".") if part.strip()]
+            sentences = [
+                part for part in text.replace("?", ".").replace("!", ".").split(".") if part.strip()
+            ]
             assert len(sentences) <= 4
             for word in banned:
                 assert word not in text
@@ -699,14 +711,11 @@ class TestGroupD:
         assert PLAIN["pull"] == _PULL_SENTENCE
         assert PLAIN["network"] == _NETWORK_SENTENCE
         assert PLAIN["disk"].endswith("Free some space, then try again. " + SUFFIX)
-        assert PLAIN["installer"].endswith(
-            "finish it there, then try again. " + SUFFIX
-        )
-        assert PLAIN["unknown"] == (
-            "Setup hit a problem it did not expect. Try again. " + SUFFIX
-        )
+        assert PLAIN["installer"].endswith("finish it there, then try again. " + SUFFIX)
+        assert PLAIN["unknown"] == ("Setup hit a problem it did not expect. Try again. " + SUFFIX)
         assert "moment" not in PLAIN["engine_missing"].lower()
         assert PLAIN["engine_missing"].endswith(SUFFIX)
+        assert PLAIN["engine_old"] == _ENGINE_OLD_SENTENCE
 
     def test_d2_enospace_errno_without_disk_words(self) -> None:
         from arelis.setup.plain_errors import PLAIN, plain_failure
@@ -728,59 +737,74 @@ class TestGroupD:
         assert plain_failure("download_engine", win) == PLAIN["disk"]
         assert plain_failure("pull_model", win) == PLAIN["disk"]
 
-    def test_d3_pull_internet_down_and_registry_timeout(
-        self, monkeypatch: pytest.MonkeyPatch
+    def test_d3_real_offline_pull_and_network_phrases(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        qt_app,
+        caplog: pytest.LogCaptureFixture,
     ) -> None:
         from arelis.setup.plain_errors import PLAIN, plain_failure
 
-        # Phrases from reviewer memory, not a live Ollama capture.
-        host = (
-            'pull model manifest: Get "https://registry.ollama.ai/v2/library/'
-            'qwen3.5/manifests/9b": dial tcp: lookup registry.ollama.ai: no such host'
-        )
-        timeout = (
-            'pull model manifest: Get "https://registry.ollama.ai/v2/library/'
-            "qwen3.5/manifests/9b\": dial tcp 104.21.1.1:443: i/o timeout"
-        )
+        caplog.set_level(logging.WARNING, logger="arelis.ui.setup_wizard")
+        offline = _OLLAMA["offline_pull"]
 
-        def host_handler(request: httpx.Request) -> httpx.Response:
-            return httpx.Response(200, text=json.dumps({"error": host}))
+        def offline_handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, text=json.dumps({"error": offline}))
 
-        def timeout_handler(request: httpx.Request) -> httpx.Response:
-            return httpx.Response(200, text=json.dumps({"error": timeout}))
-
-        _patch_client(monkeypatch, host_handler)
+        _patch_client(monkeypatch, offline_handler)
         with pytest.raises(RuntimeError) as caught:
-            pull_tag("qwen3.5:9b")
+            pull_tag("qwen3.5:4b")
+        assert str(caught.value) == offline
         assert plain_failure("pull_model", caught.value) == PLAIN["network"]
+        assert plain_failure("pull_recall", caught.value) == PLAIN["network"]
 
-        _patch_client(monkeypatch, timeout_handler)
-        with pytest.raises(RuntimeError) as caught:
-            pull_tag("qwen3.5:9b")
-        assert plain_failure("pull_model", caught.value) == PLAIN["network"]
+        for phrase in _PULL_NETWORK_PHRASES:
+            caplog.clear()
 
-    def test_d4_pull_tag_not_found_and_disk(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+            def handler(request: httpx.Request, phrase: str = phrase) -> httpx.Response:
+                return httpx.Response(200, text=json.dumps({"error": phrase}))
+
+            _patch_client(monkeypatch, handler)
+            with pytest.raises(RuntimeError) as caught:
+                pull_tag("qwen3.5:9b")
+            assert str(caught.value) == phrase
+            assert plain_failure("pull_model", caught.value) == PLAIN["network"]
+            assert plain_failure("pull_recall", caught.value) == PLAIN["network"]
+
+            _patch_wizard(
+                monkeypatch,
+                tmp_path,
+                pull_tag=MagicMock(side_effect=RuntimeError(phrase)),
+            )
+            failed, ok, _progressed = _run_worker(_PrepareWorker(_TAG))
+            _assert_plain(failed, ok, caplog, "network", phrase)
+
+        # These two were already matched. The old full sentences around them
+        # were memory, so the test keeps the phrase itself.
+        for phrase in ("no such host", "i/o timeout"):
+            assert plain_failure("pull_model", phrase) == PLAIN["network"]
+
+    def test_d4_pull_tag_not_found_and_disk(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from arelis.setup.plain_errors import PLAIN, plain_failure
+
+        missing_text = _OLLAMA["bad_tag"]
 
         def missing(request: httpx.Request) -> httpx.Response:
-            return httpx.Response(
-                200,
-                text=json.dumps({"error": "pull model manifest: file does not exist"}),
-            )
+            return httpx.Response(200, text=json.dumps({"error": missing_text}))
 
         _patch_client(monkeypatch, missing)
         with pytest.raises(RuntimeError) as caught:
-            pull_tag("missing-tag")
+            pull_tag("arelis-no-such-model:missingtag")
+        assert str(caught.value) == missing_text
         assert plain_failure("pull_model", caught.value) == PLAIN["pull"]
 
-        def disk_linux(request: httpx.Request) -> httpx.Response:
-            return httpx.Response(
-                200,
-                text=json.dumps({"error": "write /x/blob: no space left on device"}),
-            )
+        disk_text = _OLLAMA["disk_full"]
 
+        def disk_linux(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, text=json.dumps({"error": disk_text}))
+
+        # English Windows write error. Not recaptured here (this machine is Linux).
         def disk_win(request: httpx.Request) -> httpx.Response:
             return httpx.Response(
                 200,
@@ -791,7 +815,8 @@ class TestGroupD:
 
         _patch_client(monkeypatch, disk_linux)
         with pytest.raises(RuntimeError) as caught:
-            pull_tag("qwen3.5:9b")
+            pull_tag("all-minilm")
+        assert str(caught.value) == disk_text
         assert plain_failure("pull_model", caught.value) == PLAIN["disk"]
 
         _patch_client(monkeypatch, disk_win)
@@ -931,3 +956,38 @@ class TestGroupD:
         failed, ok, _progressed = _run_worker(_PrepareWorker(_TAG))
         _assert_plain(failed, ok, caplog, "engine_missing", _ENGINE_MISSING_TEXT)
         assert "moment" not in failed[0].lower()
+
+    def test_d9_engine_too_old_for_the_model(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        qt_app,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        from arelis.setup.plain_errors import PLAIN, plain_failure
+
+        raw = _OLLAMA["engine_too_old"]
+        assert "requires a newer version of Ollama" in raw
+
+        def too_old(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, text=json.dumps({"error": raw}))
+
+        _patch_client(monkeypatch, too_old)
+        with pytest.raises(RuntimeError) as caught:
+            pull_tag("qwen3.5:4b")
+        assert str(caught.value) == raw
+        assert plain_failure("pull_model", caught.value) == _ENGINE_OLD_SENTENCE
+        assert plain_failure("pull_recall", caught.value) == _ENGINE_OLD_SENTENCE
+        assert plain_failure("pull_model", caught.value) == PLAIN["engine_old"]
+        assert "412" not in _ENGINE_OLD_SENTENCE
+        assert "ollama.com" not in _ENGINE_OLD_SENTENCE.lower()
+
+        caplog.set_level(logging.WARNING, logger="arelis.ui.setup_wizard")
+        _patch_wizard(
+            monkeypatch,
+            tmp_path,
+            pull_tag=MagicMock(side_effect=RuntimeError(raw)),
+        )
+        failed, ok, _progressed = _run_worker(_PrepareWorker(_TAG))
+        _assert_plain(failed, ok, caplog, "engine_old", raw)
+        assert failed[0] == _ENGINE_OLD_SENTENCE

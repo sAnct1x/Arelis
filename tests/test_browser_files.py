@@ -10,6 +10,15 @@ from arelis.tools.browser_tool import BrowserTool
 from arelis.workspace import WorkspaceRoots
 
 
+def test_upload_without_a_path_is_plain() -> None:
+    miss, err = resolve_upload_path("  ")
+    assert miss is None
+    assert "folder Arelis may use" in err
+    assert "Later, open Settings and add a folder there." in err
+    assert "workspace roots" not in err.lower()
+    assert "outputs/" not in err
+
+
 def test_resolve_upload_allows_outputs_only(tmp_path, monkeypatch) -> None:
     out = tmp_path / "outputs"
     out.mkdir()
@@ -23,7 +32,13 @@ def test_resolve_upload_allows_outputs_only(tmp_path, monkeypatch) -> None:
     assert not err
     miss, err = resolve_upload_path(str(outside))
     assert miss is None
-    assert "outputs" in err.lower() or "roots" in err.lower()
+    assert err == (
+        "That file is not in a folder Arelis may use. "
+        "When Arelis first opens, it asks you to choose the folder it may work in. "
+        "Later, open Settings and add a folder there."
+    )
+    assert "workspace roots" not in err.lower()
+    assert "outputs/" not in err
 
 
 def test_resolve_upload_allows_workspace_root(tmp_path) -> None:
@@ -36,6 +51,15 @@ def test_resolve_upload_allows_workspace_root(tmp_path) -> None:
     assert hit is not None
     assert not err
     assert hit.name == "resume.pdf"
+
+    outside = tmp_path / "secret.txt"
+    outside.write_text("no", encoding="utf-8")
+    miss, err = resolve_upload_path(str(outside), workspace=workspace)
+    assert miss is None
+    assert "folder Arelis may use" in err
+    assert "Later, open Settings and add a folder there." in err
+    assert "workspace roots" not in err.lower()
+    assert "outputs/" not in err
 
 
 def test_type_file_is_refused() -> None:
