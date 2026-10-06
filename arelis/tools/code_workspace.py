@@ -13,7 +13,7 @@ from typing import Any
 from arelis.tools.base import ToolResult
 from arelis.tools.confirm_preview import workspace_confirm
 from arelis.tools.safety import redact_secrets
-from arelis.workspace import WorkspaceRoots
+from arelis.workspace import FOLDER_CHOICE_HELP, WorkspaceRoots
 
 # Directory listings are capped so a node_modules-sized folder cannot flood the
 # model's context. The cap is reported in the output, otherwise the model treats
@@ -545,7 +545,7 @@ class CodeWorkspaceTool:
             return ToolResult(
                 ok=False,
                 output=(
-                    f"{exc} Add that folder in Settings → roots, or Allow a "
+                    f"{exc} {FOLDER_CHOICE_HELP} Or allow a "
                     "read of the path they named. Do not list a parent folder "
                     "(C:\\Users, Documents, …)."
                 ),

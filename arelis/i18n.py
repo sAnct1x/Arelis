@@ -25,7 +25,7 @@ _ZH: dict[str, str] = {
     "window": "窗口",
     "allow": "允许",
     "notify": "通知",
-    "roots": "目录",
+    "folders": "文件夹",
     "memory": "记忆",
     "Microphone": "麦克风",
     "Speaker": "扬声器",

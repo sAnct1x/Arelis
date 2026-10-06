@@ -301,12 +301,12 @@ workspace:
   #
   # Flat path strings still work (name = directory basename). Prefer the named
   # form when you have more than one project; address files as name:relative/path.
-  # Override live roots in config.local.yaml (Settings → Roots) so this shipped
-  # default stays a single-root fresh install.
+  # Override live folders in your own settings (open Settings and add a folder
+  # there) so this shipped default stays a single-folder fresh install.
   # read_only=true rejects write/edit/create under that root.
   roots:
     - "."
-    # Extra projects are opt-in (Settings → Roots, or the workspace dock).
+    # Extra projects are opt-in (open Settings and add a folder, or the files panel).
     # Do not list sibling folders here. Example of a second root, local only:
     # - name: notes
     #   path: "C:/Users/you/Documents/notes"

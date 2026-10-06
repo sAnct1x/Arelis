@@ -8,6 +8,7 @@ from typing import Any
 
 from arelis.paths import outputs_dir
 from arelis.workspace import (
+    FOLDER_CHOICE_HELP,
     UNSAFE_WINDOWS_PATH_MSG,
     is_unsafe_windows_path,
     safe_resolve,
@@ -77,8 +78,7 @@ def resolve_upload_path(
             return None, "Upload stays under workspace roots or outputs/."
         return Path(path), ""
     return None, (
-        "Upload stays under workspace roots or outputs/. "
-        "Add the folder in Settings → roots."
+        "Upload stays under workspace roots or outputs/. " + FOLDER_CHOICE_HELP
     )
 
 

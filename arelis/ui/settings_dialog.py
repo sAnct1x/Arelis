@@ -56,6 +56,7 @@ from arelis.ui.scale import (
     scale_preset_label,
 )
 from arelis.ui.theme import GLASS, SPACE, polish_combo_popup, space_box
+from arelis.workspace import FOLDER_CHOICE_HELP
 
 log = logging.getLogger(__name__)
 
@@ -751,15 +752,14 @@ class SettingsDialog(QDialog):
         # --- Roots (projects Arelis may read/write) ---
         roots_tab = QWidget()
         roots_tab.setObjectName("SettingsTabBody")
-        roots_tab.setAccessibleName("roots")
+        roots_tab.setAccessibleName("folders")
         roots_l = QVBoxLayout(roots_tab)
         roots_l.setContentsMargins(*space_box("inset", "plate", "inset", "inset"))
         roots_l.setSpacing(SPACE["gap"])
         roots_hint = QLabel(
-            "Folders Arelis may read and write. Default is this repo only. "
-            "Add another project when you actually work on it, workspace dock "
-            "(add / new / remove) or edit here. Writes need Allow; read-only "
-            "roots never accept write/edit. Saved to data/config.local.yaml."
+            "Folders Arelis may read and write. "
+            + FOLDER_CHOICE_HELP
+            + " Changing a file still asks you first. A read-only folder cannot be changed."
         )
         roots_hint.setObjectName("SettingsHint")
         roots_hint.setWordWrap(True)
@@ -781,14 +781,14 @@ class SettingsDialog(QDialog):
         path_row = QHBoxLayout()
         self.root_path = QLineEdit()
         self.root_path.setObjectName("SettingsField")
-        self.root_path.setPlaceholderText("C:/Users/…/project")
+        self.root_path.setPlaceholderText("your folder")
         browse_btn = QPushButton("Browse")
         browse_btn.clicked.connect(self._browse_root_path)
         path_row.addWidget(self.root_path, stretch=1)
         path_row.addWidget(browse_btn)
         self.root_read_only = QCheckBox("Read-only")
         root_form.addRow("Name", self.root_name)
-        root_form.addRow("Path", path_row)
+        root_form.addRow("Folder", path_row)
         root_form.addRow(self.root_read_only)
         roots_l.addLayout(root_form)
 
@@ -805,7 +805,7 @@ class SettingsDialog(QDialog):
         root_btns.addStretch(1)
         roots_l.addLayout(root_btns)
         self._refresh_roots_list()
-        tabs.addTab(roots_tab, "roots")
+        tabs.addTab(roots_tab, "folders")
 
         # --- Memory (live: forget commits immediately, not via Apply) ---
         self.memory = ActiveFactsPanel()
@@ -1315,7 +1315,7 @@ class SettingsDialog(QDialog):
 
     def _browse_root_path(self) -> None:
         start = self.root_path.text().strip() or str(Path.home())
-        chosen = QFileDialog.getExistingDirectory(self, "Workspace root folder", start)
+        chosen = QFileDialog.getExistingDirectory(self, "Choose a folder", start)
         if chosen:
             self.root_path.setText(chosen)
 
