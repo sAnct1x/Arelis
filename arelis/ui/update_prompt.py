@@ -19,12 +19,14 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QThread, QTimer, Signal
+from PySide6.QtCore import QObject, Qt, QThread, QTimer, Signal
+from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import QApplication, QProgressBar, QWidget
 
 from arelis import __version__
 from arelis.backup import backup_before_upgrade
 from arelis.ui.dialog import GlassDialog, confirm, notice
+from arelis.ui.foreground import flash_taskbar, process_owns_foreground
 from arelis.update import (
     Release,
     UpdateError,
@@ -150,6 +152,9 @@ class UpdatePrompt(QObject):
         self._backup_timer: QTimer | None = None
         self._installer: Path | None = None
         self._install_started = False
+        self._held_release: Release | None = None
+        self._hold_connected = False
+        self._offer_shown = False
 
     def start(self) -> None:
         config = getattr(self._window, "config", None)
@@ -170,10 +175,45 @@ class UpdatePrompt(QObject):
         self._check.answered.connect(self._offer)
         self._check.start()
 
-    def _offer(self, release: object) -> None:
-        if not isinstance(release, Release):
+    def _should_hold_offer(self) -> bool:
+        """True when showing the modal would steal someone else's keyboard."""
+        if getattr(self._window, "_launched_in_background", False):
+            return True
+        return not process_owns_foreground()
+
+    def _hold_offer(self, release: Release) -> None:
+        """Flash once and show the dialog the next time Arelis is brought front."""
+        if self._held_release is None:
+            flash_taskbar(self._window)
+        self._held_release = release
+        if self._hold_connected:
             return
-        log.info("update available: %s", release.tag)
+        app = QGuiApplication.instance()
+        if app is None:
+            return
+        app.applicationStateChanged.connect(self._on_app_state_for_held_offer)
+        self._hold_connected = True
+
+    def _on_app_state_for_held_offer(self, state: object) -> None:
+        if state != Qt.ApplicationState.ApplicationActive:
+            return
+        release = self._held_release
+        if release is None:
+            return
+        app = QGuiApplication.instance()
+        if app is not None and self._hold_connected:
+            try:
+                app.applicationStateChanged.disconnect(self._on_app_state_for_held_offer)
+            except (RuntimeError, TypeError):
+                pass
+        self._hold_connected = False
+        self._held_release = None
+        self._show_offer(release)
+
+    def _show_offer(self, release: Release) -> None:
+        if self._offer_shown:
+            return
+        self._offer_shown = True
         accepted = confirm(
             self._window,
             "Update Arelis",
@@ -190,6 +230,15 @@ class UpdatePrompt(QObject):
             log.info("update declined by the user")
             return
         self._begin_download(release)
+
+    def _offer(self, release: object) -> None:
+        if not isinstance(release, Release):
+            return
+        log.info("update available: %s", release.tag)
+        if self._should_hold_offer():
+            self._hold_offer(release)
+            return
+        self._show_offer(release)
 
     def _begin_download(self, release: Release) -> None:
         self._progress = _DownloadDialog(release.version, self._window)
