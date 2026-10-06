@@ -247,6 +247,19 @@ class CatalogTool:
             raise ValueError("horizons table must be observer or vectors.")
         day_text = (day or "").strip()
         use_now = kind == "observer" and not day_text
+        if use_now and body.strip() == "399":
+            return ToolResult(
+                ok=False,
+                output=(
+                    "Distances here are measured from Earth's center, "
+                    "so there is no distance to Earth itself."
+                ),
+                data={
+                    "fail_class": "fail:name",
+                    "action": "horizons",
+                    "target": raw,
+                },
+            )
         command = _quoted_command(body)
         if kind == "vectors":
             start = _day_or_today(day_text)
@@ -266,9 +279,10 @@ class CatalogTool:
                 "STEP_SIZE": "1d",
             }
         elif use_now:
-            start_dt = _utc_now().astimezone(UTC).replace(second=0, microsecond=0)
-            stop_dt = start_dt + timedelta(days=30)
-            start = start_dt.date()
+            now_dt = _utc_now().astimezone(UTC).replace(second=0, microsecond=0)
+            start_dt = now_dt - timedelta(hours=1)
+            stop_dt = now_dt + timedelta(days=30)
+            start = now_dt.date()
             params = {
                 "format": "json",
                 "COMMAND": command,
@@ -357,8 +371,30 @@ class CatalogTool:
                 },
             )
         if use_now:
-            rows = _parse_observer_delta_rows(blob)
-            summary = _distance_summary(raw, rows)
+            who = _body_plain_name(body, raw)
+            try:
+                rows = _parse_observer_delta_rows(blob)
+            except ValueError:
+                return ToolResult(
+                    ok=False,
+                    output=f"No distance table came back for {who}.",
+                    data={
+                        "fail_class": "fail:parse",
+                        "action": "horizons",
+                        "target": body,
+                    },
+                )
+            if len(rows) < 2:
+                return ToolResult(
+                    ok=False,
+                    output=f"No distance table came back for {who}.",
+                    data={
+                        "fail_class": "fail:parse",
+                        "action": "horizons",
+                        "target": body,
+                    },
+                )
+            summary = _distance_summary(who, rows)
             return ToolResult(
                 ok=True,
                 output=summary,
@@ -368,6 +404,8 @@ class CatalogTool:
                     "target": body,
                     "date": start.isoformat(),
                     "mode": "now",
+                    "source": "JPL Horizons",
+                    "basis": "distance from Earth's center",
                 },
             )
         clipped = blob if len(blob) <= 3500 else blob[:3500] + "\n[truncated]"
@@ -610,48 +648,135 @@ def _zone_label(local: datetime) -> str:
 
 def _format_local_stamp(stamp: datetime) -> str:
     local = _to_local(stamp)
-    day = local.strftime("%b ") + str(local.day)
     clock = local.strftime("%I:%M %p").lstrip("0")
-    return f"{day}, {local.year} {clock} {_zone_label(local)}"
+    return f"{local:%b} {local.day} at about {clock} {_zone_label(local)}"
 
 
 def _km_text(au: float) -> str:
     return f"{round(au * _AU_KM):,}"
 
 
-def _next_turn(rows: list[tuple[datetime, float]], *, lowest: bool) -> tuple[datetime, float]:
-    """First closest (or farthest) point after now, not the extreme of the whole window.
+def _body_plain_name(body_id: str, raw: str) -> str:
+    want = (body_id or "").strip()
+    for spec in BODY_BY_NAME.values():
+        if spec.horizons_id == want:
+            return spec.name
+    text = " ".join((raw or "").split())
+    if text and not text.isdigit():
+        return text
+    return text or want or "body"
 
-    If now sits right at a perigee, the window minimum is now itself; the next
-    perigee is the first later row where the distance stops falling.
+
+def _sentence_name(plain: str, *, start: bool) -> str:
+    key = (plain or "").strip().casefold()
+    if key == "moon":
+        return "The Moon" if start else "the Moon"
+    if key == "sun":
+        return "The Sun" if start else "the Sun"
+    name = (plain or "").strip() or "body"
+    if start:
+        return name[:1].upper() + name[1:]
+    return name
+
+
+def _round_to_minute(stamp: datetime) -> datetime:
+    extra = stamp.second + stamp.microsecond / 1_000_000
+    stamped = stamp.replace(second=0, microsecond=0)
+    if extra >= 30:
+        stamped += timedelta(minutes=1)
+    return stamped
+
+
+def _interpolate_turn(
+    rows: list[tuple[datetime, float]], i: int
+) -> tuple[datetime, float]:
+    """Parabola through hourly samples i-1, i, i+1. Vertex time and distance."""
+    t1, d1 = rows[i]
+    d0 = rows[i - 1][1]
+    d2 = rows[i + 1][1]
+    den = d0 - 2 * d1 + d2
+    if den == 0:
+        return _round_to_minute(t1), d1
+    offset_h = 0.5 * (d0 - d2) / den
+    dist = d1 + offset_h * (0.5 * (d2 - d0) + offset_h * (den / 2.0))
+    when = t1 + timedelta(hours=offset_h)
+    return _round_to_minute(when), dist
+
+
+def _next_turn(
+    rows: list[tuple[datetime, float]], *, lowest: bool, now: datetime
+) -> tuple[datetime, float, bool] | None:
+    """Next closest (or farthest) turning point. None if the window has none.
+
+    A pass more than 30 minutes before now is skipped. Within 30 minutes is now.
     """
     values = [au for _, au in rows]
     for i in range(1, len(values) - 1):
         before, here, after = values[i - 1], values[i], values[i + 1]
-        if lowest and before > here <= after:
-            return rows[i]
-        if not lowest and before < here >= after:
-            return rows[i]
-    later = rows[1:] or rows
-    pick = min if lowest else max
-    return pick(later, key=lambda row: row[1])
+        if lowest and not (before > here <= after):
+            continue
+        if not lowest and not (before < here >= after):
+            continue
+        when, au = _interpolate_turn(rows, i)
+        delta = when - now
+        if delta < timedelta(minutes=-30):
+            continue
+        if abs(delta) <= timedelta(minutes=30):
+            return when, au, True
+        return when, au, False
+    return None
 
 
-def _distance_summary(label: str, rows: list[tuple[datetime, float]]) -> str:
-    now_stamp, now_au = rows[0]
-    closest_stamp, closest_au = _next_turn(rows, lowest=True)
-    farthest_stamp, farthest_au = _next_turn(rows, lowest=False)
-    who = label.strip() or "body"
-    return (
-        f"{who} distance now: {_km_text(now_au)} km "
-        f"(as of {_format_local_stamp(now_stamp)}). "
-        f"Next closest: {_format_local_stamp(closest_stamp)}, "
-        f"{_km_text(closest_au)} km. "
-        f"Next farthest: {_format_local_stamp(farthest_stamp)}, "
-        f"{_km_text(farthest_au)} km. "
-        "Source: JPL Horizons (ssd.jpl.nasa.gov). "
-        "Not a measurement this turn."
-    )
+def _distance_summary(plain: str, rows: list[tuple[datetime, float]]) -> str:
+    now_stamp, now_au = rows[1]
+    closest = _next_turn(rows, lowest=True, now=now_stamp)
+    farthest = _next_turn(rows, lowest=False, now=now_stamp)
+    who = _sentence_name(plain, start=True)
+    bits = [f"{who} is {_km_text(now_au)} km from Earth right now."]
+    if closest is None and farthest is None:
+        last_au = rows[-1][1]
+        if last_au < now_au:
+            bits.append(
+                "It keeps getting closer for the next 30 days, so there is "
+                "no closest or farthest point in that time."
+            )
+        elif last_au > now_au:
+            bits.append(
+                "It keeps getting farther for the next 30 days, so there is "
+                "no closest or farthest point in that time."
+            )
+        else:
+            bits.append(
+                "It does not reach a closest or farthest point in the next 30 days."
+            )
+        return " ".join(bits)
+    if closest is not None and closest[2]:
+        bits.append("It is at its closest right now.")
+    if farthest is not None and farthest[2]:
+        bits.append("It is at its farthest right now.")
+    c_later = closest is not None and not closest[2]
+    f_later = farthest is not None and not farthest[2]
+    if c_later and f_later:
+        bits.append(
+            f"It will be closest on {_format_local_stamp(closest[0])} "
+            f"({_km_text(closest[1])} km) and farthest on "
+            f"{_format_local_stamp(farthest[0])} ({_km_text(farthest[1])} km)."
+        )
+    elif c_later:
+        bits.append(
+            f"It will be closest on {_format_local_stamp(closest[0])} "
+            f"({_km_text(closest[1])} km)."
+        )
+    elif f_later:
+        bits.append(
+            f"It will be farthest on {_format_local_stamp(farthest[0])} "
+            f"({_km_text(farthest[1])} km)."
+        )
+    if closest is None:
+        bits.append("It does not reach a closest point in the next 30 days.")
+    elif farthest is None:
+        bits.append("It does not reach a farthest point in the next 30 days.")
+    return " ".join(bits)
 
 
 def _horizons_retryable(response: httpx.Response) -> bool:

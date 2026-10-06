@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
-from urllib.parse import unquote
+from datetime import UTC, datetime, timedelta
+from urllib.parse import unquote, unquote_plus
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -18,15 +18,21 @@ _NOW = datetime(2026, 10, 5, 23, 17, tzinfo=UTC)
 _NOW_AU = 0.002498
 _FAR_AU = 0.002705  # ~404,681 km
 _NEAR_AU = 0.002436  # ~364,386 km
+_NY = ZoneInfo("America/New_York")
 
 _OBSERVER_BLOB = f"""
 *******************************************************************************
 Target body name: Moon (301)
 *******************************************************************************
 $$SOE
+ 2026-Oct-05 22:17     {(_NOW_AU - 0.000001):.9f}  -0.0100000000000000
  2026-Oct-05 23:17     {_NOW_AU:.9f}  -0.0100000000000000
+ 2026-Oct-16 22:00     {(_FAR_AU - 0.000001):.9f}   0.0001000000000000
  2026-Oct-16 23:00     {_FAR_AU:.9f}   0.0001000000000000
+ 2026-Oct-17 00:00     {(_FAR_AU - 0.000001):.9f}   0.0001000000000000
+ 2026-Oct-28 17:00     {(_NEAR_AU + 0.000001):.9f}   0.0002000000000000
  2026-Oct-28 18:00     {_NEAR_AU:.9f}   0.0002000000000000
+ 2026-Oct-28 19:00     {(_NEAR_AU + 0.000001):.9f}   0.0002000000000000
 $$EOE
 *******************************************************************************
 """
@@ -43,6 +49,36 @@ def _tool(handler) -> CatalogTool:
     return CatalogTool(
         client=httpx.AsyncClient(transport=httpx.MockTransport(handler), timeout=5.0)
     )
+
+
+def _observer_blob(rows: list[tuple[datetime, float]]) -> str:
+    lines = ["$$SOE"]
+    for stamp, au in rows:
+        lines.append(f" {stamp:%Y-%b-%d %H:%M}     {au:.9f}  0.01")
+    lines.append("$$EOE")
+    return "\n".join(lines)
+
+
+def _hourly_from_now_minus_1h(values: list[float]) -> str:
+    start = _NOW - timedelta(hours=1)
+    rows = [(start + timedelta(hours=i), au) for i, au in enumerate(values)]
+    return _observer_blob(rows)
+
+
+def _tool_blob(blob: str, seen: list[str]) -> CatalogTool:
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(unquote_plus(str(request.url)))
+        return httpx.Response(200, json={"result": blob})
+
+    return _tool(handler)
+
+
+@pytest.fixture(autouse=True)
+def _fixed_clock(monkeypatch: pytest.MonkeyPatch) -> None:
+    import arelis.tools.catalog as catalog
+
+    monkeypatch.setattr(catalog, "_utc_now", lambda: _NOW)
+    monkeypatch.setattr(catalog, "_local_zone", lambda: _NY)
 
 
 @pytest.mark.asyncio
@@ -96,14 +132,7 @@ async def test_ambiguous_name_list_is_not_ok() -> None:
 
 
 @pytest.mark.asyncio
-async def test_moon_distance_now_and_next_extremes_in_local_time(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    import arelis.tools.catalog as catalog
-
-    monkeypatch.setattr(catalog, "_utc_now", lambda: _NOW)
-    monkeypatch.setattr(catalog, "_local_zone", lambda: ZoneInfo("America/New_York"))
-
+async def test_moon_distance_now_and_next_extremes_in_local_time() -> None:
     seen: list[str] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -116,7 +145,7 @@ async def test_moon_distance_now_and_next_extremes_in_local_time(
     url = seen[0]
     assert "START_TIME=" in url
     assert "2026-10-05" in url
-    assert "23:17" in url
+    assert "22:17" in url
     assert "00:00" not in url.split("START_TIME=")[1][:20]
     assert "QUANTITIES" in url.upper()
     assert "20" in url.upper().split("QUANTITIES=")[1][:20]
@@ -129,13 +158,15 @@ async def test_moon_distance_now_and_next_extremes_in_local_time(
     # Far: 2026-10-16 23:00 UTC -> 7:00 PM Eastern on Oct 16
     assert "Oct 16" in out
     assert "7:00 PM" in out or "7 PM" in out
-    # Near: 2026-10-28 18:00 UTC -> 2:00 PM Eastern on Oct 28
+    # Near: 2026-Oct-28 18:00 UTC -> 2:00 PM Eastern on Oct 28
     assert "Oct 28" in out
     assert "2:00 PM" in out or "2 PM" in out
     assert "Eastern" in out
     assert str(far_km) in out or f"{far_km:,}" in out
     assert str(near_km) in out or f"{near_km:,}" in out
     assert "Target body name" not in out
+    assert "The Moon" in out or "the Moon" in out
+    assert "from Earth right now" in out
 
 
 @pytest.mark.asyncio
@@ -157,21 +188,19 @@ async def test_http_400_surfaces_horizons_message() -> None:
 
 
 @pytest.mark.asyncio
-async def test_next_closest_is_a_later_pass_when_now_is_the_closest(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Asked right at a closest pass, the answer must name the next one, not now."""
-    import arelis.tools.catalog as catalog
-
-    monkeypatch.setattr(catalog, "_utc_now", lambda: _NOW)
-    monkeypatch.setattr(catalog, "_local_zone", lambda: ZoneInfo("America/New_York"))
+async def test_next_closest_is_a_later_pass_when_now_is_the_closest() -> None:
+    """Just past a closest pass (more than 30 minutes ago): name the next one."""
     blob = """
 $$SOE
- 2026-Oct-05 23:17     0.002430000  0.01
- 2026-Oct-06 23:00     0.002440000  0.01
+ 2026-Oct-05 22:17     0.002430000  0.01
+ 2026-Oct-05 23:17     0.002440000  0.01
+ 2026-Oct-06 23:00     0.002500000  0.01
+ 2026-Oct-16 22:00     0.002704000  0.01
  2026-Oct-16 23:00     0.002705000  0.01
+ 2026-Oct-17 00:00     0.002704000  0.01
+ 2026-Oct-30 17:00     0.002437000  0.01
  2026-Oct-30 18:00     0.002436000  0.01
- 2026-Oct-31 18:00     0.002450000  0.01
+ 2026-Oct-30 19:00     0.002437000  0.01
 $$EOE
 """
 
@@ -181,6 +210,171 @@ $$EOE
 
     result = await _tool(handler).run(action="horizons", target="Moon")
     assert result.ok, result.output
-    closest = result.output.split("Next closest:")[1].split("Next farthest:")[0]
-    assert "Oct 30" in closest
-    assert "Oct 5" not in closest
+    out = result.output
+    assert "Oct 30" in out
+    assert "closest right now" not in out
+    assert "Oct 5" not in out
+
+
+@pytest.mark.asyncio
+async def test_no_turning_point_in_window_does_not_invent_one() -> None:
+    values = [1.63 - 0.001 * i for i in range(12)]
+    seen: list[str] = []
+    result = await _tool_blob(_hourly_from_now_minus_1h(values), seen).run(
+        action="horizons", target="Mars"
+    )
+    assert result.ok, result.output
+    out = result.output
+    assert "Mars" in out
+    assert "30 days" in out
+    last = (_NOW + timedelta(hours=10)).astimezone(_NY)
+    first = _NOW.astimezone(_NY)
+    last_clock = last.strftime("%I:%M %p").lstrip("0")
+    first_clock = first.strftime("%I:%M %p").lstrip("0")
+    assert f"{last:%b} {last.day}" not in out or last_clock not in out
+    assert "closest on" not in out
+    assert "farthest on" not in out
+    assert first_clock not in out
+
+
+@pytest.mark.asyncio
+async def test_just_past_a_deep_perigee_names_the_next_perigee_not_the_next_hour() -> None:
+    # now-1h: deep perigee; now: rising; apogee later; shallower perigee after that.
+    values = [
+        0.002382,
+        0.002390,
+        0.002500,
+        0.002600,
+        0.002680,
+        0.002705,
+        0.002680,
+        0.002550,
+        0.002460,
+        0.002440,
+        0.002460,
+        0.002480,
+    ]
+    seen: list[str] = []
+    result = await _tool_blob(_hourly_from_now_minus_1h(values), seen).run(
+        action="horizons", target="Moon"
+    )
+    assert result.ok, result.output
+    out = result.output
+    expect = (_NOW + timedelta(hours=8)).astimezone(_NY)
+    assert expect.strftime("%b") in out
+    assert str(expect.day) in out
+    assert expect.strftime("%I:%M %p").lstrip("0") in out
+    now_local = _NOW.astimezone(_NY)
+    next_hour = (_NOW + timedelta(hours=1)).astimezone(_NY)
+    assert now_local.strftime("%I:%M %p").lstrip("0") not in out
+    assert next_hour.strftime("%I:%M %p").lstrip("0") not in out
+
+
+@pytest.mark.asyncio
+async def test_request_spans_30_days_hourly() -> None:
+    seen: list[str] = []
+    await _tool_blob(_hourly_from_now_minus_1h([0.0025, 0.0024, 0.0026]), seen).run(
+        action="horizons", target="Moon"
+    )
+    url = seen[0]
+    assert "STEP_SIZE=1h" in url
+    assert "START_TIME=2026-10-05 22:17" in url
+    assert "STOP_TIME=2026-11-04 23:17" in url
+
+
+@pytest.mark.asyncio
+async def test_turning_point_time_is_interpolated() -> None:
+    d0, d1, d2 = 0.002500, 0.002400, 0.002450
+    values = [0.002520, 0.002510, d0, d1, d2, 0.002500]
+    seen: list[str] = []
+    result = await _tool_blob(_hourly_from_now_minus_1h(values), seen).run(
+        action="horizons", target="Moon"
+    )
+    assert result.ok, result.output
+    out = result.output
+    offset_h = 0.5 * (d0 - d2) / (d0 - 2 * d1 + d2)
+    vertex = _NOW + timedelta(hours=2) + timedelta(hours=offset_h)
+    extra = vertex.second + vertex.microsecond / 1_000_000
+    if extra >= 30:
+        vertex = vertex.replace(second=0, microsecond=0) + timedelta(minutes=1)
+    else:
+        vertex = vertex.replace(second=0, microsecond=0)
+    local = vertex.astimezone(_NY)
+    clock = local.strftime("%I:%M %p").lstrip("0")
+    grid = (_NOW + timedelta(hours=2)).astimezone(_NY)
+    grid_clock = grid.strftime("%I:%M %p").lstrip("0")
+    assert clock in out, out
+    assert grid_clock not in out, out
+
+
+@pytest.mark.asyncio
+async def test_label_uses_body_name() -> None:
+    blob = _hourly_from_now_minus_1h([0.002500, 0.002498, 0.002510])
+    for target in ("301", "Moon"):
+        seen: list[str] = []
+        result = await _tool_blob(blob, seen).run(action="horizons", target=target)
+        assert result.ok, result.output
+        out = result.output
+        assert "The Moon" in out or "the Moon" in out
+        assert "301" not in out
+
+
+@pytest.mark.asyncio
+async def test_summary_has_no_model_facing_text() -> None:
+    seen: list[str] = []
+    result = await _tool_blob(_OBSERVER_BLOB, seen).run(action="horizons", target="Moon")
+    assert result.ok, result.output
+    out = result.output
+    assert "ssd.jpl.nasa.gov" not in out
+    assert "Not a measurement" not in out
+    assert "Horizons" not in out
+    assert "301" not in out
+    assert result.data.get("source") == "JPL Horizons"
+
+
+@pytest.mark.asyncio
+async def test_closest_within_the_next_hour_is_not_skipped() -> None:
+    d0, d1, d2 = 0.002500, 0.002400, 0.002410
+    start = _NOW - timedelta(hours=1)
+    rows = [
+        (start, d0),
+        (_NOW, d1),
+        (_NOW + timedelta(hours=1), d2),
+        (_NOW + timedelta(days=27, hours=-1), 0.002300),
+        (_NOW + timedelta(days=27), 0.002200),
+        (_NOW + timedelta(days=27, hours=1), 0.002300),
+    ]
+    seen: list[str] = []
+    result = await _tool_blob(_observer_blob(rows), seen).run(
+        action="horizons", target="Moon"
+    )
+    assert result.ok, result.output
+    out = result.output
+    later = (_NOW + timedelta(days=27)).astimezone(_NY)
+    assert f"{later:%b} {later.day}" not in out
+    offset_h = 0.5 * (d0 - d2) / (d0 - 2 * d1 + d2)
+    vertex = _NOW + timedelta(hours=offset_h)
+    extra = vertex.second + vertex.microsecond / 1_000_000
+    if extra >= 30:
+        vertex = vertex.replace(second=0, microsecond=0) + timedelta(minutes=1)
+    else:
+        vertex = vertex.replace(second=0, microsecond=0)
+    local = vertex.astimezone(_NY)
+    clock = local.strftime("%I:%M %p").lstrip("0")
+    assert "closest right now" in out or clock in out
+
+
+@pytest.mark.asyncio
+async def test_earth_gives_a_plain_message() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        del request
+        return httpx.Response(200, json={"result": "$$SOE\n$$EOE\n"})
+
+    result = await _tool(handler).run(action="horizons", target="Earth")
+    assert result.ok is False
+    assert result.data.get("fail_class") == "fail:name"
+    assert result.output == (
+        "Distances here are measured from Earth's center, "
+        "so there is no distance to Earth itself."
+    )
+    assert "distance table" not in result.output
