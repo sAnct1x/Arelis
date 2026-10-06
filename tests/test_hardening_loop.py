@@ -221,8 +221,10 @@ async def test_calculator_filler_without_the_number_ships_the_result() -> None:
     )
     assert "algebra result missing from chat" in thinking
     done = next(e for e in events if e.type == EventType.ASSISTANT_DONE)
+    # #121: plain sentence with the number, not the "1+1 = 2" receipt.
     assert "2" in done.payload["text"]
     assert "What's next?" not in done.payload["text"]
+    assert "1+1 = 2" not in done.payload["text"]
 
 
 @pytest.mark.asyncio

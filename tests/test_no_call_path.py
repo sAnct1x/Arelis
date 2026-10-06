@@ -652,7 +652,9 @@ async def test_dispatch_calculator_same_call_ships_the_number() -> None:
     record_same_call(ctx.same_ok, "calculator", args)
     assert await dispatch_calls(loop, ctx, r, 2) is True
     assert loop.finished is not None
-    assert loop.finished[0] == "14-6 = 8"
+    # #121: same-call finish ships a plain sentence with the number, not the formula.
+    assert "8" in loop.finished[0]
+    assert "14-6" not in loop.finished[0]
     thinking = " ".join(str(e.payload.get("text") or "") for e in loop.bus.events)
     assert "same-call algebra" not in thinking
 

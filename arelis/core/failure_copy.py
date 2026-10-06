@@ -238,6 +238,18 @@ def _algebra_result_tokens(output: str) -> list[str]:
         parts = right.split()
         if len(parts) >= 2 and parts[-1].isalpha():
             tokens.append(parts[0])
+    # A spoken answer often uses the short display form ("1.88"), not the
+    # full float from the receipt. Count that as stating the result.
+    for tok in list(tokens):
+        if not re.fullmatch(r"-?\d+\.\d{3,}", tok):
+            continue
+        try:
+            val = float(tok)
+        except ValueError:
+            continue
+        short = f"{val:.2f}".rstrip("0").rstrip(".")
+        if short and short not in tokens:
+            tokens.append(short)
     return [t for t in tokens if t]
 
 
@@ -269,11 +281,24 @@ def reply_states_algebra_result(content: str, tool: str, output: str) -> bool:
     return any(_token_in_reply(tok, content or "") for tok in tokens)
 
 
+_DATA_FOLLOWUP = (
+    "I got the information, but I could not put it into words. Ask me again and I will try."
+)
+
+_PLANET_IN_ASK = re.compile(r"(?i)\b(mercury|venus|mars|jupiter|saturn|uranus|neptune|pluto)\b")
+# Spoken duration rewrite for "how long is a year on Mars": (686.980)/365.256
+_PERIOD_OVER_EARTH = re.compile(r"^\(\d+(?:\.\d+)?\)/365\.256$")
+_WANTS_EARTH_DAYS = re.compile(r"(?i)\b(?:earth\s+)?days?\b")
+# Calendar / reminder / task lists are already written for people.
+_PERSON_LIST_TOOLS = frozenset({"agenda", "remind", "tasks"})
+
+
 def chat_followup_from_tool(tool: str, output: str, *, ask: str = "") -> str:
     """Person-facing copy when the model leaves chat empty after a tool.
 
     The model still sees the raw tool result (including instruction footers).
-    This path is only the last-resort chat line.
+    This path is only the last-resort chat line. It must never ship a formula
+    line, a data header, or a bare Done.
     """
     body = (output or "").strip()
     name = (tool or "").strip()
@@ -285,7 +310,7 @@ def chat_followup_from_tool(tool: str, output: str, *, ask: str = "") -> str:
         return "Ready when you are. What problem do you want to start with?"
     if not body:
         return (
-            "The tool finished, but I could not write a follow-up. "
+            "I finished the lookup, but I could not write a follow-up. "
             "Send the same ask again."
         )
     listing = _WORKSPACE_LISTING_LINE.search(body) or body.lstrip().startswith(
@@ -299,7 +324,7 @@ def chat_followup_from_tool(tool: str, output: str, *, ask: str = "") -> str:
     if not cleaned:
         if name == "agenda":
             return "No events in this window."
-        return "The tool finished. The details are in Workspace."
+        return "I finished the lookup. The details are in Workspace."
     # Ahead of the page branch, because web_fetch is on both lists now: it was
     # a page reader when that branch was written and it answers APIs as well
     # since it grew POST/PUT/PATCH/DELETE. _page_talk has no idea what to do
@@ -309,8 +334,8 @@ def chat_followup_from_tool(tool: str, output: str, *, ask: str = "") -> str:
             "The call went through and came back with data, but I did not get "
             "a sentence out of it. Ask again and I will read the response."
         )
-    if name == "calculator":
-        return pretty_calculator_chat(cleaned)
+    if name in {"calculator", "units"}:
+        return plain_algebra_chat(cleaned, ask=ask)
     if name in _PAGE_TOOLS:
         if looks_like_bot_wall(cleaned):
             return (
@@ -328,9 +353,101 @@ def chat_followup_from_tool(tool: str, output: str, *, ask: str = "") -> str:
             "That PDF is handwritten or scanned, I still need to look at "
             "the page images. Ask me again if I stopped on the path list."
         )
+    # A posed CAS/python dump is the answer they asked for. Do not treat
+    # latex / result lines as a generic data header.
+    if name in {"cas", "python"} and _algebra_was_asked(ask):
+        if len(cleaned) > 1600:
+            cleaned = cleaned[:1597].rstrip() + "…"
+        return cleaned
+    # Agenda / remind / tasks already answer in words. Keep the list.
+    if name in _PERSON_LIST_TOOLS:
+        if len(cleaned) > 1600:
+            cleaned = cleaned[:1597].rstrip() + "…"
+        return cleaned
+    if _looks_like_data_dump(cleaned):
+        return _DATA_FOLLOWUP
     if len(cleaned) > 1600:
         cleaned = cleaned[:1597].rstrip() + "…"
     return cleaned
+
+
+def plain_algebra_chat(output: str, *, ask: str = "") -> str:
+    """One plain sentence from a calculator or units receipt.
+
+    Never the formula line. The model still saw the exact receipt.
+    """
+    body = (output or "").strip()
+    if not body:
+        return body
+    expr = ""
+    right = body
+    if " = " in body:
+        expr, right = body.rsplit(" = ", 1)
+        expr = expr.strip()
+        right = right.strip()
+    main = right
+    if " (exactly " in main:
+        main = main.split(" (exactly ", 1)[0].strip()
+    # Units: "8.047 km" - keep the unit word.
+    parts = main.split()
+    if len(parts) >= 2 and parts[-1].isalpha():
+        magnitude = _pretty_number_token(parts[0], expr=expr)
+        unit = parts[-1]
+        return f"That works out to about {magnitude} {unit}."
+    number = _pretty_number_token(main, expr=expr)
+    if not number:
+        return _DATA_FOLLOWUP
+    planet = _PLANET_IN_ASK.search(ask or "")
+    if planet is not None and re.search(r"(?i)\byear\b", ask or ""):
+        name = planet.group(1).capitalize()
+        folded_expr = re.sub(r"\s+", "", expr)
+        if _PERIOD_OVER_EARTH.fullmatch(folded_expr):
+            return f"A year on {name} is about {number} Earth years."
+        if _WANTS_EARTH_DAYS.search(ask or ""):
+            days = _round_day_count(number)
+            return f"A year on {name} is about {days} Earth days."
+        # Age-in-planet-years and other shapes: just state the number.
+    if re.fullmatch(r"-?\d+", number):
+        return f"That works out to {number}."
+    return f"That works out to about {number}."
+
+
+def _round_day_count(number: str) -> str:
+    """Sidereal days are quoted whole; 686.98 reads as about 687."""
+    try:
+        val = float(number)
+    except ValueError:
+        return number
+    return str(round(val))
+
+
+def _looks_like_data_dump(text: str) -> bool:
+    """True when the tool answered in headers / tables / key-value lines."""
+    body = (text or "").strip()
+    if not body:
+        return False
+    if re.search(
+        r"(?im)^(api\s+version|api\s+source|target\s+body|center\s+body|"
+        r"start\s+time|revised|r\.a\.|ephemeris)\b",
+        body,
+    ):
+        return True
+    # Markdown calendar / bullet lists are person-facing, not ephemeris dumps.
+    if re.search(r"(?m)^(?:\*\*[^*]+\*\*|\s*[-*]\s+\S)", body):
+        return False
+    lines = [ln.strip() for ln in body.splitlines() if ln.strip()]
+    # Drop a trailing "Source: ..." line so a short list is not a dump.
+    lines = [ln for ln in lines if not re.match(r"(?i)^source\s*:", ln)]
+    if len(lines) >= 3:
+        short = sum(
+            1
+            for ln in lines
+            if len(ln) < 90 and not ln.endswith((".", "!", "?"))
+        )
+        if short >= 3:
+            return True
+    kv = sum(1 for ln in lines if re.match(r"^[\w ./-]{1,48}:\s+\S", ln))
+    return kv >= 2
 
 
 _SIMPLE_FRAC = re.compile(r"^-?\d{1,2}/\d{1,2}$")
@@ -471,7 +588,9 @@ __all__ = [
     "TURN_FAILED_NOTICE",
     "chat_followup_from_tool",
     "is_model_directed",
+    "plain_algebra_chat",
     "plain_reason",
+    "pretty_calculator_chat",
     "reply_states_algebra_result",
     "should_nudge_write_after_algebra",
     "should_nudge_write_after_page",

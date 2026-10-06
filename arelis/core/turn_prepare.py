@@ -457,6 +457,7 @@ def _prepare_calculator_first_move(ctx: TurnContext, text: str) -> None:
 
     The tool normalizes the line. A units ask or a CAS ask is not this
     call. The round spends the dict once. A later round does not see it.
+    A line that still cannot evaluate is left for the model to write.
     """
     if not detect_math_ask(text):
         return
@@ -468,6 +469,10 @@ def _prepare_calculator_first_move(ctx: TurnContext, text: str) -> None:
     # the second step shouldn't be preinjected. Requires comma/semicolon before
     # "then", or comma before "and then" to avoid false matches like "now and then"
     if re.search(r"(?:[,;]\s+then\b|,\s+and\s+then\b)", text, re.I):
+        return
+    from arelis.tools.calculator import expression_is_evaluable
+
+    if not expression_is_evaluable(text):
         return
     ctx.calculator_preinject = {"expression": text}
 

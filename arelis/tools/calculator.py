@@ -178,12 +178,26 @@ _BANG_FACT = re.compile(r"(?<![\w.])(\d+)\s*!")
 # The shapes people and models actually type. Each one used to come back as
 # "invalid expression (invalid syntax)", which tells the model nothing it can
 # act on, so it either retried the same call or answered from its own head.
-_LEAD_WORDS = re.compile(r"(?i)^\s*(what\s+is|whats|what's|calculate|compute|eval)\b[:\s]*")
+_LEAD_WORDS = re.compile(
+    r"(?i)^\s*(?:what\s+is|what\s+was|whats|what's|how\s+much\s+is|"
+    r"how\s+much\s+does|calculate|compute|eval)\b[:\s]*"
+)
 _TRAILING_EQ = re.compile(r"\s*=\s*\??\s*$")
+_TRAILING_Q = re.compile(r"\?+\s*$")
+_TRAILING_FILLER = re.compile(
+    r"(?i)\s+(?:please|thanks|thank\s+you|for\s+the\s+tip|for\s+me|"
+    r"real\s+quick|quickly|back\s+then|now\s+and\s+then)\s*$"
+)
 _CURRENCY = re.compile(r"[$£€¥]")
 _PERCENT_OFF = re.compile(r"(?i)(\d+(?:\.\d+)?)\s*%\s*off\s+(\S+)")
 _PERCENT_OF = re.compile(r"(?i)(\d+(?:\.\d+)?)\s*%\s*of\s+")
 _TIMES_X = re.compile(r"(?<=[\d)])\s*[xX]\s*(?=[\d(])")
+_SPOKEN_TIMES = re.compile(r"(?i)(?<=[\d)])\s*(?:times|multiplied\s+by)\s*(?=[\d(])")
+_SPOKEN_PLUS = re.compile(r"(?i)(?<=[\d)])\s*plus\s*(?=[\d(])")
+_SPOKEN_MINUS = re.compile(r"(?i)(?<=[\d)])\s*minus\s*(?=[\d(])")
+_SPOKEN_DIV = re.compile(r"(?i)(?<=[\d)])\s*(?:divided\s+by|over)\s*(?=[\d(])")
+_SPOKEN_SQUARED = re.compile(r"(?i)(?<=[\d)])\s*squared\b")
+_SPOKEN_CUBED = re.compile(r"(?i)(?<=[\d)])\s*cubed\b")
 _THOUSANDS = re.compile(r"(?<=\d),(?=\d{3}(?!\d))")
 
 # Spoken year length / years↔days. Anonymous "a planet at N AU" uses
@@ -363,11 +377,17 @@ def normalize_expression(text: str) -> str:
 
     None of this changes what the arithmetic means. `15% of 84` has exactly one
     reading, and refusing it bought nothing except a wasted round trip.
+    Spoken operators ("times", "plus", "divided by") and tip/please filler
+    are stripped here so the first calculator call does not fail on ordinary
+    talk.
     """
     spoken = rewrite_spoken_duration(text)
     if spoken is not None:
         return spoken
     source = _LEAD_WORDS.sub("", text or "")
+    # Drop "?" before filler so "for the tip?" still matches.
+    source = _TRAILING_Q.sub("", source)
+    source = _TRAILING_FILLER.sub("", source)
     source = _TRAILING_EQ.sub("", source)
     source = _CURRENCY.sub("", source)
     if "(" not in source:
@@ -378,9 +398,26 @@ def normalize_expression(text: str) -> str:
     source = _PERCENT_OFF.sub(r"(\2) * (1 - \1/100)", source)
     source = _PERCENT_OF.sub(r"(\1/100) * ", source)
     source = _TIMES_X.sub("*", source)
+    source = _SPOKEN_TIMES.sub("*", source)
+    source = _SPOKEN_PLUS.sub("+", source)
+    source = _SPOKEN_MINUS.sub("-", source)
+    source = _SPOKEN_DIV.sub("/", source)
+    source = _SPOKEN_SQUARED.sub("**2", source)
+    source = _SPOKEN_CUBED.sub("**3", source)
     # People write 17^2. Python wants **. This tool has no bitwise XOR.
     source = source.replace("^", "**")
     return _BANG_FACT.sub(r"factorial(\1)", source)
+
+
+def expression_is_evaluable(text: str) -> bool:
+    """True when normalize + whitelist eval would succeed for this line."""
+    try:
+        evaluate_expression(text)
+    # Silence is the answer here: any failure just means the line is not
+    # math we can arm up front, so the model writes the call itself.
+    except Exception:
+        return False
+    return True
 
 
 def evaluate_expression(expression: str) -> float | int:
