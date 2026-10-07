@@ -15,6 +15,7 @@ from arelis.core.no_call_finish import run_finish_steps
 from arelis.core.prompt_sections import append_delivery_context
 from arelis.core.skills import select_skill_ids_detailed
 from arelis.ui.theme import THEME_CHOICES, apply_theme
+from arelis.ui.theme_tokens import spoken_theme_name, theme_spoken_name
 from tests.test_no_call_path import _ctx, _FakeLoop, _scratch
 
 _ASK = "what theme am I on right now?"
@@ -31,13 +32,16 @@ def _delivery_blob() -> str:
 def test_what_theme_am_i_on_sees_the_live_name(theme_id: str) -> None:
     """The turn she answers from names this theme, and not a different one."""
     apply_theme(theme_id)
-    label = _LABELS[theme_id]
+    spoken = theme_spoken_name(theme_id)
     blob = _delivery_blob()
-    assert label in blob
-    for other_id, other in _LABELS.items():
+    assert spoken in blob
+    menu = _LABELS[theme_id]
+    if "(" in menu:
+        assert menu not in blob
+    for other_id in _LABELS:
         if other_id == theme_id:
             continue
-        assert other not in blob
+        assert theme_spoken_name(other_id) not in blob
 
 
 @pytest.mark.parametrize(
@@ -70,13 +74,34 @@ def test_a_book_theme_is_not_the_screen() -> None:
 @pytest.mark.parametrize("theme_id", list(_LABELS))
 async def test_i_dont_know_on_a_theme_ask_names_the_live_theme(theme_id: str) -> None:
     apply_theme(theme_id)
-    label = _LABELS[theme_id]
     loop = _FakeLoop()
     scratch = _scratch(text=_ASK, content="I don't know")
     ctx = _ctx(text=_ASK)
     assert await run_finish_steps(loop, ctx, scratch, 0) == "finish"
     assert loop.finished is not None
-    assert loop.finished[0] == f"You're on {label}."
+    assert loop.finished[0] == f"You're on {theme_spoken_name(theme_id)}."
+
+
+def test_a_parenthetical_on_a_menu_label_is_not_spoken() -> None:
+    """The menu can keep a tag. She does not say it."""
+    assert _LABELS["filament"] == "filament (testing)"
+    assert spoken_theme_name("filament (testing)") == "filament"
+    assert spoken_theme_name("sodium") == "sodium"
+    assert spoken_theme_name("night (late)") == "night"
+    assert spoken_theme_name("day (beta) (wip)") == "day"
+
+
+@pytest.mark.asyncio
+async def test_filament_is_spoken_without_the_testing_tag() -> None:
+    apply_theme("filament")
+    assert _LABELS["filament"] == "filament (testing)"
+    assert "(testing)" not in _delivery_blob()
+    loop = _FakeLoop()
+    scratch = _scratch(text=_ASK, content="You're on filament (testing).")
+    ctx = _ctx(text=_ASK)
+    assert await run_finish_steps(loop, ctx, scratch, 0) == "finish"
+    assert loop.finished is not None
+    assert loop.finished[0] == "You're on filament."
 
 
 @pytest.mark.asyncio

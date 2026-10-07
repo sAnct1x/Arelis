@@ -452,12 +452,12 @@ def theme_line() -> str:
 
     Same reason as the clock. Without it she answers "what theme am I on"
     with "I don't know": guessing a room would be a lie, and nothing else
-    on the turn names the one that is actually up. The words are the View
-    menu label, not an id.
+    on the turn names the one that is actually up. The words are the spoken
+    name: the View menu label with any parenthetical dropped.
     """
-    from arelis.ui.theme_tokens import theme_menu_label
+    from arelis.ui.theme_tokens import theme_spoken_name
 
-    name = theme_menu_label()
+    name = theme_spoken_name()
     return (
         f"The screen theme right now is {name}. "
         "If they ask what theme or skin this is, say that name in plain words. "
@@ -468,18 +468,20 @@ def theme_line() -> str:
 def theme_reply_if_needed(user_text: str, draft: str) -> str | None:
     """Plain theme name when they asked and the draft does not already say it.
 
-    A refusal, or a different theme, is not an answer. The menu name is the
-    only one on the screen.
+    A refusal, a different theme, or the menu's parenthetical is not the
+    answer. She says the plain name.
     """
     from arelis.core.claims import answer_looks_like_refusal
     from arelis.core.intent_catalog import looks_like_theme_ask
-    from arelis.ui.theme_tokens import theme_menu_label
+    from arelis.ui.theme_tokens import theme_menu_label, theme_spoken_name
 
     if not looks_like_theme_ask(user_text):
         return None
-    name = theme_menu_label()
+    name = theme_spoken_name()
+    menu = theme_menu_label()
     body = draft or ""
-    if name.lower() in body.lower() and not answer_looks_like_refusal(body):
+    echoed_aside = "(" in menu and menu.lower() in body.lower()
+    if name.lower() in body.lower() and not echoed_aside and not answer_looks_like_refusal(body):
         return None
     return f"You're on {name}."
 
