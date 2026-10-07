@@ -140,6 +140,26 @@ def test_audit_backup_folder_accepts_a_sibling_and_rejects_the_bad_shapes(tmp_pa
     assert any("only the newest two" in item for item in problems)
 
 
+def test_seed_fact_source_is_one_v0_3_0_accepts() -> None:
+    """Published 0.3.0 rejects any fact source other than explicit or proposed."""
+    import ast
+
+    m = _mod()
+    tree = ast.parse(m.child_source(m.SEED_MEMORY_PY))
+    sources = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        name = func.attr if isinstance(func, ast.Attribute) else ""
+        if name != "add_fact":
+            continue
+        for keyword in node.keywords:
+            if keyword.arg == "source" and isinstance(keyword.value, ast.Constant):
+                sources.append(keyword.value.value)
+    assert sources == ["explicit"]
+
+
 def test_child_scripts_parse() -> None:
     m = _mod()
     sources = m.compiled_child_scripts()

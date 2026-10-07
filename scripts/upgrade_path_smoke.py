@@ -118,7 +118,7 @@ SEED_MEMORY_PY = """
     store = MemoryStore()
     store.start_session()
     store.on_message("user", marker + " chat line")
-    fact_id = store.add_fact(marker, source="upgrade-path", status="active")
+    fact_id = store.add_fact(marker, source="explicit", status="active")
     store._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
     store.close()
     if fact_id is None:
