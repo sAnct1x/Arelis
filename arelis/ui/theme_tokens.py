@@ -599,6 +599,16 @@ def active_theme() -> str:
     return _ACTIVE_THEME
 
 
+def theme_menu_label(theme_id: str | None = None) -> str:
+    """View menu name for the theme on screen, or for ``theme_id``.
+
+    Unknown names resolve the same way the palette does, to sodium, so a
+    bad id never becomes a theme that is not installed.
+    """
+    resolved = active_theme() if theme_id is None else resolve_theme_id(theme_id)
+    return _THEME_LABELS.get(resolved, _THEME_LABELS[DEFAULT_THEME])
+
+
 def theme_from_config(config: dict | None) -> str:
     ui = (config or {}).get("ui") or {}
     return resolve_theme_id(str(ui.get("theme") or DEFAULT_THEME))

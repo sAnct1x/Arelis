@@ -128,6 +128,7 @@ CASES = (
 # sure this table has not silently stopped matching the imports.
 _STUBS: tuple[tuple[str, object, tuple], ...] = (
     ("now_line", lambda: "NOW", (agent_loop_mod, sections)),
+    ("theme_line", lambda: "THEME", (agent_loop_mod, sections)),
     (
         "standing_profile_prompt_line",
         lambda **_: "PROFILE",
@@ -164,7 +165,7 @@ _STUBS: tuple[tuple[str, object, tuple], ...] = (
 )
 
 # Sentinels that must show up in the captured prompt if the stubs bound.
-_MUST_APPEAR = ("NOW", "PROFILE", "CONTACTS", "WORLD", "LESSONS")
+_MUST_APPEAR = ("NOW", "THEME", "PROFILE", "CONTACTS", "WORLD", "LESSONS")
 
 
 @pytest.fixture

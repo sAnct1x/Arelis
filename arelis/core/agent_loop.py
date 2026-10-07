@@ -447,6 +447,43 @@ def now_line() -> str:
     )
 
 
+def theme_line() -> str:
+    """The theme on the screen, for the system prompt.
+
+    Same reason as the clock. Without it she answers "what theme am I on"
+    with "I don't know": guessing a room would be a lie, and nothing else
+    on the turn names the one that is actually up. The words are the View
+    menu label, not an id.
+    """
+    from arelis.ui.theme_tokens import theme_menu_label
+
+    name = theme_menu_label()
+    return (
+        f"The screen theme right now is {name}. "
+        "If they ask what theme or skin this is, say that name in plain words. "
+        "It is the theme on this screen, so it is reliable. Do not guess a different one."
+    )
+
+
+def theme_reply_if_needed(user_text: str, draft: str) -> str | None:
+    """Plain theme name when they asked and the draft does not already say it.
+
+    A refusal, or a different theme, is not an answer. The menu name is the
+    only one on the screen.
+    """
+    from arelis.core.claims import answer_looks_like_refusal
+    from arelis.core.intent_catalog import looks_like_theme_ask
+    from arelis.ui.theme_tokens import theme_menu_label
+
+    if not looks_like_theme_ask(user_text):
+        return None
+    name = theme_menu_label()
+    body = draft or ""
+    if name.lower() in body.lower() and not answer_looks_like_refusal(body):
+        return None
+    return f"You're on {name}."
+
+
 class _StoppedError(Exception):
     """Raised internally when the cooperative cancel flag is seen mid-stream."""
 
