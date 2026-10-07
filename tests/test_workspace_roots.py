@@ -697,7 +697,7 @@ def test_ocr_refuses_unc_before_filesystem(
         tool._resolve_image(raw)
 
 
-@pytest.mark.parametrize("raw", _ENTRY_UNC)
+@pytest.mark.parametrize("raw", (*_ENTRY_UNC, "//evil/share/x"))
 def test_docs_resolve_under_refuses_unc_before_filesystem(
     raw: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
