@@ -361,31 +361,6 @@ def href_is_result_page(href: str, text: str = "") -> bool:
     return True
 
 
-def prefer_result_nodes(
-    nodes: Iterable[dict[str, Any]],
-    *,
-    limit: int = SNAPSHOT_SCAN,
-) -> list[dict[str, Any]]:
-    """Put result-region links first so header chips do not eat the scan budget."""
-    results: list[dict[str, Any]] = []
-    rest: list[dict[str, Any]] = []
-    for raw in nodes:
-        node = dict(raw or {})
-        region = str(node.get("region") or "main").lower()
-        tag = str(node.get("tag") or "").lower()
-        role = str(node.get("role") or "").lower()
-        href = str(node.get("href") or "")
-        text = _node_label(node)
-        result = (
-            region not in {"nav", "footer", "header"}
-            and (tag == "a" or role == "link")
-            and href_is_result_page(href, text)
-            and len(text) >= 4
-        )
-        (results if result else rest).append(node)
-    return (results + rest)[: max(1, limit)]
-
-
 def is_result_like(info: Any) -> bool:
     region = str(getattr(info, "region", "") or "main").lower()
     if region in {"nav", "footer", "header"}:
