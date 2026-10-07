@@ -48,8 +48,8 @@ If you tried an installer from 0.2.4 to 0.2.9, those were broken and never opene
 
 ## About this project
 
-I maintain Arelis. I'm Christopher, a 4th-year astrophysics
-student at OSU. Hobby project, spare time. It's been about a year of
+I maintain Arelis. I'm a 4th-year astrophysics student at OSU.
+Hobby project, spare time. It's been about a year of
 on-and-off work, with updates coming in bursts around the school
 calendar. Help and feedback are welcome. See
 [CONTRIBUTING.md](CONTRIBUTING.md) for how to help.
