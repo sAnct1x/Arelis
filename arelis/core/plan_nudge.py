@@ -729,16 +729,6 @@ def select_plan(
     return None
 
 
-def plan_system_message(
-    text: str,
-    preflight_kinds: Sequence[str] | None = None,
-    skill_ids: Sequence[str] | None = None,
-) -> str | None:
-    """Return a short Plan block for matching intents, or None."""
-    plan = select_plan(text, preflight_kinds, skill_ids)
-    return plan.message if plan else None
-
-
 def plan_progress_notice(
     plan: PlanSpec,
     tools_used: set[str] | Iterable[str],

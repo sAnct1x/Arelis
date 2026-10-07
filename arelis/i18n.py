@@ -271,10 +271,6 @@ _ZH: dict[str, str] = {
 }
 
 
-def ui_language() -> str:
-    return _LANG
-
-
 def set_ui_language(raw: Any) -> str:
     """Pin the window language. Returns ``en`` or ``zh``."""
     global _LANG

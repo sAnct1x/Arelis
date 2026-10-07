@@ -5,8 +5,6 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from arelis.browser.wait_for import has_wait_needle, page_needles_hit
-
 WATCH_LINE = "Watching"
 HitSink = Callable[[dict[str, Any]], None]
 
@@ -69,29 +67,3 @@ def watch_wanted(*, url: str = "", text: str = "", heading: str = "") -> str:
 def watching_output(*, url: str = "", text: str = "", heading: str = "") -> str:
     wanted = watch_wanted(url=url, text=text, heading=heading)
     return f"Watching for {wanted}." if wanted else "Watching."
-
-
-def signals_hit(
-    signals: dict[str, str],
-    *,
-    url: str = "",
-    text: str = "",
-    heading: str = "",
-) -> bool:
-    if not has_wait_needle(url=url, text=text, heading=heading):
-        return False
-    return page_needles_hit(
-        landed_url=signals.get("url") or "",
-        title=signals.get("title") or "",
-        heading=signals.get("heading") or "",
-        page_text=signals.get("text") or "",
-        want_url=url,
-        want_text=text,
-        want_heading=heading,
-    )
-
-
-async def sleep_watch(seconds: float) -> None:
-    from arelis.browser.hold import cooperative_wait
-
-    await cooperative_wait(seconds)
