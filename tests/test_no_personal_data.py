@@ -501,6 +501,30 @@ def test_holiday_copy_does_not_use_a_live_country_title() -> None:
     )
 
 
+# The family name. Kept here, not in the gitignored scrub list, so CI and a
+# fresh clone still reject it. This file is excluded from the scan (see
+# _readable_tracked) because the pattern has to name what it forbids.
+_SURNAME = re.compile(r"(?i)sommers")
+
+
+def test_no_tracked_file_carries_the_maintainer_surname() -> None:
+    """A tracked text file must not contain the maintainer's surname.
+
+    The scrub list below is local and skipped when it is missing, which is
+    every CI run. This check does not skip. Any case counts, so a later edit
+    cannot bring the name back by changing capitalization.
+    """
+    hits = []
+    for path, text in _readable_tracked():
+        for line_no, line in enumerate(text.splitlines(), 1):
+            if _SURNAME.search(line):
+                hits.append(f"{path.relative_to(PROJECT_ROOT)}:{line_no}")
+    assert not hits, (
+        "The maintainer's surname is in a tracked text file. Remove it "
+        "before this is pushed:\n" + _report(hits)
+    )
+
+
 def test_nothing_from_the_operators_own_records_reaches_a_tracked_file() -> None:
     """The check that knows who you are, using a list that is never committed.
 
