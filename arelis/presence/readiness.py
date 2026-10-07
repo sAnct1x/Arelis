@@ -108,6 +108,8 @@ async def probe_readiness(
     try:
         available = await prov.list_models()
     except Exception as exc:
+        # Info on purpose: Ollama being down is normal, and the chip already
+        # says so. The raw error stays in this log instead of the tooltip.
         log.info("Readiness Ollama probe failed: %s", exc)
 
     if owns_provider:
