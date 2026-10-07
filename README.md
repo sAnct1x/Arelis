@@ -261,6 +261,14 @@ app, and image generation have mainly been tested on my hardware. If
 something behaves oddly on yours, open an issue. Current release is
 **0.3.0** - see [whats-new.md](docs/whats-new.md) for changes.
 
+## Common issues
+
+- Windows SmartScreen warns you the first time you open the installer. I didn't sign it, so that warning is normal for this file. The check that the download itself is intact is up in Verifying the download.
+- If Ollama does not download on its own, check that this PC is online and that the disk has room, then press Try again. If an Ollama window is already open, finish that first. You can also install Ollama yourself from [Ollama](https://ollama.com/download), then open Arelis again. She uses the copy already on the PC.
+- The chat model is a big download. The setup window says so while it comes down. She will not close that window while a download is still running. If nothing new shows up for about an hour, that attempt ends and Try again appears. Check that the PC is online and that the disk has room, then press Try again. If you do not want to wait that out, end Arelis in Task Manager and open her again. She asks again. She only remembers the model after the download finishes.
+- When something goes wrong, she writes a log on this PC. I never send that log anywhere. If you installed her, the log sits with her records. If you are running her from this project, the log sits with the project.
+- Still stuck? Open the [issue forms](https://github.com/sAnct1x/Arelis/issues/new/choose). One form is for a first open that went wrong, and one is for other bugs. Questions go in [Discussions](https://github.com/sAnct1x/Arelis/discussions).
+
 ## Further reading
 
 | Document | What's in it |

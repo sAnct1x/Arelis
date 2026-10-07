@@ -19,8 +19,10 @@ ARELIS = ROOT / "arelis"
 
 # Modules imported under arelis/ that the prune still deletes on purpose.
 # Each is lazy or guarded, and the installed app cannot reach the path that
-# needs them (Earth globe / Cesium is source-checkout only via
-# world_stage_allowed()).
+# needs them. Earth globe / Cesium is source-checkout only.
+# webengine_available() checks with find_spec and returns False once the
+# web-engine modules are pruned, so an installed copy falls back to the
+# native globe. world_stage_allowed() is the other guard.
 GUARDED_DROPPED: dict[str, str] = {
     "QtWebEngineCore": "lazy import in EarthGlobeHost; stage is source-checkout only",
     "QtWebEngineWidgets": "lazy/try in webengine_available and host; not in installer",
